@@ -5,9 +5,11 @@ from collections import Counter
 from pathlib import Path
 from pprint import pprint
 from time import time
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 filepath = Path(__file__).parent # .py
 # filepath = Path(os.path.abspath('')) # .ipynb
@@ -78,13 +80,13 @@ fea = []
 for d in gto['features']:
     fea.append({k: d[k] for k in sorted(d.keys())})
 
-print("\ngto['features'][0]:")
+print("\nShow gto['features'][0]:")
 pprint(gto['features'][0])
 
 # The 'features' contains some (or all) of the info available in the .feature_quality file.
+print("\nShow a few items of a single 'features' item:")
 for i, item in enumerate(fea):
     print(f"{item['id']},  {item['type']},  {item['function']}")
-
 
 
 # =======================================================================
@@ -156,11 +158,13 @@ if process_dna:
     # Save all samples
     dna_data_fname = 'dna_data_all.tsv'
     dna_df.to_csv(output_dir / 'dna_data_all.tsv', sep='\t', index=False)
+    dna_df.to_csv(output_dir / 'dna_data_all.csv', sep=',', index=False)
 
     # Save samples that missing seq data
     dna_df_no_seq = dna_df[dna_df['dna'].isna()]
     print(f'DNA with missing sequence {dna_df_no_seq.shape}')
     dna_df_no_seq.to_csv(output_dir / 'dna_data_no_seq.tsv', sep='\t', index=False)
+    dna_df_no_seq.to_csv(output_dir / 'dna_data_no_seq.csv', sep=',', index=False)
 
     """
     Check that all accession numbers are unique.
@@ -293,7 +297,7 @@ if process_dna:
     5	        3
     """
     dna_dups = dna_df[dna_df.duplicated(subset=['dna'], keep=False)].sort_values(['dna'])
-    dna_dups.to_csv(output_dir / 'dna_all_duplicates.tsv', sep='\t', index=False)
+    dna_dups.to_csv(output_dir / 'dna_all_duplicates.csv', sep=',', index=False)
 
     print(f"Duplicates on 'dna': {dna_dups.shape}")
     print(dna_dups[:4])
@@ -371,14 +375,13 @@ if process_dna:
     print(multi_dup_records.shape)
 
 
-
 # =======================================================================
 # Protein sequence data
 # =======================================================================
 
 if process_protein:
 
-    def get_protein_data_from_gto(gto_file_path):
+    def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
         """
         Extract protein data and metadata from GTO file and return as a DataFrame.
         """
@@ -393,7 +396,10 @@ if process_protein:
         # Each item in 'contigs' is a dict with keys: 'id', 'dna', 'replicon_type', 'replicon_geometry'
         # 'id': segment id (e.g., NC_086346.1)
         # 'replicon_type': segment type/name (e.g., L, M, S)
-        segment_map = {c['id']: c.get('replicon_type', 'Unknown') for c in gto.get('contigs', [])}
+        segment_map: Dict[str, str] = {
+            contig['id']: contig.get('replicon_type', 'Unknown')
+            for contig in gto.get('contigs', [])
+        }
 
         ## Extract data from 'features'
         # features_columns contains data items available in 'features' key
@@ -431,12 +437,13 @@ if process_protein:
         return df
 
 
-    def aggregate_protein_data_from_gto_files(gto_dir):
+    def aggregate_protein_data_from_gto_files(gto_dir) -> pd.DataFrame:
         """
         Aggregate protein data from all GTO files in the specified directory.
         """
         dfs = []
-        for i, fpath in enumerate(sorted(gto_dir.glob('*.gto'))):
+        gto_files = sorted(gto_dir.glob('*.qual.gto'))
+        for fpath in tqdm(gto_files, desc='Aggregating protein data from GTO files'):
             df = get_protein_data_from_gto(gto_file_path=fpath)
             dfs.append(df)
 
@@ -450,13 +457,14 @@ if process_protein:
     print(prot_df.columns.tolist())
 
     # Save all samples
-    prot_data_fname = 'protein_data_all.tsv'
-    prot_df.to_csv(output_dir / prot_data_fname, sep='\t', index=False)
+    prot_df.to_csv(output_dir / 'protein_data_all.tsv', sep='\t', index=False)
+    prot_df.to_csv(output_dir / 'protein_data_all.csv', sep=',', index=False)
     
     # Save samples that missing seq data
     prot_df_no_seq = prot_df[prot_df['prot_seq'].isna()]
     print(f'Protein with missing sequence {prot_df_no_seq.shape}')
     prot_df_no_seq.to_csv(output_dir / 'protein_data_no_seq.tsv', sep='\t', index=False)
+    prot_df_no_seq.to_csv(output_dir / 'protein_data_no_seq.csv', sep=',', index=False)
 
     """
     Check that all accession numbers are unique.
@@ -467,16 +475,31 @@ if process_protein:
     print(f"Total unique accession ids: {prot_df['id'].nunique()}")
 
     """
+    Explore function-replicon combinations.
+    TODO! Can it be that several segment types have the same function (i.e., encode the same protein)?
+    E.g., 'RNA-dependent RNA polymerase (L protein)' is associated with: 'Large RNA Segment', 'Segment One', 'Small RNA Segment'
+    """
+    func_rep = prot_df.groupby(['function', 'replicon_type']).agg(replicons=('replicon_type', 'count')).sort_values('function', ascending=False).reset_index()
+    func_rep.to_csv(output_dir / 'function_replicon_count.csv', sep=',', index=False)
+
+    # Check specific function: 'RNA-dependent RNA polymerase (L protein)'
+    df = prot_df[prot_df['function'].isin(['RNA-dependent RNA polymerase (L protein)'])]
+    print(df['replicon_type'].value_counts())
+
+    """
     Explore duplicates in protein data.
     """
     # Count exact duplicate protein sequences
     prot_dups = prot_df[prot_df.duplicated(subset=['prot_seq'], keep=False)].sort_values(['prot_seq'])
-    prot_dups.to_csv(output_dir / 'protein_all_duplicates.tsv', sep='\t', index=False)
+    prot_dups.to_csv(output_dir / 'protein_all_duplicates.csv', sep=',', index=False)
     print(f"Duplicates on 'prot_seq': {prot_dups.shape}")
     print(prot_dups[:4])
 
-    dup_counts = prot_dups.groupby('prot_seq')['file'].nunique().reset_index(name='unq_files')
-    print(dup_counts['unq_files'].value_counts().reset_index(name='total_cases'))
+    # Count how many unique files contain each duplicated protein sequence
+    # This helps identify if a protein seq appears across multiple files or within the same
+    print(f'\nCount how many unique files contain each duplicated protein sequence')
+    dup_counts = prot_dups.groupby('prot_seq')['file'].nunique().reset_index(name='file_count')
+    print(dup_counts['file_count'].value_counts().reset_index(name='total_cases'))
 
     # df.groupby('dna') retrieves the rows with the same dna sequence (i.e., dna sequence duplicates)
     grouped = prot_dups.groupby('prot_seq')
@@ -498,10 +521,11 @@ if process_protein:
             functions=('function', lambda x: list(set(x))),      # the function (protein)
             replicons=('replicon_type', lambda x: list(set(x))), # the segment
         ).sort_values('num_occurrences', ascending=False).reset_index()
+    dup_stats.to_csv(output_dir / 'protein_duplicates_stats.csv', sep=',', index=False)
 
-    # TODO confirm with Jim
     # Note 1:  num_occurrences >= num_files
-    # This means that the same protein seq may appears multiple times in the same file. Is that correct? Does it make sense?
+    # It means that there are cases where a protein sequence appears multiple times in the same file.
+    # TODO Ask Jim. Why this may happen?? What should we do about this??
     # For example:
     # file                      assembly_prefix  assembly_id  id                    type    function
     # GCA_003087875.1.qual.gto  GCA              003087875.1  fig|1316165.15.CDS.3  CDS     Nucleocapsid protein (N protein)
@@ -515,11 +539,14 @@ if process_protein:
     # GCA_003087915.1.qual.gto  GCA             003087915.1  fig|1316166.15.CDS.3  CDS  Small RNA Segment  Nucleocapsid protein (N protein)
     print(f'dup_stats {dup_stats.shape}')
     print(dup_stats[['prot_seq', 'num_occurrences', 'num_files', 'num_functions', 'num_replicons', 'functions', 'replicons']][:3])
+    print(f"Cases where num_occurrences >= num_files: {sum(dup_stats['num_occurrences'] >= dup_stats['num_files'])} out of {dup_stats.shape[0]}")
+    print(f"Cases where num_functions >= num_replicons: {sum(dup_stats['num_functions'] >= dup_stats['num_replicons'])} out of {dup_stats.shape[0]}")
 
     # Explore specific protein seq that has most duplicates
     seq = dup_stats.iloc[0, :]['prot_seq']
     df = prot_df[prot_df['prot_seq'].isin([seq])]
-    print(df.shape)
+    print(f'\nExplore specific protein seq that has most duplicates: {seq}')
+    print(f'Total rows: {df.shape}')
     print(df[['file', 'assembly_prefix', 'assembly_id', 'id', 'type', 'replicon_type', 'function']][:3])
 
 

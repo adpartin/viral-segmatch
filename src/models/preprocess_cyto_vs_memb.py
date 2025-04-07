@@ -40,7 +40,7 @@ interface and open the file locally.
 # df = pd.read_csv(bio, compression='gzip', sep='\t')
 
 print("Loading protein data ...")
-fname  = 'uniprotkb_organism_id_9606_AND_reviewed_2025_03_11.tsv.gz'
+fname = 'uniprotkb_organism_id_9606_AND_reviewed_2025_03_11.tsv.gz'
 df = pd.read_csv(raw_data_dir / fname, compression='gzip', sep='\t')
 
 df = df.dropna()  # Drop proteins with missing columns
