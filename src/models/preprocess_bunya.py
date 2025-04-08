@@ -450,11 +450,12 @@ if process_protein:
         prot_df = pd.concat(dfs, axis=0).reset_index(drop=True)
         return prot_df
 
+
     # Aggregate protein data from all GTO files
     print(f"\nTotal .qual.gto files: {len(sorted(quality_gto_dir.glob('*.qual.gto')))}")
     prot_df = aggregate_protein_data_from_gto_files(quality_gto_dir)
     print(f'Protein all samples {prot_df.shape}')
-    print(prot_df.columns.tolist())
+    print(f'prot_df columns: {prot_df.columns.tolist()}')
 
     # Save all samples
     prot_df.to_csv(output_dir / 'protein_data_all.tsv', sep='\t', index=False)
@@ -473,6 +474,36 @@ if process_protein:
     print('\nCheck that all accession numbers are unique.')
     print(f"Total accession ids:        {prot_df['id'].count()}")
     print(f"Total unique accession ids: {prot_df['id'].nunique()}")
+
+    """
+    Keep only CDS in prot_df (drops mat_peptide and RNA)
+    """
+    print('\nKeep protein data where type=CDS')
+    non_cds = prot_df[prot_df['type'] != 'CDS'].sort_values('type', ascending=False)
+    prot_df = prot_df[prot_df['type'] == 'CDS'].reset_index(drop=True)
+    print(f"Total non-CDS samples: {non_cds.shape}")
+    print(prot_df['type'].value_counts())
+    non_cds.to_csv(output_dir / 'protein_data_non_cds.csv', sep=',', index=False)
+
+    """
+    Drop segments (replicon_type) labeled 'Unknown'
+    """
+    print('\nDrop segments (replicon_type) labeled `Unknown`')
+    unk_df = prot_df[prot_df['replicon_type'] == 'Unknown'].sort_values('replicon_type', ascending=False)
+    prot_df = prot_df[prot_df['replicon_type'] != 'Unknown'].reset_index(drop=True)
+    print(f'Total `Unknown` samples: {unk_df.shape}')
+    print(prot_df['replicon_type'].value_counts())
+    unk_df.to_csv(output_dir / 'protein_data_unknown_replicons.csv', sep=',', index=False)
+
+    """
+    Drop 'Poor' quality samples
+    """
+    print('\nDrop samples where quality=Poor')
+    poor_df = prot_df[prot_df['quality'] == 'Poor'].sort_values('quality', ascending=False)
+    prot_df = prot_df[prot_df['quality'] != 'Poor'].reset_index(drop=True)
+    print(f'Total Poor quality samples: {poor_df.shape}')
+    print(prot_df['quality'].value_counts())
+    poor_df.to_csv(output_dir / 'protein_data_poor_quality.csv', sep=',', index=False)
 
     """
     Explore function-replicon combinations.
