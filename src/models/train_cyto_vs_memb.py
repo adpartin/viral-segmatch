@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 from pprint import pprint
-from typing import List
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -39,6 +39,7 @@ from transformers import (
     AutoTokenizer,
     EsmConfig,
     EsmModel,
+    PreTrainedTokenizer
 )
 from evaluate import load
 
@@ -49,21 +50,26 @@ sys.path.append(str(project_root))
 from src.utils.torch_utils import determine_device
 
 
-class ProteinDataset(Dataset):
-    """Dataset for binary protein classification."""
-    def __init__(self, sequences, labels):
-        self.sequences = sequences
-        self.labels = torch.tensor(labels, dtype=torch.long)
+# class ProteinDataset(Dataset):
+#     """Dataset for protein classification."""
+#     def __init__(self, sequences: List[str], labels: List[int]):
+#         self.sequences = sequences
+#         self.labels = torch.tensor(labels, dtype=torch.long)
 
-    def __len__(self):
-        return len(self.labels)
+#     def __len__(self):
+#         return len(self.labels)
 
-    def __getitem__(self, idx):
-        return self.sequences[idx], self.labels[idx]
+#     def __getitem__(self, idx: int) -> Tuple[str, torch.Tensor]:
+#         return self.sequences[idx], self.labels[idx]
 
 class TokenizedProteinDataset(Dataset):
     """Dataset for protein classification with tokenized sequences."""
-    def __init__(self, tokenizer, sequences, labels=None):
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizer,
+        sequences: List[str],
+        labels: Union[List[int], None] = None
+        ):
         self.tokenizer = tokenizer
         self.sequences = sequences
         self.labels = torch.tensor(labels, dtype=torch.long) if labels is not None else None
@@ -80,7 +86,7 @@ class TokenizedProteinDataset(Dataset):
     def __len__(self):
         return len(self.encodings["input_ids"])
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         # Each sample returns input_ids, attention_mask, and labels
         item = {key: val[idx] for key, val in self.encodings.items()}
         if self.labels is not None:
@@ -89,18 +95,17 @@ class TokenizedProteinDataset(Dataset):
 
 class EsmClassificationHead(nn.Module):
     """Head for sentence-level classification tasks.
-    This is how the the classification head is implemented in Huggingface
-    EsmForSequenceClassification. See here:
-    - github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/esm/modeling_esm.py#L1073
-    - github.com/huggingface/transformers/blob/main/src/transformers/models/esm/modeling_esm.py#L1230
+    This is how the the classification head is implemented in
+    EsmForSequenceClassification.
+    github.com/huggingface/transformers/blob/main/src/transformers/models/esm/modeling_esm.py#L1230
     """
-    def __init__(self, config):
+    def __init__(self, config: EsmConfig):
         super().__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
 
-    def forward(self, features, **kwargs):
+    def forward(self, features: torch.Tensor, **kwargs) -> torch.Tensor:
         x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
         x = self.dropout(x)
         x = self.dense(x)
@@ -110,32 +115,34 @@ class EsmClassificationHead(nn.Module):
         return x
 
 class ProteinClassifier(nn.Module):
-    """ Implementation of EsmForSequenceClassification in Huggingface.
+    """ Implementation of EsmForSequenceClassification.
     github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/esm/modeling_esm.py#L1066
     """
     # def __init__(self, config):
-    def __init__(self, model_ckpt, num_labels=2):
+    def __init__(self, model_ckpt: str, num_labels: int=2):
         super().__init__()
-        # github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/esm/modeling_esm.py#L1072C1-L1073C56
-        # EsmModel by default is add_pooling_layer=True:
-        #    github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/esm/modeling_esm.py#L777
-        # EsmForSequenceClassification by default is add_pooling_layer=False:
-        #    github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/esm/modeling_esm.py#L1072
+        # While by default add_pooling_layer=True in EsmModel, it's
+        # add_pooling_layer=False in EsmForSequenceClassification
         self.esm = EsmModel.from_pretrained(model_ckpt, add_pooling_layer=False)
         self.config = self.esm.config
         self.config.num_labels = num_labels
         self.classifier = EsmClassificationHead(self.config)
 
-    def forward(self, input_ids, attention_mask=None):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Union[torch.Tensor, None] = None
+        ) -> torch.Tensor:
         # github.com/huggingface/transformers/blob/v4.49.0/src/transformers/models/esm/modeling_esm.py#L1103
         outputs = self.esm(input_ids=input_ids, attention_mask=attention_mask)
-        # sequence_output = outputs[0] # what about this line??
+        # sequence_output = outputs[0]
+        # torch.equal(sequence_output, outputs.last_hidden_state)
         logits = self.classifier(outputs.last_hidden_state)
         return logits
 
 # Define compute_metrics function
 metric = load('accuracy')
-def compute_metrics(eval_pred):
+def compute_metrics(eval_pred: Tuple[np.ndarray, np.ndarray]) -> Dict[str, float]:
     predictions, labels = eval_pred
     predictions = np.argmax(predictions, axis=1)
     return metric.compute(predictions=predictions, references=labels)
