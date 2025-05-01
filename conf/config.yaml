@@ -1,0 +1,17 @@
+# conf/config.yaml
+defaults:
+  - dataset: cyto_vs_memb
+  - model: esm2_t6
+  - _self_
+
+paths:
+  data_dir: ${hydra:runtime.cwd}/data
+  raw_data_dir: ${paths.data_dir}/raw
+  models_dir: ${hydra:runtime.cwd}/models
+  
+training:
+  seed: 42
+  batch_size: 32
+  learning_rate: 1e-4
+  epochs: 3
+  cuda_device: "cuda:7"

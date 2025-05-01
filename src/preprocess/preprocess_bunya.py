@@ -37,8 +37,8 @@ apply_basic_filters = True
 # task_name = 'Bunya-from-datasets'
 task_name = 'bunya_processed'
 data_dir = filepath / '../../data'
-data_version = 'Feb_2025'
-# data_version = 'April_2025'
+# data_version = 'Feb_2025'
+data_version = 'April_2025'
 raw_data_dir = data_dir / 'raw/Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets/Quality_GTOs'
 
@@ -108,12 +108,10 @@ def classify_dup_groups(
             'replicon_type', 'length', seq_col]]
 
         case = None
-        if len(set(assembly_ids)) == 1 and len(set(record_ids)) == 1 and set(prefixes) == {'GCA', 'GCF'}:
-            case = 'Case 1'  # Same assembly, same record, GCA vs. GCF
-        elif len(set(assembly_ids)) == 1 and len(set(record_ids)) > 1:
-            case = 'Case 2'  # Same assembly, different records
+        if len(set(assembly_ids)) == 1 and len(set(record_ids)) > 1:
+            case = 'Case 1'  # Same assembly, different records
         elif len(set(assembly_ids)) > 1 and len(set(record_ids)) > 1:
-            case = 'Case 3'  # Different assemblies, different records
+            case = 'Case 2'  # Different assemblies, different records
         else:
             case = 'Other'   # Catch-all for rare/unclassified cases
 
@@ -132,7 +130,7 @@ def classify_dup_groups(
 
 
 # =======================================================================
-# Exploratory analysis of the Viral_PSSM.json.
+# Explore the Viral_PSSM.json.
 # =======================================================================
 
 """
@@ -166,6 +164,7 @@ These entries describe the expected protein features (typically CDS or mat_pepti
 * Validate whether the annotated proteins fall within reasonable length bounds.
 * Flag proteins on the wrong segment, mislabeled, or missing.
 """
+
 if process_pssm:
     # Load the Viral_PSSM.json file
     with open(raw_data_dir / 'Bunya-from-datasets/Viral_PSSM.json', 'r') as f:
@@ -210,12 +209,10 @@ if process_pssm:
 
 
 # =======================================================================
-# Exploratory analysis of the file triplet:
-# contig_quality, feature_quality, qual.gto
+# Explore the file triplet: contig_quality, feature_quality, qual.gto
 # =======================================================================
-
+# breakpoint()
 ex_file = 'GCF_031497195.1'
-# ex_file = 'GCA_000851025.1'
 
 # contig_quality
 print(f"\nTotal .contig_quality files: {len(sorted(quality_gto_dir.glob('*.contig_quality')))}")
@@ -311,12 +308,13 @@ if process_dna:
         return df
 
 
-    def aggregate_data_from_gto_files(gto_dir: Path):
+    def aggregate_dna_data_from_gto_files(gto_dir: Path):
         """
         Aggregate dna data from all GTO files in the specified directory.
         """
         dfs = []
-        for i, fpath in enumerate(sorted(gto_dir.glob('*.gto'))):
+        gto_files = sorted(gto_dir.glob('*.qual.gto'))
+        for fpath in tqdm(gto_files, desc='Aggregating dna (rna) data from GTO files'):
             df = get_dna_data_from_gto(gto_file_path=fpath)
             dfs.append(df)
 
@@ -325,33 +323,26 @@ if process_dna:
 
   
     # Aggregate DNA data from all GTO files
-    print(f"\nTotal .qual.gto files: {len(sorted(quality_gto_dir.glob('*.qual.gto')))}")
-    dna_df = aggregate_data_from_gto_files(quality_gto_dir)
-    print(f'DNA all samples {dna_df.shape}')
-    print(dna_df.columns.tolist())
+    print(f"\nAggregate dna (rna) from all {len(sorted(quality_gto_dir.glob('*.qual.gto')))} .qual.gto files.")
+    dna_df = aggregate_dna_data_from_gto_files(quality_gto_dir)
+    print(f'dna_df all samples {dna_df.shape}')
+    print(f'dna_df columns: {dna_df.columns.tolist()}')
 
     # Save all samples
-    # dna_df.to_csv(output_dir / 'dna_data_all.tsv', sep='\t', index=False)
-    dna_df.to_csv(output_dir / 'dna_data_all.csv', sep=',', index=False)
+    dna_df.to_csv(output_dir / 'dna_agg_from_GTOs_raw.csv', sep=',', index=False)
 
     # Save samples that missing seq data
     dna_df_no_seq = dna_df[dna_df['dna'].isna()]
     print(f'DNA with missing sequence {dna_df_no_seq.shape}')
-    # dna_df_no_seq.to_csv(output_dir / 'dna_data_no_seq.tsv', sep='\t', index=False)
-    dna_df_no_seq.to_csv(output_dir / 'dna_data_no_seq.csv', sep=',', index=False)
+    dna_df_no_seq.to_csv(output_dir / 'dna_missing_seqs.csv', sep=',', index=False)
 
-    """
-    Check that all GenBank accession numbers are unique.
-    """
-    # All segment IDs are unique (no duplicates).
+    # Check that all GenBank accession numbers are unique.
     print('\nCheck that all GenBank accession numbers are unique.')
     print(f"Total accession ids (col 'genbank_ctg_id'):  {dna_df['genbank_ctg_id'].count()}")
     print(f"Unique accession ids (col 'genbank_ctg_id'): {dna_df['genbank_ctg_id'].nunique()}")
 
-    """
-    Ambiguous DNA Data.
-    Remove sequences with too many unknown bases ('N' in DNA or 'X' in protein).
-    """
+    # Ambiguous DNA Data. Remove sequences with too many unknown bases ('N' in
+    # DNA or 'X' in protein).
     def summarize_dna_qc(df, seq_col: str='dna') -> pd.DataFrame:
         """ Perform quality control (QC) on DNA sequences in a DataFrame. """
         df = df.copy()
@@ -378,94 +369,53 @@ if process_dna:
 
     dna_qc = summarize_dna_qc(dna_df, seq_col='dna')
 
-    # There is only one sample with ambiguous_frac of > 0.1.
+    # There are 5 samples (April 2025) with ambiguous_frac of > 0.1.
     # TODO! How should we filter this?
     print(dna_qc[:3])
     print(dna_qc['ambig_frac'].value_counts().sort_index(ascending=False))
 
-    """
-    Explore replicon_type.
-    """
     # Most segments follow the "[Large/Medium/Small] RNA Segment" naming.
-    # Some segments are labeled as "Segment [One/Two/Three/Four]"
-    # 311 entries have missing values
-    # We address this by assigning a canonical segment label (the unassgined samples are dropped).
+    # Some segments follow the "Segment [One/Two/Three/Four]" naming.
+    # Some segments have missing values
+    # We assign a canonical segment label (implemented in protein data processing).
     print(dna_df['replicon_type'].value_counts(dropna=False))
 
     """
-    Check how often each duplicated sequence appears across different files.
-    This step helps understand whether we should keep and remove certain duplicates.
-
-    ===============
-    If 2 duplicates
-    ===============
+    TODO. We made a lot more progress in handling duplicates in protein data.
+    We can revisit dna duplicates later.
 
     --------
     Case 1:
     --------
-    Sequecnes (same), Assembly IDs (same), Accession Numbers (same), Versions (different)
-
-    This is likely a technical duplicate (e.g., GCA/GCF versions of the same assembly for
-    a given viral isolate).
-    Some GTO files may contain both draft (GCA) and reference (GCF) assemblies for the same
-    viral isolate, leading to identical sequences appearing in different files.
-    GCA (Genomic Contig Assembly):  A draft genome assembly, typically submitted first
-    GCF (Genomic Complete Assembly):  A higher-quality, curated version of the same assembly
-
-    Example:
-    file                        assembly_id     Accession Number    dna
-    GCA_002831345.1.qual.gto    002831345.1     NC_038733.1         AAAACAGTAGTGTACCG...
-    GCF_002831345.1.qual.gto    002831345.1     NC_038733.1         AAAACAGTAGTGTACCG...
-
-    GenBank Accession Number: NC_038733.1 (same RNA segment, same isolate)
-    File names: GCA vs. GCF (same assembly ID, different versions)
-
-    Conclusion:
-    Keep the GCF version (it's typically a higher-quality). TODO confirmed with Carla
-
-    --------
-    Case 2:
-    --------
-    Sequences (same), Assembly IDs (same), Accession IDs (different), Versions (ignore)
+    Sequences (same), Assembly IDs (same), Accession IDs (different)
 
     This means that the same genomic segment has been assigned different accession numbers
-    within the same assembly. This can happen due to:
-    Reannotation:  The sequence may have been re-submitted with updated metadata
-    Redundant entries:  Multiple GenBank submissions within the same assembly
+    within the same assembly. These are likely technical duplicates.
 
     Example:
     file                        assembly_id     Accession IDs    dna
     GCA_002831345.1.qual.gto    002831345.1     NC_038733.1      AAAACAGTAGTGTACCG...
-    GCA_002831345.1.qual.gto    002831345.1     OL123456.1       AAAACAGTAGTGTACCG...
-
-    Conclusion:
-    These are likely technical duplicates.
-    Keep only one — preferably the most recent or official accession number. TODO confirm with Jim
+    GCF_002831345.1.qual.gto    002831345.1     OL123456.1       AAAACAGTAGTGTACCG...    
 
     --------
-    Case 3:
+    Case 2:
     --------
-    Sequences (same), Assembly IDs (different), Accession Numbers (different), Versions (ignore)
+    Sequences (same), Assembly IDs (different), Accession Numbers (different)
 
-    This suggests the same sequence appears in multiple genome assemblies, likely from different isolates.
+    This suggests the same seq appears in multiple genome assemblies, likely from different isolates.
 
     Example:
     file                        assembly_id     Accession Number    dna
     GCA_002831345.1.qual.gto    002831345.1     NC_038733.1         AAAACAGTAGTGTACCG...
     GCA_018595275.1.qual.gto    018595275.1     OL987654.1          AAAACAGTAGTGTACCG...
 
-    Conclusion:
-    If the assemblies are from different viral isolates, this reflects true biological
-    conservation — keep both.
-    If they are somehow from the same isolate, consider keeping only the higher-quality version.
-
     =========================
-    Result (ap):
+    Results:
     =========================
     Most duplicates appear in only 2 files.
     We have 3 seqs that appear in 3 files, and 3 seqs that appear in 5 files.
     num_files	count
-    2	        1592
+    2	        1706
     3	        3 
     5	        3
     """
@@ -475,36 +425,25 @@ if process_dna:
     print(f"Duplicates on 'dna': {dna_dups.shape}")
     print(dna_dups[:4])
 
-    # dna_dups.groupby('dna').agg(file=('file', 'unique')).reset_index().explode('file')
-
     # Count in how many unique files appears each duplicated sequence
     # This helps identify if a sequence appears across multiple files or within the same
     dup_counts = dna_dups.groupby('dna')['file'].nunique().reset_index(name='unq_files')
     print(dup_counts['unq_files'].value_counts().reset_index(name='total_cases'))
 
-    """
-    ✅ Summary of Duplicate Classifications.
-    Case	Description	                                        Count	Suggested Action
-    Case 1	Same assembly_id, same record_id, GCA/GCF versions  0	    ✅ Nothing to do
-    Case 2	Same assembly_id, diff record_id	                1,524	⚠️ Technical dups — keep one
-    Case 3	Diff assembly_id and record_id	                    74	    ✅ Likely true biological conservation — keep all
-    """
-    # breakpoint()
     dup_summary = classify_dup_groups(dna_dups, SequenceType.DNA)
 
     show_cols = [c for c in dup_summary.columns if c not in
         [SequenceType.DNA.value, SequenceType.PROTEIN.value]]
     case1 = dup_summary[dup_summary['case'] == 'Case 1']
     case2 = dup_summary[dup_summary['case'] == 'Case 2']
-    case3 = dup_summary[dup_summary['case'] == 'Case 3']
     case_other = dup_summary[dup_summary['case'] == 'Other']
+    # print(f"Case 1: {case1.shape[0]} sequences")
     print(f"Case 1: {case1.shape[0]} sequences")
     print(f"Case 2: {case2.shape[0]} sequences")
-    print(f"Case 3: {case3.shape[0]} sequences")
     print(f"Case Other: {case_other.shape[0]} sequences")
 
+    print(f'Case 1:\n{case1[:3][show_cols]}')
     print(f'Case 2:\n{case2[:3][show_cols]}')
-    print(f'Case 3:\n{case3[:3][show_cols]}')
 
     # Explore duplicate groups with more than 2 files
     dup_counts = dna_dups.groupby('dna')['file'].nunique().reset_index(name='num_files')
@@ -513,6 +452,7 @@ if process_dna:
     multi_dup_records = multi_dup_records.sort_values(['dna', 'assembly_id', 'assembly_prefix'])
     print(f'\nmulti_dup_records: {multi_dup_records.shape}')
     print(f'{multi_dup_records}')
+
 
 
 
@@ -576,6 +516,12 @@ if process_protein:
                 genbank_ctg_id = None
             row['genbank_ctg_id'] = genbank_ctg_id
             row['replicon_type'] = segment_map.get(genbank_ctg_id, 'Unassigned')
+
+            # Family
+            if ('family_assignments' in fea_dict) and (len(fea_dict['family_assignments'][0]) > 2):
+                row['family_i2'] = fea_dict['family_assignments'][0][1]
+            else:
+                row['family_i2'] = pd.NA
 
             rows.append(row)
 
@@ -740,6 +686,7 @@ if process_protein:
             'Phenuiviridae mature nonstructural 78-kD protein',
             'Small Nonstructural Protein NSs (NSs Protein)',
         ]
+
     elif data_version == 'April_2025':
         core_functions = [
             'RNA-dependent RNA polymerase',
@@ -762,7 +709,7 @@ if process_protein:
     print('\nCloser look at "auxiliary" protein functions.')
     print_replicon_func_count(prot_df, functions=aux_functions)
 
-    # 0) start with a placeholder for canonical_segment
+    # Create a placeholder for canonical_segment
     prot_df['canonical_segment'] = pd.NA
 
 
@@ -839,6 +786,7 @@ if process_protein:
                 'canonical_segment': 'S'
                 },
             ])
+
         elif data_version == 'April_2025':
             core_function_segment_map = pd.DataFrame([
                 # Canonical segment 'L'
@@ -879,7 +827,7 @@ if process_protein:
             how='left'  # keep all rows, NaN where mapping doesn't apply
         )
 
-        # 1) Assign core_seg_mapped to canonical_segment
+        # Assign core_seg_mapped to canonical_segment
         mask_core = prot_df['core_seg_mapped'].notna()
         prot_df.loc[mask_core, 'canonical_segment'] = prot_df.loc[mask_core, 'core_seg_mapped']
 
@@ -948,6 +896,7 @@ if process_protein:
                 'canonical_segment': 'S'
                 },
             ])
+
         elif data_version == 'April_2025':
             aux_function_segment_map = pd.DataFrame([
                 {'function': 'Bunyavirales mature nonstructural membrane protein (NSm)',
@@ -973,7 +922,7 @@ if process_protein:
             how='left'  # keep all rows, NaN where mapping doesn't apply
         )
 
-        # 2) Assign core_seg_mapped to canonical_segment
+        # Assign core_seg_mapped to canonical_segment
         mask_aux = prot_df['canonical_segment'].isna() & prot_df['aux_seg_mapped'].notna()
         prot_df.loc[mask_aux, 'canonical_segment'] = prot_df.loc[mask_aux, 'aux_seg_mapped']
 
@@ -1011,11 +960,9 @@ if process_protein:
 
     if apply_basic_filters:
         print('\n=============  Start basic filtering  =============')
-        """
-        Keep only CDS in prot_df (drops mat_peptide and RNA)
-        """
+        
+        print('\n----- Keep rows where type=CDS (drops mat_peptide) -----')
         # breakpoint()
-        print('\n----- Keep rows where type=CDS -----')
         non_cds = prot_df[prot_df['type'] != 'CDS'].sort_values('type', ascending=False)
         prot_df = prot_df[prot_df['type'] == 'CDS'].reset_index(drop=True)
         print(f'Total non-CDS samples: {non_cds.shape}')
@@ -1025,11 +972,8 @@ if process_protein:
 
         print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
-        """
-        Drop 'Poor' quality samples
-        """
-        # breakpoint()
         print('\n----- Drop rows where quality=Poor -----')
+        # breakpoint()
         poor_df = prot_df[prot_df['quality'] == 'Poor'].sort_values('quality', ascending=False)
         prot_df = prot_df[prot_df['quality'] != 'Poor'].reset_index(drop=True)
         print(f'Total Poor quality samples: {poor_df.shape}')
@@ -1039,11 +983,9 @@ if process_protein:
 
         print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
-        """
-        Drop segments (replicon_type) labeled 'Unassigned'
-        """
-        # breakpoint()
+
         print('\n----- Drop rows where replicon_type=Unassigned -----')
+        # breakpoint()
         unk_df = prot_df[prot_df['replicon_type'] == 'Unassigned'].sort_values('replicon_type', ascending=False)
         prot_df = prot_df[prot_df['replicon_type'] != 'Unassigned'].reset_index(drop=True)
         print(f'Total `Unassigned` samples: {unk_df.shape}')
@@ -1053,11 +995,9 @@ if process_protein:
 
         print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
-        """
-        Drop samples canonical_segment=NaN
-        """
+
+        print('\n----- Drop rows where canonical_segment=NaN (unassigned) -----')
         # breakpoint()
-        print('\n----- Drop rows with NaN canonical segments (unassigned) -----')
         unassgined_df = prot_df[prot_df['canonical_segment'].isna()].sort_values('canonical_segment', ascending=False)
         prot_df = prot_df[prot_df['canonical_segment'].notna()].reset_index(drop=True)
         print(f'Total unassigned (NaN) canonical_segment: {unassgined_df.shape}')
@@ -1078,7 +1018,7 @@ if process_protein:
     """
     Explore duplicates in protein data.
     """
-    # breakpoint()
+    breakpoint()
     seq_col_name = 'prot_seq'
     aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
@@ -1138,7 +1078,7 @@ if process_protein:
 
     explore_groupby(prot_dups, seq_col_name)
 
-    # Expand dup_counts to include more info 
+    # Expand dup_counts to include more info
     # num_occurrences >= num_files -> there are cases where a protein sequence appears multiple
     #   times in the same file.
     # num_functions >= num_replicons -> it's not a 1-1 mapping between replicons (segment)
@@ -1170,7 +1110,7 @@ if process_protein:
     Find dups with the same [prot_seq, assembly_id, function, replicon_type]
     Same isolate duplicates.
     """
-    print('\n---- Find duplicates - dups on [prot_seq, assembly_id, function, replicon_type] ----')
+    print('\n---- FIND duplicates - dups on [prot_seq, assembly_id, function, replicon_type] ----')
     dup_cols = [seq_col_name, 'assembly_id', 'function', 'replicon_type']
 
     gca_gcf_dups = (
@@ -1201,7 +1141,7 @@ if process_protein:
     Drop GCA sample if the same sequence appears also in GCF with the same ['prot_seq', 'assembly_id', 'function', 'replicon_type']
     (Carla and Jim confirmed we can drop GCA dups)
     """
-    print('\n---- Drop duplicates - Drop GCA if GCF exists for the same [prot_seq, assembly_id, function, replicon_type] ----')
+    print('\n---- DROP duplicates - Drop GCA if GCF exists for the same [prot_seq, assembly_id, function, replicon_type] ----')
     dup_cols = [seq_col_name, 'assembly_id', 'function', 'replicon_type']
     
     # 1) Find all groups (on dup_cols) where both GCA and GCF appear
@@ -1218,10 +1158,9 @@ if process_protein:
         groups['prefixes'].apply(lambda s: {'GCA','GCF'}.issubset(s))
     ][dup_cols].reset_index(drop=True)
 
-    # AP
-    print(gca_gcf_dups_eda.shape)
-    print(dups_to_fix.shape)
-    print(dups_to_fix.equals(gca_gcf_dups_eda.iloc[:,:4]))
+    # print(gca_gcf_dups_eda.shape)
+    # print(dups_to_fix.shape)
+    # print(dups_to_fix.equals(gca_gcf_dups_eda.iloc[:,:4]))
 
     # 3) Turn that (dup_cols combos) into a set of keys for fast lookup
     to_drop_keys = set( tuple(x) for x in dups_to_fix.values )
@@ -1256,7 +1195,7 @@ if process_protein:
     Find duplicates.
     Dups within a GTO file (intra-file dups). This is related to num_occurrences >= num_files.
     """
-    print('\n---- Find duplicates - duplicates within the same GTO file (intra-file dups) ----')
+    print('\n---- FIND duplicates - duplicates within the same GTO file (intra-file dups) ----')
     dup_cols = [seq_col_name, 'file']
 
     same_file_dups = (
@@ -1292,7 +1231,7 @@ if process_protein:
     That's a special case of intra-file duplicates.
     Note! These exacly match the same-file duplicates.
     """
-    print('\n---- Find duplicates - functions annotations ----')
+    print('\n---- FIND duplicates - functions annotations ----')
     dup_cols = [seq_col_name, 'file']
 
     dups_func_conflicts = (
@@ -1312,17 +1251,19 @@ if process_protein:
             replicons=('replicon_type', lambda x: list(set(x))),
         ).sort_values(dup_cols).reset_index()
     
-    breakpoint()
+    # breakpoint()
     del dup_cols, # dups_func_conflicts, dups_func_conflicts_eda
     
-    print(same_file_dups.equals(dups_func_conflicts))
+    # print(same_file_dups.equals(dups_func_conflicts))
 
 
     # Finally, save filtered protein data
-    prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False)
+    print('\nSave the final filtered protein data.')
+    prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False) 
     aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     aa.to_csv(output_dir / 'protein_filtered_seg_mapping_stats.csv', sep=',', index=False)
+    print(prot_df['canonical_segment'].value_counts())
 
 # ----------------------------------------------------------------
 # breakpoint()
-print('Done!')
+print('\nDone!')
