@@ -437,7 +437,6 @@ if process_dna:
     case1 = dup_summary[dup_summary['case'] == 'Case 1']
     case2 = dup_summary[dup_summary['case'] == 'Case 2']
     case_other = dup_summary[dup_summary['case'] == 'Other']
-    # print(f"Case 1: {case1.shape[0]} sequences")
     print(f"Case 1: {case1.shape[0]} sequences")
     print(f"Case 2: {case2.shape[0]} sequences")
     print(f"Case Other: {case_other.shape[0]} sequences")
@@ -730,9 +729,9 @@ if process_protein:
 
         - The L protein functions as the viral RNA-dependent RNA polymerase (RdRp) and
             responsible for both replication and transcription of the viral RNA.
-        - The polyprotein (Pre-glycoprotein polyprotein GP complex (GPC protein)) is cleaved into
-            two envelope glycoproteins, Gn and Gc, which are located on the surface of the virus
-            and are crucial for attachment to and entry into host cells.
+        - The polyprotein (Pre-glycoprotein polyprotein GP complex) is cleaved into two envelope
+            glycoproteins, Gn and Gc, which are located on the surface of the virus and are crucial
+            for attachment to and entry into host cells.
         - The nucleocapsid protein N encapsidates the viral RNA genome to form ribonucleoprotein
             complexes (RNPs) and plays a vital role in viral RNA replication and transcription.
 
@@ -742,14 +741,9 @@ if process_protein:
 
         The code show function-to-canonical_segment mappings conditional on 'replicon_type':
         function -> canonical_segment (condition)
-        'RNA-dependent RNA polymerase (L protein)' -> 'L' (replicon_type = ['Large RNA Segment'/'Segment One'])
-        'Pre-glycoprotein polyprotein GP complex (GPC protein)' -> 'M' (replicon_type = ['Medium RNA Segment''])
-        'Nucleocapsid protein (N protein)' -> 'S' (replicon_type = ['Small RNA Segment'/'Segment Three'])
-
-        After mapping:
-        L      1585
-        S      1415
-        M      1296
+        'RNA-dependent RNA polymerase' -> 'L' (replicon_type = ['Large RNA Segment'/'Segment One'])
+        'Pre-glycoprotein polyprotein GP complex' -> 'M' (replicon_type = ['Medium RNA Segment''])
+        'Nucleocapsid protein' -> 'S' (replicon_type = ['Small RNA Segment'/'Segment Three'])
         """
         print('\n==== Step 1: Assign canonical segments (L/M/S) to "core" protein mapping ====')
         # breakpoint()
@@ -870,6 +864,10 @@ if process_protein:
         Small RNA Segment   Bunyavirales small nonstructural protein (NSs ...    163
         Medium RNA Segment   Phenuiviridae mature nonstructural 78-kD protein    165
         Small RNA Segment       Small Nonstructural Protein NSs (NSs Protein)    433
+
+        Medium RNA Segment   Phenuiviridae mature nonstructural 78-kD protein    165
+        Small RNA Segment        Bunyavirales small nonstructural protein NSs    604
+        Medium RNA Segment  Bunyavirales mature nonstructural membrane pro...    111
         """
         print('\n==== Step 2: Assign canonical segments (L/M/S) to "auxiliary" proteins ====')
         # breakpoint()
@@ -958,52 +956,59 @@ if process_protein:
         )
 
 
+    # breakpoint()
+    print('\nSave protein data before applying filtering.')
+    prot_df.to_csv(output_dir / 'protein_before_filtering.csv', sep=',', index=False)
+
+
     if apply_basic_filters:
         print('\n=============  Start basic filtering  =============')
         
+        print('\n----- Drop rows where canonical_segment=NaN -----')
+        # breakpoint()
+        print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
+        unassgined_df = prot_df[prot_df['canonical_segment'].isna()].sort_values('canonical_segment', ascending=False)
+        prot_df = prot_df[prot_df['canonical_segment'].notna()].reset_index(drop=True)
+        print(f'Total unassigned (NaN) canonical_segment: {unassgined_df.shape}')
+        print(f'Remaining prot_df:                        {prot_df.shape}')
+        print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
+
+
         print('\n----- Keep rows where type=CDS (drops mat_peptide) -----')
         # breakpoint()
+        print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
         non_cds = prot_df[prot_df['type'] != 'CDS'].sort_values('type', ascending=False)
         prot_df = prot_df[prot_df['type'] == 'CDS'].reset_index(drop=True)
         print(f'Total non-CDS samples: {non_cds.shape}')
         print(f'Remaining prot_df:     {prot_df.shape}')
         # print(prot_df['type'].value_counts())
         non_cds.to_csv(output_dir / 'protein_non_cds.csv', sep=',', index=False)
+        print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
 
-        print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
         print('\n----- Drop rows where quality=Poor -----')
         # breakpoint()
+        print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'quality'], drop_na=False)
         poor_df = prot_df[prot_df['quality'] == 'Poor'].sort_values('quality', ascending=False)
         prot_df = prot_df[prot_df['quality'] != 'Poor'].reset_index(drop=True)
         print(f'Total Poor quality samples: {poor_df.shape}')
         print(f'Remaining prot_df:          {prot_df.shape}')
         # print(prot_df['quality'].value_counts())
         poor_df.to_csv(output_dir / 'protein_poor_quality.csv', sep=',', index=False)
-
-        print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
+        print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'quality'], drop_na=False)
 
 
         print('\n----- Drop rows where replicon_type=Unassigned -----')
         # breakpoint()
+        print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
         unk_df = prot_df[prot_df['replicon_type'] == 'Unassigned'].sort_values('replicon_type', ascending=False)
         prot_df = prot_df[prot_df['replicon_type'] != 'Unassigned'].reset_index(drop=True)
         print(f'Total `Unassigned` samples: {unk_df.shape}')
         print(f'Remaining prot_df:          {prot_df.shape}')
         # print(prot_df['replicon_type'].value_counts())
         unk_df.to_csv(output_dir / 'protein_unassigned_replicons.csv', sep=',', index=False)
-
         print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
-
-        print('\n----- Drop rows where canonical_segment=NaN (unassigned) -----')
-        # breakpoint()
-        unassgined_df = prot_df[prot_df['canonical_segment'].isna()].sort_values('canonical_segment', ascending=False)
-        prot_df = prot_df[prot_df['canonical_segment'].notna()].reset_index(drop=True)
-        print(f'Total unassigned (NaN) canonical_segment: {unassgined_df.shape}')
-        print(f'Remaining prot_df:                        {prot_df.shape}')
-
-        print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
         # Save filtered protein data
         prot_df.to_csv(output_dir / 'protein_filtered_basic.csv', sep=',', index=False)
@@ -1018,7 +1023,7 @@ if process_protein:
     """
     Explore duplicates in protein data.
     """
-    breakpoint()
+    # breakpoint()
     seq_col_name = 'prot_seq'
     aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
@@ -1265,5 +1270,5 @@ if process_protein:
     print(prot_df['canonical_segment'].value_counts())
 
 # ----------------------------------------------------------------
-# breakpoint()
+breakpoint()
 print('\nDone!')
