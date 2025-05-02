@@ -1,0 +1,1 @@
+viral-segmatch contains code matching viral genome segments originating from the same isolate, with a focus on segmented RNA viruses such as those in the Bunyavirales order. It includes tools for parsing, filtering, and annotating genome data from GTO files.
