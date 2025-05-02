@@ -24,8 +24,8 @@ print(f'filepath: {filepath}')
 
 # Settings
 process_pssm = False
-process_dna = False
-# process_dna = True
+# process_dna = False
+process_dna = True
 process_protein = True
 # assign_segment_using_core_proteins = False
 assign_segment_using_core_proteins = True
@@ -414,12 +414,17 @@ if process_dna:
     =========================
     Most duplicates appear in only 2 files.
     We have 3 seqs that appear in 3 files, and 3 seqs that appear in 5 files.
-    num_files	count
+    num_files	total_cases
     2	        1706
     3	        3 
     5	        3
     """
-    dna_dups = dna_df[dna_df.duplicated(subset=['dna'], keep=False)].sort_values(['dna'])
+    seq_col_name = 'dna'
+    dna_dups = (
+        dna_df[dna_df.duplicated(subset=[seq_col_name], keep=False)]
+        .sort_values(seq_col_name)
+        .reset_index(drop=True).copy()
+    ) 
     dna_dups.to_csv(output_dir / 'dna_all_duplicates.csv', sep=',', index=False)
 
     print(f"Duplicates on 'dna': {dna_dups.shape}")
@@ -427,8 +432,8 @@ if process_dna:
 
     # Count in how many unique files appears each duplicated sequence
     # This helps identify if a sequence appears across multiple files or within the same
-    dup_counts = dna_dups.groupby('dna')['file'].nunique().reset_index(name='unq_files')
-    print(dup_counts['unq_files'].value_counts().reset_index(name='total_cases'))
+    dup_counts = dna_dups.groupby(seq_col_name).agg(num_files=('file', 'nunique')).reset_index()
+    print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
     dup_summary = classify_dup_groups(dna_dups, SequenceType.DNA)
 
@@ -445,10 +450,10 @@ if process_dna:
     print(f'Case 2:\n{case2[:3][show_cols]}')
 
     # Explore duplicate groups with more than 2 files
-    dup_counts = dna_dups.groupby('dna')['file'].nunique().reset_index(name='num_files')
+    dup_counts = dna_dups.groupby(seq_col_name)['file'].nunique().reset_index(name='num_files')
     multi_dups = dup_counts[dup_counts['num_files'] > 2] # > 2 dups
-    multi_dup_records = dna_dups.merge(multi_dups[['dna']], on='dna') # Merge back to get full rows
-    multi_dup_records = multi_dup_records.sort_values(['dna', 'assembly_id', 'assembly_prefix'])
+    multi_dup_records = dna_dups.merge(multi_dups[[seq_col_name]], on=seq_col_name) # Merge back to get full rows
+    multi_dup_records = multi_dup_records.sort_values([seq_col_name, 'assembly_id', 'assembly_prefix'])
     print(f'\nmulti_dup_records: {multi_dup_records.shape}')
     print(f'{multi_dup_records}')
 
@@ -1261,14 +1266,50 @@ if process_protein:
     
     # print(same_file_dups.equals(dups_func_conflicts))
 
+    # Final duplicate counts
+    print('\n---- Final protein duplicates counts ----')
+    """
+    num_files  total_cases
+            2          138
+            3           17
+            5            7
+            4            6
+            6            4
+            9            2
+           10            1
+           12            1
+          141            1
+           16            1
+           53            1
+           30            1
+           13            1
+           43            1
+           15            1
+    Explanation.
+    - consider num_files=2 count=138.
+        There are 138 distinct protein sequences that are duplicated (appear at
+        least 2 times) across two files AND do not appear in any other file.
+    - consider num_files=141 count=1.
+        There is 1 distinct protein sequence that is duplicated (appears at
+        least 2 times) across 141 files AND do not appear in any other file.
+    """
+    prot_dups = (
+        prot_df[prot_df.duplicated(subset=[seq_col_name], keep=False)]
+        .sort_values(seq_col_name)
+        .reset_index(drop=True).copy()
+    )
+    dup_counts = prot_dups.groupby(seq_col_name).agg(num_files=('file', 'nunique')).reset_index()
+    print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
     # Finally, save filtered protein data
-    print('\nSave the final filtered protein data.')
+    print('\n----- Save the final filtered protein data -----')
+    print(f'prot_df: {prot_df.shape}')
+    print(f'Unique protein sequences: {prot_df[seq_col_name].nunique()}')
     prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False) 
     aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     aa.to_csv(output_dir / 'protein_filtered_seg_mapping_stats.csv', sep=',', index=False)
     print(prot_df['canonical_segment'].value_counts())
 
 # ----------------------------------------------------------------
-breakpoint()
+# breakpoint()
 print('\nDone!')
