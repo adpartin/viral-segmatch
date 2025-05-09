@@ -6,13 +6,12 @@ Key columns:
 - function: protein function
 - brc_fea_id: unique feature ID (used to distinguish entries)
 
-Splitg strategies:
-- partition_by_isolate: ensures strict isolate-based splitting (no leakage)
-- partition_by_duplicates: ensures duplicates of the same sequence stay in the same split
-
-
-- Hard Partition by Isolates: all segments from an isolate (assembly_id) are assigned to a single train/val/test set to prevent leakage
-- Hard Partition by Duplicates: identical protein sequences (prot_seq) across different isolates are assigned to the same set, preventing identical sequences from appearing across train/val/test sets
+Split strategies:
+- partition_by_isolate: all proteins from an isolate (assembly_id) are assigned
+    to a single train/val/test set to prevent leakage
+- partition_by_duplicates: identical protein sequences (prot_seq) across different
+    isolates are assigned to the same set, preventing identical sequences from
+    appearing across train/val/test sets
 """
 
 import hashlib
@@ -303,7 +302,6 @@ def split_dataset(
     ]
     
     # Log stats
-    breakpoint()
     total_pairs = len(train_pairs) + len(val_pairs) + len(test_pairs)
     total_isolates = len(train_isolates) + len(val_isolates) + len(test_isolates)
     print(f'Train pairs: {len(train_pairs)} ({len(train_pairs)/total_pairs*100:.2f}%)')
@@ -329,7 +327,12 @@ if use_core_proteins_only:
         'M': 'Pre-glycoprotein polyprotein GP complex',
         'S': 'Nucleocapsid protein'
     }
-    mask = prot_df.apply(lambda row: row['canonical_segment'] in core_funcs and row['function'] == core_funcs[row['canonical_segment']], axis=1)
+
+    # Mask for core proteins where segment and function match
+    mask = (
+        prot_df['canonical_segment'].isin(core_funcs) & 
+        prot_df.apply(lambda row: row['function'] == core_funcs[row['canonical_segment']], axis=1)
+    )
     df_core = prot_df[mask].reset_index(drop=True)
 
     # core_functions = [
@@ -361,7 +364,6 @@ df_core['segment'] = df_core['canonical_segment'].fillna(
 )
 
 # Add sequence hash for duplicate detection
-# breakpoint()
 df_core['seq_hash'] = df_core['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
 # Check for sequence ambiguities (e.g., non-standard amino acids)
@@ -403,3 +405,7 @@ print('\nSave datasets.')
 train_pairs.to_csv(f"{output_dir}/train_pairs.csv", index=False)
 val_pairs.to_csv(f"{output_dir}/val_pairs.csv", index=False)
 test_pairs.to_csv(f"{output_dir}/test_pairs.csv", index=False)
+
+# ----------------------------------------------------------------
+# breakpoint()
+print('\nDone!')
