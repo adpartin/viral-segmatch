@@ -3,22 +3,28 @@ import torch
 
 
 # def determine_device(cuda_name_from_params): # config! 
-def determine_device(cuda_name_from_params):
-    """Determine device to run PyTorch functions.
+def determine_device(cuda_name_from_params: str) -> str:
+    """ Determine the PyTorch device (CPU/GPU) for model training and inference.
 
-    PyTorch functions can run on CPU or on GPU. In the latter case, it
-    also takes into account the GPU devices requested for the run.
+    This function checks GPU availability and CUDA environment settings to
+    determine the appropriate device. It considers both system GPU availability
+    and any specific CUDA device preferences set through environment variables.
 
-    :params str cuda_name_from_params: GPUs specified for the run.
+    Args:
+        cuda_name_from_params: GPU device specification (e.g., 'cuda:0', 'cuda:1').
+            This is used when no CUDA_VISIBLE_DEVICES environment variable is set.
 
-    :return: Device available for running PyTorch functionality.
-    :rtype: str
+    Returns:
+        str: Device identifier for PyTorch ('cpu' or 'cuda:X' where X is the device index).
+
+    Notes:
+        - When CUDA_VISIBLE_DEVICES is set, device indexing is reindexed to start from 0
+        - Returns 'cpu' if no GPU is available regardless of input parameter
     """
     cuda_avail = torch.cuda.is_available()
     print('GPU available: ', cuda_avail)
     if cuda_avail:  # if GPU available
-        # CUDA device from env var
-        cuda_env_visible = os.getenv('CUDA_VISIBLE_DEVICES')
+        cuda_env_visible = os.getenv('CUDA_VISIBLE_DEVICES') # CUDA device from env var
         if cuda_env_visible is not None:
             # Note! When one or multiple device numbers are passed via
             # CUDA_VISIBLE_DEVICES, the values in python script are reindexed
