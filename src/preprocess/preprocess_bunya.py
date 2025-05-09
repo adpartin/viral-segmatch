@@ -2,7 +2,23 @@
 TODO Questions:
 1. Can we map pssm_df['family'] to prot_df? Can this allow us to determine if it's 2-segment or 3-segment virus?
 2. For modeling, do we really need to know what segment that it (i.e., S, M, L)?
+
+Plots:
+* boxplots of protein length per protein
+* histogram of canonical segments in the dataset (show proteins/functions)
+
+protein_filtered.csv
+file: GTO file name (each GTO file contains rna/dna and protein sequences, including various metadata for a given viral istolate)
+assembly_prefix: GCA or GCF
+assembly_id: assembly version of the genome
+brc_fea_id: feature ID for the protein seq (from BV-BRC)
+fcuntion: function of the protein (e.g., "RNA-dependent RNA polymerase")
+prot_seq: the protein sequence
+length: length of the protein sequence
+genbank_ctg_id: the GenBank accession number for the contig
+replicon_type: type of replicon (segment) the protein is associated with (e.g., "Large RNA Segment")
 """
+
 import os
 import json
 import re
@@ -18,7 +34,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-filepath = Path(__file__).parent # .py
+filepath = Path(__file__).resolve().parent # .py
 # filepath = Path(os.path.abspath('')) # .ipynb
 print(f'filepath: {filepath}')
 
@@ -34,17 +50,22 @@ assign_segment_using_aux_proteins = True
 # apply_basic_filters = False
 apply_basic_filters = True
 
-# task_name = 'Bunya-from-datasets'
-task_name = 'bunya_processed'
-data_dir = filepath / '../../data'
+## Config
+# task_name = 'bunya_processed'
+main_data_dir = filepath / '../../data'
 # data_version = 'Feb_2025'
 data_version = 'April_2025'
-raw_data_dir = data_dir / 'raw/Anno_Updates' / data_version
+raw_data_dir = main_data_dir / 'raw/Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets/Quality_GTOs'
 
-output_dir = data_dir / task_name / data_version
+virus_name = 'bunya'
+processed_data_dir = main_data_dir / 'processed' / virus_name / data_version
+
+# output_dir = main_data_dir / task_name / data_version
+output_dir = processed_data_dir
 os.makedirs(output_dir, exist_ok=True)
 
+print(f'main_data_dir:   {main_data_dir}')
 print(f'raw_data_dir:    {raw_data_dir}')
 print(f'quality_gto_dir: {quality_gto_dir}')
 print(f'output_dir:      {output_dir}')
@@ -329,7 +350,7 @@ if process_dna:
     print(f'dna_df columns: {dna_df.columns.tolist()}')
 
     # Save all samples
-    dna_df.to_csv(output_dir / 'dna_agg_from_GTOs_raw.csv', sep=',', index=False)
+    dna_df.to_csv(output_dir / 'dna_agg_from_GTOs.csv', sep=',', index=False)
 
     # Save samples that missing seq data
     dna_df_no_seq = dna_df[dna_df['dna'].isna()]
@@ -570,7 +591,7 @@ if process_protein:
     print(f'prot_df columns: {prot_df.columns.tolist()}')
 
     # Save all samples
-    prot_df.to_csv(output_dir / 'protein_agg_from_GTOs_raw.csv', sep=',', index=False)
+    prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
     
     # Save samples that missing seq data
     prot_df_no_seq = prot_df[prot_df['prot_seq'].isna()]
