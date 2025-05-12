@@ -28,16 +28,15 @@ import pandas as pd
 from io import BytesIO
 from sklearn.model_selection import train_test_split
 
-seed = 42  # for reproducibility (config!)
 
-filepath = Path(__file__).resolve().parent # .py
-# filepath = Path(os.path.abspath('')) # .ipynb
-print(f'filepath: {filepath}')
+# ===================================
+# Config
+# ===================================
+SEED = 42
+TASK_NAME = 'segmatch'
 
-# Settings
-use_core_proteins_only = True
+filepath = Path(__file__).resolve().parent
 
-## Config
 main_data_dir = filepath / '../../data'
 
 # data_version = 'Feb_2025'
@@ -45,8 +44,7 @@ data_version = 'April_2025'
 virus_name = 'bunya'
 processed_data_dir = main_data_dir / 'processed' / virus_name / data_version
 
-task_name = 'segmatch'
-datasets_dir = main_data_dir / 'datasets' / virus_name / data_version / task_name
+datasets_dir = main_data_dir / 'datasets' / virus_name / data_version / TASK_NAME
 
 output_dir = datasets_dir
 os.makedirs(output_dir, exist_ok=True)
@@ -54,6 +52,11 @@ os.makedirs(output_dir, exist_ok=True)
 print(f'\nmain_data_dir:      {main_data_dir}')
 print(f'processed_data_dir: {processed_data_dir}')
 print(f'datasets_dir:       {datasets_dir}')
+
+# Settings
+use_core_proteins_only = True
+
+
 
 
 def create_protein_pairs(
@@ -98,8 +101,9 @@ def create_protein_pairs(
         - Negative pairs are cross-isolate, with optional control over same-function pairs.
         - Symmetric pairs, [seq_a, seq_b] and [seq_b, seq_a], are prevented during negative pair generation.
     """
-    
-    random.seed(seed)
+
+    np.random.seed(SEED)
+    random.seed(SEED) 
     isolates = df.groupby('assembly_id') # Group by isolate (assembly_id)
 
     # Create positive pairs (within-isolate, cross-function)
@@ -115,23 +119,18 @@ def create_protein_pairs(
             isolates_with_few_proteins.append(assembly_id)
             continue
         
+        # Get all posible protein pairs within an isolate (by definition these are pos pairs)
         pairs = list(combinations(grp.itertuples(), 2)) # [(df_row, df_row), (df_row, df_row), ...]
         for row_a, row_b in pairs:
             # Add pair only if they have different BRC ids and different functions
             if row_a.brc_fea_id != row_b.brc_fea_id and row_a.function != row_b.function:
                 dct = {
-                    'assembly_id_a': assembly_id,
-                    'assembly_id_b': assembly_id,
-                    'brc_a': row_a.brc_fea_id,
-                    'brc_b': row_b.brc_fea_id,
-                    'seq_a': row_a.prot_seq,
-                    'seq_b': row_b.prot_seq,
-                    'seg_a': row_a.segment,
-                    'seg_b': row_b.segment,
-                    'func_a': row_a.function,
-                    'func_b': row_b.function,
-                    'seq_hash_a': row_a.seq_hash,
-                    'seq_hash_b': row_b.seq_hash,
+                    'assembly_id_a': assembly_id, 'assembly_id_b': assembly_id,
+                    'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+                    'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+                    'seg_a': row_a.segment, 'seg_b': row_b.segment,
+                    'func_a': row_a.function, 'func_b': row_b.function,
+                    'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
                     'label': 1  # Positive pair
                 }
                 pos_pairs.append(dct)
@@ -142,8 +141,8 @@ def create_protein_pairs(
     # Log isolates with fewer than 2 proteins
     # If an isolate has only one protein, it won’t generate any positive pairs.
     if isolates_with_few_proteins:
-        print(f'Warning: {len(isolates_with_few_proteins)} isolates have fewer \
-            than 2 proteins: {isolates_with_few_proteins}')
+        print(f'Warning: {len(isolates_with_few_proteins)} isolates have <2 \
+            proteins: {isolates_with_few_proteins}')
 
     def create_negative_pairs(df, num_negatives):
         """ Create negative pairs (cross-isolate) """
@@ -174,18 +173,12 @@ def create_protein_pairs(
                 continue
 
             dct = {
-                'assembly_id_a': row_a.assembly_id,
-                'assembly_id_b': row_b.assembly_id,
-                'brc_a': row_a.brc_fea_id,
-                'brc_b': row_b.brc_fea_id,
-                'seq_a': row_a.prot_seq,
-                'seq_b': row_b.prot_seq,
-                'seg_a': row_a.segment,
-                'seg_b': row_b.segment,
-                'func_a': row_a.function,
-                'func_b': row_b.function,
-                'seq_hash_a': row_a.seq_hash,
-                'seq_hash_b': row_b.seq_hash,
+                'assembly_id_a': row_a.assembly_id, 'assembly_id_b': row_b.assembly_id,
+                'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+                'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+                'seg_a': row_a.segment, 'seg_b': row_b.segment,
+                'func_a': row_a.function, 'func_b': row_b.function,
+                'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
                 'label': 0  # Negative pair
             }
             neg_pairs.append(dct)
@@ -211,6 +204,8 @@ def create_protein_pairs(
     return pairs_df
 
 
+
+
 def split_dataset(
     pairs_df: pd.DataFrame,
     df: pd.DataFrame,
@@ -219,98 +214,261 @@ def split_dataset(
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     seed: int = 42,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """ Split dataset into train, val, and test sets with configurable partitioning.
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Split dataset into train, val, and test sets, balancing total and positive pair proportions."""
 
-    Args:
-        pairs_df (pd.DataFrame): DataFrame containing protein pairs with columns
-            ['assembly_id_a', 'assembly_id_b', 'brc_a', 'brc_b',
-            'seq_a', 'seq_b', 'seg_a', 'seg_b', 'func_a', 'func_b',
-            'seq_hash_a', 'seq_hash_b', 'label']
-        df (pd.DataFrame): DataFrame containing protein sequences with columns
-            ['assembly_id', 'brc_fea_id', 'prot_seq', 'segment', 'function', 'seq_hash']
-        hard_partition_isolates (bool): If True, ensures strict isolate-based
-            splitting (no leakage). If False, allows random splitting.
-        hard_partition_duplicates (bool): If True, ensures identical protein
-            sequences (prot_seq) across different isolates are assigned to the
-            same set, preventing identical sequences from appearing across
-            train/val/test sets. If False, allows random splitting.
-        train_ratio (float): Proportion of data to use for training.
-        val_ratio (float): Proportion of data to use for val.
-    
-    Returns:
-        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: DataFrames for
-            training, val, and test sets.
-    """
+    # breakpoint()
+    np.random.seed(seed)
+    random.seed(seed)
 
-    canonical_segments = ['L', 'M', 'S']
-    # canonical_segments = core_funcs.keys()
+    # Extract neg_to_pos_ratio
+    jj = pairs_df['label'].value_counts().reset_index()
+    neg_count = jj.loc[jj['label'] == 0, 'count'].iloc[0] if 0 in jj['label'].values else 0
+    pos_count = jj.loc[jj['label'] == 1, 'count'].iloc[0] if 1 in jj['label'].values else 1
+    neg_to_pos_ratio = neg_count / pos_count if pos_count > 0 else 3.0
+    target_pos_proportion = 1 / (1 + neg_to_pos_ratio)
+    print(f'Negative to positive ratio: {neg_to_pos_ratio:.2f}')
+    print(f'Target positive proportion: {target_pos_proportion:.4f}')
 
-    if hard_partition_duplicates:
-        # Group isolates by identical protein sequences (for each segment)
-        seq_groups = {}
-        for segment in canonical_segments:
-            segment_df = df[df['segment'] == segment]
-            for seq_hash, group in segment_df.groupby('seq_hash'):
-                isolates = set(group['assembly_id'])
-                seq_groups[seq_hash] = isolates
-
-        # Assign isolates to clusters based on shared sequences
-        isolate_to_cluster = {}
-        cluster_id = 0
-        for seq_hash, isolates in seq_groups.items():
-            for isolate in isolates:
-                if isolate not in isolate_to_cluster:
-                    isolate_to_cluster[isolate] = cluster_id
-            cluster_id += 1
-
-        # Create cluster-based splitting
-        clusters = list(set(isolate_to_cluster.values()))
-        train_clusters, temp_clusters = train_test_split(clusters, train_size=train_ratio, random_state=seed)
-        val_clusters, test_clusters = train_test_split(temp_clusters, train_size=val_ratio/(1-train_ratio), random_state=seed)
-
-        # Map isolates to sets
-        train_isolates = {iso for iso, cid in isolate_to_cluster.items() if cid in train_clusters}
-        val_isolates = {iso for iso, cid in isolate_to_cluster.items() if cid in val_clusters}
-        test_isolates = {iso for iso, cid in isolate_to_cluster.items() if cid in test_clusters}
-
-    else:
-        # Split by isolates (or randomly if not hard_partition_isolates)
-        unique_isolates = df['assembly_id'].unique()
-        if hard_partition_isolates:
-            train_isolates, tmp_isolates = train_test_split(unique_isolates, train_size=train_ratio, random_state=seed)
-            val_isolates, test_isolates = train_test_split(tmp_isolates, train_size=val_ratio/(1-train_ratio), random_state=seed)
-            train_isolates, val_isolates, test_isolates = set(train_isolates), set(val_isolates), set(test_isolates)
+    # Compute positive and total pair counts per isolate
+    isolate_pos_counts = {}  # pos pairs that will originate from this isolate
+    isolate_pair_counts = {} # total pairs (pos and neg) that will originate from this isolate
+    isolates = df.groupby('assembly_id')
+    for aid, grp in isolates:
+        n_proteins = len(grp)
+        if n_proteins < 2:
+            isolate_pos_counts[aid] = 0
+            isolate_pair_counts[aid] = 0
         else:
-            # Random split without isolate-based partitioning
-            train_pairs, temp_pairs = train_test_split(pairs_df, train_size=train_ratio, random_state=seed)
-            val_pairs, test_pairs = train_test_split(temp_pairs, train_size=val_ratio/(1-train_ratio), random_state=seed)
-            return train_pairs, val_pairs, test_pairs
-    
-    # Assign pairs to sets based on isolate membership
-    train_pairs = pairs_df[
-        (pairs_df['assembly_id_a'].isin(train_isolates)) & 
-        (pairs_df['assembly_id_b'].isin(train_isolates))
-    ]
-    val_pairs = pairs_df[
-        (pairs_df['assembly_id_a'].isin(val_isolates)) & 
-        (pairs_df['assembly_id_b'].isin(val_isolates))
-    ]
-    test_pairs = pairs_df[
-        (pairs_df['assembly_id_a'].isin(test_isolates)) & 
-        (pairs_df['assembly_id_b'].isin(test_isolates))
-    ]
-    
-    # Log stats
+            # Get all posible protein pairs within an isolate (by definition these are pos pairs)
+            pairs = list(combinations(grp.itertuples(), 2))
+            # Cound protein pairs that have different functions
+            pos_count = sum(1 for row_a, row_b in pairs if row_a.function != row_b.function)
+            isolate_pos_counts[aid] = pos_count
+            isolate_pair_counts[aid] = pos_count * (1 + neg_to_pos_ratio)
+
+
+    # Split to balance total pairs and positive proportions
+    def split_by_pairs(items, pos_weights, total_weights, train_ratio, val_ratio, total_pairs):
+        """
+        Returns:
+            [List, List, List] : Three lists, each containing the unqiue items
+                for each set 
+        """
+        # Initial random split with hard partition
+        # TODO. Is it a "hard partition" because we pass items=unique_isolates?
+        # TODO. Does it make sense to rename train_items to unq_train_items?
+        train_items, temp_items = train_test_split(items, train_size=train_ratio, random_state=seed)
+        val_items, test_items = train_test_split(temp_items, train_size=val_ratio/(1-train_ratio), random_state=seed)
+        
+        # Ensure hard partition of isolates
+        if hard_partition_isolates:
+            # Remove any overlapping isolates
+            val_items = [item for item in val_items if (item not in train_items)]
+            test_items = [item for item in test_items if (item not in train_items) and (item not in val_items)]
+            # Redistribute any unassigned isolates
+            unassigned = [item for item in items if (item not in train_items) and (item not in val_items) and (item not in test_items)]
+            # Assign to smallest set
+            # TODO. Since we pass items=unique_isolates, I expect unassigned to be empty. Am I missing something?
+            while unassigned:
+                set_sizes = {
+                    'train': len(train_items),
+                    'val': len(val_items),
+                    'test': len(test_items)
+                }
+                smallest_set = min(set_sizes, key=set_sizes.get)
+                if smallest_set == 'train':
+                    train_items.append(unassigned.pop())
+                elif smallest_set == 'val':
+                    val_items.append(unassigned.pop())
+                else:
+                    test_items.append(unassigned.pop())
+        
+        # Compute pair counts
+        def get_pos_pair_count(items):
+            # E.g., pos_weights can be isolate_pos_counts
+            return sum(pos_weights[item] for item in items)
+        
+        def get_total_pair_count(items):
+            # E.g., total_weights can be isolate_pair_counts
+            return sum(total_weights[item] for item in items)
+        
+        # Considering the unique items in each set (T/V/E), compute how many
+        # POSITIVE samples should be contributed to the each set
+        train_pos   = get_pos_pair_count(train_items)
+        val_pos     = get_pos_pair_count(val_items)
+        test_pos    = get_pos_pair_count(test_items)
+        # Considering the unique items in each set (T/V/E), compute how many
+        # TOTAL samples should be contributed to the each set
+        train_total = get_total_pair_count(train_items)
+        val_total   = get_total_pair_count(val_items)
+        test_total  = get_total_pair_count(test_items)
+
+        # Compute the TARGET (desired) numbers of pairs (samples) in each set
+        # (T/V/E), based on total sample size (total_pairs) and the required
+        # ratios
+        train_total_target = total_pairs * train_ratio
+        val_total_target   = total_pairs * val_ratio
+        test_total_target  = total_pairs * (1 - train_ratio - val_ratio)
+
+        # Iteratively adjust to balance total pairs and positive proportions
+        max_iterations = 200
+        for _ in range(max_iterations):
+            # Compute deviations of the existing from the targeted
+            train_total_diff = abs(train_total - train_total_target) / train_total_target
+            val_total_diff   = abs(val_total   - val_total_target)   / val_total_target
+            test_total_diff  = abs(test_total  - test_total_target)  / test_total_target
+            val_test_total_diff = abs(val_total - test_total) / val_total_target
+            train_pos_diff = abs((train_pos / train_total if train_total > 0 else 0) - target_pos_proportion) / target_pos_proportion
+            val_pos_diff   = abs((val_pos   /     val_total if val_total > 0 else 0) - target_pos_proportion) / target_pos_proportion
+            test_pos_diff  = abs((test_pos  /   test_total if test_total > 0 else 0) - target_pos_proportion) / target_pos_proportion
+
+            total_diff = train_total_diff + val_total_diff + test_total_diff + val_test_total_diff
+            pos_diff = train_pos_diff + val_pos_diff + test_pos_diff
+
+            if total_diff <= 0.05 and pos_diff <= 0.02:
+                break
+
+            # Find item to move
+            # TODO. What's going on here?
+            all_sets = [
+                (train_items, train_total, train_total_target, train_pos, 'train'),
+                (val_items,   val_total,   val_total_target,   val_pos,   'val'),
+                (test_items,  test_total,  test_total_target,  test_pos,  'test')
+            ]
+
+            # Prioritize moving from set with largest combined deviation
+            source = max(all_sets, key=lambda x: (
+                abs(x[1] - x[2]) / x[2] + 
+                2 * abs((x[3] / x[1] if x[1] > 0 else 0) - target_pos_proportion) / target_pos_proportion
+            ) if x[1] > x[2] or (x[3] / x[1] if x[1] > 0 else 0) > target_pos_proportion else -float('inf'))
+
+            dest = min(all_sets, key=lambda x: (
+                abs(x[1] - x[2]) / x[2] + 
+                2 * abs((x[3] / x[1] if x[1] > 0 else 0) - target_pos_proportion) / target_pos_proportion
+            ) if x[1] < x[2] or (x[3] / x[1] if x[1] > 0 else 0) < target_pos_proportion else float('inf'))
+            
+            if source[1] <= source[2] and (source[3] / source[1] if source[1] > 0 else 0) <= target_pos_proportion or \
+               dest[1] >= dest[2] and (dest[3] / dest[1] if dest[1] > 0 else 0) >= target_pos_proportion:
+                break
+                
+            source_items, source_total, source_total_target, source_pos, source_name = source
+            dest_items, dest_total, dest_total_target, dest_pos, dest_name = dest
+            if not source_items:
+                break
+
+            # Move item with smallest impact
+            impacts = []
+            for item in source_items:
+                total_weight = total_weights[item]
+                pos_weight = pos_weights[item]
+                new_source_total = source_total - total_weight
+                new_source_pos = source_pos - pos_weight
+                new_dest_total = dest_total + total_weight
+                new_dest_pos = dest_pos + pos_weight
+                new_source_total_diff = abs(new_source_total - source_total_target) / source_total_target
+                new_dest_total_diff = abs(new_dest_total - dest_total_target) / dest_total_target
+                new_val_test_total_diff = abs((new_dest_total if dest_name == 'val' else val_total) - 
+                                             (new_dest_total if dest_name == 'test' else test_total)) / val_total_target
+                new_source_pos_diff = abs((new_source_pos / new_source_total if new_source_total > 0 else 0) - target_pos_proportion) / target_pos_proportion
+                new_dest_pos_diff = abs((new_dest_pos / new_dest_total if new_dest_total > 0 else 0) - target_pos_proportion) / target_pos_proportion
+                impact = new_source_total_diff + new_dest_total_diff + new_val_test_total_diff + 2 * (new_source_pos_diff + new_dest_pos_diff)
+                impacts.append((item, impact, total_weight, pos_weight))
+            
+            if not impacts:
+                break
+                
+            item_to_move, _, total_weight, pos_weight = min(impacts, key=lambda x: x[1])
+            source_items.remove(item_to_move)
+            dest_items.append(item_to_move)
+            source_total -= total_weight
+            dest_total += total_weight
+            source_pos -= pos_weight
+            dest_pos += pos_weight
+            
+            # Update set assignments
+            if source_name == 'train':
+                train_items, train_total, train_pos = source_items, source_total, source_pos
+            elif source_name == 'val':
+                val_items, val_total, val_pos = source_items, source_total, source_pos
+            else:
+                test_items, test_total, test_pos = source_items, source_total, source_pos
+            if dest_name == 'train':
+                train_items, train_total, train_pos = dest_items, dest_total, dest_pos
+            elif dest_name == 'val':
+                val_items, val_total, val_pos = dest_items, dest_total, dest_pos
+            else:
+                test_items, test_total, test_pos = dest_items, dest_total, dest_pos
+        
+        # Final hard partition check
+        if hard_partition_isolates:
+            val_items = [item for item in val_items if item not in train_items]
+            test_items = [item for item in test_items if item not in train_items and item not in val_items]
+        
+        return train_items, val_items, test_items
+
+
+    unique_isolates = list(df['assembly_id'].unique())
+    train_isolates, val_isolates, test_isolates = split_by_pairs(
+        items=unique_isolates,
+        pos_weights=isolate_pos_counts,
+        total_weights=isolate_pair_counts,
+        train_ratio=train_ratio,
+        val_ratio=val_ratio,
+        total_pairs=len(pairs_df)
+    )
+
+    # Assign pairs based on assembly_id_a
+    train_pairs = pairs_df[pairs_df['assembly_id_a'].isin(train_isolates)]
+    val_pairs   = pairs_df[pairs_df['assembly_id_a'].isin(val_isolates)]
+    test_pairs  = pairs_df[pairs_df['assembly_id_a'].isin(test_isolates)]
+
+    # Validate assignment
     total_pairs = len(train_pairs) + len(val_pairs) + len(test_pairs)
-    total_isolates = len(train_isolates) + len(val_isolates) + len(test_isolates)
-    print(f'Train pairs: {len(train_pairs)} ({len(train_pairs)/total_pairs*100:.2f}%)')
-    print(f'Val pairs:   {len(val_pairs)} ({len(val_pairs)/total_pairs*100:.2f}%)')
-    print(f'Test pairs:  {len(test_pairs)} ({len(test_pairs)/total_pairs*100:.2f}%)')
-    print(f'Train isolates: {len(train_isolates)} ({len(train_isolates)/total_isolates*100:.2f}%)')
-    print(f'Val isolates:   {len(val_isolates)} ({len(val_isolates)/total_isolates*100:.2f}%)')
-    print(f'Test isolates:  {len(test_isolates)} ({len(test_isolates)/total_isolates*100:.2f}%)')
+    if total_pairs != len(pairs_df):
+        print(f'Warning: {len(pairs_df) - total_pairs} pairs not assigned.')
+    if len(train_pairs) == 0 or len(val_pairs) == 0 or len(test_pairs) == 0:
+        raise ValueError('One or more sets are empty.')
+
+    # Validate hard partition of isolates
+    if hard_partition_isolates:
+        train_set = set(train_isolates)
+        val_set   = set(val_isolates)
+        test_set  = set(test_isolates)
+        train_val_overlap  = train_set & val_set
+        train_test_overlap = train_set & test_set
+        val_test_overlap = val_set & test_set
+        if train_val_overlap or train_test_overlap or val_test_overlap:
+            print(f"Warning: Overlap detected in isolate sets!")
+            if train_val_overlap:
+                print(f"Train-Val overlap: {train_val_overlap}")
+            if train_test_overlap:
+                print(f"Train-Test overlap: {train_test_overlap}")
+            if val_test_overlap:
+                print(f"Val-Test overlap: {val_test_overlap}")
+        else:
+            print("No overlap in isolates: Train, Val, and Test sets are mutually exclusive.")
+        if len(train_set) + len(val_set) + len(test_set) != len(unique_isolates):
+            print(f"Warning: {len(unique_isolates) - (len(train_set) + len(val_set) + len(test_set))} isolates not assigned.")
+
+    # Log stats
+    total_isolates = len(unique_isolates)
+    print(f"Train pairs: {len(train_pairs)} ({len(train_pairs)/total_pairs*100:.2f}%)")
+    print(f"Val pairs:   {len(val_pairs)} ({len(val_pairs)/total_pairs*100:.2f}%)")
+    print(f"Test pairs:  {len(test_pairs)} ({len(test_pairs)/total_pairs*100:.2f}%)")
+    print(f"Train isolates: {len(set(train_isolates))} ({len(set(train_isolates))/total_isolates*100:.2f}%)")
+    print(f"Val isolates:   {len(set(val_isolates))} ({len(set(val_isolates))/total_isolates*100:.2f}%)")
+    print(f"Test isolates:  {len(set(test_isolates))} ({len(set(test_isolates))/total_isolates*100:.2f}%)")
+    print(f"Train positive pairs: {train_pairs['label'].sum()} ({train_pairs['label'].sum()/len(train_pairs)*100:.2f}%)")
+    print(f"Val positive pairs:   {val_pairs['label'].sum()} ({val_pairs['label'].sum()/len(val_pairs)*100:.2f}%)")
+    print(f"Test positive pairs:  {test_pairs['label'].sum()} ({test_pairs['label'].sum()/len(test_pairs)*100:.2f}%)")
+    print(f"Train positive proportion: {train_pairs['label'].sum()/len(train_pairs):.4f}")
+    print(f"Val positive proportion:   {val_pairs['label'].sum()/len(val_pairs):.4f}")
+    print(f"Test positive proportion:  {test_pairs['label'].sum()/len(test_pairs):.4f}")
+
     return train_pairs, val_pairs, test_pairs
+ 
+
 
 
 # Load protein data
@@ -376,10 +534,12 @@ dups = df_core[df_core.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=Fal
 if not dups.empty:
     raise ValueError(f"Duplicate brc_fea_id found within isolates: \
         {dups[['assembly_id', 'brc_fea_id']]}")
-    
+ 
 # Create pairs
 print('\nCreate protein pairs.')
 neg_to_pos_ratio = 3
+# neg_to_pos_ratio = 2
+# neg_to_pos_ratio = 1
 allow_same_func_negatives = True
 max_same_func_ratio = 0.5
 pairs_df = create_protein_pairs(
@@ -387,7 +547,7 @@ pairs_df = create_protein_pairs(
     neg_to_pos_ratio=neg_to_pos_ratio,
     allow_same_func_negatives=allow_same_func_negatives,
     max_same_func_ratio=max_same_func_ratio,
-    seed=seed
+    seed=SEED
 )
 
 # Split dataset
@@ -397,10 +557,14 @@ hard_partition_isolates = True
 hard_partition_duplicates = False
 # hard_partition_duplicates = True
 train_pairs, val_pairs, test_pairs = split_dataset(
-    pairs_df, df_core, hard_partition_isolates, hard_partition_duplicates
+    pairs_df,
+    df_core,
+    hard_partition_isolates,
+    hard_partition_duplicates,
 )
 
 # Save datasets
+breakpoint()
 print('\nSave datasets.')
 train_pairs.to_csv(f"{output_dir}/train_pairs.csv", index=False)
 val_pairs.to_csv(f"{output_dir}/val_pairs.csv", index=False)
