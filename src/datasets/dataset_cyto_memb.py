@@ -13,11 +13,10 @@ import pandas as pd
 from io import BytesIO
 from sklearn.model_selection import train_test_split
 
-seed = 42  # for reproducibility (config!)
-
 filepath = Path(__file__).resolve().parent
 
-# Config
+## Config
+seed = 42  # for reproducibility (config!)
 main_data_dir = filepath / '../../data'
 raw_data_dir = main_data_dir / 'raw'
 
