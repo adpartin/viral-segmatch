@@ -47,11 +47,11 @@ def compute_metrics(eval_pred):
 # ===================================
 # Config
 # ===================================
+SEED = 42
 TASK_NAME = 'cyto_memb'
 CUDA_NAME = 'cuda:5'  # Specify GPU device
 MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'  # Choose ESM-2 model
 # MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # Choose ESM-2 model
-SEED = 42
 
 NUM_EPOCHS = 10  # Number of training epochs
 BATCH_SIZE = 8  # Increase batch size for efficiency
