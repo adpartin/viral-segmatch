@@ -2,6 +2,7 @@
 TODO Questions:
 1. Can we map pssm_df['family'] to prot_df? Can this allow us to determine if it's 2-segment or 3-segment virus?
 2. For modeling, do we really need to know what segment that it (i.e., S, M, L)?
+3. We define a column 'canonical_segment'? Should it be just 'segment'?
 
 Plots:
 * boxplots of protein length per protein
@@ -9,7 +10,7 @@ Plots:
 
 protein_filtered.csv
 file: GTO file name (each GTO file contains rna/dna and protein sequences, including various metadata for a given viral istolate)
-assembly_prefix: GCA or GCF
+assembly_prefix: GCA (GenBank) or GCF (RefSeq)
 assembly_id: assembly version of the genome
 brc_fea_id: feature ID for the protein seq (from BV-BRC)
 fcuntion: function of the protein (e.g., "RNA-dependent RNA polymerase")
@@ -25,7 +26,6 @@ import re
 from collections import Counter
 from pathlib import Path
 from pprint import pprint
-from time import time
 from enum import Enum
 from typing import Dict, List, Union
 
@@ -34,21 +34,17 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-filepath = Path(__file__).resolve().parent # .py
-# filepath = Path(os.path.abspath('')) # .ipynb
+filepath = Path(__file__).resolve().parent
 print(f'filepath: {filepath}')
 
-# Settings
+## Settings
 process_pssm = False
-# process_dna = False
 process_dna = True
 process_protein = True
-# assign_segment_using_core_proteins = False
 assign_segment_using_core_proteins = True
-# assign_segment_using_aux_proteins = False
 assign_segment_using_aux_proteins = True
-# apply_basic_filters = False
 apply_basic_filters = True
+remove_ambig_prot_seqs = True
 
 ## Config
 # task_name = 'bunya_processed'
@@ -70,6 +66,13 @@ print(f'raw_data_dir:    {raw_data_dir}')
 print(f'quality_gto_dir: {quality_gto_dir}')
 print(f'output_dir:      {output_dir}')
 
+# Core protein definitions (used for validation)
+core_funcs = {
+    'L': 'RNA-dependent RNA polymerase',
+    'M': 'Pre-glycoprotein polyprotein GP complex',
+    'S': 'Nucleocapsid protein'
+}
+
 
 def extract_assembly_info(file_name):
     """ Extracts assembly prefix and assembly ID from a file name. """
@@ -79,9 +82,11 @@ def extract_assembly_info(file_name):
     else:
         return None, None
 
+
 class SequenceType(Enum):
     DNA = 'dna'
     PROTEIN = 'prot_seq'
+
 
 def classify_dup_groups(
     df: pd.DataFrame,
@@ -89,14 +94,14 @@ def classify_dup_groups(
     ) -> pd.DataFrame:
     """
     Classify duplicate sequences based on assembly IDs, record IDs, and prefixes.
-    
+
     Args:
         df: DataFrame containing sequence data
         seq_col_name: Column name for sequences, must be either 'dna' or 'prot_seq'
-        
+
     Returns:
         DataFrame summarizing duplicate groups, including classification case.
-        
+
     Raises:
         ValueError: If seq_col_name is not 'dna' or 'prot_seq'
     """
@@ -106,7 +111,7 @@ def classify_dup_groups(
             seq_col_name = SequenceType(seq_col_name)
         except ValueError:
             raise ValueError("seq_col_name must be either 'dna' or 'prot_seq'")
- 
+
     seq_col = seq_col_name.value
 
     # Determine the record ID column (source-specific identifier)
@@ -148,6 +153,54 @@ def classify_dup_groups(
 
     df = pd.DataFrame(dup_info).sort_values('case').reset_index(drop=True)
     return df
+
+
+def enforce_single_file(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+    """ Keep GCF_* over GCA_* for each assembly_id.
+    TODO log those to file
+    """
+    keep_rows = []
+    for aid, grp in df.groupby('assembly_id'):
+        files = grp['file'].unique()
+        if len(files) == 1:
+            keep_rows.append(grp)
+            continue
+        # Multiple files: prioritize GCF_* if present
+        gcf_files = [f for f in files if f.startswith('GCF_')]
+        if gcf_files:
+            # Keep only the first GCF file
+            chosen_fname = gcf_files[0]
+            chosen_file_df = grp[grp['file'] == chosen_fname]
+        else:
+            # No GCF, keep the first file
+            chosein_fname = files[0]
+            chosen_file_df = grp[grp['file'] == chosein_fname]
+        if verbose:
+            print(f"assembly_id {aid}: Multiple files {files}, kept {chosen_fname}")
+        keep_rows.append(chosen_file_df)
+    return pd.concat(keep_rows, ignore_index=True)
+
+
+def validate_protein_counts(
+    df: pd.DataFrame,
+    core_only: bool = False,
+    verbose: bool = False
+    ) -> None:
+    """ Ensure each assembly_id has ≤3 core proteins if core_only=True.
+    TODO log those to file
+    """
+    if core_only:
+        df = df[df['function'].isin(core_funcs.values())]
+    for aid, grp in df.groupby('assembly_id'):
+        n_proteins = len(grp)
+        if core_only and n_proteins > 3:
+            print(f"Warning: assembly_id {aid} has {n_proteins} core proteins, expected ≤3.")
+            print(f"Files: {grp['file'].unique()}")
+            print(f"Functions: {grp['function'].tolist()}")
+            raise ValueError(f"assembly_id {aid} has >3 core proteins.")
+        if verbose:
+            print(f"assembly_id {aid}: {n_proteins} {'core' if core_only else 'total'} \
+                proteins, Functions: {grp['function'].tolist()}")
 
 
 # =======================================================================
@@ -233,7 +286,8 @@ if process_pssm:
 # Explore the file triplet: contig_quality, feature_quality, qual.gto
 # =======================================================================
 # breakpoint()
-ex_file = 'GCF_031497195.1'
+# ex_file = 'GCF_031497195.1'
+ex_file = 'GCF_013086535.1' # had issues with this file (two GPC proteins no duplicates)
 
 # contig_quality
 print(f"\nTotal .contig_quality files: {len(sorted(quality_gto_dir.glob('*.contig_quality')))}")
@@ -577,7 +631,11 @@ if process_protein:
         dfs = []
         gto_files = sorted(gto_dir.glob('*.qual.gto'))
         for fpath in tqdm(gto_files, desc='Aggregating protein data from GTO files'):
+            # if 'GCF_013086535.1' in str(fpath):
+            #     # TODO analyze isolate that has two GPC proteins (this shouldn't happen)
+            #     print(fpath)
             df = get_protein_data_from_gto(gto_file_path=fpath)
+            # print(df[['file', 'genbank_ctg_id', 'type', 'brc_fea_id', 'function']])
             dfs.append(df)
 
         prot_df = pd.concat(dfs, axis=0).reset_index(drop=True)
@@ -593,15 +651,15 @@ if process_protein:
     # Save all samples
     prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
     
-    # Save samples that missing seq data
+    # Save samples with missing seq data
     prot_df_no_seq = prot_df[prot_df['prot_seq'].isna()]
     print(f'prot_df with missing sequences {prot_df_no_seq.shape}')
     prot_df_no_seq.to_csv(output_dir / 'protein_missing_seqs.csv', sep=',', index=False)
 
     """
-    Check that all (BRC) feature numbers are unique.
+    Confirm that all (BRC) feature numbers are unique.
     """
-    # All BRC feature IDs are unique (no duplicates).
+    # Comfirm all BRC feature IDs are unique (no duplicates).
     print('\nCheck that all BRC feature IDs are unique.')
     print(f"Total brc_fea_id:  {prot_df['brc_fea_id'].count()}")
     print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
@@ -951,7 +1009,6 @@ if process_protein:
         prot_df.loc[mask_aux, 'canonical_segment'] = prot_df.loc[mask_aux, 'aux_seg_mapped']
 
         # Diagnostics
-        # breakpoint()
         print('\nAvailable [replicon_type, function] combos for "auxiliary" protein mapping:')
         print_replicon_func_count(prot_df, functions=aux_functions)
 
@@ -960,14 +1017,12 @@ if process_protein:
 
         df.to_csv(output_dir / 'seg_mapped_aux_eda.csv', sep=',', index=False)
 
-        # breakpoint()
         unmapped_aux = prot_df[prot_df[map_seg_col].isna()]
         print(f'\nUnmapped segments (after "aux" protein mapping only): {len(unmapped_aux)}')
         print_replicon_func_count(unmapped_aux) # consider all
         # print_replicon_func_count(unmapped_aux, aux_functions) # consider aux only
 
     # Diagnostics
-    # breakpoint()
     print('\nAvailable [replicon_type, function] combos for "core" and "auxiliary" protein mapping:')
     print_replicon_func_count(prot_df, functions=core_functions + aux_functions)
 
@@ -1136,6 +1191,19 @@ if process_protein:
     # dup_stats.to_csv(output_dir / 'protein_dups_stats.csv', sep=',', index=False)
 
 
+    # Enforce one file per assembly_id before duplicate handling
+    print('\n---- Enforce one file per assembly_id ----')
+    print(f'prot_df before: {prot_df.shape}')
+    prot_df = enforce_single_file(prot_df)
+    print(f'prot_df after:  {prot_df.shape}')
+
+    # Validate protein counts after filtering
+    # breakpoint()
+    print('\n---- Validate protein counts ----')
+    validate_protein_counts(prot_df, core_only=True)   # Check core proteins
+    validate_protein_counts(prot_df, core_only=False)  # Check all proteins
+
+
     """
     Find duplicates.
     Find dups with the same [prot_seq, assembly_id, function, replicon_type]
@@ -1169,8 +1237,8 @@ if process_protein:
 
     """
     Drop duplicates.
-    Drop GCA sample if the same sequence appears also in GCF with the same ['prot_seq', 'assembly_id', 'function', 'replicon_type']
-    (Carla and Jim confirmed we can drop GCA dups)
+    Drop GCA sample if the same sequence appears also in GCF with the same
+    ['prot_seq', 'assembly_id', 'function', 'replicon_type']
     """
     print('\n---- DROP duplicates - Drop GCA if GCF exists for the same [prot_seq, assembly_id, function, replicon_type] ----')
     dup_cols = [seq_col_name, 'assembly_id', 'function', 'replicon_type']
@@ -1287,6 +1355,150 @@ if process_protein:
     
     # print(same_file_dups.equals(dups_func_conflicts))
 
+
+    print('\n=============  Cleaning protein sequences  =============')
+    # Replace '*' with empty string in protein seqs (asterisk '*' denotes a stop codon)
+    print(f'\nRemove asterisks from prot_seq column.')
+    prot_df['prot_seq'] = prot_df['prot_seq'].apply(lambda x: x.replace('*', ''))
+
+    # Handle sequences with ambiguities (non-standard amino acids)
+    # TODO Rather than simply dropping seqs with ambiguities, we can consider
+    # handling these in a more sophisticated way.
+    print('Find ambiguities in protein sequences.')
+    prot_df['has_ambiguity'] = prot_df['prot_seq'].str.contains('[^ACDEFGHIKLMNPQRSTVWY]', regex=True, na=False)
+    if remove_ambig_prot_seqs and prot_df['has_ambiguity'].any():
+        print('Remove protein sequences with ambiguities')
+        ambiguous_df = prot_df[prot_df['has_ambiguity']]
+        print(f"Warning: {len(ambiguous_df)} sequences contain non-standard amino acids.")
+        ambiguous_df.to_csv(output_dir / 'protein_ambiguous_sequences.csv', sep=',', index=False)
+        prot_df = prot_df[~prot_df['has_ambiguity']].reset_index(drop=True)
+        print(f"Dropped {len(ambiguous_df)} ambiguous sequences. Remaining rows: {len(prot_df)}")
+    
+
+    # def analyze_protein_ambiguities(df, seq_column='prot_seq'):
+    #     """
+    #     Analyze protein sequences for ambiguous amino acids and provide detailed information.
+        
+    #     Args:
+    #     df (pd.DataFrame): DataFrame with protein sequences.
+    #     seq_column (str): Name of the column containing protein sequences.
+        
+    #     Returns:
+    #     pd.DataFrame
+    #         The input DataFrame with additional columns:
+    #         - 'has_ambiguities': Boolean indicating presence of non-standard amino acids
+    #         - 'ambiguous_residues': List of unique non-standard amino acids found
+    #         - 'ambiguity_positions': Dictionary mapping each ambiguous residue to its positions
+    #         - 'ambiguity_count': Total number of ambiguous residues in the sequence
+    #     """
+    #     # Standard amino acids (20 canonical amino acids)
+    #     standard_amino_acids = set('ACDEFGHIKLMNPQRSTVWY')
+        
+    #     def identify_ambiguities(seq):
+    #         """ Identify all ambiguous residues in a protein sequence with their positions. """
+    #         if not isinstance(seq, str):
+    #             return False, [], {}, 0
+            
+    #         # Convert to uppercase and remove any whitespace
+    #         seq = seq.upper().strip()
+            
+    #         # Find all non-standard amino acids and their positions
+    #         ambiguous_residues = []
+    #         positions = {}
+            
+    #         for i, aa in enumerate(seq):
+    #             if aa not in standard_amino_acids:
+    #                 if aa not in ambiguous_residues:
+    #                     ambiguous_residues.append(aa)
+    #                     positions[aa] = [i+1]  # 1-based indexing for biologists
+    #                 else:
+    #                     positions[aa].append(i+1)
+            
+    #         # Count total ambiguities
+    #         ambiguity_count = sum(len(pos_list) for pos_list in positions.values())
+            
+    #         return bool(ambiguous_residues), ambiguous_residues, positions, ambiguity_count
+        
+    #     # Apply the function to each sequence
+    #     results = df[seq_column].apply(identify_ambiguities)
+        
+    #     # Extract the results
+    #     df['has_ambiguities'] = results.apply(lambda x: x[0])
+    #     df['ambiguous_residues'] = results.apply(lambda x: x[1])
+    #     df['ambiguity_positions'] = results.apply(lambda x: x[2])
+    #     df['ambiguity_count'] = results.apply(lambda x: x[3])
+        
+    #     return df
+
+    # def summarize_ambiguities(df):
+    #     """
+    #     Generate a summary of ambiguous residues across all sequences.
+        
+    #     Args:
+    #     df (pd.DataFrame): DataFrame that has been processed by analyze_protein_ambiguities().
+        
+    #     Returns:
+    #         (dict) Summary statistics about ambiguities in the dataset.
+    #     """
+    #     if 'ambiguous_residues' not in df.columns:
+    #         raise ValueError("DataFrame must be processed by analyze_protein_ambiguities first")
+        
+    #     # Count sequences with ambiguities
+    #     seq_with_ambiguities = df['has_ambiguities'].sum()
+    #     total_sequences = len(df)
+    #     percent_with_ambiguities = (seq_with_ambiguities / total_sequences) * 100 if total_sequences > 0 else 0
+        
+    #     # Count occurrence of each ambiguous residue
+    #     all_ambiguities = []
+    #     for residue_list in df['ambiguous_residues']:
+    #         all_ambiguities.extend(residue_list)
+    #     ambiguity_counts = Counter(all_ambiguities)
+        
+    #     # Total number of ambiguous positions
+    #     total_ambiguities = df['ambiguity_count'].sum()
+        
+    #     # Common ambiguity codes and their meanings
+    #     ambiguity_meanings = {
+    #         'B': 'Asn or Asp',
+    #         'Z': 'Gln or Glu',
+    #         'J': 'Leu or Ile',
+    #         'X': 'Any amino acid',
+    #         'U': 'Selenocysteine',
+    #         'O': 'Pyrrolysine',
+    #         '*': 'Translation stop',
+    #         '-': 'Gap',
+    #         '.': 'Gap'
+    #     }
+        
+    #     # Add meanings to ambiguity counts
+    #     ambiguity_details = {k: {'count': v, 'meaning': ambiguity_meanings.get(k, 'Unknown')} 
+    #                         for k, v in ambiguity_counts.items()}
+        
+    #     return {
+    #         'sequences_with_ambiguities': int(seq_with_ambiguities),
+    #         'total_sequences': total_sequences,
+    #         'percent_with_ambiguities': percent_with_ambiguities,
+    #         'total_ambiguous_positions': int(total_ambiguities),
+    #         'ambiguity_distribution': ambiguity_details
+    #     }
+
+    # breakpoint()
+    # # TODO Need to check if the asterisk is located in the middle of the seq
+    # prot_df = analyze_protein_ambiguities(prot_df)
+
+    # summary = summarize_ambiguities(prot_df)
+    # print(f"Sequences with ambiguities: {summary['sequences_with_ambiguities']} ({summary['percent_with_ambiguities']:.2f}%)")
+    # print("Ambiguous residue distribution:")
+    # for aa, details in summary['ambiguity_distribution'].items():
+    #     print(f"  {aa}: {details['count']} occurrences - {details['meaning']}")
+
+    # sequences_with_X = prot_df[prot_df['ambiguous_residues'].apply(lambda x: 'X' in x)]
+
+    # ---------------------------------------------------------------
+
+
+
+
     # Final duplicate counts
     print('\n---- Final protein duplicates counts ----')
     """
@@ -1322,11 +1534,12 @@ if process_protein:
     dup_counts = prot_dups.groupby(seq_col_name).agg(num_files=('file', 'nunique')).reset_index()
     print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
+
     # Finally, save filtered protein data
     print('\n----- Save the final filtered protein data -----')
     print(f'prot_df: {prot_df.shape}')
     print(f'Unique protein sequences: {prot_df[seq_col_name].nunique()}')
-    prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False) 
+    prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False)
     aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     aa.to_csv(output_dir / 'protein_filtered_seg_mapping_stats.csv', sep=',', index=False)
     print(prot_df['canonical_segment'].value_counts())
