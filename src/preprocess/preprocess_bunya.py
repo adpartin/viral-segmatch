@@ -23,7 +23,7 @@ replicon_type: type of replicon (segment) the protein is associated with (e.g., 
 import os
 import json
 import re
-from collections import Counter
+import sys
 from pathlib import Path
 from pprint import pprint
 from enum import Enum
@@ -34,8 +34,18 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-filepath = Path(__file__).resolve().parent
-print(f'filepath: {filepath}')
+project_root = Path(__file__).resolve().parents[2]
+sys.path.append(str(project_root))
+print(f'project_root: {project_root}')
+
+from src.utils.timer_utils import Timer
+from src.utils.protein_utils import (
+    analyze_protein_ambiguities,
+    prepare_sequences_for_esm2,
+    summarize_ambiguities
+)
+
+total_timer = Timer()
 
 ## Settings
 process_pssm = False
@@ -48,7 +58,7 @@ remove_ambig_prot_seqs = True
 
 ## Config
 # task_name = 'bunya_processed'
-main_data_dir = filepath / '../../data'
+main_data_dir = project_root / 'data'
 # data_version = 'Feb_2025'
 data_version = 'April_2025'
 raw_data_dir = main_data_dir / 'raw/Anno_Updates' / data_version
@@ -1042,6 +1052,7 @@ if process_protein:
     prot_df.to_csv(output_dir / 'protein_before_filtering.csv', sep=',', index=False)
 
 
+
     if apply_basic_filters:
         print('\n=============  Start basic filtering  =============')
         
@@ -1356,147 +1367,48 @@ if process_protein:
     # print(same_file_dups.equals(dups_func_conflicts))
 
 
+
     print('\n=============  Cleaning protein sequences  =============')
     # Replace '*' with empty string in protein seqs (asterisk '*' denotes a stop codon)
-    print(f'\nRemove asterisks from prot_seq column.')
-    prot_df['prot_seq'] = prot_df['prot_seq'].apply(lambda x: x.replace('*', ''))
+    # print(f'\nRemove asterisks from prot_seq column.')
+    # prot_df['prot_seq'] = prot_df['prot_seq'].apply(lambda x: x.replace('*', ''))
 
-    # Handle sequences with ambiguities (non-standard amino acids)
-    # TODO Rather than simply dropping seqs with ambiguities, we can consider
-    # handling these in a more sophisticated way.
-    print('Find ambiguities in protein sequences.')
-    prot_df['has_ambiguity'] = prot_df['prot_seq'].str.contains('[^ACDEFGHIKLMNPQRSTVWY]', regex=True, na=False)
-    if remove_ambig_prot_seqs and prot_df['has_ambiguity'].any():
-        print('Remove protein sequences with ambiguities')
-        ambiguous_df = prot_df[prot_df['has_ambiguity']]
-        print(f"Warning: {len(ambiguous_df)} sequences contain non-standard amino acids.")
-        ambiguous_df.to_csv(output_dir / 'protein_ambiguous_sequences.csv', sep=',', index=False)
-        prot_df = prot_df[~prot_df['has_ambiguity']].reset_index(drop=True)
-        print(f"Dropped {len(ambiguous_df)} ambiguous sequences. Remaining rows: {len(prot_df)}")
-    
+    breakpoint()
+    org_cols = prot_df.columns
+    prot_df = analyze_protein_ambiguities(prot_df)
+    ambig_cols = [c for c in prot_df.columns if c not in org_cols]
+    jj = prot_df[prot_df['has_ambiguities'] == True]
+    jj = jj[['assembly_id', 'brc_fea_id', 'prot_seq'] + ambig_cols]
+    cols_print = ['assembly_id', 'brc_fea_id'] + ambig_cols
+    print(jj[cols_print])
+    ambig_summary = summarize_ambiguities(prot_df)
+    pprint(ambig_summary)
+    print(f"Total seqs with terminal stops: {ambig_summary['terminal_stops']} ({ambig_summary['percent_terminal_stops']:.2f}%)")
+    print(f"Total seqs with internal stops: {ambig_summary['internal_stops']} ({ambig_summary['percent_internal_stops']:.2f}%)")
+    print("Non-standard residue distribution (excluding terminal stops):")
+    for aa, details in ambig_summary['non_standard_residue_summary'].items():
+        meaning = details['meaning'] if aa != '*' else 'Premature stop or error'
+        print(f"  {aa}: occurred in {details['count']} seqs ({meaning})")
 
-    # def analyze_protein_ambiguities(df, seq_column='prot_seq'):
-    #     """
-    #     Analyze protein sequences for ambiguous amino acids and provide detailed information.
-        
-    #     Args:
-    #     df (pd.DataFrame): DataFrame with protein sequences.
-    #     seq_column (str): Name of the column containing protein sequences.
-        
-    #     Returns:
-    #     pd.DataFrame
-    #         The input DataFrame with additional columns:
-    #         - 'has_ambiguities': Boolean indicating presence of non-standard amino acids
-    #         - 'ambiguous_residues': List of unique non-standard amino acids found
-    #         - 'ambiguity_positions': Dictionary mapping each ambiguous residue to its positions
-    #         - 'ambiguity_count': Total number of ambiguous residues in the sequence
-    #     """
-    #     # Standard amino acids (20 canonical amino acids)
-    #     standard_amino_acids = set('ACDEFGHIKLMNPQRSTVWY')
-        
-    #     def identify_ambiguities(seq):
-    #         """ Identify all ambiguous residues in a protein sequence with their positions. """
-    #         if not isinstance(seq, str):
-    #             return False, [], {}, 0
-            
-    #         # Convert to uppercase and remove any whitespace
-    #         seq = seq.upper().strip()
-            
-    #         # Find all non-standard amino acids and their positions
-    #         ambiguous_residues = []
-    #         positions = {}
-            
-    #         for i, aa in enumerate(seq):
-    #             if aa not in standard_amino_acids:
-    #                 if aa not in ambiguous_residues:
-    #                     ambiguous_residues.append(aa)
-    #                     positions[aa] = [i+1]  # 1-based indexing for biologists
-    #                 else:
-    #                     positions[aa].append(i+1)
-            
-    #         # Count total ambiguities
-    #         ambiguity_count = sum(len(pos_list) for pos_list in positions.values())
-            
-    #         return bool(ambiguous_residues), ambiguous_residues, positions, ambiguity_count
-        
-    #     # Apply the function to each sequence
-    #     results = df[seq_column].apply(identify_ambiguities)
-        
-    #     # Extract the results
-    #     df['has_ambiguities'] = results.apply(lambda x: x[0])
-    #     df['ambiguous_residues'] = results.apply(lambda x: x[1])
-    #     df['ambiguity_positions'] = results.apply(lambda x: x[2])
-    #     df['ambiguity_count'] = results.apply(lambda x: x[3])
-        
-    #     return df
-
-    # def summarize_ambiguities(df):
-    #     """
-    #     Generate a summary of ambiguous residues across all sequences.
-        
-    #     Args:
-    #     df (pd.DataFrame): DataFrame that has been processed by analyze_protein_ambiguities().
-        
-    #     Returns:
-    #         (dict) Summary statistics about ambiguities in the dataset.
-    #     """
-    #     if 'ambiguous_residues' not in df.columns:
-    #         raise ValueError("DataFrame must be processed by analyze_protein_ambiguities first")
-        
-    #     # Count sequences with ambiguities
-    #     seq_with_ambiguities = df['has_ambiguities'].sum()
-    #     total_sequences = len(df)
-    #     percent_with_ambiguities = (seq_with_ambiguities / total_sequences) * 100 if total_sequences > 0 else 0
-        
-    #     # Count occurrence of each ambiguous residue
-    #     all_ambiguities = []
-    #     for residue_list in df['ambiguous_residues']:
-    #         all_ambiguities.extend(residue_list)
-    #     ambiguity_counts = Counter(all_ambiguities)
-        
-    #     # Total number of ambiguous positions
-    #     total_ambiguities = df['ambiguity_count'].sum()
-        
-    #     # Common ambiguity codes and their meanings
-    #     ambiguity_meanings = {
-    #         'B': 'Asn or Asp',
-    #         'Z': 'Gln or Glu',
-    #         'J': 'Leu or Ile',
-    #         'X': 'Any amino acid',
-    #         'U': 'Selenocysteine',
-    #         'O': 'Pyrrolysine',
-    #         '*': 'Translation stop',
-    #         '-': 'Gap',
-    #         '.': 'Gap'
-    #     }
-        
-    #     # Add meanings to ambiguity counts
-    #     ambiguity_details = {k: {'count': v, 'meaning': ambiguity_meanings.get(k, 'Unknown')} 
-    #                         for k, v in ambiguity_counts.items()}
-        
-    #     return {
-    #         'sequences_with_ambiguities': int(seq_with_ambiguities),
-    #         'total_sequences': total_sequences,
-    #         'percent_with_ambiguities': percent_with_ambiguities,
-    #         'total_ambiguous_positions': int(total_ambiguities),
-    #         'ambiguity_distribution': ambiguity_details
-    #     }
-
-    # breakpoint()
-    # # TODO Need to check if the asterisk is located in the middle of the seq
-    # prot_df = analyze_protein_ambiguities(prot_df)
-
-    # summary = summarize_ambiguities(prot_df)
-    # print(f"Sequences with ambiguities: {summary['sequences_with_ambiguities']} ({summary['percent_with_ambiguities']:.2f}%)")
-    # print("Ambiguous residue distribution:")
-    # for aa, details in summary['ambiguity_distribution'].items():
-    #     print(f"  {aa}: {details['count']} occurrences - {details['meaning']}")
-
-    # sequences_with_X = prot_df[prot_df['ambiguous_residues'].apply(lambda x: 'X' in x)]
+    breakpoint()
+    print('\Prepare protein sequences for ESM-2')
+    max_internal_stops = 0.1
+    max_x_residues = 0.1
+    x_imputation = 'G'
+    strip_terminal_stop = True
+    prot_df_esm, prob_seqs_df = prepare_sequences_for_esm2(
+        prot_df.copy(),
+        seq_column='prot_seq',
+        output_column='esm2_ready_seq',
+        x_imputation=x_imputation,
+        max_internal_stops=max_internal_stops,
+        max_x_residues=max_x_residues,
+        strip_terminal_stop=strip_terminal_stop
+    )
+    if not prob_seqs_df.empty:
+        prob_seqs_df.to_csv(output_dir / 'problematic_protein_seqs.csv', index=False)
 
     # ---------------------------------------------------------------
-
-
 
 
     # Final duplicate counts
@@ -1546,4 +1458,5 @@ if process_protein:
 
 # ----------------------------------------------------------------
 # breakpoint()
+total_timer.display_timer()
 print('\nDone!')
