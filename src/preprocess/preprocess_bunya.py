@@ -49,7 +49,7 @@ total_timer = Timer()
 
 ## Settings
 process_pssm = False
-process_dna = True
+process_dna = False
 process_protein = True
 assign_segment_using_core_proteins = True
 assign_segment_using_aux_proteins = True
@@ -65,7 +65,7 @@ raw_data_dir = main_data_dir / 'raw/Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets/Quality_GTOs'
 
 virus_name = 'bunya'
-processed_data_dir = main_data_dir / 'processed' / virus_name / data_version
+processed_data_dir = main_data_dir / 'processed' / virus_name / data_version / 'old'
 
 # output_dir = main_data_dir / task_name / data_version
 output_dir = processed_data_dir
@@ -213,130 +213,37 @@ def validate_protein_counts(
                 proteins, Functions: {grp['function'].tolist()}")
 
 
-# =======================================================================
-# Explore the Viral_PSSM.json.
-# =======================================================================
+def print_replicon_func_count(
+        df: pd.DataFrame,
+        functions: List[str]=None,
+        more_cols: List[str]=None,
+        drop_na: bool=True,
+    ):
+    """ 
+    Print counts of [replicon_type, function] combos.
 
-"""
-The annotation script reads from Viral_PSSM.json. If a protein has a segment assigned
-to it, then it's used in defining the segment and making sure that segment is intact.
+    Parameters:
+        df (pd.DataFrame): DataFrame containing protein data
+        functions (List[str]): List of functions to filter by
+        more_cols (List[str]): Additional columns to include in the grouping
+        drop_na (bool): Whether to drop NA values from the grouping
+    """
+    df = df.copy()
+    if functions is not None:
+        df = df[df['function'].isin(functions)]
 
-The Viral_PSSM.json file serves as a reference schema for the expected structure and
-composition of segmented viral genomes, particularly within the order Bunyavirales
-and a few other segmented RNA viruses (e.g., Arenaviridae, Phasmaviridae, etc.).
+    basic_cols = ['replicon_type', 'function']
+    col_list = basic_cols if more_cols is None else basic_cols + more_cols
 
-It is designed to inform genome annotation and quality assessment pipelines by describing:
-1. What segments (replicons) are expected for each viral family.
-2. What features (usually protein-coding genes) are expected on each segment.
-3. What the expected lengths are for both segments and features.
-4. Which feature belongs to which segment, based on curated domain knowledge and taxonomic conventions.
-
-🧬 Biological Context
-In segmented RNA viruses like those in Bunyavirales:
-* The viral genome is split into 2 or more RNA segments, each encoding different viral proteins.
-* Each segment is typically associated with a particular set of functional genes/proteins.
-* Different viral families follow different segment-protein conventions. For example, some plant viruses have an extra "movement" protein.
-
-🔹 Segment Entry
-These entries describe the expected segment structure for a given viral family.
-📌 Purpose: Establish expectations for which segments should exist and what lengths are reasonable.
-
-🔹 Feature Entry
-These entries describe the expected protein features (typically CDS or mat_peptide entries) on a given segment.
-📌 Purpose:
-* Define which features should be present on which segments.
-* Validate whether the annotated proteins fall within reasonable length bounds.
-* Flag proteins on the wrong segment, mislabeled, or missing.
-"""
-
-if process_pssm:
-    # Load the Viral_PSSM.json file
-    with open(raw_data_dir / 'Bunya-from-datasets/Viral_PSSM.json', 'r') as f:
-        viral_pssm = json.load(f)
-
-    # Parse the structure into a flat DataFrame
-    records = []
-    for family, family_data in viral_pssm.items():
-        segments = family_data.get('segments', {})
-        features = family_data.get('features', {})
-        
-        for seg_name, seg_data in segments.items():
-            seg_info = {
-                'family': family,
-                'segment_name': seg_name,
-                'segment_min_len': seg_data.get('min_len'),
-                'segment_max_len': seg_data.get('max_len'),
-                'replicon_geometry': seg_data.get('replicon_geometry'),
-            }
-            records.append({**seg_info, 'type': 'segment'})
-
-        for feature_name, feature_data in features.items():
-            feature_info = {
-                'family': family,
-                'feature_name': feature_name,
-                'feature_type': feature_data.get('feature_type'),
-                'anno': feature_data.get('anno'),
-                'segment': feature_data.get('segment'),
-                'min_len': feature_data.get('min_len'),
-                'max_len': feature_data.get('max_len'),
-            }
-            records.append({**feature_info, 'type': 'feature'})
-
-    # Convert to DataFrame
-    pssm_df = pd.DataFrame(records)
-    # pssm_df.to_csv(output_dir / 'viral_pssm.tsv', sep='\t', index=False)
-    pssm_df.to_csv(output_dir / 'viral_pssm.csv', sep=',', index=False)
-    # print(f'\npssm_df {pssm_df.shape}')
-    # print(f"\n{pssm_df['family'].value_counts()}")
-    # print(f"\n{pssm_df['segment'].value_counts()}")
-    # print(f"\n{pssm_df['segment_name'].value_counts()}")
-
-
-# =======================================================================
-# Explore the file triplet: contig_quality, feature_quality, qual.gto
-# =======================================================================
-# breakpoint()
-# ex_file = 'GCF_031497195.1'
-ex_file = 'GCF_013086535.1' # had issues with this file (two GPC proteins no duplicates)
-
-# contig_quality
-print(f"\nTotal .contig_quality files: {len(sorted(quality_gto_dir.glob('*.contig_quality')))}")
-cq = pd.read_csv(quality_gto_dir / f'{ex_file}.contig_quality', sep='\t')
-print(cq)
-
-# feature_quality
-print(f"\nTotal .feature_quality files: {len(sorted(quality_gto_dir.glob('*.feature_quality')))}")
-fq = pd.read_csv(quality_gto_dir / f'{ex_file}.feature_quality', sep='\t')
-print(fq)
-
-# qual.gto
-print(f"n\Total .qual.gto files: {len(sorted(quality_gto_dir.glob('*.qual.gto')))}")
-file_path = quality_gto_dir / f'{ex_file}.qual.gto'
-with open(file_path, 'r') as file:
-    gto = json.load(file)
-
-print('\nGTO file keys:')
-for k in sorted(gto.keys()):
-    print(f'{k}: {type(gto[k])}')
-
-# Explore 'features' in the GTO dict
-print(f"\nTotal 'features' items: {len(gto['features'])}") # that's the number rows in feature_quality file
-for d in gto['features']:
-    print(sorted(d.keys())) # print sorted keys
-
-# create a list of sorted dicts
-fea = []
-for d in gto['features']:
-    fea.append({k: d[k] for k in sorted(d.keys())})
-
-print("\nShow gto['features'][0]:")
-pprint(gto['features'][0])
-
-# The 'features' contains some (or all) of the info available in the .feature_quality file.
-print("\nShow a few items of a single 'features' item:")
-for i, item in enumerate(fea):
-    print(f"{item['id']},  {item['type']},  {item['function']}")
-
+    df = (
+        df.groupby(col_list, dropna=drop_na)
+        .size()
+        .reset_index(name='count')
+        .sort_values(['function', 'count'], ascending=False)
+        .reset_index(drop=True)
+    )
+    print(df)
+    return df
 
 
 
@@ -521,9 +428,6 @@ if process_dna:
     print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
     dup_summary = classify_dup_groups(dna_dups, SequenceType.DNA)
-
-    show_cols = [c for c in dup_summary.columns if c not in
-        [SequenceType.DNA.value, SequenceType.PROTEIN.value]]
     case1 = dup_summary[dup_summary['case'] == 'Case 1']
     case2 = dup_summary[dup_summary['case'] == 'Case 2']
     case_other = dup_summary[dup_summary['case'] == 'Other']
@@ -531,17 +435,10 @@ if process_dna:
     print(f"Case 2: {case2.shape[0]} sequences")
     print(f"Case Other: {case_other.shape[0]} sequences")
 
+    show_cols = [c for c in dup_summary.columns if c not in
+        [SequenceType.DNA.value, SequenceType.PROTEIN.value]]
     print(f'Case 1:\n{case1[:3][show_cols]}')
     print(f'Case 2:\n{case2[:3][show_cols]}')
-
-    # Explore duplicate groups with more than 2 files
-    dup_counts = dna_dups.groupby(seq_col_name)['file'].nunique().reset_index(name='num_files')
-    multi_dups = dup_counts[dup_counts['num_files'] > 2] # > 2 dups
-    multi_dup_records = dna_dups.merge(multi_dups[[seq_col_name]], on=seq_col_name) # Merge back to get full rows
-    multi_dup_records = multi_dup_records.sort_values([seq_col_name, 'assembly_id', 'assembly_prefix'])
-    print(f'\nmulti_dup_records: {multi_dup_records.shape}')
-    print(f'{multi_dup_records}')
-
 
 
 
@@ -608,9 +505,9 @@ if process_protein:
 
             # Family
             if ('family_assignments' in fea_dict) and (len(fea_dict['family_assignments'][0]) > 2):
-                row['family_i2'] = fea_dict['family_assignments'][0][1]
+                row['family'] = fea_dict['family_assignments'][0][1]
             else:
-                row['family_i2'] = pd.NA
+                row['family'] = pd.NA
 
             rows.append(row)
 
@@ -655,116 +552,55 @@ if process_protein:
     # Aggregate protein data from all GTO files
     print(f"\nAggregate protein from all {len(sorted(quality_gto_dir.glob('*.qual.gto')))} .qual.gto files.")
     prot_df = aggregate_protein_data_from_gto_files(quality_gto_dir)
-    print(f'prot_df all samples {prot_df.shape}')
-    print(f'prot_df columns: {prot_df.columns.tolist()}')
+    print(f'prot_df: {prot_df.shape}')
 
-    # Save all samples
+    # Save initial data
     prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
-    
-    # Save samples with missing seq data
     prot_df_no_seq = prot_df[prot_df['prot_seq'].isna()]
     print(f'prot_df with missing sequences {prot_df_no_seq.shape}')
     prot_df_no_seq.to_csv(output_dir / 'protein_missing_seqs.csv', sep=',', index=False)
 
-    """
-    Confirm that all (BRC) feature numbers are unique.
-    """
-    # Comfirm all BRC feature IDs are unique (no duplicates).
+    # Check unique BRC feature IDs
     print('\nCheck that all BRC feature IDs are unique.')
     print(f"Total brc_fea_id:  {prot_df['brc_fea_id'].count()}")
     print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
 
     """
-    Analyze segments (replicon_type)
-    ----------------
-    Explore all 'replicon_type' entires:
-    Medium RNA Segment    3813
-    Small RNA Segment     2512
-    Large RNA Segment     1699
-    Unassigned             152
+    Explore all 'replicon_type' entires (segments):
+    Medium RNA Segment    3905
+    Small RNA Segment     2593
+    Large RNA Segment     1798
+    Unassigned             165
     Segment One             61
     Segment Two             59
     Segment Four            59
     Segment Three           45
 
     Explore core protein functions:
-    replicon_type                                               function  count
-    Large RNA Segment           RNA-dependent RNA polymerase (L protein)   1524
-    Segment One                 RNA-dependent RNA polymerase (L protein)     61
-    Small RNA Segment           RNA-dependent RNA polymerase (L protein)      4 TODO Note 1 below (dropped)
+    Large RNA Segment           RNA-dependent RNA polymerase   1623
+    Segment One                 RNA-dependent RNA polymerase     61
+    Small RNA Segment           RNA-dependent RNA polymerase      4 TODO Note 1 below (dropped)
     -----------------
-    Medium RNA Segment Pre-glycoprotein polyprotein GP complex (GPC p...   1296
-    Small RNA Segment  Pre-glycoprotein polyprotein GP complex (GPC p...    104 TODO Note 2 below (dropped)
-    Segment Two        Pre-glycoprotein polyprotein GP complex (GPC p...     59 TODO Note 4 below (temp. dropped)
+    Medium RNA Segment Pre-glycoprotein polyprotein GP complex 1344
+    Small RNA Segment  Pre-glycoprotein polyprotein GP complex  104 TODO Note 2 below (dropped)
+    Segment Two        Pre-glycoprotein polyprotein GP complex   59 TODO Note 4 below (temp. dropped)
     -----------------
-    Small RNA Segment                   Nucleocapsid protein (N protein)   1370
-    Segment Three                       Nucleocapsid protein (N protein)     45 TODO Note 3 below (kept)
+    Small RNA Segment                   Nucleocapsid protein   1432
+    Segment Three                       Nucleocapsid protein     45 TODO Note 3 below (kept)
     
     Notes:
-        1. [Small RNA Segment, RNA-dependent RNA polymerase] - This doesn't make sense. Later dropped on 'quality' (Poor)
-        2. [Small RNA Segment, Pre-glycoprotein polyprotein] - Probably comes from from bipartite Bunyas (Jim confirmed).
-            We drop it since it's ambiguous in our L/M/S labeling framework (it violates the assumption that 'S'
-            implies N protein).
-        3. [Segment Three, Nucleocapsid protein (N protein)] - This must be a tripartite Bunya (Jim confirmed).
-            This should be safe to combine with Small RNA Segment (Jim confirmed).
-        4. [Segment Two, Pre-glycoprotein polyprotein] - This could be M in tripartite genomes (would keep)
-            or S in bipartite genomes (would drop). Segment Two is taxonomically ambiguous (not enough info
-            to resolve without consulting taxon-specific rules.)
-
-    Explore replicon_type='Segment [One/Two/Three/Four]':
-    replicon_type                                           function  count
-    Segment Four                 Fimoviridae uncharacterized protein      6
-    Segment Four                                    Movement protein     53
-    Segment One             RNA-dependent RNA polymerase (L protein)     61
-    Segment Three                   Nucleocapsid protein (N protein)     45
-    Segment Two    Pre-glycoprotein polyprotein GP complex (GPC p...     59
+    1. [Small RNA Segment, RNA-dependent RNA polymerase] - This doesn't make sense. Later dropped on 'quality' (Poor)
+    2. [Small RNA Segment, Pre-glycoprotein polyprotein] - Probably comes from from bipartite Bunyas (Jim confirmed).
+        We drop it since it's ambiguous in our L/M/S labeling framework (it violates the assumption that 'S'
+        implies N protein).
+    3. [Segment Three, Nucleocapsid protein (N protein)] - This must be a tripartite Bunya (Jim confirmed).
+        This should be safe to combine with Small RNA Segment (Jim confirmed).
+    4. [Segment Two, Pre-glycoprotein polyprotein] - This could be M in tripartite genomes (would keep)
+        or S in bipartite genomes (would drop). Segment Two is taxonomically ambiguous (not enough info
+        to resolve without consulting taxon-specific rules).
     """
-    # breakpoint()
-    print("\nExplore all 'replicon_type' counts.")
+    print("\nExplore 'replicon_type' counts.")
     print(prot_df['replicon_type'].value_counts())
-
-    # breakpoint()
-    print("\nExplore ['Segment [One/Two/Three/Four]', 'function'] counts")
-    df = (
-        prot_df[prot_df['replicon_type']
-        .isin(['Segment One', 'Segment Two', 'Segment Three', 'Segment Four'])]
-        .groupby(['replicon_type', 'function'])
-        .size()
-        .reset_index(name='count')
-    )
-    print(df)
-
-    def print_replicon_func_count(
-            df: pd.DataFrame,
-            functions: List[str]=None,
-            more_cols: List[str]=None,
-            drop_na: bool=True,
-        ):
-        """ 
-        Print counts of [replicon_type, function] combos.
-
-        Parameters:
-            df (pd.DataFrame): DataFrame containing protein data
-            functions (List[str]): List of functions to filter by
-            more_cols (List[str]): Additional columns to include in the grouping
-            drop_na (bool): Whether to drop NA values from the grouping
-        """
-        df = df.copy()
-        if functions is not None:
-            df = df[df['function'].isin(functions)]
-
-        basic_cols = ['replicon_type', 'function']
-        col_list = basic_cols if more_cols is None else basic_cols + more_cols
-
-        df = (
-            df.groupby(col_list, dropna=drop_na)
-            .size()
-            .reset_index(name='count')
-            .sort_values(['function', 'count'], ascending=False)
-            .reset_index(drop=True)
-        )
-        print(df)
-        return df
 
     if data_version == 'Feb_2025':
         core_functions = [
@@ -905,19 +741,23 @@ if process_protein:
                 'canonical_segment': 'S'
                 },
             ])
-        map_seg_col = 'core_seg_mapped'
-        core_function_segment_map = core_function_segment_map.rename(
-            columns={'canonical_segment': map_seg_col})
 
-        # Merge: Assign temp. canonical segments where function-replicon pairs match
+        map_seg_col = 'core_seg_mapped'
+        core_function_segment_map = core_function_segment_map.rename(columns={'canonical_segment': map_seg_col})
+        print(core_function_segment_map)
+
+        # Merge: Assign temp canonical segments where function-replicon pairs match
         prot_df = prot_df.merge(
-            core_function_segment_map, on=['function', 'replicon_type'],
+            core_function_segment_map,
+            on=['function', 'replicon_type'],
             how='left'  # keep all rows, NaN where mapping doesn't apply
         )
+        # print(prot_df.iloc[:,-4:])
 
         # Assign core_seg_mapped to canonical_segment
         mask_core = prot_df['core_seg_mapped'].notna()
         prot_df.loc[mask_core, 'canonical_segment'] = prot_df.loc[mask_core, 'core_seg_mapped']
+        # print(prot_df.iloc[:,-4:])
 
         # Diagnostics
         # breakpoint()
@@ -926,7 +766,6 @@ if process_protein:
 
         print('\nAll [replicon_type, function] combos and assigned segments:')
         df = print_replicon_func_count(prot_df, more_cols=[map_seg_col], drop_na=False)
-
         df.to_csv(output_dir / 'seg_mapped_core_eda.csv', sep=',', index=False)
 
         # breakpoint()
@@ -1004,6 +843,7 @@ if process_protein:
                 'canonical_segment': 'M'
                 },
             ])
+
         map_seg_col = 'aux_seg_mapped'
         aux_function_segment_map = aux_function_segment_map.rename(
             columns={'canonical_segment': map_seg_col})
@@ -1013,10 +853,12 @@ if process_protein:
             aux_function_segment_map, on=['function', 'replicon_type'],
             how='left'  # keep all rows, NaN where mapping doesn't apply
         )
+        # print(prot_df.iloc[:,-4:])
 
         # Assign core_seg_mapped to canonical_segment
         mask_aux = prot_df['canonical_segment'].isna() & prot_df['aux_seg_mapped'].notna()
         prot_df.loc[mask_aux, 'canonical_segment'] = prot_df.loc[mask_aux, 'aux_seg_mapped']
+        # print(prot_df.iloc[:,-4:])
 
         # Diagnostics
         print('\nAvailable [replicon_type, function] combos for "auxiliary" protein mapping:')
@@ -1024,7 +866,6 @@ if process_protein:
 
         print('\nAll [replicon_type, function] combos and assigned segments:')
         df = print_replicon_func_count(prot_df, more_cols=[map_seg_col], drop_na=False)
-
         df.to_csv(output_dir / 'seg_mapped_aux_eda.csv', sep=',', index=False)
 
         unmapped_aux = prot_df[prot_df[map_seg_col].isna()]
@@ -1106,7 +947,6 @@ if process_protein:
         prot_df.to_csv(output_dir / 'protein_filtered_basic.csv', sep=',', index=False)
 
 
-
     print('\n=============  Handle protein sequence duplicates  =============')
     if (output_dir / 'protein_filtered_basic.csv').exists():
         print('Load filtered (basic) protein data.')
@@ -1115,9 +955,9 @@ if process_protein:
     """
     Explore duplicates in protein data.
     """
-    # breakpoint()
     seq_col_name = 'prot_seq'
-    aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
+    aa = print_replicon_func_count(prot_df,
+        more_cols=['canonical_segment'], drop_na=False)
 
     # Get all duplicate protein sequences
     print(f'\nprot_df: {prot_df.shape}')
@@ -1128,7 +968,8 @@ if process_protein:
     )
     # prot_dups.to_csv(output_dir / 'protein_all_dups.csv', sep=',', index=False)
     print(f"Duplicates on '{seq_col_name}': {prot_dups.shape}")
-    print(prot_dups[:4][['file', 'assembly_id', 'genbank_ctg_id', 'replicon_type', 'brc_fea_id', 'function', 'canonical_segment']])
+    print(prot_dups[:4][['file', 'assembly_id', 'genbank_ctg_id', 'replicon_type',
+        'brc_fea_id', 'function', 'canonical_segment']])
 
     # Count in how many unique files each duplicated sequence appears
     """
@@ -1153,7 +994,6 @@ if process_protein:
         least 2 times) inside one single file AND do not appear in any other file.
     """
     print(f'\nCount how many unique files contain each duplicated sequence:')
-    # dup_counts = prot_dups.groupby(seq_col_name)['file'].nunique().reset_index(name='num_files')
     dup_counts = prot_dups.groupby(seq_col_name).agg(num_files=('file', 'nunique')).reset_index()
     print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
@@ -1161,15 +1001,13 @@ if process_protein:
         seq_col_name = 'prot_seq'
         df = df.copy()
         grouped = df.groupby(columns)
-
         # grouped_iterator = iter(grouped)
         # first_key, first_group = next(grouped_iterator)
 
         for keys, grp in grouped:
-            # print(f"Sequence: {seq[:50]}")  # print a slice of seq
             print('\nDuplicate group (rows with this seq):')
-            print(grp[:6][[seq_col_name, 'file', 'assembly_id', 'genbank_ctg_id', 'replicon_type', 'brc_fea_id', 'function']])
-            # print(grp)
+            print(grp[:4][[seq_col_name, 'file', 'assembly_id', 'genbank_ctg_id',
+                'replicon_type', 'brc_fea_id', 'function']])
             break  # remove this to loop over more groups
         return grp
 
@@ -1209,49 +1047,43 @@ if process_protein:
     print(f'prot_df after:  {prot_df.shape}')
 
     # Validate protein counts after filtering
-    # breakpoint()
     print('\n---- Validate protein counts ----')
     validate_protein_counts(prot_df, core_only=True)   # Check core proteins
     validate_protein_counts(prot_df, core_only=False)  # Check all proteins
 
 
     """
-    Find duplicates.
     Find dups with the same [prot_seq, assembly_id, function, replicon_type]
     Same isolate duplicates.
     """
-    print('\n---- FIND duplicates - dups on [prot_seq, assembly_id, function, replicon_type] ----')
+    # breakpoint()
+    print('\n---- FIND dups on [prot_seq, assembly_id, function, replicon_type] ----')
     dup_cols = [seq_col_name, 'assembly_id', 'function', 'replicon_type']
-
     gca_gcf_dups = (
         prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
         .sort_values(dup_cols)
         .reset_index(drop=True).copy()
     )
-
     gca_gcf_dups.to_csv(output_dir / 'protein_dups_same_isolate.csv', sep=',', index=False)
+
     print(f'gca_gcf_dups: {gca_gcf_dups.shape}')
     print(f"dups unique seqs: {gca_gcf_dups['prot_seq'].nunique()}")
-    print(gca_gcf_dups[:6][dup_cols + ['assembly_prefix']])
+    print(gca_gcf_dups[:4][dup_cols + ['assembly_prefix']])
 
     gca_gcf_dups_eda = gca_gcf_dups.groupby(dup_cols).agg(
         num_assembly_prefixes=('assembly_prefix', 'nunique'),
         assembly_prefixes=('assembly_prefix', lambda x: list(set(x))),
         brc_fea_ids=('brc_fea_id', lambda x: list(set(x))),
         ).sort_values(dup_cols).reset_index()
-
     gca_gcf_dups_eda.to_csv(output_dir / 'protein_dups_same_isolate_eda.csv', sep=',', index=False)
-
-    # breakpoint()
     del dup_cols, # gca_gcf_dups, gca_gcf_dups_eda
 
 
     """
-    Drop duplicates.
     Drop GCA sample if the same sequence appears also in GCF with the same
     ['prot_seq', 'assembly_id', 'function', 'replicon_type']
     """
-    print('\n---- DROP duplicates - Drop GCA if GCF exists for the same [prot_seq, assembly_id, function, replicon_type] ----')
+    print('\n---- DROP GCA if GCF exists for the same [prot_seq, assembly_id, function, replicon_type] ----')
     dup_cols = [seq_col_name, 'assembly_id', 'function', 'replicon_type']
     
     # 1) Find all groups (on dup_cols) where both GCA and GCF appear
@@ -1302,46 +1134,38 @@ if process_protein:
 
 
     """
-    Find duplicates.
-    Dups within a GTO file (intra-file dups). This is related to num_occurrences >= num_files.
+    Find dups within a GTO file (intra-file dups). This is related to num_occurrences >= num_files.
     """
-    print('\n---- FIND duplicates - duplicates within the same GTO file (intra-file dups) ----')
+    print('\n---- FIND dups within the same GTO file (intra-file dups) ----')
     dup_cols = [seq_col_name, 'file']
-
     same_file_dups = (
         prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
         .sort_values(dup_cols + ['brc_fea_id'])
         .reset_index(drop=True).copy()
     )
-
     same_file_dups.to_csv(output_dir / 'protein_dups_within_file.csv', sep=',', index=False)
+
     print(f'same_file_dups: {same_file_dups.shape}')
     print(f"dups unique seqs: {same_file_dups['prot_seq'].nunique()}")
-    if same_file_dups.empty:
-        print('No duplicates found within the same GTO file.')
-    else:
-        print(same_file_dups[:6][dup_cols + ['brc_fea_id']])
-    
+    if not same_file_dups.empty:
+        print(same_file_dups[:4][dup_cols + ['brc_fea_id']])
+
     same_file_dups_eda = same_file_dups.groupby(dup_cols).agg(
         num_brc_fea_ids=('brc_fea_id', 'nunique'),
         num_funcs=('function', 'nunique'),
         brc_fea_ids=('brc_fea_id', lambda x: list(set(x))),
         functions=('function', lambda x: list(set(x))),
         ).sort_values(dup_cols).reset_index()
-
     same_file_dups_eda.to_csv(output_dir / 'protein_dups_within_file_eda.csv', sep=',', index=False)
-
-    # breakpoint()
     del dup_cols, # same_file_dups, same_file_dups_eda
 
 
     """
-    Find duplicates.
-    Dups with different function annotations in the same file.
+    Find dups with different function annotations in the same file.
     That's a special case of intra-file duplicates.
     Note! These exacly match the same-file duplicates.
     """
-    print('\n---- FIND duplicates - functions annotations ----')
+    print('\n---- FIND dups functions annotations ----')
     dup_cols = [seq_col_name, 'file']
 
     dups_func_conflicts = (
@@ -1373,29 +1197,32 @@ if process_protein:
     # print(f'\nRemove asterisks from prot_seq column.')
     # prot_df['prot_seq'] = prot_df['prot_seq'].apply(lambda x: x.replace('*', ''))
 
-    breakpoint()
+    print("\nExplore ambiguities in protein sequences.")
     org_cols = prot_df.columns
     prot_df = analyze_protein_ambiguities(prot_df)
     ambig_cols = [c for c in prot_df.columns if c not in org_cols]
-    jj = prot_df[prot_df['has_ambiguities'] == True]
-    jj = jj[['assembly_id', 'brc_fea_id', 'prot_seq'] + ambig_cols]
+    ambig_df = prot_df[prot_df['has_ambiguities'] == True]
+    ambig_df = ambig_df[['assembly_id', 'brc_fea_id', 'prot_seq'] + ambig_cols]
     cols_print = ['assembly_id', 'brc_fea_id'] + ambig_cols
-    print(jj[cols_print])
-    ambig_summary = summarize_ambiguities(prot_df)
-    pprint(ambig_summary)
-    print(f"Total seqs with terminal stops: {ambig_summary['terminal_stops']} ({ambig_summary['percent_terminal_stops']:.2f}%)")
-    print(f"Total seqs with internal stops: {ambig_summary['internal_stops']} ({ambig_summary['percent_internal_stops']:.2f}%)")
+    print(f'Protein sequences with ambiguous chars: {ambig_df.shape[0]}')
+    print(ambig_df[cols_print])
+
+    print("\nSummarize of ambiguities in protein sequences.")
+    sa = summarize_ambiguities(prot_df)
+    pprint(sa)
+    print(f"Total protein seqs with terminal stops: {sa['terminal_stops']} ({sa['percent_terminal_stops']:.2f}%)")
+    print(f"Total protein seqs with internal stops: {sa['internal_stops']} ({sa['percent_internal_stops']:.2f}%)")
     print("Non-standard residue distribution (excluding terminal stops):")
-    for aa, details in ambig_summary['non_standard_residue_summary'].items():
+    for aa, details in sa['non_standard_residue_summary'].items():
         meaning = details['meaning'] if aa != '*' else 'Premature stop or error'
         print(f"  {aa}: occurred in {details['count']} seqs ({meaning})")
 
-    breakpoint()
-    print('\Prepare protein sequences for ESM-2')
+    print("\nPrepare protein sequences for ESM-2.")
     max_internal_stops = 0.1
     max_x_residues = 0.1
     x_imputation = 'G'
     strip_terminal_stop = True
+    breakpoint()
     prot_df_esm, prob_seqs_df = prepare_sequences_for_esm2(
         prot_df.copy(),
         seq_column='prot_seq',

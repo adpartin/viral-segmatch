@@ -16,7 +16,12 @@ project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 # print(f'project_root: {project_root}')
 
-from src.utils.gto_utils import extract_assembly_info, enforce_single_file, classify_dup_groups, SequenceType
+from src.utils.gto_utils import (
+    extract_assembly_info,
+    enforce_single_file,
+    classify_dup_groups,
+    SequenceType
+)
 from src.utils.dna_utils import summarize_dna_qc, clean_dna_sequences
 from src.utils.timer_utils import Timer
 
@@ -92,16 +97,14 @@ def aggregate_dna_data_from_gto_files(gto_dir: Path) -> pd.DataFrame:
 
 # Aggregate DNA data from GTO files
 # breakpoint()
-print(f"\nAggregating DNA/RNA from {len(sorted(quality_gto_dir.glob('*.qual.gto')))} GTO files.")
+print(f"\nAggregating DNA/RNA data from {len(sorted(quality_gto_dir.glob('*.qual.gto')))} GTO files.")
 dna_df = aggregate_dna_data_from_gto_files(quality_gto_dir)
-print(f'dna_df all samples {dna_df.shape}')
+print(f'dna_df: {dna_df.shape}')
 
-# Save all samples
+# Save initial data
 dna_df.to_csv(output_dir / 'dna_agg_from_GTOs.csv', sep=',', index=False)
-
-# Save samples with missing sequences
 dna_df_no_seq = dna_df[dna_df['dna'].isna()]
-print(f'Records with missing sequences: {dna_df_no_seq.shape}')
+print(f'Records with missing DNA sequence: {dna_df_no_seq.shape}')
 dna_df_no_seq.to_csv(output_dir / 'dna_missing_seqs.csv', sep=',', index=False)
 
 # Check unique GenBank accession numbers
