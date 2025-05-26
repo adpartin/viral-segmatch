@@ -1,9 +1,5 @@
 """
 Preprocess protein data from GTO files for Bunyavirales.
-
-TODO
-1. ...
-
 Prefer shorter answers.
 """
 import sys
@@ -23,13 +19,12 @@ from src.utils.timer_utils import Timer
 from src.utils.gto_utils import (
     extract_assembly_info,
     enforce_single_file,
-    classify_dup_groups,
-    SequenceType
 )
 from src.utils.protein_utils import (
     analyze_protein_ambiguities,
     summarize_ambiguities,
-    prepare_sequences_for_esm2
+    prepare_sequences_for_esm2,
+    print_replicon_func_count
 )
 
 total_timer = Timer()
@@ -42,25 +37,14 @@ raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
 output_dir = main_data_dir / 'processed' / virus_name / data_version / 'new'
 output_dir.mkdir(parents=True, exist_ok=True)
+seq_col_name = 'prot_seq'
 
 print(f'main_data_dir:   {main_data_dir}')
 print(f'raw_data_dir:    {raw_data_dir}')
 print(f'quality_gto_dir: {quality_gto_dir}')
 print(f'output_dir:      {output_dir}')
 
-# Core protein definitions
-core_funcs = {
-    'L': 'RNA-dependent RNA polymerase',
-    'M': 'Pre-glycoprotein polyprotein GP complex',
-    'S': 'Nucleocapsid protein'
-}
-# core_functions = list(core_funcs.values())
-# aux_functions = [
-#     'Bunyavirales mature nonstructural membrane protein (NSm)',
-#     'Bunyavirales small nonstructural protein NSs',
-#     'Phenuiviridae mature nonstructural 78-kD protein',
-# ]
-
+# Core and auxiliary functions based data version
 if data_version == 'April_2025':
     core_functions = [
         'RNA-dependent RNA polymerase',
@@ -72,7 +56,6 @@ if data_version == 'April_2025':
         'Bunyavirales small nonstructural protein NSs',
         'Phenuiviridae mature nonstructural 78-kD protein',
     ]
-
 elif data_version == 'Feb_2025':
     core_functions = [
         'RNA-dependent RNA polymerase (L protein)',
@@ -85,7 +68,8 @@ elif data_version == 'Feb_2025':
         'Phenuiviridae mature nonstructural 78-kD protein',
         'Small Nonstructural Protein NSs (NSs Protein)',
     ]
-
+else:
+    raise ValueError(f'Unknown data_version: {data_version}.')
 
 
 def validate_protein_counts(
@@ -94,11 +78,12 @@ def validate_protein_counts(
     verbose: bool = False
     ) -> None:
     """Ensure each assembly_id has ≤3 core proteins if core_only=True.
-    TODO Is this only needed for core_only=True use case?
-    TODO Should this be in protein_utils.py?
+
+    This func is specific to preprocessing validation, tightly coupled
+    to core_functions and assembly IDs (keep it in this script).
     """
     if core_only:
-        df = df[df['function'].isin(core_funcs.values())]
+        df = df[df['function'].isin(core_functions)]
     for aid, grp in df.groupby('assembly_id'):
         n_proteins = len(grp)
         if core_only and n_proteins > 3:
@@ -110,38 +95,7 @@ def validate_protein_counts(
         if verbose:
             print(f"assembly_id {aid}: {n_proteins} {'core' if core_only else 'total'} "
                   f"proteins, Functions: {grp['function'].tolist()}")
-
-
-def print_replicon_func_count(
-    df: pd.DataFrame,
-    functions: list[str] = None,
-    more_cols: list[str] = None,
-    drop_na: bool = True
-    ) -> pd.DataFrame:
-    """Print counts of [replicon_type, function] combos.
-    Args:
-        df (pd.DataFrame): DataFrame containing protein data
-        functions (list[str]): List of functions to filter by
-        more_cols (list[str]): Additional columns to include in the grouping
-        drop_na (bool): Whether to drop NA values from the grouping
-
-    TODO Move to protein_utils.py
-    """
-    df = df.copy()
-    if functions:
-        df = df[df['function'].isin(functions)]
-    basic_cols = ['replicon_type', 'function']
-    col_list = basic_cols if not more_cols else basic_cols + more_cols
-    # col_list = basic_cols if more_cols is None else basic_cols + more_cols
-    res = (
-        df.groupby(col_list, dropna=drop_na)
-        .size()
-        .reset_index(name='count')
-        .sort_values(['function', 'count'], ascending=False)
-        .reset_index(drop=True)
-    )
-    print(res)
-    return res
+    return True
 
 
 def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
@@ -196,7 +150,8 @@ def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
         )
         row['genbank_ctg_id'] = genbank_ctg_id
         row['replicon_type'] = segment_map.get(genbank_ctg_id, 'Unassigned')
-        # Example of 'family_assignments': [["Phenuiviridae", "Phenuiviridae.L.9.pssm", "RNA-dependent RNA polymerase", "LowVan Annotate"]]
+        # Example of 'family_assignments':
+        # [["Phenuiviridae", "Phenuiviridae.L.9.pssm", "RNA-dependent RNA polymerase", "LowVan Annotate"]]
         family_assignments = fea_dict.get('family_assignments')
         row['family'] = (
             family_assignments[0][1]
@@ -277,7 +232,7 @@ def assign_segment_using_core_proteins(
     prot_df = prot_df.copy()
 
     # Core protein function-to-segment mappings by data_version
-    # (function, replicon_type) → canonical_segment TODO consider rename core_function_segment_maps
+    # (function, replicon_type) → canonical_segment
     core_function_segment_maps = {
         'April_2025': [
             {'function': 'RNA-dependent RNA polymerase', 'replicon_type': 'Large RNA Segment', 'core_segment': 'L'},
@@ -353,7 +308,7 @@ def assign_segment_using_aux_proteins(
     prot_df = prot_df.copy()
 
     # Auxiliary protein function-to-segment mappings by data_version
-    # (function, replicon_type) → canonical_segment TODO consider rename aux_function_segment_maps
+    # (function, replicon_type) → canonical_segment
     # This set can be expanded once we validate other functions (Movement protein, Z protein, etc.).
     aux_function_segment_maps = {
        'April_2025': [
@@ -453,7 +408,6 @@ def assign_segments(
 def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     """Apply basic filters to protein data."""
     # Drop unassigned canonical segments
-    # breakpoint()
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     unassigned_df = prot_df[prot_df['canonical_segment'].isna()]
     # unassgined_df = prot_df[prot_df['canonical_segment'].isna()].sort_values('canonical_segment', ascending=False)
@@ -464,7 +418,6 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
 
     # Keep CDS only
-    # breakpoint()
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
     non_cds = prot_df[prot_df['type'] != 'CDS']
     # non_cds = prot_df[prot_df['type'] != 'CDS'].sort_values('type', ascending=False)
@@ -475,7 +428,6 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
 
     # Drop poor quality
-    # breakpoint()
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
     poor_df = prot_df[prot_df['quality'] == 'Poor']
     # poor_df = prot_df[prot_df['quality'] == 'Poor'].sort_values('quality', ascending=False)
@@ -486,7 +438,6 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
 
     # Drop unassigned replicons
-    # breakpoint()
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
     unk_df = prot_df[prot_df['replicon_type'] == 'Unassigned']
     # unk_df = prot_df[prot_df['replicon_type'] == 'Unassigned'].sort_values('replicon_type', ascending=False)
@@ -575,7 +526,7 @@ def handle_duplicates(
     print(f'prot_df before: {prot_df.shape}')
     prot_df = enforce_single_file(prot_df)
     print(f'prot_df after: {prot_df.shape}')
-    
+
     # Validate protein counts
     print("\nValidate protein counts.")
     validate_protein_counts(prot_df, core_only=True)   # Check core proteins
@@ -617,7 +568,7 @@ def handle_duplicates(
         same_file_dups.to_csv(output_dir / 'protein_dups_within_file.csv', sep=',', index=False)
 
         print(f'same_file_dups: {same_file_dups.shape}')
-        print(f"dups unique seqs: {same_file_dups['prot_seq'].nunique()}")
+        print(f"dups unique seqs: {same_file_dups[seq_col_name].nunique()}")
         if not same_file_dups.empty:
             print(same_file_dups[:4][dup_cols + ['brc_fea_id']])
 
@@ -641,7 +592,7 @@ print(f'prot_df: {prot_df.shape}')
 
 # Save initial data
 prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
-prot_df_no_seq = prot_df[prot_df['prot_seq'].isna()]
+prot_df_no_seq = prot_df[prot_df[seq_col_name].isna()]
 print(f'Records with missing protein sequence: {prot_df_no_seq.shape}')
 prot_df_no_seq.to_csv(output_dir / 'protein_missing_seqs.csv', sep=',', index=False)
 
@@ -722,7 +673,7 @@ org_cols = prot_df.columns
 prot_df = analyze_protein_ambiguities(prot_df)
 ambig_cols = [c for c in prot_df.columns if c not in org_cols]
 ambig_df = prot_df[prot_df['has_ambiguities'] == True]
-ambig_df = ambig_df[['assembly_id', 'brc_fea_id', 'prot_seq'] + ambig_cols]
+ambig_df = ambig_df[['assembly_id', 'brc_fea_id', seq_col_name] + ambig_cols]
 cols_print = ['assembly_id', 'brc_fea_id'] + ambig_cols
 print(f'Protein sequences with ambiguous chars: {ambig_df.shape[0]}')
 print(ambig_df[cols_print])
@@ -743,30 +694,58 @@ max_internal_stops = 0.1
 max_x_residues = 0.1
 x_imputation = 'G'
 strip_terminal_stop = True
-breakpoint()
-prot_df, prob_seqs_df = prepare_sequences_for_esm2(
+prot_df, problematic_seqs_df = prepare_sequences_for_esm2(
     prot_df,
     x_imputation=x_imputation,
     max_internal_stops=max_internal_stops,
     max_x_residues=max_x_residues,
     strip_terminal_stop=strip_terminal_stop
 )
-if not prob_seqs_df.empty:
-    prob_seqs_df.to_csv(output_dir / 'problematic_protein_seqs.csv', sep=',', index=False)
+if not problematic_seqs_df.empty:
+    problematic_seqs_df.to_csv(output_dir / 'problematic_protein_seqs.csv', sep=',', index=False)
 
 # Final duplicate counts
+"""
+num_files  total_cases
+        2          138
+        3           17
+        5            7
+        4            6
+        6            4
+        9            2
+        10           1
+        12           1
+        141          1
+        16           1
+        53           1
+        30           1
+        13           1
+        43           1
+        15           1
+Explanation.
+- consider num_files=2 count=138.
+    There are 138 distinct protein sequences that are duplicated (appear at
+    least 2 times) across two files AND do not appear in any other file.
+- consider num_files=141 count=1.
+    There is 1 distinct protein sequence that is duplicated (appears at
+    least 2 times) across 141 files AND do not appear in any other file.
+"""
 print("\nFinal duplicate counts.")
-prot_dups = prot_df[prot_df.duplicated(subset=['prot_seq'], keep=False)].sort_values('prot_seq').reset_index(drop=True)
-dup_counts = prot_dups.groupby('prot_seq').agg(num_files=('file', 'nunique')).reset_index()
+prot_dups = (
+    prot_df[prot_df.duplicated(subset=[seq_col_name], keep=False)]
+    .sort_values(seq_col_name)
+    .reset_index(drop=True)
+)
+dup_counts = prot_dups.groupby(seq_col_name).agg(num_files=('file', 'nunique')).reset_index()
 print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
 # Save final data
 print("\nSave final protein data.")
 prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False)
 print(f'prot_df final: {prot_df.shape}')
-print(f"Unique protein sequences: {prot_df['prot_seq'].nunique()}")
+print(f"Unique protein sequences: {prot_df[seq_col_name].nunique()}")
 aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'])
-aa.to_csv(output_dir / 'protein_filtered_seg_mapping_stats.csv', sep=',', index=False)
+aa.to_csv(output_dir / 'protein_filtered_segment_mappings_stats.csv', sep=',', index=False)
 print(prot_df['canonical_segment'].value_counts())
 
 total_timer.display_timer()

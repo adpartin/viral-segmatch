@@ -27,14 +27,14 @@ AMBIGUITY_MEANINGS = {
 
 
 def analyze_protein_ambiguities(
-    df: pd.DataFrame,
+    prot_df: pd.DataFrame,
     seq_column: str='prot_seq'
     ) -> pd.DataFrame:
     """
     Analyze protein sequences for ambiguous amino acids and provide detailed information.
     
     Args:
-        df (pd.DataFrame): DataFrame with protein sequences.
+        prot_df (pd.DataFrame): DataFrame with protein sequences.
         seq_column (str): Name of the column containing protein sequences.
     
     Returns:
@@ -47,6 +47,7 @@ def analyze_protein_ambiguities(
         - 'has_internal_stop': Bool indicating if sequence has internal '*'
         - 'internal_stop_positions': List of positions of internal stop codons
     """
+    prot_df = prot_df.copy()
     standard_amino_acids = set('ACDEFGHIKLMNPQRSTVWY')  # 20 canonical amino acids
 
     def identify_ambiguities(seq: str):
@@ -86,39 +87,40 @@ def analyze_protein_ambiguities(
         )
     
     # Apply the function to each sequence
-    results = df[seq_column].apply(identify_ambiguities)
+    results = prot_df[seq_column].apply(identify_ambiguities)
     
     # Extract the results
-    df['has_ambiguities'] = results.apply(lambda x: x[0])
-    df['ambiguous_residues'] = results.apply(lambda x: x[1])
-    df['ambiguity_positions'] = results.apply(lambda x: x[2])
-    df['ambiguity_count'] = results.apply(lambda x: x[3])
-    df['has_terminal_stop'] = results.apply(lambda x: x[4])
-    df['has_internal_stop'] = results.apply(lambda x: x[5])
-    df['internal_stop_positions'] = results.apply(lambda x: x[6])
+    prot_df['has_ambiguities'] = results.apply(lambda x: x[0])
+    prot_df['ambiguous_residues'] = results.apply(lambda x: x[1])
+    prot_df['ambiguity_positions'] = results.apply(lambda x: x[2])
+    prot_df['ambiguity_count'] = results.apply(lambda x: x[3])
+    prot_df['has_terminal_stop'] = results.apply(lambda x: x[4])
+    prot_df['has_internal_stop'] = results.apply(lambda x: x[5])
+    prot_df['internal_stop_positions'] = results.apply(lambda x: x[6])
 
-    return df
+    return prot_df
 
 
-def summarize_ambiguities(df: pd.DataFrame) -> dict:
+def summarize_ambiguities(prot_df: pd.DataFrame) -> dict:
     """ Generate a summary of ambiguous residues across all sequences. """
-    if 'ambiguous_residues' not in df.columns:
+    if 'ambiguous_residues' not in prot_df.columns:
         raise ValueError("DataFrame must be processed by analyze_protein_ambiguities() first")
-    
-    total_seqs = len(df)
+
+    prot_df = prot_df.copy()
+    total_seqs = len(prot_df)
     assert total_seqs > 0, 'Input DataFrame has zero rows.'
     
-    seqs_with_ambiguities = df['has_ambiguities'].sum()
+    seqs_with_ambiguities = prot_df['has_ambiguities'].sum()
     percent_seqs_with_ambiguities = round((seqs_with_ambiguities / total_seqs) * 100, 4)
-    total_ambiguities = df['ambiguity_count'].sum()
-    terminal_stops = df['has_terminal_stop'].sum()
-    internal_stops = df['has_internal_stop'].sum()
+    total_ambiguities = prot_df['ambiguity_count'].sum()
+    terminal_stops = prot_df['has_terminal_stop'].sum()
+    internal_stops = prot_df['has_internal_stop'].sum()
     percent_terminal_stops = round((terminal_stops / total_seqs) * 100, 4)
     percent_internal_stops = round((internal_stops / total_seqs) * 100, 4)
     
     # Count occurrence of each ambiguous residue
     all_ambiguities = []
-    for residue_list in df['ambiguous_residues']:
+    for residue_list in prot_df['ambiguous_residues']:
         all_ambiguities.extend(residue_list)
     ambiguity_counts = Counter(all_ambiguities)
     
@@ -142,7 +144,7 @@ def summarize_ambiguities(df: pd.DataFrame) -> dict:
 
 
 def prepare_sequences_for_esm2(
-    df: pd.DataFrame,
+    prot_df: pd.DataFrame,
     seq_column: str='prot_seq',
     output_column: str='esm2_ready_seq',
     max_internal_stops: float=0.1,
@@ -163,7 +165,7 @@ def prepare_sequences_for_esm2(
 
     Parameters:
     -----------
-    df : pd.DataFrame
+    prot_df : pd.DataFrame
         DataFrame with protein sequences, preferably processed by analyze_protein_ambiguities.
     seq_column : str, default='prot_seq'
         Input sequence column.
@@ -181,6 +183,7 @@ def prepare_sequences_for_esm2(
     pd.DataFrame
         DataFrame with ESM-2-ready sequences and additional columns.
     """
+    prot_df = prot_df.copy()
     prob_seqs = []
 
     def process_sequence(seq):
@@ -270,8 +273,8 @@ def prepare_sequences_for_esm2(
             return seq[:-1].replace('*', 'X') + ('*' if not strip_terminal_stop else '')
         return seq.replace('*', 'X')
 
-    df[output_column] = df[seq_column].apply(process_sequence)
-    df['x_count_ratio'] = df[seq_column].apply(
+    prot_df[output_column] = prot_df[seq_column].apply(process_sequence)
+    prot_df['x_count_ratio'] = prot_df[seq_column].apply(
         lambda seq: (
             0.0
             if not isinstance(seq, str) or len(seq.strip()) == 0 or
@@ -281,17 +284,49 @@ def prepare_sequences_for_esm2(
     )
 
     # DataFrame with problematic sequences
-    prob_seqs_df = pd.DataFrame(prob_seqs)
-    if not prob_seqs_df.empty:
+    problematic_seqs_df = pd.DataFrame(prob_seqs)
+    if not problematic_seqs_df.empty:
         cols = ['file', 'brc_fea_id']
-        if all(True if i in df.columns else False for i in cols):
-            prob_seqs_df = df.merge(prob_seqs_df, on=cols)
+        if all(True if i in prot_df.columns else False for i in cols):
+            problematic_seqs_df = prot_df.merge(problematic_seqs_df, on=cols)
             # TODO finish this
         else:
-            prob_seqs_df = df.merge(prob_seqs_df, on='prot_seq', how='inner')
-        # prob_seqs_df.to_csv('problematic_protein_seqs.csv', index=False)
+            problematic_seqs_df = prot_df.merge(problematic_seqs_df, on='prot_seq', how='inner')
+        # problematic_seqs_df.to_csv('problematic_protein_seqs.csv', index=False)
 
-    return df, prob_seqs_df
+    return prot_df, problematic_seqs_df
+
+
+def print_replicon_func_count(
+    df: pd.DataFrame,
+    functions: list[str] = None,
+    more_cols: list[str] = None,
+    drop_na: bool = True
+    ) -> pd.DataFrame:
+    """Print counts of [replicon_type, function] combos.
+    Args:
+        df (pd.DataFrame): DataFrame containing protein data
+        functions (list[str]): List of functions to filter by
+        more_cols (list[str]): Additional columns to include in the grouping
+        drop_na (bool): Whether to drop NA values from the grouping
+    
+    This func is a reusable diagnostic tool for summarizing protein function
+    counts, not specific to preprocessing.
+    """
+    df = df.copy()
+    if functions:
+        df = df[df['function'].isin(functions)]
+    basic_cols = ['replicon_type', 'function']
+    col_list = basic_cols if not more_cols else basic_cols + more_cols
+    res = (
+        df.groupby(col_list, dropna=drop_na)
+        .size()
+        .reset_index(name='count')
+        .sort_values(['function', 'count'], ascending=False)
+        .reset_index(drop=True)
+    )
+    print(res)
+    return res
 
 
 # Example usage
@@ -332,7 +367,7 @@ if __name__ == "__main__":
     # Prepare for ESM-2
     # breakpoint()
     print("\nPrepare data for ESM-2 (with x_imputation='G')")
-    prot_df_g, prob_seqs_df = prepare_sequences_for_esm2(
+    prot_df_g, problematic_seqs_df = prepare_sequences_for_esm2(
         prot_df.copy(),
         x_imputation='G',
         max_internal_stops=max_internal_stops,
@@ -344,7 +379,7 @@ if __name__ == "__main__":
     # Prepare for ESM-2
     # breakpoint()
     print("\nPrepare data for ESM-2 (with x_imputation='remove')")
-    prot_df_remove, prob_seqs_df = prepare_sequences_for_esm2(
+    prot_df_remove, problematic_seqs_df = prepare_sequences_for_esm2(
         prot_df.copy(),
         x_imputation='remove',
         max_internal_stops=max_internal_stops,

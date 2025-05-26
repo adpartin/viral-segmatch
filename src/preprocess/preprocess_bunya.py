@@ -42,7 +42,8 @@ from src.utils.timer_utils import Timer
 from src.utils.protein_utils import (
     analyze_protein_ambiguities,
     prepare_sequences_for_esm2,
-    summarize_ambiguities
+    summarize_ambiguities,
+    print_replicon_func_count
 )
 
 total_timer = Timer()
@@ -211,39 +212,6 @@ def validate_protein_counts(
         if verbose:
             print(f"assembly_id {aid}: {n_proteins} {'core' if core_only else 'total'} \
                 proteins, Functions: {grp['function'].tolist()}")
-
-
-def print_replicon_func_count(
-        df: pd.DataFrame,
-        functions: List[str]=None,
-        more_cols: List[str]=None,
-        drop_na: bool=True,
-    ):
-    """ 
-    Print counts of [replicon_type, function] combos.
-
-    Parameters:
-        df (pd.DataFrame): DataFrame containing protein data
-        functions (List[str]): List of functions to filter by
-        more_cols (List[str]): Additional columns to include in the grouping
-        drop_na (bool): Whether to drop NA values from the grouping
-    """
-    df = df.copy()
-    if functions is not None:
-        df = df[df['function'].isin(functions)]
-
-    basic_cols = ['replicon_type', 'function']
-    col_list = basic_cols if more_cols is None else basic_cols + more_cols
-
-    df = (
-        df.groupby(col_list, dropna=drop_na)
-        .size()
-        .reset_index(name='count')
-        .sort_values(['function', 'count'], ascending=False)
-        .reset_index(drop=True)
-    )
-    print(df)
-    return df
 
 
 
@@ -1184,10 +1152,7 @@ if process_protein:
             functions=('function', lambda x: list(set(x))),
             replicons=('replicon_type', lambda x: list(set(x))),
         ).sort_values(dup_cols).reset_index()
-    
-    # breakpoint()
     del dup_cols, # dups_func_conflicts, dups_func_conflicts_eda
-    
     # print(same_file_dups.equals(dups_func_conflicts))
 
 
@@ -1222,9 +1187,8 @@ if process_protein:
     max_x_residues = 0.1
     x_imputation = 'G'
     strip_terminal_stop = True
-    breakpoint()
-    prot_df_esm, prob_seqs_df = prepare_sequences_for_esm2(
-        prot_df.copy(),
+    prot_df, prob_seqs_df = prepare_sequences_for_esm2(
+        prot_df,
         seq_column='prot_seq',
         output_column='esm2_ready_seq',
         x_imputation=x_imputation,
@@ -1275,12 +1239,12 @@ if process_protein:
 
 
     # Finally, save filtered protein data
-    print('\n----- Save the final filtered protein data -----')
+    print('\n----- Save final protein data -----')
     print(f'prot_df: {prot_df.shape}')
     print(f'Unique protein sequences: {prot_df[seq_col_name].nunique()}')
     prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False)
     aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
-    aa.to_csv(output_dir / 'protein_filtered_seg_mapping_stats.csv', sep=',', index=False)
+    aa.to_csv(output_dir / 'protein_filtered_segment_mappings_stats.csv', sep=',', index=False)
     print(prot_df['canonical_segment'].value_counts())
 
 # ----------------------------------------------------------------
