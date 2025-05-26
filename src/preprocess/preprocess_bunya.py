@@ -66,7 +66,7 @@ raw_data_dir = main_data_dir / 'raw/Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets/Quality_GTOs'
 
 virus_name = 'bunya'
-processed_data_dir = main_data_dir / 'processed' / virus_name / data_version / 'old'
+processed_data_dir = main_data_dir / 'processed' / virus_name / data_version / 'old_version'
 
 # output_dir = main_data_dir / task_name / data_version
 output_dir = processed_data_dir

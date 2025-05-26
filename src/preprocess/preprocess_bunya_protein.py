@@ -35,7 +35,7 @@ virus_name = 'bunya'
 main_data_dir = project_root / 'data'
 raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
-output_dir = main_data_dir / 'processed' / virus_name / data_version / 'new'
+output_dir = main_data_dir / 'processed' / virus_name / data_version
 output_dir.mkdir(parents=True, exist_ok=True)
 seq_col_name = 'prot_seq'
 
