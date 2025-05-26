@@ -10,7 +10,6 @@ TODO Use cases:
 
 from collections import Counter
 from pprint import pprint
-from typing import Dict, Tuple
 import pandas as pd
 
 # Global ambiguity meanings (from Claude’s code, reused for consistency)
@@ -101,7 +100,7 @@ def analyze_protein_ambiguities(
     return df
 
 
-def summarize_ambiguities(df: pd.DataFrame) -> Dict:
+def summarize_ambiguities(df: pd.DataFrame) -> dict:
     """ Generate a summary of ambiguous residues across all sequences. """
     if 'ambiguous_residues' not in df.columns:
         raise ValueError("DataFrame must be processed by analyze_protein_ambiguities() first")
@@ -150,7 +149,7 @@ def prepare_sequences_for_esm2(
     max_x_residues: float=0.1,
     x_imputation: str='G',
     strip_terminal_stop=True
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Prepare protein sequences for ESM-2 by handling (internal and terminal)
     stop codons and ambiguities.
