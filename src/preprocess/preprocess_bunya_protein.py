@@ -2,13 +2,12 @@
 Preprocess protein data from GTO files for Bunyavirales.
 Prefer shorter answers.
 """
-import sys
 import json
+import sys
 from pathlib import Path
 from pprint import pprint
 from tqdm import tqdm
 
-import numpy as np
 import pandas as pd
 
 project_root = Path(__file__).resolve().parents[2]
@@ -37,12 +36,13 @@ raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
 output_dir = main_data_dir / 'processed' / virus_name / data_version
 output_dir.mkdir(parents=True, exist_ok=True)
-seq_col_name = 'prot_seq'
 
 print(f'main_data_dir:   {main_data_dir}')
 print(f'raw_data_dir:    {raw_data_dir}')
 print(f'quality_gto_dir: {quality_gto_dir}')
 print(f'output_dir:      {output_dir}')
+
+seq_col_name = 'prot_seq'
 
 # Core and auxiliary functions based data version
 if data_version == 'April_2025':
