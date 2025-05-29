@@ -7,3 +7,6 @@ __pycache__/
 
 # Misc
 .vscode/
+
+# CEPI
+data/raw/Anno_Updates/
