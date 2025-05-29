@@ -9,6 +9,6 @@ __pycache__/
 .vscode/
 
 # CEPI
-_notes.txt
+_notes
 data/raw/Anno_Updates/
 models/
