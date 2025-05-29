@@ -14,12 +14,10 @@ Split strategies:
 """
 
 import hashlib
-import os
 import random
 import sys
 from itertools import combinations
 from pathlib import Path
-from typing import Tuple, List, Dict
 
 import numpy as np
 import pandas as pd
@@ -30,10 +28,11 @@ from sklearn.model_selection import train_test_split
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
+# print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
 
-## Config
+# Config
 SEED = 42
 TASK_NAME = 'segmatch'
 
@@ -42,14 +41,12 @@ main_data_dir = filepath / '../../data'
 data_version = 'April_2025'
 virus_name = 'bunya'
 processed_data_dir = main_data_dir / 'processed' / virus_name / data_version
-datasets_dir = main_data_dir / 'datasets' / virus_name / data_version / TASK_NAME
+output_dir = main_data_dir / 'datasets' / virus_name / data_version / TASK_NAME
+output_dir.mkdir(parents=True, exist_ok=True)
 
-output_dir = datasets_dir
-os.makedirs(output_dir, exist_ok=True)
-
-print(f'\nmain_data_dir:      {main_data_dir}')
+print(f'main_data_dir:      {main_data_dir}')
 print(f'processed_data_dir: {processed_data_dir}')
-print(f'datasets_dir:       {datasets_dir}')
+print(f'output_dir:         {output_dir}')
 
 use_core_proteins_only = True
 core_funcs = {
@@ -114,11 +111,11 @@ def create_positive_pairs(
 def create_negative_pairs(
     df: pd.DataFrame,
     num_negatives: int,
-    isolate_ids: List[str],
+    isolate_ids: list[str],
     allow_same_func_negatives: bool = True,
     max_same_func_ratio: float = 0.5,
     seed: int = 42,
-    ) -> Tuple[pd.DataFrame, int]:
+    ) -> tuple[pd.DataFrame, int]:
     """ Create negative pairs (cross-isolate, with optional control over
     same-function pairs).
 
@@ -187,7 +184,7 @@ def compute_isolate_pair_counts(
     df: pd.DataFrame,
     use_core_proteins_only: bool = True,
     verbose: bool = False,
-    ) -> Dict:
+    ) -> dict:
     """ Compute positive pair counts per isolate, validating ≤3 core proteins
     if use_core_proteins_only=True.
     """
@@ -371,7 +368,7 @@ def split_dataset_v2(
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     seed: int = 42,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """ Split dataset into train, val, and test sets with stratified sampling.
 
     Returns:
