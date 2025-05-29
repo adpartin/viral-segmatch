@@ -1,0 +1,12 @@
+replicon_type,function,canonical_segment,count
+Large RNA Segment,RNA-dependent RNA polymerase,L,1623
+Segment One,RNA-dependent RNA polymerase,L,61
+Small RNA Segment,RNA-dependent RNA polymerase,,4
+Medium RNA Segment,Pre-glycoprotein polyprotein GP complex,M,1344
+Small RNA Segment,Pre-glycoprotein polyprotein GP complex,,104
+Segment Two,Pre-glycoprotein polyprotein GP complex,,59
+Medium RNA Segment,Phenuiviridae mature nonstructural 78-kD protein,M,165
+Small RNA Segment,Nucleocapsid protein,S,1432
+Segment Three,Nucleocapsid protein,S,45
+Small RNA Segment,Bunyavirales small nonstructural protein NSs,S,604
+Medium RNA Segment,Bunyavirales mature nonstructural membrane protein (NSm),M,111
