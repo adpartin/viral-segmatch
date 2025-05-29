@@ -10,3 +10,4 @@ __pycache__/
 
 # CEPI
 data/raw/Anno_Updates/
+models/
