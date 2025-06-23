@@ -34,7 +34,7 @@ virus_name = 'bunya'
 main_data_dir = project_root / 'data'
 raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / data_version
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
-output_dir = main_data_dir / 'processed' / virus_name / data_version
+output_dir = main_data_dir / 'processed' / virus_name / data_version # processed_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'main_data_dir:   {main_data_dir}')

@@ -34,14 +34,13 @@ from src.utils.timer_utils import Timer
 
 # Config
 SEED = 42
-TASK_NAME = 'segmatch'
+TASK_NAME = 'segment_pair_classifier'
 
-filepath = Path(__file__).resolve().parent
-main_data_dir = filepath / '../../data'
 data_version = 'April_2025'
 virus_name = 'bunya'
+main_data_dir = project_root / 'data'
 processed_data_dir = main_data_dir / 'processed' / virus_name / data_version
-output_dir = main_data_dir / 'datasets' / virus_name / data_version / TASK_NAME
+output_dir = main_data_dir / 'datasets' / virus_name / data_version / TASK_NAME # datasets_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'main_data_dir:      {main_data_dir}')
