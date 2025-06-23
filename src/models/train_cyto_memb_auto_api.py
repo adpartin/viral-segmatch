@@ -13,7 +13,6 @@ import sys
 import time
 from pathlib import Path
 from pprint import pprint
-from typing import List
 
 import numpy as np
 import pandas as pd

@@ -25,7 +25,7 @@ import sys
 import time
 from pathlib import Path
 from pprint import pprint
-from typing import Dict, List, Tuple, Union
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -56,14 +56,14 @@ from src.utils.torch_utils import determine_device
 
 # class ProteinDataset(Dataset):
 #     """Dataset for protein classification."""
-#     def __init__(self, sequences: List[str], labels: List[int]):
+#     def __init__(self, sequences: list[str], labels: list[int]):
 #         self.sequences = sequences
 #         self.labels = torch.tensor(labels, dtype=torch.long)
 
 #     def __len__(self):
 #         return len(self.labels)
 
-#     def __getitem__(self, idx: int) -> Tuple[str, torch.Tensor]:
+#     def __getitem__(self, idx: int) -> tuple[str, torch.Tensor]:
 #         return self.sequences[idx], self.labels[idx]
 
 
@@ -93,8 +93,8 @@ class TokenizedProteinDataset(Dataset):
     def __init__(
         self,
         tokenizer: PreTrainedTokenizer,
-        sequences: List[str],
-        labels: Union[List[int], None] = None
+        sequences: list[str],
+        labels: Optional[list[int]] = None
         ):
         # Validate inputs
         if not sequences:
@@ -122,7 +122,7 @@ class TokenizedProteinDataset(Dataset):
     def __len__(self):
         return len(self.token_encodings['input_ids'])
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """ Get a single sample from the dataset.
 
         Args:
@@ -236,7 +236,7 @@ class EsmProteinClassifier(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Union[torch.Tensor, None] = None
+        attention_mask: Optional[torch.Tensor] = None
         ) -> torch.Tensor:
         """ Forward pass through the classifier.
 
@@ -269,7 +269,7 @@ class EsmProteinClassifier(nn.Module):
 
 # Define compute_metrics function
 metric = load('accuracy')
-def compute_metrics(eval_pred: Tuple[np.ndarray, np.ndarray]) -> Dict[str, float]:
+def compute_metrics(eval_pred: tuple[np.ndarray, np.ndarray]) -> dict[str, float]:
     predictions, labels = eval_pred
     predictions = np.argmax(predictions, axis=1)
     return metric.compute(predictions=predictions, references=labels)
