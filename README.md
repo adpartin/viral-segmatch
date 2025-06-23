@@ -24,6 +24,7 @@ A pipeline for analyzing and processing genomic and proteomic data from viral is
 
 ### Running the Pipeline
 1. **Preprocess Protein Data**
+
 Process protein data from GTO files for Bunyavirales, including segment assignment and duplicate handling.
   ```bash
   python src/preprocess/preprocess_bunya_protein.py
@@ -32,6 +33,7 @@ Process protein data from GTO files for Bunyavirales, including segment assignme
 * Output: Processed CSVs in `data/processed/bunya/April_2025` (e.g., `protein_filtered.csv`)
 
 2. **Generate Segment Pair Dataset**
+
 Create a dataset of segment pairs for training, validating, and testing a segment matcher.
 ```bash
 python src/datasets/dataset_segment_pairs.py
@@ -40,6 +42,7 @@ python src/datasets/dataset_segment_pairs.py
 * Output: Dataset CSV in `data/processed/bunya/April_2025/segmatch` (e.g., `train_pairs.csv`, `val_pairs.csv`, `test_pairs.csv`)
 
 3. **Train Segment Matcher (Placeholder)**
+
 Train a model to match genomic segments (script not yet implemented).
 ```bash
 # Placeholder: script not yet available
