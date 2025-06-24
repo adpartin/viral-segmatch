@@ -64,5 +64,14 @@ python src/models/train_esm2_frozen_pair_classifier.py
 * Output: Trained model (e.g., `model.pt`), metrics (F1, AUC-ROC), and logs.
 
 
+### Visualizations
+Generate histograms and box plots of protein lengths by canonical segment.
+```bash
+python src/eda/visualize_protein_lengths.py
+```
+* Input: `data/processed/bunya/April_2025/protein_filtered.csv`
+* Output: Plots in `eda/bunya/April_2025`
+
+
 ## Contributing
 Contributions are welcome! Please open a pull request or issue for bugs, features, or improvements.
