@@ -4,19 +4,6 @@ https://github.com/huggingface/transformers/tree/main/notebooks
 
 Train a binary classifier for protein sequences using huggingface ESM-2
 model using explicit training loop.
-
-
-You are an experienced software developer with strong knowledge of deep learning. You're very detail-oriented and critical thinker, striving for well-structured code. I need your help with the following:
-
-I have two implementations:
-1. the auto approach (AutoModelForSequenceClassification) --> accuracy 0.94
-2. the exp (explicit) approach (EsmModel and a EsmClassificationHead on top) --> accuracy 0.85
-
-Both models run on the same machine (remote GPU cluster). I expect to see the same performance.
-
-I started with the auto approach from huggingface examples repo. The reason I explore the explicit approach is that I want more control on the entire pipeline, so that later, I want to be able to extract an embedding layer from the ESM model and use it for a downstream task. Thus, I do this comparison to make sure I properly use the model.
-
-Can I provide you both approaches?
 """
 
 import os
@@ -39,9 +26,9 @@ from torch.utils.data import Dataset, DataLoader
 
 from transformers import (
     AutoTokenizer,
-    EsmConfig,
+    EsmConfig, # For type hinting
     EsmModel,
-    PreTrainedTokenizer
+    PreTrainedTokenizer # For type hinting
 )
 from evaluate import load
 from transformers.utils import logging
@@ -135,7 +122,7 @@ class TokenizedProteinDataset(Dataset):
                 - labels: Classification label (if provided during initialization)
         """
         # Each sample returns input_ids, attention_mask, and labels
-        item = {key: val[idx] for key, val in self.token_encodings.items()}
+        item = {k: v[idx] for k, v in self.token_encodings.items()}
         if self.labels is not None:
             item['labels'] = self.labels[idx]
         return item
@@ -256,8 +243,8 @@ class EsmProteinClassifier(nn.Module):
         outputs = self.esm(input_ids=input_ids, attention_mask=attention_mask)
 
         # Pass last hidden state through classifier
-        # sequence_output = outputs[0]
-        # torch.equal(sequence_output, outputs.last_hidden_state)
+        # seq_output = outputs[0]
+        # torch.equal(seq_output, outputs.last_hidden_state)
         logits = self.classifier(outputs.last_hidden_state)
 
         # print(f'input_ids:         {input_ids.shape}') # [8, 502]
@@ -388,7 +375,8 @@ esm2_t12_35M_UR50D is Masked Language Modeling (MLM).
 # Initialize classifier and move it to device
 # breakpoint()
 device = determine_device(CUDA_NAME)
-classifier = EsmProteinClassifier(MODEL_CKPT, num_labels=2).to(device)
+classifier = EsmProteinClassifier(MODEL_CKPT, num_labels=2)
+classifier.to(device)
 
 # Loss function and optimizer
 criterion = nn.CrossEntropyLoss()
@@ -416,7 +404,7 @@ for epoch in range(NUM_EPOCHS):
     for batch in progress_bar:
         optimizer.zero_grad()
 
-        inputs = {key: val.to(device) for key, val in batch.items() if key != 'labels'}
+        inputs = {k: v.to(device) for k, v in batch.items() if k != 'labels'}
         labels = batch['labels'].to(device)
 
         # Forward pass
@@ -472,7 +460,7 @@ test_preds, all_test_labels = [], []
 classifier.eval()
 with torch.no_grad():
     for batch in tqdm(test_dataloader, desc='Evaluating'):
-        inputs = {key: val.to(device) for key, val in batch.items() if key != 'labels'}
+        inputs = {k: v.to(device) for k, v in batch.items() if k != 'labels'}
         labels = batch['labels'].to(device)
 
         # Forward pass (with esm_model and classifier)
