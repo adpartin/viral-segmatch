@@ -10,5 +10,5 @@ __pycache__/
 
 # CEPI
 _notes.txt
-data/raw/Anno_Updates/
-models/
+./data/raw/Anno_Updates/
+./models/
