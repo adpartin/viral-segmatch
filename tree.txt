@@ -1,0 +1,77 @@
+../viral-segmatch
+├── conf
+│   └── config.yaml
+├── data
+│   ├── datasets
+│   │   ├── bunya
+│   │   └── huggingface_example
+│   ├── embeddings
+│   │   └── bunya
+│   ├── processed
+│   │   └── bunya
+│   └── raw
+│       ├── Anno_Updates
+│       └── huggingface_example
+├── eda
+│   └── bunya
+│       └── April_2025
+├── environment.yml
+├── logs
+│   ├── dataset_segment_pairs.log
+│   └── preprocess_bunya_protein.log
+├── models
+│   ├── huggingface_example_auto
+│   │   ├── best_model
+│   │   ├── test_predicted.csv
+│   │   ├── test_results.json
+│   │   └── tokenizer
+│   └── huggingface_example_explicit
+│       ├── model.pt
+│       ├── model_state_dict.pth
+│       ├── test_predicted.csv
+│       └── tokenizer
+├── notebooks
+│   ├── bunyas.ipynb
+│   ├── Copy_of_protein_language_modeling.ipynb
+│   └── esm-2-example.ipynb
+├── _notes.txt
+├── prompts.txt
+├── README.md
+├── results
+├── scripts
+│   ├── dataset_segment_pairs.sh
+│   └── preprocess_bunya_protein.sh
+├── src
+│   ├── datasets
+│   │   ├── dataset_huggingface_example.py
+│   │   ├── dataset_segment_pairs.py
+│   │   └── __init__.py
+│   ├── eda
+│   │   └── generate_plots.py
+│   ├── embeddings
+│   │   └── compute_esm2_embeddings.py
+│   ├── experiments
+│   ├── __init__.py
+│   ├── models
+│   │   ├── __init__.py
+│   │   ├── train_esm2_frozen_pair_classifier.py
+│   │   ├── train_huggingface_example_auto_api.py
+│   │   └── train_huggingface_example_explicit.py
+│   ├── preprocess
+│   │   ├── bunya_gto_eda.py
+│   │   ├── bunya_pssm_eda.py
+│   │   ├── preprocess_bunya_dna.py
+│   │   ├── preprocess_bunya_protein.py
+│   │   └── preprocess_bunya.py
+│   └── utils
+│       ├── dna_utils.py
+│       ├── esm2_utils.py
+│       ├── gto_utils.py
+│       ├── __init__.py
+│       ├── protein_utils.py
+│       ├── timer_utils.py
+│       └── torch_utils.py
+├── tests
+└── tree.txt
+
+45 directories, 140 files

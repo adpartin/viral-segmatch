@@ -13,21 +13,20 @@ import pandas as pd
 from io import BytesIO
 from sklearn.model_selection import train_test_split
 
-filepath = Path(__file__).resolve().parent
+project_root = Path(__file__).resolve().parents[2]
 
 ## Config
 seed = 42  # for reproducibility (config!)
-main_data_dir = filepath / '../../data'
-raw_data_dir = main_data_dir / 'raw'
+main_data_dir = project_root / 'data'
+raw_data_dir = main_data_dir / 'raw' / 'huggingface_example'
 
-task_name = 'cyto_memb'
+task_name = 'huggingface_example'
 datasets_dir = main_data_dir / 'datasets' / task_name
 
 output_dir = datasets_dir
 os.makedirs(output_dir, exist_ok=True)
 
 print(f'\nmain_data_dir:      {main_data_dir}')
-# print(f'processed_data_dir: {processed_data_dir}')
 print(f'datasets_dir:       {datasets_dir}')
 
 """
