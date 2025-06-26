@@ -1,6 +1,5 @@
 """
 Preprocess protein data from GTO files for Bunyavirales.
-Prefer shorter answers.
 """
 import json
 import sys
@@ -29,12 +28,14 @@ from src.utils.protein_utils import (
 total_timer = Timer()
 
 # Config
-data_version = 'April_2025'
-virus_name = 'bunya'
+VIRUS_NAME = 'bunya'
+DATA_VERSION = 'April_2025'
+
+# Define paths
 main_data_dir = project_root / 'data'
-raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / data_version
+raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / DATA_VERSION
 quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
-output_dir = main_data_dir / 'processed' / virus_name / data_version # processed_data_dir
+output_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION # processed_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'main_data_dir:   {main_data_dir}')
@@ -45,7 +46,7 @@ print(f'output_dir:      {output_dir}')
 seq_col_name = 'prot_seq'
 
 # Core and auxiliary functions based data version
-if data_version == 'April_2025':
+if DATA_VERSION == 'April_2025':
     core_functions = [
         'RNA-dependent RNA polymerase',
         'Pre-glycoprotein polyprotein GP complex',
@@ -56,7 +57,7 @@ if data_version == 'April_2025':
         'Bunyavirales small nonstructural protein NSs',
         'Phenuiviridae mature nonstructural 78-kD protein',
     ]
-elif data_version == 'Feb_2025':
+elif DATA_VERSION == 'Feb_2025':
     core_functions = [
         'RNA-dependent RNA polymerase (L protein)',
         'Pre-glycoprotein polyprotein GP complex (GPC protein)',
@@ -69,7 +70,7 @@ elif data_version == 'Feb_2025':
         'Small Nonstructural Protein NSs (NSs Protein)',
     ]
 else:
-    raise ValueError(f'Unknown data_version: {data_version}.')
+    raise ValueError(f'Unknown data_version: {DATA_VERSION}.')
 
 
 def validate_protein_counts(
@@ -655,7 +656,7 @@ print_replicon_func_count(prot_df, functions=aux_functions)
 
 # Assign segments
 print("\nAssign canonical segments.")
-prot_df = assign_segments(prot_df, data_version=data_version, use_core=True, use_aux=True)
+prot_df = assign_segments(prot_df, data_version=DATA_VERSION, use_core=True, use_aux=True)
 prot_df.to_csv(output_dir / 'protein_before_filtering.csv', sep=',', index=False)
 
 # Apply basic filters

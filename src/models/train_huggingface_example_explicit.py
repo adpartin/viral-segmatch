@@ -271,12 +271,12 @@ CUDA_NAME = 'cuda:4'  # Specify GPU device
 MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'  # Choose ESM-2 model
 # MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # Choose ESM-2 model
 
-NUM_EPOCHS = 10
-BATCH_SIZE = 8
-LEARNING_RATE = 2e-5
-WEIGHT_DECAY = 0.01
-
-model_name = MODEL_CKPT.split('/')[-1]
+# Define paths
+main_data_dir = project_root / 'data'
+datasets_dir = main_data_dir / 'datasets' / TASK_NAME
+model_dir = project_root / 'models'
+output_dir = model_dir / (TASK_NAME + '_explicit')
+os.makedirs(output_dir, exist_ok=True)
 
 # Set random seed for reproducibility
 random.seed(SEED)
@@ -285,14 +285,13 @@ torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
-# Define paths
-main_data_dir = project_root / 'data'
-datasets_dir = main_data_dir / 'datasets' / TASK_NAME
-model_dir = project_root / 'models'
-output_dir = model_dir / (TASK_NAME + '_explicit')
+# Hyperparameters
+NUM_EPOCHS = 10
+BATCH_SIZE = 8
+LEARNING_RATE = 2e-5
+WEIGHT_DECAY = 0.01
 
-# Create output dir
-os.makedirs(output_dir, exist_ok=True)
+model_name = MODEL_CKPT.split('/')[-1]
 
 # Load data
 # train_seqs = np.load(data_dir / 'train_sequences.npy', allow_pickle=True).tolist()

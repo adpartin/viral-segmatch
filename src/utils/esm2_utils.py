@@ -1,6 +1,7 @@
-from tqdm import tqdm
 from typing import Optional
+
 import numpy as np
+from tqdm import tqdm
 
 import torch
 from transformers import EsmModel, EsmTokenizer

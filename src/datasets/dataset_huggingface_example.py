@@ -16,18 +16,17 @@ from sklearn.model_selection import train_test_split
 project_root = Path(__file__).resolve().parents[2]
 
 ## Config
-seed = 42  # for reproducibility (config!)
+SEED = 42  # for reproducibility (config!)
+TASK_NAME = 'huggingface_example'
+
+# Define paths
 main_data_dir = project_root / 'data'
-raw_data_dir = main_data_dir / 'raw' / 'huggingface_example'
-
-task_name = 'huggingface_example'
-datasets_dir = main_data_dir / 'datasets' / task_name
-
-output_dir = datasets_dir
+raw_data_dir = main_data_dir / 'raw' / TASK_NAME
+output_dir = main_data_dir / 'datasets' / TASK_NAME # datasets_dir
 os.makedirs(output_dir, exist_ok=True)
 
-print(f'\nmain_data_dir:      {main_data_dir}')
-print(f'datasets_dir:       {datasets_dir}')
+print(f'\nmain_data_dir: {main_data_dir}')
+print(f'output_dir:    {output_dir}')
 
 """
 To get this query URL, we searched for `(organism_id:9606) AND
@@ -80,7 +79,7 @@ assert len(seqs) == len(labels), 'Sequences and labels must be the same size'
 # Split
 print('\nSplit data into train and test sets.')
 train_seqs, test_seqs, train_labels, test_labels = train_test_split(
-    seqs, labels, test_size=0.25, shuffle=True, random_state=seed)
+    seqs, labels, test_size=0.25, shuffle=True, random_state=SEED)
 print(f'Train sequences: {len(train_seqs)}')
 print(f'Test sequences:  {len(test_seqs)}')
 print(f'type(train_sequences):    {type(train_seqs)}')

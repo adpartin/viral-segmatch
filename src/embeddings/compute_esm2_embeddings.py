@@ -5,11 +5,11 @@ Precompute ESM-2 embeddings for protein sequences.
 
 import sys
 from pathlib import Path
-from tqdm import tqdm
 
 import h5py
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 import torch
 
@@ -23,18 +23,12 @@ from src.utils.esm2_utils import compute_esm2_embeddings
 
 # Config
 TASK_NAME = 'segment_pair_classifier'
+VIRUS_NAME = 'bunya'
+DATA_VERSION = 'April_2025'
 CUDA_NAME = 'cuda:7'  # Specify GPU device
 ESM2_MAX_RESIDUES = 1022  # ESM-2 max seq length is 1024 with 2 tokens reserved for CLS, SEP (special tokens)
 PROT_SEQ_COL_NAME = 'esm2_ready_seq'
 
-data_version = 'April_2025'
-virus_name = 'bunya'
-main_data_dir = project_root / 'data'
-processed_data_dir = main_data_dir / 'processed' / virus_name / data_version
-output_dir = main_data_dir / 'embeddings' / virus_name / data_version # embeddings_dir
-output_dir.mkdir(parents=True, exist_ok=True)
-
-# ESM-2 model
 # MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'    # embedding dim: 320D
 # MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # embedding dim: 480D
 # MODEL_CKPT = 'facebook/esm2_t30_150M_UR50D' # embedding dim: 640D
@@ -43,11 +37,17 @@ MODEL_CKPT = 'facebook/esm2_t33_650M_UR50D'   # embedding dim: 1280D
 # MODEL_CKPT = 'facebook/esm2_t48_15B_UR50D'  # embedding dim: 5120D
 batch_size = 16  # Adjust based on GPU memory (e.g., 8 for A100 40GB)
 
+# Define paths
+main_data_dir = project_root / 'data'
+processed_data_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION
+output_dir = main_data_dir / 'embeddings' / VIRUS_NAME / DATA_VERSION # embeddings_dir
+output_dir.mkdir(parents=True, exist_ok=True)
+
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device = determine_device(CUDA_NAME)
 model_name = MODEL_CKPT.split('/')[-1]
 
-print(f'main_data_dir:      {main_data_dir}')
+print(f'\nmain_data_dir:      {main_data_dir}')
 print(f'processed_data_dir: {processed_data_dir}')
 print(f'output_dir:         {output_dir}')
 print(f'device:             {device}')

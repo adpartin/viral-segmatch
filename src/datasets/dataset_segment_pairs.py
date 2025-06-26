@@ -35,15 +35,16 @@ from src.utils.timer_utils import Timer
 # Config
 SEED = 42
 TASK_NAME = 'segment_pair_classifier'
+VIRUS_NAME = 'bunya'
+DATA_VERSION = 'April_2025'
 
-data_version = 'April_2025'
-virus_name = 'bunya'
+# Define paths
 main_data_dir = project_root / 'data'
-processed_data_dir = main_data_dir / 'processed' / virus_name / data_version
-output_dir = main_data_dir / 'datasets' / virus_name / data_version / TASK_NAME # datasets_dir
+processed_data_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION
+output_dir = main_data_dir / 'datasets' / VIRUS_NAME / DATA_VERSION / TASK_NAME # datasets_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
-print(f'main_data_dir:      {main_data_dir}')
+print(f'\nmain_data_dir:      {main_data_dir}')
 print(f'processed_data_dir: {processed_data_dir}')
 print(f'output_dir:         {output_dir}')
 
