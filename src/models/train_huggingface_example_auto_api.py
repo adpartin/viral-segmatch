@@ -67,11 +67,9 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
 # Define paths
-filepath = Path(__file__).resolve().parent
-# data_dir = filepath / '../../data' / TASK_NAME
-main_data_dir = filepath / '../../data'
+main_data_dir = project_root / 'data'
 datasets_dir = main_data_dir / 'datasets' / TASK_NAME
-model_dir = filepath / '../../models'
+model_dir = project_root / 'models'
 output_dir = model_dir / (TASK_NAME + '_auto')
 
 # Create output dir
