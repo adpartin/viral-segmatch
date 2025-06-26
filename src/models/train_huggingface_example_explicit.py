@@ -215,7 +215,7 @@ class EsmProteinClassifier(nn.Module):
         # Configure classification head
         self.config = self.esm.config
         self.config.num_labels = num_labels
-        self.classifier = EsmClassificationHead(self.config)
+        self.model = EsmClassificationHead(self.config)
 
         # print(self.config) # print model config
         # print(self.esm)    # print model architecture
@@ -225,7 +225,7 @@ class EsmProteinClassifier(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None
         ) -> torch.Tensor:
-        """ Forward pass through the classifier.
+        """ Forward pass through the model.
 
         Args:
             input_ids: Tokenized protein sequences
@@ -242,10 +242,10 @@ class EsmProteinClassifier(nn.Module):
 
         outputs = self.esm(input_ids=input_ids, attention_mask=attention_mask)
 
-        # Pass last hidden state through classifier
+        # Pass last hidden state through model
         # seq_output = outputs[0]
         # torch.equal(seq_output, outputs.last_hidden_state)
-        logits = self.classifier(outputs.last_hidden_state)
+        logits = self.model(outputs.last_hidden_state)
 
         # print(f'input_ids:         {input_ids.shape}') # [8, 502]
         # print(f'attention_mask:    {attention_mask.shape}') # [8, 502]
@@ -369,15 +369,15 @@ You'll also see the param "architectures": ["EsmForMaskedLM"]. This indicates
 the primary task the pre-trained model was trained for, which in this case of
 esm2_t12_35M_UR50D is Masked Language Modeling (MLM).
 """
-# Initialize classifier and move it to device
+# Initialize model and move it to device
 # breakpoint()
 device = determine_device(CUDA_NAME)
-classifier = EsmProteinClassifier(MODEL_CKPT, num_labels=2)
-classifier.to(device)
+model = EsmProteinClassifier(MODEL_CKPT, num_labels=2)
+model.to(device)
 
 # Loss function and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.AdamW(classifier.parameters(), lr=LEARNING_RATE,
+optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE,
     weight_decay=WEIGHT_DECAY)
 
 
@@ -387,12 +387,13 @@ optimizer = optim.AdamW(classifier.parameters(), lr=LEARNING_RATE,
 # breakpoint()
 print('\nStart training.')
 
-best_loss = float('inf')
+best_val_loss = float('inf')
+patience_counter = 0
 best_model_state = None
 
 start_time = time.time()
 for epoch in range(NUM_EPOCHS):
-    classifier.train()
+    model.train()
     total_loss = 0.0
 
     progress_bar = tqdm(train_dataloader, desc=f'Epoch {epoch+1}/{NUM_EPOCHS}',
@@ -405,7 +406,7 @@ for epoch in range(NUM_EPOCHS):
         labels = batch['labels'].to(device)
 
         # Forward pass
-        outputs = classifier(**inputs)
+        outputs = model(**inputs)
 
         # Backward pass
         loss = criterion(outputs, labels)
@@ -420,13 +421,13 @@ for epoch in range(NUM_EPOCHS):
     avg_train_loss = total_loss / len(train_dataloader)
 
     # # Validation step
-    # classifier.eval()
+    # model.eval()
     # val_loss = 0
     # with torch.no_grad():
     #     for batch in val_dataloader:
     #         inputs = {key: val.to(device) for key, val in batch.items() if key != 'labels'}
     #         labels = batch['labels'].to(device)
-    #         outputs = classifier(**batch)
+    #         outputs = model(**batch)
     #         loss = outputs.loss
     #         val_loss += loss.item()
 
@@ -444,7 +445,7 @@ del batch, inputs, labels, outputs, loss
 
 # Restore best model state at the end
 if best_model_state:
-    classifier.load_state_dict(best_model_state)
+    model.load_state_dict(best_model_state)
     print('Best model restored based on validation loss.')
 
 
@@ -454,14 +455,14 @@ if best_model_state:
 # breakpoint()
 test_preds, all_test_labels = [], []
 
-classifier.eval()
+model.eval()
 with torch.no_grad():
     for batch in tqdm(test_dataloader, desc='Evaluating'):
         inputs = {k: v.to(device) for k, v in batch.items() if k != 'labels'}
         labels = batch['labels'].to(device)
 
-        # Forward pass (with esm_model and classifier)
-        logits = classifier(**inputs)  # under torch.no_grad()
+        # Forward pass (with esm_model and model)
+        logits = model(**inputs)  # under torch.no_grad()
         preds = torch.argmax(logits, dim=1)
 
         # Store preds and labels
@@ -489,8 +490,8 @@ test_res_df.to_csv(output_dir / 'test_predicted.csv', index=False)
 # Save model
 model_path = output_dir / 'model.pt'
 tokenizer_path = output_dir / 'tokenizer'
-torch.save(classifier, model_path)
-torch.save(classifier.state_dict(), output_dir / 'model_state_dict.pth')
+torch.save(model, model_path)
+torch.save(model.state_dict(), output_dir / 'model_state_dict.pth')
 tokenizer.save_pretrained(tokenizer_path)
 print(f'Model saved: {model_path}')
 
