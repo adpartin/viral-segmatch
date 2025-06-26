@@ -1,5 +1,6 @@
 from typing import Optional
 
+import h5py
 import numpy as np
 from tqdm import tqdm
 
@@ -148,4 +149,4 @@ def load_esm2_embedding(brc_fea_id: str, embeddings_file: str) -> np.ndarray:
     with h5py.File(embeddings_file, 'r') as file:
         if brc_fea_id not in file:
             raise KeyError(f'brc_fea_id {brc_fea_id} not found in {embeddings_file}')
-        return np.array(f[brc_fea_id])
+        return np.array(file[brc_fea_id])
