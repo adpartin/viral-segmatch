@@ -36,7 +36,7 @@ SEED = 42
 TASK_NAME = 'segment_pair_classifier'
 VIRUS_NAME = 'bunya'
 DATA_VERSION = 'April_2025'
-CUDA_NAME = 'cuda:4'  # Specify GPU device
+CUDA_NAME = 'cuda:4'
 
 # MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'    # embedding dim: 320D
 # MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # embedding dim: 480D
@@ -133,7 +133,6 @@ class MLPClassifier(nn.Module):
         # print(self.mlp) # print model architecture
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # breakpoint()
         # print(f'Input shape: {x.shape}')
         return self.mlp(x)
 
@@ -234,29 +233,19 @@ def evaluate_model(
     test_f1 = f1_score(test_labels, test_preds)
     test_auc = roc_auc_score(test_labels, test_probs)
 
-    # Same-function negative accuracy
-    # TODO: app-specific (move outside this func)
-    # same_func_neg = test_pairs[(test_pairs['label'] == 0) & (test_pairs['func_a'] == test_pairs['func_b'])]
-    # same_func_idx = same_func_neg.index
-    # same_func_preds = np.array(test_preds)[same_func_idx]
-    # same_func_labels = np.array(test_labels)[same_func_idx]
-    # same_func_acc = (same_func_preds == same_func_labels).mean() if len(same_func_idx) > 0 else 0.0
-
     # Classification report
     print('\nClassification Report:')
     print(classification_report(test_labels, test_preds, target_names=['Negative', 'Positive']))
 
     # Create test_res_df
     test_res_df = test_pairs.copy()
-    test_res_df['true_label'] = test_labels
+    # test_res_df['true_label'] = test_labels
     test_res_df['pred_label'] = test_preds
     test_res_df['pred_prob'] = test_probs
     # test_res_df.to_csv(output_dir / 'test_predicted.csv', index=False)
     # print(f"Saved raw prediction to: {output_dir / 'test_predicted.csv'}")
 
-    # print(f'Test Loss: {test_loss:.4f}, Test F1: {test_f1:.4f}, Test AUC: {test_auc:.4f}, Same-Function Neg Acc: {same_func_acc:.4f}')
     print(f'Test Loss: {test_loss:.4f}, Test F1: {test_f1:.4f}, Test AUC: {test_auc:.4f}')
-
     return test_res_df
 
 
@@ -305,31 +294,10 @@ model.load_state_dict(torch.load(best_model_path))
 test_res_df = evaluate_model(model, test_loader, criterion, device, test_pairs)
 
 # Save raw predictions
+# TODO: use github.com/JDACS4C-IMPROVE/IMPROVE/blob/develop/improvelib/utils.py#273 to save raw preds
 print('\nSave raw predictions.')
 test_res_df.to_csv(output_dir / 'test_predicted.csv', index=False)
 print(f"Saved raw prediction to: {output_dir / 'test_predicted.csv'}")
-
-# Error analysis
-# Consider using https://github.com/JDACS4C-IMPROVE/IMPROVE/blob/develop/improvelib/utils.py#273 to save raw predictions.
-# Plot UMAP of raw proteins, color-coded by segment
-# Plot UMAP of raw proteins (truncated to 1022), color-coded by segment
-# Plot UMAP of protein embeddings, color-coded by segment
-# Plot UMAP of protein embeddings (of truncated proteins to 1022), color-coded by segment
-# Can we apply some clustering (and maybe quantify clustering quality)?
-# Create binary columns: fn, fp, tp, tn, same_func
-# Plot confusion matrix
-# Check how many of the same-function pairs actually have same protein sequences
-# Histogram of error pairs grouped by segment: (S, M) - 7 errors, (S, L) - 10 errors, (M, L) - 12 errors --> this can be done for fp and fn
-# Histogram like above, but binned by probability --> probs around 0.5 means highest uncertainty
-# What's worse fp or fn?
-# df = pd.read_csv('data/models/bunya/April_2025/segment_pair_classifier/test_results.csv')
-# errors = test_res_df[test_res_df['true_label'] != test_res_df['pred_label']]
-# same_func_errors = errors[errors['func_a'] == errors['func_b']]
-# print(same_func_errors[['brc_a', 'brc_b', 'func_a', 'func_b', 'true_label', 'pred_prob']])
-# tp_errors = ...
-# fp_errors = ...
-# sf_errors = ... # same-function errors --> special case of false positives
-# print(errors[['assembly_id_a', 'assembly_id_b', 'brc_a', 'brc_b', 'func_a', 'func_b', 'true_label', 'pred_prob']])
 
 total_timer.display_timer()
 print('Done.')
