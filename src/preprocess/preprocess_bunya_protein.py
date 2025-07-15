@@ -45,7 +45,7 @@ print(f'output_dir:      {output_dir}')
 
 seq_col_name = 'prot_seq'
 
-# Core and auxiliary functions based data version
+# Define core and auxiliary functions
 if DATA_VERSION == 'April_2025':
     core_functions = [
         'RNA-dependent RNA polymerase',
@@ -112,7 +112,7 @@ def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
     - The 'location' in 'features' contains: [[ <segment_id>, <start>, <strand>, <end>]]
     - For example: "location": [[ "NC_086346.1", "70", "+", "738" ]]
     - It means: this feature is located on segment NC_086346.1 (positive strand), from
-    - nucleotide 70 to 738.
+        nucleotide 70 to 738.
     - Note that the first str in 'location' (i.e., NC_086346.1) is a GenBank-style accession,
         used by NCBI for nucleotide entries.    
     """
@@ -135,10 +135,10 @@ def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
     }
     
     # Extract data from 'features'
-    features_columns = ['id', 'type', 'function', 'protein_translation', 'location']
+    fea_cols = ['id', 'type', 'function', 'protein_translation', 'location']
     rows = []
     for fea_dict in gto['features']:
-        row = {k: fea_dict.get(k, None) for k in features_columns}
+        row = {k: fea_dict.get(k, None) for k in fea_cols}
         row['length'] = len(fea_dict.get('protein_translation', '')) if 'protein_translation' in fea_dict else 0
         # Example of 'location': [["NC_086346.1", "70", "+", "738"]]
         location = fea_dict.get('location')
@@ -198,13 +198,13 @@ def assign_segment_using_core_proteins(
     ) -> pd.DataFrame:
     """Assign canonical segments (L, M, S) based on core protein functions.
     
-    Each tripartite bunyavirales genome segment (replicon) encodes a distinct core protein:
+    Each tripartite Bunyavirales genome segment (replicon) encodes a distinct core protein:
 
     1. L segment → encodes RNA-dependent RNA polymerase (L protein, or RdRp)
     2. M segment → encodes the Pre-Glycoprotein polyprotein (GPC), cleaved into Gn and Gc
     3. S segment → encodes the Nucleocapsid (N) protein
 
-    Note! In bipartite bunyaviruses (2-segment), The Small RNA Segment can encode
+    Note! In bipartite Bunyavirales (2-segment), The Small RNA Segment can encode
         N and GPC proteins (e.g., Arenaviridae).
 
     These three proteins (L, GPC, N) are present in nearly all Bunyavirales genomes.
@@ -595,7 +595,7 @@ print(f'prot_df: {prot_df.shape}')
 prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
 prot_df_no_seq = prot_df[prot_df[seq_col_name].isna()]
 print(f'Records with missing protein sequence: {prot_df_no_seq.shape}')
-prot_df_no_seq.to_csv(output_dir / 'protein_missing_seqs.csv', sep=',', index=False)
+prot_df_no_seq.to_csv(output_dir / 'protein_agg_from_GTO_missing_seqs.csv', sep=',', index=False)
 
 # Check unique BRC feature IDs
 print(f"\nTotal brc_fea_id:  {prot_df['brc_fea_id'].count()}")
@@ -657,7 +657,7 @@ print_replicon_func_count(prot_df, functions=aux_functions)
 # Assign segments
 print("\nAssign canonical segments.")
 prot_df = assign_segments(prot_df, data_version=DATA_VERSION, use_core=True, use_aux=True)
-prot_df.to_csv(output_dir / 'protein_before_filtering.csv', sep=',', index=False)
+prot_df.to_csv(output_dir / 'protein_assigned_segments.csv', sep=',', index=False)
 
 # Apply basic filters
 print("\nApply basic filters.")
@@ -742,11 +742,11 @@ print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
 # Save final data
 print("\nSave final protein data.")
-prot_df.to_csv(output_dir / 'protein_filtered.csv', sep=',', index=False)
+prot_df.to_csv(output_dir / 'protein_final.csv', sep=',', index=False)
 print(f'prot_df final: {prot_df.shape}')
 print(f"Unique protein sequences: {prot_df[seq_col_name].nunique()}")
 aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'])
-aa.to_csv(output_dir / 'protein_filtered_segment_mappings_stats.csv', sep=',', index=False)
+aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', index=False)
 print(prot_df['canonical_segment'].value_counts())
 
 total_timer.display_timer()
