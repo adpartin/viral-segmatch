@@ -29,6 +29,16 @@ DATA_VERSION = 'April_2025'
 FIGURE_DPI = 300
 FIGURE_SIZE = (12, 8)
 
+# Global color scheme for segments (consistent across all visualizations)
+SEGMENT_COLORS = {
+    'S': '#1f77b4',  # Blue
+    'M': '#ff7f0e',  # Orange
+    'L': '#2ca02c'   # Green
+}
+
+# Standard segment order for consistent visualization
+SEGMENT_ORDER = ['S', 'M', 'L']
+
 # Define paths
 main_data_dir = project_root / 'data'
 processed_data_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION
@@ -225,13 +235,12 @@ def _create_combined_segment_figure(df):
     
     # 1. Overall segment distribution
     segment_counts = df['canonical_segment'].value_counts()
-    # Reorder to [S, M, L]
-    desired_order = ['S', 'M', 'L']
-    segment_counts = segment_counts.reindex(desired_order)
+    # Reorder to standard segment order
+    segment_counts = segment_counts.reindex(SEGMENT_ORDER)
     
     ax1 = axes[0, 0]
     bars = ax1.bar(segment_counts.index, segment_counts.values, 
-                   color=['#2ca02c', '#ff7f0e', '#1f77b4'])  # Green, Orange, Blue for S, M, L
+                   color=[SEGMENT_COLORS[seg] for seg in SEGMENT_ORDER if seg in segment_counts.index])
     ax1.set_title('Overall Segment Distribution', fontsize=14, fontweight='bold')
     ax1.set_ylabel('Number of Proteins', fontsize=14)  # Larger Y-axis label
     ax1.set_xlabel('Segment', fontsize=14)  # Larger X-axis label
@@ -310,12 +319,11 @@ def _create_separate_segment_figures(df):
     # Figure 1: Overall segment distribution
     fig1, ax1 = plt.subplots(1, 1, figsize=(8, 6))
     segment_counts = df['canonical_segment'].value_counts()
-    # Reorder to [S, M, L]
-    desired_order = ['S', 'M', 'L']
-    segment_counts = segment_counts.reindex(desired_order)
+    # Reorder to standard segment order
+    segment_counts = segment_counts.reindex(SEGMENT_ORDER)
     
     bars = ax1.bar(segment_counts.index, segment_counts.values, 
-                   color=['#2ca02c', '#ff7f0e', '#1f77b4'])  # Green, Orange, Blue for S, M, L
+                   color=[SEGMENT_COLORS[seg] for seg in SEGMENT_ORDER if seg in segment_counts.index])
     ax1.set_title('Overall Segment Distribution', fontsize=14, fontweight='bold')
     ax1.set_ylabel('Number of Proteins', fontsize=14)  # Larger Y-axis label
     ax1.set_xlabel('Segment', fontsize=14)  # Larger X-axis label
@@ -432,13 +440,27 @@ def analyze_sequence_quality(data):
     }
 
 
-def create_sequence_quality_visualization(data):
-    """Create sequence quality visualizations."""
+def create_sequence_quality_visualization(data, separate_figures=False):
+    """Create sequence quality visualizations.
+    
+    Args:
+        data: Dictionary containing data at different stages
+        separate_figures: If True, create separate figures for each plot
+    """
     if 'final' not in data:
         return None
     
     # breakpoint()
     df = data['final']
+    
+    if separate_figures:
+        return _create_separate_quality_figures(df)
+    else:
+        return _create_combined_quality_figure(df)
+
+
+def _create_combined_quality_figure(df):
+    """Create combined sequence quality figure."""
     seq_lengths = df['prot_seq'].str.len()
     
     fig, axes = plt.subplots(2, 2, figsize=(15, 12))
@@ -460,7 +482,7 @@ def create_sequence_quality_visualization(data):
     ax2 = axes[0, 1]
     segment_lengths = []
     segment_labels = []
-    for segment in ['L', 'M', 'S']:
+    for segment in SEGMENT_ORDER:
         seg_data = df[df['canonical_segment'] == segment]['prot_seq'].str.len()
         if not seg_data.empty:
             segment_lengths.append(seg_data)
@@ -493,6 +515,113 @@ def create_sequence_quality_visualization(data):
     plt.close()
     
     return fig
+
+
+def _create_separate_quality_figures(df):
+    """Create separate figures for each sequence quality plot."""
+    figures = []
+    seq_lengths = df['prot_seq'].str.len()
+    
+    # Figure 1: Sequence length distribution by segment
+    fig1, ax1 = plt.subplots(1, 1, figsize=(10, 6))
+    
+    # Create histogram for each segment
+    segment_data = []
+    segment_labels = []
+    segment_colors_used = []
+    for segment in SEGMENT_ORDER:
+        seg_lengths = df[df['canonical_segment'] == segment]['prot_seq'].str.len()
+        if not seg_lengths.empty:
+            segment_data.append(seg_lengths)
+            segment_labels.append(f'{segment} (n={len(seg_lengths)})')
+            segment_colors_used.append(SEGMENT_COLORS[segment])
+    
+    if segment_data:
+        # Create overlapping histograms
+        ax1.hist(segment_data, bins=50, alpha=0.7, 
+                color=segment_colors_used,
+                label=segment_labels, edgecolor='black', linewidth=0.5)
+        
+        # Add overall statistics lines
+        ax1.axvline(seq_lengths.mean(), color='red', linestyle='--', linewidth=2,
+                    label=f'Overall Mean: {seq_lengths.mean():.0f}')
+        ax1.axvline(seq_lengths.median(), color='darkred', linestyle=':', linewidth=2,
+                    label=f'Overall Median: {seq_lengths.median():.0f}')
+    else:
+        # Fallback to original if no segment data
+        seq_lengths.hist(bins=50, ax=ax1, alpha=0.7, color='skyblue', edgecolor='black')
+        ax1.axvline(seq_lengths.mean(), color='red', linestyle='--', 
+                    label=f'Mean: {seq_lengths.mean():.0f}')
+        ax1.axvline(seq_lengths.median(), color='orange', linestyle='--', 
+                    label=f'Median: {seq_lengths.median():.0f}')
+    
+    ax1.set_title('Protein Sequence Length Distribution by Segment', fontsize=14, fontweight='bold')
+    ax1.set_xlabel('Sequence Length (amino acids)', fontsize=12)
+    ax1.set_ylabel('Frequency', fontsize=12)
+    ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(results_dir / 'sequence_length_distribution.png', dpi=FIGURE_DPI, bbox_inches='tight')
+    plt.close()
+    figures.append(fig1)
+    
+    # Figure 2: Sequence length by segment
+    fig2, ax2 = plt.subplots(1, 1, figsize=(8, 6))
+    segment_lengths = []
+    segment_labels = []
+    for segment in SEGMENT_ORDER:
+        seg_data = df[df['canonical_segment'] == segment]['prot_seq'].str.len()
+        if not seg_data.empty:
+            segment_lengths.append(seg_data)
+            segment_labels.append(f'{segment}\n(n={len(seg_data)})')
+    
+    if segment_lengths:
+        ax2.boxplot(segment_lengths, tick_labels=segment_labels)
+        ax2.set_title('Sequence Length by Segment', fontsize=14, fontweight='bold')
+        ax2.set_ylabel('Sequence Length (amino acids)', fontsize=12)
+        ax2.set_xlabel('Segment', fontsize=12)
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(results_dir / 'sequence_length_by_segment.png', dpi=FIGURE_DPI, bbox_inches='tight')
+        plt.close()
+        figures.append(fig2)
+    
+    # Figure 3: Function distribution
+    fig3, ax3 = plt.subplots(1, 1, figsize=(10, 8))
+    func_counts = df['function'].value_counts().head(10)
+    func_counts.plot(kind='barh', ax=ax3, color='lightcoral')
+    ax3.set_title('Top 10 Protein Functions', fontsize=14, fontweight='bold')
+    ax3.set_xlabel('Number of Proteins', fontsize=12)
+    ax3.set_ylabel('Function', fontsize=12)
+    
+    # Add count labels on bars
+    for i, v in enumerate(func_counts.values):
+        ax3.text(v + max(func_counts.values) * 0.01, i, str(v), 
+                va='center', fontweight='bold')
+    
+    plt.tight_layout()
+    plt.savefig(results_dir / 'function_distribution.png', dpi=FIGURE_DPI, bbox_inches='tight')
+    plt.close()
+    figures.append(fig3)
+    
+    # Figure 4: Quality distribution by segment
+    fig4, ax4 = plt.subplots(1, 1, figsize=(10, 6))
+    quality_counts = df.groupby(['canonical_segment', 'quality']).size().unstack(fill_value=0)
+    quality_counts.plot(kind='bar', ax=ax4, stacked=True)
+    ax4.set_title('Quality Distribution by Segment', fontsize=14, fontweight='bold')
+    ax4.set_ylabel('Number of Proteins', fontsize=12)
+    ax4.set_xlabel('Segment', fontsize=12)
+    ax4.tick_params(axis='x', rotation=0)
+    ax4.legend(title='Quality', bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    plt.tight_layout()
+    plt.savefig(results_dir / 'quality_distribution_by_segment.png', dpi=FIGURE_DPI, bbox_inches='tight')
+    plt.close()
+    figures.append(fig4)
+    
+    return figures
 
 
 def analyze_duplicate_handling(data):
@@ -668,7 +797,7 @@ def main():
     # Analyze sequence quality
     print('\n5. Analyze sequence quality.')
     quality_analysis = analyze_sequence_quality(data)
-    create_sequence_quality_visualization(data)
+    create_sequence_quality_visualization(data, separate_figures=True)
     
     # Analyze duplicate handling
     print('\n6. Analyze duplicate handling.')
