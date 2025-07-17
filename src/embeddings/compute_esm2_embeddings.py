@@ -22,7 +22,6 @@ from src.utils.torch_utils import determine_device
 from src.utils.esm2_utils import compute_esm2_embeddings
 
 # Config
-TASK_NAME = 'segment_pair_classifier'
 VIRUS_NAME = 'bunya'
 DATA_VERSION = 'April_2025'
 CUDA_NAME = 'cuda:7'  # Specify GPU device
@@ -91,7 +90,7 @@ print(f'Processing {len(df)} unique proteins')
 
 # Compute embeddings
 # breakpoint()
-print(f'\nComputing ESM-2 embeddings ({model_name}).')
+print(f'\nCompute ESM-2 embeddings ({model_name}).')
 embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
     sequences=df[PROT_SEQ_COL_NAME].tolist(),
     brc_fea_ids=df['brc_fea_id'].tolist(),
@@ -119,7 +118,7 @@ with h5py.File(output_file, 'r') as file:
     assert len(saved_ids) == len(df), f'Mismatch: {len(saved_ids)} embeddings, {len(df)} proteins'
     assert len(saved_ids) == len(df) - len(failed_ids), f'Mismatch: {len(saved_ids)} embeddings, {len(df) - len(failed_ids)} expected'
     emb_dim = file[saved_ids[0]].shape[0]
-    print(f"Saved {len(saved_ids)} embeddings (dim: {emb_dim})")
+    print(f'Saved {len(saved_ids)} embeddings (dim: {emb_dim})')
 if failed_ids:
     print(f'Failed to process {len(failed_ids)} sequences: {failed_ids[:5]}...')
 
