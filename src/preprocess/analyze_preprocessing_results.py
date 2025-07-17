@@ -558,7 +558,7 @@ def _create_separate_quality_figures(df):
     ax1.set_title('Protein Sequence Length Distribution by Segment', fontsize=14, fontweight='bold')
     ax1.set_xlabel('Sequence Length (amino acids)', fontsize=12)
     ax1.set_ylabel('Frequency', fontsize=12)
-    ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax1.legend(bbox_to_anchor=(1.05, 1), loc='best')
     ax1.grid(True, alpha=0.3)
     
     plt.tight_layout()
