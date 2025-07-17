@@ -339,7 +339,7 @@ if __name__ == "__main__":
             'ACDEF*BXZ*GHILMNPQRSTVWY*',     # Various (B, X, Z, internal *, terminal *) - dropped
             'ACDEFGHIKLMNPQRSTVWY*',   # Terminal stop - kept
             'ACDEF*GHIKLMNPQRSTVWY',   # Internal stop - kept
-            'AC*****************WY*',   # Various (internal *, terminal *) - dropped
+            'AC*****************WY*',  # Various (internal *, terminal *) - dropped
             'ACXXXXXXXXXXXXXXXXXWY',   # Contains X - dropped
             'ACDEFXGHIKLMNPQRSTVWY*',  # Various (X, terminal *) - kept
             'ACDEFBGHIKLMNPQRSTVWY',   # Contains B - dropped

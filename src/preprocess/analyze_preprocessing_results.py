@@ -22,6 +22,7 @@ project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
 from src.utils.protein_utils import analyze_protein_ambiguities, summarize_ambiguities
+from src.utils.plot_config import map_protein_name, apply_default_style
 
 # Configuration
 VIRUS_NAME = 'bunya'
@@ -259,6 +260,8 @@ def _create_combined_segment_figure(df):
     # 2. Core protein segment assignment
     core_df = df[df['function'].isin(core_functions)]
     core_segment_func = pd.crosstab(core_df['function'], core_df['canonical_segment'])
+    # Map protein names to shorter versions
+    core_segment_func.index = [map_protein_name(name) for name in core_segment_func.index]
     ax2 = axes[0, 1]
     core_bars = core_segment_func.plot(kind='bar', ax=ax2, stacked=True)
     ax2.set_title('Core Protein Segment Assignment', fontsize=14, fontweight='bold')
@@ -281,6 +284,8 @@ def _create_combined_segment_figure(df):
     aux_df = df[df['function'].isin(aux_functions)]
     if not aux_df.empty:
         aux_segment_func = pd.crosstab(aux_df['function'], aux_df['canonical_segment'])
+        # Map protein names to shorter versions
+        aux_segment_func.index = [map_protein_name(name) for name in aux_segment_func.index]
         ax3 = axes[1, 0]
         aux_segment_func.plot(kind='bar', ax=ax3, stacked=True)
         ax3.set_title('Auxiliary Protein Segment Assignment', fontsize=14, fontweight='bold')
@@ -348,6 +353,8 @@ def _create_separate_segment_figures(df):
     fig2, ax2 = plt.subplots(1, 1, figsize=(10, 6))
     core_df = df[df['function'].isin(core_functions)]
     core_segment_func = pd.crosstab(core_df['function'], core_df['canonical_segment'])
+    # Map protein names to shorter versions
+    core_segment_func.index = [map_protein_name(name) for name in core_segment_func.index]
     core_segment_func.plot(kind='bar', ax=ax2, stacked=True)
     ax2.set_title('Core Protein Segment Assignment', fontsize=14, fontweight='bold')
     ax2.set_ylabel('Number of Proteins')
@@ -375,6 +382,8 @@ def _create_separate_segment_figures(df):
     if not aux_df.empty:
         fig3, ax3 = plt.subplots(1, 1, figsize=(10, 6))
         aux_segment_func = pd.crosstab(aux_df['function'], aux_df['canonical_segment'])
+        # Map protein names to shorter versions
+        aux_segment_func.index = [map_protein_name(name) for name in aux_segment_func.index]
         aux_segment_func.plot(kind='bar', ax=ax3, stacked=True)
         ax3.set_title('Auxiliary Protein Segment Assignment', fontsize=14, fontweight='bold')
         ax3.set_ylabel('Number of Proteins')
@@ -497,6 +506,8 @@ def _create_combined_quality_figure(df):
     # 3. Function distribution
     ax3 = axes[1, 0]
     func_counts = df['function'].value_counts().head(10)
+    # Map protein names to shorter versions
+    func_counts.index = [map_protein_name(name) for name in func_counts.index]
     func_counts.plot(kind='barh', ax=ax3)
     ax3.set_title('Top 10 Protein Functions', fontsize=14, fontweight='bold')
     ax3.set_xlabel('Number of Proteins')
@@ -591,6 +602,8 @@ def _create_separate_quality_figures(df):
     # Figure 3: Function distribution
     fig3, ax3 = plt.subplots(1, 1, figsize=(10, 8))
     func_counts = df['function'].value_counts().head(10)
+    # Map protein names to shorter versions
+    func_counts.index = [map_protein_name(name) for name in func_counts.index]
     func_counts.plot(kind='barh', ax=ax3, color='lightcoral')
     ax3.set_title('Top 10 Protein Functions', fontsize=14, fontweight='bold')
     ax3.set_xlabel('Number of Proteins', fontsize=12)
@@ -773,6 +786,9 @@ def generate_comprehensive_report(data, metrics, summary):
 
 def main():
     """Main analysis function."""
+
+    # Apply default plotting style
+    apply_default_style()
 
     print('Stage 1: Preprocessing Analysis')
     print('=' * 50)
