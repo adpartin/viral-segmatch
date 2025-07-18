@@ -31,12 +31,12 @@ sys.path.append(str(project_root))
 # print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
-
-# Config
-SEED = 42
-TASK_NAME = 'segment_pair_classifier'
-VIRUS_NAME = 'bunya'
-DATA_VERSION = 'April_2025'
+from src.utils.config import (
+    USE_CORE_PROTEINS_ONLY, CORE_FUNCTIONS, VIRUS_NAME, DATA_VERSION, 
+    SEED, TASK_NAME, NEG_TO_POS_RATIO, ALLOW_SAME_FUNC_NEGATIVES, 
+    MAX_SAME_FUNC_RATIO, TRAIN_RATIO, VAL_RATIO
+)
+from src.utils.protein_utils import get_core_protein_filter_mask, validate_core_proteins
 
 # Define paths
 main_data_dir = project_root / 'data'
@@ -48,12 +48,9 @@ print(f'\nmain_data_dir:      {main_data_dir}')
 print(f'processed_data_dir: {processed_data_dir}')
 print(f'output_dir:         {output_dir}')
 
-use_core_proteins_only = True
-core_funcs = {
-    'L': 'RNA-dependent RNA polymerase',
-    'M': 'Pre-glycoprotein polyprotein GP complex',
-    'S': 'Nucleocapsid protein'
-}
+# Note: use_core_proteins_only and core_funcs are now imported from config
+# use_core_proteins_only = USE_CORE_PROTEINS_ONLY
+# core_funcs = CORE_FUNCTIONS
 
 
 def create_positive_pairs(
@@ -182,7 +179,7 @@ def create_negative_pairs(
 
 def compute_isolate_pair_counts(
     df: pd.DataFrame,
-    use_core_proteins_only: bool = True,
+    use_core_proteins_only: bool = USE_CORE_PROTEINS_ONLY,
     verbose: bool = False,
     ) -> dict:
     """ Compute positive pair counts per isolate, validating ≤3 core proteins
@@ -378,7 +375,7 @@ def split_dataset_v2(
     random.seed(seed)
 
     # Compute positive pair counts per isolate
-    isolate_pos_counts = compute_isolate_pair_counts(df, use_core_proteins_only)
+    isolate_pos_counts = compute_isolate_pair_counts(df, USE_CORE_PROTEINS_ONLY)
 
     # Stratify isolates by positive pair counts
     unique_isolates = list(df['assembly_id'].unique())
@@ -533,21 +530,18 @@ def split_dataset_v2(
 
 # Load protein data
 total_timer = Timer()
-print('\nLoad filtered protein data.')
-fname = 'protein_filtered.csv'
+print('\nLoad preprocessed protein data.')
+fname = 'protein_final.csv'
 datapath = processed_data_dir / fname
 try:
     prot_df = pd.read_csv(datapath)
 except FileNotFoundError:
     raise FileNotFoundError(f"Data file not found at: {datapath}")
 
-# Restrict to core proteins
-if use_core_proteins_only:
-    # Mask for core proteins where segment and function match
-    mask = (
-        prot_df['canonical_segment'].isin(core_funcs) &
-        prot_df.apply(lambda row: row['function'] == core_funcs[row['canonical_segment']], axis=1)
-    )
+# Restrict to core proteins using config
+if USE_CORE_PROTEINS_ONLY:
+    # Use the config helper function for consistent filtering
+    mask = get_core_protein_filter_mask(prot_df)
     df = prot_df[mask].reset_index(drop=True)
 else:
     df = prot_df.reset_index(drop=True)
@@ -556,15 +550,8 @@ else:
 # TODO Do we actually use 'seq_hash' somewhere?
 df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
-# Validate protein counts
-# TODO Consider using the func validate_protein_counts() in preprocess_bunya.py
-for aid, grp in df.groupby('assembly_id'):
-    n_proteins = len(grp)
-    if use_core_proteins_only and n_proteins > 3:
-        print(f"Warning: assembly_id {aid} has {n_proteins} core proteins, expected ≤3.")
-        print(f"Files: {grp['file'].unique()}")
-        print(f"Functions: {grp['function'].tolist()}")
-        raise ValueError(f"assembly_id {aid} has >3 core proteins.")
+# Validate protein counts using protein_utils
+validate_core_proteins(df)
 
 # Validate brc_fea_id uniqueness within isolates
 dups = df[df.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=False)]
@@ -572,14 +559,12 @@ if not dups.empty:
     raise ValueError(f"Duplicate brc_fea_id found within isolates: \
         {dups[['assembly_id', 'brc_fea_id']]}")
 
-# Settings
-neg_to_pos_ratio = 3
-# neg_to_pos_ratio = 2
-# neg_to_pos_ratio = 1
-allow_same_func_negatives = True
-max_same_func_ratio = 0.5
-hard_partition_isolates = True
-hard_partition_duplicates = False
+# Settings (using config values)
+neg_to_pos_ratio = NEG_TO_POS_RATIO
+allow_same_func_negatives = ALLOW_SAME_FUNC_NEGATIVES
+max_same_func_ratio = MAX_SAME_FUNC_RATIO
+hard_partition_isolates = True  # TODO: Move to config in future
+hard_partition_duplicates = False  # TODO: Move to config in future
 
 # Split dataset and create pairs
 print('\nSplit dataset and create pairs.')
@@ -590,7 +575,7 @@ train_pairs, val_pairs, test_pairs = split_dataset_v2(
     max_same_func_ratio=max_same_func_ratio,
     hard_partition_isolates=hard_partition_isolates,
     hard_partition_duplicates=hard_partition_duplicates,
-    use_core_proteins_only=use_core_proteins_only,
+    use_core_proteins_only=USE_CORE_PROTEINS_ONLY,
 )
 
 # Save datasets

@@ -36,7 +36,7 @@ SEED = 42
 TASK_NAME = 'segment_pair_classifier'
 VIRUS_NAME = 'bunya'
 DATA_VERSION = 'April_2025'
-CUDA_NAME = 'cuda:4'
+CUDA_NAME = 'cuda:7'
 
 # MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'    # embedding dim: 320D
 # MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # embedding dim: 480D

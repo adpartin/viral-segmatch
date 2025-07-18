@@ -4,14 +4,58 @@ defaults:
   - model: esm2_t6
   - _self_
 
+# =============================================================================
+# PROJECT SETTINGS
+# =============================================================================
+project:
+  virus_name: 'bunya'
+  data_version: 'April_2025'
+  task_name: 'segment_pair_classifier'
+  seed: 42
+
+# =============================================================================
+# CORE PROTEIN SETTINGS
+# =============================================================================
+proteins:
+  use_core_proteins_only: true
+  core_functions:
+    - 'RNA-dependent RNA polymerase'
+    - 'Pre-glycoprotein polyprotein GP complex'
+    - 'Nucleocapsid protein'
+
+# =============================================================================
+# DATASET SETTINGS
+# =============================================================================
+dataset:
+  train_ratio: 0.8
+  val_ratio: 0.1
+  # test_ratio: 0.1 (implicit: 1 - train_ratio - val_ratio)
+  neg_to_pos_ratio: 3.0
+  allow_same_func_negatives: true
+  max_same_func_ratio: 0.5
+
+# =============================================================================
+# EMBEDDING SETTINGS
+# =============================================================================
+embeddings:
+  max_residues: 1022  # ESM-2 max seq length is 1024 with 2 tokens reserved for CLS, SEP
+  protein_seq_col: 'esm2_ready_seq'
+
+# =============================================================================
+# PATHS
+# =============================================================================
 paths:
   data_dir: ${hydra:runtime.cwd}/data
   raw_data_dir: ${paths.data_dir}/raw
   models_dir: ${hydra:runtime.cwd}/models
   
+# =============================================================================
+# TRAINING (EXISTING)
+# =============================================================================
 training:
-  seed: 42
-  batch_size: 32
-  learning_rate: 1e-4
-  epochs: 3
-  cuda_device: "cuda:7"
+  batch_size: 16
+  learning_rate: 1e-3
+  epochs: 50
+  cuda_device: 'cuda:7'
+  dropout: 0.3
+  patience: 5

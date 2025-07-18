@@ -20,13 +20,14 @@ sys.path.append(str(project_root))
 from src.utils.timer_utils import Timer
 from src.utils.torch_utils import determine_device
 from src.utils.esm2_utils import compute_esm2_embeddings
+from src.utils.config import (
+    USE_CORE_PROTEINS_ONLY, VIRUS_NAME, DATA_VERSION, 
+    ESM2_MAX_RESIDUES, ESM2_PROTEIN_SEQ_COL
+)
+from src.utils.protein_utils import get_core_protein_filter_mask
 
-# Config
-VIRUS_NAME = 'bunya'
-DATA_VERSION = 'April_2025'
+# Local config (GPU-specific, keep here for now)
 CUDA_NAME = 'cuda:7'  # Specify GPU device
-ESM2_MAX_RESIDUES = 1022  # ESM-2 max seq length is 1024 with 2 tokens reserved for CLS, SEP (special tokens)
-PROT_SEQ_COL_NAME = 'esm2_ready_seq'
 
 # MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'    # embedding dim: 320D
 # MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # embedding dim: 480D
@@ -54,13 +55,23 @@ print(f'device:             {device}')
 
 # Load protein data
 total_timer = Timer()
-print('\nLoad filtered protein data.')
-fname = 'protein_filtered.csv'
+print('\nLoad preprocessed protein data.')
+fname = 'protein_final.csv'
 datapath = processed_data_dir / fname
 try:
     df = pd.read_csv(datapath)
 except FileNotFoundError:
     raise FileNotFoundError(f"Data file not found at: {datapath}")
+
+# Filter to core proteins if configured
+if USE_CORE_PROTEINS_ONLY:
+    print(f"Filter to core proteins only (USE_CORE_PROTEINS_ONLY={USE_CORE_PROTEINS_ONLY})")
+    original_count = len(df)
+    mask = get_core_protein_filter_mask(df)
+    df = df[mask].reset_index(drop=True)
+    print(f"Filtered from {original_count} to {len(df)} core proteins")
+else:
+    print(f"Use all proteins (USE_CORE_PROTEINS_ONLY={USE_CORE_PROTEINS_ONLY})")
 
 
 # Validate and deduplicate
@@ -71,10 +82,10 @@ print('\nValidate protein data.')
 if df['brc_fea_id'].duplicated().any():
     raise ValueError("Duplicate brc_fea_id found in protein_filtered.csv")
 # standard_amino_acids = set('ACDEFGHIKLMNPQRSTVWY')  # 20 canonical amino acids
-invalid_seqs = df[df[PROT_SEQ_COL_NAME].str.contains(r'[^ACDEFGHIKLMNPQRSTVWY]', na=False)]
+invalid_seqs = df[df[ESM2_PROTEIN_SEQ_COL].str.contains(r'[^ACDEFGHIKLMNPQRSTVWY]', na=False)]
 if not invalid_seqs.empty:
     print(f'Warning: {len(invalid_seqs)} invalid sequences found:')
-    print(invalid_seqs[['brc_fea_id', PROT_SEQ_COL_NAME]].head())
+    print(invalid_seqs[['brc_fea_id', ESM2_PROTEIN_SEQ_COL]].head())
 # Identify sequences longer than ESM-2 max length
 truncated = df[df['length'] > ESM2_MAX_RESIDUES][['brc_fea_id', 'canonical_segment', 'length']]
 if not truncated.empty:
@@ -82,7 +93,7 @@ if not truncated.empty:
     print(truncated.head())
 # We expect that each brc_fea_id corresponds to a unique protein sequence
 n_org_proteins = len(df)
-df = df[['brc_fea_id', PROT_SEQ_COL_NAME]].drop_duplicates().reset_index(drop=True)
+df = df[['brc_fea_id', ESM2_PROTEIN_SEQ_COL]].drop_duplicates().reset_index(drop=True)
 if len(df) < n_org_proteins:
     print(f'Dropped {n_org_proteins - len(df)} duplicate protein sequences')
 print(f'Processing {len(df)} unique proteins')
@@ -92,7 +103,7 @@ print(f'Processing {len(df)} unique proteins')
 # breakpoint()
 print(f'\nCompute ESM-2 embeddings ({model_name}).')
 embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
-    sequences=df[PROT_SEQ_COL_NAME].tolist(),
+    sequences=df[ESM2_PROTEIN_SEQ_COL].tolist(),
     brc_fea_ids=df['brc_fea_id'].tolist(),
     model_name=MODEL_CKPT,
     batch_size=batch_size,
@@ -111,7 +122,7 @@ with h5py.File(output_file, 'w') as file:
 
 
 # Validate
-breakpoint()
+# breakpoint()
 print('\nValidate saved embeddings.')
 with h5py.File(output_file, 'r') as file:
     saved_ids = list(file.keys())
