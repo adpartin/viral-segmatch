@@ -37,7 +37,7 @@ sns.set_palette('Set2')
 
 def create_performance_summary_plot():
     """Create a summary plot showing key metrics."""
-    breakpoint()
+    # breakpoint()
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
 
     # 1. Overall metrics bar chart
@@ -126,7 +126,7 @@ def create_performance_summary_plot():
 
 def create_biological_insights_plot():
     """Create plots highlighting biological insights."""
-    breakpoint()
+    # breakpoint()
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     
     # 1. Error analysis by segment pair
@@ -253,13 +253,13 @@ def create_model_calibration_plot():
 
 def main():
     """Generate all presentation plots."""    
-    print('1. Performance summary plot...')
+    print('1. Performance summary plot.')
     create_performance_summary_plot()
     
-    print('2. Biological insights plot...')
+    print('2. Biological insights plot.')
     create_biological_insights_plot()
     
-    print('3. Model calibration plot...')
+    print('3. Model calibration plot.')
     create_model_calibration_plot()
     
     print(f'All plots saved to: {results_dir}')

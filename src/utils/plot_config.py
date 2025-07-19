@@ -11,11 +11,11 @@ This module provides consistent color schemes and naming conventions for:
 # =============================================================================
 # TRAIN/VAL/TEST COLORS
 # =============================================================================
-# Muted, professional colors that work well for presentations
+# Distinctive colors that don't conflict with segment colors (blue/orange/green)
 DATASET_COLORS = {
-    'train': '#5B9BD5',    # Muted blue
-    'val': '#ff7f0e',      # Brighter orange (matches analyze_preprocessing_results.py)
-    'test': '#70AD47',     # Muted green
+    'train': '#17A2B8',  # Teal
+    'val': '#8E44AD',    # Purple
+    'test': '#E74C3C',   # Red
 }
 
 # Alternative access as list (for backwards compatibility)

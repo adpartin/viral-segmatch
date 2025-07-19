@@ -23,6 +23,7 @@ sys.path.append(str(project_root))
 
 from src.utils.protein_utils import analyze_protein_ambiguities, summarize_ambiguities
 from src.utils.plot_config import map_protein_name, apply_default_style
+from src.utils.plot_utils import plot_sequence_length_distribution
 
 # Configuration
 VIRUS_NAME = 'bunya'
@@ -534,47 +535,16 @@ def _create_separate_quality_figures(df):
     seq_lengths = df['prot_seq'].str.len()
     
     # Figure 1: Sequence length distribution by segment
-    fig1, ax1 = plt.subplots(1, 1, figsize=(10, 6))
-    
-    # Create histogram for each segment
-    segment_data = []
-    segment_labels = []
-    segment_colors_used = []
-    for segment in SEGMENT_ORDER:
-        seg_lengths = df[df['canonical_segment'] == segment]['prot_seq'].str.len()
-        if not seg_lengths.empty:
-            segment_data.append(seg_lengths)
-            segment_labels.append(f'{segment} (n={len(seg_lengths)})')
-            segment_colors_used.append(SEGMENT_COLORS[segment])
-    
-    if segment_data:
-        # Create overlapping histograms
-        ax1.hist(segment_data, bins=50, alpha=0.7, 
-                color=segment_colors_used,
-                label=segment_labels, edgecolor='black', linewidth=0.5)
-        
-        # Add overall statistics lines
-        ax1.axvline(seq_lengths.mean(), color='red', linestyle='--', linewidth=2,
-                    label=f'Overall Mean: {seq_lengths.mean():.0f}')
-        ax1.axvline(seq_lengths.median(), color='darkred', linestyle=':', linewidth=2,
-                    label=f'Overall Median: {seq_lengths.median():.0f}')
-    else:
-        # Fallback to original if no segment data
-        seq_lengths.hist(bins=50, ax=ax1, alpha=0.7, color='skyblue', edgecolor='black')
-        ax1.axvline(seq_lengths.mean(), color='red', linestyle='--', 
-                    label=f'Mean: {seq_lengths.mean():.0f}')
-        ax1.axvline(seq_lengths.median(), color='orange', linestyle='--', 
-                    label=f'Median: {seq_lengths.median():.0f}')
-    
-    ax1.set_title('Protein Sequence Length Distribution by Segment', fontsize=14, fontweight='bold')
-    ax1.set_xlabel('Sequence Length (amino acids)', fontsize=12)
-    ax1.set_ylabel('Frequency', fontsize=12)
-    ax1.legend(bbox_to_anchor=(1.05, 1), loc='best')
-    ax1.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(results_dir / 'sequence_length_distribution.png', dpi=FIGURE_DPI, bbox_inches='tight')
-    plt.close()
+    fig1 = plot_sequence_length_distribution(
+        df, 
+        seq_column='prot_seq',
+        segment_column='canonical_segment',
+        title='Protein Sequence Length Distribution by Segment',
+        show_esm2_limit=False,
+        save_path=results_dir / 'sequence_length_distribution.png',
+        show_plot=False,
+        figsize=(10, 6)
+    )
     figures.append(fig1)
     
     # Figure 2: Sequence length by segment
