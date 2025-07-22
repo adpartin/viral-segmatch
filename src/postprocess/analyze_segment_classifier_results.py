@@ -324,7 +324,7 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob):
     axes[0, 0].axvline(x=0.5, color='black', linestyle='--', label='Decision Threshold')
     axes[0, 0].set_xlabel('Prediction Probability')
     axes[0, 0].set_ylabel('Count')
-    axes[0, 0].set_title('Confidence Distribution: FP vs FN', fontweight='bold')
+    axes[0, 0].set_title('Confidence Distribution: FP and FN', fontweight='bold')
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
     
@@ -458,7 +458,7 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob):
     axes[1, 1].boxplot([fp_df['y_prob'], fn_df['y_prob']], 
                       labels=['False Positives', 'False Negatives'])
     axes[1, 1].set_ylabel('Prediction Probability')
-    axes[1, 1].set_title('Confidence Distribution: FP vs FN', fontweight='bold')
+    axes[1, 1].set_title('Confidence Distribution: FP and FN', fontweight='bold')
     axes[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -673,6 +673,7 @@ def main(create_performance_plots=True, show_confusion_labels=True):
     print(f'• Overall accuracy: {metrics["accuracy"]:.3f}')
     print(f'• F1 score: {metrics["f1_score"]:.3f}')
     print(f'• AUC-ROC: {metrics["auc_roc"]:.3f}')
+    print(f'• Average precision: {metrics["avg_precision"]:.3f}')
     print(f'• False Positives: {error_summary["fp_count"]}')
     print(f'• False Negatives: {error_summary["fn_count"]}')
     print(f'• FP/FN ratio: {error_summary["fp_fn_ratio"]:.2f}')
