@@ -10,7 +10,8 @@ __pycache__/
 
 # CEPI
 _notes.txt
-./data/raw/Anno_Updates/
+data/raw/Anno_Updates/
 logs
 models
 results
+esm2_*
