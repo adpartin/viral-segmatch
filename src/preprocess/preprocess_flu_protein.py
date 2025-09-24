@@ -48,28 +48,28 @@ print(f'output_dir:      {output_dir}')
 seq_col_name = 'prot_seq'
 
 # Define core and auxiliary functions
-if DATA_VERSION == 'April_2025':
+if DATA_VERSION == 'July_2025':
+    # https://viralzone.expasy.org/6
     core_functions = [
-        'RNA-dependent RNA polymerase',
-        'Pre-glycoprotein polyprotein GP complex',
-        'Nucleocapsid protein'
+        'RNA-dependent RNA polymerase PB2 subunit', # PB2, S1
+        'RNA-dependent RNA polymerase catalytic core PB1 subunit', # PB1, S2
+        'RNA-dependent RNA polymerase PA subunit', # PA, S3
+        'Hemagglutinin precursor', # HA, S4
+        'Nucleocapsid protein', # NP, S5
+        'Neuraminidase protein', # NA, S6
+        'Matrix protein 1', # M1, S7
     ]
     aux_functions = [
-        'Bunyavirales mature nonstructural membrane protein (NSm)',
-        'Bunyavirales small nonstructural protein NSs',
-        'Phenuiviridae mature nonstructural 78-kD protein',
-    ]
-elif DATA_VERSION == 'Feb_2025':
-    core_functions = [
-        'RNA-dependent RNA polymerase (L protein)',
-        'Pre-glycoprotein polyprotein GP complex (GPC protein)',
-        'Nucleocapsid protein (N protein)'
-    ]
-    aux_functions = [
-        'Bunyavirales mature nonstructural membrane protein (NSm protein)',
-        'Bunyavirales small nonstructural protein (NSs protein)',
-        'Phenuiviridae mature nonstructural 78-kD protein',
-        'Small Nonstructural Protein NSs (NSs Protein)',
+        'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor',
+        'Nuclear export protein',
+        'M2 ion channel',
+        'Host mRNA degrading protein PA-X',
+        'Virulence factor PB1-F2',
+        'PB1-N40 protein',
+        'PA-N155 protein',
+        'PA-N182 protein',
+        'Hypothetical host adaptation protein NS3',
+        'M42 alternative ion channel'
     ]
 else:
     raise ValueError(f'Unknown data_version: {DATA_VERSION}.')
@@ -80,18 +80,19 @@ def validate_protein_counts(
     core_only: bool = False,
     verbose: bool = False
     ) -> None:
-    """Ensure each assembly_id has ≤3 core proteins if core_only=True.
+    """Ensure each assembly_id has ≤8 core proteins if core_only=True.
 
     This func is specific to preprocessing validation, tightly coupled
     to core_functions and assembly IDs (keep it in this script).
+    Flu A has 8 segments, so max 8 core proteins expected.
     """
     if core_only:
         df = df[df['function'].isin(core_functions)]
     for aid, grp in df.groupby('assembly_id'):
         n_proteins = len(grp)
-        if core_only and n_proteins > 3:
+        if core_only and n_proteins > 8:
             raise ValueError(
-                f"assembly_id {aid} has {n_proteins} core proteins, expected ≤3.\n"
+                f"assembly_id {aid} has {n_proteins} core proteins, expected ≤8.\n"
                 f"Files: {grp['file'].unique()}\n"
                 f"Functions: {grp['function'].tolist()}"
             )
@@ -196,62 +197,43 @@ def aggregate_protein_data_from_gto_files(gto_dir: Path) -> pd.DataFrame:
 
 def assign_segment_using_core_proteins(
     prot_df: pd.DataFrame,
-    data_version: str = 'April_2025'
+    data_version: str = 'July_2025'
     ) -> pd.DataFrame:
-    """Assign canonical segments (L, M, S) based on core protein functions.
+    """Assign canonical segments (1-8) based on core protein functions.
     
-    Each tripartite Bunyavirales genome segment (replicon) encodes a distinct core protein:
+    Each Flu A genome segment (replicon) encodes distinct proteins:
 
-    1. L segment → encodes RNA-dependent RNA polymerase (L protein, or RdRp)
-    2. M segment → encodes the Pre-Glycoprotein polyprotein (GPC), cleaved into Gn and Gc
-    3. S segment → encodes the Nucleocapsid (N) protein
+    1. Segment 1 → PB2 (RNA-dependent RNA polymerase PB2 subunit)
+    2. Segment 2 → PB1 (RNA-dependent RNA polymerase catalytic core PB1 subunit)  
+    3. Segment 3 → PA (RNA-dependent RNA polymerase PA subunit)
+    4. Segment 4 → HA (Hemagglutinin precursor)
+    5. Segment 5 → NP (Nucleocapsid protein)
+    6. Segment 6 → NA (Neuraminidase protein)
+    7. Segment 7 → M1 (Matrix protein 1)
+    8. Segment 8 → NS1/NS2 (Non-structural proteins)
 
-    Note! In bipartite Bunyavirales (2-segment), The Small RNA Segment can encode
-        N and GPC proteins (e.g., Arenaviridae).
+    These core proteins are present in nearly all Flu A genomes.
 
-    These three proteins (L, GPC, N) are present in nearly all Bunyavirales genomes.
-
-    - The L protein functions as the viral RNA-dependent RNA polymerase (RdRp)
-        and responsible for both replication and transcription of the viral RNA.
-    - The polyprotein (Pre-glycoprotein polyprotein GP complex) is cleaved into
-        two envelope glycoproteins, Gn and Gc, which are located on the surface
-        of the virus and are crucial for attachment to and entry into host cells.
-    - The nucleocapsid protein N encapsidates the viral RNA genome to form
-        ribonucleoprotein complexes (RNPs) and plays a vital role in viral RNA
-        replication and transcription.
-
-    We define canonical segment labels (L, M, S) by mapping known functions
+    We define canonical segment labels (1-8) by mapping known functions
         to these segments.
 
     Mapping is conditional: only apply if function and replicon type match
         expected biological patterns.
-
-    The code show function-to-canonical_segment mappings conditional on 'replicon_type':
-    function -> canonical_segment (condition)
-    'RNA-dependent RNA polymerase' -> 'L' (replicon_type = ['Large RNA Segment'/'Segment One'])
-    'Pre-glycoprotein polyprotein GP complex' -> 'M' (replicon_type = ['Medium RNA Segment''])
-    'Nucleocapsid protein' -> 'S' (replicon_type = ['Small RNA Segment'/'Segment Three'])    
     """
     prot_df = prot_df.copy()
 
     # Core protein function-to-segment mappings by data_version
     # (function, replicon_type) → canonical_segment
     core_function_segment_maps = {
-        'April_2025': [
-            {'function': 'RNA-dependent RNA polymerase', 'replicon_type': 'Large RNA Segment', 'core_segment': 'L'},
-            {'function': 'RNA-dependent RNA polymerase', 'replicon_type': 'Segment One', 'core_segment': 'L'},
-            {'function': 'Pre-glycoprotein polyprotein GP complex', 'replicon_type': 'Medium RNA Segment', 'core_segment': 'M'},
-            # {'function': 'Pre-glycoprotein polyprotein GP complex', 'replicon_type': 'Segment Two', 'core_segment': 'M'},
-            {'function': 'Nucleocapsid protein', 'replicon_type': 'Small RNA Segment', 'core_segment': 'S'},
-            {'function': 'Nucleocapsid protein', 'replicon_type': 'Segment Three', 'core_segment': 'S'},
-        ],
-        'Feb_2025': [
-            {'function': 'RNA-dependent RNA polymerase (L protein)', 'replicon_type': 'Large RNA Segment', 'core_segment': 'L'},
-            {'function': 'RNA-dependent RNA polymerase (L protein)', 'replicon_type': 'Segment One', 'core_segment': 'L'},
-            {'function': 'Pre-glycoprotein polyprotein GP complex (GPC protein)', 'replicon_type': 'Medium RNA Segment', 'core_segment': 'M'},
-            # {'function': 'Pre-glycoprotein polyprotein GP complex (GPC protein)', 'replicon_type': 'Segment Two', 'core_segment': 'M'},
-            {'function': 'Nucleocapsid protein (N protein)', 'replicon_type': 'Small RNA Segment', 'core_segment': 'S'},
-            {'function': 'Nucleocapsid protein (N protein)', 'replicon_type': 'Segment Three', 'core_segment': 'S'},
+        'July_2025': [
+            {'function': 'RNA-dependent RNA polymerase PB2 subunit', 'replicon_type': 'Segment 1', 'core_segment': '1'},
+            {'function': 'RNA-dependent RNA polymerase catalytic core PB1 subunit', 'replicon_type': 'Segment 2', 'core_segment': '2'},
+            {'function': 'RNA-dependent RNA polymerase PA subunit', 'replicon_type': 'Segment 3', 'core_segment': '3'},
+            {'function': 'Hemagglutinin precursor', 'replicon_type': 'Segment 4', 'core_segment': '4'},
+            {'function': 'Nucleocapsid protein', 'replicon_type': 'Segment 5', 'core_segment': '5'},
+            {'function': 'Neuraminidase protein', 'replicon_type': 'Segment 6', 'core_segment': '6'},
+            {'function': 'Matrix protein 1', 'replicon_type': 'Segment 7', 'core_segment': '7'},
+            {'function': 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor', 'replicon_type': 'Segment 8', 'core_segment': '8'},
         ],
         # Add other versions, e.g., 'Month_YYYY': [...]
     }
@@ -281,69 +263,65 @@ def assign_segment_using_core_proteins(
 
 def assign_segment_using_aux_proteins(
     prot_df: pd.DataFrame,
-    data_version: str = 'April_2025'
+    data_version: str = 'July_2025'
     ) -> pd.DataFrame:
-    """Assign canonical segments (L, M, S) based on auxiliary protein functions.    
+    """Assign canonical segments (1-8) based on auxiliary protein functions.    
 
-    Some additional protein functions (e.g., NSs, NSm, 78-kD) are consistently
-    matched with single segment (replicon_type) across all isolates in our dataset.
+    Some additional protein functions are consistently matched with single 
+    segment (replicon_type) across all isolates in our dataset.
 
     These are non-structural proteins but can be mapped confidently:
 
-    - NSs proteins → Small RNA Segment → assign as 'S'
-    - NSm, 78-kD proteins → Medium RNA Segment → assign as 'M'
+    - NS2/NEP proteins → Segment 8 → assign as '8'
+    - M2 ion channel → Segment 7 → assign as '7'
+    - PA-X, PB1-F2, PB1-N40, PA-N155, PA-N182 → Various segments based on location
+    - NS3, M42 → Various segments based on location
 
     Approach:
     - Use auxiliary function-to-segment mapping for unassigned proteins.
     - Do NOT assign segments if segment-function mapping is ambiguous.
-
-    Take closer look at auxiliary protein functions.
-    replicon_type                                               function   count
-    Medium RNA Segment  Bunyavirales mature nonstructural membrane pro...    111
-    Small RNA Segment   Bunyavirales small nonstructural protein (NSs ...    163
-    Medium RNA Segment   Phenuiviridae mature nonstructural 78-kD protein    165
-    Small RNA Segment       Small Nonstructural Protein NSs (NSs Protein)    433
-
-    Medium RNA Segment   Phenuiviridae mature nonstructural 78-kD protein    165
-    Small RNA Segment        Bunyavirales small nonstructural protein NSs    604
-    Medium RNA Segment  Bunyavirales mature nonstructural membrane pro...    111 
     """
     prot_df = prot_df.copy()
 
     # Auxiliary protein function-to-segment mappings by data_version
     # (function, replicon_type) → canonical_segment
-    # This set can be expanded once we validate other functions (Movement protein, Z protein, etc.).
     aux_function_segment_maps = {
-       'April_2025': [
-            {'function': 'Bunyavirales mature nonstructural membrane protein (NSm)',
-             'replicon_type': 'Medium RNA Segment',
-             'aux_segment': 'M'
+       'July_2025': [
+            {'function': 'Nuclear export protein',
+             'replicon_type': 'Segment 8',
+             'aux_segment': '8'
             },
-            {'function': 'Bunyavirales small nonstructural protein NSs',
-             'replicon_type': 'Small RNA Segment',
-             'aux_segment': 'S'
+            {'function': 'M2 ion channel',
+             'replicon_type': 'Segment 7',
+             'aux_segment': '7'
             },
-            {'function': 'Phenuiviridae mature nonstructural 78-kD protein',
-             'replicon_type': 'Medium RNA Segment',
-             'aux_segment': 'M'
+            {'function': 'Host mRNA degrading protein PA-X',
+             'replicon_type': 'Segment 3',
+             'aux_segment': '3'
             },
-       ],       
-       'Feb_2025': [
-            {'function': 'Bunyavirales mature nonstructural membrane protein (NSm protein)',
-             'replicon_type': 'Medium RNA Segment',
-             'aux_segment': 'M'
+            {'function': 'Virulence factor PB1-F2',
+             'replicon_type': 'Segment 2',
+             'aux_segment': '2'
             },
-            {'function': 'Bunyavirales small nonstructural protein (NSs protein)',
-             'replicon_type': 'Small RNA Segment',
-             'aux_segment': 'S'
+            {'function': 'PB1-N40 protein',
+             'replicon_type': 'Segment 2',
+             'aux_segment': '2'
             },
-            {'function': 'Phenuiviridae mature nonstructural 78-kD protein',
-             'replicon_type': 'Medium RNA Segment',
-             'aux_segment': 'M'
+            {'function': 'PA-N155 protein',
+             'replicon_type': 'Segment 3',
+             'aux_segment': '3'
             },
-            {'function': 'Small Nonstructural Protein NSs (NSs Protein)',
-             'replicon_type': 'Small RNA Segment',
-             'aux_segment': 'S'
+            {'function': 'PA-N182 protein',
+             'replicon_type': 'Segment 3',
+             'aux_segment': '3'
+            },
+            {'function': 'Hypothetical host adaptation protein NS3',
+             'replicon_type': 'Segment 8',
+             'aux_segment': '8'
+            },
+            {'function': 'M42 alternative ion channel',
+             'replicon_type': 'Segment 7',
+             'aux_segment': '7'
             },
        ],
     }
@@ -365,7 +343,7 @@ def assign_segment_using_aux_proteins(
     # Diagnostics
     print_replicon_func_count(prot_df, functions=aux_functions)
     df = print_replicon_func_count(prot_df, more_cols=['aux_segment'], drop_na=False)
-    # df.to_csv(output_dir / 'axu_mappings_eda.csv', sep=',', index=False)
+    # df.to_csv(output_dir / 'aux_mappings_eda.csv', sep=',', index=False)
 
     prot_df = prot_df.drop(columns=['aux_segment'])
     return prot_df
@@ -373,7 +351,7 @@ def assign_segment_using_aux_proteins(
 
 def assign_segments(
     prot_df: pd.DataFrame,
-    data_version: str = 'April_2025',
+    data_version: str = 'July_2025',
     use_core: bool = True,
     use_aux: bool = True
     ) -> pd.DataFrame:
