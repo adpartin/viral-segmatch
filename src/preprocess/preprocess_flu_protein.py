@@ -33,14 +33,16 @@ DATA_VERSION = 'July_2025'
 
 # Define paths
 main_data_dir = project_root / 'data'
-raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / DATA_VERSION
-quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
+# raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / DATA_VERSION
+# quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
+raw_data_dir = main_data_dir / 'raw' / 'Full_Flu_Annos' / DATA_VERSION
+gto_dir = raw_data_dir
 output_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION # processed_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'main_data_dir:   {main_data_dir}')
 print(f'raw_data_dir:    {raw_data_dir}')
-print(f'quality_gto_dir: {quality_gto_dir}')
+print(f'gto_dir:         {gto_dir}')
 print(f'output_dir:      {output_dir}')
 
 seq_col_name = 'prot_seq'
@@ -587,8 +589,8 @@ def handle_duplicates(
 
 
 # Aggregate protein data from GTO files
-print(f"\nAggregate protein data from {len(sorted(quality_gto_dir.glob('*.qual.gto')))} GTO files.")
-prot_df = aggregate_protein_data_from_gto_files(quality_gto_dir)
+print(f"\nAggregate protein data from {len(sorted(gto_dir.glob('*.qual.gto')))} GTO files.")
+prot_df = aggregate_protein_data_from_gto_files(gto_dir)
 print(f'prot_df: {prot_df.shape}')
 
 # Save initial data
@@ -750,4 +752,4 @@ aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', inde
 print(prot_df['canonical_segment'].value_counts())
 
 total_timer.display_timer()
-print('\nDone!') 
+print('\nDone!')
