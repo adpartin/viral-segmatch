@@ -1,5 +1,5 @@
 """
-Preprocess protein data from GTO files for Bunyavirales.
+Preprocess protein data from GTO files for Flu A.
 """
 import json
 import sys
@@ -28,8 +28,8 @@ from src.utils.protein_utils import (
 total_timer = Timer()
 
 # Config
-VIRUS_NAME = 'bunya'
-DATA_VERSION = 'April_2025'
+VIRUS_NAME = 'flu_a'
+DATA_VERSION = 'July_2025'
 
 # Define paths
 main_data_dir = project_root / 'data'
@@ -750,4 +750,4 @@ aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', inde
 print(prot_df['canonical_segment'].value_counts())
 
 total_timer.display_timer()
-print('\nDone!')
+print('\nDone!') 
