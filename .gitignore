@@ -11,6 +11,7 @@ __pycache__/
 # CEPI
 _notes.txt
 data/raw/Anno_Updates/
+data/raw/Full_Flu_Annos/
 logs
 models
 results
