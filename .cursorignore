@@ -1,0 +1,83 @@
+# Exclude large datasets from Cursor indexing
+data/raw/Full_Flu_Annos/July_2025/*.gto
+data/raw/Anno_Updates/*/bunya-from-datasets/Quality_GTOs/*.gto
+
+# But keep important config and metadata files
+!data/raw/Full_Flu_Annos/July_2025/README.md
+!data/raw/Full_Flu_Annos/July_2025/*.txt
+!data/raw/Full_Flu_Annos/July_2025/*.json
+!data/raw/Full_Flu_Annos/July_2025/*.csv
+
+# Keep processed data (smaller, more relevant)
+!data/processed/
+
+# Keep config directories
+!conf/
+!config/
+
+# Exclude other large files that aren't code
+*.gto
+*.fasta
+*.fa
+*.fq
+*.fastq
+*.bam
+*.sam
+*.vcf
+*.bed
+
+# Keep important data files
+!*.csv
+!*.tsv
+!*.json
+!*.yaml
+!*.yml
+!*.toml
+!*.ini
+!*.cfg
+
+# Exclude model checkpoints (large files)
+esm2_t6_8M_UR50D-finetuned-localization/checkpoint-*/
+models/checkpoint-*/
+*.bin
+*.safetensors
+
+# Exclude build artifacts and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Exclude virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Exclude IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Exclude OS files
+.DS_Store
+Thumbs.db
