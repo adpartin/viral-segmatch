@@ -52,16 +52,20 @@ RANDOM_SEED = config.virus.random_seed
 # Define paths
 main_data_dir = project_root / 'data'
 
-# Use clearer symlinked names (Flu_A -> Full_Flu_Annos, Bunya -> Anno_Updates)
-# For development: use subset for fast iteration
-USE_SUBSET = True  # Set to False for production runs
-if USE_SUBSET:
-    subset_name = f'{DATA_VERSION}_subset_5k'
-    raw_data_dir = main_data_dir / 'raw' / 'Flu_A' / subset_name
-    output_dir = main_data_dir / 'processed' / VIRUS_NAME / subset_name
+# Use symlinked names (Flu_A -> Full_Flu_Annos, Bunya -> Anno_Updates)
+# Prefer subset directories when available, fallback to full dataset
+base_data_dir = main_data_dir / 'raw' / 'Flu_A' / DATA_VERSION
+subset_data_dir = main_data_dir / 'raw' / 'Flu_A' / f'{DATA_VERSION}_subset_5k'
+
+# Prefer subset directory if it exists (for fast development)
+if subset_data_dir.exists() and subset_data_dir.is_dir():
+    raw_data_dir = subset_data_dir
+    output_dir = main_data_dir / 'processed' / VIRUS_NAME / f'{DATA_VERSION}_subset_5k'
+    print(f"Using subset directory for fast development: {raw_data_dir}")
 else:
-    raw_data_dir = main_data_dir / 'raw' / 'Flu_A' / DATA_VERSION
+    raw_data_dir = base_data_dir
     output_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION
+    print(f"Using full dataset directory: {raw_data_dir}")
 
 gto_dir = raw_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -534,15 +538,18 @@ def handle_duplicates(
 
 
 # Aggregate protein data from GTO files
-# Note: For large datasets, counting files can be slow. 
-# In subset mode, we know the approximate count.
-if USE_SUBSET:
+# Smart file counting: use known counts for subset directories, count for full datasets
+if 'subset_5k' in str(raw_data_dir):
     print(f"\nUsing development subset: ~5000 GTO files")
-    total_files = 5000  # Approximate - avoids slow glob for counting
-else:
-    # Only count for production runs
+    total_files = 5000  # Known count - avoids slow glob
+elif 'subset_' in str(raw_data_dir):
+    # For other subset sizes, count them (should be fast)
     total_files = len(sorted(gto_dir.glob('*.gto')))
-    print(f"\nTotal GTO files available: {total_files}")
+    print(f"\nUsing subset: {total_files} GTO files")
+else:
+    # For full datasets, count them (may be slow)
+    total_files = len(sorted(gto_dir.glob('*.gto')))
+    print(f"\nUsing full dataset: {total_files} GTO files")
 
 prot_df = aggregate_protein_data_from_gto_files(gto_dir, max_files=MAX_FILES_TO_PROCESS, random_seed=RANDOM_SEED)
 print(f'prot_df: {prot_df.shape}')
