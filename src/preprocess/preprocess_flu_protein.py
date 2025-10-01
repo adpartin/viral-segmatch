@@ -3,6 +3,7 @@ Preprocess protein data from GTO files for Flu A.
 """
 import json
 import os
+import random
 import sys
 from pathlib import Path
 from pprint import pprint
@@ -61,11 +62,11 @@ subset_data_dir = main_data_dir / 'raw' / 'Flu_A' / f'{DATA_VERSION}_subset_5k'
 if subset_data_dir.exists() and subset_data_dir.is_dir():
     raw_data_dir = subset_data_dir
     output_dir = main_data_dir / 'processed' / VIRUS_NAME / f'{DATA_VERSION}_subset_5k'
-    print(f"Using subset directory for fast development: {raw_data_dir}")
+    print(f"Using subset dataset: {raw_data_dir}")
 else:
     raw_data_dir = base_data_dir
     output_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION
-    print(f"Using full dataset directory: {raw_data_dir}")
+    print(f"Using full dataset: {raw_data_dir}")
 
 gto_dir = raw_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -210,7 +211,6 @@ def aggregate_protein_data_from_gto_files(
     # Apply subset sampling if requested
     if max_files is not None and max_files < len(gto_files):
         if random_seed is not None:
-            import random
             random.seed(random_seed)
         gto_files = random.sample(gto_files, max_files)
         total_files = len(sorted(gto_dir.glob('*.gto')))
@@ -539,10 +539,7 @@ def handle_duplicates(
 
 # Aggregate protein data from GTO files
 # Smart file counting: use known counts for subset directories, count for full datasets
-if 'subset_5k' in str(raw_data_dir):
-    print(f"\nUsing development subset: ~5000 GTO files")
-    total_files = 5000  # Known count - avoids slow glob
-elif 'subset_' in str(raw_data_dir):
+if 'subset_' in str(raw_data_dir):
     # For other subset sizes, count them (should be fast)
     total_files = len(sorted(gto_dir.glob('*.gto')))
     print(f"\nUsing subset: {total_files} GTO files")
@@ -551,7 +548,11 @@ else:
     total_files = len(sorted(gto_dir.glob('*.gto')))
     print(f"\nUsing full dataset: {total_files} GTO files")
 
-prot_df = aggregate_protein_data_from_gto_files(gto_dir, max_files=MAX_FILES_TO_PROCESS, random_seed=RANDOM_SEED)
+breakpoint()
+prot_df = aggregate_protein_data_from_gto_files(
+    gto_dir, max_files=MAX_FILES_TO_PROCESS,
+    random_seed=RANDOM_SEED
+)
 print(f'prot_df: {prot_df.shape}')
 
 # Save initial data
