@@ -2,10 +2,12 @@
 Preprocess protein data from GTO files for Flu A.
 """
 import json
+import os
 import sys
 from pathlib import Path
 from pprint import pprint
 from tqdm import tqdm
+from typing import Optional
 
 import pandas as pd
 
@@ -24,12 +26,28 @@ from src.utils.protein_utils import (
     prepare_sequences_for_esm2,
     print_replicon_func_count
 )
+from src.utils.config_hydra import (
+    get_virus_config_hydra, 
+    print_config_summary,
+    get_core_function_segment_mapping,
+    get_aux_function_segment_mapping
+)
 
 total_timer = Timer()
 
-# Config
+# Load virus-specific configuration using Hydra
 VIRUS_NAME = 'flu_a'
-DATA_VERSION = 'July_2025'
+# TRAINING_CONFIG = 'base'  # Optional: override bundle's default training config
+
+# Pass the config path explicitly to avoid auto-detection issues
+config_path = str(project_root / 'conf')
+config = get_virus_config_hydra(VIRUS_NAME, config_path=config_path)
+print_config_summary(config)
+
+# Extract configuration values
+DATA_VERSION = config.virus.data_version
+MAX_FILES_TO_PROCESS = config.virus.max_files_to_process
+RANDOM_SEED = config.virus.random_seed
 
 # Define paths
 main_data_dir = project_root / 'data'
@@ -47,32 +65,9 @@ print(f'output_dir:      {output_dir}')
 
 seq_col_name = 'prot_seq'
 
-# Define core and auxiliary functions
-if DATA_VERSION == 'July_2025':
-    # https://viralzone.expasy.org/6
-    core_functions = [
-        'RNA-dependent RNA polymerase PB2 subunit', # PB2, S1
-        'RNA-dependent RNA polymerase catalytic core PB1 subunit', # PB1, S2
-        'RNA-dependent RNA polymerase PA subunit', # PA, S3
-        'Hemagglutinin precursor', # HA, S4
-        'Nucleocapsid protein', # NP, S5
-        'Neuraminidase protein', # NA, S6
-        'Matrix protein 1', # M1, S7
-    ]
-    aux_functions = [
-        'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor',
-        'Nuclear export protein',
-        'M2 ion channel',
-        'Host mRNA degrading protein PA-X',
-        'Virulence factor PB1-F2',
-        'PB1-N40 protein',
-        'PA-N155 protein',
-        'PA-N182 protein',
-        'Hypothetical host adaptation protein NS3',
-        'M42 alternative ion channel'
-    ]
-else:
-    raise ValueError(f'Unknown data_version: {DATA_VERSION}.')
+# Get core and auxiliary functions from config
+core_functions = config.virus.core_functions
+aux_functions = config.virus.aux_functions
 
 
 def validate_protein_counts(
@@ -80,19 +75,18 @@ def validate_protein_counts(
     core_only: bool = False,
     verbose: bool = False
     ) -> None:
-    """Ensure each assembly_id has ≤8 core proteins if core_only=True.
+    """Ensure each assembly_id has ≤max_core_proteins core proteins if core_only=True.
 
     This func is specific to preprocessing validation, tightly coupled
     to core_functions and assembly IDs (keep it in this script).
-    Flu A has 8 segments, so max 8 core proteins expected.
     """
     if core_only:
         df = df[df['function'].isin(core_functions)]
     for aid, grp in df.groupby('assembly_id'):
         n_proteins = len(grp)
-        if core_only and n_proteins > 8:
+        if core_only and n_proteins > config.virus.max_core_proteins:
             raise ValueError(
-                f"assembly_id {aid} has {n_proteins} core proteins, expected ≤8.\n"
+                f"assembly_id {aid} has {n_proteins} core proteins, expected ≤{config.virus.max_core_proteins}.\n"
                 f"Files: {grp['file'].unique()}\n"
                 f"Functions: {grp['function'].tolist()}"
             )
@@ -186,10 +180,32 @@ def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
     return df
 
 
-def aggregate_protein_data_from_gto_files(gto_dir: Path) -> pd.DataFrame:
-    """Aggregate protein data from all GTO files."""
+def aggregate_protein_data_from_gto_files(
+    gto_dir: Path,
+    max_files: Optional[int] = None,
+    random_seed: Optional[int] = None
+    ) -> pd.DataFrame:
+    """Aggregate protein data from GTO files.
+    
+    Args:
+        gto_dir: Directory containing GTO files
+        max_files: Maximum number of files to process (None for all)
+        random_seed: Random seed for reproducible sampling
+    """
     dfs = []
-    gto_files = sorted(gto_dir.glob('*.qual.gto'))
+    gto_files = sorted(gto_dir.glob('*.gto'))  # Updated for Flu A files
+    
+    # Apply subset sampling if requested
+    if max_files is not None and max_files < len(gto_files):
+        if random_seed is not None:
+            import random
+            random.seed(random_seed)
+        gto_files = random.sample(gto_files, max_files)
+        total_files = len(sorted(gto_dir.glob('*.gto')))
+        print(f"Processing subset: {len(gto_files)} files (randomly sampled from {total_files} total files)")
+    else:
+        print(f"Processing all {len(gto_files)} files")
+    
     for fpath in tqdm(gto_files, desc='Aggregating protein data from GTO files'):
         dfs.append(get_protein_data_from_gto(fpath))
     return pd.concat(dfs, axis=0).reset_index(drop=True)
@@ -198,7 +214,7 @@ def aggregate_protein_data_from_gto_files(gto_dir: Path) -> pd.DataFrame:
 def assign_segment_using_core_proteins(
     prot_df: pd.DataFrame,
     data_version: str = 'July_2025'
-    ) -> pd.DataFrame:
+) -> pd.DataFrame:
     """Assign canonical segments (1-8) based on core protein functions.
     
     Each Flu A genome segment (replicon) encodes distinct proteins:
@@ -222,24 +238,9 @@ def assign_segment_using_core_proteins(
     """
     prot_df = prot_df.copy()
 
-    # Core protein function-to-segment mappings by data_version
-    # (function, replicon_type) → canonical_segment
-    core_function_segment_maps = {
-        'July_2025': [
-            {'function': 'RNA-dependent RNA polymerase PB2 subunit', 'replicon_type': 'Segment 1', 'core_segment': '1'},
-            {'function': 'RNA-dependent RNA polymerase catalytic core PB1 subunit', 'replicon_type': 'Segment 2', 'core_segment': '2'},
-            {'function': 'RNA-dependent RNA polymerase PA subunit', 'replicon_type': 'Segment 3', 'core_segment': '3'},
-            {'function': 'Hemagglutinin precursor', 'replicon_type': 'Segment 4', 'core_segment': '4'},
-            {'function': 'Nucleocapsid protein', 'replicon_type': 'Segment 5', 'core_segment': '5'},
-            {'function': 'Neuraminidase protein', 'replicon_type': 'Segment 6', 'core_segment': '6'},
-            {'function': 'Matrix protein 1', 'replicon_type': 'Segment 7', 'core_segment': '7'},
-            {'function': 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor', 'replicon_type': 'Segment 8', 'core_segment': '8'},
-        ],
-        # Add other versions, e.g., 'Month_YYYY': [...]
-    }
-
-    assert data_version in core_function_segment_maps, f'Unknown data_version: {data_version}.'
-    core_map = pd.DataFrame(core_function_segment_maps.get(data_version))
+    # Get core protein function-to-segment mappings from config
+    core_mappings = get_core_function_segment_mapping(config)
+    core_map = pd.DataFrame(core_mappings)
     # print(core_map)
 
     # Merge (assign temp segments where function-replicon pairs match)
@@ -264,7 +265,7 @@ def assign_segment_using_core_proteins(
 def assign_segment_using_aux_proteins(
     prot_df: pd.DataFrame,
     data_version: str = 'July_2025'
-    ) -> pd.DataFrame:
+) -> pd.DataFrame:
     """Assign canonical segments (1-8) based on auxiliary protein functions.    
 
     Some additional protein functions are consistently matched with single 
@@ -283,51 +284,9 @@ def assign_segment_using_aux_proteins(
     """
     prot_df = prot_df.copy()
 
-    # Auxiliary protein function-to-segment mappings by data_version
-    # (function, replicon_type) → canonical_segment
-    aux_function_segment_maps = {
-       'July_2025': [
-            {'function': 'Nuclear export protein',
-             'replicon_type': 'Segment 8',
-             'aux_segment': '8'
-            },
-            {'function': 'M2 ion channel',
-             'replicon_type': 'Segment 7',
-             'aux_segment': '7'
-            },
-            {'function': 'Host mRNA degrading protein PA-X',
-             'replicon_type': 'Segment 3',
-             'aux_segment': '3'
-            },
-            {'function': 'Virulence factor PB1-F2',
-             'replicon_type': 'Segment 2',
-             'aux_segment': '2'
-            },
-            {'function': 'PB1-N40 protein',
-             'replicon_type': 'Segment 2',
-             'aux_segment': '2'
-            },
-            {'function': 'PA-N155 protein',
-             'replicon_type': 'Segment 3',
-             'aux_segment': '3'
-            },
-            {'function': 'PA-N182 protein',
-             'replicon_type': 'Segment 3',
-             'aux_segment': '3'
-            },
-            {'function': 'Hypothetical host adaptation protein NS3',
-             'replicon_type': 'Segment 8',
-             'aux_segment': '8'
-            },
-            {'function': 'M42 alternative ion channel',
-             'replicon_type': 'Segment 7',
-             'aux_segment': '7'
-            },
-       ],
-    }
-
-    assert data_version in aux_function_segment_maps, f'Unknown data_version: {data_version}.'
-    aux_map = pd.DataFrame(aux_function_segment_maps.get(data_version))
+    # Get auxiliary protein function-to-segment mappings from config
+    aux_mappings = get_aux_function_segment_mapping(config)
+    aux_map = pd.DataFrame(aux_mappings)
     # print(aux_map)
     
     # Merge (assign temp canonical segments where function-replicon pairs match)
@@ -354,7 +313,7 @@ def assign_segments(
     data_version: str = 'July_2025',
     use_core: bool = True,
     use_aux: bool = True
-    ) -> pd.DataFrame:
+) -> pd.DataFrame:
     """Assign canonical segments using core and/or auxiliary proteins."""
     prot_df = prot_df.copy()
     prot_df['canonical_segment'] = pd.NA  # Placeholder for canonical_segment
@@ -433,8 +392,8 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
 
 def handle_duplicates(
     prot_df: pd.DataFrame,
-    print_eda: str = False
-    ) -> pd.DataFrame:
+    print_eda: bool = False
+) -> pd.DataFrame:
     """Handle protein sequence duplicates."""
     seq_col_name = 'prot_seq'
 
@@ -567,8 +526,9 @@ def handle_duplicates(
 
 
 # Aggregate protein data from GTO files
-print(f"\nAggregate protein data from {len(sorted(gto_dir.glob('*.qual.gto')))} GTO files.")
-prot_df = aggregate_protein_data_from_gto_files(gto_dir)
+total_files = len(sorted(gto_dir.glob('*.gto')))
+print(f"\nTotal GTO files available: {total_files}")
+prot_df = aggregate_protein_data_from_gto_files(gto_dir, max_files=MAX_FILES_TO_PROCESS, random_seed=RANDOM_SEED)
 print(f'prot_df: {prot_df.shape}')
 
 # Save initial data

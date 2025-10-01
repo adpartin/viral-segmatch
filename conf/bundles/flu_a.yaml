@@ -1,0 +1,9 @@
+# Flu A bundle - with training and virus-specific overrides
+defaults:
+  - /virus: flu_a
+  - /training: base
+  - _self_  # Bundle overrides loaded AFTER base configs
+
+# Virus-specific training overrides (Flu A has long sequences)
+training:
+  batch_size: 64  # Smaller batches for longer sequences

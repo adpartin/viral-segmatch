@@ -1,0 +1,235 @@
+"""
+Hydra-compatible configuration module for viral-segmatch project.
+
+This module provides a Hydra-based configuration system that allows for
+hierarchical configuration management with easy switching between different
+virus configurations and training parameters.
+"""
+
+import hydra
+from omegaconf import DictConfig, OmegaConf
+from pathlib import Path
+from typing import Any, Optional
+
+# =============================================================================
+# HYDRA CONFIGURATION LOADING
+# =============================================================================
+
+def load_hydra_config(
+    config_path: Optional[str] = None,
+    config_name: str = "simple_config",
+    overrides: Optional[list] = None
+    ) -> DictConfig:
+    """Load configuration using Hydra with simple config approach.
+    
+    Args:
+        config_path: Path to config directory (default: auto-detect from calling script)
+        config_name: Name of config file (default: simple_config)
+        overrides: List of overrides (e.g., ['training.learning_rate=0.001'])
+    
+    Returns:
+        DictConfig: Hydra configuration object
+    """
+    if config_path is None:
+        # Fallback to relative path
+        config_path = "conf"
+    
+    # Clear any existing Hydra initialization
+    if hydra.core.global_hydra.GlobalHydra.instance().is_initialized():
+        hydra.core.global_hydra.GlobalHydra.instance().clear()
+    
+    # Use simple config approach that works
+    abs_config_path = str(Path(config_path).resolve())
+    hydra.initialize_config_dir(config_dir=abs_config_path, version_base=None)
+    
+    if overrides is None:
+        overrides = []
+    
+    config = hydra.compose(config_name=config_name, overrides=overrides)
+    return config
+
+def get_virus_config_hydra(
+    virus_name: str,
+    training_config: Optional[str] = None,
+    embeddings_config: Optional[str] = None,
+    paths_config: Optional[str] = None,
+    config_path: Optional[str] = None
+    ) -> DictConfig:
+    """Get virus-specific configuration using Hydra bundles.
+    
+    This function loads a virus bundle and optionally overrides any config group.
+    
+    Args:
+        virus_name: Name of virus (e.g., 'bunya', 'flu_a')
+        training_config: Optional training override (e.g., 'training/gpu8', 'gpu8')
+                        If None, uses the training config defined in the bundle
+        embeddings_config: Optional embeddings override (e.g., 'embeddings/flu_a_large', 'flu_a_large')
+                          If None, uses the embeddings config defined in the bundle
+        paths_config: Optional paths override (e.g., 'paths/custom', 'custom')
+                     If None, uses the paths config defined in the bundle
+        config_path: Path to config directory (uses project root/conf if None)
+    
+    Returns:
+        DictConfig: Complete configuration with flattened access:
+                   - config.virus.* (virus biological facts)
+                   - config.training.* (training parameters)
+                   - config.paths.* (file paths)
+                   - config.embeddings.* (embedding settings)
+    
+    Examples:
+        # Use bundle defaults
+        config = get_virus_config_hydra('flu_a')
+        
+        # Override training only
+        config = get_virus_config_hydra('flu_a', training_config='gpu8')
+        
+        # Override multiple configs
+        config = get_virus_config_hydra('flu_a', 
+                                       training_config='gpu8',
+                                       embeddings_config='flu_a_large')
+        
+        # Full override
+        config = get_virus_config_hydra('flu_a',
+                                       training_config='training/gpu8',
+                                       embeddings_config='embeddings/flu_a_large',
+                                       paths_config='paths/default')
+    """
+    # Load the bundle for this virus
+    config_name = f"bundles/{virus_name}"
+    
+    # Build overrides for any provided config groups
+    overrides = []
+    
+    if training_config is not None:
+        # Normalize training config path
+        if not training_config.startswith('training/'):
+            training_config = f"training/{training_config}"
+        overrides.append(f"bundles.training={training_config}")
+    
+    if embeddings_config is not None:
+        # Normalize embeddings config path
+        if not embeddings_config.startswith('embeddings/'):
+            embeddings_config = f"embeddings/{embeddings_config}"
+        overrides.append(f"bundles.embeddings={embeddings_config}")
+    
+    if paths_config is not None:
+        # Normalize paths config path
+        if not paths_config.startswith('paths/'):
+            paths_config = f"paths/{paths_config}"
+        overrides.append(f"bundles.paths={paths_config}")
+    
+    full_config = load_hydra_config(
+        config_path=config_path, 
+        config_name=config_name,
+        overrides=overrides
+    )
+    
+    # Flatten the structure for backward compatibility
+    # Instead of config.bundles.virus.*, scripts can use config.virus.*
+    flattened = DictConfig({
+        'virus': full_config.bundles.virus,
+        'training': full_config.bundles.training if 'training' in full_config.bundles else {},
+        'paths': full_config.bundles.paths if 'paths' in full_config.bundles else {},
+        'embeddings': full_config.bundles.embeddings if 'embeddings' in full_config.bundles else {},
+    })
+    
+    return flattened
+
+# =============================================================================
+# CONVENIENCE FUNCTIONS
+# =============================================================================
+
+def print_config_summary(config: DictConfig):
+    """Print a summary of the configuration."""
+    print("=" * 60)
+    print("HYDRA CONFIGURATION SUMMARY")
+    print("=" * 60)
+    
+    # Handle both DictConfig and regular dict
+    if hasattr(config, 'virus'):
+        if hasattr(config.virus, 'virus_name'):
+            print(f"Virus: {config.virus.virus_name}")
+            print(f"Data version: {config.virus.data_version}")
+        else:
+            print(f"Virus: {config.virus.get('virus_name', 'Unknown')}")
+            print(f"Data version: {config.virus.get('data_version', 'Unknown')}")
+    else:
+        print(f"Virus: {config.get('virus', {}).get('virus_name', 'Unknown')}")
+        print(f"Data version: {config.get('virus', {}).get('data_version', 'Unknown')}")
+    
+    if hasattr(config, 'training'):
+        print(f"Training config: {config.training}")
+    else:
+        print(f"Training config: {config.get('training', {})}")
+    
+    if hasattr(config, 'paths'):
+        print(f"Paths: {config.paths}")
+    else:
+        print(f"Paths: {config.get('paths', {})}")
+    print("=" * 60)
+
+def save_config(config: DictConfig, output_path: str):
+    """Save configuration to file."""
+    OmegaConf.save(config, output_path)
+
+def get_core_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]:
+    """Get core function to segment mapping for the current virus config."""
+    mappings = []
+    segment_mapping = config.virus.segment_mapping
+    core_functions = config.virus.core_functions
+    
+    for function, segment in segment_mapping.items():
+        if function in core_functions:
+            # Find the replicon type for this segment
+            replicon_type = _get_replicon_type_for_segment(config.virus.virus_name, segment)
+            if replicon_type:
+                mappings.append({
+                    'function': function,
+                    'replicon_type': replicon_type,
+                    'core_segment': segment
+                })
+    return mappings
+
+def get_aux_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]:
+    """Get auxiliary function to segment mapping for the current virus config."""
+    mappings = []
+    segment_mapping = config.virus.segment_mapping
+    aux_functions = config.virus.aux_functions
+    
+    for function, segment in segment_mapping.items():
+        if function in aux_functions:
+            # Find the replicon type for this segment
+            replicon_type = _get_replicon_type_for_segment(config.virus.virus_name, segment)
+            if replicon_type:
+                mappings.append({
+                    'function': function,
+                    'replicon_type': replicon_type,
+                    'aux_segment': segment
+                })
+    return mappings
+
+def _get_replicon_type_for_segment(virus_name: str, segment: str) -> Optional[str]:
+    """Get the replicon type for a given segment."""
+    if virus_name == 'bunya':
+        if segment == 'L':
+            return 'Large RNA Segment'
+        elif segment == 'M':
+            return 'Medium RNA Segment'
+        elif segment == 'S':
+            return 'Small RNA Segment'
+    elif virus_name == 'flu_a':
+        return f'Segment {segment}'
+    return None
+
+# =============================================================================
+# EXAMPLE USAGE
+# =============================================================================
+
+if __name__ == "__main__":
+    # Example: Load Flu A configuration with exploration training
+    config = get_virus_config_hydra('flu_a', 'flu_a_exploration')
+    print_config_summary(config)
+    
+    # Example: Load Bunya configuration with optimized training
+    config = get_virus_config_hydra('bunya', 'bunya_optimized')
+    print_config_summary(config)

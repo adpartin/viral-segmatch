@@ -1,0 +1,5 @@
+# Default embeddings configuration
+model_name: 'esm2_t6_8M_UR50D'
+max_length: 512
+batch_size: 32
+device: 'auto'  # auto, cpu, cuda

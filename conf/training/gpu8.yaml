@@ -1,0 +1,5 @@
+# Training config optimized for 8 GPUs
+learning_rate: 0.002
+batch_size: 256
+epochs: 100
+optimizer: 'adam'

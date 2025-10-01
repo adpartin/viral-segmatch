@@ -7,13 +7,13 @@ to ensure consistency across different pipeline stages.
 
 import yaml
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Optional
 
 # =============================================================================
 # CONFIGURATION LOADING
 # =============================================================================
 
-def load_config(config_path: str = None) -> Dict[str, Any]:
+def load_config(config_path: Optional[str] = None) -> dict[str, Any]:
     """Load configuration from YAML file."""
     if config_path is None:
         # Default to conf/config.yaml relative to project root
@@ -78,7 +78,7 @@ def print_config_summary():
 # CONFIGURATION ACCESS
 # =============================================================================
 
-def get_config() -> Dict[str, Any]:
+def get_config() -> dict[str, Any]:
     """Get the full configuration dictionary."""
     return _config
 

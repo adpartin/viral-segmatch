@@ -1,0 +1,5 @@
+# Flu A specific embeddings configuration
+model_name: 'esm2_t33_650M_UR50D'  # Larger model for Flu A
+max_length: 1024  # Longer sequences for Flu A
+batch_size: 16    # Smaller batch size for larger model
+device: 'auto'

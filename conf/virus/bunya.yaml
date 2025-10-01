@@ -1,0 +1,32 @@
+# Bunyavirales virus configuration
+virus_name: 'bunya'
+data_version: 'April_2025'
+max_core_proteins: 3
+
+# Subset processing
+max_files_to_process: null  # Process all files
+random_seed: 42
+
+# Core functions
+core_functions:
+  - 'RNA-dependent RNA polymerase'
+  - 'Pre-glycoprotein polyprotein GP complex'
+  - 'Nucleocapsid protein'
+
+# Auxiliary functions
+aux_functions:
+  - 'Bunyavirales mature nonstructural membrane protein (NSm)'
+  - 'Bunyavirales small nonstructural protein NSs'
+  - 'Phenuiviridae mature nonstructural 78-kD protein'
+
+# Segment mapping
+segment_mapping:
+  'RNA-dependent RNA polymerase': 'L'
+  'Pre-glycoprotein polyprotein GP complex': 'M'
+  'Nucleocapsid protein': 'S'
+
+# Replicon types
+replicon_types:
+  - 'Large RNA Segment'
+  - 'Medium RNA Segment'
+  - 'Small RNA Segment'
