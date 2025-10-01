@@ -149,30 +149,39 @@ def get_virus_config_hydra(
 def print_config_summary(config: DictConfig):
     """Print a summary of the configuration."""
     print("=" * 60)
-    print("HYDRA CONFIGURATION SUMMARY")
+    print("HYDRA CONFIG SUMMARY")
     print("=" * 60)
-    
-    # Handle both DictConfig and regular dict
-    if hasattr(config, 'virus'):
+
+    # Virus section
+    if hasattr(config, 'virus') and config.virus:
         if hasattr(config.virus, 'virus_name'):
             print(f"Virus: {config.virus.virus_name}")
             print(f"Data version: {config.virus.data_version}")
+            print(f"Max files: {getattr(config.virus, 'max_files_to_process', 'All')}")
         else:
             print(f"Virus: {config.virus.get('virus_name', 'Unknown')}")
             print(f"Data version: {config.virus.get('data_version', 'Unknown')}")
     else:
-        print(f"Virus: {config.get('virus', {}).get('virus_name', 'Unknown')}")
-        print(f"Data version: {config.get('virus', {}).get('data_version', 'Unknown')}")
+        print("Virus: Not configured")
     
-    if hasattr(config, 'training'):
-        print(f"Training config: {config.training}")
+    # Training section
+    if hasattr(config, 'training') and config.training:
+        print(f"Training: {config.training}")
     else:
-        print(f"Training config: {config.get('training', {})}")
+        print("Training: Not configured")
     
-    if hasattr(config, 'paths'):
+    # Paths section
+    if hasattr(config, 'paths') and config.paths:
         print(f"Paths: {config.paths}")
     else:
-        print(f"Paths: {config.get('paths', {})}")
+        print("Paths: Not configured")
+    
+    # Embeddings section
+    if hasattr(config, 'embeddings') and config.embeddings:
+        print(f"Embeddings: {config.embeddings}")
+    else:
+        print("Embeddings: Not configured")
+    
     print("=" * 60)
 
 
