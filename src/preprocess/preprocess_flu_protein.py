@@ -39,7 +39,7 @@ total_timer = Timer()
 VIRUS_NAME = 'flu_a'
 # TRAINING_CONFIG = 'base'  # Optional: override bundle's default training config
 
-# Pass the config path explicitly to avoid auto-detection issues
+# Pass the config path explicitly
 config_path = str(project_root / 'conf')
 config = get_virus_config_hydra(VIRUS_NAME, config_path=config_path)
 print_config_summary(config)

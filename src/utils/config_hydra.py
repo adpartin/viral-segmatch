@@ -16,24 +16,21 @@ from typing import Any, Optional
 # =============================================================================
 
 def load_hydra_config(
-    config_path: Optional[str] = None,
-    config_name: str = "simple_config",
+    config_name: str,
+    config_path: str = "conf",
     overrides: Optional[list] = None
     ) -> DictConfig:
-    """Load configuration using Hydra with simple config approach.
+    """Load configuration using Hydra.
     
     Args:
-        config_path: Path to config directory (default: auto-detect from calling script)
-        config_name: Name of config file (default: simple_config)
-        overrides: List of overrides (e.g., ['training.learning_rate=0.001'])
+        config_name: Name of config file (e.g., "bundles/flu_a", "training/base")
+        config_path: Path to config directory (default: "conf")
+        overrides: List of overrides (e.g., ['bundles.training=training/gpu8'])
     
     Returns:
         DictConfig: Hydra configuration object
     """
-    if config_path is None:
-        # Fallback to relative path
-        config_path = "conf"
-    
+    # breakpoint()
     # Clear any existing Hydra initialization
     if hydra.core.global_hydra.GlobalHydra.instance().is_initialized():
         hydra.core.global_hydra.GlobalHydra.instance().clear()
@@ -47,6 +44,7 @@ def load_hydra_config(
     
     config = hydra.compose(config_name=config_name, overrides=overrides)
     return config
+
 
 def get_virus_config_hydra(
     virus_name: str,
@@ -119,11 +117,18 @@ def get_virus_config_hydra(
         overrides.append(f"bundles.paths={paths_config}")
     
     full_config = load_hydra_config(
-        config_path=config_path, 
         config_name=config_name,
+        config_path=config_path,
         overrides=overrides
     )
-    
+    # DictConfig (from OmegaConf) allows dot notation for hierarchical access.
+    # E.g., config.bundles.virus.core_functions instead of config['bundles']['virus']['core_functions']
+    # breakpoint()
+    # print(full_config.keys()) --> ['bundles']
+    # print(full_config.bundles.keys()) --> ['virus', 'training', 'paths', 'embeddings']
+    # print(full_config.bundles.virus.keys())
+    # print(full_config.bundles.training.keys())
+
     # Flatten the structure for backward compatibility
     # Instead of config.bundles.virus.*, scripts can use config.virus.*
     flattened = DictConfig({
@@ -132,7 +137,9 @@ def get_virus_config_hydra(
         'paths': full_config.bundles.paths if 'paths' in full_config.bundles else {},
         'embeddings': full_config.bundles.embeddings if 'embeddings' in full_config.bundles else {},
     })
-    
+    # breakpoint()
+    # print(flattened.keys()) --> ['virus', 'training', 'paths', 'embeddings']
+
     return flattened
 
 # =============================================================================
@@ -168,9 +175,11 @@ def print_config_summary(config: DictConfig):
         print(f"Paths: {config.get('paths', {})}")
     print("=" * 60)
 
+
 def save_config(config: DictConfig, output_path: str):
     """Save configuration to file."""
     OmegaConf.save(config, output_path)
+
 
 def get_core_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]:
     """Get core function to segment mapping for the current virus config."""
@@ -190,6 +199,7 @@ def get_core_function_segment_mapping(config: DictConfig) -> list[dict[str, str]
                 })
     return mappings
 
+
 def get_aux_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]:
     """Get auxiliary function to segment mapping for the current virus config."""
     mappings = []
@@ -207,6 +217,7 @@ def get_aux_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]
                     'aux_segment': segment
                 })
     return mappings
+
 
 def _get_replicon_type_for_segment(virus_name: str, segment: str) -> Optional[str]:
     """Get the replicon type for a given segment."""
