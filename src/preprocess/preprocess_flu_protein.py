@@ -51,11 +51,19 @@ RANDOM_SEED = config.virus.random_seed
 
 # Define paths
 main_data_dir = project_root / 'data'
-# raw_data_dir = main_data_dir / 'raw' / 'Anno_Updates' / DATA_VERSION
-# quality_gto_dir = raw_data_dir / 'bunya-from-datasets' / 'Quality_GTOs'
-raw_data_dir = main_data_dir / 'raw' / 'Full_Flu_Annos' / DATA_VERSION
+
+# Use clearer symlinked names (Flu_A -> Full_Flu_Annos, Bunya -> Anno_Updates)
+# For development: use subset for fast iteration
+USE_SUBSET = True  # Set to False for production runs
+if USE_SUBSET:
+    subset_name = f'{DATA_VERSION}_subset_5k'
+    raw_data_dir = main_data_dir / 'raw' / 'Flu_A' / subset_name
+    output_dir = main_data_dir / 'processed' / VIRUS_NAME / subset_name
+else:
+    raw_data_dir = main_data_dir / 'raw' / 'Flu_A' / DATA_VERSION
+    output_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION
+
 gto_dir = raw_data_dir
-output_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION # processed_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'main_data_dir:   {main_data_dir}')
@@ -214,7 +222,7 @@ def aggregate_protein_data_from_gto_files(
 def assign_segment_using_core_proteins(
     prot_df: pd.DataFrame,
     data_version: str = 'July_2025'
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Assign canonical segments (1-8) based on core protein functions.
     
     Each Flu A genome segment (replicon) encodes distinct proteins:
@@ -265,7 +273,7 @@ def assign_segment_using_core_proteins(
 def assign_segment_using_aux_proteins(
     prot_df: pd.DataFrame,
     data_version: str = 'July_2025'
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Assign canonical segments (1-8) based on auxiliary protein functions.    
 
     Some additional protein functions are consistently matched with single 
@@ -313,7 +321,7 @@ def assign_segments(
     data_version: str = 'July_2025',
     use_core: bool = True,
     use_aux: bool = True
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Assign canonical segments using core and/or auxiliary proteins."""
     prot_df = prot_df.copy()
     prot_df['canonical_segment'] = pd.NA  # Placeholder for canonical_segment
@@ -393,7 +401,7 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
 def handle_duplicates(
     prot_df: pd.DataFrame,
     print_eda: bool = False
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Handle protein sequence duplicates."""
     seq_col_name = 'prot_seq'
 
@@ -526,8 +534,16 @@ def handle_duplicates(
 
 
 # Aggregate protein data from GTO files
-total_files = len(sorted(gto_dir.glob('*.gto')))
-print(f"\nTotal GTO files available: {total_files}")
+# Note: For large datasets, counting files can be slow. 
+# In subset mode, we know the approximate count.
+if USE_SUBSET:
+    print(f"\nUsing development subset: ~5000 GTO files")
+    total_files = 5000  # Approximate - avoids slow glob for counting
+else:
+    # Only count for production runs
+    total_files = len(sorted(gto_dir.glob('*.gto')))
+    print(f"\nTotal GTO files available: {total_files}")
+
 prot_df = aggregate_protein_data_from_gto_files(gto_dir, max_files=MAX_FILES_TO_PROCESS, random_seed=RANDOM_SEED)
 print(f'prot_df: {prot_df.shape}')
 
