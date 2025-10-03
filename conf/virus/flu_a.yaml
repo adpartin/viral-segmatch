@@ -3,7 +3,8 @@ virus_name: 'flu_a'
 data_version: 'July_2025'
 max_core_proteins: 8
 max_files_to_process: 100  # For initial exploration
-random_seed: 42
+random_seed: null  # null --> deterministic (first max_files_to_process files)
+# random_seed: 42  # integer --> random sampling
 
 # Core protein functions (present in nearly all Flu A genomes)
 core_functions:
