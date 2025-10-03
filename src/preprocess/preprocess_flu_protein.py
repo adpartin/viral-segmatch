@@ -116,14 +116,14 @@ def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
     - The 'id' in 'features' contains values like: fig|1316165.15.CDS.3, fig|11588.3927.CDS.1, etc.
     - These are PATRIC (BV-BRC) feature IDs: fig|<genome_id>.<feature_type>.<feature_number>
     - The genome_id (e.g., 1316165.15) is the internal genome identifier.
-    - This 'id' can be used to trace the feature to its source genome in PATRIC/GTOs.
+    - The 'id' can be used to trace the feature to its source genome in PATRIC/GTOs.
     - This is a not GenBank accession number (e.g., NC_038733.1, OL987654.1).
 
     - The 'location' in 'features' contains: [[ <segment_id>, <start>, <strand>, <end>]]
     - For example: "location": [[ "NC_086346.1", "70", "+", "738" ]]
     - It means: this feature is located on segment NC_086346.1 (positive strand), from
         nucleotide 70 to 738.
-    - Note that the first str in 'location' (i.e., NC_086346.1) is a GenBank-style accession,
+    - Note that the first str in 'location' (i.e., NC_086346.1) is a GenBank accession
         used by NCBI for nucleotide entries.    
     """
     with open(gto_file_path, 'r') as file:
@@ -138,12 +138,12 @@ def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
     # Iterate over 'contigs' items in GTO (if available)
     # (each item is a dict with keys: 'id', 'dna', 'replicon_type', 'replicon_geometry')
     # 'id': genbank_ctg_id (e.g., NC_086346.1)
-    # 'replicon_type': segment label (e.g., "[Large/Medium/Small] RNA Segment")
+    # 'replicon_type': segment label (e.g., "Segment [1-8]")
     segment_map = {
         contig['id']: contig.get('replicon_type', 'Unassigned')
         for contig in gto.get('contigs', [])
     }
-    
+
     # Extract data from 'features'
     fea_cols = ['id', 'type', 'function', 'protein_translation', 'location']
     rows = []
@@ -205,19 +205,23 @@ def aggregate_protein_data_from_gto_files(
         max_files: Maximum number of files to process (None for all)
         random_seed: Random seed for reproducible sampling
     """
+    # breakpoint()
     dfs = []
     gto_files = sorted(gto_dir.glob('*.gto'))  # Updated for Flu A files
-    
+
     # Apply subset sampling if requested
     if max_files is not None and max_files < len(gto_files):
+        total_files = len(sorted(gto_dir.glob('*.gto')))
         if random_seed is not None:
             random.seed(random_seed)
-        gto_files = random.sample(gto_files, max_files)
-        total_files = len(sorted(gto_dir.glob('*.gto')))
-        print(f"Processing subset: {len(gto_files)} files (randomly sampled from {total_files} total files)")
+            gto_files = random.sample(gto_files, max_files)
+            print(f"Processing subset: {len(gto_files)} files (randomly sampled from {total_files} total files)")
+        else:
+            gto_files = gto_files[:max_files]
+            print(f"Processing subset: first {len(gto_files)} files (from {total_files} total files)")
     else:
         print(f"Processing all {len(gto_files)} files")
-    
+
     for fpath in tqdm(gto_files, desc='Aggregating protein data from GTO files'):
         dfs.append(get_protein_data_from_gto(fpath))
     return pd.concat(dfs, axis=0).reset_index(drop=True)
@@ -538,7 +542,6 @@ def handle_duplicates(
 
 
 # Aggregate protein data from GTO files
-# Smart file counting: use known counts for subset directories, count for full datasets
 if 'subset_' in str(raw_data_dir):
     # For other subset sizes, count them (should be fast)
     total_files = len(sorted(gto_dir.glob('*.gto')))
@@ -548,7 +551,7 @@ else:
     total_files = len(sorted(gto_dir.glob('*.gto')))
     print(f"\nUsing full dataset: {total_files} GTO files")
 
-breakpoint()
+# breakpoint()
 prot_df = aggregate_protein_data_from_gto_files(
     gto_dir, max_files=MAX_FILES_TO_PROCESS,
     random_seed=RANDOM_SEED
@@ -564,6 +567,87 @@ prot_df_no_seq.to_csv(output_dir / 'protein_agg_from_GTO_missing_seqs.csv', sep=
 # Check unique BRC feature IDs
 print(f"\nTotal brc_fea_id:  {prot_df['brc_fea_id'].count()}")
 print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
+
+
+def analyze_protein_counts_per_file(
+    df: pd.DataFrame, 
+    core_functions: list[str], 
+    aux_functions: list[str]
+    ) -> None:
+    """Analyze protein counts per GTO file, separating core and auxiliary proteins."""
+    print("\n" + "="*60)
+    print("PROTEIN COUNTS PER GTO FILE")
+    print("="*60)
+    breakpoint()
+
+    # Count proteins per file
+    file_counts = df.groupby('file').agg({
+        'function': 'count',  # Total proteins
+        'brc_fea_id': 'nunique'  # Unique proteins (should be same as count)
+    }).rename(columns={'function': 'total_proteins', 'brc_fea_id': 'unique_proteins'})
+
+    # Count core proteins per file
+    core_mask = df['function'].isin(core_functions)
+    core_counts = df[core_mask].groupby('file')['function'].count().rename('core_proteins')
+
+    # Count auxiliary proteins per file  
+    aux_mask = df['function'].isin(aux_functions)
+    aux_counts = df[aux_mask].groupby('file')['function'].count().rename('aux_proteins')
+
+    # Combine all counts
+    all_counts = file_counts.join(core_counts, how='left').join(aux_counts, how='left')
+    all_counts = all_counts.fillna(0).astype(int)
+
+    # Add other proteins (neither core nor aux)
+    all_counts['other_proteins'] = all_counts['total_proteins'] - all_counts['core_proteins'] - all_counts['aux_proteins']
+    
+    # Identify "other" proteins (not in core or aux lists)
+    all_known_functions = set(core_functions + aux_functions)
+    other_proteins = df[~df['function'].isin(all_known_functions)]['function'].unique()
+    
+    # Summary statistics
+    print(f"Total GTO files analyzed: {len(all_counts)}")
+    print(f"\nProtein count statistics per file:")
+    print(all_counts.describe())
+    
+    # Show unidentified proteins
+    if len(other_proteins) > 0:
+        print(f"\n🔍 UNIDENTIFIED PROTEINS (not in core_functions or aux_functions):")
+        print(f"Found {len(other_proteins)} unique protein functions not in config:")
+        for i, protein in enumerate(sorted(other_proteins), 1):
+            count = df[df['function'] == protein].shape[0]
+            print(f"  {i:2d}. {protein} (appears in {count} records)")
+        
+        print(f"\n💡 Consider adding these to flu_a.yaml:")
+        print(f"   - Add to 'core_functions' if they're essential proteins")
+        print(f"   - Add to 'aux_functions' if they're optional/additional proteins")
+    else:
+        print(f"\n✅ All proteins are classified (no unidentified proteins found)")
+
+    # Show files with unusual protein counts
+    print(f"\nFiles with < 8 core proteins (expected for Flu A):")
+    low_core = all_counts[all_counts['core_proteins'] < 8]
+    if len(low_core) > 0:
+        print(f"Found {len(low_core)} files with < 8 core proteins:")
+        print(low_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
+    else:
+        print("All files have ≥ 8 core proteins ✓")
+
+    print(f"\nFiles with > 8 core proteins (potential duplicates):")
+    high_core = all_counts[all_counts['core_proteins'] > 8]
+    if len(high_core) > 0:
+        print(f"Found {len(high_core)} files with > 8 core proteins:")
+        print(high_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
+    else:
+        print("No files have > 8 core proteins ✓")
+
+    # Show distribution of core protein counts
+    print(f"\nCore protein count distribution:")
+    core_dist = all_counts['core_proteins'].value_counts().sort_index()
+    for count, freq in core_dist.items():
+        print(f"  {count} core proteins: {freq} files")
+
+    return all_counts
 
 
 # EDA start ----------------------------------------
@@ -604,21 +688,30 @@ Notes:
     or S in bipartite genomes (would drop). Segment Two is taxonomically ambiguous (not enough info
     to resolve without consulting taxon-specific rules.)
 """
+breakpoint()
+print("\nAnalyze protein counts per GTO file.")
+protein_counts_per_file = analyze_protein_counts_per_file(prot_df, core_functions, aux_functions)
+
+breakpoint()
 print("\nExplore 'replicon_type' counts.")
 print(prot_df['replicon_type'].value_counts())
 
+breakpoint()
 print("\nShow all ['replicon_type', 'function'] combo counts.")
 print_replicon_func_count(prot_df)
 
+breakpoint()
 print('\nCloser look at "core" protein functions.')
 print_replicon_func_count(prot_df, functions=core_functions)
 
+breakpoint()
 print('\nCloser look at "auxiliary" protein functions.')
 print_replicon_func_count(prot_df, functions=aux_functions)
 # EDA end ----------------------------------------
 
 
 # Assign segments
+breakpoint()
 print("\nAssign canonical segments.")
 prot_df = assign_segments(prot_df, data_version=DATA_VERSION, use_core=True, use_aux=True)
 prot_df.to_csv(output_dir / 'protein_assigned_segments.csv', sep=',', index=False)
