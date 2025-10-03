@@ -106,15 +106,15 @@ def get_protein_data_from_gto(gto_file_path: Path) -> pd.DataFrame:
     - The 'id' in 'features' contains values like: fig|1316165.15.CDS.3, fig|11588.3927.CDS.1, etc.
     - These are PATRIC (BV-BRC) feature IDs: fig|<genome_id>.<feature_type>.<feature_number>
     - The genome_id (e.g., 1316165.15) is the internal genome identifier.
-    - This 'id' can be used to trace the feature to its source genome in PATRIC/GTOs.
+    - The 'id' can be used to trace the feature to its source genome in PATRIC/GTOs.
     - This is a not GenBank accession number (e.g., NC_038733.1, OL987654.1).
 
     - The 'location' in 'features' contains: [[ <segment_id>, <start>, <strand>, <end>]]
     - For example: "location": [[ "NC_086346.1", "70", "+", "738" ]]
     - It means: this feature is located on segment NC_086346.1 (positive strand), from
         nucleotide 70 to 738.
-    - Note that the first str in 'location' (i.e., NC_086346.1) is a GenBank-style accession,
-        used by NCBI for nucleotide entries.    
+    - Note that the first str in 'location' (i.e., NC_086346.1) is a GenBank accession
+        used by NCBI for nucleotide entries.
     """
     with open(gto_file_path, 'r') as file:
         gto = json.load(file)
