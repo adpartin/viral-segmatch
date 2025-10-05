@@ -6,31 +6,36 @@ max_files_to_process: 100  # For initial exploration
 random_seed: null  # null --> deterministic (first max_files_to_process files)
 # random_seed: 42  # integer --> random sampling
 
+# The protein annotations from Jim are defined here:
+# https://github.com/jimdavis1/Viral_Annotation/blob/main/Viral_PSSM.json
+
 # Core protein functions (present in nearly all Flu A genomes)
+# Core proteins: 9 (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP)
 core_functions:
-  - 'RNA-dependent RNA polymerase PB2 subunit'  # Segment 1 (PB2)
-  - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'  # Segment 2 (PB1)
-  - 'RNA-dependent RNA polymerase PA subunit'  # Segment 3 (PA)
-  - 'Hemagglutinin precursor'  # Segment 4 (HA0)
-  - 'Nucleocapsid protein'  # Segment 5 (NP)
-  - 'Neuraminidase protein'  # Segment 6 (NA)
-  - 'Matrix protein 1'  # Segment 7 (M1)
-  - 'M2 ion channel'  # Segment 7 (Matrix protein 2; M2) --> EXCLUDE from modeling!
-  - 'Nuclear export protein'  # NEP, formerly NS2 --> Exclude from modeling!
+  - 'RNA-dependent RNA polymerase PB2 subunit'  # Seg. 1 (PB2)
+  - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'  # Seg. 2 (PB1)
+  - 'RNA-dependent RNA polymerase PA subunit'  # Seg. 3 (PA)
+  - 'Hemagglutinin precursor'  # Seg. 4 (HA0)
+  - 'Nucleocapsid protein'  # Seg. 5 (NP)
+  - 'Neuraminidase protein'  # Seg. 6 (NA)
+  - 'Matrix protein 1'  # Seg. 7 (M1)
+  - 'M2 ion channel'  # Seg. 7 (Matrix protein 2; M2) --> EXCLUDE from modeling!
+  - 'Nuclear export protein'  # Seg. 8 (NEP, formerly NS2) --> EXCLUDE from modeling!
 
 # Auxiliary protein functions (additional proteins, not always present)
+# Auxiliary proteins: 10 (PB2-S1, PB1-F2, PB1-N40, PA-X, PA-N155, PA-N182, HA1, HA2, M42, NEP)
 aux_functions:
-  # - PB2-S1  # Segment 1 (Jim's slide)
-  - 'Virulence factor PB1-F2'  # Segment 2 (PB1-F2)
-  - 'PB1-N40 protein' # Segment 2 (PB1-N40)
-  - 'Host mRNA degrading protein PA-X'  # Segment 3 (PA-X)
-  - 'PA-N155 protein' # Segment 3 (PA-N155)
-  - 'PA-N182 protein' # Segment 3 (PA-N182)
-  - 'Mature hemagglutinin N-terminal receptor binding subunit'  # Segment 4 (HA1)
-  - 'Mature hemagglutinin C-terminal membrane fusion subunit'  # Segment 4 (HA2)
-  - 'M42 alternative ion channel'  # Segment 7 (M42)
-  - 'Hypothetical host adaptation protein NS3'  # Segment 8 (NS3)
-  - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # Segment 8 (NS1) --> Include from modeling
+  - 'Splice variant of PB2, RIG-I-dependent interferon signaling pathway inhibitor'  # Seg. 1 (PB2-S1)
+  - 'Virulence factor PB1-F2'  # Seg. 2 (PB1-F2)
+  - 'PB1-N40 protein' # Seg. 2 (PB1-N40)
+  - 'PA-N155 protein' # Seg. 3 (PA-N155)
+  - 'PA-N182 protein' # Seg. 3 (PA-N182)
+  - 'Host mRNA degrading protein PA-X'  # Seg. 3 (PA-X)
+  - 'Mature hemagglutinin N-terminal receptor binding subunit'  # Seg. 4 (HA1)
+  - 'Mature hemagglutinin C-terminal membrane fusion subunit'  # Seg. 4 (HA2)
+  - 'M42 alternative ion channel'  # Seg. 7 (M42)
+  - 'Hypothetical host adaptation protein NS3'  # Seg. 8 (NS3)
+  - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # Seg. 8 (NS1) --> INCLUDE in modeling!
 
 # Segment mapping (function → canonical segment)
 # TODO: consider renaming to 'S1', 'S2', etc.
