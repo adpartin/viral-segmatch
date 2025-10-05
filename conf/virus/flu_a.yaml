@@ -15,8 +15,8 @@ core_functions:
   - 'Nucleocapsid protein'  # Segment 5 (NP)
   - 'Neuraminidase protein'  # Segment 6 (NA)
   - 'Matrix protein 1'  # Segment 7 (M1)
-  - 'M2 ion channel'  # Segment 7 (Matrix protein 2; M2) --> Exclude from modeling
-  - 'Nuclear export protein'  # NEP, formerly NS2 (https://en.wikipedia.org/wiki/Influenza_A_virus) --> Exclude from modeling
+  - 'M2 ion channel'  # Segment 7 (Matrix protein 2; M2) --> EXCLUDE from modeling!
+  - 'Nuclear export protein'  # NEP, formerly NS2 --> Exclude from modeling!
 
 # Auxiliary protein functions (additional proteins, not always present)
 aux_functions:
