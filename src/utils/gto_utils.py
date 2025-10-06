@@ -19,29 +19,28 @@ class SequenceType(Enum):
 
 def extract_assembly_info(file_name: str) -> tuple[str, str]:
     """Extract assembly prefix and ID from a file name.
-    
+
     Handles two naming conventions:
     1. Bunyavirales: [ASSEMBLY_PREFIX]_[ASSEMBLY_ID].[#].qual.gto (e.g., GCA_031497195.1.qual.gto)
     2. Flu A: [ASSEMBLY_ID].gto (e.g., 1316165.15.gto)
-    
+
     Args:
         file_name: The GTO file name
-        
+
     Returns:
         tuple: (assembly_prefix, assembly_id) where assembly_prefix can be None for Flu A files
     """
     # Previous version (Bunyavirales only)
     # match = re.match(r'^(GCA|GCF)_(\d+\.\d+)', file_name)
     # return match.groups() if match else (None, None)
-    # breakpoint()
 
     # Pattern 1: Bunyavirales format - GCA/GCF_123456.1.qual.gto
     match1 = re.match(r'^(GCA|GCF)_(\d+\.\d+)', file_name)
     if match1:
         return match1.groups()
 
-    # Pattern 2: Flu A format - 123456.gto (just assembly ID)
-    match2 = re.match(r'^(\d+)\.gto$', file_name)
+    # Pattern 2: Flu A format - alphanumeric assembly ID.gto (e.g., 123456.gto, 000142e874.gto)
+    match2 = re.match(r'^([a-zA-Z0-9]+)\.gto$', file_name)
     if match2:
         return (None, match2.group(1))
 
