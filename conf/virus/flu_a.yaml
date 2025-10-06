@@ -1,7 +1,7 @@
 # Biological facts for Flu A (virus characteristics)
 virus_name: 'flu_a'
 data_version: 'July_2025'
-max_core_proteins: 8
+# max_core_proteins: 9  # Redundant - use len(core_functions) instead
 max_files_to_process: 100  # For initial exploration
 random_seed: null  # null --> deterministic (first max_files_to_process files)
 # random_seed: 42  # integer --> random sampling
@@ -36,6 +36,21 @@ aux_functions:
   - 'M42 alternative ion channel'  # Seg. 7 (M42)
   - 'Hypothetical host adaptation protein NS3'  # Seg. 8 (NS3)
   - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # Seg. 8 (NS1) --> INCLUDE in modeling!
+
+# Selected protein functions (subset used for downstream modeling)
+# Flu A: Most core proteins (excluding M2, NEP) + 1 auxiliary protein (NS1)
+selected_functions:
+  # Core proteins for ML (7 out of 9)
+  - 'RNA-dependent RNA polymerase PB2 subunit'  # Seg. 1 (PB2)
+  - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'  # Seg. 2 (PB1)
+  - 'RNA-dependent RNA polymerase PA subunit'  # Seg. 3 (PA)
+  - 'Hemagglutinin precursor'  # Seg. 4 (HA0)
+  - 'Nucleocapsid protein'  # Seg. 5 (NP)
+  - 'Neuraminidase protein'  # Seg. 6 (NA)
+  - 'Matrix protein 1'  # Seg. 7 (M1)
+  # Auxiliary proteins for ML (1 out of 11)
+  - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # Seg. 8 (NS1)
+  # Excluded from ML: M2 ion channel, Nuclear export protein (NEP)
 
 # Segment mapping (function → canonical segment)
 # TODO: consider renaming to 'S1', 'S2', etc.
