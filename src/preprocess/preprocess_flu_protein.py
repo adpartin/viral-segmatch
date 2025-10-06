@@ -87,36 +87,33 @@ def validate_protein_counts(
     verbose: bool = False
     ) -> None:
     """Ensure each assembly_id has ≤max_core_proteins core proteins if core_only=True.
+    TODO: consider moving this somewhere. Maybe need to create a new utils file?
 
     This func is specific to preprocessing validation, tightly coupled
     to core_functions and assembly IDs (keep it in this script).
     """
     if core_only:
         df = df[df['function'].isin(core_functions)]
-        protein_type = "core"
+        # protein_type = "core"
         max_expected = len(core_functions)
-    else:
-        protein_type = "total"
-        max_expected = None
-    
-    print(f"\nValidating {protein_type} protein counts per assembly...")
-    
+
+    # print(f"\nValidating {protein_type} proteins count per assembly...")
+
     for aid, grp in df.groupby('assembly_id'):
         n_proteins = len(grp)
         if core_only and n_proteins > max_expected:
-            print(f"⚠️  WARNING: assembly_id {aid} has {n_proteins} core proteins, expected ≤{max_expected}")
-            print(f"   Files: {grp['file'].unique()}")
-            print(f"   Functions: {grp['function'].tolist()}")
+            # print(f"⚠️  WARNING: assembly_id {aid} has {n_proteins} core proteins, expected ≤{max_expected}")
+            # print(f"   Files: {grp['file'].unique()}")
+            # print(f"   Functions: {grp['function'].tolist()}")
+            raise ValueError(
+                f"Error: assembly_id {aid} has {n_proteins} core proteins, expected ≤{max_expected}.\n"
+                f"   Files: {grp['file'].unique()}\n"
+                f"   Functions: {grp['function'].tolist()}"
+            )
         elif verbose:
-            print(f"assembly_id {aid}: {n_proteins} {protein_type} proteins")
-            if core_only:
-                print(f"   Functions: {grp['function'].tolist()}")
-    
-    if core_only:
-        print(f"✅ Validation complete: All assemblies have ≤{max_expected} core proteins")
-    else:
-        print(f"✅ Validation complete: All assemblies processed")
-    
+            print(f"assembly_id {aid}: {n_proteins} {'core' if core_only else 'total'} "
+                  f"proteins, Functions: {grp['function'].tolist()}")
+
     return True
 
 
@@ -216,7 +213,6 @@ def aggregate_protein_data_from_gto_files(
         max_files: Maximum number of files to process (None for all)
         random_seed: Random seed for reproducible sampling
     """
-    # breakpoint()
     dfs = []
     gto_files = sorted(gto_dir.glob('*.gto'))  # Updated for Flu A files
 
@@ -313,7 +309,11 @@ def analyze_protein_counts_per_file(
         print(f"No files have > {expected_core} core proteins ✓")
 
     # Analyze intra-file protein (function) duplicates in selected proteins across all files
+    # NOTE: This detects FUNCTION-based duplicates (same protein function in same file)
+    # This is DIFFERENT from sequence-based duplicates detected later in handle_duplicates()
     print(f"\n🔍 ANALYZING INTRA-FILE DUPLICATES IN 'SELECTED' (PROTEIN) FUNCTIONS ACROSS ALL FILES:")
+    print(f"   📋 This detects FUNCTION-based duplicates (same protein function in same file)")
+    print(f"   🔄 Sequence-based duplicates are detected later in handle_duplicates()")
     analyze_intra_file_protein_duplicates(df, selected_functions, output_dir)
 
     return all_counts
@@ -547,20 +547,18 @@ def assign_segments(
     unmapped = prot_df[prot_df['canonical_segment'].isna()]
     print(f"\nUnmapped segments: {len(unmapped)}")
     print_replicon_func_count(unmapped)
-    breakpoint()
+
     return prot_df
 
 
 def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     """Apply basic filters to protein data."""
-    breakpoint()
-
     # Drop unassigned canonical segments
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     unassigned_df = prot_df[prot_df['canonical_segment'].isna()]
     # unassgined_df = prot_df[prot_df['canonical_segment'].isna()].sort_values('canonical_segment', ascending=False)
     prot_df = prot_df[prot_df['canonical_segment'].notna()].reset_index(drop=True)
-    print(f'Dropped unassigned canonical_segment: {unassigned_df.shape}')
+    print(f'\nDropped unassigned canonical_segment: {unassigned_df.shape}')
     print(f'Remaining prot_df:                    {prot_df.shape}')
     unassigned_df.to_csv(output_dir / 'protein_unassigned_segments.csv', sep=',', index=False)
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
@@ -570,7 +568,7 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     non_cds = prot_df[prot_df['type'] != 'CDS']
     # non_cds = prot_df[prot_df['type'] != 'CDS'].sort_values('type', ascending=False)
     prot_df = prot_df[prot_df['type'] == 'CDS'].reset_index(drop=True)
-    print(f'Dropped non-CDS samples: {non_cds.shape}')
+    print(f'\nDropped non-CDS samples: {non_cds.shape}')
     print(f'Remaining prot_df:       {prot_df.shape}')
     non_cds.to_csv(output_dir / 'protein_non_cds.csv', sep=',', index=False)
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
@@ -580,7 +578,7 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     poor_df = prot_df[prot_df['quality'] == 'Poor']
     # poor_df = prot_df[prot_df['quality'] == 'Poor'].sort_values('quality', ascending=False)
     prot_df = prot_df[prot_df['quality'] != 'Poor'].reset_index(drop=True)
-    print(f'Dropped Poor quality samples: {poor_df.shape}')
+    print(f'\nDropped Poor quality samples: {poor_df.shape}')
     print(f'Remaining prot_df:            {prot_df.shape}')
     poor_df.to_csv(output_dir / 'protein_poor_quality.csv', sep=',', index=False)
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
@@ -590,7 +588,7 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     unk_df = prot_df[prot_df['replicon_type'] == 'Unassigned']
     # unk_df = prot_df[prot_df['replicon_type'] == 'Unassigned'].sort_values('replicon_type', ascending=False)
     prot_df = prot_df[prot_df['replicon_type'] != 'Unassigned'].reset_index(drop=True)
-    print(f'Dropped unassigned replicons: {unk_df.shape}')
+    print(f'\nDropped unassigned replicons: {unk_df.shape}')
     print(f'Remaining prot_df:            {prot_df.shape}')
     unk_df.to_csv(output_dir / 'protein_unassigned_replicons.csv', sep=',', index=False)
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment', 'type'], drop_na=False)
@@ -604,7 +602,6 @@ def handle_duplicates(
     ) -> pd.DataFrame:
     """Handle protein sequence duplicates."""
     seq_col_name = 'prot_seq'
-    breakpoint()
 
     # EDA start ------------------------------------------------
     if print_eda:
@@ -674,12 +671,12 @@ def handle_duplicates(
     print("\nEnforce single file per assembly_id.")
     print(f'prot_df before: {prot_df.shape}')
     prot_df = enforce_single_file(prot_df)
-    print(f'prot_df after: {prot_df.shape}')
+    print(f'prot_df after:  {prot_df.shape}')
 
     # Validate protein counts
     print("\nValidate protein counts.")
     validate_protein_counts(prot_df, core_only=True)   # Check core proteins
-    validate_protein_counts(prot_df, core_only=False)  # Check all proteins
+    # validate_protein_counts(prot_df, core_only=False)  # Check all proteins
 
     # EDA start ------------------------------------------------
     # if print_eda:
@@ -705,31 +702,52 @@ def handle_duplicates(
         # del dup_cols, # gca_gcf_dups, gca_gcf_dups_eda
     # EDA end --------------------------------------------------
 
-    # EDA start --------------------------------------------------
-    if print_eda:
-        print('\n---- FIND dups within the same GTO file (intra-file dups) ----')
-        dup_cols = [seq_col_name, 'file']
-        same_file_dups = (
-            prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
-            .sort_values(dup_cols + ['brc_fea_id'])
-            .reset_index(drop=True).copy()
-        )
-        same_file_dups.to_csv(output_dir / 'protein_dups_within_file.csv', sep=',', index=False)
-
-        print(f'same_file_dups: {same_file_dups.shape}')
-        print(f"dups unique seqs: {same_file_dups[seq_col_name].nunique()}")
-        if not same_file_dups.empty:
-            print(same_file_dups[:4][dup_cols + ['brc_fea_id']])
-
+    # Detect sequence-based intra-file duplicates (same protein sequence in same file)
+    # NOTE: This is DIFFERENT from function-based duplicates detected earlier in analyze_protein_counts_per_file()
+    print('\n🔍 DETECTING SEQUENCE-BASED INTRA-FILE DUPLICATES:')
+    print('   📋 This detects SEQUENCE-based duplicates (same protein sequence in same file)')
+    print('   🔄 Function-based duplicates were detected earlier in analyze_protein_counts_per_file()')
+    
+    dup_cols = [seq_col_name, 'file']
+    same_file_dups = (
+        prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
+        .sort_values(dup_cols + ['brc_fea_id'])
+        .reset_index(drop=True).copy()
+    )
+    
+    if len(same_file_dups) > 0:
+        print(f"⚠️  WARNING: Found {len(same_file_dups)} sequence-based intra-file duplicates!")
+        print(f"   Files affected: {same_file_dups['file'].nunique()}")
+        print(f"   Unique duplicate sequences: {same_file_dups[seq_col_name].nunique()}")
+        
+        # Save detailed analysis
+        same_file_dups.to_csv(output_dir / 'protein_sequence_dups_within_file.csv', sep=',', index=False)
+        
+        # Show examples
+        print(f"\n📋 Examples of sequence-based duplicates:")
+        for i, (_, row) in enumerate(same_file_dups.head(6).iterrows()):
+            print(f"   {i+1}. File: {row['file']}, Function: {row['function']}, BRC ID: {row['brc_fea_id']}")
+        
+        # Detailed analysis
         same_file_dups_eda = same_file_dups.groupby(dup_cols).agg(
             num_brc_fea_ids=('brc_fea_id', 'nunique'),
             num_funcs=('function', 'nunique'),
             brc_fea_ids=('brc_fea_id', lambda x: list(set(x))),
             functions=('function', lambda x: list(set(x))),
             ).sort_values(dup_cols).reset_index()
-        # same_file_dups_eda.to_csv(output_dir / 'protein_dups_within_file_eda.csv', sep=',', index=False)
-        del dup_cols, # same_file_dups, same_file_dups_eda
-    # EDA end --------------------------------------------------
+        same_file_dups_eda.to_csv(output_dir / 'protein_sequence_dups_analysis.csv', sep=',', index=False)
+        
+        # Assertion for critical cases
+        if len(same_file_dups) > 100:  # Threshold for critical warning
+            print(f"\n🚨 CRITICAL: {len(same_file_dups)} sequence duplicates found!")
+            print(f"   This may indicate serious data quality issues.")
+            print(f"   Consider investigating the source data.")
+        
+    else:
+        print("✅ No sequence-based intra-file duplicates found")
+    
+    # Clean up
+    del dup_cols
 
     return prot_df
 
@@ -744,7 +762,6 @@ else:
     total_files = len(sorted(gto_dir.glob('*.gto')))
     print(f"\nUsing full dataset: {total_files} GTO files")
 
-# breakpoint()
 prot_df = aggregate_protein_data_from_gto_files(
     gto_dir, max_files=MAX_FILES_TO_PROCESS,
     random_seed=RANDOM_SEED
@@ -767,13 +784,13 @@ print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
 Intermediate EDA
 
 Explore all 'replicon_type' entires (segments):
-Segment 3    366                                                                                                                                            
-Segment 2    302                                                                                                                                              
-Segment 4    300                                                                                                                                              
-Segment 7    298                                                                                                                                              
-Segment 8    292                                                                                                                                              
-Segment 1    100                                                                                                                                              
-Segment 6    100                                                                                                                                              
+Segment 3    366
+Segment 2    302
+Segment 4    300
+Segment 7    298
+Segment 8    292
+Segment 1    100
+Segment 6    100
 Segment 5    100
 
 Explore core protein functions:
@@ -839,6 +856,7 @@ prot_df.to_csv(output_dir / 'protein_filtered_basic.csv', sep=',', index=False)
 
 # Handle duplicates
 print("\nHandle protein sequence duplicates.")
+# prot_df = handle_duplicates(prot_df, print_eda=True)
 prot_df = handle_duplicates(prot_df, print_eda=False)
 
 # Clean protein sequences
