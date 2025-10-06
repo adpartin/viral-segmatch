@@ -29,9 +29,7 @@ from src.utils.protein_utils import (
 )
 from src.utils.config_hydra import (
     get_virus_config_hydra, 
-    print_config_summary,
-    get_core_function_segment_mapping,
-    get_aux_function_segment_mapping
+    print_config_summary
 )
 
 total_timer = Timer()
@@ -81,7 +79,7 @@ seq_col_name = 'prot_seq'
 # Get core and auxiliary functions from config
 core_functions = config.virus.core_functions
 aux_functions = config.virus.aux_functions
-
+selected_functions = config.virus.selected_functions
 
 def validate_protein_counts(
     df: pd.DataFrame,
@@ -95,17 +93,30 @@ def validate_protein_counts(
     """
     if core_only:
         df = df[df['function'].isin(core_functions)]
+        protein_type = "core"
+        max_expected = len(core_functions)
+    else:
+        protein_type = "total"
+        max_expected = None
+    
+    print(f"\nValidating {protein_type} protein counts per assembly...")
+    
     for aid, grp in df.groupby('assembly_id'):
         n_proteins = len(grp)
-        if core_only and n_proteins > config.virus.max_core_proteins:
-            raise ValueError(
-                f"assembly_id {aid} has {n_proteins} core proteins, expected ≤{config.virus.max_core_proteins}.\n"
-                f"Files: {grp['file'].unique()}\n"
-                f"Functions: {grp['function'].tolist()}"
-            )
-        if verbose:
-            print(f"assembly_id {aid}: {n_proteins} {'core' if core_only else 'total'} "
-                  f"proteins, Functions: {grp['function'].tolist()}")
+        if core_only and n_proteins > max_expected:
+            print(f"⚠️  WARNING: assembly_id {aid} has {n_proteins} core proteins, expected ≤{max_expected}")
+            print(f"   Files: {grp['file'].unique()}")
+            print(f"   Functions: {grp['function'].tolist()}")
+        elif verbose:
+            print(f"assembly_id {aid}: {n_proteins} {protein_type} proteins")
+            if core_only:
+                print(f"   Functions: {grp['function'].tolist()}")
+    
+    if core_only:
+        print(f"✅ Validation complete: All assemblies have ≤{max_expected} core proteins")
+    else:
+        print(f"✅ Validation complete: All assemblies processed")
+    
     return True
 
 
@@ -218,7 +229,7 @@ def aggregate_protein_data_from_gto_files(
             print(f"Processing subset: {len(gto_files)} files (randomly sampled from {total_files} total files)")
         else:
             gto_files = gto_files[:max_files]
-            print(f"Processing subset: first {len(gto_files)} files (from {total_files} total files)")
+            print(f"Processing subset: first {len(gto_files)} files (from the {total_files} files)")
     else:
         print(f"Processing all {len(gto_files)} files")
 
@@ -227,11 +238,187 @@ def aggregate_protein_data_from_gto_files(
     return pd.concat(dfs, axis=0).reset_index(drop=True)
 
 
+def analyze_protein_counts_per_file(
+    df: pd.DataFrame, 
+    core_functions: list[str], 
+    aux_functions: list[str],
+    selected_functions: list[str]
+    ) -> None:
+    """ Analyze protein counts per GTO file. """
+    print("\n" + "=" * 60)
+    print("PROTEIN COUNTS PER GTO FILE")
+    print("=" * 60)
+
+    # Count proteins per file
+    file_counts = df.groupby('file').agg({
+        'function': 'count',  # Total proteins
+        'brc_fea_id': 'nunique'  # Unique proteins (should be same as count)
+    }).rename(columns={'function': 'total_proteins', 'brc_fea_id': 'unique_proteins'})
+
+    # Count core proteins per file
+    core_mask = df['function'].isin(core_functions)
+    core_counts = df[core_mask].groupby('file')['function'].count().rename('core_proteins')
+
+    # Count auxiliary proteins per file  
+    aux_mask = df['function'].isin(aux_functions)
+    aux_counts = df[aux_mask].groupby('file')['function'].count().rename('aux_proteins')
+
+    # Combine all counts
+    all_counts = file_counts.join(core_counts, how='left').join(aux_counts, how='left')
+    all_counts = all_counts.fillna(0).astype(int)
+
+    # Add other proteins (neither core nor aux)
+    all_counts['other_proteins'] = all_counts['total_proteins'] - all_counts['core_proteins'] - all_counts['aux_proteins']
+
+    # Identify "other" proteins (not in core or aux lists)
+    all_known_functions = set(core_functions + aux_functions)
+    other_proteins = df[~df['function'].isin(all_known_functions)]['function'].unique()
+
+    # Summary statistics
+    print(f"Total GTO files analyzed: {len(all_counts)}")
+    # print(f"\nProtein count statistics per file:")
+    # print(all_counts.describe())
+
+    # Show unidentified proteins
+    if len(other_proteins) > 0:
+        print(f"\n🔍 UNIDENTIFIED PROTEINS (not in core_functions or aux_functions):")
+        print(f"Found {len(other_proteins)} unique protein functions not in config:")
+        for i, protein in enumerate(sorted(other_proteins), 1):
+            count = df[df['function'] == protein].shape[0]
+            print(f"  {i:2d}. {protein} (appears in {count} records)")
+    else:
+        print(f"\n✅ All proteins are classified (no unidentified proteins found)")
+
+    # Show distribution of core protein counts
+    print(f"\nCore protein count distribution:")
+    core_dist = all_counts['core_proteins'].value_counts().sort_index()
+    for count, freq in core_dist.items():
+        print(f"  {count} core proteins: {freq} files")
+
+    # Show files with unusual protein counts (less than known core proteins)
+    expected_core = len(core_functions)  # Should be 9 for Flu A
+    low_core = all_counts[all_counts['core_proteins'] < expected_core]
+    if len(low_core) > 0:
+        print(f"\nFound {len(low_core)} files with < {expected_core} core proteins (expected for Flu A):")
+        print(low_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
+    else:
+        print(f"All files have ≥ {expected_core} core proteins ✓")
+
+    # Show files with more than known core proteins (potential duplicates)
+    high_core = all_counts[all_counts['core_proteins'] > expected_core]
+    if len(high_core) > 0:
+        print(f"\nFound {len(high_core)} files with > {expected_core} core proteins:")
+        print(high_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
+    else:
+        print(f"No files have > {expected_core} core proteins ✓")
+
+    # Analyze intra-file protein (function) duplicates in selected proteins across all files
+    print(f"\n🔍 ANALYZING INTRA-FILE DUPLICATES IN 'SELECTED' (PROTEIN) FUNCTIONS ACROSS ALL FILES:")
+    analyze_intra_file_protein_duplicates(df, selected_functions, output_dir)
+
+    return all_counts
+
+
+def analyze_intra_file_protein_duplicates(
+    df: pd.DataFrame, 
+    subset_functions: Optional[list[str]] = None,
+    output_dir: Optional[Path] = None
+    ) -> None:
+    """Analyze intra-file duplicates in proteins across all files.
+
+    Args:
+        df: Full protein dataframe
+        subset_functions: List of protein functions to analyze. If None, analyzes ALL functions.
+        output_dir: Directory to save problematic proteins file. If None, uses current directory.
+    """
+    # Set default output directory
+    if output_dir is None:
+        output_dir = Path(".")
+        print(f"⚠️  No output_dir provided, using current directory: {output_dir.absolute()}")
+
+    # If no subset specified, use all unique functions
+    if subset_functions is None:
+        subset_functions = df['function'].unique().tolist()
+        print(f"🔍 Analyzing ALL {len(subset_functions)} protein functions for intra-file duplicates...")
+    else:
+        print(f"🔍 Analyzing {len(subset_functions)} selected protein functions for intra-file duplicates...")
+
+    # Filter to subset proteins only (keep original df unchanged)
+    sub_df = df[df['function'].isin(subset_functions)]
+
+    print(f"Files to analyze: {sub_df['file'].nunique()}")
+    print(f"Protein records: {len(sub_df)}")
+
+    # Count subset protein occurrences per file
+    subset_counts_per_file = sub_df.groupby(['file', 'function']).size().reset_index(name='count')
+
+    # Find subset proteins that appear multiple times
+    subset_duplicates = subset_counts_per_file[subset_counts_per_file['count'] > 1]
+
+    if len(subset_duplicates) > 0:
+        print(f"\n🚨 Found {len(subset_duplicates)} subset protein duplicates:")
+        print("=" * 40)
+
+        # Prepare data for saving to file
+        intra_file_dups = []
+
+        for _, row in subset_duplicates.iterrows():
+            file_name = row['file']
+            function = row['function']
+            count = row['count']
+
+            # Get the actual records for this duplicate
+            duplicate_records = sub_df[
+                (sub_df['file'] == file_name) & 
+                (sub_df['function'] == function)
+            ]
+
+            print(f"\n📁 File: {file_name}")
+            print(f"   🔍 Protein function: {function}")
+            print(f"   📊 Count: {count} occurrences")
+            print(f"   📋 Details:")
+
+            for i, (_, record) in enumerate(duplicate_records.iterrows(), 1):
+                print(f"     {i}. Assembly ID: {record['assembly_id']}")
+                print(f"         Replicon: {record['replicon_type']}")
+                print(f"         BRC Feature ID: {record['brc_fea_id']}")
+                if 'prot_seq' in record:
+                    seq_preview = record['prot_seq'][:40] + "..." if len(record['prot_seq']) > 40 else record['prot_seq']
+                    print(f"         Seq: {seq_preview}")
+
+                # Collect for saving
+                intra_file_dups.append({
+                    'file': file_name,
+                    'function': function,
+                    'duplicate_count': count,
+                    'assembly_id': record['assembly_id'],
+                    'replicon_type': record['replicon_type'],
+                    'brc_fea_id': record['brc_fea_id'],
+                    'seq_preview': seq_preview if 'prot_seq' in record else None
+                })
+
+        # Save intra-file duplicates to file
+        if intra_file_dups:
+            intra_file_dups_df = pd.DataFrame(intra_file_dups)
+            output_file = output_dir / 'intra_file_protein_duplicates.csv'
+            intra_file_dups_df.to_csv(output_file, index=False)
+            print(f"\n💾 Saved {len(intra_file_dups)} intra-file protein duplicates to: {output_file}")
+    else:
+        print("✅ No subset protein duplicates found")
+
+    # Summary statistics
+    print(f"\n📊 INTRA-FILE PROTEIN DUPLICATE SUMMARY:")
+    print(f"   Files analyzed: {sub_df['file'].nunique()}")
+    print(f"   Protein records across files: {len(sub_df)}")
+    print(f"   Unique proteins (subset functions) across files: {sub_df['function'].nunique()}")
+    print(f"   Intra-file duplicates on 'function' column: {len(subset_duplicates)}")
+
+
 def assign_segment_using_core_proteins(
     prot_df: pd.DataFrame,
     data_version: str = 'July_2025'
     ) -> pd.DataFrame:
-    """Assign canonical segments (1-8) based on core protein functions.
+    """Assign canonical segments (1-8) based on core protein functions from config.
     
     Each Flu A genome segment (replicon) encodes distinct proteins:
 
@@ -254,8 +441,8 @@ def assign_segment_using_core_proteins(
     """
     prot_df = prot_df.copy()
 
-    # Get core protein function-to-segment mappings from config
-    core_mappings = get_core_function_segment_mapping(config)
+    # Get conditional mappings from config
+    core_mappings = config.virus.conditional_segment_mappings.core_proteins
     core_map = pd.DataFrame(core_mappings)
     # print(core_map)
 
@@ -271,7 +458,7 @@ def assign_segment_using_core_proteins(
 
     # Diagnostics
     print_replicon_func_count(prot_df, functions=core_functions)
-    df = print_replicon_func_count(prot_df, more_cols=['core_segment'], drop_na=False)
+    df = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     # df.to_csv(output_dir / 'core_mappings_eda.csv', sep=',', index=False)
 
     prot_df = prot_df.drop(columns=['core_segment'])
@@ -282,17 +469,19 @@ def assign_segment_using_aux_proteins(
     prot_df: pd.DataFrame,
     data_version: str = 'July_2025'
     ) -> pd.DataFrame:
-    """Assign canonical segments (1-8) based on auxiliary protein functions.    
+    """Assign canonical segments (1-8) based on auxiliary protein functions from config.    
 
     Some additional protein functions are consistently matched with single 
     segment (replicon_type) across all isolates in our dataset.
 
     These are non-structural proteins but can be mapped confidently:
 
-    - NS2/NEP proteins → Segment 8 → assign as '8'
-    - M2 ion channel → Segment 7 → assign as '7'
-    - PA-X, PB1-F2, PB1-N40, PA-N155, PA-N182 → Various segments based on location
-    - NS3, M42 → Various segments based on location
+    - NS1, NS3 proteins → Segment 8 → assign as '8'
+    - M2 ion channel, M42 → Segment 7 → assign as '7'
+    - PA-X, PA-N155, PA-N182 → Segment 3 → assign as '3'
+    - PB1-F2, PB1-N40 → Segment 2 → assign as '2'
+    - PB2-S1 → Segment 1 → assign as '1'
+    - HA1, HA2 → Segment 4 → assign as '4'
 
     Approach:
     - Use auxiliary function-to-segment mapping for unassigned proteins.
@@ -300,8 +489,8 @@ def assign_segment_using_aux_proteins(
     """
     prot_df = prot_df.copy()
 
-    # Get auxiliary protein function-to-segment mappings from config
-    aux_mappings = get_aux_function_segment_mapping(config)
+    # Get conditional mappings from config
+    aux_mappings = config.virus.conditional_segment_mappings.aux_proteins
     aux_map = pd.DataFrame(aux_mappings)
     # print(aux_map)
     
@@ -310,14 +499,14 @@ def assign_segment_using_aux_proteins(
     prot_df = prot_df.merge(aux_map, on=['function', 'replicon_type'], how='left')
     # print(prot_df.iloc[:,-4:])
 
-    # Assign aux_segment to canonical_segment
+    # Assign aux_segment to canonical_segment (only for unassigned proteins)
     mask = prot_df['canonical_segment'].isna() & prot_df['aux_segment'].notna()
     prot_df.loc[mask, 'canonical_segment'] = prot_df.loc[mask, 'aux_segment']
     # print(prot_df.iloc[:,-4:])
 
     # Diagnostics
     print_replicon_func_count(prot_df, functions=aux_functions)
-    df = print_replicon_func_count(prot_df, more_cols=['aux_segment'], drop_na=False)
+    df = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     # df.to_csv(output_dir / 'aux_mappings_eda.csv', sep=',', index=False)
 
     prot_df = prot_df.drop(columns=['aux_segment'])
@@ -333,36 +522,39 @@ def assign_segments(
     """Assign canonical segments using core and/or auxiliary proteins."""
     prot_df = prot_df.copy()
     prot_df['canonical_segment'] = pd.NA  # Placeholder for canonical_segment
-    
+
     if use_core:
         prot_df = assign_segment_using_core_proteins(prot_df, data_version)
-    
+
     if use_aux:
         prot_df = assign_segment_using_aux_proteins(prot_df, data_version)
-    
+
     # Diagnostics
     print("\nCore and auxiliary protein segment mappings:")
+    all_functions = config.virus.core_functions + config.virus.aux_functions
     df = print_replicon_func_count(
         prot_df,
-        functions=core_functions + aux_functions,
+        functions=all_functions,
         more_cols=['canonical_segment'],
         drop_na=False)
     df.to_csv(output_dir / 'seg_mapped_core_and_aux_eda.csv', sep=',', index=False)
-    
+
     # print('\nAvailable [replicon_type, function] combos for "core" and "auxiliary" protein mapping:')
-    # print_replicon_func_count(prot_df, functions=core_functions + aux_functions)
+    # print_replicon_func_count(prot_df, functions=all_functions)
     # print('\nAll [replicon_type, function] combos and assigned segments:')
     # df = print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
-
+    
     unmapped = prot_df[prot_df['canonical_segment'].isna()]
     print(f"\nUnmapped segments: {len(unmapped)}")
     print_replicon_func_count(unmapped)
-    
+    breakpoint()
     return prot_df
 
 
 def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     """Apply basic filters to protein data."""
+    breakpoint()
+
     # Drop unassigned canonical segments
     # print_replicon_func_count(prot_df, more_cols=['canonical_segment'], drop_na=False)
     unassigned_df = prot_df[prot_df['canonical_segment'].isna()]
@@ -412,6 +604,7 @@ def handle_duplicates(
     ) -> pd.DataFrame:
     """Handle protein sequence duplicates."""
     seq_col_name = 'prot_seq'
+    breakpoint()
 
     # EDA start ------------------------------------------------
     if print_eda:
@@ -561,7 +754,7 @@ print(f'prot_df: {prot_df.shape}')
 # Save initial data
 prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
 prot_df_no_seq = prot_df[prot_df[seq_col_name].isna()]
-print(f'Records with missing protein sequence: {prot_df_no_seq.shape}')
+print(f'Records with missing protein sequence: {prot_df_no_seq.shape if not prot_df_no_seq.empty else 0}')
 prot_df_no_seq.to_csv(output_dir / 'protein_agg_from_GTO_missing_seqs.csv', sep=',', index=False)
 
 # Check unique BRC feature IDs
@@ -569,149 +762,72 @@ print(f"\nTotal brc_fea_id:  {prot_df['brc_fea_id'].count()}")
 print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
 
 
-def analyze_protein_counts_per_file(
-    df: pd.DataFrame, 
-    core_functions: list[str], 
-    aux_functions: list[str]
-    ) -> None:
-    """Analyze protein counts per GTO file, separating core and auxiliary proteins."""
-    print("\n" + "="*60)
-    print("PROTEIN COUNTS PER GTO FILE")
-    print("="*60)
-    breakpoint()
-
-    # Count proteins per file
-    file_counts = df.groupby('file').agg({
-        'function': 'count',  # Total proteins
-        'brc_fea_id': 'nunique'  # Unique proteins (should be same as count)
-    }).rename(columns={'function': 'total_proteins', 'brc_fea_id': 'unique_proteins'})
-
-    # Count core proteins per file
-    core_mask = df['function'].isin(core_functions)
-    core_counts = df[core_mask].groupby('file')['function'].count().rename('core_proteins')
-
-    # Count auxiliary proteins per file  
-    aux_mask = df['function'].isin(aux_functions)
-    aux_counts = df[aux_mask].groupby('file')['function'].count().rename('aux_proteins')
-
-    # Combine all counts
-    all_counts = file_counts.join(core_counts, how='left').join(aux_counts, how='left')
-    all_counts = all_counts.fillna(0).astype(int)
-
-    # Add other proteins (neither core nor aux)
-    all_counts['other_proteins'] = all_counts['total_proteins'] - all_counts['core_proteins'] - all_counts['aux_proteins']
-    
-    # Identify "other" proteins (not in core or aux lists)
-    all_known_functions = set(core_functions + aux_functions)
-    other_proteins = df[~df['function'].isin(all_known_functions)]['function'].unique()
-    
-    # Summary statistics
-    print(f"Total GTO files analyzed: {len(all_counts)}")
-    print(f"\nProtein count statistics per file:")
-    print(all_counts.describe())
-    
-    # Show unidentified proteins
-    if len(other_proteins) > 0:
-        print(f"\n🔍 UNIDENTIFIED PROTEINS (not in core_functions or aux_functions):")
-        print(f"Found {len(other_proteins)} unique protein functions not in config:")
-        for i, protein in enumerate(sorted(other_proteins), 1):
-            count = df[df['function'] == protein].shape[0]
-            print(f"  {i:2d}. {protein} (appears in {count} records)")
-        
-        print(f"\n💡 Consider adding these to flu_a.yaml:")
-        print(f"   - Add to 'core_functions' if they're essential proteins")
-        print(f"   - Add to 'aux_functions' if they're optional/additional proteins")
-    else:
-        print(f"\n✅ All proteins are classified (no unidentified proteins found)")
-
-    # Show files with unusual protein counts
-    print(f"\nFiles with < 8 core proteins (expected for Flu A):")
-    low_core = all_counts[all_counts['core_proteins'] < 8]
-    if len(low_core) > 0:
-        print(f"Found {len(low_core)} files with < 8 core proteins:")
-        print(low_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
-    else:
-        print("All files have ≥ 8 core proteins ✓")
-
-    print(f"\nFiles with > 8 core proteins (potential duplicates):")
-    high_core = all_counts[all_counts['core_proteins'] > 8]
-    if len(high_core) > 0:
-        print(f"Found {len(high_core)} files with > 8 core proteins:")
-        print(high_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
-    else:
-        print("No files have > 8 core proteins ✓")
-
-    # Show distribution of core protein counts
-    print(f"\nCore protein count distribution:")
-    core_dist = all_counts['core_proteins'].value_counts().sort_index()
-    for count, freq in core_dist.items():
-        print(f"  {count} core proteins: {freq} files")
-
-    return all_counts
-
-
 # EDA start ----------------------------------------
 """
 Intermediate EDA
 
 Explore all 'replicon_type' entires (segments):
-Medium RNA Segment    3905
-Small RNA Segment     2593
-Large RNA Segment     1798
-Unassigned             165
-Segment One             61
-Segment Two             59
-Segment Four            59
-Segment Three           45
+Segment 3    366                                                                                                                                            
+Segment 2    302                                                                                                                                              
+Segment 4    300                                                                                                                                              
+Segment 7    298                                                                                                                                              
+Segment 8    292                                                                                                                                              
+Segment 1    100                                                                                                                                              
+Segment 6    100                                                                                                                                              
+Segment 5    100
 
 Explore core protein functions:
-replicon_type                                   function  count
-Large RNA Segment           RNA-dependent RNA polymerase   1623
-Segment One                 RNA-dependent RNA polymerase     61
-Small RNA Segment           RNA-dependent RNA polymerase      4 TODO Note 1 below (dropped)
------------------
-Medium RNA Segment Pre-glycoprotein polyprotein GP complex 1344
-Small RNA Segment  Pre-glycoprotein polyprotein GP complex  104 TODO Note 2 below (dropped)
-Segment Two        Pre-glycoprotein polyprotein GP complex   59 TODO Note 4 below (temp. dropped)
------------------
-Small RNA Segment                   Nucleocapsid protein   1432
-Segment Three                       Nucleocapsid protein     45 TODO Note 3 below (kept)
-
-Notes:
-1. [Small RNA Segment, RNA-dependent RNA polymerase] - This doesn't make sense. Later dropped on 'quality' (Poor)
-2. [Small RNA Segment, Pre-glycoprotein polyprotein] - Probably comes from from bipartite Bunyas (Jim confirmed).
-    We drop it since it's ambiguous in our L/M/S labeling framework (it violates the assumption that 'S'
-    implies N protein).
-3. [Segment Three, Nucleocapsid protein (N protein)] - This must be a tripartite Bunya (Jim confirmed).
-    This should be safe to combine with Small RNA Segment (Jim confirmed).
-4. [Segment Two, Pre-glycoprotein polyprotein] - This could be M in tripartite genomes (would keep)
-    or S in bipartite genomes (would drop). Segment Two is taxonomically ambiguous (not enough info
-    to resolve without consulting taxon-specific rules.)
+   replicon_type                                           function  count
+0      Segment 2                            Virulence factor PB1-F2    100
+1      Segment 2  RNA-dependent RNA polymerase catalytic core PB...    101
+2      Segment 1           RNA-dependent RNA polymerase PB2 subunit    100
+3      Segment 3            RNA-dependent RNA polymerase PA subunit    100
+4      Segment 2                                    PB1-N40 protein    101
+5      Segment 3                                    PA-N182 protein    100
+6      Segment 3                                    PA-N155 protein    100
+7      Segment 5                               Nucleocapsid protein    100
+8      Segment 8                             Nuclear export protein     97
+9      Segment 8  Non-structural protein 1, interferon antagonis...    100
+10     Segment 6                              Neuraminidase protein    100
+11     Segment 4  Mature hemagglutinin N-terminal receptor bindi...    100
+12     Segment 4  Mature hemagglutinin C-terminal membrane fusio...    100
+13     Segment 7                                   Matrix protein 1    100
+14     Segment 7                        M42 alternative ion channel     98
+15     Segment 7                                     M2 ion channel    100
+16     Segment 8           Hypothetical host adaptation protein NS3     95
+17     Segment 3                   Host mRNA degrading protein PA-X     66
+18     Segment 4                            Hemagglutinin precursor    100
 """
-breakpoint()
+# breakpoint()
 print("\nAnalyze protein counts per GTO file.")
-protein_counts_per_file = analyze_protein_counts_per_file(prot_df, core_functions, aux_functions)
+protein_counts_per_file = analyze_protein_counts_per_file(
+    prot_df, core_functions, aux_functions, selected_functions
+)
 
-breakpoint()
+# breakpoint()
 print("\nExplore 'replicon_type' counts.")
 print(prot_df['replicon_type'].value_counts())
 
-breakpoint()
+# breakpoint()
 print("\nShow all ['replicon_type', 'function'] combo counts.")
 print_replicon_func_count(prot_df)
 
-breakpoint()
+# breakpoint()
 print('\nCloser look at "core" protein functions.')
 print_replicon_func_count(prot_df, functions=core_functions)
 
-breakpoint()
+# breakpoint()
 print('\nCloser look at "auxiliary" protein functions.')
 print_replicon_func_count(prot_df, functions=aux_functions)
+
+# breakpoint()
+print('\nCloser look at "selected" protein functions.')
+print_replicon_func_count(prot_df, functions=selected_functions)
 # EDA end ----------------------------------------
 
 
 # Assign segments
-breakpoint()
+# breakpoint()
 print("\nAssign canonical segments.")
 prot_df = assign_segments(prot_df, data_version=DATA_VERSION, use_core=True, use_aux=True)
 prot_df.to_csv(output_dir / 'protein_assigned_segments.csv', sep=',', index=False)
@@ -726,6 +842,7 @@ print("\nHandle protein sequence duplicates.")
 prot_df = handle_duplicates(prot_df, print_eda=False)
 
 # Clean protein sequences
+breakpoint()
 print("\nExplore ambiguities in protein sequences.")
 org_cols = prot_df.columns
 prot_df = analyze_protein_ambiguities(prot_df)
