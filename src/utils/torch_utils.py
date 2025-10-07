@@ -22,7 +22,7 @@ def determine_device(cuda_name_from_params: str) -> str:
         - Returns 'cpu' if no GPU is available regardless of input parameter
     """
     cuda_avail = torch.cuda.is_available()
-    print('GPU available: ', cuda_avail)
+    print(f'GPU available: {cuda_avail}')
     if cuda_avail:  # if GPU available
         cuda_env_visible = os.getenv('CUDA_VISIBLE_DEVICES') # CUDA device from env var
         if cuda_env_visible is not None:
