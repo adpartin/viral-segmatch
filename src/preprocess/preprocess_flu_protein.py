@@ -33,6 +33,10 @@ from src.utils.config_hydra import (
     print_config_summary
 )
 
+# Manual configs
+# TODO: consider setting these somewhere else (e.g., config.yaml)
+SEQ_COL_NAME = 'prot_seq'
+
 total_timer = Timer()
 
 # Define paths - make configurable via command line or environment
@@ -79,10 +83,6 @@ print(f'main_data_dir:   {main_data_dir}')
 print(f'raw_data_dir:    {raw_data_dir}')
 print(f'gto_dir:         {gto_dir}')
 print(f'output_dir:      {output_dir}')
-
-# Manual configs
-# TODO: consider setting these somewhere else (e.g., config.yaml)
-SEQ_COL_NAME = 'prot_seq'
 
 
 def validate_protein_counts(
