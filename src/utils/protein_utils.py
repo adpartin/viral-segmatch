@@ -12,7 +12,10 @@ from collections import Counter
 from pprint import pprint
 import pandas as pd
 
-# Global ambiguity meanings (from Claude’s code, reused for consistency)
+# Standard 20 canonical amino acids
+STANDARD_AMINO_ACIDS = set('ACDEFGHIKLMNPQRSTVWY')
+
+# Global ambiguity meanings (from Claude's code, reused for consistency)
 AMBIGUITY_MEANINGS = {
     'B': 'Asn or Asp', # A common ambiguity code representing either Asparagine (N) or Aspartic acid (D).
     'Z': 'Gln or Glu', # A common ambiguity code representing either Glutamine (Q) or Glutamic acid (E).
@@ -48,7 +51,6 @@ def analyze_protein_ambiguities(
         - 'internal_stop_positions': List of positions of internal stop codons
     """
     prot_df = prot_df.copy()
-    standard_amino_acids = set('ACDEFGHIKLMNPQRSTVWY')  # 20 canonical amino acids
 
     def identify_ambiguities(seq: str):
         """ Identify ambiguous residues in a protein sequence and their positions. """
@@ -61,7 +63,7 @@ def analyze_protein_ambiguities(
         has_terminal_stop = seq.endswith('*')  # Terminal Stop Codon
 
         for i, aa in enumerate(seq):
-            if aa not in standard_amino_acids:
+            if aa not in STANDARD_AMINO_ACIDS:
                 if aa == '*' and i == len(seq) - 1:
                     continue  # Don't count terminal stop as ambiguity
                 if aa == '*':
@@ -108,7 +110,8 @@ def summarize_ambiguities(prot_df: pd.DataFrame) -> dict:
 
     prot_df = prot_df.copy()
     total_seqs = len(prot_df)
-    assert total_seqs > 0, 'Input DataFrame has zero rows.'
+    if total_seqs == 0:
+        raise ValueError("Cannot summarize ambiguities: Input DataFrame is empty")
     
     seqs_with_ambiguities = prot_df['has_ambiguities'].sum()
     percent_seqs_with_ambiguities = round((seqs_with_ambiguities / total_seqs) * 100, 4)
@@ -235,8 +238,8 @@ def prepare_sequences_for_esm2(
 
         elif x_imputation == 'MLM' and 'X' in processed_seq:
             # Impute Xs with MLM (using ESM-2)
-            import esm
-            import torch
+            import esm  # type: ignore
+            import torch  # type: ignore
             model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
             model.eval()
             with torch.no_grad():
@@ -253,7 +256,7 @@ def prepare_sequences_for_esm2(
                 processed_seq = ''.join(predicted_seq)
 
         # Exclude sequence with non-standard amino acids (and terminal * if strip_terminal_stop=False)
-        allowed_chars = 'ACDEFGHIKLMNPQRSTVWY' + ('*' if not strip_terminal_stop else '')
+        allowed_chars = ''.join(STANDARD_AMINO_ACIDS) + ('*' if not strip_terminal_stop else '')
         if any(c not in allowed_chars for c in processed_seq):
             non_standard = set(c for c in processed_seq if c not in allowed_chars)
             prob_seqs.append({'prot_seq': seq, 'problem': f'Non-standard characters: {non_standard}'})
