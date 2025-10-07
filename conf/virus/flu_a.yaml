@@ -1,10 +1,7 @@
-# Biological facts for Flu A (virus characteristics)
+# Flu A virus configuration
 virus_name: 'flu_a'
 data_version: 'July_2025'
 # max_core_proteins: 9  # Redundant - use len(core_functions) instead
-max_files_to_process: 100  # For initial exploration
-random_seed: null  # null --> deterministic (first max_files_to_process files)
-# random_seed: 42  # integer --> random sampling
 
 # The protein annotations from Jim are defined here:
 # https://github.com/jimdavis1/Viral_Annotation/blob/main/Viral_PSSM.json

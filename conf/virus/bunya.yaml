@@ -1,11 +1,7 @@
 # Bunyavirales virus configuration
 virus_name: 'bunya'
 data_version: 'April_2025'
-max_core_proteins: 3
-
-# Subset processing
-max_files_to_process: null  # Process all files
-random_seed: 42
+# max_core_proteins: 3  # Redundant - use len(core_functions) instead
 
 # Core functions
 core_functions:
@@ -19,13 +15,21 @@ aux_functions:
   - 'Bunyavirales small nonstructural protein NSs'
   - 'Phenuiviridae mature nonstructural 78-kD protein'
 
+# Selected protein functions (subset used for downstream modeling)
+# Bunyavirales: All 3 core proteins (L, M, S segments)
+selected_functions:
+  - 'RNA-dependent RNA polymerase'
+  - 'Pre-glycoprotein polyprotein GP complex'
+  - 'Nucleocapsid protein'
+
 # Segment mapping
+# TODO: conditional segment mapping
 segment_mapping:
   'RNA-dependent RNA polymerase': 'L'
   'Pre-glycoprotein polyprotein GP complex': 'M'
   'Nucleocapsid protein': 'S'
 
-# Replicon types
+# Replicon types (segment identifiers used in GTO files)
 replicon_types:
   - 'Large RNA Segment'
   - 'Medium RNA Segment'
