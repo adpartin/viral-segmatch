@@ -94,28 +94,28 @@ def get_virus_config_hydra(
     """
     # Load the bundle for this virus
     config_name = f"bundles/{virus_name}"
-    
+
     # Build overrides for any provided config groups
     overrides = []
-    
-    if training_config is not None:
-        # Normalize training config path
-        if not training_config.startswith('training/'):
-            training_config = f"training/{training_config}"
-        overrides.append(f"bundles.training={training_config}")
-    
-    if embeddings_config is not None:
-        # Normalize embeddings config path
-        if not embeddings_config.startswith('embeddings/'):
-            embeddings_config = f"embeddings/{embeddings_config}"
-        overrides.append(f"bundles.embeddings={embeddings_config}")
-    
+
     if paths_config is not None:
         # Normalize paths config path
         if not paths_config.startswith('paths/'):
             paths_config = f"paths/{paths_config}"
         overrides.append(f"bundles.paths={paths_config}")
-    
+
+    if embeddings_config is not None:
+        # Normalize embeddings config path
+        if not embeddings_config.startswith('embeddings/'):
+            embeddings_config = f"embeddings/{embeddings_config}"
+        overrides.append(f"bundles.embeddings={embeddings_config}")
+
+    if training_config is not None:
+        # Normalize training config path
+        if not training_config.startswith('training/'):
+            training_config = f"training/{training_config}"
+        overrides.append(f"bundles.training={training_config}")
+
     full_config = load_hydra_config(
         config_name=config_name,
         config_path=config_path,
@@ -131,14 +131,19 @@ def get_virus_config_hydra(
 
     # Flatten the structure for backward compatibility
     # Instead of config.bundles.virus.*, scripts can use config.virus.*
+    # Also include bundle-level settings at the top level
     flattened = DictConfig({
         'virus': full_config.bundles.virus,
-        'training': full_config.bundles.training if 'training' in full_config.bundles else {},
         'paths': full_config.bundles.paths if 'paths' in full_config.bundles else {},
         'embeddings': full_config.bundles.embeddings if 'embeddings' in full_config.bundles else {},
+        'training': full_config.bundles.training if 'training' in full_config.bundles else {},
+        # Bundle-level settings (experiment-level)
+        'master_seed': full_config.bundles.master_seed,
+        'max_files_to_process': full_config.bundles.max_files_to_process,
+        'process_seeds': full_config.bundles.process_seeds,
     })
     # breakpoint()
-    # print(flattened.keys()) --> ['virus', 'training', 'paths', 'embeddings']
+    # print(flattened.keys()) --> ['virus', 'embeddings', 'training', 'paths', 'master_seed', 'max_files_to_process', 'process_seeds']
 
     return flattened
 
@@ -163,25 +168,25 @@ def print_config_summary(config: DictConfig):
             print(f"Data version: {config.virus.get('data_version', 'Unknown')}")
     else:
         print("Virus: Not configured")
-    
+
     # Training section
     if hasattr(config, 'training') and config.training:
         print(f"Training: {config.training}")
     else:
         print("Training: Not configured")
-    
+
     # Paths section
     if hasattr(config, 'paths') and config.paths:
         print(f"Paths: {config.paths}")
     else:
         print("Paths: Not configured")
-    
+
     # Embeddings section
     if hasattr(config, 'embeddings') and config.embeddings:
         print(f"Embeddings: {config.embeddings}")
     else:
         print("Embeddings: Not configured")
-    
+
     print("=" * 60)
 
 
@@ -195,7 +200,7 @@ def get_core_function_segment_mapping(config: DictConfig) -> list[dict[str, str]
     mappings = []
     segment_mapping = config.virus.segment_mapping
     core_functions = config.virus.core_functions
-    
+
     for function, segment in segment_mapping.items():
         if function in core_functions:
             # Find the replicon type for this segment
@@ -214,7 +219,7 @@ def get_aux_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]
     mappings = []
     segment_mapping = config.virus.segment_mapping
     aux_functions = config.virus.aux_functions
-    
+
     for function, segment in segment_mapping.items():
         if function in aux_functions:
             # Find the replicon type for this segment
@@ -249,7 +254,7 @@ if __name__ == "__main__":
     # Example: Load Flu A configuration with exploration training
     config = get_virus_config_hydra('flu_a', 'flu_a_exploration')
     print_config_summary(config)
-    
+
     # Example: Load Bunya configuration with optimized training
     config = get_virus_config_hydra('bunya', 'bunya_optimized')
     print_config_summary(config)
