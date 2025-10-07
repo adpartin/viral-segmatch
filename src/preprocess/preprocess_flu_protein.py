@@ -1,8 +1,8 @@
 """
 Preprocess protein data from GTO files for Flu A.
 """
+import argparse
 import json
-import os
 import random
 import sys
 from pathlib import Path
@@ -17,6 +17,7 @@ sys.path.append(str(project_root))
 # print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
+from src.utils.seed_utils import resolve_process_seed
 from src.utils.gto_utils import (
     extract_assembly_info,
     enforce_single_file,
@@ -34,36 +35,41 @@ from src.utils.config_hydra import (
 
 total_timer = Timer()
 
-# Load virus-specific configuration using Hydra
-VIRUS_NAME = 'flu_a'
-# TRAINING_CONFIG = 'base'  # Optional: override bundle's default training config
+# Define paths - make configurable via command line or environment
+parser = argparse.ArgumentParser(description='Preprocess protein data from GTO files')
+parser.add_argument(
+    '--virus_name',
+    type=str, default='flu_a',
+    help='Virus name to load selected_functions from config (e.g., flu_a, bunya)'
+)
+args = parser.parse_args()
 
-# Pass the config path explicitly
-config_path = str(project_root / 'conf')
-config = get_virus_config_hydra(VIRUS_NAME, config_path=config_path)
+# Get config
+config_path = str(project_root / 'conf') # Pass the config path explicitly
+config = get_virus_config_hydra(args.virus_name, config_path=config_path)
 print_config_summary(config)
 
 # Extract configuration values
 DATA_VERSION = config.virus.data_version
-MAX_FILES_TO_PROCESS = config.virus.max_files_to_process
-RANDOM_SEED = config.virus.random_seed
+MAX_FILES_TO_PROCESS = config.max_files_to_process  # Now in bundle config
+RANDOM_SEED = resolve_process_seed(config, 'preprocessing')
+core_functions = config.virus.core_functions
+aux_functions = config.virus.aux_functions
+selected_functions = config.virus.selected_functions
 
 # Define paths
 main_data_dir = project_root / 'data'
-
-# Use symlinked names (Flu_A -> Full_Flu_Annos, Bunya -> Anno_Updates)
-# Prefer subset directories when available, fallback to full dataset
 base_data_dir = main_data_dir / 'raw' / 'Flu_A' / DATA_VERSION
 subset_data_dir = main_data_dir / 'raw' / 'Flu_A' / f'{DATA_VERSION}_subset_5k'
 
 # Prefer subset directory if it exists (for fast development)
 if subset_data_dir.exists() and subset_data_dir.is_dir():
     raw_data_dir = subset_data_dir
-    output_dir = main_data_dir / 'processed' / VIRUS_NAME / f'{DATA_VERSION}_subset_5k'
+    output_dir = main_data_dir / 'processed' / args.virus_name / f'{DATA_VERSION}_subset_5k'
     print(f"Using subset dataset: {raw_data_dir}")
 else:
     raw_data_dir = base_data_dir
-    output_dir = main_data_dir / 'processed' / VIRUS_NAME / DATA_VERSION
+    output_dir = main_data_dir / 'processed' / args.virus_name / DATA_VERSION
     print(f"Using full dataset: {raw_data_dir}")
 
 gto_dir = raw_data_dir
@@ -74,12 +80,10 @@ print(f'raw_data_dir:    {raw_data_dir}')
 print(f'gto_dir:         {gto_dir}')
 print(f'output_dir:      {output_dir}')
 
-seq_col_name = 'prot_seq'
+# Manual configs
+# TODO: consider setting these somewhere else (e.g., config.yaml)
+SEQ_COL_NAME = 'prot_seq'
 
-# Get core and auxiliary functions from config
-core_functions = config.virus.core_functions
-aux_functions = config.virus.aux_functions
-selected_functions = config.virus.selected_functions
 
 def validate_protein_counts(
     df: pd.DataFrame,
@@ -609,7 +613,6 @@ def handle_duplicates(
     print_eda: bool = False
     ) -> pd.DataFrame:
     """Handle protein sequence duplicates."""
-    seq_col_name = 'prot_seq'
 
     # EDA start ------------------------------------------------
     if print_eda:
@@ -619,21 +622,20 @@ def handle_duplicates(
         # Get all duplicate protein sequences
         print(f'\nprot_df: {prot_df.shape}')
         prot_dups = (
-            prot_df[prot_df.duplicated(subset=[seq_col_name], keep=False)]
-            .sort_values(seq_col_name)
+            prot_df[prot_df.duplicated(subset=[SEQ_COL_NAME], keep=False)]
+            .sort_values(SEQ_COL_NAME)
             .reset_index(drop=True).copy()
         )
         # prot_dups.to_csv(output_dir / 'protein_all_dups.csv', sep=',', index=False)
-        print(f"Duplicates on '{seq_col_name}': {prot_dups.shape}")
+        print(f"Duplicates on '{SEQ_COL_NAME}': {prot_dups.shape}")
         print(prot_dups[:4][['file', 'assembly_id', 'genbank_ctg_id',
             'replicon_type', 'brc_fea_id', 'function', 'canonical_segment']])
 
         print(f'\nCount how many unique files contain each duplicated sequence:')
-        dup_counts = prot_dups.groupby(seq_col_name).agg(num_files=('file', 'nunique')).reset_index()
+        dup_counts = prot_dups.groupby(SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
         print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
         def explore_groupby(df, columns):
-            seq_col_name = 'prot_seq'
             df = df.copy()
             grouped = df.groupby(columns)
             # grouped_iterator = iter(grouped)
@@ -641,12 +643,12 @@ def handle_duplicates(
 
             for keys, grp in grouped:
                 print('\nDuplicate group (rows with this seq):')
-                print(grp[:4][[seq_col_name, 'file', 'assembly_id', 'genbank_ctg_id',
+                print(grp[:4][[SEQ_COL_NAME, 'file', 'assembly_id', 'genbank_ctg_id',
                     'replicon_type', 'brc_fea_id', 'function']])
                 break  # remove this to loop over more groups
             return grp
 
-        explore_groupby(prot_dups, seq_col_name)
+        explore_groupby(prot_dups, SEQ_COL_NAME)
 
         # Expand dup_counts to include more info
         # num_occurrences >= num_files -> there are cases where a protein sequence appears multiple
@@ -654,8 +656,8 @@ def handle_duplicates(
         # num_functions >= num_replicons -> it's not a 1-1 mapping between replicons (segment)
         #   and functions, because a segment can encode multiple proteins.
         dup_stats = (
-            prot_dups.groupby(seq_col_name).agg(
-                num_occurrences=(seq_col_name, 'count'), # total times the sequence appears
+            prot_dups.groupby(SEQ_COL_NAME).agg(
+                num_occurrences=(SEQ_COL_NAME, 'count'), # total times the sequence appears
                 num_files=('file', 'nunique'),           # total unique files the sequence appears in
                 num_functions=('function', 'nunique'),   # total distinct functions are assigned to the sequence
                 num_replicons=('replicon_type', 'nunique'), 
@@ -689,7 +691,7 @@ def handle_duplicates(
     # EDA start ------------------------------------------------
     # if print_eda:
         # print('\n---- FIND dups on [prot_seq, assembly_id, function, replicon_type] ----')
-        # dup_cols = [seq_col_name, 'assembly_id', 'function', 'replicon_type']
+        # dup_cols = [SEQ_COL_NAME, 'assembly_id', 'function', 'replicon_type']
         # gca_gcf_dups = (
         #     prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
         #     .sort_values(dup_cols)
@@ -716,7 +718,7 @@ def handle_duplicates(
     print('   📋 This detects SEQUENCE-based duplicates (same protein sequence in same file)')
     print('   🔄 Function-based duplicates were detected earlier in analyze_protein_counts_per_file()')
     
-    dup_cols = [seq_col_name, 'file']
+    dup_cols = [SEQ_COL_NAME, 'file']
     same_file_dups = (
         prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
         .sort_values(dup_cols + ['brc_fea_id'])
@@ -726,7 +728,7 @@ def handle_duplicates(
     if len(same_file_dups) > 0:
         print(f"⚠️  WARNING: Found {len(same_file_dups)} sequence-based intra-file duplicates!")
         print(f"   Files affected: {same_file_dups['file'].nunique()}")
-        print(f"   Unique duplicate sequences: {same_file_dups[seq_col_name].nunique()}")
+        print(f"   Unique duplicate sequences: {same_file_dups[SEQ_COL_NAME].nunique()}")
         
         # Save detailed analysis
         same_file_dups.to_csv(output_dir / 'protein_sequence_dups_within_file.csv', sep=',', index=False)
@@ -778,7 +780,7 @@ print(f'prot_df: {prot_df.shape}')
 
 # Save initial data
 prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
-prot_df_no_seq = prot_df[prot_df[seq_col_name].isna()]
+prot_df_no_seq = prot_df[prot_df[SEQ_COL_NAME].isna()]
 print(f'Records with missing protein sequence: {prot_df_no_seq.shape if not prot_df_no_seq.empty else 0}')
 prot_df_no_seq.to_csv(output_dir / 'protein_agg_from_GTO_missing_seqs.csv', sep=',', index=False)
 
@@ -874,7 +876,7 @@ org_cols = prot_df.columns
 prot_df = analyze_protein_ambiguities(prot_df)
 ambig_cols = [c for c in prot_df.columns if c not in org_cols]
 ambig_df = prot_df[prot_df['has_ambiguities'] == True]
-ambig_df = ambig_df[['assembly_id', 'brc_fea_id', seq_col_name] + ambig_cols]
+ambig_df = ambig_df[['assembly_id', 'brc_fea_id', SEQ_COL_NAME] + ambig_cols]
 cols_print = ['assembly_id', 'brc_fea_id'] + ambig_cols
 print(f'Protein sequences with ambiguous chars: {ambig_df.shape[0]}')
 print(ambig_df[cols_print])
@@ -933,18 +935,18 @@ Explanation.
 """
 print("\nFinal duplicate counts.")
 prot_dups = (
-    prot_df[prot_df.duplicated(subset=[seq_col_name], keep=False)]
-    .sort_values(seq_col_name)
+    prot_df[prot_df.duplicated(subset=[SEQ_COL_NAME], keep=False)]
+    .sort_values(SEQ_COL_NAME)
     .reset_index(drop=True)
 )
-dup_counts = prot_dups.groupby(seq_col_name).agg(num_files=('file', 'nunique')).reset_index()
+dup_counts = prot_dups.groupby(SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
 print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
 # Save final data
 print("\nSave final protein data.")
 prot_df.to_csv(output_dir / 'protein_final.csv', sep=',', index=False)
 print(f'prot_df final: {prot_df.shape}')
-print(f"Unique protein sequences: {prot_df[seq_col_name].nunique()}")
+print(f"Unique protein sequences: {prot_df[SEQ_COL_NAME].nunique()}")
 aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'])
 aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', index=False)
 print(prot_df['canonical_segment'].value_counts())
