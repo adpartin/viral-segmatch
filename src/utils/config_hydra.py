@@ -132,18 +132,23 @@ def get_virus_config_hydra(
     # Flatten the structure for backward compatibility
     # Instead of config.bundles.virus.*, scripts can use config.virus.*
     # Also include bundle-level settings at the top level
+    config_groups = {'virus', 'paths', 'embeddings', 'training'}
+    
     flattened = DictConfig({
         'virus': full_config.bundles.virus,
         'paths': full_config.bundles.paths if 'paths' in full_config.bundles else {},
         'embeddings': full_config.bundles.embeddings if 'embeddings' in full_config.bundles else {},
         'training': full_config.bundles.training if 'training' in full_config.bundles else {},
-        # Bundle-level settings (experiment-level)
-        'master_seed': full_config.bundles.master_seed,
-        'max_files_to_process': full_config.bundles.max_files_to_process,
-        'process_seeds': full_config.bundles.process_seeds,
     })
+    
+    # Add all other bundle-level keys dynamically (experiment-level settings)
+    # This allows adding new bundle-level params without modifying this function
+    for key, value in full_config.bundles.items():
+        if key not in config_groups and key not in flattened:
+            flattened[key] = value
+
     # breakpoint()
-    # print(flattened.keys()) --> ['virus', 'embeddings', 'training', 'paths', 'master_seed', 'max_files_to_process', 'process_seeds']
+    # print(flattened.keys()) --> ['virus', 'paths', 'embeddings', 'training', 'master_seed', 'max_files_to_process', 'process_seeds', 'run_suffix', ...]
 
     return flattened
 
