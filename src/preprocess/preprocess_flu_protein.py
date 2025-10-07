@@ -86,18 +86,26 @@ def validate_protein_counts(
     core_only: bool = False,
     verbose: bool = False
     ) -> None:
-    """Ensure each assembly_id has ≤max_core_proteins core proteins if core_only=True.
+    """Validate protein counts per assembly to ensure biological consistency.
+    Ensure each assembly_id has ≤max_core_proteins core proteins if core_only=True.
     TODO: consider moving this somewhere. Maybe need to create a new utils file?
 
-    This func is specific to preprocessing validation, tightly coupled
-    to core_functions and assembly IDs (keep it in this script).
+    For Flu A, each assembly cannot have have more than 9 core proteins.
+    For Bunya, each assembly cannot have have more than 3 core proteins.
+
+    Args:
+        df: DataFrame with protein data containing 'assembly_id' and 'function' columns
+        core_only: If True, only validate core proteins; if False, validate all proteins
+        verbose: If True, print detailed validation information
+
+    Raises:
+        ValueError: If any assembly has more than the expected number of core proteins
     """
     if core_only:
         df = df[df['function'].isin(core_functions)]
-        # protein_type = "core"
         max_expected = len(core_functions)
-
-    # print(f"\nValidating {protein_type} proteins count per assembly...")
+    else:
+        max_expected = None  # No limit for non-core validation
 
     for aid, grp in df.groupby('assembly_id'):
         n_proteins = len(grp)
@@ -860,7 +868,7 @@ print("\nHandle protein sequence duplicates.")
 prot_df = handle_duplicates(prot_df, print_eda=False)
 
 # Clean protein sequences
-breakpoint()
+# breakpoint()
 print("\nExplore ambiguities in protein sequences.")
 org_cols = prot_df.columns
 prot_df = analyze_protein_ambiguities(prot_df)
