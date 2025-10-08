@@ -46,6 +46,11 @@ parser.add_argument(
     type=str, default='flu_a',
     help='Virus name to load selected_functions from config (e.g., flu_a, bunya)'
 )
+parser.add_argument(
+    '--use_selected_only',
+    action='store_true',
+    help='Filter to selected_functions from config (requires --virus_name)'
+)
 args = parser.parse_args()
 
 # Get config
@@ -905,6 +910,8 @@ prot_df, problematic_seqs_df = prepare_sequences_for_esm2(
     strip_terminal_stop=strip_terminal_stop
 )
 if not problematic_seqs_df.empty:
+    # print(problematic_seqs_df[['file', 'brc_fea_id', 'prot_seq', 'problem']])
+    problematic_seqs_df = problematic_seqs_df[['file', 'brc_fea_id', 'type', 'function', 'quality', 'prot_seq', 'problem']]
     problematic_seqs_df.to_csv(output_dir / 'problematic_protein_seqs.csv', sep=',', index=False)
 
 # Final duplicate counts
