@@ -186,10 +186,10 @@ def prepare_sequences_for_esm2(
     pd.DataFrame
         DataFrame with ESM-2-ready sequences and additional columns.
     """
-    prot_df = prot_df.copy()
+    prot_df = prot_df.copy().reset_index(drop=True)
     prob_seqs = []
 
-    def process_sequence(seq):
+    def process_sequence(seq, idx):
         # breakpoint()
         if not isinstance(seq, str) or len(seq.strip()) == 0:
             return None
@@ -197,11 +197,16 @@ def prepare_sequences_for_esm2(
         seq = seq.upper().strip()
         eff_length = len(seq) - (1 if seq.endswith('*') else 0) # Ignores terminal stop
 
+        # Exclude sequence with empty or only stop codon
+        if eff_length <= 0:
+            prob_seqs.append({'idx': idx, 'prot_seq': seq, 'problem': 'Empty or only stop codon'})
+            return None
+
         # Exclude sequence with too many internal stops (max_internal_stops threshold)
         internal_stops = (seq[:-1] if seq.endswith('*') else seq).count('*')
         internal_stops_ratio = round(internal_stops / eff_length, 4)
         if internal_stops_ratio > max_internal_stops:
-            prob_seqs.append({'prot_seq': seq,
+            prob_seqs.append({'idx': idx, 'prot_seq': seq,
                 'problem': f'Exceeds max_internal_stops threshold of {max_internal_stops}'
             })
             print(f"Sequence '{seq}' excluded due to too many internal stops: "
@@ -218,7 +223,7 @@ def prepare_sequences_for_esm2(
         x_count = interm_seq.count('X')
         x_count_ratio = round(x_count / eff_length, 4)
         if x_count_ratio > max_x_residues:
-            prob_seqs.append({'prot_seq': seq,
+            prob_seqs.append({'idx': idx, 'prot_seq': seq,
                 'problem': f'Exceeds max_x_residues threshold of {max_x_residues}'
             })
             print(f"Sequence '{seq}' excluded due to too many X residues: "
@@ -232,7 +237,7 @@ def prepare_sequences_for_esm2(
             processed_seq = processed_seq.replace('X', 'G')
 
         elif x_imputation == 'remove' and 'X' in processed_seq:
-            prob_seqs.append({'prot_seq': seq, 'problem': 'Contains X residues'})
+            prob_seqs.append({'idx': idx, 'prot_seq': seq, 'problem': 'Contains X residues'})
             print(f"Sequence '{seq}' excluded due to X residues")
             return None  # Exclude sequence with any X
 
@@ -259,14 +264,13 @@ def prepare_sequences_for_esm2(
         allowed_chars = ''.join(STANDARD_AMINO_ACIDS) + ('*' if not strip_terminal_stop else '')
         if any(c not in allowed_chars for c in processed_seq):
             non_standard = set(c for c in processed_seq if c not in allowed_chars)
-            prob_seqs.append({'prot_seq': seq, 'problem': f'Non-standard characters: {non_standard}'})
+            prob_seqs.append({'idx': idx, 'prot_seq': seq, 'problem': f'Non-standard characters: {non_standard}'})
             print(f"Sequence '{seq}' excluded due to non-standard characters "
                   f"(that are not currently handled): {non_standard}")
             return None # Exclude sequence with non-standard characters
 
         return processed_seq
-
-    
+ 
     def get_intermediate_seq(seq: str):
         """ Compute intermediate sequence for x_count_ratio. """
         if not isinstance(seq, str) or len(seq.strip()) == 0:
@@ -276,7 +280,12 @@ def prepare_sequences_for_esm2(
             return seq[:-1].replace('*', 'X') + ('*' if not strip_terminal_stop else '')
         return seq.replace('*', 'X')
 
-    prot_df[output_column] = prot_df[seq_column].apply(process_sequence)
+    # Process sequences with index tracking
+    processed_seqs = []
+    for idx, seq in zip(prot_df.index, prot_df[seq_column]):
+        processed_seqs.append(process_sequence(seq, idx))
+    prot_df[output_column] = processed_seqs
+
     prot_df['x_count_ratio'] = prot_df[seq_column].apply(
         lambda seq: (
             0.0
@@ -289,13 +298,11 @@ def prepare_sequences_for_esm2(
     # DataFrame with problematic sequences
     problematic_seqs_df = pd.DataFrame(prob_seqs)
     if not problematic_seqs_df.empty:
-        cols = ['file', 'brc_fea_id']
-        if all(True if i in prot_df.columns else False for i in cols):
-            problematic_seqs_df = prot_df.merge(problematic_seqs_df, on=cols)
-            # TODO finish this
-        else:
-            problematic_seqs_df = prot_df.merge(problematic_seqs_df, on='prot_seq', how='inner')
-        # problematic_seqs_df.to_csv('problematic_protein_seqs.csv', index=False)
+        # Join with original dataframe to get metadata (file, brc_fea_id, etc.)
+        breakpoint()
+        problematic_seqs_df = prot_df.loc[problematic_seqs_df['idx']].reset_index(drop=True)
+        problematic_seqs_df['problem'] = pd.DataFrame(prob_seqs)['problem'].values
+        # print(problematic_seqs_df[['file', 'brc_fea_id', 'prot_seq', 'problem']])
 
     return prot_df, problematic_seqs_df
 
