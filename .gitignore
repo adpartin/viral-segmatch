@@ -12,6 +12,8 @@ __pycache__/
 _notes.txt
 data/raw/Anno_Updates/
 data/raw/Full_Flu_Annos/
+data/processed/flu_a/
+data/embeddings/flu_a/
 logs
 models
 results
