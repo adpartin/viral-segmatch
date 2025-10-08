@@ -190,7 +190,6 @@ def prepare_sequences_for_esm2(
     prob_seqs = []
 
     def process_sequence(seq, idx):
-        # breakpoint()
         if not isinstance(seq, str) or len(seq.strip()) == 0:
             return None
 
@@ -299,7 +298,6 @@ def prepare_sequences_for_esm2(
     problematic_seqs_df = pd.DataFrame(prob_seqs)
     if not problematic_seqs_df.empty:
         # Join with original dataframe to get metadata (file, brc_fea_id, etc.)
-        breakpoint()
         problematic_seqs_df = prot_df.loc[problematic_seqs_df['idx']].reset_index(drop=True)
         problematic_seqs_df['problem'] = pd.DataFrame(prob_seqs)['problem'].values
         # print(problematic_seqs_df[['file', 'brc_fea_id', 'prot_seq', 'problem']])
@@ -319,7 +317,7 @@ def print_replicon_func_count(
         functions (list[str]): List of functions to filter by
         more_cols (list[str]): Additional columns to include in the grouping
         drop_na (bool): Whether to drop NA values from the grouping
-    
+
     This func is a reusable diagnostic tool for summarizing protein function
     counts, not specific to preprocessing.
     """
@@ -335,7 +333,7 @@ def print_replicon_func_count(
         .sort_values(['function', 'count'], ascending=False)
         .reset_index(drop=True)
     )
-    print(res)
+    print(res.sort_values(by=['replicon_type', 'count'], ascending=True))
     return res
 
 
