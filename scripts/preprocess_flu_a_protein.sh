@@ -9,6 +9,7 @@ set -o pipefail  # Exit on pipe failure
 PROJECT_ROOT="/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch"
 cd "$PROJECT_ROOT"
 
+# Configuration
 VIRUS_NAME="flu_a"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="./logs/preprocess"
@@ -29,6 +30,7 @@ echo "Python: $(which python)" | tee -a "$LOG_FILE"
 echo "========================================" | tee -a "$LOG_FILE"
 
 # Run preprocessing
+echo "" | tee -a "$LOG_FILE" # New line
 python src/preprocess/preprocess_flu_protein.py --virus_name "$VIRUS_NAME" 2>&1 | tee -a "$LOG_FILE"
 
 # Capture exit status
