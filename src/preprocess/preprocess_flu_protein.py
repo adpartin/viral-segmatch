@@ -84,7 +84,7 @@ else:
 gto_dir = raw_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
-print(f'main_data_dir:   {main_data_dir}')
+print(f'\nmain_data_dir:   {main_data_dir}')
 print(f'raw_data_dir:    {raw_data_dir}')
 print(f'gto_dir:         {gto_dir}')
 print(f'output_dir:      {output_dir}')
@@ -782,7 +782,7 @@ prot_df = aggregate_protein_data_from_gto_files(
     gto_dir, max_files=MAX_FILES_TO_PROCESS,
     random_seed=RANDOM_SEED
 )
-print(f'prot_df: {prot_df.shape}')
+print(f'\nprot_df: {prot_df.shape}')
 
 # Save initial data
 prot_df.to_csv(output_dir / 'protein_agg_from_GTOs.csv', sep=',', index=False)
@@ -960,4 +960,4 @@ aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', inde
 print(prot_df['canonical_segment'].value_counts())
 
 total_timer.display_timer()
-print('\nDone!')
+print(f'\nFinished {Path(__file__).name}!')
