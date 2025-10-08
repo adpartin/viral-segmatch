@@ -174,12 +174,6 @@ def print_config_summary(config: DictConfig):
     else:
         print("Virus: Not configured")
 
-    # Training section
-    if hasattr(config, 'training') and config.training:
-        print(f"Training: {config.training}")
-    else:
-        print("Training: Not configured")
-
     # Paths section
     if hasattr(config, 'paths') and config.paths:
         print(f"Paths: {config.paths}")
@@ -192,7 +186,13 @@ def print_config_summary(config: DictConfig):
     else:
         print("Embeddings: Not configured")
 
-    print("=" * 60)
+    # Training section
+    if hasattr(config, 'training') and config.training:
+        print(f"Training: {config.training}")
+    else:
+        print("Training: Not configured")
+
+    print("=" * 60); print("")
 
 
 def save_config(config: DictConfig, output_path: str):
