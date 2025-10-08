@@ -313,7 +313,7 @@ def analyze_protein_counts_per_file(
     low_core = all_counts[all_counts['core_proteins'] < expected_core]
     if len(low_core) > 0:
         print(f"\nFound {len(low_core)} files with < {expected_core} core proteins (expected for Flu A):")
-        print(low_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
+        print(low_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(7))
     else:
         print(f"All files have ≥ {expected_core} core proteins ✓")
 
@@ -321,7 +321,7 @@ def analyze_protein_counts_per_file(
     high_core = all_counts[all_counts['core_proteins'] > expected_core]
     if len(high_core) > 0:
         print(f"\nFound {len(high_core)} files with > {expected_core} core proteins:")
-        print(high_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(10))
+        print(high_core[['total_proteins', 'core_proteins', 'aux_proteins', 'other_proteins']].head(7))
     else:
         print(f"No files have > {expected_core} core proteins ✓")
 
@@ -330,7 +330,7 @@ def analyze_protein_counts_per_file(
     # This is DIFFERENT from sequence-based duplicates detected later in handle_duplicates()
     print(f"\n🔍 ANALYZING INTRA-FILE DUPLICATES IN 'SELECTED' (PROTEIN) FUNCTIONS ACROSS ALL FILES:")
     print(f"   📋 This detects FUNCTION-based duplicates (same protein function in same file)")
-    print(f"   🔄 Sequence-based duplicates are detected later in handle_duplicates()")
+    print(f"   🔄 Sequence-based duplicates are detected later in handle_duplicates()\n")
     analyze_intra_file_protein_duplicates(df, selected_functions, output_dir)
 
     return all_counts
@@ -353,33 +353,34 @@ def analyze_intra_file_protein_duplicates(
         output_dir = Path(".")
         print(f"⚠️  No output_dir provided, using current directory: {output_dir.absolute()}")
 
-    # If no subset specified, use all unique functions
+    # Determine which functions to analyze
     if subset_functions is None:
-        subset_functions = df['function'].unique().tolist()
-        print(f"🔍 Analyzing ALL {len(subset_functions)} protein functions for intra-file duplicates...")
+        funcs = df['function'].unique().tolist()
+        print(f"🔍 Analyzing ALL {len(funcs)} protein functions for intra-file duplicates...")
     else:
-        print(f"🔍 Analyzing {len(subset_functions)} selected protein functions for intra-file duplicates...")
+        funcs = subset_functions
+        print(f"🔍 Analyzing {len(funcs)} selected protein functions for intra-file duplicates...")
 
-    # Filter to subset proteins only (keep original df unchanged)
-    sub_df = df[df['function'].isin(subset_functions)]
+    # Filter to specified proteins only (keep original df unchanged)
+    sub_df = df[df['function'].isin(funcs)]
 
     print(f"Files to analyze: {sub_df['file'].nunique()}")
     print(f"Protein records: {len(sub_df)}")
 
-    # Count subset protein occurrences per file
-    subset_counts_per_file = sub_df.groupby(['file', 'function']).size().reset_index(name='count')
+    # Count protein occurrences per file
+    counts_per_file = sub_df.groupby(['file', 'function']).size().reset_index(name='count')
 
-    # Find subset proteins that appear multiple times
-    subset_duplicates = subset_counts_per_file[subset_counts_per_file['count'] > 1]
+    # Find proteins that appear multiple times in the same file
+    duplicates = counts_per_file[counts_per_file['count'] > 1]
 
-    if len(subset_duplicates) > 0:
-        print(f"\n🚨 Found {len(subset_duplicates)} subset protein duplicates:")
+    if len(duplicates) > 0:
+        print(f"\n🚨 Found {len(duplicates)} protein duplicates:")
         print("=" * 40)
 
         # Prepare data for saving to file
         intra_file_dups = []
 
-        for _, row in subset_duplicates.iterrows():
+        for _, row in duplicates.iterrows():
             file_name = row['file']
             function = row['function']
             count = row['count']
@@ -421,14 +422,14 @@ def analyze_intra_file_protein_duplicates(
             intra_file_dups_df.to_csv(output_file, index=False)
             print(f"\n💾 Saved {len(intra_file_dups)} intra-file protein duplicates to: {output_file}")
     else:
-        print("✅ No subset protein duplicates found")
+        print("✅ No protein duplicates found")
 
     # Summary statistics
     print(f"\n📊 INTRA-FILE PROTEIN DUPLICATE SUMMARY:")
     print(f"   Files analyzed: {sub_df['file'].nunique()}")
     print(f"   Protein records across files: {len(sub_df)}")
-    print(f"   Unique proteins (subset functions) across files: {sub_df['function'].nunique()}")
-    print(f"   Intra-file duplicates on 'function' column: {len(subset_duplicates)}")
+    print(f"   Unique protein functions across files: {sub_df['function'].nunique()}")
+    print(f"   Intra-file duplicates on 'function' column: {len(duplicates)}")
 
 
 def assign_segment_using_core_proteins(
@@ -838,7 +839,7 @@ protein_counts_per_file = analyze_protein_counts_per_file(
 
 # breakpoint()
 print("\nExplore 'replicon_type' counts.")
-print(prot_df['replicon_type'].value_counts())
+print(prot_df['replicon_type'].value_counts().sort_index())
 
 # breakpoint()
 print("\nShow all ['replicon_type', 'function'] combo counts.")
