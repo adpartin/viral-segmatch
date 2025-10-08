@@ -125,12 +125,6 @@ embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
     device=device,
     max_length=ESM2_MAX_RESIDUES + 2
 )
-emb_df = pd.DataFrame(
-    embeddings,
-    columns=[f'emb_{i}' for i in range(embeddings.shape[1])]
-)
-emb_df.insert(0, 'brc_fea_id', brc_fea_ids)
-emb_df.to_csv(output_dir / 'esm2_embeddings.csv', index=False)
 
 
 # Save embeddings
@@ -139,6 +133,20 @@ print(f'\nSave embeddings to: {output_file}.')
 with h5py.File(output_file, 'w') as file:
     for i, brc_id in enumerate(brc_fea_ids):
         file.create_dataset(brc_id, data=embeddings[i])
+
+
+# Save embeddings to csv
+emb_df = pd.DataFrame(
+    embeddings,
+    columns=[f'emb_{i}' for i in range(embeddings.shape[1])]
+)
+emb_df.insert(0, 'brc_fea_id', brc_fea_ids)
+emb_df.to_csv(output_dir / 'esm2_embeddings.csv', index=False)
+
+
+# Save failed ids to csv
+failed_df = pd.DataFrame({'brc_fea_id': failed_ids})
+failed_df.to_csv(output_dir / 'failed_ids.csv', index=False)
 
 
 # Validate
