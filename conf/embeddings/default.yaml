@@ -4,3 +4,10 @@ esm2_max_residues: 1022
 # max_length: 512  # that's usually max residues + 2 for the special tokens
 batch_size: 32
 # device: 'auto'  # auto, cpu, cuda
+
+# MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'    # embedding dim: 320D
+# MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # embedding dim: 480D
+# MODEL_CKPT = 'facebook/esm2_t30_150M_UR50D' # embedding dim: 640D
+# MODEL_CKPT = 'facebook/esm2_t33_650M_UR50D'   # embedding dim: 1280D
+# MODEL_CKPT = 'facebook/esm2_t36_3B_UR50D'   # embedding dim: 2560D
+# MODEL_CKPT = 'facebook/esm2_t48_15B_UR50D'  # embedding dim: 5120D
