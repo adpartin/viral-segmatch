@@ -50,6 +50,11 @@ class Timer:
         """ Display elapsed time in HH:MM:SS format. """
         h, m, s = self.hms
         print_fn(f"Elapsed Time: {h:02}:{m:02}:{s:02}")
+    
+    def get_elapsed_string(self) -> str:
+        """ Return elapsed time as a formatted string (HH:MM:SS). """
+        h, m, s = self.hms
+        return f"{h:02}:{m:02}:{s:02}"
 
     def save_timer(self,
              dir_to_save: Union[str, Path] = '.',
