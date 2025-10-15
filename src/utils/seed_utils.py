@@ -250,14 +250,20 @@ def resolve_process_seed(config, process_name: str) -> Optional[int]:
 
     if process_seed is not None:
         # If process seed is set, use it
-        print(f'Obtained explicit {process_name} seed from config: {process_seed}')
+        print(f'Using explicit {process_name} seed from config: {process_seed}')
         return process_seed
     elif config.master_seed is not None:
-        # If process seed is not set, but master seed is set, derive from master seed
-        derived_seed = get_process_seed(config.master_seed, process_name)
-        print(f'Derived {process_name} seed from master seed: {derived_seed}')
-        return derived_seed
+        # If process seed is not set, use master seed directly
+        # NOTE: All processes will use the same seed value. This is simple and intuitive,
+        # but be aware that if multiple processes use the same random number generator
+        # (e.g., numpy.random or torch.Generator) within the same script/session, they
+        # may produce correlated random sequences. For most pipelines where processes
+        # are isolated (different scripts/stages), this is not a concern.
+        # Alternative approach: derive unique seeds per process using hash function
+        # (see get_process_seed() function) to ensure statistical independence.
+        print(f'Using master_seed for {process_name}: {config.master_seed}')
+        return config.master_seed
     else:
         # If neither is set, use None (truly random)
-        print(f'No seed set for {process_name}')
+        print(f'No seed set for {process_name} - using truly random behavior')
         return None
