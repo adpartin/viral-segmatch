@@ -9,7 +9,7 @@ def generate_run_suffix(
     max_files: Optional[int] = None,
     seed: Optional[int] = None,
     timestamp: bool = True
-) -> str:
+    ) -> str:
     """Generate run suffix for directory naming based on sampling parameters.
     
     The run suffix encodes the sampling strategy used for data processing:
@@ -63,7 +63,7 @@ def resolve_run_suffix(
     max_files: Optional[int] = None,
     seed: Optional[int] = None,
     auto_timestamp: bool = True
-) -> str:
+    ) -> str:
     """Resolve run suffix with precedence: manual config > auto-generated.
     
     This function implements a two-level precedence system:
@@ -78,6 +78,19 @@ def resolve_run_suffix(
     
     Returns:
         Resolved run suffix string
+    
+    Examples:
+        With manual override:
+            config.run_suffix = "_seed_42_GTOs_2000_pb1_pb2"
+            → Returns: "_seed_42_GTOs_2000_pb1_pb2"
+        
+        Auto-generated:
+            max_files=500, seed=42
+            → Returns: "_seed_42_GTOs_500"
+        
+        Full dataset:
+            max_files=None, seed=42
+            → Returns: ""
     """
     # Check for manual override in config
     if hasattr(config, 'run_suffix') and config.run_suffix:
@@ -99,22 +112,23 @@ def build_preprocessing_paths(
     virus_name: str,
     data_version: str,
     run_suffix: str = ""
-) -> dict[str, Path]:
+    ) -> dict[str, Path]:
     """Build standard preprocessing paths for a virus.
     
+    # TODO: It should be documented in a README the assumed directory structure.
     This function creates a consistent directory structure across the pipeline:
     - Raw data: data/raw/{virus_raw_name}/{data_version}/
     - Processed: data/processed/{virus_name}/{data_version}{run_suffix}/
-    
+
     Args:
         project_root: Project root directory
         virus_name: Virus name (e.g., 'flu_a', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
         run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
-    
+
     Returns:
         Dictionary with keys: 'raw_dir', 'output_dir'
-    
+
     Example:
         >>> paths = build_preprocessing_paths(
         ...     project_root=Path('/path/to/project'),
@@ -128,7 +142,7 @@ def build_preprocessing_paths(
         PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_GTOs_500')
     """
     main_data_dir = project_root / 'data'
-    
+
     # Map virus_name to raw data directory name
     # Raw data directories use different naming conventions (legacy)
     virus_raw_map = {
@@ -136,7 +150,7 @@ def build_preprocessing_paths(
         'bunya': 'Bunyavirales'
     }
     raw_virus_name = virus_raw_map.get(virus_name, virus_name.capitalize())
-    
+
     raw_dir = main_data_dir / 'raw' / raw_virus_name / data_version
     output_dir = main_data_dir / 'processed' / virus_name / f'{data_version}{run_suffix}'
     
@@ -145,3 +159,51 @@ def build_preprocessing_paths(
         'output_dir': output_dir
     }
 
+
+def build_embeddings_paths(
+    project_root: Path,
+    virus_name: str,
+    data_version: str,
+    run_suffix: str = ""
+    ) -> dict[str, Path]:
+    """Build standard embeddings paths for a virus.
+
+    This function creates a consistent directory structure for embeddings:
+    - Input: data/processed/{virus_name}/{data_version}{run_suffix}/protein_final.csv
+    - Output: data/embeddings/{virus_name}/{data_version}{run_suffix}/
+
+    Args:
+        project_root: Project root directory
+        virus_name: Virus name (e.g., 'flu_a', 'bunya')
+        data_version: Data version (e.g., 'July_2025', 'April_2025')
+        run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+
+    Returns:
+        Dictionary with keys: 'input_file', 'output_dir'
+
+    Example:
+        >>> paths = build_embeddings_paths(
+        ...     project_root=Path('/path/to/project'),
+        ...     virus_name='flu_a',
+        ...     data_version='July_2025',
+        ...     run_suffix='_seed_42_GTOs_500'
+        ... )
+        >>> paths['input_file']
+        PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_GTOs_500/protein_final.csv')
+        >>> paths['output_dir']
+        PosixPath('/path/to/project/data/embeddings/flu_a/July_2025_seed_42_GTOs_500')
+    """
+    main_data_dir = project_root / 'data'
+    run_dir = f'{data_version}{run_suffix}'
+
+    # Input: read from processed data
+    input_base_dir = main_data_dir / 'processed' / virus_name / run_dir
+    input_file = input_base_dir / 'protein_final.csv'
+
+    # Output: write to embeddings directory (matching the run_dir)
+    output_dir = main_data_dir / 'embeddings' / virus_name / run_dir
+    
+    return {
+        'input_file': input_file,
+        'output_dir': output_dir
+    }
