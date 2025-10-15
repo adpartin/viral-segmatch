@@ -167,7 +167,8 @@ def print_config_summary(config: DictConfig):
         if hasattr(config.virus, 'virus_name'):
             print(f"Virus: {config.virus.virus_name}")
             print(f"Data version: {config.virus.data_version}")
-            print(f"Max files: {getattr(config.virus, 'max_files_to_process', 'All')}")
+            max_files = getattr(config, 'max_files_to_process', None)
+            print(f"Max files: {max_files if max_files is not None else 'All (full dataset)'}")
         else:
             print(f"Virus: {config.virus.get('virus_name', 'Unknown')}")
             print(f"Data version: {config.virus.get('data_version', 'Unknown')}")
