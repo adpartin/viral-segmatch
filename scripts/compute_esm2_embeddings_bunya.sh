@@ -5,85 +5,78 @@ set -e  # Exit on error
 set -u  # Exit on undefined variable
 set -o pipefail  # Exit on pipe failure
 
-# Setup
-PROJECT_ROOT="/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch"
+# Get project root (auto-detect from script location)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-VIRUS_NAME="bunya"
-DATA_VERSION="April_2025"
+CONFIG_BUNDLE="bunya"
 CUDA_NAME="cuda:6"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_DIR="./logs/embeddings"
-LOG_FILE="${LOG_DIR}/compute_esm2_${VIRUS_NAME}_${TIMESTAMP}.log"
-
-# Input and output paths
-INPUT_FILE="${PROJECT_ROOT}/data/processed/${VIRUS_NAME}/${DATA_VERSION}/protein_final.csv"
-OUTPUT_DIR="${PROJECT_ROOT}/data/embeddings/${VIRUS_NAME}/${DATA_VERSION}_new"
+LOG_DIR="$PROJECT_ROOT/logs/embeddings"
+LOG_FILE="$LOG_DIR/compute_esm2_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
 
-# Capture metadata
-echo "========================================" | tee "$LOG_FILE"
-echo "ESM-2 Embeddings Computation: $VIRUS_NAME" | tee -a "$LOG_FILE"
-echo "Started: $(date)" | tee -a "$LOG_FILE"
-echo "Host: $(hostname)" | tee -a "$LOG_FILE"
-echo "User: $(whoami)" | tee -a "$LOG_FILE"
-echo "Git commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'N/A')" | tee -a "$LOG_FILE"
-echo "Git branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'N/A')" | tee -a "$LOG_FILE"
-echo "Python: $(which python)" | tee -a "$LOG_FILE"
-echo "CUDA device: $CUDA_NAME" | tee -a "$LOG_FILE"
-echo "Input file: $INPUT_FILE" | tee -a "$LOG_FILE"
-echo "Output dir: $OUTPUT_DIR" | tee -a "$LOG_FILE"
-echo "========================================" | tee -a "$LOG_FILE"
+# Helper function for logging to both console and file
+log() {
+    echo "$@" | tee -a "$LOG_FILE"
+}
 
-# Check if input file exists
-if [ ! -f "$INPUT_FILE" ]; then
-    echo "ERROR: Input file not found: $INPUT_FILE" | tee -a "$LOG_FILE"
-    exit 1
-fi
+# Print header
+log "========================================================================"
+log "ESM-2 Embeddings Computation: Bunyavirales"
+log "========================================================================"
+log "Config bundle: $CONFIG_BUNDLE"
+log "CUDA device:   $CUDA_NAME"
+log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
+log "Host:          $(hostname)"
+log "User:          $(whoami)"
+log "Python:        $(which python)"
+log "Log file:      $LOG_FILE"
+log "========================================================================"
+
+# Capture git info for provenance
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")
+GIT_DIRTY=$(git status --porcelain 2>/dev/null | wc -l)
+
+log ""
+log "Git commit:    $GIT_COMMIT"
+log "Git branch:    $GIT_BRANCH"
+log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" || echo "No")"
+log ""
 
 # Run ESM-2 embeddings computation
-echo "" | tee -a "$LOG_FILE" # New line
-python "${PROJECT_ROOT}/src/embeddings/compute_esm2_embeddings.py" \
-    --input_file "$INPUT_FILE" \
-    --output_dir "$OUTPUT_DIR" \
-    --virus_name "$VIRUS_NAME" \
-    --use_selected_only \
-    --cuda_name "$CUDA_NAME" 2>&1 | tee -a "$LOG_FILE"
+log "Starting ESM-2 embeddings computation..."
+log "Command: python src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
+log ""
 
-# Capture exit status
+python "$PROJECT_ROOT/src/embeddings/compute_esm2_embeddings.py" \
+    --config_bundle "$CONFIG_BUNDLE" \
+    --cuda_name "$CUDA_NAME" \
+    2>&1 | tee -a "$LOG_FILE"
+
 EXIT_CODE=${PIPESTATUS[0]}
 
-# Summary
-echo "========================================" | tee -a "$LOG_FILE"
-echo "Finished: $(date)" | tee -a "$LOG_FILE"
-echo "Exit code: $EXIT_CODE" | tee -a "$LOG_FILE"
-
+# Print footer
+log ""
+log "========================================================================"
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "ESM-2 embeddings computation completed successfully!" | tee -a "$LOG_FILE"
-    echo "Output saved to: $OUTPUT_DIR/esm2_embeddings.h5" | tee -a "$LOG_FILE"
-    
-    # Show file size
-    if [ -f "$OUTPUT_DIR/esm2_embeddings.h5" ]; then
-        FILE_SIZE=$(du -h "$OUTPUT_DIR/esm2_embeddings.h5" | cut -f1)
-        echo "File size: $FILE_SIZE" | tee -a "$LOG_FILE"
-    fi
-    
-    # Show CSV file size if it exists
-    if [ -f "$OUTPUT_DIR/esm2_embeddings.csv" ]; then
-        CSV_SIZE=$(du -h "$OUTPUT_DIR/esm2_embeddings.csv" | cut -f1)
-        echo "CSV file size: $CSV_SIZE" | tee -a "$LOG_FILE"
-    fi
+    log "ESM-2 embeddings computation completed successfully!"
 else
-    echo "ESM-2 embeddings computation failed!" | tee -a "$LOG_FILE"
+    log "ESM-2 embeddings computation failed!"
 fi
 
-echo "Log saved to: $LOG_FILE" | tee -a "$LOG_FILE"
-echo "========================================" | tee -a "$LOG_FILE"
+log "Exit code:     $EXIT_CODE"
+log "Finished:      $(date '+%Y-%m-%d %H:%M:%S')"
+log "Log saved to:  $LOG_FILE"
+log "========================================================================"
 
-# Create symlink to latest log
-ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/compute_esm2_${VIRUS_NAME}_latest.log"
+# Create symlink to latest log for easy access
+ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_latest.log"
+log "Symlink:       ${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_latest.log"
 
 exit $EXIT_CODE

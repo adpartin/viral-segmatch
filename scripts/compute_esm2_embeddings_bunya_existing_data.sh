@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compute ESM-2 embeddings for Flu A protein data
+# Compute ESM-2 embeddings for Bunyavirales using existing processed data
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -11,12 +11,12 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-# CONFIG_BUNDLE="flu_a"
-CONFIG_BUNDLE="flu_a_pb1_pb2"
-CUDA_NAME="cuda:0"
+CONFIG_BUNDLE="bunya"
+CUDA_NAME="cuda:6"
+EXISTING_INPUT_FILE="data/processed/bunya/April_2025/protein_final.csv"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/embeddings"
-LOG_FILE="$LOG_DIR/compute_esm2_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
+LOG_FILE="$LOG_DIR/compute_esm2_${CONFIG_BUNDLE}_existing_${TIMESTAMP}.log"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -28,10 +28,11 @@ log() {
 
 # Print header
 log "========================================================================"
-log "ESM-2 Embeddings Computation: Flu A"
+log "Bunyavirales ESM-2 Embeddings (Using Existing Processed Data)"
 log "========================================================================"
 log "Config bundle: $CONFIG_BUNDLE"
 log "CUDA device:   $CUDA_NAME"
+log "Input file:    $EXISTING_INPUT_FILE"
 log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
 log "Host:          $(hostname)"
 log "User:          $(whoami)"
@@ -50,13 +51,14 @@ log "Git branch:    $GIT_BRANCH"
 log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" || echo "No")"
 log ""
 
-# Run ESM-2 embeddings computation
+# Run embeddings computation
 log "Starting ESM-2 embeddings computation..."
-log "Command: python src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
+log "Command: python src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --input_file $EXISTING_INPUT_FILE --cuda_name $CUDA_NAME"
 log ""
 
-python "$PROJECT_ROOT/src/embeddings/compute_esm2_embeddings.py" \
+python src/embeddings/compute_esm2_embeddings.py \
     --config_bundle "$CONFIG_BUNDLE" \
+    --input_file "$EXISTING_INPUT_FILE" \
     --cuda_name "$CUDA_NAME" \
     2>&1 | tee -a "$LOG_FILE"
 
@@ -65,19 +67,14 @@ EXIT_CODE=${PIPESTATUS[0]}
 # Print footer
 log ""
 log "========================================================================"
-if [ $EXIT_CODE -eq 0 ]; then
-    log "ESM-2 embeddings computation completed successfully!"
-else
-    log "ESM-2 embeddings computation failed!"
-fi
-
+log "ESM-2 embeddings computation completed"
 log "Exit code:     $EXIT_CODE"
 log "Finished:      $(date '+%Y-%m-%d %H:%M:%S')"
 log "Log saved to:  $LOG_FILE"
 log "========================================================================"
 
 # Create symlink to latest log for easy access
-ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_latest.log"
-log "Symlink:       ${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_latest.log"
+ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_existing_latest.log"
+log "Symlink:       ${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_existing_latest.log"
 
 exit $EXIT_CODE

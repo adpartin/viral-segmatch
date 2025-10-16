@@ -1,27 +1,73 @@
 # Flu A bundle - with training and virus-specific overrides
+# This is the default bundle for Flu A.
 defaults:
   - /virus: flu_a
   - /embeddings: default
+  - /dataset: default
   - /training: base
   - _self_  # Bundle overrides loaded AFTER base configs
 
-# Experiment-level settings
-master_seed: null
-max_files_to_process: null  # null = process all files
-# max_files_to_process: 100  # null = process all files
-run_suffix: null  # Optional suffix for run directories (e.g., '_subset_5k', '_v2')
+# ==============================================================================
+# SEED MANAGEMENT
+# ==============================================================================
+# Hierarchical seed system for reproducibility:
+# - master_seed: Single seed that generates all process-specific seeds
+# - process_seeds: Override specific stages (null = derive from master_seed)
+# 
+# Examples:
+#   master_seed: 42, process_seeds.preprocessing: null → preprocessing uses derived seed
+#   master_seed: 42, process_seeds.preprocessing: 123 → preprocessing uses 123
+#   master_seed: null, process_seeds.preprocessing: 42 → only preprocessing reproducible
+#   master_seed: null → all processes use random seeds (non-reproducible)
+#
+# See docs/SEED_SYSTEM.md for detailed documentation
 
-# Process-specific seeds (null = use derived from master_seed)
+master_seed: 42  # Master seed for full pipeline reproducibility (null = random)
+
+# Process-specific seeds (null = derive from master_seed)
 process_seeds:
-  preprocessing: null
-  embeddings: 42
-  dataset: null
-  training: null
-  evaluation: null
+  preprocessing: null  # Data sampling and preprocessing
+  embeddings: null     # ESM-2 embedding computation
+  dataset: null        # Dataset splitting and augmentation
+  training: null       # Model training and initialization
+  evaluation: null     # Evaluation sampling and metrics
+
+# ==============================================================================
+# DATA SAMPLING
+# ==============================================================================
+# Controls how many GTO files to process from the raw data directory
+# - null: Process ALL files (full dataset)
+# - integer: Process this many files (sampled according to preprocessing seed)
+#
+# Directory naming:
+#   max_files_to_process: null → processed/flu_a/July_2025/
+#   max_files_to_process: 500, master_seed: 42 → processed/flu_a/July_2025_seed_42_GTOs_500/
+#   max_files_to_process: 100, master_seed: null → processed/flu_a/July_2025_random_20251013_GTOs_100/
+
+# max_files_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
+max_files_to_process: 2000  # null = full dataset, or set to 100, 500, 5000, etc.
+
+# ==============================================================================
+# DIRECTORY NAMING
+# ==============================================================================
+# Optional manual override for output directory suffix
+# - null: Auto-generate suffix from max_files_to_process and seed
+# - string: Use this exact suffix (e.g., '_special_experiment', '_v2')
+#
+# Manual override is useful for:
+# - Custom experiments with specific naming requirements
+# - Backward compatibility with old directory structures
+
+run_suffix: null
 
 # Virus-specific embeddings overrides
 embeddings:
   batch_size: 16
+  use_selected_only: true  # Use selected_functions for Flu A
+
+# Dataset-specific overrides
+dataset:
+  use_selected_only: true  # Use selected_functions
 
 # Virus-specific training overrides
 training:

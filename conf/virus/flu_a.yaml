@@ -48,6 +48,10 @@ selected_functions:
   # Auxiliary proteins for ML (1 out of 11)
   - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # Seg. 8 (NS1)
 
+# selected_functions:
+#   - 'RNA-dependent RNA polymerase PB2 subunit'  # Seg. 1 (PB2)
+#   - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'  # Seg. 2 (PB1)
+
 # Segment mapping (function → canonical segment)
 # TODO: consider renaming to 'S1', 'S2', etc.
 segment_mapping:

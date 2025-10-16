@@ -1,0 +1,17 @@
+# Dataset configuration for segment pairs
+# This config defines parameters for creating train/val/test splits and protein pairs
+
+# Task name for output directory
+task_name: 'segment_pair_classifier'
+
+# Protein filtering strategy
+use_selected_only: false  # true = use selected_functions, false = use all proteins
+
+# Dataset splitting parameters
+neg_to_pos_ratio: 3.0  # Ratio of negative to positive pairs
+allow_same_func_negatives: true  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
+max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
+
+# Train/validation/test split ratios
+train_ratio: 0.8  # 80% for training
+val_ratio: 0.1    # 10% for validation (test gets remaining 10%)

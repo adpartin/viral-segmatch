@@ -19,6 +19,7 @@ from src.utils.torch_utils import determine_device
 from src.utils.esm2_utils import compute_esm2_embeddings
 from src.utils.protein_utils import STANDARD_AMINO_ACIDS
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.path_utils import build_embeddings_paths
 from src.utils.config_hydra import (
     get_virus_config_hydra, 
     print_config_summary
@@ -36,6 +37,16 @@ total_timer = Timer()
 # Define paths - make configurable via command line or environment
 parser = argparse.ArgumentParser(description='Compute ESM-2 embeddings for protein sequences')
 parser.add_argument(
+    '--config_bundle',
+    type=str, default=None,
+    help='Config bundle to use (e.g., flu_a, flu_a_pb1_pb2, bunya). If not provided, uses virus_name for backward compatibility.'
+)
+parser.add_argument(
+    '--virus_name', '-v',
+    type=str, default=None,
+    help='[DEPRECATED] Use --config_bundle instead. Kept for backward compatibility.'
+)
+parser.add_argument(
     '--input_file',
     type=str, default=None, 
     help='Path to input CSV file (e.g., protein_final.csv). If not provided, will be derived from config.'
@@ -46,16 +57,6 @@ parser.add_argument(
     help='Path to output directory for embeddings. If not provided, will be derived from config.'
 )
 parser.add_argument(
-    '--virus_name', '-v',
-    type=str, default=None,
-    help='Virus name to load selected_functions from config (e.g., flu_a, bunya)'
-)
-parser.add_argument(
-    '--use_selected_only',
-    action='store_true',
-    help='Filter to selected_functions from config (requires --virus_name)'
-)
-parser.add_argument(
     '--cuda_name', '-c',
     type=str, default='cuda:7',
     help='CUDA device to use (default: cuda:7)'
@@ -64,18 +65,39 @@ args = parser.parse_args()
 
 # Get config
 config_path = str(project_root / 'conf') # Pass the config path explicitly
-config = get_virus_config_hydra(args.virus_name, config_path=config_path)
+# Use config_bundle if provided, otherwise fall back to virus_name for backward compatibility
+config_bundle = args.config_bundle if args.config_bundle else args.virus_name
+if config_bundle is None:
+    raise ValueError("Either --config_bundle or --virus_name must be provided")
+
+config = get_virus_config_hydra(config_bundle, config_path=config_path)
 print_config_summary(config)
 
-# Extract configuration values (same pattern as preprocessing script)
+# Extract virus_name from config (no longer from CLI args)
+VIRUS_NAME = config.virus.virus_name
+print(f"\n{'='*40}")
+print(f"Virus: {VIRUS_NAME}")
+print(f"Config bundle: {config_bundle}")
+print(f"{'='*40}")
+
+# Extract configuration values
 # Handle embeddings seed using utility function
 DATA_VERSION = config.virus.data_version
-RUN_SUFFIX = config.run_suffix if config.run_suffix else ''
-ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
 RANDOM_SEED = resolve_process_seed(config, 'embeddings')
-CUDA_NAME = args.cuda_name
 MODEL_CKPT = config.embeddings.model_ckpt
+ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
 BATCH_SIZE = config.embeddings.batch_size
+USE_SELECTED_ONLY = config.embeddings.use_selected_only
+
+# Read run_suffix from config to ensure path consistency across pipeline stages
+# The preprocessing script generates run_suffix (either manually specified or auto-generated 
+# from max_files_to_process and seed), and downstream scripts (embeddings, training) 
+# read it from config to use matching directories for seamless data flow.
+RUN_SUFFIX = config.run_suffix if config.run_suffix else ''
+
+# CUDA device
+CUDA_NAME = args.cuda_name
+device = determine_device(CUDA_NAME)
 
 # Set deterministic seeds for ESM-2 computation
 if RANDOM_SEED is not None:
@@ -84,26 +106,22 @@ if RANDOM_SEED is not None:
 else:
     print('No seed set - ESM-2 computation will be non-deterministic')
 
-# Define paths
-# Build run directory name from DATA_VERSION + optional RUN_SUFFIX
-run_dir = f'{DATA_VERSION}{RUN_SUFFIX}'
-print(f'\nRun directory: {run_dir}')
-main_data_dir = project_root / 'data'
+# Build embeddings paths
+paths = build_embeddings_paths(
+    project_root=project_root,
+    virus_name=VIRUS_NAME,
+    data_version=DATA_VERSION,
+    run_suffix=RUN_SUFFIX
+)
+default_input_file = paths['input_file']
+default_output_dir = paths['output_dir']
 
-# Input: read from processed data
-input_base_dir = main_data_dir / 'processed' / args.virus_name / run_dir
-default_input_file = input_base_dir / 'protein_final.csv'
-
-# Output: write to embeddings directory (matching the run_dir)
-output_base_dir = main_data_dir / 'embeddings' / args.virus_name / run_dir
-default_output_dir = output_base_dir
+print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
 
 # Apply CLI overrides if provided
 input_file = Path(args.input_file) if args.input_file else default_input_file
 output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
-
-device = determine_device(CUDA_NAME)
 
 print(f'\ninput_file:      {input_file}')
 print(f'output_dir:      {output_dir}')
@@ -111,8 +129,8 @@ print(f'device:          {device}')
 print(f'model:           {MODEL_CKPT}')
 print(f'batch_size:      {BATCH_SIZE}')
 
-
 # Load protein data
+# breakpoint()
 print('\nLoad preprocessed protein data.')
 try:
     df = pd.read_csv(input_file)
@@ -127,9 +145,7 @@ if missing_cols:
     raise ValueError(f"Missing required columns: {missing_cols}")
 
 # Filter to selected proteins if configured
-if args.use_selected_only:
-    if args.virus_name is None:
-        raise ValueError("--virus_name must be provided when --use_selected_only is specified")
+if USE_SELECTED_ONLY:
     if 'function' not in df.columns:
         raise ValueError("DataFrame must contain 'function' column to filter selected proteins")
     
@@ -137,13 +153,13 @@ if args.use_selected_only:
     try:
         if 'selected_functions' in config.virus:
             selected_functions = config.virus.selected_functions
-            print(f"Loaded {len(selected_functions)} selected functions from config for virus '{args.virus_name}':")
+            print(f"Loaded {len(selected_functions)} selected functions from config for virus '{VIRUS_NAME}':")
             for i, func in enumerate(selected_functions, 1):
                 print(f"  {i}. {func}")
         else:
-            raise ValueError(f"No 'selected_functions' found in config for virus '{args.virus_name}'")
+            raise ValueError(f"No 'selected_functions' found in config for virus '{VIRUS_NAME}'")
     except Exception as e:
-        raise ValueError(f"Failed to load config for virus '{args.virus_name}': {e}")
+        raise ValueError(f"Failed to load config for virus '{VIRUS_NAME}': {e}")
     
     print(f"Filter to selected proteins only: {len(selected_functions)} functions")
     original_count = len(df)
@@ -192,6 +208,7 @@ embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
 
 
 # Save embeddings to h5
+# breakpoint()
 output_file = output_dir / 'esm2_embeddings.h5'
 print(f'\nSave embeddings to: {output_file}.')
 with h5py.File(output_file, 'w') as file:
@@ -214,6 +231,7 @@ failed_df.to_csv(output_dir / 'failed_ids.csv', index=False)
 
 
 # Validate
+# breakpoint()
 print('\nValidate saved embeddings.')
 with h5py.File(output_file, 'r') as file:
     saved_ids = list(file.keys())

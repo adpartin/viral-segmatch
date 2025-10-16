@@ -23,7 +23,7 @@ selected_functions:
   - 'Nucleocapsid protein'
 
 # Segment mapping
-# TODO: conditional segment mapping
+# TODO: conditional segment mapping (implemented differently for flu A)
 segment_mapping:
   'RNA-dependent RNA polymerase': 'L'
   'Pre-glycoprotein polyprotein GP complex': 'M'

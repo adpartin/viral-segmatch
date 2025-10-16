@@ -207,3 +207,84 @@ def build_embeddings_paths(
         'input_file': input_file,
         'output_dir': output_dir
     }
+
+
+def build_dataset_paths(
+    project_root: Path,
+    virus_name: str,
+    data_version: str,
+    task_name: str,
+    run_suffix: str = ""
+    ) -> dict[str, Path]:
+    """Build standard dataset paths for a virus.
+
+    This function creates a consistent directory structure for datasets:
+    - Input: data/processed/{virus_name}/{data_version}{run_suffix}/protein_final.csv
+    - Output: data/datasets/{virus_name}/{data_version}{run_suffix}/{task_name}/
+
+    Args:
+        project_root: Project root directory
+        virus_name: Virus name (e.g., 'flu_a', 'bunya')
+        data_version: Data version (e.g., 'July_2025', 'April_2025')
+        task_name: Task name (e.g., 'segment_pair_classifier')
+        run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+
+    Returns:
+        Dictionary with keys: 'input_file', 'output_dir'
+    """
+    main_data_dir = project_root / 'data'
+    run_dir = f'{data_version}{run_suffix}'
+    
+    # Input: processed data
+    input_file = main_data_dir / 'processed' / virus_name / run_dir / 'protein_final.csv'
+    
+    # Output: datasets
+    output_dir = main_data_dir / 'datasets' / virus_name / run_dir / task_name
+    
+    return {
+        'input_file': input_file,
+        'output_dir': output_dir
+    }
+
+
+def build_training_paths(
+    project_root: Path,
+    virus_name: str,
+    data_version: str,
+    task_name: str,
+    run_suffix: str = ""
+    ) -> dict[str, Path]:
+    """Build standard training paths for a virus.
+
+    This function creates a consistent directory structure for training:
+    - Dataset input: data/datasets/{virus_name}/{data_version}{run_suffix}/{task_name}/
+    - Embeddings input: data/embeddings/{virus_name}/{data_version}{run_suffix}/esm2_embeddings.h5
+    - Model output: models/{virus_name}/{data_version}{run_suffix}/{task_name}/
+
+    Args:
+        project_root: Project root directory
+        virus_name: Virus name (e.g., 'flu_a', 'bunya')
+        data_version: Data version (e.g., 'July_2025', 'April_2025')
+        task_name: Task name (e.g., 'segment_pair_classifier')
+        run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+
+    Returns:
+        Dictionary with keys: 'dataset_dir', 'embeddings_file', 'output_dir'
+    """
+    main_data_dir = project_root / 'data'
+    run_dir = f'{data_version}{run_suffix}'
+    
+    # Dataset input directory
+    dataset_dir = main_data_dir / 'datasets' / virus_name / run_dir / task_name
+    
+    # Embeddings input file
+    embeddings_file = main_data_dir / 'embeddings' / virus_name / run_dir / 'esm2_embeddings.h5'
+    
+    # Model output directory
+    output_dir = project_root / 'models' / virus_name / run_dir / task_name
+    
+    return {
+        'dataset_dir': dataset_dir,
+        'embeddings_file': embeddings_file,
+        'output_dir': output_dir
+    }

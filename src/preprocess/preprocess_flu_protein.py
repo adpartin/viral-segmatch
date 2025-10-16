@@ -18,6 +18,11 @@ sys.path.append(str(project_root))
 
 from src.utils.timer_utils import Timer
 from src.utils.seed_utils import resolve_process_seed
+from src.utils.path_utils import resolve_run_suffix, build_preprocessing_paths
+from src.utils.experiment_utils import (
+    save_experiment_metadata,
+    save_experiment_summary
+)
 from src.utils.gto_utils import (
     extract_assembly_info,
     enforce_single_file,
@@ -42,52 +47,74 @@ total_timer = Timer()
 # Define paths - make configurable via command line or environment
 parser = argparse.ArgumentParser(description='Preprocess protein data from GTO files')
 parser.add_argument(
+    '--config_bundle',
+    type=str, default=None,
+    help='Config bundle to use (e.g., flu_a, flu_a_pb1_pb2, bunya). If not provided, uses virus_name for backward compatibility.'
+)
+parser.add_argument(
     '--virus_name',
-    type=str, default='flu_a',
-    help='Virus name to load selected_functions from config (e.g., flu_a, bunya)'
+    type=str, default=None,
+    help='[DEPRECATED] Use --config_bundle instead. Kept for backward compatibility.'
 )
 parser.add_argument(
     '--use_selected_only',
     action='store_true',
-    help='Filter to selected_functions from config (requires --virus_name)'
+    help='Filter to selected_functions from config'
 )
 args = parser.parse_args()
 
 # Get config
 config_path = str(project_root / 'conf') # Pass the config path explicitly
-config = get_virus_config_hydra(args.virus_name, config_path=config_path)
+# Use config_bundle if provided, otherwise fall back to virus_name for backward compatibility
+config_bundle = args.config_bundle if args.config_bundle else args.virus_name
+if config_bundle is None:
+    raise ValueError("Either --config_bundle or --virus_name must be provided")
+
+config = get_virus_config_hydra(config_bundle, config_path=config_path)
 print_config_summary(config)
+
+# Extract virus_name from config (no longer from CLI args)
+VIRUS_NAME = config.virus.virus_name
+print(f"\n{'='*40}")
+print(f"Virus: {VIRUS_NAME}")
+print(f"Config bundle: {config_bundle}")
+print(f"{'='*40}")
 
 # Extract configuration values
 DATA_VERSION = config.virus.data_version
-MAX_FILES_TO_PROCESS = config.max_files_to_process  # Now in bundle config
 RANDOM_SEED = resolve_process_seed(config, 'preprocessing')
+MAX_FILES_TO_PROCESS = config.max_files_to_process  # Now in bundle config
 core_functions = config.virus.core_functions
 aux_functions = config.virus.aux_functions
 selected_functions = config.virus.selected_functions
 
-# Define paths
-main_data_dir = project_root / 'data'
-base_data_dir = main_data_dir / 'raw' / 'Flu_A' / DATA_VERSION
-subset_data_dir = main_data_dir / 'raw' / 'Flu_A' / f'{DATA_VERSION}_subset_5k'
+# Resolve run suffix (manual override in config or auto-generate from sampling params)
+RUN_SUFFIX = resolve_run_suffix(
+    config=config,
+    max_files=MAX_FILES_TO_PROCESS,
+    seed=RANDOM_SEED,
+    auto_timestamp=True
+)
 
-# Prefer subset directory if it exists (for fast development)
-if subset_data_dir.exists() and subset_data_dir.is_dir():
-    raw_data_dir = subset_data_dir
-    output_dir = main_data_dir / 'processed' / args.virus_name / f'{DATA_VERSION}_subset_5k'
-    print(f"Using subset dataset: {raw_data_dir}")
-else:
-    raw_data_dir = base_data_dir
-    output_dir = main_data_dir / 'processed' / args.virus_name / DATA_VERSION
-    print(f"Using full dataset: {raw_data_dir}")
-
+# Build preprocessing paths
+paths = build_preprocessing_paths(
+    project_root=project_root,
+    virus_name=VIRUS_NAME,
+    data_version=DATA_VERSION,
+    run_suffix=RUN_SUFFIX
+)
+raw_data_dir = paths['raw_dir']
+output_dir = paths['output_dir']
 gto_dir = raw_data_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
+# Display paths
+main_data_dir = project_root / 'data'
 print(f'\nmain_data_dir:   {main_data_dir}')
 print(f'raw_data_dir:    {raw_data_dir}')
-print(f'gto_dir:         {gto_dir}')
+print(f'gto_dir:         {gto_dir}') # TODO: Is it always the same as raw_data_dir?
 print(f'output_dir:      {output_dir}')
+print(f'run_suffix:      {RUN_SUFFIX if RUN_SUFFIX else "(none - full dataset)"}\n') # TODO: Check if it's really the case when RUN_SUFFIX is None, then it's a full dataset.
 
 
 def validate_protein_counts(
@@ -257,10 +284,17 @@ def analyze_protein_counts_per_file(
     aux_functions: list[str],
     selected_functions: list[str]
     ) -> None:
-    """ Analyze protein counts per GTO file. """
-    print("\n" + "=" * 60)
+    """ Analyze protein counts per GTO file.
+
+    Args:
+        df: DataFrame with protein data
+        core_functions: List of core protein functions
+        aux_functions: List of auxiliary protein functions
+        selected_functions: List of selected protein functions
+    """
+    print("\n" + "=" * 40)
     print("PROTEIN COUNTS PER GTO FILE")
-    print("=" * 60)
+    print("=" * 40)
 
     # Count proteins per file
     file_counts = df.groupby('file').agg({
@@ -425,7 +459,7 @@ def analyze_intra_file_protein_duplicates(
         print("✅ No protein duplicates found")
 
     # Summary statistics
-    print(f"\n📊 INTRA-FILE PROTEIN DUPLICATE SUMMARY:")
+    print(f"\n📊 INTRA-FILE PROTEIN DUPLICATE SUMMARY (considers 'selected_functions' only):")
     print(f"   Files analyzed: {sub_df['file'].nunique()}")
     print(f"   Protein records across files: {len(sub_df)}")
     print(f"   Unique protein functions across files: {sub_df['function'].nunique()}")
@@ -769,15 +803,6 @@ def handle_duplicates(
 
 
 # Aggregate protein data from GTO files
-if 'subset_' in str(raw_data_dir):
-    # For other subset sizes, count them (should be fast)
-    total_files = len(sorted(gto_dir.glob('*.gto')))
-    print(f"\nUsing subset: {total_files} GTO files")
-else:
-    # For full datasets, count them (may be slow)
-    total_files = len(sorted(gto_dir.glob('*.gto')))
-    print(f"\nUsing full dataset: {total_files} GTO files")
-
 prot_df = aggregate_protein_data_from_gto_files(
     gto_dir, max_files=MAX_FILES_TO_PROCESS,
     random_seed=RANDOM_SEED
@@ -832,12 +857,6 @@ Explore core protein functions:
 18     Segment 4                            Hemagglutinin precursor    100
 """
 # breakpoint()
-print("\nAnalyze protein counts per GTO file.")
-protein_counts_per_file = analyze_protein_counts_per_file(
-    prot_df, core_functions, aux_functions, selected_functions
-)
-
-# breakpoint()
 print("\nExplore 'replicon_type' counts.")
 print(prot_df['replicon_type'].value_counts().sort_index())
 
@@ -856,6 +875,14 @@ print_replicon_func_count(prot_df, functions=aux_functions)
 # breakpoint()
 print('\nCloser look at "selected" protein functions.')
 print_replicon_func_count(prot_df, functions=selected_functions)
+
+# breakpoint()
+# Analyze protein counts per GTO file (includes analysis of intra-file
+# duplicates while considering 'selected_functions' only).
+# TODO: It might be more intuitive to run this later but before assign_segments().
+protein_counts_per_file = analyze_protein_counts_per_file(
+    prot_df, core_functions, aux_functions, selected_functions
+)
 # EDA end ----------------------------------------
 
 
@@ -866,6 +893,7 @@ prot_df = assign_segments(prot_df, data_version=DATA_VERSION, use_core=True, use
 prot_df.to_csv(output_dir / 'protein_assigned_segments.csv', sep=',', index=False)
 
 # Apply basic filters
+# breakpoint()
 print("\nApply basic filters.")
 prot_df = apply_basic_filters(prot_df)
 prot_df.to_csv(output_dir / 'protein_filtered_basic.csv', sep=',', index=False)
@@ -958,6 +986,42 @@ print(f"Unique protein sequences: {prot_df[SEQ_COL_NAME].nunique()}")
 aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'])
 aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', index=False)
 print(prot_df['canonical_segment'].value_counts())
+
+# Save experiment metadata and summary for reproducibility
+# breakpoint()
+print("\nSave experiment metadata.")
+save_experiment_metadata(
+    output_dir=output_dir,
+    config=config,
+    stage='preprocessing',
+    script_name=Path(__file__).name,
+    additional_info={
+        'total_proteins_processed': len(prot_df),
+        'unique_sequences': prot_df[SEQ_COL_NAME].nunique(),
+        'unique_files': prot_df['file'].nunique(),
+        'processing_time_seconds': total_timer.elapsed
+    }
+)
+
+# breakpoint()
+save_experiment_summary(
+    output_dir=output_dir,
+    stage='preprocessing',
+    summary={
+        'Virus': VIRUS_NAME,
+        'Config bundle': config_bundle,
+        'Data version': DATA_VERSION,
+        'Run suffix': RUN_SUFFIX if RUN_SUFFIX else '(none - full dataset)',
+        'Master seed': config.master_seed,
+        'Preprocessing seed': RANDOM_SEED,
+        'Max files to process': MAX_FILES_TO_PROCESS if MAX_FILES_TO_PROCESS else 'All',
+        'Selected functions': selected_functions,
+        'Total proteins processed': len(prot_df),
+        'Unique protein sequences': prot_df[SEQ_COL_NAME].nunique(),
+        'Unique files processed': prot_df['file'].nunique(),
+        'Processing time': total_timer.get_elapsed_string()
+    }
+)
 
 total_timer.display_timer()
 print(f'\nFinished {Path(__file__).name}!')

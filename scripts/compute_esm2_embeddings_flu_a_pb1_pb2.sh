@@ -1,5 +1,20 @@
 #!/bin/bash
-# Compute ESM-2 embeddings for Flu A protein data
+# ============================================================================
+# ESM-2 Embeddings Computation for Flu A: PB1 and PB2 proteins only
+# ============================================================================
+# This script computes ESM-2 embeddings for a subset of Flu A proteins
+# (PB1 and PB2) using the flu_a_pb1_pb2 bundle configuration. The bundle
+# defines:
+# - run_suffix: "_seed_42_GTOs_2000_pb1_pb2" (manual directory naming)
+# - max_files_to_process: 2000 (subset for faster iteration)
+# - master_seed: 42 (reproducible sampling and processing)
+# - selected_functions: Only PB1 and PB2 proteins
+#
+# Input directory:
+#   data/processed/flu_a/July_2025_seed_42_GTOs_2000_pb1_pb2/
+# Output directory:
+#   data/embeddings/flu_a/July_2025_seed_42_GTOs_2000_pb1_pb2/
+# ============================================================================
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -11,7 +26,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-# CONFIG_BUNDLE="flu_a"
 CONFIG_BUNDLE="flu_a_pb1_pb2"
 CUDA_NAME="cuda:0"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -28,7 +42,7 @@ log() {
 
 # Print header
 log "========================================================================"
-log "ESM-2 Embeddings Computation: Flu A"
+log "ESM-2 Embeddings Computation: Flu A PB1 and PB2 Proteins Only"
 log "========================================================================"
 log "Config bundle: $CONFIG_BUNDLE"
 log "CUDA device:   $CUDA_NAME"

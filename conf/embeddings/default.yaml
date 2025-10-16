@@ -11,3 +11,6 @@ batch_size: 32
 # MODEL_CKPT = 'facebook/esm2_t33_650M_UR50D'   # embedding dim: 1280D
 # MODEL_CKPT = 'facebook/esm2_t36_3B_UR50D'   # embedding dim: 2560D
 # MODEL_CKPT = 'facebook/esm2_t48_15B_UR50D'  # embedding dim: 5120D
+
+# Protein filtering strategy
+use_selected_only: false  # true = use selected_functions, false = use all proteins

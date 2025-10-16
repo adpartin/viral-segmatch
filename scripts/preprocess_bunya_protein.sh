@@ -1,47 +1,74 @@
 #!/bin/bash
-# Preprocess Bunya protein data from GTO files
+# Preprocess Bunyavirales protein data from GTO files
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
 set -o pipefail  # Exit on pipe failure
 
-# Setup
-PROJECT_ROOT="/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch"
+# Get project root (auto-detect from script location)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
-VIRUS_NAME="bunya"
+# Configuration
+CONFIG_BUNDLE="bunya"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_DIR="./logs/preprocess"
-LOG_FILE="${LOG_DIR}/preprocess_${VIRUS_NAME}_${TIMESTAMP}.log"
+LOG_DIR="$PROJECT_ROOT/logs/preprocess"
+LOG_FILE="$LOG_DIR/preprocess_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
 
-# Capture metadata
-echo "========================================" | tee "$LOG_FILE"
-echo "Preprocessing: $VIRUS_NAME" | tee -a "$LOG_FILE"
-echo "Started: $(date)" | tee -a "$LOG_FILE"
-echo "Host: $(hostname)" | tee -a "$LOG_FILE"
-echo "User: $(whoami)" | tee -a "$LOG_FILE"
-echo "Git commit: $(git rev-parse --short HEAD 2>/dev/null || echo 'N/A')" | tee -a "$LOG_FILE"
-echo "Git branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'N/A')" | tee -a "$LOG_FILE"
-echo "Python: $(which python)" | tee -a "$LOG_FILE"
-echo "========================================" | tee -a "$LOG_FILE"
+# Helper function for logging to both console and file
+log() {
+    echo "$@" | tee -a "$LOG_FILE"
+}
+
+# Print header
+log "========================================================================"
+log "Bunyavirales Preprocessing"
+log "========================================================================"
+log "Config bundle: $CONFIG_BUNDLE"
+log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
+log "Host:          $(hostname)"
+log "User:          $(whoami)"
+log "Python:        $(which python)"
+log "Log file:      $LOG_FILE"
+log "========================================================================"
+
+# Capture git info for provenance
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")
+GIT_DIRTY=$(git status --porcelain 2>/dev/null | wc -l)
+
+log ""
+log "Git commit:    $GIT_COMMIT"
+log "Git branch:    $GIT_BRANCH"
+log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" || echo "No")"
+log ""
 
 # Run preprocessing
-python src/preprocess/preprocess_bunya_protein.py --virus_name "$VIRUS_NAME" 2>&1 | tee -a "$LOG_FILE"
+log "Starting preprocessing..."
+log "Command: python src/preprocess/preprocess_bunya_protein.py --config_bundle $CONFIG_BUNDLE"
+log ""
 
-# Capture exit status
+python src/preprocess/preprocess_bunya_protein.py \
+    --config_bundle "$CONFIG_BUNDLE" \
+    2>&1 | tee -a "$LOG_FILE"
+
 EXIT_CODE=${PIPESTATUS[0]}
 
-# Summary
-echo "========================================" | tee -a "$LOG_FILE"
-echo "Finished: $(date)" | tee -a "$LOG_FILE"
-echo "Exit code: $EXIT_CODE" | tee -a "$LOG_FILE"
-echo "Log saved to: $LOG_FILE" | tee -a "$LOG_FILE"
-echo "========================================" | tee -a "$LOG_FILE"
+# Print footer
+log ""
+log "========================================================================"
+log "Preprocessing completed"
+log "Exit code:     $EXIT_CODE"
+log "Finished:      $(date '+%Y-%m-%d %H:%M:%S')"
+log "Log saved to:  $LOG_FILE"
+log "========================================================================"
 
-# Create symlink to latest log
-ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/preprocess_${VIRUS_NAME}_latest.log"
+# Create symlink to latest log for easy access
+ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/preprocess_${CONFIG_BUNDLE}_latest.log"
+log "Symlink:       ${LOG_DIR}/preprocess_${CONFIG_BUNDLE}_latest.log"
 
 exit $EXIT_CODE
