@@ -1,4 +1,4 @@
-# Flu A bundle (default bundle)
+# Flu A bundle
 # Contains virus-specific overrides
 defaults:
   - /paths: flu_a
@@ -72,7 +72,7 @@ virus:
 # Embeddings overrides
 embeddings:
   batch_size: 32
-  use_selected_only: true  # Use selected_functions
+  use_selected_only: true  # Use selected_functions (since Flu A is a large dataset)
   # use_selected_only: false  # Use selected_functions
 
 # Dataset overrides
@@ -82,5 +82,5 @@ dataset:
 # Training overrides
 training:
   batch_size: 16
-  learning_rate: 0.0005
+  learning_rate: 0.001
   patience: 15  # Early stopping patience

@@ -1,29 +1,38 @@
-# Bunyavirales bundle - with training and virus-specific overrides
-# This is the default bundle for Bunyavirales.
+# Bunya bundle
+# Contains virus-specific overrides
 defaults:
   - /paths: bunya
   - /virus: bunya
   - /embeddings: default
   - /dataset: default
   - /training: base
-  - _self_  # Bundle overrides loaded AFTER base configs
+  - _self_
 
-# ==============================================================================
+# ===================================================================
+# DIRECTORY NAMING
+# ===================================================================
+# Optional manual directory suffix - set this to create a specific output directory
+# - null: Auto-generate suffix from max_files_to_process and seed
+# - string: Use this exact suffix (e.g., '_v2', '_seed_42_GTOs_2000')
+
+run_suffix: "_v2"
+
+# ===================================================================
 # SEED MANAGEMENT
-# ==============================================================================
+# ===================================================================
 # Hierarchical seed system for reproducibility:
 # - master_seed: Single seed that generates all process-specific seeds
 # - process_seeds: Override specific stages (null = derive from master_seed)
 # 
 # Examples:
-#   master_seed: 42, process_seeds.preprocessing: null → preprocessing uses derived seed
+#   master_seed: 42, seed for all other process: null → use derived seed for all processes
 #   master_seed: 42, process_seeds.preprocessing: 123 → preprocessing uses 123
 #   master_seed: null, process_seeds.preprocessing: 42 → only preprocessing reproducible
 #   master_seed: null → all processes use random seeds (non-reproducible)
 #
 # See docs/SEED_SYSTEM.md for detailed documentation
 
-master_seed: 42  # Master seed for full pipeline reproducibility (null = random)
+master_seed: 42  # Master seed for the entire experiment (null = random)
 
 # Process-specific seeds (null = derive from master_seed)
 process_seeds:
@@ -33,34 +42,44 @@ process_seeds:
   training: null       # Model training and initialization
   evaluation: null     # Evaluation sampling and metrics
 
-# ==============================================================================
+# ===================================================================
 # DATA SAMPLING
-# ==============================================================================
+# ===================================================================
 # Controls how many GTO files to process from the raw data directory
 # - null: Process ALL files (full dataset)
-# - integer: Process this many files (sampled according to preprocessing seed)
+# - int: Process this many files (sampled according to master seed)
+#
+# Directory naming:
+#   max_files_to_process: null → processed/bunya/April_2025_v2/
+#   max_files_to_process: 500, master_seed: 42 → processed/bunya/April_2025_seed_42_GTOs_500/
 
-max_files_to_process: null  # null = full dataset, or set to 100, 500, etc.
+max_files_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
 
-# ==============================================================================
-# DIRECTORY NAMING
-# ==============================================================================
-# Optional manual override for output directory suffix
-# - null: Auto-generate suffix from max_files_to_process and seed
-# - string: Use this exact suffix (e.g., '_v2')
+# ====================================================================
+# PROTEIN SELECTION
+# ====================================================================
+# Bunya uses core proteins (L, M, S) - define core functions for filtering
+virus:
+  selected_functions:
+    - "RNA-dependent RNA polymerase"  # L segment
+    - "Pre-glycoprotein polyprotein GP complex"  # M segment  
+    - "Nucleocapsid protein"  # S segment
 
-# run_suffix: null
-run_suffix: "_v2"
-
-# Virus-specific embeddings overrides
+# ====================================================================
+# MODEL AND DATASET OVERRIDES
+# ====================================================================
+# Embeddings overrides
 embeddings:
   batch_size: 16
-  use_selected_only: false  # Use all proteins (no selected_functions for Bunya)
+  use_selected_only: false  # Use all proteins (since Bunya is a small dataset)
 
-# Dataset-specific overrides
+# Dataset overrides
 dataset:
-  use_selected_only: false  # Use all proteins (no selected_functions defined for Bunya)
+  # use_selected_only: false  # Use all proteins (no selected_functions for Bunya)
+  use_selected_only: true # Use only the core proteins (L, M, S)
 
-# Virus-specific training overrides
+# Training overrides
 training:
-  batch_size: 128  # Use smaller batches for longer sequences
+  batch_size: 16  # Use smaller batches for longer sequences
+  learning_rate: 0.001
+  patience: 15  # Early stopping patience

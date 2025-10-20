@@ -11,13 +11,32 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-# CONFIG_BUNDLE="bunya"
-CONFIG_BUNDLE="flu_a"
-CUDA_NAME="cuda:0"
-FORCE_RECOMPUTE=""  # Set to "--force-recompute" to bypass cache
+CONFIG_BUNDLE="bunya"
+# CONFIG_BUNDLE="flu_a"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/embeddings"
 LOG_FILE="$LOG_DIR/compute_esm2_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
+
+# Optional path overrides (leave empty to use config defaults)
+# Bunya (default):
+#
+# INPUT_FILE=""
+# OUTPUT_DIR=""
+#
+# Flu A (default):
+# INPUT_FILE=""
+# OUTPUT_DIR=""
+#
+# Bunya (specified input and output):
+INPUT_FILE="$PROJECT_ROOT/data/processed/bunya/April_2025/protein_final.csv"
+OUTPUT_DIR="$PROJECT_ROOT/data/embeddings/bunya/April_2025_v2"
+#
+# Flu A (specified input and output):
+# INPUT_FILE="$PROJECT_ROOT/data/processed/flu_a/July_2025/protein_final.csv"
+# OUTPUT_DIR="$PROJECT_ROOT/data/embeddings/flu_a/July_2025_v2"
+
+FORCE_RECOMPUTE=""  # Set to "--force-recompute" to bypass cache
+CUDA_NAME="cuda:7"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -30,12 +49,16 @@ log "========================================================================"
 log "ESM-2 Embeddings Computation"
 log "========================================================================"
 log "Config bundle: $CONFIG_BUNDLE"
-log "CUDA device:   $CUDA_NAME"
 log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
 log "Host:          $(hostname)"
 log "User:          $(whoami)"
 log "Python:        $(which python)"
 log "Log file:      $LOG_FILE"
+log ""
+log "CUDA device:     $CUDA_NAME"
+log "Force recompute: $([[ $FORCE_RECOMPUTE == "--force-recompute" ]] && echo "Yes" || echo "No")"
+log "Input file:      $INPUT_FILE"
+log "Output dir:      $OUTPUT_DIR"
 log "========================================================================"
 
 # Capture git info for provenance
@@ -48,28 +71,34 @@ log "Git branch:    $GIT_BRANCH"
 log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" || echo "No")"
 log ""
 
+# Build command with optional path overrides
+CMD="python $PROJECT_ROOT/src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME $FORCE_RECOMPUTE"
+
+if [ -n "$INPUT_FILE" ]; then
+    CMD="$CMD --input_file $INPUT_FILE"
+fi
+
+if [ -n "$OUTPUT_DIR" ]; then
+    CMD="$CMD --output_dir $OUTPUT_DIR"
+fi
+
 # Run ESM-2 embeddings computation
 log "Starting embeddings computation with config bundle: $CONFIG_BUNDLE"
-log "Command: python src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME $FORCE_RECOMPUTE"
+log "Command: $CMD"
 log ""
-
-python "$PROJECT_ROOT/src/embeddings/compute_esm2_embeddings.py" \
-    --config_bundle "$CONFIG_BUNDLE" \
-    --cuda_name "$CUDA_NAME" \
-    $FORCE_RECOMPUTE \
-    2>&1 | tee -a "$LOG_FILE"
-
+set +e  # Temporarily disable exit on error
+eval "$CMD" 2>&1 | tee -a "$LOG_FILE"
 EXIT_CODE=${PIPESTATUS[0]}
+set -e  # Re-enable exit on error
 
 # Print footer
 log ""
 log "========================================================================"
 if [ $EXIT_CODE -eq 0 ]; then
-    log "ESM-2 embeddings computation completed successfully!"
+    log "✅ ESM-2 embeddings computation completed successfully!"
 else
-    log "ESM-2 embeddings computation failed!"
+    log "❌ ESM-2 embeddings computation failed with exit code: $EXIT_CODE"
 fi
-
 log "Exit code:     $EXIT_CODE"
 log "Finished:      $(date '+%Y-%m-%d %H:%M:%S')"
 log "Log saved to:  $LOG_FILE"

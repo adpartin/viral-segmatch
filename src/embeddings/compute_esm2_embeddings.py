@@ -20,7 +20,7 @@ from src.utils.torch_utils import determine_device
 from src.utils.esm2_utils import compute_esm2_embeddings, load_esm2_embeddings_bulk
 from src.utils.protein_utils import STANDARD_AMINO_ACIDS
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.path_utils import build_embeddings_paths
+from src.utils.path_utils import resolve_run_suffix, build_embeddings_paths
 from src.utils.config_hydra import (
     get_virus_config_hydra, 
     print_config_summary
@@ -36,7 +36,7 @@ def log_memory_usage(stage: str):
     """Log current memory usage."""
     process = psutil.Process()
     memory_mb = process.memory_info().rss / 1024 / 1024
-    print(f"   📊 Memory usage at {stage}: {memory_mb:.1f} MB")
+    print(f"📊 Memory usage at {stage}: {memory_mb:.1f} MB")
 
 # Local config (GPU-specific, keep here for now)
 ## CUDA_NAME = 'cuda:7'  # Specify GPU device
@@ -85,7 +85,7 @@ if config_bundle is None:
 config = get_virus_config_hydra(config_bundle, config_path=config_path)
 print_config_summary(config)
 
-# Extract virus_name from config (no longer from CLI args)
+# Extract virus_name from config
 VIRUS_NAME = config.virus.virus_name
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -96,16 +96,19 @@ print(f"{'='*40}")
 # Handle embeddings seed using utility function
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'embeddings')
+MAX_FILES_TO_PROCESS = config.max_files_to_process
 MODEL_CKPT = config.embeddings.model_ckpt
 ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
 BATCH_SIZE = config.embeddings.batch_size
 USE_SELECTED_ONLY = config.embeddings.use_selected_only
 
-# Read run_suffix from config to ensure path consistency across pipeline stages
-# The preprocessing script generates run_suffix (either manually specified or auto-generated 
-# from max_files_to_process and seed), and downstream scripts (embeddings, training) 
-# read it from config to use matching directories for seamless data flow.
-RUN_SUFFIX = config.run_suffix if config.run_suffix else ''
+# Resolve run suffix (manual override in config or auto-generate from sampling params)
+RUN_SUFFIX = resolve_run_suffix(
+    config=config,
+    max_files=MAX_FILES_TO_PROCESS,
+    seed=RANDOM_SEED,
+    auto_timestamp=True
+)
 
 # CUDA device
 CUDA_NAME = args.cuda_name
@@ -129,14 +132,13 @@ paths = build_embeddings_paths(
 default_input_file = paths['input_file']
 default_output_dir = paths['output_dir']
 
-print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
-
 # Apply CLI overrides if provided
 input_file = Path(args.input_file) if args.input_file else default_input_file
 output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
-print(f'\ninput_file:      {input_file}')
+print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
+print(f'input_file:      {input_file}')
 print(f'output_dir:      {output_dir}')
 print(f'device:          {device}')
 print(f'model:           {MODEL_CKPT}')
@@ -188,7 +190,9 @@ else:
 
 # Validate and deduplicate
 # breakpoint()
-print('\nValidate protein data.')
+print(f"\n{'='*50}")
+print('Validate protein data.')
+print('='*50)
 # brc_fea_ids must be unique because they are used as keys to query embeddings
 # from esm2_embeddings.h5 (HDF5 datasets can't have duplicate keys)
 if df['brc_fea_id'].duplicated().any():
@@ -215,7 +219,9 @@ log_memory_usage("protein data loaded")
 
 # Compute embeddings
 # breakpoint()
-print(f'\nCompute ESM-2 embeddings ({MODEL_CKPT}).')
+print(f"\n{'='*50}")
+print(f'Compute ESM-2 embeddings ({MODEL_CKPT}).')
+print('='*50)
 log_memory_usage("before embeddings computation")
 comp_timer = Timer()
 embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
@@ -227,43 +233,45 @@ embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
     max_length=ESM2_MAX_RESIDUES + 2
 )
 comp_timer.stop_timer()
-print(f"   ⏱️  Computation time: {comp_timer.get_elapsed_string()}")
+print(f"  ⏱️  Computation time: {comp_timer.get_elapsed_string()}")
 log_memory_usage("after embeddings computation")
 
 
 # Save embeddings to h5
 # breakpoint()
-output_file = output_dir / 'esm2_embeddings.h5'
-print(f'\nSave embeddings to: {output_file}')
+h5_file = output_dir / 'esm2_embeddings.h5'
+print(f'\nSave embeddings to: {h5_file}')
 save_timer = Timer()
 # OLD CODE (no compression):
-# with h5py.File(output_file, 'w') as file:
-#     for i, brc_id in enumerate(brc_fea_ids):
-#         file.create_dataset(brc_id, data=embeddings[i])
+with h5py.File(h5_file, 'w') as file:
+    for i, brc_id in enumerate(brc_fea_ids):
+        file.create_dataset(brc_id, data=embeddings[i])
 
 # NEW CODE (with compression for better performance and smaller file size):
-with h5py.File(output_file, 'w') as file:
-    for i, brc_id in enumerate(brc_fea_ids):
-        file.create_dataset(
-            brc_id, 
-            data=embeddings[i],
-            compression='gzip',    # Compress to save space
-            compression_opts=6,    # Balance speed vs compression (0-9, 6 is good default)
-            shuffle=True           # Better compression for embeddings
-        )
+# with h5py.File(h5_file, 'w') as file:
+#     for i, brc_id in enumerate(brc_fea_ids):
+#         file.create_dataset(
+#             brc_id, 
+#             data=embeddings[i],
+#             compression='gzip',    # Compress to save space
+#             compression_opts=6,    # Balance speed vs compression (0-9, 6 is good default)
+#             shuffle=True           # Better compression for embeddings
+#         )
 save_timer.stop_timer()
-print(f"   ⏱️  Save time: {save_timer.get_elapsed_string()}")
+print(f"  ⏱️  Save time: {save_timer.get_elapsed_string()}")
 log_memory_usage("after embeddings saving")
 
 
 # Embeddings to csv (TODO: or maybe parquet?)
 # breakpoint()
+csv_file = output_dir / 'esm2_embeddings.csv'
+print(f'\nSave embeddings to: {csv_file}')
 emb_df = pd.DataFrame(
     embeddings,
     columns=[f'emb_{i}' for i in range(embeddings.shape[1])]
 )
 emb_df.insert(0, 'brc_fea_id', brc_fea_ids)
-emb_df.to_csv(output_dir / 'esm2_embeddings.csv', index=False)
+emb_df.to_csv(csv_file, index=False)
 
 
 # Failed ids to csv
@@ -275,7 +283,7 @@ failed_df.to_csv(output_dir / 'failed_ids.csv', index=False)
 # Validate
 # breakpoint()
 print('\nValidate saved embeddings.')
-with h5py.File(output_file, 'r') as file:
+with h5py.File(h5_file, 'r') as file:
     saved_ids = list(file.keys())
     expected_count = len(df) - len(failed_ids)
     if len(saved_ids) != expected_count:

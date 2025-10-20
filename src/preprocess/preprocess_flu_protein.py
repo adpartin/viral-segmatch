@@ -18,7 +18,7 @@ sys.path.append(str(project_root))
 
 from src.utils.timer_utils import Timer
 from src.utils.seed_utils import resolve_process_seed
-from src.utils.path_utils import resolve_run_suffix, build_preprocessing_paths
+from src.utils.path_utils import build_preprocessing_paths, resolve_run_suffix 
 from src.utils.experiment_utils import (
     save_experiment_metadata,
     save_experiment_summary

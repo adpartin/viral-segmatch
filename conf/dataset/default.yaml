@@ -5,7 +5,7 @@
 task_name: 'segment_pair_classifier'
 
 # Protein filtering strategy
-use_selected_only: false  # true = use selected_functions, false = use all proteins
+use_selected_only: true  # true = use selected_functions, false = use all proteins
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 3.0  # Ratio of negative to positive pairs

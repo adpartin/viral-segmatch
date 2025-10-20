@@ -94,15 +94,15 @@ def resolve_run_suffix(
     """
     # Check for manual override in config
     if hasattr(config, 'run_suffix') and config.run_suffix:
-        print(f"📁 Using manual run_suffix from config: {config.run_suffix}")
+        print(f"Using manual run_suffix from config: {config.run_suffix}")
         return config.run_suffix
     
     # Auto-generate from sampling parameters
     suffix = generate_run_suffix(max_files, seed, timestamp=auto_timestamp)
     if suffix:
-        print(f"📁 Auto-generated run_suffix: {suffix}")
+        print(f"Auto-generated run_suffix: {suffix}")
     else:
-        print(f"📁 Processing full dataset (no run_suffix)")
+        print(f"Processing full dataset (no run_suffix)")
     
     return suffix
 
@@ -183,6 +183,7 @@ def build_embeddings_paths(
         virus_name: Virus name (e.g., 'flu_a', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
         run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+        config: Hydra config object
 
     Returns:
         Dictionary with keys: 'input_file', 'output_dir'
@@ -192,7 +193,8 @@ def build_embeddings_paths(
         ...     project_root=Path('/path/to/project'),
         ...     virus_name='flu_a',
         ...     data_version='July_2025',
-        ...     run_suffix='_seed_42_GTOs_500'
+        ...     run_suffix='_seed_42_GTOs_500',
+        ...     config=config
         ... )
         >>> paths['input_file']
         PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_GTOs_500/protein_final.csv')
@@ -212,7 +214,7 @@ def build_embeddings_paths(
 
     # Output: write to embeddings directory (matching the run_dir)
     output_dir = main_data_dir / 'embeddings' / virus_name / run_dir
-    
+
     return {
         'input_file': input_file,
         'output_dir': output_dir

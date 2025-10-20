@@ -1,190 +1,170 @@
 #!/usr/bin/env python3
 """
-Compare two ESM-2 embeddings HDF5 files to check if they are identical.
+Compare two HDF5 embedding files to identify differences.
+Usage: python scripts/compare_embeddings.py
 """
-import sys
-from pathlib import Path
-import h5py
-import pandas as pd
-import numpy as np
 
-# Add project root to sys.path
+import h5py
+import numpy as np
+import pandas as pd
+from pathlib import Path
+import sys
+
+# Add project root to path
 project_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(project_root))
 
-from src.utils.esm2_utils import load_esm2_embedding
-
-def load_embeddings_to_dataframe(h5_file_path):
+def compare_embeddings(file1_path, file2_path):
     """
-    Load embeddings from HDF5 file into a pandas DataFrame using the proper utility function.
+    Compare two HDF5 embedding files and identify differences.
     
     Args:
-        h5_file_path: Path to the HDF5 embeddings file
-        
-    Returns:
-        pandas.DataFrame: DataFrame with columns ['brc_fea_id', 'embedding_vector']
-                         where 'embedding_vector' contains the actual embedding arrays
+        file1_path: Path to first embedding file (old)
+        file2_path: Path to second embedding file (new)
     """
-    print(f"Loading embeddings from: {h5_file_path}")
+    print("="*80)
+    print("EMBEDDING FILES COMPARISON")
+    print("="*80)
+    print(f"File 1 (old): {file1_path}")
+    print(f"File 2 (new): {file2_path}")
+    print("="*80)
     
-    with h5py.File(h5_file_path, 'r') as file:
-        # Get all dataset names (these are the brc_fea_ids)
-        brc_fea_ids = list(file.keys())
-        print(f"  Found {len(brc_fea_ids)} embeddings")
+    # Load both files
+    with h5py.File(file1_path, 'r') as f1, h5py.File(file2_path, 'r') as f2:
+        # Get all keys (brc_fea_ids) from both files
+        keys1 = set(f1.keys())
+        keys2 = set(f2.keys())
         
-        # Load embeddings using the proper utility function
-        embeddings = []
-        for brc_id in brc_fea_ids:
-            embedding = load_esm2_embedding(brc_id, h5_file_path)
-            embeddings.append(embedding)
+        print(f"\n📊 FILE STATISTICS:")
+        print(f"File 1 keys: {len(keys1)}")
+        print(f"File 2 keys: {len(keys2)}")
         
-        # Create DataFrame
-        df = pd.DataFrame({
-            'brc_fea_id': brc_fea_ids,
-            'embedding_vector': embeddings
-        })
+        # Find common and unique keys
+        common_keys = keys1 & keys2
+        only_in_file1 = keys1 - keys2
+        only_in_file2 = keys2 - keys1
         
-        print(f"  Embedding dimension: {embeddings[0].shape if embeddings else 'N/A'}")
-        return df
-
-def compare_embeddings_dataframes(df1, df2):
-    """
-    Compare two embeddings DataFrames for equality.
-    
-    Args:
-        df1, df2: DataFrames with 'brc_fea_id' and 'embedding_vector' columns
+        print(f"\n🔍 KEY COMPARISON:")
+        print(f"Common keys: {len(common_keys)}")
+        print(f"Only in file 1: {len(only_in_file1)}")
+        print(f"Only in file 2: {len(only_in_file2)}")
         
-    Returns:
-        dict: Comparison results
-    """
-    print("\n" + "="*60)
-    print("EMBEDDINGS COMPARISON")
-    print("="*60)
-    
-    # Basic shape comparison
-    print(f"DataFrame 1 shape: {df1.shape}")
-    print(f"DataFrame 2 shape: {df2.shape}")
-    print(f"Shapes match: {df1.shape == df2.shape}")
-    
-    if df1.shape != df2.shape:
-        return {
-            'identical': False,
-            'reason': 'Different shapes',
-            'details': f"df1: {df1.shape}, df2: {df2.shape}"
-        }
-    
-    # Check if brc_fea_ids are identical
-    ids_match = df1['brc_fea_id'].equals(df2['brc_fea_id'])
-    print(f"BRC feature IDs match: {ids_match}")
-    
-    if not ids_match:
-        # Find differences in IDs
-        ids1_set = set(df1['brc_fea_id'])
-        ids2_set = set(df2['brc_fea_id'])
-        only_in_df1 = ids1_set - ids2_set
-        only_in_df2 = ids2_set - ids1_set
+        # Show some examples of unique keys
+        if only_in_file1:
+            print(f"\n📋 Keys only in file 1 (first 10):")
+            for i, key in enumerate(sorted(only_in_file1)[:10]):
+                print(f"  {i+1:2d}. {key}")
+            if len(only_in_file1) > 10:
+                print(f"  ... and {len(only_in_file1) - 10} more")
         
-        print(f"  IDs only in df1: {len(only_in_df1)}")
-        print(f"  IDs only in df2: {len(only_in_df2)}")
+        if only_in_file2:
+            print(f"\n📋 Keys only in file 2 (first 10):")
+            for i, key in enumerate(sorted(only_in_file2)[:10]):
+                print(f"  {i+1:2d}. {key}")
+            if len(only_in_file2) > 10:
+                print(f"  ... and {len(only_in_file2) - 10} more")
         
-        if only_in_df1:
-            print(f"  Examples from df1: {list(only_in_df1)[:5]}")
-        if only_in_df2:
-            print(f"  Examples from df2: {list(only_in_df2)[:5]}")
-    
-    # Sort both DataFrames by brc_fea_id for comparison
-    df1_sorted = df1.sort_values('brc_fea_id').reset_index(drop=True)
-    df2_sorted = df2.sort_values('brc_fea_id').reset_index(drop=True)
-    
-    # Compare embedding vectors
-    print("\nComparing embedding vectors...")
-    embedding_differences = []
-    
-    for i in range(len(df1_sorted)):
-        brc_id = df1_sorted.iloc[i]['brc_fea_id']
-        emb1 = df1_sorted.iloc[i]['embedding_vector']
-        emb2 = df2_sorted.iloc[i]['embedding_vector']
+        # Compare embedding dimensions for common keys
+        if common_keys:
+            print(f"\n🔬 EMBEDDING DIMENSIONS COMPARISON:")
+            sample_key = list(common_keys)[0]
+            emb1_shape = f1[sample_key].shape
+            emb2_shape = f2[sample_key].shape
+            print(f"Sample key: {sample_key}")
+            print(f"File 1 embedding shape: {emb1_shape}")
+            print(f"File 2 embedding shape: {emb2_shape}")
+            
+            if emb1_shape == emb2_shape:
+                print("✅ Embedding dimensions match")
+            else:
+                print("❌ Embedding dimensions differ!")
         
-        # Check if arrays are equal
-        if not np.array_equal(emb1, emb2):
-            diff = np.abs(emb1 - emb2)
-            max_diff = np.max(diff)
-            mean_diff = np.mean(diff)
-            embedding_differences.append({
-                'brc_fea_id': brc_id,
-                'max_difference': max_diff,
-                'mean_difference': mean_diff
-            })
-    
-    print(f"Embedding vectors with differences: {len(embedding_differences)}")
-    
-    if embedding_differences:
-        print("\nTop 5 differences:")
-        for i, diff in enumerate(embedding_differences[:5]):
-            print(f"  {i+1}. {diff['brc_fea_id']}: max_diff={diff['max_difference']:.6f}, mean_diff={diff['mean_difference']:.6f}")
+        # Compare actual embedding values for a few common keys
+        if common_keys and len(common_keys) > 0:
+            print(f"\n🧮 EMBEDDING VALUES COMPARISON:")
+            sample_keys = list(common_keys)[:5]  # Compare first 5 common keys
+            
+            for key in sample_keys:
+                emb1 = f1[key][:]
+                emb2 = f2[key][:]
+                
+                if emb1.shape == emb2.shape:
+                    # Compare values
+                    are_equal = np.allclose(emb1, emb2, rtol=1e-10, atol=1e-10)
+                    max_diff = np.max(np.abs(emb1 - emb2)) if emb1.shape == emb2.shape else float('inf')
+                    
+                    print(f"  {key}:")
+                    print(f"    Shapes match: {emb1.shape == emb2.shape}")
+                    print(f"    Values equal: {are_equal}")
+                    if not are_equal and emb1.shape == emb2.shape:
+                        print(f"    Max difference: {max_diff:.2e}")
+                else:
+                    print(f"  {key}: Shape mismatch - {emb1.shape} vs {emb2.shape}")
         
-        return {
-            'identical': False,
-            'reason': 'Embedding vectors differ',
-            'details': f"{len(embedding_differences)} out of {len(df1)} embeddings differ"
-        }
-    else:
-        print("✅ All embedding vectors are identical!")
-        return {
-            'identical': True,
-            'reason': 'All embeddings match',
-            'details': f"All {len(df1)} embeddings are identical"
-        }
+        # Analyze the differences in key sets
+        print(f"\n📈 DIFFERENCE ANALYSIS:")
+        if only_in_file1 or only_in_file2:
+            print("Key differences detected!")
+            
+            # Try to identify patterns in the differences
+            if only_in_file1:
+                print(f"\n🔍 Keys only in file 1 (old):")
+                # Group by prefix or pattern
+                prefixes1 = {}
+                for key in only_in_file1:
+                    prefix = key.split('.')[0] if '.' in key else key[:10]
+                    prefixes1[prefix] = prefixes1.get(prefix, 0) + 1
+                
+                for prefix, count in sorted(prefixes1.items()):
+                    print(f"  {prefix}*: {count} keys")
+            
+            if only_in_file2:
+                print(f"\n🔍 Keys only in file 2 (new):")
+                # Group by prefix or pattern
+                prefixes2 = {}
+                for key in only_in_file2:
+                    prefix = key.split('.')[0] if '.' in key else key[:10]
+                    prefixes2[prefix] = prefixes2.get(prefix, 0) + 1
+                
+                for prefix, count in sorted(prefixes2.items()):
+                    print(f"  {prefix}*: {count} keys")
+        else:
+            print("✅ No key differences - same proteins in both files")
+    
+    print("\n" + "="*80)
+    print("COMPARISON COMPLETE")
+    print("="*80)
+    
+    # Set breakpoint for interactive analysis
+    print("\n🔍 Setting breakpoint for interactive analysis...")
+    print("Available variables:")
+    print("  - file1_path, file2_path: File paths")
+    print("  - keys1, keys2: Sets of keys from each file")
+    print("  - common_keys: Keys present in both files")
+    print("  - only_in_file1, only_in_file2: Unique keys")
+    print("  - f1, f2: HDF5 file objects (if you want to load specific embeddings)")
+    
+    breakpoint()  # Interactive debugging point
 
 def main():
-    """Main function to compare the two embedding files."""
+    """Main function to run the comparison."""
+    # Define file paths
+    base_path = Path("/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/embeddings/bunya")
     
-    # File paths
-    file1 = Path("/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/embeddings/bunya/April_2025/esm2_embeddings.h5")
-    file2 = Path("/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/embeddings/bunya/April_2025_v2/esm2_embeddings.h5")
-    
-    print("ESM-2 Embeddings Comparison Tool")
-    print("="*60)
-    print(f"File 1: {file1}")
-    print(f"File 2: {file2}")
+    file1_path = base_path / "April_2025" / "esm2_embeddings.h5"
+    file2_path = base_path / "April_2025_v2" / "esm2_embeddings.h5"
     
     # Check if files exist
-    if not file1.exists():
-        print(f"❌ Error: File 1 does not exist: {file1}")
-        return 1
+    if not file1_path.exists():
+        print(f"❌ File 1 not found: {file1_path}")
+        return
     
-    if not file2.exists():
-        print(f"❌ Error: File 2 does not exist: {file2}")
-        return 1
+    if not file2_path.exists():
+        print(f"❌ File 2 not found: {file2_path}")
+        return
     
-    try:
-        # Load embeddings
-        print("\nLoading embeddings...")
-        df1 = load_embeddings_to_dataframe(file1)
-        df2 = load_embeddings_to_dataframe(file2)
-        
-        # Compare embeddings
-        result = compare_embeddings_dataframes(df1, df2)
-        
-        # Final result
-        print("\n" + "="*60)
-        print("FINAL RESULT")
-        print("="*60)
-        if result['identical']:
-            print("✅ EMBEDDINGS ARE IDENTICAL")
-        else:
-            print("❌ EMBEDDINGS DIFFER")
-            print(f"   Reason: {result['reason']}")
-            print(f"   Details: {result['details']}")
-        
-        return 0 if result['identical'] else 1
-        
-    except Exception as e:
-        print(f"❌ Error during comparison: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
+    # Run comparison
+    compare_embeddings(file1_path, file2_path)
 
 if __name__ == "__main__":
-    exit_code = main()
-    sys.exit(exit_code)
+    main()

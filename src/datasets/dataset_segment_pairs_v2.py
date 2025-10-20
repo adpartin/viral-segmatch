@@ -33,8 +33,10 @@ sys.path.append(str(project_root))
 
 from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
-from src.utils.path_utils import build_dataset_paths
-from src.utils.protein_utils import get_core_protein_filter_mask, validate_core_proteins
+from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.path_utils import resolve_run_suffix, build_dataset_paths
+# Removed unused imports: get_core_protein_filter_mask, validate_core_proteins
+# These were specific to the old core proteins approach
 
 
 def create_positive_pairs(
@@ -414,9 +416,16 @@ if config_bundle is None:
 config = get_virus_config_hydra(config_bundle, config_path=config_path)
 print_config_summary(config)
 
-# Extract config values
+# Extract virus_name from config
 VIRUS_NAME = config.virus.virus_name
+print(f"\n{'='*40}")
+print(f"Virus: {VIRUS_NAME}")
+print(f"Config bundle: {config_bundle}")
+print(f"{'='*40}")
+
+# Extract config values
 DATA_VERSION = config.virus.data_version
+RANDOM_SEED = resolve_process_seed(config, 'datasets')
 TASK_NAME = config.dataset.task_name
 USE_SELECTED_ONLY = config.dataset.use_selected_only
 NEG_TO_POS_RATIO = config.dataset.neg_to_pos_ratio
@@ -424,10 +433,23 @@ ALLOW_SAME_FUNC_NEGATIVES = config.dataset.allow_same_func_negatives
 MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
-SEED = config.master_seed  # Use master_seed for consistency
 
-# Build paths using the new path utilities
-RUN_SUFFIX = config.run_suffix if config.run_suffix else ''
+# Set deterministic seeds for reproducible dataset creation
+if RANDOM_SEED is not None:
+    set_deterministic_seeds(RANDOM_SEED, cuda_deterministic=False) # No CUDA for dataset creation
+    print(f'Set deterministic seeds for dataset creation (seed: {RANDOM_SEED})')
+else:
+    print('No seed set - dataset creation will be non-deterministic')
+
+# Resolve run suffix (manual override in config or auto-generate from sampling params)
+RUN_SUFFIX = resolve_run_suffix(
+    config=config,
+    max_files=config.max_files_to_process,
+    seed=RANDOM_SEED,
+    auto_timestamp=True
+)
+
+# Build dataset paths
 paths = build_dataset_paths(
     project_root=project_root,
     virus_name=VIRUS_NAME,
@@ -446,9 +468,8 @@ output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
-print(f'main_data_dir:      {project_root / "data"}')
-print(f'input_file:         {input_file}')
-print(f'output_dir:         {output_dir}')
+print(f'input_file:      {input_file}')
+print(f'output_dir:      {output_dir}')
 
 # Load protein data
 total_timer = Timer()
@@ -464,6 +485,9 @@ except Exception as e:
 # Restrict to selected functions if specified
 if USE_SELECTED_ONLY:
     if hasattr(config.virus, 'selected_functions') and config.virus.selected_functions:
+        # Both Flu A and Bunya can use selected_functions approach
+        # For Flu A: selected_functions = specific protein functions
+        # For Bunya: selected_functions = core protein functions (L, M, S)
         if 'function' not in prot_df.columns:
             raise ValueError("'function' column not found in protein data")
         print(f"Filtering to selected functions: {config.virus.selected_functions}")
@@ -479,8 +503,8 @@ else:
 # TODO Do we actually use 'seq_hash' somewhere?
 df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
-# Validate protein counts using protein_utils
-validate_core_proteins(df)
+# Note: Protein validation is now handled by the unified selected_functions approach
+# No need for validate_core_proteins() which was specific to the old core proteins method
 
 # Validate brc_fea_id uniqueness within isolates
 dups = df[df.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=False)]
@@ -507,11 +531,11 @@ train_pairs, val_pairs, test_pairs = split_dataset_v2(
     use_core_proteins_only=USE_SELECTED_ONLY,
     train_ratio=TRAIN_RATIO,
     val_ratio=VAL_RATIO,
-    seed=SEED,
+    seed=RANDOM_SEED,
 )
 
 # Save datasets
-print('\nSave datasets.')
+print(f'\nSave datasets to: {output_dir}')
 train_pairs.to_csv(f"{output_dir}/train_pairs.csv", index=False)
 val_pairs.to_csv(f"{output_dir}/val_pairs.csv", index=False)
 test_pairs.to_csv(f"{output_dir}/test_pairs.csv", index=False)
