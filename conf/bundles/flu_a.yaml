@@ -71,13 +71,16 @@ virus:
 # ====================================================================
 # Embeddings overrides
 embeddings:
-  batch_size: 32
+  batch_size: 16
   use_selected_only: true  # Use selected_functions (since Flu A is a large dataset)
   # use_selected_only: false  # Use selected_functions
 
 # Dataset overrides
 dataset:
   use_selected_only: true  # Use selected_functions
+  neg_to_pos_ratio: 0  # Ratio of negative to positive pairs
+  allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
+  max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
 # Training overrides
 training:

@@ -113,6 +113,16 @@ def create_negative_pairs(
     Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
     Tracks seen_pairs when creating negative pairs to prevent symmetric
     duplicates.
+
+    Args:
+        df: DataFrame containing the protein data
+        num_negatives: Number of negative pairs to create
+        isolate_ids: List of isolate IDs to sample from
+        allow_same_func_negatives: Whether to allow same-function negative pairs
+        max_same_func_ratio: Maximum fraction of same-function negative pairs
+
+    Returns:
+        Tuple of (DataFrame of negative pairs, number of same-function negative pairs)
     """
     np.random.seed(seed)
     random.seed(seed)
@@ -483,6 +493,7 @@ except Exception as e:
     raise RuntimeError(f"Error loading data from {input_file}: {e}")
 
 # Restrict to selected functions if specified
+breakpoint()
 if USE_SELECTED_ONLY:
     if hasattr(config.virus, 'selected_functions') and config.virus.selected_functions:
         # Both Flu A and Bunya can use selected_functions approach

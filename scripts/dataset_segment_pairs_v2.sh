@@ -11,8 +11,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CONFIG_BUNDLE="bunya"
-# CONFIG_BUNDLE="flu_a"
+# CONFIG_BUNDLE="bunya"
+CONFIG_BUNDLE="flu_a"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/datasets"
 LOG_FILE="$LOG_DIR/dataset_segment_pairs_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
@@ -28,12 +28,12 @@ LOG_FILE="$LOG_DIR/dataset_segment_pairs_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 # OUTPUT_DIR=""
 #
 # Bunya (specified input and output):
-INPUT_FILE="$PROJECT_ROOT/data/processed/bunya/April_2025/protein_final.csv"
-OUTPUT_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025_v2"
+# INPUT_FILE="$PROJECT_ROOT/data/processed/bunya/April_2025/protein_final.csv"
+# OUTPUT_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025_v2"
 #
 # Flu A (specified input and output):
-# INPUT_FILE="$PROJECT_ROOT/data/processed/flu_a/July_2025/protein_final.csv"
-# OUTPUT_DIR="$PROJECT_ROOT/data/datasets/flu_a/July_2025_v2"
+INPUT_FILE="$PROJECT_ROOT/data/processed/flu_a/July_2025/protein_final.csv"
+OUTPUT_DIR="$PROJECT_ROOT/data/datasets/flu_a/July_2025_v2"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
