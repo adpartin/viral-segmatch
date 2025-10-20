@@ -128,7 +128,7 @@ def compute_sliding_window_embedding(
         end = min(start + window_size, len(seq))
         sub_seq = seq[start:end]
         inputs = tokenizer([sub_seq], return_tensors="pt", padding=True, truncation=True, max_length=max_length)
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
         with torch.no_grad():
             emb = model(**inputs).last_hidden_state[:, 1:-1].mean(dim=1).cpu().numpy()
         embeddings.append(emb)
@@ -145,8 +145,38 @@ def load_esm2_embedding(brc_fea_id: str, embeddings_file: str) -> np.ndarray:
 
     Returns:
         numpy.ndarray: Embedding vector.
+        
+    Raises:
+        KeyError: If brc_fea_id is not found in the embeddings file.
     """
     with h5py.File(embeddings_file, 'r') as file:
         if brc_fea_id not in file:
             raise KeyError(f'brc_fea_id {brc_fea_id} not found in {embeddings_file}')
         return np.array(file[brc_fea_id])
+
+
+def load_esm2_embeddings_bulk(brc_fea_ids: list[str], embeddings_file: str) -> tuple[np.ndarray, list[str]]:
+    """
+    Load multiple ESM-2 embeddings from an HDF5 file efficiently (single file open).
+
+    Args:
+        brc_fea_ids (list): List of protein identifiers.
+        embeddings_file (str): Path to HDF5 file.
+
+    Returns:
+        tuple: (embeddings_array, valid_ids) where embeddings_array is numpy array
+               of shape (n_valid_embeddings, embedding_dim) and valid_ids are the
+               successfully loaded brc_fea_ids.
+    """
+    embeddings = []
+    valid_ids = []
+    
+    with h5py.File(embeddings_file, 'r') as file:
+        for brc_id in brc_fea_ids:
+            if brc_id in file:
+                embeddings.append(file[brc_id][:])
+                valid_ids.append(brc_id)
+            else:
+                print(f"   ⚠️  Warning: brc_fea_id {brc_id} not found in {embeddings_file}")
+    
+    return np.array(embeddings), valid_ids

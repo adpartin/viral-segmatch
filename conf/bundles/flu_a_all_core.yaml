@@ -1,6 +1,7 @@
 # Flu A experiment: All 9 core proteins
 # Baseline experiment with all core structural proteins
 defaults:
+  - /paths: flu_a
   - /virus: flu_a
   - /embeddings: default
   - /dataset: default

@@ -49,12 +49,32 @@ def extract_assembly_info(file_name: str) -> tuple[str, str]:
 
 
 def enforce_single_file(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
-    """Keep GCF_* over GCA_* for each assembly_id.
-    TODO Consider logging those to file
+    """
+    Keep GCF_* over GCA_* for each assembly_id (Bunyavirales-specific).
+    
+    This function was designed for Bunyavirales data where the same assembly_id
+    may appear in both GCA_* and GCF_* files. It preferentially keeps GCF_* versions.
+    
+    ⚠️  WARNING: This function assumes:
+    - Files are named with GCA_/GCF_ prefixes
+    - Only file-level duplicates exist (not intra-file duplicates)
+    - After file selection, no duplicates remain on ['prot_seq', 'assembly_id']
+    
+    For Flu A data, this function now handles intra-file duplicates automatically.
+    
+    Args:
+        df: DataFrame with protein data
+        verbose: If True, print detailed information about file selection
+        
+    Returns:
+        DataFrame with duplicates resolved
+        
+    Raises:
+        ValueError: If duplicates remain after file selection
     """
     seq_col_name = 'prot_seq'
 
-    # Method 1
+    # Method 1: File selection (GCA/GCF logic)
     keep_rows = []
     for aid, grp in df.groupby('assembly_id'):
         files = grp['file'].unique()
@@ -85,16 +105,126 @@ def enforce_single_file(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
     print(f"Dropped {mask_drop.sum()} GCA rows. Remaining rows: {len(prot_df)}")
     """
 
-    # dup_cols = [seq_col_name, 'assembly_id', 'function', 'replicon_type']
+    # Check for remaining duplicates
     dup_cols = [seq_col_name, 'assembly_id']
-    gca_gcf_dups = (
+    remaining_dups = (
         prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
         .sort_values(dup_cols)
         .reset_index(drop=True).copy()
     )
-    if not gca_gcf_dups.empty:
-        raise ValueError("Could not remove all GCA/GCF duplicates.")
+    
+    if not remaining_dups.empty:
+        # For Flu A data, this is expected and we need to handle it differently
+        print(f"⚠️  Found {len(remaining_dups)} remaining duplicates after (GCF/GCA) file selection")
+        print(f"   This may indicate intra-file duplicates (same sequence in same file)")
+        print(f"   Attempting to resolve by keeping first occurrence...")
+        
+        # Keep first occurrence of each duplicate
+        prot_df = prot_df.drop_duplicates(subset=dup_cols, keep='first')
+        print(f"   Resolved duplicates. Final shape: {prot_df.shape}")
+        
+        # Final check
+        final_dups = prot_df[prot_df.duplicated(subset=dup_cols, keep=False)]
+        if not final_dups.empty:
+            raise ValueError(f"Could not remove all duplicates. {len(final_dups)} duplicates remain.")
+    
     return prot_df
+
+
+def handle_assembly_duplicates(
+    df: pd.DataFrame, 
+    seq_col_name: str = 'prot_seq',
+    strategy: str = 'keep_first'
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Handle duplicate protein sequences within the same assembly_id.
+
+    Three types of duplicates:
+    1. Same seq, same assembly_id, different files → Keep one file (GCA/GCF logic)
+    2. Same seq, same assembly_id, same file → Keep one record (intra-file duplicates)
+    3. Different seq, same assembly_id → Keep all (not duplicates)
+
+    Args:
+        df: DataFrame with protein data
+        seq_col_name: Name of the sequence column
+        strategy: Strategy for handling duplicates ('keep_first', 'keep_last')
+
+    Returns:
+        tuple: (cleaned_df, removed_duplicates_df)
+    """
+    print(f"🔍 Analyzing duplicates on ['{seq_col_name}', 'assembly_id']")
+    
+    # Find all duplicates
+    dup_cols = [seq_col_name, 'assembly_id']
+    all_dups = (
+        df[df.duplicated(subset=dup_cols, keep=False)]
+        .sort_values(dup_cols + ['file', 'brc_fea_id'])
+        .copy()  # Keep original index for proper referencing
+    )
+
+    if all_dups.empty:
+        print("✅ No duplicates found")
+        return df, pd.DataFrame()
+
+    print(f"📊 Found {len(all_dups)} duplicate records across "
+          f"{all_dups['assembly_id'].nunique()} assemblies")
+
+    # Analyze duplicate types and build cleaned dataframe in one pass
+    dup_summary = []
+    keep_indices = set()
+
+    for (seq, aid), grp in all_dups.groupby(dup_cols):
+        files = grp['file'].unique()
+        dup_type = 'different_files' if len(files) > 1 else 'same_file'
+
+        # Determine which record to keep
+        if dup_type == 'different_files':
+            # GCA/GCF logic: prefer GCF_ files
+            gcf_files = [f for f in files if f.startswith('GCF_')] # TODO: there might be a case with a different prefix! Need to handle this.
+            chosen_file = gcf_files[0] if gcf_files else files[0]
+            keep_idx = grp[grp['file'] == chosen_file].index[0]  # Get the index of the chosen file
+        else:
+            # Same file: use strategy
+            if strategy == 'keep_first':
+                keep_idx = grp.index[0]
+            else:  # keep_last
+                keep_idx = grp.index[-1]
+
+        # Record the index to keep
+        keep_indices.add(keep_idx)
+
+        # Record what was kept/removed for summary
+        for idx, row in grp.iterrows():
+            print(f"file: {row['file']}; assembly_id: {row['assembly_id']}; brc_fea_id: {row['brc_fea_id']}")
+            action = 'kept' if idx == keep_idx else 'removed'
+            reason = 'gcf_preferred' if (dup_type == 'different_files' and action == 'kept') else f'{strategy}_occurrence'
+
+            dup_summary.append({
+                'assembly_id': row['assembly_id'],
+                'file': row['file'],
+                'function': row['function'],
+                'brc_fea_id': row['brc_fea_id'],
+                'prot_seq_preview': row[seq_col_name][:30] + "..." if len(row[seq_col_name]) > 30 else row[seq_col_name],
+                'duplicate_type': dup_type,
+                'action_taken': action,
+                'reason': reason
+            })
+
+    # Create cleaned dataframe
+    dup_summary_df = pd.DataFrame(dup_summary)
+
+    # Create cleaned dataframe: keep all non-duplicate rows + selected duplicate rows
+    non_dup_mask = ~df.index.isin(all_dups.index)
+    selected_dup_mask = df.index.isin(keep_indices)
+    cleaned_df = df[non_dup_mask | selected_dup_mask].copy()
+
+    print(f"📈 Duplicate resolution summary:")
+    print(f"   - Different files: {len(dup_summary_df[dup_summary_df['duplicate_type'] == 'different_files'])}")
+    print(f"   - Same file: {len(dup_summary_df[dup_summary_df['duplicate_type'] == 'same_file'])}")
+    print(f"   - Kept: {len(dup_summary_df[dup_summary_df['action_taken'] == 'kept'])}")
+    print(f"   - Removed: {len(dup_summary_df[dup_summary_df['action_taken'] == 'removed'])}")
+
+    return cleaned_df, dup_summary_df
 
 
 def classify_dup_groups(

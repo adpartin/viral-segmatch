@@ -8,6 +8,7 @@ from pathlib import Path
 
 import h5py
 import pandas as pd
+import psutil
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
@@ -16,7 +17,7 @@ sys.path.append(str(project_root))
 
 from src.utils.timer_utils import Timer
 from src.utils.torch_utils import determine_device
-from src.utils.esm2_utils import compute_esm2_embeddings
+from src.utils.esm2_utils import compute_esm2_embeddings, load_esm2_embeddings_bulk
 from src.utils.protein_utils import STANDARD_AMINO_ACIDS
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import build_embeddings_paths
@@ -30,6 +31,12 @@ from src.utils.config_hydra import (
 ESM2_PROTEIN_SEQ_COL = 'esm2_ready_seq' # Column with cleaned, ESM-2-ready protein seqs
 
 total_timer = Timer()
+
+def log_memory_usage(stage: str):
+    """Log current memory usage."""
+    process = psutil.Process()
+    memory_mb = process.memory_info().rss / 1024 / 1024
+    print(f"   📊 Memory usage at {stage}: {memory_mb:.1f} MB")
 
 # Local config (GPU-specific, keep here for now)
 ## CUDA_NAME = 'cuda:7'  # Specify GPU device
@@ -60,6 +67,11 @@ parser.add_argument(
     '--cuda_name', '-c',
     type=str, default='cuda:7',
     help='CUDA device to use (default: cuda:7)'
+)
+parser.add_argument(
+    '--force-recompute',
+    action='store_true',
+    help='Force recompute of embeddings, bypassing cache.'
 )
 args = parser.parse_args()
 
@@ -111,7 +123,8 @@ paths = build_embeddings_paths(
     project_root=project_root,
     virus_name=VIRUS_NAME,
     data_version=DATA_VERSION,
-    run_suffix=RUN_SUFFIX
+    run_suffix=RUN_SUFFIX,
+    config=config
 )
 default_input_file = paths['input_file']
 default_output_dir = paths['output_dir']
@@ -144,10 +157,14 @@ missing_cols = [col for col in required_cols if col not in df.columns]
 if missing_cols:
     raise ValueError(f"Missing required columns: {missing_cols}")
 
+# Check for duplicate IDs
+if df['brc_fea_id'].duplicated().any():
+    raise ValueError("Duplicate brc_fea_id found in input data")
+
 # Filter to selected proteins if configured
 if USE_SELECTED_ONLY:
     if 'function' not in df.columns:
-        raise ValueError("DataFrame must contain 'function' column to filter selected proteins")
+        raise ValueError("DataFrame must contain 'function' column to filter selected proteins.")
     
     # Load selected functions from config
     try:
@@ -157,16 +174,16 @@ if USE_SELECTED_ONLY:
             for i, func in enumerate(selected_functions, 1):
                 print(f"  {i}. {func}")
         else:
-            raise ValueError(f"No 'selected_functions' found in config for virus '{VIRUS_NAME}'")
+            raise ValueError(f"No 'selected_functions' found in config for virus '{VIRUS_NAME}'.")
     except Exception as e:
         raise ValueError(f"Failed to load config for virus '{VIRUS_NAME}': {e}")
     
     print(f"Filter to selected proteins only: {len(selected_functions)} functions")
     original_count = len(df)
     df = df[df['function'].isin(selected_functions)].reset_index(drop=True)
-    print(f"Filtered from {original_count} to {len(df)} selected proteins")
+    print(f"Filtered from {original_count} to {len(df)} selected proteins.")
 else:
-    print("Use all proteins")
+    print("Use all proteins.")
 
 
 # Validate and deduplicate
@@ -193,10 +210,14 @@ df = df[['brc_fea_id', ESM2_PROTEIN_SEQ_COL]].drop_duplicates().reset_index(drop
 if len(df) < n_org_proteins:
     print(f'Dropped {n_org_proteins - len(df)} duplicate protein sequences')
 print(f'Processing {len(df)} unique proteins')
+log_memory_usage("protein data loaded")
 
 
 # Compute embeddings
+# breakpoint()
 print(f'\nCompute ESM-2 embeddings ({MODEL_CKPT}).')
+log_memory_usage("before embeddings computation")
+comp_timer = Timer()
 embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
     sequences=df[ESM2_PROTEIN_SEQ_COL].tolist(),
     brc_fea_ids=df['brc_fea_id'].tolist(),
@@ -205,18 +226,38 @@ embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
     device=device,
     max_length=ESM2_MAX_RESIDUES + 2
 )
+comp_timer.stop_timer()
+print(f"   ⏱️  Computation time: {comp_timer.get_elapsed_string()}")
+log_memory_usage("after embeddings computation")
 
 
 # Save embeddings to h5
 # breakpoint()
 output_file = output_dir / 'esm2_embeddings.h5'
-print(f'\nSave embeddings to: {output_file}.')
+print(f'\nSave embeddings to: {output_file}')
+save_timer = Timer()
+# OLD CODE (no compression):
+# with h5py.File(output_file, 'w') as file:
+#     for i, brc_id in enumerate(brc_fea_ids):
+#         file.create_dataset(brc_id, data=embeddings[i])
+
+# NEW CODE (with compression for better performance and smaller file size):
 with h5py.File(output_file, 'w') as file:
     for i, brc_id in enumerate(brc_fea_ids):
-        file.create_dataset(brc_id, data=embeddings[i])
+        file.create_dataset(
+            brc_id, 
+            data=embeddings[i],
+            compression='gzip',    # Compress to save space
+            compression_opts=6,    # Balance speed vs compression (0-9, 6 is good default)
+            shuffle=True           # Better compression for embeddings
+        )
+save_timer.stop_timer()
+print(f"   ⏱️  Save time: {save_timer.get_elapsed_string()}")
+log_memory_usage("after embeddings saving")
 
 
-# Save embeddings to csv
+# Embeddings to csv (TODO: or maybe parquet?)
+# breakpoint()
 emb_df = pd.DataFrame(
     embeddings,
     columns=[f'emb_{i}' for i in range(embeddings.shape[1])]
@@ -225,7 +266,8 @@ emb_df.insert(0, 'brc_fea_id', brc_fea_ids)
 emb_df.to_csv(output_dir / 'esm2_embeddings.csv', index=False)
 
 
-# Save failed ids to csv
+# Failed ids to csv
+# breakpoint()
 failed_df = pd.DataFrame({'brc_fea_id': failed_ids})
 failed_df.to_csv(output_dir / 'failed_ids.csv', index=False)
 

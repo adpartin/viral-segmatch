@@ -11,7 +11,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CONFIG_BUNDLE="flu_a"
+CONFIG_BUNDLE="flu_a" # TODO: CHANGE THIS!
+FORCE_REPROCESS=""  # Set to "--force-reprocess" to bypass cache
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/preprocess"
 LOG_FILE="$LOG_DIR/preprocess_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
@@ -48,12 +49,13 @@ log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" 
 log ""
 
 # Run preprocessing with explicit bundle config
-log "Starting preprocessing..."
-log "Command: python src/preprocess/preprocess_flu_protein.py --config_bundle $CONFIG_BUNDLE"
+log "Starting preprocess with config bundle: $CONFIG_BUNDLE"
+log "Command: python src/preprocess/preprocess_flu_protein.py --config_bundle $CONFIG_BUNDLE $FORCE_REPROCESS"
 log ""
 
 python src/preprocess/preprocess_flu_protein.py \
     --config_bundle "$CONFIG_BUNDLE" \
+    $FORCE_REPROCESS \
     2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}

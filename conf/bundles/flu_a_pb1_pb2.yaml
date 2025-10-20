@@ -1,23 +1,24 @@
-# Flu A experiment: PB1 and PB2 proteins only
-# This experiment focuses on the two RNA polymerase subunits to test
-# model performance on a small subset of core proteins
+# Flu A bundle (PB1 and PB2 proteins only)
+# Contains virus-specific overrides
 defaults:
+  - /paths: flu_a
   - /virus: flu_a
   - /embeddings: default
   - /dataset: default
   - /training: base
   - _self_
 
-# ============================================================================
+# ====================================================================
 # EXPERIMENT IDENTIFICATION
-# ============================================================================
-# Manual directory suffix - set this to create a specific output directory
+# ====================================================================
+# Optional manual directory suffix - set this to create a specific output directory
 # This creates: data/processed/flu_a/July_2025_seed_42_GTOs_2000_pb1_pb2/
+
 run_suffix: "_seed_42_GTOs_2000_pb1_pb2"
 
-# ============================================================================
+# ====================================================================
 # SEED MANAGEMENT
-# ============================================================================
+# ====================================================================
 master_seed: 42
 
 process_seeds:
@@ -27,23 +28,23 @@ process_seeds:
   training: null
   evaluation: null
 
-# ===================================================================
+# ====================================================================
 # DATA SAMPLING
-# ===================================================================
-max_files_to_process: 2000  # Subset for faster iteration
+# ====================================================================
+max_files_to_process: 2000  # Dataset subset
 
-# ===================================================================
+# ====================================================================
 # PROTEIN SELECTION
-# ===================================================================
+# ====================================================================
 # Override selected_functions to include only PB1 and PB2
 virus:
   selected_functions:
     - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 - Segment 1
     - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 - Segment 2
 
-# ===================================================================
-# MODEL SETTINGS
-# ===================================================================
+# ====================================================================
+# MODEL AND DATASET OVERRIDES
+# ====================================================================
 embeddings:
   batch_size: 16  
   use_selected_only: true  # Use selected_functions for PB1+PB2

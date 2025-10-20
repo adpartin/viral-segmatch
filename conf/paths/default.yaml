@@ -1,5 +1,6 @@
-# Default paths configuration
-data_dir: '/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data'
+# Default paths configuration (system-independent)
+# All paths are relative to project root
+data_dir: 'data'
 raw_data_dir: '${paths.data_dir}/raw'
 processed_data_dir: '${paths.data_dir}/processed'
 output_dir: '${paths.data_dir}/output'

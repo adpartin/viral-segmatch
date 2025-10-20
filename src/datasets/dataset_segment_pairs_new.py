@@ -423,7 +423,8 @@ paths = build_dataset_paths(
     virus_name=VIRUS_NAME,
     data_version=DATA_VERSION,
     task_name=TASK_NAME,
-    run_suffix=RUN_SUFFIX
+    run_suffix=RUN_SUFFIX,
+    config=config
 )
 
 input_file = paths['input_file']

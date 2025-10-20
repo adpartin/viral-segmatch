@@ -65,7 +65,7 @@ log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" 
 log ""
 
 # Run ESM-2 embeddings computation
-log "Starting ESM-2 embeddings computation..."
+log "Starting preprocess with config bundle: $CONFIG_BUNDLE"
 log "Command: python src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
 log ""
 

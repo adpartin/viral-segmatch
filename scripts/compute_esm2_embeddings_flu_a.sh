@@ -11,9 +11,10 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-# CONFIG_BUNDLE="flu_a"
-CONFIG_BUNDLE="flu_a_pb1_pb2"
+CONFIG_BUNDLE="flu_a"
+# CONFIG_BUNDLE="flu_a_pb1_pb2"
 CUDA_NAME="cuda:0"
+FORCE_RECOMPUTE=""  # Set to "--force-recompute" to bypass cache
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/embeddings"
 LOG_FILE="$LOG_DIR/compute_esm2_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
@@ -51,13 +52,14 @@ log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" 
 log ""
 
 # Run ESM-2 embeddings computation
-log "Starting ESM-2 embeddings computation..."
-log "Command: python src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
+log "Starting embeddings computation with config bundle: $CONFIG_BUNDLE"
+log "Command: python src/embeddings/compute_esm2_embeddings.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME $FORCE_RECOMPUTE"
 log ""
 
 python "$PROJECT_ROOT/src/embeddings/compute_esm2_embeddings.py" \
     --config_bundle "$CONFIG_BUNDLE" \
     --cuda_name "$CUDA_NAME" \
+    $FORCE_RECOMPUTE \
     2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}

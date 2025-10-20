@@ -23,7 +23,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CONFIG_BUNDLE="flu_a_pb1_pb2"
+CONFIG_BUNDLE="flu_a_pb1_pb2" # TODO: CHANGE THIS!
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/preprocess"
 LOG_FILE="$LOG_DIR/preprocess_${CONFIG_BUNDLE}_${TIMESTAMP}.log"

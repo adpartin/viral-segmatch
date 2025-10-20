@@ -1,0 +1,22 @@
+# Flu A specific paths configuration
+# Designed for full dataset processing with experiment subsets
+
+# Base data directory (relative to project root)
+data_dir: 'data'
+
+# Raw data paths (usually virus-specific)
+raw_data_dir: '${paths.data_dir}/raw/flu_a/{data_version}'
+
+# Base paths for full dataset processing (one-time operations)
+preprocessing_base: '${paths.data_dir}/processed/flu_a/{data_version}'
+embeddings_base: '${paths.data_dir}/embeddings/flu_a/{data_version}'
+
+# Experiment-specific paths (use run_suffix)
+datasets_base: '${paths.data_dir}/datasets/flu_a/{data_version}'
+models_base: '${paths.data_dir}/models/flu_a/{data_version}'
+
+# Legacy paths (for backward compatibility)
+processed_data_dir: '${paths.data_dir}/processed'
+output_dir: '${paths.data_dir}/output'
+model_dir: '${paths.data_dir}/models'
+log_dir: '${paths.data_dir}/logs'

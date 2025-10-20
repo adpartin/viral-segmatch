@@ -1,6 +1,7 @@
 # Bunyavirales bundle - with training and virus-specific overrides
 # This is the default bundle for Bunyavirales.
 defaults:
+  - /paths: bunya
   - /virus: bunya
   - /embeddings: default
   - /dataset: default

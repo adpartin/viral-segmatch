@@ -111,7 +111,8 @@ def build_preprocessing_paths(
     project_root: Path,
     virus_name: str,
     data_version: str,
-    run_suffix: str = ""
+    run_suffix: str = "",
+    config: Optional[object] = None
     ) -> dict[str, Path]:
     """Build standard preprocessing paths for a virus.
     
@@ -141,7 +142,11 @@ def build_preprocessing_paths(
         >>> paths['output_dir']
         PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_GTOs_500')
     """
-    main_data_dir = project_root / 'data'
+    # Use config paths if available, otherwise fallback to hardcoded
+    if config and hasattr(config, 'paths') and hasattr(config.paths, 'data_dir'):
+        main_data_dir = project_root / config.paths.data_dir
+    else:
+        main_data_dir = project_root / 'data'
 
     # Map virus_name to raw data directory name
     # Raw data directories use different naming conventions (legacy)
@@ -164,7 +169,8 @@ def build_embeddings_paths(
     project_root: Path,
     virus_name: str,
     data_version: str,
-    run_suffix: str = ""
+    run_suffix: str = "",
+    config: Optional[object] = None
     ) -> dict[str, Path]:
     """Build standard embeddings paths for a virus.
 
@@ -193,7 +199,11 @@ def build_embeddings_paths(
         >>> paths['output_dir']
         PosixPath('/path/to/project/data/embeddings/flu_a/July_2025_seed_42_GTOs_500')
     """
-    main_data_dir = project_root / 'data'
+    # Use config paths if available, otherwise fallback to hardcoded
+    if config and hasattr(config, 'paths') and hasattr(config.paths, 'data_dir'):
+        main_data_dir = project_root / config.paths.data_dir
+    else:
+        main_data_dir = project_root / 'data'
     run_dir = f'{data_version}{run_suffix}'
 
     # Input: read from processed data
@@ -214,7 +224,8 @@ def build_dataset_paths(
     virus_name: str,
     data_version: str,
     task_name: str,
-    run_suffix: str = ""
+    run_suffix: str = "",
+    config: Optional[object] = None
     ) -> dict[str, Path]:
     """Build standard dataset paths for a virus.
 
@@ -232,7 +243,11 @@ def build_dataset_paths(
     Returns:
         Dictionary with keys: 'input_file', 'output_dir'
     """
-    main_data_dir = project_root / 'data'
+    # Use config paths if available, otherwise fallback to hardcoded
+    if config and hasattr(config, 'paths') and hasattr(config.paths, 'data_dir'):
+        main_data_dir = project_root / config.paths.data_dir
+    else:
+        main_data_dir = project_root / 'data'
     run_dir = f'{data_version}{run_suffix}'
     
     # Input: processed data
@@ -252,7 +267,8 @@ def build_training_paths(
     virus_name: str,
     data_version: str,
     task_name: str,
-    run_suffix: str = ""
+    run_suffix: str = "",
+    config: Optional[object] = None
     ) -> dict[str, Path]:
     """Build standard training paths for a virus.
 
@@ -271,7 +287,11 @@ def build_training_paths(
     Returns:
         Dictionary with keys: 'dataset_dir', 'embeddings_file', 'output_dir'
     """
-    main_data_dir = project_root / 'data'
+    # Use config paths if available, otherwise fallback to hardcoded
+    if config and hasattr(config, 'paths') and hasattr(config.paths, 'data_dir'):
+        main_data_dir = project_root / config.paths.data_dir
+    else:
+        main_data_dir = project_root / 'data'
     run_dir = f'{data_version}{run_suffix}'
     
     # Dataset input directory
