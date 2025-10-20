@@ -390,6 +390,16 @@ parser.add_argument(
     type=str, default=None,
     help='[DEPRECATED] Use --config_bundle instead. Kept for backward compatibility.'
 )
+parser.add_argument(
+    '--input_file',
+    type=str, default=None,
+    help='Path to input CSV file (e.g., protein_final.csv). If not provided, will be derived from config.'
+)
+parser.add_argument(
+    '--output_dir',
+    type=str, default=None,
+    help='Path to output directory for datasets. If not provided, will be derived from config.'
+)
 
 args = parser.parse_args()
 
@@ -427,8 +437,12 @@ paths = build_dataset_paths(
     config=config
 )
 
-input_file = paths['input_file']
-output_dir = paths['output_dir']
+default_input_file = paths['input_file']
+default_output_dir = paths['output_dir']
+
+# Apply CLI overrides if provided
+input_file = Path(args.input_file) if args.input_file else default_input_file
+output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
