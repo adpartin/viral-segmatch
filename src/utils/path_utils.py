@@ -3,10 +3,11 @@
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import pandas as pd
 
 
 def generate_run_suffix(
-    max_files: Optional[int] = None,
+    max_isolates: Optional[int] = None,
     seed: Optional[int] = None,
     timestamp: bool = True
     ) -> str:
@@ -14,53 +15,53 @@ def generate_run_suffix(
     
     The run suffix encodes the sampling strategy used for data processing:
     - Full dataset: no suffix (empty string)
-    - Deterministic sampling: "_seed_{seed}_GTOs_{max_files}"
-    - Random sampling: "_random_{timestamp}_GTOs_{max_files}"
+    - Deterministic sampling: "_seed_{seed}_isolates_{max_isolates}"
+    - Random sampling: "_random_{timestamp}_isolates_{max_isolates}"
     
     This ensures that different sampling strategies produce unique directory names
     and that the directory name documents how the data was sampled.
     
     Args:
-        max_files: Maximum number of files to process. None means full dataset.
+        max_isolates: Maximum number of isolates to process. None means full dataset.
         seed: Random seed used for sampling. None means random (non-deterministic).
         timestamp: If True, add timestamp for random runs to prevent collisions.
-                  Only used when seed is None and max_files is not None.
+                  Only used when seed is None and max_isolates is not None.
     
     Returns:
         Run suffix string to append to data version directory name.
         Examples:
             - "" (full dataset, no sampling)
-            - "_seed_42_GTOs_500" (deterministic sample)
-            - "_random_20251013_143522_GTOs_100" (random sample with timestamp)
-            - "_random_GTOs_100" (random sample without timestamp)
+            - "_seed_42_isolates_500" (deterministic sample)
+            - "_random_20251013_143522_isolates_100" (random sample with timestamp)
+            - "_random_isolates_100" (random sample without timestamp)
     
     Examples:
-        >>> generate_run_suffix(max_files=None, seed=42)
+        >>> generate_run_suffix(max_isolates=None, seed=42)
         ""
         
-        >>> generate_run_suffix(max_files=500, seed=42)
-        "_seed_42_GTOs_500"
+        >>> generate_run_suffix(max_isolates=500, seed=42)
+        "_seed_42_isolates_500"
         
-        >>> generate_run_suffix(max_files=100, seed=None, timestamp=False)
-        "_random_GTOs_100"
+        >>> generate_run_suffix(max_isolates=100, seed=None, timestamp=False)
+        "_random_isolates_100"
     """
-    if max_files is None:
+    if max_isolates is None:
         return ""  # Full dataset, no suffix
     
     if seed is not None:
-        return f"_seed_{seed}_GTOs_{max_files}"
+        return f"_seed_{seed}_isolates_{max_isolates}"
     else:
         # Random sampling - optionally add timestamp to prevent collisions
         if timestamp:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            return f"_random_{ts}_GTOs_{max_files}"
+            return f"_random_{ts}_isolates_{max_isolates}"
         else:
-            return f"_random_GTOs_{max_files}"
+            return f"_random_isolates_{max_isolates}"
 
 
 def resolve_run_suffix(
     config,
-    max_files: Optional[int] = None,
+    max_isolates: Optional[int] = None,
     seed: Optional[int] = None,
     auto_timestamp: bool = True
     ) -> str:
@@ -72,7 +73,7 @@ def resolve_run_suffix(
     
     Args:
         config: Hydra config object
-        max_files: Number of files to process (None = full dataset)
+        max_isolates: Number of isolates to process (None = full dataset)
         seed: Random seed for sampling (None = random)
         auto_timestamp: Add timestamp for random runs when auto-generating
     
@@ -81,15 +82,15 @@ def resolve_run_suffix(
     
     Examples:
         With manual override:
-            config.run_suffix = "_seed_42_GTOs_2000_pb1_pb2"
-            → Returns: "_seed_42_GTOs_2000_pb1_pb2"
+            config.run_suffix = "_seed_42_isolates_2000_pb1_pb2"
+            → Returns: "_seed_42_isolates_2000_pb1_pb2"
         
         Auto-generated:
-            max_files=500, seed=42
-            → Returns: "_seed_42_GTOs_500"
+            max_isolates=500, seed=42
+            → Returns: "_seed_42_isolates_500"
         
         Full dataset:
-            max_files=None, seed=42
+            max_isolates=None, seed=42
             → Returns: ""
     """
     # Check for manual override in config
@@ -98,7 +99,7 @@ def resolve_run_suffix(
         return config.run_suffix
     
     # Auto-generate from sampling parameters
-    suffix = generate_run_suffix(max_files, seed, timestamp=auto_timestamp)
+    suffix = generate_run_suffix(max_isolates, seed, timestamp=auto_timestamp)
     if suffix:
         print(f"Auto-generated run_suffix: {suffix}")
     else:
@@ -125,7 +126,7 @@ def build_preprocessing_paths(
         project_root: Project root directory
         virus_name: Virus name (e.g., 'flu_a', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
-        run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+        run_suffix: Optional run suffix (e.g., '_seed_42_records_500')
 
     Returns:
         Dictionary with keys: 'raw_dir', 'output_dir'
@@ -135,12 +136,12 @@ def build_preprocessing_paths(
         ...     project_root=Path('/path/to/project'),
         ...     virus_name='flu_a',
         ...     data_version='July_2025',
-        ...     run_suffix='_seed_42_GTOs_500'
+        ...     run_suffix='_seed_42_records_500'
         ... )
         >>> paths['raw_dir']
         PosixPath('/path/to/project/data/raw/Flu_A/July_2025')
         >>> paths['output_dir']
-        PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_GTOs_500')
+        PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_records_500')
     """
     # Use config paths if available, otherwise fallback to hardcoded
     if config and hasattr(config, 'paths') and hasattr(config.paths, 'data_dir'):
@@ -182,7 +183,7 @@ def build_embeddings_paths(
         project_root: Project root directory
         virus_name: Virus name (e.g., 'flu_a', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
-        run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+        run_suffix: Optional run suffix (e.g., '_seed_42_records_500')
         config: Hydra config object
 
     Returns:
@@ -193,13 +194,13 @@ def build_embeddings_paths(
         ...     project_root=Path('/path/to/project'),
         ...     virus_name='flu_a',
         ...     data_version='July_2025',
-        ...     run_suffix='_seed_42_GTOs_500',
+        ...     run_suffix='_seed_42_records_500',
         ...     config=config
         ... )
         >>> paths['input_file']
-        PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_GTOs_500/protein_final.csv')
+        PosixPath('/path/to/project/data/processed/flu_a/July_2025_seed_42_records_500/protein_final.csv')
         >>> paths['output_dir']
-        PosixPath('/path/to/project/data/embeddings/flu_a/July_2025_seed_42_GTOs_500')
+        PosixPath('/path/to/project/data/embeddings/flu_a/July_2025_seed_42_records_500')
     """
     # Use config paths if available, otherwise fallback to hardcoded
     if config and hasattr(config, 'paths') and hasattr(config.paths, 'data_dir'):
@@ -240,7 +241,7 @@ def build_dataset_paths(
         virus_name: Virus name (e.g., 'flu_a', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
         task_name: Task name (e.g., 'segment_pair_classifier')
-        run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+        run_suffix: Optional run suffix (e.g., '_seed_42_records_500')
 
     Returns:
         Dictionary with keys: 'input_file', 'output_dir'
@@ -284,7 +285,7 @@ def build_training_paths(
         virus_name: Virus name (e.g., 'flu_a', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
         task_name: Task name (e.g., 'segment_pair_classifier')
-        run_suffix: Optional run suffix (e.g., '_seed_42_GTOs_500')
+        run_suffix: Optional run suffix (e.g., '_seed_42_records_500')
 
     Returns:
         Dictionary with keys: 'dataset_dir', 'embeddings_file', 'output_dir'
@@ -310,3 +311,30 @@ def build_training_paths(
         'embeddings_file': embeddings_file,
         'output_dir': output_dir
     }
+
+
+def load_dataframe(file_path: Path) -> pd.DataFrame:
+    """
+    Load DataFrame from parquet (preferred) or CSV (fallback).
+    
+    Args:
+        file_path: Path to the data file (without extension)
+        
+    Returns:
+        DataFrame with data
+        
+    Raises:
+        FileNotFoundError: If neither parquet nor CSV file exists
+    """
+    # Try parquet first (faster, smaller)
+    parquet_path = file_path.with_suffix('.parquet')
+    csv_path = file_path.with_suffix('.csv')
+    
+    if parquet_path.exists():
+        print(f"Loading data from parquet: {parquet_path}")
+        return pd.read_parquet(parquet_path)
+    elif csv_path.exists():
+        print(f"Loading data from CSV: {csv_path}")
+        return pd.read_csv(csv_path)
+    else:
+        raise FileNotFoundError(f"Neither parquet nor CSV found. Tried: {parquet_path} and {csv_path}")

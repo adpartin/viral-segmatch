@@ -1,8 +1,8 @@
 # Bunya bundle
 # Contains virus-specific overrides
 defaults:
-  - /paths: bunya
   - /virus: bunya
+  - /paths: bunya
   - /embeddings: default
   - /dataset: default
   - /training: base

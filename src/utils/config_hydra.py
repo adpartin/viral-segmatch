@@ -10,6 +10,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
 from typing import Any, Optional
+from pprint import pprint
 
 # =============================================================================
 # HYDRA CONFIGURATION LOADING
@@ -47,7 +48,7 @@ def load_hydra_config(
 
 
 def get_virus_config_hydra(
-    virus_name: str,
+    config_bundle: str,
     training_config: Optional[str] = None,
     embeddings_config: Optional[str] = None,
     paths_config: Optional[str] = None,
@@ -58,7 +59,7 @@ def get_virus_config_hydra(
     This function loads a virus bundle and optionally overrides any config group.
     
     Args:
-        virus_name: Name of virus (e.g., 'bunya', 'flu_a')
+        config_bundle: Name of config bundle (e.g., 'flu_a', 'flu_a_3p_5ks', 'bunya')
         training_config: Optional training override (e.g., 'training/gpu8', 'gpu8')
                         If None, uses the training config defined in the bundle
         embeddings_config: Optional embeddings override (e.g., 'embeddings/flu_a_large', 'flu_a_large')
@@ -92,8 +93,8 @@ def get_virus_config_hydra(
                                        embeddings_config='embeddings/flu_a_large',
                                        paths_config='paths/default')
     """
-    # Load the bundle for this virus
-    config_name = f"bundles/{virus_name}"
+    # Load the bundle for this config
+    config_name = f"bundles/{config_bundle}"
 
     # Build overrides for any provided config groups
     overrides = []
@@ -134,7 +135,13 @@ def get_virus_config_hydra(
     # Also include bundle-level settings at the top level
     config_groups = {'virus', 'paths', 'embeddings', 'training'}
     
+    # Extract virus name from loaded config
+    virus_name = full_config.bundles.virus.virus_name if hasattr(full_config.bundles.virus, 'virus_name') else 'unknown'
+    
     flattened = DictConfig({
+        'bundle_name': config_bundle,  # Store the bundle name (e.g., "flu_a_3p_5ks")
+        'config_path': config_path,  # Store the config path for reference
+        'virus_name': virus_name,  # Extract virus name from loaded config
         'virus': full_config.bundles.virus,
         'paths': full_config.bundles.paths if 'paths' in full_config.bundles else {},
         'embeddings': full_config.bundles.embeddings if 'embeddings' in full_config.bundles else {},
@@ -161,6 +168,10 @@ def print_config_summary(config: DictConfig):
     print("=" * 60)
     print("HYDRA CONFIG SUMMARY")
     print("=" * 60)
+    if hasattr(config, 'bundle_name'):
+        print(f"Config bundle: {config.bundle_name}")
+    if hasattr(config, 'config_path') and config.config_path:
+        print(f"Config path: {config.config_path}")
 
     # Virus section
     if hasattr(config, 'virus') and config.virus:
@@ -177,19 +188,22 @@ def print_config_summary(config: DictConfig):
 
     # Paths section
     if hasattr(config, 'paths') and config.paths:
-        print(f"Paths: {config.paths}")
+        print("Paths:")
+        pprint(config.paths)
     else:
         print("Paths: Not configured")
 
     # Embeddings section
     if hasattr(config, 'embeddings') and config.embeddings:
-        print(f"Embeddings: {config.embeddings}")
+        print(f"Embeddings:")
+        pprint(config.embeddings)
     else:
         print("Embeddings: Not configured")
 
     # Training section
     if hasattr(config, 'training') and config.training:
-        print(f"Training: {config.training}")
+        print(f"Training:")
+        pprint(config.training)
     else:
         print("Training: Not configured")
 
@@ -258,9 +272,9 @@ def _get_replicon_type_for_segment(virus_name: str, segment: str) -> Optional[st
 
 if __name__ == "__main__":
     # Example: Load Flu A configuration with exploration training
-    config = get_virus_config_hydra('flu_a', 'flu_a_exploration')
+    config = get_virus_config_hydra('flu_a', training_config='flu_a_exploration')
     print_config_summary(config)
 
     # Example: Load Bunya configuration with optimized training
-    config = get_virus_config_hydra('bunya', 'bunya_optimized')
+    config = get_virus_config_hydra('bunya', training_config='bunya_optimized')
     print_config_summary(config)

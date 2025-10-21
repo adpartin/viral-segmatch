@@ -1,8 +1,8 @@
 # Flu A bundle
 # Contains virus-specific overrides
 defaults:
-  - /paths: flu_a
   - /virus: flu_a
+  - /paths: flu_a
   - /embeddings: default
   - /dataset: default
   - /training: base
@@ -78,12 +78,12 @@ embeddings:
 # Dataset overrides
 dataset:
   use_selected_only: true  # Use selected_functions
-  neg_to_pos_ratio: 0  # Ratio of negative to positive pairs
-  allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
+  allow_same_func_negatives: true  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
 # Training overrides
 training:
   batch_size: 16
   learning_rate: 0.001
-  patience: 15  # Early stopping patience
+  patience: 5  # Early stopping patience

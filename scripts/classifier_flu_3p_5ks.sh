@@ -1,10 +1,10 @@
 #!/bin/bash
-# ESM-2 Frozen Pair Classifier Training Script
+# ESM-2 Frozen Pair Classifier Training for Flu A 3p_5ks
 # 
-# Usage: ./scripts/train_esm2_frozen_pair_classifier_v2.sh
+# Usage: ./scripts/train_esm2_frozen_pair_classifier_flu_a_3p_5ks.sh
 # 
-# This script trains the ESM-2 frozen pair classifier using the v2 training script
-# with Hydra configuration and optional path overrides.
+# This script trains the ESM-2 frozen pair classifier for the 3-protein Flu A experiment
+# using the v2 training script with Hydra configuration and 3p_5ks paths.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -16,34 +16,17 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-# CONFIG_BUNDLE="bunya"
-CONFIG_BUNDLE="flu_a"
+CONFIG_BUNDLE="flu_a_3p_5ks"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/training"
 LOG_FILE="$LOG_DIR/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
-# Optional path overrides (leave empty to use config defaults)
-# Bunya (default):
-# DATASET_DIR=""
-# EMBEDDINGS_DIR=""
-# OUTPUT_DIR=""
-#
-# Flu A (default):
-# DATASET_DIR=""
-# EMBEDDINGS_DIR=""
-# OUTPUT_DIR=""
-#
-# Bunya (specified paths):
-# DATASET_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025_v2"
-# EMBEDDINGS_DIR="$PROJECT_ROOT/data/embeddings/bunya/April_2025_v2"
-# OUTPUT_DIR="$PROJECT_ROOT/data/models/bunya/April_2025_v2"
-#
-# Flu A (specified paths):
-DATASET_DIR="$PROJECT_ROOT/data/datasets/flu_a/July_2025_v2"
-EMBEDDINGS_DIR="$PROJECT_ROOT/data/embeddings/flu_a/July_2025_v2"
-OUTPUT_DIR="$PROJECT_ROOT/data/models/flu_a/July_2025_v2"
+# Path overrides - use 3p_5ks directories
+DATASET_DIR="$PROJECT_ROOT/data/datasets/flu_a/July_2025_seed_42_isolates_1000/segment_pair_classifier"
+EMBEDDINGS_DIR="$PROJECT_ROOT/data/embeddings/flu_a/July_2025_seed_42_isolates_1000"
+OUTPUT_DIR="$PROJECT_ROOT/data/models/flu_a/July_2025_seed_42_isolates_1000"
 
-CUDA_NAME="cuda:7"     # Default CUDA device
+CUDA_NAME="cuda:7"  # CUDA device
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -53,7 +36,7 @@ log() { echo "$@" | tee -a "$LOG_FILE"; }
 
 # Header
 log "========================================================================"
-log "ESM-2 Frozen Pair Classifier Training"
+log "ESM-2 Frozen Pair Classifier Training (Flu A 3p_5ks)"
 log "========================================================================"
 log "Timestamp: $(date)"
 log "Config Bundle: $CONFIG_BUNDLE"
@@ -76,9 +59,7 @@ if command -v git >/dev/null 2>&1; then
     log ""
 fi
 
-# Path overrides are set above in the main configuration section
-
-# Build command with optional path overrides
+# Build command with path overrides
 CMD="python $PROJECT_ROOT/src/models/train_esm2_frozen_pair_classifier_v2.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
 
 if [ -n "$DATASET_DIR" ]; then
@@ -94,7 +75,7 @@ if [ -n "$OUTPUT_DIR" ]; then
 fi
 
 # Run the training script
-log "Starting ESM-2 frozen pair classifier with config bundle: $CONFIG_BUNDLE"
+log "Starting ESM-2 frozen pair classifier training with config bundle: $CONFIG_BUNDLE"
 log "Command: $CMD"
 log ""
 
@@ -119,8 +100,3 @@ log "========================================================================"
 ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_latest.log"
 
 exit $EXIT_CODE
-
-
-
-
-

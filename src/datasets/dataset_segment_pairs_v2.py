@@ -34,7 +34,7 @@ sys.path.append(str(project_root))
 from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.path_utils import resolve_run_suffix, build_dataset_paths
+from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_dataframe
 # Removed unused imports: get_core_protein_filter_mask, validate_core_proteins
 # These were specific to the old core proteins approach
 
@@ -50,8 +50,8 @@ def create_positive_pairs(
     Uses combinations (instead of permutations) to create positive pairs to
     avoid duplicates that stem from symmetric pairs.
     """
-    np.random.seed(seed)
-    random.seed(seed)
+    # np.random.seed(seed)
+    # random.seed(seed)
     isolates = df.groupby('assembly_id')
 
     pos_pairs = []
@@ -124,8 +124,8 @@ def create_negative_pairs(
     Returns:
         Tuple of (DataFrame of negative pairs, number of same-function negative pairs)
     """
-    np.random.seed(seed)
-    random.seed(seed)
+    # np.random.seed(seed)
+    # random.seed(seed)
 
     neg_pairs = []
     seen_pairs = set()  # Track unique pairs
@@ -233,8 +233,9 @@ def split_dataset_v2(
     Returns:
         Tuple of (train_pairs, val_pairs, test_pairs) DataFrames
     """
-    np.random.seed(seed)
-    random.seed(seed)
+    breakpoint()
+    # np.random.seed(seed)
+    # random.seed(seed)
 
     # Compute positive pair counts per isolate
     isolate_pos_counts = compute_isolate_pair_counts(df, use_core_proteins_only)
@@ -323,7 +324,7 @@ def split_dataset_v2(
     train_pairs = pd.concat([train_pos, train_neg], ignore_index=True)
     val_pairs   = pd.concat([val_pos, val_neg], ignore_index=True)
     test_pairs  = pd.concat([test_pos, test_neg], ignore_index=True)
-    
+
     # # Shuffle the combined positive and negative pairs
     # train_pairs = train_pairs.sample(frac=1, random_state=seed).reset_index(drop=True)
     # val_pairs   = val_pairs.sample(frac=1, random_state=seed).reset_index(drop=True)
@@ -334,10 +335,16 @@ def split_dataset_v2(
     print(f'Total pairs: {total_pairs}')
     print(f'Positive pairs: {len(train_pos) + len(val_pos) + len(test_pos)}')
     print(f'Negative pairs: {len(train_neg) + len(val_neg) + len(test_neg)}')
-    print(f'Train same-function negative pairs: {train_same_func} ({train_same_func/len(train_neg)*100:.2f}%)')
-    print(f'Val same-function negative pairs:   {val_same_func} ({val_same_func/len(val_neg)*100:.2f}%)')
-    print(f'Test same-function negative pairs:  {test_same_func} ({test_same_func/len(test_neg)*100:.2f}%)')
-    segment_pair_counts = pd.concat([train_neg, val_neg, test_neg]).groupby(['seg_a', 'seg_b']).size().rename('count').reset_index()
+    # Calculate percentages safely (avoid division by zero)
+    train_neg_pct = (train_same_func/len(train_neg)*100) if len(train_neg) > 0 else 0
+    val_neg_pct = (val_same_func/len(val_neg)*100) if len(val_neg) > 0 else 0
+    test_neg_pct = (test_same_func/len(test_neg)*100) if len(test_neg) > 0 else 0
+
+    print(f'Train same-function negative pairs: {train_same_func} ({train_neg_pct:.2f}%)')
+    print(f'Val same-function negative pairs:   {val_same_func} ({val_neg_pct:.2f}%)')
+    print(f'Test same-function negative pairs:  {test_same_func} ({test_neg_pct:.2f}%)')
+    segment_pair_counts = pd.concat([train_neg, val_neg, test_neg]).groupby(
+        ['seg_a', 'seg_b']).size().rename('count').reset_index()
     print(f'Negative pair segment count:\n{segment_pair_counts}\n')
 
     # # Create histogram for segment_pair_counts
@@ -383,88 +390,98 @@ def split_dataset_v2(
     print(f"\nTrain isolates: {len(train_set)} ({len(train_set)/total_isolates*100:.2f}%)")
     print(f"Val isolates:   {len(val_set)} ({len(val_set)/total_isolates*100:.2f}%)")
     print(f"Test isolates:  {len(test_set)} ({len(test_set)/total_isolates*100:.2f}%)")
-    print(f"\nTrain positive pairs: {train_pairs['label'].sum()} ({train_pairs['label'].sum()/len(train_pairs)*100:.2f}% of the set)")
-    print(f"Val positive pairs:   {val_pairs['label'].sum()} ({val_pairs['label'].sum()/len(val_pairs)*100:.2f}% of the set)")
-    print(f"Test positive pairs:  {test_pairs['label'].sum()} ({test_pairs['label'].sum()/len(test_pairs)*100:.2f}% of the set)")
+    print(f"\nTrain positive pairs: {train_pairs['label'].sum()} "
+          f"({train_pairs['label'].sum()/len(train_pairs)*100:.2f}% of the set)")
+    print(f"Val positive pairs:   {val_pairs['label'].sum()} "
+          f"({val_pairs['label'].sum()/len(val_pairs)*100:.2f}% of the set)")
+    print(f"Test positive pairs:  {test_pairs['label'].sum()} "
+          f"({test_pairs['label'].sum()/len(test_pairs)*100:.2f}% of the set)")
 
     return train_pairs, val_pairs, test_pairs
 
 
-# Parse command line arguments
+# Parser
 parser = argparse.ArgumentParser(description='Create segment pairs dataset')
 parser.add_argument(
     '--config_bundle',
     type=str, default=None,
-    help='Config bundle to use (e.g., flu_a, flu_a_pb1_pb2, bunya). If not provided, uses virus_name for backward compatibility.'
+    help='Config bundle to use (e.g., flu_a, bunya).'
 )
-parser.add_argument(
-    '--virus_name', '-v',
-    type=str, default=None,
-    help='[DEPRECATED] Use --config_bundle instead. Kept for backward compatibility.'
-)
+# parser.add_argument(
+#     '--virus_name', '-v',
+#     type=str, default=None,
+#     help='[DEPRECATED] Use --config_bundle instead. Kept for backward compatibility.'
+# )
 parser.add_argument(
     '--input_file',
     type=str, default=None,
-    help='Path to input CSV file (e.g., protein_final.csv). If not provided, will be derived from config.'
+    help='Path to input CSV file (e.g., protein_final.csv). If not provided, derived from config.'
 )
 parser.add_argument(
     '--output_dir',
     type=str, default=None,
-    help='Path to output directory for datasets. If not provided, will be derived from config.'
+    help='Path to output directory for datasets. If not provided, derived from config.'
 )
-
 args = parser.parse_args()
 
-# Get config
-config_path = str(project_root / 'conf')  # Pass the config path explicitly
-# Use config_bundle if provided, otherwise fall back to virus_name for backward compatibility
-config_bundle = args.config_bundle if args.config_bundle else args.virus_name
-if config_bundle is None:
-    raise ValueError("Either --config_bundle or --virus_name must be provided")
-
 # Load config
+config_path = str(project_root / 'conf')  # Pass the config path explicitly
+config_bundle = args.config_bundle
+if config_bundle is None:
+    raise ValueError("❌ Must provide --config_bundle")
 config = get_virus_config_hydra(config_bundle, config_path=config_path)
 print_config_summary(config)
 
-# Extract virus_name from config
-VIRUS_NAME = config.virus.virus_name
-print(f"\n{'='*40}")
-print(f"Virus: {VIRUS_NAME}")
-print(f"Config bundle: {config_bundle}")
-print(f"{'='*40}")
-
 # Extract config values
+VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'datasets')
-TASK_NAME = config.dataset.task_name
 USE_SELECTED_ONLY = config.dataset.use_selected_only
+TASK_NAME = config.dataset.task_name
 NEG_TO_POS_RATIO = config.dataset.neg_to_pos_ratio
 ALLOW_SAME_FUNC_NEGATIVES = config.dataset.allow_same_func_negatives
 MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
+MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process  # Number of isolates to process (pipeline-wide)
+
+print(f"\n{'='*40}")
+print(f"Virus: {VIRUS_NAME}")
+print(f"Config bundle: {config_bundle}")
+print(f"{'='*40}")
+
+# Resolve run suffix (manual override in config or auto-generate from sampling params)
+RUN_SUFFIX = resolve_run_suffix(
+    config=config,
+    max_isolates=MAX_ISOLATES_TO_PROCESS,  # Use pipeline-wide max_isolates_to_process
+    seed=RANDOM_SEED,
+    auto_timestamp=True
+)
 
 # Set deterministic seeds for reproducible dataset creation
 if RANDOM_SEED is not None:
     set_deterministic_seeds(RANDOM_SEED, cuda_deterministic=False) # No CUDA for dataset creation
     print(f'Set deterministic seeds for dataset creation (seed: {RANDOM_SEED})')
 else:
-    print('No seed set - dataset creation will be non-deterministic')
-
-# Resolve run suffix (manual override in config or auto-generate from sampling params)
-RUN_SUFFIX = resolve_run_suffix(
-    config=config,
-    max_files=config.max_files_to_process,
-    seed=RANDOM_SEED,
-    auto_timestamp=True
-)
+    print('No seed set - computation will be non-deterministic')
 
 # Build dataset paths
 paths = build_dataset_paths(
     project_root=project_root,
     virus_name=VIRUS_NAME,
     data_version=DATA_VERSION,
-    task_name=TASK_NAME,
+    task_name=TASK_NAME, # TODO: is this necessary?
+    run_suffix=RUN_SUFFIX,
+    config=config
+)
+
+# TODO: why we need this?
+# Build embeddings paths to find used isolates
+from src.utils.path_utils import build_embeddings_paths
+embeddings_paths = build_embeddings_paths(
+    project_root=project_root,
+    virus_name=VIRUS_NAME,
+    data_version=DATA_VERSION,
     run_suffix=RUN_SUFFIX,
     config=config
 )
@@ -483,16 +500,35 @@ print(f'output_dir:      {output_dir}')
 
 # Load protein data
 total_timer = Timer()
-print('\nLoad preprocessed protein data.')
+print('\nLoad preprocessed protein sequence data.')
 try:
-    prot_df = pd.read_csv(input_file)
-    print(f"✅ Loaded {len(prot_df):,} protein records from {input_file}")
+    prot_df = load_dataframe(input_file)
+    print(f"✅ Loaded {len(prot_df):,} protein records")
 except FileNotFoundError:
-    raise FileNotFoundError(f"Data file not found at: {input_file}")
+    raise FileNotFoundError(f"❌ Data file not found at: {input_file}")
 except Exception as e:
-    raise RuntimeError(f"Error loading data from {input_file}: {e}")
+    raise RuntimeError(f"❌ Error loading data from {input_file}: {e}")
+
+# Load used isolates from embeddings script
+breakpoint()
+embeddings_dir = embeddings_paths['output_dir']
+used_isolates_file = embeddings_dir / 'sampled_isolates.txt'
+if used_isolates_file.exists():
+    print(f"\nLoad sampled isolates from: {used_isolates_file}")
+    with open(used_isolates_file, 'r') as f:
+        used_isolates = [line.strip() for line in f if line.strip()]
+    print(f"Found {len(used_isolates)} sampled isolates from embeddings step.")
+
+    # Filter to only used isolates
+    original_count = len(prot_df)
+    prot_df = prot_df[prot_df['assembly_id'].isin(used_isolates)].reset_index(drop=True)
+    print(f"Filtered {len(prot_df)} protein records from {original_count} based on sampled isolates.")
+else:
+    print(f"\nNo sampled_isolates.txt found at {used_isolates_file}")
+    print("Using all isolates (embeddings step may not have sampled).")
 
 # Restrict to selected functions if specified
+# TODO: consider adapting implementation from compute_esm2_embeddings.py
 breakpoint()
 if USE_SELECTED_ONLY:
     if hasattr(config.virus, 'selected_functions') and config.virus.selected_functions:
@@ -500,11 +536,11 @@ if USE_SELECTED_ONLY:
         # For Flu A: selected_functions = specific protein functions
         # For Bunya: selected_functions = core protein functions (L, M, S)
         if 'function' not in prot_df.columns:
-            raise ValueError("'function' column not found in protein data")
+            raise ValueError("❌ 'function' column not found in protein data")
         print(f"Filtering to selected functions: {config.virus.selected_functions}")
         mask = prot_df['function'].isin(config.virus.selected_functions)
         df = prot_df[mask].reset_index(drop=True)
-        print(f"Filtered from {len(prot_df)} to {len(df)} proteins")
+        print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected functions.")
     else:
         raise ValueError("use_selected_only is True but no selected_functions defined in config")
 else:
@@ -520,7 +556,7 @@ df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hex
 # Validate brc_fea_id uniqueness within isolates
 dups = df[df.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=False)]
 if not dups.empty:
-    raise ValueError(f"Duplicate brc_fea_id found within isolates: \
+    raise ValueError(f"❌ Duplicate brc_fea_id found within isolates: \
         {dups[['assembly_id', 'brc_fea_id']]}")
 
 # Settings (using config values)
@@ -546,7 +582,7 @@ train_pairs, val_pairs, test_pairs = split_dataset_v2(
 )
 
 # Save datasets
-print(f'\nSave datasets to: {output_dir}')
+print(f'\nSave datasets: {output_dir}')
 train_pairs.to_csv(f"{output_dir}/train_pairs.csv", index=False)
 val_pairs.to_csv(f"{output_dir}/val_pairs.csv", index=False)
 test_pairs.to_csv(f"{output_dir}/test_pairs.csv", index=False)

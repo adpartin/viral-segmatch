@@ -1,8 +1,0 @@
-# Default paths configuration (system-independent)
-# All paths are relative to project root
-data_dir: 'data'
-raw_data_dir: '${paths.data_dir}/raw'
-processed_data_dir: '${paths.data_dir}/processed'
-output_dir: '${paths.data_dir}/output'
-model_dir: '${paths.data_dir}/models'
-log_dir: '${paths.data_dir}/logs'
