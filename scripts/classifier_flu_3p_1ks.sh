@@ -1,10 +1,10 @@
 #!/bin/bash
-# ESM-2 Frozen Pair Classifier Training for Flu A 3p_5ks
+# ESM-2 Frozen Pair Classifier Training for Flu A 3p_1ks
 # 
-# Usage: ./scripts/train_esm2_frozen_pair_classifier_flu_a_3p_5ks.sh
+# Usage: ./scripts/classifier_flu_a_3p_1ks.sh
 # 
 # This script trains the ESM-2 frozen pair classifier for the 3-protein Flu A experiment
-# using the v2 training script with Hydra configuration and 3p_5ks paths.
+# using the v2 training script with Hydra configuration and 3p_1ks paths.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -16,48 +16,51 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CONFIG_BUNDLE="flu_a_3p_5ks"
+CONFIG_BUNDLE="flu_a_3p_1ks"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/training"
 LOG_FILE="$LOG_DIR/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
-# Path overrides - use 3p_5ks directories
-DATASET_DIR="$PROJECT_ROOT/data/datasets/flu_a/July_2025_seed_42_isolates_1000/segment_pair_classifier"
+# Path overrides - use 3p_1ks directories
+DATASET_DIR="$PROJECT_ROOT/data/datasets/flu_a/July_2025_seed_42_isolates_1000"
 EMBEDDINGS_DIR="$PROJECT_ROOT/data/embeddings/flu_a/July_2025_seed_42_isolates_1000"
-OUTPUT_DIR="$PROJECT_ROOT/data/models/flu_a/July_2025_seed_42_isolates_1000"
+OUTPUT_DIR="$PROJECT_ROOT/models/flu_a/July_2025_seed_42_isolates_1000"
 
 CUDA_NAME="cuda:7"  # CUDA device
 
 # Create log directory
 mkdir -p "$LOG_DIR"
 
-# Logging helper
+# Helper function for logging to both console and file
 log() { echo "$@" | tee -a "$LOG_FILE"; }
 
 # Header
 log "========================================================================"
-log "ESM-2 Frozen Pair Classifier Training (Flu A 3p_5ks)"
+log "ESM-2 Frozen Pair Classifier Training (Flu A 3p_1ks)"
 log "========================================================================"
-log "Timestamp: $(date)"
-log "Config Bundle: $CONFIG_BUNDLE"
-log "CUDA Device: $CUDA_NAME"
-log "Project Root: $PROJECT_ROOT"
-log "Log File: $LOG_FILE"
+log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
+log "Config bundle: $CONFIG_BUNDLE"
+log "Host:          $(hostname)"
+log "User:          $(whoami)"
+log "Python:        $(which python)"
+log "Log file:      $LOG_FILE"
 log ""
-log "Path Overrides:"
+log "Overrides:"
+log "  CUDA device:    $CUDA_NAME"
 log "  Dataset Dir:    $DATASET_DIR"
 log "  Embeddings Dir: $EMBEDDINGS_DIR"
 log "  Output Dir:     $OUTPUT_DIR"
 log ""
 
-# Git provenance
-if command -v git >/dev/null 2>&1; then
-    log "Git Information:"
-    log "  Branch: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
-    log "  Commit: $(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
-    log "  Status: $(git status --porcelain 2>/dev/null | wc -l) modified files"
-    log ""
-fi
+# Capture git info for provenance
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")
+GIT_DIRTY="$(git status --porcelain 2>/dev/null | wc -l)"
+log ""
+log "Git commit:    $GIT_COMMIT"
+log "Git branch:    $GIT_BRANCH"
+log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" || echo "No")"
+log ""
 
 # Build command with path overrides
 CMD="python $PROJECT_ROOT/src/models/train_esm2_frozen_pair_classifier_v2.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
@@ -80,9 +83,11 @@ log "Command: $CMD"
 log ""
 
 set +e  # Temporarily disable exit on error
+# set +u  # Temporarily disable undefined variable check
 eval "$CMD" 2>&1 | tee -a "$LOG_FILE"
 EXIT_CODE=${PIPESTATUS[0]}
 set -e  # Re-enable exit on error
+# set -u  # Re-enable undefined variable check
 
 # Footer
 log ""

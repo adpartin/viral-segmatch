@@ -35,7 +35,7 @@ def log_memory_usage(stage: str):
     """Log current memory usage."""
     process = psutil.Process()
     memory_mb = process.memory_info().rss / 1024 / 1024
-    print(f"📊 Memory usage at {stage}: {memory_mb:.1f} MB")
+    print(f"📊 Memory usage {stage}: {memory_mb:.1f} MB")
 
 # Parser
 parser = argparse.ArgumentParser(description='Compute ESM-2 embeddings for protein sequences')
@@ -43,6 +43,11 @@ parser.add_argument(
     '--config_bundle',
     type=str, default=None,
     help='Config bundle to use (e.g., flu_a, bunya).'
+)
+parser.add_argument(
+    '--cuda_name', '-c',
+    type=str, default='cuda:7',
+    help='CUDA device to use (default: cuda:7)'
 )
 parser.add_argument(
     '--input_file',
@@ -53,11 +58,6 @@ parser.add_argument(
     '--output_dir',
     type=str, default=None,
     help='Path to output directory for embeddings. If not provided, derived from config.'
-)
-parser.add_argument(
-    '--cuda_name', '-c',
-    type=str, default='cuda:7',
-    help='CUDA device to use (default: cuda:7)'
 )
 parser.add_argument(
     '--force-recompute',
@@ -102,7 +102,7 @@ if RANDOM_SEED is not None:
     set_deterministic_seeds(RANDOM_SEED, cuda_deterministic=True)
     print(f'Set deterministic seeds for ESM-2 embeddings computation (seed: {RANDOM_SEED})')
 else:
-    print('No seed set - computation will be non-deterministic')
+    print('No seed set - ESM-2 embeddings computation will be non-deterministic')
 
 # Build embeddings paths
 paths = build_embeddings_paths(
@@ -235,7 +235,7 @@ df = df[['brc_fea_id', ESM2_PROTEIN_SEQ_COL]].drop_duplicates().reset_index(drop
 if len(df) < n_org_proteins:
     print(f'Dropped {n_org_proteins - len(df)} duplicate protein sequences')
 print(f'✅ Retained {len(df)} unique protein records.')
-log_memory_usage("protein data loaded")
+log_memory_usage("after protein data loaded")
 
 
 # Compute embeddings
@@ -290,7 +290,7 @@ emb_df.to_parquet(parquet_file, index=False)
 # Failed ids to csv
 # breakpoint()
 failed_df = pd.DataFrame({'brc_fea_id': failed_ids})
-failed_df.to_csv(output_dir / 'failed_ids.csv', index=False)
+failed_df.to_csv(output_dir / 'failed_brc_fea_ids.csv', index=False)
 
 
 # Validate

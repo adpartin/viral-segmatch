@@ -17,12 +17,10 @@ sys.path.append(str(project_root))
 # print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.seed_utils import resolve_process_seed
-from src.utils.path_utils import build_preprocessing_paths, resolve_run_suffix 
-from src.utils.experiment_utils import (
-    save_experiment_metadata,
-    save_experiment_summary
-)
+from src.utils.path_utils import resolve_run_suffix, build_preprocessing_paths, load_dataframe
+from src.utils.experiment_utils import save_experiment_metadata, save_experiment_summary
 from src.utils.gto_utils import (
     extract_assembly_info,
     enforce_single_file, # TODO: old. Use for Bunya only.
@@ -34,94 +32,12 @@ from src.utils.protein_utils import (
     prepare_sequences_for_esm2,
     print_replicon_func_count
 )
-from src.utils.config_hydra import (
-    get_virus_config_hydra, 
-    print_config_summary
-)
 
 # Manual configs
 # TODO: consider setting these somewhere else (e.g., config.yaml)
 SEQ_COL_NAME = 'prot_seq'
 
 total_timer = Timer()
-
-# Define paths - make configurable via command line or environment
-parser = argparse.ArgumentParser(description='Preprocess protein data from GTO files')
-parser.add_argument(
-    '--config_bundle',
-    type=str, default=None,
-    help='Config bundle to use (e.g., flu_a, bunya). If not provided, uses virus_name for backward compatibility.'
-)
-parser.add_argument(
-    '--virus_name',
-    type=str, default=None,
-    help='[DEPRECATED] Use --config_bundle instead. Kept for backward compatibility.'
-)
-# parser.add_argument(
-#     '--use_selected_only',
-#     action='store_true',
-#     help='Filter to selected_functions from config.'
-# )
-parser.add_argument(
-    '--force-reprocess',
-    action='store_true',
-    help='Force reprocess of GTO files, bypassing cache.'
-)
-args = parser.parse_args()
-
-# Get config
-config_path = str(project_root / 'conf') # Pass the config path explicitly
-# Use config_bundle if provided, otherwise fall back to virus_name for backward compatibility
-config_bundle = args.config_bundle if args.config_bundle else args.virus_name
-if config_bundle is None:
-    raise ValueError("Either --config_bundle or --virus_name must be provided")
-
-config = get_virus_config_hydra(config_bundle, config_path=config_path)
-print_config_summary(config)
-
-# Extract virus_name from config
-VIRUS_NAME = config.virus.virus_name
-print(f"\n{'='*50}")
-print(f"Virus: {VIRUS_NAME}")
-print(f"Config bundle: {config_bundle}")
-print('='*50)
-
-# Extract configuration values
-DATA_VERSION = config.virus.data_version
-RANDOM_SEED = resolve_process_seed(config, 'preprocessing')
-MAX_FILES_TO_PROCESS = config.max_files_to_process
-core_functions = config.virus.core_functions
-aux_functions = config.virus.aux_functions
-selected_functions = config.virus.selected_functions
-
-# Resolve run suffix (manual override in config or auto-generate from sampling params)
-RUN_SUFFIX = resolve_run_suffix(
-    config=config,
-    max_files=MAX_FILES_TO_PROCESS,
-    seed=RANDOM_SEED,
-    auto_timestamp=True
-)
-
-# Build preprocessing paths
-paths = build_preprocessing_paths(
-    project_root=project_root,
-    virus_name=VIRUS_NAME,
-    data_version=DATA_VERSION,
-    run_suffix=RUN_SUFFIX,
-    config=config
-)
-raw_data_dir = paths['raw_dir']
-output_dir = paths['output_dir']
-gto_dir = raw_data_dir
-output_dir.mkdir(parents=True, exist_ok=True)
-
-# Display paths
-main_data_dir = project_root / 'data'
-print(f'\nmain_data_dir:   {main_data_dir}')
-print(f'raw_data_dir:    {raw_data_dir}')
-print(f'gto_dir:         {gto_dir}') # TODO: Is it always the same as raw_data_dir?
-print(f'output_dir:      {output_dir}')
-print(f'run_suffix:      {RUN_SUFFIX if RUN_SUFFIX else "(none - full dataset)"}\n') # TODO: Check if it's really the case when RUN_SUFFIX is None, then it's a full dataset.
 
 
 def validate_protein_counts(
@@ -760,13 +676,80 @@ def handle_duplicates(
     return prot_df
 
 
+# Define paths - make configurable via command line or environment
+parser = argparse.ArgumentParser(description='Preprocess protein data from GTO files')
+parser.add_argument(
+    '--config_bundle',
+    type=str, default=None,
+    help='Config bundle to use (e.g., flu_a, bunya). If not provided, uses virus_name for backward compatibility.'
+)
+parser.add_argument(
+    '--force-reprocess',
+    action='store_true',
+    help='Force reprocess of GTO files, bypassing cache.'
+)
+args = parser.parse_args()
+
+# Load config
+config_path = str(project_root / 'conf') # Pass the config path explicitly
+config_bundle = args.config_bundle
+if config_bundle is None:
+    raise ValueError("❌ Must provide --config_bundle")
+config = get_virus_config_hydra(config_bundle, config_path=config_path)
+print_config_summary(config)
+
+# Extract config values
+VIRUS_NAME = config.virus.virus_name
+DATA_VERSION = config.virus.data_version
+RANDOM_SEED = resolve_process_seed(config, 'preprocessing')
+# MAX_FILES_TO_PROCESS = config.max_files_to_process
+core_functions = config.virus.core_functions
+aux_functions = config.virus.aux_functions
+selected_functions = config.virus.selected_functions
+
+print(f"\n{'='*40}")
+print(f"Virus: {VIRUS_NAME}")
+print(f"Config bundle: {config_bundle}")
+print(f"{'='*40}")
+
+# Resolve run suffix (manual override in config or auto-generate from sampling params)
+RUN_SUFFIX = resolve_run_suffix(
+    config=config,
+    # max_files=MAX_FILES_TO_PROCESS,
+    seed=RANDOM_SEED,
+    auto_timestamp=True
+)
+
+# Build preprocessing paths
+paths = build_preprocessing_paths(
+    project_root=project_root,
+    virus_name=VIRUS_NAME,
+    data_version=DATA_VERSION,
+    run_suffix=RUN_SUFFIX,
+    config=config
+)
+
+raw_data_dir = paths['raw_dir']
+output_dir = paths['output_dir']
+gto_dir = raw_data_dir
+output_dir.mkdir(parents=True, exist_ok=True)
+
+# Display paths
+main_data_dir = project_root / 'data'
+print(f'\nmain_data_dir:   {main_data_dir}')
+print(f'gto_dir:         {gto_dir}')
+print(f'output_dir:      {output_dir}')
+print(f'run_suffix:      {RUN_SUFFIX if RUN_SUFFIX else "(none - full dataset)"}\n') # TODO: Check if it's really the case when RUN_SUFFIX is None, then it's a full dataset.
+
 # Aggregate protein data from GTO files (with caching)
-cached_agg_file = output_dir / 'protein_agg_from_GTOs.csv'
+# cached_agg_file = output_dir / 'protein_agg_from_GTOs.csv'
+cached_agg_file = output_dir / 'protein_agg_from_GTOs.parquet'
 
 # breakpoint()
 if cached_agg_file.exists() and not args.force_reprocess:
-    print(f"\n📦 Loading cached aggregated data from: {cached_agg_file}")
-    prot_df = pd.read_csv(cached_agg_file)
+    print(f"\nLoading cached aggregated data from: {cached_agg_file}")
+    # prot_df = pd.read_csv(cached_agg_file)
+    prot_df = load_dataframe(cached_agg_file)
     print(f"   Loaded {len(prot_df)} protein records from cache")
     print(f"   💡 Use --force-reprocess to bypass cache and re-process GTO files")
 else:
@@ -776,14 +759,22 @@ else:
         print(f"\n🔄 No cached data found. Processing GTO files...")
 
     prot_df = aggregate_protein_data_from_gto_files(
-        gto_dir, max_files=MAX_FILES_TO_PROCESS,
+        gto_dir,
+        # max_files=MAX_FILES_TO_PROCESS,
         random_seed=RANDOM_SEED
     )
     print(f'   Processed {len(prot_df)} protein records from GTO files')
 
+    # Handle mixed encoding in 'location' column
+    ss = prot_df['location'].copy()
+    ss = ss.map(lambda x: x.decode('utf-8', 'replace') if isinstance(x, (bytes, bytearray)) else x)
+    ss = ss.map(lambda x: str(x) if isinstance(x, (int, float)) else x)
+    prot_df['location'] = ss.astype('string[pyarrow]')
+
     # Save to cache
-    prot_df.to_csv(cached_agg_file, sep=',', index=False)
-    print(f"   💾 Cached aggregated data to: {cached_agg_file}")
+    # prot_df.to_csv(cached_agg_file, sep=',', index=False)
+    prot_df.to_parquet(cached_agg_file, index=False)
+    print(f"   Cached aggregated data to: {cached_agg_file}")
 
 print(f'\nprot_df: {prot_df.shape}')
 prot_df_no_seq = prot_df[prot_df[SEQ_COL_NAME].isna()]
@@ -863,12 +854,14 @@ protein_counts_per_file = analyze_protein_counts_per_file(
 # Assign segments
 # breakpoint()
 prot_df = assign_segments(prot_df, data_version=DATA_VERSION, use_core=True, use_aux=True)
-prot_df.to_csv(output_dir / 'protein_assigned_segments.csv', sep=',', index=False)
+# prot_df.to_csv(output_dir / 'protein_assigned_segments.csv', sep=',', index=False)
+# prot_df.to_parquet(output_dir / 'protein_assigned_segments.parquet', index=False)
 
 # Basic filters
 # breakpoint()
 prot_df = apply_basic_filters(prot_df)
-prot_df.to_csv(output_dir / 'protein_filtered_basic.csv', sep=',', index=False)
+# prot_df.to_csv(output_dir / 'protein_filtered_basic.csv', sep=',', index=False)
+# prot_df.to_parquet(output_dir / 'protein_filtered_basic.parquet', index=False)
 
 # Handle duplicates
 # breakpoint()
@@ -892,7 +885,7 @@ print(ambig_df[cols_print])
 # breakpoint()
 print(f"\n{'='*50}")
 print("Summarize of ambiguities in protein sequences.")
-print(f'='*50)
+print('='*50)
 sa = summarize_ambiguities(prot_df)
 pprint(sa)
 print(f"Total protein seqs with terminal stops: {sa['terminal_stops']} "
@@ -964,7 +957,7 @@ dup_counts = prot_dups.groupby(SEQ_COL_NAME).agg(num_files=('file', 'nunique')).
 print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
 # Save final data
-# breakpoint()
+del prot_dups, dup_counts, problematic_seqs_df, ambig_df
 print(f"\n{'='*50}")
 print("Save final protein data.")
 print('='*50)
@@ -1005,7 +998,7 @@ save_experiment_summary(
         'Run suffix': RUN_SUFFIX if RUN_SUFFIX else '(none - full dataset)',
         'Master seed': config.master_seed,
         'Preprocessing seed': RANDOM_SEED,
-        'Max files to process': MAX_FILES_TO_PROCESS if MAX_FILES_TO_PROCESS else 'All',
+        # 'Max files to process': MAX_FILES_TO_PROCESS if MAX_FILES_TO_PROCESS else 'All',
         'Selected functions': selected_functions,
         'Total proteins processed': len(prot_df),
         'Unique protein sequences': prot_df[SEQ_COL_NAME].nunique(),

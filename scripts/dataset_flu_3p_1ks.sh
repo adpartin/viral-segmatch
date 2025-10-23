@@ -1,10 +1,10 @@
 #!/bin/bash
-# Dataset Segment Pairs Creation for Flu A 3p_5ks
+# Dataset Segment Pairs Creation for Flu A 3p_1ks
 # 
-# Usage: ./scripts/dataset_flu_3p_5ks.sh
+# Usage: ./scripts/dataset_flu_3p_1ks.sh
 # 
 # This script creates segment pairs for the 3-protein Flu A experiment
-# using existing preprocessing data and saving to 3p_5ks directories.
+# using existing preprocessing data and saving to 3p_1ks directories.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -16,33 +16,33 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CONFIG_BUNDLE="flu_a_3p_5ks"
+CONFIG_BUNDLE="flu_a_3p_1ks"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/datasets"
 LOG_FILE="$LOG_DIR/dataset_segment_pairs_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
-# Path overrides - use existing preprocessing, save to 3p_5ks directories
+# Path overrides - use existing preprocessing, save to 3p_1ks directories
 INPUT_FILE="$PROJECT_ROOT/data/processed/flu_a/July_2025/protein_final.csv"  # Use existing preprocessing
 OUTPUT_DIR=""  # Let config determine the path (will be July_2025_seed_42_records_5000_pb1_pb2_pa)
 
 # Create log directory
 mkdir -p "$LOG_DIR"
 
-# Logging helper
+# Helper function for logging to both console and file
 log() { echo "$@" | tee -a "$LOG_FILE"; }
 
 # Print header
 log "========================================================================"
-log "Dataset Segment Pairs Creation (Flu A 3p_5ks)"
+log "Dataset Segment Pairs Creation (Flu A 3p_1ks)"
 log "========================================================================"
-log "Config bundle: $CONFIG_BUNDLE"
 log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
+log "Config bundle: $CONFIG_BUNDLE"
 log "Host:          $(hostname)"
 log "User:          $(whoami)"
 log "Python:        $(which python)"
 log "Log file:      $LOG_FILE"
 log ""
-log "Path Overrides:"
+log "Overrides:"
 log "  Input file:  $INPUT_FILE"
 log "  Output dir:  $OUTPUT_DIR"
 log "========================================================================"

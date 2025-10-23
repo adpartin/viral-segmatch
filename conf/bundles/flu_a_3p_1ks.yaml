@@ -9,12 +9,14 @@ defaults:
   - _self_
 
 # ====================================================================
-# EXPERIMENT IDENTIFICATION
+# DIRECTORY NAMING
 # ====================================================================
 # Optional manual directory suffix - set this to create a specific output directory
-# This creates: data/processed/flu_a/July_2025_seed_42_GTOs_2000_pb1_pb2/
+# - null: Auto-generate suffix from max_isolates_to_process and seed
+# - string: Use this exact suffix (e.g., '_v2', '_seed_42_isolates_2000')
 
-# run_suffix: "_seed_42_GTOs_5000_pb1_pb2_pa"
+# run_suffix: "_seed_42_isolates_5000_pb1_pb2_pa"
+run_suffix: null
 
 # ====================================================================
 # SEED MANAGEMENT
@@ -31,7 +33,7 @@ process_seeds:
 # ====================================================================
 # DATA SAMPLING
 # ====================================================================
-# max_files_to_process: null  # Dataset subset
+# max_isolates_to_process: null  # Dataset subset
 # max_isolates_to_process: 5000  # Limit number of isolates to process (pipeline-wide)
 max_isolates_to_process: 1000  # Limit number of isolates to process (pipeline-wide)
 
@@ -49,7 +51,6 @@ virus:
 # MODEL AND DATASET OVERRIDES
 # ====================================================================
 embeddings:
-  # batch_size: 16
   batch_size: 32
   use_selected_only: true  # Use selected_functions for PB1+PB2+PA
 

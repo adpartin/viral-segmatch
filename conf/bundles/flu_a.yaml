@@ -45,17 +45,16 @@ process_seeds:
 # ===================================================================
 # DATA SAMPLING
 # ===================================================================
-# Controls how many GTO files to process from the raw data directory
+# Controls how many isolates to process from the raw data directory
 # - null: Process ALL files (full dataset)
-# - int: Process this many files (sampled according to master seed)
+# - int: Process this many isolates (sampled according to master seed)
 #
 # Directory naming:
-#   max_files_to_process: null → processed/flu_a/July_2025/
-#   max_files_to_process: 500, master_seed: 42 → processed/flu_a/July_2025_seed_42_GTOs_500/
-#   max_files_to_process: 100, master_seed: null → processed/flu_a/July_2025_random_20251013_GTOs_100/
+#   max_isolates_to_process: null → processed/flu_a/July_2025/
+#   max_isolates_to_process: 500, master_seed: 42 → processed/flu_a/July_2025_seed_42_isolates_500/
+#   max_isolates_to_process: 100, master_seed: null → processed/flu_a/July_2025_random_20251013_isolates_100/
 
-max_files_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
-# max_files_to_process: 2000  # null = full dataset, or set to 100, 500, 5000, etc.
+max_isolates_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
 
 # ====================================================================
 # PROTEIN SELECTION
@@ -71,7 +70,7 @@ virus:
 # ====================================================================
 # Embeddings overrides
 embeddings:
-  batch_size: 16
+  batch_size: 32
   use_selected_only: true  # Use selected_functions (since Flu A is a large dataset)
   # use_selected_only: false  # Use selected_functions
 

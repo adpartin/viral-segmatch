@@ -226,7 +226,7 @@ def build_dataset_paths(
     project_root: Path,
     virus_name: str,
     data_version: str,
-    task_name: str,
+    # task_name: str,
     run_suffix: str = "",
     config: Optional[object] = None
     ) -> dict[str, Path]:
@@ -257,7 +257,7 @@ def build_dataset_paths(
     input_file = main_data_dir / 'processed' / virus_name / run_dir / 'protein_final.csv'
     
     # Output: datasets
-    output_dir = main_data_dir / 'datasets' / virus_name / run_dir / task_name
+    output_dir = main_data_dir / 'datasets' / virus_name / run_dir #/ task_name
     
     return {
         'input_file': input_file,
@@ -269,7 +269,7 @@ def build_training_paths(
     project_root: Path,
     virus_name: str,
     data_version: str,
-    task_name: str,
+    # task_name: str,
     run_suffix: str = "",
     config: Optional[object] = None
     ) -> dict[str, Path]:
@@ -296,16 +296,16 @@ def build_training_paths(
     else:
         main_data_dir = project_root / 'data'
     run_dir = f'{data_version}{run_suffix}'
-    
+
     # Dataset input directory
-    dataset_dir = main_data_dir / 'datasets' / virus_name / run_dir / task_name
-    
+    dataset_dir = main_data_dir / 'datasets' / virus_name / run_dir #/ task_name
+
     # Embeddings input file
     embeddings_file = main_data_dir / 'embeddings' / virus_name / run_dir / 'esm2_embeddings.h5'
-    
+
     # Model output directory
-    output_dir = project_root / 'models' / virus_name / run_dir / task_name
-    
+    output_dir = main_data_dir / 'models' / virus_name / run_dir #/ task_name
+
     return {
         'dataset_dir': dataset_dir,
         'embeddings_file': embeddings_file,
@@ -316,13 +316,13 @@ def build_training_paths(
 def load_dataframe(file_path: Path) -> pd.DataFrame:
     """
     Load DataFrame from parquet (preferred) or CSV (fallback).
-    
+
     Args:
         file_path: Path to the data file (without extension)
-        
+
     Returns:
         DataFrame with data
-        
+
     Raises:
         FileNotFoundError: If neither parquet nor CSV file exists
     """

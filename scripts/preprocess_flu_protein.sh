@@ -1,17 +1,5 @@
 #!/bin/bash
-# ============================================================================
-# Preprocessing script for Flu A: PB1 and PB2 proteins only
-# ============================================================================
-# This script processes a subset of Flu A proteins (PB1 and PB2) using the
-# flu_a_pb1_pb2 bundle configuration. The bundle defines:
-# - run_suffix: "_seed_42_GTOs_2000_pb1_pb2" (manual directory naming)
-# - max_files_to_process: 2000 (subset for faster iteration)
-# - master_seed: 42 (reproducible sampling and processing)
-# - selected_functions: Only PB1 and PB2 proteins
-#
-# Output directory will be:
-#   data/processed/flu_a/July_2025_seed_42_GTOs_2000_pb1_pb2/
-# ============================================================================
+# Preprocess Flu A protein data from GTO files
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -23,63 +11,74 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CONFIG_BUNDLE="flu_a_pb1_pb2" # TODO: CHANGE THIS!
+# CONFIG_BUNDLE="flu_a"
+CONFIG_BUNDLE="flu_a_3p_1ks"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/preprocess"
 LOG_FILE="$LOG_DIR/preprocess_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
+
+FORCE_REPROCESS=""  # Set to "--force-reprocess" to bypass cache
 
 # Create log directory
 mkdir -p "$LOG_DIR"
 
 # Helper function for logging to both console and file
-log() {
-    echo "$@" | tee -a "$LOG_FILE"
-}
+log() { echo "$@" | tee -a "$LOG_FILE"; }
 
 # Print header
 log "========================================================================"
-log "Flu A Preprocessing: PB1 and PB2 Proteins Only"
+log "Flu A Preprocessing"
 log "========================================================================"
-log "Config bundle: $CONFIG_BUNDLE"
 log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
+log "Config bundle: $CONFIG_BUNDLE"
 log "Host:          $(hostname)"
 log "User:          $(whoami)"
 log "Python:        $(which python)"
 log "Log file:      $LOG_FILE"
+log ""
+log "Overrides:"
+log "  Force reprocess: $([[ $FORCE_REPROCESS == "--force-reprocess" ]] && echo "Yes" || echo "No")"
 log "========================================================================"
 
 # Capture git info for provenance
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")
 GIT_DIRTY=$(git status --porcelain 2>/dev/null | wc -l)
-
 log ""
 log "Git commit:    $GIT_COMMIT"
 log "Git branch:    $GIT_BRANCH"
 log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" || echo "No")"
 log ""
 
+# Build command with path overrides
+CMD="python $PROJECT_ROOT/src/preprocess/preprocess_flu_protein.py --config_bundle $CONFIG_BUNDLE $FORCE_REPROCESS"
+
 # Run preprocessing with explicit bundle config
 log "Starting preprocess with config bundle: $CONFIG_BUNDLE"
-log "Command: python src/preprocess/preprocess_flu_protein.py --config_bundle $CONFIG_BUNDLE"
+log "Command: $CMD"
 log ""
 
-python src/preprocess/preprocess_flu_protein.py \
-    --config_bundle "$CONFIG_BUNDLE" \
-    2>&1 | tee -a "$LOG_FILE"
+set +e  # Temporarily disable exit on error
+eval "$CMD" 2>&1 | tee -a "$LOG_FILE"
+EXIT_CODE=${PIPESTATUS[0]}
+set -e  # Re-enable exit on error
 
 EXIT_CODE=${PIPESTATUS[0]}
 
-# Print footer
+# Footer
 log ""
 log "========================================================================"
-log "Preprocessing completed"
+if [ $EXIT_CODE -eq 0 ]; then
+    log "✅ Preprocessing completed successfully!"
+else
+    log "❌ Preprocessing failed with exit code: $EXIT_CODE"
+fi
 log "Exit code:     $EXIT_CODE"
 log "Finished:      $(date '+%Y-%m-%d %H:%M:%S')"
 log "Log saved to:  $LOG_FILE"
 log "========================================================================"
 
-# Create symlink to latest log for easy access
+# Create symlink to latest log
 ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/preprocess_${CONFIG_BUNDLE}_latest.log"
 log "Symlink:       ${LOG_DIR}/preprocess_${CONFIG_BUNDLE}_latest.log"
 

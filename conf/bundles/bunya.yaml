@@ -45,15 +45,15 @@ process_seeds:
 # ===================================================================
 # DATA SAMPLING
 # ===================================================================
-# Controls how many GTO files to process from the raw data directory
+# Controls how many isolates to process from the raw data directory
 # - null: Process ALL files (full dataset)
-# - int: Process this many files (sampled according to master seed)
+# - int: Process this many isolates (sampled according to master seed)
 #
 # Directory naming:
-#   max_files_to_process: null → processed/bunya/April_2025_v2/
-#   max_files_to_process: 500, master_seed: 42 → processed/bunya/April_2025_seed_42_GTOs_500/
+#   max_isolates_to_process: null → processed/bunya/April_2025_v2/
+#   max_isolates_to_process: 500, master_seed: 42 → processed/bunya/April_2025_seed_42_isolates_500/
 
-max_files_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
+max_isolates_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
 
 # ====================================================================
 # PROTEIN SELECTION
@@ -70,13 +70,16 @@ virus:
 # ====================================================================
 # Embeddings overrides
 embeddings:
-  batch_size: 16
+  batch_size: 32
   use_selected_only: false  # Use all proteins (since Bunya is a small dataset)
 
 # Dataset overrides
 dataset:
   # use_selected_only: false  # Use all proteins (no selected_functions for Bunya)
   use_selected_only: true # Use only the core proteins (L, M, S)
+  # neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
+  allow_same_func_negatives: true  # Allow same-function negative pairs
+  max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
 # Training overrides
 training:

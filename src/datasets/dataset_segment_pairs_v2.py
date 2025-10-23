@@ -35,8 +35,8 @@ from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_dataframe
-# Removed unused imports: get_core_protein_filter_mask, validate_core_proteins
-# These were specific to the old core proteins approach
+
+total_timer = Timer()
 
 
 def create_positive_pairs(
@@ -233,7 +233,7 @@ def split_dataset_v2(
     Returns:
         Tuple of (train_pairs, val_pairs, test_pairs) DataFrames
     """
-    breakpoint()
+    # breakpoint()
     # np.random.seed(seed)
     # random.seed(seed)
 
@@ -407,11 +407,6 @@ parser.add_argument(
     type=str, default=None,
     help='Config bundle to use (e.g., flu_a, bunya).'
 )
-# parser.add_argument(
-#     '--virus_name', '-v',
-#     type=str, default=None,
-#     help='[DEPRECATED] Use --config_bundle instead. Kept for backward compatibility.'
-# )
 parser.add_argument(
     '--input_file',
     type=str, default=None,
@@ -437,13 +432,13 @@ VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'datasets')
 USE_SELECTED_ONLY = config.dataset.use_selected_only
-TASK_NAME = config.dataset.task_name
+# TASK_NAME = config.dataset.task_name
 NEG_TO_POS_RATIO = config.dataset.neg_to_pos_ratio
 ALLOW_SAME_FUNC_NEGATIVES = config.dataset.allow_same_func_negatives
 MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
-MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process  # Number of isolates to process (pipeline-wide)
+MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -463,14 +458,14 @@ if RANDOM_SEED is not None:
     set_deterministic_seeds(RANDOM_SEED, cuda_deterministic=False) # No CUDA for dataset creation
     print(f'Set deterministic seeds for dataset creation (seed: {RANDOM_SEED})')
 else:
-    print('No seed set - computation will be non-deterministic')
+    print('No seed set - dataset creation will be non-deterministic')
 
 # Build dataset paths
 paths = build_dataset_paths(
     project_root=project_root,
     virus_name=VIRUS_NAME,
     data_version=DATA_VERSION,
-    task_name=TASK_NAME, # TODO: is this necessary?
+    # task_name=TASK_NAME, # TODO: is this necessary?
     run_suffix=RUN_SUFFIX,
     config=config
 )
@@ -495,11 +490,10 @@ output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
-print(f'input_file:      {input_file}')
-print(f'output_dir:      {output_dir}')
+print(f'input_file:    {input_file}')
+print(f'output_dir:    {output_dir}')
 
 # Load protein data
-total_timer = Timer()
 print('\nLoad preprocessed protein sequence data.')
 try:
     prot_df = load_dataframe(input_file)
@@ -510,7 +504,7 @@ except Exception as e:
     raise RuntimeError(f"❌ Error loading data from {input_file}: {e}")
 
 # Load used isolates from embeddings script
-breakpoint()
+# breakpoint()
 embeddings_dir = embeddings_paths['output_dir']
 used_isolates_file = embeddings_dir / 'sampled_isolates.txt'
 if used_isolates_file.exists():
@@ -529,7 +523,7 @@ else:
 
 # Restrict to selected functions if specified
 # TODO: consider adapting implementation from compute_esm2_embeddings.py
-breakpoint()
+# breakpoint()
 if USE_SELECTED_ONLY:
     if hasattr(config.virus, 'selected_functions') and config.virus.selected_functions:
         # Both Flu A and Bunya can use selected_functions approach
