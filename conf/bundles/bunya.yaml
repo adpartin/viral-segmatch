@@ -85,4 +85,4 @@ dataset:
 training:
   batch_size: 16  # Use smaller batches for longer sequences
   learning_rate: 0.001
-  patience: 15  # Early stopping patience
+  patience: 15  # Early stopping

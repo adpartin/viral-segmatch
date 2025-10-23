@@ -55,12 +55,13 @@ embeddings:
   use_selected_only: true  # Use selected_functions for PB1+PB2+PA
 
 dataset:
-  use_selected_only: true  # Use selected_functions
-  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
+  # use_selected_only: false  # Use all proteins (no selected_functions for Flu A)
+  use_selected_only: true  # Use selected_functions (a subset of major proteins)
+  # neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
   allow_same_func_negatives: true  # Allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
 training:
   batch_size: 16
   learning_rate: 0.001
-  patience: 10  # Early stopping patience
+  patience: 15  # Early stopping

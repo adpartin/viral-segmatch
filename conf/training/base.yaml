@@ -1,6 +1,6 @@
 # Base training configuration (reusable)
 batch_size: 16
-learning_rate: 1e-3
+learning_rate: 0.001 # 1e-3
 epochs: 100
 optimizer: 'adam'
 

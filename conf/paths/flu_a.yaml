@@ -7,7 +7,7 @@ data_dir: 'data'
 # Raw data paths (usually virus-specific)
 raw_data_dir: '${paths.data_dir}/raw/flu_a/{data_version}'
 
-# Base paths for full dataset processing (one-time operations)
+# Base paths for full dataset processing
 preprocessing_base: '${paths.data_dir}/processed/flu_a/{data_version}'
 embeddings_base: '${paths.data_dir}/embeddings/flu_a/{data_version}'
 

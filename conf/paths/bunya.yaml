@@ -7,7 +7,7 @@ data_dir: 'data'
 # Raw data paths (usually virus-specific)
 raw_data_dir: '${paths.data_dir}/raw/Anno_Updates/{data_version}/bunya-from-datasets/Quality_GTOs'
 
-# Base paths for subset processing (experiment-driven)
+# Base paths for full dataset processing
 preprocessing_base: '${paths.data_dir}/processed/bunya/{data_version}'
 embeddings_base: '${paths.data_dir}/embeddings/bunya/{data_version}'
 
