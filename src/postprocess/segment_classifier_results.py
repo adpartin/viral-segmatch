@@ -7,8 +7,15 @@ segment classification.
 
 Questions:
 What's worse FP or FN?
+
+Usage:
+python src/postprocess/segment_classifier_results_v2.py --config_bundle bunya
+python src/postprocess/segment_classifier_results_v2.py --config_bundle bunya --model_dir ./models/bunya/April_2025_v2
+python src/postprocess/segment_classifier_results_v2.py --config_bundle flu_a_3p_1ks
+python src/postprocess/segment_classifier_results_v2.py --config_bundle flu_a_3p_1ks --model_dir /path/to/models
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -25,30 +32,9 @@ from sklearn.metrics import (
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.config import VIRUS_NAME, DATA_VERSION, TASK_NAME
+from src.utils.config_hydra import get_virus_config_hydra
+from src.utils.path_utils import build_training_paths
 from src.utils.plot_config import apply_default_style, SEGMENT_COLORS, SEGMENT_ORDER, map_protein_name
-
-# Define paths
-models_dir = project_root / 'models' / VIRUS_NAME / DATA_VERSION / TASK_NAME
-results_dir = project_root / 'results' / VIRUS_NAME / DATA_VERSION / TASK_NAME
-results_dir.mkdir(parents=True, exist_ok=True)
-
-# Load test results
-test_results_file = models_dir / 'test_predicted.csv'
-if not test_results_file.exists():
-    raise FileNotFoundError(f'Test results file not found: {test_results_file}')
-
-df = pd.read_csv(test_results_file)
-print(f'Loaded {len(df)} test predictions')
-
-# Extract labels and predictions
-y_true = df['label'].values
-y_pred = df['pred_label'].values  
-y_prob = df['pred_prob'].values
-
-# Set up plotting style
-apply_default_style()
-fig_size = (10, 8)
 
 
 def compute_basic_metrics(y_true, y_pred, y_prob):
@@ -625,25 +611,75 @@ def analyze_prediction_confidence(df):
     return None
 
 
-def main(create_performance_plots=True, show_confusion_labels=True):
+def main(config_bundle: str,
+         model_dir: str = None,
+         create_performance_plots: bool = True,
+         show_confusion_labels: bool = True
+    ) -> None:
     """Main analysis function."""
-    print('Analyze Segment Pair Classifier Results.')
+    print(f"\n{'='*50}")
+    print('Analyze Segment Pair Classifier Results v2.')
     print('='*50)
+
+    # Load config
+    config_path = str(project_root / 'conf')
+    config = get_virus_config_hydra(config_bundle, config_path=config_path)
+    # print_config_summary(config)
+    print(f"Using config bundle: {config_bundle}")
+    print(f"Virus: {config.virus.virus_name}")
+    print(f"Data version: {config.virus.data_version}")
+
+    # Determine model directory
+    if model_dir:
+        # Use explicitly provided model directory
+        models_dir = Path(model_dir)
+        print(f"Using provided model directory: {models_dir}")
+    else:
+        # Use standard Hydra path
+        paths = build_training_paths(config)
+        models_dir = paths['output_dir']
+        print(f"Using standard Hydra path: {models_dir}")
+    
+    # Construct results directory manually (like the original script)
+    results_dir = project_root / 'results' / config.virus.virus_name / config.virus.data_version
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load test results
+    test_results_file = models_dir / 'test_predicted.csv'
+    if not test_results_file.exists():
+        raise FileNotFoundError(f'❌ Test results file not found: {test_results_file}')
+
+    df = pd.read_csv(test_results_file)
+    print(f'✅ Loaded {len(df)} test predictions')
+
+    # Extract labels and predictions
+    y_true = df['label'].values
+    y_pred = df['pred_label'].values  
+    y_prob = df['pred_prob'].values
+
+    # Set up plotting style
+    apply_default_style()
+    
+    # Make variables globally available for the analysis functions
+    globals()['df'] = df
+    globals()['y_true'] = y_true
+    globals()['y_pred'] = y_pred
+    globals()['y_prob'] = y_prob
+    globals()['results_dir'] = results_dir
     
     # Basic metrics
-    breakpoint()
     metrics = compute_basic_metrics(y_true, y_pred, y_prob)
-
+    
     # Generate plots
     plot_confusion_matrix(
         y_true, y_pred,
         results_dir / 'confusion_matrix.png',
         show_labels=show_confusion_labels
     )
-
+    
     # Test simple confusion matrix to check for lines
     plot_confusion_matrix_simple(y_true, y_pred, results_dir / 'confusion_matrix.png')
-
+    
     # Optional performance plots
     if create_performance_plots:
         plot_roc_curve(y_true, y_prob, results_dir / 'roc_curve.png')
@@ -652,10 +688,10 @@ def main(create_performance_plots=True, show_confusion_labels=True):
         print("✅ Performance plots created (roc_curve.png, precision_recall_curve.png, prediction_distribution.png)")
     else:
         print("⏭️  Skipping performance plots (create_performance_plots=False)")
-
+    
     # Enhanced FP/FN analysis
     error_summary = analyze_fp_fn_errors(df, y_true, y_pred, y_prob)
-
+    
     # Domain-specific analyses
     segment_df = analyze_segment_performance(df)
     analyze_same_function_pairs(df)
@@ -668,11 +704,11 @@ def main(create_performance_plots=True, show_confusion_labels=True):
     # Save segment performance
     if 'segment_df' in locals():
         segment_df.to_csv(results_dir / 'segment_performance.csv', index=False)
-
+    
     print(f'\nAnalysis complete! Results saved to: {results_dir}')
 
     # Key insights summary
-    print('\n' + '='*60)
+    print(f"\n{'='*60}")
     print('KEY INSIGHTS SUMMARY')
     print('='*60)
     print(f'• Overall accuracy: {metrics["accuracy"]:.3f}')
@@ -687,6 +723,30 @@ def main(create_performance_plots=True, show_confusion_labels=True):
 
 
 if __name__ == '__main__':
-    # Set to False to skip performance plots (roc, precision-recall, prediction distribution)
-    # Set to False to hide confusion matrix labels (TP, TN, FP, FN)
-    main(create_performance_plots=True, show_confusion_labels=True)
+    parser = argparse.ArgumentParser(description='Analyze segment pair classifier results')
+    parser.add_argument(
+        '--config_bundle',
+        type=str, required=True,
+        help='Configuration bundle name (e.g., flu_a_3p_1ks, bunya)'
+    )
+    parser.add_argument(
+        '--model_dir',
+        type=str, default=None,
+        help='Explicit model directory path (overrides config-based path)'
+    )
+    parser.add_argument(
+        '--create_performance_plots',
+        action='store_true', default=True,
+        help='Create performance plots (roc, precision-recall, prediction distribution)'
+    )
+    parser.add_argument(
+        '--show_confusion_labels',
+        action='store_true', default=True,
+        help='Show confusion matrix labels (TP, TN, FP, FN)'
+    )
+    args = parser.parse_args()
+    
+    main(config_bundle=args.config_bundle,
+         model_dir=args.model_dir,
+         create_performance_plots=args.create_performance_plots,
+         show_confusion_labels=args.show_confusion_labels)
