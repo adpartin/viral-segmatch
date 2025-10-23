@@ -1,10 +1,10 @@
 #!/bin/bash
-# Dataset Segment Pairs Creation for Flu A 3p_5ks
+# Dataset Segment Pairs Creation for Bunya
 # 
-# Usage: ./scripts/dataset_flu_3p_5ks.sh
+# Usage: ./scripts/dataset_bunya.sh
 # 
-# This script creates segment pairs for the 3-protein Flu A experiment
-# using existing preprocessing data and saving to 3p_5ks directories.
+# This script creates segment pairs for the Bunya dataset
+# using existing preprocessing data and saving to datasets directory.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -21,7 +21,7 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/datasets"
 LOG_FILE="$LOG_DIR/dataset_segment_pairs_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
-# Path overrides - use existing preprocessing, save to 3p_5ks directories
+# Path overrides - use existing preprocessing, save to datasets directory
 INPUT_FILE="$PROJECT_ROOT/data/processed/bunya/April_2025/protein_final.csv"  # Use preprocessed data
 OUTPUT_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025_v2"
 
@@ -33,7 +33,7 @@ log() { echo "$@" | tee -a "$LOG_FILE"; }
 
 # Print header
 log "========================================================================"
-log "Dataset Segment Pairs Creation (Flu A 3p_5ks)"
+log "Dataset Segment Pairs Creation (Bunya)"
 log "========================================================================"
 log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
 log "Config bundle: $CONFIG_BUNDLE"
