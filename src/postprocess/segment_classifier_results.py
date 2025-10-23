@@ -9,15 +9,16 @@ Questions:
 What's worse FP or FN?
 
 Usage:
-python src/postprocess/segment_classifier_results_v2.py --config_bundle bunya
-python src/postprocess/segment_classifier_results_v2.py --config_bundle bunya --model_dir ./models/bunya/April_2025_v2
-python src/postprocess/segment_classifier_results_v2.py --config_bundle flu_a_3p_1ks
-python src/postprocess/segment_classifier_results_v2.py --config_bundle flu_a_3p_1ks --model_dir /path/to/models
+python src/postprocess/segment_classifier_results.py --config_bundle bunya
+python src/postprocess/segment_classifier_results.py --config_bundle bunya --model_dir ./models/bunya/April_2025_v2
+python src/postprocess/segment_classifier_results.py --config_bundle flu_a_3p_1ks
+python src/postprocess/segment_classifier_results.py --config_bundle flu_a_3p_1ks --model_dir ./models/flu_a/July_2025_seed_42_isolates_1000
 """
 
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -290,23 +291,37 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob):
     
     print(f'False Positives (FP): {len(fp_df)}')
     print(f'False Negatives (FN): {len(fn_df)}')
-    print(f'FP/FN ratio: {len(fp_df)/len(fn_df):.2f}')
+    if len(fn_df) > 0:
+        print(f'FP/FN ratio: {len(fp_df)/len(fn_df):.2f}')
+    else:
+        print(f'FP/FN ratio: ∞ (no false negatives)')
     
     # Confidence analysis
     print(f'\nConfidence Analysis:')
-    print(f'FP average confidence: {fp_df["y_prob"].mean():.3f}')
-    print(f'FN average confidence: {fn_df["y_prob"].mean():.3f}')
-    print(f'FP confidence std: {fp_df["y_prob"].std():.3f}')
-    print(f'FN confidence std: {fn_df["y_prob"].std():.3f}')
+    if len(fp_df) > 0:
+        print(f'FP average confidence: {fp_df["y_prob"].mean():.3f}')
+        print(f'FP confidence std: {fp_df["y_prob"].std():.3f}')
+    else:
+        print(f'FP average confidence: N/A (no false positives)')
+        print(f'FP confidence std: N/A (no false positives)')
+    
+    if len(fn_df) > 0:
+        print(f'FN average confidence: {fn_df["y_prob"].mean():.3f}')
+        print(f'FN confidence std: {fn_df["y_prob"].std():.3f}')
+    else:
+        print(f'FN average confidence: N/A (no false negatives)')
+        print(f'FN confidence std: N/A (no false negatives)')
     
     # Create FP/FN analysis plots
     fig, axes = plt.subplots(2, 2, figsize=(15, 12))
     
     # 1. Confidence distribution comparison
-    axes[0, 0].hist(fp_df['y_prob'], bins=20, alpha=0.7, label=f'False Positives (n={len(fp_df)})', 
-                    color='red', density=False)
-    axes[0, 0].hist(fn_df['y_prob'], bins=20, alpha=0.7, label=f'False Negatives (n={len(fn_df)})', 
-                    color='blue', density=False)
+    if len(fp_df) > 0:
+        axes[0, 0].hist(fp_df['y_prob'], bins=20, alpha=0.7, label=f'False Positives (n={len(fp_df)})', 
+                        color='red', density=False)
+    if len(fn_df) > 0:
+        axes[0, 0].hist(fn_df['y_prob'], bins=20, alpha=0.7, label=f'False Negatives (n={len(fn_df)})', 
+                        color='blue', density=False)
     axes[0, 0].axvline(x=0.5, color='black', linestyle='--', label='Decision Threshold')
     axes[0, 0].set_xlabel('Prediction Probability')
     axes[0, 0].set_ylabel('Count')
@@ -438,14 +453,29 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob):
             axes[1, 0].grid(True, alpha=0.3)
     
     # 4. Confidence vs error type
-    all_errors = pd.concat([fp_df, fn_df])
-    all_errors['error_type'] = ['FP'] * len(fp_df) + ['FN'] * len(fn_df)
-    
-    axes[1, 1].boxplot([fp_df['y_prob'], fn_df['y_prob']], 
-                      labels=['False Positives', 'False Negatives'])
-    axes[1, 1].set_ylabel('Prediction Probability')
-    axes[1, 1].set_title('Confidence Distribution: FP and FN', fontweight='bold')
-    axes[1, 1].grid(True, alpha=0.3)
+    if len(fp_df) > 0 and len(fn_df) > 0:
+        all_errors = pd.concat([fp_df, fn_df])
+        all_errors['error_type'] = ['FP'] * len(fp_df) + ['FN'] * len(fn_df)
+        
+        axes[1, 1].boxplot([fp_df['y_prob'], fn_df['y_prob']], 
+                          labels=['False Positives', 'False Negatives'])
+        axes[1, 1].set_ylabel('Prediction Probability')
+        axes[1, 1].set_title('Confidence Distribution: FP and FN', fontweight='bold')
+        axes[1, 1].grid(True, alpha=0.3)
+    elif len(fp_df) > 0:
+        axes[1, 1].boxplot([fp_df['y_prob']], labels=['False Positives'])
+        axes[1, 1].set_ylabel('Prediction Probability')
+        axes[1, 1].set_title('Confidence Distribution: FP Only', fontweight='bold')
+        axes[1, 1].grid(True, alpha=0.3)
+    elif len(fn_df) > 0:
+        axes[1, 1].boxplot([fn_df['y_prob']], labels=['False Negatives'])
+        axes[1, 1].set_ylabel('Prediction Probability')
+        axes[1, 1].set_title('Confidence Distribution: FN Only', fontweight='bold')
+        axes[1, 1].grid(True, alpha=0.3)
+    else:
+        axes[1, 1].text(0.5, 0.5, 'No errors found', ha='center', va='center', 
+                        transform=axes[1, 1].transAxes, fontsize=14)
+        axes[1, 1].set_title('Confidence Distribution: No Errors', fontweight='bold')
     
     plt.tight_layout()
     plt.savefig(results_dir / 'fp_fn_analysis.png', dpi=300, bbox_inches='tight')
@@ -612,7 +642,7 @@ def analyze_prediction_confidence(df):
 
 
 def main(config_bundle: str,
-         model_dir: str = None,
+         model_dir: Optional[Path] = None,
          create_performance_plots: bool = True,
          show_confusion_labels: bool = True
     ) -> None:

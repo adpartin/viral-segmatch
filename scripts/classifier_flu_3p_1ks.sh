@@ -83,11 +83,9 @@ log "Command: $CMD"
 log ""
 
 set +e  # Temporarily disable exit on error
-# set +u  # Temporarily disable undefined variable check
 eval "$CMD" 2>&1 | tee -a "$LOG_FILE"
 EXIT_CODE=${PIPESTATUS[0]}
 set -e  # Re-enable exit on error
-# set -u  # Re-enable undefined variable check
 
 # Footer
 log ""
