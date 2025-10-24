@@ -1007,6 +1007,5 @@ save_experiment_summary(
     }
 )
 
-# breakpoint()
+print(f'\n✅ Finished {Path(__file__).name}!')
 total_timer.display_timer()
-print(f'\nFinished {Path(__file__).name}!')

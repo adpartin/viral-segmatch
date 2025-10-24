@@ -581,5 +581,5 @@ train_pairs.to_csv(f"{output_dir}/train_pairs.csv", index=False)
 val_pairs.to_csv(f"{output_dir}/val_pairs.csv", index=False)
 test_pairs.to_csv(f"{output_dir}/test_pairs.csv", index=False)
 
+print(f'\n✅ Finished {Path(__file__).name}!')
 total_timer.display_timer()
-print(f'\nFinished {Path(__file__).name}!')

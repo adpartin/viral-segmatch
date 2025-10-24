@@ -1,5 +1,5 @@
-# Flu A bundle (PB1, PB2, PA proteins - 3 proteins)
-# Contains virus-specific overrides for 3-protein experiments
+# Flu A bundle (PB1, PB2, PA proteins - 3 major proteins)
+# Contains virus-specific overrides for 3 major proteins of Flu A dataset.
 defaults:
   - /virus: flu_a
   - /paths: flu_a
@@ -15,7 +15,6 @@ defaults:
 # - null: Auto-generate suffix from max_isolates_to_process and seed
 # - string: Use this exact suffix (e.g., '_v2', '_seed_42_isolates_2000')
 
-# run_suffix: "_seed_42_isolates_5000_pb1_pb2_pa"
 run_suffix: null
 
 # ====================================================================
@@ -33,14 +32,15 @@ process_seeds:
 # ====================================================================
 # DATA SAMPLING
 # ====================================================================
-# max_isolates_to_process: null  # Dataset subset
-# max_isolates_to_process: 5000  # Limit number of isolates to process (pipeline-wide)
-max_isolates_to_process: 1000  # Limit number of isolates to process (pipeline-wide)
+# Controls how many isolates to process from the raw data directory
+
+# max_isolates_to_process: null  # null = full dataset
+max_isolates_to_process: 1000  # Limit number of isolates to process
 
 # ====================================================================
 # PROTEIN SELECTION
 # ====================================================================
-# Override selected_functions to include only PB1 and PB2
+# Override selected_functions to include only PB1, PB2, and PA proteins
 virus:
   selected_functions:
     - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 - Segment 1
@@ -50,18 +50,20 @@ virus:
 # ====================================================================
 # MODEL AND DATASET OVERRIDES
 # ====================================================================
+# Embeddings overrides
 embeddings:
   batch_size: 32
-  use_selected_only: true  # Use selected_functions for PB1+PB2+PA
+  use_selected_only: true  # Compute embeddings for selected_functions (PB1+PB2+PA)
 
+# Dataset overrides
 dataset:
-  # use_selected_only: false  # Use all proteins (no selected_functions for Flu A)
-  use_selected_only: true  # Use selected_functions (a subset of major proteins)
+  use_selected_only: true  # Use selected_functions (a subset of protein functions)
   # neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
   allow_same_func_negatives: true  # Allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
+# Training overrides
 training:
   batch_size: 16
   learning_rate: 0.001
-  patience: 15  # Early stopping
+  patience: 15 # Early stopping

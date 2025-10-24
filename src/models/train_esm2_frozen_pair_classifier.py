@@ -290,7 +290,7 @@ embeddings_file = Path(args.embeddings_dir) / 'esm2_embeddings.h5' if args.embed
 output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
-print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
+print(f'\nRun directory:   {DATA_VERSION}{RUN_SUFFIX}')
 print(f'dataset_dir:     {dataset_dir}')
 print(f'embeddings_file: {embeddings_file}')
 print(f'output_dir:      {output_dir}')
@@ -356,5 +356,5 @@ preds_file = output_dir / 'test_predicted.csv'
 print(f'\nSave raw predictions to: {preds_file}')
 test_res_df.to_csv(preds_file, index=False)
 
+print(f'\n✅ Finished {Path(__file__).name}!')
 total_timer.display_timer()
-print(f'\nFinished {Path(__file__).name}!')

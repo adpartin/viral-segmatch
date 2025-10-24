@@ -1,8 +1,6 @@
 #!/bin/bash
 # ESM-2 Frozen Pair Classifier Training for Bunya
 # Usage: ./scripts/classifier_bunya.sh
-# This script trains the ESM-2 frozen pair classifier for the Bunya dataset
-# using the v2 training script with Hydra configuration and Bunya paths.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -81,9 +79,11 @@ log "Command: $CMD"
 log ""
 
 set +e  # Temporarily disable exit on error
+set +u  # Temporarily disable undefined variable check
 eval "$CMD" 2>&1 | tee -a "$LOG_FILE"
 EXIT_CODE=${PIPESTATUS[0]}
 set -e  # Re-enable exit on error
+set -u  # Re-enable undefined variable check
 
 # Footer
 log ""

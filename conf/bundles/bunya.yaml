@@ -12,10 +12,11 @@ defaults:
 # DIRECTORY NAMING
 # ===================================================================
 # Optional manual directory suffix - set this to create a specific output directory
-# - null: Auto-generate suffix from max_files_to_process and seed
+# - null: Auto-generate suffix from max_isolates_to_process and seed
 # - string: Use this exact suffix (e.g., '_v2', '_seed_42_GTOs_2000')
 
-run_suffix: "_v2"
+# run_suffix: "_v2"
+run_suffix: null
 
 # ===================================================================
 # SEED MANAGEMENT
@@ -46,19 +47,13 @@ process_seeds:
 # DATA SAMPLING
 # ===================================================================
 # Controls how many isolates to process from the raw data directory
-# - null: Process ALL files (full dataset)
-# - int: Process this many isolates (sampled according to master seed)
-#
-# Directory naming:
-#   max_isolates_to_process: null → processed/bunya/April_2025_v2/
-#   max_isolates_to_process: 500, master_seed: 42 → processed/bunya/April_2025_seed_42_isolates_500/
 
-max_isolates_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
+max_isolates_to_process: null  # null = full dataset, or set to 100, 500, etc.
 
 # ====================================================================
 # PROTEIN SELECTION
 # ====================================================================
-# Bunya uses core proteins (L, M, S) - define core functions for filtering
+# For Bunya, use only the core proteins (L, M, S)
 virus:
   selected_functions:
     - "RNA-dependent RNA polymerase"  # L segment
@@ -71,18 +66,17 @@ virus:
 # Embeddings overrides
 embeddings:
   batch_size: 32
-  use_selected_only: false  # Use all proteins (since Bunya is a small dataset)
+  use_selected_only: false # Compute embeddings for all proteins (since Bunya is a small dataset)
 
 # Dataset overrides
 dataset:
-  # use_selected_only: false  # Use all proteins (no selected_functions for Bunya)
-  use_selected_only: true # Use only the core proteins (L, M, S)
+  use_selected_only: true  # Use selected_functions (a subset of protein functions)
   # neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
   allow_same_func_negatives: true  # Allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
 # Training overrides
 training:
-  batch_size: 16  # Use smaller batches for longer sequences
+  batch_size: 16
   learning_rate: 0.001
-  patience: 15  # Early stopping
+  patience: 15 # Early stopping

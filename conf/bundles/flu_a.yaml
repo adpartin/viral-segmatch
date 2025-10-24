@@ -12,7 +12,7 @@ defaults:
 # DIRECTORY NAMING
 # ===================================================================
 # Optional manual directory suffix - set this to create a specific output directory
-# - null: Auto-generate suffix from max_files_to_process and seed
+# - null: Auto-generate suffix from max_isolates_to_process and seed
 # - string: Use this exact suffix (e.g., '_v2', '_seed_42_GTOs_2000')
 
 run_suffix: null
@@ -52,14 +52,14 @@ process_seeds:
 # Directory naming:
 #   max_isolates_to_process: null → processed/flu_a/July_2025/
 #   max_isolates_to_process: 500, master_seed: 42 → processed/flu_a/July_2025_seed_42_isolates_500/
-#   max_isolates_to_process: 100, master_seed: null → processed/flu_a/July_2025_random_20251013_isolates_100/
+#   max_isolates_to_process: 100, master_seed: null → processed/flu_a/July_2025_random_TIMESTAMP_isolates_100/
 
-max_isolates_to_process: null  # null = full dataset, or set to 100, 500, 5000, etc.
+max_isolates_to_process: null  # null = full dataset, or set to 100, 500, etc.
 
 # ====================================================================
 # PROTEIN SELECTION
 # ====================================================================
-# Override selected_functions to include only PB1 and PB2
+# Override selected_functions to include a subset of proteins
 virus:
   selected_functions:
     - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 - Segment 1
@@ -71,18 +71,17 @@ virus:
 # Embeddings overrides
 embeddings:
   batch_size: 32
-  use_selected_only: true  # Use selected_functions (since Flu A is a large dataset)
-  # use_selected_only: false  # Use selected_functions
+  use_selected_only: true  # Compute embeddings for selected_functions
 
 # Dataset overrides
 dataset:
-  use_selected_only: true  # Use selected_functions
-  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
-  allow_same_func_negatives: true  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
+  use_selected_only: true  # Use selected_functions (a subset of protein functions)
+  # neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
+  allow_same_func_negatives: true  # Allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
 # Training overrides
 training:
   batch_size: 16
   learning_rate: 0.001
-  patience: 5  # Early stopping patience
+  patience: 5  # Early stopping

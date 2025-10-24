@@ -1,8 +1,6 @@
 #!/bin/bash
 # Dataset Segment Pairs Creation for Bunya
 # Usage: ./scripts/dataset_bunya.sh
-# This script creates segment pairs for the Bunya dataset
-# using existing preprocessing data and saving to datasets directory.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable

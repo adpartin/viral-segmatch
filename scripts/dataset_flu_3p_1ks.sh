@@ -1,8 +1,7 @@
 #!/bin/bash
 # Dataset Segment Pairs Creation for Flu A 3p_1ks
 # Usage: ./scripts/dataset_flu_3p_1ks.sh
-# This script creates segment pairs for the 3-protein Flu A dataset
-# using existing preprocessing data and saving to 3p_1ks directories.
+# 3p_1ks: 3 major proteins (PB1, PB2, PA) and 1k isolates sampled from the full dataset.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable

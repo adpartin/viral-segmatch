@@ -270,7 +270,6 @@ with h5py.File(h5_file, 'w') as file:
         file.create_dataset(brc_id, data=embeddings[i])
 save_timer.stop_timer()
 print(f"  ⏱️  Save time: {save_timer.get_elapsed_string()}")
-log_memory_usage("after embeddings saving")
 
 
 # Embeddings to csv and parquet
@@ -295,7 +294,7 @@ failed_df.to_csv(output_dir / 'failed_brc_fea_ids.csv', index=False)
 
 # Validate
 # breakpoint()
-print('\nValidate saved embeddings.')
+print('\nValidate saved h5 embeddings.')
 with h5py.File(h5_file, 'r') as file:
     saved_ids = list(file.keys())
     expected_count = len(df) - len(failed_ids)
@@ -306,5 +305,5 @@ with h5py.File(h5_file, 'r') as file:
 if failed_ids:
     print(f'⚠️ Failed to process {len(failed_ids)} sequences: {failed_ids[:5]}...')
 
-total_timer.display_timer()
 print(f'\n✅ Finished {Path(__file__).name}!')
+total_timer.display_timer()

@@ -1,8 +1,7 @@
 #!/bin/bash
 # ESM-2 Frozen Pair Classifier Training for Flu A 3p_1ks
 # Usage: ./scripts/classifier_flu_a_3p_1ks.sh
-# This script trains the ESM-2 frozen pair classifier for the 3-protein Flu A dataset
-# using the v2 training script with Hydra configuration and 3p_1ks paths.
+# 3p_1ks: 3 major proteins (PB1, PB2, PA) and 1k isolates sampled from the full dataset.
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -61,7 +60,7 @@ log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" 
 log ""
 
 # Build command with path overrides
-CMD="python $PROJECT_ROOT/src/models/train_esm2_frozen_pair_classifier_v2.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
+CMD="python $PROJECT_ROOT/src/models/train_esm2_frozen_pair_classifier.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
 
 if [ -n "$DATASET_DIR" ]; then
     CMD="$CMD --dataset_dir $DATASET_DIR"
