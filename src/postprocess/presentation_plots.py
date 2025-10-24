@@ -5,7 +5,7 @@ This script generates additional visualizations specifically designed for
 presentation slides, focusing on the most important insights.
 
 Usage:
-python src/postprocess/presentation_plots.py --config_bundle bunya --model_dir ./models/bunya/April_2025_v2
+python src/postprocess/presentation_plots.py --config_bundle bunya --model_dir ./models/bunya/April_2025
 python src/postprocess/presentation_plots.py --config_bundle flu_a_3p_1ks --model_dir ./models/flu_a/July_2025_seed_42_isolates_1000
 """
 

@@ -10,7 +10,7 @@ What's worse FP or FN?
 
 Usage:
 python src/postprocess/segment_classifier_results.py --config_bundle bunya
-python src/postprocess/segment_classifier_results.py --config_bundle bunya --model_dir ./models/bunya/April_2025_v2
+python src/postprocess/segment_classifier_results.py --config_bundle bunya --model_dir ./models/bunya/April_2025
 python src/postprocess/segment_classifier_results.py --config_bundle flu_a_3p_1ks
 python src/postprocess/segment_classifier_results.py --config_bundle flu_a_3p_1ks --model_dir ./models/flu_a/July_2025_seed_42_isolates_1000
 """

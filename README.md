@@ -1,77 +1,104 @@
 # Viral-SegMatch
-A pipeline for analyzing and processing genomic and proteomic data from viral isolates to address a key challenge in segmented RNA virus databases: determining if two viral segments belong to the same isolate. Specifically designed for viruses like Bunyavirales, it provides predictions crucial for understanding viral assembly and evolution.
 
+A machine learning pipeline for analyzing segmented RNA viruses to determine if two viral segments belong to the same isolate. Uses ESM-2 protein embeddings and binary classification to solve a key challenge in viral genomics.
 
-## Setup and Installation
+## Key Features
 
-### Prerequisites
-- python 3.9+
-- torch 2.6+
-- transformers 4.49
-- scikit-learn 1.6
+- **Multi-virus support**: Bunyavirales and Influenza A
+- **ESM-2 embeddings**: State-of-the-art protein language model
+- **Hydra configuration**: Flexible, reproducible experiments
+- **Performance optimized**: F1 scores up to 0.87+ with virus-specific tuning
+
+## 🚀 Quick Start
 
 ### Installation
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/adpartin/viral-segmatch.git
-   cd viral-segmatch
-   ```
-
-2. **Create and Activate Conda Environment**
-   ```bash
-   conda env create -f environment.yml
-   conda activate viral-segmatch
-   ```
-
-### Running the Pipeline
-1. **Preprocess Protein Data**
-
-Process protein data from GTO files for Bunyavirales, including canonical segment assignment (S, M, L) and duplicate handling (e.g., GCA/GCF).
-  ```bash
-  python src/preprocess/preprocess_bunya_protein.py
-  ```
-* Input: GTO files (e.g., `data/raw/Anno_Updates/April_2025/bunya-from-datasets/Quality_GTOs`)
-* Output: `data/processed/bunya/April_2025/protein_filtered.csv` (columns: `brc_fea_id`, `prot_seq`, `assembly_id`, `function`, `canonical_segment`, etc.).
-
-
-2. **Generate Segment Pair Dataset**
-
-Create a dataset of segment pairs for training, validating, and testing a segment matcher.
 ```bash
-python src/datasets/dataset_segment_pairs.py
+git clone https://github.com/adpartin/viral-segmatch.git
+cd viral-segmatch
+conda env create -f environment.yml
+conda activate cepi
 ```
-* Input: `protein_filtered.csv`
-* Output: `train_pairs.csv`, `val_pairs.csv`, `test_pairs.csv` containing protein pairs are saved in `data/processed/bunya/April_2025/segment_pairs_classifier` (positive: same isolate, negative: different isolates).
 
+### Run Complete Pipeline
 
-3. **Compute ESM-2 Embeddings**
-Computes ESM-2 embeddings for each unique protein sequence, keyed by brc_fea_id.
+**Bunya (3 segments):**
 ```bash
-python src/embeddings/compute_esm2_embeddings.py
+./scripts/preprocess_bunya_protein.sh
+./scripts/esm2_bunya.sh
+./scripts/dataset_bunya.sh
+./scripts/classifier_bunya.sh
 ```
-* Input: `protein_filtered.csv`
-* Output: `data/embeddings/bunya/April_2025/esm2_embeddings.h5` (HDF5 file with embeddings, e.g., 1280D per protein).
 
-
-4. **Train Segment Matcher (Placeholder)**
-
-Loads pair data, retrieves embeddings for `brc_a` and `brc_b` from `esm2_embeddings.h5`, and train model to predict whether two protein belong to the same viral isolate
+**Flu A (3 proteins, 1k isolates):**
 ```bash
-# Placeholder: script not yet available
-python src/models/train_esm2_frozen_pair_classifier.py
+./scripts/preprocess_flu_protein.sh
+./scripts/esm2_flu_3p_1ks.sh
+./scripts/dataset_flu_3p_1ks.sh
+./scripts/classifier_flu_3p_1ks.sh
 ```
-* Input: `train_pairs.csv`, `val_pairs.csv`, `test_pairs.csv`, `esm2_embeddings.h5`
-* Output: Trained model (e.g., `model.pt`), metrics (F1, AUC-ROC), and logs.
 
+## 📊 Performance Results
 
-### Visualizations
-Generate histograms and box plots of protein lengths by canonical segment.
+| Virus | Configuration | F1 Score | Key Finding |
+|-------|---------------|----------|-------------|
+| **Bunya** | Default settings | **0.8829** | `neg_to_pos_ratio: 3.0` tested |
+| **Flu A** | Optimized | **0.8708** | `neg_to_pos_ratio: 1.0` tested |
+
+**🔑 Critical Discovery:** Different viruses may require different class balance ratios for optimal performance.
+
+## 📁 Output Structure
+
+```
+data/
+├── processed/          # Preprocessed protein data
+├── embeddings/         # ESM-2 embeddings
+└── datasets/           # Segment pair datasets
+
+models/                 # Trained classifiers
+└── {virus}/{version}/  # Model checkpoints and results
+```
+
+## ⚙️ Configuration
+
+The pipeline uses Hydra for configuration management:
+
+- **`conf/bundles/bunya.yaml`** - Bunyavirales configuration
+- **`conf/bundles/flu_a_3p_1ks.yaml`** - Flu A, 3 proteins, 1k isolates
+- **`conf/bundles/flu_a.yaml`** - Flu A full dataset
+
+Key parameters:
+- `max_isolates_to_process`: Sampling control
+- `neg_to_pos_ratio`: Class balance (virus-specific)
+- `selected_functions`: Protein selection
+
+## 📚 Documentation
+
+- **[Quick Start Guide](documentation/quick-start.md)** - Complete setup and usage
+- **[Pipeline Overview](documentation/pipeline-overview.md)** - Understanding the 4-stage pipeline
+- **[Configuration Guide](documentation/configuration.md)** - Customizing experiments
+
+## 🔬 Pipeline Stages
+
+1. **Preprocessing** - GTO file processing, protein extraction, segment assignment
+2. **Embeddings** - ESM-2 protein embedding computation
+3. **Dataset Creation** - Segment pair generation with balanced sampling
+4. **Training** - Binary classifier training with frozen ESM-2
+
+## 🧬 Supported Viruses
+
+- **Bunyavirales**: 3-segment viruses (S, M, L segments)
+- **Influenza A**: 8-segment viruses (focus on PB1, PB2, PA proteins)
+
+## 📈 Analysis Tools
+
 ```bash
-python src/eda/visualize_protein_lengths.py
+# Comprehensive results analysis
+python src/postprocess/segment_classifier_results.py --config_bundle bunya --model_dir ./models/bunya/April_2025
+
+# Presentation-ready plots
+python src/postprocess/presentation_plots.py --config_bundle bunya --model_dir ./models/bunya/April_2025
 ```
-* Input: `data/processed/bunya/April_2025/protein_filtered.csv`
-* Output: Plots in `eda/bunya/April_2025`
 
+## 📄 License
 
-## Contributing
-Contributions are welcome! Please open a pull request or issue for bugs, features, or improvements.
+[Add your license information here]
