@@ -58,7 +58,7 @@ embeddings:
 # Dataset overrides
 dataset:
   use_selected_only: true  # Use selected_functions (a subset of protein functions)
-  # neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
   allow_same_func_negatives: true  # Allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
 
