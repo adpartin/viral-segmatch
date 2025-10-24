@@ -1,8 +1,6 @@
 #!/bin/bash
 # Dataset Segment Pairs Creation for Bunya
-# 
 # Usage: ./scripts/dataset_bunya.sh
-# 
 # This script creates segment pairs for the Bunya dataset
 # using existing preprocessing data and saving to datasets directory.
 
@@ -22,8 +20,8 @@ LOG_DIR="$PROJECT_ROOT/logs/datasets"
 LOG_FILE="$LOG_DIR/dataset_segment_pairs_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
 # Path overrides - use existing preprocessing, save to datasets directory
-INPUT_FILE="$PROJECT_ROOT/data/processed/bunya/April_2025/protein_final.csv"  # Use preprocessed data
-OUTPUT_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025_v2"
+INPUT_FILE="$PROJECT_ROOT/data/processed/bunya/April_2025/protein_final.csv" # Use preprocessed data
+OUTPUT_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025"
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -58,7 +56,7 @@ log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" 
 log ""
 
 # Build command with path overrides
-CMD="python $PROJECT_ROOT/src/datasets/dataset_segment_pairs_v2.py --config_bundle $CONFIG_BUNDLE"
+CMD="python $PROJECT_ROOT/src/datasets/dataset_segment_pairs.py --config_bundle $CONFIG_BUNDLE"
 
 if [ -n "$INPUT_FILE" ]; then
     CMD="$CMD --input_file $INPUT_FILE"

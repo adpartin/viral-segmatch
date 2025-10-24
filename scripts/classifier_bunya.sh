@@ -1,9 +1,7 @@
 #!/bin/bash
 # ESM-2 Frozen Pair Classifier Training for Bunya
-# 
 # Usage: ./scripts/classifier_bunya.sh
-# 
-# This script trains the ESM-2 frozen pair classifier for the Bunya experiment
+# This script trains the ESM-2 frozen pair classifier for the Bunya dataset
 # using the v2 training script with Hydra configuration and Bunya paths.
 
 set -e  # Exit on error
@@ -22,9 +20,9 @@ LOG_DIR="$PROJECT_ROOT/logs/training"
 LOG_FILE="$LOG_DIR/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
 # Path overrides - use Bunya directories
-DATASET_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025_v2"
-EMBEDDINGS_DIR="$PROJECT_ROOT/data/embeddings/bunya/April_2025_v2"
-OUTPUT_DIR="$PROJECT_ROOT/models/bunya/April_2025_v2"
+DATASET_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025"
+EMBEDDINGS_DIR="$PROJECT_ROOT/data/embeddings/bunya/April_2025"
+OUTPUT_DIR="$PROJECT_ROOT/models/bunya/April_2025"
 
 CUDA_NAME="cuda:7"  # CUDA device
 
@@ -63,7 +61,7 @@ log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" 
 log ""
 
 # Build command with path overrides
-CMD="python $PROJECT_ROOT/src/models/train_esm2_frozen_pair_classifier_v2.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
+CMD="python $PROJECT_ROOT/src/models/train_esm2_frozen_pair_classifier.py --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME"
 
 if [ -n "$DATASET_DIR" ]; then
     CMD="$CMD --dataset_dir $DATASET_DIR"

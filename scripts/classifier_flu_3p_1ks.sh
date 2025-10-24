@@ -1,9 +1,7 @@
 #!/bin/bash
 # ESM-2 Frozen Pair Classifier Training for Flu A 3p_1ks
-# 
 # Usage: ./scripts/classifier_flu_a_3p_1ks.sh
-# 
-# This script trains the ESM-2 frozen pair classifier for the 3-protein Flu A experiment
+# This script trains the ESM-2 frozen pair classifier for the 3-protein Flu A dataset
 # using the v2 training script with Hydra configuration and 3p_1ks paths.
 
 set -e  # Exit on error

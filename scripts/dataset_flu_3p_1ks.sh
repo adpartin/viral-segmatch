@@ -1,9 +1,7 @@
 #!/bin/bash
 # Dataset Segment Pairs Creation for Flu A 3p_1ks
-# 
 # Usage: ./scripts/dataset_flu_3p_1ks.sh
-# 
-# This script creates segment pairs for the 3-protein Flu A experiment
+# This script creates segment pairs for the 3-protein Flu A dataset
 # using existing preprocessing data and saving to 3p_1ks directories.
 
 set -e  # Exit on error
@@ -21,9 +19,9 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/datasets"
 LOG_FILE="$LOG_DIR/dataset_segment_pairs_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
-# Path overrides - use existing preprocessing, save to 3p_1ks directories
-INPUT_FILE="$PROJECT_ROOT/data/processed/flu_a/July_2025/protein_final.csv"  # Use existing preprocessing
-OUTPUT_DIR=""  # Let config determine the path (will be July_2025_seed_42_records_5000_pb1_pb2_pa)
+# Path overrides - use existing preprocessing, save to datasets directory
+INPUT_FILE="$PROJECT_ROOT/data/processed/flu_a/July_2025/protein_final.csv" # Use existing preprocessing
+OUTPUT_DIR="" # Let config determine the path (will be July_2025_seed_42_records_5000_pb1_pb2_pa)
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -58,7 +56,7 @@ log "Git dirty:     $([[ $GIT_DIRTY -gt 0 ]] && echo "Yes ($GIT_DIRTY changes)" 
 log ""
 
 # Build command with path overrides
-CMD="python $PROJECT_ROOT/src/datasets/dataset_segment_pairs_v2.py --config_bundle $CONFIG_BUNDLE"
+CMD="python $PROJECT_ROOT/src/datasets/dataset_segment_pairs.py --config_bundle $CONFIG_BUNDLE"
 
 if [ -n "$INPUT_FILE" ]; then
     CMD="$CMD --input_file $INPUT_FILE"

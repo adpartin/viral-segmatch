@@ -2,13 +2,8 @@
 Modeling approach:
 1. Binary classifier: Do (protein A, protein B) come from same isolate?
 2. Start with frozen ESM-2 embeddings + MLP baseline
-
-TODO:
-- [ ] utilize config.yml
-- [ ] utilize weights & biases
-- [ ] try ProteinBERT
 """
-
+import argparse
 import sys
 import random
 from pathlib import Path
@@ -26,54 +21,16 @@ from torch.utils.data import Dataset, DataLoader
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
+# print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
-from src.utils.esm2_utils import load_esm2_embedding
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
+from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.path_utils import resolve_run_suffix, build_training_paths
 from src.utils.torch_utils import determine_device
+from src.utils.esm2_utils import load_esm2_embedding
 
-# Config
-SEED = 42
-TASK_NAME = 'segment_pair_classifier'
-VIRUS_NAME = 'bunya'
-DATA_VERSION = 'April_2025'
-CUDA_NAME = 'cuda:7'
-
-# MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'    # embedding dim: 320D
-# MODEL_CKPT = 'facebook/esm2_t12_35M_UR50D'  # embedding dim: 480D
-# MODEL_CKPT = 'facebook/esm2_t30_150M_UR50D' # embedding dim: 640D
-MODEL_CKPT = 'facebook/esm2_t33_650M_UR50D'   # embedding dim: 1280D
-# MODEL_CKPT = 'facebook/esm2_t36_3B_UR50D'   # embedding dim: 2560D
-# MODEL_CKPT = 'facebook/esm2_t48_15B_UR50D'  # embedding dim: 5120D
-
-# Define paths
-main_data_dir = project_root / 'data'
-dataset_dir = main_data_dir / 'datasets' / VIRUS_NAME / DATA_VERSION / TASK_NAME
-embeddings_dir = main_data_dir / 'embeddings' / VIRUS_NAME / DATA_VERSION
-output_dir = project_root / 'models' / VIRUS_NAME / DATA_VERSION / TASK_NAME
-output_dir.mkdir(parents=True, exist_ok=True)
-
-# Set random seed for reproducibility
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(SEED)
-
-# Hyperparameters
-batch_size = 16
-learning_rate = 1e-3
-# epochs = 2
-epochs = 50
-hidden_dims = [512, 256, 64]
-dropout = 0.3
-patience = 5
-
-model_name = MODEL_CKPT.split('/')[-1]
-device = determine_device(CUDA_NAME)
-
-print(f'\ndataset_dir:    {dataset_dir}')
-print(f'embeddings_dir: {embeddings_dir}')
-print(f'output_dir:     {output_dir}')
+total_timer = Timer()
 
 
 class SegmentPairDataset(Dataset):
@@ -97,7 +54,6 @@ class SegmentPairDataset(Dataset):
         """
         Return the concatenated ESM-2 embeddings for a segment pair and its label.
         """
-        # breakpoint()
         row = self.pairs.iloc[idx]
         emb_a = load_esm2_embedding(row['brc_a'], self.embeddings_file)
         emb_b = load_esm2_embedding(row['brc_b'], self.embeddings_file)
@@ -115,7 +71,6 @@ class MLPClassifier(nn.Module):
         self,
         input_dim: int=2560,
         hidden_dims: list[int]=[512, 256, 64],
-        # num_labels: int=2,
         dropout: float=0.3):
         super().__init__()
 
@@ -130,10 +85,8 @@ class MLPClassifier(nn.Module):
             prev_dim = dim
         layers.append(nn.Linear(prev_dim, 1))
         self.mlp = nn.Sequential(*layers)
-        # print(self.mlp) # print model architecture
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # print(f'Input shape: {x.shape}')
         return self.mlp(x)
 
 
@@ -151,7 +104,6 @@ def train_model(
     """
     Train the MLP classifier with early stopping based on validation loss.
     """
-    # breakpoint()
     best_val_loss = float('inf')
     patience_counter = 0
     best_model_path = output_dir / 'best_model.pt'
@@ -170,7 +122,7 @@ def train_model(
             loss = criterion(preds, batch_y)
             loss.backward()
             optimizer.step()
-            train_loss += loss.item() * batch_x.size(0) # why multiplied by batch_x.size(0)?
+            train_loss += loss.item() * batch_x.size(0)
         train_loss /= len(train_loader.dataset)
 
         model.eval()
@@ -216,14 +168,13 @@ def evaluate_model(
     """
     Evaluate the model on the test set and compute metrics.
     """
-    # breakpoint()
     model.eval()
     test_loss = 0
     test_preds, test_probs, test_labels = [], [], []
     with torch.no_grad():
         for batch_x, batch_y in test_loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            preds = model(batch_x).squeeze() # Forward pass (logits??)
+            preds = model(batch_x).squeeze()
             loss = criterion(preds, batch_y)
             test_loss += loss.item() * batch_x.size(0)
             test_probs.extend(torch.sigmoid(preds).cpu().numpy())
@@ -239,22 +190,117 @@ def evaluate_model(
 
     # Create test_res_df
     test_res_df = test_pairs.copy()
-    # test_res_df['true_label'] = test_labels
     test_res_df['pred_label'] = test_preds
     test_res_df['pred_prob'] = test_probs
-    # test_res_df.to_csv(output_dir / 'test_predicted.csv', index=False)
-    # print(f"Saved raw prediction to: {output_dir / 'test_predicted.csv'}")
 
     print(f'Test Loss: {test_loss:.4f}, Test F1: {test_f1:.4f}, Test AUC: {test_auc:.4f}')
     return test_res_df
 
 
-total_timer = Timer()
+# Parser
+parser = argparse.ArgumentParser(description='Train ESM-2 frozen pair classifier')
+parser.add_argument(
+    '--config_bundle',
+    type=str, default=None,
+    help='Config bundle to use (e.g., flu_a, bunya).'
+)
+parser.add_argument(
+    '--cuda_name', '-c',
+    type=str, default='cuda:7',
+    help='CUDA device to use (default: cuda:7)'
+)
+parser.add_argument(
+    '--dataset_dir',
+    type=str, default=None,
+    help='Path to directory containing train_pairs.csv, val_pairs.csv, test_pairs.csv'
+)
+parser.add_argument(
+    '--embeddings_dir',
+    type=str, default=None,
+    help='Path to directory containing esm2_embeddings.h5'
+)
+parser.add_argument(
+    '--output_dir',
+    type=str, default=None,
+    help='Path to output directory for models'
+)
+args = parser.parse_args()
+
+# Load config
+config_path = str(project_root / 'conf')  # Pass the config path explicitly
+config_bundle = args.config_bundle
+if config_bundle is None:
+    raise ValueError("❌ Must provide --config_bundle")
+config = get_virus_config_hydra(config_bundle, config_path=config_path)
+print_config_summary(config)
+
+# Extract config values
+VIRUS_NAME = config.virus.virus_name
+DATA_VERSION = config.virus.data_version
+RANDOM_SEED = resolve_process_seed(config, 'training')
+# TASK_NAME = config.dataset.task_name
+MODEL_CKPT = config.embeddings.model_ckpt
+MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
+
+# Training hyperparameters from config
+BATCH_SIZE = config.training.batch_size
+LEARNING_RATE = config.training.learning_rate
+EPOCHS = config.training.epochs
+HIDDEN_DIMS = config.training.hidden_dims
+DROPOUT = config.training.dropout
+PATIENCE = config.training.patience
+
+print(f"\n{'='*40}")
+print(f"Virus: {VIRUS_NAME}")
+print(f"Config bundle: {config_bundle}")
+print(f"{'='*40}")
+
+# Resolve run suffix (manual override in config or auto-generate from sampling params)
+# This ensures consistency with preprocessing, embeddings, and dataset scripts
+RUN_SUFFIX = resolve_run_suffix(
+    config=config,
+    max_isolates=MAX_ISOLATES_TO_PROCESS,
+    seed=RANDOM_SEED,
+    auto_timestamp=True
+)
+
+# Set deterministic seeds for training
+if RANDOM_SEED is not None:
+    set_deterministic_seeds(RANDOM_SEED, cuda_deterministic=True)
+    print(f'Set deterministic seeds for training (seed: {RANDOM_SEED})')
+else:
+    print('No seed set - training will be non-deterministic')
+
+# Build paths using the new path utilities
+paths = build_training_paths(
+    project_root=project_root,
+    virus_name=VIRUS_NAME,
+    data_version=DATA_VERSION,
+    run_suffix=RUN_SUFFIX,
+    config=config
+)
+
+default_dataset_dir = paths['dataset_dir']
+default_embeddings_file = paths['embeddings_file']
+default_output_dir = paths['output_dir']
+
+# Apply CLI overrides if provided
+dataset_dir = Path(args.dataset_dir) if args.dataset_dir else default_dataset_dir
+embeddings_file = Path(args.embeddings_dir) / 'esm2_embeddings.h5' if args.embeddings_dir else default_embeddings_file
+output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
+output_dir.mkdir(parents=True, exist_ok=True)
+
+print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
+print(f'dataset_dir:     {dataset_dir}')
+print(f'embeddings_file: {embeddings_file}')
+print(f'output_dir:      {output_dir}')
+print(f'model:           {MODEL_CKPT}')
+print(f'batch_size:      {BATCH_SIZE}')
+
 print('\nLoad pair datasets.')
 train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv')
 val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv')
 test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv')
-embeddings_file = embeddings_dir / 'esm2_embeddings.h5'
 
 # Validate embeddings
 print('\nValidate embeddings.')
@@ -268,24 +314,36 @@ train_dataset = SegmentPairDataset(train_pairs, embeddings_file)
 val_dataset   = SegmentPairDataset(val_pairs, embeddings_file)
 test_dataset  = SegmentPairDataset(test_pairs, embeddings_file)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-val_loader   = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-test_loader  = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+# CUDA device
+CUDA_NAME = args.cuda_name
+device = determine_device(CUDA_NAME)
 
 # Initialize model
 batch = next(iter(train_loader))
 mlp_input_dim = batch[0].shape[1] # 2 * embedding_dim = 2 * 1280 (embed_dim can be obtained from 'esm2_embeddings.h5')
-model = MLPClassifier(input_dim=mlp_input_dim, hidden_dims=hidden_dims, dropout=dropout)
+model = MLPClassifier(input_dim=mlp_input_dim, hidden_dims=HIDDEN_DIMS, dropout=DROPOUT)
 model.to(device)
 
 # Loss function and optimizer
 criterion = nn.BCEWithLogitsLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 # Train
 print('\nTrain model.')
-best_model_path = train_model(model, train_loader, val_loader, criterion,
-    optimizer, device, epochs, patience, output_dir
+best_model_path = train_model(
+    model=model,
+    train_loader=train_loader,
+    val_loader=val_loader,
+    criterion=criterion,
+    optimizer=optimizer,
+    device=device,
+    epochs=EPOCHS,
+    patience=PATIENCE,
+    output_dir=output_dir
 )
 
 # Evaluate
@@ -294,10 +352,9 @@ model.load_state_dict(torch.load(best_model_path))
 test_res_df = evaluate_model(model, test_loader, criterion, device, test_pairs)
 
 # Save raw predictions
-# TODO: use github.com/JDACS4C-IMPROVE/IMPROVE/blob/develop/improvelib/utils.py#273 to save raw preds
-print('\nSave raw predictions.')
-test_res_df.to_csv(output_dir / 'test_predicted.csv', index=False)
-print(f"Saved raw prediction to: {output_dir / 'test_predicted.csv'}")
+preds_file = output_dir / 'test_predicted.csv'
+print(f'\nSave raw predictions to: {preds_file}')
+test_res_df.to_csv(preds_file, index=False)
 
 total_timer.display_timer()
-print('Done.')
+print(f'\nFinished {Path(__file__).name}!')
