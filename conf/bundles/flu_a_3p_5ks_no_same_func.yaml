@@ -1,0 +1,64 @@
+# Flu A bundle (PB1, PB2, PA proteins - 3 major proteins)
+# Experiment: 5K isolates, no same-function negatives
+# Inherits from flu_a_3p_1ks.yaml structure and overrides max_isolates_to_process and allow_same_func_negatives
+defaults:
+  - /virus: flu_a
+  - /paths: flu_a
+  - /embeddings: default
+  - /dataset: default
+  - /training: base
+  - _self_
+
+# ====================================================================
+# DIRECTORY NAMING
+# ====================================================================
+run_suffix: null
+
+# ====================================================================
+# SEED MANAGEMENT
+# ====================================================================
+master_seed: 42
+
+process_seeds:
+  preprocessing: null
+  embeddings: null
+  dataset: null
+  training: null
+  evaluation: null
+
+# ====================================================================
+# DATA SAMPLING
+# ====================================================================
+max_isolates_to_process: 5000  # 5K isolates
+
+# ====================================================================
+# PROTEIN SELECTION
+# ====================================================================
+# Override selected_functions to include only PB1, PB2, and PA proteins
+virus:
+  selected_functions:
+    - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 - Segment 1
+    - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 - Segment 2
+    - "RNA-dependent RNA polymerase PA subunit"  # PA - Segment 3
+
+# ====================================================================
+# MODEL AND DATASET OVERRIDES
+# ====================================================================
+# Embeddings overrides
+embeddings:
+  batch_size: 32
+  use_selected_only: true  # Compute embeddings for selected_functions (PB1+PB2+PA)
+
+# Dataset overrides
+dataset:
+  use_selected_only: true  # Use selected_functions (a subset of protein functions)
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
+  allow_same_func_negatives: false  # No same-function negative pairs (experiment setting)
+  max_same_func_ratio: 0.5  # Not used when allow_same_func_negatives=false, but kept for consistency
+
+# Training overrides
+training:
+  batch_size: 16
+  learning_rate: 0.001
+  patience: 5 # Early stopping
+

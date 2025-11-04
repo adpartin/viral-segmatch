@@ -10,3 +10,5 @@ dropout: 0.3
 
 # Training control
 patience: 5  # Early stopping patience
+# early_stopping_metric: 'loss'  # Metric for early stopping: 'loss' (lower is better), 'f1' and 'auc' (higher is better)
+early_stopping_metric: 'f1'

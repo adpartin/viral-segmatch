@@ -99,14 +99,33 @@ def train_model(
     device,
     epochs,
     patience,
-    output_dir
+    output_dir,
+    early_stopping_metric='loss'
     ) -> str:
     """
-    Train the MLP classifier with early stopping based on validation loss.
+    Train the MLP classifier with early stopping based on a configurable metric.
+    
+    Args:
+        early_stopping_metric: Metric to use for early stopping ('loss', 'f1', 'auc')
+            - 'loss': Lower is better (default, backward compatible)
+            - 'f1': Higher is better
+            - 'auc': Higher is better
+    
+    Returns:
+        best_model_path: Path to best model checkpoint
     """
-    best_val_loss = float('inf')
     patience_counter = 0
     best_model_path = output_dir / 'best_model.pt'
+    
+    # Initialize best metric tracking based on metric type
+    if early_stopping_metric == 'loss':
+        best_metric_value = float('inf')
+        is_higher_better = False
+    elif early_stopping_metric in ['f1', 'auc']:
+        best_metric_value = -1.0
+        is_higher_better = True
+    else:
+        raise ValueError(f"Unknown early_stopping_metric: {early_stopping_metric}. Choose from 'loss', 'f1', 'auc'")
 
     for epoch in range(epochs):
         model.train()
@@ -143,18 +162,37 @@ def train_model(
         val_f1 = f1_score(val_labels, val_preds)
         val_auc = roc_auc_score(val_labels, val_probs)
 
+        # Select metric value for early stopping
+        if early_stopping_metric == 'loss':
+            current_metric_value = val_loss
+            metric_display = f'Val Loss: {val_loss:.4f}'
+        elif early_stopping_metric == 'f1':
+            current_metric_value = val_f1
+            metric_display = f'Val F1: {val_f1:.4f}'
+        elif early_stopping_metric == 'auc':
+            current_metric_value = val_auc
+            metric_display = f'Val AUC: {val_auc:.4f}'
+
         print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, '\
               f'Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}, '\
-              f'Val AUC: {val_auc:.4f}')
+              f'Val AUC: {val_auc:.4f} [{early_stopping_metric.upper()}: {current_metric_value:.4f}]')
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        # Check if current metric is better than best
+        is_better = False
+        if is_higher_better:
+            is_better = current_metric_value > best_metric_value
+        else:
+            is_better = current_metric_value < best_metric_value
+
+        if is_better:
+            best_metric_value = current_metric_value
             patience_counter = 0
             torch.save(model.state_dict(), best_model_path)
+            print(f'  ✓ New best {early_stopping_metric}: {best_metric_value:.4f}')
         else:
             patience_counter += 1
             if patience_counter >= patience:
-                print('Early stopping triggered.')
+                print(f'Early stopping triggered (no improvement in {early_stopping_metric} for {patience} epochs).')
                 break
 
     return best_model_path
@@ -251,6 +289,7 @@ EPOCHS = config.training.epochs
 HIDDEN_DIMS = config.training.hidden_dims
 DROPOUT = config.training.dropout
 PATIENCE = config.training.patience
+EARLY_STOPPING_METRIC = config.training.early_stopping_metric
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -336,6 +375,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 # Train
 print('\nTrain model.')
+print(f'Early stopping metric: {EARLY_STOPPING_METRIC}')
 best_model_path = train_model(
     model=model,
     train_loader=train_loader,
@@ -345,7 +385,8 @@ best_model_path = train_model(
     device=device,
     epochs=EPOCHS,
     patience=PATIENCE,
-    output_dir=output_dir
+    output_dir=output_dir,
+    early_stopping_metric=EARLY_STOPPING_METRIC
 )
 
 # Evaluate
