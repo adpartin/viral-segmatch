@@ -127,19 +127,21 @@ def train_model(
 
         model.eval()
         val_loss = 0
-        val_preds, val_labels = [], []
+        val_preds, val_probs, val_labels = [], [], []
         with torch.no_grad():
             for batch_x, batch_y in val_loader:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                 preds = model(batch_x).squeeze()
                 loss = criterion(preds, batch_y)
                 val_loss += loss.item() * batch_x.size(0)
-                val_preds.extend(torch.sigmoid(preds).cpu().numpy())
+                val_probs.extend(torch.sigmoid(preds).cpu().numpy())
+                val_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
                 val_labels.extend(batch_y.cpu().numpy())
         val_loss /= len(val_loader.dataset)
-        val_preds = np.array(val_preds) > 0.5
+        val_preds = np.array(val_preds)
+        val_probs = np.array(val_probs)
         val_f1 = f1_score(val_labels, val_preds)
-        val_auc = roc_auc_score(val_labels, val_preds)
+        val_auc = roc_auc_score(val_labels, val_probs)
 
         print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, '\
               f'Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}, '\
