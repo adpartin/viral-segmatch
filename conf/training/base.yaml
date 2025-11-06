@@ -10,5 +10,5 @@ dropout: 0.3
 
 # Training control
 patience: 5  # Early stopping patience
-# early_stopping_metric: 'loss'  # Metric for early stopping: 'loss' (lower is better), 'f1' and 'auc' (higher is better)
-early_stopping_metric: 'f1'
+early_stopping_metric: 'f1'  # Metric for early stopping: 'loss' (lower is better), 'f1' and 'auc' (higher is better)
+threshold_metric: null  # Threshold optimization metric; null (no optimization; use 0.5), 'f1' (default), 'f0.5' (emphasize precision), 'f2' (emphasize recall); This metric is used to determine the threshold for the binary classifier; the threshold is the metric value that is used to classify the pairs as positive or negative
