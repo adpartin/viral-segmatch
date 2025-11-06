@@ -12,7 +12,10 @@ import h5py
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-from sklearn.metrics import f1_score, roc_auc_score, classification_report
+from sklearn.metrics import (
+    f1_score, roc_auc_score, classification_report,
+    precision_recall_curve
+)
 
 import torch
 import torch.nn as nn
@@ -31,6 +34,58 @@ from src.utils.torch_utils import determine_device
 from src.utils.esm2_utils import load_esm2_embedding
 
 total_timer = Timer()
+
+
+def find_optimal_threshold_pr(y_true, y_probs, metric='f1'):
+    """
+    Find optimal threshold using Precision-Recall curve.
+    TODO: allow an option to generate a plot of the PR curve, showing the optimal threshold and the best score.
+
+    This method is preferred for imbalanced datasets and when optimizing F1.
+    It's faster than grid search and directly optimizes F1 score.
+
+    Args:
+        y_true: True binary labels (array-like)
+        y_probs: Predicted probabilities (array-like)
+        metric: Metric to optimize ('f1', 'f0.5', 'f2')
+            - 'f1': Maximize F1 score (harmonic mean of precision and recall)
+            - 'f0.5': Emphasize precision more (F0.5 = (1+0.5²) * P*R / (0.5²*P + R))
+            - 'f2': Emphasize recall more (F2 = (1+2²) * P*R / (2²*P + R))
+
+    Returns:
+        optimal_threshold: Threshold that maximizes the specified metric
+        best_score: Best score achieved at optimal threshold
+    """
+    precision, recall, thresholds = precision_recall_curve(y_true, y_probs)
+
+    # Handle edge case: no thresholds (all predictions same class)
+    if len(thresholds) == 0:
+        return 0.5, 0.0
+
+    # Calculate F-beta scores
+    if metric == 'f1':
+        # F1 = 2 * (precision * recall) / (precision + recall)
+        # Add small epsilon to avoid division by zero
+        f_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
+    elif metric == 'f0.5':
+        # F0.5 emphasizes precision: beta = 0.5
+        beta_sq = 0.5 ** 2
+        f_scores = (1 + beta_sq) * (precision * recall) / (beta_sq * precision + recall + 1e-10)
+    elif metric == 'f2':
+        # F2 emphasizes recall: beta = 2
+        beta_sq = 2 ** 2
+        f_scores = (1 + beta_sq) * (precision * recall) / (beta_sq * precision + recall + 1e-10)
+    else:
+        raise ValueError(f"Unknown metric: {metric}. Choose from 'f1', 'f0.5', 'f2'")
+
+    # Find best F-score (excluding last point which has threshold=None)
+    # The last point in precision_recall_curve has threshold=None and corresponds
+    # to the case where all predictions are positive
+    optimal_idx = np.argmax(f_scores[:-1])
+    optimal_threshold = thresholds[optimal_idx]
+    best_score = f_scores[optimal_idx]
+
+    return optimal_threshold, best_score
 
 
 class SegmentPairDataset(Dataset):
@@ -100,8 +155,9 @@ def train_model(
     epochs,
     patience,
     output_dir,
-    early_stopping_metric='loss'
-    ) -> str:
+    early_stopping_metric='loss',
+    threshold_metric='f1'
+    ) -> tuple[str, float]:
     """
     Train the MLP classifier with early stopping based on a configurable metric.
     
@@ -110,12 +166,20 @@ def train_model(
             - 'loss': Lower is better (default, backward compatible)
             - 'f1': Higher is better
             - 'auc': Higher is better
+        threshold_metric: Metric to optimize for threshold selection ('f1', 'f0.5', 'f2', or None)
+            - 'f1': Maximize F1 score (default)
+            - 'f0.5': Emphasize precision more
+            - 'f2': Emphasize recall more
+            - None: Skip optimization, use default threshold 0.5
     
     Returns:
         best_model_path: Path to best model checkpoint
+        th: Optimal threshold found on validation set
     """
     patience_counter = 0
     best_model_path = output_dir / 'best_model.pt'
+    best_val_probs = None
+    best_val_labels = None
     
     # Initialize best metric tracking based on metric type
     if early_stopping_metric == 'loss':
@@ -165,13 +229,10 @@ def train_model(
         # Select metric value for early stopping
         if early_stopping_metric == 'loss':
             current_metric_value = val_loss
-            metric_display = f'Val Loss: {val_loss:.4f}'
         elif early_stopping_metric == 'f1':
             current_metric_value = val_f1
-            metric_display = f'Val F1: {val_f1:.4f}'
         elif early_stopping_metric == 'auc':
             current_metric_value = val_auc
-            metric_display = f'Val AUC: {val_auc:.4f}'
 
         print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, '\
               f'Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}, '\
@@ -188,6 +249,9 @@ def train_model(
             best_metric_value = current_metric_value
             patience_counter = 0
             torch.save(model.state_dict(), best_model_path)
+            # Save validation probabilities and labels for threshold optimization
+            best_val_probs = val_probs.copy()
+            best_val_labels = np.array(val_labels)
             print(f'  ✓ New best {early_stopping_metric}: {best_metric_value:.4f}')
         else:
             patience_counter += 1
@@ -195,7 +259,29 @@ def train_model(
                 print(f'Early stopping triggered (no improvement in {early_stopping_metric} for {patience} epochs).')
                 break
 
-    return best_model_path
+    # Find optimal threshold on validation set using best model's predictions
+    # If threshold_metric is None, skip optimization and use default 0.5
+    if threshold_metric is None:
+        th = 0.5
+        print(f'\nUsing default threshold: {th:.4f} (threshold optimization disabled)')
+    elif best_val_probs is not None and best_val_labels is not None:
+        th, best_metric_score = find_optimal_threshold_pr(
+            best_val_labels, best_val_probs, metric=threshold_metric
+        )
+        print(f'\nOptimal threshold (optimizing {threshold_metric}): {th:.4f}')
+        print(f'Best {threshold_metric} score on validation: {best_metric_score:.4f}')
+
+        # Save optimal threshold
+        threshold_file = output_dir / 'optimal_threshold.txt'
+        with open(threshold_file, 'w') as f:
+            f.write(f'{th}\n')
+            f.write(f'metric: {threshold_metric}\n')
+            f.write(f'best_score: {best_metric_score:.4f}\n')
+    else:
+        th = 0.5
+        print(f'\nUsing default threshold: {th:.4f} (no validation data available)')
+
+    return best_model_path, th
 
 
 def evaluate_model(
@@ -203,10 +289,14 @@ def evaluate_model(
     test_loader,
     criterion,
     device,
-    test_pairs
+    test_pairs,
+    threshold=0.5
     ) -> pd.DataFrame:
     """
     Evaluate the model on the test set and compute metrics.
+
+    Args:
+        threshold: Classification threshold (default: 0.5)
     """
     model.eval()
     test_loss = 0
@@ -218,9 +308,12 @@ def evaluate_model(
             loss = criterion(preds, batch_y)
             test_loss += loss.item() * batch_x.size(0)
             test_probs.extend(torch.sigmoid(preds).cpu().numpy())
-            test_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
+            test_preds.extend((torch.sigmoid(preds) > threshold).float().cpu().numpy())
             test_labels.extend(batch_y.cpu().numpy())
     test_loss /= len(test_loader.dataset)
+    test_probs = np.array(test_probs)
+    test_preds = np.array(test_preds)
+    test_labels = np.array(test_labels)
     test_f1 = f1_score(test_labels, test_preds)
     test_auc = roc_auc_score(test_labels, test_probs)
 
@@ -234,6 +327,7 @@ def evaluate_model(
     test_res_df['pred_prob'] = test_probs
 
     print(f'Test Loss: {test_loss:.4f}, Test F1: {test_f1:.4f}, Test AUC: {test_auc:.4f}')
+    print(f'Using threshold: {threshold:.4f}')
     return test_res_df
 
 
@@ -290,6 +384,7 @@ HIDDEN_DIMS = config.training.hidden_dims
 DROPOUT = config.training.dropout
 PATIENCE = config.training.patience
 EARLY_STOPPING_METRIC = config.training.early_stopping_metric
+THRESHOLD_METRIC = config.training.threshold_metric
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -376,7 +471,8 @@ optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 # Train
 print('\nTrain model.')
 print(f'Early stopping metric: {EARLY_STOPPING_METRIC}')
-best_model_path = train_model(
+print(f'Threshold optimization metric: {THRESHOLD_METRIC}')
+best_model_path, optimal_threshold = train_model(
     model=model,
     train_loader=train_loader,
     val_loader=val_loader,
@@ -386,13 +482,17 @@ best_model_path = train_model(
     epochs=EPOCHS,
     patience=PATIENCE,
     output_dir=output_dir,
-    early_stopping_metric=EARLY_STOPPING_METRIC
+    early_stopping_metric=EARLY_STOPPING_METRIC,
+    threshold_metric=THRESHOLD_METRIC
 )
 
 # Evaluate
 print('\nEvaluate model.')
 model.load_state_dict(torch.load(best_model_path))
-test_res_df = evaluate_model(model, test_loader, criterion, device, test_pairs)
+test_res_df = evaluate_model(
+    model, test_loader, criterion, device, test_pairs,
+    threshold=optimal_threshold
+)
 
 # Save raw predictions
 preds_file = output_dir / 'test_predicted.csv'
