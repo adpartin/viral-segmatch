@@ -271,8 +271,9 @@ def main(config_bundle: str, model_dir: Optional[Path] = None) -> None:
         models_dir = paths['output_dir']
         print(f"Using standard Hydra path: {models_dir}")
     
-    # Construct results directory manually (like the original script)
-    results_dir = project_root / 'results' / config.virus.virus_name / config.virus.data_version
+    # Construct results directory with config bundle to avoid conflicts
+    # Format: results/{virus_name}/{data_version}/{config_bundle}/
+    results_dir = project_root / 'results' / config.virus.virus_name / config.virus.data_version / config_bundle
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # Load test results
@@ -293,6 +294,7 @@ def main(config_bundle: str, model_dir: Optional[Path] = None) -> None:
     create_model_calibration_plot(df, results_dir)
 
     print(f'All plots saved to: {results_dir}')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create presentation plots for segment classifier results')
