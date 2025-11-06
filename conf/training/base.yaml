@@ -7,6 +7,8 @@ optimizer: 'adam'
 # Model architecture
 hidden_dims: [512, 256, 64]
 dropout: 0.3
+use_diff: false # Use absolute difference |A - B| as interaction feature (boolean)
+use_prod: false # Use element-wise product A * B as interaction feature (boolean)
 
 # Training control
 patience: 5  # Early stopping patience

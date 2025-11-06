@@ -31,7 +31,7 @@ from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_training_paths
 from src.utils.torch_utils import determine_device
-from src.utils.esm2_utils import load_esm2_embedding
+from src.utils.esm2_utils import load_esm2_embedding, get_esm2_embedding_dim
 
 total_timer = Timer()
 
@@ -90,29 +90,82 @@ def find_optimal_threshold_pr(y_true, y_probs, metric='f1'):
 
 class SegmentPairDataset(Dataset):
     """
-    Dataset for segment pairs with ESM-2 embeddings.
+    Dataset for segment pairs with ESM-2 embeddings, supporting optional
+    interaction features.
     """
-    def __init__(self, pairs_df: pd.DataFrame, embeddings_file: str):
+    def __init__(
+        self,
+        pairs: pd.DataFrame,
+        embeddings_file: str,
+        use_diff: bool = False,
+        use_prod: bool = False
+        ) -> None:
         """
         Args:
-            pairs_df (pd.DataFrame): DataFrame containing segment pairs with
-                columns ['brc_a', 'brc_b', 'label'].
-            embeddings_file (str): Path to the ESM-2 embeddings file.
+            pairs (pd.DataFrame): DataFrame with ['brc_a', 'brc_b', 'label'].
+            embeddings_file (str): Path to ESM-2 embeddings file.
+            use_diff (bool): Include absolute difference (|emb_a - emb_b|). Default: False.
+            use_prod (bool): Include element-wise product (emb_a * emb_b). Default: False.
         """
-        self.pairs = pairs_df
+        self.pairs = pairs
         self.embeddings_file = embeddings_file
-    
+        self.use_diff = use_diff
+        self.use_prod = use_prod
+        # Preload for efficiency
+        # self.embeddings = self._preload_embeddings(embeddings_file, pairs_df)
+
+    def _preload_embeddings(self, embeddings_file: str, pairs: pd.DataFrame) -> dict:
+        unique_brcs = set(pairs['brc_a']).union(set(pairs['brc_b']))
+        print(f"Pre-loading {len(unique_brcs):,} embeddings into memory...")
+        self.embeddings = {}
+        with h5py.File(embeddings_file, 'r') as f:
+            for brc in tqdm(unique_brcs, desc="Pre-loading embeddings"):
+                try:
+                    if brc in f:
+                        self.embeddings[brc] = load_esm2_embedding(brc, embeddings_file)  # Uses mmap if enabled
+                    else:
+                        print(f"Warning: Missing embedding for ID {brc}")
+                        # Handle missing case (e.g., skip, or use zero vector)
+                except KeyError:
+                    print(f"Warning: Missing embedding for ID {brc}")
+                    continue
+        print("✅ Pre-loading complete.")
+        return self.embeddings
+
     def __len__(self):
         return len(self.pairs)
-    
+
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Return the concatenated ESM-2 embeddings for a segment pair and its label.
+        Return the aggregated embedding vector for a segment pair and its label.
         """
         row = self.pairs.iloc[idx]
+
+        # Slower method: load embeddings from file for each pair
         emb_a = load_esm2_embedding(row['brc_a'], self.embeddings_file)
         emb_b = load_esm2_embedding(row['brc_b'], self.embeddings_file)
-        emb = np.concatenate([emb_a, emb_b])
+
+        # Faster method: use pre-loaded embeddings from memory for each pair
+        # emb_a = self.embeddings[row['brc_a']]
+        # emb_b = self.embeddings[row['brc_b']]
+    
+        # Start with the standard concatenation
+        features = [emb_a, emb_b]
+
+        # Add absolute difference |A - B| as interaction feature conditionally
+        if self.use_diff:
+            diff = np.abs(emb_a - emb_b)
+            features.append(diff)
+        
+        # Add element-wise product A * B as interaction feature conditionally
+        if self.use_prod:    
+            prod = emb_a * emb_b
+            features.append(prod)
+
+        # Concatenate all chosen features
+        emb = np.concatenate(features)
+
+        # Convert to torch tensor
         emb = torch.tensor(emb, dtype=torch.float)
         label = torch.tensor(row['label'], dtype=torch.float)
         return emb, label
@@ -381,6 +434,8 @@ BATCH_SIZE = config.training.batch_size
 LEARNING_RATE = config.training.learning_rate
 EPOCHS = config.training.epochs
 HIDDEN_DIMS = config.training.hidden_dims
+USE_DIFF = config.training.use_diff
+USE_PROD = config.training.use_prod
 DROPOUT = config.training.dropout
 PATIENCE = config.training.patience
 EARLY_STOPPING_METRIC = config.training.early_stopping_metric
@@ -446,9 +501,12 @@ with h5py.File(embeddings_file, 'r') as f:
         assert set(df['brc_a']).union(set(df['brc_b'])).issubset(emb_ids), 'Missing embeddings'
 
 # Create datasets
-train_dataset = SegmentPairDataset(train_pairs, embeddings_file)
-val_dataset   = SegmentPairDataset(val_pairs, embeddings_file)
-test_dataset  = SegmentPairDataset(test_pairs, embeddings_file)
+train_dataset = SegmentPairDataset(train_pairs, embeddings_file,
+    use_diff=USE_DIFF, use_prod=USE_PROD)
+val_dataset = SegmentPairDataset(val_pairs, embeddings_file,
+    use_diff=USE_DIFF, use_prod=USE_PROD)
+test_dataset = SegmentPairDataset(test_pairs, embeddings_file,
+    use_diff=USE_DIFF, use_prod=USE_PROD)
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -458,10 +516,26 @@ test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 CUDA_NAME = args.cuda_name
 device = determine_device(CUDA_NAME)
 
+# Get embedding dimension from model checkpoint
+EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
+
+# Compute input dimension based on feature flags
+mlp_input_dim = 2 * EMBED_DIM  # Default: concat [emb_a, emb_b] = 2 * EMBED_DIM
+feature_desc = "2"
+if USE_DIFF:
+    mlp_input_dim += EMBED_DIM  # add |A - B|
+    feature_desc += "+1"
+if USE_PROD:
+    mlp_input_dim += EMBED_DIM  # add A * B
+    feature_desc += "+1"
+print(f"MLP Input Dimension: {mlp_input_dim} ({feature_desc} * {EMBED_DIM})") 
+
 # Initialize model
-batch = next(iter(train_loader))
-mlp_input_dim = batch[0].shape[1] # 2 * embedding_dim = 2 * 1280 (embed_dim can be obtained from 'esm2_embeddings.h5')
-model = MLPClassifier(input_dim=mlp_input_dim, hidden_dims=HIDDEN_DIMS, dropout=DROPOUT)
+model = MLPClassifier(
+    input_dim=mlp_input_dim,
+    hidden_dims=HIDDEN_DIMS,
+    dropout=DROPOUT,
+)
 model.to(device)
 
 # Loss function and optimizer

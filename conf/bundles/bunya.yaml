@@ -77,9 +77,11 @@ dataset:
 
 # Training overrides
 training:
+  use_diff: true
+  use_prod: true
   batch_size: 16
   learning_rate: 0.001
   patience: 15  # Early stopping
-  # early_stopping_metric: 'f1'  # Metric for early stopping; Options: 'loss', 'f1', 'auc', null (default; use 'loss')
-  epochs: 35
+  early_stopping_metric: 'f1'  # Metric for early stopping; Options: 'loss', 'f1', 'auc', null (default; use 'loss')
+  # epochs: 35
   threshold_metric: null  # Threshold optimization metric; Options: 'f1', 'f0.5', 'f2', null (default; use 0.5)

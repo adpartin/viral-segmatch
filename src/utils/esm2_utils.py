@@ -10,6 +10,38 @@ from transformers import EsmModel, EsmTokenizer
 ESM2_MAX_RESIDUES = 1022  # ESM-2 max seq length is 1024 with 2 tokens reserved for CLS, SEP (special tokens)
 
 
+def get_esm2_embedding_dim(model_ckpt: str) -> int:
+    """
+    Get embedding dimension for a given ESM-2 model checkpoint.
+    
+    Args:
+        model_ckpt: Hugging Face model checkpoint name (e.g., 'facebook/esm2_t33_650M_UR50D')
+    
+    Returns:
+        Embedding dimension (int)
+    
+    Raises:
+        ValueError: If model checkpoint is not recognized
+    """
+    # Map of known ESM-2 models to their embedding dimensions
+    MODEL_DIMS = {
+        'facebook/esm2_t6_8M_UR50D': 320,
+        'facebook/esm2_t12_35M_UR50D': 480,
+        'facebook/esm2_t30_150M_UR50D': 640,
+        'facebook/esm2_t33_650M_UR50D': 1280,
+        'facebook/esm2_t36_3B_UR50D': 2560,
+        'facebook/esm2_t48_15B_UR50D': 5120,
+    }
+    
+    if model_ckpt not in MODEL_DIMS:
+        raise ValueError(
+            f"Unknown ESM-2 model: {model_ckpt}. "
+            f"Known models: {list(MODEL_DIMS.keys())}"
+        )
+    
+    return MODEL_DIMS[model_ckpt]
+
+
 def compute_esm2_embeddings(
     sequences: list[str],
     brc_fea_ids: list[str],
