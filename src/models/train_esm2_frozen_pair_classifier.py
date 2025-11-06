@@ -153,11 +153,15 @@ class SegmentPairDataset(Dataset):
         features = [emb_a, emb_b]
 
         # Add absolute difference |A - B| as interaction feature conditionally
+        # Element-wise Difference
+        # Measures the degree of difference between two embeddings
         if self.use_diff:
             diff = np.abs(emb_a - emb_b)
             features.append(diff)
-        
+
         # Add element-wise product A * B as interaction feature conditionally
+        # Hadamard Product (or Element-wise Multiplication)
+        # Captures how much two embeddings agree or correlate on each feature
         if self.use_prod:    
             prod = emb_a * emb_b
             features.append(prod)
