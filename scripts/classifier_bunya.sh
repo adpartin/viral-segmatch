@@ -90,8 +90,71 @@ log ""
 log "========================================================================"
 if [ $EXIT_CODE -eq 0 ]; then
     log "✅ ESM-2 frozen pair classifier training completed successfully!"
+    
+    # Run postprocessing if training succeeded
+    log ""
+    log "========================================================================"
+    log "POSTPROCESSING: Segment Classifier Results Analysis"
+    log "========================================================================"
+    
+    POSTPROC_EXIT_CODE=0
+    
+    # 1. Run segment_classifier_results.py
+    log "Running segment_classifier_results.py..."
+    POSTPROC_CMD="python $PROJECT_ROOT/src/postprocess/segment_classifier_results.py --config_bundle $CONFIG_BUNDLE --model_dir $OUTPUT_DIR"
+    log "Command: $POSTPROC_CMD"
+    log ""
+    
+    set +e  # Temporarily disable exit on error
+    eval "$POSTPROC_CMD" 2>&1 | tee -a "$LOG_FILE"
+    SEGMENT_EXIT_CODE=${PIPESTATUS[0]}
+    set -e  # Re-enable exit on error
+    
+    if [ $SEGMENT_EXIT_CODE -eq 0 ]; then
+        log "✅ Segment classifier results analysis completed successfully!"
+    else
+        log "❌ Segment classifier results analysis failed with exit code: $SEGMENT_EXIT_CODE"
+        POSTPROC_EXIT_CODE=$SEGMENT_EXIT_CODE
+    fi
+    log ""
+    
+    # 2. Run presentation_plots.py
+    log "Running presentation_plots.py..."
+    PRESENTATION_CMD="python $PROJECT_ROOT/src/postprocess/presentation_plots.py --config_bundle $CONFIG_BUNDLE --model_dir $OUTPUT_DIR"
+    log "Command: $PRESENTATION_CMD"
+    log ""
+    
+    set +e  # Temporarily disable exit on error
+    eval "$PRESENTATION_CMD" 2>&1 | tee -a "$LOG_FILE"
+    PRESENTATION_EXIT_CODE=${PIPESTATUS[0]}
+    set -e  # Re-enable exit on error
+    
+    if [ $PRESENTATION_EXIT_CODE -eq 0 ]; then
+        log "✅ Presentation plots generation completed successfully!"
+    else
+        log "❌ Presentation plots generation failed with exit code: $PRESENTATION_EXIT_CODE"
+        POSTPROC_EXIT_CODE=$PRESENTATION_EXIT_CODE
+    fi
+    
+    log ""
+    log "========================================================================"
+    if [ $POSTPROC_EXIT_CODE -eq 0 ]; then
+        log "✅ All postprocessing steps completed successfully!"
+    else
+        log "⚠️  Postprocessing completed with errors (exit code: $POSTPROC_EXIT_CODE)"
+    fi
+    log "========================================================================"
 else
     log "❌ ESM-2 frozen pair classifier training failed with exit code: $EXIT_CODE"
+    log "Skipping postprocessing due to training failure."
+fi
+log ""
+log "========================================================================"
+log "Training and Postprocessing Summary"
+log "========================================================================"
+log "Training exit code: $EXIT_CODE"
+if [ $EXIT_CODE -eq 0 ]; then
+    log "Postprocessing exit code: $POSTPROC_EXIT_CODE"
 fi
 log "End time: $(date)"
 log "Total runtime: $SECONDS seconds"
@@ -100,4 +163,5 @@ log "========================================================================"
 # Create symlink to latest log
 ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_latest.log"
 
+# Exit with training exit code (postprocessing errors don't fail the script)
 exit $EXIT_CODE
