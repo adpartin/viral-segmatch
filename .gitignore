@@ -18,6 +18,6 @@ data/embeddings/flu_a/
 data/embeddings/bunya/April_2025_old/
 data/datasets/bunya/April_2025_old/
 data/datasets/flu_a/
-logs/
-models/
-results/
+/logs/
+/models/
+/results/
