@@ -54,7 +54,7 @@ process_seeds:
 #   max_isolates_to_process: 500, master_seed: 42 → processed/flu_a/July_2025_seed_42_isolates_500/
 #   max_isolates_to_process: 100, master_seed: null → processed/flu_a/July_2025_random_TIMESTAMP_isolates_100/
 
-max_isolates_to_process: null  # null = full dataset, or set to 100, 500, etc.
+# max_isolates_to_process: null  # null = full dataset, or set to 100, 500, etc.
 
 # ====================================================================
 # PROTEIN SELECTION
@@ -64,24 +64,31 @@ virus:
   selected_functions:
     - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 - Segment 1
     - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 - Segment 2
+    - "RNA-dependent RNA polymerase PA subunit"  # PA - Segment 3
 
 # ====================================================================
 # MODEL AND DATASET OVERRIDES
 # ====================================================================
 # Embeddings overrides
 embeddings:
-  batch_size: 32
-  use_selected_only: true  # Compute embeddings for selected_functions
+  batch_size: 96
+  use_selected_only: false  # Compute embeddings for selected_functions
 
 # Dataset overrides
 dataset:
   use_selected_only: true  # Use selected_functions (a subset of protein functions)
   neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
-  allow_same_func_negatives: true  # Allow same-function negative pairs
+  allow_same_func_negatives: false  # No same-function negative pairs (experiment setting)
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
+  max_isolates_to_process: 1000  # null = full dataset, or set to 100, 500, etc.
 
 # Training overrides
 training:
+  use_diff: true
+  use_prod: true
   batch_size: 16
   learning_rate: 0.001
-  patience: 5  # Early stopping
+  patience: 15  # Early stopping
+  early_stopping_metric: 'f1'  # Metric for early stopping; Options: 'loss', 'f1', 'auc', null (default; use 'loss')
+  # epochs: 35
+  threshold_metric: null  # Threshold optimization metric; Options: 'f1', 'f0.5', 'f2', null (default; use 0.5)

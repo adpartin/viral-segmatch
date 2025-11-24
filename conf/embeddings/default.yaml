@@ -14,3 +14,8 @@ batch_size: 32
 
 # Protein filtering strategy
 use_selected_only: false  # true = use selected_functions, false = use all proteins
+
+# Embedding generation parameters
+pooling: 'mean'  # Pooling method: 'mean', 'max', 'cls', 'attention'
+layer: 'last'  # Layer selection: 'last', 'second_last', or int (layer index)
+emb_storage_precision: 'fp16'  # Storage precision: 'fp16' (recommended, 2 bytes), 'fp32' (4 bytes, full precision)

@@ -2,6 +2,11 @@
 Modeling approach:
 1. Binary classifier: Do (protein A, protein B) come from same isolate?
 2. Start with frozen ESM-2 embeddings + MLP baseline
+
+Requirements:
+- Master embeddings file: master_esm2_embeddings.h5 (HDF5 format with 'emb' dataset)
+- Parquet index file: master_esm2_embeddings.parquet (required for brc_fea_id to row mapping)
+  Both files must be in the same directory and are created together by compute_esm2_embeddings.py
 """
 import argparse
 import sys
@@ -29,9 +34,10 @@ sys.path.append(str(project_root))
 from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.path_utils import resolve_run_suffix, build_training_paths
+from src.utils.path_utils import resolve_run_suffix, build_training_paths, build_embeddings_paths
 from src.utils.torch_utils import determine_device
-from src.utils.esm2_utils import load_esm2_embedding, get_esm2_embedding_dim
+from src.utils.esm2_utils import load_esm2_embedding, get_esm2_embedding_dim, validate_embeddings_metadata
+import h5py
 
 total_timer = Timer()
 
@@ -91,46 +97,103 @@ def find_optimal_threshold_pr(y_true, y_probs, metric='f1'):
 class SegmentPairDataset(Dataset):
     """
     Dataset for segment pairs with ESM-2 embeddings, supporting optional
-    interaction features.
+    interaction features. Uses row-based indexing for master cache access.
     """
+    # Shared cache so multiple datasets (train/val/test) can reuse the same embeddings
+    _shared_embedding_cache: dict[str, np.ndarray] = {}
+
     def __init__(
         self,
         pairs: pd.DataFrame,
         embeddings_file: str,
         use_diff: bool = False,
-        use_prod: bool = False
+        use_prod: bool = False,
+        use_parquet: bool = True,
+        preload_embeddings: bool = True
         ) -> None:
         """
         Args:
             pairs (pd.DataFrame): DataFrame with ['brc_a', 'brc_b', 'label'].
-            embeddings_file (str): Path to ESM-2 embeddings file.
+            embeddings_file (str): Path to master HDF5 cache file.
             use_diff (bool): Include absolute difference (|emb_a - emb_b|). Default: False.
             use_prod (bool): Include element-wise product (emb_a * emb_b). Default: False.
+            use_parquet (bool): Use parquet index file for brc_fea_id to row mapping. Default: True.
+            preload_embeddings (bool): Preload all required embeddings into memory for faster access. Default: True.
         """
         self.pairs = pairs
         self.embeddings_file = embeddings_file
         self.use_diff = use_diff
         self.use_prod = use_prod
-        # Preload for efficiency
-        # self.embeddings = self._preload_embeddings(embeddings_file, pairs_df)
+        self.use_parquet = use_parquet
+        self.preload_embeddings = preload_embeddings
+        
+        # Build id_to_row mapping (must be done before opening H5)
+        self.id_to_row = self._build_id_to_row()
+        
+        # Open H5 file to read metadata and optionally preload embeddings
+        self.h5 = h5py.File(embeddings_file, 'r')
+        
+        # Require master cache format (strict - no old format support)
+        if 'emb' not in self.h5 or 'emb_keys' not in self.h5:
+            raise ValueError(
+                f"❌ Invalid embeddings file format: {embeddings_file}. "
+                "Master cache format required (with 'emb' and 'emb_keys' datasets). "
+                "Old format is not supported."
+            )
+        
+        # Display metadata (required for master cache format)
+        if 'model_name' in self.h5.attrs:
+            print(f"📋 Embedding metadata: model={self.h5.attrs.get('model_name', 'unknown')}, "
+                  f"pooling={self.h5.attrs.get('pooling', 'unknown')}, "
+                  f"layer={self.h5.attrs.get('layer', 'unknown')}, "
+                  f"max_length={self.h5.attrs.get('max_length', 'unknown')}, "
+                  f"precision={self.h5.attrs.get('precision', 'unknown')}")
+        
+        # Preload embeddings into memory (shared across datasets) for faster access
+        if self.preload_embeddings:
+            self.embeddings_cache = self._get_or_preload_shared_embeddings()
+            self.h5.close()
+            self.h5 = None
+        else:
+            self.embeddings_cache = None
+    
+    def _build_id_to_row(self) -> dict:
+        """
+        Build mapping from brc_fea_id to row index in master cache.
+        
+        Returns:
+            dict: Mapping {brc_fea_id: row_index}
+        """
+        if self.use_parquet:
+            # Use parquet index file
+            index_file = Path(self.embeddings_file).with_suffix('.parquet')
+            if index_file.exists():
+                df = pd.read_parquet(index_file)
+                return dict(zip(df['brc_fea_id'], df['row']))
+            else:
+                print(f"⚠️  Parquet index not found: {index_file}. Falling back to H5 key scan.")
+                self.use_parquet = False
+        
+        # Master cache format requires parquet index
+        raise ValueError(
+            f"❌ Parquet index not found: {index_file}. "
+            "Master cache format requires parquet index for brc_fea_id to row mapping. "
+            "Ensure the index file exists or regenerate embeddings."
+        )
 
-    def _preload_embeddings(self, embeddings_file: str, pairs: pd.DataFrame) -> dict:
-        unique_brcs = set(pairs['brc_a']).union(set(pairs['brc_b']))
-        print(f"Pre-loading {len(unique_brcs):,} embeddings into memory...")
-        self.embeddings = {}
-        with h5py.File(embeddings_file, 'r') as f:
-            for brc in tqdm(unique_brcs, desc="Pre-loading embeddings"):
-                try:
-                    if brc in f:
-                        self.embeddings[brc] = load_esm2_embedding(brc, embeddings_file)  # Uses mmap if enabled
-                    else:
-                        print(f"Warning: Missing embedding for ID {brc}")
-                        # Handle missing case (e.g., skip, or use zero vector)
-                except KeyError:
-                    print(f"Warning: Missing embedding for ID {brc}")
-                    continue
-        print("✅ Pre-loading complete.")
-        return self.embeddings
+    def _get_or_preload_shared_embeddings(self) -> np.ndarray:
+        """
+        Preload embeddings into a shared in-memory cache so multiple datasets
+        (train/val/test) reuse the same arrays without paying the cost per dataset.
+        """
+        if self.embeddings_file in self._shared_embedding_cache:
+            return self._shared_embedding_cache[self.embeddings_file]
+
+        print("Pre-loading entire embeddings matrix into memory (shared cache)...")
+        emb_matrix = self.h5['emb'][:].astype(np.float32)
+        self._shared_embedding_cache[self.embeddings_file] = emb_matrix
+        print(f"✅ Pre-loading complete ({emb_matrix.shape[0]:,} embeddings cached).")
+        return emb_matrix
 
     def __len__(self):
         return len(self.pairs)
@@ -138,16 +201,33 @@ class SegmentPairDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Return the aggregated embedding vector for a segment pair and its label.
+        Uses row-based indexing for fast access to master cache.
         """
         row = self.pairs.iloc[idx]
-
-        # Slower method: load embeddings from file for each pair
-        emb_a = load_esm2_embedding(row['brc_a'], self.embeddings_file)
-        emb_b = load_esm2_embedding(row['brc_b'], self.embeddings_file)
-
-        # Faster method: use pre-loaded embeddings from memory for each pair
-        # emb_a = self.embeddings[row['brc_a']]
-        # emb_b = self.embeddings[row['brc_b']]
+        
+        # Get row indices for brc_a and brc_b
+        row_a = self.id_to_row.get(row['brc_a'], -1)
+        row_b = self.id_to_row.get(row['brc_b'], -1)
+        
+        if row_a == -1 or row_b == -1:
+            missing = []
+            if row_a == -1:
+                missing.append(f"brc_a={row['brc_a']}")
+            if row_b == -1:
+                missing.append(f"brc_b={row['brc_b']}")
+            raise KeyError(f"❌ Missing embeddings for: {', '.join(missing)}")
+        
+        # Access embeddings from cache (preloaded) or master cache (on-demand)
+        if self.embeddings_cache is not None:
+            emb_a = self.embeddings_cache[row_a]
+            emb_b = emb_a if row_a == row_b else self.embeddings_cache[row_b]
+        else:
+            # Access from HDF5 file directly (slower, but uses less memory)
+            emb_a = self.h5['emb'][row_a].astype(np.float32)
+            if row_a == row_b:
+                emb_b = emb_a.copy()
+            else:
+                emb_b = self.h5['emb'][row_b].astype(np.float32)
     
         # Start with the standard concatenation
         features = [emb_a, emb_b]
@@ -173,6 +253,11 @@ class SegmentPairDataset(Dataset):
         emb = torch.tensor(emb, dtype=torch.float)
         label = torch.tensor(row['label'], dtype=torch.float)
         return emb, label
+    
+    def __del__(self):
+        """Close H5 file when dataset is destroyed."""
+        if hasattr(self, 'h5') and self.h5 is not None:
+            self.h5.close()
 
 
 class MLPClassifier(nn.Module):
@@ -406,9 +491,10 @@ parser.add_argument(
     help='Path to directory containing train_pairs.csv, val_pairs.csv, test_pairs.csv'
 )
 parser.add_argument(
-    '--embeddings_dir',
+    '--embeddings_file',
     type=str, default=None,
-    help='Path to directory containing esm2_embeddings.h5'
+    help='Path to master HDF5 cache file (default: auto-detect from config). '
+         'Note: Requires corresponding .parquet index file in same directory for brc_fea_id to row mapping.'
 )
 parser.add_argument(
     '--output_dir',
@@ -431,7 +517,11 @@ DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'training')
 # TASK_NAME = config.dataset.task_name
 MODEL_CKPT = config.embeddings.model_ckpt
-MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
+ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
+POOLING = config.embeddings.pooling
+LAYER = config.embeddings.layer
+EMB_STORAGE_PRECISION = config.embeddings.emb_storage_precision
+MAX_ISOLATES_TO_PROCESS = getattr(config.dataset, 'max_isolates_to_process', None)
 
 # Training hyperparameters from config
 BATCH_SIZE = config.training.batch_size
@@ -476,12 +566,25 @@ paths = build_training_paths(
 )
 
 default_dataset_dir = paths['dataset_dir']
-default_embeddings_file = paths['embeddings_file']
 default_output_dir = paths['output_dir']
+
+# Build canonical paths (no suffix) for master cache (shared across runs)
+canonical_paths = build_embeddings_paths(
+    project_root=project_root,
+    virus_name=VIRUS_NAME,
+    data_version=DATA_VERSION,
+    run_suffix="",  # Empty suffix = canonical location
+    config=config
+)
+
+# Use master cache file (per virus and data version, shared across runs)
+# Derived from canonical paths (no suffix) to ensure sharing across all runs
+master_embeddings_file = canonical_paths['output_dir'] / 'master_esm2_embeddings.h5'
+default_embeddings_file = master_embeddings_file
 
 # Apply CLI overrides if provided
 dataset_dir = Path(args.dataset_dir) if args.dataset_dir else default_dataset_dir
-embeddings_file = Path(args.embeddings_dir) / 'esm2_embeddings.h5' if args.embeddings_dir else default_embeddings_file
+embeddings_file = Path(args.embeddings_file) if args.embeddings_file else default_embeddings_file
 output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -497,12 +600,36 @@ train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv')
 val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv')
 test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv')
 
-# Validate embeddings
-print('\nValidate embeddings.')
-with h5py.File(embeddings_file, 'r') as f:
-    emb_ids = set(f.keys())
-    for df in [train_pairs, val_pairs, test_pairs]:
-        assert set(df['brc_a']).union(set(df['brc_b'])).issubset(emb_ids), 'Missing embeddings'
+# Validate embeddings metadata matches config
+print('\nValidate embeddings metadata.')
+validate_embeddings_metadata(
+    embeddings_file=str(embeddings_file),
+    model_name=MODEL_CKPT,
+    max_length=ESM2_MAX_RESIDUES + 2,
+    pooling=POOLING,
+    layer=LAYER,
+    emb_storage_precision=EMB_STORAGE_PRECISION
+)
+
+# Validate that all required embeddings exist (check parquet index)
+print('Validate embedding availability.')
+index_file = Path(embeddings_file).with_suffix('.parquet')
+if not index_file.exists():
+    raise ValueError(
+        f"❌ Parquet index not found: {index_file}. "
+        "Master cache format requires parquet index for validation."
+    )
+
+index_df = pd.read_parquet(index_file)
+available_ids = set(index_df['brc_fea_id'].unique())
+for df_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
+    required_ids = set(df['brc_a']).union(set(df['brc_b']))
+    missing = required_ids - available_ids
+    if missing:
+        raise ValueError(
+            f"❌ Missing embeddings for {len(missing)} IDs in {df_name} set: {list(missing)[:5]}..."
+        )
+print(f"All required embeddings available ({len(available_ids)} total embeddings)")
 
 # Create datasets
 train_dataset = SegmentPairDataset(train_pairs, embeddings_file,

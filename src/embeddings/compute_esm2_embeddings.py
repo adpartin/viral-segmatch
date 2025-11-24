@@ -57,7 +57,7 @@ parser.add_argument(
 parser.add_argument(
     '--output_dir',
     type=str, default=None,
-    help='Path to output directory for embeddings. If not provided, derived from config.'
+    help='Path to output dir for embeddings. If not provided, derived from config.'
 )
 parser.add_argument(
     '--force-recompute',
@@ -78,11 +78,14 @@ print_config_summary(config)
 VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'embeddings')
-USE_SELECTED_ONLY = config.embeddings.use_selected_only
+# USE_SELECTED_ONLY = config.embeddings.use_selected_only
+MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
 MODEL_CKPT = config.embeddings.model_ckpt
 ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
 BATCH_SIZE = config.embeddings.batch_size
-MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
+POOLING = config.embeddings.pooling
+LAYER = config.embeddings.layer
+EMB_STORAGE_PRECISION = config.embeddings.emb_storage_precision
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -104,7 +107,16 @@ if RANDOM_SEED is not None:
 else:
     print('No seed set - ESM-2 embeddings computation will be non-deterministic')
 
-# Build embeddings paths
+# Build canonical paths (no suffix) for master cache (shared across runs)
+canonical_paths = build_embeddings_paths(
+    project_root=project_root,
+    virus_name=VIRUS_NAME,
+    data_version=DATA_VERSION,
+    run_suffix="",  # Empty suffix = canonical location
+    config=config
+)
+
+# Build embeddings paths (run-specific for metadata files)
 paths = build_embeddings_paths(
     project_root=project_root,
     virus_name=VIRUS_NAME,
@@ -120,18 +132,21 @@ input_file = Path(args.input_file) if args.input_file else default_input_file
 output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
-print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
-print(f'input_file:    {input_file}')
-print(f'output_dir:    {output_dir}')
-print(f'model:         {MODEL_CKPT}')
-print(f'batch_size:    {BATCH_SIZE}')
+print(f'\nRun directory:         {DATA_VERSION}{RUN_SUFFIX}')
+print(f'input_file:            {input_file}')
+print(f'output_dir:            {output_dir}')
+print(f'model:                 {MODEL_CKPT}')
+print(f'batch_size:            {BATCH_SIZE}')
+print(f'pooling:               {POOLING}')
+print(f'layer:                 {LAYER}')
+print(f'emb_storage_precision: {EMB_STORAGE_PRECISION}')
 
 # Load protein data
 total_timer = Timer()
 print('\nLoad preprocessed protein sequence data.')
 try:
     df = load_dataframe(input_file)
-    print(f"✅ Loaded {len(df):,} protein records")
+    print(f"Loaded {len(df):,} protein records")
 except FileNotFoundError:
     raise FileNotFoundError(f"❌ Data file not found at: {input_file}")
 except Exception as e:
@@ -144,76 +159,94 @@ if missing_cols:
     raise ValueError(f"❌ Missing required columns: {missing_cols}.")
 
 # Check for duplicate IDs
+# Duplicate brc_fea_id values would cause issues in the parquet index mapping
+# (only the last occurrence would be mapped). This should be caught upstream
+# in preprocessing, but we validate here as a safeguard.
 if df['brc_fea_id'].duplicated().any():
     raise ValueError("❌ Duplicate brc_fea_id found in input data.")
 
-# Apply isolate-based sampling if specified
-# breakpoint()
-if MAX_ISOLATES_TO_PROCESS:
-    print(f'\nSample {MAX_ISOLATES_TO_PROCESS} isolates from protein sequence data ({input_file.name}).')
-    # Get unique isolates (assembly_id)
-    unique_isolates = df['assembly_id'].unique()
-    print(f"Found {len(unique_isolates)} unique isolates.")
+# # Apply isolate-based sampling if specified
+# if MAX_ISOLATES_TO_PROCESS:
+#     print(f'\nSample {MAX_ISOLATES_TO_PROCESS} isolates from protein sequence data ({input_file.name}).')
+#     # Get unique isolates (assembly_id)
+#     unique_isolates = df['assembly_id'].unique()
+#     print(f"Found {len(unique_isolates)} unique isolates.")
 
-    if len(unique_isolates) > MAX_ISOLATES_TO_PROCESS:
-        print(f"Sample {MAX_ISOLATES_TO_PROCESS} isolates from {len(unique_isolates)} total isolates.")
-        # Sample isolates, not individual records
-        sampled_isolates = np.random.choice(
-            unique_isolates, 
-            size=MAX_ISOLATES_TO_PROCESS, 
-            replace=False
-        )
-        # Extract protein records based on the sampled isolates
-        df = df[df['assembly_id'].isin(sampled_isolates)].reset_index(drop=True)
-        print(f"✅ Extracted {len(df)} protein records based on the {len(sampled_isolates)} sampled isolates.")
+#     if len(unique_isolates) > MAX_ISOLATES_TO_PROCESS:
+#         print(f"Sample {MAX_ISOLATES_TO_PROCESS} isolates from {len(unique_isolates)} total isolates.")
+#         # Sample isolates, not individual records
+#         sampled_isolates = np.random.choice(
+#             unique_isolates, 
+#             size=MAX_ISOLATES_TO_PROCESS, 
+#             replace=False
+#         )
+#         # Extract protein records based on the sampled isolates
+#         df = df[df['assembly_id'].isin(sampled_isolates)].reset_index(drop=True)
+#         print(f"Extracted {len(df)} protein records based on the {len(sampled_isolates)} sampled isolates.")
 
-        # Save sampled isolates for dataset script
-        with open(output_dir / 'sampled_isolates.txt', 'w') as f:
-            for isolate in sorted(sampled_isolates):
-                f.write(f"{isolate}\n")
-        print(f"Saved list of {len(sampled_isolates)} sampled isolates to sampled_isolates.txt")
-    else:
-        print(f"Use all {len(unique_isolates)} isolates (isolates required to sample > isolates available, no sampling needed).")
-        print(f"Total protein records: {len(df)}")
-else:
-    print(f"Use all {len(df)} records from all isolates (no sampling needed)")
+#         # Save sampled isolates for dataset script
+#         with open(output_dir / 'sampled_isolates.txt', 'w') as f:
+#             for isolate in sorted(sampled_isolates):
+#                 f.write(f"{isolate}\n")
+#         print(f"Saved list of {len(sampled_isolates)} sampled isolates to sampled_isolates.txt")
+#     else:
+#         print(f"Use all {len(unique_isolates)} isolates (isolates required to sample > isolates available, no sampling needed).")
+#         print(f"Total protein records: {len(df)}")
+# else:
+#     print(f"Use all {len(df)} records from all isolates (no sampling needed)")
+print(f"Use all {len(df)} records from all isolates (sampling disabled in embeddings stage)")
 
+# # Filter to selected proteins if configured
+# # breakpoint()
+# if USE_SELECTED_ONLY:
+#     if 'function' not in df.columns:
+#         raise ValueError("❌ DataFrame must contain 'function' column to filter selected protein records.")
 
-# Filter to selected proteins if configured
-# breakpoint()
-if USE_SELECTED_ONLY:
-    if 'function' not in df.columns:
-        raise ValueError("❌ DataFrame must contain 'function' column to filter selected protein records.")
+#     # Load selected functions from config
+#     try:
+#         if 'selected_functions' in config.virus:
+#             selected_functions = config.virus.selected_functions
+#             print(f"\nRetrieved {len(selected_functions)} selected functions from config for virus '{VIRUS_NAME}':")
+#             for i, func in enumerate(selected_functions, 1):
+#                 print(f"  {i}. {func}")
+#         else:
+#             raise ValueError(f"❌ No 'selected_functions' found in config for virus '{VIRUS_NAME}'.")
+#     except Exception as e:
+#         raise ValueError(f"❌ Failed to load config for virus '{VIRUS_NAME}': {e}")
 
-    # Load selected functions from config
-    try:
-        if 'selected_functions' in config.virus:
-            selected_functions = config.virus.selected_functions
-            print(f"\nRetrieved {len(selected_functions)} selected functions from config for virus '{VIRUS_NAME}':")
-            for i, func in enumerate(selected_functions, 1):
-                print(f"  {i}. {func}")
-        else:
-            raise ValueError(f"❌ No 'selected_functions' found in config for virus '{VIRUS_NAME}'.")
-    except Exception as e:
-        raise ValueError(f"❌ Failed to load config for virus '{VIRUS_NAME}': {e}")
+#     print(f"Filter protein records based on {len(selected_functions)} selected functions.")
+#     original_count = len(df)
+#     df = df[df['function'].isin(selected_functions)].reset_index(drop=True)
+#     print(f"Filtered {len(df)} protein records from {original_count} based on selected functions.")
+# else:
+#     print("Use all proteins.")
 
-    print(f"Filter protein records based on {len(selected_functions)} selected functions.")
-    original_count = len(df)
-    df = df[df['function'].isin(selected_functions)].reset_index(drop=True)
-    print(f"Filtered {len(df)} protein records from {original_count} based on selected functions.")
-else:
-    print("Use all proteins.")
+# Note: Embeddings are computed for ALL proteins in the dataset.
+# USE_SELECTED_ONLY and MAX_ISOLATES_TO_PROCESS toggles are intentionally disabled here;
+# dataset creation handles any filtering or sampling so the master cache stays universal.
+print("Computing embeddings for all proteins (embedding stage ignores selected-only & isolate limits).")
 
 
 # Validate and deduplicate
-# breakpoint()
+# Note: Validation warnings are still useful even though we don't filter here.
+# The HDF5 structure handles sequence-level deduplication, but we still want to:
+# 1. Warn about invalid sequences (non-standard amino acids)
+# 2. Warn about sequences exceeding ESM-2 max length
+# 3. Remove exact duplicate records (same brc_fea_id + same sequence) before processing
 print(f"\n{'='*50}")
 print('Validate protein data.')
 print('='*50)
-# brc_fea_ids must be unique because they are used as keys to query embeddings
-# from esm2_embeddings.h5 (HDF5 datasets can't have duplicate keys)
-if df['brc_fea_id'].duplicated().any():
-    raise ValueError("❌ Duplicate brc_fea_id found in protein_filtered.csv")
+
+# Filter out rows with missing/None sequences FIRST (defensive check)
+# Note: Bad sequences should already be filtered during preprocessing, but this handles:
+# 1. Legacy data files that may contain None sequences
+# 2. Edge cases where sequences failed ESM-2 preparation
+# Must be done before other validation checks to avoid errors
+n_before_missing_filter = len(df)
+df = df[df[ESM2_PROTEIN_SEQ_COL].notna()].reset_index(drop=True)
+if len(df) < n_before_missing_filter:
+    n_missing = n_before_missing_filter - len(df)
+    print(f'⚠️ Dropped {n_missing} records with missing/None sequences (should be rare - sequences are filtered during preprocessing)')
 
 # Check for invalid sequences (non-standard amino acids)
 standard_aa_pattern = ''.join(STANDARD_AMINO_ACIDS)
@@ -229,79 +262,96 @@ if not truncated_seqs.empty:
     print(f'⚠️ {len(truncated_seqs)} sequences truncated (>{ESM2_MAX_RESIDUES} residues):')
     print(truncated_seqs.head())
 
-# We expect that each brc_fea_id corresponds to a unique protein record
+# Remove exact duplicate records (same brc_fea_id + same sequence)
+# Note: This removes data quality issues (duplicate rows), NOT biological duplicates.
+# Biological duplicates (same sequence, different brc_fea_id) are preserved and handled
+# by the master cache's sequence-based deduplication.
 n_org_proteins = len(df)
 df = df[['brc_fea_id', ESM2_PROTEIN_SEQ_COL]].drop_duplicates().reset_index(drop=True)
 if len(df) < n_org_proteins:
-    print(f'Dropped {n_org_proteins - len(df)} duplicate protein sequences')
-print(f'✅ Retained {len(df)} unique protein records.')
+    print(f'Dropped {n_org_proteins - len(df)} duplicate records (same brc_fea_id + sequence)')
+print(f'Retained {len(df)} unique protein records.')
 log_memory_usage("after protein data loaded")
 
 
-# Compute embeddings
+# Master cache file (per virus and data version, shared across runs)
+# Derived from canonical paths (no suffix) to ensure sharing across all runs
+master_embeddings_file = canonical_paths['output_dir'] / 'master_esm2_embeddings.h5'
+master_embeddings_file.parent.mkdir(parents=True, exist_ok=True)
+print(f"\nMaster cache file: {master_embeddings_file}")
+print(f"  (Shared across all runs for {VIRUS_NAME}/{DATA_VERSION})")
+
+# Compute embeddings (with master cache support)
 # breakpoint()
 print(f"\n{'='*50}")
 print(f'Compute ESM-2 embeddings ({MODEL_CKPT}).')
 print('='*50)
-CUDA_NAME = args.cuda_name # CUDA device
+CUDA_NAME = args.cuda_name  # CUDA device
 device = determine_device(CUDA_NAME)
 log_memory_usage("before embeddings computation")
 comp_timer = Timer()
 embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
     sequences=df[ESM2_PROTEIN_SEQ_COL].tolist(),
     brc_fea_ids=df['brc_fea_id'].tolist(),
+    embeddings_file=str(master_embeddings_file),
     model_name=MODEL_CKPT,
     batch_size=BATCH_SIZE,
     device=device,
-    max_length=ESM2_MAX_RESIDUES + 2
+    max_length=ESM2_MAX_RESIDUES + 2,
+    force_recompute=args.force_recompute,
+    use_parquet=True,
+    pooling=POOLING,
+    layer=LAYER,
+    emb_storage_precision=EMB_STORAGE_PRECISION
 )
 comp_timer.stop_timer()
 print(f"  ⏱️  Computation time: {comp_timer.get_elapsed_string()}")
 log_memory_usage("after embeddings computation")
 
-
-# Save embeddings to h5
-# breakpoint()
-h5_file = output_dir / 'esm2_embeddings.h5'
-print(f'\nSave embeddings: {h5_file}')
-save_timer = Timer()
-with h5py.File(h5_file, 'w') as file:
-    for i, brc_id in enumerate(brc_fea_ids):
-        file.create_dataset(brc_id, data=embeddings[i])
-save_timer.stop_timer()
-print(f"  ⏱️  Save time: {save_timer.get_elapsed_string()}")
+# Note: Embeddings are now saved directly to master cache during computation
+# The old per-run HDF5 files are no longer needed
 
 
-# Embeddings to csv and parquet
-# breakpoint()
-csv_file = output_dir / 'esm2_embeddings.csv'
-parquet_file = output_dir / 'esm2_embeddings.parquet'
-print(f'\nSave embeddings: {csv_file.name} and {parquet_file.name}')
-emb_df = pd.DataFrame(
-    embeddings,
-    columns=[f'emb_{i}' for i in range(embeddings.shape[1])]
-)
-emb_df.insert(0, 'brc_fea_id', brc_fea_ids)
-emb_df.to_csv(csv_file, index=False)
-emb_df.to_parquet(parquet_file, index=False)
-
-
-# Failed ids to csv
-# breakpoint()
+# Failed ids to csv (save to master cache directory for shared tracking)
+# Failures are typically sequence-specific and consistent across runs,
+# so we track them in the shared master cache directory
 failed_df = pd.DataFrame({'brc_fea_id': failed_ids})
-failed_df.to_csv(output_dir / 'failed_brc_fea_ids.csv', index=False)
+failed_file = master_embeddings_file.parent / 'failed_brc_fea_ids.csv'
+
+if failed_ids:
+    if failed_file.exists():
+        # Merge with existing failures (avoid duplicates)
+        existing_failed = pd.read_csv(failed_file)
+        combined_failed = pd.concat([existing_failed, failed_df]).drop_duplicates().reset_index(drop=True)
+        combined_failed.to_csv(failed_file, index=False)
+        print(f"\nUpdated failed IDs file: {len(combined_failed)} total failures ({len(failed_df)} new)")
+    else:
+        failed_df.to_csv(failed_file, index=False)
+        print(f"\nCreated failed IDs file: {len(failed_df)} failures")
+else:
+    print("\nNo failed sequences to track.")
 
 
-# Validate
-# breakpoint()
-print('\nValidate saved h5 embeddings.')
-with h5py.File(h5_file, 'r') as file:
-    saved_ids = list(file.keys())
-    expected_count = len(df) - len(failed_ids)
-    if len(saved_ids) != expected_count:
-        raise ValueError(f'❌ Embeddings count mismatch: {len(saved_ids)} saved, {expected_count} expected')
-    emb_dim = file[saved_ids[0]].shape[0]
-    print(f'✅ Saved {len(saved_ids)} embeddings (dim: {emb_dim})')
+# Validate master cached
+print('\nValidate master cache.')
+if master_embeddings_file.exists():
+    with h5py.File(master_embeddings_file, 'r') as f:
+        if 'emb' in f and 'emb_keys' in f:
+            n_embeddings = f['emb'].shape[0]
+            n_keys = f['emb_keys'].shape[0]
+            emb_dim = f['emb'].shape[1]
+            print(f'Master cache contains {n_embeddings} embeddings (dim: {emb_dim})')
+            print(f'Keys: {n_keys}')
+
+            # Print metadata attributes
+            if f.attrs:
+                print('📋 Metadata attributes:')
+                for key, value in f.attrs.items():
+                    print(f'   {key}: {value}')
+        else:
+            print('⚠️ Master cache exists but missing required datasets')
+else:
+    print('⚠️ Master cache file not found')
 if failed_ids:
     print(f'⚠️ Failed to process {len(failed_ids)} sequences: {failed_ids[:5]}...')
 

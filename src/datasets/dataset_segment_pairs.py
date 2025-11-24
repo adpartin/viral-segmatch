@@ -438,7 +438,7 @@ ALLOW_SAME_FUNC_NEGATIVES = config.dataset.allow_same_func_negatives
 MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
-MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
+MAX_ISOLATES_TO_PROCESS = getattr(config.dataset, 'max_isolates_to_process', None)
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -448,7 +448,7 @@ print(f"{'='*40}")
 # Resolve run suffix (manual override in config or auto-generate from sampling params)
 RUN_SUFFIX = resolve_run_suffix(
     config=config,
-    max_isolates=MAX_ISOLATES_TO_PROCESS,  # Use pipeline-wide max_isolates_to_process
+    max_isolates=MAX_ISOLATES_TO_PROCESS,  # Dataset-specific isolate sampling
     seed=RANDOM_SEED,
     auto_timestamp=True
 )
@@ -470,17 +470,6 @@ paths = build_dataset_paths(
     config=config
 )
 
-# TODO: why we need this?
-# Build embeddings paths to find used isolates
-from src.utils.path_utils import build_embeddings_paths
-embeddings_paths = build_embeddings_paths(
-    project_root=project_root,
-    virus_name=VIRUS_NAME,
-    data_version=DATA_VERSION,
-    run_suffix=RUN_SUFFIX,
-    config=config
-)
-
 default_input_file = paths['input_file']
 default_output_dir = paths['output_dir']
 
@@ -497,29 +486,49 @@ print(f'output_dir:    {output_dir}')
 print('\nLoad preprocessed protein sequence data.')
 try:
     prot_df = load_dataframe(input_file)
-    print(f"✅ Loaded {len(prot_df):,} protein records")
+    print(f"Loaded {len(prot_df):,} protein records")
 except FileNotFoundError:
     raise FileNotFoundError(f"❌ Data file not found at: {input_file}")
 except Exception as e:
     raise RuntimeError(f"❌ Error loading data from {input_file}: {e}")
 
-# Load used isolates from embeddings script
-# breakpoint()
-embeddings_dir = embeddings_paths['output_dir']
-used_isolates_file = embeddings_dir / 'sampled_isolates.txt'
-if used_isolates_file.exists():
-    print(f"\nLoad sampled isolates from: {used_isolates_file}")
-    with open(used_isolates_file, 'r') as f:
-        used_isolates = [line.strip() for line in f if line.strip()]
-    print(f"Found {len(used_isolates)} sampled isolates from embeddings step.")
+# Apply isolate-based sampling (dataset stage only)
+sampled_isolates_file = output_dir / 'sampled_isolates.txt'
+if MAX_ISOLATES_TO_PROCESS:
+    unique_isolates = prot_df['assembly_id'].unique()
+    total_isolates = len(unique_isolates)
+    print(f"\nDataset sampling enabled: sample {MAX_ISOLATES_TO_PROCESS} isolates (out of {total_isolates} total unique isolates).")
+    
+    if sampled_isolates_file.exists():
+        print(f"Load previously sampled isolates from: {sampled_isolates_file}")
+        with open(sampled_isolates_file, 'r') as f:
+            sampled_isolates = [line.strip() for line in f if line.strip()]
+        print(f"Found {len(sampled_isolates)} sampled isolates in the file.")
+    else:
+        if MAX_ISOLATES_TO_PROCESS >= total_isolates:
+            sampled_isolates = sorted(unique_isolates)
+            print("Requested isolates more than available; using all isolates (writing the isolates into the file for consistency).")
+        else:
+            print(f"Sampling {MAX_ISOLATES_TO_PROCESS} isolates (seed: {RANDOM_SEED}).")
+            sampled_isolates = np.random.choice(
+                unique_isolates,
+                size=MAX_ISOLATES_TO_PROCESS,
+                replace=False,
+            )
+            sampled_isolates = sorted(sampled_isolates.tolist())
+        sampled_isolates_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(sampled_isolates_file, 'w') as f:
+            for isolate in sampled_isolates:
+                f.write(f"{isolate}\n")
+        print(f"Wrote list of {len(sampled_isolates)} sampled isolates to {sampled_isolates_file}")
 
-    # Filter to only used isolates
     original_count = len(prot_df)
-    prot_df = prot_df[prot_df['assembly_id'].isin(used_isolates)].reset_index(drop=True)
-    print(f"Filtered {len(prot_df)} protein records from {original_count} based on sampled isolates.")
+    prot_df = prot_df[prot_df['assembly_id'].isin(sampled_isolates)].reset_index(drop=True)
+    print(f"Filtered {len(prot_df)} protein records from {original_count} after isolate sampling.")
 else:
-    print(f"\nNo sampled_isolates.txt found at {used_isolates_file}")
-    print("Using all isolates (embeddings step may not have sampled).")
+    print("\nDataset isolate sampling disabled (max_isolates_to_process=null).")
+    if sampled_isolates_file.exists():
+        print(f"ℹ️ sampled_isolates.txt found at {sampled_isolates_file} but max_isolates_to_process=null; ignoring file.")
 
 # Restrict to selected functions if specified
 # TODO: consider adapting implementation from compute_esm2_embeddings.py

@@ -288,17 +288,20 @@ def analyze_protein_counts_per_file(
     print(f"\n🔍 ANALYZING INTRA-FILE DUPLICATES IN 'SELECTED' (PROTEIN) FUNCTIONS ACROSS ALL FILES:")
     print(f"   📋 This detects FUNCTION-based duplicates (same protein function in same file)")
     print(f"   🔄 Sequence-based duplicates are detected later in handle_duplicates()\n")
-    analyze_intra_file_protein_duplicates(df, selected_functions, output_dir)
+    analyze_intra_file_function_duplicates(df, selected_functions, output_dir)
 
     return all_counts
 
 
-def analyze_intra_file_protein_duplicates(
+def analyze_intra_file_function_duplicates(
     df: pd.DataFrame, 
     subset_functions: Optional[list[str]] = None,
     output_dir: Optional[Path] = None
     ) -> None:
-    """Analyze intra-file duplicates in proteins across all files.
+    """Analyze intra-file duplicates in protein FUNCTIONS (not sequences) across all files.
+
+    This detects when the same protein function appears multiple times in the same file.
+    This is DIFFERENT from sequence-based duplicates.
 
     Args:
         df: Full protein dataframe
@@ -676,6 +679,178 @@ def handle_duplicates(
     return prot_df
 
 
+def analyze_sequence_duplicates_for_pair_classification(
+    prot_df: pd.DataFrame,
+    output_dir: Optional[Path] = None
+    ) -> None:
+    """Analyze sequence duplicates relevant to pair classification problem.
+
+    This function identifies:
+    1. Sequences that appear in multiple genomes/isolates (potential for contradictory labels)
+    2. Sequence pairs that could appear with both positive and negative labels
+    3. Statistics on how widespread sequence duplication is across genomes
+
+    This is critical for understanding data leakage risks: if a sequence pair (a, b) appears
+    in training as positive (same isolate) and in test as negative (different isolates),
+    the model could memorize the pair, causing data leakage.
+
+    Args:
+        prot_df: DataFrame with protein data (must have 'prot_seq', 'assembly_id', 'function')
+        output_dir: Directory to save analysis results. If None, uses current directory.
+    """
+    if output_dir is None:
+        output_dir = Path(".")
+
+    print(f"\n{'='*50}")
+    print("Analyze Sequence Duplicates for Pair Classification")
+    print('='*50)
+
+    # Compute sequence hash for deduplication
+    import hashlib
+    prot_df = prot_df.copy()
+    if 'seq_hash' not in prot_df.columns:
+        prot_df['seq_hash'] = prot_df['prot_seq'].apply(
+            lambda x: hashlib.md5(str(x).encode()).hexdigest()
+        )
+
+    # 1. Analyze individual sequence duplication across genomes
+    print("\n1. Individual Sequence Duplication Analysis:")
+    print("-" * 50)
+
+    seq_dup_stats = (
+        prot_df.groupby('prot_seq').agg(
+            num_occurrences=('prot_seq', 'count'),
+            num_isolates=('assembly_id', 'nunique'),
+            num_functions=('function', 'nunique'),
+            isolates=('assembly_id', lambda x: sorted(list(set(x)))),
+            functions=('function', lambda x: sorted(list(set(x)))),
+            segment=('canonical_segment', lambda x: sorted(list(set(x))) if pd.notna(x).any() else []),
+        )
+        .sort_values('num_isolates', ascending=False)
+        .reset_index()
+    )
+
+    duplicated_seqs = seq_dup_stats[seq_dup_stats['num_isolates'] > 1].copy()
+
+    print(f"Total unique sequences: {len(seq_dup_stats)}")
+    print(f"Sequences appearing in >1 isolate: {len(duplicated_seqs)} ({len(duplicated_seqs)/len(seq_dup_stats)*100:.2f}%)")
+
+    if len(duplicated_seqs) > 0:
+        print(f"\nDistribution of sequences by number of isolates:")
+        isolate_dist = duplicated_seqs['num_isolates'].value_counts().sort_index()
+        for num_isolates, count in isolate_dist.items():
+            print(f"  {num_isolates} isolates: {count} sequences")
+
+        # Show top duplicated sequences
+        print(f"\nTop 10 sequences appearing in most isolates:")
+        top_dups = duplicated_seqs.head(10)
+        for idx, row in top_dups.iterrows():
+            seq_preview = row['prot_seq'][:50] + "..." if len(row['prot_seq']) > 50 else row['prot_seq']
+            print(f"  {row['num_isolates']} isolates, {row['num_functions']} functions: {seq_preview}")
+            print(f"    Functions: {', '.join(row['functions'][:3])}{'...' if len(row['functions']) > 3 else ''}")
+
+    # 2. Analyze potential contradictory sequence pairs
+    print("\n2. Potential Contradictory Sequence Pair Analysis:")
+    print("-" * 50)
+
+    # Create a mapping of sequence to isolates
+    seq_to_isolates = {}
+    for _, row in prot_df.iterrows():
+        seq = row['prot_seq']
+        isolate = row['assembly_id']
+        if seq not in seq_to_isolates:
+            seq_to_isolates[seq] = set()
+        seq_to_isolates[seq].add(isolate)
+
+    # Find all unique sequence pairs within isolates (potential positive pairs)
+    print("Computing potential positive pairs (same isolate)...")
+    positive_candidates = []
+    for isolate, grp in prot_df.groupby('assembly_id'):
+        seqs = grp['prot_seq'].unique().tolist()
+        if len(seqs) >= 2:
+            from itertools import combinations
+            for seq_a, seq_b in combinations(seqs, 2):
+                # Normalize pair order
+                pair_key = tuple(sorted([seq_a, seq_b]))
+                positive_candidates.append({
+                    'seq_a': pair_key[0],
+                    'seq_b': pair_key[1],
+                    'isolate': isolate
+                })
+
+    pos_pairs_df = pd.DataFrame(positive_candidates)
+    if len(pos_pairs_df) > 0:
+        pos_pairs_df = pos_pairs_df.drop_duplicates(subset=['seq_a', 'seq_b'])
+        print(f"  Unique sequence pairs within isolates: {len(pos_pairs_df)}")
+
+    # Find sequence pairs that could be negative (different isolates)
+    print("Identifying pairs that could appear as both positive and negative...")
+    contradictory_pairs = []
+
+    if len(pos_pairs_df) > 0:
+        for _, row in pos_pairs_df.iterrows():
+            seq_a = row['seq_a']
+            seq_b = row['seq_b']
+
+            # Get isolates for each sequence
+            isolates_a = seq_to_isolates.get(seq_a, set())
+            isolates_b = seq_to_isolates.get(seq_b, set())
+
+            # Check if this pair could appear in different isolates (negative pairs)
+            common_isolates = isolates_a & isolates_b
+            different_isolates = (isolates_a | isolates_b) - common_isolates
+
+            if len(common_isolates) > 0 and len(different_isolates) > 0:
+                # This pair could appear as both positive and negative!
+                contradictory_pairs.append({
+                    'seq_a': seq_a,
+                    'seq_b': seq_b,
+                    'num_positive_occurrences': len(common_isolates),
+                    'num_negative_occurrences': len(different_isolates),
+                    'total_isolates_a': len(isolates_a),
+                    'total_isolates_b': len(isolates_b),
+                    'common_isolates': sorted(list(common_isolates)),
+                    'different_isolates_count': len(different_isolates)
+                })
+
+    contradictory_df = pd.DataFrame(contradictory_pairs)
+
+    if len(contradictory_df) > 0:
+        print(f"\n  ⚠️  Found {len(contradictory_df)} sequence pairs that could appear with BOTH positive and negative labels!")
+        print(f"  This represents {len(contradictory_df)/len(pos_pairs_df)*100:.2f}% of all unique positive pairs")
+
+        print(f"\n  Distribution of contradictory pairs by number of positive occurrences:")
+        pos_dist = contradictory_df['num_positive_occurrences'].value_counts().sort_index()
+        for num_pos, count in pos_dist.items():
+            print(f"    {num_pos} positive occurrence(s): {count} pairs")
+
+        print(f"\n  Distribution of contradictory pairs by number of negative possibilities:")
+        neg_dist = contradictory_df['num_negative_occurrences'].value_counts().sort_index()
+        for num_neg, count in neg_dist.head(10).items():
+            print(f"    {num_neg} negative possibility/ies: {count} pairs")
+
+        # Save contradictory pairs
+        contradictory_df.to_csv(output_dir / 'contradictory_sequence_pairs.csv', index=False)
+        print(f"\n  💾 Saved {len(contradictory_df)} contradictory pairs to: contradictory_sequence_pairs.csv")
+    else:
+        print(f"\n  ✅ No contradictory pairs found (all pairs appear only in same isolates)")
+
+    # 3. Summary statistics
+    print("\n3. Summary Statistics:")
+    print("-" * 50)
+    print(f"Total unique sequences: {len(seq_dup_stats)}")
+    print(f"Sequences in >1 isolate: {len(duplicated_seqs)} ({len(duplicated_seqs)/len(seq_dup_stats)*100:.2f}%)")
+    if len(pos_pairs_df) > 0:
+        print(f"Unique positive pair candidates: {len(pos_pairs_df)}")
+        print(f"Contradictory pairs (potential data leakage): {len(contradictory_df)} ({len(contradictory_df)/len(pos_pairs_df)*100:.2f}%)")
+
+    # Save sequence duplication stats
+    seq_dup_stats.to_csv(output_dir / 'sequence_duplication_stats.csv', index=False)
+    print(f"\n💾 Saved sequence duplication stats to: sequence_duplication_stats.csv")
+
+    return seq_dup_stats, contradictory_df
+
+
 # Define paths - make configurable via command line or environment
 parser = argparse.ArgumentParser(description='Preprocess protein data from GTO files')
 parser.add_argument(
@@ -868,6 +1043,11 @@ prot_df = apply_basic_filters(prot_df)
 # prot_df = handle_duplicates(prot_df, print_eda=True)
 prot_df = handle_duplicates(prot_df, print_eda=False)
 
+# Analyze sequence duplicates for pair classification
+# This identifies sequences that could cause contradictory labels in pair classification
+# TODO: Go over this function to understand how it works and how to use it!
+## analyze_sequence_duplicates_for_pair_classification(prot_df, output_dir=output_dir)
+
 # Clean protein sequences
 # breakpoint()
 print(f"\n{'='*50}")
@@ -917,6 +1097,15 @@ if not problematic_seqs_df.empty:
     # print(problematic_seqs_df[['file', 'brc_fea_id', 'prot_seq', 'problem']])
     problematic_seqs_df = problematic_seqs_df[['file', 'brc_fea_id', 'type', 'function', 'quality', 'prot_seq', 'problem']]
     problematic_seqs_df.to_csv(output_dir / 'problematic_protein_seqs.csv', sep=',', index=False)
+
+# Filter out sequences that failed ESM-2 preparation (esm2_ready_seq is None)
+# These are already captured in problematic_seqs_df, so we remove them from the main dataframe
+n_before_filter = len(prot_df)
+prot_df = prot_df[prot_df['esm2_ready_seq'].notna()].reset_index(drop=True)
+n_filtered = n_before_filter - len(prot_df)
+if n_filtered > 0:
+    print(f'\nFiltered out {n_filtered} sequences that failed ESM-2 preparation (already saved to problematic_protein_seqs.csv)')
+    print(f'Remaining sequences: {len(prot_df)}')
 
 # Final duplicate counts
 """

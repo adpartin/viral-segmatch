@@ -27,11 +27,6 @@ process_seeds:
   evaluation: null
 
 # ====================================================================
-# DATA SAMPLING
-# ====================================================================
-max_isolates_to_process: 1000  # 1K isolates
-
-# ====================================================================
 # PROTEIN SELECTION
 # ====================================================================
 # Override selected_functions to include only PB1, PB2, and PA proteins
@@ -46,8 +41,8 @@ virus:
 # ====================================================================
 # Embeddings overrides
 embeddings:
-  batch_size: 32
-  use_selected_only: true  # Compute embeddings for selected_functions (PB1+PB2+PA)
+  batch_size: 96
+  use_selected_only: false  # Compute embeddings for selected_functions (PB1+PB2+PA)
 
 # Dataset overrides
 dataset:
@@ -55,6 +50,7 @@ dataset:
   neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
   allow_same_func_negatives: false  # No same-function negative pairs (experiment setting)
   max_same_func_ratio: 0.5  # Not used when allow_same_func_negatives=false, but kept for consistency
+  max_isolates_to_process: 1000  # null = full dataset, or set to 100, 500, etc.
 
 # Training overrides
 training:
