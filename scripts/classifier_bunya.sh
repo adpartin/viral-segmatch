@@ -19,7 +19,9 @@ LOG_FILE="$LOG_DIR/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_${TIMESTAM
 
 # Path overrides - use Bunya directories
 DATASET_DIR="$PROJECT_ROOT/data/datasets/bunya/April_2025"
-EMBEDDINGS_DIR="$PROJECT_ROOT/data/embeddings/bunya/April_2025"
+# Note: Both master_esm2_embeddings.h5 and master_esm2_embeddings.parquet are required
+# The parquet file is automatically created alongside the HDF5 file by compute_esm2_embeddings.py
+EMBEDDINGS_FILE="$PROJECT_ROOT/data/embeddings/bunya/April_2025/master_esm2_embeddings.h5"
 OUTPUT_DIR="$PROJECT_ROOT/models/bunya/April_2025"
 
 CUDA_NAME="cuda:7"  # CUDA device
@@ -42,10 +44,11 @@ log "Python:        $(which python)"
 log "Log file:      $LOG_FILE"
 log ""
 log "Overrides:"
-log "  CUDA device:    $CUDA_NAME"
-log "  Dataset Dir:    $DATASET_DIR"
-log "  Embeddings Dir: $EMBEDDINGS_DIR"
-log "  Output Dir:     $OUTPUT_DIR"
+log "  CUDA device:      $CUDA_NAME"
+log "  Dataset Dir:      $DATASET_DIR"
+# log "  Embeddings Dir: $EMBEDDINGS_DIR"
+log "  Embeddings File:  $EMBEDDINGS_FILE"
+log "  Output Dir:       $OUTPUT_DIR"
 log ""
 
 # Capture git info for provenance
@@ -65,8 +68,10 @@ if [ -n "$DATASET_DIR" ]; then
     CMD="$CMD --dataset_dir $DATASET_DIR"
 fi
 
-if [ -n "$EMBEDDINGS_DIR" ]; then
-    CMD="$CMD --embeddings_dir $EMBEDDINGS_DIR"
+# if [ -n "$EMBEDDINGS_DIR" ]; then
+#     CMD="$CMD --embeddings_dir $EMBEDDINGS_DIR"
+if [ -n "$EMBEDDINGS_FILE" ]; then
+    CMD="$CMD --embeddings_file $EMBEDDINGS_FILE"
 fi
 
 if [ -n "$OUTPUT_DIR" ]; then

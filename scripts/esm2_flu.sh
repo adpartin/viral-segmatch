@@ -1,6 +1,6 @@
 #!/bin/bash
-# ESM-2 Embeddings Computation for Bunya
-# Usage: ./scripts/esm2_bunya.sh
+# ESM-2 Embeddings Computation for Flu A (Full Dataset)
+# Usage: ./scripts/esm2_flu.sh
 # Computes embeddings for the entire flu dataset (all isolates, all proteins)
 
 set -e  # Exit on error
@@ -13,23 +13,19 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CONFIG_BUNDLE="bunya"
+CONFIG_BUNDLE="flu_a"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$PROJECT_ROOT/logs/embeddings"
 LOG_FILE="$LOG_DIR/compute_esm2_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 
-# # Path overrides - use existing preprocessing, save to embeddings directory
-# INPUT_FILE="$PROJECT_ROOT/data/processed/bunya/April_2025/protein_final.csv"  # Use preprocessed data
-# OUTPUT_DIR="$PROJECT_ROOT/data/embeddings/bunya/April_2025"
-
 # Path overrides - use existing preprocessing
-# Note: Embeddings are saved to master cache: data/embeddings/bunya/April_2025/master_esm2_embeddings.h5
+# Note: Embeddings are saved to master cache: data/embeddings/flu_a/July_2025/master_esm2_embeddings.h5
 # OUTPUT_DIR is used for metadata (sampled_isolates.txt, failed_brc_fea_ids.csv) and is auto-determined from config
 INPUT_FILE=""  # Set to override input file, or leave empty to use config default
 OUTPUT_DIR=""  # Set to override output dir for metadata, or leave empty to use config default
 
 FORCE_RECOMPUTE=""  # Set to "--force-recompute" to bypass cache
-CUDA_NAME="cuda:7"  # CUDA device
+CUDA_NAME="cuda:5"  # CUDA device
 
 # Create log directory
 mkdir -p "$LOG_DIR"
@@ -39,7 +35,7 @@ log() { echo "$@" | tee -a "$LOG_FILE"; }
 
 # Print header
 log "========================================================================"
-log "ESM-2 Embeddings Computation (Bunya)"
+log "ESM-2 Embeddings Computation (Flu A - Full Dataset)"
 log "========================================================================"
 log "Started:       $(date '+%Y-%m-%d %H:%M:%S')"
 log "Config bundle: $CONFIG_BUNDLE"
@@ -54,8 +50,8 @@ log "  Force recompute: $([[ $FORCE_RECOMPUTE == "--force-recompute" ]] && echo 
 log "  Input file:      ${INPUT_FILE:-<config default>}"
 log "  Output dir:      ${OUTPUT_DIR:-<config default>}"
 log ""
-log "Master cache:  data/embeddings/bunya/April_2025/master_esm2_embeddings.h5"
-log "Index file:    data/embeddings/bunya/April_2025/master_esm2_embeddings.parquet"
+log "Master cache:  data/embeddings/flu_a/July_2025/master_esm2_embeddings.h5"
+log "Index file:    data/embeddings/flu_a/July_2025/master_esm2_embeddings.parquet"
 log "========================================================================"
 
 # Capture git info for provenance
@@ -110,3 +106,4 @@ ln -sf "$(basename "$LOG_FILE")" "${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_lates
 log "Symlink:       ${LOG_DIR}/compute_esm2_${CONFIG_BUNDLE}_latest.log"
 
 exit $EXIT_CODE
+
