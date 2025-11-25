@@ -417,6 +417,11 @@ parser.add_argument(
     type=str, default=None,
     help='Path to output directory for datasets. If not provided, derived from config.'
 )
+parser.add_argument(
+    '--run_output_subdir',
+    type=str, default=None,
+    help='Optional subdirectory name under default output_dir (e.g., experiment/run id).'
+)
 args = parser.parse_args()
 
 # Load config
@@ -475,7 +480,12 @@ default_output_dir = paths['output_dir']
 
 # Apply CLI overrides if provided
 input_file = Path(args.input_file) if args.input_file else default_input_file
-output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
+if args.output_dir:
+    output_dir = Path(args.output_dir)
+elif args.run_output_subdir:
+    output_dir = default_output_dir / 'runs' / args.run_output_subdir
+else:
+    output_dir = default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')

@@ -51,14 +51,16 @@ dataset:
   allow_same_func_negatives: false  # No same-function negative pairs (experiment setting)
   max_same_func_ratio: 0.5  # Not used when allow_same_func_negatives=false, but kept for consistency
   max_isolates_to_process: 1000  # null = full dataset, or set to 100, 500, etc.
+  train_ratio: 0.8
+  val_ratio: 0.1
 
 # Training overrides
 training:
   use_diff: true
   use_prod: true
+  # epochs: 35
+  patience: 15  # Early stopping
   batch_size: 16
   learning_rate: 0.001
-  patience: 15  # Early stopping
   early_stopping_metric: 'f1'  # Metric for early stopping; Options: 'loss', 'f1', 'auc', null (default; use 'loss')
-  # epochs: 35
   threshold_metric: null  # Threshold optimization metric; Options: 'f1', 'f0.5', 'f2', null (default; use 0.5)

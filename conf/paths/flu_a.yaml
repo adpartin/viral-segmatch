@@ -18,5 +18,5 @@ models_base: '${paths.data_dir}/models/flu_a/{data_version}'
 # Legacy paths (for backward compatibility)
 processed_data_dir: '${paths.data_dir}/processed'
 output_dir: '${paths.data_dir}/output'
-model_dir: '${paths.data_dir}/models'
-log_dir: '${paths.data_dir}/logs'
+model_dir: 'models'  # Models go to project_root/models/ not data/models/
+log_dir: 'logs'  # Logs go to project_root/logs/ not data/logs/

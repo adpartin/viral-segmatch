@@ -200,6 +200,13 @@ def print_config_summary(config: DictConfig):
     else:
         print("Embeddings: Not configured")
 
+    # Dataset section
+    if hasattr(config, 'dataset') and config.dataset:
+        print(f"Dataset:")
+        pprint(config.dataset)
+    else:
+        print("Dataset: Not configured")
+
     # Training section
     if hasattr(config, 'training') and config.training:
         print(f"Training:")

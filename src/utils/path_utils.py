@@ -304,7 +304,19 @@ def build_training_paths(
     embeddings_file = main_data_dir / 'embeddings' / virus_name / run_dir / 'esm2_embeddings.h5'
 
     # Model output directory
-    output_dir = main_data_dir / 'models' / virus_name / run_dir #/ task_name
+    # output_dir = main_data_dir / 'models' / virus_name / run_dir #/ task_name # previous version
+    # Models go to project_root/models/ not data/models/ for consistency
+    # Check if config specifies model_dir, otherwise use project_root/models
+    if config and hasattr(config, 'paths') and hasattr(config.paths, 'model_dir'):
+        # Use absolute path if provided, or relative to project_root
+        model_dir_str = str(config.paths.model_dir)
+        if Path(model_dir_str).is_absolute():
+            models_base = Path(model_dir_str)
+        else:
+            models_base = project_root / model_dir_str
+    else:
+        models_base = project_root / 'models'  # Default: project_root/models/
+    output_dir = models_base / virus_name / run_dir #/ task_name
 
     return {
         'dataset_dir': dataset_dir,

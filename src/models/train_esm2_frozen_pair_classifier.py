@@ -37,6 +37,11 @@ from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_training_paths, build_embeddings_paths
 from src.utils.torch_utils import determine_device
 from src.utils.esm2_utils import load_esm2_embedding, get_esm2_embedding_dim, validate_embeddings_metadata
+from src.utils.learning_verification_utils import (
+    check_initialization_loss,
+    compute_baseline_metrics,
+    plot_learning_curves
+)
 import h5py
 
 total_timer = Timer()
@@ -318,6 +323,36 @@ def train_model(
         best_model_path: Path to best model checkpoint
         th: Optimal threshold found on validation set
     """
+    # Karpathy-style initialization check
+    check_initialization_loss(model, train_loader, criterion, device)
+    
+    # Compute baseline metrics for comparison
+    # Get validation labels for baseline computation
+    val_labels_for_baseline = []
+    with torch.no_grad():
+        for batch_x, batch_y in val_loader:
+            val_labels_for_baseline.extend(batch_y.cpu().numpy())
+    baseline_metrics = compute_baseline_metrics(val_labels_for_baseline)
+    
+    print(f"\n{'='*60}")
+    print("BASELINE METRICS (for comparison)")
+    print('='*60)
+    print(f"Random classifier F1: {baseline_metrics['random_f1']:.4f}")
+    print(f"Majority class ({baseline_metrics['majority_class']}) F1: {baseline_metrics['majority_f1']:.4f}")
+    print(f"Majority class accuracy: {baseline_metrics['majority_acc']:.4f}")
+    print(f"Class balance: {baseline_metrics['class_balance']['positive']} positive, {baseline_metrics['class_balance']['negative']} negative ({baseline_metrics['class_balance']['ratio']:.2%})")
+    print('='*60 + "\n")
+    
+    # Track training history for plotting
+    history = {
+        'train_loss': [],
+        'val_loss': [],
+        'train_f1': [],  # Add training F1 for overfitting analysis
+        'train_auc': [],  # Add training AUC for overfitting analysis
+        'val_f1': [],
+        'val_auc': []
+    }
+    
     patience_counter = 0
     best_model_path = output_dir / 'best_model.pt'
     best_val_probs = None
@@ -334,6 +369,7 @@ def train_model(
         raise ValueError(f"Unknown early_stopping_metric: {early_stopping_metric}. Choose from 'loss', 'f1', 'auc'")
 
     for epoch in range(epochs):
+        # Training phase
         model.train()
         train_loss = 0
         progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}',
@@ -349,6 +385,22 @@ def train_model(
             optimizer.step()
             train_loss += loss.item() * batch_x.size(0)
         train_loss /= len(train_loader.dataset)
+        
+        # Compute training metrics AFTER training (with model in eval mode for consistency)
+        # This ensures all training predictions come from the same model state
+        model.eval()
+        train_preds, train_probs, train_labels = [], [], []
+        with torch.no_grad():
+            for batch_x, batch_y in train_loader:
+                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+                preds = model(batch_x).squeeze()
+                train_probs.extend(torch.sigmoid(preds).cpu().numpy())
+                train_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
+                train_labels.extend(batch_y.cpu().numpy())
+        train_preds = np.array(train_preds)
+        train_probs = np.array(train_probs)
+        train_f1 = f1_score(train_labels, train_preds)
+        train_auc = roc_auc_score(train_labels, train_probs)
 
         model.eval()
         val_loss = 0
@@ -376,7 +428,15 @@ def train_model(
         elif early_stopping_metric == 'auc':
             current_metric_value = val_auc
 
-        print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, '\
+        # Track history for plotting
+        history['train_loss'].append(train_loss)
+        history['val_loss'].append(val_loss)
+        history['train_f1'].append(train_f1)
+        history['train_auc'].append(train_auc)
+        history['val_f1'].append(val_f1)
+        history['val_auc'].append(val_auc)
+        
+        print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Train F1: {train_f1:.4f}, '\
               f'Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}, '\
               f'Val AUC: {val_auc:.4f} [{early_stopping_metric.upper()}: {current_metric_value:.4f}]')
 
@@ -400,6 +460,25 @@ def train_model(
             if patience_counter >= patience:
                 print(f'Early stopping triggered (no improvement in {early_stopping_metric} for {patience} epochs).')
                 break
+
+    # Plot learning curves
+    if len(history['train_loss']) > 0:
+        plot_learning_curves(history, output_dir)
+        
+        # Print learning summary
+        print(f"\n{'='*60}")
+        print("LEARNING SUMMARY")
+        print('='*60)
+        print(f"Initial train loss: {history['train_loss'][0]:.4f}")
+        print(f"Final train loss: {history['train_loss'][-1]:.4f}")
+        print(f"Initial val F1: {history['val_f1'][0]:.4f}")
+        print(f"Best val F1: {max(history['val_f1']):.4f}")
+        print(f"Baseline (majority class) F1: {baseline_metrics['majority_f1']:.4f}")
+        if max(history['val_f1']) > baseline_metrics['majority_f1']:
+            print("✅ Model learned! (F1 > baseline)")
+        else:
+            print("⚠️  Model did not beat baseline - may indicate learning issues")
+        print('='*60 + "\n")
 
     # Find optimal threshold on validation set using best model's predictions
     # If threshold_metric is None, skip optimization and use default 0.5
@@ -501,6 +580,11 @@ parser.add_argument(
     type=str, default=None,
     help='Path to output directory for models'
 )
+parser.add_argument(
+    '--run_output_subdir',
+    type=str, default=None,
+    help='Optional subdirectory name under default output_dir (e.g., experiment/run id).'
+)
 args = parser.parse_args()
 
 # Load config
@@ -585,7 +669,12 @@ default_embeddings_file = master_embeddings_file
 # Apply CLI overrides if provided
 dataset_dir = Path(args.dataset_dir) if args.dataset_dir else default_dataset_dir
 embeddings_file = Path(args.embeddings_file) if args.embeddings_file else default_embeddings_file
-output_dir = Path(args.output_dir) if args.output_dir else default_output_dir
+if args.output_dir:
+    output_dir = Path(args.output_dir)
+elif args.run_output_subdir:
+    output_dir = default_output_dir / 'runs' / args.run_output_subdir
+else:
+    output_dir = default_output_dir
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'\nRun directory:   {DATA_VERSION}{RUN_SUFFIX}')
