@@ -45,17 +45,43 @@ ESM2_MAX_RESIDUES = 1022
 SEED = 42
 
 
-def get_segment_config(virus_name: str) -> tuple:
-    """Get segment colors and order for a virus."""
+def get_segment_config(virus_name: str, actual_segments: list = None) -> tuple:
+    """Get segment colors and order for a virus.
+    
+    Args:
+        virus_name: Name of the virus (bunya, flu_a, etc.)
+        actual_segments: Optional list of actual segment names found in data.
+                        If provided, colors will be generated for these segments.
+    
+    Returns:
+        colors: Dict mapping segment name to color
+        order: List of segments in canonical order
+    """
     if virus_name == 'bunya':
         colors = {'S': '#1f77b4', 'M': '#ff7f0e', 'L': '#2ca02c'}
         order = ['S', 'M', 'L']
     elif virus_name == 'flu_a':
-        colors = {str(i): plt.cm.tab10(i/10) for i in range(1, 9)}
+        # Flu A segments can be named '1'-'8' or 'S1'-'S8' depending on data source
+        # Support both formats
+        colors = {}
+        for i in range(1, 9):
+            colors[str(i)] = plt.cm.tab10(i/10)
+            colors[f'S{i}'] = plt.cm.tab10(i/10)  # Also support 'S1', 'S2', etc.
         order = [str(i) for i in range(1, 9)]
     else:
         colors = {}
         order = []
+    
+    # If actual segments are provided, ensure all have colors
+    if actual_segments:
+        cmap = plt.cm.tab10
+        for i, seg in enumerate(sorted(actual_segments)):
+            if seg not in colors:
+                colors[seg] = cmap(i / max(len(actual_segments), 10))
+        # Update order to match actual segments if needed
+        if not order or not any(seg in order for seg in actual_segments):
+            order = sorted(actual_segments)
+    
     return colors, order
 
 
@@ -119,8 +145,20 @@ def analyze_sequence_lengths():
     # 1. Truncation rate by segment
     fig1, ax1 = plt.subplots(1, 1, figsize=(8, 6))
     trunc_stats = protein_with_emb.groupby('canonical_segment')['truncated'].agg(['count', 'sum', 'mean'])
-    # Reorder to match SEGMENT_ORDER
-    trunc_stats = trunc_stats.reindex(SEGMENT_ORDER)
+    
+    # Reorder to match SEGMENT_ORDER if possible, otherwise use sorted order
+    actual_segments = list(trunc_stats.index)
+    if SEGMENT_ORDER and any(seg in SEGMENT_ORDER for seg in actual_segments):
+        # Reindex with available segments in order
+        ordered_segs = [s for s in SEGMENT_ORDER if s in actual_segments]
+        ordered_segs += [s for s in actual_segments if s not in ordered_segs]
+        trunc_stats = trunc_stats.reindex(ordered_segs)
+    
+    # Ensure all segments have colors
+    cmap = plt.cm.tab10
+    for i, seg in enumerate(trunc_stats.index):
+        if seg not in SEGMENT_COLORS:
+            SEGMENT_COLORS[seg] = cmap(i / max(len(trunc_stats), 10))
     
     bars = ax1.bar(trunc_stats.index, trunc_stats['mean'], 
                   color=[SEGMENT_COLORS[seg] for seg in trunc_stats.index])
@@ -290,10 +328,16 @@ def analyze_embedding_space(protein_with_emb, compute_cosine_similarity=False):
     # 1. PCA by segment
     segments = sorted(analysis_df['canonical_segment'].unique())
     
+    # Generate colors for any segments not in SEGMENT_COLORS
+    cmap = plt.cm.tab10
+    for i, seg in enumerate(segments):
+        if seg not in SEGMENT_COLORS:
+            SEGMENT_COLORS[seg] = cmap(i / max(len(segments), 10))
+    
     for segment in segments:
         mask = analysis_df['canonical_segment'] == segment
         axes[0, 0].scatter(pca_embeddings[mask, 0], pca_embeddings[mask, 1], 
-                          c=SEGMENT_COLORS[segment], label=f'Segment {segment}', 
+                          c=[SEGMENT_COLORS[segment]], label=f'Segment {segment}', 
                           alpha=0.7, s=30)
     
     axes[0, 0].set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)')
@@ -306,7 +350,7 @@ def analyze_embedding_space(protein_with_emb, compute_cosine_similarity=False):
     for segment in segments:
         mask = analysis_df['canonical_segment'] == segment
         axes[0, 1].scatter(umap_embeddings[mask, 0], umap_embeddings[mask, 1], 
-                          c=SEGMENT_COLORS[segment], label=f'Segment {segment}', 
+                          c=[SEGMENT_COLORS[segment]], label=f'Segment {segment}', 
                           alpha=0.7, s=30)
     
     axes[0, 1].set_xlabel('UMAP1')
@@ -471,10 +515,16 @@ def create_separate_embedding_plots(embeddings, analysis_df, pca_embeddings, uma
     fig1, ax1 = plt.subplots(1, 1, figsize=(10, 8))
     segments = sorted(analysis_df['canonical_segment'].unique())
     
+    # Ensure all segments have colors
+    cmap = plt.cm.tab10
+    for i, seg in enumerate(segments):
+        if seg not in SEGMENT_COLORS:
+            SEGMENT_COLORS[seg] = cmap(i / max(len(segments), 10))
+    
     for segment in segments:
         mask = analysis_df['canonical_segment'] == segment
         ax1.scatter(pca_embeddings[mask, 0], pca_embeddings[mask, 1], 
-                   c=SEGMENT_COLORS[segment], label=f'Segment {segment}', 
+                   c=[SEGMENT_COLORS[segment]], label=f'Segment {segment}', 
                    alpha=0.7, s=50)
     
     ax1.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)', fontsize=12)
@@ -493,7 +543,7 @@ def create_separate_embedding_plots(embeddings, analysis_df, pca_embeddings, uma
     for segment in segments:
         mask = analysis_df['canonical_segment'] == segment
         ax2.scatter(umap_embeddings[mask, 0], umap_embeddings[mask, 1], 
-                   c=SEGMENT_COLORS[segment], label=f'Segment {segment}', 
+                   c=[SEGMENT_COLORS[segment]], label=f'Segment {segment}', 
                    alpha=0.7, s=50)
     
     ax2.set_xlabel('UMAP1', fontsize=12)
@@ -703,6 +753,14 @@ def main(
     protein_df = pd.read_csv(protein_data_file)
     print(f"Loaded {len(protein_df)} proteins")
     globals()['protein_df'] = protein_df
+    
+    # Update segment config with actual segments found in data
+    if 'canonical_segment' in protein_df.columns:
+        actual_segments = protein_df['canonical_segment'].dropna().unique().tolist()
+        segment_colors, segment_order = get_segment_config(virus_name, actual_segments)
+        globals()['SEGMENT_COLORS'] = segment_colors
+        globals()['SEGMENT_ORDER'] = segment_order
+        print(f"Found segments: {sorted(actual_segments)}")
     
     # Load embeddings info
     with h5py.File(embeddings_file, 'r') as f:
