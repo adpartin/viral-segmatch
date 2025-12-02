@@ -11,6 +11,7 @@ __pycache__/
 # CEPI
 _notes.txt
 prompts.txt
+data/
 data/raw/Anno_Updates/
 data/raw/Full_Flu_Annos/
 data/processed/flu_a/

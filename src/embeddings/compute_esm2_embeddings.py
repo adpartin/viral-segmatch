@@ -79,7 +79,7 @@ VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'embeddings')
 # USE_SELECTED_ONLY = config.embeddings.use_selected_only
-MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
+# MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
 MODEL_CKPT = config.embeddings.model_ckpt
 ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
 BATCH_SIZE = config.embeddings.batch_size
@@ -93,9 +93,10 @@ print(f"Config bundle: {config_bundle}")
 print(f"{'='*40}")
 
 # Resolve run suffix (manual override in config or auto-generate from sampling params)
+# Note: Embeddings use no suffix by default since they contain ALL proteins (universal cache)
 RUN_SUFFIX = resolve_run_suffix(
     config=config,
-    max_isolates=MAX_ISOLATES_TO_PROCESS,
+    max_isolates=None,  # Embeddings always process all proteins
     seed=RANDOM_SEED,
     auto_timestamp=True
 )

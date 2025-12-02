@@ -11,10 +11,18 @@ Split strategies:
     to a single train/val/test set to prevent leakage
 - hard_partition_duplicates: identical protein sequences (prot_seq) across different
     isolates are assigned to the same set
+
+Duplicate handling (v2 - blocked negatives):
+- Identical amino-acid sequences recur across many genomes/isolates
+- A pair (seq_a, seq_b) can appear as positive (same isolate) AND negative (different isolates)
+- This creates contradictory labels and potential data leakage
+- Solution: Block negative pairs where sequences co-occur in ANY isolate
+- Split by pair_key (not just isolate) to prevent same pair appearing in train and test
 """
 
 import argparse
 import hashlib
+import json
 import random
 import sys
 from itertools import combinations
@@ -39,6 +47,60 @@ from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_d
 total_timer = Timer()
 
 
+def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
+    """Create a canonical pair key from two sequence hashes.
+    
+    Ensures consistent ordering so (a, b) and (b, a) produce the same key.
+    """
+    return "__".join(sorted([seq_hash_a, seq_hash_b]))
+
+
+def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
+    """Build a set of all sequence pairs that co-occur in any isolate.
+    
+    These pairs could be labeled as positive (same isolate), so they should NOT
+    be used as negative pairs to avoid contradictory labels.
+    
+    Args:
+        df: DataFrame with protein data containing 'assembly_id', 'prot_seq', 'seq_hash'
+        
+    Returns:
+        Tuple of:
+        - cooccur_pairs: Set of canonical pair keys (seq_hash pairs) that co-occur
+        - cooccur_stats: Dict with statistics about co-occurrence
+    """
+    cooccur_pairs = set()
+    isolate_pair_counts = {}  # Track how many isolates each pair appears in
+    
+    for assembly_id, grp in df.groupby('assembly_id'):
+        if len(grp) < 2:
+            continue
+        
+        # Get all unique sequences in this isolate
+        seq_hashes = grp['seq_hash'].unique().tolist()
+        
+        # All pairs of sequences in this isolate co-occur
+        for i in range(len(seq_hashes)):
+            for j in range(i + 1, len(seq_hashes)):
+                pair_key = canonical_pair_key(seq_hashes[i], seq_hashes[j])
+                cooccur_pairs.add(pair_key)
+                
+                # Track count for stats
+                if pair_key not in isolate_pair_counts:
+                    isolate_pair_counts[pair_key] = 0
+                isolate_pair_counts[pair_key] += 1
+    
+    # Compute statistics
+    cooccur_stats = {
+        'total_cooccur_pairs': len(cooccur_pairs),
+        'max_isolates_per_pair': max(isolate_pair_counts.values()) if isolate_pair_counts else 0,
+        'pairs_in_multiple_isolates': sum(1 for c in isolate_pair_counts.values() if c > 1),
+        'isolate_pair_counts': isolate_pair_counts  # Full mapping for detailed analysis
+    }
+    
+    return cooccur_pairs, cooccur_stats
+
+
 def create_positive_pairs(
     df: pd.DataFrame,
     seed: int = 42,
@@ -49,6 +111,10 @@ def create_positive_pairs(
     Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
     Uses combinations (instead of permutations) to create positive pairs to
     avoid duplicates that stem from symmetric pairs.
+    
+    Each pair gets a canonical pair_key based on sequence hashes for:
+    1. Deduplication across isolates (same sequences in different isolates)
+    2. Preventing data leakage during train/test split
     """
     # np.random.seed(seed)
     # random.seed(seed)
@@ -70,7 +136,10 @@ def create_positive_pairs(
         for row_a, row_b in pairs:
             # Add the pair only if the proteins have different BRC ids and different functions
             if row_a.brc_fea_id != row_b.brc_fea_id and row_a.function != row_b.function:
+                # Create canonical pair_key based on sequence hashes
+                pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
                 dct = {
+                    'pair_key': pair_key,  # Canonical key for dedup and splitting
                     'assembly_id_a': assembly_id, 'assembly_id_b': assembly_id,
                     'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
                     'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
@@ -95,12 +164,18 @@ def create_negative_pairs(
     df: pd.DataFrame,
     num_negatives: int,
     isolate_ids: list[str],
+    cooccur_pairs: set,
     allow_same_func_negatives: bool = True,
     max_same_func_ratio: float = 0.5,
     seed: int = 42,
-    ) -> tuple[pd.DataFrame, int]:
+    max_attempts_multiplier: int = 100,
+    ) -> tuple[pd.DataFrame, int, dict]:
     """ Create negative pairs (cross-isolate, with optional control over
     same-function pairs).
+
+    BLOCKED NEGATIVES: Pairs where the two sequences co-occur in ANY isolate
+    are blocked to prevent contradictory labels. If sequences (a, b) appear
+    together in some isolate (positive), they cannot be used as a negative pair.
 
     Same-function pairs (e.g., RdRp from A vs. RdRp from B)
     Do we want this in negative pairs? These pairs are important since same-function
@@ -118,21 +193,27 @@ def create_negative_pairs(
         df: DataFrame containing the protein data
         num_negatives: Number of negative pairs to create
         isolate_ids: List of isolate IDs to sample from
+        cooccur_pairs: Set of canonical pair keys that co-occur in any isolate (blocked)
         allow_same_func_negatives: Whether to allow same-function negative pairs
         max_same_func_ratio: Maximum fraction of same-function negative pairs
+        seed: Random seed (not used directly, seeding done upstream)
+        max_attempts_multiplier: Max sampling attempts = num_negatives * this value
 
     Returns:
-        Tuple of (DataFrame of negative pairs, number of same-function negative pairs)
+        Tuple of:
+        - DataFrame of negative pairs
+        - Number of same-function negative pairs
+        - Dict with rejection statistics
     """
     # np.random.seed(seed)
     # random.seed(seed)
 
     neg_pairs = []
-    seen_pairs = set()  # Track unique pairs
+    seen_pairs = set()  # Track unique pairs by brc_fea_id
+    seen_seq_pairs = set()  # Track unique pairs by sequence hash
 
     # Precompute isolate groups to prevent repeated (trial-and-error) sampling.
     # This ensures that 2 different isolates (assembly_id) are sampled during sampling.
-    # isolate_groups = {aid: list(grp.itertuples()) for aid, grp in df[df['assembly_id'].isin(isolate_ids)].groupby('assembly_id')} # one-liner
     df_subset = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
     isolate_groups = {aid: list(grp.itertuples()) for aid, grp in df_subset.groupby('assembly_id')}
 
@@ -141,22 +222,51 @@ def create_negative_pairs(
     same_func_count = 0
     max_same_func = int(num_negatives * max_same_func_ratio) if allow_same_func_negatives else 0
 
-    while len(neg_pairs) < num_negatives:
+    # Track rejection statistics
+    rejection_stats = {
+        'blocked_cooccur': 0,      # Rejected because sequences co-occur (would be contradictory)
+        'duplicate_brc': 0,         # Rejected because same brc_fea_id pair already seen
+        'duplicate_seq': 0,         # Rejected because same sequence pair already seen
+        'same_func_limit': 0,       # Rejected due to same-function ratio limit
+        'total_attempts': 0,
+    }
+
+    max_attempts = num_negatives * max_attempts_multiplier
+    attempts = 0
+
+    while len(neg_pairs) < num_negatives and attempts < max_attempts:
+        attempts += 1
         aid1, aid2 = random.sample(isolate_ids, 2)  # Sample 2 different isolates
         row_a = random.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
         row_b = random.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
 
-        # Check if pair is unique and not symmetric
-        pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))
-        if pair_key in seen_pairs:
+        # Check if brc_fea_id pair is unique and not symmetric
+        brc_pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))
+        if brc_pair_key in seen_pairs:
+            rejection_stats['duplicate_brc'] += 1
+            continue
+
+        # Create canonical pair key based on sequence hashes
+        seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
+
+        # BLOCK CONTRADICTORY PAIRS: Check if these sequences ever co-occur
+        if seq_pair_key in cooccur_pairs:
+            rejection_stats['blocked_cooccur'] += 1
+            continue
+
+        # Check if we've already seen this sequence pair (different brc_ids, same sequences)
+        if seq_pair_key in seen_seq_pairs:
+            rejection_stats['duplicate_seq'] += 1
             continue
 
         # Check same-function constraint
         is_same_func = row_a.function == row_b.function
         if is_same_func and (not allow_same_func_negatives or same_func_count >= max_same_func):
+            rejection_stats['same_func_limit'] += 1
             continue
 
         dct = {
+            'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
             'assembly_id_a': row_a.assembly_id, 'assembly_id_b': row_b.assembly_id,
             'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
             'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
@@ -166,11 +276,18 @@ def create_negative_pairs(
             'label': 0  # Negative pair
         }
         neg_pairs.append(dct)
-        seen_pairs.add(pair_key)
+        seen_pairs.add(brc_pair_key)
+        seen_seq_pairs.add(seq_pair_key)
         if is_same_func:
             same_func_count += 1
 
-    return pd.DataFrame(neg_pairs), same_func_count
+    rejection_stats['total_attempts'] = attempts
+
+    if len(neg_pairs) < num_negatives:
+        print(f"⚠️ Warning: Only generated {len(neg_pairs)}/{num_negatives} negative pairs after {attempts} attempts")
+        print(f"   This may indicate high sequence overlap across isolates")
+
+    return pd.DataFrame(neg_pairs), same_func_count, rejection_stats
         
 
 def compute_isolate_pair_counts(
@@ -227,25 +344,38 @@ def split_dataset_v2(
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     seed: int = 42,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """ Split dataset into train, val, and test sets with stratified sampling.
 
+    Key features:
+    1. BLOCKED NEGATIVES: Prevents contradictory labels by excluding negative pairs
+       where sequences co-occur in any isolate (uses cooccur_pairs set).
+    2. PAIR-KEY VALIDATION: After splitting by isolates, validates that no pair_key
+       appears across train/val/test splits. If overlap is found, removes those pairs
+       from val/test to prevent data leakage.
+
+    Approach:
+    - First split ISOLATES into train/val/test (keeps all proteins from an isolate together)
+    - Generate positive pairs within each isolate group
+    - Generate negative pairs with blocked co-occurring sequences
+    - Validate no pair_key leakage across splits (remove if found)
+
     Returns:
-        Tuple of (train_pairs, val_pairs, test_pairs) DataFrames
+        Tuple of (train_pairs, val_pairs, test_pairs, duplicate_stats) DataFrames/dict
     """
-    # breakpoint()
-    # np.random.seed(seed)
-    # random.seed(seed)
+    # Build co-occurrence set FIRST (before any pair generation)
+    # This identifies all sequence pairs that appear together in any isolate
+    print("\n🔍 Building co-occurrence set (sequences that appear together in any isolate)...")
+    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
+    print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
+    print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
+    print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
 
     # Compute positive pair counts per isolate
     isolate_pos_counts = compute_isolate_pair_counts(df, use_core_proteins_only)
 
     # Stratify isolates by positive pair counts
     unique_isolates = list(df['assembly_id'].unique())
-    # pos_count_groups: {num_pairs: [list_of_isolate_ids]}
-    # {1: [list of isolates with 1 pair],
-    #  3: [list of isolates with 3 pairs]
-    #  5: [list of isolates with 5 pairs]}
     pos_count_groups = {}
     for aid in unique_isolates:
         pos_count = isolate_pos_counts[aid]
@@ -254,10 +384,6 @@ def split_dataset_v2(
         pos_count_groups[pos_count].append(aid)
 
     # Split isolates into train/val/test sets (~80/10/10) based on their positive pair counts.
-    # Isolates are grouped by the number of positive pairs they contribute (from compute_isolate_pair_counts)
-    # to ensure a balanced distribution across sets. Splitting isolates first enforces hard partitioning
-    # (when hard_partition_isolates=True), ensuring all proteins and pairs from an isolate stay in one set,
-    # preventing data leakage and aligning pair counts with the desired split ratios.
     train_isolates, val_isolates, test_isolates = [], [], []
     for pos_count, isolates in pos_count_groups.items():
         if len(isolates) <= 1:
@@ -271,18 +397,12 @@ def split_dataset_v2(
 
     # Enforce hard partitioning on isolates
     if hard_partition_isolates:
-        # Ensure no overlap on isolates between val and train
         val_isolates  = [aid for aid in val_isolates if (aid not in train_isolates)]
-        # Ensure no overlap on isolates between test and val/train
         test_isolates = [aid for aid in test_isolates if (aid not in train_isolates) and (aid not in val_isolates)]
-        # Check for unassigned isolates (should be empty, but included for robustness)
-        # An edge case when unassigned could be non-empty: If train_test_split produces empty splits for a small
-        # group, rounding might leave isolates unassigned (though our len(isolates) <= 1 check mitigates this).
         unassigned    = [aid for aid in unique_isolates if (aid not in train_isolates) and (aid not in val_isolates) and (aid not in test_isolates)]
         if unassigned:
             print(f"Warning: {len(unassigned)} unassigned isolates.")
             for aid in unassigned:
-                # Assign to smallest set to balance sizes
                 set_sizes = {'train': len(train_isolates), 'val': len(val_isolates), 'test': len(test_isolates)}
                 smallest_set = min(set_sizes, key=set_sizes.get)
                 if smallest_set == 'train':
@@ -292,50 +412,94 @@ def split_dataset_v2(
                 else:
                     test_isolates.append(aid)
 
-    # Generate positive pairs for each set
+    # Generate positive pairs for each set (already includes pair_key)
     train_pos = create_positive_pairs(df[df['assembly_id'].isin(train_isolates)], seed=seed)
     val_pos   = create_positive_pairs(df[df['assembly_id'].isin(val_isolates)], seed=seed)
     test_pos  = create_positive_pairs(df[df['assembly_id'].isin(test_isolates)], seed=seed)
 
-    # Generate negative pairs within each set (train, val, test)
-    train_neg, train_same_func = create_negative_pairs(
+    # Generate negative pairs within each set (with BLOCKED contradictory pairs)
+    print("\n🔒 Creating negative pairs with blocked contradictory pairs...")
+    train_neg, train_same_func, train_reject_stats = create_negative_pairs(
         df,
         num_negatives=int(len(train_pos) * neg_to_pos_ratio),
         isolate_ids=train_isolates,
+        cooccur_pairs=cooccur_pairs,
         allow_same_func_negatives=allow_same_func_negatives,
         max_same_func_ratio=max_same_func_ratio, seed=seed
     )
-    val_neg, val_same_func = create_negative_pairs(
+    val_neg, val_same_func, val_reject_stats = create_negative_pairs(
         df,
         num_negatives=int(len(val_pos) * neg_to_pos_ratio),
         isolate_ids=val_isolates,
+        cooccur_pairs=cooccur_pairs,
         allow_same_func_negatives=allow_same_func_negatives,
         max_same_func_ratio=max_same_func_ratio, seed=seed
     )
-    test_neg, test_same_func = create_negative_pairs(
+    test_neg, test_same_func, test_reject_stats = create_negative_pairs(
         df,
         num_negatives=int(len(test_pos) * neg_to_pos_ratio),
         isolate_ids=test_isolates,
+        cooccur_pairs=cooccur_pairs,
         allow_same_func_negatives=allow_same_func_negatives,
         max_same_func_ratio=max_same_func_ratio, seed=seed
     )
+
+    # Log rejection statistics
+    total_blocked = (train_reject_stats['blocked_cooccur'] + 
+                     val_reject_stats['blocked_cooccur'] + 
+                     test_reject_stats['blocked_cooccur'])
+    total_attempts = (train_reject_stats['total_attempts'] + 
+                      val_reject_stats['total_attempts'] + 
+                      test_reject_stats['total_attempts'])
+    print(f"\n📊 Negative Pair Rejection Statistics:")
+    print(f"   Total sampling attempts: {total_attempts:,}")
+    print(f"   Blocked (contradictory co-occur): {total_blocked:,} ({100*total_blocked/max(1,total_attempts):.1f}%)")
+    print(f"   Train blocked: {train_reject_stats['blocked_cooccur']:,}")
+    print(f"   Val blocked:   {val_reject_stats['blocked_cooccur']:,}")
+    print(f"   Test blocked:  {test_reject_stats['blocked_cooccur']:,}")
 
     # Combine positive and negative pairs
     train_pairs = pd.concat([train_pos, train_neg], ignore_index=True)
     val_pairs   = pd.concat([val_pos, val_neg], ignore_index=True)
     test_pairs  = pd.concat([test_pos, test_neg], ignore_index=True)
 
-    # # Shuffle the combined positive and negative pairs
-    # train_pairs = train_pairs.sample(frac=1, random_state=seed).reset_index(drop=True)
-    # val_pairs   = val_pairs.sample(frac=1, random_state=seed).reset_index(drop=True)
-    # test_pairs  = test_pairs.sample(frac=1, random_state=seed).reset_index(drop=True)
+    # PAIR-KEY BASED SPLITTING: Ensure no pair_key appears across train/val/test
+    # This is a VALIDATION step - our isolate-based split should already prevent this
+    # if the same sequence pair doesn't appear in different isolate groups
+    print("\n🔐 Validating pair_key partitioning...")
+    train_pair_keys = set(train_pairs['pair_key'])
+    val_pair_keys = set(val_pairs['pair_key'])
+    test_pair_keys = set(test_pairs['pair_key'])
+    
+    train_val_key_overlap = train_pair_keys & val_pair_keys
+    train_test_key_overlap = train_pair_keys & test_pair_keys
+    val_test_key_overlap = val_pair_keys & test_pair_keys
+    
+    total_key_overlap = len(train_val_key_overlap) + len(train_test_key_overlap) + len(val_test_key_overlap)
+    
+    if total_key_overlap > 0:
+        print(f"   ⚠️ WARNING: Found {total_key_overlap} overlapping pair_keys across splits!")
+        print(f"      Train-Val overlap: {len(train_val_key_overlap)}")
+        print(f"      Train-Test overlap: {len(train_test_key_overlap)}")
+        print(f"      Val-Test overlap: {len(val_test_key_overlap)}")
+        print(f"   These represent sequence pairs that appear in isolates assigned to different splits.")
+        print(f"   This can cause data leakage. Consider re-splitting or deduplicating by pair_key.")
+        
+        # Remove overlapping pairs from val and test (keep in train)
+        # This is a conservative approach - keep pairs in training, remove from val/test
+        print(f"   Removing overlapping pairs from val and test sets...")
+        val_pairs = val_pairs[~val_pairs['pair_key'].isin(train_val_key_overlap | val_test_key_overlap)]
+        test_pairs = test_pairs[~test_pairs['pair_key'].isin(train_test_key_overlap | val_test_key_overlap)]
+        print(f"   After removal: Train={len(train_pairs)}, Val={len(val_pairs)}, Test={len(test_pairs)}")
+    else:
+        print(f"   ✅ No pair_key overlap detected. Train, Val, Test are mutually exclusive on pair_key.")
 
     # Compute and log dataset stats
     total_pairs = len(train_pairs) + len(val_pairs) + len(test_pairs)
-    print(f'Total pairs: {total_pairs}')
+    print(f'\nTotal pairs: {total_pairs}')
     print(f'Positive pairs: {len(train_pos) + len(val_pos) + len(test_pos)}')
     print(f'Negative pairs: {len(train_neg) + len(val_neg) + len(test_neg)}')
-    # Calculate percentages safely (avoid division by zero)
+    
     train_neg_pct = (train_same_func/len(train_neg)*100) if len(train_neg) > 0 else 0
     val_neg_pct = (val_same_func/len(val_neg)*100) if len(val_neg) > 0 else 0
     test_neg_pct = (test_same_func/len(test_neg)*100) if len(test_neg) > 0 else 0
@@ -343,18 +507,11 @@ def split_dataset_v2(
     print(f'Train same-function negative pairs: {train_same_func} ({train_neg_pct:.2f}%)')
     print(f'Val same-function negative pairs:   {val_same_func} ({val_neg_pct:.2f}%)')
     print(f'Test same-function negative pairs:  {test_same_func} ({test_neg_pct:.2f}%)')
-    segment_pair_counts = pd.concat([train_neg, val_neg, test_neg]).groupby(
-        ['seg_a', 'seg_b']).size().rename('count').reset_index()
-    print(f'Negative pair segment count:\n{segment_pair_counts}\n')
-
-    # # Create histogram for segment_pair_counts
-    # plt.figure(figsize=(10, 6))
-    # sns.barplot(data=segment_pair_counts, x='seg_a', y='count', hue='seg_b')
-    # plt.title('Negative Pair Segment Counts')
-    # plt.xlabel('Segment A')
-    # plt.ylabel('Count')
-    # plt.savefig(output_dir / 'segment_pair_histogram.png')
-    # plt.close()
+    
+    if len(train_neg) > 0 and len(val_neg) > 0 and len(test_neg) > 0:
+        segment_pair_counts = pd.concat([train_neg, val_neg, test_neg]).groupby(
+            ['seg_a', 'seg_b']).size().rename('count').reset_index()
+        print(f'Negative pair segment count:\n{segment_pair_counts}\n')
 
     # Validate assignments
     if len(train_pairs) == 0 or len(val_pairs) == 0 or len(test_pairs) == 0:
@@ -397,7 +554,20 @@ def split_dataset_v2(
     print(f"Test positive pairs:  {test_pairs['label'].sum()} "
           f"({test_pairs['label'].sum()/len(test_pairs)*100:.2f}% of the set)")
 
-    return train_pairs, val_pairs, test_pairs
+    # Compile duplicate/rejection statistics for saving
+    duplicate_stats = {
+        'cooccur_stats': cooccur_stats,
+        'train_reject_stats': train_reject_stats,
+        'val_reject_stats': val_reject_stats,
+        'test_reject_stats': test_reject_stats,
+        'pair_key_overlaps': {
+            'train_val': len(train_val_key_overlap),
+            'train_test': len(train_test_key_overlap),
+            'val_test': len(val_test_key_overlap),
+        }
+    }
+
+    return train_pairs, val_pairs, test_pairs, duplicate_stats
 
 
 # Parser
@@ -579,9 +749,9 @@ max_same_func_ratio = MAX_SAME_FUNC_RATIO
 hard_partition_isolates = True  # TODO: Move to config in future
 hard_partition_duplicates = False  # TODO: Move to config in future
 
-# Split dataset and create pairs
+# Split dataset and create pairs (with blocked contradictory negatives)
 print('\nSplit dataset and create pairs.')
-train_pairs, val_pairs, test_pairs = split_dataset_v2(
+train_pairs, val_pairs, test_pairs, duplicate_stats = split_dataset_v2(
     df=df,
     neg_to_pos_ratio=neg_to_pos_ratio,
     allow_same_func_negatives=allow_same_func_negatives,
@@ -599,6 +769,36 @@ print(f'\nSave datasets: {output_dir}')
 train_pairs.to_csv(f"{output_dir}/train_pairs.csv", index=False)
 val_pairs.to_csv(f"{output_dir}/val_pairs.csv", index=False)
 test_pairs.to_csv(f"{output_dir}/test_pairs.csv", index=False)
+
+# Save duplicate/rejection statistics
+cooccur_stats = duplicate_stats['cooccur_stats']
+# Remove the large isolate_pair_counts dict for JSON serialization
+cooccur_stats_summary = {k: v for k, v in cooccur_stats.items() if k != 'isolate_pair_counts'}
+
+duplicate_summary = {
+    'cooccurrence': cooccur_stats_summary,
+    'negative_pair_rejections': {
+        'train': {k: v for k, v in duplicate_stats['train_reject_stats'].items()},
+        'val': {k: v for k, v in duplicate_stats['val_reject_stats'].items()},
+        'test': {k: v for k, v in duplicate_stats['test_reject_stats'].items()},
+    },
+    'pair_key_overlaps': duplicate_stats['pair_key_overlaps'],
+}
+with open(output_dir / 'duplicate_stats.json', 'w') as f:
+    json.dump(duplicate_summary, f, indent=2)
+print(f"Saved duplicate statistics to: {output_dir / 'duplicate_stats.json'}")
+
+# Save co-occurring pairs list (for analysis)
+if cooccur_stats['total_cooccur_pairs'] > 0:
+    # Get the top pairs by isolate count for detailed analysis
+    isolate_pair_counts = cooccur_stats.get('isolate_pair_counts', {})
+    if isolate_pair_counts:
+        cooccur_df = pd.DataFrame([
+            {'pair_key': k, 'num_isolates': v} 
+            for k, v in isolate_pair_counts.items()
+        ]).sort_values('num_isolates', ascending=False)
+        cooccur_df.to_csv(output_dir / 'cooccurring_sequence_pairs.csv', index=False)
+        print(f"Saved {len(cooccur_df)} co-occurring sequence pairs to: cooccurring_sequence_pairs.csv")
 
 print(f'\n✅ Finished {Path(__file__).name}!')
 total_timer.display_timer()

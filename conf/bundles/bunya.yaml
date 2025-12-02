@@ -15,7 +15,6 @@ defaults:
 # - null: Auto-generate suffix from max_isolates_to_process and seed
 # - string: Use this exact suffix (e.g., '_v2', '_seed_42_GTOs_2000')
 
-# run_suffix: "_v2"
 run_suffix: null
 
 # ===================================================================
@@ -43,13 +42,6 @@ process_seeds:
   training: null       # Model training and initialization
   evaluation: null     # Evaluation sampling and metrics
 
-# ===================================================================
-# DATA SAMPLING
-# ===================================================================
-# Controls how many isolates to process from the raw data directory
-
-max_isolates_to_process: null  # null = full dataset, or set to 100, 500, etc.
-
 # ====================================================================
 # PROTEIN SELECTION
 # ====================================================================
@@ -65,15 +57,15 @@ virus:
 # ====================================================================
 # Embeddings overrides
 embeddings:
-  batch_size: 32
-  use_selected_only: false # Compute embeddings for all proteins (since Bunya is a small dataset)
+  batch_size: 96
 
 # Dataset overrides
 dataset:
   use_selected_only: true  # Use selected_functions (a subset of protein functions)
-  # neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
-  allow_same_func_negatives: true  # Allow same-function negative pairs
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 1.0
+  allow_same_func_negatives: false  # Whether to allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
+  max_isolates_to_process: null  # null = full dataset, or set to 100, 500, etc.
 
 # Training overrides
 training:

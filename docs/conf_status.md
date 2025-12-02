@@ -1,285 +1,215 @@
-# Configuration System Status (Updated: October 1, 2025)
+# Configuration System Status
+
+**Last Updated**: December 1, 2025  
+**System Version**: 2.0 (Hydra-based with Dynamic Paths)  
+**Status**: Production Ready ✅
+
+---
 
 ## 🎯 Current Architecture: Hydra-Based Bundles
 
-### **Design Philosophy:**
+### Design Philosophy
 - **Bundles** = Entry points that compose config groups
 - **Virus configs** = Immutable biological facts
 - **Training configs** = Reusable training recipes
+- **Dynamic paths** = Auto-generated from sampling parameters
 - **Flexible overrides** = Runtime composition via function parameters
 
 ---
 
-## ✅ ACTIVE FILES (Current System)
+## ✅ Directory Structure
 
-### Directory Structure:
 ```
 conf/
 ├── bundles/                    # 🎯 ENTRY POINTS
-│   └── flu_a.yaml             # ✅ Main entry for Flu A (working!)
+│   ├── bunya.yaml             # ✅ Bunya virus configuration
+│   ├── flu_a.yaml             # ✅ Flu A base configuration
+│   ├── flu_a_plateau_analysis.yaml  # Plateau investigation
+│   └── flu_a_3p_1ks_*.yaml    # Various Flu A experiments
 │
 ├── virus/                      # 🧬 BIOLOGICAL FACTS
-│   ├── flu_a.yaml             # ✅ Complete with all protein data
-│   └── bunya.yaml             # ✅ Created (needs full protein data)
+│   ├── flu_a.yaml             # Flu A protein data
+│   └── bunya.yaml             # Bunya protein data
 │
 ├── training/                   # 🏋️ TRAINING RECIPES
-│   ├── base.yaml              # ✅ Default training config
-│   └── gpu8.yaml              # ✅ High-performance GPU config
+│   └── base.yaml              # Default training config
 │
 ├── embeddings/                 # 🧠 EMBEDDING CONFIGS
-│   ├── default.yaml           # ✅ Standard embeddings
-│   └── flu_a_large.yaml       # ✅ Large model embeddings
+│   └── default.yaml           # ESM-2 embedding settings
+│
+├── dataset/                    # 📊 DATASET CONFIGS
+│   └── default.yaml           # Dataset creation settings
 │
 └── paths/                      # 📁 PATH CONFIGS
-    └── default.yaml           # ✅ Standard data paths
-```
-
-### How It Works:
-```python
-# Load with defaults from bundle
-from src.utils.config_hydra import get_virus_config_hydra
-config = get_virus_config_hydra('flu_a')
-
-# Override training config
-config = get_virus_config_hydra('flu_a', training_config='gpu8')
-
-# Override multiple configs
-config = get_virus_config_hydra('flu_a', 
-                                training_config='gpu8',
-                                embeddings_config='flu_a_large')
-
-# Access flattened config
-print(config.virus.data_version)      # 'July_2025'
-print(config.training.batch_size)     # 64
-print(config.virus.core_functions)    # List of 8 functions
+    ├── bunya.yaml             # Bunya-specific paths
+    └── flu_a.yaml             # Flu A-specific paths
 ```
 
 ---
 
-## 🗑️ DELETED FILES (Cleaned Up)
+## 🛤️ Dynamic Path Generation
 
-### Old Config Systems:
-- ❌ `conf/config.yaml` - Old hierarchical config (deleted)
-- ❌ `conf/config_generalized.yaml` - Old flat config (deleted)
-- ❌ `conf/flu_a_config.yaml` - Old monolithic config (deleted)
-- ❌ `conf/simple_config.yaml` - Old fallback config (deleted)
-- ❌ `conf/working_config.yaml` - Test file (deleted)
-- ❌ `conf/defaults/` - Wrong directory structure (deleted)
+### How It Works
 
-### Test/Debug Files:
-- ❌ `conf/db/` - Hydra tutorial example (deleted)
-- ❌ `conf/hydra_example.yaml` - Tutorial test (deleted)
-- ❌ `conf/minimal_config.yaml` - Debug test (deleted)
-- ❌ `conf/step1_config.yaml` - Debug test (deleted)
-- ❌ `conf/step2_config.yaml` - Debug test (deleted)
-- ❌ `conf/test_config.yaml` - Debug test (deleted)
-- ❌ `conf/test_single_default.yaml` - Debug test (deleted)
+The pipeline automatically generates directory names based on sampling parameters:
 
-### Old Training Duplicates:
-- ❌ `conf/training/default.yaml` - Duplicate of base.yaml (deleted)
-- ❌ `conf/training/flu_a.yaml` - Moved to bundles (deleted)
-- ❌ `conf/training/fresh_default.yaml` - Test file (deleted)
+| Configuration | Generated Suffix | Example Path |
+|--------------|------------------|--------------|
+| Full dataset (max_isolates_to_process: null) | _(none)_ | `processed/flu_a/July_2025/` |
+| Deterministic subset (seed: 42, max: 500) | `_seed_42_isolates_500` | `processed/flu_a/July_2025_seed_42_isolates_500/` |
+| Random subset (seed: null, max: 100) | `_random_<timestamp>_isolates_100` | `processed/flu_a/July_2025_random_20251013_143522_isolates_100/` |
+| Manual override (run_suffix: "_v2") | `_v2` | `processed/flu_a/July_2025_v2/` |
 
-### Old Python Modules:
-- ❌ `src/utils/config_virus.py` - Old config system (deleted)
-- ❌ `test_config_system.py` - Old tests (deleted)
-- ❌ `test_virus_subset_processing.py` - Old tests (deleted)
-- ❌ `test_flu_subset.py` - Old tests (deleted)
-- ❌ `test_hydra_*.py` - Debug tests (deleted)
+### Pipeline Path Flow
+
+```
+Stage 1: Preprocessing
+  └── processed/{virus}/{version}{suffix}/
+
+Stage 2: Embeddings  
+  └── embeddings/{virus}/{version}{suffix}/
+
+Stage 3: Datasets
+  └── datasets/{virus}/{version}{suffix}/
+
+Stage 4: Training
+  └── models/{virus}/{version}{suffix}/runs/{run_id}/
+```
+
+**Key Insight:** All stages automatically use the same run identifier!
 
 ---
 
-## 📦 Python Configuration Modules
+## 📦 Output Locations
 
-### Active:
-1. **`src/utils/config_hydra.py`** ✅ **NEW SYSTEM**
-   - Hydra-based configuration
-   - Used by: `preprocess_flu_protein.py`
-   - Features:
-     - Loads bundles (`bundles/flu_a.yaml`)
-     - Flattens structure for backward compatibility
-     - Supports runtime overrides for training, embeddings, paths
-     - Clear documentation with examples
-
-2. **`src/utils/config.py`** ⚠️ **LEGACY SYSTEM**
-   - Old YAML-based configuration
-   - Used by: 5 other scripts (not yet migrated)
-     - `analyze_segment_classifier_results.py`
-     - `analyze_esm2_embeddings.py`
-     - `compute_esm2_embeddings.py`
-     - `dataset_segment_pairs.py`
-     - `protein_utils.py`
-   - **Status:** Keep for now, migrate later
-
----
-
-## 📝 Configuration File Contents
-
-### `conf/bundles/flu_a.yaml`:
-```yaml
-defaults:
-  - /virus: flu_a
-  - /training: base
-  - /paths: default
-  - /embeddings: default
-  - _self_
-
-bundles:
-  name: 'flu_a_bundle'
-  description: 'Flu A preprocessing and training configuration'
-```
-
-### `conf/virus/flu_a.yaml`:
-```yaml
-virus_name: 'flu_a'
-data_version: 'July_2025'
-max_core_proteins: 8
-max_files_to_process: 100
-random_seed: 42
-
-core_functions:
-  - 'RNA-dependent RNA polymerase PB2 subunit'
-  - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'
-  # ... (8 total)
-
-aux_functions:
-  - 'Nuclear export protein'
-  - 'M2 ion channel'
-  # ... (9 total)
-
-segment_mapping:
-  'RNA-dependent RNA polymerase PB2 subunit': '1'
-  # ... (17 total mappings)
-
-replicon_types:
-  - 'Segment 1'
-  # ... (8 total)
-```
-
-### `conf/training/base.yaml`:
-```yaml
-batch_size: 64
-learning_rate: 0.0001
-num_epochs: 10
-optimizer: 'AdamW'
-```
-
-### `conf/training/gpu8.yaml`:
-```yaml
-batch_size: 512
-learning_rate: 0.001
-num_epochs: 20
-optimizer: 'AdamW'
-```
+| Artifact Type | Location | Notes |
+|---------------|----------|-------|
+| Processed data | `data/processed/{virus}/{version}/` | Shared across experiments |
+| Embeddings | `data/embeddings/{virus}/{version}/` | Shared across experiments |
+| Datasets | `data/datasets/{virus}/{version}/` | May vary by config |
+| **Models** | `models/{virus}/{version}/` | **Project root, not data/** |
+| Logs | `logs/` | Project root |
+| Results | `results/{virus}/{version}/{config_bundle}/` | Analysis outputs |
 
 ---
 
 ## 🚀 Usage Examples
 
-### In `preprocess_flu_protein.py`:
+### Basic Usage
 ```python
 from src.utils.config_hydra import get_virus_config_hydra
 
-# Load Flu A config with defaults
-config = get_virus_config_hydra('flu_a', config_path=config_path)
+# Load config bundle
+config = get_virus_config_hydra('bunya')
 
-# Access virus facts
-DATA_VERSION = config.virus.data_version
-MAX_FILES_TO_PROCESS = config.virus.max_files_to_process
-RANDOM_SEED = config.virus.random_seed
-core_functions = config.virus.core_functions
-aux_functions = config.virus.aux_functions
+# Access flattened config
+print(config.virus.data_version)      # 'April_2025'
+print(config.training.batch_size)     # 16
+print(config.virus.selected_functions)  # List of functions
 ```
 
-### Override Training Config:
+### Override Training Config
 ```python
-# Override to use gpu8 training
-config = get_virus_config_hydra('flu_a', 
-                                training_config='gpu8',
-                                config_path=config_path)
-
+config = get_virus_config_hydra('flu_a', training_config='gpu8')
 print(config.training.batch_size)  # 512 (from gpu8.yaml)
 ```
 
-### Override Multiple Configs:
-```python
-# Full customization
-config = get_virus_config_hydra('flu_a',
-                                training_config='gpu8',
-                                embeddings_config='flu_a_large',
-                                config_path=config_path)
-```
-
 ---
 
-## 📋 Next Steps (Future Expansion)
+## 📋 Bundle Configuration Reference
 
-### To Add When Needed:
-1. **More bundles:**
-   - `conf/bundles/bunya.yaml` (when processing Bunyavirales)
-   - `conf/bundles/flu_b.yaml` (if adding Flu B)
+### Key Bundle Settings
 
-2. **More config groups:**
-   - `conf/dataset/` - Dataset-specific settings
-   - `conf/preprocess/` - Preprocessing parameters
-   - `conf/model/` - Model architectures
-
-3. **MLOps integration:**
-   - `conf/mlflow/` - MLflow tracking configs
-   - `conf/wandb/` - Weights & Biases configs
-
-4. **Environment-specific paths:**
-   - `conf/paths/lambda_stor.yaml` - Lambda storage paths
-   - `conf/paths/local.yaml` - Local development paths
-
----
-
-## ✅ System Status: READY
-
-**Current State:** ✅ **PRODUCTION READY**
-
-- [x] Configuration system finalized
-- [x] Hydra integration complete
-- [x] Flu A config fully populated
-- [x] Obsolete files cleaned up
-- [x] Backward compatibility maintained
-- [x] Documentation updated
-- [x] Ready to run `preprocess_flu_protein.py`
-
-**Flexibility:** Full runtime override support for:
-- ✅ Training configs
-- ✅ Embedding configs
-- ✅ Path configs
-- ✅ Future config groups (easy to add)
-
----
-
-## 🎓 Key Concepts
-
-### **Bundle Composition:**
-Bundles use Hydra's `defaults` to compose multiple config groups:
 ```yaml
+# conf/bundles/bunya.yaml
 defaults:
-  - /virus: flu_a        # Load virus/flu_a.yaml
-  - /training: base      # Load training/base.yaml
-  - /paths: default      # Load paths/default.yaml
-  - /embeddings: default # Load embeddings/default.yaml
-  - _self_              # Apply bundle-specific overrides last
-```
+  - /virus: bunya
+  - /paths: bunya
+  - /embeddings: default
+  - /dataset: default
+  - /training: base
+  - _self_
 
-### **Flattened Access:**
-The `get_virus_config_hydra()` function flattens the bundle structure:
-- **Internal:** `config.bundles.virus.data_version`
-- **External:** `config.virus.data_version` (cleaner for scripts)
+# Seed management
+master_seed: 42
+process_seeds:
+  preprocessing: null  # Derive from master_seed
+  embeddings: null
+  dataset: null
+  training: null
 
-### **Runtime Overrides:**
-Override any config group at runtime without modifying files:
-```python
-config = get_virus_config_hydra('flu_a', training_config='gpu8')
+# Data sampling
+max_isolates_to_process: null  # null = full dataset
+
+# Directory naming
+run_suffix: null  # null = auto-generate, or set manually
+
+# Dataset settings
+dataset:
+  use_selected_only: true
+  allow_same_func_negatives: true
+  max_same_func_ratio: 0.5
+
+# Training settings
+training:
+  use_diff: true
+  use_prod: true
+  patience: 15
+  early_stopping_metric: 'f1'
 ```
 
 ---
 
-**Last Updated:** October 1, 2025  
-**System Version:** 1.0 (Hydra-based)  
-**Status:** Production Ready ✅
+## ⚙️ Configuration Parameters
+
+### Embeddings (`conf/embeddings/default.yaml`)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model_ckpt` | `facebook/esm2_t33_650M_UR50D` | ESM-2 model (1280D) |
+| `esm2_max_residues` | 1022 | Max sequence length |
+| `batch_size` | 64 | Batch size for embedding |
+| `use_selected_only` | false | **Currently unused in script** |
+| `pooling` | 'mean' | Embedding pooling method |
+| `emb_storage_precision` | 'fp16' | Storage precision |
+
+### Dataset (`conf/dataset/default.yaml`)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `use_selected_only` | true | Use selected_functions only |
+| `neg_to_pos_ratio` | 3.0 | Ratio of negative to positive pairs |
+| `allow_same_func_negatives` | false | Allow same-function negatives |
+| `max_same_func_ratio` | 0.5 | Max fraction of same-func negatives |
+
+### Training (`conf/training/base.yaml`)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `batch_size` | 32 | Training batch size |
+| `learning_rate` | 0.001 | Learning rate |
+| `epochs` | 100 | Max training epochs |
+| `patience` | 10 | Early stopping patience |
+| `early_stopping_metric` | 'loss' | Metric for early stopping |
+
+---
+
+## 🧹 Cleanup Notes
+
+### Deleted (Obsolete)
+- `conf/config.yaml` - Old hierarchical config
+- `conf/defaults/` - Wrong directory structure
+- Various test/debug config files
+
+### Active Python Modules
+- **`src/utils/config_hydra.py`** - Main config system
+- **`src/utils/path_utils.py`** - Dynamic path generation
+- **`src/utils/seed_utils.py`** - Hierarchical seed management
+
+---
+
+## 📚 Related Documentation
+
+- `docs/SEED_SYSTEM.md` - Comprehensive seed hierarchy guide
+- `docs/EXPERIMENT_CONFIGS.md` - How to create config bundles
+- `docs/PLATEAU_DIAGNOSIS_PLAN.md` - Current investigation status

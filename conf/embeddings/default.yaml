@@ -2,7 +2,7 @@
 model_ckpt: 'facebook/esm2_t33_650M_UR50D'
 esm2_max_residues: 1022
 # max_length: 512  # that's usually max residues + 2 for the special tokens
-batch_size: 32
+batch_size: 64
 # device: 'auto'  # auto, cpu, cuda
 
 # MODEL_CKPT = 'facebook/esm2_t6_8M_UR50D'    # embedding dim: 320D
@@ -11,9 +11,6 @@ batch_size: 32
 # MODEL_CKPT = 'facebook/esm2_t33_650M_UR50D' # embedding dim: 1280D
 # MODEL_CKPT = 'facebook/esm2_t36_3B_UR50D'   # embedding dim: 2560D
 # MODEL_CKPT = 'facebook/esm2_t48_15B_UR50D'  # embedding dim: 5120D
-
-# Protein filtering strategy
-use_selected_only: false  # true = use selected_functions, false = use all proteins
 
 # Embedding generation parameters
 pooling: 'mean'  # Pooling method: 'mean', 'max', 'cls', 'attention'

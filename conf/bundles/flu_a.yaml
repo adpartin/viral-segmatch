@@ -42,20 +42,6 @@ process_seeds:
   training: null       # Model training and initialization
   evaluation: null     # Evaluation sampling and metrics
 
-# ===================================================================
-# DATA SAMPLING
-# ===================================================================
-# Controls how many isolates to process from the raw data directory
-# - null: Process ALL files (full dataset)
-# - int: Process this many isolates (sampled according to master seed)
-#
-# Directory naming:
-#   max_isolates_to_process: null → processed/flu_a/July_2025/
-#   max_isolates_to_process: 500, master_seed: 42 → processed/flu_a/July_2025_seed_42_isolates_500/
-#   max_isolates_to_process: 100, master_seed: null → processed/flu_a/July_2025_random_TIMESTAMP_isolates_100/
-
-# max_isolates_to_process: null  # null = full dataset, or set to 100, 500, etc.
-
 # ====================================================================
 # PROTEIN SELECTION
 # ====================================================================
@@ -72,13 +58,12 @@ virus:
 # Embeddings overrides
 embeddings:
   batch_size: 96
-  use_selected_only: false  # Compute embeddings for selected_functions
 
 # Dataset overrides
 dataset:
   use_selected_only: true  # Use selected_functions (a subset of protein functions)
-  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
-  allow_same_func_negatives: false  # No same-function negative pairs (experiment setting)
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 1.0
+  allow_same_func_negatives: false  # Whether to allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
   max_isolates_to_process: 1000  # null = full dataset, or set to 100, 500, etc.
 

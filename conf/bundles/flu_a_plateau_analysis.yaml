@@ -13,7 +13,7 @@ defaults:
 # DIRECTORY NAMING
 # ====================================================================
 # Manual run_suffix to distinguish plateau analysis runs
-run_suffix: "_seed_42_isolates_100_plateau_analysis"
+run_suffix: "_seed_42_isolates_1000_plateau_analysis"
 
 # ====================================================================
 # SEED MANAGEMENT
@@ -50,19 +50,18 @@ dataset:
   neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
   allow_same_func_negatives: false  # No same-function negative pairs
   max_same_func_ratio: 0.5  # Not used when allow_same_func_negatives=false
-  max_isolates_to_process: 700  # Larger dataset to observe plateau more clearly
+  max_isolates_to_process: 1000  # Larger dataset to observe plateau more clearly
   train_ratio: 0.8
   val_ratio: 0.1
 
 # Training overrides - Extended training to observe plateau
 training:
-  use_diff: true
-  use_prod: true
+  use_diff: false
+  use_prod: false
   batch_size: 16
   learning_rate: 0.001
-  epochs: 100  # Many epochs to observe full learning curve
-  patience: 20  # High patience to see plateau clearly
-  dropout: 0.3  # Normal regularization
+  epochs: 50  # Many epochs to observe full learning curve
+  patience: 40  # High patience to see plateau clearly
+  dropout: 0.2  # Normal regularization
   early_stopping_metric: 'f1'  # Monitor F1 score
   threshold_metric: null  # Use default 0.5 threshold for simplicity
-

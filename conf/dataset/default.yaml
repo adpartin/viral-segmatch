@@ -9,9 +9,9 @@ use_selected_only: true  # true = use selected_functions, false = use all protei
 max_isolates_to_process: null  # null = use all isolates; int = deterministic isolate sampling
 
 # Dataset splitting parameters
-neg_to_pos_ratio: 3.0  # Ratio of negative to positive pairs
-allow_same_func_negatives: true  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
-max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
+neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
+allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
+max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs; not used when allow_same_func_negatives=false
 
 # Train/validation/test split ratios
 train_ratio: 0.8  # 80% for training
