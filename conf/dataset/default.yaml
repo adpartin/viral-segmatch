@@ -2,7 +2,7 @@
 # This config defines parameters for creating train/val/test splits and protein pairs
 
 # Task name for output directory
-task_name: 'segment_pair_classifier' # TODO: we currently don't use this
+# task_name: 'segment_pair_classifier' # TODO: we currently don't use this
 
 # Protein filtering strategy
 use_selected_only: true  # true = use selected_functions, false = use all proteins

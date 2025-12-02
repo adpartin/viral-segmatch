@@ -269,16 +269,45 @@ def main(config_bundle: str, model_dir: Optional[Path] = None) -> None:
         models_dir = Path(model_dir)
         print(f"Using provided model directory: {models_dir}")
     else:
-        # Use standard Hydra path
+        # Use standard Hydra path (base directory)
         paths = build_training_paths(
             project_root=project_root,
             virus_name=config.virus.virus_name,
             data_version=config.virus.data_version,
-            run_suffix=config.run_suffix if hasattr(config, 'run_suffix') and config.run_suffix else "",
+            # run_suffix=config.run_suffix if hasattr(config, 'run_suffix') and config.run_suffix else "",
+            run_suffix="",  # Not used - kept for backward compatibility
             config=config
         )
-        models_dir = paths['output_dir']
-        print(f"Using standard Hydra path: {models_dir}")
+        base_models_dir = paths['output_dir']
+        
+        # Look for most recent training run in runs/ subdirectory
+        runs_dir = base_models_dir / 'runs'
+        if runs_dir.exists():
+            # Find most recent training run matching this config bundle
+            training_runs = sorted(
+                [d for d in runs_dir.iterdir() if d.is_dir() and d.name.startswith(f'training_{config_bundle}_')],
+                key=lambda x: x.stat().st_mtime,
+                reverse=True
+            )
+            if training_runs:
+                models_dir = training_runs[0]
+                print(f"Using most recent training run: {models_dir}")
+            else:
+                # Fallback: use most recent training run regardless of bundle
+                all_runs = sorted(
+                    [d for d in runs_dir.iterdir() if d.is_dir() and d.name.startswith('training_')],
+                    key=lambda x: x.stat().st_mtime,
+                    reverse=True
+                )
+                if all_runs:
+                    models_dir = all_runs[0]
+                    print(f"⚠️  No run found for bundle '{config_bundle}', using most recent run: {models_dir}")
+                else:
+                    models_dir = base_models_dir
+                    print(f"⚠️  No training runs found, using base directory: {models_dir}")
+        else:
+            models_dir = base_models_dir
+            print(f"Using base models directory: {models_dir}")
     
     # Construct results directory (config-specific)
     # Format: results/{virus_name}/{data_version}/{config_bundle}/training_analysis/
@@ -288,7 +317,11 @@ def main(config_bundle: str, model_dir: Optional[Path] = None) -> None:
     # Load test results
     test_results_file = models_dir / 'test_predicted.csv'
     if not test_results_file.exists():
-        raise FileNotFoundError(f'❌ Test results file not found: {test_results_file}')
+        raise FileNotFoundError(
+            f'❌ Test results file not found: {test_results_file}\n'
+            f'   Model directory: {models_dir}\n'
+            f'   Hint: Use --model_dir to specify the exact training run directory'
+        )
 
     df = pd.read_csv(test_results_file)
     print(f'✅ Loaded {len(df)} test predictions')

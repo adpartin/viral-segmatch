@@ -1,0 +1,155 @@
+# Flu virus configuration
+virus_name: 'flu'
+data_version: 'July_2025'
+
+# The protein annotations from Jim are defined here:
+# https://github.com/jimdavis1/Viral_Annotation/blob/main/Viral_PSSM.json
+
+# Core protein functions (present in nearly all Flu A genomes)
+# Core proteins: 9 (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP)
+core_functions:
+  - 'RNA-dependent RNA polymerase PB2 subunit'  # Seg. 1 (PB2)
+  - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'  # Seg. 2 (PB1)
+  - 'RNA-dependent RNA polymerase PA subunit'  # Seg. 3 (PA)
+  - 'Hemagglutinin precursor'  # Seg. 4 (HA0)
+  - 'Nucleocapsid protein'  # Seg. 5 (NP)
+  - 'Neuraminidase protein'  # Seg. 6 (NA)
+  - 'Matrix protein 1'  # Seg. 7 (M1)
+  - 'M2 ion channel'  # Seg. 7 (Matrix protein 2; M2) - EXCLUDE from modeling!
+  - 'Nuclear export protein'  # Seg. 8 (NEP, formerly NS2) - EXCLUDE from modeling!
+
+# Auxiliary protein functions (additional proteins, not always present)
+# Auxiliary proteins: 10 (PB2-S1, PB1-F2, PB1-N40, PA-X, PA-N155, PA-N182, HA1, HA2, M42, NEP)
+aux_functions:
+  - 'Splice variant of PB2, RIG-I-dependent interferon signaling pathway inhibitor'  # Seg. 1 (PB2-S1)
+  - 'Virulence factor PB1-F2'  # Seg. 2 (PB1-F2)
+  - 'PB1-N40 protein' # Seg. 2 (PB1-N40)
+  - 'PA-N155 protein' # Seg. 3 (PA-N155)
+  - 'PA-N182 protein' # Seg. 3 (PA-N182)
+  - 'Host mRNA degrading protein PA-X'  # Seg. 3 (PA-X)
+  - 'Mature hemagglutinin N-terminal receptor binding subunit'  # Seg. 4 (HA1)
+  - 'Mature hemagglutinin C-terminal membrane fusion subunit'  # Seg. 4 (HA2)
+  - 'M42 alternative ion channel'  # Seg. 7 (M42)
+  - 'Hypothetical host adaptation protein NS3'  # Seg. 8 (NS3)
+  - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # Seg. 8 (NS1) - INCLUDE in modeling!
+
+# Selected protein functions (subset used for downstream ML modeling)
+# Flu A: Most core proteins (excluding M2, NEP) + 1 auxiliary protein (NS1)
+selected_functions:
+  # Core proteins for ML (7 out of 9)
+  - 'RNA-dependent RNA polymerase PB2 subunit'  # Seg. 1 (PB2)
+  - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'  # Seg. 2 (PB1)
+  - 'RNA-dependent RNA polymerase PA subunit'  # Seg. 3 (PA)
+  - 'Hemagglutinin precursor'  # Seg. 4 (HA0)
+  - 'Nucleocapsid protein'  # Seg. 5 (NP)
+  - 'Neuraminidase protein'  # Seg. 6 (NA)
+  - 'Matrix protein 1'  # Seg. 7 (M1)
+  # Auxiliary proteins for ML (1 out of 11)
+  - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # Seg. 8 (NS1)
+
+# selected_functions:
+#   - 'RNA-dependent RNA polymerase PB2 subunit'  # Seg. 1 (PB2)
+#   - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'  # Seg. 2 (PB1)
+
+# Segment mapping (function → canonical segment)
+# TODO: consider renaming to 'S1', 'S2', etc.
+segment_mapping:
+  # Core proteins
+  'RNA-dependent RNA polymerase PB2 subunit': 'S1'
+  'RNA-dependent RNA polymerase catalytic core PB1 subunit': 'S2'
+  'RNA-dependent RNA polymerase PA subunit': 'S3'
+  'Hemagglutinin precursor': 'S4'
+  'Nucleocapsid protein': 'S5'
+  'Neuraminidase protein': 'S6'
+  'Matrix protein 1': 'S7'
+  'M2 ion channel': 'S7'  # Maxtrix Protein 2 - EXCLUDE from modeling!
+  'Nuclear export protein': 'S8'  # NEP, formerly NS2 - EXCLUDE from modeling!
+  # Auxiliary proteins
+  'Splice variant of PB2, RIG-I-dependent interferon signaling pathway inhibitor': 'S1'
+  'Virulence factor PB1-F2': 'S2'  # Polymerase Basic 1-Frame 2 (https://en.wikipedia.org/wiki/Influenza_A_virus)
+  'PB1-N40 protein': 'S2'  # "PB1 mRNA encode three proteins by leaky scanning: PB1, N40 and PB1-F2" (https://viralzone.expasy.org/6)
+  'PA-N155 protein': 'S3'  # "Leaky scanning may produces N-truncated PA proteins, namely PA-N155 and PA-N182" (https://viralzone.expasy.org/6)
+  'PA-N182 protein': 'S3'  # "Leaky scanning may produces N-truncated PA proteins, namely PA-N155 and PA-N182" (https://viralzone.expasy.org/6)
+  'Host mRNA degrading protein PA-X': 'S3'  # https://en.wikipedia.org/wiki/Influenza_A_virus
+  'Mature hemagglutinin N-terminal receptor binding subunit': 'S4'
+  'Mature hemagglutinin C-terminal membrane fusion subunit': 'S4'
+  'M42 alternative ion channel': 'S7'  # "Some strains can express M42 from the M segment"
+  'Hypothetical host adaptation protein NS3': 'S8'  # https://www.tandfonline.com/doi/full/10.1038/emi.2012.38
+  'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor': 'S8' # NS1 - INCLUDE in modeling!
+
+# Conditional segment mappings (function + replicon_type → canonical_segment)
+# This enables the same function to map to different segments based on replicon_type
+conditional_segment_mappings:
+  core_proteins:
+    - function: 'RNA-dependent RNA polymerase PB2 subunit'
+      replicon_type: 'Segment 1'
+      core_segment: 'S1'
+    - function: 'RNA-dependent RNA polymerase catalytic core PB1 subunit'
+      replicon_type: 'Segment 2'
+      core_segment: 'S2'
+    - function: 'RNA-dependent RNA polymerase PA subunit'
+      replicon_type: 'Segment 3'
+      core_segment: 'S3'
+    - function: 'Hemagglutinin precursor'
+      replicon_type: 'Segment 4'
+      core_segment: 'S4'
+    - function: 'Nucleocapsid protein'
+      replicon_type: 'Segment 5'
+      core_segment: 'S5'
+    - function: 'Neuraminidase protein'
+      replicon_type: 'Segment 6'
+      core_segment: 'S6'
+    - function: 'Matrix protein 1'
+      replicon_type: 'Segment 7'
+      core_segment: 'S7'
+    - function: 'M2 ion channel'
+      replicon_type: 'Segment 7'
+      core_segment: 'S7'
+    - function: 'Nuclear export protein'
+      replicon_type: 'Segment 8'
+      core_segment: 'S8'
+  aux_proteins:
+    - function: 'Splice variant of PB2, RIG-I-dependent interferon signaling pathway inhibitor'
+      replicon_type: 'Segment 1'
+      aux_segment: 'S1'
+    - function: 'Virulence factor PB1-F2'
+      replicon_type: 'Segment 2'
+      aux_segment: 'S2'
+    - function: 'PB1-N40 protein'
+      replicon_type: 'Segment 2'
+      aux_segment: 'S2'
+    - function: 'PA-N155 protein'
+      replicon_type: 'Segment 3'
+      aux_segment: 'S3'
+    - function: 'PA-N182 protein'
+      replicon_type: 'Segment 3'
+      aux_segment: 'S3'
+    - function: 'Host mRNA degrading protein PA-X'
+      replicon_type: 'Segment 3'
+      aux_segment: 'S3'
+    - function: 'Mature hemagglutinin N-terminal receptor binding subunit'
+      replicon_type: 'Segment 4'
+      aux_segment: 'S4'
+    - function: 'Mature hemagglutinin C-terminal membrane fusion subunit'
+      replicon_type: 'Segment 4'
+      aux_segment: 'S4'
+    - function: 'M42 alternative ion channel'
+      replicon_type: 'Segment 7'
+      aux_segment: 'S7'
+    - function: 'Hypothetical host adaptation protein NS3'
+      replicon_type: 'Segment 8'
+      aux_segment: 'S8'
+    - function: 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'
+      replicon_type: 'Segment 8'
+      aux_segment: 'S8'
+
+# Replicon types (segment identifiers used in GTO files)
+replicon_types:
+  - 'Segment 1'
+  - 'Segment 2'
+  - 'Segment 3'
+  - 'Segment 4'
+  - 'Segment 5'
+  - 'Segment 6'
+  - 'Segment 7'
+  - 'Segment 8'

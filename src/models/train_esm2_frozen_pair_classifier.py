@@ -11,6 +11,7 @@ Requirements:
 import argparse
 import sys
 import random
+from datetime import datetime
 from pathlib import Path
 
 import h5py
@@ -645,42 +646,47 @@ paths = build_training_paths(
     project_root=project_root,
     virus_name=VIRUS_NAME,
     data_version=DATA_VERSION,
-    run_suffix=RUN_SUFFIX,
+    # run_suffix=RUN_SUFFIX,
+    run_suffix="",  # Not used - kept for backward compatibility
     config=config
 )
 
-default_dataset_dir = paths['dataset_dir']
+default_embeddings_file = paths['embeddings_file']
 default_output_dir = paths['output_dir']
 
-# Build canonical paths (no suffix) for master cache (shared across runs)
-canonical_paths = build_embeddings_paths(
-    project_root=project_root,
-    virus_name=VIRUS_NAME,
-    data_version=DATA_VERSION,
-    run_suffix="",  # Empty suffix = canonical location
-    config=config
-)
-
-# Use master cache file (per virus and data version, shared across runs)
-# Derived from canonical paths (no suffix) to ensure sharing across all runs
-master_embeddings_file = canonical_paths['output_dir'] / 'master_esm2_embeddings.h5'
-default_embeddings_file = master_embeddings_file
-
 # Apply CLI overrides if provided
-dataset_dir = Path(args.dataset_dir) if args.dataset_dir else default_dataset_dir
+# Dataset directory MUST be provided explicitly (not built from config)
+if not args.dataset_dir:
+    raise ValueError(
+        "❌ --dataset_dir is required. "
+        "Datasets are in runs/ subdirectories: "
+        "data/datasets/{virus}/{data_version}/runs/dataset_{config_bundle}_{timestamp}/"
+    )
+dataset_dir = Path(args.dataset_dir)
+
 embeddings_file = Path(args.embeddings_file) if args.embeddings_file else default_embeddings_file
+
+# Output directory: always use runs/ subdirectory structure
 if args.output_dir:
     output_dir = Path(args.output_dir)
 elif args.run_output_subdir:
+    # Structure: models/{virus}/{data_version}/runs/{run_id}/
     output_dir = default_output_dir / 'runs' / args.run_output_subdir
 else:
-    output_dir = default_output_dir
+    # Fallback: create a run directory with config bundle name
+    # This shouldn't happen if shell script is used correctly
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fallback_run_id = f"training_{config_bundle}_{timestamp}"
+    output_dir = default_output_dir / 'runs' / fallback_run_id
+    print(f"⚠️  Warning: No run_output_subdir provided, using fallback: {fallback_run_id}")
 output_dir.mkdir(parents=True, exist_ok=True)
 
-print(f'\nRun directory:   {DATA_VERSION}{RUN_SUFFIX}')
-print(f'dataset_dir:     {dataset_dir}')
-print(f'embeddings_file: {embeddings_file}')
-print(f'output_dir:      {output_dir}')
+print(f'\nConfig bundle:    {config_bundle}')
+print(f'Run suffix:       {RUN_SUFFIX if RUN_SUFFIX else "(none)"}')
+print(f'Dataset dir:      {dataset_dir}')
+print(f'Embeddings file:  {embeddings_file}')
+print(f'Output dir:       {output_dir}')  # This line is parsed by stage4_train.sh
+print(f'Run ID:           {args.run_output_subdir if args.run_output_subdir else "auto-generated"}')
 print(f'model:           {MODEL_CKPT}')
 print(f'batch_size:      {BATCH_SIZE}')
 

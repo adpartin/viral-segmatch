@@ -744,7 +744,7 @@ def create_comprehensive_plots(
     ax1.axvline(stats['neg_mean'], color='darkred', linestyle='--', linewidth=2)
     ax1.set_xlabel('Cosine Similarity', fontsize=11)
     ax1.set_ylabel('Density', fontsize=11)
-    ax1.set_title(f'Positive vs Negative Pair Similarity\n(Overlap: {stats["histogram_overlap"]:.1%})', fontsize=12)
+    ax1.set_title(f'Pos vs Neg Pair Similarity\n(Overlap: {stats["histogram_overlap"]:.1%})', fontsize=12)
     ax1.legend(fontsize=9)
     ax1.grid(alpha=0.3)
 

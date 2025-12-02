@@ -1,0 +1,66 @@
+# Flu Overfitting Capacity Test Bundle
+# Purpose: Test if model can overfit a very small dataset (Karpathy's capacity test)
+# Based on: https://karpathy.github.io/2019/04/25/recipe/
+defaults:
+  - /virus: flu
+  - /paths: flu
+  - /embeddings: default
+  - /dataset: default
+  - /training: base
+  - _self_
+
+# ====================================================================
+# DIRECTORY NAMING
+# ====================================================================
+run_suffix: null
+
+# ====================================================================
+# SEED MANAGEMENT
+# ====================================================================
+master_seed: 42
+
+process_seeds:
+  preprocessing: null
+  embeddings: null
+  dataset: null
+  training: null
+  evaluation: null
+
+# ====================================================================
+# PROTEIN SELECTION
+# ====================================================================
+virus:
+  selected_functions:
+    - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 (Segment 1)
+    - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 (Segment 2)
+    - "RNA-dependent RNA polymerase PA subunit"  # PA (Segment 3)
+
+# ====================================================================
+# MODEL AND DATASET OVERRIDES
+# ====================================================================
+# Embeddings overrides
+embeddings:
+  batch_size: 96
+
+# Dataset overrides - VERY SMALL for overfitting test
+dataset:
+  use_selected_only: true  # Use selected_functions (a subset of protein functions)
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
+  allow_same_func_negatives: false  # Whether to allow same-function negative pairs
+  max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
+  max_isolates_to_process: 50  # VERY SMALL - should overfit easily if model has capacity
+  train_ratio: 0.1
+  val_ratio: 0.8
+
+# Training overrides - Many epochs, NO early stopping, NO regularization
+training:
+  epochs: 50  # Many epochs to force overfitting
+  patience: 50  # Set to epochs to disable early stopping (see full learning curve)
+  batch_size: 16
+  learning_rate: 0.001
+  early_stopping_metric: 'f1'  # Monitor F1 score
+  threshold_metric: null  # Use default 0.5 threshold for simplicity
+  dropout: 0.0  # NO dropout - remove regularization
+  # Note: weight_decay not in base config, but if present, should be 0.0
+  use_diff: false
+  use_prod: false

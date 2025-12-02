@@ -117,7 +117,6 @@ def build_preprocessing_paths(
     ) -> dict[str, Path]:
     """Build standard preprocessing paths for a virus.
     
-    # TODO: It should be documented in a README the assumed directory structure.
     This function creates a consistent directory structure across the pipeline:
     - Raw data: data/raw/{virus_raw_name}/{data_version}/
     - Processed: data/processed/{virus_name}/{data_version}{run_suffix}/
@@ -233,15 +232,15 @@ def build_dataset_paths(
     """Build standard dataset paths for a virus.
 
     This function creates a consistent directory structure for datasets:
-    - Input: data/processed/{virus_name}/{data_version}{run_suffix}/protein_final.csv
-    - Output: data/datasets/{virus_name}/{data_version}{run_suffix}/{task_name}/
+    - Input: data/processed/{virus_name}/{data_version}/protein_final.csv (NO run_suffix - preprocessing is shared)
+    - Output: data/datasets/{virus_name}/{data_version}{run_suffix}/runs/... (run_suffix used for output)
 
     Args:
         project_root: Project root directory
-        virus_name: Virus name (e.g., 'flu_a', 'bunya')
+        virus_name: Virus name (e.g., 'flu', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
-        task_name: Task name (e.g., 'segment_pair_classifier')
-        run_suffix: Optional run suffix (e.g., '_seed_42_records_500')
+        run_suffix: Optional run suffix for OUTPUT only (e.g., '_seed_42_isolates_500')
+        config: Hydra config object
 
     Returns:
         Dictionary with keys: 'input_file', 'output_dir'
@@ -251,13 +250,15 @@ def build_dataset_paths(
         main_data_dir = project_root / config.paths.data_dir
     else:
         main_data_dir = project_root / 'data'
-    run_dir = f'{data_version}{run_suffix}'
-    
-    # Input: processed data
-    input_file = main_data_dir / 'processed' / virus_name / run_dir / 'protein_final.csv'
-    
+
+    # Input: processed data (ALWAYS use base path - preprocessing is shared)
+    input_file = main_data_dir / 'processed' / virus_name / data_version / 'protein_final.csv'
+
     # Output: datasets
-    output_dir = main_data_dir / 'datasets' / virus_name / run_dir #/ task_name
+    # Structure: data/datasets/{virus}/{data_version}/runs/{run_id}/
+    # The run_suffix is used for grouping related experiments, but actual runs go in runs/ subdir
+    # This ensures consistent structure: base_dir/runs/dataset_{config_bundle}_{timestamp}/
+    output_dir = main_data_dir / 'datasets' / virus_name / data_version
     
     return {
         'input_file': input_file,
@@ -276,37 +277,41 @@ def build_training_paths(
     """Build standard training paths for a virus.
 
     This function creates a consistent directory structure for training:
-    - Dataset input: data/datasets/{virus_name}/{data_version}{run_suffix}/{task_name}/
-    - Embeddings input: data/embeddings/{virus_name}/{data_version}{run_suffix}/esm2_embeddings.h5
-    - Model output: models/{virus_name}/{data_version}{run_suffix}/{task_name}/
+    - Embeddings input: data/embeddings/{virus_name}/{data_version}/master_esm2_embeddings.h5 (shared, no run_suffix)
+    - Dataset input: Should be passed explicitly via --dataset_dir (not built here)
+    - Model output: models/{virus_name}/{data_version}/runs/... (run_suffix not used in parent path)
 
     Args:
         project_root: Project root directory
-        virus_name: Virus name (e.g., 'flu_a', 'bunya')
+        virus_name: Virus name (e.g., 'flu', 'bunya')
         data_version: Data version (e.g., 'July_2025', 'April_2025')
-        task_name: Task name (e.g., 'segment_pair_classifier')
-        run_suffix: Optional run suffix (e.g., '_seed_42_records_500')
+        run_suffix: DEPRECATED - not used for paths (kept for backward compatibility)
+        config: Hydra config object
 
     Returns:
-        Dictionary with keys: 'dataset_dir', 'embeddings_file', 'output_dir'
+        Dictionary with keys: 'embeddings_file', 'output_dir'
+        Note: 'dataset_dir' is not returned - should be passed explicitly to training script
     """
     # Use config paths if available, otherwise fallback to hardcoded
     if config and hasattr(config, 'paths') and hasattr(config.paths, 'data_dir'):
         main_data_dir = project_root / config.paths.data_dir
     else:
         main_data_dir = project_root / 'data'
-    run_dir = f'{data_version}{run_suffix}'
 
-    # Dataset input directory
-    dataset_dir = main_data_dir / 'datasets' / virus_name / run_dir #/ task_name
+    # Embeddings input file (ALWAYS use base path - embeddings are shared)
+    # Try master cache format first, then legacy format
+    embeddings_dir = main_data_dir / 'embeddings' / virus_name / data_version
+    master_emb = embeddings_dir / 'master_esm2_embeddings.h5'
+    legacy_emb = embeddings_dir / 'esm2_embeddings.h5'
+    if master_emb.exists():
+        embeddings_file = master_emb
+    elif legacy_emb.exists():
+        embeddings_file = legacy_emb
+    else:
+        embeddings_file = master_emb  # Will fail with clear error if missing
 
-    # Embeddings input file
-    embeddings_file = main_data_dir / 'embeddings' / virus_name / run_dir / 'esm2_embeddings.h5'
-
-    # Model output directory
-    # output_dir = main_data_dir / 'models' / virus_name / run_dir #/ task_name # previous version
+    # Model output directory (base path - actual run goes in runs/ subdirectory)
     # Models go to project_root/models/ not data/models/ for consistency
-    # Check if config specifies model_dir, otherwise use project_root/models
     if config and hasattr(config, 'paths') and hasattr(config.paths, 'model_dir'):
         # Use absolute path if provided, or relative to project_root
         model_dir_str = str(config.paths.model_dir)
@@ -316,10 +321,11 @@ def build_training_paths(
             models_base = project_root / model_dir_str
     else:
         models_base = project_root / 'models'  # Default: project_root/models/
-    output_dir = models_base / virus_name / run_dir #/ task_name
+    
+    # Base output directory (actual run will be in runs/ subdirectory)
+    output_dir = models_base / virus_name / data_version
 
     return {
-        'dataset_dir': dataset_dir,
         'embeddings_file': embeddings_file,
         'output_dir': output_dir
     }

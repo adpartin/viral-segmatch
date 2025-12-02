@@ -1,8 +1,18 @@
 #!/bin/bash
 # Stage 4: Model Training
-# Usage: ./scripts/stage4_train.sh <config_bundle> [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR]
-# Example: ./scripts/stage4_train.sh bunya --cuda_name cuda:7
-#          ./scripts/stage4_train.sh flu_a_3p_1ks --cuda_name cuda:0 --dataset_dir /custom/path
+# Usage: ./scripts/stage4_train.sh [<config_bundle>] [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR]
+# 
+# Config bundle can be provided via:
+#   1. CLI argument: <config_bundle>
+#   2. Extracted from --dataset_dir (if directory name follows pattern: dataset_{config_bundle}_{timestamp})
+#
+# If both are provided, they must match (validation).
+# If only --dataset_dir is provided, config bundle is extracted automatically.
+#
+# Examples:
+#   ./scripts/stage4_train.sh bunya --cuda_name cuda:7
+#   ./scripts/stage4_train.sh flu_overfit --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_...
+#   ./scripts/stage4_train.sh --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_...  # Config extracted from dataset dir
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -14,17 +24,17 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
 # Parse arguments
-CONFIG_BUNDLE="${1:-}"
-if [ -z "$CONFIG_BUNDLE" ]; then
-    echo "Error: Config bundle required"
-    echo "Usage: $0 <config_bundle> [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR]"
-    echo "Examples:"
-    echo "  $0 bunya --cuda_name cuda:7"
-    echo "  $0 flu_a_3p_1ks --cuda_name cuda:0"
-    exit 1
-fi
+# Config bundle is optional if --dataset_dir is provided (will be extracted from dataset dir)
+CONFIG_BUNDLE_CLI="${1:-}"
 
-shift  # Remove config_bundle from arguments
+# Check if first argument looks like an option (starts with --)
+if [[ "${1:-}" == --* ]]; then
+    # First arg is an option, so no CLI config bundle provided
+    CONFIG_BUNDLE_CLI=""
+else
+    # First arg is config bundle
+    shift  # Remove config_bundle from arguments
+fi
 
 # Parse optional arguments
 CUDA_NAME="cuda:0"  # Default CUDA device
@@ -56,12 +66,84 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 <config_bundle> [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR] [--skip_postprocessing]"
+            echo "Error: Unknown option: $1"
+            echo "Usage: $0 [<config_bundle>] [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR] [--skip_postprocessing]"
+            echo ""
+            echo "Examples:"
+            echo "  $0 bunya --cuda_name cuda:7"
+            echo "  $0 flu_overfit --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_..."
+            echo "  $0 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_...  # Config bundle extracted from dataset dir"
             exit 1
             ;;
     esac
 done
+
+# Extract config bundle from dataset directory if provided (dataset dir is source of truth)
+EXTRACTED_BUNDLE=""
+if [ -n "$DATASET_DIR" ]; then
+    # Get basename of dataset directory (e.g., "dataset_flu_overfit_20251202_140140")
+    DATASET_BASENAME=$(basename "$DATASET_DIR")
+    
+    # Pattern: dataset_{config_bundle}_{timestamp}
+    # Extract config bundle by removing "dataset_" prefix and timestamp suffix (YYYYMMDD_HHMMSS)
+    if [[ "$DATASET_BASENAME" == dataset_*_????????_?????? ]]; then
+        # Remove "dataset_" prefix
+        EXTRACTED_BUNDLE="${DATASET_BASENAME#dataset_}"
+        # Remove timestamp suffix (pattern: _YYYYMMDD_HHMMSS)
+        EXTRACTED_BUNDLE="${EXTRACTED_BUNDLE%_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9]}"
+        
+        if [ -z "$EXTRACTED_BUNDLE" ]; then
+            echo "❌ Error: Could not extract config bundle from dataset directory name: $DATASET_BASENAME"
+            echo "   Expected pattern: dataset_{config_bundle}_{timestamp}"
+            exit 1
+        fi
+    else
+        echo "❌ Error: Dataset directory name doesn't match expected pattern: dataset_{config_bundle}_{timestamp}"
+        echo "   Found: $DATASET_BASENAME"
+        exit 1
+    fi
+fi
+
+# Determine final config bundle with validation
+if [ -n "$EXTRACTED_BUNDLE" ] && [ -n "$CONFIG_BUNDLE_CLI" ]; then
+    # Both provided: validate they match
+    if [ "$EXTRACTED_BUNDLE" != "$CONFIG_BUNDLE_CLI" ]; then
+        echo "❌ Error: Config bundle mismatch!"
+        echo "   CLI bundle:        '$CONFIG_BUNDLE_CLI'"
+        echo "   Dataset bundle:    '$EXTRACTED_BUNDLE' (extracted from: $DATASET_DIR)"
+        echo ""
+        echo "   The dataset was created with config bundle '$EXTRACTED_BUNDLE'."
+        echo "   Please use the same config bundle for training, or omit the CLI bundle to use the extracted one."
+        echo ""
+        echo "   Correct usage:"
+        echo "     $0 $EXTRACTED_BUNDLE --dataset_dir $DATASET_DIR"
+        echo "   Or:"
+        echo "     $0 --dataset_dir $DATASET_DIR"
+        exit 1
+    fi
+    # They match - use extracted (which equals CLI)
+    CONFIG_BUNDLE="$EXTRACTED_BUNDLE"
+    echo "✅ Config bundle validated: '$CONFIG_BUNDLE' (matches dataset directory)"
+elif [ -n "$EXTRACTED_BUNDLE" ]; then
+    # Only dataset dir provided: use extracted bundle
+    CONFIG_BUNDLE="$EXTRACTED_BUNDLE"
+    echo "📦 Using config bundle extracted from dataset directory: '$CONFIG_BUNDLE'"
+elif [ -n "$CONFIG_BUNDLE_CLI" ]; then
+    # Only CLI provided: use CLI bundle
+    CONFIG_BUNDLE="$CONFIG_BUNDLE_CLI"
+else
+    # Neither provided: error
+    echo "❌ Error: Config bundle required"
+    echo "   Provide either:"
+    echo "     1. CLI argument: $0 <config_bundle> [options...]"
+    echo "     2. --dataset_dir with extractable config bundle in directory name"
+    echo ""
+    echo "   Examples:"
+    echo "     $0 bunya --cuda_name cuda:7"
+    echo "     $0 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_..."
+    exit 1
+fi
+# CONFIG_BUNDLE is now the final validated value
 
 # Setup logging
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -130,6 +212,7 @@ fi
 
 # Run the training script
 log "Starting ESM-2 frozen pair classifier training with config bundle: $CONFIG_BUNDLE"
+log "  Run ID: $RUN_ID"
 log "Command: $CMD"
 log ""
 
@@ -159,14 +242,30 @@ if [ $EXIT_CODE -eq 0 ]; then
         if [ -n "$OUTPUT_DIR" ]; then
             ACTUAL_OUTPUT_DIR="$OUTPUT_DIR"
         else
-            # Extract output_dir from training log (training script prints "output_dir: /path/...")
-            OUTPUT_DIR_LINE=$(grep -m1 'output_dir:' "$LOG_FILE" 2>/dev/null || true)
+            # Extract output_dir from training log (training script prints "Output dir:       /path/...")
+            # Try multiple patterns to be robust (handles both "Output dir:" and "output_dir:")
+            OUTPUT_DIR_LINE=$(grep -m1 -i 'Output.*dir:' "$LOG_FILE" 2>/dev/null || true)
             if [ -n "$OUTPUT_DIR_LINE" ]; then
-                ACTUAL_OUTPUT_DIR=$(echo "$OUTPUT_DIR_LINE" | sed -E 's/.*output_dir:\s*//' | xargs)
+                # Extract path after the colon (handles both "Output dir:" and "output_dir:")
+                ACTUAL_OUTPUT_DIR=$(echo "$OUTPUT_DIR_LINE" | sed -E 's/.*:\s*//' | xargs)
                 log "Detected output directory from training: $ACTUAL_OUTPUT_DIR"
             else
-                ACTUAL_OUTPUT_DIR=""
-                log "⚠️  Could not detect output directory from training log"
+                # Fallback: try to find the most recent training run directory
+                VIRUS_NAME=$(grep -m1 "Virus:" "$LOG_FILE" 2>/dev/null | sed -E 's/.*Virus:\s*//' | xargs || echo "")
+                DATA_VERSION=$(grep -m1 "Data version:" "$LOG_FILE" 2>/dev/null | sed -E 's/.*Data version:\s*//' | xargs || echo "")
+                if [ -n "$VIRUS_NAME" ] && [ -n "$DATA_VERSION" ]; then
+                    # Look for most recent training run
+                    RUNS_DIR="$PROJECT_ROOT/models/$VIRUS_NAME/$DATA_VERSION/runs"
+                    if [ -d "$RUNS_DIR" ]; then
+                        ACTUAL_OUTPUT_DIR=$(ls -td "$RUNS_DIR"/training_* 2>/dev/null | head -1)
+                        if [ -n "$ACTUAL_OUTPUT_DIR" ]; then
+                            log "Found most recent training run: $ACTUAL_OUTPUT_DIR"
+                        fi
+                    fi
+                fi
+                if [ -z "$ACTUAL_OUTPUT_DIR" ]; then
+                    log "⚠️  Could not detect output directory from training log"
+                fi
             fi
         fi
         
@@ -246,10 +345,10 @@ log ""
 log "Registering experiment in central registry..."
 REG_LOG_FILE="${LOG_FILE#$PROJECT_ROOT/}"
 OUTPUT_DIR_REL=""
-OUTPUT_DIR_LINE=$(grep -m1 'output_dir:' "$LOG_FILE" 2>/dev/null || true)
+# Use same pattern as postprocessing extraction
+OUTPUT_DIR_LINE=$(grep -m1 -i 'Output.*dir:' "$LOG_FILE" 2>/dev/null || true)
 if [ -n "$OUTPUT_DIR_LINE" ]; then
-    OUTPUT_DIR_ABS=$(echo "$OUTPUT_DIR_LINE" | sed -E 's/.*output_dir:\s*//')
-    OUTPUT_DIR_ABS=$(echo "$OUTPUT_DIR_ABS" | xargs)
+    OUTPUT_DIR_ABS=$(echo "$OUTPUT_DIR_LINE" | sed -E 's/.*:\s*//' | xargs)
     if [[ "$OUTPUT_DIR_ABS" == $PROJECT_ROOT/* ]]; then
         OUTPUT_DIR_REL="${OUTPUT_DIR_ABS#$PROJECT_ROOT/}"
     else

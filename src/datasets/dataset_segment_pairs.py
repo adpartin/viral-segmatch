@@ -25,6 +25,7 @@ import hashlib
 import json
 import random
 import sys
+from datetime import datetime
 from itertools import combinations
 from pathlib import Path
 
@@ -57,13 +58,13 @@ def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
 
 def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
     """Build a set of all sequence pairs that co-occur in any isolate.
-    
+
     These pairs could be labeled as positive (same isolate), so they should NOT
     be used as negative pairs to avoid contradictory labels.
-    
+
     Args:
         df: DataFrame with protein data containing 'assembly_id', 'prot_seq', 'seq_hash'
-        
+
     Returns:
         Tuple of:
         - cooccur_pairs: Set of canonical pair keys (seq_hash pairs) that co-occur
@@ -71,25 +72,25 @@ def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
     """
     cooccur_pairs = set()
     isolate_pair_counts = {}  # Track how many isolates each pair appears in
-    
-    for assembly_id, grp in df.groupby('assembly_id'):
+
+    for aid, grp in df.groupby('assembly_id'):
         if len(grp) < 2:
             continue
-        
+
         # Get all unique sequences in this isolate
         seq_hashes = grp['seq_hash'].unique().tolist()
-        
+
         # All pairs of sequences in this isolate co-occur
         for i in range(len(seq_hashes)):
             for j in range(i + 1, len(seq_hashes)):
                 pair_key = canonical_pair_key(seq_hashes[i], seq_hashes[j])
                 cooccur_pairs.add(pair_key)
-                
+
                 # Track count for stats
                 if pair_key not in isolate_pair_counts:
                     isolate_pair_counts[pair_key] = 0
                 isolate_pair_counts[pair_key] += 1
-    
+
     # Compute statistics
     cooccur_stats = {
         'total_cooccur_pairs': len(cooccur_pairs),
@@ -653,14 +654,24 @@ input_file = Path(args.input_file) if args.input_file else default_input_file
 if args.output_dir:
     output_dir = Path(args.output_dir)
 elif args.run_output_subdir:
+    # Always use runs/ subdirectory for consistency
+    # Structure: data/datasets/{virus}/{data_version}/runs/{run_id}/
+    # run_id includes config_bundle name: dataset_{config_bundle}_{timestamp}
     output_dir = default_output_dir / 'runs' / args.run_output_subdir
 else:
-    output_dir = default_output_dir
+    # Fallback: create a run directory with config bundle name
+    # This shouldn't happen if shell script is used correctly
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fallback_run_id = f"dataset_{config_bundle}_{timestamp}"
+    output_dir = default_output_dir / 'runs' / fallback_run_id
+    print(f"⚠️  Warning: No run_output_subdir provided, using fallback: {fallback_run_id}")
 output_dir.mkdir(parents=True, exist_ok=True)
 
-print(f'\nRun directory: {DATA_VERSION}{RUN_SUFFIX}')
-print(f'input_file:    {input_file}')
-print(f'output_dir:    {output_dir}')
+print(f'\nConfig bundle:  {config_bundle}')
+print(f'Run suffix:     {RUN_SUFFIX if RUN_SUFFIX else "(none)"}')
+print(f'Input file:     {input_file}')
+print(f'Output dir:     {output_dir}')
+print(f'Run ID:         {args.run_output_subdir if args.run_output_subdir else "auto-generated"}')
 
 # Load protein data
 print('\nLoad preprocessed protein sequence data.')

@@ -1,23 +1,33 @@
 # Segment Pair Prediction: Plateau Diagnosis Plan
 
-**Date**: December 1, 2025  
+**Date**: December 2, 2025  
 **Status**: In Progress  
-**Primary Concern**: Immediate validation plateau in Flu A model training
+**Primary Concern**: Immediate validation plateau in Flu A model training  
+**Related Docs**: [EMBEDDINGS_BRANCH_CHANGES.md](./EMBEDDINGS_BRANCH_CHANGES.md)
 
 ---
 
-## TODO Status (Updated: December 1, 2025)
+## TODO Status (Updated: December 2, 2025)
 
+### Completed Tasks
 | Task | Status | Notes |
 |------|--------|-------|
 | Train model on Bunya | ✅ Complete | Val F1: 0.75→0.91, Test AUC: 0.956 |
 | Analyze Bunya training results | ✅ Complete | 100% same-func negative accuracy |
 | Run embedding similarity on Bunya | ✅ Complete | Results in embedding_similarity/ |
-| Run embedding similarity on Flu A | ⬜ Pending | |
-| Re-run Bunya with allow_same_func_negatives=false | ⬜ Pending | For fair comparison |
-| Compare Bunya vs Flu A similarity distributions | ⬜ Pending | Critical diagnostic |
-| Try use_diff=True, use_prod=True on Flu A | ⬜ Pending | If diagnostics show promise |
-| Decide on dataset run directory structure | ⬜ Pending | Currently using runs/ subdirs to compare dataset configs (allow_same_func_negatives, etc.) |
+| Re-run Bunya with allow_same_func_negatives=false | ✅ Complete | Still achieves 90.6% accuracy, 0.936 AUC |
+| Document embeddings branch changes | ✅ Complete | See docs/EMBEDDINGS_BRANCH_CHANGES.md |
+
+### Pending Tasks
+| Task | Priority | Notes |
+|------|----------|-------|
+| Run embedding similarity on Flu A | P1 | Critical diagnostic |
+| Compare Bunya vs Flu A similarity distributions | P1 | Quantify conservation impact |
+| Segment-specific models for Flu A | P2 | HA-NA vs PB1-PB2 comparison |
+| Try use_diff=True, use_prod=True on Flu A | P2 | If diagnostics show promise |
+| Contrastive fine-tuning of ESM-2 | P3 | If current approach insufficient |
+| Explore genome foundation models | P4 | GenSLM, Evo2 for nucleotide signal |
+| Decide on dataset run directory structure | P5 | Currently using runs/ subdirs |
 
 ---
 
@@ -38,13 +48,33 @@
 
 ### Biological Reality: Why Flu A May Be Hard
 
-1. **Extreme sequence conservation**: Same protein function (HA, NA, NP, etc.) across different Flu A isolates are often >95% identical at amino acid level
+#### Influenza Protein Conservation (Scientific Evidence)
 
-2. **ESM-2 captures function, not origin**: Two HA proteins from different isolates produce nearly identical ESM-2 embeddings because they're functionally equivalent
+Studies show influenza internal proteins are highly conserved ([PMC3036627](https://pmc.ncbi.nlm.nih.gov/articles/PMC3036627/)):
 
-3. **The fundamental assumption may be wrong**: We assumed embeddings encode enough isolate-specific information to distinguish "same isolate" vs "different isolate" pairs. This may not be true for Flu.
+| Segment | Protein | Conservation (Human Strains) |
+|---------|---------|------------------------------|
+| 2 | PB1 | **98.1%** (highest) |
+| 1 | PB2 | ~95% |
+| 5 | NP | ~95% |
+| 3 | PA | ~94% |
+| 4 | HA | 70-85% (immune pressure) |
+| 6 | NA | 80-90% (immune pressure) |
 
-**In simpler terms**: If I hand you two HA protein embeddings and ask "are these from the same isolate?" - if all HA proteins look ~identical in embedding space, the task is impossible regardless of model architecture.
+**Key insight**: Internal proteins (polymerase complex) are highly conserved; surface proteins (HA/NA) have more variation due to antigenic drift.
+
+#### Why ESM-2 Struggles with This Task
+
+1. **ESM-2 was trained on masked language modeling (MLM)** — predicting amino acids from context. This captures:
+   - Protein structure and function
+   - Evolutionary relationships
+   - Amino acid properties
+
+2. **ESM-2 was NOT trained to distinguish isolate origin**. Two HA proteins from different isolates produce nearly identical embeddings because they're functionally equivalent.
+
+3. **The information-theoretic limit**: If sequences are >98% identical, and ESM-2 generalizes over evolutionary variation, the embeddings will be nearly indistinguishable. No downstream model can recover signal that isn't in the representation.
+
+**In simpler terms**: If I hand you two PB1 protein embeddings and ask "are these from the same isolate?" — if all PB1 proteins are 98% identical and map to essentially the same embedding, the task is impossible regardless of model architecture.
 
 ### Data Science Issues (Status)
 
@@ -302,10 +332,39 @@ Based on the December 1, 2025 analysis:
 
 ### Don't Fool Ourselves
 
-If the pair similarity diagnostic shows positive/negative distributions heavily overlap for Flu A (but not Bunya), we should accept that ESM-2 concatenation cannot solve segment-pairing for Flu A specifically, and either:
-1. Use different features (nucleotide-level, metadata)
-2. Use different embeddings (fine-tuned for strain discrimination)
-3. Reformulate the problem entirely
+If the pair similarity diagnostic shows positive/negative distributions heavily overlap for Flu A (but not Bunya), we should accept that ESM-2 concatenation cannot solve segment-pairing for Flu A specifically.
+
+### But High Overlap Doesn't Mean "Give Up"
+
+The embedding similarity analysis tells us about RAW embedding space, not what's recoverable through:
+
+1. **Non-linear transformations**: MLPs can learn complex decision boundaries
+2. **Interaction features**: `|emb_a - emb_b|` and `emb_a * emb_b` can highlight differences
+3. **Contrastive fine-tuning**: Reshape the embedding space for our task
+4. **Genome-level models**: Nucleotide sequences may contain more signal
+
+### Research Roadmap (Ranked by Expected Impact)
+
+| Rank | Approach | Expected Impact | Effort |
+|------|----------|-----------------|--------|
+| 1 | **Segment-specific models** | High | Low |
+| 2 | **Contrastive fine-tuning ESM-2** | High | Medium |
+| 3 | **Interaction features (diff, prod)** | Medium | Low |
+| 4 | **Genome foundation models (GenSLM, Evo2)** | Medium-High | High |
+| 5 | **Cross-attention architecture** | Medium | Medium |
+
+### Segment-Specific Model Hypothesis
+
+**Core idea**: Train separate models for different segment pairs to test the conservation hypothesis.
+
+**Experiments**:
+- **Model A**: HA-NA pairs only (high variability → expect high accuracy)
+- **Model B**: PB1-PB2-PA pairs only (high conservation → expect lower accuracy)
+- **Model C**: All pairs (current approach)
+
+**Expected outcome**: If HA-NA model significantly outperforms polymerase model, this confirms conservation as the primary limiting factor.
+
+**Why this matters**: It would show we can accurately predict segment pairs for less-conserved proteins, even if conserved proteins remain challenging.
 
 ---
 
