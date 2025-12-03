@@ -114,18 +114,19 @@ def compute_baseline_metrics(val_labels, random_seed=42):
     }
 
 
-def plot_learning_curves(history, output_dir):
+def plot_learning_curves(history, output_dir, dpi: int = 200):
     """
     Plot learning curves: train/val loss, F1, and AUC across epochs.
-    
-    Creates a 3-panel figure showing:
+
+    Creates a 4-panel figure showing:
     1. Training and validation loss over epochs
     2. Validation F1 score over epochs
     3. Validation AUC-ROC over epochs
-    
+    4. Train F1 - Val F1 gap over epochs
+
     This helps visualize whether the model is learning and if overfitting is occurring.
     Classic overfitting pattern: training loss drops low while validation loss stays high.
-    
+
     Args:
         history: Dictionary with keys:
             - 'train_loss': List of training losses per epoch
@@ -190,10 +191,42 @@ def plot_learning_curves(history, output_dir):
     
     plt.tight_layout()
     plot_path = output_dir / 'learning_curves.png'
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.savefig(plot_path, dpi=dpi, bbox_inches='tight')
     plt.close()
     
-    print(f"✅ Learning curves saved to: {plot_path}")
+    print(f"Learning curves saved to: {plot_path}")
+    
+    # Create separate loss plot
+    fig_loss, ax_loss = plt.subplots(1, 1, figsize=(8, 6))
+    ax_loss.plot(epochs, history['train_loss'], 'b-', label='Train Loss', linewidth=2)
+    ax_loss.plot(epochs, history['val_loss'], 'r-', label='Val Loss', linewidth=2)
+    ax_loss.set_xlabel('Epoch')
+    ax_loss.set_ylabel('Loss')
+    ax_loss.set_title('Training and Validation Loss')
+    ax_loss.legend()
+    ax_loss.grid(True, alpha=0.3)
+    plt.tight_layout()
+    loss_path = output_dir / 'loss.png'
+    plt.savefig(loss_path, dpi=dpi, bbox_inches='tight')
+    plt.close()
+    print(f"Loss plot saved to: {loss_path}")
+    
+    # Create separate F1 plot
+    fig_f1, ax_f1 = plt.subplots(1, 1, figsize=(8, 6))
+    if 'train_f1' in history and len(history['train_f1']) > 0:
+        ax_f1.plot(epochs, history['train_f1'], 'b--', label='Train F1', linewidth=2, alpha=0.7)
+    ax_f1.plot(epochs, history['val_f1'], 'g-', label='Val F1', linewidth=2)
+    ax_f1.set_xlabel('Epoch')
+    ax_f1.set_ylabel('F1 Score')
+    ax_f1.set_title('Training and Validation F1 Score')
+    ax_f1.legend()
+    ax_f1.grid(True, alpha=0.3)
+    ax_f1.set_ylim([0, 1])
+    plt.tight_layout()
+    f1_path = output_dir / 'f1.png'
+    plt.savefig(f1_path, dpi=dpi, bbox_inches='tight')
+    plt.close()
+    print(f"F1 plot saved to: {f1_path}")
     
     return plot_path
 

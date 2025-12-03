@@ -1,5 +1,6 @@
-# Flu Learning Plateau Analysis Bundle
-# Experiment: Understand when and why learning stops improving
+# Flu bundle - PB2, PB1, PA proteins only (conserved segments)
+# Experiment: Test conservation hypothesis - these should perform worse than HA-NA
+# Isolates: 1K, no same-function negatives
 defaults:
   - /virus: flu
   - /paths: flu
@@ -11,7 +12,6 @@ defaults:
 # ====================================================================
 # DIRECTORY NAMING
 # ====================================================================
-# Note: run_suffix should be null to use shared preprocessing
 run_suffix: null
 
 # ====================================================================
@@ -45,19 +45,18 @@ embeddings:
 # Dataset overrides
 dataset:
   use_selected_only: true  # Use selected_functions (a subset of protein functions)
-  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 1.0
   allow_same_func_negatives: false  # Whether to allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
-  max_isolates_to_process: 1000  # Larger dataset to observe plateau more clearly
+  max_isolates_to_process: 5000  # null = full dataset, or set to 100, 500, etc.
 
 # Training overrides
 training:
-  epochs: 50  # Many epochs to observe full learning curve
-  patience: 40  # High patience to see plateau clearly
+  # epochs: 35
+  patience: 15  # Early stopping
   batch_size: 16
   learning_rate: 0.001
   early_stopping_metric: 'f1'  # Monitor F1 score
   threshold_metric: null  # Use default 0.5 threshold for simplicity
-  dropout: 0.2  # Normal regularization
   use_diff: false
   use_prod: false

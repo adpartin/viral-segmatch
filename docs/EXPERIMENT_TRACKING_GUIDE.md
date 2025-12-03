@@ -12,10 +12,11 @@ Just run your experiments normally - they're automatically tracked:
 
 ```bash
 # Dataset creation - automatically registered
-./scripts/run_dataset.sh flu_a_learning_test
+./scripts/stage3_dataset.sh flu_ha_na_5ks
 
 # Training - automatically registered
-./scripts/run_training.sh flu_a_learning_test --cuda_name cuda:0
+./scripts/stage4_train.sh flu_ha_na_5ks --cuda_name cuda:7 \
+    --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_YYYYMMDD_HHMMSS
 ```
 
 ### 2. View Recent Experiments
@@ -25,7 +26,7 @@ Just run your experiments normally - they're automatically tracked:
 python src/utils/experiment_registry.py
 
 # List experiments for specific config
-python src/utils/experiment_registry.py --config_bundle flu_a_learning_test
+python src/utils/experiment_registry.py --config_bundle flu_ha_na_5ks
 
 # List only training experiments
 python src/utils/experiment_registry.py --stage training
@@ -38,7 +39,7 @@ python src/utils/experiment_registry.py --status failed
 
 ```bash
 # Show full details for specific experiment
-python src/utils/experiment_registry.py --experiment_id dataset_flu_a_learning_test_20251121_143022
+python src/utils/experiment_registry.py --experiment_id dataset_flu_ha_na_5ks_YYYYMMDD_HHMMSS
 ```
 
 ### 4. Add Manual Notes
@@ -47,20 +48,20 @@ Edit `experiments/registry.yaml` and add a `notes` field to any experiment:
 
 ```yaml
 experiments:
-  - experiment_id: dataset_flu_a_learning_test_20251121_143022
-    date: 2025-11-21
-    time: 14:30:22
-    config_bundle: flu_a_learning_test
+  - experiment_id: dataset_flu_ha_na_5ks_20251202_140000
+    date: 2025-12-02
+    time: 14:00:00
+    config_bundle: flu_ha_na_5ks
     stage: dataset
     # ... other fields ...
-    notes: "Created dataset successfully. 100 isolates, 3 proteins. Ready for training."
+    notes: "Created dataset successfully. 5K isolates, HA-NA proteins. Ready for training."
 ```
 
 ## How It Works
 
 ### Automatic Tracking
 
-When you run `run_dataset.sh` or `run_training.sh`, the script automatically:
+When you run `stage3_dataset.sh` or `stage4_train.sh`, the script automatically:
 1. Records the exact command run
 2. Captures exit code (success/failure)
 3. Links to log file
@@ -74,17 +75,17 @@ The registry (`experiments/registry.yaml`) is a YAML file with all experiments:
 
 ```yaml
 experiments:
-  - experiment_id: dataset_flu_a_learning_test_20251121_143022
-    date: 2025-11-21
-    time: 14:30:22
-    config_bundle: flu_a_learning_test
+  - experiment_id: dataset_flu_ha_na_5ks_20251202_140000
+    date: 2025-12-02
+    time: 14:00:00
+    config_bundle: flu_ha_na_5ks
     stage: dataset
-    command: python src/datasets/dataset_segment_pairs.py --config_bundle flu_a_learning_test
+    command: python src/datasets/dataset_segment_pairs.py --config_bundle flu_ha_na_5ks
     exit_code: 0
     status: success
     git_commit: a1b2c3d
-    log_file: logs/datasets/dataset_segment_pairs_flu_a_learning_test_20251121_143022.log
-    output_dir: data/datasets/flu_a/July_2025_seed_42_isolates_100_learning_test
+    log_file: logs/datasets/dataset_segment_pairs_flu_ha_na_5ks_20251202_140000.log
+    output_dir: data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20251202_140000
     notes: "Optional manual notes here"
 ```
 
@@ -100,8 +101,9 @@ experiments:
 
 2. **Run experiment**:
    ```bash
-   ./scripts/run_dataset.sh flu_a_overfit_test
-   ./scripts/run_training.sh flu_a_overfit_test --cuda_name cuda:0 --skip_postprocessing
+   ./scripts/stage3_dataset.sh flu_overfit
+   ./scripts/stage4_train.sh flu_overfit --cuda_name cuda:7 \
+       --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_YYYYMMDD_HHMMSS
    ```
 
 3. **After running**: Add observations
@@ -119,15 +121,15 @@ python src/utils/experiment_registry.py --limit 20
 # What training experiments failed?
 python src/utils/experiment_registry.py --stage training --status failed
 
-# What experiments used flu_a_learning_test config?
-python src/utils/experiment_registry.py --config_bundle flu_a_learning_test
+# What experiments used flu_ha_na_5ks config?
+python src/utils/experiment_registry.py --config_bundle flu_ha_na_5ks
 ```
 
 ### Compare Experiments
 
 ```bash
 # Get experiment IDs
-python src/utils/experiment_registry.py --config_bundle flu_a_learning_test
+python src/utils/experiment_registry.py --config_bundle flu_ha_na_5ks
 
 # View details for comparison
 python src/utils/experiment_registry.py --experiment_id <id1>
@@ -166,8 +168,8 @@ notes: |
 notes: |
   Plateau analysis - extended training.
   Related experiments:
-  - dataset_flu_a_plateau_analysis_20251121_150000
-  - training_flu_a_plateau_analysis_20251121_150500
+  - dataset_flu_pb2_pb1_pa_5ks_20251202_150000
+  - training_flu_pb2_pb1_pa_5ks_20251202_150500
   Findings: Validation F1 plateaued at epoch 12.
 ```
 
@@ -177,7 +179,7 @@ notes: |
 notes: |
   Failed due to CUDA out of memory.
   Solution: Reduced batch size from 32 to 16.
-  Retry: training_flu_a_overfit_test_20251121_160000
+  Retry: training_flu_ha_na_5ks_20251202_160000
 ```
 
 ## Integration with Existing Metadata
@@ -203,20 +205,23 @@ Use metadata files for:
 
 ```bash
 # 1. Run dataset creation
-./scripts/run_dataset.sh flu_a_overfit_test
+./scripts/stage3_dataset.sh flu_overfit
 
 # 2. Check it was registered
 python src/utils/experiment_registry.py --limit 1
 
-# 3. Run training
-./scripts/run_training.sh flu_a_overfit_test --cuda_name cuda:0 --skip_postprocessing
+# 3. Find dataset directory
+DATASET_DIR=$(ls -td data/datasets/flu/July_2025/runs/dataset_flu_overfit_* | head -1)
 
-# 4. Add notes about results
+# 4. Run training
+./scripts/stage4_train.sh flu_overfit --cuda_name cuda:7 --dataset_dir "$DATASET_DIR"
+
+# 5. Add notes about results
 # Edit experiments/registry.yaml:
 #   notes: "Overfitting confirmed! Training F1=0.95, Val F1=0.65. Model has capacity."
 
-# 5. View all experiments for this config
-python src/utils/experiment_registry.py --config_bundle flu_a_overfit_test
+# 6. View all experiments for this config
+python src/utils/experiment_registry.py --config_bundle flu_overfit
 ```
 
 ## Troubleshooting
@@ -258,3 +263,15 @@ python src/utils/experiment_registry.py \
 
 No more confusion about what experiments you ran and when!
 
+---
+
+## Related Documentation
+
+### Technical Documentation (`docs/`)
+- **Configuration Guide:** [CONFIGURATION_GUIDE.md](./CONFIGURATION_GUIDE.md) - Detailed configuration documentation
+- **Seed System:** [SEED_SYSTEM.md](./SEED_SYSTEM.md) - Seed hierarchy and reproducibility
+- **Experiment Results:** [EXPERIMENT_RESULTS_ANALYSIS.md](./EXPERIMENT_RESULTS_ANALYSIS.md) - Current experiment results
+
+### User Guides (`documentation/`)
+- **Quick Start:** [`../documentation/quick-start.md`](../documentation/quick-start.md) - Get started quickly
+- **Pipeline Overview:** [`../documentation/pipeline-overview.md`](../documentation/pipeline-overview.md) - Understanding the pipeline

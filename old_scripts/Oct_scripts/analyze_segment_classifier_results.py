@@ -1,30 +1,16 @@
 """
-Analyze Stage 4: Training results from the segment pair classifier.
+Analyze segment pair classifier results.
 
 This script analyzes the test results from the trained ESM-2 frozen pair classifier,
 providing both standard ML metrics and domain-specific insights for viral protein
 segment classification.
 
-Output directory: results/{virus_name}/{data_version}/{config_bundle}/training_analysis/
-(Config-specific - training results depend on model configuration)
-
-Generated plots:
-- confusion_matrix.png: Confusion matrix with TP/TN/FP/FN labels
-- roc_curve.png: ROC curve with AUC
-- precision_recall_curve.png: Precision-recall curve with AP
-- prediction_distribution.png: Distribution of prediction probabilities by label
-- fp_fn_analysis.png: False positive/negative analysis by segment and function
-
-Usage:
-    python src/analysis/analyze_stage4_train.py --config_bundle bunya
-    python src/analysis/analyze_stage4_train.py --config_bundle bunya --model_dir ./models/bunya/April_2025
-    python src/analysis/analyze_stage4_train.py --config_bundle flu_a_3p_1ks
+Questions:
+What's worse FP or FN?
 """
 
-import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -39,9 +25,30 @@ from sklearn.metrics import (
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.config_hydra import get_virus_config_hydra
-from src.utils.path_utils import build_training_paths
+from src.utils.config import VIRUS_NAME, DATA_VERSION, TASK_NAME
 from src.utils.plot_config import apply_default_style, SEGMENT_COLORS, SEGMENT_ORDER, map_protein_name
+
+# Define paths
+models_dir = project_root / 'models' / VIRUS_NAME / DATA_VERSION / TASK_NAME
+results_dir = project_root / 'results' / VIRUS_NAME / DATA_VERSION / TASK_NAME
+results_dir.mkdir(parents=True, exist_ok=True)
+
+# Load test results
+test_results_file = models_dir / 'test_predicted.csv'
+if not test_results_file.exists():
+    raise FileNotFoundError(f'Test results file not found: {test_results_file}')
+
+df = pd.read_csv(test_results_file)
+print(f'Loaded {len(df)} test predictions')
+
+# Extract labels and predictions
+y_true = df['label'].values
+y_pred = df['pred_label'].values  
+y_prob = df['pred_prob'].values
+
+# Set up plotting style
+apply_default_style()
+fig_size = (10, 8)
 
 
 def compute_basic_metrics(y_true, y_pred, y_prob):
@@ -265,18 +272,11 @@ def plot_prediction_distribution(y_true, y_prob, save_path=None):
     plt.show()
 
 
-def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
+def analyze_fp_fn_errors(df, y_true, y_pred, y_prob):
     """Detailed analysis of False Positives and False Negatives.
     
     This function generates the "False Positives by Protein Function" plot
     and other FP/FN analysis visualizations.
-    
-    Args:
-        df: DataFrame with predictions and metadata
-        y_true: True labels
-        y_pred: Predicted labels
-        y_prob: Prediction probabilities
-        results_dir: Directory to save analysis outputs
     """
     print('\n' + '='*60)
     print('FALSE POSITIVE & FALSE NEGATIVE ANALYSIS')
@@ -304,37 +304,23 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
     
     print(f'False Positives (FP): {len(fp_df)}')
     print(f'False Negatives (FN): {len(fn_df)}')
-    if len(fn_df) > 0:
-        print(f'FP/FN ratio: {len(fp_df)/len(fn_df):.2f}')
-    else:
-        print(f'FP/FN ratio: ∞ (no false negatives)')
+    print(f'FP/FN ratio: {len(fp_df)/len(fn_df):.2f}')
     
     # Confidence analysis
     print(f'\nConfidence Analysis:')
-    if len(fp_df) > 0:
-        print(f'FP average confidence: {fp_df["y_prob"].mean():.3f}')
-        print(f'FP confidence std: {fp_df["y_prob"].std():.3f}')
-    else:
-        print(f'FP average confidence: N/A (no false positives)')
-        print(f'FP confidence std: N/A (no false positives)')
-    
-    if len(fn_df) > 0:
-        print(f'FN average confidence: {fn_df["y_prob"].mean():.3f}')
-        print(f'FN confidence std: {fn_df["y_prob"].std():.3f}')
-    else:
-        print(f'FN average confidence: N/A (no false negatives)')
-        print(f'FN confidence std: N/A (no false negatives)')
+    print(f'FP average confidence: {fp_df["y_prob"].mean():.3f}')
+    print(f'FN average confidence: {fn_df["y_prob"].mean():.3f}')
+    print(f'FP confidence std: {fp_df["y_prob"].std():.3f}')
+    print(f'FN confidence std: {fn_df["y_prob"].std():.3f}')
     
     # Create FP/FN analysis plots
     fig, axes = plt.subplots(2, 2, figsize=(15, 12))
     
     # 1. Confidence distribution comparison
-    if len(fp_df) > 0:
-        axes[0, 0].hist(fp_df['y_prob'], bins=20, alpha=0.7, label=f'False Positives (n={len(fp_df)})', 
-                        color='red', density=False)
-    if len(fn_df) > 0:
-        axes[0, 0].hist(fn_df['y_prob'], bins=20, alpha=0.7, label=f'False Negatives (n={len(fn_df)})', 
-                        color='blue', density=False)
+    axes[0, 0].hist(fp_df['y_prob'], bins=20, alpha=0.7, label=f'False Positives (n={len(fp_df)})', 
+                    color='red', density=False)
+    axes[0, 0].hist(fn_df['y_prob'], bins=20, alpha=0.7, label=f'False Negatives (n={len(fn_df)})', 
+                    color='blue', density=False)
     axes[0, 0].axvline(x=0.5, color='black', linestyle='--', label='Decision Threshold')
     axes[0, 0].set_xlabel('Prediction Probability')
     axes[0, 0].set_ylabel('Count')
@@ -466,29 +452,14 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
             axes[1, 0].grid(True, alpha=0.3)
     
     # 4. Confidence vs error type
-    if len(fp_df) > 0 and len(fn_df) > 0:
-        all_errors = pd.concat([fp_df, fn_df])
-        all_errors['error_type'] = ['FP'] * len(fp_df) + ['FN'] * len(fn_df)
-        
-        axes[1, 1].boxplot([fp_df['y_prob'], fn_df['y_prob']], 
-                          labels=['False Positives', 'False Negatives'])
-        axes[1, 1].set_ylabel('Prediction Probability')
-        axes[1, 1].set_title('Confidence Distribution: FP and FN', fontweight='bold')
-        axes[1, 1].grid(True, alpha=0.3)
-    elif len(fp_df) > 0:
-        axes[1, 1].boxplot([fp_df['y_prob']], labels=['False Positives'])
-        axes[1, 1].set_ylabel('Prediction Probability')
-        axes[1, 1].set_title('Confidence Distribution: FP Only', fontweight='bold')
-        axes[1, 1].grid(True, alpha=0.3)
-    elif len(fn_df) > 0:
-        axes[1, 1].boxplot([fn_df['y_prob']], labels=['False Negatives'])
-        axes[1, 1].set_ylabel('Prediction Probability')
-        axes[1, 1].set_title('Confidence Distribution: FN Only', fontweight='bold')
-        axes[1, 1].grid(True, alpha=0.3)
-    else:
-        axes[1, 1].text(0.5, 0.5, 'No errors found', ha='center', va='center', 
-                        transform=axes[1, 1].transAxes, fontsize=14)
-        axes[1, 1].set_title('Confidence Distribution: No Errors', fontweight='bold')
+    all_errors = pd.concat([fp_df, fn_df])
+    all_errors['error_type'] = ['FP'] * len(fp_df) + ['FN'] * len(fn_df)
+    
+    axes[1, 1].boxplot([fp_df['y_prob'], fn_df['y_prob']], 
+                      labels=['False Positives', 'False Negatives'])
+    axes[1, 1].set_ylabel('Prediction Probability')
+    axes[1, 1].set_title('Confidence Distribution: FP and FN', fontweight='bold')
+    axes[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
     plt.savefig(results_dir / 'fp_fn_analysis.png', dpi=300, bbox_inches='tight')
@@ -654,138 +625,25 @@ def analyze_prediction_confidence(df):
     return None
 
 
-def main(config_bundle: str,
-         model_dir: Optional[Path] = None,
-         create_performance_plots: bool = True,
-         show_confusion_labels: bool = True
-    ) -> None:
+def main(create_performance_plots=True, show_confusion_labels=True):
     """Main analysis function."""
-    print(f"\n{'='*50}")
-    print('Analyze Segment Pair Classifier Results v2.')
+    print('Analyze Segment Pair Classifier Results.')
     print('='*50)
-
-    # Load config
-    config_path = str(project_root / 'conf')
-    config = get_virus_config_hydra(config_bundle, config_path=config_path)
-    # print_config_summary(config)
-    print(f"Using config bundle: {config_bundle}")
-    print(f"Virus: {config.virus.virus_name}")
-    print(f"Data version: {config.virus.data_version}")
-
-    # Determine model directory
-    if model_dir:
-        # Use explicitly provided model directory
-        models_dir = Path(model_dir)
-        print(f"Using provided model directory: {models_dir}")
-    else:
-        # Use standard Hydra path (base directory)
-        paths = build_training_paths(
-            project_root=project_root,
-            virus_name=config.virus.virus_name,
-            data_version=config.virus.data_version,
-            # run_suffix=config.run_suffix if hasattr(config, 'run_suffix') and config.run_suffix else "",
-            run_suffix="",  # Not used - kept for backward compatibility
-            config=config
-        )
-        base_models_dir = paths['output_dir']
-        
-        # Look for most recent training run in runs/ subdirectory
-        runs_dir = base_models_dir / 'runs'
-        if runs_dir.exists():
-            # Find most recent training run matching this config bundle
-            training_runs = sorted(
-                [d for d in runs_dir.iterdir() if d.is_dir() and d.name.startswith(f'training_{config_bundle}_')],
-                key=lambda x: x.stat().st_mtime,
-                reverse=True
-            )
-            if training_runs:
-                models_dir = training_runs[0]
-                print(f"Using most recent training run: {models_dir}")
-            else:
-                # Fallback: use most recent training run regardless of bundle
-                all_runs = sorted(
-                    [d for d in runs_dir.iterdir() if d.is_dir() and d.name.startswith('training_')],
-                    key=lambda x: x.stat().st_mtime,
-                    reverse=True
-                )
-                if all_runs:
-                    models_dir = all_runs[0]
-                    print(f"⚠️  No run found for bundle '{config_bundle}', using most recent run: {models_dir}")
-                else:
-                    models_dir = base_models_dir
-                    print(f"⚠️  No training runs found, using base directory: {models_dir}")
-        else:
-            models_dir = base_models_dir
-            print(f"Using base models directory: {models_dir}")
-    
-    # Construct results directory (config-specific)
-    # Format: results/{virus_name}/{data_version}/{config_bundle}/training_analysis/
-    results_dir = project_root / 'results' / config.virus.virus_name / config.virus.data_version / config_bundle / 'training_analysis'
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load test results
-    test_results_file = models_dir / 'test_predicted.csv'
-    if not test_results_file.exists():
-        raise FileNotFoundError(
-            f'❌ Test results file not found: {test_results_file}\n'
-            f'   Model directory: {models_dir}\n'
-            f'   Hint: Use --model_dir to specify the exact training run directory'
-        )
-
-    df = pd.read_csv(test_results_file)
-    print(f'✅ Loaded {len(df)} test predictions')
-
-    # Extract labels and predictions
-    y_true = df['label'].values
-    y_pred = df['pred_label'].values  
-    y_prob = df['pred_prob'].values
-
-    # Set up plotting style
-    apply_default_style()
-    
-    # Make variables globally available for the analysis functions
-    globals()['df'] = df
-    globals()['y_true'] = y_true
-    globals()['y_pred'] = y_pred
-    globals()['y_prob'] = y_prob
-    globals()['results_dir'] = results_dir
     
     # Basic metrics
+    breakpoint()
     metrics = compute_basic_metrics(y_true, y_pred, y_prob)
-    
+
     # Generate plots
-    cm = confusion_matrix(y_true, y_pred)
     plot_confusion_matrix(
         y_true, y_pred,
         results_dir / 'confusion_matrix.png',
         show_labels=show_confusion_labels
     )
-    
+
     # Test simple confusion matrix to check for lines
     plot_confusion_matrix_simple(y_true, y_pred, results_dir / 'confusion_matrix.png')
-    
-    # Save confusion matrix to CSV
-    cm_df = pd.DataFrame(
-        cm,
-        index=['True Negative', 'True Positive'],
-        columns=['Predicted Negative', 'Predicted Positive']
-    )
-    # Add row/column labels for clarity
-    cm_df.index.name = 'Actual'
-    cm_df.columns.name = 'Predicted'
-    cm_df.to_csv(results_dir / 'confusion_matrix.csv')
-    print(f"Confusion matrix saved to: {results_dir / 'confusion_matrix.csv'}")
-    
-    # Also save in TP/TN/FP/FN format
-    tn, fp, fn, tp = cm.ravel()
-    cm_summary = pd.DataFrame({
-        'metric': ['True Negative (TN)', 'False Positive (FP)', 'False Negative (FN)', 'True Positive (TP)'],
-        'count': [tn, fp, fn, tp],
-        'percentage': [tn/cm.sum()*100, fp/cm.sum()*100, fn/cm.sum()*100, tp/cm.sum()*100]
-    })
-    cm_summary.to_csv(results_dir / 'confusion_matrix_summary.csv', index=False)
-    print(f"Confusion matrix summary saved to: {results_dir / 'confusion_matrix_summary.csv'}")
-    
+
     # Optional performance plots
     if create_performance_plots:
         plot_roc_curve(y_true, y_prob, results_dir / 'roc_curve.png')
@@ -794,10 +652,10 @@ def main(config_bundle: str,
         print("✅ Performance plots created (roc_curve.png, precision_recall_curve.png, prediction_distribution.png)")
     else:
         print("⏭️  Skipping performance plots (create_performance_plots=False)")
-    
+
     # Enhanced FP/FN analysis
-    error_summary = analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir)
-    
+    error_summary = analyze_fp_fn_errors(df, y_true, y_pred, y_prob)
+
     # Domain-specific analyses
     segment_df = analyze_segment_performance(df)
     analyze_same_function_pairs(df)
@@ -810,11 +668,11 @@ def main(config_bundle: str,
     # Save segment performance
     if 'segment_df' in locals():
         segment_df.to_csv(results_dir / 'segment_performance.csv', index=False)
-    
+
     print(f'\nAnalysis complete! Results saved to: {results_dir}')
 
     # Key insights summary
-    print(f"\n{'='*60}")
+    print('\n' + '='*60)
     print('KEY INSIGHTS SUMMARY')
     print('='*60)
     print(f'• Overall accuracy: {metrics["accuracy"]:.3f}')
@@ -829,32 +687,6 @@ def main(config_bundle: str,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Analyze Stage 4: Training results from segment pair classifier')
-    parser.add_argument(
-        '--config_bundle',
-        type=str, required=True,
-        help='Configuration bundle name (e.g., flu_a_3p_1ks, bunya)'
-    )
-    parser.add_argument(
-        '--model_dir',
-        type=str, default=None,
-        help='Explicit model directory path (overrides config-based path)'
-    )
-    parser.add_argument(
-        '--create_performance_plots',
-        action='store_true', default=True,
-        help='Create performance plots (roc, precision-recall, prediction distribution)'
-    )
-    parser.add_argument(
-        '--show_confusion_labels',
-        action='store_true', default=True,
-        help='Show confusion matrix labels (TP, TN, FP, FN)'
-    )
-    args = parser.parse_args()
-    
-    main(
-        config_bundle=args.config_bundle,
-        model_dir=args.model_dir,
-        create_performance_plots=args.create_performance_plots,
-        show_confusion_labels=args.show_confusion_labels
-    )
+    # Set to False to skip performance plots (roc, precision-recall, prediction distribution)
+    # Set to False to hide confusion matrix labels (TP, TN, FP, FN)
+    main(create_performance_plots=True, show_confusion_labels=True)

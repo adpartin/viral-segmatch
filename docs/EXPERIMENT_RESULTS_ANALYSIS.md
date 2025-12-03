@@ -1,7 +1,9 @@
 # Experiment Results Analysis
 
-**Date**: December 2, 2025  
-**Experiments Analyzed**: 5 config bundles across Bunya and Flu A
+**Purpose**: This document provides a detailed scientific analysis of completed experiments, focusing on performance metrics, statistical comparisons, and biological interpretation of results. For project status, research roadmap, and background context, see [`EXP_RESULTS_STATUS.md`](EXP_RESULTS_STATUS.md).
+
+**Date**: December 3, 2025  
+**Experiments Analyzed**: 5 config bundles across Bunya and Flu A (5K isolates for Flu experiments)
 
 ---
 
@@ -12,9 +14,9 @@ This analysis compares model performance across different segment combinations t
 ### Key Finding: **Conservation Hypothesis Confirmed** ✅
 
 Performance directly correlates with protein conservation levels:
-- **Variable segments (HA-NA)**: 86.3% accuracy, **86.5% F1**, 0.914 AUC
-- **Mixed segments (PB2-HA)**: 73.5% accuracy, **77.6% F1**, 0.758 AUC  
-- **Conserved segments (PB2-PB1-PA)**: 73.2% accuracy, **77.1% F1**, 0.738 AUC
+- **Variable segments (HA-NA)**: 92.3% accuracy, **91.6% F1**, 0.953 AUC
+- **Mixed segments (PB2-HA-NA)**: 85.4% accuracy, **85.5% F1**, 0.920 AUC  
+- **Conserved segments (PB2-PB1-PA)**: 71.9% accuracy, **75.3% F1**, 0.750 AUC
 
 ---
 
@@ -28,10 +30,10 @@ Performance directly correlates with protein conservation levels:
 
 | Metric | Value |
 |--------|-------|
-| **Accuracy** | **91.2%** |
-| **F1 Score** | **91.4%** |
-| **AUC-ROC** | **94.0%** |
-| **Avg Precision** | **91.9%** |
+| **Accuracy** | **91.0%** |
+| **F1 Score** | **91.1%** |
+| **AUC-ROC** | **92.7%** |
+| **Avg Precision** | **88.2%** |
 
 **Segment Pair Performance**:
 - M-S: 92.6% accuracy, 0.956 AUC (best)
@@ -46,63 +48,70 @@ Performance directly correlates with protein conservation levels:
 
 ### 2. Flu HA-NA (Variable Segments)
 
-**Config**: `flu_ha_na_1ks.yaml`  
+**Config**: `flu_ha_na_5ks.yaml`  
 **Segments**: HA (Segment 4), NA (Segment 6)  
 **Conservation**: 70-90% (variable due to immune pressure)  
-**Dataset**: 1K isolates, no same-function negatives
+**Dataset**: 5K isolates, no same-function negatives
 
 | Metric | Value |
 |--------|-------|
-| **Accuracy** | **86.3%** |
-| **F1 Score** | **86.5%** |
-| **AUC-ROC** | **91.4%** |
-| **Avg Precision** | **86.1%** |
+| **Accuracy** | **92.3%** |
+| **F1 Score** | **91.6%** |
+| **AUC-ROC** | **95.3%** |
+| **Avg Precision** | **89.9%** |
 
 **Segment Pair Performance**:
-- S4-S6 (HA-NA): 86.3% accuracy, 0.914 AUC
+- S4-S6 (HA-NA): 92.3% accuracy, 0.953 AUC
 
 **Error Analysis**:
-- False Positives: 22 (avg confidence: 0.806)
-- False Negatives: 3 (avg confidence: 0.191)
-- FP/FN Ratio: 7.33 (model is conservative, misses fewer positives)
+- False Positives: 60 (avg confidence: 0.809)
+- False Negatives: 7 (avg confidence: 0.294)
+- FP/FN Ratio: 8.57 (model is conservative, misses fewer positives)
 
 **Conclusion**: ✅ **Strong performance** - Variable segments show good separability despite being Flu A.
 
 ---
 
-### 3. Flu PB2-HA (Mixed: Conserved + Variable)
+### 3. Flu PB2-HA-NA (Mixed: Conserved + Variable)
 
-**Config**: `flu_pb2_ha_1ks.yaml`  
-**Segments**: PB2 (Segment 1, ~95% conserved), HA (Segment 4, 70-85% variable)  
-**Dataset**: 1K isolates, no same-function negatives
+**Config**: `flu_pb2_ha_na_5ks.yaml`  
+**Segments**: PB2 (Segment 1, ~95% conserved), HA (Segment 4, 70-85% variable), NA (Segment 6, 80-90% variable)  
+**Dataset**: 5K isolates, no same-function negatives
 
 | Metric | Value |
 |--------|-------|
-| **Accuracy** | **73.5%** |
-| **F1 Score** | **77.6%** |
-| **AUC-ROC** | **75.8%** |
-| **Avg Precision** | **66.9%** |
+| **Accuracy** | **85.4%** |
+| **F1 Score** | **85.5%** |
+| **AUC-ROC** | **92.0%** |
+| **Avg Precision** | **84.2%** |
 
-**Segment Pair Performance**:
-- S1-S4 (PB2-HA): 73.5% accuracy, 0.758 AUC
+**Error Analysis**:
+- False Positives: 366 (avg confidence: 0.757)
+- False Negatives: 9 (avg confidence: 0.284)
+- FP/FN Ratio: 40.67 (model is very conservative, misses fewer positives)
 
-**Conclusion**: ⚠️ **Lower performance** - Mixing conserved and variable segments reduces performance compared to variable-only pairs.
+**Conclusion**: ✅ **Good performance** - Mixing one conserved segment (PB2) with two variable segments (HA, NA) achieves strong performance, better than conserved-only but slightly below variable-only.
 
 ---
 
 ### 4. Flu PB2-PB1-PA (Highly Conserved Polymerase)
 
-**Config**: `flu_pb2_pb1_pa_1ks.yaml`  
+**Config**: `flu_pb2_pb1_pa_5ks.yaml`  
 **Segments**: PB2 (Segment 1, ~95%), PB1 (Segment 2, **98.1%**), PA (Segment 3, ~94%)  
 **Conservation**: Highest conservation (94-98%)  
-**Dataset**: 1K isolates, no same-function negatives
+**Dataset**: 5K isolates, no same-function negatives
 
 | Metric | Value |
 |--------|-------|
-| **Accuracy** | **73.2%** |
-| **F1 Score** | **77.1%** |
-| **AUC-ROC** | **73.8%** |
-| **Avg Precision** | **61.9%** |
+| **Accuracy** | **71.9%** |
+| **F1 Score** | **75.3%** |
+| **AUC-ROC** | **75.0%** |
+| **Avg Precision** | **59.8%** |
+
+**Error Analysis**:
+- False Positives: 698 (avg confidence: 0.704)
+- False Negatives: 0 (avg confidence: N/A)
+- FP/FN Ratio: ∞ (model is extremely conservative, never misses positives but has many false positives)
 
 **Segment Pair Performance**:
 - S2-S3 (PB1-PA): 76.8% accuracy, 0.795 AUC (best)
@@ -140,43 +149,45 @@ Performance directly correlates with protein conservation levels:
 
 | Rank | Experiment | Accuracy | **F1 Score** | AUC | Segment Type | Conservation |
 |------|------------|----------|--------------|-----|--------------|--------------|
-| 1 | **Bunya (all)** | **91.2%** | **91.4%** | **0.940** | All segments | Low (different virus) |
-| 2 | **Flu HA-NA** | **86.3%** | **86.5%** | **0.914** | Variable | 70-90% |
-| 3 | Flu Overfit | 79.3% | **82.4%** | 0.771 | Conserved | 94-98% (small dataset) |
-| 4 | **Flu PB2-HA** | **73.5%** | **77.6%** | **0.758** | Mixed | 95% + 70-85% |
-| 5 | **Flu PB2-PB1-PA** | **73.2%** | **77.1%** | **0.738** | Conserved | 94-98% |
+| 1 | **Flu HA-NA (5ks)** | **92.3%** | **91.6%** | **0.953** | Variable | 70-90% |
+| 2 | **Bunya (all)** | **91.0%** | **91.1%** | **0.927** | All segments | Low (different virus) |
+| 3 | **Flu PB2-HA-NA (5ks)** | **85.4%** | **85.5%** | **0.920** | Mixed | 95% + 70-90% |
+| 4 | Flu Overfit | 79.3% | **82.4%** | 0.771 | Conserved | 94-98% (small dataset) |
+| 5 | **Flu PB2-PB1-PA (5ks)** | **71.9%** | **75.3%** | **0.750** | Conserved | 94-98% |
 
 ### Key Insights
 
 1. **Conservation-Performance Correlation** ✅
-   - HA-NA (variable): **86.3%** accuracy, **86.5% F1**
-   - PB2-PB1-PA (conserved): **73.2%** accuracy, **77.1% F1**
-   - **13.1 percentage point accuracy difference** (9.4% F1 difference) confirms conservation limits performance
+   - HA-NA (variable): **92.3%** accuracy, **91.6% F1**
+   - PB2-PB1-PA (conserved): **71.9%** accuracy, **75.3% F1**
+   - **20.4 percentage point accuracy difference** (16.3% F1 difference) confirms conservation limits performance
 
 2. **F1 Score Analysis** 📊
-   - **Bunya**: **91.4% F1** (highest) - excellent precision-recall balance
-   - **Flu HA-NA**: **86.5% F1** - strong performance for variable segments
-   - **Flu PB2-PB1-PA**: **77.1% F1** - lower but still above random (50%)
-   - **F1 gap**: 9.4% between variable and conserved segments
+   - **Flu HA-NA**: **91.6% F1** (highest) - excellent precision-recall balance
+   - **Bunya**: **91.1% F1** - excellent performance, comparable to HA-NA
+   - **Flu PB2-PB1-PA**: **75.3% F1** - lower but still above random (50%)
+   - **F1 gap**: 16.3% between variable and conserved segments
 
 3. **Segment-Specific Performance**
    - Within PB2-PB1-PA: PB1-PA performs best (76.8%), PB2-PB1 worst (70.5%)
    - This aligns with conservation: PB1 is most conserved (98.1%), making PB2-PB1 pairs hardest
 
 4. **Bunya vs Flu A**
-   - Bunya: **91.2%** accuracy, **91.4% F1** (all segments)
-   - Flu HA-NA: **86.3%** accuracy, **86.5% F1** (best Flu segments)
-   - **4.9 percentage point accuracy gap, 4.9% F1 gap** - Bunya has lower conservation overall
+   - Bunya: **91.0%** accuracy, **91.1% F1** (all segments)
+   - Flu HA-NA: **92.3%** accuracy, **91.6% F1** (best Flu segments)
+   - **Flu HA-NA actually outperforms Bunya** - Variable segments with 5K isolates achieve excellent performance
 
 5. **AUC vs Accuracy vs F1**
-   - HA-NA: AUC (0.914) > Accuracy (0.863) ≈ F1 (0.865) → Good class separation, balanced precision/recall
-   - PB2-PB1-PA: AUC (0.738) ≈ Accuracy (0.732) < F1 (0.771) → Poor class separation, but F1 suggests some recoverable signal
+   - HA-NA: AUC (0.953) > Accuracy (0.923) ≈ F1 (0.916) → Excellent class separation, balanced precision/recall
+   - PB2-PB1-PA: AUC (0.750) ≈ Accuracy (0.719) < F1 (0.753) → Poor class separation, but F1 suggests some recoverable signal
    - **AUC gap confirms embedding overlap for conserved segments**
    - **F1 > Accuracy for conserved segments** suggests model is learning some patterns despite overlap
 
 ---
 
 ## Biological Interpretation
+
+*For detailed biological background on protein conservation and ESM-2 limitations, see [`EXP_RESULTS_STATUS.md`](EXP_RESULTS_STATUS.md) Section 4 (Biological Background) and Section 5 (Technical Background).*
 
 ### Why HA-NA Performs Better
 
@@ -241,28 +252,29 @@ Performance directly correlates with protein conservation levels:
 
 | Metric | Mean | Std | Min | Max |
 |--------|------|-----|-----|-----|
-| Accuracy | 80.7% | 7.1% | 73.2% | 91.2% |
-| F1 Score | 83.4% | 6.2% | 77.1% | 91.4% |
-| AUC-ROC | 0.824 | 0.082 | 0.738 | 0.940 |
-| Avg Precision | 0.787 | 0.114 | 0.619 | 0.919 |
+| Accuracy | 84.0% | 7.8% | 71.9% | 92.3% |
+| F1 Score | 85.2% | 6.5% | 75.3% | 91.6% |
+| AUC-ROC | 0.864 | 0.081 | 0.750 | 0.953 |
+| Avg Precision | 0.801 | 0.124 | 0.598 | 0.899 |
 
 ### Effect Size (Conservation Impact)
 
 - **HA-NA vs PB2-PB1-PA**: 
-  - Accuracy difference: **13.1%** (86.3% vs 73.2%)
-  - **F1 difference: 9.4%** (86.5% vs 77.1%)
-  - AUC difference: **0.176** (0.914 vs 0.738)
-- **Conclusion**: Conservation has **large, measurable impact** on all metrics, with F1 showing slightly less degradation than accuracy
+  - Accuracy difference: **20.4%** (92.3% vs 71.9%)
+  - **F1 difference: 16.3%** (91.6% vs 75.3%)
+  - AUC difference: **0.203** (0.953 vs 0.750)
+- **Conclusion**: Conservation has **very large, measurable impact** on all metrics, with F1 showing slightly less degradation than accuracy. The gap is larger with 5K isolates than with 1K isolates.
 
 ---
 
 ## Files Referenced
 
 - `results/bunya/April_2025/bunya/training_analysis/metrics.csv`
-- `results/flu/July_2025/flu_ha_na_1ks/training_analysis/metrics.csv`
-- `results/flu/July_2025/flu_pb2_ha_1ks/training_analysis/metrics.csv`
-- `results/flu/July_2025/flu_pb2_pb1_pa_1ks/training_analysis/metrics.csv`
+- `results/flu/July_2025/flu_ha_na_5ks/training_analysis/metrics.csv`
+- `results/flu/July_2025/flu_pb2_ha_na_5ks/training_analysis/metrics.csv`
+- `results/flu/July_2025/flu_pb2_pb1_pa_5ks/training_analysis/metrics.csv`
 - `results/flu/July_2025/flu_overfit/training_analysis/metrics.csv`
+- Confusion matrices: `results/{virus}/{data_version}/{config_bundle}/training_analysis/confusion_matrix.csv` (newly added)
 - Learning curves: `models/{virus}/{data_version}/runs/training_*/learning_curves.png`
 
 ---
@@ -271,17 +283,29 @@ Performance directly correlates with protein conservation levels:
 
 The experiments **definitively confirm the conservation hypothesis**:
 
-1. ✅ **Variable segments (HA-NA) achieve 86.3% accuracy, 86.5% F1** - Comparable to Bunya performance (91.2% accuracy, 91.4% F1)
-2. ⚠️ **Conserved segments (PB2-PB1-PA) achieve 73.2% accuracy, 77.1% F1** - Biological limitation, but F1 suggests some recoverable signal
-3. ✅ **Segment-specific models are the path forward** - Use HA-NA model for variable segments (86.5% F1)
-4. ✅ **Pipeline is sound** - Bunya proves the approach works (91.4% F1); Flu A limitations are inherent
+1. ✅ **Variable segments (HA-NA) achieve 92.3% accuracy, 91.6% F1** - Actually outperforms Bunya (91.0% accuracy, 91.1% F1) with 5K isolates
+2. ⚠️ **Conserved segments (PB2-PB1-PA) achieve 71.9% accuracy, 75.3% F1** - Biological limitation, but F1 suggests some recoverable signal
+3. ✅ **Segment-specific models are the path forward** - Use HA-NA model for variable segments (91.6% F1)
+4. ✅ **Pipeline is sound** - Both Bunya and Flu HA-NA prove the approach works excellently for variable segments
 
 **Key F1 Insights**:
-- **F1 gap between variable and conserved: 9.4%** (86.5% vs 77.1%)
-- **F1 > Accuracy for conserved segments** (77.1% vs 73.2%) suggests model learns some patterns despite embedding overlap
-- **Bunya F1 (91.4%) sets the upper bound** for what's achievable with this approach
+- **F1 gap between variable and conserved: 16.3%** (91.6% vs 75.3%) - Larger gap than initially observed with 1K isolates
+- **F1 > Accuracy for conserved segments** (75.3% vs 71.9%) suggests model learns some patterns despite embedding overlap
+- **Flu HA-NA F1 (91.6%) matches Bunya performance** - Variable segments with sufficient data achieve excellent results
 
 **Recommendation**: Deploy segment-specific models with realistic performance expectations:
-- **Variable segments (HA-NA)**: Expect ~86% accuracy, ~86% F1
-- **Conserved segments (PB2-PB1-PA)**: Expect ~73% accuracy, ~77% F1
+- **Variable segments (HA-NA)**: Expect ~92% accuracy, ~92% F1 (with 5K+ isolates)
+- **Conserved segments (PB2-PB1-PA)**: Expect ~72% accuracy, ~75% F1
+
+---
+
+## Related Documentation
+
+### Technical Documentation (`docs/`)
+- **Project Status**: See [EXP_RESULTS_STATUS.md](./EXP_RESULTS_STATUS.md) for research status and roadmap
+- **Configuration Guide**: See [CONFIGURATION_GUIDE.md](./CONFIGURATION_GUIDE.md) for detailed configuration documentation
+
+### User Guides (`documentation/`)
+- **Quick Start**: See [`../documentation/quick-start.md`](../documentation/quick-start.md) to get started quickly
+- **Results Analysis**: See [`../documentation/analysis/results-analysis.md`](../documentation/analysis/results-analysis.md) for user guide on interpreting results
 

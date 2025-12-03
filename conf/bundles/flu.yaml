@@ -1,4 +1,4 @@
-# Flu bundle - Base configuration
+# Flu bundle
 # Contains virus-specific overrides for Influenza A
 defaults:
   - /virus: flu

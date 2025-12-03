@@ -36,7 +36,7 @@ from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_training_paths, build_embeddings_paths
-from src.utils.torch_utils import determine_device
+from src.utils.torch_utils import determine_device, create_optimizer, create_lr_scheduler
 from src.utils.esm2_utils import load_esm2_embedding, get_esm2_embedding_dim, validate_embeddings_metadata
 from src.utils.learning_verification_utils import (
     check_initialization_loss,
@@ -304,7 +304,8 @@ def train_model(
     patience,
     output_dir,
     early_stopping_metric='loss',
-    threshold_metric='f1'
+    threshold_metric='f1',
+    lr_scheduler=None
     ) -> tuple[str, float]:
     """
     Train the MLP classifier with early stopping based on a configurable metric.
@@ -319,6 +320,10 @@ def train_model(
             - 'f0.5': Emphasize precision more
             - 'f2': Emphasize recall more
             - None: Skip optimization, use default threshold 0.5
+        lr_scheduler: Optional learning rate scheduler (ReduceLROnPlateau, CosineAnnealingLR, StepLR, or None)
+            - If ReduceLROnPlateau: step() called with metric value
+            - If other schedulers: step() called after each epoch
+            - If None: No learning rate scheduling
     
     Returns:
         best_model_path: Path to best model checkpoint
@@ -351,7 +356,8 @@ def train_model(
         'train_f1': [],  # Add training F1 for overfitting analysis
         'train_auc': [],  # Add training AUC for overfitting analysis
         'val_f1': [],
-        'val_auc': []
+        'val_auc': [],
+        'learning_rate': []  # Track learning rate over epochs
     }
     
     patience_counter = 0
@@ -429,6 +435,17 @@ def train_model(
         elif early_stopping_metric == 'auc':
             current_metric_value = val_auc
 
+        # Update learning rate scheduler if provided
+        if lr_scheduler is not None:
+            if isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                # ReduceLROnPlateau uses metric value, not loss
+                lr_scheduler.step(current_metric_value if is_higher_better else -current_metric_value)
+            else:
+                lr_scheduler.step()
+            current_lr = optimizer.param_groups[0]['lr']
+        else:
+            current_lr = optimizer.param_groups[0]['lr']
+        
         # Track history for plotting
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
@@ -436,10 +453,11 @@ def train_model(
         history['train_auc'].append(train_auc)
         history['val_f1'].append(val_f1)
         history['val_auc'].append(val_auc)
+        history['learning_rate'].append(current_lr)
         
         print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Train F1: {train_f1:.4f}, '\
               f'Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}, '\
-              f'Val AUC: {val_auc:.4f} [{early_stopping_metric.upper()}: {current_metric_value:.4f}]')
+              f'Val AUC: {val_auc:.4f} [{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
 
         # Check if current metric is better than best
         is_better = False
@@ -462,6 +480,22 @@ def train_model(
                 print(f'Early stopping triggered (no improvement in {early_stopping_metric} for {patience} epochs).')
                 break
 
+    # Save training history to CSV
+    if len(history['train_loss']) > 0:
+        history_df = pd.DataFrame({
+            'epoch': range(1, len(history['train_loss']) + 1),
+            'train_loss': history['train_loss'],
+            'val_loss': history['val_loss'],
+            'train_f1': history.get('train_f1', [None] * len(history['train_loss'])),
+            'val_f1': history.get('val_f1', [None] * len(history['train_loss'])),
+            'train_auc': history.get('train_auc', [None] * len(history['train_loss'])),
+            'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
+            'learning_rate': history.get('learning_rate', [None] * len(history['train_loss']))
+        })
+        history_csv = output_dir / 'training_history.csv'
+        history_df.to_csv(history_csv, index=False)
+        print(f"Training history saved to: {history_csv}")
+    
     # Plot learning curves
     if len(history['train_loss']) > 0:
         plot_learning_curves(history, output_dir)
@@ -619,6 +653,11 @@ DROPOUT = config.training.dropout
 PATIENCE = config.training.patience
 EARLY_STOPPING_METRIC = config.training.early_stopping_metric
 THRESHOLD_METRIC = config.training.threshold_metric
+USE_LR_SCHEDULER = getattr(config.training, 'use_lr_scheduler', False)
+LR_SCHEDULER_TYPE = getattr(config.training, 'lr_scheduler', 'reduce_on_plateau')
+LR_SCHEDULER_PATIENCE = getattr(config.training, 'lr_scheduler_patience', 5)
+LR_SCHEDULER_FACTOR = getattr(config.training, 'lr_scheduler_factor', 0.5)
+LR_SCHEDULER_MIN_LR = getattr(config.training, 'lr_scheduler_min_lr', 1e-6)
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -766,7 +805,32 @@ model.to(device)
 
 # Loss function and optimizer
 criterion = nn.BCEWithLogitsLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+# optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+# Get optimizer parameters from config
+OPTIMIZER_NAME = getattr(config.training, 'optimizer', 'adam')
+OPTIMIZER_WEIGHT_DECAY = getattr(config.training, 'weight_decay', 0.0)
+OPTIMIZER_MOMENTUM = getattr(config.training, 'momentum', 0.9)
+
+# Create optimizer using utility function
+optimizer = create_optimizer(
+    model=model,
+    optimizer_name=OPTIMIZER_NAME,
+    learning_rate=LEARNING_RATE,
+    weight_decay=OPTIMIZER_WEIGHT_DECAY,
+    momentum=OPTIMIZER_MOMENTUM
+)
+
+# Create learning rate scheduler using utility function
+lr_scheduler = create_lr_scheduler(
+    optimizer=optimizer,
+    scheduler_type=LR_SCHEDULER_TYPE if USE_LR_SCHEDULER else None,
+    early_stopping_metric=EARLY_STOPPING_METRIC,
+    epochs=EPOCHS,
+    patience=LR_SCHEDULER_PATIENCE,
+    factor=LR_SCHEDULER_FACTOR,
+    min_lr=LR_SCHEDULER_MIN_LR
+)
 
 # Train
 print('\nTrain model.')
@@ -783,7 +847,8 @@ best_model_path, optimal_threshold = train_model(
     patience=PATIENCE,
     output_dir=output_dir,
     early_stopping_metric=EARLY_STOPPING_METRIC,
-    threshold_metric=THRESHOLD_METRIC
+    threshold_metric=THRESHOLD_METRIC,
+    lr_scheduler=lr_scheduler
 )
 
 # Evaluate

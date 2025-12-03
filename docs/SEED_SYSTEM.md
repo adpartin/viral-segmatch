@@ -44,7 +44,7 @@ This project uses a hierarchical seed system to ensure reproducibility across al
 ### Example 1: Fully Deterministic Pipeline (Recommended for Production)
 
 ```yaml
-# conf/bundles/flu_a.yaml
+# conf/bundles/flu.yaml
 master_seed: 42
 max_files_to_process: null  # Full dataset
 process_seeds:
@@ -56,7 +56,7 @@ process_seeds:
 ```
 
 **Result:**
-- Directory: `processed/flu_a/July_2025/` (no suffix - full dataset)
+- Directory: `processed/flu/July_2025/` (no suffix - full dataset)
 - All stages use deterministic seeds derived from `master_seed: 42`
 - Fully reproducible pipeline
 - **Use case:** Production runs, final experiments, paper results
@@ -77,7 +77,7 @@ process_seeds:
 ```
 
 **Result:**
-- Directory: `processed/flu_a/July_2025_seed_42_GTOs_500/`
+- Directory: `processed/flu/July_2025_seed_42_GTOs_500/`
 - Preprocessing samples 500 files deterministically using derived seed
 - All stages use seeds derived from `master_seed: 42`
 - Fully reproducible with subset of data
@@ -99,7 +99,7 @@ process_seeds:
 ```
 
 **Result:**
-- Directory: `processed/flu_a/July_2025_seed_123_GTOs_500/`
+- Directory: `processed/flu/July_2025_seed_123_GTOs_500/`
 - Preprocessing uses seed 123 (different data sample)
 - Embeddings/training use seeds derived from master_seed 42
 - **Use case:** Data variation experiments, cross-validation with different data splits
@@ -120,7 +120,7 @@ process_seeds:
 ```
 
 **Result:**
-- Directory: `processed/flu_a/July_2025_random_20251013_143522_GTOs_100/`
+- Directory: `processed/flu/July_2025_random_20251013_143522_GTOs_100/`
 - All stages use random seeds (includes timestamp to prevent collisions)
 - Not reproducible (useful for initial exploration)
 - **Use case:** Quick exploratory analysis, sanity checks
@@ -142,7 +142,7 @@ process_seeds:
 ```
 
 **Result:**
-- Directory: `processed/flu_a/July_2025_special_experiment/`
+- Directory: `processed/flu/July_2025_special_experiment/`
 - Seeds derived from master_seed, but custom directory name
 - **Use case:** Custom experiments with specific naming requirements, backward compatibility
 
@@ -154,10 +154,10 @@ The run suffix is automatically generated based on sampling parameters:
 
 | Scenario | `max_files_to_process` | `preprocessing_seed` | Directory Suffix | Example Path |
 |----------|------------------------|----------------------|------------------|--------------|
-| Full dataset | `null` | any | `` (no suffix) | `processed/flu_a/July_2025/` |
-| Deterministic sample | `500` | `42` | `_seed_42_GTOs_500` | `processed/flu_a/July_2025_seed_42_GTOs_500/` |
-| Random sample | `100` | `null` | `_random_<timestamp>_GTOs_100` | `processed/flu_a/July_2025_random_20251013_143522_GTOs_100/` |
-| Manual override | any | any | `<custom>` | `processed/flu_a/July_2025_special_experiment/` |
+| Full dataset | `null` | any | `` (no suffix) | `processed/flu/July_2025/` |
+| Deterministic sample | `500` | `42` | `_seed_42_GTOs_500` | `processed/flu/July_2025_seed_42_GTOs_500/` |
+| Random sample | `100` | `null` | `_random_<timestamp>_GTOs_100` | `processed/flu/July_2025_random_20251013_143522_GTOs_100/` |
+| Manual override | any | any | `<custom>` | `processed/flu/July_2025_special_experiment/` |
 
 ### Auto-Generation Logic
 
@@ -197,15 +197,15 @@ The `run_suffix` automatically propagates through the entire pipeline:
 ```
 1. Preprocessing (generates suffix)
    ↓
-   processed/flu_a/July_2025_seed_42_GTOs_500/
+   processed/flu/July_2025_seed_42_GTOs_500/
    
 2. Embeddings (reads suffix from config)
    ↓
-   embeddings/flu_a/July_2025_seed_42_GTOs_500/
+   embeddings/flu/July_2025_seed_42_GTOs_500/
    
 3. Training (reads suffix from config)
    ↓
-   models/flu_a/July_2025_seed_42_GTOs_500/
+   models/flu/July_2025_seed_42_GTOs_500/
 ```
 
 All downstream scripts read `config.run_suffix` to use matching directories. No manual path management needed!
@@ -218,19 +218,19 @@ Hydra allows overriding any config value from the command line:
 
 ```bash
 # Override master seed
-python preprocess_flu_protein.py --virus_name flu_a master_seed=123
+python preprocess_flu_protein.py --virus_name flu master_seed=123
 
 # Override preprocessing seed specifically
-python preprocess_flu_protein.py --virus_name flu_a process_seeds.preprocessing=999
+python preprocess_flu_protein.py --virus_name flu process_seeds.preprocessing=999
 
 # Override max_files_to_process
-python preprocess_flu_protein.py --virus_name flu_a max_files_to_process=1000
+python preprocess_flu_protein.py --virus_name flu max_files_to_process=1000
 
 # Multiple overrides
-python preprocess_flu_protein.py --virus_name flu_a master_seed=42 max_files_to_process=500
+python preprocess_flu_protein.py --virus_name flu master_seed=42 max_files_to_process=500
 
 # Override run_suffix manually
-python preprocess_flu_protein.py --virus_name flu_a run_suffix="_custom_run"
+python preprocess_flu_protein.py --virus_name flu run_suffix="_custom_run"
 ```
 
 ---
@@ -285,7 +285,7 @@ run_suffix = resolve_run_suffix(
 # Build standard paths
 paths = build_preprocessing_paths(
     project_root=project_root,
-    virus_name='flu_a',
+    virus_name='flu',
     data_version='July_2025',
     run_suffix=run_suffix
 )
@@ -367,7 +367,7 @@ paths = build_preprocessing_paths(
 **To check:**
 ```bash
 # View the config that was used
-cat processed/flu_a/July_2025_seed_42_GTOs_500/.hydra/config.yaml
+cat processed/flu/July_2025_seed_42_GTOs_500/.hydra/config.yaml
 ```
 
 ---
@@ -406,8 +406,8 @@ process_seeds:
 ```
 
 Creates:
-- `processed/flu_a/July_2025_seed_1_GTOs_5000/`
-- `processed/flu_a/July_2025_seed_2_GTOs_5000/`
+- `processed/flu/July_2025_seed_1_GTOs_5000/`
+- `processed/flu/July_2025_seed_2_GTOs_5000/`
 
 ---
 
@@ -431,9 +431,16 @@ Same data preprocessing, different model initializations.
 
 ## See Also
 
-- **Implementation:** `src/utils/seed_utils.py` - Seed resolution and setting functions
-- **Path utilities:** `src/utils/path_utils.py` - Directory naming functions
-- **Configs:** `conf/bundles/` - Bundle configurations with seed examples
-- **Scripts:** `src/preprocess/preprocess_flu_protein.py` - Preprocessing with dynamic paths
-- **Embeddings:** `src/embeddings/compute_esm2_embeddings.py` - Embeddings with seed management
+### Technical Documentation (`docs/`)
+- **Configuration Guide:** [CONFIGURATION_GUIDE.md](./CONFIGURATION_GUIDE.md) - Detailed configuration documentation
+- **Experiment Tracking:** [EXPERIMENT_TRACKING_GUIDE.md](./EXPERIMENT_TRACKING_GUIDE.md) - How to track experiments
+
+### User Guides (`documentation/`)
+- **Quick Start:** [`../documentation/quick-start.md`](../documentation/quick-start.md) - Get started quickly
+- **Configuration:** [`../documentation/configuration.md`](../documentation/configuration.md) - Configuration overview
+
+### Implementation
+- **`src/utils/seed_utils.py`** - Seed resolution and setting functions
+- **`src/utils/path_utils.py`** - Directory naming functions
+- **`conf/bundles/`** - Bundle configurations with seed examples
 

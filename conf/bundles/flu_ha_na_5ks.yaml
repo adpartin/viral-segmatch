@@ -1,5 +1,5 @@
-# Flu bundle - PB2, PB1, PA proteins only (conserved segments)
-# Experiment: Test conservation hypothesis - these should perform worse than HA-NA
+# Flu bundle - HA and NA proteins only (variable segments)
+# Experiment: Test conservation hypothesis - these should perform better
 # Isolates: 1K, no same-function negatives
 defaults:
   - /virus: flu
@@ -31,8 +31,9 @@ process_seeds:
 # ====================================================================
 virus:
   selected_functions:
-    - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 (Segment 1)
     - "Hemagglutinin precursor"  # HA0 (Segment 4)
+    - "Neuraminidase protein"  # NA (Segment 6)
+    # - "RNA-dependent RNA polymerase PA subunit"  # PA - Segment 3
 
 # ====================================================================
 # MODEL AND DATASET OVERRIDES
@@ -47,7 +48,7 @@ dataset:
   neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 1.0
   allow_same_func_negatives: false  # Whether to allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
-  max_isolates_to_process: 1000  # null = full dataset, or set to 100, 500, etc.
+  max_isolates_to_process: 5000  # null = full dataset, or set to 100, 500, etc.
 
 # Training overrides
 training:
