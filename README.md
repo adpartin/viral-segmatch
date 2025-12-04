@@ -149,7 +149,7 @@ The pipeline uses Hydra for configuration management with a bundle system:
 | `flu_ha_na_5ks` | HA, NA | 5K | Variable segments (expect BETTER) |
 | `flu_pb2_pb1_pa_5ks` | PB2, PB1, PA | 5K | Conserved segments (expect WORSE) |
 | `flu_pb2_ha_na_5ks` | PB2, HA, NA | 5K | Mixed segments |
-| `flu_overfit` | PB2, PB1, PA | 50 | Overfitting capacity test |
+| `flu_overfit_5ks` | PB2, PB1, PA | 5K | Overfitting capacity test (1% train) |
 
 ### Key Parameters
 

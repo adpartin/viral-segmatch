@@ -16,7 +16,7 @@ conf/bundles/
 ├── flu_ha_na_5ks.yaml         # Flu: HA and NA only (variable segments)
 ├── flu_pb2_pb1_pa_5ks.yaml    # Flu: Polymerase only (conserved segments)
 ├── flu_pb2_ha_na_5ks.yaml     # Flu: PB2-HA-NA (mixed)
-└── flu_overfit.yaml           # Flu: Overfitting capacity test
+└── flu_overfit_5ks.yaml        # Flu: Overfitting capacity test (5K isolates)
 ```
 
 ### Current Configurations
@@ -28,7 +28,7 @@ conf/bundles/
 | `flu_ha_na_5ks` | HA, NA | 5K | Variable segments (expect BETTER) |
 | `flu_pb2_pb1_pa_5ks` | PB2, PB1, PA | 5K | Conserved segments (expect WORSE) |
 | `flu_pb2_ha_na_5ks` | PB2, HA, NA | 5K | Mixed segments |
-| `flu_overfit` | PB2, PB1, PA | 50 | Overfitting capacity test |
+| `flu_overfit_5ks` | PB2, PB1, PA | 5K | Overfitting capacity test (1% train) |
 
 ## 📋 Basic Bundle Structure
 

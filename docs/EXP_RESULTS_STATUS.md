@@ -1,6 +1,6 @@
 # Experimental Results & Research Status
 
-**Purpose**: This document tracks project status, provides research context (biological and technical background), outlines the research roadmap, and summarizes experimental results. For detailed analysis of experiment results, metrics, and statistical comparisons, see [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md).
+**Purpose**: This document tracks project status, provides research context (biological and technical background), outlines the research roadmap, and summarizes experimental results. For detailed analysis of experiment results see [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md).
 
 **Date**: December 3, 2025  
 **Status**: Conservation Hypothesis Confirmed ✅  
@@ -25,20 +25,20 @@
 ### Key Finding: **Conservation Hypothesis Confirmed** ✅
 
 Performance directly correlates with protein conservation levels:
-- **Variable segments (HA-NA)**: 92.3% accuracy, **91.6% F1**, 0.953 AUC
-- **Mixed segments (PB2-HA-NA)**: 85.4% accuracy, **85.5% F1**, 0.920 AUC  
-- **Conserved segments (PB2-PB1-PA)**: 71.9% accuracy, **75.3% F1**, 0.750 AUC
+- **Variable segments (HA-NA)**: 0.923 accuracy, **0.916 F1**, 0.953 AUC
+- **Mixed segments (PB2-HA-NA)**: 0.854 accuracy, **0.855 F1**, 0.920 AUC  
+- **Conserved segments (PB2-PB1-PA)**: 0.719 accuracy, **0.753 F1**, 0.750 AUC
 
 ### Main Conclusions
 
-1. ✅ **Variable segments (HA-NA) achieve 92.3% accuracy, 91.6% F1** - Actually outperforms Bunya (91.0% accuracy, 91.1% F1) with 5K isolates
-2. ⚠️ **Conserved segments (PB2-PB1-PA) achieve 71.9% accuracy, 75.3% F1** - Biological limitation, but F1 suggests some recoverable signal
-3. ✅ **Segment-specific models are the path forward** - Use HA-NA model for variable segments (91.6% F1)
-4. ✅ **Pipeline is sound** - Both Bunya and Flu HA-NA prove the approach works excellently for variable segments
+1. **Variable segments (HA-NA) achieve 0.923 accuracy, 0.916 F1** - Actually outperforms Bunya (accuracy=0.910, F1=0.911) with 5K isolates
+2. **Conserved segments (PB2-PB1-PA) achieve 0.719 accuracy, 0.753 F1** - Biological limitation, but F1 suggests some recoverable signal
+3. **Segment-specific models might be the path forward** - Use HA-NA model for variable segments (F1=0.916)
+4. **Pipeline is sound** - Both Bunya and Flu HA-NA prove the approach works well for variable segments
 
 **Recommendation**: Deploy segment-specific models with realistic performance expectations:
-- **Variable segments (HA-NA)**: Expect ~92% accuracy, ~92% F1 (with 5K+ isolates)
-- **Conserved segments (PB2-PB1-PA)**: Expect ~72% accuracy, ~75% F1
+- **Variable segments (HA-NA)**: Expect ~0.92 accuracy, ~0.92 F1 (with 5K+ isolates)
+- **Conserved segments (PB2-PB1-PA)**: Expect ~0.72 accuracy, ~0.75 F1
 
 ---
 
@@ -48,21 +48,20 @@ Performance directly correlates with protein conservation levels:
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Train model on Bunya | ✅ Complete | Val F1: 0.75→0.91, Test AUC: 0.956, Test F1: 91.4% |
+| Train model on Bunya | ✅ Complete | Val F1: 0.91, Test AUC: 0.956, Test F1: 0.914 |
 | Analyze Bunya training results | ✅ Complete | 100% same-func negative accuracy |
 | Run embedding similarity on Bunya | ✅ Complete | Results in embedding_similarity/ |
-| Re-run Bunya with allow_same_func_negatives=false | ✅ Complete | Still achieves 91.2% accuracy, 0.940 AUC |
-| Document embeddings branch changes | ✅ Complete | Technical details integrated into this document |
-| **Segment-specific models for Flu A** | ✅ **Complete** | **HA-NA: 91.6% F1, PB2-PB1-PA: 75.3% F1** |
-| **Conservation hypothesis testing** | ✅ **Complete** | **Confirmed: 20.4% accuracy gap, 16.3% F1 gap** |
+| Re-run Bunya with allow_same_func_negatives=false | ✅ Complete | Still achieves 0.912 accuracy, 0.940 AUC |
+| Segment-specific models for Flu A | ✅ Complete | HA-NA: 0.916 F1, PB2-PB1-PA: 0.753 F1 |
+| Conservation hypothesis testing | ✅ Complete | Confirmed: 0.204 accuracy gap, 0.163 F1 gap |
 
 ### Pending Tasks
 
 | Task | Priority | Notes |
 |------|----------|-------|
-| Run embedding similarity on Flu A | P1 | Critical diagnostic to quantify embedding overlap |
+| Run embedding similarity on Bunya and Flu A | P1 | Quantify embedding overlap |
 | Compare Bunya vs Flu A similarity distributions | P1 | Quantify conservation impact on embedding separability |
-| Try use_diff=True, use_prod=True on Flu A | P2 | May improve conserved segment performance |
+| Try use_diff=True, use_prod=True | P2 | May improve conserved segment performance |
 | Contrastive fine-tuning of ESM-2 | P3 | If current approach insufficient |
 | Explore genome foundation models | P4 | GenSLM, Evo2 for nucleotide signal |
 
@@ -76,22 +75,22 @@ Performance directly correlates with protein conservation levels:
 
 | Rank | Experiment | Accuracy | **F1 Score** | AUC | Segment Type | Conservation |
 |------|------------|----------|--------------|-----|--------------|--------------|
-| 1 | **Flu HA-NA (5ks)** | **92.3%** | **91.6%** | **0.953** | Variable | 70-90% |
-| 2 | **Bunya (all)** | **91.0%** | **91.1%** | **0.927** | All segments | Low (different virus) |
-| 3 | **Flu PB2-HA-NA (5ks)** | **85.4%** | **85.5%** | **0.920** | Mixed | 95% + 70-90% |
-| 4 | Flu Overfit | 79.3% | **82.4%** | 0.771 | Conserved | 94-98% (small dataset) |
-| 5 | **Flu PB2-PB1-PA (5ks)** | **71.9%** | **75.3%** | **0.750** | Conserved | 94-98% |
+| 1 | **Flu HA-NA (5ks)** | **0.923** | **0.916** | **0.953** | Variable | 70-90% |
+| 2 | **Bunya (all)** | **0.910** | **0.911** | **0.927** | All segments | Low (different virus) |
+| 3 | **Flu PB2-HA-NA (5ks)** | **0.854** | **0.855** | **0.920** | Mixed | 95% + 70-90% |
+| 4 | Flu Overfit (5ks) | 0.716 | **0.750** | 0.750 | Conserved | 94-98% (1% train, 5K isolates) |
+| 5 | **Flu PB2-PB1-PA (5ks)** | **0.719** | **0.753** | **0.750** | Conserved | 94-98% |
 
 ### Key Findings
 
 1. **Conservation-Performance Correlation** ✅
-   - Variable segments (HA-NA): **92.3%** accuracy, **91.6% F1** — Excellent performance
-   - Conserved segments (PB2-PB1-PA): **71.9%** accuracy, **75.3% F1** — Biological limitation
-   - **20.4 percentage point accuracy difference** (16.3% F1 difference) confirms conservation limits performance
+   - Variable segments (HA-NA): **0.923** accuracy, **0.916 F1** — Excellent performance
+   - Conserved segments (PB2-PB1-PA): **0.719** accuracy, **0.753 F1** — Biological limitation
+   - **0.204 accuracy difference** (0.163 F1 difference) confirms conservation limits performance
 
 2. **Flu HA-NA Outperforms Bunya** — With 5K isolates, variable segments achieve better performance than the baseline
 
-3. **Segment-Specific Models Are Valuable** — HA-NA model achieves 91.6% F1 vs ~75% F1 for conserved segments
+3. **Segment-Specific Models Are Valuable** — HA-NA model achieves 0.916 F1 vs ~0.75 F1 for conserved segments
 
 *See [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md) for detailed metrics, error analysis, biological interpretation, and statistical summaries.*
 
@@ -134,16 +133,14 @@ Studies show influenza internal proteins are highly conserved ([PMC3036627](http
 
 2. **Information-Theoretic Limit**: If sequences are >98% identical, embeddings will be nearly indistinguishable regardless of model architecture
 
-3. **PB2-PB1 Worst**: Both segments are highly conserved, creating the hardest discrimination task
-
 ### Realistic Performance Expectations
 
 | Pair Type | Expected Performance | Rationale |
 |-----------|---------------------|-----------|
-| HA-NA pairs | High (~85-95%) | Most variable segments |
-| HA-PB pairs | Medium (~75-85%) | One variable, one conserved |
-| PB1-PB2 pairs | Lower (~65-75%) | Both highly conserved |
-| All pairs | Moderate (~75-80%) | Conservation limits overall |
+| HA-NA pairs | High (~0.85-0.95) | Most variable segments |
+| HA-PB pairs | Medium (~0.75-0.85) | One variable, one conserved |
+| PB1-PB2 pairs | Lower (~0.65-0.75) | Both highly conserved |
+| All pairs | Moderate (~0.75-0.80) | Conservation limits overall |
 
 ---
 
@@ -221,7 +218,7 @@ Then → ESM-2 embeddings fundamentally cannot solve this task
 
 | Rank | Approach | Expected Impact | Effort | Rationale |
 |------|----------|-----------------|--------|-----------|
-| 1 | **Segment-specific models** | High | Low | ✅ **COMPLETED** - HA-NA: 86.5% F1, PB2-PB1-PA: 77.1% F1 |
+| 1 | **Segment-specific models** | High | Low | ✅ **COMPLETED** - HA-NA: 0.916 F1, PB2-PB1-PA: 0.753 F1 |
 | 2 | **Contrastive fine-tuning of ESM-2** | High | Medium | Directly optimizes for isolate discrimination |
 | 3 | **Interaction features** | Medium | Low | `use_diff=true, use_prod=true` captures pairwise relationships |
 | 4 | **Genome foundation models** | Medium-High | High | Nucleotide-level signal (synonymous mutations) |
@@ -244,7 +241,7 @@ training:
 - **Note**: Bunya already uses `use_diff=True, use_prod=True` and achieves good results
 
 **B. Segment-Specific Models** ✅ **COMPLETED**
-- **Result**: HA-NA model achieves 86.3% accuracy, 86.5% F1 (vs ~73% accuracy, ~77% F1 for all segments)
+- **Result**: HA-NA model achieves 0.923 accuracy, 0.916 F1 (vs ~0.72 accuracy, ~0.75 F1 for conserved segments)
 - **Conclusion**: Confirms conservation as the primary limiting factor
 - **Recommendation**: Deploy HA-NA model for variable segments, accept lower performance for conserved segments
 
@@ -323,12 +320,12 @@ This would directly learn the signal we care about but requires significant comp
    - See `conf/bundles/flu_pb2_pb1_pa_5ks.yaml` for example config
 
 3. **Segment-specific model deployment**
-   - Deploy HA-NA model for variable segments (92.3% accuracy, 91.6% F1)
-   - Accept lower performance for conserved segments (71.9% accuracy, 75.3% F1)
+   - Deploy HA-NA model for variable segments (0.923 accuracy, 0.916 F1)
+   - Accept lower performance for conserved segments (0.719 accuracy, 0.753 F1)
 
 ### Success Criteria
 
-- **Short-term**: ✅ Achieved for Bunya (Val F1 improves beyond 0.74, Test F1: 91.4%)
+- **Short-term**: ✅ Achieved for Bunya (Val F1 improves beyond 0.74, Test F1: 0.914)
 - **Medium-term**: Quantify the theoretical ceiling for Flu A based on embedding similarity
 - **Long-term**: Establish robust pipeline for viral segment matching (or document biological limitations for Flu A)
 
@@ -356,7 +353,7 @@ This would directly learn the signal we care about but requires significant comp
 - `conf/bundles/flu_ha_na_5ks.yaml`
 - `conf/bundles/flu_pb2_pb1_pa_5ks.yaml`
 - `conf/bundles/flu_pb2_ha_na_5ks.yaml`
-- `conf/bundles/flu_overfit.yaml`
+- `conf/bundles/flu_overfit_5ks.yaml`
 
 ---
 

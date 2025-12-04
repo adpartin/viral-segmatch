@@ -141,7 +141,7 @@ python src/analysis/create_presentation_plots.py --config_bundle flu_ha_na_5ks
 - **`flu_ha_na_5ks`**: Flu, HA-NA only (variable segments), 5K isolates
 - **`flu_pb2_pb1_pa_5ks`**: Flu, PB2-PB1-PA only (conserved segments), 5K isolates
 - **`flu_pb2_ha_na_5ks`**: Flu, PB2-HA-NA (mixed), 5K isolates
-- **`flu_overfit`**: Flu, small dataset for capacity testing
+- **`flu_overfit_5ks`**: Flu, overfitting capacity test (5K isolates, 1% train)
 
 *For detailed configuration guide, see [`../docs/CONFIGURATION_GUIDE.md`](../docs/CONFIGURATION_GUIDE.md)*
 

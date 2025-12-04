@@ -101,9 +101,9 @@ experiments:
 
 2. **Run experiment**:
    ```bash
-   ./scripts/stage3_dataset.sh flu_overfit
-   ./scripts/stage4_train.sh flu_overfit --cuda_name cuda:7 \
-       --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_YYYYMMDD_HHMMSS
+   ./scripts/stage3_dataset.sh flu_overfit_5ks
+   ./scripts/stage4_train.sh flu_overfit_5ks --cuda_name cuda:7 \
+       --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_5ks_YYYYMMDD_HHMMSS
    ```
 
 3. **After running**: Add observations
@@ -205,23 +205,23 @@ Use metadata files for:
 
 ```bash
 # 1. Run dataset creation
-./scripts/stage3_dataset.sh flu_overfit
+./scripts/stage3_dataset.sh flu_overfit_5ks
 
 # 2. Check it was registered
 python src/utils/experiment_registry.py --limit 1
 
 # 3. Find dataset directory
-DATASET_DIR=$(ls -td data/datasets/flu/July_2025/runs/dataset_flu_overfit_* | head -1)
+DATASET_DIR=$(ls -td data/datasets/flu/July_2025/runs/dataset_flu_overfit_5ks_* | head -1)
 
 # 4. Run training
-./scripts/stage4_train.sh flu_overfit --cuda_name cuda:7 --dataset_dir "$DATASET_DIR"
+./scripts/stage4_train.sh flu_overfit_5ks --cuda_name cuda:7 --dataset_dir "$DATASET_DIR"
 
 # 5. Add notes about results
 # Edit experiments/registry.yaml:
 #   notes: "Overfitting confirmed! Training F1=0.95, Val F1=0.65. Model has capacity."
 
 # 6. View all experiments for this config
-python src/utils/experiment_registry.py --config_bundle flu_overfit
+python src/utils/experiment_registry.py --config_bundle flu_overfit_5ks
 ```
 
 ## Troubleshooting

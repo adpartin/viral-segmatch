@@ -38,7 +38,7 @@ conf/
 │   ├── flu.yaml               # Flu base config (PB2, PB1, PA)
 │   ├── flu_ha_na_5ks.yaml     # Flu: HA and NA only (variable segments)
 │   ├── flu_pb2_pb1_pa_5ks.yaml # Flu: Polymerase only (conserved segments)
-│   ├── flu_overfit.yaml       # Flu: Overfitting capacity test
+│   ├── flu_overfit_5ks.yaml    # Flu: Overfitting capacity test (5K isolates)
 │   └── flu_plateau_analysis.yaml # Flu: Plateau investigation
 │
 ├── virus/                      # 🧬 BIOLOGICAL FACTS
@@ -78,7 +78,7 @@ data/
 │   │   └── runs/                    # All dataset experiments
 │   │       ├── dataset_flu_ha_na_5ks_20251202_140000/
 │   │       ├── dataset_flu_pb2_pb1_pa_5ks_20251202_140100/
-│   │       └── dataset_flu_overfit_20251202_135158/
+│   │       └── dataset_flu_overfit_5ks_20251202_135158/
 │   └── bunya/April_2025/
 │       └── runs/
 │           └── dataset_bunya_20251202_134457/
@@ -261,8 +261,8 @@ Config Bundle: flu_ha_na_5ks
 Config Bundle: bunya
 → data/datasets/bunya/April_2025/runs/dataset_bunya_20251202_134457/
 
-Config Bundle: flu_overfit
-→ data/datasets/flu/July_2025/runs/dataset_flu_overfit_20251202_135158/
+Config Bundle: flu_overfit_5ks
+→ data/datasets/flu/July_2025/runs/dataset_flu_overfit_5ks_20251202_135158/
 ```
 
 **Key Features:**
@@ -394,11 +394,11 @@ dataset:
 **Test:** Can the model overfit a tiny dataset? (Karpathy's capacity test)
 
 ```yaml
-# conf/bundles/flu_overfit.yaml
+# conf/bundles/flu_overfit_5ks.yaml
 dataset:
-  max_isolates_to_process: 50  # Very small
-  train_ratio: 0.1
-  val_ratio: 0.8
+  max_isolates_to_process: 5000  # 5K isolates, but only 1% for training
+  train_ratio: 0.01
+  val_ratio: 0.5
 
 training:
   epochs: 50
@@ -556,7 +556,7 @@ If missing, run:
 | `flu_ha_na_5ks` | HA, NA | 5K | Variable segments (expect BETTER) |
 | `flu_pb2_pb1_pa_5ks` | PB2, PB1, PA | 5K | Conserved segments (expect WORSE) |
 | `flu_pb2_ha_na_5ks` | PB2, HA, NA | 5K | Mixed segments |
-| `flu_overfit` | PB2, PB1, PA | 50 | Overfitting capacity test |
+| `flu_overfit_5ks` | PB2, PB1, PA | 5K | Overfitting capacity test (1% train) |
 | `flu_plateau_analysis` | PB2, PB1, PA | 1K | Plateau investigation |
 
 ---
