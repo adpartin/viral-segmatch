@@ -42,7 +42,7 @@ Performance directly correlates with protein conservation levels:
 
 *Note: Segment-level F1 scores not available in segment_performance.csv*
 
-**Conclusion**: ✅ **Pipeline works excellently** - Bunya demonstrates strong performance across all segment pairs.
+**Conclusion**: ✅ **Pipeline works very well** - Bunya demonstrates strong performance across all segment pairs.
 
 ---
 
