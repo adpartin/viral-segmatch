@@ -22,7 +22,7 @@ Performance directly correlates with protein conservation levels:
 
 ## Detailed Results
 
-### 1. Bunya (Baseline - All Segments)
+### 1. Bunya (Baseline - Core protein only)
 
 **Config**: `bunya.yaml`  
 **Segments**: L (polymerase), M (glycoprotein), S (nucleocapsid)  
