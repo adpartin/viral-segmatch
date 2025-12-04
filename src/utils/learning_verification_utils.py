@@ -139,6 +139,7 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
         Path: Path to saved plot file
     """
     epochs = range(1, len(history['train_loss']) + 1)
+    num_epochs = len(history['train_loss'])
     
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     
@@ -148,6 +149,7 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
     axes[0, 0].set_xlabel('Epoch')
     axes[0, 0].set_ylabel('Loss')
     axes[0, 0].set_title('Training and Validation Loss')
+    axes[0, 0].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
     axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
     
@@ -158,6 +160,7 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
     axes[0, 1].set_xlabel('Epoch')
     axes[0, 1].set_ylabel('F1 Score')
     axes[0, 1].set_title('Training and Validation F1 Score')
+    axes[0, 1].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
     axes[0, 1].legend()
     axes[0, 1].grid(True, alpha=0.3)
     axes[0, 1].set_ylim([0, 1])
@@ -169,6 +172,7 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
     axes[1, 0].set_xlabel('Epoch')
     axes[1, 0].set_ylabel('AUC-ROC')
     axes[1, 0].set_title('Training and Validation AUC-ROC')
+    axes[1, 0].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].set_ylim([0, 1])
@@ -181,6 +185,7 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
         axes[1, 1].set_xlabel('Epoch')
         axes[1, 1].set_ylabel('F1 Gap')
         axes[1, 1].set_title('Overfitting Indicator (Train F1 - Val F1)')
+        axes[1, 1].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
         axes[1, 1].legend()
         axes[1, 1].grid(True, alpha=0.3)
     else:
@@ -203,6 +208,7 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
     ax_loss.set_xlabel('Epoch')
     ax_loss.set_ylabel('Loss')
     ax_loss.set_title('Training and Validation Loss')
+    ax_loss.set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
     ax_loss.legend()
     ax_loss.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -219,6 +225,7 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
     ax_f1.set_xlabel('Epoch')
     ax_f1.set_ylabel('F1 Score')
     ax_f1.set_title('Training and Validation F1 Score')
+    ax_f1.set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
     ax_f1.legend()
     ax_f1.grid(True, alpha=0.3)
     ax_f1.set_ylim([0, 1])
