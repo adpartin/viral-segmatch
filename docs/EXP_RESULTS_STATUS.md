@@ -25,20 +25,18 @@
 ### Key Finding: **Conservation Hypothesis Confirmed** ✅
 
 Performance directly correlates with protein conservation levels:
-- **Variable segments (HA-NA)**: 0.923 accuracy, **0.916 F1**, 0.953 AUC
-- **Mixed segments (PB2-HA-NA)**: 0.854 accuracy, **0.855 F1**, 0.920 AUC  
-- **Conserved segments (PB2-PB1-PA)**: 0.719 accuracy, **0.753 F1**, 0.750 AUC
+- **Variable segments (HA-NA)**: accuracy=0.923, **F1=0.916**, AUC=0.953
+- **Mixed segments (PB2-HA-NA)**: accuracy=0.854, **F1=0.855**, AUC=0.920
+- **Conserved segments (PB2-PB1-PA)**: accuracy=0.719, **F1=0.753**, AUC=0.750
 
 ### Main Conclusions
 
-1. **Variable segments (HA-NA) achieve 0.923 accuracy, 0.916 F1** - Actually outperforms Bunya (accuracy=0.910, F1=0.911) with 5K isolates
-2. **Conserved segments (PB2-PB1-PA) achieve 0.719 accuracy, 0.753 F1** - Biological limitation, but F1 suggests some recoverable signal
+1. **Variable segments (HA-NA) achieve accuracy=0.923, F1=0.916** - Actually outperforms Bunya (accuracy=0.910, F1=0.911) with 5K isolates
+2. **Conserved segments (PB2-PB1-PA) achieve accuracy=0.719, F1=0.753** - Biological limitation, but scores suggest some recoverable signal
 3. **Segment-specific models might be the path forward** - Use HA-NA model for variable segments (F1=0.916)
 4. **Pipeline is sound** - Both Bunya and Flu HA-NA prove the approach works well for variable segments
 
-**Recommendation**: Deploy segment-specific models with realistic performance expectations:
-- **Variable segments (HA-NA)**: Expect ~0.92 accuracy, ~0.92 F1 (with 5K+ isolates)
-- **Conserved segments (PB2-PB1-PA)**: Expect ~0.72 accuracy, ~0.75 F1
+**Recommendation**: Deploy segment-specific models with realistic performance expectations.
 
 ---
 
@@ -48,10 +46,9 @@ Performance directly correlates with protein conservation levels:
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Train model on Bunya | ✅ Complete | Val F1: 0.91, Test AUC: 0.956, Test F1: 0.914 |
+| Train on Bunya | ✅ Complete | Val F1: 0.91, Test AUC: 0.956, Test F1: 0.914 |
 | Analyze Bunya training results | ✅ Complete | 100% same-func negative accuracy |
-| Run embedding similarity on Bunya | ✅ Complete | Results in embedding_similarity/ |
-| Re-run Bunya with allow_same_func_negatives=false | ✅ Complete | Still achieves 0.912 accuracy, 0.940 AUC |
+| Re-run Bunya with allow_same_func_negatives=false | ✅ Complete | Retains very good performance |
 | Segment-specific models for Flu A | ✅ Complete | HA-NA: 0.916 F1, PB2-PB1-PA: 0.753 F1 |
 | Conservation hypothesis testing | ✅ Complete | Confirmed: 0.204 accuracy gap, 0.163 F1 gap |
 
@@ -69,7 +66,7 @@ Performance directly correlates with protein conservation levels:
 
 ## 3. Experimental Results
 
-*For detailed analysis of each experiment, including error analysis, segment pair performance, and statistical comparisons, see [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md).*
+*For detailed analysis of each experiment, including error analysis, and segment pair performance, see [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md).*
 
 ### Performance Summary
 
@@ -81,48 +78,33 @@ Performance directly correlates with protein conservation levels:
 | 4 | Flu Overfit (5ks) | 0.716 | **0.750** | 0.750 | Conserved | 94-98% (1% train, 5K isolates) |
 | 5 | **Flu PB2-PB1-PA (5ks)** | **0.719** | **0.753** | **0.750** | Conserved | 94-98% |
 
-### Key Findings
-
-1. **Conservation-Performance Correlation** ✅
-   - Variable segments (HA-NA): **0.923** accuracy, **0.916 F1** — Excellent performance
-   - Conserved segments (PB2-PB1-PA): **0.719** accuracy, **0.753 F1** — Biological limitation
-   - **0.204 accuracy difference** (0.163 F1 difference) confirms conservation limits performance
-
-2. **Flu HA-NA Outperforms Bunya** — With 5K isolates, variable segments achieve better performance than the baseline
-
-3. **Segment-Specific Models Are Valuable** — HA-NA model achieves 0.916 F1 vs ~0.75 F1 for conserved segments
-
-*See [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md) for detailed metrics, error analysis, biological interpretation, and statistical summaries.*
-
 ---
 
 ## 4. Biological Background
 
 ### Influenza Protein Conservation
 
-Studies show influenza internal proteins are highly conserved ([PMC3036627](https://pmc.ncbi.nlm.nih.gov/articles/PMC3036627/)):
+Studies show influenza internal proteins are highly conserved ([PMC3036627](https://pmc.ncbi.nlm.nih.gov/articles/PMC3036627/)). For human strains, conservation ranges from 94-98% (most conserved). The paper's "Inter- and Intra- host strains conservation and variability analysis" section reports PB1 at 98.1% (highest). Other segments fall within the 94-98% range, with specific percentages not provided in the main text:
 
 | Segment | Protein | Conservation (Human Strains) | Expected Signal |
 |---------|---------|------------------------------|-----------------|
 | 2 | PB1 | **98.1%** (highest) | Very Low |
-| 1 | PB2 | ~95% | Low |
-| 3 | PA | ~94% | Low |
-| 5 | NP | ~95% | Low |
-| 4 | HA | 70-85% (immune pressure) | Medium-High |
-| 6 | NA | 80-90% (immune pressure) | Medium |
-| 7 | M1/M2 | ~95% | Low |
-| 8 | NS1/NEP | ~93% | Low-Medium |
+| 1 | PB2 | 94-98% | Low |
+| 3 | PA | 94-98% | Low |
+| 5 | NP | 94-98% | Low |
+| 4 | HA | Variable (immune pressure) | Medium-High |
+| 6 | NA | Variable (immune pressure) | Medium |
+| 7 | M1/M2 | 94-98% | Low |
+| 8 | NS1/NEP | 94-98% | Low-Medium |
 
 **Key insight**: Internal proteins (polymerase complex) are highly conserved; surface proteins (HA/NA) have more variation due to antigenic drift.
 
 ### Why HA-NA Performs Better
 
 1. **Antigenic Drift**: HA and NA are under immune pressure, leading to:
-   - Higher sequence diversity (70-90% identity vs 94-98%)
+   - Higher sequence diversity
    - More isolate-specific variation
    - Better embedding separability
-
-2. **ESM-2 Captures Variation**: Variable segments have enough differences for ESM-2 to distinguish isolates
 
 ### Why PB2-PB1-PA Performs Worse
 
@@ -130,17 +112,6 @@ Studies show influenza internal proteins are highly conserved ([PMC3036627](http
    - Most positions are identical across isolates
    - Limited isolate-specific signal
    - ESM-2 embeddings cluster by function, not isolate
-
-2. **Information-Theoretic Limit**: If sequences are >98% identical, embeddings will be nearly indistinguishable regardless of model architecture
-
-### Realistic Performance Expectations
-
-| Pair Type | Expected Performance | Rationale |
-|-----------|---------------------|-----------|
-| HA-NA pairs | High (~0.85-0.95) | Most variable segments |
-| HA-PB pairs | Medium (~0.75-0.85) | One variable, one conserved |
-| PB1-PB2 pairs | Lower (~0.65-0.75) | Both highly conserved |
-| All pairs | Moderate (~0.75-0.80) | Conservation limits overall |
 
 ---
 
@@ -153,11 +124,9 @@ Studies show influenza internal proteins are highly conserved ([PMC3036627](http
    - Evolutionary relationships
    - Amino acid properties
 
-2. **ESM-2 was NOT trained to distinguish isolate origin**. Two HA proteins from different isolates produce nearly identical embeddings because they're functionally equivalent.
+2. **ESM-2 was NOT trained to distinguish isolate origin**. Two PB2 proteins from different isolates produce nearly identical embeddings because they're functionally equivalent (despite being from different isolates).
 
 3. **The information-theoretic limit**: If sequences are >98% identical, and ESM-2 generalizes over evolutionary variation, the embeddings will be nearly indistinguishable. No downstream model can recover signal that isn't in the representation.
-
-**In simpler terms**: If I hand you two PB1 protein embeddings and ask "are these from the same isolate?" — if all PB1 proteins are 98% identical and map to essentially the same embedding, the task is impossible regardless of model architecture.
 
 *Reference: [ESM-2 paper](https://www.biorxiv.org/content/10.1101/2022.07.20.500902v1)*
 
@@ -301,33 +270,6 @@ This directly reshapes the embedding space for our task.
 - Architecture: Cross-segment attention
 
 This would directly learn the signal we care about but requires significant compute resources.
-
----
-
-## 7. Next Steps
-
-*For detailed recommended next steps based on experiment results, see [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md) Section "Implications for Future Work".*
-
-### Immediate Actions
-
-1. **Run embedding similarity analysis on Flu A**
-   - Quantify cosine similarity distributions for positive vs negative pairs
-   - Compare with Bunya results to confirm conservation impact
-   - See `src/analysis/analyze_embedding_similarity.py`
-
-2. **Test interaction features** (`use_diff=True, use_prod=True`)
-   - May improve conserved segment performance
-   - See `conf/bundles/flu_pb2_pb1_pa_5ks.yaml` for example config
-
-3. **Segment-specific model deployment**
-   - Deploy HA-NA model for variable segments (0.923 accuracy, 0.916 F1)
-   - Accept lower performance for conserved segments (0.719 accuracy, 0.753 F1)
-
-### Success Criteria
-
-- **Short-term**: ✅ Achieved for Bunya (Val F1 improves beyond 0.74, Test F1: 0.914)
-- **Medium-term**: Quantify the theoretical ceiling for Flu A based on embedding similarity
-- **Long-term**: Establish robust pipeline for viral segment matching (or document biological limitations for Flu A)
 
 ---
 

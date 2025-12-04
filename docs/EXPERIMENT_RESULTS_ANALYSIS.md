@@ -14,9 +14,9 @@ This analysis compares model performance across different segment combinations t
 ### Key Finding: **Conservation Hypothesis Confirmed** ✅
 
 Performance directly correlates with protein conservation levels:
-- **Variable segments (HA-NA)**: 0.923 accuracy, **0.916 F1**, 0.953 AUC
-- **Mixed segments (PB2-HA-NA)**: 0.854 accuracy, **0.855 F1**, 0.920 AUC  
-- **Conserved segments (PB2-PB1-PA)**: 0.719 accuracy, **0.753 F1**, 0.750 AUC
+- **Variable segments (HA-NA)**: accuracy=0.923, **F1=0.916**, AUC=0.953
+- **Mixed segments (PB2-HA-NA)**: accuracy=0.854, **F1=0.855**, AUC=0.920
+- **Conserved segments (PB2-PB1-PA)**: accuracy=0.719, **F1=0.753**, AUC=0.750
 
 ---
 

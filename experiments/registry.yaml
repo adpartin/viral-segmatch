@@ -839,3 +839,66 @@ experiments:
   git_commit: c703dce
   log_file: logs/training/train_esm2_frozen_pair_classifier_flu_pb2_ha_na_5ks_20251203_145319.log
   output_dir: models/flu/July_2025/runs/training_flu_pb2_ha_na_5ks_20251203_145319
+- experiment_id: dataset_flu_overfit_5ks_20251204_110830
+  date: '2025-12-04'
+  time: '11:08:30'
+  config_bundle: flu_overfit_5ks
+  stage: dataset
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs.py
+    --config_bundle flu_overfit_5ks --run_output_subdir dataset_flu_overfit_5ks_20251204_110735
+  exit_code: 0
+  status: success
+  git_commit: ada1e48
+  log_file: logs/datasets/dataset_segment_pairs_flu_overfit_5ks_20251204_110735.log
+- experiment_id: training_flu_overfit_5ks_20251204_111325
+  date: '2025-12-04'
+  time: '11:13:25'
+  config_bundle: flu_overfit_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_overfit_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_5ks_20251204_110735
+    --run_output_subdir training_flu_overfit_5ks_20251204_111022
+  exit_code: 0
+  status: success
+  git_commit: ada1e48
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_overfit_5ks_20251204_111022.log
+  output_dir: models/flu/July_2025/runs/training_flu_overfit_5ks_20251204_111022
+- experiment_id: training_flu_overfit_5ks_20251204_115011
+  date: '2025-12-04'
+  time: '11:50:11'
+  config_bundle: flu_overfit_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_overfit_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_5ks_20251204_110735
+    --run_output_subdir training_flu_overfit_5ks_20251204_114548
+  exit_code: 0
+  status: success
+  git_commit: ada1e48
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_overfit_5ks_20251204_114548.log
+  output_dir: models/flu/July_2025/runs/training_flu_overfit_5ks_20251204_114548
+- experiment_id: training_flu_overfit_5ks_20251204_121749
+  date: '2025-12-04'
+  time: '12:17:49'
+  config_bundle: flu_overfit_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_overfit_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_5ks_20251204_110735
+    --run_output_subdir training_flu_overfit_5ks_20251204_121335
+  exit_code: 0
+  status: success
+  git_commit: ada1e48
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_overfit_5ks_20251204_121335.log
+  output_dir: models/flu/July_2025/runs/training_flu_overfit_5ks_20251204_121335
+- experiment_id: training_flu_overfit_5ks_20251204_122435
+  date: '2025-12-04'
+  time: '12:24:35'
+  config_bundle: flu_overfit_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_overfit_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_5ks_20251204_110735
+    --run_output_subdir training_flu_overfit_5ks_20251204_122021
+  exit_code: 0
+  status: success
+  git_commit: ada1e48
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_overfit_5ks_20251204_122021.log
+  output_dir: models/flu/July_2025/runs/training_flu_overfit_5ks_20251204_122021
