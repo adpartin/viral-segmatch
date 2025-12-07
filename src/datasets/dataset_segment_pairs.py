@@ -495,6 +495,25 @@ def split_dataset_v2(
     else:
         print(f"   ✅ No pair_key overlap detected. Train, Val, Test are mutually exclusive on pair_key.")
 
+    # Shuffle training labels if requested (for sanity tests)
+    if SHUFFLE_TRAIN_LABELS:
+        shuffle_seed = SHUFFLE_TRAIN_LABELS_SEED if SHUFFLE_TRAIN_LABELS_SEED is not None else RANDOM_SEED
+        print(f"\n🔄 Shuffling training labels (seed: {shuffle_seed})...")
+        print(f"   Original train label distribution: {train_pairs['label'].value_counts().to_dict()}")
+        
+        # Use a separate RandomState to avoid affecting global numpy random state
+        # This preserves reproducibility of other operations that rely on the global seed
+        rng = np.random.RandomState(shuffle_seed)
+        shuffled_indices = rng.permutation(len(train_pairs))
+        
+        # Replace labels in train_pairs using shuffled indices
+        train_pairs = train_pairs.copy()
+        train_pairs['label'] = train_pairs['label'].iloc[shuffled_indices].values
+        
+        print(f"   Shuffled train label distribution: {train_pairs['label'].value_counts().to_dict()}")
+        print(f"   ⚠️  WARNING: Training labels have been shuffled! Val/Test labels remain unchanged.")
+        print(f"   This is a sanity test - model should not generalize if labels are random.")
+
     # Compute and log dataset stats
     total_pairs = len(train_pairs) + len(val_pairs) + len(test_pairs)
     print(f'\nTotal pairs: {total_pairs}')
@@ -615,6 +634,8 @@ MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
 MAX_ISOLATES_TO_PROCESS = getattr(config.dataset, 'max_isolates_to_process', None)
+SHUFFLE_TRAIN_LABELS = getattr(config.dataset, 'shuffle_train_labels', False)
+SHUFFLE_TRAIN_LABELS_SEED = getattr(config.dataset, 'shuffle_train_labels_seed', None)
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")

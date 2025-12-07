@@ -16,3 +16,7 @@ max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs; no
 # Train/validation/test split ratios
 train_ratio: 0.8  # 80% for training
 val_ratio: 0.1    # 10% for validation (test gets remaining 10%)
+
+# Label shuffling (for sanity tests)
+shuffle_train_labels: false  # If true, randomly shuffle training labels (val/test unchanged)
+shuffle_train_labels_seed: null  # Seed for label shuffling (null = use RANDOM_SEED)

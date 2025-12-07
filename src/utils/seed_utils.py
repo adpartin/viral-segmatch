@@ -32,7 +32,7 @@ Example usage:
 
 import hashlib
 import random
-from typing import Dict, Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch
@@ -68,7 +68,7 @@ def get_process_seed(master_seed: int, process_name: str) -> int:
     return int(seed_hash[:8], 16) % (2**32)
 
 
-def get_all_process_seeds(master_seed: int, process_names: list[str]) -> Dict[str, int]:
+def get_all_process_seeds(master_seed: int, process_names: list[str]) -> dict[str, int]:
     """
     Generate seeds for multiple processes from the master seed.
     
@@ -157,9 +157,9 @@ def parse_override_seed(override_string: str) -> tuple[str, int]:
 
 
 def apply_seed_overrides(
-    config_seeds: Dict[str, Optional[int]], 
+    config_seeds: dict[str, Optional[int]],
     override_seeds: list[str]
-) -> Dict[str, int]:
+    ) -> dict[str, int]:
     """
     Apply custom seed overrides to configuration seeds.
     
@@ -211,7 +211,7 @@ STANDARD_PROCESSES = [
 ]
 
 
-def print_seed_summary(master_seed: int, process_seeds: Dict[str, int]) -> None:
+def print_seed_summary(master_seed: int, process_seeds: dict[str, int]) -> None:
     """
     Print a summary of all seeds being used.
     
