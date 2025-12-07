@@ -902,3 +902,52 @@ experiments:
   git_commit: ada1e48
   log_file: logs/training/train_esm2_frozen_pair_classifier_flu_overfit_5ks_20251204_122021.log
   output_dir: models/flu/July_2025/runs/training_flu_overfit_5ks_20251204_122021
+- experiment_id: dataset_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_110702
+  date: '2025-12-05'
+  time: '11:07:02'
+  config_bundle: flu_pb2_pb1_pa_5ks_label_shuffle
+  stage: dataset
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs.py
+    --config_bundle flu_pb2_pb1_pa_5ks_label_shuffle --run_output_subdir dataset_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_110630
+  exit_code: 0
+  status: success
+  git_commit: 9740cfa
+  log_file: logs/datasets/dataset_segment_pairs_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_110630.log
+- experiment_id: training_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_111502
+  date: '2025-12-05'
+  time: '11:15:02'
+  config_bundle: flu_pb2_pb1_pa_5ks_label_shuffle
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_pb2_pb1_pa_5ks_label_shuffle --cuda_name cuda:7 --dataset_dir
+    data/datasets/flu/July_2025/runs/dataset_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_110630
+    --run_output_subdir training_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_111204
+  exit_code: 0
+  status: success
+  git_commit: 9740cfa
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_111204.log
+  output_dir: models/flu/July_2025/runs/training_flu_pb2_pb1_pa_5ks_label_shuffle_20251205_111204
+- experiment_id: dataset_bunya_20251205_131742
+  date: '2025-12-05'
+  time: '13:17:42'
+  config_bundle: bunya
+  stage: dataset
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs.py
+    --config_bundle bunya --run_output_subdir dataset_bunya_20251205_131734
+  exit_code: 0
+  status: success
+  git_commit: 9740cfa
+  log_file: logs/datasets/dataset_segment_pairs_bunya_20251205_131734.log
+- experiment_id: training_bunya_20251205_132008
+  date: '2025-12-05'
+  time: '13:20:08'
+  config_bundle: bunya
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle bunya --cuda_name cuda:0 --dataset_dir data/datasets/bunya/April_2025/runs/dataset_bunya_20251205_131734
+    --run_output_subdir training_bunya_20251205_131827
+  exit_code: 0
+  status: success
+  git_commit: 9740cfa
+  log_file: logs/training/train_esm2_frozen_pair_classifier_bunya_20251205_131827.log
+  output_dir: models/bunya/April_2025/runs/training_bunya_20251205_131827

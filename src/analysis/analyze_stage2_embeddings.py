@@ -10,8 +10,8 @@ Output directory: results/{virus_name}/{data_version}/embeddings_analysis/
 
 Usage:
     python src/analysis/analyze_stage2_embeddings.py --virus bunya --data_version April_2025
-    python src/analysis/analyze_stage2_embeddings.py --virus flu_a --data_version July_2025
-    python src/analysis/analyze_stage2_embeddings.py --virus flu_a --data_version July_2025 --embeddings_file /path/to/embeddings.h5
+    python src/analysis/analyze_stage2_embeddings.py --virus flu --data_version July_2025
+    python src/analysis/analyze_stage2_embeddings.py --virus flu --data_version July_2025 --embeddings_file /path/to/embeddings.h5
 """
 
 import argparse
@@ -228,7 +228,7 @@ def analyze_sequence_lengths():
 
 def load_embeddings_for_analysis(protein_subset_df, max_proteins=1000):
     """Load embeddings for analysis (subsample if too large for memory).
-    
+
     Handles both master format (emb dataset + parquet index) and 
     legacy format (brc_id as keys directly).
     """
