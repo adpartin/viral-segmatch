@@ -50,13 +50,15 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     print('BASIC CLASSIFICATION METRICS')
     print('='*50)
     
-    f1 = f1_score(y_true, y_pred, average='binary')
+    f1 = f1_score(y_true, y_pred, average='binary', pos_label=1)
+    f1_macro = f1_score(y_true, y_pred, average='macro')
     auc = roc_auc_score(y_true, y_prob)
     accuracy = (y_true == y_pred).mean()
     avg_precision = average_precision_score(y_true, y_prob)
     
     print(f'Accuracy: {accuracy:.3f}')
-    print(f'F1 Score: {f1:.3f}')
+    print(f'F1 Score (binary): {f1:.3f}')
+    print(f'F1 Score (macro): {f1_macro:.3f}')
     print(f'AUC-ROC:  {auc:.3f}')
     print(f'Average Precision: {avg_precision:.3f}')
     
@@ -69,6 +71,7 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     return {
         'accuracy': accuracy,
         'f1_score': f1,
+        'f1_macro': f1_macro,
         'auc_roc': auc,
         'avg_precision': avg_precision
     }

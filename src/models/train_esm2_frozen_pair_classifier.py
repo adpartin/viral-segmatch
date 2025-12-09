@@ -20,7 +20,7 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import (
     f1_score, roc_auc_score, classification_report,
-    precision_recall_curve
+    precision_recall_curve, precision_score, recall_score
 )
 
 import torch
@@ -353,9 +353,15 @@ def train_model(
     history = {
         'train_loss': [],
         'val_loss': [],
-        'train_f1': [],  # Add training F1 for overfitting analysis
-        'train_auc': [],  # Add training AUC for overfitting analysis
-        'val_f1': [],
+        'train_f1': [],  # F1 for positive class (same isolate) - binary
+        'train_f1_macro': [],  # F1 macro (average of both classes)
+        'train_precision': [],  # Precision for positive class (measures FP)
+        'train_recall': [],  # Recall for positive class (measures FN)
+        'train_auc': [],
+        'val_f1': [],  # F1 for positive class (same isolate) - binary
+        'val_f1_macro': [],  # F1 macro (average of both classes)
+        'val_precision': [],  # Precision for positive class (measures FP)
+        'val_recall': [],  # Recall for positive class (measures FN)
         'val_auc': [],
         'learning_rate': []  # Track learning rate over epochs
     }
@@ -406,7 +412,12 @@ def train_model(
                 train_labels.extend(batch_y.cpu().numpy())
         train_preds = np.array(train_preds)
         train_probs = np.array(train_probs)
-        train_f1 = f1_score(train_labels, train_preds)
+        # Compute metrics for positive class (label=1, same isolate)
+        # Explicit parameters: average='binary', pos_label=1
+        train_f1 = f1_score(train_labels, train_preds, average='binary', pos_label=1)
+        train_f1_macro = f1_score(train_labels, train_preds, average='macro')
+        train_precision = precision_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
+        train_recall = recall_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
         train_auc = roc_auc_score(train_labels, train_probs)
 
         model.eval()
@@ -424,7 +435,12 @@ def train_model(
         val_loss /= len(val_loader.dataset)
         val_preds = np.array(val_preds)
         val_probs = np.array(val_probs)
-        val_f1 = f1_score(val_labels, val_preds)
+        # Compute metrics for positive class (label=1, same isolate)
+        # Explicit parameters: average='binary', pos_label=1
+        val_f1 = f1_score(val_labels, val_preds, average='binary', pos_label=1)
+        val_f1_macro = f1_score(val_labels, val_preds, average='macro')
+        val_precision = precision_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
+        val_recall = recall_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         val_auc = roc_auc_score(val_labels, val_probs)
 
         # Select metric value for early stopping
@@ -450,14 +466,22 @@ def train_model(
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
         history['train_f1'].append(train_f1)
+        history['train_f1_macro'].append(train_f1_macro)
+        history['train_precision'].append(train_precision)
+        history['train_recall'].append(train_recall)
         history['train_auc'].append(train_auc)
         history['val_f1'].append(val_f1)
+        history['val_f1_macro'].append(val_f1_macro)
+        history['val_precision'].append(val_precision)
+        history['val_recall'].append(val_recall)
         history['val_auc'].append(val_auc)
         history['learning_rate'].append(current_lr)
         
-        print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Train F1: {train_f1:.4f}, '\
-              f'Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}, '\
-              f'Val AUC: {val_auc:.4f} [{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
+        # Print simplified metrics (all metrics still saved to history/CSV)
+        print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
+              f'Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}, '
+              f'Train AUC: {train_auc:.4f}, Val AUC: {val_auc:.4f} '
+              f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
 
         # Check if current metric is better than best
         is_better = False
@@ -487,8 +511,14 @@ def train_model(
             'train_loss': history['train_loss'],
             'val_loss': history['val_loss'],
             'train_f1': history.get('train_f1', [None] * len(history['train_loss'])),
-            'val_f1': history.get('val_f1', [None] * len(history['train_loss'])),
+            'train_f1_macro': history.get('train_f1_macro', [None] * len(history['train_loss'])),
+            'train_precision': history.get('train_precision', [None] * len(history['train_loss'])),
+            'train_recall': history.get('train_recall', [None] * len(history['train_loss'])),
             'train_auc': history.get('train_auc', [None] * len(history['train_loss'])),
+            'val_f1': history.get('val_f1', [None] * len(history['train_loss'])),
+            'val_f1_macro': history.get('val_f1_macro', [None] * len(history['train_loss'])),
+            'val_precision': history.get('val_precision', [None] * len(history['train_loss'])),
+            'val_recall': history.get('val_recall', [None] * len(history['train_loss'])),
             'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
             'learning_rate': history.get('learning_rate', [None] * len(history['train_loss']))
         })
@@ -506,8 +536,10 @@ def train_model(
         print('='*60)
         print(f"Initial train loss: {history['train_loss'][0]:.4f}")
         print(f"Final train loss: {history['train_loss'][-1]:.4f}")
-        print(f"Initial val F1: {history['val_f1'][0]:.4f}")
-        print(f"Best val F1: {max(history['val_f1']):.4f}")
+        print(f"Initial val F1 (binary): {history['val_f1'][0]:.4f}")
+        print(f"Best val F1 (binary): {max(history['val_f1']):.4f}")
+        if 'val_f1_macro' in history and len(history['val_f1_macro']) > 0:
+            print(f"Best val F1 (macro): {max(history['val_f1_macro']):.4f}")
         print(f"Baseline (majority class) F1: {baseline_metrics['majority_f1']:.4f}")
         if max(history['val_f1']) > baseline_metrics['majority_f1']:
             print("✅ Model learned! (F1 > baseline)")
@@ -570,7 +602,12 @@ def evaluate_model(
     test_probs = np.array(test_probs)
     test_preds = np.array(test_preds)
     test_labels = np.array(test_labels)
-    test_f1 = f1_score(test_labels, test_preds)
+    # Compute metrics for positive class (label=1, same isolate)
+    # Explicit parameters: average='binary', pos_label=1
+    test_f1 = f1_score(test_labels, test_preds, average='binary', pos_label=1)
+    test_f1_macro = f1_score(test_labels, test_preds, average='macro')
+    test_precision = precision_score(test_labels, test_preds, average='binary', pos_label=1, zero_division=0)
+    test_recall = recall_score(test_labels, test_preds, average='binary', pos_label=1, zero_division=0)
     test_auc = roc_auc_score(test_labels, test_probs)
 
     # Classification report
@@ -582,8 +619,11 @@ def evaluate_model(
     test_res_df['pred_label'] = test_preds
     test_res_df['pred_prob'] = test_probs
 
-    print(f'Test Loss: {test_loss:.4f}, Test F1: {test_f1:.4f}, Test AUC: {test_auc:.4f}')
+    print(f'Test Loss: {test_loss:.4f}, Test F1 (binary): {test_f1:.4f}, Test F1 (macro): {test_f1_macro:.4f}')
+    print(f'Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}, Test AUC: {test_auc:.4f}')
     print(f'Using threshold: {threshold:.4f}')
+    print(f'Note: Precision measures False Positives (FP), Recall measures False Negatives (FN)')
+    print(f'      F1 (binary) focuses on positive class, F1 (macro) averages both classes')
     return test_res_df
 
 

@@ -41,12 +41,21 @@ def create_performance_summary_plot(df: pd.DataFrame, results_dir: Path) -> None
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
 
     # 1. Overall metrics bar chart - read from metrics.csv
+    # Note: All metrics are computed on the TEST set (from test_predicted.csv)
     metrics_csv = results_dir / 'metrics.csv'
     if metrics_csv.exists():
         metrics_df = pd.read_csv(metrics_csv)
+        # Try to get f1_macro, fallback to computing if not available
+        if 'f1_macro' in metrics_df.columns:
+            f1_macro = metrics_df.iloc[0]['f1_macro']
+        else:
+            # Compute from test set if not in CSV (for backward compatibility)
+            f1_macro = f1_score(df['label'], df['pred_label'], average='macro')
+            print(f"   Note: f1_macro not in metrics.csv, computed from test set: {f1_macro:.4f}")
         values = [
             metrics_df.iloc[0]['accuracy'],
             metrics_df.iloc[0]['f1_score'],
+            f1_macro,
             metrics_df.iloc[0]['auc_roc'],
             metrics_df.iloc[0]['avg_precision']
         ]
@@ -54,13 +63,14 @@ def create_performance_summary_plot(df: pd.DataFrame, results_dir: Path) -> None
         # Fallback: compute from dataframe if metrics.csv doesn't exist
         values = [
             accuracy_score(df['label'], df['pred_label']),
-            f1_score(df['label'], df['pred_label']),
+            f1_score(df['label'], df['pred_label'], average='binary', pos_label=1),
+            f1_score(df['label'], df['pred_label'], average='macro'),
             roc_auc_score(df['label'], df['pred_prob']),
             average_precision_score(df['label'], df['pred_prob'])
         ]
     
-    metrics = ['Accuracy', 'F1 Score', 'AUC-ROC', 'Avg Precision']
-    colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D']
+    metrics = ['Accuracy', 'F1 Score', 'F1 Macro', 'AUC-ROC', 'Avg Precision']
+    colors = ['#2E86AB', '#A23B72', '#6A4C93', '#F18F01', '#C73E1D']
 
     bars = ax1.bar(metrics, values, color=colors, alpha=0.8)
     ax1.set_ylim(0, 1)

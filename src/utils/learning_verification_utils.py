@@ -93,12 +93,12 @@ def compute_baseline_metrics(val_labels, random_seed=42):
     # Random classifier (predict randomly)
     np.random.seed(random_seed)  # For reproducibility
     random_preds = np.random.randint(0, 2, size=n_samples)
-    random_f1 = f1_score(val_labels, random_preds)
+    random_f1 = f1_score(val_labels, random_preds, average='binary', pos_label=1)
     
     # Majority class classifier
     majority_class = 1 if n_positive > n_negative else 0
     majority_preds = np.full(n_samples, majority_class)
-    majority_f1 = f1_score(val_labels, majority_preds)
+    majority_f1 = f1_score(val_labels, majority_preds, average='binary', pos_label=1)
     majority_acc = (val_labels == majority_preds).mean()
     
     return {
