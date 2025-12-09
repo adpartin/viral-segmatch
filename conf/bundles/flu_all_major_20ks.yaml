@@ -1,6 +1,6 @@
-# Flu bundle - HA and NA proteins only (variable segments)
-# Experiment: Test conservation hypothesis - these should perform better
-# Isolates: 1K, no same-function negatives
+# Flu Overfitting Capacity Test Bundle
+# Purpose: Test if model can overfit a very small dataset (Karpathy's capacity test)
+# Based on: https://karpathy.github.io/2019/04/25/recipe/
 defaults:
   - /virus: flu
   - /paths: flu
@@ -31,8 +31,14 @@ process_seeds:
 # ====================================================================
 virus:
   selected_functions:
-    - "Hemagglutinin precursor"  # HA0 (Segment 4)
-    - "Neuraminidase protein"  # NA (Segment 6)
+    - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 (Segment 1)
+    - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 (Segment 2)
+    - "RNA-dependent RNA polymerase PA subunit"  # PA (Segment 3)
+    - 'Hemagglutinin precursor'  # HA0 (Segment 4)
+    - 'Nucleocapsid protein'  # NP (Segment 5)
+    - 'Neuraminidase protein'  # NA (Segment 6)
+    - 'Matrix protein 1'  # M1 (Segment 7)
+    - 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor'  # NS1 (Segment 8) - INCLUDE in modeling!
 
 # ====================================================================
 # MODEL AND DATASET OVERRIDES
@@ -41,15 +47,17 @@ virus:
 embeddings:
   batch_size: 96
 
-# Dataset overrides
+# Dataset overrides - VERY SMALL for overfitting test
 dataset:
   use_selected_only: true  # Use selected_functions (a subset of protein functions)
-  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 1.0
+  neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 3.0
   allow_same_func_negatives: false  # Whether to allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs
-  max_isolates_to_process: 5000  # null = full dataset, or set to 100, 500, etc.
+  max_isolates_to_process: 20000  # null = full dataset, or set to 100, 500, etc.
+  train_ratio: 0.8
+  val_ratio: 0.1
 
-# Training overrides
+# Training overrides - Many epochs, NO early stopping, NO regularization
 training:
   # epochs: 35
   patience: 15  # Early stopping

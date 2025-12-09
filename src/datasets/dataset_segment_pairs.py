@@ -1,4 +1,51 @@
 """
+TODO: 
+Add more stats and save.
+dataset_stats = {
+    'split_sizes': {
+        'train': {
+            'pairs': len(train_pairs),
+            'isolates': len(set(train_pairs['assembly_id_a']).union(set(train_pairs['assembly_id_b']))),
+            'positive_pairs': int(train_pairs['label'].sum()),
+            'negative_pairs': int((train_pairs['label'] == 0).sum()),
+            'positive_ratio': float(train_pairs['label'].mean()),
+        },
+        'val': {
+            'pairs': len(val_pairs),
+            'isolates': len(set(val_pairs['assembly_id_a']).union(set(val_pairs['assembly_id_b']))),
+            'positive_pairs': int(val_pairs['label'].sum()),
+            'negative_pairs': int((val_pairs['label'] == 0).sum()),
+            'positive_ratio': float(val_pairs['label'].mean()),
+        },
+        'test': {
+            'pairs': len(test_pairs),
+            'isolates': len(set(test_pairs['assembly_id_a']).union(set(test_pairs['assembly_id_b']))),
+            'positive_pairs': int(test_pairs['label'].sum()),
+            'negative_pairs': int((test_pairs['label'] == 0).sum()),
+            'positive_ratio': float(test_pairs['label'].mean()),
+        },
+    },
+    'total': {
+        'pairs': len(train_pairs) + len(val_pairs) + len(test_pairs),
+        'isolates': len(df['assembly_id'].unique()),
+    },
+    'co_occurrence_blocking': {
+        'total_cooccur_pairs': cooccur_stats['total_cooccur_pairs'],
+        'pairs_in_multiple_isolates': cooccur_stats['pairs_in_multiple_isolates'],
+        'max_isolates_per_pair': cooccur_stats['max_isolates_per_pair'],
+        'train_blocked': train_reject_stats['blocked_cooccur'],
+        'val_blocked': val_reject_stats['blocked_cooccur'],
+        'test_blocked': test_reject_stats['blocked_cooccur'],
+        'total_blocked': (train_reject_stats['blocked_cooccur'] + 
+                          val_reject_stats['blocked_cooccur'] + 
+                          test_reject_stats['blocked_cooccur']),
+    },
+}
+with open(output_dir / 'dataset_stats.json', 'w') as f:
+    json.dump(dataset_stats, f, indent=2)
+print(f"Saved comprehensive dataset statistics to: {output_dir / 'dataset_stats.json'}")
+
+
 Key columns:
 - assembly_id: identifies isolates
 - canonical_segment: maps each protein to segments: L / M / S 
@@ -50,7 +97,7 @@ total_timer = Timer()
 
 def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
     """Create a canonical pair key from two sequence hashes.
-    
+
     Ensures consistent ordering so (a, b) and (b, a) produce the same key.
     """
     return "__".join(sorted([seq_hash_a, seq_hash_b]))
@@ -59,16 +106,35 @@ def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
 def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
     """Build a set of all sequence pairs that co-occur in any isolate.
 
-    These pairs could be labeled as positive (same isolate), so they should NOT
-    be used as negative pairs to avoid contradictory labels.
+    Two sequences "co-occur" if they appear together in the same isolate (same assembly_id).
+    For example, if PB2 sequence A and PB1 sequence B both appear in isolate X, they co-occur.
+
+    Purpose: Prevent contradictory labels in the dataset.
+    - If sequences (A, B) co-occur in isolate X, they form a positive pair (same isolate).
+    - If we then use (A, B) from different isolates as a negative pair, we have a contradiction:
+      * They co-occurred in isolate X → positive label
+      * But we're labeling them as "not from same isolate" → negative label
+    - Solution: Block all pairs that co-occur in ANY isolate from being used as negatives.
+
+    This function identifies all such pairs by iterating through each isolate and recording
+    all sequence pairs that appear together within that isolate.
 
     Args:
-        df: DataFrame with protein data containing 'assembly_id', 'prot_seq', 'seq_hash'
+        df: DataFrame with protein data. Must contain columns:
+            - 'assembly_id': Isolate identifier
+            - 'seq_hash': Unique hash for each protein sequence
+            - 'prot_seq': Protein sequence (optional, for reference)
 
     Returns:
         Tuple of:
-        - cooccur_pairs: Set of canonical pair keys (seq_hash pairs) that co-occur
-        - cooccur_stats: Dict with statistics about co-occurrence
+        - cooccur_pairs: Set of canonical pair keys (format: "seq_hash_a__seq_hash_b")
+          representing all sequence pairs that co-occur in at least one isolate.
+          These pairs should be blocked when creating negative pairs.
+        - cooccur_stats: Dict with statistics:
+            - 'total_cooccur_pairs': Total number of unique co-occurring pairs
+            - 'max_isolates_per_pair': Maximum number of isolates a single pair appears in
+            - 'pairs_in_multiple_isolates': Count of pairs that appear in >1 isolate
+            - 'isolate_pair_counts': Dict mapping pair_key -> number of isolates it appears in
     """
     cooccur_pairs = set()
     isolate_pair_counts = {}  # Track how many isolates each pair appears in
@@ -98,7 +164,7 @@ def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
         'pairs_in_multiple_isolates': sum(1 for c in isolate_pair_counts.values() if c > 1),
         'isolate_pair_counts': isolate_pair_counts  # Full mapping for detailed analysis
     }
-    
+
     return cooccur_pairs, cooccur_stats
 
 
@@ -108,11 +174,11 @@ def create_positive_pairs(
     ) -> pd.DataFrame:
     """ Create positive protein pairs (within-isolate and cross-function).
     For example, creates pairs within an isolate: RdRp-GPC, RdRp-N, GPC-N
-    
+
     Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
     Uses combinations (instead of permutations) to create positive pairs to
     avoid duplicates that stem from symmetric pairs.
-    
+
     Each pair gets a canonical pair_key based on sequence hashes for:
     1. Deduplication across isolates (same sequences in different isolates)
     2. Preventing data leakage during train/test split
@@ -293,42 +359,41 @@ def create_negative_pairs(
 
 def compute_isolate_pair_counts(
     df: pd.DataFrame,
-    use_core_proteins_only: bool = True,
     verbose: bool = False,
     ) -> dict:
-    """ Compute positive pair counts per isolate, validating ≤3 core proteins
-    if use_core_proteins_only=True.
+    """Compute positive pair counts per isolate for stratified splitting.
+    
+    Counts how many positive pairs (cross-function pairs within the same isolate)
+    can be generated from each isolate. This is used to stratify isolates by
+    positive pair count for balanced train/val/test splits.
+    
+    Note: Data filtering (e.g., by selected_functions) should be done before
+    calling this function. This function does not validate data quality.
+    
+    Args:
+        df: DataFrame with protein data, already filtered to desired functions
+        verbose: If True, print detailed information per isolate
+    
+    Returns:
+        Dict mapping assembly_id -> number of positive pairs that can be generated
     """
     isolate_pos_counts = {} # pos pairs that will originate from this isolate
 
     for aid, grp in df.groupby('assembly_id'): # isolates
         n_proteins = len(grp)
 
-        # Validate: ≤3 core proteins per isolate (L, M, S) if use_core_proteins_only=True
-        if use_core_proteins_only and n_proteins > 3:
-            files = grp['file'].unique()
-            functions = grp['function'].tolist()
-            segments = grp['canonical_segment'].tolist()
-            print(f"Warning: assembly_id {aid} has {n_proteins} core proteins, expected ≤3.")
-            print(f"Files: {files}")
-            print(f"Functions: {functions}")
-            print(f"Segments: {segments}")
-            raise ValueError(f"assembly_id {aid} has >3 core proteins.")
-
         if verbose:
-            print(f"assembly_id {aid}: {n_proteins} {'core' if use_core_proteins_only else 'total'} proteins, Functions: {grp['function'].tolist()}")
+            print(f"assembly_id {aid}: {n_proteins} proteins, Functions: {grp['function'].tolist()}")
 
         if n_proteins < 2:
+            # Need at least 2 proteins to form a pair
             isolate_pos_counts[aid] = 0
         else:
             # Get all possible protein pairs within the isolate (by definition these are pos pairs)
             pairs = list(combinations(grp.itertuples(), 2))
             # Count all possible protein pairs that have different functions
+            # (same-function pairs within an isolate are not used as positive pairs)
             pos_count = sum(1 for row_a, row_b in pairs if row_a.function != row_b.function)
-            if use_core_proteins_only and pos_count > 3:
-                print(f"Error: assembly_id {aid} has {pos_count} positive pairs, expected ≤3.")
-                print(f"Proteins: {grp[['brc_fea_id', 'function', 'canonical_segment']]}")
-                raise ValueError(f"assembly_id {aid} has >3 positive pairs.")            
             isolate_pos_counts[aid] = pos_count
 
     return isolate_pos_counts
@@ -341,7 +406,6 @@ def split_dataset_v2(
     max_same_func_ratio: float = 0.5,
     hard_partition_isolates: bool = True,
     hard_partition_duplicates: bool = False,
-    use_core_proteins_only: bool = True,
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     seed: int = 42,
@@ -373,7 +437,7 @@ def split_dataset_v2(
     print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
 
     # Compute positive pair counts per isolate
-    isolate_pos_counts = compute_isolate_pair_counts(df, use_core_proteins_only)
+    isolate_pos_counts = compute_isolate_pair_counts(df)
 
     # Stratify isolates by positive pair counts
     unique_isolates = list(df['assembly_id'].unique())
@@ -472,6 +536,10 @@ def split_dataset_v2(
     val_pair_keys = set(val_pairs['pair_key'])
     test_pair_keys = set(test_pairs['pair_key'])
     
+    # Store original sizes before removal (for percentage calculations)
+    val_pairs_before = len(val_pairs)
+    test_pairs_before = len(test_pairs)
+    
     train_val_key_overlap = train_pair_keys & val_pair_keys
     train_test_key_overlap = train_pair_keys & test_pair_keys
     val_test_key_overlap = val_pair_keys & test_pair_keys
@@ -479,10 +547,15 @@ def split_dataset_v2(
     total_key_overlap = len(train_val_key_overlap) + len(train_test_key_overlap) + len(val_test_key_overlap)
     
     if total_key_overlap > 0:
+        # Calculate percentages
+        train_val_pct = (len(train_val_key_overlap) / val_pairs_before * 100) if val_pairs_before > 0 else 0
+        train_test_pct = (len(train_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
+        val_test_pct = (len(val_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
+        
         print(f"   ⚠️ WARNING: Found {total_key_overlap} overlapping pair_keys across splits!")
-        print(f"      Train-Val overlap: {len(train_val_key_overlap)}")
-        print(f"      Train-Test overlap: {len(train_test_key_overlap)}")
-        print(f"      Val-Test overlap: {len(val_test_key_overlap)}")
+        print(f"      Train-Val overlap: {len(train_val_key_overlap)} ({train_val_pct:.2f}% of val set)")
+        print(f"      Train-Test overlap: {len(train_test_key_overlap)} ({train_test_pct:.2f}% of test set)")
+        print(f"      Val-Test overlap: {len(val_test_key_overlap)} ({val_test_pct:.2f}% of test set)")
         print(f"   These represent sequence pairs that appear in isolates assigned to different splits.")
         print(f"   This can cause data leakage. Consider re-splitting or deduplicating by pair_key.")
         
@@ -491,7 +564,14 @@ def split_dataset_v2(
         print(f"   Removing overlapping pairs from val and test sets...")
         val_pairs = val_pairs[~val_pairs['pair_key'].isin(train_val_key_overlap | val_test_key_overlap)]
         test_pairs = test_pairs[~test_pairs['pair_key'].isin(train_test_key_overlap | val_test_key_overlap)]
-        print(f"   After removal: Train={len(train_pairs)}, Val={len(val_pairs)}, Test={len(test_pairs)}")
+        
+        # Calculate removal percentages
+        val_removed = val_pairs_before - len(val_pairs)
+        test_removed = test_pairs_before - len(test_pairs)
+        val_removed_pct = (val_removed / val_pairs_before * 100) if val_pairs_before > 0 else 0
+        test_removed_pct = (test_removed / test_pairs_before * 100) if test_pairs_before > 0 else 0
+        
+        print(f"   After removal: Train={len(train_pairs)}, Val={len(val_pairs)} (removed {val_removed}, {val_removed_pct:.2f}%), Test={len(test_pairs)} (removed {test_removed}, {test_removed_pct:.2f}%)")
     else:
         print(f"   ✅ No pair_key overlap detected. Train, Val, Test are mutually exclusive on pair_key.")
 
@@ -575,15 +655,32 @@ def split_dataset_v2(
           f"({test_pairs['label'].sum()/len(test_pairs)*100:.2f}% of the set)")
 
     # Compile duplicate/rejection statistics for saving
+    # Use stored original sizes for percentage calculations
     duplicate_stats = {
         'cooccur_stats': cooccur_stats,
         'train_reject_stats': train_reject_stats,
         'val_reject_stats': val_reject_stats,
         'test_reject_stats': test_reject_stats,
         'pair_key_overlaps': {
-            'train_val': len(train_val_key_overlap),
-            'train_test': len(train_test_key_overlap),
-            'val_test': len(val_test_key_overlap),
+            'train_val': {
+                'count': len(train_val_key_overlap),
+                'pct_of_val': (len(train_val_key_overlap) / val_pairs_before * 100) if val_pairs_before > 0 else 0,
+            },
+            'train_test': {
+                'count': len(train_test_key_overlap),
+                'pct_of_test': (len(train_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
+            },
+            'val_test': {
+                'count': len(val_test_key_overlap),
+                'pct_of_test': (len(val_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
+            },
+            'total_overlap': total_key_overlap,
+            'val_pairs_before_removal': val_pairs_before,
+            'test_pairs_before_removal': test_pairs_before,
+            'val_pairs_after_removal': len(val_pairs),
+            'test_pairs_after_removal': len(test_pairs),
+            'val_removed_pct': ((val_pairs_before - len(val_pairs)) / val_pairs_before * 100) if val_pairs_before > 0 else 0,
+            'test_removed_pct': ((test_pairs_before - len(test_pairs)) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
         }
     }
 
@@ -790,7 +887,6 @@ train_pairs, val_pairs, test_pairs, duplicate_stats = split_dataset_v2(
     max_same_func_ratio=max_same_func_ratio,
     hard_partition_isolates=hard_partition_isolates,
     hard_partition_duplicates=hard_partition_duplicates,
-    use_core_proteins_only=USE_SELECTED_ONLY,
     train_ratio=TRAIN_RATIO,
     val_ratio=VAL_RATIO,
     seed=RANDOM_SEED,

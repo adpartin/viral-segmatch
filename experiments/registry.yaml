@@ -951,3 +951,101 @@ experiments:
   git_commit: 9740cfa
   log_file: logs/training/train_esm2_frozen_pair_classifier_bunya_20251205_131827.log
   output_dir: models/bunya/April_2025/runs/training_bunya_20251205_131827
+- experiment_id: dataset_flu_all_major_20251208_091911
+  date: '2025-12-08'
+  time: 09:19:11
+  config_bundle: flu_all_major
+  stage: dataset
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs.py
+    --config_bundle flu_all_major --run_output_subdir dataset_flu_all_major_20251208_091856
+  exit_code: 1
+  status: failed
+  git_commit: 60fde90
+  log_file: logs/datasets/dataset_segment_pairs_flu_all_major_20251208_091856.log
+- experiment_id: dataset_flu_all_major_20251208_095405
+  date: '2025-12-08'
+  time: 09:54:05
+  config_bundle: flu_all_major
+  stage: dataset
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs.py
+    --config_bundle flu_all_major --run_output_subdir dataset_flu_all_major_20251208_095148
+  exit_code: 0
+  status: success
+  git_commit: 60fde90
+  log_file: logs/datasets/dataset_segment_pairs_flu_all_major_20251208_095148.log
+- experiment_id: dataset_flu_all_major_20ks_20251208_095857
+  date: '2025-12-08'
+  time: 09:58:57
+  config_bundle: flu_all_major_20ks
+  stage: dataset
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs.py
+    --config_bundle flu_all_major_20ks --run_output_subdir dataset_flu_all_major_20ks_20251208_095642
+  exit_code: 0
+  status: success
+  git_commit: 60fde90
+  log_file: logs/datasets/dataset_segment_pairs_flu_all_major_20ks_20251208_095642.log
+- experiment_id: training_flu_all_major_20ks_20251208_134627
+  date: '2025-12-08'
+  time: '13:46:27'
+  config_bundle: flu_all_major_20ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_all_major_20ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_all_major_20ks_20251208_095642
+    --run_output_subdir training_flu_all_major_20ks_20251208_101527
+  exit_code: 0
+  status: success
+  git_commit: 60fde90
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_all_major_20ks_20251208_101527.log
+  output_dir: models/flu/July_2025/runs/training_flu_all_major_20ks_20251208_101527
+- experiment_id: training_flu_ha_na_5ks_20251209_125347
+  date: '2025-12-09'
+  time: '12:53:47'
+  config_bundle: flu_ha_na_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_ha_na_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20251203_144953
+    --run_output_subdir training_flu_ha_na_5ks_20251209_125029
+  exit_code: 0
+  status: success
+  git_commit: 60fde90
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_ha_na_5ks_20251209_125029.log
+  output_dir: models/flu/July_2025/runs/training_flu_ha_na_5ks_20251209_125029
+- experiment_id: training_flu_ha_na_5ks_20251209_140731
+  date: '2025-12-09'
+  time: '14:07:31'
+  config_bundle: flu_ha_na_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_ha_na_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20251203_144953
+    --run_output_subdir training_flu_ha_na_5ks_20251209_140412
+  exit_code: 0
+  status: success
+  git_commit: 60fde90
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_ha_na_5ks_20251209_140412.log
+  output_dir: models/flu/July_2025/runs/training_flu_ha_na_5ks_20251209_140412
+- experiment_id: training_flu_ha_na_5ks_20251209_142705
+  date: '2025-12-09'
+  time: '14:27:05'
+  config_bundle: flu_ha_na_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_ha_na_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20251203_144953
+    --run_output_subdir training_flu_ha_na_5ks_20251209_142348
+  exit_code: 0
+  status: success
+  git_commit: 60fde90
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_ha_na_5ks_20251209_142348.log
+  output_dir: models/flu/July_2025/runs/training_flu_ha_na_5ks_20251209_142348
+- experiment_id: training_flu_ha_na_5ks_20251209_145544
+  date: '2025-12-09'
+  time: '14:55:44'
+  config_bundle: flu_ha_na_5ks
+  stage: training
+  command: python /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/models/train_esm2_frozen_pair_classifier.py
+    --config_bundle flu_ha_na_5ks --cuda_name cuda:7 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20251203_144953
+    --run_output_subdir training_flu_ha_na_5ks_20251209_145232
+  exit_code: 0
+  status: success
+  git_commit: 60fde90
+  log_file: logs/training/train_esm2_frozen_pair_classifier_flu_ha_na_5ks_20251209_145232.log
+  output_dir: models/flu/July_2025/runs/training_flu_ha_na_5ks_20251209_145232
