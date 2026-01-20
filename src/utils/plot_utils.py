@@ -4,13 +4,72 @@ Shared plotting utilities for viral-segmatch project.
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from .plot_config import SEGMENT_COLORS, SEGMENT_ORDER
+from pathlib import Path
+from typing import Iterable, Optional, Sequence, Union
+
+from .plot_config import SEGMENT_COLORS, SEGMENT_ORDER, apply_default_style
 
 
-def plot_sequence_length_distribution(df, seq_column='prot_seq', segment_column='canonical_segment', 
-                                     title='Sequence Length Distribution by Segment',
-                                     show_esm2_limit=False, esm2_max_residues=None,
-                                     save_path=None, show_plot=True, figsize=(10, 6)):
+def setup_plot_style(
+    use_seaborn_palette: bool = True,
+    palette: str = 'Set2') -> None:
+    """Apply a consistent plot style across scripts.
+
+    This is a thin wrapper around `plot_config.apply_default_style()` with optional seaborn palette.
+    It's safe to call multiple times.
+    """
+    apply_default_style()
+    if use_seaborn_palette:
+        try:
+            import seaborn as sns
+            sns.set_palette(palette)
+        except Exception:
+            # seaborn is optional for many workflows; don't hard-fail here
+            pass
+
+
+def savefig(
+    path: Union[str, Path],
+    dpi: int = 300,
+    bbox_inches: str = 'tight',
+    facecolor: Optional[str] = 'white',
+    close: bool = True,
+    ) -> Path:
+    """Save the current matplotlib figure with standardized defaults."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(p, dpi=dpi, bbox_inches=bbox_inches, facecolor=facecolor)
+    if close:
+        plt.close()
+    return p
+
+
+def savefig_to_dirs(
+    filename: str,
+    output_dirs: Sequence[Union[str, Path]],
+    dpi: int = 300,
+    bbox_inches: str = 'tight',
+    facecolor: Optional[str] = 'white',
+    close: bool = True,
+    ) -> list[Path]:
+    """Save the current figure to multiple directories (same filename)."""
+    saved: list[Path] = []
+    for d in output_dirs:
+        out_path = Path(d) / filename
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(out_path, dpi=dpi, bbox_inches=bbox_inches, facecolor=facecolor)
+        saved.append(out_path)
+    if close:
+        plt.close()
+    return saved
+
+
+def plot_sequence_length_distribution(
+    df, seq_column='prot_seq',
+    segment_column='canonical_segment', 
+    title='Sequence Length Distribution by Segment',
+    show_esm2_limit=False, esm2_max_residues=None,
+    save_path=None, show_plot=True, figsize=(10, 6)):
     """
     Create a standardized sequence length distribution plot by segment.
     
@@ -78,4 +137,4 @@ def plot_sequence_length_distribution(df, seq_column='prot_seq', segment_column=
     else:
         plt.close()
     
-    return fig 
+    return fig

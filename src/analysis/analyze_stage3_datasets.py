@@ -43,10 +43,18 @@ sys.path.append(str(project_root))
 
 # Import plot configuration and config utilities
 from src.utils.plot_config import (
-    DATASET_COLORS_LIST, SAMPLE_PATTERNS, get_dataset_color, 
+    SPLIT_COLORS_LIST, SAMPLE_PATTERNS, get_split_color, 
     map_protein_name, apply_default_style
 )
 from src.utils.config_hydra import get_virus_config_hydra
+from src.utils.embedding_utils import (
+    load_embedding_index, load_embeddings_by_ids,
+    extract_unique_sequences_from_pairs,
+    sample_sequences_stratified, sample_pairs_stratified,
+    create_pair_embeddings_concatenation,
+    plot_embeddings_by_category, plot_pair_embeddings_by_label
+)
+from src.utils.dim_reduction_utils import compute_pca_reduction
 
 
 def analyze_basic_statistics():
@@ -113,7 +121,7 @@ def create_segment_pair_histograms():
         if len(pos_pairs) > 0:
             segment_counts = pos_pairs['seg_pair'].value_counts()
             bars = ax.bar(segment_counts.index, segment_counts.values, 
-                         color=get_dataset_color(name), alpha=0.8,
+                         color=get_split_color(name), alpha=0.8,
                          hatch=SAMPLE_PATTERNS['positive'])
             ax.set_title(f'{name} - Positive Pairs (Same Isolate)', fontweight='bold')
             ax.set_ylabel('Count')
@@ -134,7 +142,7 @@ def create_segment_pair_histograms():
         if len(neg_pairs) > 0:
             segment_counts = neg_pairs['seg_pair'].value_counts()
             bars = ax.bar(segment_counts.index, segment_counts.values, 
-                         color=get_dataset_color(name), alpha=0.8,
+                         color=get_split_color(name), alpha=0.8,
                          hatch=SAMPLE_PATTERNS['negative'])
             ax.set_title(f'{name} - Negative Pairs (Different Isolates)', fontweight='bold')
             ax.set_ylabel('Count')
@@ -167,7 +175,7 @@ def create_isolate_distribution_plots():
         unique_isolates = set(df['assembly_id_a']).union(set(df['assembly_id_b']))
         isolate_counts.append(len(unique_isolates))
     
-    bars = ax1.bar(datasets, isolate_counts, color=DATASET_COLORS_LIST, alpha=0.8)
+    bars = ax1.bar(datasets, isolate_counts, color=SPLIT_COLORS_LIST, alpha=0.8)
     ax1.set_title('Unique Isolates per Dataset', fontweight='bold', fontsize=14)
     ax1.set_ylabel('Number of Unique Isolates')
     
@@ -181,7 +189,7 @@ def create_isolate_distribution_plots():
     
     # 2. Dataset size distribution
     pair_counts = [len(train_df), len(val_df), len(test_df)]
-    bars = ax2.bar(datasets, pair_counts, color=DATASET_COLORS_LIST, alpha=0.8)
+    bars = ax2.bar(datasets, pair_counts, color=SPLIT_COLORS_LIST, alpha=0.8)
     ax2.set_title('Total Pairs per Dataset', fontweight='bold', fontsize=14)
     ax2.set_ylabel('Number of Pairs')
     
@@ -201,10 +209,10 @@ def create_isolate_distribution_plots():
     width = 0.35
     
     bars_pos = ax3.bar(x - width/2, pos_counts, width, 
-             label='Positive (+)', color=DATASET_COLORS_LIST, alpha=0.8,
+             label='Positive (+)', color=SPLIT_COLORS_LIST, alpha=0.8,
              hatch=SAMPLE_PATTERNS['positive'])
     bars_neg = ax3.bar(x + width/2, neg_counts, width, 
-             label='Negative (-)', color=DATASET_COLORS_LIST, alpha=0.8,
+             label='Negative (-)', color=SPLIT_COLORS_LIST, alpha=0.8,
              hatch=SAMPLE_PATTERNS['negative'])
     
     ax3.set_title('Positive vs Negative Pairs', fontweight='bold', fontsize=14)
@@ -241,7 +249,7 @@ def create_isolate_distribution_plots():
     same_func_rates = [sf/total if total > 0 else 0 
                       for sf, total in zip(same_func_neg_counts, total_neg_counts)]
     
-    bars = ax4.bar(datasets, same_func_rates, color=DATASET_COLORS_LIST, alpha=0.8)
+    bars = ax4.bar(datasets, same_func_rates, color=SPLIT_COLORS_LIST, alpha=0.8)
     ax4.set_title('Same-Function Negative Pair Rate', fontweight='bold', fontsize=14)
     ax4.set_ylabel('Proportion of Negative Pairs')
     ax4.set_ylim(0, 1)
@@ -371,6 +379,250 @@ def create_dataset_summary_table():
     return summary_df
 
 
+def visualize_sequence_embeddings_from_pairs(
+    pairs_df: pd.DataFrame,
+    embeddings_file: Path,
+    split_name: str,
+    metadata_df: pd.DataFrame = None,
+    max_per_segment: int = 1000,
+    results_dir: Path = None
+    ) -> None:
+    """Visualize embeddings of sequences appearing in pairs.
+    
+    Extracts unique sequences from pairs, loads their embeddings, and creates
+    PCA visualization colored by segment/function.
+    
+    Args:
+        pairs_df: DataFrame with 'brc_a' and 'brc_b' columns
+        embeddings_file: Path to master embeddings HDF5
+        split_name: Name of split ('train', 'val', 'test')
+        metadata_df: Optional protein metadata for segment/function info
+        max_per_segment: Maximum sequences per segment for visualization
+        results_dir: Output directory
+    """
+    print(f"\n📊 Visualizing sequence embeddings for {split_name} set...")
+    
+    # Extract unique sequences from pairs
+    unique_seqs = extract_unique_sequences_from_pairs(pairs_df, metadata_df)
+    print(f"   Found {len(unique_seqs)} unique sequences")
+    
+    # Sample with stratified sampling by segment
+    if 'canonical_segment' in unique_seqs.columns:
+        sampled_seqs = sample_sequences_stratified(
+            unique_seqs,
+            max_per_segment=max_per_segment,
+            segment_col='canonical_segment'
+        )
+        print(f"   Sampled {len(sampled_seqs)} sequences (stratified by segment)")
+    else:
+        # If no segment info, just sample overall
+        if len(unique_seqs) > max_per_segment * 2:
+            sampled_seqs = unique_seqs.sample(n=max_per_segment * 2, random_state=42)
+        else:
+            sampled_seqs = unique_seqs
+    
+    # Load embeddings
+    id_to_row = load_embedding_index(embeddings_file)
+    embeddings, valid_ids = load_embeddings_by_ids(
+        sampled_seqs['brc_fea_id'].tolist(),
+        embeddings_file,
+        id_to_row
+    )
+    
+    if len(embeddings) == 0:
+        print(f"   ⚠️  No embeddings found for {split_name} sequences")
+        return
+    
+    # Filter to valid sequences
+    sampled_seqs = sampled_seqs[sampled_seqs['brc_fea_id'].isin(valid_ids)].reset_index(drop=True)
+    
+    # Compute PCA
+    pca_embeddings, pca = compute_pca_reduction(embeddings, n_components=2, return_model=True)
+    
+    # Plot by segment if available
+    if 'canonical_segment' in sampled_seqs.columns:
+        plot_embeddings_by_category(
+            pca_embeddings,
+            sampled_seqs['canonical_segment'],
+            title=f"PCA: {split_name.capitalize()} Sequences by Segment",
+            xlabel=f"PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)",
+            ylabel=f"PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)",
+            save_path=results_dir / f'{split_name}_sequences_pca_by_segment.png'
+        )
+    
+    # Plot by function if available
+    if 'function' in sampled_seqs.columns:
+        plot_embeddings_by_category(
+            pca_embeddings,
+            sampled_seqs['function'],
+            title=f"PCA: {split_name.capitalize()} Sequences by Function",
+            xlabel=f"PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)",
+            ylabel=f"PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)",
+            save_path=results_dir / f'{split_name}_sequences_pca_by_function.png'
+        )
+
+
+def visualize_pair_embeddings(
+    pairs_df: pd.DataFrame,
+    embeddings_file: Path,
+    split_name: str,
+    max_per_label: int = 2500,
+    results_dir: Path = None
+    ) -> None:
+    """Visualize pair embeddings in 2D space using PCA.
+    
+    Creates pair embeddings using concatenation [emb_a, emb_b] and visualizes
+    them colored by positive/negative label.
+    
+    Args:
+        pairs_df: DataFrame with 'brc_a', 'brc_b', and 'label' columns
+        embeddings_file: Path to master embeddings HDF5
+        split_name: Name of split ('train', 'val', 'test')
+        max_per_label: Maximum pairs per label for visualization
+        results_dir: Output directory
+    """
+    print(f"\n📊 Visualizing pair embeddings for {split_name} set...")
+    
+    # Sample pairs with stratified sampling by label
+    sampled_pairs = sample_pairs_stratified(
+        pairs_df,
+        max_per_label=max_per_label,
+        label_col='label'
+    )
+    print(f"   Sampled {len(sampled_pairs)} pairs (stratified by label)")
+    
+    # Create pair embeddings (concatenation)
+    pair_embeddings, labels = create_pair_embeddings_concatenation(
+        sampled_pairs,
+        embeddings_file
+    )
+    
+    if len(pair_embeddings) == 0:
+        print(f"   ⚠️  No pair embeddings created for {split_name}")
+        return
+    
+    print(f"   Created {len(pair_embeddings)} pair embeddings (shape: {pair_embeddings.shape})")
+    
+    # Compute PCA
+    pca_embeddings, pca = compute_pca_reduction(pair_embeddings, n_components=2, return_model=True)
+    
+    # Plot by label
+    plot_pair_embeddings_by_label(
+        pca_embeddings,
+        labels,
+        title=f"PCA: {split_name.capitalize()} Pairs by Label",
+        xlabel=f"PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)",
+        ylabel=f"PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)",
+        save_path=results_dir / f'{split_name}_pairs_pca_by_label.png'
+    )
+
+
+def create_combined_pair_visualizations(
+    train_pairs: pd.DataFrame,
+    val_pairs: pd.DataFrame,
+    test_pairs: pd.DataFrame,
+    embeddings_file: Path,
+    max_per_label: int = 2000,  # Smaller for combined plots
+    results_dir: Path = None
+    ) -> None:
+    """Create combined visualizations showing train/val/test together.
+    
+    Args:
+        train_pairs: Training pairs DataFrame
+        val_pairs: Validation pairs DataFrame
+        test_pairs: Test pairs DataFrame
+        embeddings_file: Path to master embeddings HDF5
+        max_per_label: Maximum pairs per label per split
+        results_dir: Output directory
+    """
+    print(f"\n📊 Creating combined pair visualizations...")
+    
+    # Sample pairs from each split
+    splits = {
+        'train': sample_pairs_stratified(train_pairs, max_per_label=max_per_label),
+        'val': sample_pairs_stratified(val_pairs, max_per_label=max_per_label),
+        'test': sample_pairs_stratified(test_pairs, max_per_label=max_per_label)
+    }
+    
+    # Combine all pairs
+    all_pairs = pd.concat([
+        splits['train'].assign(split='train'),
+        splits['val'].assign(split='val'),
+        splits['test'].assign(split='test')
+    ], ignore_index=True)
+    
+    # Create pair embeddings
+    pair_embeddings, labels, valid_mask = create_pair_embeddings_concatenation(
+        all_pairs,
+        embeddings_file,
+        return_valid_mask=True,
+        dtype=np.float32,
+    )
+    
+    if len(pair_embeddings) == 0:
+        print(f"   ⚠️  No pair embeddings created")
+        return
+
+    n_in = len(all_pairs)
+    all_pairs = all_pairs.loc[valid_mask].reset_index(drop=True)
+    dropped = n_in - len(all_pairs)
+    if dropped > 0:
+        print(f"   ℹ️  Dropped {dropped:,}/{n_in:,} sampled pairs due to missing embeddings")
+    assert len(all_pairs) == len(pair_embeddings), "all_pairs/embeddings misalignment: filter logic bug"
+    
+    # Compute PCA
+    pca_embeddings, pca = compute_pca_reduction(pair_embeddings, n_components=2, return_model=True)
+    
+    # Create combined plot: train/test only
+    train_test_mask = all_pairs['split'].isin(['train', 'test'])
+    plot_pair_embeddings_by_label(
+        pca_embeddings[train_test_mask],
+        labels[train_test_mask],
+        title="PCA: Train/Test Pairs by Label",
+        xlabel=f"PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)",
+        ylabel=f"PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)",
+        save_path=results_dir / 'train_test_pairs_pca_by_label.png'
+    )
+    
+    # Create combined plot: train/val/test
+    # Use different colors for each split
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+    
+    for split_name, color in [('train', '#17A2B8'), ('val', '#8E44AD'), ('test', '#E74C3C')]:
+        split_mask = all_pairs['split'] == split_name
+        if split_mask.sum() > 0:
+            pos_mask = split_mask & (labels == 1)
+            neg_mask = split_mask & (labels == 0)
+            
+            if pos_mask.sum() > 0:
+                ax.scatter(
+                    pca_embeddings[pos_mask, 0],
+                    pca_embeddings[pos_mask, 1],
+                    c=color, marker='o', alpha=0.6, s=40,
+                    label=f'{split_name.capitalize()} Positive (n={pos_mask.sum()})'
+                )
+            if neg_mask.sum() > 0:
+                ax.scatter(
+                    pca_embeddings[neg_mask, 0],
+                    pca_embeddings[neg_mask, 1],
+                    c=color, marker='s', alpha=0.6, s=40,
+                    label=f'{split_name.capitalize()} Negative (n={neg_mask.sum()})',
+                    facecolors='none', edgecolors=color, linewidths=1.5
+                )
+    
+    ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)', fontsize=12)
+    ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)', fontsize=12)
+    ax.set_title('PCA: Train/Val/Test Pairs by Label', fontweight='bold', fontsize=14)
+    ax.legend(fontsize=10, ncol=2)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(results_dir / 'train_val_test_pairs_pca_by_label.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"   ✅ Combined visualizations saved")
+
+
 def main(virus_name: str, data_version: str, config_bundle: str, dataset_dir: Path = None):
     """Run all analyses."""
     
@@ -425,6 +677,59 @@ def main(virus_name: str, data_version: str, config_bundle: str, dataset_dir: Pa
     # Summary table
     summary_df = create_dataset_summary_table()
     
+    # Embedding visualizations (optional - requires embeddings file)
+    embeddings_dir = project_root / 'data' / 'embeddings' / virus_name / data_version
+    embeddings_file = embeddings_dir / 'master_esm2_embeddings.h5'
+    
+    if embeddings_file.exists():
+        print(f"\n{'='*60}")
+        print("EMBEDDING VISUALIZATIONS")
+        print(f"{'='*60}")
+        
+        # Load protein metadata for segment/function info
+        processed_data_dir = project_root / 'data' / 'processed' / virus_name / data_version
+        protein_data_file = processed_data_dir / 'protein_final.csv'
+        metadata_df = None
+        if protein_data_file.exists():
+            print(f"Loading protein metadata from {protein_data_file}...")
+            metadata_df = pd.read_csv(protein_data_file)
+            print(f"Loaded {len(metadata_df)} protein records")
+        else:
+            print(f"⚠️  Protein metadata not found at {protein_data_file}")
+            print("   Sequence visualizations will not include segment/function coloring")
+        
+        # Visualize sequence embeddings for each split
+        for split_name, split_df in [('train', train_df), ('val', val_df), ('test', test_df)]:
+            visualize_sequence_embeddings_from_pairs(
+                split_df,
+                embeddings_file,
+                split_name,
+                metadata_df=metadata_df,
+                max_per_segment=1000,
+                results_dir=results_dir
+            )
+        
+        # Visualize pair embeddings for each split
+        for split_name, split_df in [('train', train_df), ('val', val_df), ('test', test_df)]:
+            visualize_pair_embeddings(
+                split_df,
+                embeddings_file,
+                split_name,
+                max_per_label=2500,
+                results_dir=results_dir
+            )
+        
+        # Create combined visualizations
+        create_combined_pair_visualizations(
+            train_df, val_df, test_df,
+            embeddings_file,
+            max_per_label=2000,
+            results_dir=results_dir
+        )
+    else:
+        print(f"\n⚠️  Embeddings file not found at {embeddings_file}")
+        print("   Skipping embedding visualizations")
+    
     print(f'\n✅ Analysis complete! All results saved to: {results_dir}')
     
     # Display key insights
@@ -455,15 +760,23 @@ def main(virus_name: str, data_version: str, config_bundle: str, dataset_dir: Pa
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Analyze Stage 3: dataset statistics')
-    parser.add_argument('--config_bundle', type=str, required=True,
-                        help='Config bundle name (e.g., bunya, flu_a_plateau_analysis)')
-    parser.add_argument('--virus', type=str, default=None, 
-                        choices=['bunya', 'flu_a'],
-                        help='Virus name (optional, inferred from config_bundle if not provided)')
-    parser.add_argument('--data_version', type=str, default=None,
-                        help='Data version (optional, inferred from config_bundle if not provided)')
-    parser.add_argument('--dataset_dir', type=str, default=None,
-                        help='Custom dataset directory (optional)')
+    parser.add_argument(
+        '--config_bundle', type=str, required=True,
+        help='Config bundle name (e.g., flu, bunya).'
+    )
+    parser.add_argument(
+        '--virus', type=str, default=None, 
+        choices=['bunya', 'flu'],
+        help='Virus name (optional, inferred from config_bundle if not provided)'
+    )
+    parser.add_argument(
+        '--data_version', type=str, default=None,
+        help='Data version (optional, inferred from config_bundle if not provided)'
+    )
+    parser.add_argument(
+        '--dataset_dir', type=str, default=None,
+        help='Custom dataset directory (optional)'
+    )
     args = parser.parse_args()
 
     # Get virus and data_version from config if not explicitly provided

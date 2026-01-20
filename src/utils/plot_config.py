@@ -9,50 +9,59 @@ This module provides consistent color schemes and naming conventions for:
 """
 
 # =============================================================================
-# TRAIN/VAL/TEST COLORS
+# TRAIN/VAL/TEST (SPLIT) COLORS
 # =============================================================================
 # Distinctive colors that don't conflict with segment colors (blue/orange/green)
-DATASET_COLORS = {
+SPLIT_COLORS = {
     'train': '#17A2B8',  # Teal
     'val': '#8E44AD',    # Purple
     'test': '#E74C3C',   # Red
 }
 
-# Alternative access as list (for backwards compatibility)
-DATASET_COLORS_LIST = [DATASET_COLORS['train'], DATASET_COLORS['val'], DATASET_COLORS['test']]
+# Alternative access as list (for backwards compatibility / bar plots)
+SPLIT_COLORS_LIST = [SPLIT_COLORS['train'], SPLIT_COLORS['val'], SPLIT_COLORS['test']]
+
+# Markers for train/val/test in scatter plots (e.g., embedding overlap plots)
+SPLIT_MARKERS = {
+    'train': 'o',
+    'val': '^',
+    'test': 's',
+}
+
 
 # =============================================================================
-# POSITIVE/NEGATIVE SAMPLE STYLING
+# POSITIVE/NEGATIVE LABEL STYLING
 # =============================================================================
-# Using shape + fill patterns to distinguish pos/neg while preserving dataset colors
-SAMPLE_STYLES = {
-    'positive': {
-        'marker': 'o',          # Circle
-        'fillstyle': 'full',    # Solid fill
-        'alpha': 0.8,
-        'edgecolor': 'black',
-        'linewidth': 0.5,
-        'label_suffix': '(+)',
+# This is designed to be used together with split coloring (train/val/test):
+# - Positive: filled marker (facecolor = split color), no edge
+# - Negative: hollow marker (facecolor = none), colored edge = split color
+LABEL_SCATTER_STYLES = {
+    1: {  # positive
+        'facecolors': 'auto',
+        'edgecolors': 'none',
+        'linewidths': 0.0,
+        'alpha': 0.65,
+        'label': 'Positive (+)',
     },
-    'negative': {
-        'marker': 's',          # Square
-        'fillstyle': 'none',    # Empty/outline only
-        'alpha': 0.8,
-        'edgecolor': 'black',
-        'linewidth': 1.0,
-        'label_suffix': '(-)',
-    }
+    0: {  # negative
+        'facecolors': 'none',
+        'edgecolors': 'auto',
+        'linewidths': 0.9,
+        'alpha': 0.75,
+        'label': 'Negative (-)',
+    },
 }
 
 # For bar plots and other non-scatter visualizations
 SAMPLE_PATTERNS = {
-    'positive': '',           # Solid fill
-    'negative': '///',        # Diagonal hatching
+    'positive': '',      # Solid fill
+    'negative': '///',   # Diagonal hatching
 }
 
 # =============================================================================
 # PROTEIN FUNCTION NAME MAPPINGS
 # =============================================================================
+# TODO. I think this PROTEIN_NAME_MAPPING is bunya specific.
 PROTEIN_NAME_MAPPING = {
     'RNA-dependent RNA polymerase': 'RdRp protein',
     'Pre-glycoprotein polyprotein GP complex': 'GPC protein',
@@ -66,6 +75,7 @@ PROTEIN_NAME_MAPPING = {
 # =============================================================================
 # SEGMENT COLORS (for consistency with existing code)
 # =============================================================================
+# TODO. I think these SEGMENT_COLORS and SEGMENT_ORDER are bunya specific.
 SEGMENT_COLORS = {
     'S': '#1f77b4',  # Blue
     'M': '#ff7f0e',  # Orange
@@ -80,25 +90,16 @@ SEGMENT_ORDER = ['S', 'M', 'L']
 
 def get_dataset_color(dataset_name):
     """Get color for a dataset (train/val/test)."""
-    return DATASET_COLORS.get(dataset_name.lower(), '#808080')  # Gray fallback
+    return SPLIT_COLORS.get(dataset_name.lower(), '#808080')  # Gray fallback
 
-def get_sample_style(sample_type, dataset_name):
-    """Get complete styling for a sample type in a dataset."""
-    style = SAMPLE_STYLES[sample_type].copy()
-    style['color'] = get_dataset_color(dataset_name)
-    return style
+
+def get_split_color(split_name: str) -> str:
+    """Get color for a split (train/val/test)."""
+    return SPLIT_COLORS.get(str(split_name).lower(), '#808080')
 
 def map_protein_name(original_name):
     """Map long protein names to shorter versions."""
     return PROTEIN_NAME_MAPPING.get(original_name, original_name)
-
-def get_plot_label(dataset_name, sample_type=None):
-    """Generate consistent plot labels."""
-    label = dataset_name.capitalize()
-    if sample_type:
-        suffix = SAMPLE_STYLES[sample_type]['label_suffix']
-        label += f' {suffix}'
-    return label
 
 # =============================================================================
 # MATPLOTLIB STYLING
@@ -122,4 +123,4 @@ def apply_default_style():
         'ytick.labelsize': 11,
         'legend.fontsize': 11,
         'figure.titlesize': 16,
-    }) 
+    })

@@ -4,9 +4,15 @@
 # Task name for output directory
 # task_name: 'segment_pair_classifier' # TODO: we currently don't use this
 
+# Isolate partitioning strategy
+hard_partition_isolates: true  # true = partition isolates into train/val/test sets, false = partition proteins into train/val/test sets
+
 # Protein filtering strategy
 use_selected_only: true  # true = use selected_functions, false = use all proteins
 max_isolates_to_process: null  # null = use all isolates; int = deterministic isolate sampling
+
+# Plotting / post-processing
+generate_visualizations: true  # If true, generate dataset plots after dataset creation
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
@@ -20,3 +26,11 @@ val_ratio: 0.1    # 10% for validation (test gets remaining 10%)
 # Label shuffling (for sanity tests)
 shuffle_train_labels: false  # If true, randomly shuffle training labels (val/test unchanged)
 shuffle_train_labels_seed: null  # Seed for label shuffling (null = use RANDOM_SEED)
+
+# Metadata filtering (Optional. Filter isolates by host, year, H/N subtype, etc.)
+# If any of these are specified, metadata will be enriched and isolates filtered
+host: null      # null = no filter, or "Human", "Pig", "Chicken", etc.
+year: null      # null = no filter, or integer year (e.g., 2020)
+hn_subtype: null # null = no filter, or "H1N1", "H3N2", etc.
+geo_location: null  # null = no filter, or geographic location name (e.g., "Illinois")
+passage: null   # null = no filter, or passage value (e.g., "Original", "S1", "Egg")

@@ -1,50 +1,5 @@
 """
-TODO: 
-Add more stats and save.
-dataset_stats = {
-    'split_sizes': {
-        'train': {
-            'pairs': len(train_pairs),
-            'isolates': len(set(train_pairs['assembly_id_a']).union(set(train_pairs['assembly_id_b']))),
-            'positive_pairs': int(train_pairs['label'].sum()),
-            'negative_pairs': int((train_pairs['label'] == 0).sum()),
-            'positive_ratio': float(train_pairs['label'].mean()),
-        },
-        'val': {
-            'pairs': len(val_pairs),
-            'isolates': len(set(val_pairs['assembly_id_a']).union(set(val_pairs['assembly_id_b']))),
-            'positive_pairs': int(val_pairs['label'].sum()),
-            'negative_pairs': int((val_pairs['label'] == 0).sum()),
-            'positive_ratio': float(val_pairs['label'].mean()),
-        },
-        'test': {
-            'pairs': len(test_pairs),
-            'isolates': len(set(test_pairs['assembly_id_a']).union(set(test_pairs['assembly_id_b']))),
-            'positive_pairs': int(test_pairs['label'].sum()),
-            'negative_pairs': int((test_pairs['label'] == 0).sum()),
-            'positive_ratio': float(test_pairs['label'].mean()),
-        },
-    },
-    'total': {
-        'pairs': len(train_pairs) + len(val_pairs) + len(test_pairs),
-        'isolates': len(df['assembly_id'].unique()),
-    },
-    'co_occurrence_blocking': {
-        'total_cooccur_pairs': cooccur_stats['total_cooccur_pairs'],
-        'pairs_in_multiple_isolates': cooccur_stats['pairs_in_multiple_isolates'],
-        'max_isolates_per_pair': cooccur_stats['max_isolates_per_pair'],
-        'train_blocked': train_reject_stats['blocked_cooccur'],
-        'val_blocked': val_reject_stats['blocked_cooccur'],
-        'test_blocked': test_reject_stats['blocked_cooccur'],
-        'total_blocked': (train_reject_stats['blocked_cooccur'] + 
-                          val_reject_stats['blocked_cooccur'] + 
-                          test_reject_stats['blocked_cooccur']),
-    },
-}
-with open(output_dir / 'dataset_stats.json', 'w') as f:
-    json.dump(dataset_stats, f, indent=2)
-print(f"Saved comprehensive dataset statistics to: {output_dir / 'dataset_stats.json'}")
-
+Dataset creation for segment pair classification.
 
 Key columns:
 - assembly_id: identifies isolates
@@ -56,8 +11,6 @@ Key columns:
 Split strategies:
 - hard_partition_isolates: all proteins from an isolate (assembly_id) are assigned
     to a single train/val/test set to prevent leakage
-- hard_partition_duplicates: identical protein sequences (prot_seq) across different
-    isolates are assigned to the same set
 
 Duplicate handling (v2 - blocked negatives):
 - Identical amino-acid sequences recur across many genomes/isolates
@@ -91,6 +44,7 @@ from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_dataframe
+from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
 
 total_timer = Timer()
 
@@ -399,13 +353,12 @@ def compute_isolate_pair_counts(
     return isolate_pos_counts
 
 
-def split_dataset_v2(
+def split_dataset(
     df: pd.DataFrame,
     neg_to_pos_ratio: float = 3.0,
     allow_same_func_negatives: bool = True,
     max_same_func_ratio: float = 0.5,
     hard_partition_isolates: bool = True,
-    hard_partition_duplicates: bool = False,
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     seed: int = 42,
@@ -439,7 +392,25 @@ def split_dataset_v2(
     # Compute positive pair counts per isolate
     isolate_pos_counts = compute_isolate_pair_counts(df)
 
-    # Stratify isolates by positive pair counts
+    # Stratify isolates by positive pair counts for balanced train/val/test splits.
+    # 
+    # Purpose: Ensures that train/val/test splits have similar distributions of
+    # isolates with different numbers of positive pairs. This prevents scenarios
+    # where, for example, all high-pair-count isolates end up in training, leaving
+    # validation/test with only low-pair-count isolates.
+    #
+    # When does this matter?
+    # - With 2 selected_functions: Most isolates generate 1 positive pair (if they
+    #   have both functions), but some may have 0 (missing proteins). Stratification
+    #   ensures balanced distribution of isolates with 0 vs 1+ pairs.
+    # - With 3+ selected_functions: Isolates can generate varying numbers of pairs
+    #   (e.g., 3 functions = up to 3 pairs: AB, AC, BC). Some isolates may be missing
+    #   one or more functions, resulting in 0, 1, 2, or 3 pairs. Stratification is
+    #   especially important here to balance the distribution across splits.
+    #
+    # Example: If we have 100 isolates with 3 pairs each and 100 isolates with 1 pair
+    # each, stratification ensures each split gets roughly 50 of each type, rather
+    # than all 3-pair isolates in train and all 1-pair isolates in test.
     unique_isolates = list(df['assembly_id'].unique())
     pos_count_groups = {}
     for aid in unique_isolates:
@@ -483,7 +454,7 @@ def split_dataset_v2(
     test_pos  = create_positive_pairs(df[df['assembly_id'].isin(test_isolates)], seed=seed)
 
     # Generate negative pairs within each set (with BLOCKED contradictory pairs)
-    print("\n🔒 Creating negative pairs with blocked contradictory pairs...")
+    print("\nCreating negative pairs with blocked contradictory pairs...")
     train_neg, train_same_func, train_reject_stats = create_negative_pairs(
         df,
         num_negatives=int(len(train_pos) * neg_to_pos_ratio),
@@ -531,7 +502,7 @@ def split_dataset_v2(
     # PAIR-KEY BASED SPLITTING: Ensure no pair_key appears across train/val/test
     # This is a VALIDATION step - our isolate-based split should already prevent this
     # if the same sequence pair doesn't appear in different isolate groups
-    print("\n🔐 Validating pair_key partitioning...")
+    print("\nValidating pair_key partitioning...")
     train_pair_keys = set(train_pairs['pair_key'])
     val_pair_keys = set(val_pairs['pair_key'])
     test_pair_keys = set(test_pairs['pair_key'])
@@ -730,6 +701,7 @@ ALLOW_SAME_FUNC_NEGATIVES = config.dataset.allow_same_func_negatives
 MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
+HARD_PARTITION_ISOLATES = config.dataset.hard_partition_isolates
 MAX_ISOLATES_TO_PROCESS = getattr(config.dataset, 'max_isolates_to_process', None)
 SHUFFLE_TRAIN_LABELS = getattr(config.dataset, 'shuffle_train_labels', False)
 SHUFFLE_TRAIN_LABELS_SEED = getattr(config.dataset, 'shuffle_train_labels_seed', None)
@@ -759,7 +731,6 @@ paths = build_dataset_paths(
     project_root=project_root,
     virus_name=VIRUS_NAME,
     data_version=DATA_VERSION,
-    # task_name=TASK_NAME, # TODO: is this necessary?
     run_suffix=RUN_SUFFIX,
     config=config
 )
@@ -801,43 +772,129 @@ except FileNotFoundError:
 except Exception as e:
     raise RuntimeError(f"❌ Error loading data from {input_file}: {e}")
 
-# Apply isolate-based sampling (dataset stage only)
+# Enrich with metadata (e.g., host, year, hn_subtype)
+print('\nEnrich dataframe with metadata.')
+prot_df = enrich_prot_data_with_metadata(prot_df, project_root=project_root)
+# breakpoint()
+# print(prot_df[prot_df['geo_location_clean'].isna()]['scientific_name'].unique())
+
+# Filter isolates if host/year/hn_subtype/geo_location/passage are specified
+host_filter = getattr(config.dataset, 'host', None)
+year_filter = getattr(config.dataset, 'year', None)
+hn_subtype_filter = getattr(config.dataset, 'hn_subtype', None)
+geo_location_filter = getattr(config.dataset, 'geo_location', None)
+passage_filter = getattr(config.dataset, 'passage', None)
+if (host_filter is not None) or (year_filter is not None) or (hn_subtype_filter is not None) or \
+   (geo_location_filter is not None) or (passage_filter is not None):
+    print('\nMetadata filtering enabled.')
+    print(f'Host filter: {host_filter}')
+    print(f'Year filter: {year_filter}')
+    print(f'HN subtype filter: {hn_subtype_filter}')
+    print(f'Geographic location filter: {geo_location_filter}')
+    print(f'Passage filter: {passage_filter}')
+
+    # Filter at isolate level: get isolates matching criteria, then keep all
+    # proteins from those isolates. This ensures we don't lose proteins due to
+    # metadata merge issues
+    meta_cols = ['assembly_id', 'host', 'year', 'hn_subtype']
+    if 'geo_location_clean' in prot_df.columns:
+        meta_cols.append('geo_location_clean')
+    if 'passage' in prot_df.columns:
+        meta_cols.append('passage')
+    aid_meta = prot_df.groupby('assembly_id')[meta_cols].first().reset_index(drop=True)
+
+    # Debug: print available columns and sample values
+    print(f"\n   Available metadata columns: {meta_cols}")
+    if 'geo_location_clean' in aid_meta.columns:
+        unique_locations = aid_meta['geo_location_clean'].dropna().unique()
+        print(f"   Unique geo_location_clean values (first 20): {sorted(unique_locations)[:20]}")
+        if geo_location_filter:
+            matching_locs = [loc for loc in unique_locations if geo_location_filter.lower() in str(loc).lower()]
+            print(f"   Locations matching '{geo_location_filter}' (case-insensitive): {matching_locs[:10]}")
+    else:
+        print(f"   ⚠️  geo_location_clean column NOT found in prot_df!")
+        print(f"   Available columns with 'location' in name: {[c for c in prot_df.columns if 'location' in c.lower()]}")
+
+    # Build filter mask for isolates
+    aid_mask = pd.Series([True] * len(aid_meta))
+    if host_filter is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['host'].isin([host_filter])
+        after = aid_mask.sum()
+        print(f"   Host filter '{host_filter}': {before:,} -> {after:,} isolates")
+
+    if year_filter is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['year'].isin([year_filter])
+        after = aid_mask.sum()
+        print(f"   Year filter '{year_filter}': {before:,} -> {after:,} isolates")
+
+    if hn_subtype_filter is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['hn_subtype'].isin([hn_subtype_filter])
+        after = aid_mask.sum()
+        print(f"   HN subtype filter '{hn_subtype_filter}': {before:,} -> {after:,} isolates")
+
+    if geo_location_filter is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['geo_location_clean'].isin([geo_location_filter])
+        after = aid_mask.sum()
+        print(f"   Geographic location filter '{geo_location_filter}': {before:,} -> {after:,} isolates")
+
+    if passage_filter is not None and 'passage' in aid_meta.columns:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['passage'].isin([passage_filter])
+        after = aid_mask.sum()
+        print(f"   Passage filter '{passage_filter}': {before:,} -> {after:,} isolates")
+
+    # Get list of isolates that match criteria
+    matching_isolates = aid_meta[aid_mask]['assembly_id'].tolist()
+
+    # Filter protein dataframe to keep only proteins from matching isolates
+    n_before = len(prot_df)
+    prot_df = prot_df[prot_df['assembly_id'].isin(matching_isolates)].reset_index(drop=True)
+    n_after = len(prot_df)
+
+    print(f"   Filtered to {len(matching_isolates):,} isolates matching criteria")
+    print(f"   Protein records: {n_before:,} -> {n_after:,} ({100*n_after/n_before:.1f}%)")
+
+# Sample a subset of isolates from the dataframe
 sampled_isolates_file = output_dir / 'sampled_isolates.txt'
 if MAX_ISOLATES_TO_PROCESS:
     unique_isolates = prot_df['assembly_id'].unique()
     total_isolates = len(unique_isolates)
-    print(f"\nDataset sampling enabled: sample {MAX_ISOLATES_TO_PROCESS} isolates (out of {total_isolates} total unique isolates).")
-    
-    if sampled_isolates_file.exists():
-        print(f"Load previously sampled isolates from: {sampled_isolates_file}")
-        with open(sampled_isolates_file, 'r') as f:
-            sampled_isolates = [line.strip() for line in f if line.strip()]
-        print(f"Found {len(sampled_isolates)} sampled isolates in the file.")
+    print(f"\nSample {MAX_ISOLATES_TO_PROCESS} isolates (out of {total_isolates} total unique isolates).")
+
+    # if sampled_isolates_file.exists():
+    #     print(f"Load previously sampled isolates from: {sampled_isolates_file}")
+    #     with open(sampled_isolates_file, 'r') as f:
+    #         sampled_isolates = [line.strip() for line in f if line.strip()]
+    #     print(f"Found {len(sampled_isolates)} sampled isolates in the file.")
+    # else:
+    if MAX_ISOLATES_TO_PROCESS >= total_isolates:
+        sampled_isolates = sorted(unique_isolates)
+        print("Requested isolates more than available; using all isolates.")
     else:
-        if MAX_ISOLATES_TO_PROCESS >= total_isolates:
-            sampled_isolates = sorted(unique_isolates)
-            print("Requested isolates more than available; using all isolates (writing the isolates into the file for consistency).")
-        else:
-            print(f"Sampling {MAX_ISOLATES_TO_PROCESS} isolates (seed: {RANDOM_SEED}).")
-            sampled_isolates = np.random.choice(
-                unique_isolates,
-                size=MAX_ISOLATES_TO_PROCESS,
-                replace=False,
-            )
-            sampled_isolates = sorted(sampled_isolates.tolist())
-        sampled_isolates_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(sampled_isolates_file, 'w') as f:
-            for isolate in sampled_isolates:
-                f.write(f"{isolate}\n")
-        print(f"Wrote list of {len(sampled_isolates)} sampled isolates to {sampled_isolates_file}")
+        print(f"Sampling {MAX_ISOLATES_TO_PROCESS} isolates (seed: {RANDOM_SEED}).")
+        sampled_isolates = np.random.choice(
+            unique_isolates,
+            size=MAX_ISOLATES_TO_PROCESS,
+            replace=False,
+        )
+        sampled_isolates = sorted(sampled_isolates.tolist())
+    sampled_isolates_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(sampled_isolates_file, 'w') as f:
+        for isolate in sampled_isolates:
+            f.write(f"{isolate}\n")
+    print(f"Wrote list of {len(sampled_isolates)} sampled isolates to {sampled_isolates_file}")
 
     original_count = len(prot_df)
     prot_df = prot_df[prot_df['assembly_id'].isin(sampled_isolates)].reset_index(drop=True)
     print(f"Filtered {len(prot_df)} protein records from {original_count} after isolate sampling.")
-else:
-    print("\nDataset isolate sampling disabled (max_isolates_to_process=null).")
-    if sampled_isolates_file.exists():
-        print(f"ℹ️ sampled_isolates.txt found at {sampled_isolates_file} but max_isolates_to_process=null; ignoring file.")
+# else:
+#     print("\nDataset isolate sampling disabled (max_isolates_to_process=null).")
+#     if sampled_isolates_file.exists():
+#         print(f"ℹ️ sampled_isolates.txt found at {sampled_isolates_file} but max_isolates_to_process=null; ignoring file.")
 
 # Restrict to selected functions if specified
 # TODO: consider adapting implementation from compute_esm2_embeddings.py
@@ -862,9 +919,6 @@ else:
 # TODO Do we actually use 'seq_hash' somewhere?
 df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
-# Note: Protein validation is now handled by the unified selected_functions approach
-# No need for validate_core_proteins() which was specific to the old core proteins method
-
 # Validate brc_fea_id uniqueness within isolates
 dups = df[df.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=False)]
 if not dups.empty:
@@ -875,18 +929,15 @@ if not dups.empty:
 neg_to_pos_ratio = NEG_TO_POS_RATIO
 allow_same_func_negatives = ALLOW_SAME_FUNC_NEGATIVES
 max_same_func_ratio = MAX_SAME_FUNC_RATIO
-hard_partition_isolates = True  # TODO: Move to config in future
-hard_partition_duplicates = False  # TODO: Move to config in future
 
 # Split dataset and create pairs (with blocked contradictory negatives)
 print('\nSplit dataset and create pairs.')
-train_pairs, val_pairs, test_pairs, duplicate_stats = split_dataset_v2(
+train_pairs, val_pairs, test_pairs, duplicate_stats = split_dataset(
     df=df,
     neg_to_pos_ratio=neg_to_pos_ratio,
     allow_same_func_negatives=allow_same_func_negatives,
     max_same_func_ratio=max_same_func_ratio,
-    hard_partition_isolates=hard_partition_isolates,
-    hard_partition_duplicates=hard_partition_duplicates,
+    hard_partition_isolates=HARD_PARTITION_ISOLATES,
     train_ratio=TRAIN_RATIO,
     val_ratio=VAL_RATIO,
     seed=RANDOM_SEED,
@@ -897,6 +948,120 @@ print(f'\nSave datasets: {output_dir}')
 train_pairs.to_csv(f"{output_dir}/train_pairs.csv", index=False)
 val_pairs.to_csv(f"{output_dir}/val_pairs.csv", index=False)
 test_pairs.to_csv(f"{output_dir}/test_pairs.csv", index=False)
+
+# Compute dataset statistics
+print('\nComputing dataset statistics...')
+
+# Get unique isolates per split
+train_isolates = set(train_pairs['assembly_id_a']).union(set(train_pairs['assembly_id_b']))
+val_isolates = set(val_pairs['assembly_id_a']).union(set(val_pairs['assembly_id_b']))
+test_isolates = set(test_pairs['assembly_id_a']).union(set(test_pairs['assembly_id_b']))
+
+# Helper function to get metadata distributions
+def get_metadata_distributions(df, isolate_set):
+    """Get metadata value counts for a set of isolates."""
+    if len(isolate_set) == 0:
+        return {
+            'host': {}, 'year': {}, 'hn_subtype': {},
+            'geo_location_clean': {}, 'passage': {}
+        }
+
+    # Get one row per isolate (metadata is the same for all proteins from an isolate)
+    isolate_meta = df[df['assembly_id'].isin(isolate_set)].groupby('assembly_id').first()
+    
+    distributions = {}
+    for col in ['host', 'year', 'hn_subtype', 'geo_location_clean', 'passage']:
+        if col in isolate_meta.columns:
+            # Convert value_counts to dict, handling NaN
+            counts = isolate_meta[col].value_counts(dropna=False)
+            # Convert to JSON-serializable format (NaN -> None, int64 -> int)
+            distributions[col] = {
+                str(k) if pd.notna(k) else 'null': int(v) 
+                for k, v in counts.items()
+            }
+        else:
+            distributions[col] = {}
+    
+    return distributions
+
+# Build dataset statistics
+dataset_stats = {
+    'split_sizes': {
+        'train': {
+            'pairs': len(train_pairs),
+            'isolates': len(train_isolates),
+            'positive_pairs': int(train_pairs['label'].sum()),
+            'negative_pairs': int((train_pairs['label'] == 0).sum()),
+            'positive_ratio': float(train_pairs['label'].mean()),
+        },
+        'val': {
+            'pairs': len(val_pairs),
+            'isolates': len(val_isolates),
+            'positive_pairs': int(val_pairs['label'].sum()),
+            'negative_pairs': int((val_pairs['label'] == 0).sum()),
+            'positive_ratio': float(val_pairs['label'].mean()),
+        },
+        'test': {
+            'pairs': len(test_pairs),
+            'isolates': len(test_isolates),
+            'positive_pairs': int(test_pairs['label'].sum()),
+            'negative_pairs': int((test_pairs['label'] == 0).sum()),
+            'positive_ratio': float(test_pairs['label'].mean()),
+        },
+    },
+    'total': {
+        'pairs': len(train_pairs) + len(val_pairs) + len(test_pairs),
+        'isolates': len(df['assembly_id'].unique()),
+    },
+    'metadata_distributions': {
+        'train': get_metadata_distributions(df, train_isolates),
+        'val': get_metadata_distributions(df, val_isolates),
+        'test': get_metadata_distributions(df, test_isolates),
+    },
+    'co_occurrence_blocking': {
+        'total_cooccur_pairs': duplicate_stats['cooccur_stats']['total_cooccur_pairs'],
+        'pairs_in_multiple_isolates': duplicate_stats['cooccur_stats']['pairs_in_multiple_isolates'],
+        'max_isolates_per_pair': duplicate_stats['cooccur_stats']['max_isolates_per_pair'],
+        'train_blocked': duplicate_stats['train_reject_stats']['blocked_cooccur'],
+        'val_blocked': duplicate_stats['val_reject_stats']['blocked_cooccur'],
+        'test_blocked': duplicate_stats['test_reject_stats']['blocked_cooccur'],
+        'total_blocked': (duplicate_stats['train_reject_stats']['blocked_cooccur'] + 
+                          duplicate_stats['val_reject_stats']['blocked_cooccur'] + 
+                          duplicate_stats['test_reject_stats']['blocked_cooccur']),
+    },
+    # Filters applied at dataset creation time (for plotting + provenance).
+    # NOTE/TODO: Today these are single values (exact-match). If we later support
+    # multi-valued filters or ranges (e.g., year: [2010, 2019]), keep storing the
+    # raw structure here; plotting code should summarize compactly (e.g., show
+    # "host: 7 values" or "year: 2010–2019") rather than dumping long lists.
+    'filters_applied': {
+        'host': host_filter,
+        'year': year_filter,
+        'hn_subtype': hn_subtype_filter,
+        'geo_location': geo_location_filter,
+        'passage': passage_filter,
+    },
+}
+
+# Save dataset statistics
+with open(output_dir / 'dataset_stats.json', 'w') as f:
+    json.dump(dataset_stats, f, indent=2)
+print(f"Saved dataset stats to: {output_dir / 'dataset_stats.json'}")
+
+# Save per-isolate metadata for downstream analyses/plots (e.g., host×subtype heatmap).
+# This avoids trying to re-load and re-enrich the original protein_final.csv.
+isolate_metadata_cols = ['assembly_id', 'host', 'hn_subtype', 'year']
+if 'geo_location_clean' in df.columns:
+    isolate_metadata_cols.append('geo_location_clean')
+if 'passage' in df.columns:
+    isolate_metadata_cols.append('passage')
+
+try:
+    isolate_meta = df.groupby('assembly_id')[isolate_metadata_cols].first().reset_index(drop=True)
+    isolate_meta.to_csv(output_dir / 'isolate_metadata.csv', index=False)
+    print(f"Saved isolate metadata to: {output_dir / 'isolate_metadata.csv'}")
+except Exception as e:
+    print(f"⚠️  Warning: failed to save isolate_metadata.csv ({type(e).__name__}: {e})")
 
 # Save duplicate/rejection statistics
 cooccur_stats = duplicate_stats['cooccur_stats']
@@ -914,7 +1079,7 @@ duplicate_summary = {
 }
 with open(output_dir / 'duplicate_stats.json', 'w') as f:
     json.dump(duplicate_summary, f, indent=2)
-print(f"Saved duplicate statistics to: {output_dir / 'duplicate_stats.json'}")
+print(f"Saved duplicate stats to: {output_dir / 'duplicate_stats.json'}")
 
 # Save co-occurring pairs list (for analysis)
 if cooccur_stats['total_cooccur_pairs'] > 0:
@@ -927,6 +1092,24 @@ if cooccur_stats['total_cooccur_pairs'] > 0:
         ]).sort_values('num_isolates', ascending=False)
         cooccur_df.to_csv(output_dir / 'cooccurring_sequence_pairs.csv', index=False)
         print(f"Saved {len(cooccur_df)} co-occurring sequence pairs to: cooccurring_sequence_pairs.csv")
+
+# Generate dataset visualization plots (optional)
+GENERATE_VISUALIZATIONS = getattr(config.dataset, 'generate_visualizations', True)
+if GENERATE_VISUALIZATIONS:
+    try:
+        print(f'\n📊 Generating dataset visualization plots...')
+        from src.analysis.visualize_dataset_stats import visualize_dataset_stats
+        
+        # Determine output directories
+        visualize_dataset_stats(
+            dataset_stats_path=output_dir / 'dataset_stats.json',
+            bundle_name=config_bundle,
+            output_dir_dataset=output_dir,
+        )
+    except Exception as e:
+        print(f"⚠️  Warning: Failed to generate visualizations: {e}")
+        print(f"   You can generate them later by running:")
+        print(f"   python src/analysis/visualize_dataset_stats.py --bundle {config_bundle}")
 
 print(f'\n✅ Finished {Path(__file__).name}!')
 total_timer.display_timer()
