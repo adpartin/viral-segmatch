@@ -82,11 +82,23 @@ def _load_pairs_minimal(run_dir: Path, split: str) -> Optional[pd.DataFrame]:
     csv_path = run_dir / f"{split}_pairs.csv"
     if not csv_path.exists():
         return None
+    desired = [
+        'brc_a', 'brc_b', 'label',
+        'seg_a', 'seg_b', 'func_a', 'func_b',
+        'pair_key',
+    ]
     try:
-        return pd.read_csv(csv_path, usecols=['brc_a', 'brc_b', 'label'])
+        # Prefer minimal IO: read header, then load only desired columns that exist.
+        header_cols = list(pd.read_csv(csv_path, nrows=0).columns)
+        usecols = [c for c in desired if c in header_cols]
+        # Ensure we at least have the columns required for embedding construction.
+        required = {'brc_a', 'brc_b', 'label'}
+        if not required.issubset(set(usecols)):
+            return pd.read_csv(csv_path, low_memory=False)
+        return pd.read_csv(csv_path, usecols=usecols, low_memory=False)
     except Exception:
-        # Fallback if file schema differs
-        return pd.read_csv(csv_path)
+        # Fallback if file schema differs or any parsing issue occurs.
+        return pd.read_csv(csv_path, low_memory=False)
 
 
 def _plot_pair_embedding_splits_2d(
@@ -365,8 +377,9 @@ def plot_pair_embeddings_splits_overlap(
             label_col='label',
             random_state=random_state,
         )
+        # Keep any optional metadata columns (seg_*/func_*/pair_key) for downstream diagnostics/plots.
         df_s = df_s.assign(split=split)
-        sampled.append(df_s[['brc_a', 'brc_b', 'label', 'split']])
+        sampled.append(df_s)
 
     if not sampled:
         print(f"⚠️  Skipping split-overlap plot: no pair CSVs found in {run_dir}")
@@ -409,6 +422,179 @@ def plot_pair_embeddings_splits_overlap(
     pc1 = f"PC1 ({pca_model.explained_variance_ratio_[0]:.1%} var)" if pca_model is not None else "PC1"
     pc2 = f"PC2 ({pca_model.explained_variance_ratio_[1]:.1%} var)" if pca_model is not None else "PC2"
     pca_path = _derive_output_path(output_path, "pca")
+
+    # Attach PCA coordinates for order/metadata diagnostics and category plots.
+    pairs = pairs.copy()
+    pairs['pc1'] = pca_2d[:, 0]
+    pairs['pc2'] = pca_2d[:, 1]
+
+    # --- Ordering diagnostics: swap halves and project with the same PCA model ---
+    diagnostics: dict = {
+        'n_pairs': int(len(pairs)),
+        'embedding_dim_total': int(pair_embeddings.shape[1]) if pair_embeddings.ndim == 2 else None,
+        'embedding_dim_half': int(pair_embeddings.shape[1] // 2) if pair_embeddings.ndim == 2 else None,
+        'pca_explained_variance_ratio_top2': (
+            [float(pca_model.explained_variance_ratio_[0]), float(pca_model.explained_variance_ratio_[1])]
+            if pca_model is not None and hasattr(pca_model, 'explained_variance_ratio_') else None
+        ),
+    }
+    try:
+        if pca_model is not None and pair_embeddings.ndim == 2 and pair_embeddings.shape[1] % 2 == 0:
+            d = pair_embeddings.shape[1] // 2
+            swapped = np.concatenate([pair_embeddings[:, d:], pair_embeddings[:, :d]], axis=1)
+            swapped_pca = pca_model.transform(swapped)
+            swapped_2d = swapped_pca[:, :2]
+
+            pc1_ab = pca_reduced[:, 0]
+            pc1_ba = swapped_pca[:, 0]
+            pc2_ab = pca_reduced[:, 1]
+            pc2_ba = swapped_pca[:, 1]
+
+            # Sign-based flip rate (simple, but PC sign is arbitrary across *different* fits;
+            # here we use the same fitted PCA model, so it's still informative).
+            flip_rate = float(np.mean((pc1_ab >= 0) != (pc1_ba >= 0)))
+
+            # More robust magnitude-based diagnostics.
+            mean_abs_delta_pc1 = float(np.mean(np.abs(pc1_ab - pc1_ba)))
+            mean_abs_delta_pc2 = float(np.mean(np.abs(pc2_ab - pc2_ba)))
+            mean_l2_delta_2d = float(np.mean(np.linalg.norm(pca_2d - swapped_2d, axis=1)))
+
+            corr_pc1 = None
+            if np.nanstd(pc1_ab) > 0 and np.nanstd(pc1_ba) > 0:
+                corr_pc1 = float(np.corrcoef(pc1_ab, pc1_ba)[0, 1])
+
+            diagnostics.update({
+                'order_diagnostics': {
+                    'flip_rate_pc1_sign': flip_rate,
+                    'mean_abs_delta_pc1': mean_abs_delta_pc1,
+                    'mean_abs_delta_pc2': mean_abs_delta_pc2,
+                    'mean_l2_delta_pca2d': mean_l2_delta_2d,
+                    'corr_pc1_ab_vs_ba': corr_pc1,
+                }
+            })
+    except Exception as e:
+        diagnostics.update({'order_diagnostics_error': f"{type(e).__name__}: {e}"})
+
+    # --- Metadata summaries (if available): seg_pair / func_pair + embedding half norms ---
+    try:
+        if 'seg_a' in pairs.columns and 'seg_b' in pairs.columns:
+            seg_a = pairs['seg_a'].astype(str).fillna('null')
+            seg_b = pairs['seg_b'].astype(str).fillna('null')
+            pairs['seg_pair'] = seg_a + '→' + seg_b
+            print("\n🔎 PCA clustering summary by seg_pair (top 15):")
+            print(pairs['seg_pair'].value_counts().head(15).to_string())
+            seg_grp = pairs.groupby('seg_pair')[['pc1', 'pc2']].agg(['count', 'mean', 'std']).sort_values(('pc1', 'count'), ascending=False)
+            print("\n   seg_pair PCA means/stds (top 10 by count):")
+            print(seg_grp.head(10).to_string())
+
+        if 'func_a' in pairs.columns and 'func_b' in pairs.columns:
+            func_a = pairs['func_a'].astype(str).fillna('null')
+            func_b = pairs['func_b'].astype(str).fillna('null')
+            pairs['func_pair'] = func_a + '→' + func_b
+            print("\n🔎 PCA clustering summary by func_pair (top 15):")
+            print(pairs['func_pair'].value_counts().head(15).to_string())
+            func_grp = pairs.groupby('func_pair')[['pc1', 'pc2']].agg(['count', 'mean', 'std']).sort_values(('pc1', 'count'), ascending=False)
+            print("\n   func_pair PCA means/stds (top 10 by count):")
+            print(func_grp.head(10).to_string())
+
+        if pair_embeddings.ndim == 2 and pair_embeddings.shape[1] % 2 == 0:
+            d = pair_embeddings.shape[1] // 2
+            norm_a = np.linalg.norm(pair_embeddings[:, :d], axis=1)
+            norm_b = np.linalg.norm(pair_embeddings[:, d:], axis=1)
+            norm_ratio = norm_a / (norm_b + 1e-12)
+
+            def _corr(x: np.ndarray, y: np.ndarray) -> Optional[float]:
+                if np.nanstd(x) == 0 or np.nanstd(y) == 0:
+                    return None
+                return float(np.corrcoef(x, y)[0, 1])
+
+            corr_norm_a_pc1 = _corr(norm_a, pairs['pc1'].to_numpy())
+            corr_norm_b_pc1 = _corr(norm_b, pairs['pc1'].to_numpy())
+            corr_ratio_pc1 = _corr(norm_ratio, pairs['pc1'].to_numpy())
+
+            print("\n🔎 Embedding-half norm correlations with PC1:")
+            print(f"   corr(||emb_a||, PC1) = {corr_norm_a_pc1}")
+            print(f"   corr(||emb_b||, PC1) = {corr_norm_b_pc1}")
+            print(f"   corr(||emb_a||/||emb_b||, PC1) = {corr_ratio_pc1}")
+
+            diagnostics.update({
+                'norm_correlations': {
+                    'corr_norm_a_pc1': corr_norm_a_pc1,
+                    'corr_norm_b_pc1': corr_norm_b_pc1,
+                    'corr_norm_ratio_pc1': corr_ratio_pc1,
+                }
+            })
+    except Exception as e:
+        diagnostics.update({'metadata_diagnostics_error': f"{type(e).__name__}: {e}"})
+
+    # Save diagnostics JSON next to plots.
+    try:
+        diag_path = output_path.parent / "pair_embedding_order_diagnostics.json"
+        with open(diag_path, 'w') as f:
+            json.dump(diagnostics, f, indent=2)
+        print(f"\n🧾 Saved pair embedding ordering diagnostics: {diag_path}")
+    except Exception as e:
+        print(f"⚠️  Failed to save pair embedding ordering diagnostics JSON ({type(e).__name__}: {e})")
+
+    # --- Extra PCA plots colored by seg_pair / func_pair (top-N, collapsed) ---
+    def _plot_pca_by_category(
+        category_col: str,
+        top_n: int,
+        out_name: str,
+        title_prefix: str,
+        ) -> None:
+        if category_col not in pairs.columns:
+            return
+        cats = _collapse_to_top_n(pairs[category_col].astype(str), top_n=top_n, other_label='Other')
+        unique = sorted(cats.unique().tolist())
+        if len(unique) <= 1:
+            return
+
+        fig, ax = plt.subplots(1, 1, figsize=(12, 9))
+        cmap = plt.cm.get_cmap('tab20', max(3, len(unique)))
+        for i, cat in enumerate(unique):
+            mask = (cats == cat).to_numpy()
+            ax.scatter(
+                pca_2d[mask, 0],
+                pca_2d[mask, 1],
+                s=18,
+                alpha=0.7,
+                c=[cmap(i)],
+                label=str(cat),
+                edgecolors='none',
+            )
+        ax.set_xlabel(pc1)
+        ax.set_ylabel(pc2)
+        ax.set_title(f"{title_prefix} (top {top_n}; rest→Other)")
+        if filters_text:
+            ax.text(
+                0.01, 0.01,
+                f"Filters: {filters_text}",
+                transform=ax.transAxes,
+                ha='left', va='bottom',
+                fontsize=9,
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'),
+            )
+        ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0), fontsize=9, frameon=True, framealpha=0.9)
+        plt.tight_layout()
+        out_path = output_path.parent / out_name
+        fig.savefig(out_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"✅ Saved: {out_path}")
+
+    _plot_pca_by_category(
+        category_col='seg_pair',
+        top_n=12,
+        out_name='pair_embeddings_pca_by_seg_pair.png',
+        title_prefix='PCA: Pair embeddings colored by seg_pair',
+    )
+    _plot_pca_by_category(
+        category_col='func_pair',
+        top_n=12,
+        out_name='pair_embeddings_pca_by_func_pair.png',
+        title_prefix='PCA: Pair embeddings colored by func_pair',
+    )
+
     _plot_pair_embedding_splits_2d(
         reduced_2d=pca_2d,
         pairs=pairs,
@@ -757,7 +943,7 @@ def plot_year_distribution_by_split(
                 tick_interval = 5  # Every 5 years
             else:
                 tick_interval = 10  # Every 10 years
-            
+
             # Calculate bin centers for count labels
             bin_centers = (bins[:-1] + bins[1:]) / 2
             
