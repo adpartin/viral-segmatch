@@ -1,0 +1,11 @@
+# flu_human bundle with pair features = prod-only (no concat, no diff)
+
+defaults:
+  - flu_human
+  - _self_
+
+training:
+  use_concat: false
+  use_diff: false
+  use_prod: true
+

@@ -1,0 +1,12 @@
+# Flu metadata filtering experiment
+# Filter isolates to Human + 2024 before creating train/val/test splits.
+#
+# Inherit the default Flu task (currently HA/NA selection etc.) from `flu.yaml`.
+
+defaults:
+  - flu
+  - _self_
+
+dataset:
+  host: "Human"
+  year: 2024

@@ -1,0 +1,11 @@
+# flu_2024 bundle with pair features = diff-only (no concat, no prod)
+
+defaults:
+  - flu_2024
+  - _self_
+
+training:
+  use_concat: false
+  use_diff: true
+  use_prod: false
+

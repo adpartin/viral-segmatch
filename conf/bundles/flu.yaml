@@ -47,10 +47,13 @@ process_seeds:
 # ====================================================================
 # Override selected_functions to include a subset of proteins
 virus:
+  # selected_functions:
+  #   - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 (Segment 1)
+  #   - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 (Segment 2)
+  #   - "RNA-dependent RNA polymerase PA subunit"  # PA (Segment 3)
   selected_functions:
-    - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 (Segment 1)
-    - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 (Segment 2)
-    - "RNA-dependent RNA polymerase PA subunit"  # PA (Segment 3)
+    - "Hemagglutinin precursor"  # HA0 (Segment 4)
+    - "Neuraminidase protein"  # NA (Segment 6)
 
 # ====================================================================
 # MODEL AND DATASET OVERRIDES
@@ -65,11 +68,10 @@ dataset:
   neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs; default is 1.0
   allow_same_func_negatives: false  # Whether to allow same-function negative pairs
   max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs; ignored when allow_same_func_negatives=false
-  max_isolates_to_process: 1000  # null = full dataset, or set to 100, 500, etc.
+  max_isolates_to_process: 5000  # null = full dataset, or set to 100, 500, etc.
 
 # Training overrides
 training:
-  # epochs: 35
   patience: 15  # Early stopping
   batch_size: 16
   learning_rate: 0.001

@@ -1,0 +1,8 @@
+# flu bundle with pair features = concat-only (no diff, no prod)
+
+defaults:
+  - flu
+  - _self_
+
+training:
+  eval_swapped_test: true
