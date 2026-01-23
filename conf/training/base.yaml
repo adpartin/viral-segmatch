@@ -15,6 +15,7 @@ lr_scheduler_min_lr: 1e-6  # Minimum learning rate
 # Model architecture
 hidden_dims: [512, 256, 64]
 dropout: 0.2
+use_concat: true # Use concatenation [emb_a, emb_b] as interaction feature (boolean)
 use_diff: false # Use absolute difference |A - B| as interaction feature (boolean)
 use_prod: false # Use element-wise product A * B as interaction feature (boolean)
 
@@ -22,3 +23,6 @@ use_prod: false # Use element-wise product A * B as interaction feature (boolean
 patience: 15  # Early stopping patience
 early_stopping_metric: 'f1'  # Metric for early stopping: 'loss' (lower is better), 'f1' and 'auc' (higher is better)
 threshold_metric: null  # Threshold optimization metric; null (no optimization; use 0.5), 'f1' (default), 'f0.5' (emphasize precision), 'f2' (emphasize recall); This metric is used to determine the threshold for the binary classifier; the threshold is the metric value that is used to classify the pairs as positive or negative
+
+# Diagnostics
+eval_swapped_test: false  # If true, also evaluate the trained model on swapped test inputs (B,A) and write test_predicted_swapped.csv

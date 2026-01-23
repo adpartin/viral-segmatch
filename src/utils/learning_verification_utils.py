@@ -6,6 +6,8 @@ following best practices from Karpathy's recipe for training neural networks.
 Reference: https://karpathy.github.io/2019/04/25/recipe/
 """
 
+from typing import Optional
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend for server environments
@@ -114,7 +116,7 @@ def compute_baseline_metrics(val_labels, random_seed=42):
     }
 
 
-def plot_learning_curves(history, output_dir, dpi: int = 200):
+def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None, dpi: int = 200):
     """
     Plot learning curves: train/val loss, F1, and AUC across epochs.
 
@@ -134,6 +136,8 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
             - 'val_f1': List of validation F1 scores per epoch
             - 'val_auc': List of validation AUC-ROC scores per epoch
         output_dir: Path object where plot will be saved
+        bundle_name: Optional bundle name to include in the title
+        dpi: Resolution for saved plot
     
     Returns:
         Path: Path to saved plot file
@@ -193,6 +197,12 @@ def plot_learning_curves(history, output_dir, dpi: int = 200):
         axes[1, 1].text(0.5, 0.5, 'Train F1 not tracked', 
                        ha='center', va='center', transform=axes[1, 1].transAxes)
         axes[1, 1].set_title('Overfitting Indicator (Train F1 not available)')
+    
+    # Add main title with bundle name if provided
+    if bundle_name:
+        fig.suptitle(f'Learning Curves ({bundle_name})', fontsize=16, fontweight='bold', y=0.995)
+    else:
+        fig.suptitle('Learning Curves', fontsize=16, fontweight='bold', y=0.995)
     
     plt.tight_layout()
     plot_path = output_dir / 'learning_curves.png'

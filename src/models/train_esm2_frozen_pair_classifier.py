@@ -112,6 +112,7 @@ class SegmentPairDataset(Dataset):
         self,
         pairs: pd.DataFrame,
         embeddings_file: str,
+        use_concat: bool = True,
         use_diff: bool = False,
         use_prod: bool = False,
         use_parquet: bool = True,
@@ -121,6 +122,7 @@ class SegmentPairDataset(Dataset):
         Args:
             pairs (pd.DataFrame): DataFrame with ['brc_a', 'brc_b', 'label'].
             embeddings_file (str): Path to master HDF5 cache file.
+            use_concat (bool): Include [emb_a, emb_b] concatenation. Default: True.
             use_diff (bool): Include absolute difference (|emb_a - emb_b|). Default: False.
             use_prod (bool): Include element-wise product (emb_a * emb_b). Default: False.
             use_parquet (bool): Use parquet index file for brc_fea_id to row mapping. Default: True.
@@ -128,6 +130,7 @@ class SegmentPairDataset(Dataset):
         """
         self.pairs = pairs
         self.embeddings_file = embeddings_file
+        self.use_concat = use_concat
         self.use_diff = use_diff
         self.use_prod = use_prod
         self.use_parquet = use_parquet
@@ -210,11 +213,11 @@ class SegmentPairDataset(Dataset):
         Uses row-based indexing for fast access to master cache.
         """
         row = self.pairs.iloc[idx]
-        
+
         # Get row indices for brc_a and brc_b
         row_a = self.id_to_row.get(row['brc_a'], -1)
         row_b = self.id_to_row.get(row['brc_b'], -1)
-        
+
         if row_a == -1 or row_b == -1:
             missing = []
             if row_a == -1:
@@ -222,7 +225,7 @@ class SegmentPairDataset(Dataset):
             if row_b == -1:
                 missing.append(f"brc_b={row['brc_b']}")
             raise KeyError(f"❌ Missing embeddings for: {', '.join(missing)}")
-        
+
         # Access embeddings from cache (preloaded) or master cache (on-demand)
         if self.embeddings_cache is not None:
             emb_a = self.embeddings_cache[row_a]
@@ -235,8 +238,11 @@ class SegmentPairDataset(Dataset):
             else:
                 emb_b = self.h5['emb'][row_b].astype(np.float32)
     
-        # Start with the standard concatenation
-        features = [emb_a, emb_b]
+        features = []
+
+        # Optional concatenation [A, B]
+        if self.use_concat:
+            features.extend([emb_a, emb_b])
 
         # Add absolute difference |A - B| as interaction feature conditionally
         # Element-wise Difference
@@ -251,6 +257,9 @@ class SegmentPairDataset(Dataset):
         if self.use_prod:    
             prod = emb_a * emb_b
             features.append(prod)
+
+        if not features:
+            raise ValueError("At least one of use_concat/use_diff/use_prod must be True.")
 
         # Concatenate all chosen features
         emb = np.concatenate(features)
@@ -528,7 +537,7 @@ def train_model(
     
     # Plot learning curves
     if len(history['train_loss']) > 0:
-        plot_learning_curves(history, output_dir)
+        plot_learning_curves(history, output_dir, bundle_name=config_bundle)
         
         # Print learning summary
         print(f"\n{'='*60}")
@@ -572,59 +581,92 @@ def train_model(
     return best_model_path, th
 
 
-def evaluate_model(
+def evaluate_on_split(
     model,
-    test_loader,
+    data_loader,
     criterion,
     device,
-    test_pairs,
-    threshold=0.5
+    pairs_df,
+    threshold=0.5,
+    split_name: str = "test",
     ) -> pd.DataFrame:
     """
-    Evaluate the model on the test set and compute metrics.
+    Evaluate the model on a split and compute metrics.
 
     Args:
         threshold: Classification threshold (default: 0.5)
     """
     model.eval()
-    test_loss = 0
-    test_preds, test_probs, test_labels = [], [], []
+    loss_sum = 0.0
+    pred_labels, probs, true_labels, logits = [], [], [], []
     with torch.no_grad():
-        for batch_x, batch_y in test_loader:
+        for batch_x, batch_y in data_loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            preds = model(batch_x).squeeze()
-            loss = criterion(preds, batch_y)
-            test_loss += loss.item() * batch_x.size(0)
-            test_probs.extend(torch.sigmoid(preds).cpu().numpy())
-            test_preds.extend((torch.sigmoid(preds) > threshold).float().cpu().numpy())
-            test_labels.extend(batch_y.cpu().numpy())
-    test_loss /= len(test_loader.dataset)
-    test_probs = np.array(test_probs)
-    test_preds = np.array(test_preds)
-    test_labels = np.array(test_labels)
+            batch_logits = model(batch_x).squeeze()
+            loss = criterion(batch_logits, batch_y)
+            loss_sum += loss.item() * batch_x.size(0)
+            # Ensure consistent 1D shapes (handles batch_size=1 edge case)
+            batch_logits_1d = batch_logits.view(-1)
+
+            # Save raw logits (pre-sigmoid) for downstream analysis/debugging
+            logits.extend(
+                batch_logits_1d.detach().float().cpu().numpy().astype(np.float32, copy=False)
+            )
+
+            batch_probs = torch.sigmoid(batch_logits_1d)
+            probs.extend(batch_probs.detach().cpu().numpy())
+            pred_labels.extend((batch_probs > threshold).float().detach().cpu().numpy())
+            true_labels.extend(batch_y.detach().cpu().numpy())
+
+    mean_loss = loss_sum / len(data_loader.dataset)
+    probs = np.array(probs)
+    pred_labels = np.array(pred_labels)
+    true_labels = np.array(true_labels)
+    logits = np.array(logits, dtype=np.float32)
     # Compute metrics for positive class (label=1, same isolate)
     # Explicit parameters: average='binary', pos_label=1
-    test_f1 = f1_score(test_labels, test_preds, average='binary', pos_label=1)
-    test_f1_macro = f1_score(test_labels, test_preds, average='macro')
-    test_precision = precision_score(test_labels, test_preds, average='binary', pos_label=1, zero_division=0)
-    test_recall = recall_score(test_labels, test_preds, average='binary', pos_label=1, zero_division=0)
-    test_auc = roc_auc_score(test_labels, test_probs)
+    test_f1 = f1_score(true_labels, pred_labels, average='binary', pos_label=1)
+    test_f1_macro = f1_score(true_labels, pred_labels, average='macro')
+    test_precision = precision_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
+    test_recall = recall_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
+    test_auc = roc_auc_score(true_labels, probs)
 
     # Classification report
     print('\nClassification Report:')
-    print(classification_report(test_labels, test_preds, target_names=['Negative', 'Positive']))
+    print(classification_report(true_labels, pred_labels, target_names=['Negative', 'Positive']))
 
-    # Create test_res_df
-    test_res_df = test_pairs.copy()
-    test_res_df['pred_label'] = test_preds
-    test_res_df['pred_prob'] = test_probs
+    # Create results df (preserve original columns and append predictions)
+    res_df = pairs_df.copy()
+    res_df['pred_label'] = pred_labels
+    res_df['pred_prob'] = probs
+    res_df['pred_logit'] = logits
 
-    print(f'Test Loss: {test_loss:.4f}, Test F1 (binary): {test_f1:.4f}, Test F1 (macro): {test_f1_macro:.4f}')
-    print(f'Test Precision: {test_precision:.4f}, Test Recall: {test_recall:.4f}, Test AUC: {test_auc:.4f}')
+    split_title = split_name.strip() if split_name is not None else "split"
+    print(f'{split_title} Loss: {mean_loss:.4f}, {split_title} F1 (binary): {test_f1:.4f}, {split_title} F1 (macro): {test_f1_macro:.4f}')
+    print(f'{split_title} Precision: {test_precision:.4f}, {split_title} Recall: {test_recall:.4f}, {split_title} AUC: {test_auc:.4f}')
     print(f'Using threshold: {threshold:.4f}')
     print(f'Note: Precision measures False Positives (FP), Recall measures False Negatives (FN)')
     print(f'      F1 (binary) focuses on positive class, F1 (macro) averages both classes')
-    return test_res_df
+    return res_df
+
+
+def swap_pairs_df_columns(pairs_df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of pairs_df with every *_a/*_b column pair swapped.
+
+    This is used for the "swap test" diagnostic: evaluate a trained directed model
+    (e.g., features=[emb_a, emb_b]) on swapped inputs (b,a) with labels unchanged.
+    """
+    swapped = pairs_df.copy()
+    cols = list(swapped.columns)
+    for col_a in cols:
+        if not col_a.endswith("_a"):
+            continue
+        col_b = col_a[:-2] + "_b"
+        if col_b in swapped.columns:
+            tmp = swapped[col_a].copy()
+            swapped[col_a] = swapped[col_b]
+            swapped[col_b] = tmp
+    return swapped
 
 
 # Parser
@@ -689,6 +731,7 @@ EPOCHS = config.training.epochs
 HIDDEN_DIMS = config.training.hidden_dims
 USE_DIFF = config.training.use_diff
 USE_PROD = config.training.use_prod
+USE_CONCAT = config.training.use_concat
 DROPOUT = config.training.dropout
 PATIENCE = config.training.patience
 EARLY_STOPPING_METRIC = config.training.early_stopping_metric
@@ -807,11 +850,11 @@ print(f"All required embeddings available ({len(available_ids)} total embeddings
 
 # Create datasets
 train_dataset = SegmentPairDataset(train_pairs, embeddings_file,
-    use_diff=USE_DIFF, use_prod=USE_PROD)
+    use_concat=USE_CONCAT, use_diff=USE_DIFF, use_prod=USE_PROD)
 val_dataset = SegmentPairDataset(val_pairs, embeddings_file,
-    use_diff=USE_DIFF, use_prod=USE_PROD)
+    use_concat=USE_CONCAT, use_diff=USE_DIFF, use_prod=USE_PROD)
 test_dataset = SegmentPairDataset(test_pairs, embeddings_file,
-    use_diff=USE_DIFF, use_prod=USE_PROD)
+    use_concat=USE_CONCAT, use_diff=USE_DIFF, use_prod=USE_PROD)
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -825,14 +868,22 @@ device = determine_device(CUDA_NAME)
 EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
 
 # Compute input dimension based on feature flags
-mlp_input_dim = 2 * EMBED_DIM  # Default: concat [emb_a, emb_b] = 2 * EMBED_DIM
-feature_desc = "2"
+# mlp_input_dim = 2 * EMBED_DIM  # Default: concat [emb_a, emb_b] = 2 * EMBED_DIM
+# feature_desc = "2"
+mlp_input_dim = 0
+feature_desc_parts = []
+if USE_CONCAT:
+    mlp_input_dim += 2 * EMBED_DIM
+    feature_desc_parts.append("2")
 if USE_DIFF:
     mlp_input_dim += EMBED_DIM  # add |A - B|
-    feature_desc += "+1"
+    feature_desc_parts.append("1")
 if USE_PROD:
     mlp_input_dim += EMBED_DIM  # add A * B
-    feature_desc += "+1"
+    feature_desc_parts.append("1")
+if mlp_input_dim == 0:
+    raise ValueError("At least one of training.use_concat/use_diff/use_prod must be True.")
+feature_desc = "+".join(feature_desc_parts) if feature_desc_parts else "0"
 print(f"MLP Input Dimension: {mlp_input_dim} ({feature_desc} * {EMBED_DIM})") 
 
 # Initialize model
@@ -894,15 +945,34 @@ best_model_path, optimal_threshold = train_model(
 # Evaluate
 print('\nEvaluate model.')
 model.load_state_dict(torch.load(best_model_path))
-test_res_df = evaluate_model(
+test_res_df = evaluate_on_split(
     model, test_loader, criterion, device, test_pairs,
-    threshold=optimal_threshold
+    threshold=optimal_threshold,
+    split_name="Test"
 )
 
 # Save raw predictions
 preds_file = output_dir / 'test_predicted.csv'
 print(f'\nSave raw predictions to: {preds_file}')
 test_res_df.to_csv(preds_file, index=False)
+
+EVAL_SWAPPED_TEST = getattr(config.training, 'eval_swapped_test', False)
+if EVAL_SWAPPED_TEST:
+    print('\nSwap-test diagnostic: evaluate on swapped test inputs (B,A) using SAME checkpoint.')
+    swapped_test_pairs = swap_pairs_df_columns(test_pairs)
+    swapped_test_dataset = SegmentPairDataset(
+        swapped_test_pairs, embeddings_file,
+        use_concat=USE_CONCAT, use_diff=USE_DIFF, use_prod=USE_PROD
+    )
+    swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    swapped_test_res_df = evaluate_on_split(
+        model, swapped_test_loader, criterion, device, swapped_test_pairs,
+        threshold=optimal_threshold,
+        split_name="Swapped Test"
+    )
+    swapped_preds_file = output_dir / 'test_predicted_swapped.csv'
+    print(f'\nSave swapped-test predictions to: {swapped_preds_file}')
+    swapped_test_res_df.to_csv(swapped_preds_file, index=False)
 
 print(f'\n✅ Finished {Path(__file__).name}!')
 total_timer.display_timer()
