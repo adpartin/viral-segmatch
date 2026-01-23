@@ -29,9 +29,10 @@ sys.path.append(str(project_root))
 
 from src.utils.config_hydra import get_virus_config_hydra
 from src.utils.path_utils import build_training_paths
+from src.utils.plot_config import apply_default_style
 
-# Set up plotting style for presentations
-plt.style.use('seaborn-v0_8-whitegrid')
+# Set up plotting style for presentations (shared project defaults)
+apply_default_style()
 sns.set_palette('Set2')
 
 
@@ -69,7 +70,7 @@ def create_performance_summary_plot(df: pd.DataFrame, results_dir: Path) -> None
             average_precision_score(df['label'], df['pred_prob'])
         ]
     
-    metrics = ['Accuracy', 'F1 Score', 'F1 Macro', 'AUC-ROC', 'Avg Precision']
+    metrics = ['Accuracy', 'F1 Score', 'F1 Macro', 'AUC-ROC', 'AUC-PR']
     colors = ['#2E86AB', '#A23B72', '#6A4C93', '#F18F01', '#C73E1D']
 
     bars = ax1.bar(metrics, values, color=colors, alpha=0.8)

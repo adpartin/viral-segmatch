@@ -33,6 +33,9 @@ sys.path.append(str(project_root))
 
 from src.utils.plot_config import apply_default_style
 from src.utils.plot_utils import plot_sequence_length_distribution
+from src.utils.embedding_utils import (
+    load_embedding_index, load_embeddings_by_ids
+)
 
 try:
     import umap
@@ -229,8 +232,8 @@ def analyze_sequence_lengths():
 def load_embeddings_for_analysis(protein_subset_df, max_proteins=1000):
     """Load embeddings for analysis (subsample if too large for memory).
 
-    Handles both master format (emb dataset + parquet index) and 
-    legacy format (brc_id as keys directly).
+    Uses master format only (legacy format no longer supported).
+    Refactored to use embedding_utils for consistency.
     """
     print(f"\nLoading embeddings for analysis...")
     
@@ -239,41 +242,12 @@ def load_embeddings_for_analysis(protein_subset_df, max_proteins=1000):
         protein_subset_df = protein_subset_df.sample(n=max_proteins, random_state=SEED)
         print(f"Subsampled to {max_proteins} proteins for analysis")
     
-    embeddings = []
-    valid_proteins = []
+    # Use new utility functions
+    brc_ids = protein_subset_df['brc_fea_id'].tolist()
+    embeddings, valid_ids = load_embeddings_by_ids(brc_ids, embeddings_file)
     
-    with h5py.File(embeddings_file, 'r') as f:
-        # Check if this is master format (has 'emb' dataset) or legacy format
-        is_master_format = 'emb' in f
-        
-        if is_master_format:
-            # Master format: load index from parquet, then access emb by row number
-            parquet_file = embeddings_file.with_suffix('.parquet')
-            if parquet_file.exists():
-                index_df = pd.read_parquet(parquet_file)
-                # Create brc_id -> row mapping
-                brc_to_row = dict(zip(index_df['brc_fea_id'], index_df['row']))
-            else:
-                print(f"Warning: Master format but no parquet index found at {parquet_file}")
-                brc_to_row = {}
-            
-            emb_data = f['emb']
-            for _, row in protein_subset_df.iterrows():
-                brc_id = row['brc_fea_id']
-                if brc_id in brc_to_row:
-                    row_idx = brc_to_row[brc_id]
-                    embeddings.append(emb_data[row_idx])
-                    valid_proteins.append(row)
-        else:
-            # Legacy format: brc_id is the key directly
-            for _, row in protein_subset_df.iterrows():
-                brc_id = row['brc_fea_id']
-                if brc_id in f:
-                    embeddings.append(f[brc_id][:])
-                    valid_proteins.append(row)
-    
-    embeddings = np.array(embeddings)
-    valid_proteins_df = pd.DataFrame(valid_proteins)
+    # Filter protein_subset_df to only valid IDs
+    valid_proteins_df = protein_subset_df[protein_subset_df['brc_fea_id'].isin(valid_ids)].copy()
     
     # Ensure truncation information is included
     # Compute original_length if not present
@@ -828,17 +802,27 @@ def main(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Analyze Stage 3: ESM-2 embeddings')
-    parser.add_argument('--virus', type=str, required=True,
-                        choices=['bunya', 'flu_a'],
-                        help='Virus name (bunya or flu_a)')
-    parser.add_argument('--data_version', type=str, required=True,
-                        help='Data version (e.g., April_2025, July_2025)')
-    parser.add_argument('--embeddings_file', type=str, default=None,
-                        help='Path to embeddings file (optional)')
-    parser.add_argument('--use_core_proteins_only', action='store_true',
-                        help='Filter to core proteins only')
-    parser.add_argument('--compute_cosine_sim', action='store_true',
-                        help='Compute cosine similarity analysis (time-consuming)')
+    parser.add_argument(
+        '--virus', type=str, required=True,
+        choices=['bunya', 'flu_a'],
+        help='Virus name (bunya or flu_a)'
+    )
+    parser.add_argument(
+        '--data_version', type=str, required=True,
+        help='Data version (e.g., April_2025, July_2025)'
+    )
+    parser.add_argument(
+        '--embeddings_file', type=str, default=None,
+        help='Path to embeddings file (optional)'
+    )
+    parser.add_argument(
+        '--use_core_proteins_only', action='store_true',
+        help='Filter to core proteins only'
+    )
+    parser.add_argument(
+        '--compute_cosine_sim', action='store_true',
+        help='Compute cosine similarity analysis (time-consuming)'
+    )
     args = parser.parse_args()
 
     main(virus_name=args.virus,

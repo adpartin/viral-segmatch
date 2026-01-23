@@ -226,10 +226,16 @@ def create_pair_embeddings_concatenation(
     id_to_row: Optional[Dict[str, int]] = None,
     return_valid_mask: bool = False,
     dtype: Optional[np.dtype] = None,
+    use_concat: bool = True,
+    use_diff: bool = False,
+    use_prod: bool = False,
     ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-    """Create pair embeddings using concatenation [emb_a, emb_b].
+    """Create pair embeddings with configurable feature construction.
     
-    This matches the default model input format (without interaction terms).
+    Features can include any combination of:
+    - concat: [emb_a, emb_b]
+    - diff:   |emb_a - emb_b|
+    - prod:   emb_a * emb_b
     
     Args:
         pairs_df: DataFrame with 'brc_a', 'brc_b', and 'label' columns
@@ -238,6 +244,9 @@ def create_pair_embeddings_concatenation(
         return_valid_mask: If True, also return a boolean mask over the input pairs_df
             indicating which rows had both embeddings available (and therefore were kept).
         dtype: Optional dtype to cast the resulting pair embeddings (e.g., np.float32).
+        use_concat: Include [emb_a, emb_b] concatenation. Default: True.
+        use_diff: Include element-wise absolute difference |emb_a - emb_b|. Default: False.
+        use_prod: Include element-wise product emb_a * emb_b. Default: False.
     
     Returns:
         pair_embeddings: (N, 2*D) array where D is embedding dimension
@@ -298,8 +307,18 @@ def create_pair_embeddings_concatenation(
         emb_a = emb_a_unique[a_inverse]
         emb_b = emb_b_unique[b_inverse]
 
-    # Concatenate along feature axis: [emb_a, emb_b]
-    pair_embeddings = np.concatenate([emb_a, emb_b], axis=1)
+    features = []
+    if use_concat:
+        features.append(emb_a)
+        features.append(emb_b)
+    if use_diff:
+        features.append(np.abs(emb_a - emb_b))
+    if use_prod:
+        features.append(emb_a * emb_b)
+    if not features:
+        raise ValueError("At least one of use_concat/use_diff/use_prod must be True.")
+
+    pair_embeddings = np.concatenate(features, axis=1)
     if dtype is not None:
         pair_embeddings = pair_embeddings.astype(dtype, copy=False)
 

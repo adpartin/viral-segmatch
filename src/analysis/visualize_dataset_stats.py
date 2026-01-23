@@ -341,10 +341,16 @@ def plot_pair_embeddings_splits_overlap(
     umap_n_neighbors: int = 15,
     umap_min_dist: float = 0.1,
     pre_pca_dim: Optional[int] = None,
+    use_concat: bool = True,
+    use_diff: bool = False,
+    use_prod: bool = False,
     ) -> None:
     """Plot sampled *pair embeddings* colored/marked by split.
 
-    This uses concatenated pair embeddings [emb_a, emb_b] – matching default model inputs.
+    This uses the same feature construction as the model can be trained with:
+    - concat: [emb_a, emb_b]
+    - diff:   |emb_a - emb_b|
+    - prod:   emb_a * emb_b
 
     Behavior:
     - Always computes and saves a PCA(2D) plot (fast, deterministic).
@@ -387,7 +393,10 @@ def plot_pair_embeddings_splits_overlap(
 
     pairs = pd.concat(sampled, ignore_index=True)
 
-    # Create pair embeddings (concatenation)
+    if not (use_concat or use_diff or use_prod):
+        raise ValueError("At least one of use_concat/use_diff/use_prod must be True.")
+
+    # Create pair embeddings (match training feature construction)
     id_to_row = load_embedding_index(embeddings_file)
     pair_embeddings, labels, valid_mask = create_pair_embeddings_concatenation(
         pairs,
@@ -395,6 +404,9 @@ def plot_pair_embeddings_splits_overlap(
         id_to_row=id_to_row,
         return_valid_mask=True,
         dtype=np.float32,
+        use_concat=use_concat,
+        use_diff=use_diff,
+        use_prod=use_prod,
     )
     if len(pair_embeddings) == 0:
         print("⚠️  Skipping split-overlap plot: could not create any pair embeddings (missing embeddings?)")
@@ -408,6 +420,16 @@ def plot_pair_embeddings_splits_overlap(
     if dropped > 0:
         print(f"ℹ️  Split-overlap plot: dropped {dropped:,}/{n_in:,} sampled pairs due to missing embeddings")
     assert len(pairs) == len(pair_embeddings), "pairs/embeddings misalignment: filter logic bug"
+
+    # Feature descriptor for plot titles / logs.
+    feature_tags = []
+    if use_concat:
+        feature_tags.append("concat")
+    if use_diff:
+        feature_tags.append("diff")
+    if use_prod:
+        feature_tags.append("prod")
+    feature_desc = "+".join(feature_tags) if feature_tags else "none"
 
     # Compute PCA (also serves as an optional UMAP pre-step for speed).
     pca_dim = 2 if pre_pca_dim is None else max(2, int(pre_pca_dim))
@@ -432,16 +454,30 @@ def plot_pair_embeddings_splits_overlap(
     diagnostics: dict = {
         'n_pairs': int(len(pairs)),
         'embedding_dim_total': int(pair_embeddings.shape[1]) if pair_embeddings.ndim == 2 else None,
-        'embedding_dim_half': int(pair_embeddings.shape[1] // 2) if pair_embeddings.ndim == 2 else None,
+        'feature_flags': {'use_concat': bool(use_concat), 'use_diff': bool(use_diff), 'use_prod': bool(use_prod)},
         'pca_explained_variance_ratio_top2': (
             [float(pca_model.explained_variance_ratio_[0]), float(pca_model.explained_variance_ratio_[1])]
             if pca_model is not None and hasattr(pca_model, 'explained_variance_ratio_') else None
         ),
     }
     try:
-        if pca_model is not None and pair_embeddings.ndim == 2 and pair_embeddings.shape[1] % 2 == 0:
-            d = pair_embeddings.shape[1] // 2
-            swapped = np.concatenate([pair_embeddings[:, d:], pair_embeddings[:, :d]], axis=1)
+        if pca_model is not None and pair_embeddings.ndim == 2 and use_concat:
+            # We can only define a meaningful "swap (A,B)->(B,A)" when concat is present.
+            #
+            # Layout when use_concat is True:
+            # - block0: emb_a (D)
+            # - block1: emb_b (D)
+            # - optional symmetric blocks: |a-b| (D), a*b (D)
+            n_blocks = 2 + int(bool(use_diff)) + int(bool(use_prod))
+            total_dim = int(pair_embeddings.shape[1])
+            if total_dim % n_blocks != 0:
+                raise ValueError(f"Unexpected feature dim: total_dim={total_dim} not divisible by n_blocks={n_blocks}")
+            d = total_dim // n_blocks
+            diagnostics['embedding_dim_half'] = int(d)
+
+            blocks = [pair_embeddings[:, i*d:(i+1)*d] for i in range(n_blocks)]
+            # Swap only A/B blocks; keep symmetric blocks unchanged.
+            swapped = np.concatenate([blocks[1], blocks[0], *blocks[2:]], axis=1)
             swapped_pca = pca_model.transform(swapped)
             swapped_2d = swapped_pca[:, :2]
 
@@ -603,7 +639,7 @@ def plot_pair_embeddings_splits_overlap(
         split_markers=split_markers,
         xlab=pc1,
         ylab=pc2,
-        title="PCA: Pair Embeddings Splits Overlap ([emb_a, emb_b])",
+        title=f"PCA: Pair Embeddings Splits Overlap (features={feature_desc})",
         output_path=pca_path,
         filters_text=filters_text,
     )
@@ -630,7 +666,7 @@ def plot_pair_embeddings_splits_overlap(
             split_markers=split_markers,
             xlab="UMAP1",
             ylab="UMAP2",
-            title=f"{method}:  Pair Embeddings Splits Overlap ([emb_a, emb_b])",
+            title=f"{method}:  Pair Embeddings Splits Overlap (features={feature_desc})",
             output_path=output_path,
             filters_text=filters_text,
         )
@@ -1412,6 +1448,10 @@ def visualize_dataset_stats(
         data_version = cfg.virus.data_version
         embeddings_file = project_root / 'data' / 'embeddings' / virus_name / data_version / 'master_esm2_embeddings.h5'
         if embeddings_file.exists():
+            # Match training-time feature construction when available in bundle config.
+            use_concat = getattr(getattr(cfg, 'training', None), 'use_concat', True)
+            use_diff = getattr(getattr(cfg, 'training', None), 'use_diff', False)
+            use_prod = getattr(getattr(cfg, 'training', None), 'use_prod', False)
             plot_pair_embeddings_splits_overlap(
                 run_dir=run_dir,
                 embeddings_file=embeddings_file,
@@ -1419,6 +1459,9 @@ def visualize_dataset_stats(
                 max_per_label_per_split=1000,
                 random_state=42,
                 pre_pca_dim=50,
+                use_concat=use_concat,
+                use_diff=use_diff,
+                use_prod=use_prod,
             )
             # Task 8 (optional): single-embedding confounder plots (derived from sequences appearing in pairs).
             # Disabled by default since it can be slow and is not required for the split-overlap sanity check.
