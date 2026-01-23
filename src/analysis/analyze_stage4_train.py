@@ -525,6 +525,278 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
     return error_summary
 
 
+def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
+    """
+    Analyze error rates and performance metrics stratified by metadata (host, hn_subtype, year).
+    
+    This helps identify if the model performs differently across different hosts, subtypes, or years,
+    which is important for understanding model generalization and potential biases.
+    
+    Args:
+        df: DataFrame with predictions and metadata (must have assembly_id_a, assembly_id_b)
+        y_true: True labels
+        y_pred: Predicted labels
+        y_prob: Prediction probabilities
+        results_dir: Directory to save analysis outputs
+    
+    Returns:
+        Dictionary with stratified error statistics
+    """
+    from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
+    from pathlib import Path as PathType
+    
+    print('\n' + '='*60)
+    print('ERROR ANALYSIS BY METADATA')
+    print('='*60)
+    
+    # Enrich dataframe with metadata if not already present
+    df_analysis = df.copy()
+    df_analysis['y_true'] = y_true
+    df_analysis['y_pred'] = y_pred
+    df_analysis['y_prob'] = y_prob
+    
+    # Check if metadata columns exist
+    has_metadata = all(col in df_analysis.columns for col in ['host', 'hn_subtype', 'year'])
+    
+    if not has_metadata:
+        print("Enriching dataframe with metadata...")
+        try:
+            # Get project root (infer from file location)
+            project_root = PathType(__file__).resolve().parents[2]
+            # Enrich using assembly_id_a (metadata is per isolate, so either assembly_id works)
+            df_metadata = df_analysis[['assembly_id_a']].drop_duplicates().copy()
+            df_metadata = df_metadata.rename(columns={'assembly_id_a': 'assembly_id'})
+            df_metadata = enrich_prot_data_with_metadata(df_metadata, project_root=project_root)
+            
+            # Merge back to analysis dataframe
+            df_analysis = df_analysis.merge(
+                df_metadata[['assembly_id', 'host', 'year', 'hn_subtype']],
+                left_on='assembly_id_a',
+                right_on='assembly_id',
+                how='left'
+            ).drop(columns=['assembly_id'])
+        except Exception as e:
+            print(f"⚠️  Warning: Could not enrich with metadata: {e}")
+            print("   Skipping metadata-stratified error analysis")
+            return {}
+    
+    # Check if we have metadata after enrichment
+    if not all(col in df_analysis.columns for col in ['host', 'hn_subtype', 'year']):
+        print("⚠️  Warning: Metadata columns not available. Skipping metadata-stratified analysis.")
+        return {}
+    
+    # Compute metrics for each metadata variable
+    metadata_vars = ['host', 'hn_subtype', 'year']
+    all_stratified_stats = {}
+    
+    for var in metadata_vars:
+        if var not in df_analysis.columns:
+            continue
+        
+        print(f"\nAnalyzing errors by {var}...")
+        stratified_stats = []
+        
+        # Get unique values (excluding NaN)
+        unique_values = df_analysis[var].dropna().unique()
+        
+        for value in unique_values:
+            subset = df_analysis[df_analysis[var] == value]
+            if len(subset) < 5:  # Skip if too few samples
+                continue
+            
+            subset_y_true = subset['y_true'].values
+            subset_y_pred = subset['y_pred'].values
+            subset_y_prob = subset['y_prob'].values
+            
+            # Compute confusion matrix
+            tn = ((subset_y_true == 0) & (subset_y_pred == 0)).sum()
+            fp = ((subset_y_true == 0) & (subset_y_pred == 1)).sum()
+            fn = ((subset_y_true == 1) & (subset_y_pred == 0)).sum()
+            tp = ((subset_y_true == 1) & (subset_y_pred == 1)).sum()
+            
+            # Compute metrics
+            accuracy = (tp + tn) / len(subset) if len(subset) > 0 else 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+            fp_rate = fp / len(subset) if len(subset) > 0 else 0
+            fn_rate = fn / len(subset) if len(subset) > 0 else 0
+            error_rate = (fp + fn) / len(subset) if len(subset) > 0 else 0
+            
+            # Compute AUC-ROC if possible
+            try:
+                from sklearn.metrics import roc_auc_score, average_precision_score
+                auc_roc = roc_auc_score(subset_y_true, subset_y_prob) if len(set(subset_y_true)) > 1 else 0
+                auc_pr = average_precision_score(subset_y_true, subset_y_prob) if len(set(subset_y_true)) > 1 else 0
+            except:
+                auc_roc = 0
+                auc_pr = 0
+            
+            stratified_stats.append({
+                var: value,
+                'n_samples': len(subset),
+                'tp': int(tp),
+                'tn': int(tn),
+                'fp': int(fp),
+                'fn': int(fn),
+                'accuracy': accuracy,
+                'precision': precision,
+                'recall': recall,
+                'f1_score': f1,
+                'auc_roc': auc_roc,
+                'auc_pr': auc_pr,
+                'fp_rate': fp_rate,
+                'fn_rate': fn_rate,
+                'error_rate': error_rate,
+                'fp_avg_confidence': subset[subset['y_true'] == 0]['y_prob'].mean() if (subset['y_true'] == 0).any() else 0,
+                'fn_avg_confidence': subset[subset['y_true'] == 1]['y_prob'].mean() if (subset['y_true'] == 1).any() else 0,
+            })
+        
+        if not stratified_stats:
+            print(f"   No sufficient data for {var} analysis")
+            continue
+        
+        stats_df = pd.DataFrame(stratified_stats)
+        stats_df = stats_df.sort_values('error_rate', ascending=False)
+        all_stratified_stats[var] = stats_df
+        
+        # Save to CSV
+        output_file = results_dir / f'error_analysis_by_{var}.csv'
+        stats_df.to_csv(output_file, index=False)
+        print(f"   Saved stratified metrics to: {output_file}")
+        print(f"   Analyzed {len(stats_df)} unique {var} values")
+    
+    # Create visualization plots
+    if all_stratified_stats:
+        _plot_errors_by_metadata(all_stratified_stats, results_dir)
+    
+    return all_stratified_stats
+
+
+def _plot_errors_by_metadata(stratified_stats: dict, results_dir: Path):
+    """
+    Create plots showing error rates and performance metrics by metadata.
+    
+    Creates two separate figures:
+    1. Error rates (FP rate, FN rate) by metadata
+    2. Performance metrics (F1 Score, AUC-ROC, AUC-PR) by metadata
+    
+    Args:
+        stratified_stats: Dictionary with keys 'host', 'hn_subtype', 'year', each containing a DataFrame
+        results_dir: Directory to save plots
+    """
+    metadata_vars = ['host', 'hn_subtype', 'year']
+    var_labels = {'host': 'Host', 'hn_subtype': 'HN Subtype', 'year': 'Year'}
+    
+    # Get available variables
+    available_vars = [v for v in metadata_vars if v in stratified_stats]
+    n_vars = len(available_vars)
+    if n_vars == 0:
+        return
+    
+    # ========================================================================
+    # Figure 1: Error Rates (FP Rate, FN Rate)
+    # ========================================================================
+    fig1, axes1 = plt.subplots(n_vars, 1, figsize=(14, 5 * n_vars))
+    if n_vars == 1:
+        axes1 = [axes1]
+    
+    for plot_idx, var in enumerate(available_vars):
+        stats_df = stratified_stats[var]
+        
+        # Filter to top N by sample size (for readability)
+        top_n = min(15, len(stats_df))
+        stats_df_plot = stats_df.nlargest(top_n, 'n_samples')
+        
+        ax = axes1[plot_idx]
+        x_pos = np.arange(len(stats_df_plot))
+        width = 0.35
+        
+        # FP Rate bars with pattern
+        fp_bars = ax.bar(x_pos - width/2, stats_df_plot['fp_rate'], width, 
+                        label='FP Rate', color='red', alpha=0.8, edgecolor='black', linewidth=1.5)
+        for bar in fp_bars:
+            bar.set_hatch('///')  # Diagonal lines
+        
+        # FN Rate bars with different pattern
+        fn_bars = ax.bar(x_pos + width/2, stats_df_plot['fn_rate'], width, 
+                        label='FN Rate', color='blue', alpha=0.8, edgecolor='black', linewidth=1.5)
+        for bar in fn_bars:
+            bar.set_hatch('...')  # Dots
+        
+        var_label = var_labels[var]
+        ax.set_xlabel(var_label, fontsize=12)
+        ax.set_ylabel('Rate', fontsize=12)
+        ax.set_title(f'Error Rates by {var_label} (Top {top_n} by sample size)', 
+                    fontsize=13, fontweight='bold')
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels([str(v) for v in stats_df_plot[var]], rotation=45, ha='right', fontsize=10)
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3, axis='y')
+        
+        max_rate = max(stats_df_plot[['fp_rate', 'fn_rate']].max())
+        ax.set_ylim(0, max_rate * 1.15)
+    
+    plt.tight_layout()
+    output_path1 = results_dir / 'error_rates_by_metadata.png'
+    plt.savefig(output_path1, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"✅ Saved error rates plot to: {output_path1}")
+    
+    # ========================================================================
+    # Figure 2: Performance Metrics (F1 Score, AUC-ROC, AUC-PR)
+    # ========================================================================
+    fig2, axes2 = plt.subplots(n_vars, 1, figsize=(14, 5 * n_vars))
+    if n_vars == 1:
+        axes2 = [axes2]
+    
+    for plot_idx, var in enumerate(available_vars):
+        stats_df = stratified_stats[var]
+        
+        # Filter to top N by sample size (for readability)
+        top_n = min(15, len(stats_df))
+        stats_df_plot = stats_df.nlargest(top_n, 'n_samples')
+        
+        ax = axes2[plot_idx]
+        x_pos = np.arange(len(stats_df_plot))
+        width = 0.25
+        
+        # F1 Score bars with pattern
+        f1_bars = ax.bar(x_pos - width, stats_df_plot['f1_score'], width, 
+                        label='F1 Score', color='purple', alpha=0.8, edgecolor='black', linewidth=1.5)
+        for bar in f1_bars:
+            bar.set_hatch('///')  # Diagonal lines
+        
+        # AUC-ROC bars with different pattern
+        auc_roc_bars = ax.bar(x_pos, stats_df_plot['auc_roc'], width, 
+                             label='AUC-ROC', color='teal', alpha=0.8, edgecolor='black', linewidth=1.5)
+        for bar in auc_roc_bars:
+            bar.set_hatch('...')  # Dots
+        
+        # AUC-PR bars with different pattern
+        auc_pr_bars = ax.bar(x_pos + width, stats_df_plot['auc_pr'], width, 
+                            label='AUC-PR', color='orange', alpha=0.8, edgecolor='black', linewidth=1.5)
+        for bar in auc_pr_bars:
+            bar.set_hatch('xxx')  # Crosshatch
+        
+        var_label = var_labels[var]
+        ax.set_xlabel(var_label, fontsize=12)
+        ax.set_ylabel('Score', fontsize=12)
+        ax.set_title(f'Performance Metrics by {var_label} (Top {top_n} by sample size)', 
+                    fontsize=13, fontweight='bold')
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels([str(v) for v in stats_df_plot[var]], rotation=45, ha='right', fontsize=10)
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_ylim(0, 1.05)
+    
+    plt.tight_layout()
+    output_path2 = results_dir / 'performance_metrics_by_metadata.png'
+    plt.savefig(output_path2, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"✅ Saved performance metrics plot to: {output_path2}")
+
+
 def analyze_segment_performance(df):
     """Analyze performance by segment combinations."""
     print('\n' + '='*50)
@@ -800,6 +1072,9 @@ def main(config_bundle: str,
     
     # Enhanced FP/FN analysis
     error_summary = analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir)
+    
+    # Metadata-stratified error analysis
+    metadata_error_stats = analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir)
     
     # Domain-specific analyses
     segment_df = analyze_segment_performance(df)
