@@ -12,12 +12,21 @@ Split strategies:
 - hard_partition_isolates: all proteins from an isolate (assembly_id) are assigned
     to a single train/val/test set to prevent leakage
 
-Duplicate handling (v2 - blocked negatives):
+Duplicate handling (blocked negatives):
 - Identical amino-acid sequences recur across many genomes/isolates
 - A pair (seq_a, seq_b) can appear as positive (same isolate) AND negative (different isolates)
 - This creates contradictory labels and potential data leakage
 - Solution: Block negative pairs where sequences co-occur in ANY isolate
 - Split by pair_key (not just isolate) to prevent same pair appearing in train and test
+
+The segment-matching task is meant to beundirected, i.e., (a,b) ≡ (b,a), but the default model input uses a directed representation [emb_a, emb_b] (i.e, embeddings vectors are concatenated). If positive pairs are generated with a systematic orientation (e.g., from deterministic within-isolate ordering) while negative pairs have random orientation, models can learn a shortcut ("shortcut learning") where direction correlates with label. To prevent this, we canonicalize stored pair orientation for both positive and negative pairs by applying a deterministic ordering rule based on (seq_hash, brc_fea_id) (with a BRC-only fallback) and swapping all _a/_b fields together when needed. This keeps orientation consistent and ensures “direction” does not predict label.
+
+PCA plots:
+PCA clusters may remain even when shortcut is prevented. The PCA clusters are mostly showing that pair embeddings are separable by “slot identity” (what function/segment tends to land in the first slot vs second slot), not necessarily shortcut.
+
+Even after canonicalization:
+- We will still often have both HA→NA and NA→HA present, because the canonical rule is by (seq_hash, brc), not by function/segment. For a given unordered pair, sometimes HA's hash sorts first; sometimes NA's hash sorts first.
+- Concatenation [emb_a, emb_b] will still make [HA,NA] different from [NA,HA] (mathematically), so you can still see “directed” clusters.
 """
 
 import argparse
@@ -55,6 +64,323 @@ def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
     Ensures consistent ordering so (a, b) and (b, a) produce the same key.
     """
     return "__".join(sorted([seq_hash_a, seq_hash_b]))
+
+
+def canonicalize_pair_orientation(dct: dict) -> dict:
+    """Canonicalize stored pair orientation by swapping all *_a/*_b fields if needed.
+
+    The task is meant to be *undirected* (a,b) ≡ (b,a), but our model input
+    uses a directed concatenation [emb_a, emb_b]. If positives and negatives
+    have different orientation patterns, the model can learn a shortcut
+    (direction → label).
+
+    Ordering rule (deterministic):
+    - Prefer ordering by (seq_hash, brc) when both seq_hash values are present.
+    - Fall back to ordering by (brc) if either seq_hash is missing.
+
+    Robust swapping:
+    - Swap *all* key pairs that end with "_a" and have a corresponding "_b"
+      to avoid forgetting future paired metadata columns (e.g., host_a/host_b).
+    """
+    seq_hash_a = dct.get("seq_hash_a")
+    seq_hash_b = dct.get("seq_hash_b")
+    brc_a = dct.get("brc_a")
+    brc_b = dct.get("brc_b")
+
+    # Build comparable keys (string-cast for robustness across mixed types).
+    # If seq_hash is missing on either side, we fall back to BRC ordering only.
+    if seq_hash_a is not None and seq_hash_b is not None:
+        key_a = (str(seq_hash_a), str(brc_a) if brc_a is not None else "")
+        key_b = (str(seq_hash_b), str(brc_b) if brc_b is not None else "")
+    else:
+        key_a = (str(brc_a) if brc_a is not None else "",)
+        key_b = (str(brc_b) if brc_b is not None else "",)
+
+    if key_a <= key_b:
+        return dct
+
+    # Swap all paired fields ending with _a/_b (future-proof).
+    for k in list(dct.keys()):
+        if not k.endswith("_a"):
+            continue
+        kb = k[:-2] + "_b"
+        if kb in dct:
+            dct[k], dct[kb] = dct[kb], dct[k]
+    return dct
+
+
+def create_positive_pairs(
+    df: pd.DataFrame,
+    seed: int = 42,
+    canonicalize_pair_orientation_enabled: bool = True,
+    ) -> pd.DataFrame:
+    """ Create positive protein pairs (within-isolate and cross-function).
+    For example, creates pairs within an isolate: RdRp-GPC, RdRp-N, GPC-N
+
+    Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
+    Uses combinations (instead of permutations) to create positive pairs to
+    avoid duplicates that stem from symmetric pairs.
+
+    Each pair gets a canonical pair_key based on sequence hashes for:
+    1. Deduplication across isolates (same sequences in different isolates)
+    2. Preventing data leakage during train/test split
+    """
+    # np.random.seed(seed)
+    # random.seed(seed)
+    isolates = df.groupby('assembly_id')
+
+    pos_pairs = []
+    isolates_with_few_proteins = []
+
+    for aid, grp in isolates:
+        # print(grp[['file', 'assembly_id', 'canonical_segment', 'replicon_type', 'function', 'brc_fea_id']])
+        # Ignore isolates with fewer than 2 proteins (these cannot be used to
+        # create positive pairs, but these will be used to create negative pairs)
+        if len(grp) < 2:
+            isolates_with_few_proteins.append(aid)
+            continue
+
+        # Get all possible within-isolate pairs.
+        #
+        # NOTE: combinations(grp.itertuples(), 2) returns pairs as (row_a, row_b) with
+        # row_a appearing BEFORE row_b in the current row order of `grp` DataFrame.
+        # - This ordering is NOT based on DataFrame "Index", but rather on the DataFrame row order.
+        # - Therefore, any consistent upstream ordering of proteins within an isolate
+        #   (e.g., implicit segment/function sort in the input) can create a consistent
+        #   orientation in positives and can interact with the concatenated embedding
+        #   representation [emb_a, emb_b] vs [emb_b, emb_a].
+        #
+        # Important: pair_key is canonicalized by seq_hash, so (a,b) and (b,a) share
+        # the same pair_key for dedup/splitting even if their stored orientation differs.
+        #
+        # DEBUG (uncomment to inspect within-isolate row order that drives (row_a,row_b)):
+        # breakpoint()
+        # print(grp[['assembly_id', 'brc_fea_id', 'function', 'canonical_segment']].head(10))
+        # pairs will be [(row_a, row_b), (row_a, row_b), ...]
+        pairs = list(combinations(grp.itertuples(), 2))
+        for row_a, row_b in pairs:
+            # Add the pair only if the proteins have different BRC ids and different functions
+            if row_a.brc_fea_id != row_b.brc_fea_id and row_a.function != row_b.function:
+                # Create canonical pair_key based on sequence hashes
+                pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
+                dct = {
+                    'pair_key': pair_key,  # Canonical key for dedup and splitting
+                    'assembly_id_a': aid, 'assembly_id_b': aid,
+                    'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+                    'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+                    'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
+                    'func_a': row_a.function, 'func_b': row_b.function,
+                    'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
+                    'label': 1  # By definition a positive pair
+                }
+                if canonicalize_pair_orientation_enabled:
+                    dct = canonicalize_pair_orientation(dct)
+                pos_pairs.append(dct)
+
+    pos_df = pd.DataFrame(pos_pairs)
+    # print(pos_df[['brc_a', 'brc_b', 'seg_a', 'seg_b', 'func_a', 'func_b']])
+
+    # Log isolates with fewer than 2 proteins
+    # If an isolate has only one protein, it won't generate any positive pairs.
+    if isolates_with_few_proteins:
+        print(f'Warning: {len(isolates_with_few_proteins)} isolates have <2 proteins.')
+    return pos_df
+
+
+def create_negative_pairs(
+    df: pd.DataFrame,
+    num_negatives: int,
+    isolate_ids: list[str],
+    cooccur_pairs: set,
+    allow_same_func_negatives: bool = True,
+    max_same_func_ratio: float = 0.5,
+    seed: int = 42,
+    max_attempts_multiplier: int = 100,
+    canonicalize_pair_orientation_enabled: bool = True,
+    ) -> tuple[pd.DataFrame, int, dict]:
+    """ Create negative pairs (cross-isolate, with optional control over
+    same-function pairs).
+
+    BLOCKED NEGATIVES: Pairs where the two sequences co-occur in ANY isolate
+    are blocked to prevent contradictory labels. If sequences (a, b) appear
+    together in some isolate (positive), they cannot be used as a negative pair.
+
+    Same-function pairs (e.g., RdRp from A vs. RdRp from B)
+    Do we want this in negative pairs? These pairs are important since same-function
+    proteins across isolates are more similar (due to functional conservation)
+    than cross-function proteins within an isolate. Excluding them could make
+    the task too easy, as the model might rely on functional differences alone.
+    However, you want to control their ratio and log their prevalence to ensure
+    the dataset isn't dominated by same-function negatives.
+
+    Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
+    Tracks seen_pairs when creating negative pairs to prevent symmetric
+    duplicates.
+
+    Args:
+        df: DataFrame containing the protein data
+        num_negatives: Number of negative pairs to create
+        isolate_ids: List of isolate IDs to sample from
+        cooccur_pairs: Set of canonical pair keys that co-occur in any isolate (blocked)
+        allow_same_func_negatives: Whether to allow same-function negative pairs
+        max_same_func_ratio: Maximum fraction of same-function negative pairs
+        seed: Random seed (not used directly, seeding done upstream)
+        max_attempts_multiplier: Max sampling attempts = num_negatives * this value
+
+    Returns:
+        Tuple of:
+        - DataFrame of negative pairs
+        - Number of same-function negative pairs
+        - Dict with rejection statistics
+    """
+    # np.random.seed(seed)
+    # random.seed(seed)
+
+    neg_pairs = []
+    seen_pairs = set()  # Track unique pairs by brc_fea_id
+    seen_seq_pairs = set()  # Track unique pairs by sequence hash
+
+    # Precompute isolate_groups for efficient negative sampling:
+    # - df_subset contains only proteins from the candidate isolates (isolate_ids)
+    # - groupby('assembly_id') yields (aid, grp) where grp is the per-isolate sub-DataFrame
+    # - list(grp.itertuples()) materializes that isolate's proteins as namedtuples
+    # Result: isolate_groups[aid] is a list of proteins we can random.choice() from.
+    #
+    # DEBUG (uncomment to see intermediate results for isolate_groups):
+    # breakpoint()
+    # df_subset_dbg = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
+    # print(f"[DEBUG] df_subset_dbg rows={len(df_subset_dbg):,}, unique_isolates={df_subset_dbg['assembly_id'].nunique():,}")
+    # print("[DEBUG] df_subset_dbg head:")
+    # print(df_subset_dbg[['assembly_id', 'brc_fea_id', 'function', 'canonical_segment', 'seq_hash']].head(10))
+    # gb_dbg = df_subset_dbg.groupby('assembly_id')
+    # print(f"[DEBUG] groupby('assembly_id') ngroups={gb_dbg.ngroups:,}")
+    # for i, (aid_dbg, grp_dbg) in enumerate(gb_dbg):
+    #     rows_dbg = list(grp_dbg.itertuples())
+    #     preview_dbg = [
+    #         (r.brc_fea_id, r.function, getattr(r, 'canonical_segment', None), str(r.seq_hash)[:8])
+    #         for r in rows_dbg[:3]
+    #     ]
+    #     print(f"[DEBUG] aid={aid_dbg} n_rows={len(rows_dbg)} first3={preview_dbg}")
+    #     if i >= 2:
+    #         break
+    df_subset = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
+    isolate_groups = {aid: list(grp.itertuples()) for aid, grp in df_subset.groupby('assembly_id')}
+
+    # If allows to generate same-function negative pairs, then compute the max
+    # fraction of such pairs out of all negative pairs
+    same_func_count = 0
+    max_same_func = int(num_negatives * max_same_func_ratio) if allow_same_func_negatives else 0
+
+    # Track rejection statistics
+    rejection_stats = {
+        'blocked_cooccur': 0,  # Rejected because sequences co-occur (would be contradictory)
+        'duplicate_brc': 0,    # Rejected because same brc_fea_id pair already seen
+        'duplicate_seq': 0,    # Rejected because same sequence pair already seen
+        'same_func_limit': 0,  # Rejected due to same-function ratio limit
+        'total_attempts': 0,
+    }
+
+    max_attempts = num_negatives * max_attempts_multiplier
+    attempts = 0
+
+    while len(neg_pairs) < num_negatives and attempts < max_attempts:
+        attempts += 1
+        aid1, aid2 = random.sample(isolate_ids, 2)  # Sample 2 different isolates
+        row_a = random.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
+        row_b = random.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
+
+        # Check if brc_fea_id pair is unique and not symmetric
+        brc_pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))
+        if brc_pair_key in seen_pairs:
+            rejection_stats['duplicate_brc'] += 1
+            continue
+
+        # Create canonical pair key based on sequence hashes
+        seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
+
+        # BLOCK CONTRADICTORY PAIRS: Check if these sequences ever co-occur
+        if seq_pair_key in cooccur_pairs:
+            rejection_stats['blocked_cooccur'] += 1
+            continue
+
+        # Check if we've already seen this sequence pair (different brc_ids, same sequences)
+        if seq_pair_key in seen_seq_pairs:
+            rejection_stats['duplicate_seq'] += 1
+            continue
+
+        # Check same-function constraint
+        is_same_func = row_a.function == row_b.function
+        if is_same_func and (not allow_same_func_negatives or same_func_count >= max_same_func):
+            rejection_stats['same_func_limit'] += 1
+            continue
+
+        dct = {
+            'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
+            'assembly_id_a': row_a.assembly_id, 'assembly_id_b': row_b.assembly_id,
+            'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+            'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+            'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
+            'func_a': row_a.function, 'func_b': row_b.function,
+            'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
+            'label': 0  # Negative pair
+        }
+        if canonicalize_pair_orientation_enabled:
+            dct = canonicalize_pair_orientation(dct)
+        neg_pairs.append(dct)
+        seen_pairs.add(brc_pair_key)
+        seen_seq_pairs.add(seq_pair_key)
+        if is_same_func:
+            same_func_count += 1
+
+    rejection_stats['total_attempts'] = attempts
+
+    if len(neg_pairs) < num_negatives:
+        print(f"⚠️ Warning: Only generated {len(neg_pairs)}/{num_negatives} negative pairs after {attempts} attempts")
+        print(f"   This may indicate high sequence overlap across isolates")
+
+    return pd.DataFrame(neg_pairs), same_func_count, rejection_stats
+        
+
+def compute_isolate_pair_counts(
+    df: pd.DataFrame,
+    verbose: bool = False,
+    ) -> dict:
+    """Compute positive pair counts per isolate for stratified splitting.
+    
+    Counts how many positive pairs (cross-function pairs within the same isolate)
+    can be generated from each isolate. This is used to stratify isolates by
+    positive pair count for balanced train/val/test splits.
+    
+    Note: Data filtering (e.g., by selected_functions) should be done before
+    calling this function. This function does not validate data quality.
+    
+    Args:
+        df: DataFrame with protein data, already filtered to desired functions
+        verbose: If True, print detailed information per isolate
+    
+    Returns:
+        Dict mapping assembly_id -> number of positive pairs that can be generated
+    """
+    isolate_pos_counts = {} # pos pairs that will originate from this isolate
+
+    for aid, grp in df.groupby('assembly_id'): # isolates
+        n_proteins = len(grp)
+
+        if verbose:
+            print(f"assembly_id {aid}: {n_proteins} proteins, Functions: {grp['function'].tolist()}")
+
+        if n_proteins < 2:
+            # Need at least 2 proteins to form a pair
+            isolate_pos_counts[aid] = 0
+        else:
+            # Get all possible protein pairs within the isolate (by definition these are pos pairs)
+            pairs = list(combinations(grp.itertuples(), 2))
+            # Count all possible protein pairs that have different functions
+            # (same-function pairs within an isolate are not used as positive pairs)
+            pos_count = sum(1 for row_a, row_b in pairs if row_a.function != row_b.function)
+            isolate_pos_counts[aid] = pos_count
+
+    return isolate_pos_counts
 
 
 def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
@@ -122,237 +448,6 @@ def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
     return cooccur_pairs, cooccur_stats
 
 
-def create_positive_pairs(
-    df: pd.DataFrame,
-    seed: int = 42,
-    ) -> pd.DataFrame:
-    """ Create positive protein pairs (within-isolate and cross-function).
-    For example, creates pairs within an isolate: RdRp-GPC, RdRp-N, GPC-N
-
-    Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
-    Uses combinations (instead of permutations) to create positive pairs to
-    avoid duplicates that stem from symmetric pairs.
-
-    Each pair gets a canonical pair_key based on sequence hashes for:
-    1. Deduplication across isolates (same sequences in different isolates)
-    2. Preventing data leakage during train/test split
-    """
-    # np.random.seed(seed)
-    # random.seed(seed)
-    isolates = df.groupby('assembly_id')
-
-    pos_pairs = []
-    isolates_with_few_proteins = []
-
-    for assembly_id, grp in isolates:
-        # print(grp[['file', 'assembly_id', 'canonical_segment', 'replicon_type', 'function', 'brc_fea_id']])
-        # Ignore isolates with fewer than 2 proteins (these cannot be used to
-        # create positive pairs, but these will be used to create negative pairs)
-        if len(grp) < 2:
-            isolates_with_few_proteins.append(assembly_id)
-            continue
-
-        # Get all posible pairs within an isolate
-        pairs = list(combinations(grp.itertuples(), 2)) # [(df_row, df_row), (df_row, df_row), ...]
-        for row_a, row_b in pairs:
-            # Add the pair only if the proteins have different BRC ids and different functions
-            if row_a.brc_fea_id != row_b.brc_fea_id and row_a.function != row_b.function:
-                # Create canonical pair_key based on sequence hashes
-                pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
-                dct = {
-                    'pair_key': pair_key,  # Canonical key for dedup and splitting
-                    'assembly_id_a': assembly_id, 'assembly_id_b': assembly_id,
-                    'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-                    'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-                    'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-                    'func_a': row_a.function, 'func_b': row_b.function,
-                    'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-                    'label': 1  # By definition a positive pair
-                }
-                pos_pairs.append(dct)
-
-    pos_df = pd.DataFrame(pos_pairs)
-    # print(pos_df[['brc_a', 'brc_b', 'seg_a', 'seg_b', 'func_a', 'func_b']])
-
-    # Log isolates with fewer than 2 proteins
-    # If an isolate has only one protein, it won't generate any positive pairs.
-    if isolates_with_few_proteins:
-        print(f'Warning: {len(isolates_with_few_proteins)} isolates have <2 proteins.')
-    return pos_df
-
-
-def create_negative_pairs(
-    df: pd.DataFrame,
-    num_negatives: int,
-    isolate_ids: list[str],
-    cooccur_pairs: set,
-    allow_same_func_negatives: bool = True,
-    max_same_func_ratio: float = 0.5,
-    seed: int = 42,
-    max_attempts_multiplier: int = 100,
-    ) -> tuple[pd.DataFrame, int, dict]:
-    """ Create negative pairs (cross-isolate, with optional control over
-    same-function pairs).
-
-    BLOCKED NEGATIVES: Pairs where the two sequences co-occur in ANY isolate
-    are blocked to prevent contradictory labels. If sequences (a, b) appear
-    together in some isolate (positive), they cannot be used as a negative pair.
-
-    Same-function pairs (e.g., RdRp from A vs. RdRp from B)
-    Do we want this in negative pairs? These pairs are important since same-function
-    proteins across isolates are more similar (due to functional conservation)
-    than cross-function proteins within an isolate. Excluding them could make
-    the task too easy, as the model might rely on functional differences alone.
-    However, you want to control their ratio and log their prevalence to ensure
-    the dataset isn't dominated by same-function negatives.
-
-    Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
-    Tracks seen_pairs when creating negative pairs to prevent symmetric
-    duplicates.
-
-    Args:
-        df: DataFrame containing the protein data
-        num_negatives: Number of negative pairs to create
-        isolate_ids: List of isolate IDs to sample from
-        cooccur_pairs: Set of canonical pair keys that co-occur in any isolate (blocked)
-        allow_same_func_negatives: Whether to allow same-function negative pairs
-        max_same_func_ratio: Maximum fraction of same-function negative pairs
-        seed: Random seed (not used directly, seeding done upstream)
-        max_attempts_multiplier: Max sampling attempts = num_negatives * this value
-
-    Returns:
-        Tuple of:
-        - DataFrame of negative pairs
-        - Number of same-function negative pairs
-        - Dict with rejection statistics
-    """
-    # np.random.seed(seed)
-    # random.seed(seed)
-
-    neg_pairs = []
-    seen_pairs = set()  # Track unique pairs by brc_fea_id
-    seen_seq_pairs = set()  # Track unique pairs by sequence hash
-
-    # Precompute isolate groups to prevent repeated (trial-and-error) sampling.
-    # This ensures that 2 different isolates (assembly_id) are sampled during sampling.
-    df_subset = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
-    isolate_groups = {aid: list(grp.itertuples()) for aid, grp in df_subset.groupby('assembly_id')}
-
-    # If allows to generate same-function negative pairs, then compute the max
-    # fraction of such pairs out of all negative pairs
-    same_func_count = 0
-    max_same_func = int(num_negatives * max_same_func_ratio) if allow_same_func_negatives else 0
-
-    # Track rejection statistics
-    rejection_stats = {
-        'blocked_cooccur': 0,      # Rejected because sequences co-occur (would be contradictory)
-        'duplicate_brc': 0,         # Rejected because same brc_fea_id pair already seen
-        'duplicate_seq': 0,         # Rejected because same sequence pair already seen
-        'same_func_limit': 0,       # Rejected due to same-function ratio limit
-        'total_attempts': 0,
-    }
-
-    max_attempts = num_negatives * max_attempts_multiplier
-    attempts = 0
-
-    while len(neg_pairs) < num_negatives and attempts < max_attempts:
-        attempts += 1
-        aid1, aid2 = random.sample(isolate_ids, 2)  # Sample 2 different isolates
-        row_a = random.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
-        row_b = random.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
-
-        # Check if brc_fea_id pair is unique and not symmetric
-        brc_pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))
-        if brc_pair_key in seen_pairs:
-            rejection_stats['duplicate_brc'] += 1
-            continue
-
-        # Create canonical pair key based on sequence hashes
-        seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
-
-        # BLOCK CONTRADICTORY PAIRS: Check if these sequences ever co-occur
-        if seq_pair_key in cooccur_pairs:
-            rejection_stats['blocked_cooccur'] += 1
-            continue
-
-        # Check if we've already seen this sequence pair (different brc_ids, same sequences)
-        if seq_pair_key in seen_seq_pairs:
-            rejection_stats['duplicate_seq'] += 1
-            continue
-
-        # Check same-function constraint
-        is_same_func = row_a.function == row_b.function
-        if is_same_func and (not allow_same_func_negatives or same_func_count >= max_same_func):
-            rejection_stats['same_func_limit'] += 1
-            continue
-
-        dct = {
-            'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
-            'assembly_id_a': row_a.assembly_id, 'assembly_id_b': row_b.assembly_id,
-            'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-            'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-            'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-            'func_a': row_a.function, 'func_b': row_b.function,
-            'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-            'label': 0  # Negative pair
-        }
-        neg_pairs.append(dct)
-        seen_pairs.add(brc_pair_key)
-        seen_seq_pairs.add(seq_pair_key)
-        if is_same_func:
-            same_func_count += 1
-
-    rejection_stats['total_attempts'] = attempts
-
-    if len(neg_pairs) < num_negatives:
-        print(f"⚠️ Warning: Only generated {len(neg_pairs)}/{num_negatives} negative pairs after {attempts} attempts")
-        print(f"   This may indicate high sequence overlap across isolates")
-
-    return pd.DataFrame(neg_pairs), same_func_count, rejection_stats
-        
-
-def compute_isolate_pair_counts(
-    df: pd.DataFrame,
-    verbose: bool = False,
-    ) -> dict:
-    """Compute positive pair counts per isolate for stratified splitting.
-    
-    Counts how many positive pairs (cross-function pairs within the same isolate)
-    can be generated from each isolate. This is used to stratify isolates by
-    positive pair count for balanced train/val/test splits.
-    
-    Note: Data filtering (e.g., by selected_functions) should be done before
-    calling this function. This function does not validate data quality.
-    
-    Args:
-        df: DataFrame with protein data, already filtered to desired functions
-        verbose: If True, print detailed information per isolate
-    
-    Returns:
-        Dict mapping assembly_id -> number of positive pairs that can be generated
-    """
-    isolate_pos_counts = {} # pos pairs that will originate from this isolate
-
-    for aid, grp in df.groupby('assembly_id'): # isolates
-        n_proteins = len(grp)
-
-        if verbose:
-            print(f"assembly_id {aid}: {n_proteins} proteins, Functions: {grp['function'].tolist()}")
-
-        if n_proteins < 2:
-            # Need at least 2 proteins to form a pair
-            isolate_pos_counts[aid] = 0
-        else:
-            # Get all possible protein pairs within the isolate (by definition these are pos pairs)
-            pairs = list(combinations(grp.itertuples(), 2))
-            # Count all possible protein pairs that have different functions
-            # (same-function pairs within an isolate are not used as positive pairs)
-            pos_count = sum(1 for row_a, row_b in pairs if row_a.function != row_b.function)
-            isolate_pos_counts[aid] = pos_count
-
-    return isolate_pos_counts
-
-
 def split_dataset(
     df: pd.DataFrame,
     neg_to_pos_ratio: float = 3.0,
@@ -362,6 +457,7 @@ def split_dataset(
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     seed: int = 42,
+    canonicalize_pair_orientation_enabled: bool = True,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """ Split dataset into train, val, and test sets with stratified sampling.
 
@@ -449,9 +545,21 @@ def split_dataset(
                     test_isolates.append(aid)
 
     # Generate positive pairs for each set (already includes pair_key)
-    train_pos = create_positive_pairs(df[df['assembly_id'].isin(train_isolates)], seed=seed)
-    val_pos   = create_positive_pairs(df[df['assembly_id'].isin(val_isolates)], seed=seed)
-    test_pos  = create_positive_pairs(df[df['assembly_id'].isin(test_isolates)], seed=seed)
+    train_pos = create_positive_pairs(
+        df[df['assembly_id'].isin(train_isolates)],
+        seed=seed,
+        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+    )
+    val_pos = create_positive_pairs(
+        df[df['assembly_id'].isin(val_isolates)],
+        seed=seed,
+        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+    )
+    test_pos = create_positive_pairs(
+        df[df['assembly_id'].isin(test_isolates)],
+        seed=seed,
+        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+    )
 
     # Generate negative pairs within each set (with BLOCKED contradictory pairs)
     print("\nCreating negative pairs with blocked contradictory pairs...")
@@ -461,7 +569,9 @@ def split_dataset(
         isolate_ids=train_isolates,
         cooccur_pairs=cooccur_pairs,
         allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio, seed=seed
+        max_same_func_ratio=max_same_func_ratio,
+        seed=seed,
+        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
     )
     val_neg, val_same_func, val_reject_stats = create_negative_pairs(
         df,
@@ -469,7 +579,9 @@ def split_dataset(
         isolate_ids=val_isolates,
         cooccur_pairs=cooccur_pairs,
         allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio, seed=seed
+        max_same_func_ratio=max_same_func_ratio,
+        seed=seed,
+        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
     )
     test_neg, test_same_func, test_reject_stats = create_negative_pairs(
         df,
@@ -477,7 +589,9 @@ def split_dataset(
         isolate_ids=test_isolates,
         cooccur_pairs=cooccur_pairs,
         allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio, seed=seed
+        max_same_func_ratio=max_same_func_ratio,
+        seed=seed,
+        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
     )
 
     # Log rejection statistics
@@ -702,6 +816,7 @@ MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
 HARD_PARTITION_ISOLATES = config.dataset.hard_partition_isolates
+CANONICALIZE_PAIR_ORIENTATION = config.dataset.canonicalize_pair_orientation
 MAX_ISOLATES_TO_PROCESS = getattr(config.dataset, 'max_isolates_to_process', None)
 SHUFFLE_TRAIN_LABELS = getattr(config.dataset, 'shuffle_train_labels', False)
 SHUFFLE_TRAIN_LABELS_SEED = getattr(config.dataset, 'shuffle_train_labels_seed', None)
@@ -941,6 +1056,7 @@ train_pairs, val_pairs, test_pairs, duplicate_stats = split_dataset(
     train_ratio=TRAIN_RATIO,
     val_ratio=VAL_RATIO,
     seed=RANDOM_SEED,
+    canonicalize_pair_orientation_enabled=CANONICALIZE_PAIR_ORIENTATION,
 )
 
 # Save datasets

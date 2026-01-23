@@ -14,6 +14,12 @@ max_isolates_to_process: null  # null = use all isolates; int = deterministic is
 # Plotting / post-processing
 generate_visualizations: true  # If true, generate dataset plots after dataset creation
 
+# Pair orientation canonicalization
+# The segment-matching task is conceptually undirected (a,b) ≡ (b,a), but we store directed columns
+# (*_a/*_b) and feed the model a directed representation (e.g., [emb_a, emb_b]).
+# Canonicalizing orientation helps prevent "direction → label" shortcut learning.
+canonicalize_pair_orientation: true
+
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
 allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
