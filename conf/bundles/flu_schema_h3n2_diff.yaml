@@ -1,0 +1,12 @@
+# Flu schema-ordered dataset (HA -> NA), filtered to H3N2 isolates,
+# with pair features = diff-only
+
+defaults:
+  - flu_schema_h3n2
+  - _self_
+
+training:
+  use_concat: false
+  use_diff: true
+  use_prod: false
+  eval_swapped_test: true

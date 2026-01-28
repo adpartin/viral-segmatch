@@ -14,6 +14,15 @@ max_isolates_to_process: null  # null = use all isolates; int = deterministic is
 # Plotting / post-processing
 generate_visualizations: true  # If true, generate dataset plots after dataset creation
 
+# Pair construction mode
+# - unordered: original behavior (pairs are conceptually undirected; optional hash-based canonicalization can be applied)
+# - schema_ordered: force slot semantics by function schema (func_left -> *_a, func_right -> *_b)
+#                  This is an experimental/validation mode to remove "direction" as a free variable for directed features.
+pair_mode: unordered
+# Required when pair_mode=schema_ordered. Order is semantic; do NOT sort.
+# Example: ["HA", "NA"]
+schema_pair: null
+
 # Pair orientation canonicalization
 # The segment-matching task is conceptually undirected (a,b) ≡ (b,a), but we store directed columns
 # (*_a/*_b) and feed the model a directed representation (e.g., [emb_a, emb_b]).

@@ -1,0 +1,26 @@
+# Flu schema-ordered dataset: HA (slot A) → NA (slot B)
+# Validation-mode dataset variant to remove "direction" as a free variable while
+# keeping directed features like [emb_a, emb_b] consistent by construction.
+#
+# Notes:
+# - We use the exact function strings from `conf/bundles/flu.yaml` / protein_final.csv.
+# - No metadata filters (host/year/subtype/etc).
+# - General case: use all isolates (no MAX isolates cap).
+
+defaults:
+  - flu
+  - _self_
+
+dataset:
+  pair_mode: schema_ordered
+  schema_pair:
+    - "Hemagglutinin precursor"
+    - "Neuraminidase protein"
+
+  # Explicitly keep metadata filters off (should already be null in defaults)
+  host: null
+  year: null
+  hn_subtype: null
+  geo_location: null
+  passage: null
+

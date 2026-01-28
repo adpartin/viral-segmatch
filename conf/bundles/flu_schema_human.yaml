@@ -1,0 +1,12 @@
+# Flu schema-ordered dataset (HA -> NA), filtered to Human isolates
+#
+# Inherits schema ordering + function selection from `flu_schema.yaml`,
+# and applies a host filter before splitting.
+
+defaults:
+  - flu_schema
+  - _self_
+
+dataset:
+  host: "Human"
+
