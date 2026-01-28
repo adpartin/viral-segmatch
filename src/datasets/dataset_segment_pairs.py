@@ -1,32 +1,112 @@
 """
-Dataset creation for segment pair classification.
+Build train/val/test sets of labeled protein pairs for the segment-matching task.
+
+Goal
+----
+Create labeled protein pairs for the task:
+  label=1  => two proteins co-occur within the same isolate (same assembly_id)
+  label=0  => two proteins are sampled from different isolates AND are blocked from
+              being a negative if their sequences ever co-occur in ANY isolate
+              (see "blocked negatives" below).
+
+Important nuance for label=0:
+  A negative here means "not observed co-occurring (and not allowed to contradict any
+  observed co-occurrence)". It is NOT a proof of biological incompatibility; it is a
+  dataset construction label.
+
+The downstream classifier consumes embedding pairs derived from precomputed ESM-2
+(e.g., [emb_a, emb_b], and optionally |A-B| and A*B).
 
 Key columns:
 - assembly_id: identifies isolates
-- canonical_segment: maps each protein to segments: L / M / S 
+- canonical_segment: virus-specific canonical segment label (e.g., L/M/S for bunyavirus;
+  for influenza you may see segment identifiers depending on preprocessing)
 - prot_seq: protein sequence
 - function: protein function
 - brc_fea_id: unique feature ID
+- seq_hash: deterministic hash of prot_seq used for deduplication / pair keys
 
-Split strategies:
-- hard_partition_isolates: all proteins from an isolate (assembly_id) are assigned
-    to a single train/val/test set to prevent leakage
+Key Concepts
+------------
+- pair_key:
+    A canonical, order-invariant key derived from (seq_hash_a, seq_hash_b)
+    (e.g., canonical_pair_key(seq_hash_a, seq_hash_b)).
+    Used for:
+      (1) deduplicating identical sequence pairs
+      (2) preventing contradictory labeling (e.g., a pair that is both positive and negative)
+      (3) preventing split leakage (same sequence-pair appearing in multiple splits)
+
+- cooccur_pairs:
+    Set of all pair_key values that are observed as positives (co-occurring within
+    any isolate). A candidate negative is rejected if its pair_key is in cooccur_pairs.
+    Note: this implementation is conservative — it blocks a sequence pair if the two
+    sequences appear in the same isolate at all, regardless of whether that pair would
+    have been included as a positive under additional constraints (e.g., different functions).
+
+- canonicalization of stored orientation (optional):
+    The semantic task is undirected: (a,b) ≡ (b,a).
+    However, the default model input can be directed (e.g., [emb_a, emb_b]).
+    To prevent "direction -> label" shortcut learning, we can enforce a deterministic
+    orientation rule for BOTH positives and negatives by swapping all *_a/*_b fields
+    when needed (e.g., order by (seq_hash, brc_fea_id) or a fallback).
+    This does NOT change pair_key (pair_key is always order-invariant).
+
+Dataset Construction Steps
+--------------------------
+1) Split isolates (assembly_id) into train/val/test
+   - Splitting is performed at the isolate level (not pair level) to avoid leakage
+     of isolate-specific signals across splits.
+
+2) Create positive pairs within each isolate (label=1)
+   - For each isolate, generate all within-isolate combinations of proteins:
+       for (row_a, row_b) in combinations(isolate_rows, 2)
+   - Keep only pairs that satisfy required constraints (currently: different brc_fea_id
+     AND different function; same-function pairs are not used as positives).
+   - For each positive pair, compute:
+       pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)   (stored as column 'pair_key')
+     and store paired fields:
+       assembly_id_a/b, brc_a/b, seq_a/b, seg_a/b, func_a/b, seq_hash_a/b, label=1
+   - (Optional) Canonicalize stored orientation by swapping all *_a/*_b fields
+     according to a deterministic rule that does NOT reference label, function, or segment.
+
+3) Build cooccur_pairs (blocking set for negatives)
+   - Build a set of all sequence-hash pairs that appear together in any isolate.
+   - Any candidate negative whose pair_key is in this set is rejected to prevent
+     contradictory labels.
+
+4) Create negative pairs across isolates (label=0)
+   - Repeatedly sample two distinct isolates (aid1, aid2), then sample one random
+     protein from each isolate.
+   - Reject a candidate negative if:
+       a) its pair_key is in cooccur_pairs (would contradict observed co-occurrence),
+       b) it duplicates a previously added negative by brc_id-pair (symmetric duplicate),
+       c) it duplicates a previously added negative by seq_hash-pair,
+       d) it violates configured same-function constraints (optional ratio cap).
+   - For accepted negatives, store the same paired fields as positives with label=0.
+   - (Optional) Canonicalize stored orientation by the same deterministic rule used for positives.
+
+5) Prevent split leakage by pair_key (order-invariant)
+   - Ensure that the same pair_key does not appear in more than one split.
+   - If overlaps exist, remove/resolve them (and log how many were removed per split/label).
+
+6) Write outputs and run metadata
+   - Save train_pairs.csv / val_pairs.csv / test_pairs.csv containing:
+       brc_a, brc_b, label, pair_key, and associated paired metadata columns.
+   - Save sampled_isolates.txt (when max_isolates_to_process is set).
+   - Save isolate_metadata.csv (per-isolate metadata used for diagnostics).
+   - Save dataset_stats.json (split sizes, label ratios, metadata distributions).
+   - Save duplicate_stats.json (cooccurrence stats + negative rejection stats + pair_key overlaps).
+   - Optionally save cooccurring_sequence_pairs.csv (for analysis).
 
 Duplicate handling (blocked negatives):
-- Identical amino-acid sequences recur across many genomes/isolates
+- Identical amino-acid sequences can occur in multiple genomes/isolates
 - A pair (seq_a, seq_b) can appear as positive (same isolate) AND negative (different isolates)
 - This creates contradictory labels and potential data leakage
 - Solution: Block negative pairs where sequences co-occur in ANY isolate
 - Split by pair_key (not just isolate) to prevent same pair appearing in train and test
 
-The segment-matching task is meant to beundirected, i.e., (a,b) ≡ (b,a), but the default model input uses a directed representation [emb_a, emb_b] (i.e, embeddings vectors are concatenated). If positive pairs are generated with a systematic orientation (e.g., from deterministic within-isolate ordering) while negative pairs have random orientation, models can learn a shortcut ("shortcut learning") where direction correlates with label. To prevent this, we canonicalize stored pair orientation for both positive and negative pairs by applying a deterministic ordering rule based on (seq_hash, brc_fea_id) (with a BRC-only fallback) and swapping all _a/_b fields together when needed. This keeps orientation consistent and ensures “direction” does not predict label.
-
-PCA plots:
-PCA clusters may remain even when shortcut is prevented. The PCA clusters are mostly showing that pair embeddings are separable by “slot identity” (what function/segment tends to land in the first slot vs second slot), not necessarily shortcut.
-
-Even after canonicalization:
-- We will still often have both HA→NA and NA→HA present, because the canonical rule is by (seq_hash, brc), not by function/segment. For a given unordered pair, sometimes HA's hash sorts first; sometimes NA's hash sorts first.
-- Concatenation [emb_a, emb_b] will still make [HA,NA] different from [NA,HA] (mathematically), so you can still see “directed” clusters.
+For deeper discussion of ordering artifacts / PCA diagnostics, see:
+  docs/PAIR_EMBEDDING_ORDERING_AND_NORM_ARTIFACT.md
 """
 
 import argparse
@@ -37,6 +117,7 @@ import sys
 from datetime import datetime
 from itertools import combinations
 from pathlib import Path
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -64,6 +145,33 @@ def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
     Ensures consistent ordering so (a, b) and (b, a) produce the same key.
     """
     return "__".join(sorted([seq_hash_a, seq_hash_b]))
+
+
+def orient_pair_by_schema(dct: dict, func_left: str, func_right: str) -> Optional[dict]:
+    """Force pair orientation by a (func_left, func_right) schema.
+
+    In schema-ordered mode, slot semantics are fixed:
+      - slot A must be func_left
+      - slot B must be func_right
+
+    If the input pair matches the schema in either order, this function returns a
+    dict where all *_a/*_b fields are oriented so that func_a==func_left and
+    func_b==func_right. If the pair does not match the schema, returns None.
+    """
+    fa = dct.get("func_a")
+    fb = dct.get("func_b")
+    if fa == func_left and fb == func_right:
+        return dct
+    if fa == func_right and fb == func_left:
+        # Swap all paired fields ending with _a/_b (future-proof).
+        for k in list(dct.keys()):
+            if not k.endswith("_a"):
+                continue
+            kb = k[:-2] + "_b"
+            if kb in dct:
+                dct[k], dct[kb] = dct[kb], dct[k]
+        return dct
+    return None
 
 
 def canonicalize_pair_orientation(dct: dict) -> dict:
@@ -113,6 +221,8 @@ def create_positive_pairs(
     df: pd.DataFrame,
     seed: int = 42,
     canonicalize_pair_orientation_enabled: bool = True,
+    pair_mode: str = "unordered",
+    schema_pair: Optional[Tuple[str, str]] = None,
     ) -> pd.DataFrame:
     """ Create positive protein pairs (within-isolate and cross-function).
     For example, creates pairs within an isolate: RdRp-GPC, RdRp-N, GPC-N
@@ -131,6 +241,15 @@ def create_positive_pairs(
 
     pos_pairs = []
     isolates_with_few_proteins = []
+
+    if pair_mode not in {"unordered", "schema_ordered"}:
+        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
+    if pair_mode == "schema_ordered":
+        if schema_pair is None or len(schema_pair) != 2:
+            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
+        func_left, func_right = schema_pair
+        if func_left == func_right:
+            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
 
     for aid, grp in isolates:
         # print(grp[['file', 'assembly_id', 'canonical_segment', 'replicon_type', 'function', 'brc_fea_id']])
@@ -156,26 +275,51 @@ def create_positive_pairs(
         # DEBUG (uncomment to inspect within-isolate row order that drives (row_a,row_b)):
         # breakpoint()
         # print(grp[['assembly_id', 'brc_fea_id', 'function', 'canonical_segment']].head(10))
-        # pairs will be [(row_a, row_b), (row_a, row_b), ...]
-        pairs = list(combinations(grp.itertuples(), 2))
-        for row_a, row_b in pairs:
-            # Add the pair only if the proteins have different BRC ids and different functions
-            if row_a.brc_fea_id != row_b.brc_fea_id and row_a.function != row_b.function:
-                # Create canonical pair_key based on sequence hashes
-                pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
-                dct = {
-                    'pair_key': pair_key,  # Canonical key for dedup and splitting
-                    'assembly_id_a': aid, 'assembly_id_b': aid,
-                    'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-                    'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-                    'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-                    'func_a': row_a.function, 'func_b': row_b.function,
-                    'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-                    'label': 1  # By definition a positive pair
-                }
-                if canonicalize_pair_orientation_enabled:
-                    dct = canonicalize_pair_orientation(dct)
-                pos_pairs.append(dct)
+        if pair_mode == "schema_ordered":
+            # Schema-ordered positives: all within-isolate cross-products between
+            # (function==func_left) and (function==func_right), oriented as left->right.
+            left_rows = [r for r in grp.itertuples() if r.function == func_left]
+            right_rows = [r for r in grp.itertuples() if r.function == func_right]
+            for row_a in left_rows:
+                for row_b in right_rows:
+                    if row_a.brc_fea_id == row_b.brc_fea_id:
+                        continue
+                    seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
+                    dct = {
+                        'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
+                        'assembly_id_a': aid, 'assembly_id_b': aid,
+                        'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+                        'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+                        'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
+                        'func_a': row_a.function, 'func_b': row_b.function,
+                        'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
+                        'label': 1  # By definition a positive pair
+                    }
+                    dct = orient_pair_by_schema(dct, func_left=func_left, func_right=func_right)
+                    if dct is None:
+                        continue
+                    pos_pairs.append(dct)
+        else:
+            # pairs will be [(row_a, row_b), (row_a, row_b), ...]
+            pairs = list(combinations(grp.itertuples(), 2))
+            for row_a, row_b in pairs:
+                # Add the pair only if the proteins have different BRC ids and different functions
+                if row_a.brc_fea_id != row_b.brc_fea_id and row_a.function != row_b.function:
+                    # Create canonical seq_pair_key based on sequence hashes
+                    seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
+                    dct = {
+                        'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
+                        'assembly_id_a': aid, 'assembly_id_b': aid,
+                        'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+                        'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+                        'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
+                        'func_a': row_a.function, 'func_b': row_b.function,
+                        'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
+                        'label': 1  # By definition a positive pair
+                    }
+                    if canonicalize_pair_orientation_enabled:
+                        dct = canonicalize_pair_orientation(dct)
+                    pos_pairs.append(dct)
 
     pos_df = pd.DataFrame(pos_pairs)
     # print(pos_df[['brc_a', 'brc_b', 'seg_a', 'seg_b', 'func_a', 'func_b']])
@@ -197,6 +341,8 @@ def create_negative_pairs(
     seed: int = 42,
     max_attempts_multiplier: int = 100,
     canonicalize_pair_orientation_enabled: bool = True,
+    pair_mode: str = "unordered",
+    schema_pair: Optional[Tuple[str, str]] = None,
     ) -> tuple[pd.DataFrame, int, dict]:
     """ Create negative pairs (cross-isolate, with optional control over
     same-function pairs).
@@ -240,6 +386,15 @@ def create_negative_pairs(
     seen_pairs = set()  # Track unique pairs by brc_fea_id
     seen_seq_pairs = set()  # Track unique pairs by sequence hash
 
+    if pair_mode not in {"unordered", "schema_ordered"}:
+        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
+    if pair_mode == "schema_ordered":
+        if schema_pair is None or len(schema_pair) != 2:
+            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
+        func_left, func_right = schema_pair
+        if func_left == func_right:
+            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
+
     # Precompute isolate_groups for efficient negative sampling:
     # - df_subset contains only proteins from the candidate isolates (isolate_ids)
     # - groupby('assembly_id') yields (aid, grp) where grp is the per-isolate sub-DataFrame
@@ -266,6 +421,17 @@ def create_negative_pairs(
     df_subset = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
     isolate_groups = {aid: list(grp.itertuples()) for aid, grp in df_subset.groupby('assembly_id')}
 
+    # Precompute per-isolate function buckets for schema mode to avoid repeated filtering
+    # inside the sampling loop.
+    isolate_func_groups = None
+    if pair_mode == "schema_ordered":
+        isolate_func_groups = {}
+        for aid, rows in isolate_groups.items():
+            isolate_func_groups[aid] = {
+                func_left: [r for r in rows if r.function == func_left],
+                func_right: [r for r in rows if r.function == func_right],
+            }
+
     # If allows to generate same-function negative pairs, then compute the max
     # fraction of such pairs out of all negative pairs
     same_func_count = 0
@@ -276,7 +442,9 @@ def create_negative_pairs(
         'blocked_cooccur': 0,  # Rejected because sequences co-occur (would be contradictory)
         'duplicate_brc': 0,    # Rejected because same brc_fea_id pair already seen
         'duplicate_seq': 0,    # Rejected because same sequence pair already seen
-        'same_func_limit': 0,  # Rejected due to same-function ratio limit
+        'same_func_limit': 0,  # Rejected due to same-function ratio limit (unordered mode)
+        'missing_left_func': 0,   # schema_ordered: isolate lacked func_left
+        'missing_right_func': 0,  # schema_ordered: isolate lacked func_right
         'total_attempts': 0,
     }
 
@@ -286,8 +454,22 @@ def create_negative_pairs(
     while len(neg_pairs) < num_negatives and attempts < max_attempts:
         attempts += 1
         aid1, aid2 = random.sample(isolate_ids, 2)  # Sample 2 different isolates
-        row_a = random.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
-        row_b = random.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
+        if pair_mode == "schema_ordered":
+            # Schema-ordered negatives: sample func_left from isolate aid1 (slot A),
+            # and func_right from isolate aid2 (slot B).
+            left_candidates = isolate_func_groups[aid1][func_left] if isolate_func_groups is not None else []
+            if not left_candidates:
+                rejection_stats['missing_left_func'] += 1
+                continue
+            right_candidates = isolate_func_groups[aid2][func_right] if isolate_func_groups is not None else []
+            if not right_candidates:
+                rejection_stats['missing_right_func'] += 1
+                continue
+            row_a = random.choice(left_candidates)
+            row_b = random.choice(right_candidates)
+        else:
+            row_a = random.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
+            row_b = random.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
 
         # Check if brc_fea_id pair is unique and not symmetric
         brc_pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))
@@ -308,11 +490,16 @@ def create_negative_pairs(
             rejection_stats['duplicate_seq'] += 1
             continue
 
-        # Check same-function constraint
+        # Check same-function constraint (unordered mode only).
         is_same_func = row_a.function == row_b.function
-        if is_same_func and (not allow_same_func_negatives or same_func_count >= max_same_func):
-            rejection_stats['same_func_limit'] += 1
-            continue
+        if pair_mode != "schema_ordered":
+            if is_same_func and (not allow_same_func_negatives or same_func_count >= max_same_func):
+                rejection_stats['same_func_limit'] += 1
+                continue
+        else:
+            # In schema mode, config requires func_left != func_right, so we should not
+            # see same-function negatives (unless input data is inconsistent).
+            is_same_func = False
 
         dct = {
             'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
@@ -326,6 +513,11 @@ def create_negative_pairs(
         }
         if canonicalize_pair_orientation_enabled:
             dct = canonicalize_pair_orientation(dct)
+        if pair_mode == "schema_ordered":
+            dct = orient_pair_by_schema(dct, func_left=func_left, func_right=func_right)
+            if dct is None:
+                # Should not happen if schema sampling was done correctly, but keep robust.
+                continue
         neg_pairs.append(dct)
         seen_pairs.add(brc_pair_key)
         seen_seq_pairs.add(seq_pair_key)
@@ -344,6 +536,8 @@ def create_negative_pairs(
 def compute_isolate_pair_counts(
     df: pd.DataFrame,
     verbose: bool = False,
+    pair_mode: str = "unordered",
+    schema_pair: Optional[Tuple[str, str]] = None,
     ) -> dict:
     """Compute positive pair counts per isolate for stratified splitting.
     
@@ -363,6 +557,15 @@ def compute_isolate_pair_counts(
     """
     isolate_pos_counts = {} # pos pairs that will originate from this isolate
 
+    if pair_mode not in {"unordered", "schema_ordered"}:
+        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
+    if pair_mode == "schema_ordered":
+        if schema_pair is None or len(schema_pair) != 2:
+            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
+        func_left, func_right = schema_pair
+        if func_left == func_right:
+            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
+
     for aid, grp in df.groupby('assembly_id'): # isolates
         n_proteins = len(grp)
 
@@ -370,13 +573,14 @@ def compute_isolate_pair_counts(
             print(f"assembly_id {aid}: {n_proteins} proteins, Functions: {grp['function'].tolist()}")
 
         if n_proteins < 2:
-            # Need at least 2 proteins to form a pair
             isolate_pos_counts[aid] = 0
+        elif pair_mode == "schema_ordered":
+            # Number of possible schema positives within this isolate is a cross-product.
+            n_left = int((grp['function'] == func_left).sum())
+            n_right = int((grp['function'] == func_right).sum())
+            isolate_pos_counts[aid] = n_left * n_right
         else:
-            # Get all possible protein pairs within the isolate (by definition these are pos pairs)
             pairs = list(combinations(grp.itertuples(), 2))
-            # Count all possible protein pairs that have different functions
-            # (same-function pairs within an isolate are not used as positive pairs)
             pos_count = sum(1 for row_a, row_b in pairs if row_a.function != row_b.function)
             isolate_pos_counts[aid] = pos_count
 
@@ -429,13 +633,13 @@ def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
         # All pairs of sequences in this isolate co-occur
         for i in range(len(seq_hashes)):
             for j in range(i + 1, len(seq_hashes)):
-                pair_key = canonical_pair_key(seq_hashes[i], seq_hashes[j])
-                cooccur_pairs.add(pair_key)
+                seq_pair_key = canonical_pair_key(seq_hashes[i], seq_hashes[j])
+                cooccur_pairs.add(seq_pair_key)
 
                 # Track count for stats
-                if pair_key not in isolate_pair_counts:
-                    isolate_pair_counts[pair_key] = 0
-                isolate_pair_counts[pair_key] += 1
+                if seq_pair_key not in isolate_pair_counts:
+                    isolate_pair_counts[seq_pair_key] = 0
+                isolate_pair_counts[seq_pair_key] += 1
 
     # Compute statistics
     cooccur_stats = {
@@ -458,6 +662,8 @@ def split_dataset(
     val_ratio: float = 0.1,
     seed: int = 42,
     canonicalize_pair_orientation_enabled: bool = True,
+    pair_mode: str = "unordered",
+    schema_pair: Optional[Tuple[str, str]] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """ Split dataset into train, val, and test sets with stratified sampling.
 
@@ -469,14 +675,26 @@ def split_dataset(
        from val/test to prevent data leakage.
 
     Approach:
-    - First split ISOLATES into train/val/test (keeps all proteins from an isolate together)
-    - Generate positive pairs within each isolate group
-    - Generate negative pairs with blocked co-occurring sequences
-    - Validate no pair_key leakage across splits (remove if found)
+    - 1) Split ISOLATES into train/val/test (keeps all proteins from an isolate together)
+    - 2) Generate positive pairs within each isolate group
+    - 3) Generate negative pairs and block co-occurring sequences
+    - 4) Validate no pair_key leakage across splits (remove if found)
 
     Returns:
         Tuple of (train_pairs, val_pairs, test_pairs, duplicate_stats) DataFrames/dict
     """
+    if pair_mode not in {"unordered", "schema_ordered"}:
+        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
+    if pair_mode == "schema_ordered":
+        if schema_pair is None or len(schema_pair) != 2:
+            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
+        func_left, func_right = schema_pair
+        if func_left == func_right:
+            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
+        if canonicalize_pair_orientation_enabled:
+            print("⚠️  Note: schema_ordered mode disables canonicalize_pair_orientation_enabled")
+            canonicalize_pair_orientation_enabled = False
+
     # Build co-occurrence set FIRST (before any pair generation)
     # This identifies all sequence pairs that appear together in any isolate
     print("\n🔍 Building co-occurrence set (sequences that appear together in any isolate)...")
@@ -486,7 +704,11 @@ def split_dataset(
     print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
 
     # Compute positive pair counts per isolate
-    isolate_pos_counts = compute_isolate_pair_counts(df)
+    isolate_pos_counts = compute_isolate_pair_counts(
+        df,
+        pair_mode=pair_mode,
+        schema_pair=schema_pair,
+    )
 
     # Stratify isolates by positive pair counts for balanced train/val/test splits.
     # 
@@ -544,54 +766,56 @@ def split_dataset(
                 else:
                     test_isolates.append(aid)
 
+    pos_kwargs = {
+        'seed': seed,
+        'canonicalize_pair_orientation_enabled': canonicalize_pair_orientation_enabled,
+        'pair_mode': pair_mode,
+        'schema_pair': schema_pair,
+    }
+
     # Generate positive pairs for each set (already includes pair_key)
     train_pos = create_positive_pairs(
         df[df['assembly_id'].isin(train_isolates)],
-        seed=seed,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+        **pos_kwargs,
     )
     val_pos = create_positive_pairs(
         df[df['assembly_id'].isin(val_isolates)],
-        seed=seed,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+        **pos_kwargs,
     )
     test_pos = create_positive_pairs(
         df[df['assembly_id'].isin(test_isolates)],
-        seed=seed,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+        **pos_kwargs,
     )
 
     # Generate negative pairs within each set (with BLOCKED contradictory pairs)
     print("\nCreating negative pairs with blocked contradictory pairs...")
+    neg_kwargs = {
+        'cooccur_pairs': cooccur_pairs,
+        'allow_same_func_negatives': allow_same_func_negatives,
+        'max_same_func_ratio': max_same_func_ratio,
+        'seed': seed,
+        'canonicalize_pair_orientation_enabled': canonicalize_pair_orientation_enabled,
+        'pair_mode': pair_mode,
+        'schema_pair': schema_pair,
+    }
+
     train_neg, train_same_func, train_reject_stats = create_negative_pairs(
         df,
         num_negatives=int(len(train_pos) * neg_to_pos_ratio),
         isolate_ids=train_isolates,
-        cooccur_pairs=cooccur_pairs,
-        allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio,
-        seed=seed,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+        **neg_kwargs,
     )
     val_neg, val_same_func, val_reject_stats = create_negative_pairs(
         df,
         num_negatives=int(len(val_pos) * neg_to_pos_ratio),
         isolate_ids=val_isolates,
-        cooccur_pairs=cooccur_pairs,
-        allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio,
-        seed=seed,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+        **neg_kwargs,
     )
     test_neg, test_same_func, test_reject_stats = create_negative_pairs(
         df,
         num_negatives=int(len(test_pos) * neg_to_pos_ratio),
         isolate_ids=test_isolates,
-        cooccur_pairs=cooccur_pairs,
-        allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio,
-        seed=seed,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+        **neg_kwargs,
     )
 
     # Log rejection statistics
@@ -607,11 +831,39 @@ def split_dataset(
     print(f"   Train blocked: {train_reject_stats['blocked_cooccur']:,}")
     print(f"   Val blocked:   {val_reject_stats['blocked_cooccur']:,}")
     print(f"   Test blocked:  {test_reject_stats['blocked_cooccur']:,}")
+    if pair_mode == "schema_ordered":
+        total_missing_left = (
+            train_reject_stats.get('missing_left_func', 0)
+            + val_reject_stats.get('missing_left_func', 0)
+            + test_reject_stats.get('missing_left_func', 0)
+        )
+        total_missing_right = (
+            train_reject_stats.get('missing_right_func', 0)
+            + val_reject_stats.get('missing_right_func', 0)
+            + test_reject_stats.get('missing_right_func', 0)
+        )
+        print(f"   Missing func_left:  {total_missing_left:,}")
+        print(f"   Missing func_right: {total_missing_right:,}")
 
     # Combine positive and negative pairs
     train_pairs = pd.concat([train_pos, train_neg], ignore_index=True)
     val_pairs   = pd.concat([val_pos, val_neg], ignore_index=True)
     test_pairs  = pd.concat([test_pos, test_neg], ignore_index=True)
+
+    # Schema-mode sanity assertions: enforce fixed slot semantics.
+    if pair_mode == "schema_ordered":
+        if schema_pair is None:
+            raise ValueError("schema_ordered mode requires schema_pair")
+        func_left, func_right = schema_pair
+        for name, pairs_df in [("train", train_pairs), ("val", val_pairs), ("test", test_pairs)]:
+            if len(pairs_df) == 0:
+                continue
+            bad = pairs_df[(pairs_df["func_a"] != func_left) | (pairs_df["func_b"] != func_right)]
+            if not bad.empty:
+                raise ValueError(
+                    f"Schema constraint violated in {name} split: expected func_a=={func_left!r} and func_b=={func_right!r}, "
+                    f"found {len(bad)} violating rows."
+                )
 
     # PAIR-KEY BASED SPLITTING: Ensure no pair_key appears across train/val/test
     # This is a VALIDATION step - our isolate-based split should already prevent this
@@ -809,7 +1061,6 @@ VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'datasets')
 USE_SELECTED_ONLY = config.dataset.use_selected_only
-# TASK_NAME = config.dataset.task_name
 NEG_TO_POS_RATIO = config.dataset.neg_to_pos_ratio
 ALLOW_SAME_FUNC_NEGATIVES = config.dataset.allow_same_func_negatives
 MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
@@ -817,6 +1068,8 @@ TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
 HARD_PARTITION_ISOLATES = config.dataset.hard_partition_isolates
 CANONICALIZE_PAIR_ORIENTATION = config.dataset.canonicalize_pair_orientation
+PAIR_MODE = getattr(config.dataset, 'pair_mode', 'unordered')
+SCHEMA_PAIR_RAW = getattr(config.dataset, 'schema_pair', None)
 MAX_ISOLATES_TO_PROCESS = getattr(config.dataset, 'max_isolates_to_process', None)
 SHUFFLE_TRAIN_LABELS = getattr(config.dataset, 'shuffle_train_labels', False)
 SHUFFLE_TRAIN_LABELS_SEED = getattr(config.dataset, 'shuffle_train_labels_seed', None)
@@ -980,12 +1233,6 @@ if MAX_ISOLATES_TO_PROCESS:
     total_isolates = len(unique_isolates)
     print(f"\nSample {MAX_ISOLATES_TO_PROCESS} isolates (out of {total_isolates} total unique isolates).")
 
-    # if sampled_isolates_file.exists():
-    #     print(f"Load previously sampled isolates from: {sampled_isolates_file}")
-    #     with open(sampled_isolates_file, 'r') as f:
-    #         sampled_isolates = [line.strip() for line in f if line.strip()]
-    #     print(f"Found {len(sampled_isolates)} sampled isolates in the file.")
-    # else:
     if MAX_ISOLATES_TO_PROCESS >= total_isolates:
         sampled_isolates = sorted(unique_isolates)
         print("Requested isolates more than available; using all isolates.")
@@ -1006,10 +1253,6 @@ if MAX_ISOLATES_TO_PROCESS:
     original_count = len(prot_df)
     prot_df = prot_df[prot_df['assembly_id'].isin(sampled_isolates)].reset_index(drop=True)
     print(f"Filtered {len(prot_df)} protein records from {original_count} after isolate sampling.")
-# else:
-#     print("\nDataset isolate sampling disabled (max_isolates_to_process=null).")
-#     if sampled_isolates_file.exists():
-#         print(f"ℹ️ sampled_isolates.txt found at {sampled_isolates_file} but max_isolates_to_process=null; ignoring file.")
 
 # Restrict to selected functions if specified
 # TODO: consider adapting implementation from compute_esm2_embeddings.py
@@ -1034,6 +1277,43 @@ else:
 # TODO Do we actually use 'seq_hash' somewhere?
 df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
+# Pair-mode validation / schema parsing (validation-stage: keep loud + explicit)
+if PAIR_MODE not in {"unordered", "schema_ordered"}:
+    raise ValueError(f"❌ Unknown dataset.pair_mode: {PAIR_MODE!r} (expected 'unordered' or 'schema_ordered')")
+
+schema_pair: Optional[Tuple[str, str]] = None
+canonicalize_pair_orientation_enabled = CANONICALIZE_PAIR_ORIENTATION
+
+if PAIR_MODE == "schema_ordered":
+    # In schema mode, A/B semantics are defined by function schema (func_left -> *_a, func_right -> *_b),
+    # so hash-based canonicalization conflicts with those semantics and is disabled.
+    if canonicalize_pair_orientation_enabled:
+        print("⚠️  Note: dataset.pair_mode='schema_ordered' disables dataset.canonicalize_pair_orientation")
+        canonicalize_pair_orientation_enabled = False
+
+    if SCHEMA_PAIR_RAW is None:
+        raise ValueError("❌ dataset.schema_pair must be set when dataset.pair_mode='schema_ordered'")
+    schema_list = list(SCHEMA_PAIR_RAW)
+    if len(schema_list) != 2:
+        raise ValueError(f"❌ dataset.schema_pair must be length 2, got: {schema_list!r}")
+    func_left, func_right = str(schema_list[0]), str(schema_list[1])
+    if func_left == func_right:
+        raise ValueError(f"❌ dataset.schema_pair must contain two different functions, got: {schema_list!r}")
+    schema_pair = (func_left, func_right)
+
+    # Validate that schema functions exist in the filtered dataframe.
+    available_funcs = set(df["function"].unique().tolist()) if "function" in df.columns else set()
+    missing = [f for f in [func_left, func_right] if f not in available_funcs]
+    if missing:
+        raise ValueError(
+            "❌ schema_ordered mode: schema_pair functions missing from filtered data. "
+            f"missing={missing!r}, available_n={len(available_funcs):,}"
+        )
+
+    # In schema mode, same-function negative controls are irrelevant by construction.
+    if ALLOW_SAME_FUNC_NEGATIVES or MAX_SAME_FUNC_RATIO:
+        print("⚠️  Note: schema_ordered mode ignores same-function negative controls (schema_pair is cross-function).")
+
 # Validate brc_fea_id uniqueness within isolates
 dups = df[df.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=False)]
 if not dups.empty:
@@ -1056,7 +1336,9 @@ train_pairs, val_pairs, test_pairs, duplicate_stats = split_dataset(
     train_ratio=TRAIN_RATIO,
     val_ratio=VAL_RATIO,
     seed=RANDOM_SEED,
-    canonicalize_pair_orientation_enabled=CANONICALIZE_PAIR_ORIENTATION,
+    canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+    pair_mode=PAIR_MODE,
+    schema_pair=schema_pair,
 )
 
 # Save datasets
@@ -1156,6 +1438,8 @@ dataset_stats = {
         'hn_subtype': hn_subtype_filter,
         'geo_location': geo_location_filter,
         'passage': passage_filter,
+        'pair_mode': PAIR_MODE,
+        'schema_pair': list(schema_pair) if schema_pair is not None else None,
     },
 }
 
