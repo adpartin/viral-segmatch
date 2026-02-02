@@ -38,11 +38,17 @@ def check_initialization_loss(model, train_loader, criterion, device):
     n_samples = 0
     with torch.no_grad():
         for batch_x, batch_y in train_loader:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            preds = model(batch_x).squeeze()
+            if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
+                batch_a, batch_b = batch_x
+                batch_a, batch_b = batch_a.to(device), batch_b.to(device)
+                preds = model(batch_a, batch_b).squeeze()
+            else:
+                batch_x = batch_x.to(device)
+                preds = model(batch_x).squeeze()
+            batch_y = batch_y.to(device)
             loss = criterion(preds, batch_y)
-            initial_loss += loss.item() * batch_x.size(0)
-            n_samples += batch_x.size(0)
+            initial_loss += loss.item() * batch_y.size(0)
+            n_samples += batch_y.size(0)
             if n_samples >= 100:  # Check on first 100 samples
                 break
     
