@@ -229,13 +229,15 @@ def create_pair_embeddings_concatenation(
     use_concat: bool = True,
     use_diff: bool = False,
     use_prod: bool = False,
+    use_unit_diff: bool = False,
     ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Create pair embeddings with configurable feature construction.
     
     Features can include any combination of:
-    - concat: [emb_a, emb_b]
-    - diff:   |emb_a - emb_b|
-    - prod:   emb_a * emb_b
+    - concat:    [emb_a, emb_b]
+    - diff:      |emb_a - emb_b|
+    - unit_diff: (emb_a - emb_b) / ||emb_a - emb_b||  (L2-normalized direction only)
+    - prod:      emb_a * emb_b
     
     Args:
         pairs_df: DataFrame with 'brc_a', 'brc_b', and 'label' columns
@@ -247,6 +249,7 @@ def create_pair_embeddings_concatenation(
         use_concat: Include [emb_a, emb_b] concatenation. Default: True.
         use_diff: Include element-wise absolute difference |emb_a - emb_b|. Default: False.
         use_prod: Include element-wise product emb_a * emb_b. Default: False.
+        use_unit_diff: Include L2-normalized difference (direction only). Default: False.
     
     Returns:
         pair_embeddings: (N, 2*D) array where D is embedding dimension
@@ -313,10 +316,15 @@ def create_pair_embeddings_concatenation(
         features.append(emb_b)
     if use_diff:
         features.append(np.abs(emb_a - emb_b))
+    if use_unit_diff:
+        diff_raw = emb_a - emb_b
+        norms = np.linalg.norm(diff_raw, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-8)
+        features.append(diff_raw / norms)
     if use_prod:
         features.append(emb_a * emb_b)
     if not features:
-        raise ValueError("At least one of use_concat/use_diff/use_prod must be True.")
+        raise ValueError("At least one of use_concat/use_diff/use_prod/use_unit_diff must be True.")
 
     pair_embeddings = np.concatenate(features, axis=1)
     if dtype is not None:

@@ -101,19 +101,23 @@ def find_optimal_threshold_pr(y_true, y_probs, metric='f1'):
     return optimal_threshold, best_score
 
 
-def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool]:
+def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool]:
     """
-    Parse interaction spec string into (use_concat, use_diff, use_prod).
-    Accepts: "concat", "diff", "prod", or "concat+diff+prod" (any order).
+    Parse interaction spec string into (use_concat, use_diff, use_prod, use_unit_diff).
+    Accepts: "concat", "diff", "prod", "unit_diff", or combinations like "concat+diff" (any order).
+
+    unit_diff: L2-normalized difference (emb_a - emb_b) / (||emb_a - emb_b|| + eps).
+    Preserves only the *direction* of the difference, removing magnitude information.
+    Use as a diagnostic to test whether the model relies on diff magnitude vs direction.
     """
     if interaction is None:
-        return False, False, False
+        return False, False, False, False
     tokens = [t.strip().lower() for t in str(interaction).split('+') if t.strip()]
-    allowed = {"concat", "diff", "prod"}
+    allowed = {"concat", "diff", "prod", "unit_diff"}
     unknown = [t for t in tokens if t not in allowed]
     if unknown:
         raise ValueError(f"Unknown interaction tokens: {unknown} (allowed: {sorted(allowed)})")
-    return ("concat" in tokens, "diff" in tokens, "prod" in tokens)
+    return ("concat" in tokens, "diff" in tokens, "prod" in tokens, "unit_diff" in tokens)
 
 
 class SegmentPairDataset(Dataset):
@@ -280,6 +284,12 @@ class SegmentPairDataset(Dataset):
             diff = np.abs(emb_a - emb_b)
             features.append(diff)
 
+        # Add L2-normalized difference (direction only, no magnitude)
+        if getattr(self, 'use_unit_diff', False):
+            diff_raw = emb_a - emb_b
+            norm = np.linalg.norm(diff_raw) + 1e-8
+            features.append(diff_raw / norm)
+
         # Add element-wise product A * B as interaction feature conditionally
         # Hadamard Product (or Element-wise Multiplication)
         # Captures how much two embeddings agree or correlate on each feature
@@ -288,7 +298,7 @@ class SegmentPairDataset(Dataset):
             features.append(prod)
 
         if not features:
-            raise ValueError("If input_mode='interaction', at least one of use_concat/use_diff/use_prod must be True.")
+            raise ValueError("If input_mode='interaction', at least one of use_concat/use_diff/use_prod/use_unit_diff must be True.")
 
         # Concatenate all chosen features
         emb = np.concatenate(features)
@@ -321,6 +331,7 @@ class MLPClassifier(nn.Module):
         use_concat: bool = True,
         use_diff: bool = False,
         use_prod: bool = False,
+        use_unit_diff: bool = False,
         embed_dim: Optional[int] = None,
     ):
         super().__init__()
@@ -331,6 +342,7 @@ class MLPClassifier(nn.Module):
         self.use_concat = use_concat
         self.use_diff = use_diff
         self.use_prod = use_prod
+        self.use_unit_diff = use_unit_diff
 
         if self.input_mode not in {"interaction", "raw"}:
             raise ValueError(f"Unknown input_mode: {self.input_mode!r} (expected 'interaction' or 'raw')")
@@ -456,26 +468,29 @@ class MLPClassifier(nn.Module):
         raise ValueError(f"Unknown pre_mlp_mode: {self.pre_mlp_mode!r}")
 
     def _compute_interaction(self, a: torch.Tensor, b: torch.Tensor
-        ) -> tuple[torch.Tensor, torch.Tensor]:
+        ) -> torch.Tensor:
         """
         Compute interaction features between embeddings a and b.
         Args:
-            a: Embedding tensor for segment A
-            b: Embedding tensor for segment B
+            a: Embedding tensor for segment A  (batch, D)
+            b: Embedding tensor for segment B  (batch, D)
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: Interaction features for segments A and B
+            torch.Tensor: Concatenated interaction features (batch, K*D)
         """
-        # breakpoint()
         features = []
         if self.use_concat:
             features.extend([a, b])
         if self.use_diff:
             features.append(torch.abs(a - b))
+        if self.use_unit_diff:
+            diff = a - b
+            norm = torch.norm(diff, dim=1, keepdim=True).clamp(min=1e-8)
+            features.append(diff / norm)
         if self.use_prod:
             features.append(a * b)
         if not features:
-            raise ValueError("At least one of concat/diff/prod must be enabled for interaction.")
+            raise ValueError("At least one of concat/diff/prod/unit_diff must be enabled for interaction.")
         return torch.cat(features, dim=1)
 
     def forward(self, x: torch.Tensor, x_b: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -1105,9 +1120,10 @@ EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
 if INPUT_MODE == "raw":
     if INTERACTION_SPEC is None:
         INTERACTION_SPEC = "concat"
-    USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW = parse_interaction_flags(INTERACTION_SPEC)
+    USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
 else:
     USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW = USE_CONCAT, USE_DIFF, USE_PROD
+    USE_UNIT_DIFF_RAW = False
 
 # Compute input dimension based on feature flags
 if INPUT_MODE == "raw":
@@ -1125,6 +1141,9 @@ if INPUT_MODE == "raw":
         mlp_input_dim += 2 * out_dim
         feature_desc_parts.append("2")
     if USE_DIFF_RAW:
+        mlp_input_dim += out_dim
+        feature_desc_parts.append("1")
+    if USE_UNIT_DIFF_RAW:
         mlp_input_dim += out_dim
         feature_desc_parts.append("1")
     if USE_PROD_RAW:
@@ -1164,6 +1183,7 @@ model = MLPClassifier(
     use_concat=USE_CONCAT_RAW if INPUT_MODE == "raw" else USE_CONCAT,
     use_diff=USE_DIFF_RAW if INPUT_MODE == "raw" else USE_DIFF,
     use_prod=USE_PROD_RAW if INPUT_MODE == "raw" else USE_PROD,
+    use_unit_diff=USE_UNIT_DIFF_RAW,
     embed_dim=EMBED_DIM,
 )
 model.to(device)

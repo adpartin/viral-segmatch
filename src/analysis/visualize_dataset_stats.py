@@ -344,13 +344,15 @@ def plot_pair_embeddings_splits_overlap(
     use_concat: bool = True,
     use_diff: bool = False,
     use_prod: bool = False,
+    use_unit_diff: bool = False,
     ) -> None:
     """Plot sampled *pair embeddings* colored/marked by split.
 
     This uses the same feature construction as the model can be trained with:
-    - concat: [emb_a, emb_b]
-    - diff:   |emb_a - emb_b|
-    - prod:   emb_a * emb_b
+    - concat:    [emb_a, emb_b]
+    - diff:      |emb_a - emb_b|
+    - unit_diff: (emb_a - emb_b) / ||emb_a - emb_b||  (direction only)
+    - prod:      emb_a * emb_b
 
     Behavior:
     - Always computes and saves a PCA(2D) plot (fast, deterministic).
@@ -393,8 +395,8 @@ def plot_pair_embeddings_splits_overlap(
 
     pairs = pd.concat(sampled, ignore_index=True)
 
-    if not (use_concat or use_diff or use_prod):
-        raise ValueError("At least one of use_concat/use_diff/use_prod must be True.")
+    if not (use_concat or use_diff or use_prod or use_unit_diff):
+        raise ValueError("At least one of use_concat/use_diff/use_prod/use_unit_diff must be True.")
 
     # Create pair embeddings (match training feature construction)
     id_to_row = load_embedding_index(embeddings_file)
@@ -407,6 +409,7 @@ def plot_pair_embeddings_splits_overlap(
         use_concat=use_concat,
         use_diff=use_diff,
         use_prod=use_prod,
+        use_unit_diff=use_unit_diff,
     )
     if len(pair_embeddings) == 0:
         print("⚠️  Skipping split-overlap plot: could not create any pair embeddings (missing embeddings?)")
@@ -427,6 +430,8 @@ def plot_pair_embeddings_splits_overlap(
         feature_tags.append("concat")
     if use_diff:
         feature_tags.append("diff")
+    if use_unit_diff:
+        feature_tags.append("unit_diff")
     if use_prod:
         feature_tags.append("prod")
     feature_desc = "+".join(feature_tags) if feature_tags else "none"
@@ -454,7 +459,7 @@ def plot_pair_embeddings_splits_overlap(
     diagnostics: dict = {
         'n_pairs': int(len(pairs)),
         'embedding_dim_total': int(pair_embeddings.shape[1]) if pair_embeddings.ndim == 2 else None,
-        'feature_flags': {'use_concat': bool(use_concat), 'use_diff': bool(use_diff), 'use_prod': bool(use_prod)},
+        'feature_flags': {'use_concat': bool(use_concat), 'use_diff': bool(use_diff), 'use_unit_diff': bool(use_unit_diff), 'use_prod': bool(use_prod)},
         'pca_explained_variance_ratio_top2': (
             [float(pca_model.explained_variance_ratio_[0]), float(pca_model.explained_variance_ratio_[1])]
             if pca_model is not None and hasattr(pca_model, 'explained_variance_ratio_') else None
@@ -533,32 +538,108 @@ def plot_pair_embeddings_splits_overlap(
             print("\n   func_pair PCA means/stds (top 10 by count):")
             print(func_grp.head(10).to_string())
 
-        if pair_embeddings.ndim == 2 and pair_embeddings.shape[1] % 2 == 0:
-            d = pair_embeddings.shape[1] // 2
-            norm_a = np.linalg.norm(pair_embeddings[:, :d], axis=1)
-            norm_b = np.linalg.norm(pair_embeddings[:, d:], axis=1)
-            norm_ratio = norm_a / (norm_b + 1e-12)
+        def _corr(x: np.ndarray, y: np.ndarray) -> Optional[float]:
+            if np.nanstd(x) == 0 or np.nanstd(y) == 0:
+                return None
+            return float(np.corrcoef(x, y)[0, 1])
 
-            def _corr(x: np.ndarray, y: np.ndarray) -> Optional[float]:
-                if np.nanstd(x) == 0 or np.nanstd(y) == 0:
-                    return None
-                return float(np.corrcoef(x, y)[0, 1])
+        label_arr = pairs['label'].to_numpy().astype(float)
+
+        # Norm analysis depends on feature mode:
+        # - concat mode: feature = [emb_a, emb_b], can extract halves
+        # - diff-only mode: feature = emb_a - emb_b, feature norm IS diff norm
+        # - prod-only mode: feature = emb_a * emb_b, similar to diff
+        if use_concat and pair_embeddings.ndim == 2:
+            # Concat mode: we can extract emb_a and emb_b halves
+            n_blocks = 1 + int(bool(use_diff)) + int(bool(use_prod))  # concat + optional diff/prod
+            total_dim = pair_embeddings.shape[1]
+            d = total_dim // (1 + n_blocks)  # Each concat half is D
+            if total_dim % (1 + n_blocks) == 0 or total_dim % 2 == 0:
+                # Fallback: just split in half for concat
+                d = total_dim // 2
+            norm_a = np.linalg.norm(pair_embeddings[:, :d], axis=1)
+            norm_b = np.linalg.norm(pair_embeddings[:, d:2*d], axis=1)
+            norm_ratio = norm_a / (norm_b + 1e-12)
 
             corr_norm_a_pc1 = _corr(norm_a, pairs['pc1'].to_numpy())
             corr_norm_b_pc1 = _corr(norm_b, pairs['pc1'].to_numpy())
             corr_ratio_pc1 = _corr(norm_ratio, pairs['pc1'].to_numpy())
 
-            print("\n🔎 Embedding-half norm correlations with PC1:")
+            print("\n🔎 Embedding-half norm correlations with PC1 (concat mode):")
             print(f"   corr(||emb_a||, PC1) = {corr_norm_a_pc1}")
             print(f"   corr(||emb_b||, PC1) = {corr_norm_b_pc1}")
             print(f"   corr(||emb_a||/||emb_b||, PC1) = {corr_ratio_pc1}")
+
+            corr_norm_a_label = _corr(norm_a, label_arr)
+            corr_norm_b_label = _corr(norm_b, label_arr)
+            corr_ratio_label = _corr(norm_ratio, label_arr)
+
+            # Diff norm: ||emb_a - emb_b|| (reconstruct from concat halves)
+            diff_norm = np.linalg.norm(pair_embeddings[:, :d] - pair_embeddings[:, d:2*d], axis=1)
+            corr_diff_norm_label = _corr(diff_norm, label_arr)
+            corr_diff_norm_pc1 = _corr(diff_norm, pairs['pc1'].to_numpy())
+
+            print("\n🔎 Embedding-half norm correlations with LABEL (leakage detection):")
+            print(f"   corr(||emb_a||, label)           = {corr_norm_a_label:.4f}" if corr_norm_a_label else "   corr(||emb_a||, label)           = N/A")
+            print(f"   corr(||emb_b||, label)           = {corr_norm_b_label:.4f}" if corr_norm_b_label else "   corr(||emb_b||, label)           = N/A")
+            print(f"   corr(||emb_a||/||emb_b||, label) = {corr_ratio_label:.4f}" if corr_ratio_label else "   corr(||emb_a||/||emb_b||, label) = N/A")
+            print(f"   corr(||emb_a - emb_b||, label)   = {corr_diff_norm_label:.4f}" if corr_diff_norm_label else "   corr(||emb_a - emb_b||, label)   = N/A")
+            print(f"   corr(||emb_a - emb_b||, PC1)     = {corr_diff_norm_pc1:.4f}" if corr_diff_norm_pc1 else "   corr(||emb_a - emb_b||, PC1)     = N/A")
+
+            # Mean diff norm by label
+            pos_mask = label_arr == 1
+            neg_mask = label_arr == 0
+            mean_diff_norm_pos = float(np.mean(diff_norm[pos_mask])) if pos_mask.sum() > 0 else None
+            mean_diff_norm_neg = float(np.mean(diff_norm[neg_mask])) if neg_mask.sum() > 0 else None
+            print(f"\n🔎 Diff norm by label:")
+            print(f"   mean ||emb_a - emb_b|| for positives = {mean_diff_norm_pos:.4f}" if mean_diff_norm_pos else "   mean ||emb_a - emb_b|| for positives = N/A")
+            print(f"   mean ||emb_a - emb_b|| for negatives = {mean_diff_norm_neg:.4f}" if mean_diff_norm_neg else "   mean ||emb_a - emb_b|| for negatives = N/A")
 
             diagnostics.update({
                 'norm_correlations': {
                     'corr_norm_a_pc1': corr_norm_a_pc1,
                     'corr_norm_b_pc1': corr_norm_b_pc1,
                     'corr_norm_ratio_pc1': corr_ratio_pc1,
-                }
+                },
+                'label_correlations': {
+                    'corr_norm_a_label': corr_norm_a_label,
+                    'corr_norm_b_label': corr_norm_b_label,
+                    'corr_norm_ratio_label': corr_ratio_label,
+                    'corr_diff_norm_label': corr_diff_norm_label,
+                    'corr_diff_norm_pc1': corr_diff_norm_pc1,
+                    'mean_diff_norm_pos': mean_diff_norm_pos,
+                    'mean_diff_norm_neg': mean_diff_norm_neg,
+                },
+            })
+
+        elif (use_diff or use_prod) and not use_concat and pair_embeddings.ndim == 2:
+            # Diff-only or prod-only mode: the feature vector IS the transform
+            # The norm of the feature vector is the norm of the diff/prod
+            feature_norm = np.linalg.norm(pair_embeddings, axis=1)
+            corr_feature_norm_label = _corr(feature_norm, label_arr)
+            corr_feature_norm_pc1 = _corr(feature_norm, pairs['pc1'].to_numpy())
+
+            mode_name = "diff" if use_diff else "prod"
+            print(f"\n🔎 Feature norm correlations ({mode_name} mode, no concat):")
+            print(f"   corr(||feature||, label) = {corr_feature_norm_label:.4f}" if corr_feature_norm_label else f"   corr(||feature||, label) = N/A")
+            print(f"   corr(||feature||, PC1)   = {corr_feature_norm_pc1:.4f}" if corr_feature_norm_pc1 else f"   corr(||feature||, PC1)   = N/A")
+
+            # Mean feature norm by label
+            pos_mask = label_arr == 1
+            neg_mask = label_arr == 0
+            mean_norm_pos = float(np.mean(feature_norm[pos_mask])) if pos_mask.sum() > 0 else None
+            mean_norm_neg = float(np.mean(feature_norm[neg_mask])) if neg_mask.sum() > 0 else None
+            print(f"\n🔎 Feature norm by label ({mode_name} mode):")
+            print(f"   mean ||feature|| for positives = {mean_norm_pos:.4f}" if mean_norm_pos else "   mean ||feature|| for positives = N/A")
+            print(f"   mean ||feature|| for negatives = {mean_norm_neg:.4f}" if mean_norm_neg else "   mean ||feature|| for negatives = N/A")
+
+            diagnostics.update({
+                'label_correlations': {
+                    f'corr_{mode_name}_norm_label': corr_feature_norm_label,
+                    f'corr_{mode_name}_norm_pc1': corr_feature_norm_pc1,
+                    f'mean_{mode_name}_norm_pos': mean_norm_pos,
+                    f'mean_{mode_name}_norm_neg': mean_norm_neg,
+                },
             })
     except Exception as e:
         diagnostics.update({'metadata_diagnostics_error': f"{type(e).__name__}: {e}"})
@@ -1449,9 +1530,22 @@ def visualize_dataset_stats(
         embeddings_file = project_root / 'data' / 'embeddings' / virus_name / data_version / 'master_esm2_embeddings.h5'
         if embeddings_file.exists():
             # Match training-time feature construction when available in bundle config.
-            use_concat = getattr(getattr(cfg, 'training', None), 'use_concat', True)
-            use_diff = getattr(getattr(cfg, 'training', None), 'use_diff', False)
-            use_prod = getattr(getattr(cfg, 'training', None), 'use_prod', False)
+            # Support both legacy (use_concat/use_diff/use_prod) and new (interaction) params.
+            training_cfg = getattr(cfg, 'training', None)
+            interaction_str = getattr(training_cfg, 'interaction', None) if training_cfg else None
+            if interaction_str:
+                # New style: parse "concat", "diff", "prod", "unit_diff", or combinations
+                parts = [p.strip().lower() for p in interaction_str.split('+')]
+                use_concat = 'concat' in parts
+                use_diff = 'diff' in parts
+                use_prod = 'prod' in parts
+                use_unit_diff = 'unit_diff' in parts
+            else:
+                # Legacy style: explicit boolean flags
+                use_concat = getattr(training_cfg, 'use_concat', True) if training_cfg else True
+                use_diff = getattr(training_cfg, 'use_diff', False) if training_cfg else False
+                use_prod = getattr(training_cfg, 'use_prod', False) if training_cfg else False
+                use_unit_diff = False
             plot_pair_embeddings_splits_overlap(
                 run_dir=run_dir,
                 embeddings_file=embeddings_file,
@@ -1462,6 +1556,7 @@ def visualize_dataset_stats(
                 use_concat=use_concat,
                 use_diff=use_diff,
                 use_prod=use_prod,
+                use_unit_diff=use_unit_diff,
             )
             # Task 8 (optional): single-embedding confounder plots (derived from sequences appearing in pairs).
             # Disabled by default since it can be slow and is not required for the split-overlap sanity check.
