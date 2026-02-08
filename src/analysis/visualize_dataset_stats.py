@@ -36,8 +36,10 @@ Generated plots:
     - host_subtype_heatmap.png: Heatmap of host × HN subtype (3 subplots: train/val/test)
     - geo_location_distribution.png: Bar plot of geo_location_clean distribution (3 subplots)
     - passage_distribution.png: Bar plot of passage distribution (3 subplots)
-    - pair_embeddings_split_overlap_umap.png (or *_pca.png fallback): 2D plot of sampled
-      pair embeddings colored/marked by split (train/val/test) to check overlap.
+    - pair_pca_concat.png, pair_pca_diff.png, pair_pca_prod.png, pair_pca_unit_diff.png:
+      PCA scatter plots of pair embeddings under each interaction mode, colored/marked
+      by split (train/val/test) and styled by label (positive/negative).
+    - pair_interaction_diagnostics.json: per-interaction norm-vs-label correlations.
 """
 
 import argparse
@@ -332,6 +334,265 @@ def _format_filters_for_plot(filters_applied: Optional[dict]) -> str:
     return "; ".join(parts)
 
 
+def _compute_interaction_features(
+    emb_a: np.ndarray,
+    emb_b: np.ndarray,
+    interaction_spec: str,
+) -> np.ndarray:
+    """Compute interaction features from raw embedding pairs.
+
+    Args:
+        emb_a: (N, D) array of slot-A embeddings.
+        emb_b: (N, D) array of slot-B embeddings.
+        interaction_spec: One of "concat", "diff", "prod", "unit_diff",
+            or combinations like "concat+diff", "diff+unit_diff", etc.
+
+    Returns:
+        (N, K) feature array.
+    """
+    tokens = [t.strip().lower() for t in interaction_spec.split('+')]
+    features: list[np.ndarray] = []
+    for t in tokens:
+        if t == "concat":
+            features.extend([emb_a, emb_b])
+        elif t == "diff":
+            features.append(np.abs(emb_a - emb_b))
+        elif t == "unit_diff":
+            diff = emb_a - emb_b
+            norms = np.maximum(np.linalg.norm(diff, axis=1, keepdims=True), 1e-8)
+            features.append(diff / norms)
+        elif t == "prod":
+            features.append(emb_a * emb_b)
+        else:
+            raise ValueError(f"Unknown interaction token: {t!r}")
+    if not features:
+        raise ValueError(f"No valid interaction tokens in: {interaction_spec!r}")
+    return np.concatenate(features, axis=1)
+
+
+def _interaction_spec_to_filename(interaction_spec: str) -> str:
+    """Convert interaction spec to a safe filename component.
+
+    Examples: "concat" -> "concat", "concat+diff" -> "concat_diff",
+    "unit_diff" -> "unit_diff".
+    """
+    return interaction_spec.replace('+', '_').replace(' ', '').lower()
+
+
+def plot_pair_interactions(
+    run_dir: Path,
+    embeddings_file: Path,
+    output_dir: Path,
+    interactions: Optional[list] = None,
+    max_per_label_per_split: int = 1000,
+    random_state: int = 42,
+) -> None:
+    """Generate PCA scatter plots of pair embeddings for multiple interaction modes.
+
+    For each interaction mode (e.g., concat, diff, prod, unit_diff), computes
+    the corresponding feature representation from raw (emb_a, emb_b) pairs,
+    projects to 2D via PCA, and plots colored by split (train/val/test) and
+    styled by label (positive/negative).
+
+    Raw embeddings are loaded ONCE and all interactions are computed from them,
+    making this efficient for comparing multiple modes side by side.
+
+    NOTE: This function visualizes data-level interactions only (computed from
+    raw frozen embeddings).  Architecture-dependent transformations (e.g.,
+    slot_norm, pre_mlp) require trained model weights and are NOT visualized
+    here -- those would be a separate post-training analysis.
+
+    Args:
+        run_dir: Dataset run directory containing {split}_pairs.csv files.
+        embeddings_file: Path to master HDF5 embedding file.
+        output_dir: Directory to save output plots and diagnostics JSON.
+        interactions: List of interaction specs to visualize.  Each spec can be
+            a single mode ("concat", "diff", "prod", "unit_diff") or a
+            combination ("concat+diff", "diff+prod").
+            Defaults to ["concat", "diff", "prod", "unit_diff"].
+        max_per_label_per_split: Max pairs to sample per label per split.
+        random_state: Random seed for reproducible sampling and PCA.
+
+    Output files:
+        - pair_pca_{spec}.png for each interaction spec
+        - pair_interaction_diagnostics.json with per-interaction metrics
+    """
+    if interactions is None:
+        interactions = ["concat", "diff", "prod", "unit_diff"]
+
+    splits = ['train', 'val', 'test']
+    split_colors = SPLIT_COLORS
+    split_markers = SPLIT_MARKERS
+
+    filters_applied = _load_filters_applied_from_run(run_dir)
+    filters_text = _format_filters_for_plot(filters_applied)
+
+    # ── 1. Load and sample pairs (once for all interactions) ──────────────
+    sampled = []
+    for split in splits:
+        df = _load_pairs_minimal(run_dir, split)
+        if df is None or len(df) == 0:
+            continue
+        if 'label' in df.columns:
+            df = df.copy()
+            df['label'] = pd.to_numeric(df['label'], errors='coerce')
+            df = df[df['label'].isin([0, 1])]
+        df_s = sample_pairs_stratified(
+            df,
+            max_per_label=max_per_label_per_split,
+            label_col='label',
+            random_state=random_state,
+        )
+        df_s = df_s.assign(split=split)
+        sampled.append(df_s)
+
+    if not sampled:
+        print(f"⚠️  plot_pair_interactions: no pair CSVs found in {run_dir}")
+        return
+
+    pairs = pd.concat(sampled, ignore_index=True)
+
+    # ── 2. Load raw emb_a, emb_b (once, via concat then split) ───────────
+    id_to_row = load_embedding_index(embeddings_file)
+    concat_embs, labels, valid_mask = create_pair_embeddings_concatenation(
+        pairs,
+        embeddings_file,
+        id_to_row=id_to_row,
+        return_valid_mask=True,
+        dtype=np.float32,
+        use_concat=True,
+        use_diff=False,
+        use_prod=False,
+        use_unit_diff=False,
+    )
+    if len(concat_embs) == 0:
+        print("⚠️  plot_pair_interactions: no valid pair embeddings (missing IDs?)")
+        return
+
+    # Align pairs to valid mask
+    n_in = len(pairs)
+    pairs = pairs.loc[valid_mask].reset_index(drop=True)
+    dropped = n_in - len(pairs)
+    if dropped > 0:
+        print(f"ℹ️  plot_pair_interactions: dropped {dropped:,}/{n_in:,} sampled pairs (missing embeddings)")
+    assert len(pairs) == len(concat_embs), "pairs/embeddings misalignment"
+
+    D = concat_embs.shape[1] // 2
+    emb_a = concat_embs[:, :D]
+    emb_b = concat_embs[:, D:]
+    label_arr = pairs['label'].to_numpy().astype(float)
+
+    # Optional: add seg_pair / func_pair columns for later use
+    if 'seg_a' in pairs.columns and 'seg_b' in pairs.columns:
+        pairs['seg_pair'] = pairs['seg_a'].astype(str).fillna('null') + '→' + pairs['seg_b'].astype(str).fillna('null')
+    if 'func_a' in pairs.columns and 'func_b' in pairs.columns:
+        pairs['func_pair'] = pairs['func_a'].astype(str).fillna('null') + '→' + pairs['func_b'].astype(str).fillna('null')
+
+    # ── 3. Per-interaction: compute features → PCA → plot + diagnostics ───
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    all_diagnostics: dict = {
+        'n_pairs': int(len(pairs)),
+        'embedding_dim': int(D),
+        'filters_applied': filters_applied,
+        'interactions': {},
+    }
+
+    def _corr(x: np.ndarray, y: np.ndarray) -> Optional[float]:
+        if np.nanstd(x) == 0 or np.nanstd(y) == 0:
+            return None
+        return float(np.corrcoef(x, y)[0, 1])
+
+    for spec in interactions:
+        safe_name = _interaction_spec_to_filename(spec)
+        print(f"\n{'─'*60}")
+        print(f"  Interaction: {spec}")
+        print(f"{'─'*60}")
+
+        try:
+            features = _compute_interaction_features(emb_a, emb_b, spec)
+        except ValueError as e:
+            print(f"⚠️  Skipping interaction '{spec}': {e}")
+            continue
+
+        # PCA → 2D
+        pca_reduced, pca_model = compute_pca_reduction(
+            features,
+            n_components=2,
+            return_model=True,
+            svd_solver="randomized",
+            random_state=random_state,
+        )
+        pca_2d = pca_reduced[:, :2]
+        ev1 = pca_model.explained_variance_ratio_[0] if pca_model else 0
+        ev2 = pca_model.explained_variance_ratio_[1] if pca_model else 0
+        pc1_label = f"PC1 ({ev1:.1%} var)"
+        pc2_label = f"PC2 ({ev2:.1%} var)"
+
+        # Attach PCA coords temporarily for diagnostics
+        pairs_tmp = pairs.copy()
+        pairs_tmp['pc1'] = pca_2d[:, 0]
+        pairs_tmp['pc2'] = pca_2d[:, 1]
+
+        # ── Plot ──
+        out_path = output_dir / f"pair_pca_{safe_name}.png"
+        _plot_pair_embedding_splits_2d(
+            reduced_2d=pca_2d,
+            pairs=pairs_tmp,
+            splits=splits,
+            split_colors=split_colors,
+            split_markers=split_markers,
+            xlab=pc1_label,
+            ylab=pc2_label,
+            title=f"PCA: Pair Embeddings (features={spec})",
+            output_path=out_path,
+            filters_text=filters_text,
+        )
+
+        # ── Diagnostics ──
+        feature_norm = np.linalg.norm(features, axis=1)
+        corr_norm_label = _corr(feature_norm, label_arr)
+        corr_norm_pc1 = _corr(feature_norm, pca_2d[:, 0])
+
+        pos_mask = label_arr == 1
+        neg_mask = label_arr == 0
+        mean_norm_pos = float(np.mean(feature_norm[pos_mask])) if pos_mask.sum() > 0 else None
+        mean_norm_neg = float(np.mean(feature_norm[neg_mask])) if neg_mask.sum() > 0 else None
+
+        print(f"  PCA explained variance: PC1={ev1:.3f}, PC2={ev2:.3f}")
+        print(f"  corr(||feature||, label) = {corr_norm_label:.4f}" if corr_norm_label is not None else "  corr(||feature||, label) = N/A")
+        print(f"  corr(||feature||, PC1)   = {corr_norm_pc1:.4f}" if corr_norm_pc1 is not None else "  corr(||feature||, PC1)   = N/A")
+        print(f"  mean ||feature|| positives = {mean_norm_pos:.4f}" if mean_norm_pos is not None else "  mean ||feature|| positives = N/A")
+        print(f"  mean ||feature|| negatives = {mean_norm_neg:.4f}" if mean_norm_neg is not None else "  mean ||feature|| negatives = N/A")
+
+        diag_entry: dict = {
+            'feature_dim': int(features.shape[1]),
+            'pca_explained_variance_top2': [float(ev1), float(ev2)],
+            'corr_feature_norm_label': corr_norm_label,
+            'corr_feature_norm_pc1': corr_norm_pc1,
+            'mean_feature_norm_pos': mean_norm_pos,
+            'mean_feature_norm_neg': mean_norm_neg,
+        }
+
+        # Seg-pair / func-pair summaries (if available)
+        for cat_col in ('seg_pair', 'func_pair'):
+            if cat_col in pairs_tmp.columns:
+                grp = pairs_tmp.groupby(cat_col)[['pc1', 'pc2']].agg(['count', 'mean']).sort_values(('pc1', 'count'), ascending=False)
+                top_cats = grp.head(5).index.tolist()
+                diag_entry[f'{cat_col}_top5'] = top_cats
+
+        all_diagnostics['interactions'][spec] = diag_entry
+
+    # ── 4. Save diagnostics JSON ─────────────────────────────────────────
+    try:
+        diag_path = output_dir / "pair_interaction_diagnostics.json"
+        with open(diag_path, 'w') as f:
+            json.dump(all_diagnostics, f, indent=2)
+        print(f"\n🧾 Saved interaction diagnostics: {diag_path}")
+    except Exception as e:
+        print(f"⚠️  Failed to save diagnostics JSON: {e}")
+
+
 def plot_pair_embeddings_splits_overlap(
     run_dir: Path,
     embeddings_file: Path,
@@ -346,7 +607,14 @@ def plot_pair_embeddings_splits_overlap(
     use_prod: bool = False,
     use_unit_diff: bool = False,
     ) -> None:
-    """Plot sampled *pair embeddings* colored/marked by split.
+    """DEPRECATED: Use plot_pair_interactions() instead.
+
+    This function is retained for backward compatibility with legacy bundles
+    that use input_mode='interaction' and use_concat/use_diff/use_prod flags.
+    New code should call plot_pair_interactions(), which generates PCA plots
+    for multiple interaction modes in a single pass from raw embeddings.
+
+    Plot sampled *pair embeddings* colored/marked by split.
 
     This uses the same feature construction as the model can be trained with:
     - concat:    [emb_a, emb_b]
@@ -1521,42 +1789,22 @@ def visualize_dataset_stats(
     else:
         print("⏭️  Skipping host × subtype heatmap (insufficient variation in host or subtype)")
 
-    # 7. Low-dimensional split overlap sanity check (pair embeddings)
-    # Try to infer embeddings + processed metadata paths from config bundle.
+    # 7. Low-dimensional PCA plots for each interaction mode (pair embeddings)
+    # Generates pair_pca_concat.png, pair_pca_diff.png, pair_pca_prod.png,
+    # pair_pca_unit_diff.png + pair_interaction_diagnostics.json.
     try:
         cfg = get_virus_config_hydra(bundle_name, config_path=str(project_root / 'conf'))
         virus_name = cfg.virus.virus_name
         data_version = cfg.virus.data_version
         embeddings_file = project_root / 'data' / 'embeddings' / virus_name / data_version / 'master_esm2_embeddings.h5'
         if embeddings_file.exists():
-            # Match training-time feature construction when available in bundle config.
-            # Support both legacy (use_concat/use_diff/use_prod) and new (interaction) params.
-            training_cfg = getattr(cfg, 'training', None)
-            interaction_str = getattr(training_cfg, 'interaction', None) if training_cfg else None
-            if interaction_str:
-                # New style: parse "concat", "diff", "prod", "unit_diff", or combinations
-                parts = [p.strip().lower() for p in interaction_str.split('+')]
-                use_concat = 'concat' in parts
-                use_diff = 'diff' in parts
-                use_prod = 'prod' in parts
-                use_unit_diff = 'unit_diff' in parts
-            else:
-                # Legacy style: explicit boolean flags
-                use_concat = getattr(training_cfg, 'use_concat', True) if training_cfg else True
-                use_diff = getattr(training_cfg, 'use_diff', False) if training_cfg else False
-                use_prod = getattr(training_cfg, 'use_prod', False) if training_cfg else False
-                use_unit_diff = False
-            plot_pair_embeddings_splits_overlap(
+            plot_pair_interactions(
                 run_dir=run_dir,
                 embeddings_file=embeddings_file,
-                output_path=plots_dir / 'pair_embeddings_split_overlap_umap.png',
+                output_dir=plots_dir,
+                interactions=["concat", "diff", "prod", "unit_diff"],
                 max_per_label_per_split=1000,
                 random_state=42,
-                pre_pca_dim=50,
-                use_concat=use_concat,
-                use_diff=use_diff,
-                use_prod=use_prod,
-                use_unit_diff=use_unit_diff,
             )
             # Task 8 (optional): single-embedding confounder plots (derived from sequences appearing in pairs).
             # Disabled by default since it can be slow and is not required for the split-overlap sanity check.
@@ -1572,9 +1820,9 @@ def visualize_dataset_stats(
                     random_state=42,
                 )
         else:
-            print(f"⏭️  Skipping pair-embedding split-overlap plot (missing embeddings file: {embeddings_file})")
+            print(f"⏭️  Skipping pair interaction plots (missing embeddings file: {embeddings_file})")
     except Exception as e:
-        print(f"⏭️  Skipping pair-embedding split-overlap plot (could not resolve embeddings/config): {e}")
+        print(f"⏭️  Skipping pair interaction plots (could not resolve embeddings/config): {e}")
  
     print(f"\n{'='*70}")
     print("VISUALIZATION COMPLETE")
