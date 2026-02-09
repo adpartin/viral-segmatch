@@ -1,0 +1,11 @@
+# Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, concat, filtered to H3N2
+
+defaults:
+  - flu_schema_raw_slot_norm_concat
+  - _self_
+
+dataset:
+  hn_subtype: "H3N2"
+
+training:
+  patience: 100 # Default is 15

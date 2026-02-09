@@ -1,0 +1,18 @@
+# Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, unit_diff, H3N2 only
+
+defaults:
+  - flu_schema_raw_slot_norm_unit_diff
+  - _self_
+
+process_seeds:
+  preprocessing: null
+  embeddings: null
+  dataset: null
+  training: 40 # Default is 42
+  evaluation: null
+
+dataset:
+  hn_subtype: "H3N2"
+
+training:
+  patience: 40 # Default is 15

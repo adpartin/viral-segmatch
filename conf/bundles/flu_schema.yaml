@@ -27,13 +27,7 @@ dataset:
 training:
   eval_swapped_test: true
 
-  # # Legacy
-  # input_mode: "interaction" # interaction | raw
-  # use_concat: true
-  # use_diff: false
-  # use_prod: false
-
-  # New
   input_mode: raw # interaction | raw
   interaction: concat # concat | diff | prod | concat+diff+prod
   pre_mlp_mode: none # immediate interaction between the two embeddings
+  pre_mlp_dims: null

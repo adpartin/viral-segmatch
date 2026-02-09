@@ -1,13 +1,11 @@
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, unit_diff interaction
-#
-# Diagnostic bundle: uses L2-normalized diff (direction only, no magnitude) to test
-# whether model performance relies on diff magnitude vs direction of difference.
 
 defaults:
   - flu_schema
   - _self_
 
 training:
-  input_mode: raw
-  interaction: unit_diff
+  # input_mode: raw # interaction | raw
+  interaction: unit_diff # concat | diff | prod | concat+diff+prod
   pre_mlp_mode: slot_norm
+  # pre_mlp_dims: null
