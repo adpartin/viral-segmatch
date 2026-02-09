@@ -45,22 +45,33 @@ from src.utils.plot_config import apply_default_style, SEGMENT_COLORS, SEGMENT_O
 
 
 def compute_basic_metrics(y_true, y_pred, y_prob):
-    """Compute and display basic classification metrics."""
+    """Compute and display basic classification metrics.
+
+    All metrics are computed on the test set (from test_predicted.csv).
+    """
     print('\n' + '='*50)
     print('BASIC CLASSIFICATION METRICS')
     print('='*50)
     
     f1 = f1_score(y_true, y_pred, average='binary', pos_label=1)
     f1_macro = f1_score(y_true, y_pred, average='macro')
-    auc = roc_auc_score(y_true, y_prob)
+    roc_auc = roc_auc_score(y_true, y_prob)
     accuracy = (y_true == y_pred).mean()
     avg_precision = average_precision_score(y_true, y_prob)
+
+    # BCE loss on the test set (matches training criterion)
+    eps = 1e-7
+    y_prob_clipped = np.clip(y_prob, eps, 1 - eps)
+    bce_loss = float(-np.mean(
+        y_true * np.log(y_prob_clipped) + (1 - y_true) * np.log(1 - y_prob_clipped)
+    ))
     
     print(f'Accuracy: {accuracy:.3f}')
     print(f'F1 Score (binary): {f1:.3f}')
     print(f'F1 Score (macro): {f1_macro:.3f}')
-    print(f'AUC-ROC:  {auc:.3f}')
+    print(f'AUC-ROC:  {roc_auc:.3f}')
     print(f'Average Precision: {avg_precision:.3f}')
+    print(f'BCE Loss: {bce_loss:.4f}')
     
     print('\nClassification Report:')
     print(classification_report(y_true, y_pred,
@@ -72,8 +83,9 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
         'accuracy': accuracy,
         'f1_score': f1,
         'f1_macro': f1_macro,
-        'auc_roc': auc,
-        'avg_precision': avg_precision
+        'auc_roc': roc_auc,
+        'avg_precision': avg_precision,
+        'loss': bce_loss
     }
 
 
@@ -243,19 +255,23 @@ def plot_precision_recall_curve(y_true, y_prob, save_path=None):
 
 
 def plot_prediction_distribution(y_true, y_prob, save_path=None):
-    """Plot distribution of prediction probabilities by true label."""
+    """Plot distribution of prediction probabilities by true label.
+
+    Colors, xlabel, and title are kept consistent with the right panel of
+    ``create_model_calibration_plot`` in ``create_presentation_plots.py``.
+    """
     plt.figure(figsize=(10, 6))
     
     # Separate probabilities by true label
     pos_probs = y_prob[y_true == 1]
     neg_probs = y_prob[y_true == 0]
     
-    plt.hist(neg_probs, bins=50, alpha=0.7, label='Negative (Different Isolate)', 
-             color='red', density=True)
-    plt.hist(pos_probs, bins=50, alpha=0.7, label='Positive (Same Isolate)', 
-             color='blue', density=True)
+    plt.hist(neg_probs, bins=30, alpha=0.7, label='Negative (Different Isolate)', 
+             color='#E74C3C', density=True)
+    plt.hist(pos_probs, bins=30, alpha=0.7, label='Positive (Same Isolate)', 
+             color='#3498DB', density=True)
     
-    plt.axvline(x=0.5, color='black', linestyle='--', label='Decision Threshold')
+    plt.axvline(x=0.5, color='black', linestyle='--', alpha=0.8, label='Decision Threshold')
     plt.xlabel('Prediction Probability')
     plt.ylabel('Density')
     plt.title('Distribution of Prediction Probabilities', fontweight='bold', fontsize=14)

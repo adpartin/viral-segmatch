@@ -112,12 +112,25 @@ def get_bundle_filters(bundle_name: str) -> dict[str, Optional[str]]:
     the actual YAML config files.
     """
     filters = {
+        # Legacy bundles
         'flu_2024': {'host': None, 'year': '2024', 'hn_subtype': None},
         'flu_h3n2': {'host': None, 'year': None, 'hn_subtype': 'H3N2'},
         'flu_human': {'host': 'Human', 'year': None, 'hn_subtype': None},
         'flu_human_2024': {'host': 'Human', 'year': '2024', 'hn_subtype': None},
         'flu_human_h3n2_2024': {'host': 'Human', 'year': '2024', 'hn_subtype': 'H3N2'},
         'flu_ha_na_5ks': {'host': None, 'year': None, 'hn_subtype': None},
+        # Schema-ordered slot_norm + concat
+        'flu_schema_raw_slot_norm_concat': {'host': None, 'year': None, 'hn_subtype': None},
+        'flu_schema_raw_slot_norm_concat_2024': {'host': None, 'year': '2024', 'hn_subtype': None},
+        'flu_schema_raw_slot_norm_concat_illinois': {'host': None, 'year': None, 'hn_subtype': None, 'geo_location': 'Illinois'},
+        'flu_schema_raw_slot_norm_concat_human': {'host': 'Human', 'year': None, 'hn_subtype': None},
+        'flu_schema_raw_slot_norm_concat_h3n2': {'host': None, 'year': None, 'hn_subtype': 'H3N2'},
+        # Schema-ordered slot_norm + unit_diff
+        'flu_schema_raw_slot_norm_unit_diff': {'host': None, 'year': None, 'hn_subtype': None},
+        'flu_schema_raw_slot_norm_unit_diff_2024': {'host': None, 'year': '2024', 'hn_subtype': None},
+        'flu_schema_raw_slot_norm_unit_diff_illinois': {'host': None, 'year': None, 'hn_subtype': None, 'geo_location': 'Illinois'},
+        'flu_schema_raw_slot_norm_unit_diff_human': {'host': 'Human', 'year': None, 'hn_subtype': None},
+        'flu_schema_raw_slot_norm_unit_diff_h3n2': {'host': None, 'year': None, 'hn_subtype': 'H3N2'},
     }
     return filters.get(bundle_name, {'host': None, 'year': None, 'hn_subtype': None})
 
@@ -125,12 +138,14 @@ def get_bundle_filters(bundle_name: str) -> dict[str, Optional[str]]:
 def format_filters(filters: dict[str, Optional[str]]) -> str:
     """Format filters as a readable string."""
     parts = []
-    if filters['host']:
+    if filters.get('host'):
         parts.append(f"host={filters['host']}")
-    if filters['year']:
+    if filters.get('year'):
         parts.append(f"year={filters['year']}")
-    if filters['hn_subtype']:
+    if filters.get('hn_subtype'):
         parts.append(f"subtype={filters['hn_subtype']}")
+    if filters.get('geo_location'):
+        parts.append(f"geo={filters['geo_location']}")
     return ', '.join(parts) if parts else 'None'
 
 
@@ -266,12 +281,18 @@ def main():
     
     # Bundle names to process
     bundle_names = [
-        'flu_2024',
-        'flu_h3n2',
-        'flu_human',
-        'flu_human_2024',
-        'flu_human_h3n2_2024',
-        'flu_ha_na_5ks',
+        # Schema-ordered slot_norm + concat (across filters)
+        'flu_schema_raw_slot_norm_concat',
+        'flu_schema_raw_slot_norm_concat_2024',
+        'flu_schema_raw_slot_norm_concat_illinois',
+        'flu_schema_raw_slot_norm_concat_human',
+        'flu_schema_raw_slot_norm_concat_h3n2',
+        # Schema-ordered slot_norm + unit_diff (across filters)
+        'flu_schema_raw_slot_norm_unit_diff',
+        'flu_schema_raw_slot_norm_unit_diff_2024',
+        'flu_schema_raw_slot_norm_unit_diff_illinois',
+        'flu_schema_raw_slot_norm_unit_diff_human',
+        'flu_schema_raw_slot_norm_unit_diff_h3n2',
     ]
     
     # Aggregate results

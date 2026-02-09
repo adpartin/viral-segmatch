@@ -122,18 +122,47 @@ def compute_baseline_metrics(val_labels, random_seed=42):
     }
 
 
+def _plot_loss_and_f1(history, axes_row, epochs, num_epochs):
+    """Plot loss (left) and F1 (right) on a row of two axes.
+
+    Shared helper for both ``perf_curves1.png`` (1×2) and
+    ``perf_curves2.png`` (2×2, top row).
+    """
+    ax_loss, ax_f1 = axes_row
+
+    # Loss curves
+    ax_loss.plot(epochs, history['train_loss'], 'b-', label='Train Loss', linewidth=2)
+    ax_loss.plot(epochs, history['val_loss'], 'r-', label='Val Loss', linewidth=2)
+    ax_loss.set_xlabel('Epoch')
+    ax_loss.set_ylabel('Loss')
+    ax_loss.set_title('Train and Validation Loss')
+    ax_loss.set_xlim([1, num_epochs])
+    ax_loss.legend()
+    ax_loss.grid(True, alpha=0.3)
+
+    # F1 curves
+    if 'train_f1' in history and len(history['train_f1']) > 0:
+        ax_f1.plot(epochs, history['train_f1'], 'b--', label='Train F1', linewidth=2, alpha=0.7)
+    ax_f1.plot(epochs, history['val_f1'], 'g-', label='Val F1', linewidth=2)
+    ax_f1.set_xlabel('Epoch')
+    ax_f1.set_ylabel('F1 Score')
+    ax_f1.set_title('Train and Validation F1 Score')
+    ax_f1.set_xlim([1, num_epochs])
+    ax_f1.legend()
+    ax_f1.grid(True, alpha=0.3)
+    ax_f1.set_ylim([0, 1])
+
+
 def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None, dpi: int = 200):
     """
-    Plot learning curves: train/val loss, F1, and AUC across epochs.
+    Plot learning/performance curves and save several PNG files.
 
-    Creates a 4-panel figure showing:
-    1. Training and validation loss over epochs
-    2. Validation F1 score over epochs
-    3. Validation AUC-ROC over epochs
-    4. Train F1 - Val F1 gap over epochs
-
-    This helps visualize whether the model is learning and if overfitting is occurring.
-    Classic overfitting pattern: training loss drops low while validation loss stays high.
+    Saved files
+    -----------
+    perf_curves2.png   4-panel (2×2): loss, F1, AUC-ROC, F1 gap
+    perf_curves1.png   2-panel (1×2): loss, F1 (top row of perf_curves2)
+    loss.png           standalone loss plot
+    f1.png             standalone F1 plot
 
     Args:
         history: Dictionary with keys:
@@ -146,48 +175,31 @@ def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None,
         dpi: Resolution for saved plot
     
     Returns:
-        Path: Path to saved plot file
+        Path: Path to the main saved plot file (perf_curves2.png)
     """
     epochs = range(1, len(history['train_loss']) + 1)
     num_epochs = len(history['train_loss'])
-    
+
+    # ------------------------------------------------------------------
+    # perf_curves2.png  (4-panel: loss, F1, AUC, F1 gap)
+    # ------------------------------------------------------------------
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    
-    # Loss curves (top left)
-    axes[0, 0].plot(epochs, history['train_loss'], 'b-', label='Train Loss', linewidth=2)
-    axes[0, 0].plot(epochs, history['val_loss'], 'r-', label='Val Loss', linewidth=2)
-    axes[0, 0].set_xlabel('Epoch')
-    axes[0, 0].set_ylabel('Loss')
-    axes[0, 0].set_title('Training and Validation Loss')
-    axes[0, 0].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    # F1 curves (top right) - now with both train and val
-    if 'train_f1' in history and len(history['train_f1']) > 0:
-        axes[0, 1].plot(epochs, history['train_f1'], 'b--', label='Train F1', linewidth=2, alpha=0.7)
-    axes[0, 1].plot(epochs, history['val_f1'], 'g-', label='Val F1', linewidth=2)
-    axes[0, 1].set_xlabel('Epoch')
-    axes[0, 1].set_ylabel('F1 Score')
-    axes[0, 1].set_title('Training and Validation F1 Score')
-    axes[0, 1].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
-    axes[0, 1].set_ylim([0, 1])
-    
-    # AUC curves (bottom left) - now with both train and val
+
+    _plot_loss_and_f1(history, axes[0], epochs, num_epochs)
+
+    # AUC curves (bottom left)
     if 'train_auc' in history and len(history['train_auc']) > 0:
         axes[1, 0].plot(epochs, history['train_auc'], 'b--', label='Train AUC', linewidth=2, alpha=0.7)
     axes[1, 0].plot(epochs, history['val_auc'], 'm-', label='Val AUC', linewidth=2)
     axes[1, 0].set_xlabel('Epoch')
     axes[1, 0].set_ylabel('AUC-ROC')
-    axes[1, 0].set_title('Training and Validation AUC-ROC')
-    axes[1, 0].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
+    axes[1, 0].set_title('Train and Validation AUC-ROC')
+    axes[1, 0].set_xlim([1, num_epochs])
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].set_ylim([0, 1])
-    
-    # Train/Val F1 gap (bottom right) - shows overfitting indicator
+
+    # Train/Val F1 gap (bottom right)
     if 'train_f1' in history and len(history['train_f1']) > 0:
         f1_gap = [t - v for t, v in zip(history['train_f1'], history['val_f1'])]
         axes[1, 1].plot(epochs, f1_gap, 'orange', label='Train F1 - Val F1', linewidth=2)
@@ -195,36 +207,48 @@ def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None,
         axes[1, 1].set_xlabel('Epoch')
         axes[1, 1].set_ylabel('F1 Gap')
         axes[1, 1].set_title('Overfitting Indicator (Train F1 - Val F1)')
-        axes[1, 1].set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
+        axes[1, 1].set_xlim([1, num_epochs])
         axes[1, 1].legend()
         axes[1, 1].grid(True, alpha=0.3)
     else:
-        # Fallback if train_f1 not available
-        axes[1, 1].text(0.5, 0.5, 'Train F1 not tracked', 
-                       ha='center', va='center', transform=axes[1, 1].transAxes)
+        axes[1, 1].text(0.5, 0.5, 'Train F1 not tracked',
+                        ha='center', va='center', transform=axes[1, 1].transAxes)
         axes[1, 1].set_title('Overfitting Indicator (Train F1 not available)')
-    
-    # Add main title with bundle name if provided
-    if bundle_name:
-        fig.suptitle(f'Learning Curves ({bundle_name})', fontsize=16, fontweight='bold', y=0.995)
-    else:
-        fig.suptitle('Learning Curves', fontsize=16, fontweight='bold', y=0.995)
-    
+
+    suptitle = f'Performance Curves ({bundle_name})' if bundle_name else 'Performance Curves'
+    fig.suptitle(suptitle, fontsize=16, fontweight='bold', y=0.995)
+
     plt.tight_layout()
-    plot_path = output_dir / 'learning_curves.png'
+    plot_path = output_dir / 'perf_curves2.png'
     plt.savefig(plot_path, dpi=dpi, bbox_inches='tight')
     plt.close()
-    
-    print(f"Learning curves saved to: {plot_path}")
-    
-    # Create separate loss plot
+    print(f"Performance curves (4-panel) saved to: {plot_path}")
+
+    # ------------------------------------------------------------------
+    # perf_curves1.png  (2-panel: loss + F1 only)
+    # ------------------------------------------------------------------
+    fig1, axes1 = plt.subplots(1, 2, figsize=(12, 5))
+    _plot_loss_and_f1(history, axes1, epochs, num_epochs)
+
+    suptitle1 = f'Performance Curves ({bundle_name})' if bundle_name else 'Performance Curves'
+    fig1.suptitle(suptitle1, fontsize=16, fontweight='bold', y=1.01)
+
+    plt.tight_layout()
+    perf1_path = output_dir / 'perf_curves1.png'
+    plt.savefig(perf1_path, dpi=dpi, bbox_inches='tight')
+    plt.close()
+    print(f"Performance curves (2-panel) saved to: {perf1_path}")
+
+    # ------------------------------------------------------------------
+    # loss.png  (standalone)
+    # ------------------------------------------------------------------
     fig_loss, ax_loss = plt.subplots(1, 1, figsize=(8, 6))
     ax_loss.plot(epochs, history['train_loss'], 'b-', label='Train Loss', linewidth=2)
     ax_loss.plot(epochs, history['val_loss'], 'r-', label='Val Loss', linewidth=2)
     ax_loss.set_xlabel('Epoch')
     ax_loss.set_ylabel('Loss')
-    ax_loss.set_title('Training and Validation Loss')
-    ax_loss.set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
+    ax_loss.set_title('Train and Validation Loss')
+    ax_loss.set_xlim([1, num_epochs])
     ax_loss.legend()
     ax_loss.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -232,16 +256,18 @@ def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None,
     plt.savefig(loss_path, dpi=dpi, bbox_inches='tight')
     plt.close()
     print(f"Loss plot saved to: {loss_path}")
-    
-    # Create separate F1 plot
+
+    # ------------------------------------------------------------------
+    # f1.png  (standalone)
+    # ------------------------------------------------------------------
     fig_f1, ax_f1 = plt.subplots(1, 1, figsize=(8, 6))
     if 'train_f1' in history and len(history['train_f1']) > 0:
         ax_f1.plot(epochs, history['train_f1'], 'b--', label='Train F1', linewidth=2, alpha=0.7)
     ax_f1.plot(epochs, history['val_f1'], 'g-', label='Val F1', linewidth=2)
     ax_f1.set_xlabel('Epoch')
     ax_f1.set_ylabel('F1 Score')
-    ax_f1.set_title('Training and Validation F1 Score')
-    ax_f1.set_xlim([1, num_epochs])  # Explicitly set x-axis to show all epochs
+    ax_f1.set_title('Train and Validation F1 Score')
+    ax_f1.set_xlim([1, num_epochs])
     ax_f1.legend()
     ax_f1.grid(True, alpha=0.3)
     ax_f1.set_ylim([0, 1])
@@ -250,6 +276,5 @@ def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None,
     plt.savefig(f1_path, dpi=dpi, bbox_inches='tight')
     plt.close()
     print(f"F1 plot saved to: {f1_path}")
-    
-    return plot_path
 
+    return plot_path
