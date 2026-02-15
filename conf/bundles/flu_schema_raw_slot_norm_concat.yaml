@@ -5,7 +5,4 @@ defaults:
   - _self_
 
 training:
-  # input_mode: raw # interaction | raw
-  # interaction: concat # concat | diff | prod | concat+diff+prod
   pre_mlp_mode: slot_norm
-  # pre_mlp_dims: null

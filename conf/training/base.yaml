@@ -15,20 +15,14 @@ lr_scheduler_min_lr: 1e-6  # Minimum learning rate
 # Model architecture
 hidden_dims: [512, 256, 64]
 dropout: 0.2
-use_concat: true # Use concatenation [emb_a, emb_b] as interaction feature (boolean)
-use_diff: false # Use absolute difference |A - B| as interaction feature (boolean)
-use_prod: false # Use element-wise product A * B as interaction feature (boolean)
 
-# Input mode (default keeps current behavior)
-input_mode: interaction  # interaction | raw
-
-# Pre-MLP options (used only when input_mode: raw)
+# Pre-MLP options (applied to each embedding before interaction)
 pre_mlp_mode: none  # none | shared | slot_specific | shared_adapter | slot_norm
 pre_mlp_dims: null  # e.g., [1280, 512, 256] this is the dimension of the pre-MLP output
 adapter_dims: null  # e.g., [128] this is the dimension of the adapter output
 
-# Interaction spec (used only when input_mode: raw)
-interaction: concat  # concat | diff | prod | concat+diff+prod
+# Interaction spec: which features to compute from (emb_a, emb_b)
+interaction: concat  # concat | diff | prod | unit_diff | concat+unit_diff | etc.
 
 # Training control
 patience: 15  # Early stopping patience

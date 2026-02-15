@@ -202,8 +202,33 @@ training:
   learning_rate: 0.001
   patience: 15
   early_stopping_metric: 'f1'
-  use_diff: false
-  use_prod: false
+  interaction: concat
+```
+
+---
+
+## Training: Interaction and Pre-MLP
+
+The model always receives raw embeddings `(emb_a, emb_b)` and computes interaction features internally.
+Use `interaction` to specify which features to use; optionally apply pre-MLPs before interaction.
+
+### Interaction spec
+
+```yaml
+training:
+  interaction: concat            # concat | diff | prod | unit_diff | concat+unit_diff | etc.
+```
+
+Examples: `concat`, `diff`, `unit_diff`, `concat+unit_diff`, `concat+diff+prod`.
+
+### Optional pre-MLP (before interaction)
+
+```yaml
+training:
+  pre_mlp_mode: shared            # none | shared | slot_specific | shared_adapter | slot_norm
+  pre_mlp_dims: [1280, 512, 256]  # required for shared/slot_specific/shared_adapter
+  adapter_dims: [128]             # required for shared_adapter
+  interaction: concat+diff+prod
 ```
 
 ---
@@ -340,8 +365,7 @@ training:
   learning_rate: 0.001
   patience: 15
   early_stopping_metric: 'f1'
-  use_diff: false
-  use_prod: false
+  interaction: concat
 ```
 
 ### Step 2: Run the Experiment

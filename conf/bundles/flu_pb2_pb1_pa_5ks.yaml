@@ -58,5 +58,3 @@ training:
   learning_rate: 0.001
   early_stopping_metric: 'f1'  # Monitor F1 score
   threshold_metric: null  # Use default 0.5 threshold for simplicity
-  use_diff: false
-  use_prod: false

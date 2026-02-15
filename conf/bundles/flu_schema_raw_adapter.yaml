@@ -5,8 +5,7 @@ defaults:
   - _self_
 
 training:
-  input_mode: raw # interaction | raw
-  interaction: diff # concat | diff | prod | concat+diff+prod
+  interaction: diff
   pre_mlp_mode: shared_adapter
   pre_mlp_dims: [1280, 512, 256]
   adapter_dims: [128]

@@ -8,6 +8,5 @@ defaults:
   - _self_
 
 training:
-  input_mode: raw
   interaction: unit_diff
   pre_mlp_mode: none

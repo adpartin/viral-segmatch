@@ -26,8 +26,6 @@ dataset:
 
 training:
   eval_swapped_test: true
-
-  input_mode: raw # interaction | raw
-  interaction: concat # concat | diff | prod | concat+diff+prod
-  pre_mlp_mode: none # immediate interaction between the two embeddings
+  interaction: concat
+  pre_mlp_mode: none
   pre_mlp_dims: null

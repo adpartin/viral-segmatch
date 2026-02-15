@@ -75,5 +75,3 @@ training:
   learning_rate: 0.001
   early_stopping_metric: 'f1'  # Metric for early stopping; Options: 'loss', 'f1', 'auc', null (default: 'loss')
   threshold_metric: null  # Threshold optimization metric; Options: 'f1', 'f0.5', 'f2', null (default: 0.5)
-  use_diff: false
-  use_prod: false
