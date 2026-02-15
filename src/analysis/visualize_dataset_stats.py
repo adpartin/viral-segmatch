@@ -1179,7 +1179,8 @@ def plot_distribution_by_split(
     title: str,
     ylabel: str,
     output_path: Path,
-    top_n: int = 30
+    top_n: int = 30,
+    split_sizes: Optional[dict] = None
     ) -> None:
     """
     Plot distribution across train/val/test splits as 3 vertical subplots.
@@ -1192,6 +1193,8 @@ def plot_distribution_by_split(
         ylabel: Y-axis label
         output_path: Path to save the plot
         top_n: Number of top values to show
+        split_sizes: Optional dict with 'train'/'val'/'test' -> {'isolates': N}.
+                     If provided, uses isolates as denominator for "X of N" (consistent across metadata keys).
     """
     splits = ['train', 'val', 'test']
     fig, axes = plt.subplots(3, 1, figsize=(12, 12))
@@ -1212,8 +1215,14 @@ def plot_distribution_by_split(
         if 'null' in series.index:
             series = series.drop('null')
         
-        # Calculate total count before filtering to top_n
-        total_count = series.sum()
+        # Total isolates in this metadata distribution (may exclude nulls)
+        dist_total = series.sum()
+        # Use split isolate count as denominator when available
+        total_isolates = None
+        if split_sizes and split in split_sizes:
+            total_isolates = split_sizes[split].get('isolates')
+        if total_isolates is None:
+            total_isolates = int(dist_total)
         
         # Filter to top_n for display
         series = series.sort_values(ascending=False).head(top_n)
@@ -1232,12 +1241,12 @@ def plot_distribution_by_split(
         ax.set_yticklabels(series.index, fontsize=9)
         ax.set_xlabel(ylabel, fontsize=11)
         
-        # Title showing displayed count out of total
-        if displayed_count < total_count:
-            ax.set_title(f'{split.capitalize()} Split (showing {displayed_count:,} of {total_count:,})', 
+        # Title: "X of N" where N = total isolates in split (consistent across all metadata plots)
+        if displayed_count < dist_total:
+            ax.set_title(f'{split.capitalize()} Split (showing {displayed_count:,} of {total_isolates:,})', 
                         fontsize=12, fontweight='bold')
         else:
-            ax.set_title(f'{split.capitalize()} Split (n={total_count:,})', 
+            ax.set_title(f'{split.capitalize()} Split (n={total_isolates:,})', 
                         fontsize=12, fontweight='bold')
         ax.grid(axis='x', alpha=0.3)
         ax.grid(axis='y', visible=False)
@@ -1651,6 +1660,7 @@ def visualize_dataset_stats(
         stats = json.load(f)
     
     metadata_distributions = stats.get('metadata_distributions', {})
+    split_sizes = stats.get('split_sizes', {})
     if not metadata_distributions:
         print(f"⚠️  Warning: No metadata_distributions found in {dataset_stats_path}")
         return
@@ -1702,7 +1712,8 @@ def visualize_dataset_stats(
             f'Host Distribution by Split ({bundle_name})',
             'Number of Isolates',
             plots_dir / 'host_distribution.png',
-            top_n=top_n
+            top_n=top_n,
+            split_sizes=split_sizes
         )
     else:
         print("⏭️  Skipping host distribution (only 1 unique value)")
@@ -1715,7 +1726,8 @@ def visualize_dataset_stats(
             f'HN Subtype Distribution by Split ({bundle_name})',
             'Number of Isolates',
             plots_dir / 'subtype_distribution.png',
-            top_n=top_n
+            top_n=top_n,
+            split_sizes=split_sizes
         )
     else:
         print("⏭️  Skipping subtype distribution (only 1 unique value)")
@@ -1728,7 +1740,8 @@ def visualize_dataset_stats(
             f'Geographic Location Distribution by Split ({bundle_name})',
             'Number of Isolates',
             plots_dir / 'geo_location_distribution.png',
-            top_n=top_n
+            top_n=top_n,
+            split_sizes=split_sizes
         )
     else:
         print("⏭️  Skipping geo_location distribution (insufficient variation)")
@@ -1741,7 +1754,8 @@ def visualize_dataset_stats(
             f'Passage Distribution by Split ({bundle_name})',
             'Number of Isolates',
             plots_dir / 'passage_distribution.png',
-            top_n=top_n
+            top_n=top_n,
+            split_sizes=split_sizes
         )
     else:
         print("⏭️  Skipping passage distribution (insufficient variation)")
