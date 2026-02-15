@@ -1,5 +1,20 @@
 # Ongoing Work
 
+## Interaction Formulas
+
+Given two D-dimensional embeddings `A = emb_a` and `B = emb_b` (D=1280 for ESM-2):
+
+| Interaction | Formula | Output dim | Notes |
+|-------------|---------|-----------|-------|
+| `concat` | `[A, B]` | 2D | Preserves both embeddings fully; order-sensitive |
+| `diff` | `\|A - B\|` (element-wise absolute value) | D | Removes direction sign, keeps magnitude per dimension |
+| `unit_diff` | `(A - B) / (‖A - B‖₂ + ε)` where ε=1e-8 | D | L2-normalized signed diff; strips magnitude, retains direction only |
+| `prod` | `A ⊙ B` (element-wise product) | D | Captures co-activation patterns |
+
+Combinations (e.g., `concat+diff`) concatenate the respective outputs.
+
+---
+
 ## Magnitude vs Direction
 
 This relates to geometric properties of any embedding space (not a transformer architecture specifically).
@@ -168,3 +183,19 @@ plots/
 ## Individual Embedding Plots -- PENDING
 
 `plot_sequence_embeddings_by_confounders_from_pairs()` exists but hasn't been used. Could be extended to overlay emb_a vs emb_b with different markers and color by metadata (host, subtype, etc.). Not yet implemented.
+
+---
+
+## Train/Val/Test Balance (Q9)
+
+**Current setup**: Train is balanced (positive_ratio ≈ 0.5); val and test are typically imbalanced (e.g., 0.34, 0.30).
+
+**Impact on performance analysis**:
+- **Train balance**: Good for learning. Balanced training avoids the model defaulting to the majority class.
+- **Val imbalance**: Early stopping and threshold selection are done on val. If val is imbalanced, the optimal threshold may shift (e.g., toward 0.4 instead of 0.5) to maximize F1 on that distribution. This is acceptable as long as we report test metrics with the chosen threshold.
+- **Test imbalance**: Realistic. In deployment, we expect varying positive rates. Reporting F1, AUC, Brier, and precision/recall gives a full picture regardless of balance.
+
+**Recommendation**: Keep train balanced. Val/test imbalance is fine; developers control train/val splits, but test should reflect real-world distribution. Use `positive_ratio` (rounded to 3 decimal places in `dataset_stats.json`) to document each split's class balance.
+
+---
+
