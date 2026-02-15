@@ -10,7 +10,6 @@ Requirements:
 """
 import argparse
 import sys
-import random
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -122,8 +121,9 @@ def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool]:
 
 class SegmentPairDataset(Dataset):
     """
-    Dataset for segment pairs with ESM-2 embeddings, supporting optional
-    interaction features. Uses row-based indexing for master cache access.
+    Dataset for segment pairs with ESM-2 embeddings.
+    Always returns (emb_a, emb_b), label. Interaction features are computed in the model.
+    Uses row-based indexing for master cache access.
     """
     # Shared cache so multiple datasets (train/val/test) can reuse the same embeddings
     _shared_embedding_cache: dict[str, np.ndarray] = {}
@@ -132,32 +132,18 @@ class SegmentPairDataset(Dataset):
         self,
         pairs: pd.DataFrame,
         embeddings_file: str,
-        use_concat: bool = True,
-        use_diff: bool = False,
-        use_prod: bool = False,
         use_parquet: bool = True,
         preload_embeddings: bool = True,
-        input_mode: str = "interaction"
         ) -> None:
         """
         Args:
             pairs (pd.DataFrame): DataFrame with ['brc_a', 'brc_b', 'label'].
             embeddings_file (str): Path to master HDF5 cache file.
-            use_concat (bool): Include [emb_a, emb_b] concatenation. Default: True.
-            use_diff (bool): Include absolute difference (|emb_a - emb_b|). Default: False.
-            use_prod (bool): Include element-wise product (emb_a * emb_b). Default: False.
             use_parquet (bool): Use parquet index file for brc_fea_id to row mapping. Default: True.
             preload_embeddings (bool): Preload all required embeddings into memory for faster access. Default: True.
         """
         self.pairs = pairs
         self.embeddings_file = embeddings_file
-        self.use_concat = use_concat
-        self.use_diff = use_diff
-        self.use_prod = use_prod
-        self.input_mode = input_mode
-
-        if self.input_mode not in {"interaction", "raw"}:
-            raise ValueError(f"Unknown input_mode: {self.input_mode!r} (expected 'interaction' or 'raw')")
         self.use_parquet = use_parquet
         self.preload_embeddings = preload_embeddings
         
@@ -263,50 +249,11 @@ class SegmentPairDataset(Dataset):
                 emb_b = emb_a.copy()
             else:
                 emb_b = self.h5['emb'][row_b].astype(np.float32)
-    
-        # Raw mode: return embeddings separately (model will handle interaction)
-        if self.input_mode == "raw":
-            emb_a_t = torch.tensor(emb_a, dtype=torch.float)
-            emb_b_t = torch.tensor(emb_b, dtype=torch.float)
-            label = torch.tensor(row['label'], dtype=torch.float)
-            return (emb_a_t, emb_b_t), label
 
-        features = []
-
-        # Optional concatenation [A, B]
-        if self.use_concat:
-            features.extend([emb_a, emb_b])
-
-        # Add absolute difference |A - B| as interaction feature conditionally
-        # Element-wise Difference
-        # Measures the degree of difference between two embeddings
-        if self.use_diff:
-            diff = np.abs(emb_a - emb_b)
-            features.append(diff)
-
-        # Add L2-normalized difference (direction only, no magnitude)
-        if getattr(self, 'use_unit_diff', False):
-            diff_raw = emb_a - emb_b
-            norm = np.linalg.norm(diff_raw) + 1e-8
-            features.append(diff_raw / norm)
-
-        # Add element-wise product A * B as interaction feature conditionally
-        # Hadamard Product (or Element-wise Multiplication)
-        # Captures how much two embeddings agree or correlate on each feature
-        if self.use_prod:    
-            prod = emb_a * emb_b
-            features.append(prod)
-
-        if not features:
-            raise ValueError("If input_mode='interaction', at least one of use_concat/use_diff/use_prod/use_unit_diff must be True.")
-
-        # Concatenate all chosen features
-        emb = np.concatenate(features)
-
-        # Convert to torch tensor
-        emb = torch.tensor(emb, dtype=torch.float)
+        emb_a_t = torch.tensor(emb_a, dtype=torch.float)
+        emb_b_t = torch.tensor(emb_b, dtype=torch.float)
         label = torch.tensor(row['label'], dtype=torch.float)
-        return emb, label
+        return (emb_a_t, emb_b_t), label
 
     def __del__(self):
         """Close H5 file when dataset is destroyed."""
@@ -317,17 +264,16 @@ class SegmentPairDataset(Dataset):
 class MLPClassifier(nn.Module):
     """
     MLP classifier for segment pairs.
+    Expects (emb_a, emb_b) from dataset; computes interaction in forward.
     """
     def __init__(
         self,
         input_dim: int = 2560,
         hidden_dims: list[int] = [512, 256, 64],
         dropout: float = 0.3,
-        input_mode: str = "interaction",
         pre_mlp_mode: str = "none",
         pre_mlp_dims: Optional[list[int]] = None,
         adapter_dims: Optional[list[int]] = None,
-        interaction: str = "concat",
         use_concat: bool = True,
         use_diff: bool = False,
         use_prod: bool = False,
@@ -336,19 +282,11 @@ class MLPClassifier(nn.Module):
     ):
         super().__init__()
 
-        self.input_mode = input_mode
         self.pre_mlp_mode = pre_mlp_mode
-        self.interaction = interaction
         self.use_concat = use_concat
         self.use_diff = use_diff
         self.use_prod = use_prod
         self.use_unit_diff = use_unit_diff
-
-        if self.input_mode not in {"interaction", "raw"}:
-            raise ValueError(f"Unknown input_mode: {self.input_mode!r} (expected 'interaction' or 'raw')")
-
-        if self.input_mode == "interaction" and self.pre_mlp_mode != "none":
-            raise ValueError("pre_mlp_mode can only be used when input_mode='raw'")
 
         self.pre_mlp_shared = None
         self.pre_mlp_a = None
@@ -376,46 +314,45 @@ class MLPClassifier(nn.Module):
             return _build_mlp(dims)
 
         # breakpoint()
-        if self.input_mode == "raw":
-            if embed_dim is None:
-                raise ValueError("embed_dim is required when input_mode='raw'")
+        if self.pre_mlp_mode != "none" and embed_dim is None:
+            raise ValueError("embed_dim is required when pre_mlp_mode != 'none'")
 
-            if self.pre_mlp_mode == "shared":
-                # Shared pre-MLP where both segments share the same pre-MLP
-                if not pre_mlp_dims:
-                    raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='shared'")
-                self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
+        if self.pre_mlp_mode == "shared":
+            # Shared pre-MLP where both segments share the same pre-MLP
+            if not pre_mlp_dims:
+                raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='shared'")
+            self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
 
-            elif self.pre_mlp_mode == "slot_specific":
-                # Slot-specific pre-MLP where each segment has its own pre-MLP
-                if not pre_mlp_dims:
-                    raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='slot_specific'")
-                self.pre_mlp_a = _build_mlp(pre_mlp_dims)
-                self.pre_mlp_b = _build_mlp(pre_mlp_dims)
+        elif self.pre_mlp_mode == "slot_specific":
+            # Slot-specific pre-MLP where each segment has its own pre-MLP
+            if not pre_mlp_dims:
+                raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='slot_specific'")
+            self.pre_mlp_a = _build_mlp(pre_mlp_dims)
+            self.pre_mlp_b = _build_mlp(pre_mlp_dims)
 
-            elif self.pre_mlp_mode == "shared_adapter":
-                # Shared pre-MLP with adapters where both segments share the same pre-MLP and adapters
-                if not pre_mlp_dims:
-                    raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='shared_adapter'")
-                if not adapter_dims:
-                    raise ValueError("adapter_dims must be set for pre_mlp_mode='shared_adapter'")
+        elif self.pre_mlp_mode == "shared_adapter":
+            # Shared pre-MLP with adapters where both segments share the same pre-MLP and adapters
+            if not pre_mlp_dims:
+                raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='shared_adapter'")
+            if not adapter_dims:
+                raise ValueError("adapter_dims must be set for pre_mlp_mode='shared_adapter'")
+            self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
+            out_dim = pre_mlp_dims[-1]
+            self.adapter_a = _build_adapter(out_dim, adapter_dims)
+            self.adapter_b = _build_adapter(out_dim, adapter_dims)
+
+        elif self.pre_mlp_mode == "slot_norm":
+            # Slot-specific norm where each segment has its own norm
+            if pre_mlp_dims:
                 self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
                 out_dim = pre_mlp_dims[-1]
-                self.adapter_a = _build_adapter(out_dim, adapter_dims)
-                self.adapter_b = _build_adapter(out_dim, adapter_dims)
+            else:
+                out_dim = embed_dim
+            self.norm_a = nn.LayerNorm(out_dim)
+            self.norm_b = nn.LayerNorm(out_dim)
 
-            elif self.pre_mlp_mode == "slot_norm":
-                # Slot-specific norm where each segment has its own norm
-                if pre_mlp_dims:
-                    self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
-                    out_dim = pre_mlp_dims[-1]
-                else:
-                    out_dim = embed_dim
-                self.norm_a = nn.LayerNorm(out_dim)
-                self.norm_b = nn.LayerNorm(out_dim)
-
-            elif self.pre_mlp_mode != "none":
-                raise ValueError(f"Unknown pre_mlp_mode: {self.pre_mlp_mode!r}")
+        elif self.pre_mlp_mode != "none":
+            raise ValueError(f"Unknown pre_mlp_mode: {self.pre_mlp_mode!r}")
 
         layers = []
         prev_dim = input_dim
@@ -485,7 +422,7 @@ class MLPClassifier(nn.Module):
             features.append(torch.abs(a - b))
         if self.use_unit_diff:
             diff = a - b
-            norm = torch.norm(diff, dim=1, keepdim=True).clamp(min=1e-8)
+            norm = torch.linalg.norm(diff, dim=1, keepdim=True).clamp(min=1e-8)
             features.append(diff / norm)
         if self.use_prod:
             features.append(a * b)
@@ -494,11 +431,8 @@ class MLPClassifier(nn.Module):
         return torch.cat(features, dim=1)
 
     def forward(self, x: torch.Tensor, x_b: Optional[torch.Tensor] = None) -> torch.Tensor:
-        # breakpoint()
-        if self.input_mode == "interaction":
-            return self.mlp(x)
         if x_b is None:
-            raise ValueError("input_mode='raw' expects both x and x_b tensors")
+            raise ValueError("MLPClassifier expects (emb_a, emb_b); x_b is required")
         a, b = self._apply_pre_mlp(x, x_b)
         feats = self._compute_interaction(a, b)
         return self.mlp(feats)
@@ -570,11 +504,13 @@ def train_model(
         'train_precision': [],  # Precision for positive class (measures FP)
         'train_recall': [],  # Recall for positive class (measures FN)
         'train_auc': [],
+        'train_brier': [],
         'val_f1': [],  # F1 for positive class (same isolate) - binary
         'val_f1_macro': [],  # F1 macro (average of both classes)
         'val_precision': [],  # Precision for positive class (measures FP)
         'val_recall': [],  # Recall for positive class (measures FN)
         'val_auc': [],
+        'val_brier': [],
         'learning_rate': []  # Track learning rate over epochs
     }
     
@@ -642,6 +578,7 @@ def train_model(
         train_precision = precision_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
         train_recall = recall_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
         train_auc = roc_auc_score(train_labels, train_probs)
+        train_brier = float(np.mean((train_probs - np.array(train_labels)) ** 2))
 
         model.eval()
         val_loss = 0
@@ -671,6 +608,7 @@ def train_model(
         val_precision = precision_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         val_recall = recall_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         val_auc = roc_auc_score(val_labels, val_probs)
+        val_brier = float(np.mean((np.array(val_probs) - np.array(val_labels)) ** 2))
 
         # Select metric value for early stopping
         if early_stopping_metric == 'loss':
@@ -699,11 +637,13 @@ def train_model(
         history['train_precision'].append(train_precision)
         history['train_recall'].append(train_recall)
         history['train_auc'].append(train_auc)
+        history['train_brier'].append(train_brier)
         history['val_f1'].append(val_f1)
         history['val_f1_macro'].append(val_f1_macro)
         history['val_precision'].append(val_precision)
         history['val_recall'].append(val_recall)
         history['val_auc'].append(val_auc)
+        history['val_brier'].append(val_brier)
         history['learning_rate'].append(current_lr)
         
         # Print simplified metrics (all metrics still saved to history/CSV)
@@ -744,11 +684,13 @@ def train_model(
             'train_precision': history.get('train_precision', [None] * len(history['train_loss'])),
             'train_recall': history.get('train_recall', [None] * len(history['train_loss'])),
             'train_auc': history.get('train_auc', [None] * len(history['train_loss'])),
+            'train_brier': history.get('train_brier', [None] * len(history['train_loss'])),
             'val_f1': history.get('val_f1', [None] * len(history['train_loss'])),
             'val_f1_macro': history.get('val_f1_macro', [None] * len(history['train_loss'])),
             'val_precision': history.get('val_precision', [None] * len(history['train_loss'])),
             'val_recall': history.get('val_recall', [None] * len(history['train_loss'])),
             'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
+            'val_brier': history.get('val_brier', [None] * len(history['train_loss'])),
             'learning_rate': history.get('learning_rate', [None] * len(history['train_loss']))
         })
         history_csv = output_dir / 'training_history.csv'
@@ -955,18 +897,15 @@ BATCH_SIZE = config.training.batch_size
 LEARNING_RATE = config.training.learning_rate
 EPOCHS = config.training.epochs
 HIDDEN_DIMS = config.training.hidden_dims
-USE_DIFF = config.training.use_diff
-USE_PROD = config.training.use_prod
-USE_CONCAT = config.training.use_concat
 DROPOUT = config.training.dropout
 PATIENCE = config.training.patience
 EARLY_STOPPING_METRIC = config.training.early_stopping_metric
 THRESHOLD_METRIC = config.training.threshold_metric
-INPUT_MODE = getattr(config.training, 'input_mode', 'interaction')
 PRE_MLP_MODE = getattr(config.training, 'pre_mlp_mode', 'none')
 PRE_MLP_DIMS = getattr(config.training, 'pre_mlp_dims', None)
 ADAPTER_DIMS = getattr(config.training, 'adapter_dims', None)
-INTERACTION_SPEC = getattr(config.training, 'interaction', None)
+# Interaction spec: "concat", "diff", "unit_diff", "prod", or combinations like "concat+unit_diff"
+INTERACTION_SPEC = getattr(config.training, 'interaction', 'concat')
 USE_LR_SCHEDULER = getattr(config.training, 'use_lr_scheduler', False)
 LR_SCHEDULER_TYPE = getattr(config.training, 'lr_scheduler', 'reduce_on_plateau')
 LR_SCHEDULER_PATIENCE = getattr(config.training, 'lr_scheduler_patience', 5)
@@ -1079,31 +1018,10 @@ for df_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pa
         )
 print(f"All required embeddings available ({len(available_ids)} total embeddings)")
 
-# Create datasets
-train_dataset = SegmentPairDataset(
-    train_pairs,
-    embeddings_file,
-    use_concat=USE_CONCAT,
-    use_diff=USE_DIFF,
-    use_prod=USE_PROD,
-    input_mode=INPUT_MODE,
-)
-val_dataset = SegmentPairDataset(
-    val_pairs,
-    embeddings_file,
-    use_concat=USE_CONCAT,
-    use_diff=USE_DIFF,
-    use_prod=USE_PROD,
-    input_mode=INPUT_MODE,
-)
-test_dataset = SegmentPairDataset(
-    test_pairs,
-    embeddings_file,
-    use_concat=USE_CONCAT,
-    use_diff=USE_DIFF,
-    use_prod=USE_PROD,
-    input_mode=INPUT_MODE,
-)
+# Create datasets (always returns (emb_a, emb_b), label)
+train_dataset = SegmentPairDataset(train_pairs, embeddings_file)
+val_dataset = SegmentPairDataset(val_pairs, embeddings_file)
+test_dataset = SegmentPairDataset(test_pairs, embeddings_file)
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
@@ -1116,73 +1034,49 @@ device = determine_device(CUDA_NAME)
 # Get embedding dimension from model checkpoint
 EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
 
-# Resolve interaction flags (raw mode uses training.interaction)
-if INPUT_MODE == "raw":
-    if INTERACTION_SPEC is None:
-        INTERACTION_SPEC = "concat"
-    USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
-else:
-    USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW = USE_CONCAT, USE_DIFF, USE_PROD
-    USE_UNIT_DIFF_RAW = False
+# Resolve interaction flags from training.interaction
+USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
 
-# Compute input dimension based on feature flags
-if INPUT_MODE == "raw":
-    if PRE_MLP_MODE in {"shared", "slot_specific", "shared_adapter"}:
-        if not PRE_MLP_DIMS:
-            raise ValueError(f"pre_mlp_dims must be set for pre_mlp_mode='{PRE_MLP_MODE}'")
-        out_dim = PRE_MLP_DIMS[-1]
-    elif PRE_MLP_MODE == "slot_norm" and PRE_MLP_DIMS:
-        out_dim = PRE_MLP_DIMS[-1]
-    else:
-        out_dim = EMBED_DIM
-    mlp_input_dim = 0
-    feature_desc_parts = []
-    if USE_CONCAT_RAW:
-        mlp_input_dim += 2 * out_dim
-        feature_desc_parts.append("2")
-    if USE_DIFF_RAW:
-        mlp_input_dim += out_dim
-        feature_desc_parts.append("1")
-    if USE_UNIT_DIFF_RAW:
-        mlp_input_dim += out_dim
-        feature_desc_parts.append("1")
-    if USE_PROD_RAW:
-        mlp_input_dim += out_dim
-        feature_desc_parts.append("1")
-    if mlp_input_dim == 0:
-        raise ValueError("At least one interaction term must be enabled for input_mode='raw'.")
-    feature_desc = "+".join(feature_desc_parts) if feature_desc_parts else "0"
-    print(f"MLP Input Dimension: {mlp_input_dim} ({feature_desc} * {out_dim})")
+# Compute input dimension based on feature flags and pre-MLP
+if PRE_MLP_MODE in {"shared", "slot_specific", "shared_adapter"}:
+    if not PRE_MLP_DIMS:
+        raise ValueError(f"pre_mlp_dims must be set for pre_mlp_mode='{PRE_MLP_MODE}'")
+    out_dim = PRE_MLP_DIMS[-1]
+elif PRE_MLP_MODE == "slot_norm" and PRE_MLP_DIMS:
+    out_dim = PRE_MLP_DIMS[-1]
 else:
-    mlp_input_dim = 0
-    feature_desc_parts = []
-    if USE_CONCAT:
-        mlp_input_dim += 2 * EMBED_DIM
-        feature_desc_parts.append("2")
-    if USE_DIFF:
-        mlp_input_dim += EMBED_DIM  # add |A - B|
-        feature_desc_parts.append("1")
-    if USE_PROD:
-        mlp_input_dim += EMBED_DIM  # add A * B
-        feature_desc_parts.append("1")
-    if mlp_input_dim == 0:
-        raise ValueError("At least one of training.use_concat/use_diff/use_prod must be True.")
-    feature_desc = "+".join(feature_desc_parts) if feature_desc_parts else "0"
-    print(f"MLP Input Dimension: {mlp_input_dim} ({feature_desc} * {EMBED_DIM})") 
+    out_dim = EMBED_DIM
+
+mlp_input_dim = 0
+feature_desc_parts = []
+if USE_CONCAT_RAW:
+    mlp_input_dim += 2 * out_dim
+    feature_desc_parts.append("2")
+if USE_DIFF_RAW:
+    mlp_input_dim += out_dim
+    feature_desc_parts.append("1")
+if USE_UNIT_DIFF_RAW:
+    mlp_input_dim += out_dim
+    feature_desc_parts.append("1")
+if USE_PROD_RAW:
+    mlp_input_dim += out_dim
+    feature_desc_parts.append("1")
+if mlp_input_dim == 0:
+    raise ValueError("At least one interaction term must be enabled (training.interaction).")
+feature_desc = "+".join(feature_desc_parts) if feature_desc_parts else "0"
+print(f"MLP Input Dimension: {mlp_input_dim} ({feature_desc} * {out_dim})")
 
 # Initialize model
 model = MLPClassifier(
     input_dim=mlp_input_dim,
     hidden_dims=HIDDEN_DIMS,
     dropout=DROPOUT,
-    input_mode=INPUT_MODE,
     pre_mlp_mode=PRE_MLP_MODE,
     pre_mlp_dims=PRE_MLP_DIMS,
     adapter_dims=ADAPTER_DIMS,
-    interaction=INTERACTION_SPEC if INTERACTION_SPEC is not None else "concat",
-    use_concat=USE_CONCAT_RAW if INPUT_MODE == "raw" else USE_CONCAT,
-    use_diff=USE_DIFF_RAW if INPUT_MODE == "raw" else USE_DIFF,
-    use_prod=USE_PROD_RAW if INPUT_MODE == "raw" else USE_PROD,
+    use_concat=USE_CONCAT_RAW,
+    use_diff=USE_DIFF_RAW,
+    use_prod=USE_PROD_RAW,
     use_unit_diff=USE_UNIT_DIFF_RAW,
     embed_dim=EMBED_DIM,
 )
@@ -1254,11 +1148,7 @@ EVAL_SWAPPED_TEST = getattr(config.training, 'eval_swapped_test', False)
 if EVAL_SWAPPED_TEST:
     print('\nSwap-test diagnostic: evaluate on swapped test inputs (B,A) using SAME checkpoint.')
     swapped_test_pairs = swap_pairs_df_columns(test_pairs)
-    swapped_test_dataset = SegmentPairDataset(
-        swapped_test_pairs, embeddings_file,
-        use_concat=USE_CONCAT, use_diff=USE_DIFF, use_prod=USE_PROD,
-        input_mode=INPUT_MODE
-    )
+    swapped_test_dataset = SegmentPairDataset(swapped_test_pairs, embeddings_file)
     swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=BATCH_SIZE, shuffle=False)
     swapped_test_res_df = evaluate_on_split(
         model, swapped_test_loader, criterion, device, swapped_test_pairs,

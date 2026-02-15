@@ -78,7 +78,7 @@ def _plot_metrics_bar(ax, metric_names, values, loss=None):
     bars = ax.bar(metric_names, values, color=colors, alpha=0.8)
     ax.set_ylim(0, 1)
     ax.set_ylabel('Score')
-    ax.set_title('Overall Performance Metrics', fontsize=14, fontweight='bold')
+    ax.set_title('Performance Metrics', fontsize=14, fontweight='bold')
     for bar, value in zip(bars, values):
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
@@ -165,9 +165,9 @@ def create_results_misc_plot(df: pd.DataFrame, results_dir: Path) -> None:
         ax1.set_title('Classification Errors by Segment Pair', fontsize=14, fontweight='bold')
 
     # ---- 2. Segment pair performance (cross-function pairs only) ----
-    seg_perf_path = results_dir / 'segment_performance.csv'
-    if seg_perf_path.exists():
-        segment_perf = pd.read_csv(seg_perf_path)
+    seg_metrics_path = results_dir / 'segment_metrics.csv'
+    if seg_metrics_path.exists():
+        segment_perf = pd.read_csv(seg_metrics_path)
         cross_func = segment_perf[segment_perf['seg_pair'].str.contains('-')]
         cross_func = cross_func.dropna(subset=['f1_score'])
         if len(cross_func) > 0:
@@ -185,7 +185,7 @@ def create_results_misc_plot(df: pd.DataFrame, results_dir: Path) -> None:
                      ha='center', va='center', transform=ax2.transAxes)
             ax2.set_title('Performance by Segment Pair', fontsize=14, fontweight='bold')
     else:
-        ax2.text(0.5, 0.5, 'segment_performance.csv not found',
+        ax2.text(0.5, 0.5, 'segment_metrics.csv not found',
                  ha='center', va='center', transform=ax2.transAxes)
         ax2.set_title('Performance by Segment Pair', fontsize=14, fontweight='bold')
 

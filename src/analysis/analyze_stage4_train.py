@@ -58,6 +58,7 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     roc_auc = roc_auc_score(y_true, y_prob)
     accuracy = (y_true == y_pred).mean()
     avg_precision = average_precision_score(y_true, y_prob)
+    brier_score = float(np.mean((y_prob - y_true) ** 2))
 
     # BCE loss on the test set (matches training criterion)
     eps = 1e-7
@@ -71,6 +72,7 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     print(f'F1 Score (macro): {f1_macro:.3f}')
     print(f'AUC-ROC:  {roc_auc:.3f}')
     print(f'Average Precision: {avg_precision:.3f}')
+    print(f'Brier Score: {brier_score:.4f}')
     print(f'BCE Loss: {bce_loss:.4f}')
     
     print('\nClassification Report:')
@@ -85,6 +87,7 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
         'f1_macro': f1_macro,
         'auc_roc': roc_auc,
         'avg_precision': avg_precision,
+        'brier_score': brier_score,
         'loss': bce_loss
     }
 
@@ -828,28 +831,34 @@ def analyze_segment_performance(df):
         else f'{row["seg_b"]}-{row["seg_a"]}', axis=1
     )
 
-    # Performance by segment pair
+    # Performance by segment pair (same metrics as metrics.csv for consistency)
     seg_stats = []
     for seg_pair in df['seg_pair'].unique():
         subset = df[df['seg_pair'] == seg_pair]
         if len(subset) > 10:  # Only analyze pairs with sufficient data
-            # Check if both classes are present for F1 and AUC
+            # Check if both classes are present for F1, AUC, AP, Brier
             unique_labels = subset['label'].unique()
             if len(unique_labels) > 1:
                 f1 = f1_score(subset['label'], subset['pred_label'], average='binary')
                 auc = roc_auc_score(subset['label'], subset['pred_prob'])
+                avg_precision = average_precision_score(subset['label'], subset['pred_prob'])
+                brier_score = float(np.mean((subset['pred_prob'].values - subset['label'].values) ** 2))
             else:
-                f1 = np.nan   # F1 undefined for single class
-                auc = np.nan  # AUC undefined for single class
+                f1 = np.nan
+                auc = np.nan
+                avg_precision = np.nan
+                brier_score = np.nan
 
             acc = (subset['label'] == subset['pred_label']).mean()
 
             seg_stats.append({
                 'seg_pair': seg_pair,
                 'count': len(subset),
-                'f1_score': f1,
-                'auc': auc,
                 'accuracy': acc,
+                'f1_score': f1,
+                'auc_roc': auc,
+                'avg_precision': avg_precision,
+                'brier_score': brier_score,
                 'pos_rate': subset['label'].mean()
             })
 
@@ -1101,9 +1110,9 @@ def main(config_bundle: str,
     metrics_df = pd.DataFrame([metrics])
     metrics_df.to_csv(results_dir / 'metrics.csv', index=False)
 
-    # Save segment performance
+    # Save segment metrics
     if 'segment_df' in locals():
-        segment_df.to_csv(results_dir / 'segment_performance.csv', index=False)
+        segment_df.to_csv(results_dir / 'segment_metrics.csv', index=False)
     
     print(f'\nAnalysis complete! Results saved to: {results_dir}')
 
