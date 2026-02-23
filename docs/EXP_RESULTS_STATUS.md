@@ -15,8 +15,9 @@
 3. [Experimental Results](#3-experimental-results)
 4. [Biological Background](#4-biological-background)
 5. [Technical Background](#5-technical-background)
-6. [Research Roadmap](#6-research-roadmap)
-7. [Next Steps](#7-next-steps)
+6. [Validation Experiments: Testing for Batch Effects and Confounders](#6-validation-experiments-testing-for-batch-effects-and-confounders)
+7. [Research Roadmap](#7-research-roadmap)
+8. [Next Steps](#8-next-steps)
 
 ---
 
@@ -56,6 +57,7 @@ Performance directly correlates with protein conservation levels:
 
 | Task | Priority | Notes |
 |------|----------|-------|
+| Implement stratified dataset splitting (validation experiment) | P1 | Test for batch effects/confounders (see Section 6: Validation Experiments) |
 | Run embedding similarity on Bunya and Flu A | P1 | Quantify embedding overlap |
 | Compare Bunya vs Flu A similarity distributions | P1 | Quantify conservation impact on embedding separability |
 | Try use_diff=True, use_prod=True | P2 | May improve conserved segment performance |
@@ -181,7 +183,101 @@ Then → ESM-2 embeddings fundamentally cannot solve this task
 
 ---
 
-## 6. Research Roadmap
+## 6. Validation Experiments: Testing for Confounders
+
+**Purpose**: Design experiments to ensure models learn true isolate-specific signal rather than spurious correlations with metadata variables (confounders).
+
+### Overview
+
+Current models show strong performance, but we need to validate that they're learning the intended signal (isolate origin) rather than confounders such as:
+- **Host-specific patterns**: Models might learn "Human isolates look similar" rather than true isolate signal
+- **Temporal patterns**: Models might learn "2020 isolates look similar" due to temporal clustering
+- **Subtype patterns**: Models might learn "H3N2 isolates look similar" due to subtype-specific characteristics
+
+**Terminology Note**: 
+- **Confounders**: Variables (host, date, subtype) that are associated with both the input (protein sequences) and could affect the outcome (isolate matching), creating spurious correlations. We use "confounders" as a concise term, though some may actually be:
+  - **Biological confounders**: True biological associations (e.g., host-specific viral adaptations, subtype-specific characteristics)
+  - **Batch effects**: Technical artifacts from data collection/processing (e.g., different sequencing machines, protocols, or personnel in 2020 vs 2000). Temporal patterns could reflect batch effects rather than biological evolution.
+- Our experiments test for both types: if performance drops with stratified splits, it could indicate either biological confounders or batch effects (or both).
+
+### Planned Validation Experiments
+
+#### Experiment 1: Stratified Dataset Splitting (High Priority)
+
+**Objective**: Test if performance is maintained when train/val/test splits are stratified across key biological variables.
+
+**Stratification dimensions**:
+- **Host organisms**: Ensure all splits have similar host distributions (Human, Pig, Chicken, etc.)
+- **Collection date/year**: Temporal stratification to prevent temporal leakage
+- **HA/NA subtype**: Ensure H1N1, H3N2, H5N1, etc. are distributed across splits
+
+**Hypothesis**: 
+- If performance **remains stable** → Model learns true isolate signal
+- If performance **drops significantly** → Model relies on confounders (host/date/subtype patterns)
+
+**Implementation**: 
+- Use metadata from `Flu_Genomes.key` and `Flu.first-seg.meta.tab` (see `src/preprocess/flu_genomes_eda.py`)
+- Modify `split_dataset_v2()` in `src/datasets/dataset_segment_pairs.py` to use stratified splitting
+- Use scikit-learn's `StratifiedGroupKFold` or similar to maintain isolate-level grouping while stratifying
+
+**Status**: 
+- ✅ Metadata EDA completed
+- ✅ Mapping verified: `assembly_id` → `hash_id` mapping confirmed (100% coverage, see `src/analysis/verify_metadata_mapping.py`)
+- 📋 Detailed implementation plan in [`STRATIFIED_EXPERIMENTS_PLAN.md`](./STRATIFIED_EXPERIMENTS_PLAN.md)
+- ⏳ Implementation pending
+
+#### Experiment 2: Host-Held-Out Validation (Future)
+
+**Objective**: Train on isolates from certain hosts, test on completely different hosts.
+
+**Design**: 
+- Train: Human + Pig isolates
+- Test: Chicken + Duck isolates (or other host combinations)
+
+**Hypothesis**: If performance drops dramatically, suggests host-specific confounders.
+
+#### Experiment 3: Temporal Held-Out Validation (Future)
+
+**Objective**: Train on older isolates, test on recent isolates (or vice versa).
+
+**Design**:
+- Train: 1990-2010 isolates
+- Test: 2020-2025 isolates
+
+**Hypothesis**: If performance drops, suggests temporal confounders or evolution effects.
+
+#### Experiment 4: Subtype Held-Out Validation (Future)
+
+**Objective**: Train on certain subtypes, test on others.
+
+**Design**:
+- Train: H1N1 + H3N2
+- Test: H5N1 + H9N2
+
+**Hypothesis**: If performance drops, suggests subtype-specific confounders.
+
+### Interpretation Framework
+
+For each validation experiment:
+1. **Baseline performance**: Current model performance with random isolate-level splits
+2. **Stratified/held-out performance**: Model performance with stratified/held-out splits
+3. **Performance delta**: Difference between baseline and stratified performance
+4. **Interpretation**:
+   - **Small delta (<5% F1)**: Model learns true isolate signal ✅
+   - **Medium delta (5-15% F1)**: Some confounder influence, but core signal present ⚠️
+   - **Large delta (>15% F1)**: Significant confounder reliance ❌
+
+### Related Work
+
+These validation experiments are similar to:
+- **Domain generalization** tests in ML
+- **Temporal validation** in time-series models
+- **Stratified cross-validation** in clinical studies
+- **Batch effect correction** in genomics
+
+---
+
+## 7. Research Roadmap
 
 ### Approaches Ranked by Expected Impact
 

@@ -21,5 +21,5 @@ These results provide a quantified assessment of pLMs in the context of isolate 
 | Flu A: PB2–HA–NA | Mixed | 0.86 | 0.92 |
 | Flu A: PB2–PB1–PA | Conserved (polymerase) | 0.75 | 0.75 |
 
----
+--
 

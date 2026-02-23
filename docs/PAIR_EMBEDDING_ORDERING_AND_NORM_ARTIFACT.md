@@ -93,6 +93,22 @@ These are designed to quantify whether “swap (A,B)→(B,A)” maps points acro
 - Repeat for `seg_a→seg_b`.
 - If materially different, direction is a label proxy.
 
+Implementation:
+
+Run:
+
+```bash
+python -m src.analysis.audit_pair_direction_and_norm_leakage \
+  --dataset_dir /path/to/.../runs/dataset_<bundle>_<timestamp> \
+  --embeddings_file /path/to/.../master_esm2_embeddings.h5
+```
+
+Outputs (written under the dataset run dir):
+
+- `plots/leakage_audits/summary.json`
+- `plots/leakage_audits/*_direction_asymmetry_*_top50.csv`
+- `plots/leakage_audits/*_norm_only_baseline_metrics.json`
+
 2) **Swap sensitivity test (strongest sanity check)**:
 - Take a trained model and evaluate test performance twice:
   - with `[emb_a, emb_b]`
@@ -117,6 +133,13 @@ Critical requirement:
   - `brc_*`, `seq_*`, `seg_*`, `func_*`, `seq_hash_*`, `assembly_id_*`
 
 This removes “direction leakage” while keeping model input format unchanged.
+
+Implementation status:
+
+- `src/datasets/dataset_segment_pairs.py` now canonicalizes stored orientation for every pair
+  (positives and negatives) via `canonicalize_pair_orientation()` using:
+  - primary: `seq_hash_a` vs `seq_hash_b`
+  - tie-break: `brc_a` vs `brc_b`
 
 #### Step 2 — Add model-side order invariance as a safety net (optional)
 
