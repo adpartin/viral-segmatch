@@ -1,12 +1,12 @@
 #!/bin/bash
 # Stage 4: Model Training
-# Usage: ./scripts/stage4_train.sh [<config_bundle>] [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR]
+# Usage: ./scripts/stage4_train.sh [<config_bundle>] [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR] [--allow_bundle_mismatch]
 # 
 # Config bundle can be provided via:
 #   1. CLI argument: <config_bundle>
 #   2. Extracted from --dataset_dir (if directory name follows pattern: dataset_{config_bundle}_{timestamp})
 #
-# If both are provided, they must match (validation).
+# If both are provided, they must match (validation), unless --allow_bundle_mismatch is set.
 # If only --dataset_dir is provided, config bundle is extracted automatically.
 #
 # Examples:
@@ -42,6 +42,7 @@ DATASET_DIR=""
 EMBEDDINGS_FILE=""
 OUTPUT_DIR=""
 SKIP_POSTPROCESSING=false
+ALLOW_BUNDLE_MISMATCH=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -65,14 +66,19 @@ while [[ $# -gt 0 ]]; do
             SKIP_POSTPROCESSING=true
             shift
             ;;
+        --allow_bundle_mismatch)
+            ALLOW_BUNDLE_MISMATCH=true
+            shift
+            ;;
         *)
             echo "Error: Unknown option: $1"
-            echo "Usage: $0 [<config_bundle>] [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR] [--skip_postprocessing]"
+            echo "Usage: $0 [<config_bundle>] [--cuda_name CUDA] [--dataset_dir DIR] [--embeddings_file FILE] [--output_dir DIR] [--skip_postprocessing] [--allow_bundle_mismatch]"
             echo ""
             echo "Examples:"
             echo "  $0 bunya --cuda_name cuda:7"
             echo "  $0 flu_overfit --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_..."
             echo "  $0 --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_overfit_...  # Config bundle extracted from dataset dir"
+            echo "  $0 flu_schema_raw_shared --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_schema_... --allow_bundle_mismatch"
             exit 1
             ;;
     esac
@@ -108,21 +114,32 @@ fi
 if [ -n "$EXTRACTED_BUNDLE" ] && [ -n "$CONFIG_BUNDLE_CLI" ]; then
     # Both provided: validate they match
     if [ "$EXTRACTED_BUNDLE" != "$CONFIG_BUNDLE_CLI" ]; then
-        echo "❌ Error: Config bundle mismatch!"
-        echo "   CLI bundle:        '$CONFIG_BUNDLE_CLI'"
-        echo "   Dataset bundle:    '$EXTRACTED_BUNDLE' (extracted from: $DATASET_DIR)"
-        echo ""
-        echo "   The dataset was created with config bundle '$EXTRACTED_BUNDLE'."
-        echo "   Please use the same config bundle for training, or omit the CLI bundle to use the extracted one."
-        echo ""
-        echo "   Correct usage:"
-        echo "     $0 $EXTRACTED_BUNDLE --dataset_dir $DATASET_DIR"
-        echo "   Or:"
-        echo "     $0 --dataset_dir $DATASET_DIR"
-        exit 1
+        if [ "$ALLOW_BUNDLE_MISMATCH" = true ]; then
+            CONFIG_BUNDLE="$CONFIG_BUNDLE_CLI"
+            echo "⚠️  Bundle mismatch allowed (--allow_bundle_mismatch)"
+            echo "   CLI bundle:        '$CONFIG_BUNDLE_CLI'"
+            echo "   Dataset bundle:    '$EXTRACTED_BUNDLE' (extracted from: $DATASET_DIR)"
+        else
+            echo "❌ Error: Config bundle mismatch!"
+            echo "   CLI bundle:        '$CONFIG_BUNDLE_CLI'"
+            echo "   Dataset bundle:    '$EXTRACTED_BUNDLE' (extracted from: $DATASET_DIR)"
+            echo ""
+            echo "   The dataset was created with config bundle '$EXTRACTED_BUNDLE'."
+            echo "   Please use the same config bundle for training, or omit the CLI bundle to use the extracted one."
+            echo ""
+            echo "   Correct usage:"
+            echo "     $0 $EXTRACTED_BUNDLE --dataset_dir $DATASET_DIR"
+            echo "   Or:"
+            echo "     $0 --dataset_dir $DATASET_DIR"
+            echo "   Or (override):"
+            echo "     $0 $CONFIG_BUNDLE_CLI --dataset_dir $DATASET_DIR --allow_bundle_mismatch"
+            exit 1
+        fi
     fi
     # They match - use extracted (which equals CLI)
-    CONFIG_BUNDLE="$EXTRACTED_BUNDLE"
+    if [ -z "${CONFIG_BUNDLE:-}" ]; then
+        CONFIG_BUNDLE="$EXTRACTED_BUNDLE"
+    fi
     echo "✅ Config bundle validated: '$CONFIG_BUNDLE' (matches dataset directory)"
 elif [ -n "$EXTRACTED_BUNDLE" ]; then
     # Only dataset dir provided: use extracted bundle
