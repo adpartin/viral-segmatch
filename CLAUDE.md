@@ -1,6 +1,22 @@
 # CLAUDE.md — Project Context for Claude Code
 
 This file provides persistent context for Claude Code sessions. Update it as the project evolves.
+Also read `.claude/memory.md` for compact, up-to-date project memory (pipeline state, recent decisions).
+
+---
+
+## Approval Required
+
+Always ask for explicit confirmation before running any of the following — even if you think it is safe:
+
+- `rm *` or any file/directory deletion
+- `git rm *`
+- `git reset --hard *` or `git reset --mixed *`
+- `git push --force *` or `git push -f *`
+- `git branch -D *`
+- `git rebase *`
+- `git clean *`
+- Any command that modifies shared infrastructure, sends messages, or affects state outside this repo
 
 ---
 
@@ -145,7 +161,10 @@ Priority experiments for publication:
 
 ```
 viral-segmatch/
-├── CLAUDE.md                   # This file
+├── CLAUDE.md                   # This file (auto-loaded by Claude Code)
+├── .claude/
+│   ├── settings.json           # Claude Code permissions (deny/allow rules)
+│   └── memory.md               # Compact project memory — read this every session
 ├── README.md                   # Project overview
 ├── _roadmap.md                 # Experiment plan (02/10/2026 meeting)
 ├── _ongoing_work.md            # Technical notes on interactions, findings
