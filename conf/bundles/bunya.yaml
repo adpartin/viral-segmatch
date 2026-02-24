@@ -1,5 +1,10 @@
 # Bunya bundle
 # Contains virus-specific overrides
+#
+# MAINTENANCE NOTE: This bundle is NOT actively maintained. The project focus
+# is Influenza A. This config was last validated at an earlier pipeline stage.
+# If resuming Bunya experiments, verify compatibility with the current config
+# schema (dataset, training, embeddings defaults) before running.
 defaults:
   - /virus: bunya
   - /paths: bunya
