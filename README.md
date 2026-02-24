@@ -4,7 +4,7 @@ A machine learning pipeline for analyzing segmented RNA viruses to determine if 
 
 ## 🎯 Key Features
 
-- **Multi-virus support**: Bunyavirales and Influenza A
+- **Primary focus**: Influenza A (Bunyavirales support exists but is not actively maintained)
 - **ESM-2 embeddings**: State-of-the-art protein language model with master cache system
 - **Hydra configuration**: Flexible, reproducible experiments
 - **Conservation hypothesis confirmed**: Variable segments achieve 91.6% F1, conserved segments 75.3% F1
@@ -80,6 +80,7 @@ Performance directly correlates with protein conservation levels:
 
 ```
 viral-segmatch/
+├── CLAUDE.md               # Project context for Claude Code sessions
 ├── src/                    # Python source code
 │   ├── embeddings/         # ESM-2 embedding generation
 │   ├── datasets/           # Dataset creation
@@ -87,13 +88,16 @@ viral-segmatch/
 │   ├── analysis/           # Results analysis
 │   └── utils/              # Utilities
 ├── scripts/                # Shell scripts for automation
-│   ├── stage2_esm2.sh     # Compute embeddings
+│   ├── stage2_esm2.sh      # Compute embeddings
 │   ├── stage3_dataset.sh   # Create datasets
-│   └── stage4_train.sh    # Train models
+│   └── stage4_train.sh     # Train models
 ├── conf/                   # Hydra configuration
-│   ├── bundles/            # Experiment bundles
+│   ├── bundles/            # Experiment bundles (one per named experiment)
 │   ├── virus/              # Virus configurations
 │   └── training/           # Training configs
+├── eda/                    # Exploratory analysis scripts (not pipeline)
+├── examples/               # HuggingFace reference scripts (not pipeline)
+├── old_scripts/            # Superseded scripts (not maintained)
 ├── data/                   # Data directories
 │   ├── processed/          # Preprocessed data (shared)
 │   ├── embeddings/         # ESM-2 embeddings (shared, master cache)
@@ -181,8 +185,8 @@ The pipeline uses Hydra for configuration management with a bundle system:
 
 ## 🧬 Supported Viruses
 
-- **Bunyavirales**: 3-segment viruses (S, M, L segments)
-- **Influenza A**: 8-segment viruses (focus on PB1, PB2, PA, HA, NA proteins)
+- **Influenza A** *(primary, actively maintained)*: 8-segment viruses; focus on PB1, PB2, PA, HA, NA proteins
+- **Bunyavirales** *(not actively maintained)*: 3-segment viruses (S, M, L segments); pipeline exists but may lag behind current Flu A conventions — update when needed
 
 ## 📈 Analysis Tools
 

@@ -1,5 +1,14 @@
 """
 Preprocess protein data from GTO files for Bunyavirales.
+
+MAINTENANCE NOTE
+----------------
+This script is NOT actively maintained. The primary focus of this project is
+Influenza A (Flu A). Bunya preprocessing was last tested at an earlier stage
+of the pipeline (see git log for history). If you need to run the Bunya
+pipeline, it may require updates to match the current Flu A pipeline
+conventions (config schema, output format, utility APIs). Use as a reference
+and update as needed when Bunya support is resumed.
 """
 import json
 import sys
