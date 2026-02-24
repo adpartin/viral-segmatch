@@ -1,3 +1,4 @@
+# STATUS: ablation -- label shuffle sanity check
 # Flu bundle - PB2, PB1, PA proteins only (conserved segments)
 # Experiment: Label-shuffle sanity test
 # This shuffles training labels to verify the model is learning genuine patterns

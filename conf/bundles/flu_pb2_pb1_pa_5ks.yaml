@@ -1,3 +1,4 @@
+# STATUS: active -- conserved segments (PB2/PB1/PA); paper result
 # Flu bundle - PB2, PB1, PA proteins only (conserved segments)
 # Experiment: Test conservation hypothesis - these should perform worse than HA-NA
 # Isolates: 1K, no same-function negatives

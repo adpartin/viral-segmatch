@@ -1,3 +1,4 @@
+# STATUS: active -- Human host filter
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, unit_diff, filtered to Human host
 
 defaults:

@@ -1,3 +1,4 @@
+# STATUS: experimental -- adapter pre-MLP; not completed
 # Flu schema-ordered (HA -> NA), raw mode with shared trunk + slot adapters
 
 defaults:

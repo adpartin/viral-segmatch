@@ -1,3 +1,4 @@
+# STATUS: active -- H3N2 + concat; known to fail (AUC≈0.50)
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, concat, filtered to H3N2
 
 defaults:

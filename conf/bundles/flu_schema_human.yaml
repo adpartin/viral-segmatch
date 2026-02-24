@@ -1,3 +1,4 @@
+# STATUS: legacy (Gen 2) -- schema + Human filter + concat (concat fails on homogeneous data)
 # Flu schema-ordered dataset (HA -> NA), filtered to Human isolates
 #
 # Inherits schema ordering + function selection from `flu_schema.yaml`,

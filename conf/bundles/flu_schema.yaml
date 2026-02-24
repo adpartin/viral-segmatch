@@ -1,3 +1,4 @@
+# STATUS: legacy (Gen 2 base) -- schema-ordered, none+concat; superseded by slot_norm variants
 # Flu schema-ordered dataset: HA (slot A) → NA (slot B)
 # Validation-mode dataset variant to remove "direction" as a free variable while
 # keeping directed features like [emb_a, emb_b] consistent by construction.

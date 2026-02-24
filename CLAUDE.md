@@ -46,6 +46,14 @@ There is no stage1 shell script; preprocessing is run directly.
 
 Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `training.pre_mlp_mode`, `training.interaction`.
 
+**Bundle organization** (see `conf/bundles/README.md` for full detail):
+- Each bundle has a `# STATUS: active|ablation|experimental|legacy|not maintained` header comment.
+- Bundles form inheritance chains via Hydra `defaults`. Base bundles (e.g., `flu_schema.yaml`,
+  `flu_schema_raw_slot_norm_unit_diff.yaml`) must stay flat; only leaf bundles can be moved to subdirs.
+- `conf/bundles/paper/` — reserved for publication experiments (CV, temporal holdout, large dataset).
+- Three generations: Gen1 (`flu.yaml` base, no schema ordering), Gen2 (`flu_schema.yaml` base,
+  none+concat), Gen3 (`flu_schema_raw_*`, current best: `slot_norm + unit_diff`).
+
 
 ---
 

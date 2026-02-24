@@ -1,3 +1,4 @@
+# STATUS: legacy (Gen 1) -- H3N2 + diff, no schema ordering
 # flu_h3n2 bundle with pair features = diff-only (no concat, no prod)
 
 defaults:

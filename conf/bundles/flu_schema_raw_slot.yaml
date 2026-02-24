@@ -1,3 +1,4 @@
+# STATUS: experimental -- slot-specific pre-MLP; not completed
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific pre-MLPs
 
 defaults:

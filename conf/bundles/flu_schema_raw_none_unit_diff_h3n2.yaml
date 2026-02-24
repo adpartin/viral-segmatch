@@ -1,3 +1,4 @@
+# STATUS: ablation -- no LayerNorm on H3N2; confirms slot_norm is critical
 # Flu schema-ordered (HA -> NA), raw mode with NO pre-MLP/LayerNorm, unit_diff, H3N2 only
 #
 # Ablation bundle: tests whether unit_diff works on homogeneous data without LayerNorm.

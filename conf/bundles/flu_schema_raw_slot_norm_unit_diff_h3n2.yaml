@@ -1,3 +1,4 @@
+# STATUS: active -- H3N2 filter; patience=40 for delayed learning
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, unit_diff, H3N2 only
 
 defaults:
