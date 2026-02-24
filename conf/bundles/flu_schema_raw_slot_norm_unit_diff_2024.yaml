@@ -1,3 +1,4 @@
+# STATUS: active -- year=2024 filter
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, unit_diff, filtered to year 2024
 
 defaults:

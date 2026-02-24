@@ -1,3 +1,4 @@
+# STATUS: active -- Illinois geography filter
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, unit_diff, filtered to Illinois
 
 defaults:

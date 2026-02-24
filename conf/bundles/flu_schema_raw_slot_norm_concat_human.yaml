@@ -1,3 +1,4 @@
+# STATUS: active -- Human host filter, concat
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, concat, filtered to Human host
 
 defaults:

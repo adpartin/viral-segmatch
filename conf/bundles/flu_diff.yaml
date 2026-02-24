@@ -1,3 +1,4 @@
+# STATUS: legacy (Gen 1) -- diff interaction, no schema ordering
 # flu bundle with pair features = diff-only (no concat, no prod)
 
 defaults:

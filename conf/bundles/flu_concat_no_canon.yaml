@@ -1,3 +1,4 @@
+# STATUS: ablation -- no canonical pair orientation
 # flu_concat bundle variant with canonicalize_pair_orientation DISABLED
 # Use this for ablation vs flu_concat (default canonicalization enabled).
 

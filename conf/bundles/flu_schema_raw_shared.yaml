@@ -1,3 +1,4 @@
+# STATUS: experimental -- shared pre-MLP; not completed
 # Flu schema-ordered (HA -> NA), raw mode with shared pre-MLP
 
 defaults:

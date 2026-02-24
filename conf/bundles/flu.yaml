@@ -1,3 +1,4 @@
+# STATUS: legacy (Gen 1 base) -- HA/NA, no schema ordering; superseded
 # Flu bundle
 # Contains virus-specific overrides for Influenza A
 defaults:

@@ -1,3 +1,4 @@
+# STATUS: ablation -- no LayerNorm; baseline vs slot_norm
 # Flu schema-ordered (HA -> NA), raw mode with NO pre-MLP/LayerNorm, unit_diff interaction
 #
 # Ablation bundle: tests whether unit_diff works without slot-specific LayerNorm.

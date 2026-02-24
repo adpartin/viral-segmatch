@@ -1,3 +1,4 @@
+# STATUS: active -- concat comparison to unit_diff
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm
 
 defaults:

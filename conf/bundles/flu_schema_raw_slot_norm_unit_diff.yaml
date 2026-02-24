@@ -1,3 +1,4 @@
+# STATUS: active -- best overall model (slot_norm + unit_diff, HA/NA, no filter)
 # Flu schema-ordered (HA -> NA), raw mode with slot-specific LayerNorm, unit_diff interaction
 
 defaults:

@@ -1,3 +1,4 @@
+# STATUS: legacy (Gen 2) -- schema + diff interaction
 # Flu schema-ordered dataset (HA -> NA) with pair features = diff-only
 #
 # Inherits schema ordering + function selection from `flu_schema.yaml`.
