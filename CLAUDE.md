@@ -35,7 +35,6 @@ There is no stage1 shell script; preprocessing is run directly.
 
 **Hydra** with a bundle-per-experiment pattern.
 
-- Root config: `conf/config.yaml`
 - Bundles: `conf/bundles/{bundle_name}.yaml` — one file per named experiment
 - Virus configs: `conf/virus/flu.yaml`, `conf/virus/bunya.yaml`
 - Data paths: `conf/paths/flu.yaml`, `conf/paths/bunya.yaml`
@@ -47,7 +46,6 @@ There is no stage1 shell script; preprocessing is run directly.
 
 Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `training.pre_mlp_mode`, `training.interaction`.
 
-**Important**: `src/utils/config.py` is a legacy non-Hydra config loader. It is superseded by `config_hydra.py`. Do not use or extend it.
 
 ---
 
@@ -125,7 +123,6 @@ Priority experiments for publication:
 - `old_scripts/` — superseded by current stage scripts; see `old_scripts/README.md`
 - `src/preprocess/preprocess_bunya_protein.py` — Bunya preprocessing; see maintenance note in file
 - `conf/bundles/bunya.yaml` — Bunya experiment config; see maintenance note in file
-- `src/utils/config.py` — legacy non-Hydra config loader; use `config_hydra.py`
 
 ## What Is In Development (Not Yet Production)
 
