@@ -18,7 +18,9 @@ Primary virus: Influenza A. Bunya support exists but NOT actively maintained.
 
 ## Config System
 Hydra + bundle-per-experiment. `conf/bundles/{bundle}.yaml` = one file per named experiment.
-Bundle naming: `flu_{proteins}_{n_isolates}[_{modifiers}]`
+Bundle naming: currently inconsistent across generations. Planned general signature (not yet enforced):
+  `{virus}_{proteins}[_{n_isolates}][_{pre_mlp_mode}_{interaction}][_{data_filter}]`
+  e.g. `flu_ha_na_5ks_slot_norm_unit_diff_h3n2` -- renaming existing bundles is a future task.
 Config loader: `src/utils/config_hydra.py` via `hydra.compose(config_name="bundles/{name}")`.
 No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/config.yaml` deleted (legacy).
 
@@ -70,17 +72,15 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - Pass fold to training via Hydra override: `dataset.fold_id=2`
 - After all folds finish: aggregation script reads each fold's metrics.csv, computes mean±std, writes cv_summary.csv.
 - Two launchers (same interface, different schedulers):
-  - `scripts/run_cv_polaris.pbs`: PBS job array, PBS_ARRAY_INDEX = fold_id
-  - `scripts/run_cv_local.py`: subprocess.Popen per fold + CUDA_VISIBLE_DEVICES=K, waits for all, calls aggregation
+  - `scripts/run_cv_lambda.py`: for Lambda cluster (no scheduler); subprocess.Popen per fold + CUDA_VISIBLE_DEVICES=K, waits for all, calls aggregation
+  - `scripts/run_cv_polaris.pbs`: for Polaris (ALCF); PBS job array, PBS_ARRAY_INDEX = fold_id
 - Stage bash scripts (stage3_dataset.sh, stage4_train.sh) are acknowledged as awkward.
   They will be REDESIGNED (not just extended) when implementing CV -- not patched in place.
 
-## Current Git State (update when merging)
-- Branch `cleanup/remove-legacy-config-and-bundle-organization` has 3 commits, not yet merged to master:
-  1. Remove legacy config.py, conf/config.yaml, dead Bunya validation functions in protein_utils.py
-  2. Bundle organization: STATUS comments on all bundles, conf/bundles/README.md, conf/bundles/paper/
-  3. Claude Code setup: .claude/settings.json (permissions), .claude/memory.md (this file), CLAUDE.md approval rules
-- Next branch: implement n_folds / cross-validation feature
+## What's Next
+- Implement cross-validation (n_folds feature) -- see Cross-validation Design section above
+- Bundle naming cleanup (rename existing bundles to consistent signature) -- deferred, future task
+- Use `git log --oneline -10` for current commit state; this file tracks decisions, not commits
 
 ## User Preferences
 - Concise responses, no emojis unless asked
