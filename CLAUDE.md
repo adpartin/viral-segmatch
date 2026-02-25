@@ -200,6 +200,15 @@ viral-segmatch/
 
 ---
 
+## Per-machine Git Setup
+
+Run once after cloning on each new machine (writes to `.git/config`, not tracked by git):
+```bash
+git config pull.rebase true   # avoid "need to reconcile divergent branches" on git pull
+```
+
+---
+
 ## Conventions
 
 - **Experiment naming**: `{virus}_{proteins}_{n_isolates}[_{modifiers}]`
