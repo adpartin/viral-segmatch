@@ -37,9 +37,9 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 
 ## Roadmap (02/10/2026 meeting) -- for publication
 1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- NEXT
-2. Large dataset (full Flu A ~100K isolates, HPC)
-3. Temporal holdout (year_train/year_test config fields)
-4. Genome features (k-mers + LightGBM; start from preprocess_bunya_dna.py -> preprocess_flu_dna.py)
+2. Genome features (k-mers + XGBoost; start from preprocess_bunya_dna.py -> preprocess_flu_dna.py)
+3. Large dataset (full Flu A ~100K isolates, HPC)
+4. Temporal holdout (year_train/year_test config fields)
 5. PB2/PB1 + H3N2 bundle (trivial, one new bundle)
 
 ## Directory Structure (post-cleanup Feb 2026)
@@ -59,9 +59,28 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - Temporal holdout split logic (year_train/year_test)
 
 ## HPC
-- Polaris (ALCF), PBS job arrays. Do NOT use Hydra's submitit launcher (SLURM only).
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
-- CV design: run dataset_segment_pairs.py once to generate all N folds, then train in parallel.
+- Polaris (ALCF), PBS job arrays. Do NOT use Hydra's submitit launcher (SLURM only).
+
+## Cross-validation Design (agreed, not yet implemented)
+- Add `fold_id: null` and `n_folds: null` to `conf/dataset/default.yaml`. null = current single-split behavior.
+- Run `dataset_segment_pairs.py` ONCE → generates all N fold directories (deterministic, saved for reference).
+- Each fold is a self-contained dir; training across folds is embarrassingly parallel.
+- Fold output dir structure: TBD when implementing (options: `dataset_{bundle}_cv5_fold0/` flat, or `dataset_{bundle}_cv5/fold0/` nested).
+- Pass fold to training via Hydra override: `dataset.fold_id=2`
+- After all folds finish: aggregation script reads each fold's metrics.csv, computes mean±std, writes cv_summary.csv.
+- Two launchers (same interface, different schedulers):
+  - `scripts/run_cv_polaris.pbs`: PBS job array, PBS_ARRAY_INDEX = fold_id
+  - `scripts/run_cv_local.py`: subprocess.Popen per fold + CUDA_VISIBLE_DEVICES=K, waits for all, calls aggregation
+- Stage bash scripts (stage3_dataset.sh, stage4_train.sh) are acknowledged as awkward.
+  They will be REDESIGNED (not just extended) when implementing CV -- not patched in place.
+
+## Current Git State (update when merging)
+- Branch `cleanup/remove-legacy-config-and-bundle-organization` has 3 commits, not yet merged to master:
+  1. Remove legacy config.py, conf/config.yaml, dead Bunya validation functions in protein_utils.py
+  2. Bundle organization: STATUS comments on all bundles, conf/bundles/README.md, conf/bundles/paper/
+  3. Claude Code setup: .claude/settings.json (permissions), .claude/memory.md (this file), CLAUDE.md approval rules
+- Next branch: implement n_folds / cross-validation feature
 
 ## User Preferences
 - Concise responses, no emojis unless asked
