@@ -5,6 +5,20 @@ Also read `.claude/memory.md` for compact, up-to-date project memory (pipeline s
 
 ---
 
+## Session Startup Checklist
+
+At the start of each session:
+1. Read `.claude/memory.md` (in the repo) for current project state.
+2. Check if the machine-local auto-memory `MEMORY.md` (path provided in the system prompt) exists.
+   If it does not exist, create it with exactly this content:
+   ```
+   Project memory has moved into the repo for portability across machines.
+   Read: .claude/memory.md (in the repo root)
+   This machine-local file is no longer updated.
+   ```
+
+---
+
 ## Approval Required
 
 Always ask for explicit confirmation before running any of the following — even if you think it is safe:
