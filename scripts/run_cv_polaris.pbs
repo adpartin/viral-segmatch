@@ -1,0 +1,132 @@
+#!/bin/bash
+# Cross-validation launcher for ALCF Polaris (PBS job arrays).
+#
+# Usage
+# -----
+# Step 1 – Generate all N fold directories (run once, not an array):
+#
+#   qsub -v CONFIG_BUNDLE=flu_schema_raw_slot_norm_unit_diff_cv5 \
+#        -v STAGE=dataset \
+#        scripts/run_cv_polaris.pbs
+#
+# Step 2 – Train each fold in parallel (PBS job array):
+#
+#   qsub -v CONFIG_BUNDLE=flu_schema_raw_slot_norm_unit_diff_cv5 \
+#        -v STAGE=train \
+#        -v DATASET_RUN_DIR=<path from step 1> \
+#        -J 0-4 \
+#        scripts/run_cv_polaris.pbs
+#
+# Step 3 – Aggregate results (run once after all array jobs finish):
+#
+#   qsub -v CONFIG_BUNDLE=flu_schema_raw_slot_norm_unit_diff_cv5 \
+#        -v STAGE=aggregate \
+#        -v DATASET_RUN_DIR=<path from step 1> \
+#        scripts/run_cv_polaris.pbs
+#
+# Environment variables (set via -v):
+#   CONFIG_BUNDLE     Hydra bundle name (required for all stages)
+#   STAGE             dataset | train | aggregate  (required)
+#   DATASET_RUN_DIR   Path to CV dataset run dir  (required for train + aggregate)
+#   N_GPUS_PER_NODE   GPUs per node (default: 4)
+#
+# PBS directives below are conservative defaults — override on the qsub command line.
+
+#PBS -N cv_viral_segmatch
+#PBS -l select=1:system=polaris:ngpus=4
+#PBS -l walltime=06:00:00
+#PBS -l filesystems=home:eagle
+#PBS -q debug
+#PBS -A cepi
+
+set -euo pipefail
+
+# ── Environment setup ──────────────────────────────────────────────────────
+module load conda
+conda activate viral-segmatch   # adjust to your env name
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_ROOT"
+
+# Defaults
+N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-4}"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+
+echo "========================================"
+echo "viral-segmatch CV | Polaris PBS"
+echo "STAGE:          ${STAGE}"
+echo "CONFIG_BUNDLE:  ${CONFIG_BUNDLE}"
+echo "HOST:           $(hostname)"
+echo "TIMESTAMP:      ${TIMESTAMP}"
+echo "========================================"
+
+# ── Stage: dataset ─────────────────────────────────────────────────────────
+if [ "${STAGE}" = "dataset" ]; then
+    RUN_ID="dataset_$(echo ${CONFIG_BUNDLE} | tr '/' '_')_${TIMESTAMP}"
+    echo "Generating CV dataset (run_id=${RUN_ID})..."
+
+    python "${PROJECT_ROOT}/src/datasets/dataset_segment_pairs.py" \
+        --config_bundle "${CONFIG_BUNDLE}" \
+        --run_output_subdir "${RUN_ID}"
+
+    echo ""
+    echo "✅ Stage 3 complete."
+    echo "Dataset run dir: data/datasets/<virus>/<version>/runs/${RUN_ID}"
+    echo "Pass DATASET_RUN_DIR=<full_path> when submitting the train array."
+
+# ── Stage: train (PBS job array) ───────────────────────────────────────────
+elif [ "${STAGE}" = "train" ]; then
+    if [ -z "${DATASET_RUN_DIR:-}" ]; then
+        echo "❌ DATASET_RUN_DIR is required for STAGE=train"
+        exit 1
+    fi
+
+    # PBS_ARRAY_INDEX is the fold ID (0-based)
+    FOLD_ID="${PBS_ARRAY_INDEX}"
+    FOLD_DIR="${DATASET_RUN_DIR}/fold_${FOLD_ID}"
+
+    if [ ! -d "${FOLD_DIR}" ]; then
+        echo "❌ Fold directory not found: ${FOLD_DIR}"
+        exit 1
+    fi
+
+    # Assign GPU (cycle through available GPUs per node)
+    GPU_ID=$((FOLD_ID % N_GPUS_PER_NODE))
+    RUN_ID_TRAIN="training_$(echo ${CONFIG_BUNDLE} | tr '/' '_')_fold${FOLD_ID}_${TIMESTAMP}"
+
+    echo "Training fold ${FOLD_ID} on GPU ${GPU_ID} (run_id=${RUN_ID_TRAIN})..."
+
+    CUDA_VISIBLE_DEVICES="${GPU_ID}" python \
+        "${PROJECT_ROOT}/src/models/train_esm2_frozen_pair_classifier.py" \
+        --config_bundle "${CONFIG_BUNDLE}" \
+        --cuda_name "cuda:0" \
+        --dataset_dir "${FOLD_DIR}" \
+        --run_output_subdir "${RUN_ID_TRAIN}"
+
+    echo "✅ Fold ${FOLD_ID} training complete."
+
+# ── Stage: aggregate ───────────────────────────────────────────────────────
+elif [ "${STAGE}" = "aggregate" ]; then
+    if [ -z "${DATASET_RUN_DIR:-}" ]; then
+        echo "❌ DATASET_RUN_DIR is required for STAGE=aggregate"
+        exit 1
+    fi
+
+    MANIFEST="${DATASET_RUN_DIR}/cv_run_manifest.json"
+    if [ ! -f "${MANIFEST}" ]; then
+        echo "❌ cv_run_manifest.json not found at: ${MANIFEST}"
+        echo "   Create it manually or re-run with run_cv_lambda.py which generates it automatically."
+        exit 1
+    fi
+
+    echo "Aggregating CV results from manifest: ${MANIFEST}"
+    python "${PROJECT_ROOT}/scripts/aggregate_cv_results.py" \
+        --manifest "${MANIFEST}"
+
+    echo "✅ Aggregation complete."
+
+else
+    echo "❌ Unknown STAGE='${STAGE}'. Must be: dataset | train | aggregate"
+    exit 1
+fi
