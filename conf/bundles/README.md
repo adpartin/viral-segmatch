@@ -96,10 +96,21 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
 |--------|-------|
 | `bunya` | Bunyavirales; pipeline exists but lags current Flu A conventions |
 
-### Paper experiments (upcoming)
+### Paper experiments
 
-See `paper/` subdirectory. Reserved for bundles that will be reported in the publication.
-Cross-validation, temporal holdout, and large-dataset runs will go here.
+Bundles for publication experiments must stay **flat** in `conf/bundles/` (not in a subdirectory).
+
+**Reason**: Hydra's package resolution double-nests inherited configs from subdirectories.
+For a bundle in `conf/bundles/paper/`, the composed config lands at `full_config.bundles.paper.*`
+instead of `full_config.bundles.*`, breaking `get_virus_config_hydra`. No Hydra package directive
+(`@package bundles`, `@_global_`, etc.) fully resolves this without changing the loader.
+
+**Convention**: use a `paper_` prefix or an unambiguous descriptive name for paper bundles:
+- `flu_schema_raw_slot_norm_unit_diff_cv5.yaml` — 5-fold CV (active)
+- Future: `flu_schema_raw_slot_norm_unit_diff_temporal.yaml`, etc.
+
+`conf/bundles/paper/` directory is kept for non-Hydra documentation (e.g., notes, experiment
+descriptions) but YAML bundle files must live in the flat `conf/bundles/` directory.
 
 ---
 

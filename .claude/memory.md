@@ -38,7 +38,7 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - High FP rate on filtered datasets (year/host/geo) -- likely population-level confounders
 
 ## Roadmap (02/10/2026 meeting) -- for publication
-1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- NEXT
+1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- IMPLEMENTED (branch: feature/cross-validation)
 2. Genome features (k-mers + XGBoost; start from preprocess_bunya_dna.py -> preprocess_flu_dna.py)
 3. Large dataset (full Flu A ~100K isolates, HPC)
 4. Temporal holdout (year_train/year_test config fields)
@@ -57,28 +57,48 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 ## In Development
 - `src/preprocess/preprocess_bunya_dna.py` -- template for preprocess_flu_dna.py
 - `src/utils/dna_utils.py` -- DNA QC utilities
-- Cross-validation support (fold_id/n_folds) -- actively being designed
 - Temporal holdout split logic (year_train/year_test)
 
 ## HPC
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
 - Polaris (ALCF), PBS job arrays. Do NOT use Hydra's submitit launcher (SLURM only).
 
-## Cross-validation Design (agreed, not yet implemented)
-- Add `fold_id: null` and `n_folds: null` to `conf/dataset/default.yaml`. null = current single-split behavior.
-- Run `dataset_segment_pairs.py` ONCE → generates all N fold directories (deterministic, saved for reference).
-- Each fold is a self-contained dir; training across folds is embarrassingly parallel.
-- Fold output dir structure: TBD when implementing (options: `dataset_{bundle}_cv5_fold0/` flat, or `dataset_{bundle}_cv5/fold0/` nested).
-- Pass fold to training via Hydra override: `dataset.fold_id=2`
-- After all folds finish: aggregation script reads each fold's metrics.csv, computes mean±std, writes cv_summary.csv.
-- Two launchers (same interface, different schedulers):
-  - `scripts/run_cv_lambda.py`: for Lambda cluster (no scheduler); subprocess.Popen per fold + CUDA_VISIBLE_DEVICES=K, waits for all, calls aggregation
-  - `scripts/run_cv_polaris.pbs`: for Polaris (ALCF); PBS job array, PBS_ARRAY_INDEX = fold_id
-- Stage bash scripts (stage3_dataset.sh, stage4_train.sh) are acknowledged as awkward.
-  They will be REDESIGNED (not just extended) when implementing CV -- not patched in place.
+## Cross-validation (IMPLEMENTED — branch: feature/cross-validation)
+### Output structure
+- Stage 3 runs ONCE → `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/`
+  - Nested: `fold_0/`, `fold_1/`, …, `fold_{N-1}/` each with train/val/test CSVs, stats, plots
+  - Top-level `cv_info.json` with fold isolate assignments and seeds
+- Stage 4 trains per fold → `models/flu/{version}/runs/training_{bundle}_fold{k}_{ts}/`
+  - Each training dir has `test_predicted.csv`, `optimal_threshold.txt`
+- After all folds: `cv_run_manifest.json` (dataset run dir), `cv_summary.csv/json`
+
+### Config
+- `conf/dataset/default.yaml`: `n_folds: null`, `fold_id: null` (null = single-split, backward compat)
+- `conf/bundles/flu_schema_raw_slot_norm_unit_diff_cv5.yaml`: inherits base bundle, adds `n_folds: 5`
+
+### Key implementation details
+- `split_dataset()` gains `train/val/test_isolates_override` params (None = existing behavior)
+- `generate_all_cv_folds()`: KFold on isolates; `val_frac = val_ratio / (1 - 1/n_folds)` for consistent val size
+- Fold seed = `master_seed + fold_i` for reproducible but distinct negative sampling
+- `--fold_id` added to training script (optional; appends `fold_{k}/` to `--dataset_dir`)
+- `save_split_output()`: extracted helper used by both single-split and CV paths
+
+### Launchers
+- `scripts/run_cv_lambda.py`: subprocess.Popen per fold, CUDA_VISIBLE_DEVICES=gpu_k, saves manifest, calls aggregation
+- `scripts/run_cv_polaris.pbs`: STAGE=dataset|train|aggregate; train uses PBS_ARRAY_INDEX=fold_id
+- `scripts/aggregate_cv_results.py`: reads manifest or --training_dirs, computes mean±std, writes cv_summary.*
+
+### Hydra limitation: no subdirectory bundles
+CV bundle is flat (`conf/bundles/flu_schema_raw_slot_norm_unit_diff_cv5.yaml`), not in `paper/`.
+Hydra's package resolution double-nests inherited configs from subdirs, breaking `get_virus_config_hydra`.
+`conf/bundles/paper/` kept as directory but YAML bundles must stay flat. See README.md in bundles/.
+
+### Next steps for CV
+- Run dry run: `python scripts/run_cv_lambda.py --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --dry_run`
+- Run full CV: `python scripts/run_cv_lambda.py --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --gpus 0 1 2 3 4`
 
 ## What's Next
-- Implement cross-validation (n_folds feature) -- see Cross-validation Design section above
+- Debug/test cross-validation end-to-end (see CV section above)
 - Bundle naming cleanup (rename existing bundles to consistent signature) -- deferred, future task
 - Use `git log --oneline -10` for current commit state; this file tracks decisions, not commits
 
