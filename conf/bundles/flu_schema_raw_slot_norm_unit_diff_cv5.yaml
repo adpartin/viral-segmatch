@@ -1,0 +1,14 @@
+# STATUS: active -- paper experiment (5-fold CV, slot_norm + unit_diff, HA/NA, no filter)
+# Cross-validation extension of flu_schema_raw_slot_norm_unit_diff.
+# Inherits all settings; adds n_folds=5 for CV dataset generation.
+#
+# Note: This bundle must stay flat in conf/bundles/ (not in a subdirectory).
+# Hydra's package resolution cannot inherit across subdirectory boundaries with
+# the current config_hydra.py loader. See conf/bundles/README.md for details.
+
+defaults:
+  - flu_schema_raw_slot_norm_unit_diff
+  - _self_
+
+dataset:
+  n_folds: 5

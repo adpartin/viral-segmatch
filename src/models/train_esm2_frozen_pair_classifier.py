@@ -855,6 +855,11 @@ parser.add_argument(
     help='Path to directory containing train_pairs.csv, val_pairs.csv, test_pairs.csv'
 )
 parser.add_argument(
+    '--fold_id',
+    type=int, default=None,
+    help='CV fold ID. If provided, appends fold_{fold_id}/ to --dataset_dir.'
+)
+parser.add_argument(
     '--embeddings_file',
     type=str, default=None,
     help='Path to master HDF5 cache file (default: auto-detect from config). '
@@ -955,6 +960,9 @@ if not args.dataset_dir:
         "data/datasets/{virus}/{data_version}/runs/dataset_{config_bundle}_{timestamp}/"
     )
 dataset_dir = Path(args.dataset_dir)
+if args.fold_id is not None:
+    dataset_dir = dataset_dir / f"fold_{args.fold_id}"
+    print(f"CV mode: using fold directory: {dataset_dir}")
 
 embeddings_file = Path(args.embeddings_file) if args.embeddings_file else default_embeddings_file
 

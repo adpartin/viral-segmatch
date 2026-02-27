@@ -186,6 +186,49 @@ plots/
 
 ---
 
+## Pair Orientation for >2 Segment Types -- DEFERRED
+
+### Background
+
+`canonicalize_pair_orientation_enabled` (unordered mode) enforces a consistent ordering of
+(seq_a, seq_b) within each pair so that (A, B) and (B, A) always map to the same pair_key.
+This prevents duplicate pairs and ensures `unit_diff` = A − B always has the same direction.
+
+`schema_ordered` mode (current best: HA → NA) supersedes this for the 2-type case: the schema
+explicitly declares which function is slot A (left) and which is slot B (right), so ordering
+is biologically motivated. `schema_ordered` forcibly disables canonicalization at runtime.
+
+### Issue for >2 types
+
+When extending to all 8 flu proteins (28 possible pairs), `schema_ordered` with a fixed
+`(func_left, func_right)` tuple no longer scales. Options:
+
+1. **Global segment rank** (recommended): define a rank for each function matching biological
+   genome order, e.g.:
+   ```
+   PB2=0, PB1=1, PA=2, HA=3, NP=4, NA=5, M=6, NS=7
+   ```
+   For any pair (X, Y), always put the lower-rank function in slot A. This extends
+   `schema_ordered` cleanly: `unit_diff` always means "upstream − downstream segment."
+   The rank dict lives in the virus config (`conf/virus/flu.yaml`) since it is virus-specific.
+   Implementation: pass the rank dict into `split_dataset()`; canonicalization uses it instead
+   of alphabetical sort. `canonicalize_pair_orientation_enabled` remains the mechanism.
+
+2. **Per-pair schema dict**: explicit `(left, right)` for every pair. Flexible but unwieldy
+   at 28 pairs and hard to maintain.
+
+### Recommendation (when implementing)
+
+Option 1. Add `segment_rank: {PB2: 0, PB1: 1, ...}` to `conf/virus/flu.yaml`. Update
+canonicalization logic to use rank ordering when available, falling back to alphabetical.
+This unifies `unordered + canonicalize` and `schema_ordered` into one consistent framework.
+
+### Status
+Deferred. Current experiments use 2 types (HA/NA) with `schema_ordered`, which works correctly.
+Revisit when adding PB2/PB1 or full 8-segment experiments.
+
+---
+
 ## Train/Val/Test Balance (Q9)
 
 **Current setup**: Train is balanced (positive_ratio ≈ 0.5); val and test are typically imbalanced (e.g., 0.34, 0.30).

@@ -49,3 +49,9 @@ year: null      # null = no filter, or integer year (e.g., 2020)
 hn_subtype: null # null = no filter, or "H1N1", "H3N2", etc.
 geo_location: null  # null = no filter, or geographic location name (e.g., "Illinois")
 passage: null   # null = no filter, or passage value (e.g., "Original", "S1", "Egg")
+
+# Cross-validation
+# n_folds: null = single-split mode (default); int N = generate N CV folds in one dataset run
+# fold_id: used by launchers to select which fold dir to pass to the training script; null = ignored
+n_folds: null
+fold_id: null
