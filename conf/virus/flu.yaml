@@ -143,6 +143,18 @@ conditional_segment_mappings:
       replicon_type: 'Segment 8'
       aux_segment: 'S8'
 
+# Replicon-to-segment mapping (for genome pipeline — direct replicon_type → canonical_segment)
+# Proteins use the more complex conditional_segment_mappings above.
+replicon_to_segment:
+  'Segment 1': 'S1'
+  'Segment 2': 'S2'
+  'Segment 3': 'S3'
+  'Segment 4': 'S4'
+  'Segment 5': 'S5'
+  'Segment 6': 'S6'
+  'Segment 7': 'S7'
+  'Segment 8': 'S8'
+
 # Replicon types (segment identifiers used in GTO files)
 replicon_types:
   - 'Segment 1'
