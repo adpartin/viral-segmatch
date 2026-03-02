@@ -16,6 +16,16 @@ At the start of each session:
    Read: .claude/memory.md (in the repo root)
    This machine-local file is no longer updated.
    ```
+3. Check `docs/plans/` for any in-progress plans (status != IMPLEMENTED).
+   If found, read the plan and offer to resume implementation.
+
+### Plans directory (`docs/plans/`)
+
+Plans are saved in the repo (not machine-local `~/.claude/`) for cross-machine portability.
+When creating a plan during plan mode, save it to `docs/plans/<descriptive_name>_plan.md` before
+starting implementation. Mark the plan's status at the top:
+- `**Status: IN PROGRESS**` — plan approved, implementation underway
+- `**Status: IMPLEMENTED**` — implementation complete
 
 ---
 
