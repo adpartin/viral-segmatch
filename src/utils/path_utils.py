@@ -148,11 +148,12 @@ def build_preprocessing_paths(
     else:
         main_data_dir = project_root / 'data'
 
-    # Map virus_name to raw data directory name
-    # Raw data directories use different naming conventions (legacy)
+    # Map virus_name to raw data directory name.
+    # Raw data directory on disk is 'Flu_A'. Both 'flu' (current config) and
+    # 'flu_a' (legacy, used by older analysis scripts) map to it.
     virus_raw_map = {
         'flu': 'Flu_A',
-        'flu_a': 'Flu_A',
+        'flu_a': 'Flu_A',  # backward compat
         'bunya': 'Bunyavirales'
     }
     raw_virus_name = virus_raw_map.get(virus_name, virus_name.capitalize())
