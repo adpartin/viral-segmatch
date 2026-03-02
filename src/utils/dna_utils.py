@@ -15,10 +15,11 @@ def summarize_dna_qc(df: pd.DataFrame, seq_col: str = 'dna') -> pd.DataFrame:
     def analyze_seq(seq):
         if not isinstance(seq, str) or len(seq) == 0:
             return (0, 0.0, 0, 0.0)
-        seq_length = len(seq)
-        ambig_count = sum(1 for base in seq if base in ambig_codes)
+        seq_upper = seq.upper()
+        seq_length = len(seq_upper)
+        ambig_count = sum(1 for base in seq_upper if base in ambig_codes)
         ambig_frac = ambig_count / seq_length
-        gc_content = (seq.count('G') + seq.count('C')) / seq_length
+        gc_content = (seq_upper.count('G') + seq_upper.count('C')) / seq_length
         return (ambig_count, ambig_frac, seq_length, gc_content)
     
     qc = df[seq_col].apply(analyze_seq)

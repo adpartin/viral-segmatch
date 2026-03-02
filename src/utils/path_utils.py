@@ -151,6 +151,7 @@ def build_preprocessing_paths(
     # Map virus_name to raw data directory name
     # Raw data directories use different naming conventions (legacy)
     virus_raw_map = {
+        'flu': 'Flu_A',
         'flu_a': 'Flu_A',
         'bunya': 'Bunyavirales'
     }
