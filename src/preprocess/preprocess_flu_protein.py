@@ -863,6 +863,11 @@ parser.add_argument(
     action='store_true',
     help='Force reprocess of GTO files, bypassing cache.'
 )
+parser.add_argument(
+    '--max_files_to_preprocess',
+    type=int, default=None,
+    help='Maximum number of GTO files to process (None for all). Each GTO file = one isolate.'
+)
 args = parser.parse_args()
 
 # Load config
@@ -877,7 +882,7 @@ print_config_summary(config)
 VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'preprocessing')
-# MAX_FILES_TO_PROCESS = config.max_files_to_process
+MAX_FILES_TO_PREPROCESS = args.max_files_to_preprocess
 core_functions = config.virus.core_functions
 aux_functions = config.virus.aux_functions
 selected_functions = config.virus.selected_functions
@@ -890,7 +895,7 @@ print(f"{'='*40}")
 # Resolve run suffix (manual override in config or auto-generate from sampling params)
 RUN_SUFFIX = resolve_run_suffix(
     config=config,
-    # max_files=MAX_FILES_TO_PROCESS,
+    max_isolates=MAX_FILES_TO_PREPROCESS,
     seed=RANDOM_SEED,
     auto_timestamp=True
 )
@@ -935,7 +940,7 @@ else:
 
     prot_df = aggregate_protein_data_from_gto_files(
         gto_dir,
-        # max_files=MAX_FILES_TO_PROCESS,
+        max_files=MAX_FILES_TO_PREPROCESS,
         random_seed=RANDOM_SEED
     )
     print(f'   Processed {len(prot_df)} protein records from GTO files')
