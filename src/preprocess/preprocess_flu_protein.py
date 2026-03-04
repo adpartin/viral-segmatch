@@ -35,7 +35,7 @@ from src.utils.protein_utils import (
 
 # Manual configs
 # TODO: consider setting these somewhere else (e.g., config.yaml)
-SEQ_COL_NAME = 'prot_seq'
+PROT_SEQ_COL_NAME = 'prot_seq'
 
 total_timer = Timer()
 
@@ -604,17 +604,17 @@ def handle_duplicates(
         # Get all duplicate protein sequences
         print(f'\nprot_df: {prot_df.shape}')
         prot_dups = (
-            prot_df[prot_df.duplicated(subset=[SEQ_COL_NAME], keep=False)]
-            .sort_values(SEQ_COL_NAME)
+            prot_df[prot_df.duplicated(subset=[PROT_SEQ_COL_NAME], keep=False)]
+            .sort_values(PROT_SEQ_COL_NAME)
             .reset_index(drop=True).copy()
         )
         # prot_dups.to_csv(output_dir / 'protein_all_dups.csv', sep=',', index=False)
-        print(f"Duplicates on '{SEQ_COL_NAME}': {prot_dups.shape}")
+        print(f"Duplicates on '{PROT_SEQ_COL_NAME}': {prot_dups.shape}")
         print(prot_dups[:4][['file', 'assembly_id', 'genbank_ctg_id',
             'replicon_type', 'brc_fea_id', 'function', 'canonical_segment']])
 
         print(f'\nCount how many unique files contain each duplicated sequence:')
-        dup_counts = prot_dups.groupby(SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
+        dup_counts = prot_dups.groupby(PROT_SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
         print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
         def explore_groupby(df, columns):
@@ -625,12 +625,12 @@ def handle_duplicates(
 
             for keys, grp in grouped:
                 print('\nDuplicate group (rows with this seq):')
-                print(grp[:4][[SEQ_COL_NAME, 'file', 'assembly_id', 'genbank_ctg_id',
+                print(grp[:4][[PROT_SEQ_COL_NAME, 'file', 'assembly_id', 'genbank_ctg_id',
                     'replicon_type', 'brc_fea_id', 'function']])
                 break  # remove this to loop over more groups
             return grp
 
-        explore_groupby(prot_dups, SEQ_COL_NAME)
+        explore_groupby(prot_dups, PROT_SEQ_COL_NAME)
 
         # Expand dup_counts to include more info
         # num_occurrences >= num_files -> there are cases where a protein sequence appears multiple
@@ -638,8 +638,8 @@ def handle_duplicates(
         # num_functions >= num_replicons -> it's not a 1-1 mapping between replicons (segment)
         #   and functions, because a segment can encode multiple proteins.
         dup_stats = (
-            prot_dups.groupby(SEQ_COL_NAME).agg(
-                num_occurrences=(SEQ_COL_NAME, 'count'), # total times the sequence appears
+            prot_dups.groupby(PROT_SEQ_COL_NAME).agg(
+                num_occurrences=(PROT_SEQ_COL_NAME, 'count'), # total times the sequence appears
                 num_files=('file', 'nunique'),           # total unique files the sequence appears in
                 num_functions=('function', 'nunique'),   # total distinct functions are assigned to the sequence
                 num_replicons=('replicon_type', 'nunique'), 
@@ -957,7 +957,7 @@ else:
     print(f"   Cached aggregated data to: {cached_agg_file}")
 
 print(f'\nprot_df: {prot_df.shape}')
-prot_df_no_seq = prot_df[prot_df[SEQ_COL_NAME].isna()]
+prot_df_no_seq = prot_df[prot_df[PROT_SEQ_COL_NAME].isna()]
 print(f'Records with missing protein seq: {prot_df_no_seq.shape if not prot_df_no_seq.empty else 0}')
 prot_df_no_seq.to_csv(output_dir / 'protein_agg_from_GTO_missing_seqs.csv', sep=',', index=False)
 
@@ -1062,7 +1062,7 @@ org_cols = prot_df.columns
 prot_df = analyze_protein_ambiguities(prot_df)
 ambig_cols = [c for c in prot_df.columns if c not in org_cols]
 ambig_df = prot_df[prot_df['has_ambiguities'] == True]
-ambig_df = ambig_df[['assembly_id', 'brc_fea_id', SEQ_COL_NAME] + ambig_cols]
+ambig_df = ambig_df[['assembly_id', 'brc_fea_id', PROT_SEQ_COL_NAME] + ambig_cols]
 cols_print = ['assembly_id', 'brc_fea_id'] + ambig_cols
 print(f'Protein sequences with ambiguous chars: {ambig_df.shape[0]}')
 print(ambig_df[cols_print])
@@ -1143,11 +1143,11 @@ print(f"\n{'='*50}")
 print("Final duplicate counts.")
 print('='*50)
 prot_dups = (
-    prot_df[prot_df.duplicated(subset=[SEQ_COL_NAME], keep=False)]
-    .sort_values(SEQ_COL_NAME)
+    prot_df[prot_df.duplicated(subset=[PROT_SEQ_COL_NAME], keep=False)]
+    .sort_values(PROT_SEQ_COL_NAME)
     .reset_index(drop=True)
 )
-dup_counts = prot_dups.groupby(SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
+dup_counts = prot_dups.groupby(PROT_SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
 print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
 # Save final data
@@ -1158,7 +1158,7 @@ print('='*50)
 prot_df.to_csv(output_dir / 'protein_final.csv', sep=',', index=False)
 prot_df.to_parquet(output_dir / 'protein_final.parquet', index=False)
 print(f'prot_df final: {prot_df.shape}')
-print(f"Unique protein sequences: {prot_df[SEQ_COL_NAME].nunique()}")
+print(f"Unique protein sequences: {prot_df[PROT_SEQ_COL_NAME].nunique()}")
 aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'])
 aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', index=False)
 print(prot_df['canonical_segment'].value_counts())
@@ -1175,7 +1175,7 @@ save_experiment_metadata(
     script_name=Path(__file__).name,
     additional_info={
         'total_proteins_processed': len(prot_df),
-        'unique_sequences': prot_df[SEQ_COL_NAME].nunique(),
+        'unique_sequences': prot_df[PROT_SEQ_COL_NAME].nunique(),
         'unique_files': prot_df['file'].nunique(),
         'processing_time_seconds': total_timer.elapsed
     }
@@ -1195,7 +1195,7 @@ save_experiment_summary(
         # 'Max files to process': MAX_FILES_TO_PROCESS if MAX_FILES_TO_PROCESS else 'All',
         'Selected functions': selected_functions,
         'Total proteins processed': len(prot_df),
-        'Unique protein sequences': prot_df[SEQ_COL_NAME].nunique(),
+        'Unique protein sequences': prot_df[PROT_SEQ_COL_NAME].nunique(),
         'Unique files processed': prot_df['file'].nunique(),
         'Processing time': total_timer.get_elapsed_string()
     }

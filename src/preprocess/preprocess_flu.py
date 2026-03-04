@@ -6,6 +6,11 @@ Unified script that parses each GTO file once and extracts both:
 - Genome data  -> genome_final.csv (new)
 
 See docs/genome_pipeline_design.md for design decisions.
+
+Example:
+```bash
+python src/preprocess/preprocess_flu.py --config_bundle flu_debug --max_files_to_preprocess 10
+```
 """
 import argparse
 import json
@@ -28,7 +33,6 @@ from src.utils.path_utils import resolve_run_suffix, build_preprocessing_paths, 
 from src.utils.experiment_utils import save_experiment_metadata, save_experiment_summary
 from src.utils.gto_utils import (
     extract_assembly_info,
-    enforce_single_file, # TODO: old. Use for Bunya only.
     handle_assembly_duplicates,
 )
 from src.utils.protein_utils import (
@@ -40,7 +44,7 @@ from src.utils.protein_utils import (
 from src.utils.dna_utils import summarize_dna_qc
 
 # Manual configs
-SEQ_COL_NAME = 'prot_seq'
+PROT_SEQ_COL_NAME = 'prot_seq'
 DNA_SEQ_COL_NAME = 'dna_seq'
 
 total_timer = Timer()
@@ -50,7 +54,7 @@ total_timer = Timer()
 # Combined GTO extraction
 # =============================================================================
 
-def get_data_from_gto(gto_file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def extract_data_from_gto(gto_file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Extract both protein and genome data from a single GTO file.
 
@@ -84,7 +88,7 @@ def get_data_from_gto(gto_file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     }
 
     # --- Protein extraction (from features) ---
-    fea_cols = ['id', 'type', 'function', 'protein_translation', 'location']
+    fea_cols = ['id', 'type', 'function', 'protein_translation', 'location', 'feature_quality']
     prot_rows = []
     for fea_dict in gto['features']:
         row = {k: fea_dict.get(k, None) for k in fea_cols}
@@ -119,6 +123,7 @@ def get_data_from_gto(gto_file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         genome_rows.append({
             'genbank_ctg_id': contig.get('id'),
             'replicon_type': contig.get('replicon_type', 'Unassigned'),
+            'contig_quality': contig.get('contig_quality'),
             'dna_seq': contig.get('dna'),
         })
 
@@ -160,8 +165,8 @@ def aggregate_data_from_gto_files(
     else:
         print(f"Processing all {len(gto_files)} files")
 
-    for fpath in tqdm(gto_files, desc='Aggregating protein + genome data from GTO files'):
-        prot, genome = get_data_from_gto(fpath)
+    for fpath in tqdm(gto_files, desc='Extracting protein + genome data from GTO files'):
+        prot, genome = extract_data_from_gto(fpath)
         prot_dfs.append(prot)
         genome_dfs.append(genome)
 
@@ -297,7 +302,7 @@ def analyze_protein_counts_per_file(
     # Analyze intra-file protein (function) duplicates in selected proteins across all files
     print(f"\nANALYZING INTRA-FILE DUPLICATES IN 'SELECTED' (PROTEIN) FUNCTIONS ACROSS ALL FILES:")
     print(f"   This detects FUNCTION-based duplicates (same protein function in same file)")
-    print(f"   Sequence-based duplicates are detected later in handle_duplicates()\n")
+    print(f"   Sequence-based duplicates are detected later in handle_protein_duplicates()\n")
     analyze_intra_file_function_duplicates(df, selected_functions, output_dir)
 
     return all_counts
@@ -404,28 +409,15 @@ def analyze_intra_file_function_duplicates(
 
 def assign_segment_using_core_proteins(
     prot_df: pd.DataFrame,
-    data_version: str = 'July_2025'
     ) -> pd.DataFrame:
-    """Assign canonical segments (1-8) based on core protein functions from config.
+    """Assign canonical_segment to proteins using core protein mappings.
 
-    Each Flu A genome segment (replicon) encodes distinct proteins:
-
-    1. Segment 1 -> PB2 (RNA-dependent RNA polymerase PB2 subunit)
-    2. Segment 2 -> PB1 (RNA-dependent RNA polymerase catalytic core PB1 subunit)
-    3. Segment 3 -> PA (RNA-dependent RNA polymerase PA subunit)
-    4. Segment 4 -> HA (Hemagglutinin precursor)
-    5. Segment 5 -> NP (Nucleocapsid protein)
-    6. Segment 6 -> NA (Neuraminidase protein)
-    7. Segment 7 -> M1 (Matrix protein 1)
-    8. Segment 8 -> NS1/NS2 (Non-structural proteins)
-
-    These core proteins are present in nearly all Flu A genomes.
-
-    We define canonical segment labels (1-8) by mapping known functions
-        to these segments.
-
-    Mapping is conditional: only apply if function and replicon type match
-        expected biological patterns.
+    Uses conditional_segment_mappings.core_proteins from the virus config,
+    which maps (function, replicon_type) pairs to canonical segments.
+    A canonical segment is only assigned when both the protein function and
+    the replicon_type match known biology — if a GTO record has an
+    unexpected combination (e.g., PB2 on Segment 3), the protein is left
+    unassigned. See conf/virus/flu.yaml for the full mapping table.
     """
     prot_df = prot_df.copy()
 
@@ -451,25 +443,14 @@ def assign_segment_using_core_proteins(
 
 def assign_segment_using_aux_proteins(
     prot_df: pd.DataFrame,
-    data_version: str = 'July_2025'
     ) -> pd.DataFrame:
-    """Assign canonical segments (1-8) based on auxiliary protein functions from config.
+    """Assign canonical_segment to proteins using auxiliary protein mappings.
 
-    Some additional protein functions are consistently matched with single
-    segment (replicon_type) across all isolates in our dataset.
-
-    These are non-structural proteins but can be mapped confidently:
-
-    - NS1, NS3 proteins -> Segment 8 -> assign as '8'
-    - M2 ion channel, M42 -> Segment 7 -> assign as '7'
-    - PA-X, PA-N155, PA-N182 -> Segment 3 -> assign as '3'
-    - PB1-F2, PB1-N40 -> Segment 2 -> assign as '2'
-    - PB2-S1 -> Segment 1 -> assign as '1'
-    - HA1, HA2 -> Segment 4 -> assign as '4'
-
-    Approach:
-    - Use auxiliary function-to-segment mapping for unassigned proteins.
-    - Do NOT assign segments if segment-function mapping is ambiguous.
+    Uses conditional_segment_mappings.aux_proteins from the virus config.
+    Same validation logic as core: only assigns when (function, replicon_type)
+    matches known biology. Only fills in proteins not already mapped by
+    assign_segment_using_core_proteins (i.e., canonical_segment is still NaN).
+    See conf/virus/flu.yaml for the full mapping table.
     """
     prot_df = prot_df.copy()
 
@@ -493,13 +474,35 @@ def assign_segment_using_aux_proteins(
     return prot_df
 
 
-def assign_segments(
+def assign_protein_segments(
     prot_df: pd.DataFrame,
-    data_version: str = 'July_2025',
     use_core: bool = True,
     use_aux: bool = True
     ) -> pd.DataFrame:
-    """Assign canonical segments using core and/or auxiliary proteins."""
+    """Assign canonical_segment to each protein row in prot_df.
+
+    Creates the 'canonical_segment' column (e.g., 'S1'...'S8') by matching
+    each protein's (function, replicon_type) pair against known biology from
+    the virus config. A segment is only assigned when both fields agree with
+    the expected mapping — records with inconsistent combinations are left
+    unassigned. Core proteins are mapped first, then auxiliary proteins fill
+    in any remaining unassigned rows.
+
+    This is the protein-side counterpart to assign_genome_segments(), which
+    uses the simpler replicon_type-only mapping (genomes have one contig per
+    segment, so no function-based validation is needed).
+
+    See conf/virus/flu.yaml conditional_segment_mappings for the full tables.
+
+    Args:
+        prot_df: DataFrame with protein data (must have 'function' and
+            'replicon_type' columns)
+        use_core: If True, assign segments using core protein mappings
+        use_aux: If True, assign segments using auxiliary protein mappings
+
+    Returns:
+        prot_df with 'canonical_segment' column added (NaN for unassigned)
+    """
     print(f"\n{'='*50}")
     print(f'Assign canonical segments using core and/or auxiliary proteins.')
     print('='*50)
@@ -508,10 +511,10 @@ def assign_segments(
     prot_df['canonical_segment'] = pd.NA  # Placeholder for canonical_segment
 
     if use_core:
-        prot_df = assign_segment_using_core_proteins(prot_df, data_version)
+        prot_df = assign_segment_using_core_proteins(prot_df)
 
     if use_aux:
-        prot_df = assign_segment_using_aux_proteins(prot_df, data_version)
+        prot_df = assign_segment_using_aux_proteins(prot_df)
 
     # Diagnostics
     print("\nCore and auxiliary protein segment mappings:")
@@ -530,7 +533,7 @@ def assign_segments(
     return prot_df
 
 
-def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
+def apply_protein_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     """Apply basic filters to protein data."""
     print(f"\n{'='*50}")
     print(f'Apply basic filters to protein data.')
@@ -550,7 +553,9 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     print(f'Remaining prot_df:       {prot_df.shape}')
     non_cds.to_csv(output_dir / 'protein_non_cds.csv', sep=',', index=False)
 
-    # Drop poor quality
+    # Drop poor quality (genome-level quality)
+    # TODO: Also consider filtering by feature_quality (per-protein quality from GTO)
+    #       which may catch poor individual proteins in otherwise good assemblies.
     poor_df = prot_df[prot_df['quality'] == 'Poor']
     prot_df = prot_df[prot_df['quality'] != 'Poor'].reset_index(drop=True)
     print(f'\nDropped Poor quality samples: {poor_df.shape}')
@@ -567,7 +572,7 @@ def apply_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     return prot_df
 
 
-def handle_duplicates(
+def handle_protein_duplicates(
     prot_df: pd.DataFrame,
     print_eda: bool = False
     ) -> pd.DataFrame:
@@ -589,16 +594,16 @@ def handle_duplicates(
         # Get all duplicate protein sequences
         print(f'\nprot_df: {prot_df.shape}')
         prot_dups = (
-            prot_df[prot_df.duplicated(subset=[SEQ_COL_NAME], keep=False)]
-            .sort_values(SEQ_COL_NAME)
+            prot_df[prot_df.duplicated(subset=[PROT_SEQ_COL_NAME], keep=False)]
+            .sort_values(PROT_SEQ_COL_NAME)
             .reset_index(drop=True).copy()
         )
-        print(f"Duplicates on '{SEQ_COL_NAME}': {prot_dups.shape}")
+        print(f"Duplicates on '{PROT_SEQ_COL_NAME}': {prot_dups.shape}")
         print(prot_dups[:4][['file', 'assembly_id', 'genbank_ctg_id',
             'replicon_type', 'brc_fea_id', 'function', 'canonical_segment']])
 
         print(f'\nCount how many unique files contain each duplicated sequence:')
-        dup_counts = prot_dups.groupby(SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
+        dup_counts = prot_dups.groupby(PROT_SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
         print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
         def explore_groupby(df, columns):
@@ -607,17 +612,17 @@ def handle_duplicates(
 
             for keys, grp in grouped:
                 print('\nDuplicate group (rows with this seq):')
-                print(grp[:4][[SEQ_COL_NAME, 'file', 'assembly_id', 'genbank_ctg_id',
+                print(grp[:4][[PROT_SEQ_COL_NAME, 'file', 'assembly_id', 'genbank_ctg_id',
                     'replicon_type', 'brc_fea_id', 'function']])
                 break  # remove this to loop over more groups
             return grp
 
-        explore_groupby(prot_dups, SEQ_COL_NAME)
+        explore_groupby(prot_dups, PROT_SEQ_COL_NAME)
 
         # Expand dup_counts to include more info
         dup_stats = (
-            prot_dups.groupby(SEQ_COL_NAME).agg(
-                num_occurrences=(SEQ_COL_NAME, 'count'),
+            prot_dups.groupby(PROT_SEQ_COL_NAME).agg(
+                num_occurrences=(PROT_SEQ_COL_NAME, 'count'),
                 num_files=('file', 'nunique'),
                 num_functions=('function', 'nunique'),
                 num_replicons=('replicon_type', 'nunique'),
@@ -636,7 +641,7 @@ def handle_duplicates(
         )
     # EDA end ------------------------------------------------
 
-    # Handle assembly duplicates (replaces enforce_single_file for Flu A)
+    # Handle assembly duplicates (replaces enforce_single_file() for Flu A)
     print("\nHandle assembly duplicates.")
     print(f'prot_df before: {prot_df.shape}')
     prot_df, dup_summary = handle_assembly_duplicates(prot_df)
@@ -882,7 +887,9 @@ def apply_genome_basic_filters(
     if not unassigned.empty:
         unassigned.to_csv(output_dir / 'genome_unassigned_segments.csv', sep=',', index=False)
 
-    # Drop poor quality
+    # Drop poor quality (genome-level quality)
+    # TODO: Also consider filtering by contig_quality (per-contig quality from GTO)
+    #       which may catch poor individual segments in otherwise good assemblies.
     poor = genome_df[genome_df['quality'] == 'Poor']
     genome_df = genome_df[genome_df['quality'] != 'Poor'].reset_index(drop=True)
     print(f'\nDropped Poor quality: {poor.shape}')
@@ -1044,7 +1051,7 @@ else:
         max_files=MAX_FILES_TO_PREPROCESS,
         random_seed=RANDOM_SEED
     )
-    print(f'   Processed {len(prot_df)} protein records and {len(genome_df)} genome records from GTO files')
+    print(f'   Extracted {len(prot_df)} protein records and {len(genome_df)} genome records from GTO files')
 
     # Handle mixed encoding in 'location' column (protein-specific)
     ss = prot_df['location'].copy()
@@ -1061,7 +1068,7 @@ else:
 print(f'\nprot_df:   {prot_df.shape}')
 print(f'genome_df: {genome_df.shape}')
 
-prot_df_no_seq = prot_df[prot_df[SEQ_COL_NAME].isna()]
+prot_df_no_seq = prot_df[prot_df[PROT_SEQ_COL_NAME].isna()]
 print(f'Records with missing protein seq: {prot_df_no_seq.shape if not prot_df_no_seq.empty else 0}')
 prot_df_no_seq.to_csv(output_dir / 'protein_agg_from_GTO_missing_seqs.csv', sep=',', index=False)
 
@@ -1102,14 +1109,14 @@ protein_counts_per_file = analyze_protein_counts_per_file(
 )
 # EDA end ----------------------------------------
 
-# Assign segments
-prot_df = assign_segments(prot_df, data_version=DATA_VERSION, use_core=True, use_aux=True)
+# Assign protein segments
+prot_df = assign_protein_segments(prot_df, use_core=True, use_aux=True)
 
-# Basic filters
-prot_df = apply_basic_filters(prot_df)
+# Basic protein filters
+prot_df = apply_protein_basic_filters(prot_df)
 
-# Handle duplicates
-prot_df = handle_duplicates(prot_df, print_eda=False)
+# Handle protein duplicates
+prot_df = handle_protein_duplicates(prot_df, print_eda=False)
 
 # Analyze sequence duplicates for pair classification
 # analyze_sequence_duplicates_for_pair_classification(prot_df, output_dir=output_dir)
@@ -1122,7 +1129,7 @@ org_cols = prot_df.columns
 prot_df = analyze_protein_ambiguities(prot_df)
 ambig_cols = [c for c in prot_df.columns if c not in org_cols]
 ambig_df = prot_df[prot_df['has_ambiguities'] == True]
-ambig_df = ambig_df[['assembly_id', 'brc_fea_id', SEQ_COL_NAME] + ambig_cols]
+ambig_df = ambig_df[['assembly_id', 'brc_fea_id', PROT_SEQ_COL_NAME] + ambig_cols]
 cols_print = ['assembly_id', 'brc_fea_id'] + ambig_cols
 print(f'Protein sequences with ambiguous chars: {ambig_df.shape[0]}')
 print(ambig_df[cols_print])
@@ -1173,11 +1180,11 @@ print(f"\n{'='*50}")
 print("Final duplicate counts.")
 print('='*50)
 prot_dups = (
-    prot_df[prot_df.duplicated(subset=[SEQ_COL_NAME], keep=False)]
-    .sort_values(SEQ_COL_NAME)
+    prot_df[prot_df.duplicated(subset=[PROT_SEQ_COL_NAME], keep=False)]
+    .sort_values(PROT_SEQ_COL_NAME)
     .reset_index(drop=True)
 )
-dup_counts = prot_dups.groupby(SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
+dup_counts = prot_dups.groupby(PROT_SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
 print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
 # Save final protein data
@@ -1188,7 +1195,7 @@ print('='*50)
 prot_df.to_csv(output_dir / 'protein_final.csv', sep=',', index=False)
 prot_df.to_parquet(output_dir / 'protein_final.parquet', index=False)
 print(f'prot_df final: {prot_df.shape}')
-print(f"Unique protein sequences: {prot_df[SEQ_COL_NAME].nunique()}")
+print(f"Unique protein sequences: {prot_df[PROT_SEQ_COL_NAME].nunique()}")
 aa = print_replicon_func_count(prot_df, more_cols=['canonical_segment'])
 aa.to_csv(output_dir / 'protein_final_segment_mappings_stats.csv', sep=',', index=False)
 print(prot_df['canonical_segment'].value_counts())
@@ -1245,7 +1252,7 @@ save_experiment_metadata(
     script_name=Path(__file__).name,
     additional_info={
         'total_proteins_processed': len(prot_df),
-        'unique_protein_sequences': prot_df[SEQ_COL_NAME].nunique(),
+        'unique_protein_sequences': prot_df[PROT_SEQ_COL_NAME].nunique(),
         'total_genome_segments_processed': len(genome_df),
         'unique_genome_sequences': genome_df[DNA_SEQ_COL_NAME].nunique(),
         'unique_files': prot_df['file'].nunique(),
@@ -1265,7 +1272,7 @@ save_experiment_summary(
         'Preprocessing seed': RANDOM_SEED,
         'Selected functions': selected_functions,
         'Total proteins processed': len(prot_df),
-        'Unique protein sequences': prot_df[SEQ_COL_NAME].nunique(),
+        'Unique protein sequences': prot_df[PROT_SEQ_COL_NAME].nunique(),
         'Total genome segments processed': len(genome_df),
         'Unique genome sequences': genome_df[DNA_SEQ_COL_NAME].nunique(),
         'Unique files processed': prot_df['file'].nunique(),
