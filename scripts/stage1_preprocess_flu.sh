@@ -30,7 +30,7 @@ done
 
 # --- Logging ---
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_DIR="$PROJECT_ROOT/logs/preprocessing"
+LOG_DIR="$PROJECT_ROOT/logs/preprocess"
 LOG_FILE="$LOG_DIR/preprocess_flu_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 mkdir -p "$LOG_DIR"
 
