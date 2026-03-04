@@ -1,0 +1,8 @@
+# STATUS: experimental (debug/dev runs only)
+# Debug bundle for stepping through preprocess_flu.py with a small subset of files.
+
+defaults:
+  - flu
+  - _self_
+
+run_suffix: _debug
