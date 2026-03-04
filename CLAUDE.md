@@ -16,6 +16,16 @@ At the start of each session:
    Read: .claude/memory.md (in the repo root)
    This machine-local file is no longer updated.
    ```
+3. Check `docs/plans/` for any in-progress plans (status != IMPLEMENTED).
+   If found, read the plan and offer to resume implementation.
+
+### Plans directory (`docs/plans/`)
+
+Plans are saved in the repo (not machine-local `~/.claude/`) for cross-machine portability.
+When creating a plan during plan mode, save it to `docs/plans/<descriptive_name>_plan.md` before
+starting implementation. Mark the plan's status at the top:
+- `**Status: IN PROGRESS**` — plan approved, implementation underway
+- `**Status: IMPLEMENTED**` — implementation complete
 
 ---
 
@@ -95,7 +105,7 @@ src/
     preprocess_flu_protein.py       # Stage 1: GTO → protein_final.csv
     flu_genomes_eda.py              # Generates flu_genomes_metadata_parsed.csv (run once)
     preprocess_bunya_protein.py     # Bunya preprocessing (NOT actively maintained)
-    preprocess_bunya_dna.py         # DNA preprocessing template (in development; will become preprocess_flu_dna.py)
+    preprocess_bunya_genome.py      # Bunya genome preprocessing (NOT actively maintained; renamed from preprocess_bunya_dna.py)
   embeddings/
     compute_esm2_embeddings.py      # Stage 2: sequences → ESM-2 HDF5 cache
   datasets/
@@ -141,7 +151,7 @@ Priority experiments for publication:
 1. **Cross-validation** (N splits, mean ± std metrics) — needs `fold_id`/`n_folds` in dataset config + job array
 2. **Large dataset** (full Flu A, ~100K isolates) — HPC required (Polaris)
 3. **Temporal holdout** (train 2021–2023, test 2024) — `year_train`/`year_test` config fields
-4. **Genome features** (k-mers + LightGBM, then GenSLM) — start from `preprocess_bunya_dna.py`
+4. **Genome features** (k-mers + XGBoost/LightGBM, then GenSLM) — unified `preprocess_flu.py` planned
 5. **PB2/PB1 + H3N2 bundle** — trivial; one new bundle
 6. **Accuracy vs genetic distance** — needs clade metadata from BV-BRC
 
@@ -164,9 +174,9 @@ Priority experiments for publication:
 
 ## What Is In Development (Not Yet Production)
 
-- `src/preprocess/preprocess_bunya_dna.py` — template for `preprocess_flu_dna.py` (DNA k-mer pipeline)
 - `src/utils/dna_utils.py` — DNA sequence QC utilities
-- Cross-validation support (`fold_id`/`n_folds` in dataset config)
+- Unified Flu preprocessing (`preprocess_flu.py` — protein + genome extraction in one pass)
+- Genome featurization (`compute_kmer_features.py` — k-mer extraction, analogous to ESM-2 stage)
 - Temporal holdout split logic (`year_train`/`year_test`)
 
 ---
@@ -217,3 +227,4 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 - **Seed system**: Hierarchical — `master_seed` derives all process seeds. See `docs/SEED_SYSTEM.md`.
 - **Metrics**: F1, AUC-ROC, Brier score. Val imbalance is intentional (realistic); train is balanced.
 - **Proteins**: `preprocess_flu_protein.py` maps GTO replicon functions to standard protein names (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP).
+- **Log messages**: No emojis in print/log output. Use text prefixes instead: `ERROR:` (fatal, script will raise/exit), `WARNING:` (non-fatal but noteworthy), `Done.` (success). Decorative emojis (`📊`, `🔍`, etc.) should be removed — the surrounding text is sufficient.

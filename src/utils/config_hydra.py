@@ -6,6 +6,8 @@ hierarchical configuration management with easy switching between different
 virus configurations and training parameters.
 """
 
+import warnings
+
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
@@ -223,7 +225,22 @@ def save_config(config: DictConfig, output_path: str):
 
 
 def get_core_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]:
-    """Get core function to segment mapping for the current virus config."""
+    """Get core function to segment mapping for the current virus config.
+
+    .. deprecated::
+        This function uses ``config.virus.segment_mapping`` (a simple
+        function → segment dict) which cannot represent the M1/M2 and NEP
+        cases where the same segment hosts multiple proteins.  All active
+        preprocessing now uses ``config.virus.conditional_segment_mappings``
+        instead.  This function is retained for backward compatibility but
+        should not be used in new code.
+    """
+    warnings.warn(
+        "get_core_function_segment_mapping() is DEPRECATED. "
+        "Use config.virus.conditional_segment_mappings.core_proteins instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     mappings = []
     segment_mapping = config.virus.segment_mapping
     core_functions = config.virus.core_functions
@@ -242,7 +259,22 @@ def get_core_function_segment_mapping(config: DictConfig) -> list[dict[str, str]
 
 
 def get_aux_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]:
-    """Get auxiliary function to segment mapping for the current virus config."""
+    """Get auxiliary function to segment mapping for the current virus config.
+
+    .. deprecated::
+        This function uses ``config.virus.segment_mapping`` (a simple
+        function → segment dict) which cannot represent the M1/M2 and NEP
+        cases where the same segment hosts multiple proteins.  All active
+        preprocessing now uses ``config.virus.conditional_segment_mappings``
+        instead.  This function is retained for backward compatibility but
+        should not be used in new code.
+    """
+    warnings.warn(
+        "get_aux_function_segment_mapping() is DEPRECATED. "
+        "Use config.virus.conditional_segment_mappings.aux_proteins instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     mappings = []
     segment_mapping = config.virus.segment_mapping
     aux_functions = config.virus.aux_functions

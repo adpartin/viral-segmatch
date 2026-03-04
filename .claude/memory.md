@@ -39,7 +39,7 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 
 ## Roadmap (02/10/2026 meeting) -- for publication
 1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- IMPLEMENTED (branch: feature/cross-validation)
-2. Genome features (k-mers + XGBoost; start from preprocess_bunya_dna.py -> preprocess_flu_dna.py)
+2. Genome features (k-mers + XGBoost/LightGBM, then GenSLM) -- IN PROGRESS (branch: feature/genome-preprocessing)
 3. Large dataset (full Flu A ~100K isolates, HPC)
 4. Temporal holdout (year_train/year_test config fields)
 5. PB2/PB1 + H3N2 bundle (trivial, one new bundle)
@@ -55,8 +55,9 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - `old_scripts/`, `src/preprocess/preprocess_bunya_protein.py`, `conf/bundles/bunya.yaml`
 
 ## In Development
-- `src/preprocess/preprocess_bunya_dna.py` -- template for preprocess_flu_dna.py
-- `src/utils/dna_utils.py` -- DNA QC utilities
+- Unified Flu preprocessing (`preprocess_flu.py`) -- see docs/genome_pipeline_design.md
+- Genome featurization (`compute_kmer_features.py`) -- Stage 2b, analogous to ESM-2 embeddings
+- `src/utils/dna_utils.py` -- DNA QC utilities (summarize_dna_qc complete, clean_dna_sequences untested)
 - Temporal holdout split logic (year_train/year_test)
 
 ## HPC

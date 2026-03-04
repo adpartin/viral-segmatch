@@ -77,7 +77,7 @@ This document summarizes the experiments decided in the 02/10/2026 meeting, ALCF
 **HPC fit:** Medium. k-mer + tree models: moderate compute, can run on Polaris. GenSLM: GPU-heavy, may need Polaris or Aurora.
 
 **Implementation notes:**
-- **preprocess_bunya_dna.py** is the template. Create `preprocess_flu_dna.py` (or `preprocess_flu_genome.py`) for Flu A.
+- **preprocess_bunya_genome.py** (renamed from `preprocess_bunya_dna.py`) is the template. Create unified `preprocess_flu.py` that extracts both protein and genome data. See `docs/genome_pipeline_design.md` for full design.
 - **Data format for k-mers + XGBoost/LightGBM:**
   - Per-segment k-mer counts (or TF-IDF) → feature matrix.
   - Pair representation: concatenate k-mer vectors for (seg_a, seg_b), or use a siamese-style setup.
