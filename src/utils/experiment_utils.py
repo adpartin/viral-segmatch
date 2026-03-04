@@ -111,7 +111,7 @@ def save_experiment_metadata(
     with open(metadata_file, 'w') as f:
         json.dump(metadata, f, indent=2, default=str)
     
-    print(f"💾 Saved experiment metadata to: {metadata_file}")
+    print(f"Saved experiment metadata to: {metadata_file}")
     return metadata_file
 
 
@@ -166,7 +166,7 @@ def save_experiment_summary(
             else:
                 f.write(f"{key}: {value}\n")
     
-    print(f"📋 Saved experiment summary to: {summary_file}")
+    print(f"Saved experiment summary to: {summary_file}")
     return summary_file
 
 

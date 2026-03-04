@@ -55,7 +55,7 @@ def enforce_single_file(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
     This function was designed for Bunyavirales data where the same assembly_id
     may appear in both GCA_* and GCF_* files. It preferentially keeps GCF_* versions.
     
-    ⚠️  WARNING: This function assumes:
+    WARNING: This function assumes:
     - Files are named with GCA_/GCF_ prefixes
     - Only file-level duplicates exist (not intra-file duplicates)
     - After file selection, no duplicates remain on ['prot_seq', 'assembly_id']
@@ -115,7 +115,7 @@ def enforce_single_file(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame
     
     if not remaining_dups.empty:
         # For Flu A data, this is expected and we need to handle it differently
-        print(f"⚠️  Found {len(remaining_dups)} remaining duplicates after (GCF/GCA) file selection")
+        print(f"WARNING: Found {len(remaining_dups)} remaining duplicates after (GCF/GCA) file selection")
         print(f"   This may indicate intra-file duplicates (same sequence in same file)")
         print(f"   Attempting to resolve by keeping first occurrence...")
         
@@ -152,7 +152,7 @@ def handle_assembly_duplicates(
     Returns:
         tuple: (cleaned_df, removed_duplicates_df)
     """
-    print(f"🔍 Analyzing duplicates on ['{seq_col_name}', 'assembly_id']")
+    print(f"Analyzing duplicates on ['{seq_col_name}', 'assembly_id']")
     
     # Find all duplicates
     dup_cols = [seq_col_name, 'assembly_id']
@@ -163,10 +163,10 @@ def handle_assembly_duplicates(
     )
 
     if all_dups.empty:
-        print("✅ No duplicates found")
+        print("No duplicates found")
         return df, pd.DataFrame()
 
-    print(f"📊 Found {len(all_dups)} duplicate records across "
+    print(f"Found {len(all_dups)} duplicate records across "
           f"{all_dups['assembly_id'].nunique()} assemblies")
 
     # Analyze duplicate types and build cleaned dataframe in one pass
@@ -218,7 +218,7 @@ def handle_assembly_duplicates(
     selected_dup_mask = df.index.isin(keep_indices)
     cleaned_df = df[non_dup_mask | selected_dup_mask].copy()
 
-    print(f"📈 Duplicate resolution summary:")
+    print(f"Duplicate resolution summary:")
     print(f"   - Different files: {len(dup_summary_df[dup_summary_df['duplicate_type'] == 'different_files'])}")
     print(f"   - Same file: {len(dup_summary_df[dup_summary_df['duplicate_type'] == 'same_file'])}")
     print(f"   - Kept: {len(dup_summary_df[dup_summary_df['action_taken'] == 'kept'])}")

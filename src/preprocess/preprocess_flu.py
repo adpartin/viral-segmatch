@@ -10,6 +10,8 @@ See docs/genome_pipeline_design.md for design decisions.
 Example:
 ```bash
 python src/preprocess/preprocess_flu.py --config_bundle flu_debug --max_files_to_preprocess 10
+or
+python src/preprocess/preprocess_flu.py --config_bundle flu
 ```
 """
 import argparse
