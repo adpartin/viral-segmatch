@@ -1,8 +1,58 @@
 """
 Utility functions for DNA/RNA sequence processing.
 
-TODO
-1. Finish and test these funcs, especially clean_dna_sequences
+DNA Ambiguity Codes (IUPAC)
+---------------------------
+DNA sequences from BV-BRC (and other databases) may contain IUPAC ambiguity
+codes representing positions where the sequencer could not determine the exact
+base. The standard (unambiguous) DNA alphabet is {A, C, G, T}. The IUPAC
+ambiguity codes are:
+
+    Two-base codes:
+        R = A or G      (puRine)
+        Y = C or T      (pYrimidine)
+        S = G or C      (Strong — 3 hydrogen bonds)
+        W = A or T      (Weak — 2 hydrogen bonds)
+        K = G or T      (Keto)
+        M = A or C      (aMino)
+
+    Three-base codes:
+        B = C, G, or T  (not A)
+        D = A, G, or T  (not C)
+        H = A, C, or T  (not G)
+        V = A, C, or G  (not T)
+
+    Fully ambiguous:
+        N = A, C, G, or T (aNy base — most common in practice)
+
+In Flu A genomes from BV-BRC, N is by far the most prevalent ambiguity code
+(representing general sequencing uncertainty). The two- and three-base codes
+are much rarer.
+
+Current implementation
+----------------------
+summarize_dna_qc() records per-sequence:
+  - ambig_count: total number of non-ACGT characters (all IUPAC codes pooled)
+  - ambig_frac:  ambig_count / sequence length
+  - length:      sequence length
+  - gc_content:  (G + C) / sequence length
+
+This is analogous to protein_utils.analyze_protein_ambiguities(), but less
+detailed: proteins get per-residue-type breakdowns (X, B, Z, *, etc.) while
+DNA currently lumps all ambiguity codes into a single count.
+
+TODOs
+-----
+1. Add per-code breakdown (like analyze_protein_ambiguities does for proteins):
+   count each IUPAC code separately (N, R, Y, etc.) so downstream consumers
+   can distinguish "mostly Ns" from "many two-base ambiguities."
+2. Finish and test clean_dna_sequences.
+3. Consider impact on k-mer features: compute_kmer_features.py silently skips
+   any k-mer window containing a non-ACGT character. A single ambiguous base
+   at position i causes k windows (positions i-k+1 through i) to be dropped.
+   For k=6, one N removes 6 k-mers from the count. With raw counts (normalize
+   = 'none'), high-ambiguity sequences will have artificially lower totals.
+   L1 normalization corrects for this (converts to frequencies).
 """
 import pandas as pd
 

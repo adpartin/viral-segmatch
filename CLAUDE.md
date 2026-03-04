@@ -227,3 +227,4 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 - **Seed system**: Hierarchical — `master_seed` derives all process seeds. See `docs/SEED_SYSTEM.md`.
 - **Metrics**: F1, AUC-ROC, Brier score. Val imbalance is intentional (realistic); train is balanced.
 - **Proteins**: `preprocess_flu_protein.py` maps GTO replicon functions to standard protein names (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP).
+- **Log messages**: No emojis in print/log output. Use text prefixes instead: `ERROR:` (fatal, script will raise/exit), `WARNING:` (non-fatal but noteworthy), `Done.` (success). Decorative emojis (`📊`, `🔍`, etc.) should be removed — the surrounding text is sufficient.
