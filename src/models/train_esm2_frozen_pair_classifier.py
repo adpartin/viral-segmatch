@@ -9,6 +9,7 @@ Requirements:
   Both files must be in the same directory and are created together by compute_esm2_embeddings.py
 """
 import argparse
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -1247,5 +1248,31 @@ if EVAL_SWAPPED_TEST:
     print(f'\nSave swapped-test predictions to: {swapped_preds_file}')
     swapped_test_res_df.to_csv(swapped_preds_file, index=False)
 
-print(f'\n✅ Finished {Path(__file__).name}!')
+# Save training provenance
+training_info = {
+    'config_bundle': config_bundle,
+    'dataset_dir': str(dataset_dir),
+    'embeddings_file': str(embeddings_file),
+    'feature_source': FEATURE_SOURCE,
+    'interaction': INTERACTION_SPEC,
+    'pre_mlp_mode': PRE_MLP_MODE,
+    'hidden_dims': list(HIDDEN_DIMS) if HIDDEN_DIMS else None,
+    'dropout': DROPOUT,
+    'batch_size': BATCH_SIZE,
+    'learning_rate': LEARNING_RATE,
+    'patience': PATIENCE,
+    'epochs': EPOCHS,
+    'early_stopping_metric': EARLY_STOPPING_METRIC,
+    'threshold_metric': THRESHOLD_METRIC,
+    'optimal_threshold': optimal_threshold,
+    'seed': RANDOM_SEED,
+    'cuda_device': CUDA_NAME,
+    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+}
+training_info_file = output_dir / 'training_info.json'
+with open(training_info_file, 'w') as f:
+    json.dump(training_info, f, indent=2)
+print(f'\nSaved training provenance to: {training_info_file}')
+
+print(f'\nFinished {Path(__file__).name}!')
 total_timer.display_timer()
