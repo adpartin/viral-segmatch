@@ -57,3 +57,6 @@ not learned representations). A name like `src/featurize/` or `src/features/` wo
 reflect that this directory contains Stage 2 scripts that convert raw sequences into numerical
 feature vectors — regardless of whether the method is a pretrained model (ESM-2) or a
 counting procedure (k-mers). Would also need to update imports, CLAUDE.md, and shell scripts.
+
+Similarly, `conf/embeddings/` (currently just `default.yaml` for ESM-2 settings) should be
+renamed to `conf/featurize/` or `conf/features/` for consistency. Do both renames together.
