@@ -162,7 +162,7 @@ Only the feature loading and concatenation changes.
 
 1. Rename `preprocess_bunya_dna.py` -> `preprocess_bunya_genome.py` (done)
 2. Create `preprocess_flu.py` (unified protein + genome extraction)
-3. Create `compute_kmer_features.py` (Stage 2b)
+3. Create `compute_kmer_features.py` (Stage 2b) (done)
 4. Update `dataset_segment_pairs.py` to support `feature_sources` config
-5. Create k-mer + MLP training script (or extend existing trainer)
+5. Create k-mer + MLP training script (or extend existing trainer) (done — integrated into train_esm2_frozen_pair_classifier.py via feature_source=kmer)
 6. Create k-mer + XGBoost/LightGBM training script

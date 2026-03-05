@@ -69,6 +69,11 @@ Shell wrappers: `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/
 
 There is no stage1 shell script; preprocessing is run directly.
 
+**Stage 3/4 decoupling**: Stage 4's shell script requires `--dataset_dir` explicitly and
+does not extract or validate a bundle name from the dataset path. This allows running
+Stage 3 once and Stage 4 multiple times with different training bundles against the same
+dataset. Provenance is tracked via `training_info.json` saved in the training output dir.
+
 ---
 
 ## Configuration System
@@ -108,6 +113,7 @@ src/
     preprocess_bunya_genome.py      # Bunya genome preprocessing (NOT actively maintained; renamed from preprocess_bunya_dna.py)
   embeddings/
     compute_esm2_embeddings.py      # Stage 2: sequences → ESM-2 HDF5 cache
+    compute_kmer_features.py        # Stage 2b: DNA → k-mer sparse matrix
   datasets/
     dataset_segment_pairs.py        # Stage 3: pairs + train/val/test splits
   models/
@@ -130,6 +136,7 @@ src/
     learning_verification_utils.py  # Karpathy-style sanity checks
     plot_config.py                  # Colors, protein name mapping
     gto_utils.py, protein_utils.py, path_utils.py, timer_utils.py
+    kmer_utils.py                   # Load k-mer features, pair construction
     dna_utils.py                    # DNA QC utilities (in development)
     dim_reduction_utils.py          # PCA/UMAP wrappers
 ```
@@ -142,6 +149,7 @@ src/
 - **LayerNorm (`slot_norm`) is critical for homogeneous subsets**: Without it, raw HA/NA embeddings live in slightly different subspaces; `unit_diff` then picks up slot offset rather than biological signal.
 - **Delayed learning on H3N2 + unit_diff**: Characteristic plateau-then-breakthrough (~epochs 10–32, seed-dependent). Increase `patience` to 40+ for H3N2-only runs.
 - **High FP rate on filtered datasets**: Likely due to subtype/host confounders in negative pairs. Hypothesis: model learns "same population" rather than "same isolate." Hard negatives or strict metadata filtering can test this.
+- **K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA**: AUC 0.982 vs 0.966–0.975. Both interactions work with k-mers; performance gap narrows vs ESM-2.
 
 ---
 
@@ -176,7 +184,6 @@ Priority experiments for publication:
 
 - `src/utils/dna_utils.py` — DNA sequence QC utilities
 - Unified Flu preprocessing (`preprocess_flu.py` — protein + genome extraction in one pass)
-- Genome featurization (`compute_kmer_features.py` — k-mer extraction, analogous to ESM-2 stage)
 - Temporal holdout split logic (`year_train`/`year_test`)
 
 ---

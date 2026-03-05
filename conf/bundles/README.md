@@ -25,6 +25,8 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
                                 flu_schema_raw_slot_norm_unit_diff.yaml ──► _h3n2, _human, _illinois, _2024
                                 flu_schema_raw_slot_norm_concat.yaml    ──► _h3n2, _human, _illinois, _2024
                                 flu_schema_raw_none_unit_diff.yaml      ──► _h3n2
+                                flu_schema_raw_kmer_k6_slot_norm_unit_diff.yaml
+                                flu_schema_raw_kmer_k6_slot_norm_concat.yaml
                                 flu_schema_raw_slot.yaml
                                 flu_schema_raw_shared.yaml
                                 flu_schema_raw_adapter.yaml
@@ -48,6 +50,8 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
 | `flu_schema_raw_slot_norm_concat_human` | HA, NA | Human | slot_norm | concat | |
 | `flu_schema_raw_slot_norm_concat_illinois` | HA, NA | Illinois | slot_norm | concat | |
 | `flu_schema_raw_slot_norm_concat_2024` | HA, NA | year=2024 | slot_norm | concat | |
+| `flu_schema_raw_kmer_k6_slot_norm_unit_diff` | HA, NA | none | slot_norm | unit_diff | K-mer (k=6) baseline; feature_source=kmer |
+| `flu_schema_raw_kmer_k6_slot_norm_concat` | HA, NA | none | slot_norm | concat | K-mer + concat comparison |
 | `flu_pb2_pb1_pa_5ks` | PB2, PB1, PA | none | — | — | Conserved segments; paper result |
 | `flu_pb2_ha_na_5ks` | PB2, HA, NA | none | — | — | Mixed segments; paper result |
 

@@ -36,10 +36,11 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - LayerNorm (`slot_norm`) critical for homogeneous subsets
 - Delayed learning on H3N2 + unit_diff: increase patience to 40+
 - High FP rate on filtered datasets (year/host/geo) -- likely population-level confounders
+- K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA (AUC 0.982 vs 0.966-0.975)
 
 ## Roadmap (02/10/2026 meeting) -- for publication
 1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- IMPLEMENTED (branch: feature/cross-validation)
-2. Genome features (k-mers + XGBoost/LightGBM, then GenSLM) -- IN PROGRESS (branch: feature/genome-preprocessing)
+2. Genome features (k-mers + XGBoost/LightGBM, then GenSLM) -- PARTIAL -- k-mer + MLP baseline done; XGBoost/LightGBM still TODO
 3. Large dataset (full Flu A ~100K isolates, HPC)
 4. Temporal holdout (year_train/year_test config fields)
 5. PB2/PB1 + H3N2 bundle (trivial, one new bundle)
@@ -56,7 +57,6 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 
 ## In Development
 - Unified Flu preprocessing (`preprocess_flu.py`) -- see docs/genome_pipeline_design.md
-- Genome featurization (`compute_kmer_features.py`) -- Stage 2b, analogous to ESM-2 embeddings
 - `src/utils/dna_utils.py` -- DNA QC utilities (summarize_dna_qc complete, clean_dna_sequences untested)
 - Temporal holdout split logic (year_train/year_test)
 
@@ -97,6 +97,13 @@ Hydra's package resolution double-nests inherited configs from subdirs, breaking
 ### Next steps for CV
 - Run dry run: `python scripts/run_cv_lambda.py --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --dry_run`
 - Run full CV: `python scripts/run_cv_lambda.py --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --gpus 0 1 2 3 4`
+
+## Stage 3/4 Decoupling (IMPLEMENTED — branch: feature/decouple-dataset-training)
+- `stage4_train.sh` requires `--dataset_dir` explicitly; no bundle extraction from path
+- `--allow_bundle_mismatch` flag removed (no longer needed)
+- Training script saves `training_info.json` with full provenance (config_bundle, dataset_dir, HPs)
+- Both shell scripts slimmed to ~60-100 lines matching the lean stage1/stage2b pattern
+- Workflow: Stage 3 once → Stage 4 N times with different training bundles
 
 ## What's Next
 - Debug/test cross-validation end-to-end (see CV section above)
