@@ -14,7 +14,6 @@ import pandas as pd
 
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
-# print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
