@@ -21,6 +21,9 @@ pre_mlp_mode: none  # none | shared | slot_specific | shared_adapter | slot_norm
 pre_mlp_dims: null  # e.g., [1280, 512, 256] this is the dimension of the pre-MLP output
 adapter_dims: null  # e.g., [128] this is the dimension of the adapter output
 
+# Feature source: which precomputed features to use
+feature_source: esm2  # esm2 | kmer
+
 # Interaction spec: which features to compute from (emb_a, emb_b)
 interaction: concat  # concat | diff | prod | unit_diff | concat+unit_diff | etc.
 

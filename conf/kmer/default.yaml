@@ -1,0 +1,3 @@
+# Default k-mer feature configuration
+k: 6          # k-mer size (4^k dimensions: k=6 → 4096, k=10 → 1048576)
+normalize: none  # Normalization: 'none' (raw counts), 'l1' (frequency), 'l2' (unit vector)
