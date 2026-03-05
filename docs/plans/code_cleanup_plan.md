@@ -60,3 +60,19 @@ counting procedure (k-mers). Would also need to update imports, CLAUDE.md, and s
 
 Similarly, `conf/embeddings/` (currently just `default.yaml` for ESM-2 settings) should be
 renamed to `conf/featurize/` or `conf/features/` for consistency. Do both renames together.
+
+---
+
+## 5. Revisit Stage 4 training script naming / structure
+
+**Files**: `src/models/train_esm2_frozen_pair_classifier.py`
+
+The script now supports multiple feature sources (ESM-2, k-mer) via `config.training.feature_source`,
+so the name `train_esm2_frozen_pair_classifier.py` is misleading. Two options to discuss:
+
+- **Rename** to something general like `train_pair_classifier.py` (the script already handles
+  both feature types through the same MLP architecture).
+- **Keep as-is** for MLP-based training and create a separate script for tree-based models
+  (XGBoost/LightGBM) that would be used with large-k k-mers (k=10, 1M-dim features).
+
+Decision depends on whether we want one training entry point or separate scripts per model family.
