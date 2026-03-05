@@ -121,14 +121,11 @@ from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
-# import matplotlib.pyplot as plt
-# import seaborn as sns
 from sklearn.model_selection import train_test_split
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
-# print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
@@ -235,8 +232,7 @@ def create_positive_pairs(
     1. Deduplication across isolates (same sequences in different isolates)
     2. Preventing data leakage during train/test split
     """
-    # np.random.seed(seed)
-    # random.seed(seed)
+    # Seeding is handled upstream by set_deterministic_seeds() in the CLI section.
     isolates = df.groupby('assembly_id')
 
     pos_pairs = []
@@ -289,6 +285,8 @@ def create_positive_pairs(
                         'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
                         'assembly_id_a': aid, 'assembly_id_b': aid,
                         'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+                        'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
+                        'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
                         'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
                         'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
                         'func_a': row_a.function, 'func_b': row_b.function,
@@ -311,6 +309,8 @@ def create_positive_pairs(
                         'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
                         'assembly_id_a': aid, 'assembly_id_b': aid,
                         'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+                        'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
+                        'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
                         'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
                         'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
                         'func_a': row_a.function, 'func_b': row_b.function,
@@ -379,9 +379,7 @@ def create_negative_pairs(
         - Number of same-function negative pairs
         - Dict with rejection statistics
     """
-    # np.random.seed(seed)
-    # random.seed(seed)
-
+    # Seeding is handled upstream by set_deterministic_seeds() in the CLI section.
     neg_pairs = []
     seen_pairs = set()  # Track unique pairs by brc_fea_id
     seen_seq_pairs = set()  # Track unique pairs by sequence hash
@@ -505,6 +503,8 @@ def create_negative_pairs(
             'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
             'assembly_id_a': row_a.assembly_id, 'assembly_id_b': row_b.assembly_id,
             'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
+            'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
+            'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
             'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
             'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
             'func_a': row_a.function, 'func_b': row_b.function,
@@ -527,7 +527,7 @@ def create_negative_pairs(
     rejection_stats['total_attempts'] = attempts
 
     if len(neg_pairs) < num_negatives:
-        print(f"⚠️ Warning: Only generated {len(neg_pairs)}/{num_negatives} negative pairs after {attempts} attempts")
+        print(f"WARNING: Only generated {len(neg_pairs)}/{num_negatives} negative pairs after {attempts} attempts")
         print(f"   This may indicate high sequence overlap across isolates")
 
     return pd.DataFrame(neg_pairs), same_func_count, rejection_stats
@@ -727,12 +727,12 @@ def split_dataset(
         if func_left == func_right:
             raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
         if canonicalize_pair_orientation_enabled:
-            print("⚠️  Note: schema_ordered mode disables canonicalize_pair_orientation_enabled")
+            print("Note: schema_ordered mode disables canonicalize_pair_orientation_enabled")
             canonicalize_pair_orientation_enabled = False
 
     # Build co-occurrence set FIRST (before any pair generation)
     # This identifies all sequence pairs that appear together in any isolate
-    print("\n🔍 Building co-occurrence set (sequences that appear together in any isolate)...")
+    print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
     cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
     print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
     print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
@@ -867,7 +867,7 @@ def split_dataset(
     total_attempts = (train_reject_stats['total_attempts'] + 
                       val_reject_stats['total_attempts'] + 
                       test_reject_stats['total_attempts'])
-    print(f"\n📊 Negative Pair Rejection Statistics:")
+    print(f"\nNegative Pair Rejection Statistics:")
     print(f"   Total sampling attempts: {total_attempts:,}")
     print(f"   Blocked (contradictory co-occur): {total_blocked:,} ({100*total_blocked/max(1,total_attempts):.1f}%)")
     print(f"   Train blocked: {train_reject_stats['blocked_cooccur']:,}")
@@ -931,7 +931,7 @@ def split_dataset(
         train_test_pct = (len(train_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
         val_test_pct = (len(val_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
         
-        print(f"   ⚠️ WARNING: Found {total_key_overlap} overlapping pair_keys across splits!")
+        print(f"   WARNING: Found {total_key_overlap} overlapping pair_keys across splits!")
         print(f"      Train-Val overlap: {len(train_val_key_overlap)} ({train_val_pct:.2f}% of val set)")
         print(f"      Train-Test overlap: {len(train_test_key_overlap)} ({train_test_pct:.2f}% of test set)")
         print(f"      Val-Test overlap: {len(val_test_key_overlap)} ({val_test_pct:.2f}% of test set)")
@@ -952,12 +952,12 @@ def split_dataset(
         
         print(f"   After removal: Train={len(train_pairs)}, Val={len(val_pairs)} (removed {val_removed}, {val_removed_pct:.2f}%), Test={len(test_pairs)} (removed {test_removed}, {test_removed_pct:.2f}%)")
     else:
-        print(f"   ✅ No pair_key overlap detected. Train, Val, Test are mutually exclusive on pair_key.")
+        print(f"   No pair_key overlap detected. Train, Val, Test are mutually exclusive on pair_key.")
 
     # Shuffle training labels if requested (for sanity tests)
     if SHUFFLE_TRAIN_LABELS:
         shuffle_seed = SHUFFLE_TRAIN_LABELS_SEED if SHUFFLE_TRAIN_LABELS_SEED is not None else RANDOM_SEED
-        print(f"\n🔄 Shuffling training labels (seed: {shuffle_seed})...")
+        print(f"\nShuffling training labels (seed: {shuffle_seed})...")
         print(f"   Original train label distribution: {train_pairs['label'].value_counts().to_dict()}")
         
         # Use a separate RandomState to avoid affecting global numpy random state
@@ -970,7 +970,7 @@ def split_dataset(
         train_pairs['label'] = train_pairs['label'].iloc[shuffled_indices].values
         
         print(f"   Shuffled train label distribution: {train_pairs['label'].value_counts().to_dict()}")
-        print(f"   ⚠️  WARNING: Training labels have been shuffled! Val/Test labels remain unchanged.")
+        print(f"   WARNING: Training labels have been shuffled! Val/Test labels remain unchanged.")
         print(f"   This is a sanity test - model should not generalize if labels are random.")
 
     # Compute and log dataset stats
@@ -1083,6 +1083,109 @@ def get_metadata_distributions(df: pd.DataFrame, isolate_set: set) -> dict:
     return distributions
 
 
+def filter_by_metadata(
+    prot_df: pd.DataFrame,
+    host: str = None,
+    year=None,
+    hn_subtype: str = None,
+    geo_location: str = None,
+    passage: str = None,
+    ) -> pd.DataFrame:
+    """Filter protein records by isolate-level metadata criteria.
+
+    Filtering is performed at the isolate level: isolates matching ALL specified
+    criteria are identified, then ALL protein records from those isolates are kept.
+    This ensures we don't lose proteins due to metadata merge issues (e.g., an
+    isolate has host metadata on one protein but not another).
+
+    Args:
+        prot_df: Protein DataFrame with columns including 'assembly_id', 'host',
+            'year', 'hn_subtype', and optionally 'geo_location_clean', 'passage'.
+        host: Keep only isolates with this host value (e.g., 'Human').
+        year: Keep only isolates from this year (e.g., 2023).
+        hn_subtype: Keep only isolates with this HA/NA subtype (e.g., 'H3N2').
+        geo_location: Keep only isolates from this geographic location.
+        passage: Keep only isolates with this passage type.
+
+    Returns:
+        Filtered DataFrame (reset index). If no filters are active, returns the
+        input DataFrame unchanged.
+    """
+    any_filter = any(f is not None for f in [host, year, hn_subtype, geo_location, passage])
+    if not any_filter:
+        return prot_df
+
+    print('\nMetadata filtering enabled.')
+    print(f'Host filter: {host}')
+    print(f'Year filter: {year}')
+    print(f'HN subtype filter: {hn_subtype}')
+    print(f'Geographic location filter: {geo_location}')
+    print(f'Passage filter: {passage}')
+
+    # Build per-isolate metadata table (one row per assembly_id)
+    meta_cols = ['assembly_id', 'host', 'year', 'hn_subtype']
+    if 'geo_location_clean' in prot_df.columns:
+        meta_cols.append('geo_location_clean')
+    if 'passage' in prot_df.columns:
+        meta_cols.append('passage')
+    aid_meta = prot_df.groupby('assembly_id')[meta_cols].first().reset_index(drop=True)
+
+    # Print available metadata for diagnostics
+    print(f"\n   Available metadata columns: {meta_cols}")
+    if 'geo_location_clean' in aid_meta.columns:
+        unique_locations = aid_meta['geo_location_clean'].dropna().unique()
+        print(f"   Unique geo_location_clean values (first 20): {sorted(unique_locations)[:20]}")
+        if geo_location:
+            matching_locs = [loc for loc in unique_locations if geo_location.lower() in str(loc).lower()]
+            print(f"   Locations matching '{geo_location}' (case-insensitive): {matching_locs[:10]}")
+    else:
+        print(f"   WARNING: geo_location_clean column NOT found in prot_df!")
+        print(f"   Available columns with 'location' in name: {[c for c in prot_df.columns if 'location' in c.lower()]}")
+
+    # Build filter mask (AND across all specified filters)
+    aid_mask = pd.Series([True] * len(aid_meta))
+    if host is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['host'].isin([host])
+        after = aid_mask.sum()
+        print(f"   Host filter '{host}': {before:,} -> {after:,} isolates")
+
+    if year is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['year'].isin([year])
+        after = aid_mask.sum()
+        print(f"   Year filter '{year}': {before:,} -> {after:,} isolates")
+
+    if hn_subtype is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['hn_subtype'].isin([hn_subtype])
+        after = aid_mask.sum()
+        print(f"   HN subtype filter '{hn_subtype}': {before:,} -> {after:,} isolates")
+
+    if geo_location is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['geo_location_clean'].isin([geo_location])
+        after = aid_mask.sum()
+        print(f"   Geographic location filter '{geo_location}': {before:,} -> {after:,} isolates")
+
+    if passage is not None and 'passage' in aid_meta.columns:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['passage'].isin([passage])
+        after = aid_mask.sum()
+        print(f"   Passage filter '{passage}': {before:,} -> {after:,} isolates")
+
+    # Filter protein DataFrame to keep only proteins from matching isolates
+    matching_isolates = aid_meta[aid_mask]['assembly_id'].tolist()
+    n_before = len(prot_df)
+    prot_df = prot_df[prot_df['assembly_id'].isin(matching_isolates)].reset_index(drop=True)
+    n_after = len(prot_df)
+
+    print(f"   Filtered to {len(matching_isolates):,} isolates matching criteria")
+    print(f"   Protein records: {n_before:,} -> {n_after:,} ({100*n_after/n_before:.1f}%)")
+
+    return prot_df
+
+
 def save_split_output(
     output_dir: Path,
     train_pairs: pd.DataFrame,
@@ -1095,7 +1198,7 @@ def save_split_output(
     schema_pair,
     filters_applied: dict,
     generate_visualizations: bool = True,
-) -> None:
+    ) -> None:
     """Save train/val/test CSVs, dataset_stats.json, duplicate_stats.json, and optional plots.
 
     Args:
@@ -1189,7 +1292,7 @@ def save_split_output(
         isolate_meta.to_csv(output_dir / 'isolate_metadata.csv', index=False)
         print(f"Saved isolate metadata to: {output_dir / 'isolate_metadata.csv'}")
     except Exception as e:
-        print(f"⚠️  Warning: failed to save isolate_metadata.csv ({type(e).__name__}: {e})")
+        print(f"WARNING: failed to save isolate_metadata.csv ({type(e).__name__}: {e})")
 
     # Duplicate/rejection stats
     cooccur_stats = duplicate_stats['cooccur_stats']
@@ -1220,7 +1323,7 @@ def save_split_output(
     # Visualization plots
     if generate_visualizations:
         try:
-            print(f'\n📊 Generating dataset visualization plots...')
+            print(f'\nGenerating dataset visualization plots...')
             from src.analysis.visualize_dataset_stats import visualize_dataset_stats
             visualize_dataset_stats(
                 dataset_stats_path=output_dir / 'dataset_stats.json',
@@ -1228,7 +1331,7 @@ def save_split_output(
                 output_dir_dataset=output_dir,
             )
         except Exception as e:
-            print(f"⚠️  Warning: Failed to generate visualizations: {e}")
+            print(f"WARNING: Failed to generate visualizations: {e}")
 
 
 def generate_all_cv_folds(
@@ -1243,7 +1346,7 @@ def generate_all_cv_folds(
     canonicalize_pair_orientation_enabled: bool,
     pair_mode: str,
     schema_pair,
-) -> list[dict]:
+    ) -> list[dict]:
     """Generate all N CV fold splits in one pass.
 
     Splits isolates into N folds using KFold (stratified by isolate count into test sets).
@@ -1339,7 +1442,7 @@ args = parser.parse_args()
 config_path = str(project_root / 'conf')  # Pass the config path explicitly
 config_bundle = args.config_bundle
 if config_bundle is None:
-    raise ValueError("❌ Must provide --config_bundle")
+    raise ValueError("Must provide --config_bundle")
 config = get_virus_config_hydra(config_bundle, config_path=config_path)
 print_config_summary(config)
 
@@ -1410,7 +1513,7 @@ else:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     fallback_run_id = f"dataset_{config_bundle}_{timestamp}"
     output_dir = default_output_dir / 'runs' / fallback_run_id
-    print(f"⚠️  Warning: No run_output_subdir provided, using fallback: {fallback_run_id}")
+    print(f"WARNING: No run_output_subdir provided, using fallback: {fallback_run_id}")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f'\nConfig bundle:  {config_bundle}')
@@ -1425,95 +1528,28 @@ try:
     prot_df = load_dataframe(input_file)
     print(f"Loaded {len(prot_df):,} protein records")
 except FileNotFoundError:
-    raise FileNotFoundError(f"❌ Data file not found at: {input_file}")
+    raise FileNotFoundError(f"Data file not found at: {input_file}")
 except Exception as e:
-    raise RuntimeError(f"❌ Error loading data from {input_file}: {e}")
+    raise RuntimeError(f"Error loading data from {input_file}: {e}")
 
 # Enrich with metadata (e.g., host, year, hn_subtype)
 print('\nEnrich dataframe with metadata.')
 prot_df = enrich_prot_data_with_metadata(prot_df, project_root=project_root)
-# breakpoint()
-# print(prot_df[prot_df['geo_location_clean'].isna()]['scientific_name'].unique())
 
-# Filter isolates if host/year/hn_subtype/geo_location/passage are specified
+# Filter isolates by metadata criteria (host, year, hn_subtype, geo_location, passage)
 host_filter = getattr(config.dataset, 'host', None)
 year_filter = getattr(config.dataset, 'year', None)
 hn_subtype_filter = getattr(config.dataset, 'hn_subtype', None)
 geo_location_filter = getattr(config.dataset, 'geo_location', None)
 passage_filter = getattr(config.dataset, 'passage', None)
-if (host_filter is not None) or (year_filter is not None) or (hn_subtype_filter is not None) or \
-   (geo_location_filter is not None) or (passage_filter is not None):
-    print('\nMetadata filtering enabled.')
-    print(f'Host filter: {host_filter}')
-    print(f'Year filter: {year_filter}')
-    print(f'HN subtype filter: {hn_subtype_filter}')
-    print(f'Geographic location filter: {geo_location_filter}')
-    print(f'Passage filter: {passage_filter}')
-
-    # Filter at isolate level: get isolates matching criteria, then keep all
-    # proteins from those isolates. This ensures we don't lose proteins due to
-    # metadata merge issues
-    meta_cols = ['assembly_id', 'host', 'year', 'hn_subtype']
-    if 'geo_location_clean' in prot_df.columns:
-        meta_cols.append('geo_location_clean')
-    if 'passage' in prot_df.columns:
-        meta_cols.append('passage')
-    aid_meta = prot_df.groupby('assembly_id')[meta_cols].first().reset_index(drop=True)
-
-    # Debug: print available columns and sample values
-    print(f"\n   Available metadata columns: {meta_cols}")
-    if 'geo_location_clean' in aid_meta.columns:
-        unique_locations = aid_meta['geo_location_clean'].dropna().unique()
-        print(f"   Unique geo_location_clean values (first 20): {sorted(unique_locations)[:20]}")
-        if geo_location_filter:
-            matching_locs = [loc for loc in unique_locations if geo_location_filter.lower() in str(loc).lower()]
-            print(f"   Locations matching '{geo_location_filter}' (case-insensitive): {matching_locs[:10]}")
-    else:
-        print(f"   ⚠️  geo_location_clean column NOT found in prot_df!")
-        print(f"   Available columns with 'location' in name: {[c for c in prot_df.columns if 'location' in c.lower()]}")
-
-    # Build filter mask for isolates
-    aid_mask = pd.Series([True] * len(aid_meta))
-    if host_filter is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['host'].isin([host_filter])
-        after = aid_mask.sum()
-        print(f"   Host filter '{host_filter}': {before:,} -> {after:,} isolates")
-
-    if year_filter is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['year'].isin([year_filter])
-        after = aid_mask.sum()
-        print(f"   Year filter '{year_filter}': {before:,} -> {after:,} isolates")
-
-    if hn_subtype_filter is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['hn_subtype'].isin([hn_subtype_filter])
-        after = aid_mask.sum()
-        print(f"   HN subtype filter '{hn_subtype_filter}': {before:,} -> {after:,} isolates")
-
-    if geo_location_filter is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['geo_location_clean'].isin([geo_location_filter])
-        after = aid_mask.sum()
-        print(f"   Geographic location filter '{geo_location_filter}': {before:,} -> {after:,} isolates")
-
-    if passage_filter is not None and 'passage' in aid_meta.columns:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['passage'].isin([passage_filter])
-        after = aid_mask.sum()
-        print(f"   Passage filter '{passage_filter}': {before:,} -> {after:,} isolates")
-
-    # Get list of isolates that match criteria
-    matching_isolates = aid_meta[aid_mask]['assembly_id'].tolist()
-
-    # Filter protein dataframe to keep only proteins from matching isolates
-    n_before = len(prot_df)
-    prot_df = prot_df[prot_df['assembly_id'].isin(matching_isolates)].reset_index(drop=True)
-    n_after = len(prot_df)
-
-    print(f"   Filtered to {len(matching_isolates):,} isolates matching criteria")
-    print(f"   Protein records: {n_before:,} -> {n_after:,} ({100*n_after/n_before:.1f}%)")
+prot_df = filter_by_metadata(
+    prot_df,
+    host=host_filter,
+    year=year_filter,
+    hn_subtype=hn_subtype_filter,
+    geo_location=geo_location_filter,
+    passage=passage_filter,
+)
 
 # Sample a subset of isolates from the dataframe
 sampled_isolates_file = output_dir / 'sampled_isolates.txt'
@@ -1552,7 +1588,7 @@ if USE_SELECTED_ONLY:
         # For Flu A: selected_functions = specific protein functions
         # For Bunya: selected_functions = core protein functions (L, M, S)
         if 'function' not in prot_df.columns:
-            raise ValueError("❌ 'function' column not found in protein data")
+            raise ValueError("'function' column not found in protein data")
         print(f"Filtering to selected functions: {config.virus.selected_functions}")
         mask = prot_df['function'].isin(config.virus.selected_functions)
         df = prot_df[mask].reset_index(drop=True)
@@ -1562,13 +1598,12 @@ if USE_SELECTED_ONLY:
 else:
     df = prot_df.reset_index(drop=True)
 
-# Add sequence hash for duplicate detection
-# TODO Do we actually use 'seq_hash' somewhere?
+# Add sequence hash for duplicate detection (used by canonical_pair_key, cooccur_pairs, etc.)
 df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
 # Pair-mode validation / schema parsing (validation-stage: keep loud + explicit)
 if PAIR_MODE not in {"unordered", "schema_ordered"}:
-    raise ValueError(f"❌ Unknown dataset.pair_mode: {PAIR_MODE!r} (expected 'unordered' or 'schema_ordered')")
+    raise ValueError(f"Unknown dataset.pair_mode: {PAIR_MODE!r} (expected 'unordered' or 'schema_ordered')")
 
 schema_pair: Optional[Tuple[str, str]] = None
 canonicalize_pair_orientation_enabled = CANONICALIZE_PAIR_ORIENTATION
@@ -1577,17 +1612,17 @@ if PAIR_MODE == "schema_ordered":
     # In schema mode, A/B semantics are defined by function schema (func_left -> *_a, func_right -> *_b),
     # so hash-based canonicalization conflicts with those semantics and is disabled.
     if canonicalize_pair_orientation_enabled:
-        print("⚠️  Note: dataset.pair_mode='schema_ordered' disables dataset.canonicalize_pair_orientation")
+        print("Note: dataset.pair_mode='schema_ordered' disables dataset.canonicalize_pair_orientation")
         canonicalize_pair_orientation_enabled = False
 
     if SCHEMA_PAIR_RAW is None:
-        raise ValueError("❌ dataset.schema_pair must be set when dataset.pair_mode='schema_ordered'")
+        raise ValueError("dataset.schema_pair must be set when dataset.pair_mode='schema_ordered'")
     schema_list = list(SCHEMA_PAIR_RAW)
     if len(schema_list) != 2:
-        raise ValueError(f"❌ dataset.schema_pair must be length 2, got: {schema_list!r}")
+        raise ValueError(f"dataset.schema_pair must be length 2, got: {schema_list!r}")
     func_left, func_right = str(schema_list[0]), str(schema_list[1])
     if func_left == func_right:
-        raise ValueError(f"❌ dataset.schema_pair must contain two different functions, got: {schema_list!r}")
+        raise ValueError(f"dataset.schema_pair must contain two different functions, got: {schema_list!r}")
     schema_pair = (func_left, func_right)
 
     # Validate that schema functions exist in the filtered dataframe.
@@ -1595,18 +1630,18 @@ if PAIR_MODE == "schema_ordered":
     missing = [f for f in [func_left, func_right] if f not in available_funcs]
     if missing:
         raise ValueError(
-            "❌ schema_ordered mode: schema_pair functions missing from filtered data. "
+            "schema_ordered mode: schema_pair functions missing from filtered data. "
             f"missing={missing!r}, available_n={len(available_funcs):,}"
         )
 
     # In schema mode, same-function negative controls are irrelevant by construction.
     if ALLOW_SAME_FUNC_NEGATIVES or MAX_SAME_FUNC_RATIO:
-        print("⚠️  Note: schema_ordered mode ignores same-function negative controls (schema_pair is cross-function).")
+        print("Note: schema_ordered mode ignores same-function negative controls (schema_pair is cross-function).")
 
 # Validate brc_fea_id uniqueness within isolates
 dups = df[df.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=False)]
 if not dups.empty:
-    raise ValueError(f"❌ Duplicate brc_fea_id found within isolates: \
+    raise ValueError(f"Duplicate brc_fea_id found within isolates: \
         {dups[['assembly_id', 'brc_fea_id']]}")
 
 # Settings (using config values)
@@ -1707,5 +1742,5 @@ else:
         generate_visualizations=GENERATE_VISUALIZATIONS,
     )
 
-print(f'\n✅ Finished {Path(__file__).name}!')
+print(f'\nDone. Finished {Path(__file__).name}.')
 total_timer.display_timer()

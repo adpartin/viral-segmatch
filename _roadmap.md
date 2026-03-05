@@ -90,6 +90,11 @@ This document summarizes the experiments decided in the 02/10/2026 meeting, ALCF
 
 **Effort:** High. New preprocessing, new feature pipeline, new model code path. Start with k-mers + LightGBM as a simpler baseline.
 
+**Status (March 2026):** K-mer + MLP baseline complete — `compute_kmer_features.py` (Stage 2b),
+`kmer_utils.py`, and `feature_source=kmer` in the training script are implemented and tested.
+2x2 comparison (ESM-2 vs k-mer × unit_diff vs concat) shows k-mer AUC 0.982 on mixed-subtype.
+XGBoost/LightGBM and GenSLM remain future work.
+
 ---
 
 ### 5. Accuracy vs genetic distance (clade) — Marcus’s suggestion

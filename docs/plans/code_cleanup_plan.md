@@ -35,15 +35,14 @@ See the IUPAC reference table in the `dna_utils.py` module docstring.
 
 ## 3. Slim down shell script wrappers
 
-**Files**: `scripts/stage2_esm2.sh`, `scripts/stage2b_kmer.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`
+**Files**: `scripts/stage2_esm2.sh`, `scripts/stage2b_kmer.sh`
 
-The existing shell wrappers are verbose (100-400 lines) with duplicated boilerplate:
-git provenance blocks, `log()` helpers, elaborate headers/footers, registry integration.
-Most of this repeats what the Python scripts already print.
+**DONE (stage3, stage4)**: `stage3_dataset.sh` and `stage4_train.sh` were rewritten to
+match the lean `stage1_preprocess_flu.sh` pattern as part of the Stage 3/4 decoupling work.
 
-`scripts/stage1_preprocess_flu.sh` (~45 lines) demonstrates the leaner pattern:
-compact arg parsing, `tee` to timestamped log, latest-log symlink, proper exit code.
-The other stage scripts should be refactored to match.
+**Remaining**: `stage2_esm2.sh` still has the verbose pattern (git provenance blocks,
+`log()` helpers, elaborate headers/footers, registry integration). Should be refactored
+to match the lean pattern used by stage1, stage2b, stage3, and stage4.
 
 ---
 
@@ -60,6 +59,9 @@ counting procedure (k-mers). Would also need to update imports, CLAUDE.md, and s
 
 Similarly, `conf/embeddings/` (currently just `default.yaml` for ESM-2 settings) should be
 renamed to `conf/featurize/` or `conf/features/` for consistency. Do both renames together.
+
+**Note (March 2026):** K-mer scripts (`compute_kmer_features.py`, `kmer_utils.py`) are now
+in active use with tested bundles, strengthening the case for this rename.
 
 ---
 
