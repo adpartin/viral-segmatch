@@ -48,6 +48,8 @@ Pair 2 (negative): emb_a = [5, 3, 1, 0],  emb_b = [2, -6, -3, 8]
 
 Architecture: `pre_mlp_mode: slot_norm`, `pre_mlp_dims: null` (per-slot LayerNorm only, no linear layers). Schema-ordered HA → NA.
 
+#### ESM-2 features
+
 | Filter | `concat` F1 | `concat` AUC | `unit_diff` F1 | `unit_diff` AUC |
 |--------|-------------|--------------|----------------|-----------------|
 | None (general) | 0.929 | 0.975 | 0.917 | 0.966 |
@@ -56,13 +58,32 @@ Architecture: `pre_mlp_mode: slot_norm`, `pre_mlp_dims: null` (per-slot LayerNor
 | host=Human | 0.915 | 0.964 | 0.897 | 0.952 |
 | subtype=H3N2 | **0.570** | **0.498** | **0.877** | **0.962** |
 
+#### K-mer (k=6) features
+
+| Filter | `concat` F1 | `concat` AUC | `unit_diff` F1 | `unit_diff` AUC |
+|--------|-------------|--------------|----------------|-----------------|
+| None (general) | 0.951 | 0.982 | 0.957 | 0.982 |
+| subtype=H3N2 | **0.958** | **0.985** | **0.963** | **0.988** |
+
+#### Full H3N2 comparison (ESM-2 vs k-mer × interaction)
+
+| Feature Source | Interaction | Accuracy | F1 | AUC |
+|---|---|---|---|---|
+| ESM-2 | unit_diff | 89.7% | 0.878 | 0.957 |
+| ESM-2 | concat | 39.9% | 0.570 | 0.498 |
+| K-mer (k=6) | unit_diff | 97.0% | 0.963 | 0.988 |
+| K-mer (k=6) | concat | 96.6% | 0.958 | 0.985 |
+
 **Key findings**:
 
-1. `concat` and `unit_diff` perform comparably on diverse data (general, 2024, Illinois, Human).
-2. **`concat` completely fails on H3N2** (F1=0.57, AUC=0.50 = random). When isolates are homogeneous (same subtype), the magnitude/ordering shortcuts that `concat` exploits in diverse data vanish, and the model has nothing to learn.
-3. **`unit_diff` succeeds on H3N2** (F1=0.88, AUC=0.96), confirming that the **direction of the difference vector carries genuine biological signal** that is robust even in homogeneous populations.
-4. The year=2024 filter reduces performance for both interactions (~0.77 F1), likely due to smaller dataset size and reduced temporal diversity rather than a methodological issue.
-5. **`concat` + H3N2 + patience=100 still fails** -- confirmed that even with 100 epochs, `concat` cannot learn on homogeneous H3N2 data. The failure is architectural, not an early-stopping artifact.
+1. `concat` and `unit_diff` perform comparably on diverse data (general, 2024, Illinois, Human) with ESM-2.
+2. **ESM-2 `concat` completely fails on H3N2** (F1=0.57, AUC=0.50 = random). When isolates are homogeneous (same subtype), the magnitude/ordering shortcuts that `concat` exploits in diverse data vanish, and the model has nothing to learn.
+3. **K-mer `concat` does NOT fail on H3N2** (F1=0.958, AUC=0.985). This proves the concat collapse is **specific to ESM-2's embedding geometry**, not an inherent flaw of concatenation. ESM-2 embeddings for different protein types (HA vs NA) occupy distinct subspaces; concatenation exposes this offset as a trivially learnable shortcut on mixed-subtype data, which then fails on homogeneous data where the shortcut is uninformative. K-mer frequency vectors lack this subspace structure entirely.
+4. **K-mer features are interaction-agnostic**: both `unit_diff` (AUC=0.988) and `concat` (AUC=0.985) work on H3N2. The model doesn't need direction/magnitude decomposition because there is no subspace offset to exploit or strip.
+5. **K-mer dominates ESM-2 on H3N2**: AUC 0.988 vs 0.957 (both unit_diff). The 4096-dim sparse k-mer vector captures nucleotide-level variation more directly than ESM-2's learned protein representation, especially within a single subtype.
+6. **`unit_diff` succeeds on H3N2 with ESM-2** (F1=0.88, AUC=0.96), confirming that the **direction of the difference vector carries genuine biological signal** that is robust even in homogeneous populations.
+7. The year=2024 filter reduces performance for both interactions (~0.77 F1), likely due to smaller dataset size and reduced temporal diversity rather than a methodological issue.
+8. **ESM-2 `concat` + H3N2 + patience=100 still fails** -- confirmed that even with 100 epochs, `concat` cannot learn on homogeneous H3N2 data. The failure is architectural, not an early-stopping artifact.
 
 ### Ablation: LayerNorm Contribution (`slot_norm` vs `none`)
 

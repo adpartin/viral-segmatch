@@ -25,8 +25,8 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
                                 flu_schema_raw_slot_norm_unit_diff.yaml ──► _h3n2, _human, _illinois, _2024
                                 flu_schema_raw_slot_norm_concat.yaml    ──► _h3n2, _human, _illinois, _2024
                                 flu_schema_raw_none_unit_diff.yaml      ──► _h3n2
-                                flu_schema_raw_kmer_k6_slot_norm_unit_diff.yaml
-                                flu_schema_raw_kmer_k6_slot_norm_concat.yaml
+                                flu_schema_raw_kmer_k6_slot_norm_unit_diff.yaml ──► _h3n2
+                                flu_schema_raw_kmer_k6_slot_norm_concat.yaml    ──► _h3n2
                                 flu_schema_raw_slot.yaml
                                 flu_schema_raw_shared.yaml
                                 flu_schema_raw_adapter.yaml
@@ -52,6 +52,8 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
 | `flu_schema_raw_slot_norm_concat_2024` | HA, NA | year=2024 | slot_norm | concat | |
 | `flu_schema_raw_kmer_k6_slot_norm_unit_diff` | HA, NA | none | slot_norm | unit_diff | K-mer (k=6) baseline; feature_source=kmer |
 | `flu_schema_raw_kmer_k6_slot_norm_concat` | HA, NA | none | slot_norm | concat | K-mer + concat comparison |
+| `flu_schema_raw_kmer_k6_slot_norm_unit_diff_h3n2` | HA, NA | H3N2 | slot_norm | unit_diff | K-mer H3N2; AUC=0.988 |
+| `flu_schema_raw_kmer_k6_slot_norm_concat_h3n2` | HA, NA | H3N2 | slot_norm | concat | K-mer H3N2; AUC=0.985 (no concat collapse) |
 | `flu_pb2_pb1_pa_5ks` | PB2, PB1, PA | none | — | — | Conserved segments; paper result |
 | `flu_pb2_ha_na_5ks` | PB2, HA, NA | none | — | — | Mixed segments; paper result |
 
@@ -120,9 +122,13 @@ descriptions) but YAML bundle files must live in the flat `conf/bundles/` direct
 
 ## Key Findings (inform new bundle design)
 
-- **`unit_diff` + `slot_norm`** is the current best combination. `concat` fails on homogeneous
-  data (H3N2-only: AUC≈0.5); `unit_diff` succeeds (AUC≈0.96).
-- **`slot_norm` (LayerNorm per slot) is critical** for homogeneous subsets. Without it,
+- **ESM-2: `unit_diff` + `slot_norm`** is the current best ESM-2 combination. ESM-2 `concat`
+  fails on homogeneous data (H3N2-only: AUC≈0.50); `unit_diff` succeeds (AUC≈0.96).
+- **K-mer `concat` does NOT fail on H3N2** (AUC=0.985). The concat collapse is specific to
+  ESM-2's embedding geometry (protein-type subspace offset), not concatenation itself.
+- **K-mer dominates ESM-2 on homogeneous data**: H3N2-only AUC 0.988 vs 0.957 (both unit_diff).
+  K-mer features are interaction-agnostic (unit_diff ≈ concat).
+- **`slot_norm` (LayerNorm per slot) is critical for ESM-2** on homogeneous subsets. Without it,
   slot offset dominates the unit_diff direction and the model cannot learn.
 - **H3N2-only runs** require `patience≥40` due to a plateau-then-breakthrough learning
   pattern (see `_ongoing_work.md` for analysis).

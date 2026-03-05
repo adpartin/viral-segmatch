@@ -53,20 +53,30 @@ ls -lt data/datasets/flu/July_2025/runs/ | head -3
 
 ## 📊 Performance Results
 
-### Gen3 results (mixed-subtype HA-NA, 5K isolates)
+### Mixed-subtype results (HA-NA, 5K isolates)
 
 | Feature Source | Interaction | Accuracy | F1 | AUC | Notes |
 |---|---|---|---|---|---|
 | ESM-2 | unit_diff | 92.5% | 0.917 | 0.966 | Gen3 baseline |
 | ESM-2 | concat | 93.7% | 0.929 | 0.975 | |
-| K-mer (k=6) | unit_diff | 96.2% | 0.957 | 0.982 | Current best (experimental) |
+| K-mer (k=6) | unit_diff | 96.2% | 0.957 | 0.982 | |
 | K-mer (k=6) | concat | 95.6% | 0.951 | 0.982 | |
+
+### H3N2-only results (HA-NA, 5K isolates)
+
+| Feature Source | Interaction | Accuracy | F1 | AUC | Notes |
+|---|---|---|---|---|---|
+| ESM-2 | unit_diff | 89.7% | 0.878 | 0.957 | |
+| ESM-2 | concat | 39.9% | 0.570 | 0.498 | Collapses to chance |
+| K-mer (k=6) | unit_diff | 97.0% | 0.963 | 0.988 | Best overall |
+| K-mer (k=6) | concat | 96.6% | 0.958 | 0.985 | No collapse |
 
 ### Key findings
 
-- **`unit_diff` > `concat` on homogeneous data**: On H3N2-only subsets, `concat` collapses to AUC 0.50 while `unit_diff` achieves AUC 0.96. The direction of the embedding difference carries genuine biological signal; magnitude is a shortcut that fails when subtypes are held constant.
-- **LayerNorm (`slot_norm`) is critical**: Without per-slot normalization, raw HA/NA embeddings live in slightly different subspaces and `unit_diff` picks up slot offset rather than biological signal.
-- **K-mer (k=6, 4096-dim) matches or exceeds ESM-2** on mixed-subtype HA-NA data. Both interactions work with k-mers. This result is experimental and needs cross-validation confirmation.
+- **ESM-2 `concat` collapses on homogeneous data, k-mer does not**: On H3N2-only, ESM-2 concat falls to AUC 0.50 (chance) while k-mer concat achieves AUC 0.985. The concat failure is specific to ESM-2's embedding geometry — protein types occupy distinct subspaces, and concatenation exposes this offset as a shortcut that fails when subtypes are held constant. K-mer frequency vectors don't have this subspace structure.
+- **K-mer features are interaction-agnostic**: Both `unit_diff` and `concat` work equally well with k-mers (AUC 0.988 vs 0.985 on H3N2). ESM-2 requires `unit_diff` to strip the magnitude shortcut.
+- **K-mer dominates ESM-2 on homogeneous data**: On H3N2-only, k-mer AUC 0.988 vs ESM-2 AUC 0.957 (both with `unit_diff`).
+- **LayerNorm (`slot_norm`) is critical for ESM-2**: Without per-slot normalization, raw HA/NA embeddings live in slightly different subspaces and `unit_diff` picks up slot offset rather than biological signal.
 - **Conservation hypothesis** (Gen1): Variable segments (HA-NA) achieve 91.6% F1; conserved segments (PB2-PB1-PA) are limited to 75.3% F1 by biological constraints.
 
 *For detailed analysis, see [Experiment Results](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
@@ -233,13 +243,16 @@ Protein conservation directly impacts model performance:
 
 ### Interaction and Normalization (Gen3)
 
-- **`unit_diff` > `concat` on homogeneous data**: `concat` collapses to chance (AUC 0.50) on H3N2-only subsets; `unit_diff` succeeds (AUC 0.96). Embedding difference direction carries genuine biological signal.
-- **LayerNorm (`slot_norm`) is critical** for homogeneous subsets: raw HA/NA embeddings occupy slightly different subspaces, and `unit_diff` picks up the slot offset without normalization.
+- **ESM-2 `concat` collapses on homogeneous data, k-mer does not**: ESM-2 concat collapses to chance (AUC 0.50) on H3N2-only; k-mer concat achieves AUC 0.985. The failure is ESM-2-specific — protein types occupy distinct embedding subspaces, and concat exposes this as a shortcut. K-mer features lack this subspace structure.
+- **K-mer features are interaction-agnostic**: `unit_diff` and `concat` perform equally well with k-mers (AUC 0.988 vs 0.985 on H3N2). ESM-2 requires `unit_diff` to strip the magnitude shortcut.
+- **LayerNorm (`slot_norm`) is critical for ESM-2** on homogeneous subsets: raw HA/NA embeddings occupy slightly different subspaces, and `unit_diff` picks up the slot offset without normalization.
 - **Delayed learning on H3N2 + unit_diff**: characteristic plateau then breakthrough (~epochs 10–32, seed-dependent). Set `patience` to 40+ for H3N2-only runs.
 
-### K-mer Features (Experimental)
+### K-mer Features
 
-- **K-mer (k=6, 4096-dim) matches or exceeds ESM-2** on mixed-subtype HA-NA (AUC 0.982 vs 0.966–0.975). Both interactions work. Needs cross-validation confirmation before publication.
+- **K-mer (k=6, 4096-dim) dominates ESM-2 on homogeneous data**: H3N2-only AUC 0.988 vs 0.957.
+- **Matches or exceeds ESM-2 on mixed-subtype HA-NA**: AUC 0.982 vs 0.966–0.975.
+- Needs cross-validation confirmation before publication.
 
 *For comprehensive analysis, see [Experiment Results Analysis](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
 

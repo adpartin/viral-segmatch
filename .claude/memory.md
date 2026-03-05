@@ -32,11 +32,13 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - Best model: `flu_schema_raw_slot_norm_unit_diff` (slot_norm + unit_diff, HA/NA)
 
 ## Key Findings
-- `unit_diff` > `concat` on homogeneous data (H3N2-only): AUC 0.96 vs 0.50
-- LayerNorm (`slot_norm`) critical for homogeneous subsets
+- ESM-2 `unit_diff` > `concat` on homogeneous data (H3N2-only): AUC 0.96 vs 0.50
+- K-mer concat does NOT collapse on H3N2 (AUC 0.985) -- concat failure is ESM-2-specific, not interaction-specific
+- K-mer dominates ESM-2 on H3N2: k-mer unit_diff AUC 0.988 vs ESM-2 unit_diff AUC 0.957; k-mers are interaction-agnostic
+- K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA (AUC 0.982 vs 0.966-0.975)
+- LayerNorm (`slot_norm`) critical for ESM-2 on homogeneous subsets
 - Delayed learning on H3N2 + unit_diff: increase patience to 40+
 - High FP rate on filtered datasets (year/host/geo) -- likely population-level confounders
-- K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA (AUC 0.982 vs 0.966-0.975)
 
 ## Roadmap (02/10/2026 meeting) -- for publication
 1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- IMPLEMENTED (branch: feature/cross-validation)

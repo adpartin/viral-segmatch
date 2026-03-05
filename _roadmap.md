@@ -92,7 +92,10 @@ This document summarizes the experiments decided in the 02/10/2026 meeting, ALCF
 
 **Status (March 2026):** K-mer + MLP baseline complete — `compute_kmer_features.py` (Stage 2b),
 `kmer_utils.py`, and `feature_source=kmer` in the training script are implemented and tested.
-2x2 comparison (ESM-2 vs k-mer × unit_diff vs concat) shows k-mer AUC 0.982 on mixed-subtype.
+Mixed-subtype: k-mer AUC 0.982 vs ESM-2 AUC 0.966–0.975.
+H3N2-only: k-mer AUC 0.988 (unit_diff) / 0.985 (concat) vs ESM-2 AUC 0.957 (unit_diff) / 0.498 (concat).
+Key finding: **k-mer concat does NOT collapse on H3N2** — the ESM-2 concat failure is specific to
+ESM-2's embedding geometry, not concatenation as an interaction. K-mer features are interaction-agnostic.
 XGBoost/LightGBM and GenSLM remain future work.
 
 ---
