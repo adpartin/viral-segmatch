@@ -5,10 +5,12 @@ A machine learning pipeline for analyzing segmented RNA viruses to determine if 
 ## 🎯 Key Features
 
 - **Primary focus**: Influenza A (Bunyavirales support exists but is not actively maintained)
-- **ESM-2 embeddings**: State-of-the-art protein language model with master cache system
-- **Hydra configuration**: Flexible, reproducible experiments
-- **Conservation hypothesis confirmed**: Variable segments achieve 91.6% F1, conserved segments 75.3% F1
-- **Performance optimized**: F1 scores up to 0.92+ with segment-specific models
+- **ESM-2 embeddings** with pairwise interaction features (`unit_diff`, `concat`)
+- **K-mer genome features** (experimental; matches or exceeds ESM-2 on mixed-subtype data)
+- **LayerNorm (`slot_norm`)** enables learning on homogeneous subtype subsets (e.g., H3N2-only)
+- **Cross-validation support** (`n_folds`/`fold_id` in dataset config)
+- **Decoupled Stage 3/4**: create a dataset once, train with different bundles against it
+- **Hydra configuration**: one bundle per reproducible experiment
 
 ## 🚀 Quick Start
 
@@ -24,55 +26,48 @@ pip install transformers fair-esm pandas numpy scikit-learn matplotlib seaborn h
 
 ### Run Complete Pipeline
 
-**Bunya (all segments):**
+**Flu A — Gen3 bundle (slot_norm + unit_diff, current best ESM-2):**
 ```bash
-# Stage 2: Compute embeddings (if not already done)
-./scripts/stage2_esm2.sh bunya --cuda_name cuda:7
-
-# Stage 3: Create dataset
-./scripts/stage3_dataset.sh bunya
-
-# Find dataset directory
-ls -lt data/datasets/bunya/April_2025/runs/ | head -3
-
-# Stage 4: Train model
-./scripts/stage4_train.sh bunya --cuda_name cuda:7 \
-    --dataset_dir data/datasets/bunya/April_2025/runs/dataset_bunya_YYYYMMDD_HHMMSS
-```
-
-**Flu A (HA-NA, variable segments, 5K isolates):**
-```bash
-# Stage 2: Compute embeddings (if not already done)
+# Stage 2: Compute embeddings (run once per virus/data_version)
 ./scripts/stage2_esm2.sh flu --cuda_name cuda:7
 
-# Stage 3: Create dataset
-./scripts/stage3_dataset.sh flu_ha_na_5ks
+# Stage 3: Create dataset (run once; reusable across training bundles)
+./scripts/stage3_dataset.sh flu_schema_raw_slot_norm_unit_diff
 
-# Find dataset directory
+# Find the dataset directory
 ls -lt data/datasets/flu/July_2025/runs/ | head -3
 
-# Stage 4: Train model
-./scripts/stage4_train.sh flu_ha_na_5ks --cuda_name cuda:7 \
-    --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_YYYYMMDD_HHMMSS
+# Stage 4: Train model (pass dataset_dir explicitly — decoupled from Stage 3)
+./scripts/stage4_train.sh flu_schema_raw_slot_norm_unit_diff --cuda_name cuda:7 \
+    --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS
+```
+
+**Re-train with a different bundle against the same dataset:**
+```bash
+# Same dataset_dir, different training bundle (e.g., concat interaction)
+./scripts/stage4_train.sh flu_schema_raw_slot_norm_concat --cuda_name cuda:7 \
+    --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS
 ```
 
 *For detailed setup and usage, see [Quick Start Guide](documentation/quick-start.md)*
 
 ## 📊 Performance Results
 
-| Virus | Configuration | Accuracy | F1 Score | AUC | Key Finding |
-|-------|---------------|----------|----------|-----|-------------|
-| **Bunya** | All segments (full dataset) | 91.0% | **91.1%** | 0.927 | Baseline performance |
-| **Flu A** | HA-NA (variable, 5K isolates) | 92.3% | **91.6%** | 0.953 | Variable segments excel |
-| **Flu A** | PB2-PB1-PA (conserved, 5K isolates) | 71.9% | **75.3%** | 0.750 | Conserved segments limited |
-| **Flu A** | PB2-HA-NA (mixed, 5K isolates) | 85.4% | **85.5%** | 0.920 | Mixed performance |
+### Gen3 results (mixed-subtype HA-NA, 5K isolates)
 
-**🔑 Key Discovery: Conservation Hypothesis Confirmed** ✅
+| Feature Source | Interaction | Accuracy | F1 | AUC | Notes |
+|---|---|---|---|---|---|
+| ESM-2 | unit_diff | 92.5% | 0.917 | 0.966 | Gen3 baseline |
+| ESM-2 | concat | 93.7% | 0.929 | 0.975 | |
+| K-mer (k=6) | unit_diff | 96.2% | 0.957 | 0.982 | Current best (experimental) |
+| K-mer (k=6) | concat | 95.6% | 0.951 | 0.982 | |
 
-Performance directly correlates with protein conservation levels:
-- **Variable segments (HA-NA)**: Achieve excellent performance (91.6% F1) - comparable to Bunya
-- **Conserved segments (PB2-PB1-PA)**: Limited by biological constraints (75.3% F1)
-- **Segment-specific models**: Recommended for optimal performance
+### Key findings
+
+- **`unit_diff` > `concat` on homogeneous data**: On H3N2-only subsets, `concat` collapses to AUC 0.50 while `unit_diff` achieves AUC 0.96. The direction of the embedding difference carries genuine biological signal; magnitude is a shortcut that fails when subtypes are held constant.
+- **LayerNorm (`slot_norm`) is critical**: Without per-slot normalization, raw HA/NA embeddings live in slightly different subspaces and `unit_diff` picks up slot offset rather than biological signal.
+- **K-mer (k=6, 4096-dim) matches or exceeds ESM-2** on mixed-subtype HA-NA data. Both interactions work with k-mers. This result is experimental and needs cross-validation confirmation.
+- **Conservation hypothesis** (Gen1): Variable segments (HA-NA) achieve 91.6% F1; conserved segments (PB2-PB1-PA) are limited to 75.3% F1 by biological constraints.
 
 *For detailed analysis, see [Experiment Results](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
 
@@ -93,6 +88,7 @@ viral-segmatch/
 │   └── stage4_train.sh     # Train models
 ├── conf/                   # Hydra configuration
 │   ├── bundles/            # Experiment bundles (one per named experiment)
+│   │   └── README.md       # Bundle conventions and inheritance
 │   ├── virus/              # Virus configurations
 │   └── training/           # Training configs
 ├── eda/                    # Exploratory analysis scripts (not pipeline)
@@ -126,7 +122,7 @@ data/
 │   │       └── dataset_bunya_YYYYMMDD_HHMMSS/
 │   └── flu/July_2025/
 │       └── runs/
-│           ├── dataset_flu_ha_na_5ks_YYYYMMDD_HHMMSS/
+│           ├── dataset_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS/
 │           └── dataset_flu_pb2_pb1_pa_5ks_YYYYMMDD_HHMMSS/
 
 models/
@@ -135,7 +131,7 @@ models/
 │       └── training_bunya_YYYYMMDD_HHMMSS/
 └── flu/July_2025/
     └── runs/
-        ├── training_flu_ha_na_5ks_YYYYMMDD_HHMMSS/
+        ├── training_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS/
         └── training_flu_pb2_pb1_pa_5ks_YYYYMMDD_HHMMSS/
 ```
 
@@ -147,13 +143,15 @@ The pipeline uses Hydra for configuration management with a bundle system:
 
 ### Available Configurations
 
-| Bundle | Proteins | Isolates | Purpose |
-|--------|----------|----------|---------|
-| `bunya` | L, M, S | Full | Bunya baseline |
-| `flu_ha_na_5ks` | HA, NA | 5K | Variable segments (expect BETTER) |
-| `flu_pb2_pb1_pa_5ks` | PB2, PB1, PA | 5K | Conserved segments (expect WORSE) |
-| `flu_pb2_ha_na_5ks` | PB2, HA, NA | 5K | Mixed segments |
-| `flu_overfit_5ks` | PB2, PB1, PA | 5K | Overfitting capacity test (1% train) |
+| Bundle | Description |
+|--------|-------------|
+| `flu_schema_raw_slot_norm_unit_diff` | Current best ESM-2 (slot_norm + unit_diff) |
+| `flu_schema_raw_slot_norm_concat` | ESM-2 + concat interaction comparison |
+| `flu_schema_raw_kmer_k6_slot_norm_unit_diff` | K-mer baseline (experimental) |
+| `flu_schema_raw_slot_norm_unit_diff_h3n2` | H3N2-only filtered example |
+| `flu_schema_raw_slot_norm_unit_diff_cv5` | 5-fold cross-validation |
+
+See [`conf/bundles/README.md`](conf/bundles/README.md) for the full list and bundle inheritance conventions.
 
 ### Key Parameters
 
@@ -166,20 +164,25 @@ The pipeline uses Hydra for configuration management with a bundle system:
 
 ## 🔬 Pipeline Stages
 
-1. **Preprocessing** - GTO file processing, protein extraction, segment assignment
+1. **Preprocessing** — GTO file processing, protein extraction, segment assignment
    - Output: `data/processed/{virus}/{data_version}/protein_final.csv` (shared)
-   
-2. **Embeddings** - ESM-2 protein embedding computation (master cache)
+
+2. **Embeddings (ESM-2)** — Protein embedding computation (master cache)
    - Output: `data/embeddings/{virus}/{data_version}/master_esm2_embeddings.h5` (shared)
    - Script: `./scripts/stage2_esm2.sh {virus} --cuda_name cuda:X`
-   
-3. **Dataset Creation** - Segment pair generation with co-occurrence blocking
+
+2b. **Features (k-mer)** — DNA k-mer feature extraction (experimental)
+   - Output: `data/embeddings/{virus}/{data_version}/kmer_k{K}_features.npz` (shared)
+   - Script: `python src/embeddings/compute_kmer_features.py`
+
+3. **Dataset Creation** — Segment pair generation with co-occurrence blocking
    - Output: `data/datasets/{virus}/{data_version}/runs/dataset_{bundle}_{timestamp}/` (experiment-specific)
    - Script: `./scripts/stage3_dataset.sh {bundle}`
-   
-4. **Training** - Binary classifier training with frozen ESM-2
+
+4. **Training** — Binary classifier with frozen embeddings; supports ESM-2 or k-mer `feature_source`
    - Output: `models/{virus}/{data_version}/runs/training_{bundle}_{timestamp}/` (experiment-specific)
    - Script: `./scripts/stage4_train.sh {bundle} --cuda_name cuda:X --dataset_dir {path}`
+   - Provenance tracked in `training_info.json` saved to the training output directory
 
 *For detailed pipeline overview, see [Pipeline Overview](documentation/pipeline-overview.md)*
 
@@ -192,14 +195,14 @@ The pipeline uses Hydra for configuration management with a bundle system:
 
 ```bash
 # Comprehensive results analysis (automatically finds latest training run)
-python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na_5ks
+python src/analysis/analyze_stage4_train.py --config_bundle flu_schema_raw_slot_norm_unit_diff
 
 # Or specify model directory explicitly
-python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na_5ks \
-    --model_dir models/flu/July_2025/runs/training_flu_ha_na_5ks_YYYYMMDD_HHMMSS
+python src/analysis/analyze_stage4_train.py --config_bundle flu_schema_raw_slot_norm_unit_diff \
+    --model_dir models/flu/July_2025/runs/training_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS
 
 # Presentation-ready plots
-python src/analysis/create_presentation_plots.py --config_bundle flu_ha_na_5ks
+python src/analysis/create_presentation_plots.py --config_bundle flu_schema_raw_slot_norm_unit_diff
 ```
 
 *For detailed analysis guide, see [Results Analysis](documentation/analysis/results-analysis.md)*
@@ -222,19 +225,21 @@ python src/analysis/create_presentation_plots.py --config_bundle flu_ha_na_5ks
 
 ## 🔬 Research Findings
 
-### Conservation Hypothesis ✅ Confirmed
+### Conservation Hypothesis (Gen1) ✅ Confirmed
 
-The experiments definitively confirm that protein conservation directly impacts model performance:
+Protein conservation directly impacts model performance:
+- **Variable segments (HA-NA)**: 91.6% F1, 0.953 AUC — sufficient signal for excellent discrimination
+- **Conserved segments (PB2-PB1-PA)**: 75.3% F1, 0.750 AUC — limited by biological constraints
 
-1. **Variable segments (HA-NA)**: Achieve 92.3% accuracy, 91.6% F1, 0.953 AUC
-   - Comparable to Bunya performance (91.0% accuracy, 91.1% F1)
-   - Sufficient signal for excellent discrimination
+### Interaction and Normalization (Gen3)
 
-2. **Conserved segments (PB2-PB1-PA)**: Achieve 71.9% accuracy, 75.3% F1, 0.750 AUC
-   - Biological limitation: High conservation limits ESM-2's ability to distinguish isolates
-   - F1 > Accuracy suggests some recoverable signal despite embedding overlap
+- **`unit_diff` > `concat` on homogeneous data**: `concat` collapses to chance (AUC 0.50) on H3N2-only subsets; `unit_diff` succeeds (AUC 0.96). Embedding difference direction carries genuine biological signal.
+- **LayerNorm (`slot_norm`) is critical** for homogeneous subsets: raw HA/NA embeddings occupy slightly different subspaces, and `unit_diff` picks up the slot offset without normalization.
+- **Delayed learning on H3N2 + unit_diff**: characteristic plateau then breakthrough (~epochs 10–32, seed-dependent). Set `patience` to 40+ for H3N2-only runs.
 
-3. **Recommendation**: Deploy segment-specific models with realistic performance expectations
+### K-mer Features (Experimental)
+
+- **K-mer (k=6, 4096-dim) matches or exceeds ESM-2** on mixed-subtype HA-NA (AUC 0.982 vs 0.966–0.975). Both interactions work. Needs cross-validation confirmation before publication.
 
 *For comprehensive analysis, see [Experiment Results Analysis](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
 
