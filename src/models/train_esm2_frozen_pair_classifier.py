@@ -30,7 +30,6 @@ from torch.utils.data import Dataset, DataLoader
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
-# print(f'project_root: {project_root}')
 
 from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
@@ -43,6 +42,7 @@ from src.utils.learning_verification_utils import (
     compute_baseline_metrics,
     plot_learning_curves
 )
+from src.utils.kmer_utils import load_kmer_index, load_kmer_matrix, get_kmer_pair_features
 import h5py
 
 total_timer = Timer()
@@ -259,6 +259,44 @@ class SegmentPairDataset(Dataset):
         """Close H5 file when dataset is destroyed."""
         if hasattr(self, 'h5') and self.h5 is not None:
             self.h5.close()
+
+
+class KmerPairDataset(Dataset):
+    """Dataset for segment pairs with k-mer features.
+
+    Returns (emb_a, emb_b), label — same interface as SegmentPairDataset
+    so the training loop and MLPClassifier work unchanged.
+
+    Pairs are looked up via composite key (assembly_id::genbank_ctg_id)
+    using ctg_a/ctg_b columns in the pair CSV.
+    """
+
+    def __init__(
+        self,
+        pairs: pd.DataFrame,
+        kmer_matrix,   # scipy sparse CSR
+        key_to_row: dict,
+    ) -> None:
+        self.pairs = pairs
+        self.key_to_row = key_to_row
+
+        # Densify the full matrix upfront (k=6 → 4096 cols, ~16 MB for 1000 rows).
+        self.features = np.asarray(kmer_matrix.todense(), dtype=np.float32)
+
+        # Pre-compute row indices for each pair for fast __getitem__
+        keys_a = pairs['assembly_id_a'].astype(str) + '::' + pairs['ctg_a'].astype(str)
+        keys_b = pairs['assembly_id_b'].astype(str) + '::' + pairs['ctg_b'].astype(str)
+        self.rows_a = keys_a.map(key_to_row).astype(int).values
+        self.rows_b = keys_b.map(key_to_row).astype(int).values
+
+    def __len__(self):
+        return len(self.pairs)
+
+    def __getitem__(self, idx: int):
+        emb_a = torch.tensor(self.features[self.rows_a[idx]], dtype=torch.float)
+        emb_b = torch.tensor(self.features[self.rows_b[idx]], dtype=torch.float)
+        label = torch.tensor(self.pairs.iloc[idx]['label'], dtype=torch.float)
+        return (emb_a, emb_b), label
 
 
 class MLPClassifier(nn.Module):
@@ -911,6 +949,7 @@ PRE_MLP_DIMS = getattr(config.training, 'pre_mlp_dims', None)
 ADAPTER_DIMS = getattr(config.training, 'adapter_dims', None)
 # Interaction spec: "concat", "diff", "unit_diff", "prod", or combinations like "concat+unit_diff"
 INTERACTION_SPEC = getattr(config.training, 'interaction', 'concat')
+FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
 USE_LR_SCHEDULER = getattr(config.training, 'use_lr_scheduler', False)
 LR_SCHEDULER_TYPE = getattr(config.training, 'lr_scheduler', 'reduce_on_plateau')
 LR_SCHEDULER_PATIENCE = getattr(config.training, 'lr_scheduler_patience', 5)
@@ -995,52 +1034,90 @@ train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv')
 val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv')
 test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv')
 
-# Validate embeddings metadata matches config
-print('\nValidate embeddings metadata.')
-validate_embeddings_metadata(
-    embeddings_file=str(embeddings_file),
-    model_name=MODEL_CKPT,
-    max_length=ESM2_MAX_RESIDUES + 2,
-    pooling=POOLING,
-    layer=LAYER,
-    emb_storage_precision=EMB_STORAGE_PRECISION
-)
-
-# Validate that all required embeddings exist (check parquet index)
-print('Validate embedding availability.')
-index_file = Path(embeddings_file).with_suffix('.parquet')
-if not index_file.exists():
-    raise ValueError(
-        f"❌ Parquet index not found: {index_file}. "
-        "Master cache format requires parquet index for validation."
-    )
-
-index_df = pd.read_parquet(index_file)
-available_ids = set(index_df['brc_fea_id'].unique())
-for df_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
-    required_ids = set(df['brc_a']).union(set(df['brc_b']))
-    missing = required_ids - available_ids
-    if missing:
-        raise ValueError(
-            f"❌ Missing embeddings for {len(missing)} IDs in {df_name} set: {list(missing)[:5]}..."
-        )
-print(f"All required embeddings available ({len(available_ids)} total embeddings)")
-
-# Create datasets (always returns (emb_a, emb_b), label)
-train_dataset = SegmentPairDataset(train_pairs, embeddings_file)
-val_dataset = SegmentPairDataset(val_pairs, embeddings_file)
-test_dataset = SegmentPairDataset(test_pairs, embeddings_file)
-
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-
 # CUDA device
 CUDA_NAME = args.cuda_name
 device = determine_device(CUDA_NAME)
 
-# Get embedding dimension from model checkpoint
-EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
+print(f'\nFeature source: {FEATURE_SOURCE}')
+
+if FEATURE_SOURCE == 'kmer':
+    # --- K-mer feature path ---
+    from omegaconf import OmegaConf
+    if hasattr(config, 'kmer') and config.get('kmer') is not None:
+        KMER_K = int(config.kmer.get('k', 6))
+    else:
+        KMER_K = 6
+    EMBED_DIM = 4 ** KMER_K
+
+    # K-mer features live alongside ESM-2 embeddings
+    kmer_dir = build_embeddings_paths(
+        project_root=project_root, virus_name=VIRUS_NAME,
+        data_version=DATA_VERSION, run_suffix="", config=config,
+    )['output_dir']
+    print(f'K-mer dir: {kmer_dir}')
+    print(f'K-mer k={KMER_K}, embed_dim={EMBED_DIM}')
+
+    kmer_key_to_row = load_kmer_index(kmer_dir, KMER_K)
+    kmer_matrix = load_kmer_matrix(kmer_dir, KMER_K)
+    print(f'Loaded k-mer matrix: {kmer_matrix.shape}')
+
+    # Validate that pair CSVs have ctg_a/ctg_b columns
+    for name, pdf in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
+        for col in ['ctg_a', 'ctg_b']:
+            if col not in pdf.columns:
+                raise ValueError(
+                    f"Pair CSV ({name}) missing '{col}' column. "
+                    "Re-run Stage 3 (dataset_segment_pairs.py) to add ctg columns."
+                )
+
+    train_dataset = KmerPairDataset(train_pairs, kmer_matrix, kmer_key_to_row)
+    val_dataset = KmerPairDataset(val_pairs, kmer_matrix, kmer_key_to_row)
+    test_dataset = KmerPairDataset(test_pairs, kmer_matrix, kmer_key_to_row)
+
+else:
+    # --- ESM-2 embedding path (default) ---
+    # Validate embeddings metadata matches config
+    print('\nValidate embeddings metadata.')
+    validate_embeddings_metadata(
+        embeddings_file=str(embeddings_file),
+        model_name=MODEL_CKPT,
+        max_length=ESM2_MAX_RESIDUES + 2,
+        pooling=POOLING,
+        layer=LAYER,
+        emb_storage_precision=EMB_STORAGE_PRECISION
+    )
+
+    # Validate that all required embeddings exist (check parquet index)
+    print('Validate embedding availability.')
+    index_file = Path(embeddings_file).with_suffix('.parquet')
+    if not index_file.exists():
+        raise ValueError(
+            f"❌ Parquet index not found: {index_file}. "
+            "Master cache format requires parquet index for validation."
+        )
+
+    index_df = pd.read_parquet(index_file)
+    available_ids = set(index_df['brc_fea_id'].unique())
+    for df_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
+        required_ids = set(df['brc_a']).union(set(df['brc_b']))
+        missing = required_ids - available_ids
+        if missing:
+            raise ValueError(
+                f"❌ Missing embeddings for {len(missing)} IDs in {df_name} set: {list(missing)[:5]}..."
+            )
+    print(f"All required embeddings available ({len(available_ids)} total embeddings)")
+
+    # Create datasets (always returns (emb_a, emb_b), label)
+    train_dataset = SegmentPairDataset(train_pairs, embeddings_file)
+    val_dataset = SegmentPairDataset(val_pairs, embeddings_file)
+    test_dataset = SegmentPairDataset(test_pairs, embeddings_file)
+
+    # Get embedding dimension from model checkpoint
+    EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
+
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 # Resolve interaction flags from training.interaction
 USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
@@ -1156,7 +1233,10 @@ EVAL_SWAPPED_TEST = getattr(config.training, 'eval_swapped_test', False)
 if EVAL_SWAPPED_TEST:
     print('\nSwap-test diagnostic: evaluate on swapped test inputs (B,A) using SAME checkpoint.')
     swapped_test_pairs = swap_pairs_df_columns(test_pairs)
-    swapped_test_dataset = SegmentPairDataset(swapped_test_pairs, embeddings_file)
+    if FEATURE_SOURCE == 'kmer':
+        swapped_test_dataset = KmerPairDataset(swapped_test_pairs, kmer_matrix, kmer_key_to_row)
+    else:
+        swapped_test_dataset = SegmentPairDataset(swapped_test_pairs, embeddings_file)
     swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=BATCH_SIZE, shuffle=False)
     swapped_test_res_df = evaluate_on_split(
         model, swapped_test_loader, criterion, device, swapped_test_pairs,
