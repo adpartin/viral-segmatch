@@ -12,6 +12,8 @@ Example:
 python src/preprocess/preprocess_flu.py --config_bundle flu_debug --max_files_to_preprocess 10
 or
 python src/preprocess/preprocess_flu.py --config_bundle flu
+or
+run using ./scripts/stage1_preprocess_flu.sh
 ```
 """
 import argparse
