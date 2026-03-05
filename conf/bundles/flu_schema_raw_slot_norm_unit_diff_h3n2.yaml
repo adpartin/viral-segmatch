@@ -16,4 +16,4 @@ dataset:
   hn_subtype: "H3N2"
 
 training:
-  patience: 40 # Default is 15
+  patience: 50 # Default is 15
