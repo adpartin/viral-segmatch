@@ -27,8 +27,13 @@ def load_kmer_index(kmer_dir: Path, k: int) -> Dict[str, int]:
         raise FileNotFoundError(f"K-mer index not found: {index_file}")
 
     idx_df = pd.read_parquet(index_file)
-    # Build composite key: assembly_id::genbank_ctg_id
-    keys = idx_df['assembly_id'].astype(str) + '::' + idx_df['genbank_ctg_id'].astype(str)
+    # Normalize genbank_ctg_id through float round-trip so keys match pair CSVs.
+    # Stage 3 writes ctg columns as float, so "1564510.10" becomes "1564510.1".
+    # Apply the same normalization here to ensure consistent key lookup.
+    ctg_normalized = idx_df['genbank_ctg_id'].apply(
+        lambda x: str(float(x)) if x.replace('.', '', 1).isdigit() else x
+    )
+    keys = idx_df['assembly_id'].astype(str) + '::' + ctg_normalized
     return dict(zip(keys, idx_df['row']))
 
 
