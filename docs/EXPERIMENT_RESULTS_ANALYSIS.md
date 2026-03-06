@@ -2,25 +2,44 @@
 
 **Purpose**: This document provides a detailed scientific analysis of completed experiments, focusing on performance metrics and biological interpretation of results. For project status, research roadmap, and background context, see [`EXP_RESULTS_STATUS.md`](EXP_RESULTS_STATUS.md).
 
-**Date**: December 3, 2025  
-**Experiments Analyzed**: 5 config bundles across Bunya and Flu A (5K isolates for Flu experiments)
+**Last updated**: March 2026
+**Experiments Analyzed**: Gen1 conservation hypothesis (Dec 2025), Gen3 interaction/normalization ablations, k-mer feature comparison (Mar 2026)
 
 ---
 
 ## Executive Summary
 
-This analysis compares model performance across different segment combinations to test the **conservation hypothesis**: that with highly conserved proteins (PB1, PB2, PA) it's harder to predict the isolate of origin than with variable proteins (HA, NA).
-
-### Key Finding: **Conservation Hypothesis Confirmed** ✅
+### Gen1: Conservation Hypothesis Confirmed (Dec 2025) ✅
 
 Performance directly correlates with protein conservation levels:
 - **Variable segments (HA-NA)**: accuracy=0.923, **F1=0.916**, AUC=0.953
 - **Mixed segments (PB2-HA-NA)**: accuracy=0.854, **F1=0.855**, AUC=0.920
 - **Conserved segments (PB2-PB1-PA)**: accuracy=0.719, **F1=0.753**, AUC=0.750
 
+### Gen3: Interaction, Normalization, and Feature Source (Mar 2026)
+
+| Feature Source | Interaction | Filter | Accuracy | F1 | AUC |
+|---|---|---|---|---|---|
+| ESM-2 | unit_diff | none | 92.5% | 0.917 | 0.966 |
+| ESM-2 | concat | none | 93.7% | 0.929 | 0.975 |
+| ESM-2 | unit_diff | H3N2 | 89.7% | 0.878 | 0.957 |
+| ESM-2 | concat | H3N2 | 39.9% | 0.570 | 0.498 |
+| K-mer (k=6) | unit_diff | none | 96.2% | 0.957 | 0.982 |
+| K-mer (k=6) | concat | none | 95.6% | 0.951 | 0.982 |
+| K-mer (k=6) | unit_diff | H3N2 | 97.0% | 0.963 | 0.988 |
+| K-mer (k=6) | concat | H3N2 | 96.6% | 0.958 | 0.985 |
+
+**Key findings**:
+- ESM-2 `concat` collapses to chance on H3N2-only (AUC 0.498); `unit_diff` succeeds (AUC 0.957)
+- K-mer `concat` does NOT collapse on H3N2 (AUC 0.985) — the concat failure is specific to ESM-2's embedding geometry, not concatenation as an interaction
+- K-mer features are interaction-agnostic and dominate ESM-2 on homogeneous data
+- LayerNorm (`slot_norm`) is critical for ESM-2 on homogeneous subsets
+
 ---
 
-## Detailed Results
+## Gen1 Detailed Results (Dec 2025)
+
+These experiments used Gen1 bundles (`flu_ha_na_5ks`, `flu_pb2_pb1_pa_5ks`, etc.) with default `concat` interaction and no LayerNorm. They established the conservation hypothesis. For current best results, see Gen3 table in the Executive Summary.
 
 ### 1. Bunya (Baseline - Core protein only)
 
@@ -174,7 +193,10 @@ Performance directly correlates with protein conservation levels:
 
 ### Key Insights
 
-TODO
+1. Performance scales with protein variability: HA-NA (variable) > PB2-HA-NA (mixed) > PB2-PB1-PA (conserved)
+2. Bunya and Flu HA-NA achieve comparable F1 (~0.91), suggesting a ceiling for frozen ESM-2 on variable proteins
+3. Conserved segments saturate at F1 ~0.75 regardless of training set size (overfit test confirms)
+4. **Gen3 update**: `unit_diff` interaction with `slot_norm` surpasses Gen1 concat on homogeneous data; k-mer features outperform ESM-2 overall
 
 ---
 
@@ -210,18 +232,13 @@ TODO
 2. **Conservation limits performance** - Variable segments (HA-NA) outperform conserved (PB2-PB1-PA)
 3. **Segment-specific models should be considered** - instead of all-segment model
 
-### 🎯 Recommended Next Steps
+### Recommended Next Steps (updated Mar 2026)
 
-1. **Interaction Features**
-   - Test `use_diff=True, use_prod=True`
-   - May improve performance by highlighting differences
-
-2. **Contrastive Fine-Tuning**
-   - Fine-tune ESM-2 specifically for isolate discrimination
-   - Could improve conserved segment embeddings
-
-3. **Genome Foundation Models**
-   - Nucleotide-level models may capture isolate-specific signals
+1. ~~**Interaction Features**~~ — **Done (Gen3)**. `unit_diff` and `concat` tested; `unit_diff` + `slot_norm` is current best for ESM-2.
+2. ~~**Genome Foundation Models**~~ — **Partial**. K-mer (k=6) baseline implemented and outperforms ESM-2. XGBoost/LightGBM and GenSLM still future work.
+3. **Cross-validation** — N-fold CV for robust mean +/- std metrics (implemented, needs full run)
+4. **Temporal holdout** — Train 2021-2023, test 2024
+5. **Baseline validation** — Embedding shuffle and other sanity checks to confirm sequence-level learning (see `docs/plans/baseline_validation_experiments_plan.md`)
 
 ---
 

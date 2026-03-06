@@ -2,9 +2,9 @@
 
 **Purpose**: This document tracks project status, provides research context (biological and technical background), outlines the research roadmap, and summarizes experimental results. For detailed analysis of experiment results see [`EXPERIMENT_RESULTS_ANALYSIS.md`](EXPERIMENT_RESULTS_ANALYSIS.md).
 
-**Date**: December 3, 2025  
-**Status**: Conservation Hypothesis Confirmed ✅  
-**Primary Finding**: Performance directly correlates with protein conservation levels
+**Last updated**: March 2026
+**Status**: Gen3 interaction/normalization ablations complete; k-mer feature source validated
+**Primary Findings**: Conservation hypothesis confirmed (Gen1); ESM-2 concat collapse is embedding-geometry-specific (Gen3); k-mer features dominate on homogeneous data
 
 ---
 
@@ -23,21 +23,24 @@
 
 ## 1. Executive Summary
 
-### Key Finding: **Conservation Hypothesis Confirmed** ✅
+### Gen1: Conservation Hypothesis Confirmed (Dec 2025) ✅
 
 Performance directly correlates with protein conservation levels:
 - **Variable segments (HA-NA)**: accuracy=0.923, **F1=0.916**, AUC=0.953
 - **Mixed segments (PB2-HA-NA)**: accuracy=0.854, **F1=0.855**, AUC=0.920
 - **Conserved segments (PB2-PB1-PA)**: accuracy=0.719, **F1=0.753**, AUC=0.750
 
-### Main Conclusions
+### Gen3: Interaction, Normalization, and Feature Source (Mar 2026)
 
-1. **Variable segments (HA-NA) achieve accuracy=0.923, F1=0.916** - Actually outperforms Bunya (accuracy=0.910, F1=0.911) with 5K isolates
-2. **Conserved segments (PB2-PB1-PA) achieve accuracy=0.719, F1=0.753** - Biological limitation, but scores suggest some recoverable signal
-3. **Segment-specific models might be the path forward** - Use HA-NA model for variable segments (F1=0.916)
-4. **Pipeline is sound** - Both Bunya and Flu HA-NA prove the approach works well for variable segments
+Key advances since Gen1:
+1. **`unit_diff` + `slot_norm`** is the best ESM-2 configuration. `concat` fails on homogeneous data (H3N2-only: AUC 0.498); `unit_diff` succeeds (AUC 0.957).
+2. **K-mer (k=6) features outperform ESM-2** on both mixed-subtype (AUC 0.982 vs 0.966) and H3N2-only (AUC 0.988 vs 0.957) data.
+3. **K-mer `concat` does NOT collapse on H3N2** (AUC 0.985). The ESM-2 concat failure is specific to its embedding geometry (protein-type subspace offset), not concatenation itself.
+4. **K-mer features are interaction-agnostic**: `unit_diff` and `concat` perform equally well.
+5. **Stage 3/4 decoupled**: create a dataset once, train with different bundles against it.
+6. **Cross-validation** support implemented (`n_folds`/`fold_id`).
 
-**Recommendation**: Deploy segment-specific models with realistic performance expectations.
+**Current best**: `flu_schema_raw_slot_norm_unit_diff` (ESM-2) or `flu_schema_raw_kmer_k6_slot_norm_unit_diff` (k-mer, experimental).
 
 ---
 
@@ -53,16 +56,27 @@ Performance directly correlates with protein conservation levels:
 | Segment-specific models for Flu A | ✅ Complete | HA-NA: 0.916 F1, PB2-PB1-PA: 0.753 F1 |
 | Conservation hypothesis testing | ✅ Complete | Confirmed: 0.204 accuracy gap, 0.163 F1 gap |
 
+### Completed Since Dec 2025
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Interaction features (`unit_diff`, `concat`, `diff`, `prod`) | ✅ Complete | `unit_diff` + `slot_norm` is best for ESM-2 |
+| K-mer genome features | ✅ Complete | K-mer (k=6) baseline; outperforms ESM-2 |
+| Stage 3/4 decoupling | ✅ Complete | Dataset once, train many |
+| Cross-validation support | ✅ Complete | `n_folds`/`fold_id` in dataset config |
+| H3N2 k-mer vs ESM-2 comparison | ✅ Complete | K-mer concat does NOT collapse; ESM-2 concat does |
+
 ### Pending Tasks
 
 | Task | Priority | Notes |
 |------|----------|-------|
-| Implement stratified dataset splitting (validation experiment) | P1 | Test for batch effects/confounders (see Section 6: Validation Experiments) |
-| Run embedding similarity on Bunya and Flu A | P1 | Quantify embedding overlap |
-| Compare Bunya vs Flu A similarity distributions | P1 | Quantify conservation impact on embedding separability |
-| Try use_diff=True, use_prod=True | P2 | May improve conserved segment performance |
-| Contrastive fine-tuning of ESM-2 | P3 | If current approach insufficient |
-| Explore genome foundation models | P4 | GenSLM, Evo2 for nucleotide signal |
+| Baseline validation experiments | P1 | Embedding shuffle, mean embedding, swap-slot (see `docs/plans/baseline_validation_experiments_plan.md`) |
+| Cross-validation full run | P1 | Run N-fold CV for publication metrics |
+| Temporal holdout (train 2021-2023, test 2024) | P1 | Needs `year_train`/`year_test` config fields |
+| Large dataset (full Flu A ~100K isolates) | P2 | HPC required (Polaris) |
+| K-mer + XGBoost/LightGBM | P2 | Tree-based classifier comparison |
+| Run embedding similarity analysis | P3 | Quantify embedding overlap |
+| Contrastive fine-tuning of ESM-2 | P4 | If current approach insufficient |
 
 ---
 
@@ -281,41 +295,33 @@ These validation experiments are similar to:
 
 ### Approaches Ranked by Expected Impact
 
-| Rank | Approach | Expected Impact | Effort | Rationale |
-|------|----------|-----------------|--------|-----------|
-| 1 | **Segment-specific models** | High | Low | ✅ **COMPLETED** - HA-NA: 0.916 F1, PB2-PB1-PA: 0.753 F1 |
-| 2 | **Contrastive fine-tuning of ESM-2** | High | Medium | Directly optimizes for isolate discrimination |
-| 3 | **Interaction features** | Medium | Low | `use_diff=true, use_prod=true` captures pairwise relationships |
-| 4 | **Genome foundation models** | Medium-High | High | Nucleotide-level signal (synonymous mutations) |
-| 5 | **Cross-attention architecture** | Medium | Medium | Learns to focus on discriminative regions |
-| 6 | **Multi-task learning** | Medium | Medium | Predict isolate + function jointly |
-| 7 | **Custom viral foundation model** | Highest (if works) | Very High | Domain-specific, but requires massive compute |
+| Rank | Approach | Expected Impact | Effort | Status |
+|------|----------|-----------------|--------|--------|
+| 1 | **Segment-specific models** | High | Low | ✅ Done (Gen1) |
+| 2 | **Interaction features** | High | Low | ✅ Done (Gen3) — `unit_diff` + `slot_norm` is best for ESM-2 |
+| 3 | **K-mer genome features** | High | Medium | ✅ Done — k-mer (k=6) outperforms ESM-2 |
+| 4 | **Cross-validation** | High | Medium | ✅ Implemented, needs full run |
+| 5 | **Contrastive fine-tuning of ESM-2** | Medium-High | Medium | Not started |
+| 6 | **Genome foundation models (GenSLM)** | Medium-High | High | Not started |
+| 7 | **Custom viral foundation model** | Highest (if works) | Very High | Not started |
 
 ### Detailed Strategies
 
 #### Level 1: Optimize Current Framework (Quick Wins)
 
-**A. Interaction Features** (Medium Priority)
-```yaml
-training:
-  use_diff: true   # |emb_a - emb_b| highlights differences
-  use_prod: true   # emb_a * emb_b captures interactions
-```
-- **Status**: Not yet tested on Flu experiments
-- **Hypothesis**: May improve conserved segment performance by highlighting differences
-- **Note**: Bunya already uses `use_diff=True, use_prod=True` and achieves good results
+**A. Interaction Features** ✅ **COMPLETED (Gen3)**
+- Tested: `concat`, `diff`, `unit_diff`, `prod` (see `_ongoing_work.md` for formulas)
+- **Result**: `unit_diff` + `slot_norm` is best for ESM-2. `concat` fails on homogeneous data (H3N2).
+- Config: `training.interaction: unit_diff`, `training.pre_mlp_mode: slot_norm`
 
-**B. Segment-Specific Models** ✅ **COMPLETED**
+**B. Segment-Specific Models** ✅ **COMPLETED (Gen1)**
 - **Result**: HA-NA model achieves 0.923 accuracy, 0.916 F1 (vs ~0.72 accuracy, ~0.75 F1 for conserved segments)
 - **Conclusion**: Confirms conservation as the primary limiting factor
-- **Recommendation**: Deploy HA-NA model for variable segments, accept lower performance for conserved segments
 
-**C. Loss Function**
-Switch from binary cross-entropy to contrastive loss:
-```python
-# InfoNCE loss: pull same-isolate pairs together, push different apart
-loss = -log(exp(sim(a,b)/τ) / Σ exp(sim(a,neg)/τ))
-```
+**C. K-mer Genome Features** ✅ **COMPLETED**
+- K-mer (k=6, 4096-dim) outperforms ESM-2 on both mixed-subtype and H3N2-only data
+- K-mer concat does NOT collapse on H3N2 (AUC 0.985 vs ESM-2 AUC 0.498)
+- Config: `training.feature_source: kmer`, `conf/kmer/default.yaml`
 
 #### Level 2: Fine-Tune Protein Foundation Models
 
@@ -387,11 +393,17 @@ This would directly learn the signal we care about but requires significant comp
 - `scripts/stage4_train.sh` - Model training
 
 ### Configuration Files
-- `conf/bundles/bunya.yaml`
-- `conf/bundles/flu_ha_na_5ks.yaml`
-- `conf/bundles/flu_pb2_pb1_pa_5ks.yaml`
-- `conf/bundles/flu_pb2_ha_na_5ks.yaml`
-- `conf/bundles/flu_overfit_5ks.yaml`
+
+Gen1 (conservation hypothesis):
+- `conf/bundles/flu_ha_na_5ks.yaml` (no longer exists — superseded by Gen3 bundles)
+- `conf/bundles/flu_pb2_pb1_pa_5ks.yaml`, `conf/bundles/flu_pb2_ha_na_5ks.yaml`
+
+Gen3 (current):
+- `conf/bundles/flu_schema_raw_slot_norm_unit_diff.yaml` — best ESM-2
+- `conf/bundles/flu_schema_raw_slot_norm_concat.yaml` — concat comparison
+- `conf/bundles/flu_schema_raw_kmer_k6_slot_norm_unit_diff.yaml` — k-mer baseline
+- `conf/bundles/flu_schema_raw_kmer_k6_slot_norm_concat.yaml` — k-mer + concat
+- See `conf/bundles/README.md` for the full list and inheritance conventions
 
 ---
 
