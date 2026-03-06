@@ -106,7 +106,8 @@ and validation. No changes needed to Stage 4 (training) or shell scripts.
 - ✅ K-mer + MLP baseline — `compute_kmer_features.py` (Stage 2b), `kmer_utils.py`,
   `feature_source=kmer` in training script. Tested on mixed-subtype and H3N2-only.
 - ✅ `preprocess_flu.py` — unified protein + genome extraction.
-- Not started: k-mer + XGBoost/LightGBM, GenSLM embeddings.
+- Not started: k-mer + XGBoost/LightGBM (new training script).
+- Not started: GenSLM embeddings (new embedding pipeline).
 
 **Results:**
 - Mixed-subtype: k-mer AUC 0.982 vs ESM-2 AUC 0.966–0.975.
@@ -149,6 +150,97 @@ See `docs/genome_pipeline_design.md` for full design.
 
 ---
 
+### 7. Baseline validation experiments — NOT IMPLEMENTED
+
+**Goal:** Confirm the model learns from actual sequence-level features rather than exploiting
+shortcuts (e.g., protein-identity pattern: "slot A = HA, slot B = NA → 1").
+
+**Status:** Plan drafted in `docs/plans/baseline_validation_experiments_plan.md`. Not implemented.
+
+**Proposed baselines (priority order):**
+1. **Embedding shuffle within protein** — randomly permute embeddings across isolates within
+   each protein group. Preserves protein identity but breaks isolate↔sequence link. If model
+   still performs well, it's using slot identity, not sequence content.
+2. **Mean embedding per protein** — replace all HA embeddings with HA mean, all NA with NA mean.
+   Stronger version of (1): removes all within-protein variation.
+3. **Swap-slot test** — for positive pairs, swap slot A and slot B. Tests whether `unit_diff`
+   direction matters (it should: A−B ≠ B−A).
+4. **Random embeddings** — replace embeddings with random vectors from per-protein Gaussian.
+
+**Implementation approach:** Add `training.ablation.shuffle_embeddings` (etc.) config flags.
+Apply perturbation during training so we test whether the model can *learn* from corrupted
+features, not just whether a trained model is robust. ~50-100 lines in embedding loading code.
+
+**Effort:** Medium. Config flags + embedding perturbation logic + one bundle per ablation.
+
+---
+
+### 8. Large test set evaluation — NOT IMPLEMENTED
+
+**Goal:** Evaluate the 5K-trained model on a much larger held-out test set to get tighter
+confidence intervals on performance metrics.
+
+**Approach:**
+1. Train on the standard 5K-isolate dataset (0.8/0.1/0.1 split → ~4K train, 500 val, 500 test).
+2. Take the remaining isolates (~111K − 5K = ~106K) that were never seen during training.
+3. Create a large test-only dataset from those remaining isolates (positive pairs from
+   co-occurring segments, negative pairs with co-occurrence blocking — same logic as Stage 3).
+4. Run the trained model in inference mode on this large test set.
+
+**Why this matters:**
+- Current test sets (~500 pairs) have wide confidence intervals on metrics.
+- A 100K+ test set gives near-exact performance estimates.
+- Tests generalization beyond the 5K training population without retraining.
+
+**Codebase changes required:**
+1. **Inference script** — or add `--inference_only --model_dir` mode to the training script.
+   Load trained model + optimal threshold, run on a provided dataset, save predictions + metrics.
+2. **Stage 3 modification** — option to exclude a list of isolates (the 5K used in training)
+   when creating the large test dataset. Could use `--exclude_isolates_file` pointing to
+   `sampled_isolates.txt` from the training dataset run.
+3. **Co-occurrence blocking** — the large test set must not contain contradictory pairs
+   (same sequence pair labeled both positive and negative). Existing blocking logic handles this.
+
+**Effort:** Medium. Inference mode + dataset exclusion logic.
+
+---
+
+### 9. Learning curve analysis — NOT IMPLEMENTED
+
+**Goal:** Plot model performance on a fixed test set as training set size increases. Shows
+how much data the model needs and whether performance is saturating or still improving.
+
+**Approach** (following Partin et al., BMC Bioinformatics 2021, "Data partitioning" section):
+1. Fix a held-out test set (e.g., 10% of isolates, or the large test set from Task 8).
+2. Define a geometric sequence of training set sizes: e.g., 100, 250, 500, 1K, 2.5K, 5K,
+   10K, 25K, 50K, 100K isolates.
+3. For each size, sample that many isolates from the training pool, create pairs, train the
+   model, and evaluate on the fixed test set.
+4. Plot: test F1 / AUC vs training set size (log-scale x-axis). Optionally with error bars
+   from multiple random samples per size.
+
+**Why this matters:**
+- Reveals whether 5K isolates is sufficient or whether scaling to 100K improves performance.
+- If the curve plateaus early, the model has enough data; if it's still rising, larger datasets
+  help. This directly informs whether Task 2 (large dataset on HPC) is worthwhile.
+- Standard analysis for ML papers; reviewers expect it.
+
+**HPC fit:** High. Each training-set size is an independent run; sizes >10K need HPC for
+Stage 2 (embeddings). Natural fit for PBS job arrays on Polaris.
+
+**Codebase changes required:**
+1. **LC launcher script** — similar to `run_cv_lambda.py`. Iterates over training set sizes,
+   creates a dataset for each size (or subsamples from a pre-built large dataset), trains,
+   evaluates on the fixed test set.
+2. **Dataset subsampling** — `dataset_segment_pairs.py` already has `max_isolates_to_process`.
+   Need to ensure the test set is fixed across all sizes (use `test_isolates_override`).
+3. **Aggregation script** — collect metrics across sizes, plot LC curve.
+
+**Effort:** Medium–high. Launcher + fixed-test-set logic + aggregation/plotting. Benefits from
+Task 8 (large test set) being implemented first.
+
+---
+
 ## Design: Publication Scope and Codebase Stability
 
 **Your intent:** Run a subset of experiments soon, draft a paper outline, and use it to constrain scope and avoid endless “what if” experiments. Changes to the codebase should support these experiments without unnecessary churn.
@@ -187,14 +279,19 @@ See `docs/genome_pipeline_design.md` for full design.
 | 4c. GenSLM | Not started | New embedding pipeline | Low |
 | 5. Genetic distance | Not started | Needs metadata | Low |
 | 6. PB2/PB1 + H3N2 | Supported | One new bundle YAML | Low |
+| 7. Baseline validation | **Not implemented** | Config flags + perturbation logic | High |
+| 8. Large test set eval | **Not implemented** | Inference mode + dataset exclusion | Medium |
+| 9. Learning curve analysis | **Not implemented** | LC launcher + fixed test set + plotting | Medium–high |
 
 ---
 
 ## Next Steps
 
 1. **Implement Task 3 (temporal holdout)** — highest priority gap for publication.
-2. Run Task 1 (cross-validation) end-to-end for robust mean ± std metrics.
-3. Create Task 6 bundle (PB2/PB1 + H3N2) — trivial.
-4. Run Task 2 (large dataset) on Polaris after CV pipeline is validated.
-5. Baseline validation experiments (embedding shuffle etc.) — see `docs/plans/baseline_validation_experiments_plan.md`.
-6. Draft paper outline; constrain scope before adding more experiments.
+2. **Implement Task 7 (baseline validation)** — confirms model learns sequence-level signal.
+3. Run Task 1 (cross-validation) end-to-end for robust mean ± std metrics.
+4. Create Task 6 bundle (PB2/PB1 + H3N2) — trivial.
+5. **Implement Task 8 (large test set)** — tighter confidence intervals, feeds into Task 9.
+6. **Implement Task 9 (learning curve)** — informs whether scaling to 100K helps; HPC.
+7. Run Task 2 (large dataset) on Polaris after CV pipeline is validated.
+8. Draft paper outline; constrain scope before adding more experiments.
