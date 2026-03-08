@@ -1,0 +1,11 @@
+# STATUS: experimental
+# Temporal holdout with k-mer features (k=6, slot_norm, unit_diff)
+# Train 2021-2023, test 2024. Reuse temporal dataset from ESM-2 bundle.
+defaults:
+  - flu_schema_raw_kmer_k6_slot_norm_unit_diff
+  - _self_
+
+dataset:
+  year_train: [2021, 2022, 2023]
+  year_test: [2024]
+  max_isolates_to_process: null

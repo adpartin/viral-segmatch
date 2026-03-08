@@ -1414,6 +1414,66 @@ def generate_all_cv_folds(
     return folds
 
 
+def generate_temporal_split(
+    prot_df: pd.DataFrame,
+    year_train: list,
+    year_test: list,
+    val_ratio: float,
+    split_kwargs: dict,
+    ) -> tuple:
+    """Partition isolates by year for temporal holdout.
+
+    Train isolates come from year_train years. Val and test isolates are split from
+    year_test years so that val reflects the same future-season distribution as test
+    (important for early stopping and threshold tuning).
+
+    Returns (train_pairs, val_pairs, test_pairs, duplicate_stats) — same as split_dataset().
+    """
+    # Get year per isolate
+    isolate_years = prot_df.groupby("assembly_id")["year"].first()
+
+    # Validate: no overlap between train and test years
+    overlap = set(year_train) & set(year_test)
+    if overlap:
+        raise ValueError(f"year_train and year_test overlap: {overlap}")
+
+    # Partition isolates by year
+    train_isolates = isolate_years[isolate_years.isin(year_train)].index.tolist()
+    test_pool = isolate_years[isolate_years.isin(year_test)].index.tolist()
+
+    if len(test_pool) < 50:
+        print(f"WARNING: Only {len(test_pool)} isolates from test years {year_test}")
+    if len(train_isolates) < 50:
+        print(f"WARNING: Only {len(train_isolates)} train isolates from years {year_train}")
+
+    # Split val from test-year pool so val matches the test distribution
+    seed = split_kwargs.get("seed", 42)
+    train_ratio = split_kwargs.get("train_ratio", 0.8)
+    # val_ratio is relative to total data; rescale for the test pool
+    # Aim for val ~= val_ratio / (val_ratio + test_ratio) of test_pool
+    val_frac = val_ratio / (1.0 - train_ratio)  # e.g., 0.1 / 0.2 = 0.5
+    val_frac = min(val_frac, 0.5)  # never take more than half
+    val_frac = max(val_frac, 0.1)  # at least 10%
+    n_val = max(1, int(len(test_pool) * val_frac))
+    rng = np.random.RandomState(seed)
+    shuffled = rng.permutation(test_pool)
+    val_isolates = shuffled[:n_val].tolist()
+    test_isolates = shuffled[n_val:].tolist()
+
+    print(f"Temporal split: {len(train_isolates)} train, {len(val_isolates)} val, "
+          f"{len(test_isolates)} test isolates")
+    print(f"  Train years: {sorted(year_train)}")
+    print(f"  Val+test years: {sorted(year_test)} "
+          f"(val={len(val_isolates)}, test={len(test_isolates)})")
+
+    # Call split_dataset with overrides
+    updated_kwargs = {**split_kwargs,
+                      "train_isolates_override": train_isolates,
+                      "val_isolates_override": val_isolates,
+                      "test_isolates_override": test_isolates}
+    return split_dataset(**updated_kwargs)
+
+
 # Parser
 parser = argparse.ArgumentParser(description='Create segment pairs dataset')
 parser.add_argument(
@@ -1465,6 +1525,26 @@ SHUFFLE_TRAIN_LABELS = getattr(config.dataset, 'shuffle_train_labels', False)
 SHUFFLE_TRAIN_LABELS_SEED = getattr(config.dataset, 'shuffle_train_labels_seed', None)
 N_FOLDS = getattr(config.dataset, 'n_folds', None)
 GENERATE_VISUALIZATIONS = getattr(config.dataset, 'generate_visualizations', True)
+
+# Temporal holdout config
+YEAR_TRAIN = getattr(config.dataset, 'year_train', None)
+YEAR_TEST = getattr(config.dataset, 'year_test', None)
+
+# Normalize to lists (Hydra may pass a single int or a ListConfig)
+if YEAR_TRAIN is not None:
+    YEAR_TRAIN = list(YEAR_TRAIN) if hasattr(YEAR_TRAIN, '__iter__') else [YEAR_TRAIN]
+if YEAR_TEST is not None:
+    YEAR_TEST = list(YEAR_TEST) if hasattr(YEAR_TEST, '__iter__') else [YEAR_TEST]
+
+# Mutual exclusivity checks
+if YEAR_TRAIN is not None or YEAR_TEST is not None:
+    if YEAR_TRAIN is None or YEAR_TEST is None:
+        raise ValueError("Both year_train and year_test must be set (or both null)")
+    year_filter_check = getattr(config.dataset, 'year', None)
+    if year_filter_check is not None:
+        raise ValueError("year (filter) and year_train/year_test (temporal split) are mutually exclusive")
+    if N_FOLDS is not None and N_FOLDS > 1:
+        raise ValueError("n_folds (CV) and year_train/year_test (temporal split) are mutually exclusive")
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -1550,6 +1630,15 @@ prot_df = filter_by_metadata(
     geo_location=geo_location_filter,
     passage=passage_filter,
 )
+
+# Temporal holdout: filter to union of train + test years
+if YEAR_TRAIN is not None:
+    all_years = list(YEAR_TRAIN) + list(YEAR_TEST)
+    before_count = prot_df['assembly_id'].nunique()
+    prot_df = prot_df[prot_df["year"].isin(all_years)]
+    after_count = prot_df['assembly_id'].nunique()
+    print(f"Temporal filter: kept {after_count} isolates from years {sorted(all_years)} "
+          f"(dropped {before_count - after_count})")
 
 # Sample a subset of isolates from the dataframe
 sampled_isolates_file = output_dir / 'sampled_isolates.txt'
@@ -1673,6 +1762,8 @@ filters_applied = {
     'passage': passage_filter,
     'pair_mode': PAIR_MODE,
     'schema_pair': list(schema_pair) if schema_pair is not None else None,
+    'year_train': YEAR_TRAIN,
+    'year_test': YEAR_TEST,
 }
 
 if N_FOLDS is not None and N_FOLDS > 1:
@@ -1721,6 +1812,32 @@ if N_FOLDS is not None and N_FOLDS > 1:
             filters_applied=filters_applied,
             generate_visualizations=GENERATE_VISUALIZATIONS,
         )
+
+elif YEAR_TRAIN is not None:
+    # ── Temporal holdout mode ─────────────────────────────────────────────
+    print(f'\nTemporal holdout: train={YEAR_TRAIN}, test={YEAR_TEST}')
+    train_pairs, val_pairs, test_pairs, duplicate_stats = generate_temporal_split(
+        prot_df=df,
+        year_train=YEAR_TRAIN,
+        year_test=YEAR_TEST,
+        val_ratio=VAL_RATIO,
+        split_kwargs=split_kwargs,
+    )
+
+    print(f'\nSave datasets: {output_dir}')
+    save_split_output(
+        output_dir=output_dir,
+        train_pairs=train_pairs,
+        val_pairs=val_pairs,
+        test_pairs=test_pairs,
+        duplicate_stats=duplicate_stats,
+        df=df,
+        config_bundle=config_bundle,
+        pair_mode=PAIR_MODE,
+        schema_pair=schema_pair,
+        filters_applied=filters_applied,
+        generate_visualizations=GENERATE_VISUALIZATIONS,
+    )
 
 else:
     # ── Single-split mode (existing behavior) ─────────────────────────────

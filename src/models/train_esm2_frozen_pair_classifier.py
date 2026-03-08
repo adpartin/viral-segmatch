@@ -277,7 +277,7 @@ class KmerPairDataset(Dataset):
         pairs: pd.DataFrame,
         kmer_matrix,   # scipy sparse CSR
         key_to_row: dict,
-    ) -> None:
+        ) -> None:
         self.pairs = pairs
         self.key_to_row = key_to_row
 

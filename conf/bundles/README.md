@@ -22,7 +22,7 @@ flu.yaml  ──────────────────► flu_concat.y
 flu_schema.yaml ─────────────► flu_schema_diff.yaml
   (base for ALL Gen 2+3)        flu_schema_human.yaml
                                 flu_schema_h3n2.yaml ──► flu_schema_h3n2_diff.yaml
-                                flu_schema_raw_slot_norm_unit_diff.yaml ──► _h3n2, _human, _illinois, _2024
+                                flu_schema_raw_slot_norm_unit_diff.yaml ──► _h3n2, _human, _illinois, _2024, _temporal
                                 flu_schema_raw_slot_norm_concat.yaml    ──► _h3n2, _human, _illinois, _2024
                                 flu_schema_raw_none_unit_diff.yaml      ──► _h3n2
                                 flu_schema_raw_kmer_k6_slot_norm_unit_diff.yaml ──► _h3n2
@@ -65,6 +65,12 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
 | `flu_schema_raw_none_unit_diff_h3n2` | No LayerNorm on H3N2; confirms LayerNorm is critical |
 | `flu_pb2_pb1_pa_5ks_label_shuffle` | Label shuffle sanity check (should converge to ~50% F1) |
 | `flu_concat_no_canon` | No canonical pair orientation (compare to default) |
+
+### Experimental — paper experiments in progress
+
+| Bundle | Notes |
+|--------|-------|
+| `flu_schema_raw_slot_norm_unit_diff_temporal` | Temporal holdout: train 2021-2023, test 2024 |
 
 ### Experimental / abandoned — unfinished pre-MLP mode exploration
 

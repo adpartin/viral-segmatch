@@ -39,12 +39,13 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - LayerNorm (`slot_norm`) critical for ESM-2 on homogeneous subsets
 - Delayed learning on H3N2 + unit_diff: increase patience to 40+
 - High FP rate on filtered datasets (year/host/geo) -- likely population-level confounders
+- **Temporal holdout**: K-mer AUC 0.941 vs ESM-2 AUC 0.891 (train 2021-2023, test 2024); k-mers generalize better across flu seasons
 
 ## Roadmap (02/10/2026 meeting) -- for publication
 1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- IMPLEMENTED (branch: feature/cross-validation)
 2. Genome features (k-mers + XGBoost/LightGBM, then GenSLM) -- PARTIAL -- k-mer + MLP baseline done; XGBoost/LightGBM still TODO
 3. Large dataset (full Flu A ~100K isolates, HPC)
-4. Temporal holdout (year_train/year_test config fields)
+4. Temporal holdout (year_train/year_test config fields) -- IMPLEMENTED, initial runs done; pair_key dedup fix needed; see docs/plans/temporal_holdout_plan.md
 5. PB2/PB1 + H3N2 bundle (trivial, one new bundle)
 
 ## Directory Structure (post-cleanup Feb 2026)
@@ -57,10 +58,21 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 ## Not Maintained
 - `old_scripts/`, `src/preprocess/preprocess_bunya_protein.py`, `conf/bundles/bunya.yaml`
 
+## Temporal Holdout (IMPLEMENTED — initial runs complete)
+- Bundles: `flu_schema_raw_slot_norm_unit_diff_temporal` (ESM-2), `flu_schema_raw_kmer_k6_slot_norm_unit_diff_temporal` (k-mer)
+- Train 2021-2023 (~20K isolates), val+test 2024 (~17K isolates)
+- Notable subtype shift: H5N1 24%→41%, H3N2 40%→32% (2024 avian flu surge)
+- **Pair-key dedup issue**: 42% of val/test pairs removed (positive pair_keys overlap with train due to same strains across years), creating 25/75 label imbalance in val/test. Needs fix before publication — likely disable dedup for temporal mode (approach A). See plan doc.
+- **Initial results** (with dedup artifact, threshold=0.5):
+  - ESM-2: AUC 0.891, F1 0.734, FP/FN=64.1
+  - K-mer (k=6): AUC 0.941, F1 0.832, FP/FN=11.6
+  - K-mers substantially outperform ESM-2 on temporal holdout; gap wider than on random splits
+  - Both show AUC drop vs random splits (~0.97), confirming genuine temporal difficulty
+- See `docs/plans/temporal_holdout_plan.md` for full analysis and results
+
 ## In Development
 - Unified Flu preprocessing (`preprocess_flu.py`) -- see docs/genome_pipeline_design.md
 - `src/utils/dna_utils.py` -- DNA QC utilities (summarize_dna_qc complete, clean_dna_sequences untested)
-- Temporal holdout split logic (year_train/year_test)
 
 ## HPC
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
