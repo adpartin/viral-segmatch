@@ -241,20 +241,22 @@ See `docs/genome_pipeline_design.md` for design context.
 
 ### 11. All protein-pair combinations — NOT IMPLEMENTED
 
-**Goal:** Run experiments across all pairwise combinations of Flu A proteins (PB2, PB1, PA,
-HA, NP, NA, M1, M2, NEP). There are C(9,2) = 36 unique pairs. This reveals which segment
-pairs are easiest/hardest to match and whether the model generalizes beyond HA/NA.
+**Goal:** Run experiments across all pairwise combinations of 8 major Flu A proteins (PB2,
+PB1, PA, HA, NP, NA, M1, NS1 — one primary gene product per segment; M2 and NEP excluded
+as alternative reading frame products). There are C(8,2) = 28 unique pairs. This reveals
+which segment pairs are easiest/hardest to match and whether the model generalizes beyond
+HA/NA.
 
 **Status:** Not started. Supported by existing pipeline — each pair is a new bundle with
 different `virus.selected_functions`. No code changes needed, only bundle generation and
 a workflow to run all combinations.
 
 **Implementation:**
-- Generate 36 bundles programmatically (or a single parameterized bundle with overrides).
+- Generate 28 bundles programmatically (or a single parameterized bundle with overrides).
 - HPC workflow on Polaris: PBS job array where each job trains one protein pair.
-- Aggregate results into a 9×9 heatmap of AUC/F1 across all pairs.
+- Aggregate results into an 8×8 heatmap of AUC/F1 across all pairs.
 
-**HPC fit:** High. 36 independent training runs; natural fit for a PBS job array on Polaris.
+**HPC fit:** High. 28 independent training runs; natural fit for a PBS job array on Polaris.
 
 **Effort:** Low–medium. Bundle generation + job array script + results aggregation/plotting.
 

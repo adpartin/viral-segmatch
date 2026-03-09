@@ -1,6 +1,6 @@
 # Paper Outline: Viral Segment Matching
 
-**Working title:** Predicting Co-occurrence of Viral Genome Segments from Sequence Embeddings
+**Working title:** Predicting Co-occurrence of Viral Genome Segments from Sequence Representations
 
 **Status:** Draft outline — circulate to team before committing to experiment scope.
 
@@ -10,14 +10,15 @@
 
 _One paragraph. Fill in after results are finalized._
 
-Problem: Segmented viruses (influenza) have genome segments that can reassort. Linking
-segments to the same isolate is essential for surveillance but metadata is often missing
-or unreliable. We frame segment matching as binary classification: given two protein
-segment representations, predict whether they originate from the same viral isolate.
-We compare protein language model embeddings (ESM-2) and k-mer frequency features with
-an MLP classifier, evaluating on cross-validation, temporal holdout, and subtype-restricted
-settings. We demonstrate the model's utility for data remediation by applying it in
-inference mode to unlinked BV-BRC records.
+Problem: Segmented viruses like influenza have genomes split across multiple RNA segments.
+Linking segments to the same isolate is essential for genomic surveillance, but public
+databases often lack reliable metadata for this linkage. We frame segment matching as
+binary classification: given two sequence representations, predict whether they originate
+from the same viral isolate. We compare protein language model representations (ESM-2)
+and k-mer frequency features with an MLP classifier, evaluating on cross-validation,
+temporal holdout, and subtype-restricted settings. We demonstrate the model's utility
+for data remediation by applying it in inference mode to unlinked BV-BRC records with
+calibrated uncertainty estimates.
 
 ---
 
@@ -52,10 +53,10 @@ Influenza A HA and NA segments, with extensions to other segment pairs.
 - Frame viral segment co-occurrence as a binary classification task using sequence
   representations (first to our knowledge)
 - Compare protein language model (ESM-2) and k-mer feature representations
-- Identify a geometry-specific failure mode of ESM-2 embeddings under concatenation
+- Identify a geometry-specific failure mode of ESM-2 representations under concatenation
   on homogeneous populations, and show that unit-normalized differences resolve it
 - Demonstrate temporal generalization (train on 2021–2023, test on 2024 flu season)
-- Demonstrate data remediation application on BV-BRC records at scale
+- Demonstrate data remediation application on BV-BRC records at scale with calibrated uncertainty estimates
 
 ---
 
@@ -153,12 +154,99 @@ _Existing results — key mechanistic finding_
 - LayerNorm (slot_norm) is critical: without it, ESM-2 unit_diff also fails on H3N2
 - Delayed learning phenomenon on H3N2 + unit_diff (plateau-then-breakthrough, seed-dependent)
 
-### 3.5 All protein-pair combinations
+### 3.5 Error analysis and robustness
+
+_Partially existing (FP/FN metadata available), analysis NOT IMPLEMENTED_
+
+The model consistently shows high FP/FN ratio (e.g., 64:1 for ESM-2 temporal, 11.6:1 for
+k-mer temporal). This means the model over-predicts co-occurrence — it says "yes, these
+segments belong together" too often. Understanding and addressing this is critical for
+the remediation application, where a false link is worse than a missed link.
+
+#### 3.5.1 Error diagnosis
+
+Characterize *which* pairs the model gets wrong and *why*. Crucially, error analysis
+must account for the **pair-level metadata profile**, not just individual segment metadata:
+
+- **Positive pairs** (same isolate): both segments share subtype, host, year, geography.
+  Errors stratified by the pair's subtype (e.g., FN rate on H1N1 vs H3N2 positives).
+- **Negative pairs** (different isolates): each segment may come from a different population.
+  Two distinct error regimes:
+  - **Within-subtype negatives** (e.g., HA from H1N1 isolate A + NA from H1N1 isolate B):
+    these are hard negatives — same population, different isolate. FPs likely concentrated here.
+  - **Cross-subtype negatives** (e.g., HA from H1N1 + NA from H3N2): easy negatives —
+    population-level differences make them trivially distinguishable.
+
+Analysis approach:
+- **Pair-level metadata matrix:** For each negative pair, record (subtype_a, subtype_b,
+  host_a, host_b, year_a, year_b). Compute FP rate per (subtype_a × subtype_b) cell.
+  Same for host and year axes.
+- **FP concentration:** Confirm hypothesis that FPs are concentrated in within-subtype
+  negatives. If so, the high FP/FN ratio is explained: most negatives in a mixed-subtype
+  training set are cross-subtype (easy), inflating apparent precision, while the minority
+  of within-subtype negatives drive the FP count.
+- **FN analysis:** Are FNs enriched for underrepresented subtypes or unusual host/year
+  combinations? If so, the model hasn't seen enough examples from those populations.
+
+#### 3.5.2 Stress testing across metadata axes
+
+Systematically evaluate generalization across population dimensions:
+
+| Experiment | Train on | Test on | Tests |
+|-----------|----------|---------|-------|
+| Cross-subtype | H3N2 | H1N1 | Subtype generalization |
+| Cross-geography | USA | China (or other region) | Geographic generalization |
+| Cross-host | Human | Avian | Host generalization |
+| Temporal | 2021–2023 | 2024 | Already in Section 3.3 |
+
+For each axis, report how performance degrades and whether the FP/FN ratio shifts.
+This tells users: "the model is reliable for X populations but should be used with
+caution for Y populations."
+
+#### 3.5.3 Mitigation strategies
+
+**Experimental design:** Fix the val and test sets from the initial run. Modify only the
+training set composition, retrain, and evaluate on the same held-out data. This isolates
+the effect of training data changes from test set variation.
+
+Data-centric approaches (guided by error diagnosis):
+
+1. **Subtype-balanced training.** If H1N1 is underrepresented in training and the model
+   fails on H1N1 pairs, upsample H1N1 isolates (or downsample H3N2) to equalize subtype
+   representation. Re-run with fixed val/test. Compare H1N1-specific and overall metrics.
+2. **Population-specific models.** Train a model using only H1N1 samples (or only H3N2,
+   etc.). Compare against the general model on that population's test pairs. If a
+   population-specific model outperforms, the general model was being diluted by
+   irrelevant variation.
+3. **Hard negative sampling.** Construct negatives from the *same* subtype/host/year
+   ("within-subtype" negatives). Forces the model to rely on sequence-level signal rather
+   than population-level shortcuts. This directly targets the FP concentration in
+   within-subtype negatives identified in 3.5.1. See `_ongoing_work.md` for design.
+4. **Threshold tuning per population.** Instead of one global threshold, use
+   population-specific thresholds calibrated on held-out data from each population.
+
+**Iterative refinement loop:**
+1. Train on initial dataset → evaluate on fixed test set → error diagnosis (3.5.1)
+2. Identify dominant failure mode (e.g., high FP on within-subtype H1N1 negatives)
+3. Modify training set (e.g., add more H1N1, or switch to hard negatives) → retrain
+4. Re-evaluate on same test set → compare metrics → iterate
+
+**Connection to applications:** For data remediation, these results translate directly
+into usage guidelines — e.g., "apply the general model with confidence for H3N2 pairs;
+for H5N1 pairs, use the H5N1-specific model or apply a stricter confidence threshold."
+
+- **Status:** FP/FN metadata files exist from training runs. Analysis scripts not
+  implemented. Stress testing requires new bundles + runs. Mitigation experiments
+  require dataset modifications + fixed test set infrastructure.
+
+### 3.6 All protein-pair combinations
 
 _Roadmap Task 11 — NOT IMPLEMENTED_
 
-- 36 pairwise combinations of 9 Flu A proteins (C(9,2))
-- Results presented as 9×9 AUC/F1 heatmap
+- 28 pairwise combinations of 8 major Flu A proteins (C(8,2)): PB2, PB1, PA, HA, NP,
+  NA, M1, NS1 — one primary gene product per genome segment. Alternative reading frame
+  products (M2, NEP) are excluded.
+- Results presented as 8×8 AUC/F1 heatmap
 - Shows which segment pairs are easiest/hardest to match; whether model generalizes
   beyond HA/NA
 - **Status:** Not started. HPC (Polaris) job array needed.
@@ -263,10 +351,11 @@ Not implemented. Requires: (1) quantifying the unlinked record population in BV-
 
 ### Limitations
 
-- Currently tested on HA/NA pairs only (Section 3.5 addresses this)
+- High FP/FN ratio indicates the model over-predicts co-occurrence; Section 3.5
+  characterizes this and proposes mitigations, but it remains a deployment concern
+- Currently tested on HA/NA pairs only (Section 3.6 addresses this)
 - Negative pairs are constructed by cross-isolate mixing; may be "easy" due to
-  subtype/host/year confounders in mixed-population training
-- Temporal holdout results preliminary (dedup artifact); clean re-run needed
+  subtype/host/year confounders in mixed-population training (Section 3.5.3 tests this)
 - Data remediation application demonstrated but not rigorously validated against
   independent ground truth
 
@@ -294,11 +383,14 @@ Not implemented. Requires: (1) quantifying the unlinked record population in BV-
 | 6 | Figure | Subtype distribution shift 2021–2023 → 2024 | Temporal analysis |
 | 7 | Figure/Table | Concat vs unit_diff on H3N2: ESM-2 fails, k-mer succeeds | Existing |
 | 8 | Figure | PCA of pair interaction features (concat vs unit_diff) | Existing plots |
-| 9 | Figure | 9×9 protein-pair AUC heatmap | Task 11 (pending) |
-| 10 | Figure | Delayed learning curve (H3N2 + unit_diff plateau-breakthrough) | Existing |
-| 11 | Table/Figure | Data remediation inference results on BV-BRC | New (pending) |
-| 12 | Figure | Reliability diagram (calibration) + ECE | UQ analysis (pending) |
-| 13 | Figure/Table | Ensemble prediction uncertainty vs correctness | UQ analysis (pending) |
+| 9 | Table | FP/FN metadata breakdown (subtype, host, year overlap) | Error analysis (pending) |
+| 10 | Figure/Table | Stratified metrics by subtype, host, geography | Stress testing (pending) |
+| 11 | Table | Mitigation results (balanced training, population-specific models) | Mitigation (pending) |
+| 12 | Figure | 9×9 protein-pair AUC heatmap | Task 11 (pending) |
+| 13 | Figure | Delayed learning curve (H3N2 + unit_diff plateau-breakthrough) | Existing |
+| 14 | Table/Figure | Data remediation inference results on BV-BRC | New (pending) |
+| 15 | Figure | Reliability diagram (calibration) + ECE | UQ analysis (pending) |
+| 16 | Figure/Table | Ensemble prediction uncertainty vs correctness | UQ analysis (pending) |
 
 ---
 
@@ -312,7 +404,10 @@ Maps paper sections to roadmap tasks and their readiness.
 | 3.2 Cross-validation | Task 1 | Code ready, needs run | Yes |
 | 3.3 Temporal holdout | Task 3 | Needs dedup fix + re-run | Yes |
 | 3.4 Embedding geometry | Existing | Done | No |
-| 3.5 All protein pairs | Task 11 | Not started (HPC) | Yes |
+| 3.5 Error analysis | Existing FP/FN files | Analysis not implemented | Yes |
+| 3.5.2 Stress testing | New | Needs new bundles + runs | Yes |
+| 3.5.3 Mitigation | New | Needs dataset modifications + runs | Yes |
+| 3.6 All protein pairs | Task 11 | Not started (HPC) | No (strengthens paper) |
 | 4. Data remediation | New + Task 8 | Not started | Yes |
 | 4.2 UQ | New | Not started | No (enhances Section 4) |
 
