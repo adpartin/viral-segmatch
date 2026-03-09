@@ -1,0 +1,365 @@
+# Paper Outline: Viral Segment Matching
+
+**Working title:** Predicting Co-occurrence of Viral Genome Segments from Sequence Embeddings
+
+**Status:** Draft outline — circulate to team before committing to experiment scope.
+
+---
+
+## Abstract
+
+_One paragraph. Fill in after results are finalized._
+
+Problem: Segmented viruses (influenza) have genome segments that can reassort. Linking
+segments to the same isolate is essential for surveillance but metadata is often missing
+or unreliable. We frame segment matching as binary classification: given two protein
+segment representations, predict whether they originate from the same viral isolate.
+We compare protein language model embeddings (ESM-2) and k-mer frequency features with
+an MLP classifier, evaluating on cross-validation, temporal holdout, and subtype-restricted
+settings. We demonstrate the model's utility for data remediation by applying it in
+inference mode to unlinked BV-BRC records.
+
+---
+
+## 1. Introduction
+
+### Motivation
+
+Segmented viruses (Influenza A, Bunyavirales) have genomes split across multiple RNA
+segments that can reassort between co-infecting strains — a major driver of pandemics
+(2009 H1N1, H5N1 avian flu). Accurate linking of genome segments to the same viral
+isolate is critical for:
+
+1. **Data remediation.** Public genomic databases (BV-BRC, NCBI GenBank) ingest records
+   without enforcing metadata fields that link segments to the same isolate. Records may
+   lack shared isolate IDs or have inconsistent naming. Computational segment matching
+   can re-link orphaned records, improving database quality at scale.
+
+2. **Wastewater surveillance.** Wastewater sequencing recovers mixed viral fragments from
+   entire communities with no isolate-level metadata. Segment matching can reconstruct
+   which fragments likely came from the same circulating strain, turning fragmented signal
+   into actionable surveillance data (Wolfe et al. 2024 — CDC influenza A monitoring in
+   US wastewater during the 2024 avian flu outbreak).
+
+### Problem formulation
+
+Given representations of two protein segments from a segmented virus, predict whether
+they co-occur in the same isolate (binary classification). This paper focuses on
+Influenza A HA and NA segments, with extensions to other segment pairs.
+
+### Contributions
+
+- Frame viral segment co-occurrence as a binary classification task using sequence
+  representations (first to our knowledge)
+- Compare protein language model (ESM-2) and k-mer feature representations
+- Identify a geometry-specific failure mode of ESM-2 embeddings under concatenation
+  on homogeneous populations, and show that unit-normalized differences resolve it
+- Demonstrate temporal generalization (train on 2021–2023, test on 2024 flu season)
+- Demonstrate data remediation application on BV-BRC records at scale
+
+---
+
+## 2. Methods
+
+### 2.1 Data
+
+- **Source:** BV-BRC Influenza A protein sequences, curated dataset (~111K isolates with
+  paired HA and NA segments). Curated by Jim Davie.
+- **Preprocessing:** GTO replicon functions mapped to standard protein names (PB2, PB1,
+  PA, HA, NP, NA, M1, M2, NEP). Quality filters applied.
+- **Pair construction:** Positive pairs = segments from the same isolate. Negative pairs =
+  segments from different isolates, with co-occurrence blocking (no contradictory labels).
+  Train is balanced (1:1 pos/neg); val/test reflect natural imbalance.
+
+### 2.2 Feature representations
+
+| Feature | Source | Dimensionality | Description |
+|---------|--------|---------------|-------------|
+| ESM-2 | `esm2_t33_650M_UR50D` | 1280 | Frozen protein language model mean-pool embeddings |
+| K-mer (k=6) | Nucleotide sequences | 4096 | Sparse frequency vectors over 6-mer vocabulary |
+
+### 2.3 Interaction functions
+
+Given embeddings A (slot 1) and B (slot 2), with schema-ordered assignment (HA→slot 1,
+NA→slot 2):
+
+| Interaction | Formula | Output dim | Properties |
+|-------------|---------|-----------|------------|
+| `concat` | [A, B] | 2D | Preserves both embeddings; order-sensitive |
+| `unit_diff` | (A − B) / ‖A − B‖₂ | D | L2-normalized signed difference; retains direction only |
+
+### 2.4 Pre-MLP normalization
+
+- `slot_norm`: Per-slot LayerNorm before interaction. Critical for ESM-2 on homogeneous
+  subsets (neutralizes systematic offset between HA and NA embedding subspaces).
+
+### 2.5 Classifier
+
+MLP binary classifier on interaction features. Architecture: [interaction_dim] → hidden
+layers → sigmoid. Trained with BCEWithLogitsLoss, early stopping on validation loss.
+
+### 2.6 Evaluation metrics
+
+F1, AUC-ROC, precision, recall, Brier score. Optimal threshold selected on validation set.
+
+---
+
+## 3. Experiments & Results
+
+### 3.1 Baseline performance (random split)
+
+_Roadmap Task: existing results_
+
+- ESM-2 + unit_diff on mixed-subtype HA/NA: AUC ~0.966, F1 ~0.917
+- K-mer + unit_diff on mixed-subtype HA/NA: AUC ~0.982, F1 ~0.957
+- K-mer matches or exceeds ESM-2 across all configurations tested
+
+### 3.2 Cross-validation (N=5 folds)
+
+_Roadmap Task 1 — IMPLEMENTED, needs end-to-end run_
+
+- Report mean ± std of AUC, F1, precision, recall across 5 folds
+- Both ESM-2 and k-mer feature sources
+- **Status:** Code ready, awaiting run
+
+### 3.3 Temporal holdout (train 2021–2023, test 2024)
+
+_Roadmap Task 3 — IMPLEMENTED, needs dedup fix and re-run_
+
+- Assesses generalization to future flu seasons
+- Notable subtype distribution shift: H5N1 24% → 41% in 2024 (avian flu surge)
+- Preliminary results (with known dedup artifact):
+
+| Metric | ESM-2 (unit_diff) | K-mer k=6 (unit_diff) |
+|--------|-------------------|----------------------|
+| AUC-ROC | 0.891 | **0.941** |
+| F1 | 0.734 | **0.832** |
+
+- Both show AUC drop vs random splits (~0.97), confirming genuine temporal difficulty
+- K-mers generalize better than ESM-2 across flu seasons
+- **Status:** Needs re-run with dedup fix for clean metrics
+
+### 3.4 ESM-2 embedding geometry: concat failure on homogeneous populations
+
+_Existing results — key mechanistic finding_
+
+- ESM-2 concat completely fails on H3N2-only data (AUC=0.498, random chance)
+- ESM-2 unit_diff succeeds on H3N2 (AUC=0.957)
+- K-mer concat does NOT fail on H3N2 (AUC=0.985)
+- **Explanation:** ESM-2 embeddings for HA and NA occupy distinct subspaces. On diverse
+  data, concat exploits this offset as a shortcut. On homogeneous data (single subtype),
+  the shortcut is uninformative. unit_diff strips magnitude, retaining only directional
+  signal. K-mers lack the subspace structure entirely.
+- LayerNorm (slot_norm) is critical: without it, ESM-2 unit_diff also fails on H3N2
+- Delayed learning phenomenon on H3N2 + unit_diff (plateau-then-breakthrough, seed-dependent)
+
+### 3.5 All protein-pair combinations
+
+_Roadmap Task 11 — NOT IMPLEMENTED_
+
+- 36 pairwise combinations of 9 Flu A proteins (C(9,2))
+- Results presented as 9×9 AUC/F1 heatmap
+- Shows which segment pairs are easiest/hardest to match; whether model generalizes
+  beyond HA/NA
+- **Status:** Not started. HPC (Polaris) job array needed.
+
+---
+
+## 4. Application: Data Remediation at Scale
+
+_New experiment — inference on BV-BRC_
+
+### Concept
+
+Train the model on the curated 111K-isolate dataset (where segment-isolate links are
+known), then apply in inference mode to the broader BV-BRC Influenza A collection where
+segment-isolate metadata is missing or unreliable.
+
+### Approach
+
+1. Train on curated dataset (best model from Section 3 experiments)
+2. Identify BV-BRC records lacking reliable isolate linkage (records beyond Jim's curated
+   111K set — need to quantify how many such records exist)
+3. For candidate segment pairs, compute features and predict co-occurrence probability
+4. Evaluate: compare model predictions against known links (where available) as ground
+   truth; report precision/recall on the remediation task
+
+### 4.1 Large-scale inference
+
+Running pairwise inference at BV-BRC scale (potentially millions of segment records)
+requires an efficient inference pipeline:
+
+- **Batch inference script:** Load trained model, iterate over candidate pairs, output
+  predicted probabilities. Builds on Roadmap Task 8 (inference mode).
+- **Candidate pruning:** Full pairwise is O(N²). Prune by metadata overlap (same year,
+  same geographic region, same host) to reduce to tractable candidate sets.
+- **HPC execution:** Polaris for large-scale inference. Embarrassingly parallel — partition
+  candidate pairs across nodes.
+- **Output:** Per-pair CSV with (segment_a_id, segment_b_id, predicted_prob, threshold_decision).
+
+### 4.2 Uncertainty quantification (UQ)
+
+For data remediation to be actionable, predictions need calibrated confidence estimates.
+Approaches to consider:
+
+- **MC Dropout:** Enable dropout at inference time, run N forward passes per pair, report
+  mean prediction and predictive variance. Lightweight to implement (add dropout layers
+  if not already present; toggle `model.train()` at inference).
+- **Deep ensemble:** Train M independent models (different seeds), average predictions.
+  Natural fit with cross-validation — the N=5 fold models from Section 3.2 are already
+  an ensemble. Report mean ± std across ensemble members.
+- **Calibration analysis:** Reliability diagram (predicted probability vs observed frequency).
+  If predictions are well-calibrated, the raw sigmoid output is itself a usable confidence
+  score. Report Expected Calibration Error (ECE).
+- **Conformal prediction:** Distribution-free coverage guarantees. Given a calibration set,
+  produce prediction sets (e.g., "co-occurring with 95% coverage"). Attractive for a
+  remediation tool where users need to know "how much can I trust this link?"
+
+**Recommended approach for the paper:** Deep ensemble (from CV folds) + calibration analysis.
+This requires no architectural changes — just run inference with each fold's model and
+aggregate. Add MC Dropout or conformal prediction if time permits.
+
+### Key questions to resolve
+
+- How many unlinked/poorly-linked records exist in BV-BRC Flu A beyond the curated set?
+- What is the computational cost of pairwise inference at full BV-BRC scale? (N segments
+  → O(N²) pairs per protein type, but can be pruned by metadata overlap)
+- Can we validate remediation predictions against an independent source (e.g., GISAID)?
+
+### Status
+
+Not implemented. Requires: (1) quantifying the unlinked record population in BV-BRC,
+(2) inference script (Roadmap Task 8 lays groundwork), (3) evaluation framework,
+(4) UQ implementation.
+
+### TODO
+
+- [ ] **Quantify unlinked BV-BRC records.** Ask Jim or query BV-BRC directly: how many
+  Influenza A segment records exist in total vs. the 111K curated isolates? What fraction
+  lack reliable isolate linkage? This determines the scale and impact of the remediation
+  demo. Without this number, we cannot scope Section 4.
+- [ ] **Inference script.** Add inference-only mode to training script or create standalone
+  script. Load trained model + threshold, predict on arbitrary pair dataset.
+- [ ] **UQ implementation.** Start with deep ensemble from CV fold models. Add calibration
+  plot (reliability diagram + ECE) to analysis scripts.
+
+---
+
+## 5. Discussion
+
+### Key findings
+
+- K-mer frequency features match or exceed ESM-2 protein embeddings on all tested
+  configurations, including temporal holdout. Simpler features, lower compute, better
+  generalization.
+- ESM-2 concat failure on homogeneous populations reveals a fundamental property of
+  protein language model embedding geometry: protein types occupy distinct subspaces,
+  creating learnable shortcuts that fail to generalize.
+- unit_diff (L2-normalized signed difference) extracts directional signal robust to
+  population homogeneity. The direction of embedding difference carries genuine
+  biological signal (coordinated mutations between co-evolving segments).
+- Temporal generalization is harder than random splits (AUC drops from ~0.97 to ~0.89–0.94),
+  reflecting real distributional shift in circulating subtypes.
+
+### Limitations
+
+- Currently tested on HA/NA pairs only (Section 3.5 addresses this)
+- Negative pairs are constructed by cross-isolate mixing; may be "easy" due to
+  subtype/host/year confounders in mixed-population training
+- Temporal holdout results preliminary (dedup artifact); clean re-run needed
+- Data remediation application demonstrated but not rigorously validated against
+  independent ground truth
+
+### Future directions
+
+- **Reassortment detection:** The model learns normal co-occurrence patterns. Segments
+  predicted as non-co-occurring despite being found together could flag reassortment
+  events. Requires known reassortant sequences for validation.
+- **Extension to other segmented viruses** (Bunyavirales, Rotavirus)
+- **Wastewater application:** Paired with metagenomic assembly, apply to real wastewater
+  sequencing data
+- **GenSLM genome-level representations** as alternative to protein-level features
+
+---
+
+## 6. Planned Figures and Tables
+
+| # | Type | Content | Source |
+|---|------|---------|--------|
+| 1 | Figure | Pipeline schematic (preprocessing → embeddings → pairs → classifier) | New |
+| 2 | Table | Dataset statistics (isolates, pairs, subtypes, years) | Stage 3 stats |
+| 3 | Figure | ROC curves: ESM-2 vs k-mer, random split | Existing |
+| 4 | Table | Cross-validation results (mean ± std, N=5) | Task 1 (pending) |
+| 5 | Table | Temporal holdout results (train 2021–23, test 2024) | Task 3 (pending re-run) |
+| 6 | Figure | Subtype distribution shift 2021–2023 → 2024 | Temporal analysis |
+| 7 | Figure/Table | Concat vs unit_diff on H3N2: ESM-2 fails, k-mer succeeds | Existing |
+| 8 | Figure | PCA of pair interaction features (concat vs unit_diff) | Existing plots |
+| 9 | Figure | 9×9 protein-pair AUC heatmap | Task 11 (pending) |
+| 10 | Figure | Delayed learning curve (H3N2 + unit_diff plateau-breakthrough) | Existing |
+| 11 | Table/Figure | Data remediation inference results on BV-BRC | New (pending) |
+| 12 | Figure | Reliability diagram (calibration) + ECE | UQ analysis (pending) |
+| 13 | Figure/Table | Ensemble prediction uncertainty vs correctness | UQ analysis (pending) |
+
+---
+
+## 7. Experiment Status Tracker
+
+Maps paper sections to roadmap tasks and their readiness.
+
+| Section | Roadmap Task | Status | Blocking? |
+|---------|-------------|--------|-----------|
+| 3.1 Baseline | Existing | Done | No |
+| 3.2 Cross-validation | Task 1 | Code ready, needs run | Yes |
+| 3.3 Temporal holdout | Task 3 | Needs dedup fix + re-run | Yes |
+| 3.4 Embedding geometry | Existing | Done | No |
+| 3.5 All protein pairs | Task 11 | Not started (HPC) | Yes |
+| 4. Data remediation | New + Task 8 | Not started | Yes |
+| 4.2 UQ | New | Not started | No (enhances Section 4) |
+
+**Minimum viable paper:** Sections 3.1, 3.2, 3.3, 3.4 + Discussion. Sections 3.5 and 4
+strengthen the paper substantially but could be deferred to a follow-up if timeline is tight.
+
+---
+
+## 8. Target Venues
+
+Discuss with team — the venue determines how much weight goes to the application demo
+vs. the ML analysis.
+
+**Computational biology / bioinformatics (best fit):**
+
+| Venue | Notes |
+|-------|-------|
+| **Bioinformatics** (Oxford) | Short applications papers welcome; strong fit for a tool/method with biological application |
+| **PLOS Computational Biology** | Open access; good for interdisciplinary ML + bio work |
+| **BMC Bioinformatics** | Open access; accepts methods papers with biological validation |
+
+**Higher impact (if remediation/wastewater story is strong):**
+
+| Venue | Notes |
+|-------|-------|
+| **Nature Methods** | Requires real-world remediation at scale (Section 4) |
+| **Genome Biology** | Open access; high visibility in genomics community |
+
+**ML-leaning (if ESM-2 geometry finding is the main story):**
+
+| Venue | Notes |
+|-------|-------|
+| **Bioinformatics** | Also works for ML-focused papers |
+| **NeurIPS/ICML CompBio workshop** | Shorter format; good for the ESM-2 concat failure finding specifically |
+
+### Publication strategy (decided)
+
+**Paper 1 (biology-focused, primary):** Segment matching as a tool for data remediation
+and genomic surveillance. Target: biology/bioinformatics venue (Bioinformatics, PLOS Comp
+Bio, Genome Biology). Teammates provide biological framing and domain insight. Emphasize
+applications (Sections 1, 4), temporal generalization (3.3), and all-protein-pair results
+(3.5). The concat collapse and embedding geometry findings are supporting evidence, not
+the main story.
+
+**Paper 2 (ML-focused, follow-up):** ESM-2 embedding geometry — concat collapse on
+homogeneous populations, interaction function design, and comparison with GenSLM
+genome-level representations. Target: NeurIPS/ICML CompBio workshop or similar ML venue.
+Deeper dive into why protein language model embeddings fail under concatenation, the role
+of subspace offset, and whether genome-level foundation models (GenSLM) exhibit the same
+geometry. This paper depends on Roadmap Task 10 (GenSLM embeddings).
