@@ -4,6 +4,16 @@ This document summarizes the experiments decided in the 02/10/2026 meeting, ALCF
 
 ---
 
+## Applications
+
+1. **Data remediation.** BV-BRC ingests genomic records from NCBI GenBank, which does not enforce metadata fields linking segments to the same viral isolate. Records may lack shared isolate IDs or have inconsistent naming. A segment-matching model can computationally re-link orphaned segments, improving the quality of large genomic databases.
+
+2. **Wastewater surveillance.** Wastewater sequencing recovers mixed viral fragments from entire communities with no isolate-level metadata. A segment-matching model can help reconstruct which segments likely came from the same circulating strain, turning fragmented wastewater signal into actionable surveillance data. See [Wolfe et al. 2024](https://pmc.ncbi.nlm.nih.gov/articles/PMC11412440/) for CDC influenza A monitoring in US wastewater during the 2024 avian flu outbreak.
+
+3. **Reassortment detection and surveillance.** Segmented viruses like influenza swap genome segments between strains (reassortment), a key driver of pandemics. A model that learns which segment pairs naturally co-occur can flag unusual combinations that may indicate reassortment events, helping public health agencies prioritize emerging strains for closer monitoring.
+
+---
+
 ## ALCF HPC Systems
 
 | System | Status | Specs | Best for |
@@ -15,7 +25,7 @@ This document summarizes the experiments decided in the 02/10/2026 meeting, ALCF
 
 ---
 
-## Experiments
+## Experiments (02/10/2026)
 
 ### 1. Cross-validation (N splits) — IMPLEMENTED
 
@@ -41,82 +51,53 @@ HPC (Polaris) for full dataset. Stage 4 (MLP training) scales easily.
 
 ---
 
-### 3. Generalize into the future (train 2021–2023, test 2024) — NOT IMPLEMENTED
+### 3. Generalize into the future (train 2021–2023, test 2024) — IMPLEMENTED
 
 **Goal:** Temporal holdout to assess generalization to future seasons.
 
-**Status:** Not implemented. The current `year` config is a single-value **filter** (e.g.,
-`year: 2024` keeps only 2024 isolates). What's needed is **split** semantics: assign isolates
-to train/val vs test based on year, not filter them out.
+**Status:** Implemented. `year_train`/`year_test` config fields, `generate_temporal_split()`
+in `dataset_segment_pairs.py`. Bundles: `flu_schema_raw_slot_norm_unit_diff_temporal` (ESM-2),
+`flu_schema_raw_kmer_k6_slot_norm_unit_diff_temporal` (k-mer). Initial runs complete.
+See `docs/plans/temporal_holdout_plan.md` for full analysis and results.
+
+**Initial results (March 2026):**
+
+| Metric | ESM-2 (unit_diff) | K-mer k=6 (unit_diff) |
+|--------|-------------------|----------------------|
+| AUC-ROC | 0.891 | **0.941** |
+| F1 | 0.734 | **0.832** |
+| Precision | 0.583 | **0.729** |
+| Recall | 0.989 | 0.969 |
+
+K-mers substantially outperform ESM-2 on temporal generalization. Both show AUC drop vs
+random splits (~0.97), confirming genuine temporal difficulty from subtype distribution
+shift (H5N1 24%→41% in 2024).
+
+**Caveat:** Results are confounded by a pair_key dedup artifact that removed 42% of val/test
+pairs and created 25/75 label imbalance. Needs re-run with dedup disabled for temporal mode.
+See plan doc for details.
 
 **HPC fit:** Low. Single dataset + training run; no HPC required.
 
-**What exists today:**
-- `dataset.year` filter in `conf/dataset/default.yaml` — filters to a single year
-- Metadata enrichment already adds `year` column via `metadata_enrichment.py`
-- `split_dataset()` in `dataset_segment_pairs.py` supports `train/val/test_isolates_override`
-  (added for CV) — this is the hook for temporal splits
-
-**Codebase changes required:**
-
-1. **Config schema** — add two new fields to `conf/dataset/default.yaml`:
-   ```yaml
-   dataset:
-     year_train: null    # e.g., [2021, 2022, 2023] or "2021-2023"
-     year_test: null     # e.g., [2024] or "2024"
-   ```
-   When both are null (default), fall back to current random isolate-level split.
-   These are mutually exclusive with `dataset.year` (filter). If `year_train`/`year_test`
-   are set, `dataset.year` should be null (or raise an error if both are set).
-
-2. **Split logic in `dataset_segment_pairs.py`** — add a temporal split path:
-   - After metadata enrichment (which adds the `year` column), partition isolates by year.
-   - `train_isolates` = isolates with `year in year_train`
-   - `test_isolates` = isolates with `year in year_test`
-   - `val_isolates` = split off from `train_isolates` using `val_ratio`
-   - Pass these to `split_dataset(..., train_isolates_override=..., test_isolates_override=...)`
-     which already exists from the CV implementation.
-   - The pair generation and co-occurrence blocking logic is unchanged.
-
-3. **Bundle** — one new YAML, e.g. `flu_schema_raw_slot_norm_unit_diff_temporal.yaml`:
-   ```yaml
-   defaults:
-     - flu_schema_raw_slot_norm_unit_diff
-     - _self_
-   dataset:
-     year_train: [2021, 2022, 2023]
-     year_test: [2024]
-     max_isolates_to_process: null  # use all matching isolates
-   ```
-
-4. **Validation** — check that train and test year ranges don't overlap; warn if
-   `year_test` isolates are very few (may produce small test sets).
-
-**Effort:** Low–medium. The hard part (isolate-override splits) already exists from CV.
-The main work is the config schema, the year-based partitioning logic (~30-50 lines),
-and validation. No changes needed to Stage 4 (training) or shell scripts.
-
 ---
 
-### 4. Genome as input: k-mers + LightGBM/XGBoost, then GenSLM — PARTIALLY IMPLEMENTED
+### 4. K-mer baselines (XGBoost/LightGBM) — PARTIALLY IMPLEMENTED
 
-**Goal:** Explore nucleotide-based features alongside protein embeddings.
+**Goal:** Evaluate k-mer features with tree-based models as a baseline alongside the MLP.
 
 **Status (March 2026):**
-- ✅ K-mer + MLP baseline — `compute_kmer_features.py` (Stage 2b), `kmer_utils.py`,
-  `feature_source=kmer` in training script. Tested on mixed-subtype and H3N2-only.
-- ✅ `preprocess_flu.py` — unified protein + genome extraction.
-- Not started: k-mer + XGBoost/LightGBM (new training script).
-- Not started: GenSLM embeddings (new embedding pipeline).
+- K-mer + MLP baseline — implemented and tested (`feature_source=kmer` in training script).
+  Results match or exceed ESM-2 on all tested configurations.
+- K-mer + XGBoost/LightGBM — not started (new training script needed).
 
-**Results:**
+**Results (k-mer + MLP):**
 - Mixed-subtype: k-mer AUC 0.982 vs ESM-2 AUC 0.966–0.975.
 - H3N2-only: k-mer AUC 0.988 (unit_diff) / 0.985 (concat) vs ESM-2 AUC 0.957 (unit_diff) / 0.498 (concat).
+- Temporal holdout: k-mer AUC 0.941 vs ESM-2 AUC 0.891.
 - Key finding: **k-mer concat does NOT collapse on H3N2** — the ESM-2 concat failure is specific to
-  ESM-2's embedding geometry, not concatenation as an interaction. K-mer features are interaction-agnostic.
+  ESM-2’s embedding geometry, not concatenation as an interaction. K-mer features are interaction-agnostic.
 
-**Remaining work:** k-mer + XGBoost/LightGBM (new training script), GenSLM (new embedding pipeline).
-See `docs/genome_pipeline_design.md` for full design.
+**Remaining work:** k-mer + XGBoost/LightGBM (new training script).
 
 ---
 
@@ -135,11 +116,14 @@ See `docs/genome_pipeline_design.md` for full design.
 
 ---
 
-### 6. PB2/PB1 performance on H3N2-only — Jim’s suggestion — SUPPORTED (not yet run)
+### 6. PB2/PB1 performance on H3N2-only — Jim’s suggestion — now OPTIONAL
 
-**Goal:** Test whether conserved segments (PB2, PB1) perform better when restricted to H3N2.
+**Goal:** When restricted to H3N2 sbutype, test whether conserved segments (PB2, PB1) produce better performance than (HA, NA). 
 
 **Status:** Supported by existing pipeline. Just needs a new bundle YAML. No code changes.
+Now that k-mers with unit_diff achieve high performance across configurations (including
+temporal holdout), this experiment is lower priority — the main story is already strong
+without additional protein combinations.
 
 **Implementation:** New bundle, e.g. `flu_schema_raw_slot_norm_unit_diff_pb2_pb1_h3n2`:
 - `virus.selected_functions`: PB2, PB1 (and optionally PA).
@@ -149,6 +133,8 @@ See `docs/genome_pipeline_design.md` for full design.
 **Effort:** Low. One new bundle.
 
 ---
+
+## Experiments (Optional)
 
 ### 7. Baseline validation experiments — NOT IMPLEMENTED
 
@@ -160,7 +146,7 @@ shortcuts (e.g., protein-identity pattern: "slot A = HA, slot B = NA → 1").
 **Proposed baselines (priority order):**
 1. **Embedding shuffle within protein** — randomly permute embeddings across isolates within
    each protein group. Preserves protein identity but breaks isolate↔sequence link. If model
-   still performs well, it's using slot identity, not sequence content.
+   still performs well, it’s using slot identity, not sequence content.
 2. **Mean embedding per protein** — replace all HA embeddings with HA mean, all NA with NA mean.
    Stronger version of (1): removes all within-protein variation.
 3. **Swap-slot test** — for positive pairs, swap slot A and slot B. Tests whether `unit_diff`
@@ -221,7 +207,7 @@ how much data the model needs and whether performance is saturating or still imp
 
 **Why this matters:**
 - Reveals whether 5K isolates is sufficient or whether scaling to 100K improves performance.
-- If the curve plateaus early, the model has enough data; if it's still rising, larger datasets
+- If the curve plateaus early, the model has enough data; if it’s still rising, larger datasets
   help. This directly informs whether Task 2 (large dataset on HPC) is worthwhile.
 - Standard analysis for ML papers; reviewers expect it.
 
@@ -238,6 +224,39 @@ Stage 2 (embeddings). Natural fit for PBS job arrays on Polaris.
 
 **Effort:** Medium–high. Launcher + fixed-test-set logic + aggregation/plotting. Benefits from
 Task 8 (large test set) being implemented first.
+
+---
+
+### 10. GenSLM embeddings — NOT IMPLEMENTED
+
+**Goal:** Evaluate genome-level learned representations (GenSLM) as an alternative to
+protein-level ESM-2 embeddings and k-mer features.
+
+**Status:** Not started. Requires a new embedding pipeline (GenSLM tokenization + inference).
+See `docs/genome_pipeline_design.md` for design context.
+
+**Effort:** High. New embedding pipeline, potentially HPC (Aurora) for large-scale inference.
+
+---
+
+### 11. All protein-pair combinations — NOT IMPLEMENTED
+
+**Goal:** Run experiments across all pairwise combinations of Flu A proteins (PB2, PB1, PA,
+HA, NP, NA, M1, M2, NEP). There are C(9,2) = 36 unique pairs. This reveals which segment
+pairs are easiest/hardest to match and whether the model generalizes beyond HA/NA.
+
+**Status:** Not started. Supported by existing pipeline — each pair is a new bundle with
+different `virus.selected_functions`. No code changes needed, only bundle generation and
+a workflow to run all combinations.
+
+**Implementation:**
+- Generate 36 bundles programmatically (or a single parameterized bundle with overrides).
+- HPC workflow on Polaris: PBS job array where each job trains one protein pair.
+- Aggregate results into a 9×9 heatmap of AUC/F1 across all pairs.
+
+**HPC fit:** High. 36 independent training runs; natural fit for a PBS job array on Polaris.
+
+**Effort:** Low–medium. Bundle generation + job array script + results aggregation/plotting.
 
 ---
 
@@ -271,27 +290,24 @@ Task 8 (large test set) being implemented first.
 
 | Task | Status | Remaining effort | Priority |
 |------|--------|-----------------|----------|
-| 1. Cross-validation | ✅ Implemented | Run end-to-end | High |
+| 1. Cross-validation | Implemented | Run end-to-end | High |
 | 2. Large dataset | Supported | Scale testing on HPC | High |
-| 3. Temporal holdout | **Not implemented** | Config + ~50 lines split logic | High |
-| 4. K-mer + MLP | ✅ Implemented | — | Done |
+| 3. Temporal holdout | Implemented | Fix pair_key dedup, re-run | High |
+| 4. K-mer + MLP | Done | — | Done |
 | 4b. K-mer + XGBoost | Not started | New training script | Medium |
-| 4c. GenSLM | Not started | New embedding pipeline | Low |
 | 5. Genetic distance | Not started | Needs metadata | Low |
-| 6. PB2/PB1 + H3N2 | Supported | One new bundle YAML | Low |
-| 7. Baseline validation | **Not implemented** | Config flags + perturbation logic | High |
-| 8. Large test set eval | **Not implemented** | Inference mode + dataset exclusion | Medium |
-| 9. Learning curve analysis | **Not implemented** | LC launcher + fixed test set + plotting | Medium–high |
+| 6. PB2/PB1 + H3N2 | Supported | One new bundle YAML | Optional |
+| 7. Baseline validation | Not implemented | Config flags + perturbation logic | Optional |
+| 8. Large test set eval | Not implemented | Inference mode + dataset exclusion | Optional |
+| 9. Learning curve | Not implemented | LC launcher + fixed test set + plotting | Optional |
+| 10. GenSLM | Not started | New embedding pipeline | Optional |
+| 11. All protein pairs | Not started | Bundle generation + HPC job array | Optional |
 
 ---
 
 ## Next Steps
 
-1. **Implement Task 3 (temporal holdout)** — highest priority gap for publication.
-2. **Implement Task 7 (baseline validation)** — confirms model learns sequence-level signal.
-3. Run Task 1 (cross-validation) end-to-end for robust mean ± std metrics.
-4. Create Task 6 bundle (PB2/PB1 + H3N2) — trivial.
-5. **Implement Task 8 (large test set)** — tighter confidence intervals, feeds into Task 9.
-6. **Implement Task 9 (learning curve)** — informs whether scaling to 100K helps; HPC.
-7. Run Task 2 (large dataset) on Polaris after CV pipeline is validated.
-8. Draft paper outline; constrain scope before adding more experiments.
+1. **Fix pair_key dedup for temporal holdout** — disable dedup for temporal mode, re-run for clean metrics.
+2. Run Task 1 (cross-validation) end-to-end for robust mean ± std metrics.
+3. Run Task 2 (large dataset) on Polaris after CV pipeline is validated.
+4. Draft paper outline; constrain scope before adding more experiments.
