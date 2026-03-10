@@ -82,7 +82,7 @@ Use shared \(g\), but allow per-slot LayerNorm / affine scaling (very low parame
 ## Recommended ablation ladder (minimal)
 
 1. Baseline: interact on raw embeddings (current)
-2. Shared pre-MLP: a' = g(a), b' = g(b)
+2. Shared slot transform: a' = g(a), b' = g(b)
 3. Two-slot MLPs: a' = f_A(a), b' = f_B(b)
 4. Shared trunk + adapters (or slot-specific norm) as a “middle ground”
 
@@ -92,7 +92,7 @@ Use shared \(g\), but allow per-slot LayerNorm / affine scaling (very low parame
 
 - **SegmentPairDataset** should keep returning raw embeddings (a, b) as it does today.
 - **MLPClassifier / model code** should own the architecture:
-  - Add optional pre-MLP blocks (shared or per-slot).
+  - Add optional slot transform blocks (shared or per-slot).
   - Add optional adapters / slot-specific norm.
   - Then compute the interaction feature(s) and pass to the existing classifier head.
 

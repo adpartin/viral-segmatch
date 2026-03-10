@@ -7,5 +7,5 @@ defaults:
 
 training:
   interaction: unit_diff
-  pre_mlp_mode: slot_norm
-  # pre_mlp_dims: null
+  slot_transform: slot_norm
+  # slot_transform_dims: null

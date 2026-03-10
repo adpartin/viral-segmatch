@@ -89,7 +89,7 @@ dataset. Provenance is tracked via `training_info.json` saved in the training ou
 **Convention**: One bundle = one reproducible experiment. Bundle names encode the experiment:
 `flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na_5ks`, `flu_schema_raw_slot_norm_unit_diff_h3n2`.
 
-Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `training.pre_mlp_mode`, `training.interaction`.
+Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `training.slot_transform`, `training.interaction`.
 
 **Bundle organization** (see `conf/bundles/README.md` for full detail):
 - Each bundle has a `# STATUS: active|ablation|experimental|legacy|not maintained` header comment.

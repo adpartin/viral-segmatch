@@ -46,7 +46,7 @@ Pair 2 (negative): emb_a = [5, 3, 1, 0],  emb_b = [2, -6, -3, 8]
 
 ### Experimental Results: `concat` vs `unit_diff` Across Metadata Filters
 
-Architecture: `pre_mlp_mode: slot_norm`, `pre_mlp_dims: null` (per-slot LayerNorm only, no linear layers). Schema-ordered HA → NA.
+Architecture: `slot_transform: slot_norm`, `slot_transform_dims: null` (per-slot LayerNorm only, no linear layers). Schema-ordered HA → NA.
 
 #### ESM-2 features
 
@@ -87,9 +87,9 @@ Architecture: `pre_mlp_mode: slot_norm`, `pre_mlp_dims: null` (per-slot LayerNor
 
 ### Ablation: LayerNorm Contribution (`slot_norm` vs `none`)
 
-**Rationale**: The `slot_norm` pre-MLP mode applies per-slot `LayerNorm(1280)` before the interaction. This re-centers and re-scales each slot's embeddings, which could help `unit_diff` by neutralizing systematic offset between HA and NA embedding distributions. To isolate LayerNorm's contribution, we tested `pre_mlp_mode: none` (raw ESM-2 embeddings go directly into `unit_diff`).
+**Rationale**: The `slot_norm` slot transform applies per-slot `LayerNorm(1280)` before the interaction. This re-centers and re-scales each slot's embeddings, which could help `unit_diff` by neutralizing systematic offset between HA and NA embedding distributions. To isolate LayerNorm's contribution, we tested `slot_transform: none` (raw ESM-2 embeddings go directly into `unit_diff`).
 
-| Bundle | pre_mlp_mode | Filter | Result |
+| Bundle | slot_transform | Filter | Result |
 |--------|-------------|--------|--------|
 | `flu_schema_raw_slot_norm_unit_diff` | slot_norm | None | High score (F1=0.917) |
 | `flu_schema_raw_none_unit_diff` | none | None | High score |
@@ -185,7 +185,7 @@ New function `plot_pair_interactions()` in `visualize_dataset_stats.py`:
 
 `plot_pair_embeddings_splits_overlap()` marked **DEPRECATED** in docstring and no longer called from the main visualization flow.
 
-Architecture-dependent interactions (slot_norm, pre_mlp) require trained model weights and are currently out of scope for dataset-time visualization.
+Architecture-dependent interactions (slot_norm, slot_transform) require trained model weights and are currently out of scope for dataset-time visualization.
 
 ### Output files (per dataset run)
 

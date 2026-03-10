@@ -92,10 +92,10 @@ NA→slot 2):
 | `concat` | [A, B] | 2D | Preserves both embeddings; order-sensitive |
 | `unit_diff` | (A − B) / ‖A − B‖₂ | D | L2-normalized signed difference; retains direction only |
 
-### 2.4 Pre-MLP architecture variants
+### 2.4 Slot transform architecture variants
 
 The pipeline transforms per-slot embeddings before the interaction function. Five
-`pre_mlp_mode` variants control this transformation:
+`slot_transform` variants control this transformation:
 
 ```
 (a) none — pass-through

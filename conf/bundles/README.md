@@ -38,7 +38,7 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
 
 ### Active — current best model and paper experiments
 
-| Bundle | Proteins | Filter | pre_mlp_mode | interaction | Notes |
+| Bundle | Proteins | Filter | slot_transform | interaction | Notes |
 |--------|----------|--------|-------------|-------------|-------|
 | `flu_schema_raw_slot_norm_unit_diff` | HA, NA | none | slot_norm | unit_diff | **Best overall model** |
 | `flu_schema_raw_slot_norm_unit_diff_h3n2` | HA, NA | H3N2 | slot_norm | unit_diff | patience=40 (delayed learning) |
@@ -72,19 +72,19 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
 |--------|-------|
 | `flu_schema_raw_slot_norm_unit_diff_temporal` | Temporal holdout: train 2021-2023, test 2024 |
 
-### Experimental / abandoned — unfinished pre-MLP mode exploration
+### Experimental / abandoned — unfinished slot transform exploration
 
 | Bundle | Notes |
 |--------|-------|
-| `flu_schema_raw_shared` | Shared pre-MLP (pre_mlp_mode=shared); not completed |
-| `flu_schema_raw_adapter` | Adapter pre-MLP (pre_mlp_mode=shared_adapter); not completed |
-| `flu_schema_raw_slot` | Slot-specific pre-MLP (pre_mlp_mode=slot_specific); not completed |
+| `flu_schema_raw_shared` | Shared slot transform (slot_transform=shared); not completed |
+| `flu_schema_raw_adapter` | Adapter slot transform (slot_transform=shared_adapter); not completed |
+| `flu_schema_raw_slot` | Slot-specific slot transform (slot_transform=slot_specific); not completed |
 
 ### Legacy Gen 2 — superseded by slot_norm + unit_diff
 
 | Bundle | Notes |
 |--------|-------|
-| `flu_schema` | Schema-ordered base; pre_mlp_mode=none, concat |
+| `flu_schema` | Schema-ordered base; slot_transform=none, concat |
 | `flu_schema_diff` | Gen 2 interaction test |
 | `flu_schema_h3n2` | Gen 2 H3N2 filter |
 | `flu_schema_h3n2_diff` | Gen 2 H3N2 + diff |

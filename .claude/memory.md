@@ -19,7 +19,7 @@ Primary virus: Influenza A. Bunya support exists but NOT actively maintained.
 ## Config System
 Hydra + bundle-per-experiment. `conf/bundles/{bundle}.yaml` = one file per named experiment.
 Bundle naming: currently inconsistent across generations. Planned general signature (not yet enforced):
-  `{virus}_{proteins}[_{n_isolates}][_{pre_mlp_mode}_{interaction}][_{data_filter}]`
+  `{virus}_{proteins}[_{n_isolates}][_{slot_transform}_{interaction}][_{data_filter}]`
   e.g. `flu_ha_na_5ks_slot_norm_unit_diff_h3n2` -- renaming existing bundles is a future task.
 Config loader: `src/utils/config_hydra.py` via `hydra.compose(config_name="bundles/{name}")`.
 No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/config.yaml` deleted (legacy).

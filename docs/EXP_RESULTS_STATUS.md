@@ -312,7 +312,7 @@ These validation experiments are similar to:
 **A. Interaction Features** ✅ **COMPLETED (Gen3)**
 - Tested: `concat`, `diff`, `unit_diff`, `prod` (see `_ongoing_work.md` for formulas)
 - **Result**: `unit_diff` + `slot_norm` is best for ESM-2. `concat` fails on homogeneous data (H3N2).
-- Config: `training.interaction: unit_diff`, `training.pre_mlp_mode: slot_norm`
+- Config: `training.interaction: unit_diff`, `training.slot_transform: slot_norm`
 
 **B. Segment-Specific Models** ✅ **COMPLETED (Gen1)**
 - **Result**: HA-NA model achieves 0.923 accuracy, 0.916 F1 (vs ~0.72 accuracy, ~0.75 F1 for conserved segments)

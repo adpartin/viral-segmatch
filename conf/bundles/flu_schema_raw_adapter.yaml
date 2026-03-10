@@ -1,4 +1,4 @@
-# STATUS: experimental -- adapter pre-MLP; not completed
+# STATUS: experimental -- adapter slot transform; not completed
 # Flu schema-ordered (HA -> NA), raw mode with shared trunk + slot adapters
 
 defaults:
@@ -7,6 +7,6 @@ defaults:
 
 training:
   interaction: diff
-  pre_mlp_mode: shared_adapter
-  pre_mlp_dims: [1280, 512, 256]
+  slot_transform: shared_adapter
+  slot_transform_dims: [1280, 512, 256]
   adapter_dims: [128]

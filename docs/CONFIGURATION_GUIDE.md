@@ -207,10 +207,10 @@ training:
 
 ---
 
-## Training: Interaction and Pre-MLP
+## Training: Interaction and Slot transform
 
 The model always receives raw embeddings `(emb_a, emb_b)` and computes interaction features internally.
-Use `interaction` to specify which features to use; optionally apply pre-MLPs before interaction.
+Use `interaction` to specify which features to use; optionally apply slot transforms before interaction.
 
 ### Interaction spec
 
@@ -221,12 +221,12 @@ training:
 
 Examples: `concat`, `diff`, `unit_diff`, `concat+unit_diff`, `concat+diff+prod`.
 
-### Optional pre-MLP (before interaction)
+### Optional slot transform (before interaction)
 
 ```yaml
 training:
-  pre_mlp_mode: shared            # none | shared | slot_specific | shared_adapter | slot_norm
-  pre_mlp_dims: [1280, 512, 256]  # required for shared/slot_specific/shared_adapter
+  slot_transform: shared            # none | shared | slot_specific | shared_adapter | slot_norm
+  slot_transform_dims: [1280, 512, 256]  # required for shared/slot_specific/shared_adapter
   adapter_dims: [128]             # required for shared_adapter
   interaction: concat+diff+prod
 ```

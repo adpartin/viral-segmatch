@@ -6,4 +6,4 @@ defaults:
   - _self_
 
 training:
-  pre_mlp_mode: slot_norm
+  slot_transform: slot_norm

@@ -399,7 +399,7 @@ def plot_pair_interactions(
 
     NOTE: This function visualizes data-level interactions only (computed from
     raw frozen embeddings).  Architecture-dependent transformations (e.g.,
-    slot_norm, pre_mlp) require trained model weights and are NOT visualized
+    slot_norm, slot_transform) require trained model weights and are NOT visualized
     here -- those would be a separate post-training analysis.
 
     Args:

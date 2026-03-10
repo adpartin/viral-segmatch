@@ -310,8 +310,8 @@ class MLPClassifier(nn.Module):
         input_dim: int = 2560,
         hidden_dims: list[int] = [512, 256, 64],
         dropout: float = 0.3,
-        pre_mlp_mode: str = "none",
-        pre_mlp_dims: Optional[list[int]] = None,
+        slot_transform: str = "none",
+        slot_transform_dims: Optional[list[int]] = None,
         adapter_dims: Optional[list[int]] = None,
         use_concat: bool = True,
         use_diff: bool = False,
@@ -321,15 +321,15 @@ class MLPClassifier(nn.Module):
     ):
         super().__init__()
 
-        self.pre_mlp_mode = pre_mlp_mode
+        self.slot_transform = slot_transform
         self.use_concat = use_concat
         self.use_diff = use_diff
         self.use_prod = use_prod
         self.use_unit_diff = use_unit_diff
 
-        self.pre_mlp_shared = None
-        self.pre_mlp_a = None
-        self.pre_mlp_b = None
+        self.slot_transform_shared = None
+        self.slot_transform_a = None
+        self.slot_transform_b = None
         self.adapter_a = None
         self.adapter_b = None
         self.norm_a = None
@@ -353,45 +353,45 @@ class MLPClassifier(nn.Module):
             return _build_mlp(dims)
 
         # breakpoint()
-        if self.pre_mlp_mode != "none" and embed_dim is None:
-            raise ValueError("embed_dim is required when pre_mlp_mode != 'none'")
+        if self.slot_transform != "none" and embed_dim is None:
+            raise ValueError("embed_dim is required when slot_transform != 'none'")
 
-        if self.pre_mlp_mode == "shared":
-            # Shared pre-MLP where both segments share the same pre-MLP
-            if not pre_mlp_dims:
-                raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='shared'")
-            self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
+        if self.slot_transform == "shared":
+            # Shared slot transform where both segments share the same slot transform
+            if not slot_transform_dims:
+                raise ValueError("slot_transform_dims must be set for slot_transform='shared'")
+            self.slot_transform_shared = _build_mlp(slot_transform_dims)
 
-        elif self.pre_mlp_mode == "slot_specific":
-            # Slot-specific pre-MLP where each segment has its own pre-MLP
-            if not pre_mlp_dims:
-                raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='slot_specific'")
-            self.pre_mlp_a = _build_mlp(pre_mlp_dims)
-            self.pre_mlp_b = _build_mlp(pre_mlp_dims)
+        elif self.slot_transform == "slot_specific":
+            # Slot-specific slot transform where each segment has its own slot transform
+            if not slot_transform_dims:
+                raise ValueError("slot_transform_dims must be set for slot_transform='slot_specific'")
+            self.slot_transform_a = _build_mlp(slot_transform_dims)
+            self.slot_transform_b = _build_mlp(slot_transform_dims)
 
-        elif self.pre_mlp_mode == "shared_adapter":
-            # Shared pre-MLP with adapters where both segments share the same pre-MLP and adapters
-            if not pre_mlp_dims:
-                raise ValueError("pre_mlp_dims must be set for pre_mlp_mode='shared_adapter'")
+        elif self.slot_transform == "shared_adapter":
+            # Shared slot transform with adapters where both segments share the same slot transform and adapters
+            if not slot_transform_dims:
+                raise ValueError("slot_transform_dims must be set for slot_transform='shared_adapter'")
             if not adapter_dims:
-                raise ValueError("adapter_dims must be set for pre_mlp_mode='shared_adapter'")
-            self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
-            out_dim = pre_mlp_dims[-1]
+                raise ValueError("adapter_dims must be set for slot_transform='shared_adapter'")
+            self.slot_transform_shared = _build_mlp(slot_transform_dims)
+            out_dim = slot_transform_dims[-1]
             self.adapter_a = _build_adapter(out_dim, adapter_dims)
             self.adapter_b = _build_adapter(out_dim, adapter_dims)
 
-        elif self.pre_mlp_mode == "slot_norm":
+        elif self.slot_transform == "slot_norm":
             # Slot-specific norm where each segment has its own norm
-            if pre_mlp_dims:
-                self.pre_mlp_shared = _build_mlp(pre_mlp_dims)
-                out_dim = pre_mlp_dims[-1]
+            if slot_transform_dims:
+                self.slot_transform_shared = _build_mlp(slot_transform_dims)
+                out_dim = slot_transform_dims[-1]
             else:
                 out_dim = embed_dim
             self.norm_a = nn.LayerNorm(out_dim)
             self.norm_b = nn.LayerNorm(out_dim)
 
-        elif self.pre_mlp_mode != "none":
-            raise ValueError(f"Unknown pre_mlp_mode: {self.pre_mlp_mode!r}")
+        elif self.slot_transform != "none":
+            raise ValueError(f"Unknown slot_transform: {self.slot_transform!r}")
 
         layers = []
         prev_dim = input_dim
@@ -405,43 +405,43 @@ class MLPClassifier(nn.Module):
         layers.append(nn.Linear(prev_dim, 1))
         self.mlp = nn.Sequential(*layers)
     
-    def _apply_pre_mlp(self, a: torch.Tensor, b: torch.Tensor
+    def _apply_slot_transform(self, a: torch.Tensor, b: torch.Tensor
         ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Apply pre-MLP blocks to embeddings a and b.
+        Apply slot transform blocks to embeddings a and b.
 
         Args:
             a: Embedding tensor for segment A
             b: Embedding tensor for segment B
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor]: Pre-MLP embeddings for segments A and B
+            tuple[torch.Tensor, torch.Tensor]: Slot-transform embeddings for segments A and B
         """
         # breakpoint()
-        if self.pre_mlp_mode == "none":
+        if self.slot_transform == "none":
             return a, b
 
-        if self.pre_mlp_mode == "shared":
-            # Both embeddings are passed through the same pre-MLP block
-            return self.pre_mlp_shared(a), self.pre_mlp_shared(b)
+        if self.slot_transform == "shared":
+            # Both embeddings are passed through the same slot transform block
+            return self.slot_transform_shared(a), self.slot_transform_shared(b)
 
-        if self.pre_mlp_mode == "slot_specific":
-            # Each embedding is passed through its own pre-MLP block
-            return self.pre_mlp_a(a), self.pre_mlp_b(b)
+        if self.slot_transform == "slot_specific":
+            # Each embedding is passed through its own slot transform block
+            return self.slot_transform_a(a), self.slot_transform_b(b)
 
-        if self.pre_mlp_mode == "shared_adapter":
-            # Both embeddings are passed through the same pre-MLP block and then through the same adapter block
-            z_a = self.pre_mlp_shared(a)
-            z_b = self.pre_mlp_shared(b)
+        if self.slot_transform == "shared_adapter":
+            # Both embeddings are passed through the same slot transform block and then through the same adapter block
+            z_a = self.slot_transform_shared(a)
+            z_b = self.slot_transform_shared(b)
             return z_a + self.adapter_a(z_a), z_b + self.adapter_b(z_b)
 
-        if self.pre_mlp_mode == "slot_norm":
-            # Both embeddings are passed through the same pre-MLP block and then through the same norm block
-            if self.pre_mlp_shared is not None:
-                a = self.pre_mlp_shared(a)
-                b = self.pre_mlp_shared(b)
+        if self.slot_transform == "slot_norm":
+            # Both embeddings are passed through the same slot transform block and then through the same norm block
+            if self.slot_transform_shared is not None:
+                a = self.slot_transform_shared(a)
+                b = self.slot_transform_shared(b)
             return self.norm_a(a), self.norm_b(b)
-        raise ValueError(f"Unknown pre_mlp_mode: {self.pre_mlp_mode!r}")
+        raise ValueError(f"Unknown slot_transform: {self.slot_transform!r}")
 
     def _compute_interaction(self, a: torch.Tensor, b: torch.Tensor
         ) -> torch.Tensor:
@@ -472,7 +472,7 @@ class MLPClassifier(nn.Module):
     def forward(self, x: torch.Tensor, x_b: Optional[torch.Tensor] = None) -> torch.Tensor:
         if x_b is None:
             raise ValueError("MLPClassifier expects (emb_a, emb_b); x_b is required")
-        a, b = self._apply_pre_mlp(x, x_b)
+        a, b = self._apply_slot_transform(x, x_b)
         feats = self._compute_interaction(a, b)
         return self.mlp(feats)
 
@@ -945,8 +945,8 @@ DROPOUT = config.training.dropout
 PATIENCE = config.training.patience
 EARLY_STOPPING_METRIC = config.training.early_stopping_metric
 THRESHOLD_METRIC = config.training.threshold_metric
-PRE_MLP_MODE = getattr(config.training, 'pre_mlp_mode', 'none')
-PRE_MLP_DIMS = getattr(config.training, 'pre_mlp_dims', None)
+SLOT_TRANSFORM = getattr(config.training, 'slot_transform', 'none')
+SLOT_TRANSFORM_DIMS = getattr(config.training, 'slot_transform_dims', None)
 ADAPTER_DIMS = getattr(config.training, 'adapter_dims', None)
 # Interaction spec: "concat", "diff", "unit_diff", "prod", or combinations like "concat+unit_diff"
 INTERACTION_SPEC = getattr(config.training, 'interaction', 'concat')
@@ -1123,13 +1123,13 @@ test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 # Resolve interaction flags from training.interaction
 USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
 
-# Compute input dimension based on feature flags and pre-MLP
-if PRE_MLP_MODE in {"shared", "slot_specific", "shared_adapter"}:
-    if not PRE_MLP_DIMS:
-        raise ValueError(f"pre_mlp_dims must be set for pre_mlp_mode='{PRE_MLP_MODE}'")
-    out_dim = PRE_MLP_DIMS[-1]
-elif PRE_MLP_MODE == "slot_norm" and PRE_MLP_DIMS:
-    out_dim = PRE_MLP_DIMS[-1]
+# Compute input dimension based on feature flags and slot transform
+if SLOT_TRANSFORM in {"shared", "slot_specific", "shared_adapter"}:
+    if not SLOT_TRANSFORM_DIMS:
+        raise ValueError(f"slot_transform_dims must be set for slot_transform='{SLOT_TRANSFORM}'")
+    out_dim = SLOT_TRANSFORM_DIMS[-1]
+elif SLOT_TRANSFORM == "slot_norm" and SLOT_TRANSFORM_DIMS:
+    out_dim = SLOT_TRANSFORM_DIMS[-1]
 else:
     out_dim = EMBED_DIM
 
@@ -1157,8 +1157,8 @@ model = MLPClassifier(
     input_dim=mlp_input_dim,
     hidden_dims=HIDDEN_DIMS,
     dropout=DROPOUT,
-    pre_mlp_mode=PRE_MLP_MODE,
-    pre_mlp_dims=PRE_MLP_DIMS,
+    slot_transform=SLOT_TRANSFORM,
+    slot_transform_dims=SLOT_TRANSFORM_DIMS,
     adapter_dims=ADAPTER_DIMS,
     use_concat=USE_CONCAT_RAW,
     use_diff=USE_DIFF_RAW,
@@ -1255,7 +1255,7 @@ training_info = {
     'embeddings_file': str(embeddings_file),
     'feature_source': FEATURE_SOURCE,
     'interaction': INTERACTION_SPEC,
-    'pre_mlp_mode': PRE_MLP_MODE,
+    'slot_transform': SLOT_TRANSFORM,
     'hidden_dims': list(HIDDEN_DIMS) if HIDDEN_DIMS else None,
     'dropout': DROPOUT,
     'batch_size': BATCH_SIZE,

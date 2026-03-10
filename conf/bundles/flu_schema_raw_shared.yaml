@@ -1,5 +1,5 @@
-# STATUS: experimental -- shared pre-MLP; not completed
-# Flu schema-ordered (HA -> NA), raw mode with shared pre-MLP
+# STATUS: experimental -- shared slot transform; not completed
+# Flu schema-ordered (HA -> NA), raw mode with shared slot transform
 
 defaults:
   - flu_schema
@@ -7,5 +7,5 @@ defaults:
 
 training:
   interaction: diff
-  pre_mlp_mode: shared
-  pre_mlp_dims: [1280, 512, 256]
+  slot_transform: shared
+  slot_transform_dims: [1280, 512, 256]

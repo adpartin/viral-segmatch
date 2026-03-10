@@ -1,5 +1,5 @@
-# STATUS: experimental -- slot-specific pre-MLP; not completed
-# Flu schema-ordered (HA -> NA), raw mode with slot-specific pre-MLPs
+# STATUS: experimental -- slot-specific slot transform; not completed
+# Flu schema-ordered (HA -> NA), raw mode with slot-specific slot transforms
 
 defaults:
   - flu_schema
@@ -7,5 +7,5 @@ defaults:
 
 training:
   interaction: diff
-  pre_mlp_mode: slot_specific
-  pre_mlp_dims: [1280, 512, 256]
+  slot_transform: slot_specific
+  slot_transform_dims: [1280, 512, 256]

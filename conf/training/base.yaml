@@ -16,9 +16,9 @@ lr_scheduler_min_lr: 1e-6  # Minimum learning rate
 hidden_dims: [512, 256, 64]
 dropout: 0.2
 
-# Pre-MLP options (applied to each embedding before interaction)
-pre_mlp_mode: none  # none | shared | slot_specific | shared_adapter | slot_norm
-pre_mlp_dims: null  # e.g., [1280, 512, 256] this is the dimension of the pre-MLP output
+# Slot transform options (per-slot embedding transform applied before interaction)
+slot_transform: none  # none | shared | slot_specific | shared_adapter | slot_norm
+slot_transform_dims: null  # e.g., [1280, 512, 256] projection dimensions
 adapter_dims: null  # e.g., [128] this is the dimension of the adapter output
 
 # Feature source: which precomputed features to use

@@ -28,5 +28,5 @@ dataset:
 training:
   eval_swapped_test: true
   interaction: concat
-  pre_mlp_mode: none
-  pre_mlp_dims: null
+  slot_transform: none
+  slot_transform_dims: null

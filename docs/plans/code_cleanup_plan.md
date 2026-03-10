@@ -88,8 +88,8 @@ Decision depends on whether we want one training entry point or separate scripts
 The `raw` token in Gen3 bundle names (e.g., `flu_schema_raw_slot_norm_unit_diff`) has no
 functional meaning. It is not a config field and does not appear in any Python code logic.
 It was introduced as a naming convention to distinguish Gen3 bundles from the Gen2
-`flu_schema` base (which defaulted to `pre_mlp_mode: none`, `interaction: concat`), but
-the distinction is already encoded by the `pre_mlp_mode` and `interaction` tokens that
+`flu_schema` base (which defaulted to `slot_transform: none`, `interaction: concat`), but
+the distinction is already encoded by the `slot_transform` and `interaction` tokens that
 follow it.
 
 Removing `raw` would shorten names without losing information:
