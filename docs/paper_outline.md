@@ -64,10 +64,13 @@ Influenza A HA and NA segments, with extensions to other segment pairs.
 
 ### 2.1 Data
 
-- **Source:** BV-BRC Influenza A protein sequences, curated dataset (~111K isolates with
-  paired HA and NA segments). Curated by Jim Davie.
-- **Preprocessing:** GTO replicon functions mapped to standard protein names (PB2, PB1,
-  PA, HA, NP, NA, M1, M2, NEP). Quality filters applied.
+- **Source:** A set of ~111K Flu A isolates from BV-BRC (curated by Jim Davis). Each GTO
+  contains genome and protein sequences, and various metadata.
+- **Preprocessing:** Protein sequences extracted from GTO replicon functions and mapped
+  to 8 major proteins (one primary gene product per segment): PB2, PB1, PA, HA, NP, NA,
+  M1, NS1. Alternative reading frame products (M2, NEP) excluded. Nucleotide genome
+  sequences extracted per segment for k-mer feature computation. Quality filters applied
+  to both protein and genome sequences.
 - **Pair construction:** Positive pairs = segments from the same isolate. Negative pairs =
   segments from different isolates, with co-occurrence blocking (no contradictory labels).
   Train is balanced (1:1 pos/neg); val/test reflect natural imbalance.
@@ -79,7 +82,7 @@ Influenza A HA and NA segments, with extensions to other segment pairs.
 | ESM-2 | `esm2_t33_650M_UR50D` | 1280 | Frozen protein language model mean-pool embeddings |
 | K-mer (k=6) | Nucleotide sequences | 4096 | Sparse frequency vectors over 6-mer vocabulary |
 
-### 2.3 Interaction functions
+### 2.3 Interaction approaches
 
 Given embeddings A (slot 1) and B (slot 2), with schema-ordered assignment (HA→slot 1,
 NA→slot 2):
@@ -89,10 +92,65 @@ NA→slot 2):
 | `concat` | [A, B] | 2D | Preserves both embeddings; order-sensitive |
 | `unit_diff` | (A − B) / ‖A − B‖₂ | D | L2-normalized signed difference; retains direction only |
 
-### 2.4 Pre-MLP normalization
+### 2.4 Pre-MLP architecture variants
 
-- `slot_norm`: Per-slot LayerNorm before interaction. Critical for ESM-2 on homogeneous
-  subsets (neutralizes systematic offset between HA and NA embedding subspaces).
+The pipeline transforms per-slot embeddings before the interaction function. Five
+`pre_mlp_mode` variants control this transformation:
+
+```
+(a) none — pass-through
+
+  emb_a ─────────────────────────┐
+                                 ├─→ Interaction ──→ MLP Classifier ──→ P(same isolate)
+  emb_b ─────────────────────────┘
+
+
+(b) shared — single shared MLP
+
+  emb_a ──→ [ Shared MLP ] ──→ a' ─┐
+                                    ├─→ Interaction ──→ MLP Classifier ──→ P(same isolate)
+  emb_b ──→ [ Shared MLP ] ──→ b' ─┘
+              (same weights)
+
+
+(c) slot_specific — independent MLP per slot
+
+  emb_a ──→ [  MLP_A  ] ──→ a' ─┐
+                                 ├─→ Interaction ──→ MLP Classifier ──→ P(same isolate)
+  emb_b ──→ [  MLP_B  ] ──→ b' ─┘
+            (separate weights)
+
+
+(d) shared_adapter — shared MLP + per-slot residual adapters
+
+  emb_a ──→ [ Shared MLP ] ──→ z_a ──→ z_a + Adapter_A(z_a) ──→ a' ─┐
+                                                                      ├─→ Interaction ──→ MLP ──→ P
+  emb_b ──→ [ Shared MLP ] ──→ z_b ──→ z_b + Adapter_B(z_b) ──→ b' ─┘
+              (same weights)           (separate adapter weights)
+
+
+(e) slot_norm — optional shared MLP + per-slot LayerNorm  ** current best **
+
+  emb_a ──→ [ Shared MLP ]? ──→ [ LayerNorm_A ] ──→ a' ─┐
+                                                          ├─→ Interaction ──→ MLP ──→ P
+  emb_b ──→ [ Shared MLP ]? ──→ [ LayerNorm_B ] ──→ b' ─┘
+              (optional)        (separate LN params)
+```
+
+**Summary:**
+
+| Mode | Slot A path | Slot B path | Key property |
+|------|------------|------------|-------------|
+| `none` | pass-through | pass-through | Raw embeddings; no learned transform |
+| `shared` | Shared_MLP(a) | Shared_MLP(b) | Same projection for both slots |
+| `slot_specific` | MLP_A(a) | MLP_B(b) | Independent per-slot projections |
+| `shared_adapter` | Shared_MLP(a) + Adapter_A(·) | Shared_MLP(b) + Adapter_B(·) | Shared backbone + per-slot residual adapters |
+| `slot_norm` | [Shared_MLP(a)→] LN_A(·) | [Shared_MLP(b)→] LN_B(·) | Per-slot normalization; neutralizes subspace offset |
+
+`slot_norm` (without the optional shared MLP) is the current best configuration. Per-slot
+LayerNorm is critical for ESM-2 on homogeneous subsets — it neutralizes the systematic
+offset between HA and NA embedding subspaces, allowing `unit_diff` to capture genuine
+biological signal rather than slot identity.
 
 ### 2.5 Classifier
 
