@@ -45,12 +45,12 @@ linking of genome segments to the same isolate is critical for:
 ### Problem formulation
 
 Given representations of two protein segments from a segmented virus, predict whether
-they co-occur in the same isolate (binary classification). This paper focuses on
+they originate from the same isolate (binary classification). This work focuses on
 Influenza A HA and NA segments, with extensions to other segment pairs.
 
 ### Contributions
 
-- Frame viral segment co-occurrence as a binary classification task using sequence
+- Frame viral segment-to-isolate linkage as a binary classification task using sequence
   representations (first to our knowledge)
 - Compare protein language model (ESM-2) and k-mer feature representations
 - Identify a geometry-specific failure mode of ESM-2 representations under concatenation
@@ -159,7 +159,7 @@ _Existing results — key mechanistic finding_
 _Partially existing (FP/FN metadata available), analysis NOT IMPLEMENTED_
 
 The model consistently shows high FP/FN ratio (e.g., 64:1 for ESM-2 temporal, 11.6:1 for
-k-mer temporal). This means the model over-predicts co-occurrence — it says "yes, these
+k-mer temporal). This means the model over-predicts same-isolate origin — it says "yes, these
 segments belong together" too often. Understanding and addressing this is critical for
 the remediation application, where a false link is worse than a missed link.
 
@@ -267,7 +267,7 @@ segment-isolate metadata is missing or unreliable.
 1. Train on curated dataset (best model from Section 3 experiments)
 2. Identify BV-BRC records lacking reliable isolate linkage (records beyond Jim's curated
    111K set — need to quantify how many such records exist)
-3. For candidate segment pairs, compute features and predict co-occurrence probability
+3. For candidate segment pairs, compute features and predict same-isolate probability
 4. Evaluate: compare model predictions against known links (where available) as ground
    truth; report precision/recall on the remediation task
 
@@ -299,7 +299,7 @@ Approaches to consider:
   If predictions are well-calibrated, the raw sigmoid output is itself a usable confidence
   score. Report Expected Calibration Error (ECE).
 - **Conformal prediction:** Distribution-free coverage guarantees. Given a calibration set,
-  produce prediction sets (e.g., "co-occurring with 95% coverage"). Attractive for a
+  produce prediction sets (e.g., "same-isolate origin with 95% coverage"). Attractive for a
   remediation tool where users need to know "how much can I trust this link?"
 
 **Recommended approach for the paper:** Deep ensemble (from CV folds) + calibration analysis.
@@ -350,7 +350,7 @@ Not implemented. Requires: (1) quantifying the unlinked record population in BV-
 
 ### Limitations
 
-- High FP/FN ratio indicates the model over-predicts co-occurrence; Section 3.5
+- High FP/FN ratio indicates the model over-predicts same-isolate origin; Section 3.5
   characterizes this and proposes mitigations, but it remains a deployment concern
 - Currently tested on HA/NA pairs only (Section 3.6 addresses this)
 - Negative pairs are constructed by cross-isolate mixing; may be "easy" due to
