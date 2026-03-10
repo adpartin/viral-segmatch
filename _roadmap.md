@@ -262,6 +262,110 @@ a workflow to run all combinations.
 
 ---
 
+### 12. FP/FN ratio diagnosis and mitigation — NOT IMPLEMENTED
+
+**Goal:** Understand and reduce the high FP/FN ratio (model over-predicts co-occurrence).
+This is critical for the data remediation application, where a false link is worse than a
+missed link. The approach combines diagnostics, data-centric fixes, and model-centric fixes,
+applied in order of increasing complexity.
+
+#### Diagnostics (before committing to a fix)
+
+Three analyses that guide whether to pursue data-centric or model-centric mitigation:
+
+1. **Embedding distance distribution analysis.** Plot the distribution of pairwise distances
+   (or cosine similarity) for: (a) positive pairs, (b) within-subtype negatives, (c)
+   cross-subtype negatives. If within-subtype negatives heavily overlap with positives in
+   embedding space, the problem is representational — the features don't separate them. If
+   there's separation but the classifier draws the boundary wrong, the problem is the
+   decision boundary (threshold or model).
+
+2. **Predicted probability histogram.** Plot P(co-occurring) for TPs, FPs, FNs, TNs
+   separately. If FPs have high confidence (P > 0.9), the model genuinely can't distinguish
+   them — need better features or harder training signal. If FPs cluster near the threshold
+   (P ≈ 0.5–0.6), threshold tuning or calibration may suffice.
+
+3. **Pair-level metadata matrix.** For each negative pair, record (subtype_a, subtype_b,
+   host_a, host_b, year_a, year_b). Compute FP rate per (subtype_a × subtype_b) cell.
+   Confirms whether FPs concentrate in within-subtype negatives (hypothesis: they do,
+   because cross-subtype negatives are trivially distinguishable).
+
+**Effort:** Low. No retraining needed — uses existing predictions and metadata files.
+Implement as an analysis script.
+
+#### Data-centric approaches
+
+Modify what the model sees without changing architecture or loss. Fix the val and test
+sets; modify only the training set composition, retrain, and evaluate on the same
+held-out data.
+
+**(a) Hard negative mining** (highest priority). Replace easy cross-subtype negatives with
+within-subtype negatives (same subtype, same host, same year). Directly attacks the core
+problem: force the model to distinguish pairs that are biologically similar but not
+co-occurring. Modify `create_negative_pairs` in `dataset_segment_pairs.py` to constrain
+negative sampling by metadata match.
+
+**(b) Negative-to-positive ratio.** Currently 1:1. Increasing negatives (e.g., 3:1 or 5:1)
+with emphasis on hard negatives gives the model more examples of the failure case. Simple
+to implement — change pair generation.
+
+**(c) Curriculum learning on negatives.** Start training with easy (cross-subtype) negatives,
+progressively introduce harder (within-subtype) negatives. Avoids the model getting stuck
+early on indistinguishable pairs. Requires epoch-aware data loading.
+
+**(d) Subtype-balanced training.** If H1N1 is underrepresented in training and the model
+fails on H1N1 pairs, upsample H1N1 isolates (or downsample H3N2) to equalize subtype
+representation.
+
+**Effort:** Low–medium. Hard negative mining is the main code change (~50 lines in
+negative pair generation). Others are config or data loader changes.
+
+#### Model-centric approaches
+
+Change how the model learns from the same data.
+
+**(a) Focal loss.** Down-weights easy examples (confident correct predictions), up-weights
+hard examples. Shifts training attention to the hard cases (within-subtype negatives the
+model gets wrong). One-line change in loss function: replace BCEWithLogitsLoss with focal
+loss variant.
+
+**(b) Weighted BCE.** Increase the weight on FP errors (higher cost for predicting positive
+when negative). Directly penalizes the observed failure mode. Simpler than focal loss but
+less adaptive.
+
+**(c) Contrastive learning (supervised contrastive or triplet loss).** Instead of BCE on
+pair labels, explicitly optimize the representation space so co-occurring pairs are pulled
+together and non-co-occurring pairs are pushed apart. Key difference from BCE: contrastive
+loss directly shapes the *geometry* of the representation, not just the classifier's
+decision boundary.
+
+- **Pro:** Directly addresses representational overlap. If within-subtype negatives overlap
+  with positives in feature space, contrastive learning pushes them apart.
+- **Con:** Requires architectural rethinking. The current pipeline computes interaction
+  features then classifies. Contrastive learning would operate on embeddings *before* the
+  interaction, or on the interaction features directly. ESM-2 embeddings are frozen, so
+  contrastive loss only shapes the MLP's learned representation, not the base embeddings.
+- **When to try:** If diagnostics (step 1) show that interaction features fundamentally
+  can't separate hard negatives — meaning the problem is representational, not the
+  classifier. This is the heavier intervention; save for when simpler approaches fall short.
+
+**(d) Two-stage model.** First stage: coarse filter (reject easy cross-subtype negatives).
+Second stage: fine discriminator trained only on hard within-subtype pairs. Separates the
+easy and hard problems.
+
+#### Recommended execution order
+
+1. **Diagnostics** (embedding distances + probability histogram + metadata matrix). No
+   retraining. Tells you whether the problem is representational or decisional.
+2. **Hard negative mining** (data-centric). Highest expected impact, no model changes.
+3. **Focal loss** (model-centric). One-line change. Complementary to hard negatives.
+4. **Contrastive learning** (model-centric). Only if (1)–(3) reveal a fundamental
+   representation problem that simpler approaches can't address.
+
+**Status:** Not implemented. FP/FN detailed CSV files exist from training runs.
+
+---
+
 ## Design: Publication Scope and Codebase Stability
 
 **Your intent:** Run a subset of experiments soon, draft a paper outline, and use it to constrain scope and avoid endless “what if” experiments. Changes to the codebase should support these experiments without unnecessary churn.
@@ -304,6 +408,7 @@ a workflow to run all combinations.
 | 9. Learning curve | Not implemented | LC launcher + fixed test set + plotting | Optional |
 | 10. GenSLM | Not started | New embedding pipeline | Optional |
 | 11. All protein pairs | Not started | Bundle generation + HPC job array | Optional |
+| 12. FP/FN mitigation | Not started | Diagnostics + hard negatives + focal loss | High |
 
 ---
 

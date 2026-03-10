@@ -209,27 +209,26 @@ caution for Y populations."
 training set composition, retrain, and evaluate on the same held-out data. This isolates
 the effect of training data changes from test set variation.
 
-Data-centric approaches (guided by error diagnosis):
+Mitigation covers both data-centric and model-centric approaches, applied in order of
+increasing complexity. See `_roadmap.md` Task 12 for the full detailed plan, including
+diagnostics (embedding distance distributions, predicted probability histograms,
+pair-level metadata matrix), data-centric fixes (hard negative mining, negative ratio,
+curriculum learning, subtype balancing), model-centric fixes (focal loss, weighted BCE,
+contrastive learning, two-stage model), and recommended execution order.
 
-1. **Subtype-balanced training.** If H1N1 is underrepresented in training and the model
-   fails on H1N1 pairs, upsample H1N1 isolates (or downsample H3N2) to equalize subtype
-   representation. Re-run with fixed val/test. Compare H1N1-specific and overall metrics.
-2. **Population-specific models.** Train a model using only H1N1 samples (or only H3N2,
-   etc.). Compare against the general model on that population's test pairs. If a
-   population-specific model outperforms, the general model was being diluted by
-   irrelevant variation.
-3. **Hard negative sampling.** Construct negatives from the *same* subtype/host/year
-   ("within-subtype" negatives). Forces the model to rely on sequence-level signal rather
-   than population-level shortcuts. This directly targets the FP concentration in
-   within-subtype negatives identified in 3.5.1. See `_ongoing_work.md` for design.
-4. **Threshold tuning per population.** Instead of one global threshold, use
-   population-specific thresholds calibrated on held-out data from each population.
+**Summary of approaches (see `_roadmap.md` Task 12 for detail):**
+
+- **Data-centric:** Hard negative mining (highest priority), increased negative-to-positive
+  ratio, curriculum learning on negatives, subtype-balanced training, population-specific
+  models, per-population threshold tuning.
+- **Model-centric:** Focal loss (one-line change, try early), weighted BCE, contrastive
+  learning (heavier intervention, try if simpler approaches fail), two-stage model.
 
 **Iterative refinement loop:**
 1. Train on initial dataset → evaluate on fixed test set → error diagnosis (3.5.1)
 2. Identify dominant failure mode (e.g., high FP on within-subtype H1N1 negatives)
-3. Modify training set (e.g., add more H1N1, or switch to hard negatives) → retrain
-4. Re-evaluate on same test set → compare metrics → iterate
+3. Apply mitigation (data-centric first, then model-centric) → retrain on modified data
+4. Re-evaluate on same fixed test set → compare metrics → iterate
 
 **Connection to applications:** For data remediation, these results translate directly
 into usage guidelines — e.g., "apply the general model with confidence for H3N2 pairs;
@@ -386,7 +385,7 @@ Not implemented. Requires: (1) quantifying the unlinked record population in BV-
 | 9 | Table | FP/FN metadata breakdown (subtype, host, year overlap) | Error analysis (pending) |
 | 10 | Figure/Table | Stratified metrics by subtype, host, geography | Stress testing (pending) |
 | 11 | Table | Mitigation results (balanced training, population-specific models) | Mitigation (pending) |
-| 12 | Figure | 9×9 protein-pair AUC heatmap | Task 11 (pending) |
+| 12 | Figure | 8×8 protein-pair AUC heatmap | Task 11 (pending) |
 | 13 | Figure | Delayed learning curve (H3N2 + unit_diff plateau-breakthrough) | Existing |
 | 14 | Table/Figure | Data remediation inference results on BV-BRC | New (pending) |
 | 15 | Figure | Reliability diagram (calibration) + ECE | UQ analysis (pending) |
@@ -404,9 +403,9 @@ Maps paper sections to roadmap tasks and their readiness.
 | 3.2 Cross-validation | Task 1 | Code ready, needs run | Yes |
 | 3.3 Temporal holdout | Task 3 | Needs dedup fix + re-run | Yes |
 | 3.4 Embedding geometry | Existing | Done | No |
-| 3.5 Error analysis | Existing FP/FN files | Analysis not implemented | Yes |
-| 3.5.2 Stress testing | New | Needs new bundles + runs | Yes |
-| 3.5.3 Mitigation | New | Needs dataset modifications + runs | Yes |
+| 3.5 Error analysis | Task 12 | Diagnostics not implemented | Yes |
+| 3.5.2 Stress testing | Task 12 | Needs new bundles + runs | Yes |
+| 3.5.3 Mitigation | Task 12 | Data-centric + model-centric; see `_roadmap.md` | Yes |
 | 3.6 All protein pairs | Task 11 | Not started (HPC) | No (strengthens paper) |
 | 4. Data remediation | New + Task 8 | Not started | Yes |
 | 4.2 UQ | New | Not started | No (enhances Section 4) |

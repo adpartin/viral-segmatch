@@ -41,12 +41,24 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - High FP rate on filtered datasets (year/host/geo) -- likely population-level confounders
 - **Temporal holdout**: K-mer AUC 0.941 vs ESM-2 AUC 0.891 (train 2021-2023, test 2024); k-mers generalize better across flu seasons
 
-## Roadmap (02/10/2026 meeting) -- for publication
-1. Cross-validation (fold_id/n_folds in dataset config + PBS job array on Polaris) -- IMPLEMENTED (branch: feature/cross-validation)
-2. Genome features (k-mers + XGBoost/LightGBM, then GenSLM) -- PARTIAL -- k-mer + MLP baseline done; XGBoost/LightGBM still TODO
-3. Large dataset (full Flu A ~100K isolates, HPC)
-4. Temporal holdout (year_train/year_test config fields) -- IMPLEMENTED, initial runs done; pair_key dedup fix needed; see docs/plans/temporal_holdout_plan.md
-5. PB2/PB1 + H3N2 bundle (trivial, one new bundle)
+## Roadmap (02/10/2026 meeting + March 2026 updates) -- for publication
+1. Cross-validation -- IMPLEMENTED, needs end-to-end run
+2. Large dataset (full Flu A ~100K isolates, HPC) -- supported, not yet run
+3. Temporal holdout -- IMPLEMENTED, needs dedup fix + re-run
+4. K-mer + MLP -- DONE; k-mer + XGBoost/LightGBM still TODO
+5. PB2/PB1 + H3N2 bundle -- optional (one new bundle)
+11. All protein pairs (C(8,2)=28 pairs of 8 major proteins) -- NOT IMPLEMENTED, HPC
+12. FP/FN ratio diagnosis + mitigation -- NOT IMPLEMENTED; see `_roadmap.md` Task 12
+    - Diagnostics first (embedding distances, probability histograms, pair-level metadata matrix)
+    - Data-centric: hard negative mining (highest priority), negative ratio, curriculum learning
+    - Model-centric: focal loss, contrastive learning (if simpler approaches fail)
+
+## Publication Strategy (March 2026)
+- **Paper 1 (biology, primary):** Segment matching for data remediation + surveillance.
+  Target: Bioinformatics / PLOS Comp Bio / Genome Biology. See `docs/paper_outline.md`.
+- **Paper 2 (ML, follow-up):** ESM-2 concat collapse + GenSLM. Target: NeurIPS/ICML workshop.
+- Paper outline: `docs/paper_outline.md` (includes experiment status tracker)
+- Applications: data remediation (BV-BRC), wastewater surveillance, reassortment detection (future)
 
 ## Directory Structure (post-cleanup Feb 2026)
 - `.claude/` -- settings.json (permissions) + memory.md (this file)
@@ -120,9 +132,11 @@ Hydra's package resolution double-nests inherited configs from subdirs, breaking
 - Workflow: Stage 3 once → Stage 4 N times with different training bundles
 
 ## What's Next
-- Debug/test cross-validation end-to-end (see CV section above)
-- Bundle naming cleanup (rename existing bundles to consistent signature) -- deferred, future task
-- Use `git log --oneline -10` for current commit state; this file tracks decisions, not commits
+- Fix pair_key dedup for temporal holdout -- re-run for clean metrics
+- Run cross-validation end-to-end (see CV section above)
+- FP/FN diagnostics (Task 12) -- understand error distribution before mitigation
+- Quantify unlinked BV-BRC records (ask Jim) -- scopes the remediation demo
+- Bundle naming cleanup -- deferred, future task
 
 ## User Preferences
 - Concise responses, no emojis unless asked
