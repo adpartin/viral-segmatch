@@ -183,7 +183,7 @@ def main():
         print(f"Stage 4 fold {fold_i}/{n_folds-1}: GPU={gpu}  run_id={run_id_train}")
         stage4_cmd = [
             "python",
-            str(PROJECT_ROOT / "src" / "models" / "train_esm2_frozen_pair_classifier.py"),
+            str(PROJECT_ROOT / "src" / "models" / "train_pair_classifier.py"),
             "--config_bundle", args.config_bundle,
             "--cuda_name", f"cuda:{gpu}",
             "--dataset_dir", str(fold_dir),

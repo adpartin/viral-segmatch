@@ -54,7 +54,7 @@
 │   ├── __init__.py
 │   ├── models
 │   │   ├── __init__.py
-│   │   ├── train_esm2_frozen_pair_classifier.py
+│   │   ├── train_pair_classifier.py
 │   │   ├── train_huggingface_example_auto_api.py
 │   │   └── train_huggingface_example_explicit.py
 │   ├── preprocess

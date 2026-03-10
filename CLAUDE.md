@@ -63,7 +63,7 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 | 1. Preprocess | `src/preprocess/preprocess_flu_protein.py` | `data/processed/flu/{version}/protein_final.csv` | Once |
 | 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
 | 3. Dataset | `src/datasets/dataset_segment_pairs.py` | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
-| 4. Train | `src/models/train_esm2_frozen_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
+| 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
 
 Shell wrappers: `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`.
 
@@ -117,7 +117,7 @@ src/
   datasets/
     dataset_segment_pairs.py        # Stage 3: pairs + train/val/test splits
   models/
-    train_esm2_frozen_pair_classifier.py  # Stage 4: MLP classifier training
+    train_pair_classifier.py  # Stage 4: MLP classifier training
   analysis/
     analyze_stage4_train.py         # Confusion matrix, ROC, FP/FN analysis
     visualize_dataset_stats.py      # PCA plots, interaction diagnostics

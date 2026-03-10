@@ -269,7 +269,7 @@ data_version = config.virus.data_version
 ```bash
 # Check script logs
 tail -f logs/datasets/dataset_segment_pairs_flu_ha_na_5ks_*.log
-tail -f logs/training/train_esm2_frozen_pair_classifier_flu_ha_na_5ks_*.log
+tail -f logs/training/train_pair_classifier_flu_ha_na_5ks_*.log
 ```
 
 ### 2. Check Intermediate Files

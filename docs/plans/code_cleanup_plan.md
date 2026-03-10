@@ -67,10 +67,10 @@ in active use with tested bundles, strengthening the case for this rename.
 
 ## 5. Revisit Stage 4 training script naming / structure
 
-**Files**: `src/models/train_esm2_frozen_pair_classifier.py`
+**Files**: `src/models/train_pair_classifier.py`
 
 The script now supports multiple feature sources (ESM-2, k-mer) via `config.training.feature_source`,
-so the name `train_esm2_frozen_pair_classifier.py` is misleading. Two options to discuss:
+so the name `train_pair_classifier.py` is misleading. Two options to discuss:
 
 - **Rename** to something general like `train_pair_classifier.py` (the script already handles
   both feature types through the same MLP architecture).

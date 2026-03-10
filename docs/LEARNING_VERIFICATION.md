@@ -79,7 +79,7 @@ Neural network training can fail silently - everything may be syntactically corr
 python src/datasets/dataset_segment_pairs.py --config_bundle flu_a_learning_test
 
 # 2. Train with learning verification checks
-python src/models/train_esm2_frozen_pair_classifier.py \
+python src/models/train_pair_classifier.py \
     --config_bundle flu_a_learning_test \
     --cuda_name cuda:0
 ```

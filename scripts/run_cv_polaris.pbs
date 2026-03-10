@@ -98,7 +98,7 @@ elif [ "${STAGE}" = "train" ]; then
     echo "Training fold ${FOLD_ID} on GPU ${GPU_ID} (run_id=${RUN_ID_TRAIN})..."
 
     CUDA_VISIBLE_DEVICES="${GPU_ID}" python \
-        "${PROJECT_ROOT}/src/models/train_esm2_frozen_pair_classifier.py" \
+        "${PROJECT_ROOT}/src/models/train_pair_classifier.py" \
         --config_bundle "${CONFIG_BUNDLE}" \
         --cuda_name "cuda:0" \
         --dataset_dir "${FOLD_DIR}" \

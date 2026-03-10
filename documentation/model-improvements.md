@@ -1,10 +1,10 @@
 # Model Improvement Recommendations
 
-**Expert Analysis of `train_esm2_frozen_pair_classifier.py`**
+**Expert Analysis of `train_pair_classifier.py`**
 
 **Status**: Many recommendations have been implemented. This document serves as a historical record and reference for future improvements.
 
-**Note**: For current training implementation details, see the source code in `src/models/train_esm2_frozen_pair_classifier.py`. For experiment results, see [`../docs/EXPERIMENT_RESULTS_ANALYSIS.md`](../docs/EXPERIMENT_RESULTS_ANALYSIS.md).
+**Note**: For current training implementation details, see the source code in `src/models/train_pair_classifier.py`. For experiment results, see [`../docs/EXPERIMENT_RESULTS_ANALYSIS.md`](../docs/EXPERIMENT_RESULTS_ANALYSIS.md).
 
 ---
 

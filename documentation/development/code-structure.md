@@ -41,7 +41,7 @@ viral-segmatch/
 - **Output**: Segment pair datasets (CSV files in `runs/` subdirectories)
 
 #### 3. Models (`src/models/`)
-- **`train_esm2_frozen_pair_classifier.py`**: Train ESM-2 classifier
+- **`train_pair_classifier.py`**: Train ESM-2 classifier
 - **Purpose**: Train frozen ESM-2 classifier on segment pairs
 - **Input**: Segment pair datasets
 - **Output**: Trained model + predictions + analysis

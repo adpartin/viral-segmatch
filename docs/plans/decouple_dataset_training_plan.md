@@ -7,7 +7,7 @@ training bundles. See git branch `feature/decouple-dataset-training`.
 
 ## Changes Made
 
-1. **`src/models/train_esm2_frozen_pair_classifier.py`**: Added `training_info.json`
+1. **`src/models/train_pair_classifier.py`**: Added `training_info.json`
    provenance file saved after training (config_bundle, dataset_dir, HPs, threshold, seed).
 
 2. **`scripts/stage3_dataset.sh`**: Rewritten from 158 to ~60 lines matching the lean

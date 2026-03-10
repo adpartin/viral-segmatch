@@ -51,11 +51,11 @@ fi
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 RUN_ID="training_${CONFIG_BUNDLE}_${TIMESTAMP}"
 LOG_DIR="$PROJECT_ROOT/logs/training"
-LOG_FILE="$LOG_DIR/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
+LOG_FILE="$LOG_DIR/train_pair_classifier_${CONFIG_BUNDLE}_${TIMESTAMP}.log"
 mkdir -p "$LOG_DIR"
 
 # --- Build command ---
-CMD="python src/models/train_esm2_frozen_pair_classifier.py"
+CMD="python src/models/train_pair_classifier.py"
 CMD="$CMD --config_bundle $CONFIG_BUNDLE --cuda_name $CUDA_NAME --dataset_dir $DATASET_DIR"
 [ -n "$EMBEDDINGS_FILE" ] && CMD="$CMD --embeddings_file $EMBEDDINGS_FILE"
 if [ -n "$OUTPUT_DIR" ]; then
@@ -106,6 +106,6 @@ if [ $EXIT_CODE -eq 0 ] && [ "$SKIP_POSTPROCESSING" = false ]; then
 fi
 
 # --- Symlink latest log ---
-ln -sf "$(basename "$LOG_FILE")" "$LOG_DIR/train_esm2_frozen_pair_classifier_${CONFIG_BUNDLE}_latest.log"
+ln -sf "$(basename "$LOG_FILE")" "$LOG_DIR/train_pair_classifier_${CONFIG_BUNDLE}_latest.log"
 
 exit $EXIT_CODE

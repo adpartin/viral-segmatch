@@ -6,7 +6,7 @@ This script computes ESM-2 embeddings for protein sequences and stores them in a
 ## Pipeline Context
 
 ```
-preprocess_flu_protein.py → compute_esm2_embeddings.py → dataset_segment_pairs.py → train_esm2_frozen_pair_classifier.py
+preprocess_flu_protein.py → compute_esm2_embeddings.py → dataset_segment_pairs.py → train_pair_classifier.py
      ↓                            ↓                              ↓                              ↓
 protein_final.csv        master_esm2_embeddings.h5      train_pairs.csv              trained_model.pt
                          master_esm2_embeddings.parquet val_pairs.csv
@@ -29,7 +29,7 @@ protein_final.csv        master_esm2_embeddings.h5      train_pairs.csv         
    - Created automatically by `compute_esm2_embeddings.py`
 
 **Both files are created together** by `compute_esm2_embeddings.py` and **both are required** by:
-- `train_esm2_frozen_pair_classifier.py` (for loading embeddings)
+- `train_pair_classifier.py` (for loading embeddings)
 - `dataset_segment_pairs.py` (for validation)
 
 **Location**: Both files are stored in the canonical embeddings directory:
@@ -95,7 +95,7 @@ Virus-agnostic version with command-line interface.
 **Line 42**: `--config_bundle` (required)
 - **Example**: `flu_a`, `bunya`, `flu_a_3p_1ks`
 - **Connection**: Used by all pipeline scripts for consistency
-- **Downstream**: Same config bundle used in `dataset_segment_pairs.py` and `train_esm2_frozen_pair_classifier.py`
+- **Downstream**: Same config bundle used in `dataset_segment_pairs.py` and `train_pair_classifier.py`
 
 **Line 48**: `--cuda_name` (optional, default: `cuda:7`)
 - **Purpose**: Specify GPU device for embedding computation
@@ -152,7 +152,7 @@ Virus-agnostic version with command-line interface.
   - If `max_isolates_to_process: 1000` → suffix `_seed_42_isolates_1000` → unique path
 - **Connection**: 
   - Used by `build_embeddings_paths()` for run-specific directories
-  - Same logic in `dataset_segment_pairs.py` (line 449-454) and `train_esm2_frozen_pair_classifier.py` (line 523-528)
+  - Same logic in `dataset_segment_pairs.py` (line 449-454) and `train_pair_classifier.py` (line 523-528)
 - **Critical**: Ensures all scripts use same directory structure
 
 ---
@@ -203,7 +203,7 @@ Virus-agnostic version with command-line interface.
 
 **Lines 161-166**: Check for duplicate `brc_fea_id`
 - **Purpose**: Prevent parquet index mapping issues
-- **Connection**: Parquet index maps `brc_fea_id` → row index (line 153 in `train_esm2_frozen_pair_classifier.py`)
+- **Connection**: Parquet index maps `brc_fea_id` → row index (line 153 in `train_pair_classifier.py`)
 - **Note**: Duplicates would cause only last occurrence to be mapped
 
 ---
@@ -281,7 +281,7 @@ Virus-agnostic version with command-line interface.
 - **Result**: `data/embeddings/{virus}/{data_version}/master_esm2_embeddings.h5`
 - **Purpose**: Shared cache across all runs (no suffix)
 - **Connection**: 
-  - **Used by**: `train_esm2_frozen_pair_classifier.py` (line 550, hardcoded but should match)
+  - **Used by**: `train_pair_classifier.py` (line 550, hardcoded but should match)
   - **Accessed via**: Parquet index for row-based lookup (line 150-153 in training script)
 
 ---
@@ -347,7 +347,7 @@ Virus-agnostic version with command-line interface.
   - Contains `emb_keys` dataset (cache keys)
   - Metadata attributes present (model_name, pooling, layer, etc.)
 - **Connection**: 
-  - Same validation logic in `train_esm2_frozen_pair_classifier.py` (line 573-580)
+  - Same validation logic in `train_pair_classifier.py` (line 573-580)
   - Metadata validation ensures consistency across pipeline
 
 ---
@@ -390,7 +390,7 @@ Virus-agnostic version with command-line interface.
 
 ### **Connection 3: Embeddings → Training**
 
-**Used by**: `train_esm2_frozen_pair_classifier.py`
+**Used by**: `train_pair_classifier.py`
 
 **Line 550**: Master cache path (hardcoded)
 - **Location**: `data/embeddings/{virus}/{data_version}/master_esm2_embeddings.h5`

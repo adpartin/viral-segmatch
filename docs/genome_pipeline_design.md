@@ -3,7 +3,7 @@
 **Implementation status (March 2026):**
 - ✅ `preprocess_flu.py` — unified protein + genome extraction (implemented)
 - ✅ `compute_kmer_features.py` — Stage 2b k-mer feature extraction (implemented)
-- ✅ K-mer + MLP training — integrated into `train_esm2_frozen_pair_classifier.py` via `feature_source=kmer`
+- ✅ K-mer + MLP training — integrated into `train_pair_classifier.py` via `feature_source=kmer`
 - K-mer + XGBoost/LightGBM — not started
 - GenSLM embeddings — not started
 - ESM-2 + k-mer combined (multi-modal) — not started
@@ -171,6 +171,6 @@ Only the feature loading and concatenation changes.
 1. ✅ Rename `preprocess_bunya_dna.py` -> `preprocess_bunya_genome.py`
 2. ✅ Create `preprocess_flu.py` (unified protein + genome extraction)
 3. ✅ Create `compute_kmer_features.py` (Stage 2b)
-4. ✅ K-mer + MLP training (integrated into `train_esm2_frozen_pair_classifier.py` via `feature_source=kmer`)
+4. ✅ K-mer + MLP training (integrated into `train_pair_classifier.py` via `feature_source=kmer`)
 5. Update `dataset_segment_pairs.py` to support `feature_sources` config (for combined ESM-2 + k-mer; not yet needed)
 6. Create k-mer + XGBoost/LightGBM training script
