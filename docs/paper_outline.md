@@ -1,6 +1,6 @@
 # Paper Outline: Viral Segment Matching
 
-**Working title:** Predicting Co-occurrence of Viral Genome Segments from Sequence Representations
+**Working title:** Predicting Same-Isolate Origin of Genome Segments from Protein and Nucleotide Features
 
 **Status:** Draft outline — circulate to team before committing to experiment scope.
 
@@ -8,7 +8,7 @@
 
 ## Abstract
 
-_One paragraph. Fill in after results are finalized._
+_One paragraph. Update after results are finalized._
 
 Problem: Segmented viruses like influenza have genomes split across multiple RNA segments.
 Linking segments to the same isolate is essential for genomic surveillance, but public
@@ -16,9 +16,9 @@ databases often lack reliable metadata for this linkage. We frame segment matchi
 binary classification: given two sequence representations, predict whether they originate
 from the same viral isolate. We compare protein language model representations (ESM-2)
 and k-mer frequency features with an MLP classifier, evaluating on cross-validation,
-temporal holdout, and subtype-restricted settings. We demonstrate the model's utility
-for data remediation by applying it in inference mode to unlinked BV-BRC records with
-calibrated uncertainty estimates.
+temporal holdout, and metadata-restricted settings (e.g., host, HN subtype, geographic
+location). We demonstrate the model's utility for data remediation by applying it in
+inference mode to unlinked BV-BRC records with calibrated uncertainty estimates.
 
 ---
 
@@ -27,20 +27,20 @@ calibrated uncertainty estimates.
 ### Motivation
 
 Segmented viruses (Influenza A, Bunyavirales) have genomes split across multiple RNA
-segments that can reassort between co-infecting strains — a major driver of pandemics
-(2009 H1N1, H5N1 avian flu). Accurate linking of genome segments to the same viral
-isolate is critical for:
+segments. Each segment is often sequenced and deposited independently, making it
+difficult to determine which segments originated from the same viral isolate. Accurate
+linking of genome segments to the same isolate is critical for:
 
 1. **Data remediation.** Public genomic databases (BV-BRC, NCBI GenBank) ingest records
    without enforcing metadata fields that link segments to the same isolate. Records may
    lack shared isolate IDs or have inconsistent naming. Computational segment matching
-   can re-link orphaned records, improving database quality at scale.
+   can re-link orphaned records, improving database quality and utility.
 
-2. **Wastewater surveillance.** Wastewater sequencing recovers mixed viral fragments from
-   entire communities with no isolate-level metadata. Segment matching can reconstruct
-   which fragments likely came from the same circulating strain, turning fragmented signal
-   into actionable surveillance data (Wolfe et al. 2024 — CDC influenza A monitoring in
-   US wastewater during the 2024 avian flu outbreak).
+2. **Wastewater surveillance.** Metagenomic sequencing of wastewater recovers mixed viral
+   fragments from entire communities with no isolate-level metadata. Segment matching can
+   reconstruct which fragments likely came from the same circulating strain, turning
+   fragmented metagenomic signal into actionable surveillance data (Wolfe et al. 2024 —
+   CDC influenza A H5N1 monitoring in US wastewater during the 2024 avian flu outbreak).
 
 ### Problem formulation
 
