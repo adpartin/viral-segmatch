@@ -144,3 +144,4 @@ Hydra's package resolution double-nests inherited configs from subdirs, breaking
 - Always ask before destructive operations (rm, git reset --hard, git push --force, etc.)
 - CLAUDE.md is the authoritative project context; .claude/memory.md is the compact working memory
 - Both files are in the repo -- update them when decisions change
+- **One script per purpose**: follow the existing pattern in `src/analysis/` — propose a dedicated script with a clear name (e.g., `aggregate_cv_results.py`) rather than hedging between existing scripts. Commit to the obvious answer.
