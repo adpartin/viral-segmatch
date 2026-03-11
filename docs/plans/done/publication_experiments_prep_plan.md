@@ -1,6 +1,6 @@
 # Plan: Publication Experiments Preparation
 
-**Status: IN PROGRESS**
+**Status: IMPLEMENTED**
 
 Two tasks to address before running the publication experiments (P1 in `prompts.md`).
 
@@ -54,7 +54,7 @@ No migration needed — they can be deleted manually after verifying the new run
 
 ---
 
-## Task 2: CV visualization with error bars
+## Task 2: CV visualization with error bars [DONE]
 
 ### Problem
 
