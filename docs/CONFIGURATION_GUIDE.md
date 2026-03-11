@@ -139,7 +139,7 @@ Stage 4: Training
 | Datasets | `data/datasets/{virus}/{version}/runs/` | Experiment-specific |
 | **Models** | `models/{virus}/{version}/runs/` | **Project root, not data/** |
 | Logs | `logs/` | Project root |
-| Results | `results/{virus}/{version}/{config_bundle}/` | Analysis outputs |
+| Results | `results/{virus}/{version}/runs/{training_run_id}/` | Analysis outputs |
 
 ---
 

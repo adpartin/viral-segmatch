@@ -6,7 +6,7 @@ Two tasks to address before running the publication experiments (P1 in `prompts.
 
 ---
 
-## Task 1: Results directory — use training run ID to prevent overwriting
+## Task 1: Results directory — use training run ID to prevent overwriting [DONE]
 
 ### Problem
 

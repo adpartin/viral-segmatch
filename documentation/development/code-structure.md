@@ -162,7 +162,7 @@ Location: models/{virus}/{data_version}/runs/training_{bundle}_{timestamp}/
 ### Stage 5: Analysis
 ```
 Predictions → Analysis Scripts → Results + Plots
-Location: results/{virus}/{data_version}/{config_bundle}/
+Location: results/{virus}/{data_version}/runs/{training_run_id}/
 ```
 
 ## 🔧 Key Design Patterns

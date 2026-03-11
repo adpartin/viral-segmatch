@@ -33,7 +33,7 @@ python src/analysis/visualize_dataset_stats.py \
 
 Plots are saved to:
 - dataset run dir: `.../plots/`
-- results dir: `results/{virus}/{data_version}/{bundle}/dataset_analysis/plots/`
+- results dir: `results/{virus}/{data_version}/runs/{training_run_id}/dataset_analysis/plots/`
 
 #### Option B: generate a new dataset (plots run automatically)
 

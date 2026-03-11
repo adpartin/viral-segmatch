@@ -210,7 +210,7 @@ models/flu/July_2025/
         ├── test_predicted.csv
         └── training_history.csv
 
-results/flu/July_2025/flu_ha_na_5ks/          # Analysis results
+results/flu/July_2025/runs/training_flu_ha_na_5ks_YYYYMMDD_HHMMSS/  # Analysis results
 ├── training_analysis/
 │   ├── confusion_matrix.png
 │   ├── roc_curve.png

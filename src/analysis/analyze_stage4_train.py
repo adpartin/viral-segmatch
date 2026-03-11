@@ -1018,9 +1018,10 @@ def main(config_bundle: str,
             models_dir = base_models_dir
             print(f"Using base models directory: {models_dir}")
     
-    # Construct results directory (config-specific)
-    # Format: results/{virus_name}/{data_version}/{config_bundle}/training_analysis/
-    results_dir = project_root / 'results' / config.virus.virus_name / config.virus.data_version / config_bundle / 'training_analysis'
+    # Construct results directory (tied to training run for provenance)
+    # Format: results/{virus_name}/{data_version}/runs/{training_run_id}/training_analysis/
+    training_run_id = models_dir.name  # e.g., training_flu_schema_raw_slot_norm_unit_diff_20260310_143000
+    results_dir = project_root / 'results' / config.virus.virus_name / config.virus.data_version / 'runs' / training_run_id / 'training_analysis'
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # Load test results

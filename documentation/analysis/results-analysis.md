@@ -209,7 +209,7 @@ print(f"Prediction labels: {df['pred_label'].unique()}")
 ```python
 # Check output directory
 from pathlib import Path
-results_dir = Path('results/flu/July_2025/flu_ha_na_5ks/training_analysis')
+results_dir = Path('results/flu/July_2025/runs/training_flu_ha_na_5ks_YYYYMMDD_HHMMSS/training_analysis')
 print(f"Results directory exists: {results_dir.exists()}")
 print(f"Files in results: {list(results_dir.glob('*.png'))}")
 ```

@@ -249,10 +249,10 @@ These experiments used Gen1 bundles (`flu_ha_na_5ks`, `flu_pb2_pb1_pa_5ks`, etc.
 - `results/flu/July_2025/flu_pb2_ha_na_5ks/training_analysis/metrics.csv`
 - `results/flu/July_2025/flu_pb2_pb1_pa_5ks/training_analysis/metrics.csv`
 - `results/flu/July_2025/flu_overfit_5ks/training_analysis/metrics.csv`
-- Segment performance: `results/{virus}/{data_version}/{config_bundle}/training_analysis/segment_performance.csv` (contains F1 scores, AUC, accuracy per segment pair)
-- Confusion matrices: `results/{virus}/{data_version}/{config_bundle}/training_analysis/confusion_matrix.csv`
+- Segment performance: `results/{virus}/{data_version}/runs/{training_run_id}/training_analysis/segment_performance.csv` (contains F1 scores, AUC, accuracy per segment pair)
+- Confusion matrices: `results/{virus}/{data_version}/runs/{training_run_id}/training_analysis/confusion_matrix.csv`
 - Learning curves: `models/{virus}/{data_version}/runs/training_*/learning_curves.png`
-- Performance plots: `results/{virus}/{data_version}/{config_bundle}/training_analysis/performance_summary.png` (visualizes segment-level F1 scores)
+- Performance plots: `results/{virus}/{data_version}/runs/{training_run_id}/training_analysis/performance_summary.png` (visualizes segment-level F1 scores)
 
 ---
 

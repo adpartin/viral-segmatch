@@ -65,14 +65,34 @@ def load_dataset_stats(run_dir: Path) -> Optional[dict]:
 def find_results_directory(results_base_dir: Path, bundle_name: str) -> Optional[Path]:
     """
     Find the results directory for a bundle.
-    
+
+    Searches results/{virus}/{data_version}/runs/ for directories matching
+    training_{bundle_name}_{timestamp}/ (new convention). Falls back to the
+    legacy flat path results/{virus}/{data_version}/{bundle_name}/.
+
     Args:
         results_base_dir: Base results directory (e.g., results/flu/July_2025)
         bundle_name: Bundle name (e.g., 'flu_2024', 'flu_human_h3n2_2024')
-    
+
     Returns:
         Path to the results directory, or None if not found
     """
+    # New convention: results/.../runs/training_{bundle}_{timestamp}/
+    runs_dir = results_base_dir / 'runs'
+    if runs_dir.exists():
+        prefix = f'training_{bundle_name}_'
+        matching_dirs = []
+        for d in runs_dir.iterdir():
+            if not d.is_dir():
+                continue
+            if d.name.startswith(prefix):
+                remaining = d.name[len(prefix):]
+                if remaining and remaining[0].isdigit():
+                    matching_dirs.append(d)
+        if matching_dirs:
+            return sorted(matching_dirs, key=lambda x: x.name)[-1]
+
+    # Legacy fallback: results/.../{bundle_name}/
     results_dir = results_base_dir / bundle_name
     if results_dir.exists() and results_dir.is_dir():
         return results_dir

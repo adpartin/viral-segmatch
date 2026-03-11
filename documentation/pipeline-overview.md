@@ -152,7 +152,7 @@ Provenance is tracked in `training_info.json` saved to each training output dire
 
 ### Output Locations
 ```
-results/{virus}/{data_version}/{config_bundle}/
+results/{virus}/{data_version}/runs/{training_run_id}/
 ├── training_analysis/          # Comprehensive analysis
 │   ├── confusion_matrix.png
 │   ├── roc_curve.png
