@@ -105,36 +105,36 @@ The pipeline transforms per-slot embeddings before the interaction function. Fiv
   emb_b ─────────────────────────┘
 
 
-(b) shared — single shared MLP
+(b) shared — single shared transform
 
-  emb_a ──→ [ Shared MLP ] ──→ a' ─┐
-                                    ├─→ Interaction ──→ MLP Classifier ──→ P(same isolate)
-  emb_b ──→ [ Shared MLP ] ──→ b' ─┘
-              (same weights)
+  emb_a ──→ [ Shared Transform ] ──→ a' ─┐
+                                          ├─→ Interaction ──→ MLP Classifier ──→ P(same isolate)
+  emb_b ──→ [ Shared Transform ] ──→ b' ─┘
+                (same weights)
 
 
-(c) slot_specific — independent MLP per slot
+(c) slot_specific — independent transform per slot
 
-  emb_a ──→ [  MLP_A  ] ──→ a' ─┐
-                                 ├─→ Interaction ──→ MLP Classifier ──→ P(same isolate)
-  emb_b ──→ [  MLP_B  ] ──→ b' ─┘
+  emb_a ──→ [ Transform_A ] ──→ a' ─┐
+                                     ├─→ Interaction ──→ MLP Classifier ──→ P(same isolate)
+  emb_b ──→ [ Transform_B ] ──→ b' ─┘
             (separate weights)
 
 
-(d) shared_adapter — shared MLP + per-slot residual adapters
+(d) shared_adapter — shared transform + per-slot residual adapters
 
-  emb_a ──→ [ Shared MLP ] ──→ z_a ──→ z_a + Adapter_A(z_a) ──→ a' ─┐
-                                                                      ├─→ Interaction ──→ MLP ──→ P
-  emb_b ──→ [ Shared MLP ] ──→ z_b ──→ z_b + Adapter_B(z_b) ──→ b' ─┘
-              (same weights)           (separate adapter weights)
+  emb_a ──→ [ Shared Transform ] ──→ z_a ──→ z_a + Adapter_A(z_a) ──→ a' ─┐
+                                                                            ├─→ Interaction ──→ MLP ──→ P
+  emb_b ──→ [ Shared Transform ] ──→ z_b ──→ z_b + Adapter_B(z_b) ──→ b' ─┘
+                (same weights)               (separate adapter weights)
 
 
-(e) slot_norm — optional shared MLP + per-slot LayerNorm  ** current best **
+(e) slot_norm — optional shared transform + per-slot LayerNorm  ** current best **
 
-  emb_a ──→ [ Shared MLP ]? ──→ [ LayerNorm_A ] ──→ a' ─┐
-                                                          ├─→ Interaction ──→ MLP ──→ P
-  emb_b ──→ [ Shared MLP ]? ──→ [ LayerNorm_B ] ──→ b' ─┘
-              (optional)        (separate LN params)
+  emb_a ──→ [ Shared Transform ]? ──→ [ LayerNorm_A ] ──→ a' ─┐
+                                                                ├─→ Interaction ──→ MLP ──→ P
+  emb_b ──→ [ Shared Transform ]? ──→ [ LayerNorm_B ] ──→ b' ─┘
+                (optional)            (separate LN params)
 ```
 
 **Summary:**
@@ -142,10 +142,10 @@ The pipeline transforms per-slot embeddings before the interaction function. Fiv
 | Mode | Slot A path | Slot B path | Key property |
 |------|------------|------------|-------------|
 | `none` | pass-through | pass-through | Raw embeddings; no learned transform |
-| `shared` | Shared_MLP(a) | Shared_MLP(b) | Same projection for both slots |
-| `slot_specific` | MLP_A(a) | MLP_B(b) | Independent per-slot projections |
-| `shared_adapter` | Shared_MLP(a) + Adapter_A(·) | Shared_MLP(b) + Adapter_B(·) | Shared backbone + per-slot residual adapters |
-| `slot_norm` | [Shared_MLP(a)→] LN_A(·) | [Shared_MLP(b)→] LN_B(·) | Per-slot normalization; neutralizes subspace offset |
+| `shared` | Transform(a) | Transform(b) | Same transform for both slots |
+| `slot_specific` | Transform_A(a) | Transform_B(b) | Independent per-slot transforms |
+| `shared_adapter` | Transform(a) + Adapter_A(·) | Transform(b) + Adapter_B(·) | Shared transform + per-slot residual adapters |
+| `slot_norm` | [Transform(a)→] LN_A(·) | [Transform(b)→] LN_B(·) | Per-slot normalization; neutralizes subspace offset |
 
 `slot_norm` (without the optional shared MLP) is the current best configuration. Per-slot
 LayerNorm is critical for ESM-2 on homogeneous subsets — it neutralizes the systematic

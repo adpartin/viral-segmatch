@@ -1,6 +1,6 @@
-**Status: IMPLEMENTED**
-
 # Plan: Decouple Stage 3 (Dataset) from Stage 4 (Training)
+
+**Status: IMPLEMENTED**
 
 Decoupled Stage 3/4 so you can run Stage 3 once and Stage 4 N times with different
 training bundles. See git branch `feature/decouple-dataset-training`.

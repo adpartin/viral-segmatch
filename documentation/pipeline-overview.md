@@ -114,6 +114,18 @@ ls -lt data/datasets/flu/July_2025/runs/ | head -3
     --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_YYYYMMDD_HHMMSS
 ```
 
+### Reuse a Dataset with Different Training Bundles
+
+Stage 3/4 are decoupled: create a dataset once, then train multiple times with different bundles:
+
+```bash
+# Same dataset, different training bundle (e.g., concat interaction)
+./scripts/stage4_train.sh flu_schema_raw_slot_norm_concat --cuda_name cuda:7 \
+    --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_YYYYMMDD_HHMMSS
+```
+
+Provenance is tracked in `training_info.json` saved to each training output directory.
+
 ### Individual Stages
 ```bash
 # Just embeddings

@@ -23,9 +23,12 @@ At the start of each session:
 
 Plans are saved in the repo (not machine-local `~/.claude/`) for cross-machine portability.
 When creating a plan during plan mode, save it to `docs/plans/<descriptive_name>_plan.md` before
-starting implementation. Mark the plan's status at the top:
+starting implementation. Mark the plan's status right after the title heading:
 - `**Status: IN PROGRESS**` — plan approved, implementation underway
 - `**Status: IMPLEMENTED**` — implementation complete
+
+When a plan is fully implemented, mark `**Status: IMPLEMENTED**` and move it to `docs/plans/done/`.
+Active plans stay in `docs/plans/`; completed plans live in `docs/plans/done/`.
 
 ---
 
