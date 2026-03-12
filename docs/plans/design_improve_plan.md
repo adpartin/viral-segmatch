@@ -7,34 +7,9 @@ but would improve the overall architecture, usability, and robustness of the pip
 
 ---
 
-## 1. Relocate CV manifest from `data/` to `models/`
+## 1. Separate dataset folds from experiment results (shared folds across feature types)
 
-**Files**: `scripts/run_cv_lambda.py`, `scripts/aggregate_cv_results.py`
-
-The CV run manifest (`cv_run_manifest.json`) and aggregated results (`cv_summary.csv`,
-`cv_summary.json`) are currently saved in the dataset run directory under `data/datasets/`.
-The manifest primarily references training run directories under `models/`, so `models/`
-is the more logical home.
-
-The current placement exists because the dataset run dir is the one directory shared across
-all folds and known at launch time, before training starts. Training dirs have per-fold
-timestamps (and re-runs create new ones), so there is no single training-side directory.
-
-**Options**:
-
-- **A. Create a CV-level directory under `models/`** (e.g.,
-  `models/flu/July_2025/runs/cv_flu_schema_raw_slot_norm_concat_cv10_20260311/`) that holds
-  the manifest, aggregated results, and optionally symlinks to per-fold training dirs.
-  Cleaner semantics but adds complexity.
-- **B. Keep in dataset dir** — it's a pointer file, and the dataset dir already serves as
-  the CV run anchor. Pragmatic, no code changes needed.
-
-**Update**: Item 2 below makes Option A the clear winner — the dataset dir cannot serve as
-the results anchor when multiple experiments share the same folds.
-
----
-
-## 2. Separate dataset folds from experiment results (shared folds across feature types)
+**Status: IN PROGRESS**
 
 **Files**: `scripts/run_cv_lambda.py`, `scripts/aggregate_cv_results.py`,
 `src/analysis/visualize_cv_results.py`
@@ -55,6 +30,10 @@ run directory. This creates two problems:
    overwrites the first experiment's (e.g., ESM-2) manifest and summary files.
 2. **Unnecessary duplication**: Regenerating identical folds under a different bundle name
    wastes disk and obscures the fact that the splits are the same.
+
+Additionally, the manifest and aggregated results reference training run directories under
+`models/`, so `models/` is the more logical home (previously tracked as a separate item,
+now merged here).
 
 ### Proposed design
 
@@ -134,6 +113,45 @@ The `cv_runs/` results directory helps here: per-fold training is embarrassingly
 with no shared state, and aggregation runs once after all jobs complete. The manifest
 is written by the launcher (or a post-job aggregation script), not by individual
 training jobs.
+
+### Re-running failed folds
+
+When one or more folds fail during a CV run, the successful folds' training dirs
+(under `models/.../runs/`) and the CV results dir (under `models/.../cv_runs/`) already
+exist with a manifest referencing all folds. The failed folds have training dirs but
+no `best_model.pt` or predictions.
+
+Re-running creates new training dirs with a **new timestamp** (since `train_timestamp`
+is set at launch time). Without special handling, this would create a new `cv_runs/`
+directory containing only the re-run folds, making aggregation incomplete.
+
+The `--cv_runs_dir` flag solves this by pointing the re-run to the **original** CV
+results directory:
+
+```bash
+# Original run (folds 0 and 4 failed):
+#   cv_runs/cv_bundle_20260312_100000/cv_run_manifest.json  ← has all 10 fold entries
+#   runs/training_bundle_fold0_20260312_100000/             ← no best_model.pt (failed)
+#   runs/training_bundle_fold4_20260312_100000/             ← no best_model.pt (failed)
+
+# Re-run failed folds, merging into the original cv_runs dir:
+python scripts/run_cv_lambda.py \
+    --config_bundle <bundle> \
+    --skip_dataset --dataset_run_dir <dataset_dir> \
+    --folds 0 4 \
+    --cv_runs_dir models/.../cv_runs/cv_bundle_20260312_100000
+
+# Result:
+#   cv_runs/cv_bundle_20260312_100000/cv_run_manifest.json  ← folds 0,4 updated to new run IDs
+#   runs/training_bundle_fold0_20260312_103000/             ← new successful training
+#   runs/training_bundle_fold4_20260312_103000/             ← new successful training
+#   (old failed dirs remain on disk but are no longer referenced by the manifest)
+```
+
+The manifest merge logic: when `--cv_runs_dir` is provided and a manifest already exists
+there, only the re-run fold entries are replaced. All other folds keep their original
+training run IDs. Aggregation then runs over the full set of folds (original successes +
+new re-runs).
 
 ### Benefits
 
