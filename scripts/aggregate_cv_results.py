@@ -31,11 +31,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
-    f1_score, roc_auc_score, precision_score, recall_score,
+    average_precision_score, f1_score, roc_auc_score, precision_score, recall_score,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,7 @@ def compute_metrics(pred_df: pd.DataFrame, threshold: float = 0.5) -> dict:
         "f1_binary":   float(f1_score(y_true, y_pred, average="binary", pos_label=1, zero_division=0)),
         "f1_macro":    float(f1_score(y_true, y_pred, average="macro",  zero_division=0)),
         "auc_roc":     float(roc_auc_score(y_true, y_probs)),
+        "auc_pr":      float(average_precision_score(y_true, y_probs)),
         "precision":   float(precision_score(y_true, y_pred, average="binary", pos_label=1, zero_division=0)),
         "recall":      float(recall_score(y_true, y_pred, average="binary", pos_label=1, zero_division=0)),
         "brier":       float(np.mean((y_probs - y_true) ** 2)),
@@ -87,7 +89,8 @@ def find_training_dirs_from_manifest(manifest_path: Path) -> tuple[list[Path], P
     return training_dirs, dataset_run_dir
 
 
-def aggregate(training_dirs: list[Path], output_dir: Path) -> None:
+def aggregate(training_dirs: list[Path], output_dir: Path,
+              dataset_run_dir: Optional[Path] = None) -> None:
     """Load per-fold test_predicted.csv files, compute metrics, write summary."""
     rows = []
     for fold_i, tdir in enumerate(training_dirs):
@@ -118,7 +121,7 @@ def aggregate(training_dirs: list[Path], output_dir: Path) -> None:
         print("❌ No per-fold results found. Nothing to aggregate.")
         return
 
-    metric_cols = ["f1_binary", "f1_macro", "auc_roc", "precision", "recall", "brier"]
+    metric_cols = ["f1_binary", "f1_macro", "auc_roc", "auc_pr", "precision", "recall", "brier"]
     per_fold_df = pd.DataFrame(rows)
 
     # Mean and std rows
@@ -135,11 +138,15 @@ def aggregate(training_dirs: list[Path], output_dir: Path) -> None:
     summary_df.to_csv(csv_path, index=False)
     print(f"\nSaved cv_summary.csv → {csv_path}")
 
-    # Read seeds from cv_info.json if it exists in the output dir
+    # Read seeds from cv_info.json (lives in the dataset dir, not the output dir)
     master_seed = None
     fold_seeds = None
-    cv_info_path = output_dir / "cv_info.json"
-    if cv_info_path.exists():
+    cv_info_candidates = []
+    if dataset_run_dir:
+        cv_info_candidates.append(dataset_run_dir / "cv_info.json")
+    cv_info_candidates.append(output_dir / "cv_info.json")  # fallback
+    cv_info_path = next((p for p in cv_info_candidates if p.exists()), None)
+    if cv_info_path is not None:
         try:
             with open(cv_info_path) as f:
                 cv_info = json.load(f)
@@ -178,17 +185,18 @@ def main():
                    help="Where to write cv_summary.*  (default: parent of manifest / first training dir)")
     args = p.parse_args()
 
+    dataset_run_dir = None
     if args.manifest:
         manifest_path   = Path(args.manifest)
         training_dirs, dataset_run_dir = find_training_dirs_from_manifest(manifest_path)
-        output_dir = Path(args.output_dir) if args.output_dir else dataset_run_dir
+        output_dir = Path(args.output_dir) if args.output_dir else manifest_path.parent
     else:
         training_dirs = [Path(d) for d in args.training_dirs]
         output_dir    = Path(args.output_dir) if args.output_dir else training_dirs[0].parent
 
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nAggregating {len(training_dirs)} CV folds → {output_dir}")
-    aggregate(training_dirs, output_dir)
+    aggregate(training_dirs, output_dir, dataset_run_dir=dataset_run_dir)
 
 
 if __name__ == "__main__":

@@ -37,12 +37,20 @@ Usage
   python scripts/run_cv_lambda.py \
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --serial
 
-  # Re-run only specific failed folds (requires --skip_dataset):
+  # Re-run only specific failed folds:
+  #   --folds: which folds to re-run
+  #   --skip_dataset + --dataset_run_dir: reuse existing folds
+  #   --cv_runs_dir: merge re-run results into the original CV results directory
+  #     so the manifest is updated in place (new fold training dirs replace the
+  #     failed ones) and aggregation runs over all folds, not just the re-run.
+  #     Without --cv_runs_dir, a new cv_runs directory is created containing
+  #     only the re-run folds, which makes aggregation incomplete.
   python scripts/run_cv_lambda.py \
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \
       --skip_dataset \
       --dataset_run_dir data/datasets/flu/.../dataset_..._cv5_20260225_120000 \
-      --folds 0 4
+      --folds 0 4 \
+      --cv_runs_dir models/flu/.../cv_runs/cv_..._20260225_120000
 """
 
 import argparse
@@ -135,6 +143,11 @@ def parse_args():
     p.add_argument("--folds", type=int, nargs="+", default=None,
                    help="Run only these fold indices (e.g. --folds 0 4). "
                         "Requires --skip_dataset. Default: all folds.")
+    p.add_argument("--cv_runs_dir", type=str, default=None,
+                   help="Existing CV results directory to merge into when re-running "
+                        "failed folds (e.g. models/.../cv_runs/cv_..._20260312_100000). "
+                        "If not provided, a new cv_runs directory is created. "
+                        "Use with --folds to update the manifest and re-aggregate.")
     p.add_argument("--skip_aggregate", action="store_true",
                    help="Skip the final aggregation step.")
     return p.parse_args()
@@ -221,7 +234,7 @@ def main():
     training_run_dirs = {}
     train_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Resolve models base dir for per-fold log files
+    # Resolve models base dir for per-fold training dirs and CV results dir
     if not args.dry_run:
         from src.utils.config_hydra import get_virus_config_hydra
         config_path = str(PROJECT_ROOT / "conf")
@@ -229,8 +242,20 @@ def main():
         virus_name   = cfg.virus.virus_name
         data_version = cfg.virus.data_version
         models_base  = PROJECT_ROOT / "models" / virus_name / data_version / "runs"
+
+        # CV results dir: reuse existing (--cv_runs_dir) or create new
+        if args.cv_runs_dir:
+            cv_runs_dir = Path(args.cv_runs_dir)
+            if not cv_runs_dir.exists():
+                print(f"ERROR: --cv_runs_dir does not exist: {cv_runs_dir}")
+                sys.exit(1)
+        else:
+            cv_run_id   = f"cv_{args.config_bundle.replace('/', '_')}_{train_timestamp}"
+            cv_runs_dir = PROJECT_ROOT / "models" / virus_name / data_version / "cv_runs" / cv_run_id
+        cv_runs_dir.mkdir(parents=True, exist_ok=True)
     else:
         models_base = None
+        cv_runs_dir = None
 
     def make_fold_cmd(fold_i: int, gpu: int) -> tuple[list[str], dict, str, Optional[Path]]:
         """Build the command, env, run_id, and log_file path for a fold."""
@@ -319,9 +344,9 @@ def main():
             sys.exit(1)
         print(f"Done. All {len(folds_to_run)} folds training complete.\n")
 
-    # ── Save CV manifest ───────────────────────────────────────────────────
+    # ── Save CV manifest (in cv_runs dir, not dataset dir) ─────────────────
     if not args.dry_run:
-        manifest_path = dataset_run_dir / "cv_run_manifest.json"
+        manifest_path = cv_runs_dir / "cv_run_manifest.json"
 
         # When re-running a subset of folds, merge with existing manifest
         # so we don't lose the other folds' training run IDs.
@@ -350,6 +375,7 @@ def main():
 
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, indent=2)
+        print(f"CV results dir: {cv_runs_dir}")
         print(f"Saved CV run manifest to: {manifest_path}")
 
     # ── Aggregation ────────────────────────────────────────────────────────
@@ -358,7 +384,7 @@ def main():
         agg_cmd = [
             "python",
             str(PROJECT_ROOT / "scripts" / "aggregate_cv_results.py"),
-            "--manifest", str(dataset_run_dir / "cv_run_manifest.json"),
+            "--manifest", str(cv_runs_dir / "cv_run_manifest.json"),
         ]
         proc, _ = run_cmd(agg_cmd, dry_run=args.dry_run)
         if proc is not None:
