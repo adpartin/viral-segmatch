@@ -9,16 +9,16 @@ from per-fold test_predicted.csv files. Generates publication-ready plots:
 
 Usage:
   # From cv_summary.json (preferred — assumes scripts/aggregate_cv_results.py already ran)
-  python src/analysis/aggregate_cv_results.py \\
+  python src/analysis/visualize_cv_results.py \\
       --cv_summary data/datasets/flu/.../cv_summary.json
 
   # From training dirs directly
-  python src/analysis/aggregate_cv_results.py \\
+  python src/analysis/visualize_cv_results.py \\
       --training_dirs models/flu/.../training_..._fold0_... \\
                       models/flu/.../training_..._fold1_... ...
 
   # From manifest
-  python src/analysis/aggregate_cv_results.py \\
+  python src/analysis/visualize_cv_results.py \\
       --manifest data/datasets/flu/.../cv_run_manifest.json
 """
 

@@ -579,10 +579,10 @@ def train_model(
                 batch_a, batch_b = batch_x
                 batch_a, batch_b = batch_a.to(device), batch_b.to(device)
                 batch_y = batch_y.to(device)
-                preds = model(batch_a, batch_b).squeeze()
+                preds = model(batch_a, batch_b).squeeze(-1)
             else:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                preds = model(batch_x).squeeze()
+                preds = model(batch_x).squeeze(-1)
             optimizer.zero_grad()
             # Backward pass
             loss = criterion(preds, batch_y)
@@ -601,10 +601,10 @@ def train_model(
                     batch_a, batch_b = batch_x
                     batch_a, batch_b = batch_a.to(device), batch_b.to(device)
                     batch_y = batch_y.to(device)
-                    preds = model(batch_a, batch_b).squeeze()
+                    preds = model(batch_a, batch_b).squeeze(-1)
                 else:
                     batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                    preds = model(batch_x).squeeze()
+                    preds = model(batch_x).squeeze(-1)
                 train_probs.extend(torch.sigmoid(preds).cpu().numpy())
                 train_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
                 train_labels.extend(batch_y.cpu().numpy())
@@ -628,10 +628,10 @@ def train_model(
                     batch_a, batch_b = batch_x
                     batch_a, batch_b = batch_a.to(device), batch_b.to(device)
                     batch_y = batch_y.to(device)
-                    preds = model(batch_a, batch_b).squeeze()
+                    preds = model(batch_a, batch_b).squeeze(-1)
                 else:
                     batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                    preds = model(batch_x).squeeze()
+                    preds = model(batch_x).squeeze(-1)
                 loss = criterion(preds, batch_y)
                 val_loss += loss.item() * batch_y.size(0)
                 val_probs.extend(torch.sigmoid(preds).cpu().numpy())
@@ -806,10 +806,10 @@ def evaluate_on_split(
                 batch_a, batch_b = batch_x
                 batch_a, batch_b = batch_a.to(device), batch_b.to(device)
                 batch_y = batch_y.to(device)
-                batch_logits = model(batch_a, batch_b).squeeze()
+                batch_logits = model(batch_a, batch_b).squeeze(-1)
             else:
                 batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                batch_logits = model(batch_x).squeeze()
+                batch_logits = model(batch_x).squeeze(-1)
             loss = criterion(batch_logits, batch_y)
             loss_sum += loss.item() * batch_y.size(0)
             # Ensure consistent 1D shapes (handles batch_size=1 edge case)

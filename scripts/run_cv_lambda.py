@@ -6,35 +6,43 @@ Workflow
 --------
 1. Run Stage 3 (dataset generation) once → creates fold_0/ … fold_{N-1}/ inside
    a single run directory.
-2. Run Stage 4 (training) for each fold in parallel, one subprocess per GPU.
-   Each process receives --dataset_dir <run_dir>/fold_<k> and
-   CUDA_VISIBLE_DEVICES=<gpu_k> so it uses exactly one GPU.
+2. Run Stage 4 (training) for each fold using a GPU pool: at most one fold
+   per GPU at a time. When a fold finishes, its GPU is released and the next
+   pending fold is launched on it. Each process receives
+   --dataset_dir <run_dir>/fold_<k> and CUDA_VISIBLE_DEVICES=<gpu_k>.
 3. Wait for all training processes to finish.
 4. Run aggregate_cv_results.py to compute mean±std across folds and write
    cv_summary.csv / cv_summary.json.
 
 Usage
 -----
-  python scripts/run_cv_lambda.py \\
+  python scripts/run_cv_lambda.py \
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5
 
-  python scripts/run_cv_lambda.py \\
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \\
+  python scripts/run_cv_lambda.py \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \
       --n_folds 5 --gpus 0 1 2 3 4
 
   # Skip dataset generation (dataset already exists):
-  python scripts/run_cv_lambda.py \\
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \\
-      --skip_dataset \\
+  python scripts/run_cv_lambda.py \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \
+      --skip_dataset \
       --dataset_run_dir data/datasets/flu/July_2025/runs/dataset_paper_flu_..._cv5_20260225_120000
 
   # Dry-run (print commands, do not execute):
-  python scripts/run_cv_lambda.py \\
+  python scripts/run_cv_lambda.py \
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --dry_run
 
   # Serial mode (one fold at a time, useful for debugging):
-  python scripts/run_cv_lambda.py \\
+  python scripts/run_cv_lambda.py \
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --serial
+
+  # Re-run only specific failed folds (requires --skip_dataset):
+  python scripts/run_cv_lambda.py \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \
+      --skip_dataset \
+      --dataset_run_dir data/datasets/flu/.../dataset_..._cv5_20260225_120000 \
+      --folds 0 4
 """
 
 import argparse
@@ -54,23 +62,45 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def run_cmd(cmd: list[str], env: Optional[dict] = None, dry_run: bool = False) -> Optional[subprocess.Popen]:
-    """Launch a subprocess (or print cmd in dry-run mode)."""
+def run_cmd(
+    cmd: list[str],
+    env: Optional[dict] = None,
+    dry_run: bool = False,
+    log_file: Optional[Path] = None,
+) -> tuple[Optional[subprocess.Popen], Optional[open]]:
+    """Launch a subprocess (or print cmd in dry-run mode).
+
+    If *log_file* is given, stdout and stderr are redirected to that file.
+    Returns (process, file_handle) — caller must close file_handle when the
+    process finishes.
+    """
     cmd_str = " ".join(str(c) for c in cmd)
     print(f"  $ {cmd_str}")
+    if log_file and not dry_run:
+        print(f"    log → {log_file}")
     if dry_run:
-        return None
+        return None, None
     merged_env = {**os.environ, **(env or {})}
-    return subprocess.Popen(cmd, env=merged_env)
+    fh = None
+    kwargs: dict = {}
+    if log_file:
+        fh = open(log_file, "w")
+        kwargs["stdout"] = fh
+        kwargs["stderr"] = subprocess.STDOUT
+    return subprocess.Popen(cmd, env=merged_env, **kwargs), fh
 
 
-def wait_all(procs: list[subprocess.Popen], fold_ids: list[int]) -> dict[int, int]:
-    """Wait for all subprocesses; return {fold_id: exit_code}."""
-    exit_codes = {}
-    for fold_id, proc in zip(fold_ids, procs):
-        proc.wait()
-        exit_codes[fold_id] = proc.returncode
-    return exit_codes
+def wait_any(active: dict[int, tuple[subprocess.Popen, int, Optional[open]]]) -> tuple[int, int, int]:
+    """Poll until any process finishes. Returns (fold_id, gpu, exit_code)."""
+    while True:
+        for fold_id, (proc, gpu, fh) in list(active.items()):
+            ret = proc.poll()
+            if ret is not None:
+                if fh is not None:
+                    fh.close()
+                del active[fold_id]
+                return fold_id, gpu, ret
+        time.sleep(1)
 
 
 def n_folds_from_config(config_bundle: str) -> Optional[int]:
@@ -93,7 +123,7 @@ def parse_args():
     p.add_argument("--n_folds", type=int, default=None,
                    help="Number of CV folds (default: read from config dataset.n_folds)")
     p.add_argument("--gpus", type=int, nargs="+", default=list(range(8)),
-                   help="GPU indices to use (default: 0..7). Cycled if fewer than n_folds.")
+                   help="GPU indices to use (default: 0..7). Folds are pooled across GPUs.")
     p.add_argument("--skip_dataset", action="store_true",
                    help="Skip stage 3 (dataset already generated). Requires --dataset_run_dir.")
     p.add_argument("--dataset_run_dir", type=str, default=None,
@@ -102,6 +132,9 @@ def parse_args():
                    help="Print commands but do not execute them.")
     p.add_argument("--serial", action="store_true",
                    help="Run training folds serially (one at a time) instead of in parallel.")
+    p.add_argument("--folds", type=int, nargs="+", default=None,
+                   help="Run only these fold indices (e.g. --folds 0 4). "
+                        "Requires --skip_dataset. Default: all folds.")
     p.add_argument("--skip_aggregate", action="store_true",
                    help="Skip the final aggregation step.")
     return p.parse_args()
@@ -116,8 +149,23 @@ def main():
     if n_folds is None or n_folds < 2:
         print("❌ n_folds must be >= 2. Set --n_folds or add dataset.n_folds to the bundle.")
         sys.exit(1)
+    # ── Resolve fold list ────────────────────────────────────────────────
+    if args.folds is not None:
+        if not args.skip_dataset:
+            print("ERROR: --folds requires --skip_dataset (dataset must already exist).")
+            sys.exit(1)
+        for f in args.folds:
+            if f < 0 or f >= n_folds:
+                print(f"ERROR: fold {f} out of range [0, {n_folds - 1}].")
+                sys.exit(1)
+        folds_to_run = sorted(args.folds)
+    else:
+        folds_to_run = list(range(n_folds))
+
     print(f"\n{'='*60}")
     print(f"CV launcher  |  bundle={args.config_bundle}  n_folds={n_folds}")
+    if args.folds is not None:
+        print(f"Running folds: {folds_to_run}  (subset)")
     print(f"Mode: {'dry-run' if args.dry_run else ('serial' if args.serial else 'parallel')}")
     print(f"{'='*60}\n")
 
@@ -137,7 +185,7 @@ def main():
             "--config_bundle", args.config_bundle,
             "--run_output_subdir", run_id,
         ]
-        proc = run_cmd(stage3_cmd, dry_run=args.dry_run)
+        proc, _ = run_cmd(stage3_cmd, dry_run=args.dry_run)
         if proc is not None:
             proc.wait()
             if proc.returncode != 0:
@@ -162,26 +210,33 @@ def main():
 
     # Verify fold directories exist
     if not args.dry_run:
-        for fold_i in range(n_folds):
+        for fold_i in folds_to_run:
             fold_dir = dataset_run_dir / f"fold_{fold_i}"
             if not fold_dir.exists():
-                print(f"❌ Expected fold directory not found: {fold_dir}")
+                print(f"ERROR: Expected fold directory not found: {fold_dir}")
                 sys.exit(1)
-        print(f"✅ All {n_folds} fold directories present.\n")
+        print(f"All {len(folds_to_run)} fold directories present.\n")
 
-    # ── Stage 4: training (one process per fold) ───────────────────────────
+    # ── Stage 4: training (GPU pool — one fold per GPU at a time) ─────────
     training_run_dirs = {}
     train_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    procs, fold_ids = [], []
-    for fold_i in range(n_folds):
-        gpu = args.gpus[fold_i % len(args.gpus)]
+    # Resolve models base dir for per-fold log files
+    if not args.dry_run:
+        from src.utils.config_hydra import get_virus_config_hydra
+        config_path = str(PROJECT_ROOT / "conf")
+        cfg = get_virus_config_hydra(args.config_bundle, config_path=config_path)
+        virus_name   = cfg.virus.virus_name
+        data_version = cfg.virus.data_version
+        models_base  = PROJECT_ROOT / "models" / virus_name / data_version / "runs"
+    else:
+        models_base = None
+
+    def make_fold_cmd(fold_i: int, gpu: int) -> tuple[list[str], dict, str, Optional[Path]]:
+        """Build the command, env, run_id, and log_file path for a fold."""
         fold_dir = dataset_run_dir / f"fold_{fold_i}"
         run_id_train = f"training_{args.config_bundle.replace('/', '_')}_fold{fold_i}_{train_timestamp}"
-        training_run_dirs[fold_i] = run_id_train
-
-        print(f"Stage 4 fold {fold_i}/{n_folds-1}: GPU={gpu}  run_id={run_id_train}")
-        stage4_cmd = [
+        cmd = [
             "python",
             str(PROJECT_ROOT / "src" / "models" / "train_pair_classifier.py"),
             "--config_bundle", args.config_bundle,
@@ -190,40 +245,109 @@ def main():
             "--run_output_subdir", run_id_train,
         ]
         env_override = {"CUDA_VISIBLE_DEVICES": str(gpu)}
+        # Pre-create training output dir so we can write the log file there
+        log_file = None
+        if models_base is not None:
+            train_output_dir = models_base / run_id_train
+            train_output_dir.mkdir(parents=True, exist_ok=True)
+            log_file = train_output_dir / f"fold_{fold_i}.log"
+        return cmd, env_override, run_id_train, log_file
 
-        if args.serial:
-            proc = run_cmd(stage4_cmd, env=env_override, dry_run=args.dry_run)
+    exit_codes: dict[int, int] = {}
+
+    if args.serial:
+        # Serial mode: one fold at a time on first GPU
+        for fold_i in folds_to_run:
+            gpu = args.gpus[0]
+            cmd, env_override, run_id_train, log_file = make_fold_cmd(fold_i, gpu)
+            training_run_dirs[fold_i] = run_id_train
+            print(f"Stage 4 fold {fold_i}/{n_folds-1}: GPU={gpu}  run_id={run_id_train}")
+            proc, fh = run_cmd(cmd, env=env_override, dry_run=args.dry_run, log_file=log_file)
             if proc is not None:
                 proc.wait()
+                if fh is not None:
+                    fh.close()
+                exit_codes[fold_i] = proc.returncode
                 if proc.returncode != 0:
-                    print(f"❌ Training fold {fold_i} failed (exit code {proc.returncode}). Aborting.")
+                    print(f"ERROR: Training fold {fold_i} failed (exit code {proc.returncode})."
+                          f" See log: {log_file}")
                     sys.exit(proc.returncode)
-                print(f"✅ Fold {fold_i} training done.")
-        else:
-            proc = run_cmd(stage4_cmd, env=env_override, dry_run=args.dry_run)
-            if proc is not None:
-                procs.append(proc)
-                fold_ids.append(fold_i)
+                print(f"Done. Fold {fold_i} training complete.")
+    else:
+        # Parallel mode: GPU pool — at most one fold per GPU
+        available_gpus = list(args.gpus)
+        # active: {fold_id: (Popen, gpu, file_handle)}
+        active: dict[int, tuple[subprocess.Popen, int, Optional[open]]] = {}
+        pending_folds = list(folds_to_run)
 
-    if not args.serial and not args.dry_run and procs:
-        print(f"\nWaiting for {len(procs)} parallel training processes...")
-        exit_codes = wait_all(procs, fold_ids)
+        # Pre-register all run IDs (needed for manifest even in dry-run)
+        for fold_i in folds_to_run:
+            run_id_train = f"training_{args.config_bundle.replace('/', '_')}_fold{fold_i}_{train_timestamp}"
+            training_run_dirs[fold_i] = run_id_train
+
+        while pending_folds or active:
+            # Launch folds on available GPUs
+            while pending_folds and available_gpus:
+                fold_i = pending_folds.pop(0)
+                gpu = available_gpus.pop(0)
+                cmd, env_override, run_id_train, log_file = make_fold_cmd(fold_i, gpu)
+                print(f"Stage 4 fold {fold_i}/{n_folds-1}: GPU={gpu}  run_id={run_id_train}")
+                proc, fh = run_cmd(cmd, env=env_override, dry_run=args.dry_run, log_file=log_file)
+                if proc is not None:
+                    active[fold_i] = (proc, gpu, fh)
+                else:
+                    # dry-run: gpu goes back immediately
+                    available_gpus.append(gpu)
+
+            if not active:
+                break
+
+            # Wait for any fold to finish, then reclaim its GPU
+            fold_id, gpu, rc = wait_any(active)
+            exit_codes[fold_id] = rc
+            if rc == 0:
+                print(f"Done. Fold {fold_id} training complete (GPU {gpu} now free).")
+            else:
+                fold_log = models_base / training_run_dirs[fold_id] / f"fold_{fold_id}.log" if models_base else None
+                print(f"WARNING: Fold {fold_id} failed (exit code {rc}) on GPU {gpu}."
+                      f" See log: {fold_log}")
+            available_gpus.append(gpu)
+
         failed = [fid for fid, ec in exit_codes.items() if ec != 0]
         if failed:
-            print(f"❌ Training failed for folds: {failed}")
+            print(f"ERROR: Training failed for folds: {failed}")
             sys.exit(1)
-        print("✅ All folds training complete.\n")
+        print(f"Done. All {len(folds_to_run)} folds training complete.\n")
 
     # ── Save CV manifest ───────────────────────────────────────────────────
     if not args.dry_run:
-        manifest = {
-            "config_bundle":      args.config_bundle,
-            "n_folds":            n_folds,
-            "dataset_run_dir":    str(dataset_run_dir),
-            "training_run_ids":   training_run_dirs,
-            "launched_at":        train_timestamp,
-        }
         manifest_path = dataset_run_dir / "cv_run_manifest.json"
+
+        # When re-running a subset of folds, merge with existing manifest
+        # so we don't lose the other folds' training run IDs.
+        if manifest_path.exists() and args.folds is not None:
+            with open(manifest_path) as f:
+                existing = json.load(f)
+            existing_ids = existing.get("training_run_ids", {})
+            # Update only the re-run folds (keys are strings in JSON)
+            for fold_i, run_id in training_run_dirs.items():
+                existing_ids[str(fold_i)] = run_id
+            manifest = {
+                "config_bundle":      args.config_bundle,
+                "n_folds":            n_folds,
+                "dataset_run_dir":    str(dataset_run_dir),
+                "training_run_ids":   existing_ids,
+                "launched_at":        train_timestamp,
+            }
+        else:
+            manifest = {
+                "config_bundle":      args.config_bundle,
+                "n_folds":            n_folds,
+                "dataset_run_dir":    str(dataset_run_dir),
+                "training_run_ids":   {str(k): v for k, v in training_run_dirs.items()},
+                "launched_at":        train_timestamp,
+            }
+
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, indent=2)
         print(f"Saved CV run manifest to: {manifest_path}")
@@ -236,7 +360,7 @@ def main():
             str(PROJECT_ROOT / "scripts" / "aggregate_cv_results.py"),
             "--manifest", str(dataset_run_dir / "cv_run_manifest.json"),
         ]
-        proc = run_cmd(agg_cmd, dry_run=args.dry_run)
+        proc, _ = run_cmd(agg_cmd, dry_run=args.dry_run)
         if proc is not None:
             proc.wait()
             if proc.returncode != 0:

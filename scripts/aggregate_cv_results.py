@@ -16,14 +16,14 @@ Writes to the dataset run directory (next to cv_run_manifest.json):
 
 Usage
 -----
-  python scripts/aggregate_cv_results.py \\
+  python scripts/aggregate_cv_results.py \
       --manifest data/datasets/flu/July_2025/runs/dataset_..._cv5_.../cv_run_manifest.json
 
   # Pass training dirs directly (without manifest):
-  python scripts/aggregate_cv_results.py \\
-      --training_dirs \\
-      models/flu/July_2025/runs/training_..._fold0_... \\
-      models/flu/July_2025/runs/training_..._fold1_... \\
+  python scripts/aggregate_cv_results.py \
+      --training_dirs \
+      models/flu/July_2025/runs/training_..._fold0_... \
+      models/flu/July_2025/runs/training_..._fold1_... \
       ...
 """
 
@@ -124,8 +124,9 @@ def aggregate(training_dirs: list[Path], output_dir: Path) -> None:
     # Mean and std rows
     means = {c: per_fold_df[c].mean() for c in metric_cols}
     stds  = {c: per_fold_df[c].std(ddof=1) for c in metric_cols}
+    n_test_std = per_fold_df["n_test"].std(ddof=1)
     means.update({"fold_id": "mean", "n_test": int(per_fold_df["n_test"].mean()), "threshold": None, "training_dir": ""})
-    stds.update({"fold_id": "std",  "n_test": int(per_fold_df["n_test"].std()), "threshold": None, "training_dir": ""})
+    stds.update({"fold_id": "std",  "n_test": int(n_test_std) if not np.isnan(n_test_std) else 0, "threshold": None, "training_dir": ""})
 
     summary_df = pd.concat([per_fold_df, pd.DataFrame([means, stds])], ignore_index=True)
 

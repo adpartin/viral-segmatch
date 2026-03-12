@@ -1,0 +1,12 @@
+# STATUS: active -- paper experiment (10-fold CV, k-mer k=6, slot_norm + concat, HA/NA, no filter)
+# Cross-validation extension of flu_schema_raw_kmer_k6_slot_norm_concat.
+# Inherits all settings; adds n_folds=10 for CV dataset generation.
+#
+# Note: This bundle must stay flat in conf/bundles/ (not in a subdirectory).
+
+defaults:
+  - flu_schema_raw_kmer_k6_slot_norm_concat
+  - _self_
+
+dataset:
+  n_folds: 10

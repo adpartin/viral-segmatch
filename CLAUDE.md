@@ -125,7 +125,7 @@ src/
     analyze_stage4_train.py         # Confusion matrix, ROC, FP/FN analysis
     visualize_dataset_stats.py      # PCA plots, interaction diagnostics
     aggregate_experiment_results.py # Cross-bundle summary tables
-    aggregate_cv_results.py         # CV visualization (error bars, ROC curves)
+    visualize_cv_results.py         # CV visualization (error bars, ROC curves)
     analyze_stage1_preprocess.py    # Preprocessing QC
     analyze_stage2_embeddings.py    # Embedding quality checks
     analyze_stage3_datasets.py      # Dataset balance/distribution
