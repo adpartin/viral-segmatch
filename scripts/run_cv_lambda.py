@@ -17,25 +17,35 @@ Workflow
 Usage
 -----
   python scripts/run_cv_lambda.py \
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10
 
   python scripts/run_cv_lambda.py \
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
       --n_folds 5 --gpus 0 1 2 3 4
 
   # Skip dataset generation (dataset already exists):
   python scripts/run_cv_lambda.py \
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
       --skip_dataset \
       --dataset_run_dir data/datasets/flu/July_2025/runs/dataset_paper_flu_..._cv5_20260225_120000
 
+  # Stage 3 only (generate folds, skip training):
+  python scripts/run_cv_lambda.py \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 --skip_training
+
+  # Stage 4 only (training on existing folds, skip dataset generation):
+  python scripts/run_cv_lambda.py \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
+      --skip_dataset \
+      --dataset_run_dir data/datasets/flu/July_2025/runs/dataset_..._cv10_20260225_120000
+
   # Dry-run (print commands, do not execute):
   python scripts/run_cv_lambda.py \
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --dry_run
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 --dry_run
 
   # Serial mode (one fold at a time, useful for debugging):
   python scripts/run_cv_lambda.py \
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --serial
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 --serial
 
   # Re-run only specific failed folds:
   #   --folds: which folds to re-run
@@ -46,14 +56,15 @@ Usage
   #     Without --cv_runs_dir, a new cv_runs directory is created containing
   #     only the re-run folds, which makes aggregation incomplete.
   python scripts/run_cv_lambda.py \
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
       --skip_dataset \
-      --dataset_run_dir data/datasets/flu/.../dataset_..._cv5_20260225_120000 \
+      --dataset_run_dir data/datasets/flu/.../dataset_..._cv10_20260225_120000 \
       --folds 0 4 \
       --cv_runs_dir models/flu/.../cv_runs/cv_..._20260225_120000
 """
 
 import argparse
+import io
 import json
 import os
 import subprocess
@@ -69,13 +80,46 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.utils.timer_utils import Timer
+
+
+class TeeWriter:
+    """Write to both a stream (e.g., stdout) and a log file simultaneously."""
+
+    def __init__(self, stream, log_file: Path):
+        self._stream = stream
+        self._fh = open(log_file, "w")
+
+    def write(self, data):
+        self._stream.write(data)
+        self._fh.write(data)
+        self._fh.flush()
+
+    def flush(self):
+        self._stream.flush()
+        self._fh.flush()
+
+    def close(self):
+        self._fh.close()
+
+
+def relay_subprocess_output(proc: subprocess.Popen) -> None:
+    """Read piped subprocess output line-by-line and write to sys.stdout.
+
+    This ensures subprocess output is captured by the TeeWriter when active.
+    Waits for the process to finish before returning.
+    """
+    for line in iter(proc.stdout.readline, b""):
+        sys.stdout.write(line.decode("utf-8", errors="replace"))
+    proc.wait()
+
 
 def run_cmd(
     cmd: list[str],
     env: Optional[dict] = None,
     dry_run: bool = False,
     log_file: Optional[Path] = None,
-) -> tuple[Optional[subprocess.Popen], Optional[open]]:
+    ) -> tuple[Optional[subprocess.Popen], Optional[open]]:
     """Launch a subprocess (or print cmd in dry-run mode).
 
     If *log_file* is given, stdout and stderr are redirected to that file.
@@ -94,6 +138,10 @@ def run_cmd(
     if log_file:
         fh = open(log_file, "w")
         kwargs["stdout"] = fh
+        kwargs["stderr"] = subprocess.STDOUT
+    else:
+        # Pipe stdout so callers can relay output through TeeWriter
+        kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.STDOUT
     return subprocess.Popen(cmd, env=merged_env, **kwargs), fh
 
@@ -120,7 +168,7 @@ def n_folds_from_config(config_bundle: str) -> Optional[int]:
         val = getattr(cfg.dataset, "n_folds", None)
         return int(val) if val is not None else None
     except Exception as e:
-        print(f"⚠️  Could not read n_folds from config: {e}")
+        print(f"WARNING: Could not read n_folds from config: {e}")
         return None
 
 
@@ -136,6 +184,9 @@ def parse_args():
                    help="Skip stage 3 (dataset already generated). Requires --dataset_run_dir.")
     p.add_argument("--dataset_run_dir", type=str, default=None,
                    help="Existing CV dataset run directory (required with --skip_dataset).")
+    p.add_argument("--skip_training", action="store_true",
+                   help="Run stage 3 (dataset generation) only, then exit. "
+                        "Useful for generating folds before submitting training to HPC.")
     p.add_argument("--dry_run", action="store_true",
                    help="Print commands but do not execute them.")
     p.add_argument("--serial", action="store_true",
@@ -155,13 +206,26 @@ def parse_args():
 
 def main():
     args = parse_args()
+    cv_timer = Timer()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # ── Tee stdout/stderr to a log file ───────────────────────────────────
+    # Log starts in logs/cv/ (known immediately). At the end, a copy is
+    # placed in cv_runs_dir for co-location with CV results.
+    log_dir = PROJECT_ROOT / "logs" / "cv"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"run_cv_{args.config_bundle.replace('/', '_')}_{timestamp}.log"
+    tee_out = TeeWriter(sys.stdout, log_file)
+    tee_err = TeeWriter(sys.stderr, log_file)
+    sys.stdout = tee_out
+    sys.stderr = tee_err
 
     # ── Resolve n_folds ────────────────────────────────────────────────────
     n_folds = args.n_folds or n_folds_from_config(args.config_bundle)
     if n_folds is None or n_folds < 2:
-        print("❌ n_folds must be >= 2. Set --n_folds or add dataset.n_folds to the bundle.")
+        print("ERROR: n_folds must be >= 2. Set --n_folds or add dataset.n_folds to the bundle.")
         sys.exit(1)
+
     # ── Resolve fold list ────────────────────────────────────────────────
     if args.folds is not None:
         if not args.skip_dataset:
@@ -185,7 +249,7 @@ def main():
     # ── Stage 3: dataset generation ────────────────────────────────────────
     if args.skip_dataset:
         if not args.dataset_run_dir:
-            print("❌ --skip_dataset requires --dataset_run_dir")
+            print("ERROR: --skip_dataset requires --dataset_run_dir")
             sys.exit(1)
         dataset_run_dir = Path(args.dataset_run_dir)
         print(f"Skipping Stage 3. Using existing dataset dir: {dataset_run_dir}")
@@ -200,11 +264,12 @@ def main():
         ]
         proc, _ = run_cmd(stage3_cmd, dry_run=args.dry_run)
         if proc is not None:
-            proc.wait()
+            # Relay subprocess output through Python stdout so TeeWriter captures it
+            relay_subprocess_output(proc)
             if proc.returncode != 0:
-                print(f"❌ Stage 3 failed (exit code {proc.returncode}). Aborting.")
+                print(f"ERROR: Stage 3 failed (exit code {proc.returncode}). Aborting.")
                 sys.exit(proc.returncode)
-            print("✅ Stage 3 complete.")
+            print("Done. Stage 3 complete.")
 
         # Derive the dataset run dir from the config paths
         if not args.dry_run:
@@ -216,6 +281,9 @@ def main():
             dataset_run_dir = (
                 PROJECT_ROOT / "data" / "datasets" / virus_name / data_version / "runs" / run_id
             )
+            # Copy launcher log (which contains Stage 3 output) into dataset dir
+            import shutil
+            shutil.copy2(log_file, dataset_run_dir / "stage3_dataset.log")
         else:
             dataset_run_dir = Path(f"<dataset_run_dir for {run_id}>")
 
@@ -229,6 +297,21 @@ def main():
                 print(f"ERROR: Expected fold directory not found: {fold_dir}")
                 sys.exit(1)
         print(f"All {len(folds_to_run)} fold directories present.\n")
+
+    # ── Early exit if --skip_training ─────────────────────────────────────
+    if args.skip_training:
+        cv_timer.stop_timer()
+        print(f"{'='*60}")
+        print(f"Stage 3 complete. Skipping training (--skip_training).")
+        print(f"Dataset run dir: {dataset_run_dir}")
+        cv_timer.display_timer()
+        print(f"Log: {log_file}")
+        print(f"{'='*60}")
+        sys.stdout = tee_out._stream
+        sys.stderr = tee_err._stream
+        tee_out.close()
+        tee_err.close()
+        return
 
     # ── Stage 4: training (GPU pool — one fold per GPU at a time) ─────────
     training_run_dirs = {}
@@ -258,7 +341,7 @@ def main():
         cv_runs_dir = None
 
     def make_fold_cmd(fold_i: int, gpu: int) -> tuple[list[str], dict, str, Optional[Path]]:
-        """Build the command, env, run_id, and log_file path for a fold."""
+        """Build the command, env, run_id, and fold_log path for a fold."""
         fold_dir = dataset_run_dir / f"fold_{fold_i}"
         run_id_train = f"training_{args.config_bundle.replace('/', '_')}_fold{fold_i}_{train_timestamp}"
         cmd = [
@@ -271,12 +354,12 @@ def main():
         ]
         env_override = {"CUDA_VISIBLE_DEVICES": str(gpu)}
         # Pre-create training output dir so we can write the log file there
-        log_file = None
+        fold_log = None
         if models_base is not None:
             train_output_dir = models_base / run_id_train
             train_output_dir.mkdir(parents=True, exist_ok=True)
-            log_file = train_output_dir / f"fold_{fold_i}.log"
-        return cmd, env_override, run_id_train, log_file
+            fold_log = train_output_dir / f"fold_{fold_i}.log"
+        return cmd, env_override, run_id_train, fold_log
 
     exit_codes: dict[int, int] = {}
 
@@ -284,10 +367,10 @@ def main():
         # Serial mode: one fold at a time on first GPU
         for fold_i in folds_to_run:
             gpu = args.gpus[0]
-            cmd, env_override, run_id_train, log_file = make_fold_cmd(fold_i, gpu)
+            cmd, env_override, run_id_train, fold_log = make_fold_cmd(fold_i, gpu)
             training_run_dirs[fold_i] = run_id_train
             print(f"Stage 4 fold {fold_i}/{n_folds-1}: GPU={gpu}  run_id={run_id_train}")
-            proc, fh = run_cmd(cmd, env=env_override, dry_run=args.dry_run, log_file=log_file)
+            proc, fh = run_cmd(cmd, env=env_override, dry_run=args.dry_run, log_file=fold_log)
             if proc is not None:
                 proc.wait()
                 if fh is not None:
@@ -295,7 +378,7 @@ def main():
                 exit_codes[fold_i] = proc.returncode
                 if proc.returncode != 0:
                     print(f"ERROR: Training fold {fold_i} failed (exit code {proc.returncode})."
-                          f" See log: {log_file}")
+                          f" See log: {fold_log}")
                     sys.exit(proc.returncode)
                 print(f"Done. Fold {fold_i} training complete.")
     else:
@@ -315,9 +398,9 @@ def main():
             while pending_folds and available_gpus:
                 fold_i = pending_folds.pop(0)
                 gpu = available_gpus.pop(0)
-                cmd, env_override, run_id_train, log_file = make_fold_cmd(fold_i, gpu)
+                cmd, env_override, run_id_train, fold_log = make_fold_cmd(fold_i, gpu)
                 print(f"Stage 4 fold {fold_i}/{n_folds-1}: GPU={gpu}  run_id={run_id_train}")
-                proc, fh = run_cmd(cmd, env=env_override, dry_run=args.dry_run, log_file=log_file)
+                proc, fh = run_cmd(cmd, env=env_override, dry_run=args.dry_run, log_file=fold_log)
                 if proc is not None:
                     active[fold_i] = (proc, gpu, fh)
                 else:
@@ -388,17 +471,31 @@ def main():
         ]
         proc, _ = run_cmd(agg_cmd, dry_run=args.dry_run)
         if proc is not None:
-            proc.wait()
+            relay_subprocess_output(proc)
             if proc.returncode != 0:
-                print(f"⚠️  Aggregation failed (exit code {proc.returncode}). Check manually.")
+                print(f"WARNING: Aggregation failed (exit code {proc.returncode}). Check manually.")
             else:
-                print("✅ Aggregation complete.")
+                print("Done. Aggregation complete.")
     elif args.dry_run:
         print("\n[dry-run] Would run aggregate_cv_results.py")
 
+    cv_timer.stop_timer()
     print(f"\n{'='*60}")
     print("CV run complete.")
+    cv_timer.display_timer()
+    if cv_runs_dir is not None and not args.dry_run:
+        cv_timer.save_timer(cv_runs_dir)
+    print(f"Log: {log_file}")
     print(f"{'='*60}")
+
+    # ── Close tee and copy log to cv_runs_dir ─────────────────────────────
+    sys.stdout = tee_out._stream
+    sys.stderr = tee_err._stream
+    tee_out.close()
+    tee_err.close()
+    if cv_runs_dir is not None and not args.dry_run:
+        import shutil
+        shutil.copy2(log_file, cv_runs_dir / "cv_run.log")
 
 
 if __name__ == "__main__":
