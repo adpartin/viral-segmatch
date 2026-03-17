@@ -667,6 +667,8 @@ def split_dataset(
     train_isolates_override: Optional[list] = None,
     val_isolates_override: Optional[list] = None,
     test_isolates_override: Optional[list] = None,
+    cooccur_pairs: Optional[set] = None,
+    cooccur_stats: Optional[dict] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Split dataset into train, val, and test sets with stratified sampling.
 
@@ -712,6 +714,12 @@ def split_dataset(
             Only meaningful when train_isolates_override is also provided.
         test_isolates_override: If provided, use this list as test isolates.
             Only meaningful when train_isolates_override is also provided.
+        cooccur_pairs: Pre-computed co-occurrence set from build_cooccurrence_set().
+            If None, built internally. Pass this to avoid redundant computation when
+            calling split_dataset() multiple times on the same data (e.g., CV folds).
+        cooccur_stats: Pre-computed co-occurrence stats from build_cooccurrence_set().
+            Must be provided together with cooccur_pairs. Included in the returned
+            duplicate_stats dict for downstream saving by save_split_output().
 
     Returns:
         Tuple of (train_pairs, val_pairs, test_pairs, duplicate_stats) where each
@@ -730,20 +738,19 @@ def split_dataset(
             print("Note: schema_ordered mode disables canonicalize_pair_orientation_enabled")
             canonicalize_pair_orientation_enabled = False
 
-    # Build co-occurrence set FIRST (before any pair generation)
-    # This identifies all sequence pairs that appear together in any isolate
-    print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
-    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
-    print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
-    print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
-    print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
-
-    # Compute positive pair counts per isolate
-    isolate_pos_counts = compute_isolate_pair_counts(
-        df,
-        pair_mode=pair_mode,
-        schema_pair=schema_pair,
-    )
+    # Build co-occurrence set FIRST (before any pair generation).
+    # This identifies all sequence pairs that appear together in any isolate.
+    # Callers that invoke split_dataset() multiple times on the same df (e.g.,
+    # generate_all_cv_folds) can pre-compute this once and pass it in.
+    if cooccur_pairs is None:
+        print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
+        cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
+        print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
+        print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
+        print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
+    else:
+        if cooccur_stats is None:
+            raise ValueError("cooccur_stats must be provided together with cooccur_pairs")
 
     # Stratify isolates by positive pair counts for balanced train/val/test splits.
     # 
@@ -768,10 +775,18 @@ def split_dataset(
 
     if train_isolates_override is not None:
         # Pre-assigned isolates (e.g., from CV fold generation): skip internal splitting.
+        # compute_isolate_pair_counts is not needed here — stratification is the caller's
+        # responsibility when providing pre-assigned isolates.
         train_isolates = list(train_isolates_override)
         val_isolates   = list(val_isolates_override)  if val_isolates_override  is not None else []
         test_isolates  = list(test_isolates_override) if test_isolates_override is not None else []
     else:
+        # Compute positive pair counts per isolate (only needed for stratified splitting)
+        isolate_pos_counts = compute_isolate_pair_counts(
+            df,
+            pair_mode=pair_mode,
+            schema_pair=schema_pair,
+        )
         pos_count_groups = {}
         for aid in unique_isolates:
             pos_count = isolate_pos_counts[aid]
@@ -1360,6 +1375,13 @@ def generate_all_cv_folds(
     """
     from sklearn.model_selection import KFold
 
+    # Build co-occurrence set once for all folds (data-level, not fold-level).
+    print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
+    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
+    print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
+    print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
+    print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
+
     # Sort for determinism
     unique_isolates = np.array(sorted(df['assembly_id'].unique()))
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
@@ -1402,6 +1424,8 @@ def generate_all_cv_folds(
             train_isolates_override=train_ids,
             val_isolates_override=val_ids,
             test_isolates_override=test_ids,
+            cooccur_pairs=cooccur_pairs,
+            cooccur_stats=cooccur_stats,
         )
         folds.append({
             'fold_id':         fold_i,
@@ -1860,4 +1884,6 @@ else:
     )
 
 print(f'\nDone. Finished {Path(__file__).name}.')
+total_timer.stop_timer()
 total_timer.display_timer()
+total_timer.save_timer(output_dir)

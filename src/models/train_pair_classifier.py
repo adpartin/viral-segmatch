@@ -1275,4 +1275,6 @@ with open(training_info_file, 'w') as f:
 print(f'\nSaved training provenance to: {training_info_file}')
 
 print(f'\nFinished {Path(__file__).name}!')
+total_timer.stop_timer()
 total_timer.display_timer()
+total_timer.save_timer(output_dir)
