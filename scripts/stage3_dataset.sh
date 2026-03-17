@@ -1,9 +1,11 @@
 #!/bin/bash
 # Stage 3: Dataset Segment Pairs Creation
 # Usage: ./scripts/stage3_dataset.sh <config_bundle> [options]
-# Example: ./scripts/stage3_dataset.sh flu_schema_raw_slot_norm_unit_diff
-#          ./scripts/stage3_dataset.sh flu --input_file data/processed/flu/July_2025/protein_final.csv
-#          ./scripts/stage3_dataset.sh flu --output_dir /custom/path
+# 
+# Examples:
+#   ./scripts/stage3_dataset.sh flu_schema_raw_slot_norm_unit_diff
+#   ./scripts/stage3_dataset.sh flu --input_file data/processed/flu/July_2025/protein_final.csv
+#   ./scripts/stage3_dataset.sh flu --output_dir /custom/path
 
 set -euo pipefail
 
@@ -54,6 +56,23 @@ echo ""
 
 $CMD 2>&1 | tee "$LOG_FILE"
 EXIT_CODE=${PIPESTATUS[0]}
+
+# --- Copy log into the dataset output dir for co-location with artifacts ---
+if [ $EXIT_CODE -eq 0 ]; then
+    ACTUAL_OUTPUT_DIR=""
+    if [ -n "$OUTPUT_DIR" ]; then
+        ACTUAL_OUTPUT_DIR="$OUTPUT_DIR"
+    else
+        OUTPUT_DIR_LINE=$(grep -m1 'Output dir:' "$LOG_FILE" 2>/dev/null || true)
+        if [ -n "$OUTPUT_DIR_LINE" ]; then
+            ACTUAL_OUTPUT_DIR=$(echo "$OUTPUT_DIR_LINE" | sed -E 's/.*Output dir:\s*//' | xargs)
+        fi
+    fi
+    # Copy log into dataset output dir if it exists
+    if [ -n "$ACTUAL_OUTPUT_DIR" ] && [ -d "$ACTUAL_OUTPUT_DIR" ]; then
+        cp "$LOG_FILE" "$ACTUAL_OUTPUT_DIR/stage3_dataset.log"
+    fi
+fi
 
 # --- Symlink latest log ---
 ln -sf "$(basename "$LOG_FILE")" "$LOG_DIR/dataset_segment_pairs_${CONFIG_BUNDLE}_latest.log"

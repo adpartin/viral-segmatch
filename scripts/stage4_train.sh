@@ -1,10 +1,6 @@
 #!/bin/bash
-# Stage 4: Model Training (decoupled from dataset creation)
+# Stage 4: Model Training
 # Usage: ./scripts/stage4_train.sh <config_bundle> --dataset_dir DIR [options]
-#
-# The config bundle controls training settings (training.*, embeddings.*).
-# The dataset_dir points to a Stage 3 output — it can come from any bundle.
-# Provenance is tracked via training_info.json saved by the Python script.
 #
 # Examples:
 #   ./scripts/stage4_train.sh flu_schema_raw_slot_norm_unit_diff --dataset_dir data/datasets/flu/.../runs/dataset_...
@@ -76,7 +72,7 @@ echo ""
 $CMD 2>&1 | tee "$LOG_FILE"
 EXIT_CODE=${PIPESTATUS[0]}
 
-# --- Postprocessing ---
+# --- Postprocessing + copy log into the training output dir for co-location with artifacts ---
 if [ $EXIT_CODE -eq 0 ] && [ "$SKIP_POSTPROCESSING" = false ]; then
     # Extract output directory from training log
     ACTUAL_OUTPUT_DIR=""
@@ -102,6 +98,11 @@ if [ $EXIT_CODE -eq 0 ] && [ "$SKIP_POSTPROCESSING" = false ]; then
             2>&1 | tee -a "$LOG_FILE" || echo "WARNING: create_presentation_plots.py failed"
     else
         echo "WARNING: Could not detect output directory, skipping postprocessing"
+    fi
+
+    # Copy log into training output dir if it exists
+    if [ -n "$ACTUAL_OUTPUT_DIR" ] && [ -d "$ACTUAL_OUTPUT_DIR" ]; then
+        cp "$LOG_FILE" "$ACTUAL_OUTPUT_DIR/stage4_train.log"
     fi
 fi
 
