@@ -11,3 +11,8 @@ defaults:
 
 dataset:
   max_isolates_to_process: null
+
+# Runtime analysis: force exactly 100 epochs (no early stopping)
+training:
+  epochs: 100
+  patience: 100

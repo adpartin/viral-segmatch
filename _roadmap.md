@@ -51,6 +51,38 @@ HPC (Polaris) for full dataset. Stage 4 (MLP training) scales easily.
 
 ---
 
+### Runtime Analysis (March 2026) — Informs HPC Walltime for Tasks 1 & 2
+
+Runtime profiling runs on Lambda cluster (NVIDIA A100 GPUs). Both bundles use k-mer k=6,
+slot_norm + concat, 10-fold CV. Forced to 100 epochs with patience=100 (no early stopping)
+to measure full epoch-level timing. Prediction performance is secondary — these are not
+final paper results (no early stopping, no hyperparameter tuning).
+
+- **5K subset bundle:** `flu_schema_raw_kmer_k6_slot_norm_concat_cv10` (~5K isolates, ~8.5K test pairs/fold)
+- **Full dataset bundle:** `flu_schema_raw_kmer_k6_slot_norm_concat_full_cv10` (~111K isolates, ~15K test pairs/fold)
+- **Hardware:** Lambda cluster, 5× NVIDIA A100 GPUs (10 folds across 5 GPUs, 2 waves)
+
+| Metric | 5K subset | Full dataset |
+|--------|-----------|--------------|
+| **Per epoch** | 4.74s mean (4.60–4.82s) | 97.1s mean (67–136s) |
+| **Single fold (100 epochs)** | 9m 12s | 2h 43m 11s |
+| **Total CV (10 folds, 5 GPUs)** | 19m 06s | 5h 47m 41s |
+| **AUC-ROC** | 0.972 ± 0.004 | 0.993 ± 0.001 |
+| **PR-AUC** | 0.935 ± 0.011 | 0.977 ± 0.002 |
+| **F1** | 0.949 ± 0.007 | 0.973 ± 0.002 |
+| **Precision** | 0.922 ± 0.011 | 0.961 ± 0.003 |
+| **Recall** | 0.977 ± 0.009 | 0.985 ± 0.002 |
+| **Brier** | 0.043 ± 0.005 | 0.017 ± 0.001 |
+
+**Key takeaways:**
+- Full dataset gives substantial improvement (AUC 0.972→0.993) with much tighter fold variance.
+- ~20x data scale-up yields ~20x per-epoch time (4.7s→97s), as expected for MLP training.
+- For HPC walltime: a single full-dataset fold at 100 epochs ≈ 2h 45m. With early stopping
+  (typical convergence ~30–50 epochs), expect ~1–1.5h per fold. Set PBS walltime to 3h per
+  fold for safety margin.
+
+---
+
 ### 3. Generalize into the future (train 2021–2023, test 2024) — IMPLEMENTED
 
 **Goal:** Temporal holdout to assess generalization to future seasons.

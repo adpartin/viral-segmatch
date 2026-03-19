@@ -10,3 +10,8 @@ defaults:
 
 dataset:
   n_folds: 10
+
+# Runtime analysis: force exactly 100 epochs (no early stopping)
+training:
+  epochs: 100
+  patience: 100
