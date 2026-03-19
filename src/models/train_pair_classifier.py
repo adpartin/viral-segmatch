@@ -11,6 +11,7 @@ Requirements:
 import argparse
 import json
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -550,7 +551,8 @@ def train_model(
         'val_recall': [],  # Recall for positive class (measures FN)
         'val_auc': [],
         'val_brier': [],
-        'learning_rate': []  # Track learning rate over epochs
+        'learning_rate': [],  # Track learning rate over epochs
+        'epoch_time_sec': []  # Wall-clock time per epoch (seconds)
     }
     
     patience_counter = 0
@@ -569,6 +571,7 @@ def train_model(
         raise ValueError(f"Unknown early_stopping_metric: {early_stopping_metric}. Choose from 'loss', 'f1', 'auc'")
 
     for epoch in range(epochs):
+        epoch_start = time.time()
         # Training phase
         model.train()
         train_loss = 0
@@ -668,6 +671,8 @@ def train_model(
         else:
             current_lr = optimizer.param_groups[0]['lr']
         
+        epoch_time = time.time() - epoch_start
+
         # Track history for plotting
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
@@ -684,7 +689,8 @@ def train_model(
         history['val_auc'].append(val_auc)
         history['val_brier'].append(val_brier)
         history['learning_rate'].append(current_lr)
-        
+        history['epoch_time_sec'].append(round(epoch_time, 2))
+
         # Print simplified metrics (all metrics still saved to history/CSV)
         print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
               f'Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}, '
@@ -730,7 +736,8 @@ def train_model(
             'val_recall': history.get('val_recall', [None] * len(history['train_loss'])),
             'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
             'val_brier': history.get('val_brier', [None] * len(history['train_loss'])),
-            'learning_rate': history.get('learning_rate', [None] * len(history['train_loss']))
+            'learning_rate': history.get('learning_rate', [None] * len(history['train_loss'])),
+            'epoch_time_sec': history.get('epoch_time_sec', [None] * len(history['train_loss']))
         })
         history_csv = output_dir / 'training_history.csv'
         history_df.to_csv(history_csv, index=False)
