@@ -203,7 +203,10 @@ viral-segmatch/
 │   ├── settings.json           # Claude Code permissions (deny/allow rules)
 │   └── memory.md               # Compact project memory — read this every session
 ├── README.md                   # Project overview
-├── _roadmap.md                 # Experiment plan (02/10/2026 meeting)
+├── roadmap_v1.md               # Experiment plan v1 (02/10/2026 meeting)
+├── roadmap_v2.md               # Experiment plan v2 (updated 03/12/2026 meeting)
+├── paper_outline_v1.md         # Paper outline v1 (initial draft)
+├── paper_outline_v2.md         # Paper outline v2 (updated 03/12/2026 meeting)
 ├── _ongoing_work.md            # Technical notes on interactions, findings
 ├── _notes.txt                  # Ad-hoc questions and TODOs
 ├── src/                        # Python source code

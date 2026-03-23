@@ -145,7 +145,7 @@ Rename files via `git mv`, update Hydra `defaults` chains in child bundles.
 **Project docs (14 occurrences):**
 - `CLAUDE.md` (3 refs)
 - `.claude/memory.md` (7 refs)
-- `_roadmap.md` (4 refs)
+- `roadmap_v1.md` (4 refs)
 - `_ongoing_work.md` (6 refs)
 
 **Other docs (48 occurrences):**

@@ -268,13 +268,13 @@ training set composition, retrain, and evaluate on the same held-out data. This 
 the effect of training data changes from test set variation.
 
 Mitigation covers both data-centric and model-centric approaches, applied in order of
-increasing complexity. See `_roadmap.md` Task 12 for the full detailed plan, including
+increasing complexity. See `roadmap_v1.md` Task 12 for the full detailed plan, including
 diagnostics (embedding distance distributions, predicted probability histograms,
 pair-level metadata matrix), data-centric fixes (hard negative mining, negative ratio,
 curriculum learning, subtype balancing), model-centric fixes (focal loss, weighted BCE,
 contrastive learning, two-stage model), and recommended execution order.
 
-**Summary of approaches (see `_roadmap.md` Task 12 for detail):**
+**Summary of approaches (see `roadmap_v1.md` Task 12 for detail):**
 
 - **Data-centric:** Hard negative mining (highest priority), increased negative-to-positive
   ratio, curriculum learning on negatives, subtype-balanced training, population-specific
@@ -463,7 +463,7 @@ Maps paper sections to roadmap tasks and their readiness.
 | 3.4 Embedding geometry | Existing | Done | No |
 | 3.5 Error analysis | Task 12 | Diagnostics not implemented | Yes |
 | 3.5.2 Stress testing | Task 12 | Needs new bundles + runs | Yes |
-| 3.5.3 Mitigation | Task 12 | Data-centric + model-centric; see `_roadmap.md` | Yes |
+| 3.5.3 Mitigation | Task 12 | Data-centric + model-centric; see `roadmap_v1.md` | Yes |
 | 3.6 All protein pairs | Task 11 | Not started (HPC) | No (strengthens paper) |
 | 4. Data remediation | New + Task 8 | Not started | Yes |
 | 4.2 UQ | New | Not started | No (enhances Section 4) |

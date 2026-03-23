@@ -2,7 +2,7 @@
 
 Reserved for bundles that will be reported in the publication.
 
-Planned experiments (from _roadmap.md, 02/10/2026 meeting):
+Planned experiments (from `roadmap_v1.md`, 02/10/2026 meeting; updated in `roadmap_v2.md`):
 - Cross-validation (N folds, mean ± std metrics)
 - Temporal holdout (train 2021–2023, test 2024)
 - Large dataset (full Flu A, ~100K isolates)

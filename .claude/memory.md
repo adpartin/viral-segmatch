@@ -48,16 +48,16 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 4. K-mer + MLP -- DONE; k-mer + XGBoost/LightGBM still TODO
 5. PB2/PB1 + H3N2 bundle -- optional (one new bundle)
 11. All protein pairs (C(8,2)=28 pairs of 8 major proteins) -- NOT IMPLEMENTED, HPC
-12. FP/FN ratio diagnosis + mitigation -- NOT IMPLEMENTED; see `_roadmap.md` Task 12
+12. FP/FN ratio diagnosis + mitigation -- NOT IMPLEMENTED; see `roadmap_v1.md` Task 12
     - Diagnostics first (embedding distances, probability histograms, pair-level metadata matrix)
     - Data-centric: hard negative mining (highest priority), negative ratio, curriculum learning
     - Model-centric: focal loss, contrastive learning (if simpler approaches fail)
 
 ## Publication Strategy (March 2026)
 - **Paper 1 (biology, primary):** Segment matching for data remediation + surveillance.
-  Target: Bioinformatics / PLOS Comp Bio / Genome Biology. See `docs/paper_outline.md`.
+  Target: Bioinformatics / PLOS Comp Bio / Genome Biology. See `paper_outline_v1.md`.
 - **Paper 2 (ML, follow-up):** ESM-2 concat collapse + GenSLM. Target: NeurIPS/ICML workshop.
-- Paper outline: `docs/paper_outline.md` (includes experiment status tracker)
+- Paper outline: `paper_outline_v1.md` (v1), `paper_outline_v2.md` (v2, current)
 - Applications: data remediation (BV-BRC), wastewater surveillance, reassortment detection (future)
 
 ## Directory Structure (post-cleanup Feb 2026)
