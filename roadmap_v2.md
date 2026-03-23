@@ -50,8 +50,6 @@ final paper results (no early stopping, no hyperparameter tuning).
 | **AUC-ROC** | 0.972 ± 0.004 | 0.993 ± 0.001 |
 | **PR-AUC** | 0.935 ± 0.011 | 0.977 ± 0.002 |
 | **F1** | 0.949 ± 0.007 | 0.973 ± 0.002 |
-| **Precision** | 0.922 ± 0.011 | 0.961 ± 0.003 |
-| **Recall** | 0.977 ± 0.009 | 0.985 ± 0.002 |
 | **Brier** | 0.043 ± 0.005 | 0.017 ± 0.001 |
 
 **Key takeaways:**
@@ -79,7 +77,7 @@ final paper results (no early stopping, no hyperparameter tuning).
 See `paper_outline_v2.md` Section 2.1.1 for the negative pair taxonomy (within-subtype vs
 cross-subtype) and the analysis-first priority order.
 
-**Status:** Pipeline supports `max_isolates_to_process: null`. Not yet tested at 50K+.
+**Status:** Pipeline supports `max_isolates_to_process: null`. Tested at full scale (~111K isolates) in runtime profiling runs (k-mer concat, 10-fold CV, no early stopping).
 
 **Implementation needed:**
 - Pair-distribution ledger output for each dataset (unconditional)
@@ -436,17 +434,20 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 
 ## Next Steps
 
-1. **Scale to ~50–100K isolates** with existing sampling. Validate on Polaris.
+**Done:**
+- ~~Scale to full dataset (~111K isolates)~~ — validated on Lambda (k-mer concat, 10-fold CV). See Runtime Analysis.
+- ~~Run CV end-to-end~~ — CV10 completed for: k-mer concat (5K + full), ESM-2 concat (5K), H3N2 variants (k-mer + ESM-2). Results in `models/flu/July_2025/cv_runs/`.
+
+**Remaining:**
+1. **Run Task 11 (all 28 protein pairs)** on Polaris with k-mers + CV.
 2. **Implement pair-distribution ledger** for every dataset.
 3. **Implement stratified evaluation script** (Levels 1–3).
-4. **Run Task 11 (all 28 protein pairs)** on Polaris with k-mers + CV.
-5. **Run stratified analysis** — determine if model performs well or needs fixes.
-6. **Implement Carla's mixed-subtype test.**
+4. **Run stratified analysis** — determine if model performs well or needs fixes.
+5. **Implement Carla's mixed-subtype test.**
+6. **If failures** → parallel interventions (Task 12).
 7. **Fix pair_key dedup** for temporal holdout; re-run.
-8. **Run Task 1 (CV)** end-to-end.
-9. **If failures** → parallel interventions (Task 12).
-10. **Implement UQ** — ensemble inference + calibration. Last required step.
-11. **Wastewater data sourcing** — Carla → Rachel Paretsky. Jim → assembled samples.
+8. **Implement UQ** — ensemble inference + calibration. Last required step.
+9. **Wastewater data sourcing** — Carla → Rachel Paretsky. Jim → assembled samples.
 
 ---
 
