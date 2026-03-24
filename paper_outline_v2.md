@@ -496,6 +496,29 @@ surveillance. K-mers primary. Target: Bioinformatics, PLOS Comp Bio, Genome Biol
 **Paper 2 (ML-focused, follow-up):** ESM-2 embedding geometry + GenSLM comparison. Target:
 NeurIPS/ICML CompBio workshop. Depends on `roadmap_v2.md` Task 10.
 
+**Paper 3 (HPC, exploratory):** Scaling segment matching on leadership-class HPC. Target:
+SC, PASC. Viability TBD — depends on whether Task 11 and scaling experiments produce
+interesting computational findings.
+
+Potential angles:
+- **Data scaling:** Preliminary evidence exists. AUC improves 0.972→0.993 (5K→111K isolates)
+  with 4x tighter variance; per-epoch time scales linearly (4.7s→97s). Two data points so
+  far — need intermediate points (10K, 25K, 50K) to characterize the scaling curve shape
+  (log-linear? saturating? power law?). A clear scaling law for biological sequence matching
+  would be novel.
+- **Task scaling:** 28 protein-pair experiments × 10 CV folds = 280 independent tasks.
+  Task packing strategies (ensemble packing within nodes, job arrays across nodes), GPU
+  utilization, scheduling overhead, queue strategy comparison (capacity vs preemptable vs prod).
+- **Compute scaling:** Wall-clock vs nodes/GPUs at fixed problem size. Efficiency curves.
+  Whether the embarrassingly parallel structure (no inter-task communication) achieves
+  near-linear speedup in practice on Polaris, or whether I/O and scheduling overhead degrades it.
+- **Model scaling (if explored):** MLP width/depth vs performance at fixed data size. Not
+  yet systematically studied — could be added as an ablation axis if the HPC paper materializes.
+
+To strengthen the HPC case, consider running Task 11 at multiple data scales (5K, 25K, 50K,
+111K) rather than jumping straight to full dataset. This produces the scaling curves needed
+for both Paper 1 (does more data help?) and Paper 3 (how does compute cost scale?).
+
 ---
 
 ## Appendix: Delayed Learning Phenomenon
