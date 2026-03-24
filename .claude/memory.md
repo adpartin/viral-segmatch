@@ -89,6 +89,7 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 ## HPC
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
 - Polaris (ALCF), PBS job arrays. Do NOT use Hydra's submitit launcher (SLURM only).
+- See `large_run_polaris.md` for Polaris-specific setup: env validation, PBS job script templates, queues, DDP patterns, conda on Lustre, common failure modes.
 
 ## Cross-validation (IMPLEMENTED — branch: feature/cross-validation)
 ### Output structure
@@ -131,7 +132,26 @@ Hydra's package resolution double-nests inherited configs from subdirs, breaking
 - Both shell scripts slimmed to ~60-100 lines matching the lean stage1/stage2b pattern
 - Workflow: Stage 3 once → Stage 4 N times with different training bundles
 
+## Task 11: All Protein-Pair Combinations (8x8 Heatmap) — NEXT UP
+Goal: 28 pairwise combinations C(8,2) of 8 major proteins (PB2, PB1, PA, HA, NP, NA, M1, NS1).
+Full run: 28 pairs × 10 CV folds × ~100 epochs × ~111K isolates (Polaris).
+Test run first: subset of pairs, 1-2 folds, 5-10 epochs, 5K isolates.
+
+### Relevant files
+- Config: `conf/virus/flu.yaml` (8 proteins in `selected_functions`), `conf/bundles/flu_schema.yaml` (`pair_mode: schema_ordered` + `schema_pair`), `conf/bundles/flu_schema_raw_kmer_k6_slot_norm_concat_cv10.yaml` (k-mer CV template)
+- Pipeline: `src/datasets/dataset_segment_pairs.py` (reads `schema_pair`), `src/models/train_pair_classifier.py`, `scripts/run_cv_lambda.py` (CV fold launcher)
+- Analysis: `scripts/aggregate_cv_results.py`
+
+### What needs to be built
+1. **Bundle generator script** — produce 28 YAML files programmatically, each setting `schema_pair` to a different pair. Takes params for `n_folds`, `epochs`, `max_isolates_to_process` to dial between test/full runs.
+2. **Outer launcher** — iterates over protein pairs, calling `run_cv_lambda.py` per pair (Lambda) or PBS job array per pair (Polaris).
+3. **Cross-pair aggregation** — collect 28 CV summaries into 8×8 heatmap.
+
+### Key constraint
+Current pipeline: one bundle = one protein pair. `run_cv_lambda.py` handles the fold dimension. No outer loop over pairs exists yet. Hydra doesn't support CLI overrides for `schema_pair` — must flow through bundle files.
+
 ## What's Next
+- **Task 11 (all 28 protein pairs)** -- build bundle generator + outer launcher (see section above)
 - Fix pair_key dedup for temporal holdout -- re-run for clean metrics
 - Run cross-validation end-to-end (see CV section above)
 - FP/FN diagnostics (Task 12) -- understand error distribution before mitigation
