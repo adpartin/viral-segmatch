@@ -490,7 +490,9 @@ def train_model(
     output_dir,
     early_stopping_metric='loss',
     threshold_metric='f1',
-    lr_scheduler=None
+    lr_scheduler=None,
+    eval_train_metrics=False,
+    train_eval_loader=None
     ) -> tuple[str, float]:
     """
     Train the MLP classifier with early stopping based on a configurable metric.
@@ -509,6 +511,10 @@ def train_model(
             - If ReduceLROnPlateau: step() called with metric value
             - If other schedulers: step() called after each epoch
             - If None: No learning rate scheduling
+        eval_train_metrics: If True, run a full forward pass over training data each epoch
+            to compute train F1/AUC/precision/recall/Brier. If False, only train_loss is tracked.
+        train_eval_loader: DataLoader for train eval pass (can use larger batch size).
+            If None, falls back to train_loader.
     
     Returns:
         best_model_path: Path to best model checkpoint
@@ -539,12 +545,6 @@ def train_model(
     history = {
         'train_loss': [],
         'val_loss': [],
-        'train_f1': [],  # F1 for positive class (same isolate) - binary
-        'train_f1_macro': [],  # F1 macro (average of both classes)
-        'train_precision': [],  # Precision for positive class (measures FP)
-        'train_recall': [],  # Recall for positive class (measures FN)
-        'train_auc': [],
-        'train_brier': [],
         'val_f1': [],  # F1 for positive class (same isolate) - binary
         'val_f1_macro': [],  # F1 macro (average of both classes)
         'val_precision': [],  # Precision for positive class (measures FP)
@@ -554,6 +554,17 @@ def train_model(
         'learning_rate': [],  # Track learning rate over epochs
         'epoch_time_sec': []  # Wall-clock time per epoch (seconds)
     }
+    # Train metrics keys only present when eval_train_metrics is enabled.
+    # Plotting and CSV code check for key presence, so omitting them is safe.
+    if eval_train_metrics:
+        history.update({
+            'train_f1': [],
+            'train_f1_macro': [],
+            'train_precision': [],
+            'train_recall': [],
+            'train_auc': [],
+            'train_brier': [],
+        })
     
     patience_counter = 0
     best_model_path = output_dir / 'best_model.pt'
@@ -595,32 +606,37 @@ def train_model(
         train_loss /= len(train_loader.dataset)
         
         # Compute training metrics AFTER training (with model in eval mode for consistency)
-        # This ensures all training predictions come from the same model state
-        model.eval()
-        train_preds, train_probs, train_labels = [], [], []
-        with torch.no_grad():
-            for batch_x, batch_y in train_loader:
-                if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
-                    batch_a, batch_b = batch_x
-                    batch_a, batch_b = batch_a.to(device), batch_b.to(device)
-                    batch_y = batch_y.to(device)
-                    preds = model(batch_a, batch_b).squeeze(-1)
-                else:
-                    batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                    preds = model(batch_x).squeeze(-1)
-                train_probs.extend(torch.sigmoid(preds).cpu().numpy())
-                train_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
-                train_labels.extend(batch_y.cpu().numpy())
-        train_preds = np.array(train_preds)
-        train_probs = np.array(train_probs)
-        # Compute metrics for positive class (label=1, same isolate)
-        # Explicit parameters: average='binary', pos_label=1
-        train_f1 = f1_score(train_labels, train_preds, average='binary', pos_label=1)
-        train_f1_macro = f1_score(train_labels, train_preds, average='macro')
-        train_precision = precision_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
-        train_recall = recall_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
-        train_auc = roc_auc_score(train_labels, train_probs)
-        train_brier = float(np.mean((train_probs - np.array(train_labels)) ** 2))
+        # This ensures all training predictions come from the same model state.
+        # Skipped when eval_train_metrics=False to save ~50% of epoch time.
+        if eval_train_metrics:
+            _train_eval_loader = train_eval_loader or train_loader
+            model.eval()
+            train_preds, train_probs, train_labels = [], [], []
+            with torch.no_grad():
+                for batch_x, batch_y in _train_eval_loader:
+                    if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
+                        batch_a, batch_b = batch_x
+                        batch_a, batch_b = batch_a.to(device), batch_b.to(device)
+                        batch_y = batch_y.to(device)
+                        preds = model(batch_a, batch_b).squeeze(-1)
+                    else:
+                        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+                        preds = model(batch_x).squeeze(-1)
+                    train_probs.extend(torch.sigmoid(preds).cpu().numpy())
+                    train_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
+                    train_labels.extend(batch_y.cpu().numpy())
+            train_preds = np.array(train_preds)
+            train_probs = np.array(train_probs)
+            # Compute metrics for positive class (label=1, same isolate)
+            # Explicit parameters: average='binary', pos_label=1
+            train_f1 = f1_score(train_labels, train_preds, average='binary', pos_label=1)
+            train_f1_macro = f1_score(train_labels, train_preds, average='macro')
+            train_precision = precision_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
+            train_recall = recall_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
+            train_auc = roc_auc_score(train_labels, train_probs)
+            train_brier = float(np.mean((train_probs - np.array(train_labels)) ** 2))
+        else:
+            train_f1 = train_f1_macro = train_precision = train_recall = train_auc = train_brier = None
 
         model.eval()
         val_loss = 0
@@ -676,12 +692,13 @@ def train_model(
         # Track history for plotting
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
-        history['train_f1'].append(train_f1)
-        history['train_f1_macro'].append(train_f1_macro)
-        history['train_precision'].append(train_precision)
-        history['train_recall'].append(train_recall)
-        history['train_auc'].append(train_auc)
-        history['train_brier'].append(train_brier)
+        if eval_train_metrics:
+            history['train_f1'].append(train_f1)
+            history['train_f1_macro'].append(train_f1_macro)
+            history['train_precision'].append(train_precision)
+            history['train_recall'].append(train_recall)
+            history['train_auc'].append(train_auc)
+            history['train_brier'].append(train_brier)
         history['val_f1'].append(val_f1)
         history['val_f1_macro'].append(val_f1_macro)
         history['val_precision'].append(val_precision)
@@ -692,10 +709,15 @@ def train_model(
         history['epoch_time_sec'].append(round(epoch_time, 2))
 
         # Print simplified metrics (all metrics still saved to history/CSV)
-        print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
-              f'Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}, '
-              f'Train AUC: {train_auc:.4f}, Val AUC: {val_auc:.4f} '
-              f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
+        if eval_train_metrics:
+            print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
+                  f'Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}, '
+                  f'Train AUC: {train_auc:.4f}, Val AUC: {val_auc:.4f} '
+                  f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
+        else:
+            print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
+                  f'Val F1: {val_f1:.4f}, Val AUC: {val_auc:.4f} '
+                  f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
 
         # Check if current metric is better than best
         is_better = False
@@ -958,6 +980,10 @@ ADAPTER_DIMS = getattr(config.training, 'adapter_dims', None)
 # Interaction spec: "concat", "diff", "unit_diff", "prod", or combinations like "concat+unit_diff"
 INTERACTION_SPEC = getattr(config.training, 'interaction', 'concat')
 FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
+EVAL_TRAIN_METRICS = getattr(config.training, 'eval_train_metrics', False)
+INFER_BATCH_SIZE = getattr(config.training, 'infer_batch_size', None) or BATCH_SIZE
+NUM_WORKERS = getattr(config.training, 'num_workers', 0)
+PIN_MEMORY = getattr(config.training, 'pin_memory', False)
 USE_LR_SCHEDULER = getattr(config.training, 'use_lr_scheduler', False)
 LR_SCHEDULER_TYPE = getattr(config.training, 'lr_scheduler', 'reduce_on_plateau')
 LR_SCHEDULER_PATIENCE = getattr(config.training, 'lr_scheduler_patience', 5)
@@ -1036,6 +1062,10 @@ print(f'Output dir:       {output_dir}')  # This line is parsed by stage4_train.
 print(f'Run ID:           {args.run_output_subdir if args.run_output_subdir else "auto-generated"}')
 print(f'model:           {MODEL_CKPT}')
 print(f'batch_size:      {BATCH_SIZE}')
+print(f'infer_batch_size: {INFER_BATCH_SIZE}')
+print(f'eval_train_metrics: {EVAL_TRAIN_METRICS}')
+print(f'num_workers:     {NUM_WORKERS}')
+print(f'pin_memory:      {PIN_MEMORY}')
 
 print('\nLoad pair datasets.')
 train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv')
@@ -1123,9 +1153,18 @@ else:
     # Get embedding dimension from model checkpoint
     EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-val_loader   = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+train_loader = DataLoader(
+    train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+    num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
+train_eval_loader = DataLoader(
+    train_dataset, batch_size=INFER_BATCH_SIZE, shuffle=False,
+    num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
+val_loader = DataLoader(
+    val_dataset, batch_size=INFER_BATCH_SIZE, shuffle=False,
+    num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
+test_loader = DataLoader(
+    test_dataset, batch_size=INFER_BATCH_SIZE, shuffle=False,
+    num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
 
 # Resolve interaction flags from training.interaction
 USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
@@ -1220,7 +1259,9 @@ best_model_path, optimal_threshold = train_model(
     output_dir=output_dir,
     early_stopping_metric=EARLY_STOPPING_METRIC,
     threshold_metric=THRESHOLD_METRIC,
-    lr_scheduler=lr_scheduler
+    lr_scheduler=lr_scheduler,
+    eval_train_metrics=EVAL_TRAIN_METRICS,
+    train_eval_loader=train_eval_loader
 )
 
 # Evaluate
@@ -1245,7 +1286,8 @@ if EVAL_SWAPPED_TEST:
         swapped_test_dataset = KmerPairDataset(swapped_test_pairs, kmer_matrix, kmer_key_to_row)
     else:
         swapped_test_dataset = SegmentPairDataset(swapped_test_pairs, embeddings_file)
-    swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=INFER_BATCH_SIZE, shuffle=False,
+                                     num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
     swapped_test_res_df = evaluate_on_split(
         model, swapped_test_loader, criterion, device, swapped_test_pairs,
         threshold=optimal_threshold,
@@ -1266,6 +1308,10 @@ training_info = {
     'hidden_dims': list(HIDDEN_DIMS) if HIDDEN_DIMS else None,
     'dropout': DROPOUT,
     'batch_size': BATCH_SIZE,
+    'infer_batch_size': INFER_BATCH_SIZE,
+    'eval_train_metrics': EVAL_TRAIN_METRICS,
+    'num_workers': NUM_WORKERS,
+    'pin_memory': PIN_MEMORY,
     'learning_rate': LEARNING_RATE,
     'patience': PATIENCE,
     'epochs': EPOCHS,

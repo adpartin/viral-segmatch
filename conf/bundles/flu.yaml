@@ -5,6 +5,7 @@ defaults:
   - /virus: flu
   - /paths: flu
   - /embeddings: default
+  - /kmer: default
   - /dataset: default
   - /training: base
   - _self_

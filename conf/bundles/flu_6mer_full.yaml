@@ -1,0 +1,16 @@
+# STATUS: experimental -- full dataset, k-mer k=6, speed-up benchmarking
+# Inherits from flu_6mer_5k.yaml. Overrides to use all isolates.
+# Used as baseline for speed_up.md optimization experiments.
+#
+# Note: This bundle must stay flat in conf/bundles/ (not in a subdirectory).
+
+defaults:
+  - flu_6mer_5k
+  - _self_
+
+dataset:
+  max_isolates_to_process: null  # Use all isolates
+
+training:
+  epochs: 100
+  patience: 100

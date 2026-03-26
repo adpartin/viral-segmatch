@@ -32,5 +32,21 @@ patience: 15  # Early stopping patience
 early_stopping_metric: 'f1'  # Metric for early stopping: 'loss' (lower is better), 'f1' and 'auc' (higher is better)
 threshold_metric: null  # Threshold optimization metric; null (no optimization; use 0.5), 'f1' (default), 'f0.5' (emphasize precision), 'f2' (emphasize recall); This metric is used to determine the threshold for the binary classifier; the threshold is the metric value that is used to classify the pairs as positive or negative
 
+# Performance
+eval_train_metrics: false  # Run a full forward pass over training data each epoch to compute
+                           # train F1/AUC/precision/recall/Brier. Doubles epoch time. Enable
+                           # when debugging model behavior; disable for production/HPC runs.
+                           # train_loss is always tracked regardless of this setting.
+infer_batch_size: null     # Batch size for inference passes (train eval, val eval, test eval).
+                           # null = use training batch_size. Can be larger than training batch_size
+                           # because inference (torch.no_grad) uses no gradient memory.
+num_workers: 0             # DataLoader worker processes for async data loading. 0 = main thread
+                           # only. For GPU training, 2-4 workers enable prefetch while GPU computes.
+                           # Keep low (2) when running multiple folds on the same node to avoid
+                           # CPU contention. Benefit is modest when data is pre-loaded in RAM.
+pin_memory: false          # Pin CPU tensors in page-locked memory for faster CPU->GPU transfer.
+                           # Almost always beneficial on GPU. Only costs extra pinned RAM (not an
+                           # issue on systems with >=64GB). No effect on CPU-only training.
+
 # Diagnostics
 eval_swapped_test: false  # If true, also evaluate the trained model on swapped test inputs (B,A) and write test_predicted_swapped.csv
