@@ -492,7 +492,8 @@ def train_model(
     threshold_metric='f1',
     lr_scheduler=None,
     eval_train_metrics=False,
-    train_eval_loader=None
+    train_eval_loader=None,
+    use_amp=False
     ) -> tuple[str, float]:
     """
     Train the MLP classifier with early stopping based on a configurable metric.
@@ -515,6 +516,7 @@ def train_model(
             to compute train F1/AUC/precision/recall/Brier. If False, only train_loss is tracked.
         train_eval_loader: DataLoader for train eval pass (can use larger batch size).
             If None, falls back to train_loader.
+        use_amp: If True, use automatic mixed precision (float16 forward pass on GPU).
     
     Returns:
         best_model_path: Path to best model checkpoint
@@ -571,6 +573,9 @@ def train_model(
     best_val_probs = None
     best_val_labels = None
     
+    # AMP: GradScaler for mixed precision training
+    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
+
     # Initialize best metric tracking based on metric type
     if early_stopping_metric == 'loss':
         best_metric_value = float('inf')
@@ -589,19 +594,23 @@ def train_model(
         progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}',
             dynamic_ncols=True, leave=False)
         for batch_x, batch_y in progress_bar:
-            if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
+            is_pair = isinstance(batch_x, (tuple, list)) and len(batch_x) == 2
+            if is_pair:
                 batch_a, batch_b = batch_x
                 batch_a, batch_b = batch_a.to(device), batch_b.to(device)
-                batch_y = batch_y.to(device)
-                preds = model(batch_a, batch_b).squeeze(-1)
             else:
-                batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-                preds = model(batch_x).squeeze(-1)
+                batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
             optimizer.zero_grad()
-            # Backward pass
-            loss = criterion(preds, batch_y)
-            loss.backward()
-            optimizer.step()
+            with torch.amp.autocast('cuda', enabled=use_amp):
+                if is_pair:
+                    preds = model(batch_a, batch_b).squeeze(-1)
+                else:
+                    preds = model(batch_x).squeeze(-1)
+                loss = criterion(preds, batch_y)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             train_loss += loss.item() * batch_y.size(0)
         train_loss /= len(train_loader.dataset)
         
@@ -612,7 +621,7 @@ def train_model(
             _train_eval_loader = train_eval_loader or train_loader
             model.eval()
             train_preds, train_probs, train_labels = [], [], []
-            with torch.no_grad():
+            with torch.no_grad(), torch.amp.autocast('cuda', enabled=use_amp):
                 for batch_x, batch_y in _train_eval_loader:
                     if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
                         batch_a, batch_b = batch_x
@@ -641,7 +650,7 @@ def train_model(
         model.eval()
         val_loss = 0
         val_preds, val_probs, val_labels = [], [], []
-        with torch.no_grad():
+        with torch.no_grad(), torch.amp.autocast('cuda', enabled=use_amp):
             for batch_x, batch_y in val_loader:
                 if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
                     batch_a, batch_b = batch_x
@@ -819,17 +828,19 @@ def evaluate_on_split(
     pairs_df,
     threshold=0.5,
     split_name: str = "test",
+    use_amp=False,
     ) -> pd.DataFrame:
     """
     Evaluate the model on a split and compute metrics.
 
     Args:
         threshold: Classification threshold (default: 0.5)
+        use_amp: If True, use automatic mixed precision for inference.
     """
     model.eval()
     loss_sum = 0.0
     pred_labels, probs, true_labels, logits = [], [], [], []
-    with torch.no_grad():
+    with torch.no_grad(), torch.amp.autocast('cuda', enabled=use_amp):
         for batch_x, batch_y in data_loader:
             if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
                 batch_a, batch_b = batch_x
@@ -984,6 +995,7 @@ EVAL_TRAIN_METRICS = getattr(config.training, 'eval_train_metrics', False)
 INFER_BATCH_SIZE = getattr(config.training, 'infer_batch_size', None) or BATCH_SIZE
 NUM_WORKERS = getattr(config.training, 'num_workers', 0)
 PIN_MEMORY = getattr(config.training, 'pin_memory', False)
+USE_AMP = getattr(config.training, 'use_amp', False)
 USE_LR_SCHEDULER = getattr(config.training, 'use_lr_scheduler', False)
 LR_SCHEDULER_TYPE = getattr(config.training, 'lr_scheduler', 'reduce_on_plateau')
 LR_SCHEDULER_PATIENCE = getattr(config.training, 'lr_scheduler_patience', 5)
@@ -1066,6 +1078,7 @@ print(f'infer_batch_size: {INFER_BATCH_SIZE}')
 print(f'eval_train_metrics: {EVAL_TRAIN_METRICS}')
 print(f'num_workers:     {NUM_WORKERS}')
 print(f'pin_memory:      {PIN_MEMORY}')
+print(f'use_amp:         {USE_AMP}')
 
 print('\nLoad pair datasets.')
 train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv')
@@ -1261,7 +1274,8 @@ best_model_path, optimal_threshold = train_model(
     threshold_metric=THRESHOLD_METRIC,
     lr_scheduler=lr_scheduler,
     eval_train_metrics=EVAL_TRAIN_METRICS,
-    train_eval_loader=train_eval_loader
+    train_eval_loader=train_eval_loader,
+    use_amp=USE_AMP
 )
 
 # Evaluate
@@ -1270,7 +1284,8 @@ model.load_state_dict(torch.load(best_model_path))
 test_res_df = evaluate_on_split(
     model, test_loader, criterion, device, test_pairs,
     threshold=optimal_threshold,
-    split_name="Test"
+    split_name="Test",
+    use_amp=USE_AMP
 )
 
 # Save raw predictions
@@ -1291,7 +1306,8 @@ if EVAL_SWAPPED_TEST:
     swapped_test_res_df = evaluate_on_split(
         model, swapped_test_loader, criterion, device, swapped_test_pairs,
         threshold=optimal_threshold,
-        split_name="Swapped Test"
+        split_name="Swapped Test",
+        use_amp=USE_AMP
     )
     swapped_preds_file = output_dir / 'test_predicted_swapped.csv'
     print(f'\nSave swapped-test predictions to: {swapped_preds_file}')
@@ -1312,6 +1328,7 @@ training_info = {
     'eval_train_metrics': EVAL_TRAIN_METRICS,
     'num_workers': NUM_WORKERS,
     'pin_memory': PIN_MEMORY,
+    'use_amp': USE_AMP,
     'learning_rate': LEARNING_RATE,
     'patience': PATIENCE,
     'epochs': EPOCHS,

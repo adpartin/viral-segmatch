@@ -47,6 +47,10 @@ num_workers: 0             # DataLoader worker processes for async data loading.
 pin_memory: false          # Pin CPU tensors in page-locked memory for faster CPU->GPU transfer.
                            # Almost always beneficial on GPU. Only costs extra pinned RAM (not an
                            # issue on systems with >=64GB). No effect on CPU-only training.
+use_amp: false             # Automatic Mixed Precision. Runs forward pass in float16 on GPU
+                           # (Tensor Cores) while keeping loss and optimizer in float32.
+                           # ~1.3-1.5x on V100, ~2x on A100. Negligible accuracy impact for MLPs.
+                           # No effect on CPU-only training.
 
 # Diagnostics
 eval_swapped_test: false  # If true, also evaluate the trained model on swapped test inputs (B,A) and write test_predicted_swapped.csv

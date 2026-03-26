@@ -118,7 +118,21 @@ near-zero risk for MLP classifiers.
 
 **Estimated speedup:** 20–30% on forward/backward (more on A100 than V100).
 
-**Status: NOT YET TESTED.**
+**Status: HURT (V100, small MLP, batch_size=16).** AMP caused a small slowdown on
+5K dataset with V100. Disabling AMP restored original per-epoch time, confirming the
+overhead is from AMP itself (not a code regression). Root cause: our MLP is too small
+and memory-bound for AMP to help.
+- **Small matrices**: Layers [4096→512→256→64→1] with batch_size=16 produce tiny GEMMs
+  that don't saturate Tensor Cores. Dtype casting overhead (float32↔float16) dominates.
+- **Memory-bound, not compute-bound**: Small MLPs are bottlenecked by memory bandwidth,
+  not arithmetic. AMP only accelerates arithmetic.
+- **GradScaler overhead**: Scaling, unscaling, and inf-checking every step adds cost
+  that exceeds savings on cheap forward/backward passes.
+- **V100 first-gen Tensor Cores**: Higher overhead than A100, less efficient on small ops.
+
+May be worth retesting on A100 with larger batch sizes on the full dataset, but unlikely
+to help for this model architecture. AMP pays off for large models (transformers, deep
+convnets) with large batches and matrix dimensions.
 
 ---
 
@@ -143,7 +157,7 @@ JIT compiler for the computation graph.
 
 **Estimated speedup:** 10–20% for MLPs.
 
-**Status: NOT YET TESTED.**
+**Status: SKIPPED.**
 
 ---
 
@@ -179,14 +193,15 @@ Pure code improvement.
 
 ## Summary
 
-| # | Optimization | Config flag | Default | Risk | Est. speedup |
+| # | Optimization | Config flag | Default | Result | Notes |
 |---|---|---|---|---|---|
-| 1 | Skip train metrics re-pass | `eval_train_metrics` | `true` | None | ~45–50% of epoch |
-| 2 | Larger inference batch size | `infer_batch_size` | `null` (= batch_size) | None | 5–15% on eval |
-| 3 | `num_workers` + `pin_memory` | `num_workers` | `2` | None | 5–15% |
-| 4 | AMP (mixed precision) | `use_amp` | `false` | Negligible | 20–30% |
-| 5 | `torch.compile` | `compile_model` | `false` | None | 10–20% |
-| 6 | Batch GPU→CPU transfers | (none) | Always on | None | 5–10% on eval |
+| 1 | Skip train metrics re-pass | `eval_train_metrics` | `false` | WORKS | ~45–50% epoch savings |
+| 2 | Larger inference batch size | `infer_batch_size` | `null` (= batch_size) | WORKS | Speedup on eval passes |
+| 3 | `num_workers` + `pin_memory` | `num_workers`, `pin_memory` | `0`, `false` | `num_workers` HURT, `pin_memory` HELPED | In-memory data makes workers overhead-only |
+| 4 | AMP (mixed precision) | `use_amp` | `false` | HURT | MLP too small, memory-bound not compute-bound |
+| 5 | `torch.compile` | `compile_model` | `false` | SKIPPED | |
+| 6 | Batch GPU→CPU transfers | (none) | Always on | NOT YET IMPLEMENTED | |
+| -- | Larger `batch_size` | `batch_size` | `16` | NOT YET TESTED | Also a HP — affects convergence |
 
 ### Combined estimate (full dataset, per epoch)
 

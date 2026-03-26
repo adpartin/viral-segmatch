@@ -23,6 +23,10 @@ training:
   # infer_batch_size: 256       # Larger batch for inference (no gradient memory needed)
   ## Speed-up method 3
   # num_workers: 2              # Async data loading (2 workers to avoid CPU contention) -- didn't help
+  # pin_memory: true            # Page-locked memory for faster CPU->GPU transfer
   num_workers: 0              # Async data loading (2 workers to avoid CPU contention)
-  pin_memory: true            # Page-locked memory for faster CPU->GPU transfer
+  pin_memory: false            # Page-locked memory for faster CPU->GPU transfer
+  ## Speed-up method 4
+  use_amp: false               # Mixed precision (float16 forward pass on GPU Tensor Cores)
+  # use_amp: true               # Mixed precision (float16 forward pass on GPU Tensor Cores)
 
