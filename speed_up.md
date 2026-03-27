@@ -41,9 +41,15 @@ GPU kernel launch overhead.
 **Independent of optimization 1** — applies even when `eval_train_metrics` is enabled,
 and also speeds up val/test evaluation.
 
+**How large can `infer_batch_size` be?** The limit is GPU VRAM: `model weights + activations
++ batch tensors` must fit. For our MLP (a few MB of weights) with k-mer inputs (4096-dim,
+~32KB per pair for two slots), even the full training set (~90K pairs ≈ 2.9GB) fits in a
+single batch on a 32GB V100 or 40GB A100. `infer_batch_size: 8192` or `16384` is safe for
+all current scenarios. Returns plateau once there are only a few batches per eval pass.
+
 **Estimated speedup:** 5–15% on eval passes (depends on batch size headroom).
 
-**Status: IMPLEMENTED.** Tested on 5K dataset (flu_6mer_5k, 20 epochs). Per-epoch steep up.
+**Status: IMPLEMENTED.** Tested on 5K dataset (flu_6mer_5k, 20 epochs). Per-epoch speed up.
 
 ---
 
@@ -187,7 +193,10 @@ Pure code improvement.
 
 **Estimated speedup:** 5–10% on eval passes.
 
-**Status: NOT YET IMPLEMENTED.**
+**Status: WORKS (small improvement).** Collect logits and labels on GPU via `torch.cat`,
+transfer once after the loop. Applied to all three eval loops (train eval, val eval,
+`evaluate_on_split`). Small runtime improvement on 5K dataset; expected to be more
+significant with the full dataset where eval passes process more batches.
 
 ---
 
@@ -200,24 +209,101 @@ Pure code improvement.
 | 3 | `num_workers` + `pin_memory` | `num_workers`, `pin_memory` | `0`, `false` | `num_workers` HURT, `pin_memory` HELPED | In-memory data makes workers overhead-only |
 | 4 | AMP (mixed precision) | `use_amp` | `false` | HURT | MLP too small, memory-bound not compute-bound |
 | 5 | `torch.compile` | `compile_model` | `false` | SKIPPED | |
-| 6 | Batch GPU→CPU transfers | (none) | Always on | NOT YET IMPLEMENTED | |
-| -- | Larger `batch_size` | `batch_size` | `16` | NOT YET TESTED | Also a HP — affects convergence |
+| 6 | Batch GPU→CPU transfers | (none) | Always on | WORKS (small) | Expect bigger gain on full dataset |
+| -- | Larger `batch_size` | `batch_size` | `16` | **BEST** | 60% faster at bs=128; also a HP |
 
-### Combined estimate (full dataset, per epoch)
+---
 
-| Scenario | Est. epoch time | vs baseline |
-|---|---|---|
-| Baseline | ~97s | — |
-| Skip train re-pass only | ~50–55s | ~45% faster |
-| All optimizations, eval_train_metrics=true | ~40–50s | ~50% faster |
-| All optimizations, eval_train_metrics=false | ~25–35s | ~65–75% faster |
+## Empirical Results (5K dataset, 20 epochs, Lambda V100)
+
+All runs use `flu_6mer_5k` bundle (k-mer k=6, HA/NA, 5K isolates).
+
+| Run | batch_size | eval_train | infer_bs | num_workers | pin_mem | use_amp | Mean epoch | vs baseline |
+|-----|-----------|------------|----------|------------|---------|---------|-----------|-------------|
+| `_150845` | 16 | true | 16 | 0 | false | false | 4.26s | baseline |
+| `_163314` | 16 | true | 16 | 0 | false | false | 4.25s | baseline |
+| `_171110` | 16 | true | 16 | 0 | false | false | 4.13s | 3% faster (method 6 code) |
+| `_154800` | 16 | true | 16 | 0 | **true** | false | 3.51s | 18% faster |
+| `_151638` | 16 | **false** | **256** | 0 | false | false | 3.22s | 24% faster |
+| **`_171746`** | **128** | true | 128 | 0 | false | false | **1.68s** | **60% faster** |
+| `_162802` | 16 | true | 16 | 0 | false | **true** | 5.30s | 25% slower |
+| `_154042` | 16 | true | 16 | **2** | true | false | 7.97s | 87% slower |
+
+### Key takeaways
+
+- **`batch_size=128` is the single biggest win** — 60% faster (1.68s vs 4.26s). Reduces
+  optimizer steps and DataLoader iterations by 8x, improves GPU utilization with larger
+  matrix operations. Note: batch_size is also a hyperparameter that affects convergence
+  (larger batches may need higher learning rate).
+- **`eval_train_metrics=false` + `infer_batch_size=256`** — 24% faster. Best pure-speed
+  optimization with no HP implications.
+- **`pin_memory=true`** — 18% faster. Free win, no downsides.
+- **Method 6 (batched GPU→CPU transfers)** — ~3% improvement. Small on 5K, expected to
+  scale with larger datasets.
+- **`use_amp=true`** — 25% slower. MLP too small for Tensor Core benefits.
+- **`num_workers=2`** — 87% slower. IPC overhead dominates for in-memory data.
+
+### Recommended production config
+
+Combining the winners for maximum speed:
+```yaml
+training:
+  batch_size: 128          # Or tune as HP (64/128/256)
+  eval_train_metrics: false
+  infer_batch_size: 8192
+  pin_memory: true
+  num_workers: 0
+  use_amp: false
+```
+
+### Note on batch size alignment and GPU Tensor Cores
+
+The convention of using powers of 2 for batch sizes comes from GPU Tensor Core tile sizes.
+V100 Tensor Cores operate on 8×8 tiles; A100 on 16×16. Matrix dimensions that are multiples
+of 8 (V100) or 16 (A100) map cleanly to these tiles — non-aligned dimensions get padded,
+wasting cycles.
+
+- **`batch_size`**: Matters for training — feeds into matmuls (batch × features @ features ×
+  hidden). Multiples of 8 are sufficient; powers of 2 are not required. `batch_size=96` is
+  as efficient as 128 on Tensor Cores. Avoid dimensions like 65 or 500 that require padding.
+- **Hidden layer dims**: Same principle. `[512, 256, 64]` (current) are ideal. `[384, 192, 96]`
+  would also be fine (multiples of 8). `[500, 250, 65]` would not.
+- **`infer_batch_size`**: Alignment doesn't matter in practice. The MLP forward pass is so
+  cheap that tile padding effects are negligible. Any large round number works.
+
+---
+
+## Full Dataset Results (~111K isolates, 100 epochs, Lambda V100)
+
+All runs use `flu_6mer_full` bundle (k-mer k=6, HA/NA, full dataset). The baseline
+(batch_size=16) uses default params. The optimized runs (128/256/512) additionally use
+`eval_train_metrics=false`, `infer_batch_size=1024`, `pin_memory=true`.
+
+| Run | batch_size | Mean epoch | Total runtime | vs baseline | F1 | AUC-ROC | PR-AUC |
+|-----|-----------|-----------|---------------|-------------|-----|---------|--------|
+| `_181009` (baseline) | 16 | 89.71s | 2h 30m 35s | — | 0.9612 | 0.9927 | 0.9742 |
+| `_181120` | **128** | **29.21s** | **49m 48s** | **67% faster** | 0.9656 | 0.9940 | 0.9798 |
+| `_183118` | 256 | 29.45s | 50m 17s | 67% faster | 0.9630 | 0.9932 | 0.9772 |
+| `_183350` | 512 | 29.19s | 50m 03s | 67% faster | 0.9643 | 0.9933 | 0.9799 |
+
+### Key takeaways (full dataset)
+
+- **Combined optimizations deliver 67% speedup** — from 89.71s to ~29s per epoch
+  (2h 31m → 50m total). Confirms 5K findings scale to the full dataset.
+- **batch_size 128/256/512 produce identical runtime** (~29s/epoch). GPU is saturated
+  at batch_size=128; larger batches offer no further speed benefit.
+- **Prediction performance is equivalent or slightly better** across all batch sizes.
+  batch_size=128 actually has the best F1 (0.9656) and AUC-ROC (0.9940). No convergence
+  degradation from larger batches at this scale.
+- **For HPC walltime planning**: A single full-dataset fold at 100 epochs ≈ 50 min with
+  optimized config (vs 2h 31m baseline). With early stopping (~30–50 epochs), expect
+  ~15–25 min per fold.
 
 ---
 
 ## Experiment Plan
 
-Benchmark each optimization individually against the baseline using the full dataset
-(bundle: `flu_6mer_full.yaml`, inheriting from `flu.yaml`). Child bundles per optimization
-to be created for systematic comparison.
+Full dataset benchmarking complete on Lambda (V100). Remaining:
+- Confirm on Polaris (A100) — expect similar or better results.
 
 **Hardware:** Lambda cluster (V100 GPUs) and Polaris (A100 GPUs).

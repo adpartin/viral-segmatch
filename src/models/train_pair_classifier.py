@@ -620,7 +620,7 @@ def train_model(
         if eval_train_metrics:
             _train_eval_loader = train_eval_loader or train_loader
             model.eval()
-            train_preds, train_probs, train_labels = [], [], []
+            all_logits, all_labels = [], []
             with torch.no_grad(), torch.amp.autocast('cuda', enabled=use_amp):
                 for batch_x, batch_y in _train_eval_loader:
                     if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
@@ -631,11 +631,13 @@ def train_model(
                     else:
                         batch_x, batch_y = batch_x.to(device), batch_y.to(device)
                         preds = model(batch_x).squeeze(-1)
-                    train_probs.extend(torch.sigmoid(preds).cpu().numpy())
-                    train_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
-                    train_labels.extend(batch_y.cpu().numpy())
-            train_preds = np.array(train_preds)
-            train_probs = np.array(train_probs)
+                    all_logits.append(preds)
+                    all_labels.append(batch_y)
+            all_logits = torch.cat(all_logits)
+            all_labels = torch.cat(all_labels)
+            train_probs = torch.sigmoid(all_logits).cpu().numpy()
+            train_preds = (train_probs > 0.5).astype(np.float32)
+            train_labels = all_labels.cpu().numpy()
             # Compute metrics for positive class (label=1, same isolate)
             # Explicit parameters: average='binary', pos_label=1
             train_f1 = f1_score(train_labels, train_preds, average='binary', pos_label=1)
@@ -649,7 +651,7 @@ def train_model(
 
         model.eval()
         val_loss = 0
-        val_preds, val_probs, val_labels = [], [], []
+        all_logits, all_labels = [], []
         with torch.no_grad(), torch.amp.autocast('cuda', enabled=use_amp):
             for batch_x, batch_y in val_loader:
                 if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
@@ -662,12 +664,14 @@ def train_model(
                     preds = model(batch_x).squeeze(-1)
                 loss = criterion(preds, batch_y)
                 val_loss += loss.item() * batch_y.size(0)
-                val_probs.extend(torch.sigmoid(preds).cpu().numpy())
-                val_preds.extend((torch.sigmoid(preds) > 0.5).float().cpu().numpy())
-                val_labels.extend(batch_y.cpu().numpy())
+                all_logits.append(preds)
+                all_labels.append(batch_y)
         val_loss /= len(val_loader.dataset)
-        val_preds = np.array(val_preds)
-        val_probs = np.array(val_probs)
+        all_logits = torch.cat(all_logits)
+        all_labels = torch.cat(all_labels)
+        val_probs = torch.sigmoid(all_logits).cpu().numpy()
+        val_preds = (val_probs > 0.5).astype(np.float32)
+        val_labels = all_labels.cpu().numpy()
         # Compute metrics for positive class (label=1, same isolate)
         # Explicit parameters: average='binary', pos_label=1
         val_f1 = f1_score(val_labels, val_preds, average='binary', pos_label=1)
@@ -839,7 +843,7 @@ def evaluate_on_split(
     """
     model.eval()
     loss_sum = 0.0
-    pred_labels, probs, true_labels, logits = [], [], [], []
+    all_logits, all_labels = [], []
     with torch.no_grad(), torch.amp.autocast('cuda', enabled=use_amp):
         for batch_x, batch_y in data_loader:
             if isinstance(batch_x, (tuple, list)) and len(batch_x) == 2:
@@ -852,24 +856,16 @@ def evaluate_on_split(
                 batch_logits = model(batch_x).squeeze(-1)
             loss = criterion(batch_logits, batch_y)
             loss_sum += loss.item() * batch_y.size(0)
-            # Ensure consistent 1D shapes (handles batch_size=1 edge case)
-            batch_logits_1d = batch_logits.view(-1)
+            all_logits.append(batch_logits.view(-1))
+            all_labels.append(batch_y)
 
-            # Save raw logits (pre-sigmoid) for downstream analysis/debugging
-            logits.extend(
-                batch_logits_1d.detach().float().cpu().numpy().astype(np.float32, copy=False)
-            )
-
-            batch_probs = torch.sigmoid(batch_logits_1d)
-            probs.extend(batch_probs.detach().cpu().numpy())
-            pred_labels.extend((batch_probs > threshold).float().detach().cpu().numpy())
-            true_labels.extend(batch_y.detach().cpu().numpy())
-
+    all_logits = torch.cat(all_logits)
+    all_labels = torch.cat(all_labels)
     mean_loss = loss_sum / len(data_loader.dataset)
-    probs = np.array(probs)
-    pred_labels = np.array(pred_labels)
-    true_labels = np.array(true_labels)
-    logits = np.array(logits, dtype=np.float32)
+    logits = all_logits.float().cpu().numpy().astype(np.float32, copy=False)
+    probs = torch.sigmoid(all_logits).cpu().numpy()
+    pred_labels = (probs > threshold).astype(np.float32)
+    true_labels = all_labels.cpu().numpy()
     # Compute metrics for positive class (label=1, same isolate)
     # Explicit parameters: average='binary', pos_label=1
     test_f1 = f1_score(true_labels, pred_labels, average='binary', pos_label=1)
