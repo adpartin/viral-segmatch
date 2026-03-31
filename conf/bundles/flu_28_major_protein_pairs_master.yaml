@@ -25,10 +25,10 @@ virus:
 dataset:
   pair_mode: schema_ordered
   schema_pair: null            # MUST be overridden by child bundles
-  # max_isolates_to_process: null  # Full dataset (~111K isolates)
-  max_isolates_to_process: 5000  # Uncomment for Phase 0/1 (limit to 5000 isolates)
+  max_isolates_to_process: null  # Full dataset (~111K isolates)
+  # max_isolates_to_process: 5000  # Phase 0-2 (5K isolates)
   n_folds: 12                   # 12-fold CV; maps perfectly to 4 GPUs (3 folds/GPU)
-  # n_folds: null                 # Uncomment for Phase 0 (single split)
+  # n_folds: null               # Phase 0 only (single split)
 
   # No metadata filters
   host: null
@@ -44,8 +44,8 @@ training:
   feature_source: kmer
   interaction: concat
   slot_transform: slot_norm
-  # epochs: 100                  # Allow the model to converge
-  epochs: 5                  # Uncomment for Phase 0/1
+  epochs: 100                    # Phase 3: full convergence
+  # epochs: 5                  # Phase 0-2
   patience: 100                # Early stopping on F1
   batch_size: 128              # 60% speedup vs batch_size=16 (see speed_up.md)
   eval_train_metrics: false    # Skip redundant train eval pass (~45% epoch savings)

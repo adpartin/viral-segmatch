@@ -350,15 +350,20 @@ loads and venv activation. SSH key passphrase may need a passphrase-less key or
 ssh-agent forwarding in batch mode (test before full submission).
 
 ```
-[ ] Step 1: Restore master to Phase 3 settings
+[v] Step 1: Restore master to Phase 3 settings
       # In flu_28_major_protein_pairs_master.yaml:
-      #   max_isolates_to_process: null
+      #   max_isolates_to_process: null  (was 5000)
       #   n_folds: 12
-      #   epochs: 100
+      #   epochs: 100                   (was 5)
       #   patience: 100
 
-[ ] Step 2: Dry-run (from login node)
-      bash scripts/run_allpairs_polaris_prod.sh --dry_run
+[ ] Step 2: Test inter-node SSH in batch mode
+      # SSH passphrase blocks batch jobs. Test if PBS provides passwordless inter-node SSH:
+      qsub -l select=2:ncpus=64:ngpus=4 -l walltime=0:10:00 -A IMPROVE_Aim1 \
+           -q debug-scaling -l filesystems=eagle \
+           -- bash -c 'ssh $(tail -1 $PBS_NODEFILE) hostname'
+      # If it works → batch submission is fine
+      # If it fails → need passphrase-less key or ssh-agent in the job script
 
 [ ] Step 3: Submit
       qsub scripts/run_allpairs_polaris_prod.sh
