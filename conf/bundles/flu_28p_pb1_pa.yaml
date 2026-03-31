@@ -1,0 +1,9 @@
+# STATUS: active -- PB1/PA pair (Task 11: all protein-pair combinations)
+defaults:
+  - flu_28_major_protein_pairs_master
+  - _self_
+
+dataset:
+  schema_pair:
+    - "RNA-dependent RNA polymerase catalytic core PB1 subunit"
+    - "RNA-dependent RNA polymerase PA subunit"

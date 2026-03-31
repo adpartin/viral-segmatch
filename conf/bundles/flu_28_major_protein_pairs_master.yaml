@@ -1,0 +1,56 @@
+# STATUS: active -- master bundle for Task 11 (all 28 protein-pair combinations)
+# Children override only dataset.schema_pair. Change settings here to affect all 28 pairs.
+# Do NOT run this bundle directly -- schema_pair is null (children must set it).
+#
+# Inheritance: flu.yaml → this file → flu_28p_{protA}_{protB}.yaml (28 children)
+
+defaults:
+  - flu                   # Inherits /kmer: default (k=6, 4096-dim) among other defaults.
+                          # To switch to ESM-2: set training.feature_source: esm2 below
+                          # (requires precomputed ESM-2 embeddings from Stage 2).
+  - _self_
+
+# All 8 major proteins (one per segment). Children pair two of these via schema_pair.
+virus:
+  selected_functions:
+    - "RNA-dependent RNA polymerase PB2 subunit"           # PB2 (S1)
+    - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 (S2)
+    - "RNA-dependent RNA polymerase PA subunit"             # PA  (S3)
+    - "Hemagglutinin precursor"                             # HA  (S4)
+    - "Nucleocapsid protein"                                # NP  (S5)
+    - "Neuraminidase protein"                               # NA  (S6)
+    - "Matrix protein 1"                                    # M1  (S7)
+    - "Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor"  # NS1 (S8)
+
+dataset:
+  pair_mode: schema_ordered
+  schema_pair: null            # MUST be overridden by child bundles
+  # max_isolates_to_process: null  # Full dataset (~111K isolates)
+  max_isolates_to_process: 5000  # Uncomment for Phase 0/1 (limit to 5000 isolates)
+  n_folds: 12                   # 12-fold CV; maps perfectly to 4 GPUs (3 folds/GPU)
+  # n_folds: null                 # Uncomment for Phase 0 (single split)
+
+  # No metadata filters
+  host: null
+  year: null
+  hn_subtype: null
+  geo_location: null
+  passage: null
+
+# Optimized training settings (see speed_up.md for benchmarks)
+# batch_size=128 + eval_train_metrics=false + pin_memory=true → 67% speedup
+# Full dataset: ~29s/epoch (vs 90s baseline), ~50 min/fold at 100 epochs
+training:
+  feature_source: kmer
+  interaction: concat
+  slot_transform: slot_norm
+  # epochs: 100                  # Allow the model to converge
+  epochs: 5                  # Uncomment for Phase 0/1
+  patience: 100                # Early stopping on F1
+  batch_size: 128              # 60% speedup vs batch_size=16 (see speed_up.md)
+  eval_train_metrics: false    # Skip redundant train eval pass (~45% epoch savings)
+  infer_batch_size: 8192       # Large inference batches (no gradient memory needed)
+  pin_memory: true             # Async CPU→GPU DMA; 18% speedup
+  num_workers: 0               # In-memory data; workers add IPC overhead
+  use_amp: false               # MLP too small for Tensor Core benefits
+

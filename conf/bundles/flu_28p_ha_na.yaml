@@ -1,0 +1,9 @@
+# STATUS: active -- HA/NA pair (Task 11: all protein-pair combinations)
+defaults:
+  - flu_28_major_protein_pairs_master
+  - _self_
+
+dataset:
+  schema_pair:
+    - "Hemagglutinin precursor"
+    - "Neuraminidase protein"

@@ -1,0 +1,9 @@
+# STATUS: active -- NA/NS1 pair (Task 11: all protein-pair combinations)
+defaults:
+  - flu_28_major_protein_pairs_master
+  - _self_
+
+dataset:
+  schema_pair:
+    - "Neuraminidase protein"
+    - "Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor"

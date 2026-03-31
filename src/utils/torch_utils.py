@@ -137,7 +137,6 @@ def create_lr_scheduler(
             factor=factor,
             patience=patience,
             min_lr=min_lr,
-            verbose=True
         )
         print(f"Using LR scheduler: ReduceLROnPlateau (mode={mode}, patience={patience}, factor={factor})")
     elif scheduler_type == 'cosine':
