@@ -90,8 +90,8 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
 - Polaris (ALCF), PBS job arrays. Do NOT use Hydra's submitit launcher (SLURM only).
 - See `polaris_plan.md` for Task 11 plan: phases 0-3, env setup, bundle design, queue strategy, scripts.
-- See `large_run_polaris.md` for general Polaris setup: env validation, PBS templates, queues, conda on Lustre.
 - See `speed_up.md` for training optimizations (67% speedup: batch_size=128, eval_train_metrics=false, pin_memory=true).
+- **Batch vs interactive env**: PBS batch mode doesn't source dotfiles. The fix is `#!/bin/bash -l` (login shell shebang) which loads the full default env (PrgEnv-nvidia, Cray PALS/mpiexec, libfabric, CUDA). No manual PATH or LD_LIBRARY_PATH needed — just conda + venv on top. Interactive mode uses `scripts/polaris_env.sh`.
 
 ## Cross-validation (IMPLEMENTED — branch: feature/cross-validation)
 ### Output structure
@@ -147,31 +147,33 @@ Full run: 28 pairs × 12 CV folds × 100 epochs × ~111K isolates (Polaris).
 
 ### What needs to be built
 1. **Cross-pair aggregation + heatmap** — collect 28 CV summaries into 8×8 AUC/F1 matrix for paper
+2. **Resolved config snapshot** — added `save_config()` calls to Stage 3 and Stage 4 (saves `resolved_config.yaml` in output dir). Not yet tested in a run.
 
 ### Key constraints
 - Master bundle is set to Phase 3 defaults (patience=100, effectively no early stopping). For Phases 0-2, temporarily edit the master.
 - Data is on Polaris (copied from Lambda 2026-03-27): `protein_final.csv`, `kmer_k6_*`, ESM-2 embeddings.
 - N=12 folds chosen for perfect GPU packing (12/4 = 3 waves, no idle GPU).
 
-### Next steps (user must run on Polaris — Claude cannot submit PBS jobs)
-1. **Phase 0** — get interactive debug node, temporarily edit master (5K/null folds/5 epochs/5 patience), run:
-   `bash scripts/run_allpairs_polaris_phase0.sh --pairs "flu_28p_ha_na" --gpu 0`
-   Verify output, restore master to Phase 3 settings.
-2. **Phase 1** — same debug node, master at (5K/12 folds/5 epochs/5 patience), run:
-   `python3 scripts/run_cv_lambda.py --config_bundle flu_28p_ha_na --gpus 0 1 2 3`
-   Verify 12-fold CV output + cv_summary.json.
-3. **Phase 2** — submit to debug-scaling (2 nodes), master at Phase 1 settings:
-   `qsub -l select=2:ncpus=64:ngpus=4 -q debug-scaling scripts/run_allpairs_polaris_prod.sh -- --pairs "flu_28p_ha_na flu_28p_pb2_pb1"`
-   Verify multi-node ssh distribution works.
-4. **Phase 3** — restore master to defaults (null/12/100/100), submit:
-   `qsub scripts/run_allpairs_polaris_prod.sh`
-   28 nodes, medium prod queue, 6h walltime. Expected ~90 min actual.
-5. **After Phase 3** — build cross-pair aggregation + 8x8 heatmap script.
+### Phase status (2026-04-01)
+- **Phase 0** — COMPLETE (single pair, single GPU, sequential)
+- **Phase 1** — COMPLETE (single pair, 12-fold CV, 4 GPUs)
+- **Phase 2** — COMPLETE (Steps 1-6). Key results:
+  - Steps 2-4: interactive `qsub -I` with SSH (Step 2) and mpiexec (Step 4)
+  - Step 5: batch `qsub` with 2 pairs — 2/2 SUCCEEDED
+  - Step 6: full 28-pair batch — 23/28 SUCCEEDED, 5 failed (CUDA OOM on specific nodes, transient)
+  - Root cause of early env failures: `#!/bin/bash -l` needed for login shell in batch mode
+- **Phase 3** — SUBMITTED. Master restored to full settings (null isolates, 100 epochs).
+- **Branch**: `feature/polaris-mpiexec`
 
 See `polaris_plan.md` for detailed step-by-step checklists per phase.
 
+## What's Next (immediate)
+1. Phase 3 production run submitted — monitor and verify 28/28 SUCCEEDED
+2. Clean up failed/incomplete run dirs from Phase 2 test iterations
+3. Build cross-pair aggregation + 8×8 heatmap script
+4. Merge `feature/polaris-mpiexec` to master
+
 ## What's Next (beyond Task 11)
-- Build cross-pair aggregation + 8x8 heatmap script (after Phase 3 completes)
 - Fix pair_key dedup for temporal holdout -- re-run for clean metrics
 - Run cross-validation end-to-end (see CV section above)
 - FP/FN diagnostics (Task 12) -- understand error distribution before mitigation

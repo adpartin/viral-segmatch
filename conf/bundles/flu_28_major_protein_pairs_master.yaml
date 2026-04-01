@@ -26,7 +26,7 @@ dataset:
   pair_mode: schema_ordered
   schema_pair: null            # MUST be overridden by child bundles
   max_isolates_to_process: null  # Full dataset (~111K isolates)
-  # max_isolates_to_process: 5000  # Phase 0-2 (5K isolates)
+  # max_isolates_to_process: 2000  # Phase 0-2 (5K isolates)
   n_folds: 12                   # 12-fold CV; maps perfectly to 4 GPUs (3 folds/GPU)
   # n_folds: null               # Phase 0 only (single split)
 
