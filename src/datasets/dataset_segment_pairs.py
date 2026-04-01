@@ -128,7 +128,7 @@ project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
 from src.utils.timer_utils import Timer
-from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_dataframe
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
@@ -1619,6 +1619,10 @@ else:
     output_dir = default_output_dir / 'runs' / fallback_run_id
     print(f"WARNING: No run_output_subdir provided, using fallback: {fallback_run_id}")
 output_dir.mkdir(parents=True, exist_ok=True)
+
+# Save resolved config snapshot for reproducibility
+save_config(config, str(output_dir / 'resolved_config.yaml'))
+print(f'Saved resolved config snapshot to: {output_dir / "resolved_config.yaml"}')
 
 print(f'\nConfig bundle:  {config_bundle}')
 print(f'Run suffix:     {RUN_SUFFIX if RUN_SUFFIX else "(none)"}')
