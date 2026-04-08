@@ -298,6 +298,12 @@ for i in "${!PIDS[@]}"; do
     fi
 done
 
+# --- Cross-pair aggregation ---
+echo ""
+echo "Running cross-pair aggregation..."
+python3 "$PROJECT_ROOT/src/analysis/aggregate_allpairs_results.py" \
+    --output_dir "$MANIFEST_DIR" 2>&1 || echo "WARNING: Cross-pair aggregation failed (non-fatal)."
+
 # --- Summary ---
 echo ""
 echo "============================================================"
@@ -310,6 +316,7 @@ if [ $FAILED -gt 0 ]; then
 fi
 echo "  Manifest:   $MANIFEST_DIR/manifest.txt"
 echo "  Pair logs:  $MANIFEST_DIR/<bundle>.log"
+echo "  Summary:    $MANIFEST_DIR/allpairs_summary.csv"
 if [ -n "${PBS_JOBID:-}" ]; then
     echo "  PBS Job ID: $PBS_JOBID"
 fi

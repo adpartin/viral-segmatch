@@ -8,6 +8,17 @@ Requirements:
 - Parquet index file: master_esm2_embeddings.parquet (required for brc_fea_id to row mapping)
   Both files must be in the same directory and are created together by compute_esm2_embeddings.py
 """
+# --- Prevent TensorFlow from grabbing GPU memory ---
+# TF is installed in the Polaris system conda env and gets loaded transitively
+# (HuggingFace transformers checks for TF availability on import via esm2_utils).
+# TF's default behavior is to eagerly allocate ALL GPU memory, which can starve
+# PyTorch and cause OOM at model.to(device). These env vars must be set BEFORE
+# any import that could trigger TF initialization.
+import os
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')          # Suppress TF C++ logs
+os.environ.setdefault('TF_FORCE_GPU_ALLOW_GROWTH', 'true')   # Don't pre-allocate all GPU memory
+# --- End TensorFlow prevention ---
+
 import argparse
 import json
 import sys
@@ -279,25 +290,50 @@ class KmerPairDataset(Dataset):
         kmer_matrix,   # scipy sparse CSR
         key_to_row: dict,
         ) -> None:
-        self.pairs = pairs
-        self.key_to_row = key_to_row
-
-        # Densify the full matrix upfront (k=6 → 4096 cols, ~16 MB for 1000 rows).
-        self.features = np.asarray(kmer_matrix.todense(), dtype=np.float32)
-
-        # Pre-compute row indices for each pair for fast __getitem__
+        # Pre-compute row indices for each pair
         keys_a = pairs['assembly_id_a'].astype(str) + '::' + pairs['ctg_a'].astype(str)
         keys_b = pairs['assembly_id_b'].astype(str) + '::' + pairs['ctg_b'].astype(str)
-        self.rows_a = keys_a.map(key_to_row).astype(int).values
-        self.rows_b = keys_b.map(key_to_row).astype(int).values
+        rows_a = keys_a.map(key_to_row).astype(int).values
+        rows_b = keys_b.map(key_to_row).astype(int).values
+
+        # Subset the sparse matrix to only the rows used by this fold's pairs.
+        # Full matrix is 868K×4096 (14.2 GB dense). Each fold uses ~100-200K unique
+        # rows, so subsetting cuts memory 4-8x and dramatically improves cache locality.
+        # Without subsetting, 4 concurrent folds on one node = 56.9 GB → OOM.
+        # With subsetting, 4 folds × ~3.5 GB = 14 GB → fits comfortably.
+        unique_rows = np.unique(np.concatenate([rows_a, rows_b]))
+        old_to_new = np.empty(kmer_matrix.shape[0], dtype=np.int64)
+        old_to_new[unique_rows] = np.arange(len(unique_rows))
+        self.features = np.asarray(
+            kmer_matrix[unique_rows].todense(), dtype=np.float32)
+        self.rows_a = old_to_new[rows_a]
+        self.rows_b = old_to_new[rows_b]
+
+        # --- Original code (before subsetting optimization) ---
+        # Densified the ENTIRE sparse matrix upfront regardless of which rows this
+        # fold actually uses. Caused OOM on Polaris (4 folds × 14.2 GB = 56.9 GB)
+        # and severe cache thrashing (14.2 GB >> L3 cache → ~15x per-batch slowdown).
+        # self.features = np.asarray(kmer_matrix.todense(), dtype=np.float32)
+        # self.rows_a = keys_a.map(key_to_row).astype(int).values
+        # self.rows_b = keys_b.map(key_to_row).astype(int).values
+        # --- End original code ---
+
+        # Pre-extract labels as numpy array (avoids pandas iloc overhead per item).
+        # Original: self.pairs.iloc[idx]['label'] in __getitem__ — pandas iloc has
+        # ~50-100us overhead per call, adding ~10-18s per epoch at 177K train pairs.
+        self.labels = pairs['label'].values.astype(np.float32)
 
     def __len__(self):
-        return len(self.pairs)
+        return len(self.labels)
 
     def __getitem__(self, idx: int):
-        emb_a = torch.tensor(self.features[self.rows_a[idx]], dtype=torch.float)
-        emb_b = torch.tensor(self.features[self.rows_b[idx]], dtype=torch.float)
-        label = torch.tensor(self.pairs.iloc[idx]['label'], dtype=torch.float)
+        # torch.tensor() copies data; torch.from_numpy() shares memory (zero-copy).
+        # Zero-copy is safe with num_workers=0 (single process, no shared-memory
+        # races). If num_workers>0, workers fork the process and shared numpy memory
+        # can cause data corruption — switch back to torch.tensor() in that case.
+        emb_a = torch.from_numpy(self.features[self.rows_a[idx]])
+        emb_b = torch.from_numpy(self.features[self.rows_b[idx]])
+        label = torch.tensor(self.labels[idx], dtype=torch.float)
         return (emb_a, emb_b), label
 
 
@@ -554,7 +590,12 @@ def train_model(
         'val_auc': [],
         'val_brier': [],
         'learning_rate': [],  # Track learning rate over epochs
-        'epoch_time_sec': []  # Wall-clock time per epoch (seconds)
+        'epoch_time_sec': [],  # Wall-clock time per epoch (seconds)
+        # Level 1 profiling: per-epoch timing breakdown (seconds).
+        # Identifies whether data loading, GPU compute, or evaluation is the bottleneck.
+        'data_time_sec': [],      # Time in DataLoader (loading + collating batches)
+        'compute_time_sec': [],   # Time in forward + backward + optimizer step
+        'eval_time_sec': [],      # Time in validation (+ optional train eval) pass
     }
     # Train metrics keys only present when eval_train_metrics is enabled.
     # Plotting and CSV code check for key presence, so omitting them is safe.
@@ -586,14 +627,44 @@ def train_model(
     else:
         raise ValueError(f"Unknown early_stopping_metric: {early_stopping_metric}. Choose from 'loss', 'f1', 'auc'")
 
+    # --- Level 2 diagnostic: micro-benchmark first 10 batches ---
+    # Confirmed that pin_memory=True causes ~300x data-loading slowdown with 4 concurrent
+    # folds on Polaris (cudaHostAlloc serializes across processes). pin_memory=False in the
+    # master bundle fixes this. This diagnostic can be removed once the fix is validated
+    # in a full production run (Phase 3). To re-enable, uncomment the block below.
+    #
+    # print("\nLevel 2 diagnostic: benchmarking first 10 batches...")
+    # _diag_loader_pinned = DataLoader(
+    #     train_loader.dataset, batch_size=train_loader.batch_size, shuffle=True,
+    #     num_workers=0, pin_memory=True)
+    # _diag_loader_unpinned = DataLoader(
+    #     train_loader.dataset, batch_size=train_loader.batch_size, shuffle=True,
+    #     num_workers=0, pin_memory=False)
+    # for _label, _loader in [("pin_memory=True", _diag_loader_pinned),
+    #                          ("pin_memory=False", _diag_loader_unpinned)]:
+    #     _t0 = time.time()
+    #     for _i, (_bx, _by) in enumerate(_loader):
+    #         if _i >= 9:
+    #             break
+    #     _elapsed = time.time() - _t0
+    #     print(f"  {_label}: 10 batches in {_elapsed:.3f}s ({_elapsed/10*1000:.1f} ms/batch)")
+    # del _diag_loader_pinned, _diag_loader_unpinned
+    # print()
+    # --- End Level 2 diagnostic ---
+
     for epoch in range(epochs):
         epoch_start = time.time()
-        # Training phase
+        # Training phase — profiling separates data loading from GPU compute
         model.train()
         train_loss = 0
+        epoch_data_time = 0.0     # Cumulative DataLoader time this epoch
+        epoch_compute_time = 0.0  # Cumulative forward+backward+optimizer time
         progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{epochs}',
-            dynamic_ncols=True, leave=False)
+            dynamic_ncols=True, leave=False, miniters=50)
+        data_start = time.time()
         for batch_x, batch_y in progress_bar:
+            epoch_data_time += time.time() - data_start
+            compute_start = time.time()
             is_pair = isinstance(batch_x, (tuple, list)) and len(batch_x) == 2
             if is_pair:
                 batch_a, batch_b = batch_x
@@ -612,8 +683,13 @@ def train_model(
             scaler.step(optimizer)
             scaler.update()
             train_loss += loss.item() * batch_y.size(0)
+            epoch_compute_time += time.time() - compute_start
+            data_start = time.time()
         train_loss /= len(train_loader.dataset)
         
+        # Evaluation phase — timing covers both optional train-eval and val-eval
+        eval_start = time.time()
+
         # Compute training metrics AFTER training (with model in eval mode for consistency)
         # This ensures all training predictions come from the same model state.
         # Skipped when eval_train_metrics=False to save ~50% of epoch time.
@@ -700,11 +776,15 @@ def train_model(
         else:
             current_lr = optimizer.param_groups[0]['lr']
         
+        epoch_eval_time = time.time() - eval_start
         epoch_time = time.time() - epoch_start
 
         # Track history for plotting
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
+        history['data_time_sec'].append(round(epoch_data_time, 2))
+        history['compute_time_sec'].append(round(epoch_compute_time, 2))
+        history['eval_time_sec'].append(round(epoch_eval_time, 2))
         if eval_train_metrics:
             history['train_f1'].append(train_f1)
             history['train_f1_macro'].append(train_f1_macro)
@@ -721,16 +801,17 @@ def train_model(
         history['learning_rate'].append(current_lr)
         history['epoch_time_sec'].append(round(epoch_time, 2))
 
-        # Print simplified metrics (all metrics still saved to history/CSV)
+        # Print simplified metrics + timing breakdown (all metrics still saved to history/CSV)
+        timing_str = f'time: {epoch_time:.1f}s (data={epoch_data_time:.1f} compute={epoch_compute_time:.1f} eval={epoch_eval_time:.1f})'
         if eval_train_metrics:
             print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
                   f'Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}, '
                   f'Train AUC: {train_auc:.4f}, Val AUC: {val_auc:.4f} '
-                  f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
+                  f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}] {timing_str}')
         else:
             print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
                   f'Val F1: {val_f1:.4f}, Val AUC: {val_auc:.4f} '
-                  f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}]')
+                  f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}] {timing_str}')
 
         # Check if current metric is better than best
         is_better = False
@@ -772,7 +853,10 @@ def train_model(
             'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
             'val_brier': history.get('val_brier', [None] * len(history['train_loss'])),
             'learning_rate': history.get('learning_rate', [None] * len(history['train_loss'])),
-            'epoch_time_sec': history.get('epoch_time_sec', [None] * len(history['train_loss']))
+            'epoch_time_sec': history.get('epoch_time_sec', [None] * len(history['train_loss'])),
+            'data_time_sec': history.get('data_time_sec', [None] * len(history['train_loss'])),
+            'compute_time_sec': history.get('compute_time_sec', [None] * len(history['train_loss'])),
+            'eval_time_sec': history.get('eval_time_sec', [None] * len(history['train_loss'])),
         })
         history_csv = output_dir / 'training_history.csv'
         history_df.to_csv(history_csv, index=False)
@@ -989,7 +1073,17 @@ INTERACTION_SPEC = getattr(config.training, 'interaction', 'concat')
 FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
 EVAL_TRAIN_METRICS = getattr(config.training, 'eval_train_metrics', False)
 INFER_BATCH_SIZE = getattr(config.training, 'infer_batch_size', None) or BATCH_SIZE
-NUM_WORKERS = getattr(config.training, 'num_workers', 0)
+# Hard-coded to 0. Do NOT change without addressing both issues below:
+#   1. Performance: num_workers>0 was benchmarked at 87% slower for this workload
+#      (see speed_up.md). Our __getitem__ is in-memory array indexing — the IPC
+#      overhead of forking workers (pickling, queue management) far exceeds any
+#      benefit since there is no disk I/O to overlap with GPU computation.
+#   2. Correctness: KmerPairDataset uses torch.from_numpy() for zero-copy tensor
+#      creation. With num_workers>0, forked workers share numpy memory pages, which
+#      can cause data corruption or segfaults. If num_workers>0 is ever needed,
+#      switch torch.from_numpy() to torch.tensor() in KmerPairDataset.__getitem__.
+# Previously read from config: NUM_WORKERS = getattr(config.training, 'num_workers', 0)
+NUM_WORKERS = 0
 PIN_MEMORY = getattr(config.training, 'pin_memory', False)
 USE_AMP = getattr(config.training, 'use_amp', False)
 USE_LR_SCHEDULER = getattr(config.training, 'use_lr_scheduler', False)
@@ -1076,7 +1170,7 @@ print(f'model:           {MODEL_CKPT}')
 print(f'batch_size:      {BATCH_SIZE}')
 print(f'infer_batch_size: {INFER_BATCH_SIZE}')
 print(f'eval_train_metrics: {EVAL_TRAIN_METRICS}')
-print(f'num_workers:     {NUM_WORKERS}')
+print(f'num_workers:     {NUM_WORKERS} (hard-coded)')
 print(f'pin_memory:      {PIN_MEMORY}')
 print(f'use_amp:         {USE_AMP}')
 
@@ -1225,6 +1319,17 @@ model = MLPClassifier(
     use_unit_diff=USE_UNIT_DIFF_RAW,
     embed_dim=EMBED_DIM,
 )
+
+# GPU memory diagnostic: log free/total memory BEFORE model.to(device).
+# If a fold OOMs here, this tells us whether the GPU was already occupied
+# (e.g., by TensorFlow pre-allocation or another process).
+if 'cuda' in str(device):
+    free_mem, total_mem = torch.cuda.mem_get_info(torch.device(device))
+    print(f"GPU memory before model.to(device): "
+          f"{free_mem / 1e9:.2f} GB free / {total_mem / 1e9:.2f} GB total")
+    if free_mem < 1e9:  # Less than 1 GB free
+        print(f"WARNING: GPU has only {free_mem / 1e6:.0f} MB free — OOM likely")
+
 model.to(device)
 
 # Loss function and optimizer

@@ -38,7 +38,7 @@ dataset:
   passage: null
 
 # Optimized training settings (see speed_up.md for benchmarks)
-# batch_size=128 + eval_train_metrics=false + pin_memory=true → 67% speedup
+# batch_size=128 + eval_train_metrics=false → 67% speedup on Lambda (single fold)
 # Full dataset: ~29s/epoch (vs 90s baseline), ~50 min/fold at 100 epochs
 training:
   feature_source: kmer
@@ -50,7 +50,10 @@ training:
   batch_size: 128              # 60% speedup vs batch_size=16 (see speed_up.md)
   eval_train_metrics: false    # Skip redundant train eval pass (~45% epoch savings)
   infer_batch_size: 8192       # Large inference batches (no gradient memory needed)
-  pin_memory: true             # Async CPU→GPU DMA; 18% speedup
-  num_workers: 0               # In-memory data; workers add IPC overhead
+  pin_memory: false            # Disabled: 2-4x overhead with concurrent folds on Polaris
+                               # (cudaHostAlloc serializes across processes). 18% speedup on
+                               # Lambda single-fold, but net negative with 4 concurrent folds.
+  # num_workers is hard-coded to 0 in train_pair_classifier.py (not configurable).
+  # See the comment there for why: IPC overhead + torch.from_numpy() safety.
   use_amp: false               # MLP too small for Tensor Core benefits
 
