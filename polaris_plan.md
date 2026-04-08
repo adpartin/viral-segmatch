@@ -10,8 +10,6 @@ Covers: Polaris system reference, bundle design, scaling phases, and HPC concept
 ### Context
 
 - **System:** Polaris (ALCF, HPE/Cray), A100 GPUs (4 per node)
-- **Active allocation:** IMPROVE_Aim1 — 97k node-hours remaining, expires 2026-04-01
-- **Secondary allocation:** bvbrc — 1k node-hours, expires 2026-05-01
 - **Project storage:** `/lus/eagle/projects/IMPROVE_Aim1` (fast Lustre, use for data and checkpoints)
 - **Home dir:** `/home/apartin` (slower, not for large I/O)
 
@@ -282,9 +280,9 @@ running, then restore it. The key knobs:
 **Note:** Master bundle must have `n_folds: 12` (not null) for CV — Phase 0 had it set
 to null for single-split mode.
 
-### Phase 2 — Multi-node validation (debug-scaling, 2 nodes, 1h) -- COMPLETE
+### Phase 2 — Multi-node validation (2-28 nodes, debug-scaling + prod) — COMPLETE
 
-**Goal:** Verify multi-node ssh distribution works (the prod launcher pattern).
+**Goal:** Verify multi-node distribution works (the prod launcher pattern).
 
 - 2 pairs (HA/NA, PB2/PB1), 12 folds, 5 epochs, 5K isolates, 1 pair per node
 - Each node: 12 folds / 4 GPUs = 3 waves × ~1 min/fold = ~3 min
@@ -299,31 +297,94 @@ to null for single-split mode.
       #   epochs: 5
       #   patience: 5
 
-[v] Step 2: Get an interactive multi-node session and run
+[v] Step 2: Multi-node test with SSH dispatch (original approach)
       qsub -I -l select=2:ncpus=64:ngpus=4 -l walltime=1:00:00 -A IMPROVE_Aim1 -q debug-scaling -l filesystems=eagle
-
-      # On compute node:
       cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
-      module use /soft/modulefiles; module load conda; conda activate base
-      source /lus/eagle/projects/IMPROVE_Aim1/apartin/venvs/cepi_polaris/bin/activate
-
-      # ssh-agent required: the prod script uses ssh to distribute work across nodes.
-      # Without it, you'll be prompted for your SSH key passphrase.
-      eval $(ssh-agent)
-      ssh-add ~/.ssh/id_rsa
-
-      # Run (use 'bash', not 'sh' — script uses bash-specific syntax)
+      source scripts/polaris_env.sh
+      eval $(ssh-agent); ssh-add ~/.ssh/id_rsa   # Required for SSH dispatch
       bash scripts/run_allpairs_polaris_prod.sh --pairs "flu_28p_ha_na flu_28p_pb2_pb1"
 
 [v] Step 3: Verify both pairs completed
       cat models/flu/July_2025/allpairs_prod_*/manifest.txt
       # Should show 2 lines, both SUCCEEDED
+
+[v] Step 4: Retest with mpiexec dispatch (replaced SSH — no ssh-agent needed)
+      # SSH is fragile in batch mode (passphrase blocks jobs). Switched to
+      # mpiexec --hostfile (ALCF ensemble pattern). This step validates the new dispatch.
+      qsub -I -l select=2:ncpus=64:ngpus=4 -l walltime=1:00:00 -A IMPROVE_Aim1 -q debug-scaling -l filesystems=eagle
+      cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
+      source scripts/polaris_env.sh
+      bash scripts/run_allpairs_polaris_prod.sh --pairs "flu_28p_ha_na flu_28p_pb2_pb1"
+      # Results: models/flu/July_2025/allpairs_prod_20260331_232931/
 ```
 
-**Results:**
+**Results (Step 2, SSH dispatch):**
 - HA/NA:   F1=0.922+/-0.009, AUC=0.963+/-0.005
 - PB2/PB1: F1=0.919+/-0.013, AUC=0.960+/-0.012
 Both pairs succeeded across 2 nodes. Multi-node distribution works.
+
+**Results (Step 4, mpiexec dispatch):**
+- HA/NA:   F1=0.922+/-0.009, AUC=0.963+/-0.005
+- PB2/PB1: F1=0.919+/-0.013, AUC=0.960+/-0.012
+Identical to SSH results. mpiexec is a drop-in replacement — no SSH keys needed.
+
+**Note on allpairs log buffering:** The per-pair logs in the manifest dir
+(`allpairs_prod_*/flu_28p_*.log`) only capture stdout from mpiexec, which buffers
+differently than SSH. Stage 4 output may not appear there. The authoritative logs are:
+- CV launcher: `logs/cv/run_cv_*.log` (full Stage 3 + Stage 4 progress)
+- Per-fold training: `models/.../runs/training_*_fold{k}_*/fold_{k}.log`
+
+```
+[v] Step 5: Batch submission test (qsub, not interactive)
+      # Steps 2-4 used interactive qsub -I. Batch mode (qsub script.sh) has the
+      # script handle env setup (module load, venv, proxy). Test that mpiexec
+      # inherits the batch environment correctly before the full production run.
+      # Keep master at Phase 2 settings (2K isolates, 5 epochs).
+      qsub -l select=2:ncpus=64:ngpus=4 -l walltime=1:00:00 -A IMPROVE_Aim1 \
+           -q debug-scaling -l filesystems=eagle \
+           -v PAIRS="flu_28p_ha_na flu_28p_pb2_pb1" \
+           scripts/run_allpairs_polaris_prod.sh
+      # Check: qstat -u apartin
+      # Verify: cat models/flu/July_2025/allpairs_prod_*/manifest.txt
+      #         tail logs/cv/run_cv_flu_28p_ha_na_*.log
+
+[v] Step 6: Full 28-pair batch test (all pairs, 2K isolates, 5 epochs)
+      # Steps 2-5 tested with 2 pairs. This step validates all 28 pairs in parallel
+      # on 28 nodes before committing to the expensive Phase 3 production run.
+      # Master bundle: 2K isolates, 5 epochs (already set from Step 5).
+      #
+      # The script has #PBS directives for Phase 3 (28 nodes, prod, 6h).
+      # CLI flags override script directives, so we only override walltime here.
+      # select=28, -A IMPROVE_Aim1, -q prod, filesystems=eagle all come from the script.
+      qsub -l walltime=00:40:00 scripts/run_allpairs_polaris_prod.sh
+      # Check: qstat -u apartin
+      # Verify: cat models/flu/July_2025/allpairs_prod_*/manifest.txt  (28/28 SUCCEEDED)
+      #         grep "CV Summary" models/flu/July_2025/allpairs_prod_*/flu_28p_*.log
+```
+
+**Results (Step 6, job 6983977):** 23/28 SUCCEEDED, 5 FAILED.
+- Failed pairs: `ha_np`, `ha_ns1`, `na_m1`, `na_ns1`, `np_m1`
+- **Initial (wrong) hypothesis:** transient per-node CUDA OOM. The pattern (same GPU index
+  failing across waves) actually pointed to a deterministic per-process issue, not noise.
+- **Actual root cause (identified during Phase 3 debugging):** TensorFlow GPU pre-allocation
+  via transitive HuggingFace import. The Polaris system conda env has TF installed; when
+  `transformers` runs `is_tf_available()` on import (via `esm2_utils`), TF eagerly allocates
+  all GPU memory on the visible device, leaving <1 GB for PyTorch's `model.to(device)`. Fix:
+  set `TF_FORCE_GPU_ALLOW_GROWTH=true` and `TF_CPP_MIN_LOG_LEVEL=3` at the top of
+  `train_pair_classifier.py` *before* any import that can pull in TF. A `torch.cuda.mem_get_info()`
+  diagnostic was also added immediately before `model.to(device)` so this failure mode is
+  visible in the logs.
+- The 23 successful pairs ran on nodes that happened to import TF without triggering it
+  (race condition).
+- See `docs/hardware_notes.md` §3 for the full explanation.
+
+**Future work: GPU/memory profiling.** Partially addressed:
+- Level 1 profiling (per-epoch `data_time` / `compute_time` / `eval_time` / `epoch_time`)
+  is now always-on in `training_history.csv`.
+- Level 2 micro-benchmark (pinned vs unpinned first-10-batches) is parked as a commented
+  block in `train_pair_classifier.py` for quick re-enable.
+- Heavy ALCF tools (`nsys`, `ncu`) still not integrated — left as future work.
+- See `docs/hardware_notes.md` §5.
 
 **Lessons learned:**
 - `qsub script.sh -- --args` does NOT work — PBS interprets `--` as "run command directly".
@@ -331,9 +392,17 @@ Both pairs succeeded across 2 nodes. Multi-node distribution works.
   For batch submission, use `-v` env vars (requires script modification).
 - Interactive `qsub` drops you into `/home`, not the project dir — always `cd` first.
 - Use `bash` not `sh` to run the script (bash-specific syntax like process substitution).
-- SSH key passphrase blocks ssh to other nodes — use `ssh-agent` + `ssh-add` first.
+- SSH to compute nodes requires passphrase-less keys or ssh-agent — fragile in batch mode.
+  Replaced with `mpiexec --hostfile` (ALCF ensemble pattern). See:
+  https://docs.alcf.anl.gov/running-jobs/example-job-scripts/#multi-node-ensemble-calculations-example
+- **`#!/bin/bash -l` is critical for batch scripts.** The `-l` flag makes it a login shell,
+  which loads the full default environment (PrgEnv-nvidia, Cray PALS/mpiexec, libfabric,
+  CUDA runtime). Without `-l`, batch jobs start with a bare shell and `mpiexec`, `libfabric.so`,
+  `libcudart.so` are all missing. All ALCF example scripts use `#!/bin/bash -l`.
+- After `-l` loads the default env, only `module load conda; conda activate base` + venv
+  activation is needed. No manual `LD_LIBRARY_PATH` or `PATH` hacks required.
 
-### Phase 3 — Full production run (medium prod, 28 nodes, 6h)
+### Phase 3 — Full production run (medium prod, 28 nodes, 6h) — COMPLETE (2026-04-08)
 
 **Goal:** Run all 28 protein pairs with full dataset, 12-fold CV, 100 epochs.
 
@@ -344,52 +413,62 @@ Both pairs succeeded across 2 nodes. Multi-node distribution works.
 - **Queue:** medium prod (25-99 nodes, 6h walltime). 2.5h actual → comfortable margin.
 - **Script:** `scripts/run_allpairs_polaris_prod.sh`
 
-**Note:** Phase 3 uses batch submission (not interactive). The prod script must handle
-env setup and ssh-agent internally — no manual setup. The script already handles module
-loads and venv activation. SSH key passphrase may need a passphrase-less key or
-ssh-agent forwarding in batch mode (test before full submission).
+**Note:** Phase 3 uses batch submission (not interactive). The prod script uses
+`mpiexec --hostfile` (ALCF multi-node ensemble pattern) to dispatch work to remote
+nodes — no SSH keys needed. The head node's environment is inherited by mpiexec.
+
+**Pre-requisite:** Phase 2 complete (Steps 1-6 validated: interactive, batch, and full 28-pair scale).
 
 ```
 [v] Step 1: Restore master to Phase 3 settings
       # In flu_28_major_protein_pairs_master.yaml:
-      #   max_isolates_to_process: null  (was 5000)
+      #   max_isolates_to_process: null  (full dataset, ~111K isolates)
       #   n_folds: 12
-      #   epochs: 100                   (was 5)
+      #   epochs: 100
       #   patience: 100
 
-[ ] Step 2: Test inter-node SSH in batch mode
-      # SSH passphrase blocks batch jobs. Test if PBS provides passwordless inter-node SSH:
-      qsub -l select=2:ncpus=64:ngpus=4 -l walltime=0:10:00 -A IMPROVE_Aim1 \
-           -q debug-scaling -l filesystems=eagle \
-           -- bash -c 'ssh $(tail -1 $PBS_NODEFILE) hostname'
-      # If it works → batch submission is fine
-      # If it fails → need passphrase-less key or ssh-agent in the job script
-
-[ ] Step 3: Submit
+[v] Step 2: Submit full production run
       qsub scripts/run_allpairs_polaris_prod.sh
 
-[ ] Step 4: Monitor
+[v] Step 3: Monitor
       qstat -u apartin                   # job status
       ls models/flu/July_2025/allpairs_prod_*/   # manifest dir created?
       # Per-pair logs: models/flu/July_2025/allpairs_prod_*/flu_28p_*.log
 
-[ ] Step 5: Verify all 28 pairs
-      cat models/flu/July_2025/allpairs_prod_*/manifest.txt   # 28 lines, all SUCCEEDED?
-      grep FAILED models/flu/July_2025/allpairs_prod_*/manifest.txt   # any failures?
-      # Re-run failures (interactive, debug-scaling):
-      # qsub -I -l select=N:ncpus=64:ngpus=4 -l walltime=1:00:00 -A IMPROVE_Aim1 -q debug-scaling -l filesystems=eagle
-      # eval $(ssh-agent); ssh-add ~/.ssh/id_rsa
-      # bash scripts/run_allpairs_polaris_prod.sh --pairs "failed1 failed2" --skip_dataset
+[v] Step 4: Verify all 28 pairs
+      # 28/28 pairs covered, 334/336 folds completed (2 launcher races, not OOMs).
 
-[ ] Step 6: Aggregate into 8x8 heatmap
-      # (aggregation script TBD)
+[v] Step 5: Aggregate into 8x8 heatmap
+      # Done automatically by run_allpairs_polaris_prod.sh (calls
+      # src/analysis/aggregate_allpairs_results.py at the end). Outputs in
+      # allpairs_prod_<ts>/: allpairs_summary.{csv,json}, heatmap_auc_roc.{csv,png},
+      # heatmap_f1_binary.{csv,png}.
 ```
+
+**Results (job submitted 2026-04-08, manifest `allpairs_prod_20260408_063203/`):**
+- **334/336 folds complete** (2 launcher races: `pb1_ha/fold11`, `pb2_pa/fold6` — empty
+  logs, never started; not OOMs).
+- All completed folds ran the full 100 epochs.
+- **Per-fold runtime:** median 44.0 min, mean 43.4 min, range 31.3–45.0 min.
+- **Per-epoch:** median 25.0 s (data 3.0 s + compute 20.4 s + eval 1.0 s).
+- **val_AUC:** median 0.9944, range 0.9912–0.9972 (per-pair fold std σ ≈ 0.0005–0.0009).
+- **val_F1:** median 0.9711, range 0.9568–0.9821.
+- M1-containing pairs are easiest (PA·M1, HA·M1, PB2·M1, PB1·M1 ≈ 0.9956);
+  NA-containing surface pairs hardest (NA·NS1 0.9924, PB2·NA 0.9927).
+- **Total compute:** ~241 fold-hours.
+
+**Phase 3 fixes that made this possible** (see `docs/hardware_notes.md`):
+- `pin_memory: false` in master bundle — `cudaHostAlloc` serializes across the 4 concurrent
+  fold processes on a node; with `pin_memory=true` data loading was 515 s/epoch instead of 3 s.
+- `TF_FORCE_GPU_ALLOW_GROWTH=true` set before imports in `train_pair_classifier.py` — prevents
+  TF from eagerly grabbing all GPU memory via the HuggingFace transitive import.
+- GPU memory diagnostic (`torch.cuda.mem_get_info`) logged before `model.to(device)`.
+- `NUM_WORKERS = 0` documented as load-bearing (IPC overhead + `torch.from_numpy` fork-safety).
 
 ### Allocation cost
 
-IMPROVE_Aim1 has ~97K node-hours remaining (expires 2026-04-01).
-Phase 3: 28 nodes × 2.5h actual = **70 node-hours** (0.07% of allocation).
-Even at full 6h walltime billing: 28 × 6 = **168 node-hours** (0.17% of allocation).
+Phase 3 actual: ~241 fold-hours of compute, ~3.5h wall-clock on 28 nodes (4 GPUs each)
+≈ ~98 node-hours billed.
 
 ---
 
@@ -398,13 +477,12 @@ Even at full 6h walltime billing: 28 × 6 = **168 node-hours** (0.17% of allocat
 1. **Master bundle** (`conf/bundles/flu_28_major_protein_pairs_master.yaml`) — inherits from `flu.yaml`, sets all 8 major proteins, kmer + slot_norm + concat, Phase 3 production settings (full dataset, 12-fold CV, 100 epochs, optimized batch_size=128). Children override only `dataset.schema_pair`.
 2. **Bundle generator** (`scripts/generate_all_pairs_bundles.py`) — generates 28 child bundles (`flu_28p_{protA}_{protB}.yaml`). Run once; re-run overwrites safely.
 3. **Phase 0 launcher** (`scripts/run_allpairs_polaris_phase0.sh`) — sequential Stage 3 + Stage 4 for all 28 pairs on a single GPU. Supports PBS (debug queue) and interactive use. Saves manifest + master bundle snapshot for provenance.
-4. **Prod launcher** (`scripts/run_allpairs_polaris_prod.sh`) — multi-node PBS job script for Phases 2-3. Assigns 1 protein pair per node via ssh, each node runs `run_cv_lambda.py` with 4 GPUs for 12-fold CV. Supports `--pairs` for subset runs, `--dry_run`, `--skip_dataset`. Default PBS: 28 nodes, medium prod queue, 6h walltime.
+4. **Prod launcher** (`scripts/run_allpairs_polaris_prod.sh`) — multi-node PBS job script for Phases 2-3. Assigns 1 protein pair per node via `mpiexec --hostfile` (ALCF ensemble pattern), each node runs `run_cv_lambda.py` with 4 GPUs for 12-fold CV. Supports `--pairs` for subset runs, `--dry_run`, `--skip_dataset`. Default PBS: 28 nodes, medium prod queue, 6h walltime.
 
 ## What Needs to Be Built
 
-### Data Aggregation
-
-1. **Cross-pair aggregation + heatmap** — collect 28 CV summaries into 8×8 AUC/F1 matrix. Reads manifest or scans `cv_runs/` dirs. Generates heatmap plot for paper.
+(Cross-pair aggregation + heatmap is now built — see `src/analysis/aggregate_allpairs_results.py`,
+called automatically by `run_allpairs_polaris_prod.sh`.)
 
 ---
 
@@ -429,7 +507,7 @@ Even at full 6h walltime billing: 28 × 6 = **168 node-hours** (0.17% of allocat
 ### Single-node test (debug queue)
 
 ```bash
-#!/bin/bash
+#!/bin/bash -l
 #PBS -N my_job
 #PBS -l select=1:ncpus=64:ngpus=4
 #PBS -l walltime=00:30:00
@@ -440,10 +518,10 @@ Even at full 6h walltime billing: 28 × 6 = **168 node-hours** (0.17% of allocat
 
 cd $PBS_O_WORKDIR
 
-module load cuda/12.9
-module load cray-mpich
-
-conda activate /lus/eagle/projects/IMPROVE_Aim1/apartin/envs/my_env
+# -l shebang loads PrgEnv-nvidia, Cray PALS, libfabric, CUDA — no manual PATH/LD_LIBRARY_PATH needed
+module use /soft/modulefiles
+module load conda
+conda activate base
 
 python train.py --config config.yaml
 ```
@@ -451,7 +529,7 @@ python train.py --config config.yaml
 ### Multi-node run (scaling up)
 
 ```bash
-#!/bin/bash
+#!/bin/bash -l
 #PBS -N my_distributed_job
 #PBS -l select=8:ncpus=64:ngpus=4        # 8 nodes x 4 GPUs = 32 GPUs total
 #PBS -l walltime=06:00:00
@@ -464,10 +542,10 @@ NNODES=$(wc -l < $PBS_NODEFILE)
 NRANKS_PER_NODE=4                         # one rank per GPU
 NTOTRANKS=$(( NNODES * NRANKS_PER_NODE ))
 
-module load cuda/12.9
-module load cray-mpich
-
-conda activate /lus/eagle/projects/IMPROVE_Aim1/apartin/envs/my_env
+# -l shebang loads PrgEnv-nvidia, Cray PALS, libfabric, CUDA — no manual PATH/LD_LIBRARY_PATH needed
+module use /soft/modulefiles
+module load conda
+conda activate base
 
 # NCCL tuning for Polaris (HPE Slingshot interconnect)
 export NCCL_NET_GDR_LEVEL=PHB
@@ -534,3 +612,7 @@ sbank                                     # check remaining node-hours
 ## Open Questions
 
 1. **ESM-2 comparison**: K-mers only first, or also create an ESM-2 master for parallel comparison?
+2. **Deeper GPU/memory profiling**: Level 1 (per-epoch wall-clock breakdown) and Level 2
+   (pin_memory micro-benchmark) are now in place — see `docs/hardware_notes.md` §5. Heavier
+   ALCF tools (`nsys`, `ncu`, `tracemalloc`) are still not integrated; would be valuable for
+   future scaling tasks (GenSLM, learning curves) where the workload is more compute-bound.

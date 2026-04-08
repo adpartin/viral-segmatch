@@ -23,7 +23,12 @@ Usage
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
       --n_folds 5 --gpus 0 1 2 3 4
 
-  # Skip dataset generation (dataset already exists):
+  # Skip dataset generation (auto-discover latest dataset dir):
+  python scripts/run_cv_lambda.py \
+      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
+      --skip_dataset
+
+  # Skip dataset generation (explicit dataset dir):
   python scripts/run_cv_lambda.py \
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
       --skip_dataset \
@@ -32,12 +37,6 @@ Usage
   # Stage 3 only (generate folds, skip training):
   python scripts/run_cv_lambda.py \
       --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 --skip_training
-
-  # Stage 4 only (training on existing folds, skip dataset generation):
-  python scripts/run_cv_lambda.py \
-      --config_bundle flu_schema_raw_slot_norm_unit_diff_cv10 \
-      --skip_dataset \
-      --dataset_run_dir data/datasets/flu/July_2025/runs/dataset_..._cv10_20260225_120000
 
   # Dry-run (print commands, do not execute):
   python scripts/run_cv_lambda.py \
@@ -81,6 +80,29 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.timer_utils import Timer
+
+
+def write_status(cv_runs_dir: Optional[Path], status: str, n_folds: int,
+                  folds_done: list[int], folds_failed: list[int],
+                  folds_running: list[int], config_bundle: str) -> None:
+    """Write a live status.json to the cv_runs dir for monitoring."""
+    if cv_runs_dir is None:
+        return
+    status_data = {
+        "status": status,
+        "config_bundle": config_bundle,
+        "n_folds": n_folds,
+        "folds_done": sorted(folds_done),
+        "folds_failed": sorted(folds_failed),
+        "folds_running": sorted(folds_running),
+        "n_done": len(folds_done),
+        "n_failed": len(folds_failed),
+        "n_running": len(folds_running),
+        "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    status_file = cv_runs_dir / "status.json"
+    with open(status_file, "w") as f:
+        json.dump(status_data, f, indent=2)
 
 
 class TeeWriter:
@@ -181,9 +203,11 @@ def parse_args():
     p.add_argument("--gpus", type=int, nargs="+", default=list(range(8)),
                    help="GPU indices to use (default: 0..7). Folds are pooled across GPUs.")
     p.add_argument("--skip_dataset", action="store_true",
-                   help="Skip stage 3 (dataset already generated). Requires --dataset_run_dir.")
+                   help="Skip stage 3 (dataset already generated). If --dataset_run_dir is not "
+                        "given, auto-discovers the latest dataset_<bundle>_* dir.")
     p.add_argument("--dataset_run_dir", type=str, default=None,
-                   help="Existing CV dataset run directory (required with --skip_dataset).")
+                   help="Existing CV dataset run directory. Optional with --skip_dataset "
+                        "(auto-discovers latest if omitted).")
     p.add_argument("--skip_training", action="store_true",
                    help="Run stage 3 (dataset generation) only, then exit. "
                         "Useful for generating folds before submitting training to HPC.")
@@ -248,10 +272,26 @@ def main():
 
     # ── Stage 3: dataset generation ────────────────────────────────────────
     if args.skip_dataset:
-        if not args.dataset_run_dir:
-            print("ERROR: --skip_dataset requires --dataset_run_dir")
-            sys.exit(1)
-        dataset_run_dir = Path(args.dataset_run_dir)
+        if args.dataset_run_dir:
+            dataset_run_dir = Path(args.dataset_run_dir)
+        else:
+            # Auto-discover the latest dataset dir for this bundle.
+            # Convention: dataset_{bundle}_{timestamp}/ in data/datasets/{virus}/{version}/runs/
+            from src.utils.config_hydra import get_virus_config_hydra
+            config_path = str(PROJECT_ROOT / "conf")
+            cfg = get_virus_config_hydra(args.config_bundle, config_path=config_path)
+            datasets_base = (
+                PROJECT_ROOT / "data" / "datasets"
+                / cfg.virus.virus_name / cfg.virus.data_version / "runs"
+            )
+            bundle_slug = args.config_bundle.replace('/', '_')
+            candidates = sorted(datasets_base.glob(f"dataset_{bundle_slug}_*"))
+            if not candidates:
+                print(f"ERROR: --skip_dataset but no dataset dirs found matching "
+                      f"dataset_{bundle_slug}_* in {datasets_base}")
+                sys.exit(1)
+            dataset_run_dir = candidates[-1]  # Latest by timestamp
+            print(f"Auto-discovered latest dataset dir: {dataset_run_dir}")
         print(f"Skipping Stage 3. Using existing dataset dir: {dataset_run_dir}")
     else:
         run_id = f"dataset_{args.config_bundle.replace('/', '_')}_{timestamp}"
@@ -340,6 +380,12 @@ def main():
         models_base = None
         cv_runs_dir = None
 
+    # Live status tracking
+    folds_done: list[int] = []
+    folds_failed: list[int] = []
+    write_status(cv_runs_dir, "RUNNING", n_folds, folds_done, folds_failed,
+                 folds_to_run, args.config_bundle)
+
     def make_fold_cmd(fold_i: int, gpu: int) -> tuple[list[str], dict, str, Optional[Path]]:
         """Build the command, env, run_id, and fold_log path for a fold."""
         fold_dir = dataset_run_dir / f"fold_{fold_i}"
@@ -377,9 +423,16 @@ def main():
                     fh.close()
                 exit_codes[fold_i] = proc.returncode
                 if proc.returncode != 0:
+                    folds_failed.append(fold_i)
                     print(f"ERROR: Training fold {fold_i} failed (exit code {proc.returncode})."
                           f" See log: {fold_log}")
+                    write_status(cv_runs_dir, "FAILED", n_folds, folds_done, folds_failed,
+                                 [], args.config_bundle)
                     sys.exit(proc.returncode)
+                folds_done.append(fold_i)
+                remaining = [f for f in folds_to_run if f not in folds_done and f not in folds_failed]
+                write_status(cv_runs_dir, "RUNNING", n_folds, folds_done, folds_failed,
+                             remaining, args.config_bundle)
                 print(f"Done. Fold {fold_i} training complete.")
     else:
         # Parallel mode: GPU pool — at most one fold per GPU
@@ -414,16 +467,23 @@ def main():
             fold_id, gpu, rc = wait_any(active)
             exit_codes[fold_id] = rc
             if rc == 0:
+                folds_done.append(fold_id)
                 print(f"Done. Fold {fold_id} training complete (GPU {gpu} now free).")
             else:
+                folds_failed.append(fold_id)
                 fold_log = models_base / training_run_dirs[fold_id] / f"fold_{fold_id}.log" if models_base else None
                 print(f"WARNING: Fold {fold_id} failed (exit code {rc}) on GPU {gpu}."
                       f" See log: {fold_log}")
             available_gpus.append(gpu)
+            running = list(active.keys())
+            write_status(cv_runs_dir, "RUNNING", n_folds, folds_done, folds_failed,
+                         running, args.config_bundle)
 
         failed = [fid for fid, ec in exit_codes.items() if ec != 0]
         if failed:
             print(f"ERROR: Training failed for folds: {failed}")
+            write_status(cv_runs_dir, "FAILED", n_folds, folds_done, folds_failed,
+                         [], args.config_bundle)
             sys.exit(1)
         print(f"Done. All {len(folds_to_run)} folds training complete.\n")
 
@@ -478,6 +538,9 @@ def main():
                 print("Done. Aggregation complete.")
     elif args.dry_run:
         print("\n[dry-run] Would run aggregate_cv_results.py")
+
+    write_status(cv_runs_dir, "SUCCEEDED", n_folds, folds_done, folds_failed,
+                 [], args.config_bundle)
 
     cv_timer.stop_timer()
     print(f"\n{'='*60}")

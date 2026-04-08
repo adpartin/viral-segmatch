@@ -90,8 +90,9 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
 - Polaris (ALCF), PBS job arrays. Do NOT use Hydra's submitit launcher (SLURM only).
 - See `polaris_plan.md` for Task 11 plan: phases 0-3, env setup, bundle design, queue strategy, scripts.
-- See `large_run_polaris.md` for general Polaris setup: env validation, PBS templates, queues, conda on Lustre.
 - See `speed_up.md` for training optimizations (67% speedup: batch_size=128, eval_train_metrics=false, pin_memory=true).
+- See `docs/hardware_notes.md` for HW/SW interaction notes: `pin_memory` + cudaHostAlloc serialization under ensemble packing, `num_workers=0` rationale, TF GPU pre-allocation prevention, L3 cache vs working-set, and `[Extra]` background topics (CUDA async, AMP, CUDA_VISIBLE_DEVICES remapping, pinned-memory budget, ensemble packing vs PBS arrays).
+- **Batch vs interactive env**: PBS batch mode doesn't source dotfiles. The fix is `#!/bin/bash -l` (login shell shebang) which loads the full default env (PrgEnv-nvidia, Cray PALS/mpiexec, libfabric, CUDA). No manual PATH or LD_LIBRARY_PATH needed — just conda + venv on top. Interactive mode uses `scripts/polaris_env.sh`.
 
 ## Cross-validation (IMPLEMENTED — branch: feature/cross-validation)
 ### Output structure
@@ -147,31 +148,81 @@ Full run: 28 pairs × 12 CV folds × 100 epochs × ~111K isolates (Polaris).
 
 ### What needs to be built
 1. **Cross-pair aggregation + heatmap** — collect 28 CV summaries into 8×8 AUC/F1 matrix for paper
+2. **Resolved config snapshot** — added `save_config()` calls to Stage 3 and Stage 4 (saves `resolved_config.yaml` in output dir). Not yet tested in a run.
 
 ### Key constraints
 - Master bundle is set to Phase 3 defaults (patience=100, effectively no early stopping). For Phases 0-2, temporarily edit the master.
 - Data is on Polaris (copied from Lambda 2026-03-27): `protein_final.csv`, `kmer_k6_*`, ESM-2 embeddings.
 - N=12 folds chosen for perfect GPU packing (12/4 = 3 waves, no idle GPU).
 
-### Next steps (user must run on Polaris — Claude cannot submit PBS jobs)
-1. **Phase 0** — get interactive debug node, temporarily edit master (5K/null folds/5 epochs/5 patience), run:
-   `bash scripts/run_allpairs_polaris_phase0.sh --pairs "flu_28p_ha_na" --gpu 0`
-   Verify output, restore master to Phase 3 settings.
-2. **Phase 1** — same debug node, master at (5K/12 folds/5 epochs/5 patience), run:
-   `python3 scripts/run_cv_lambda.py --config_bundle flu_28p_ha_na --gpus 0 1 2 3`
-   Verify 12-fold CV output + cv_summary.json.
-3. **Phase 2** — submit to debug-scaling (2 nodes), master at Phase 1 settings:
-   `qsub -l select=2:ncpus=64:ngpus=4 -q debug-scaling scripts/run_allpairs_polaris_prod.sh -- --pairs "flu_28p_ha_na flu_28p_pb2_pb1"`
-   Verify multi-node ssh distribution works.
-4. **Phase 3** — restore master to defaults (null/12/100/100), submit:
-   `qsub scripts/run_allpairs_polaris_prod.sh`
-   28 nodes, medium prod queue, 6h walltime. Expected ~90 min actual.
-5. **After Phase 3** — build cross-pair aggregation + 8x8 heatmap script.
+### Phase status (2026-04-02)
+- **Phase 0** — COMPLETE (single pair, single GPU, sequential)
+- **Phase 1** — COMPLETE (single pair, 12-fold CV, 4 GPUs)
+- **Phase 2** — COMPLETE (Steps 1-6). Key results:
+  - Steps 2-4: interactive `qsub -I` with SSH (Step 2) and mpiexec (Step 4)
+  - Step 5: batch `qsub` with 2 pairs — 2/2 SUCCEEDED
+  - Step 6: full 28-pair batch — 23/28 SUCCEEDED, 5 failed (CUDA OOM on specific nodes, transient)
+  - Root cause of early env failures: `#!/bin/bash -l` needed for login shell in batch mode
+- **Phase 3** — FAILED (walltime kill after 6h, 0/336 folds completed). Root cause diagnosed and fixed. Ready to re-test.
+- **Branch**: `feature/polaris-mpiexec` (master as of latest commits)
+
+### Phase 3 failure root cause + fixes (2026-04-02 → 2026-04-06)
+**Problem**: Training ~15-34x slower per batch on Polaris vs Lambda (7.5 min/epoch vs 29s).
+Three root causes identified:
+1. **Memory explosion**: `KmerPairDataset` densified the ENTIRE 868K×4096 sparse matrix (14.2 GB) per fold. 4 concurrent folds = 56.9 GB → folds 1-11 OOM. Only fold 0 survived per pair.
+2. **Cache thrashing**: 14.2 GB array >> L3 cache (~32-64 MB). Shuffled batch access = pure cache misses.
+3. **Per-item overhead**: `self.pairs.iloc[idx]['label']` (pandas iloc) + `torch.tensor()` copy per item.
+
+**Round 1 fixes** (in `src/models/train_pair_classifier.py`):
+- Matrix subsetting: only densify rows used by this fold's pairs (~3.5 GB vs 14.2 GB). 4 folds fit: 14 GB vs 56.9 GB.
+- Label pre-extraction: `self.labels = pairs['label'].values` — eliminates pandas iloc.
+- Zero-copy tensors: `torch.from_numpy()` instead of `torch.tensor()` (safe with num_workers=0).
+- tqdm `miniters=50` to reduce Lustre I/O from 1385 writes/epoch to ~28.
+- `NUM_WORKERS` hard-coded to 0 (was configurable but num_workers>0 is 87% slower + incompatible with torch.from_numpy).
+- Level 1 profiling added: per-epoch data_time/compute_time/eval_time in training_history.csv.
+
+**Test run results (2026-04-06)**: Folds 0,1,3 ran 6 epochs before job died. Fold 2 OOM'd at model.to(device).
+Profiling showed data loading is STILL 96-97% of epoch time (~460s data, ~4s compute, ~14s eval).
+Matrix subsetting fixed memory but NOT speed. Two remaining issues:
+
+**Round 2 diagnosis (2026-04-06)**:
+1. **Fold 2 OOM**: TensorFlow installed in Polaris system conda env, loaded transitively by HuggingFace `transformers`
+   (via esm2_utils.py). TF's default is to eagerly allocate all GPU memory. Added defensive env vars
+   (`TF_CPP_MIN_LOG_LEVEL=3`, `TF_FORCE_GPU_ALLOW_GROWTH=true`) at top of script before any imports.
+   Also added `torch.cuda.mem_get_info()` diagnostic before model.to(device) to capture GPU state.
+2. **Data loading 460s/epoch**: Strongest hypothesis is `pin_memory=True` with 4 concurrent folds.
+   pin_memory forces cudaHostAlloc (CUDA driver call that serializes across processes) for every batch.
+   1385 batches/epoch × 4 folds = 5540 driver calls/epoch contending on same driver lock.
+   The 18% speedup from pin_memory was benchmarked on Lambda (single fold) — likely counterproductive
+   with 4 concurrent folds on Polaris. Added Level 2 diagnostic (micro-benchmark 10 batches with
+   pin_memory=True vs False) to confirm before changing the config.
+
+**Additional changes**:
+- `run_cv_lambda.py`: `--skip_dataset` now auto-discovers latest dataset dir (no longer requires `--dataset_run_dir`).
+- `src/analysis/analyze_training_profile.py`: post-hoc profiling aggregation (single run, CV, all-pairs modes).
+- Cross-pair aggregation wired into prod launcher (`aggregate_allpairs_results.py`).
 
 See `polaris_plan.md` for detailed step-by-step checklists per phase.
 
+## What's Next (immediate)
+1. **TEST Round 2 fixes** — 1-pair interactive run on Polaris to verify:
+   - Level 2 diagnostic output: pin_memory=True vs False batch times (expect dramatic difference)
+   - GPU memory diagnostic: free/total before model.to(device) on all 4 folds (especially fold 2)
+   - No fold 2 OOM (TF prevention should fix this)
+   - If pin_memory confirmed as bottleneck: set pin_memory=false in master bundle, re-test
+   ```
+   qsub -I -l select=1:ncpus=64:ngpus=4 -l walltime=1:00:00 -A IMPROVE_Aim1 -q debug-scaling -l filesystems=eagle
+   cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
+   source scripts/polaris_env.sh
+   python scripts/run_cv_lambda.py --config_bundle flu_28p_ha_na --gpus 0 1 2 3 --skip_dataset
+   ```
+2. **Update pin_memory in master bundle** — change to `false` if diagnostic confirms it's the bottleneck.
+3. **Re-submit Phase 3** (full 28-pair production run) once both issues resolved.
+4. Clean up old run dirs (user will delete manually — see cleanup list in conversation).
+5. Build cross-pair aggregation + 8×8 heatmap (script exists: `aggregate_allpairs_results.py`).
+6. Merge to master after Phase 3 succeeds.
+
 ## What's Next (beyond Task 11)
-- Build cross-pair aggregation + 8x8 heatmap script (after Phase 3 completes)
 - Fix pair_key dedup for temporal holdout -- re-run for clean metrics
 - Run cross-validation end-to-end (see CV section above)
 - FP/FN diagnostics (Task 12) -- understand error distribution before mitigation

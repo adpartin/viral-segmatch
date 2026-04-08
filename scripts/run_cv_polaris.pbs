@@ -71,14 +71,14 @@ if [ "${STAGE}" = "dataset" ]; then
         --run_output_subdir "${RUN_ID}"
 
     echo ""
-    echo "✅ Stage 3 complete."
+    echo "Done. Stage 3 complete."
     echo "Dataset run dir: data/datasets/<virus>/<version>/runs/${RUN_ID}"
     echo "Pass DATASET_RUN_DIR=<full_path> when submitting the train array."
 
 # ── Stage: train (PBS job array) ───────────────────────────────────────────
 elif [ "${STAGE}" = "train" ]; then
     if [ -z "${DATASET_RUN_DIR:-}" ]; then
-        echo "❌ DATASET_RUN_DIR is required for STAGE=train"
+        echo "ERROR: DATASET_RUN_DIR is required for STAGE=train"
         exit 1
     fi
 
@@ -87,7 +87,7 @@ elif [ "${STAGE}" = "train" ]; then
     FOLD_DIR="${DATASET_RUN_DIR}/fold_${FOLD_ID}"
 
     if [ ! -d "${FOLD_DIR}" ]; then
-        echo "❌ Fold directory not found: ${FOLD_DIR}"
+        echo "ERROR: Fold directory not found: ${FOLD_DIR}"
         exit 1
     fi
 
@@ -104,18 +104,18 @@ elif [ "${STAGE}" = "train" ]; then
         --dataset_dir "${FOLD_DIR}" \
         --run_output_subdir "${RUN_ID_TRAIN}"
 
-    echo "✅ Fold ${FOLD_ID} training complete."
+    echo "Done. Fold ${FOLD_ID} training complete."
 
 # ── Stage: aggregate ───────────────────────────────────────────────────────
 elif [ "${STAGE}" = "aggregate" ]; then
     if [ -z "${DATASET_RUN_DIR:-}" ]; then
-        echo "❌ DATASET_RUN_DIR is required for STAGE=aggregate"
+        echo "ERROR: DATASET_RUN_DIR is required for STAGE=aggregate"
         exit 1
     fi
 
     MANIFEST="${DATASET_RUN_DIR}/cv_run_manifest.json"
     if [ ! -f "${MANIFEST}" ]; then
-        echo "❌ cv_run_manifest.json not found at: ${MANIFEST}"
+        echo "ERROR: cv_run_manifest.json not found at: ${MANIFEST}"
         echo "   Create it manually or re-run with run_cv_lambda.py which generates it automatically."
         exit 1
     fi
@@ -124,9 +124,9 @@ elif [ "${STAGE}" = "aggregate" ]; then
     python "${PROJECT_ROOT}/scripts/aggregate_cv_results.py" \
         --manifest "${MANIFEST}"
 
-    echo "✅ Aggregation complete."
+    echo "Done. Aggregation complete."
 
 else
-    echo "❌ Unknown STAGE='${STAGE}'. Must be: dataset | train | aggregate"
+    echo "ERROR: Unknown STAGE='${STAGE}'. Must be: dataset | train | aggregate"
     exit 1
 fi

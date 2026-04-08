@@ -355,6 +355,19 @@ pairs are easiest/hardest; whether model generalizes beyond HA/NA.
 
 > Biology context: HA/NA most variable (immune targets); internal segments more conserved → expect performance gradient. See `roadmap_v2.md` Appendix.
 
+**Preliminary results (Polaris, 2026-04-08).** 12-fold CV on the full Flu A dataset
+(~111K isolates), k-mer k=6 + slot_norm + concat, 100 epochs per fold.
+334/336 folds completed (2 launcher races on `pb1_ha/fold11` and `pb2_pa/fold6`; not
+re-run). All 28 pairs achieve val AUC ∈ [0.9924, 0.9958] (median 0.9944) and
+val F1 ∈ [0.957, 0.982] (median 0.971). Per-pair fold std σ_AUC ≈ 0.0005–0.0009 — CV
+is highly stable. M1-containing pairs are easiest (PA·M1, HA·M1, PB2·M1, PB1·M1 ≈
+0.9956); NA-containing surface pairs are hardest (NA·NS1 0.9924, PB2·NA 0.9927). The
+variability gradient predicted from biology (HA/NA most variable, internals more
+conserved) is **not** strongly visible — the model handles all 28 pair types well above
+chance, and the AUC spread across pairs is only ~0.0034. This suggests k-mer features
+capture isolate-specific signal across both variable and conserved segments.
+Heatmap PNG: `models/flu/July_2025/allpairs_prod_20260408_063203/heatmap_auc_roc.png`.
+
 ---
 
 ## 4. Application: Data Remediation and Wastewater Surveillance
@@ -446,7 +459,7 @@ Batch inference at BV-BRC scale. Candidate pruning by metadata overlap. HPC on P
 | 9 | Table | FP/FN metadata breakdown | Conditional |
 | 10 | Fig/Table | **Stratified metrics by subtype, host, year** | **Core** |
 | 11 | Table | Mitigation results | Conditional |
-| 12 | **Figure** | **8×8 protein-pair AUC heatmap** | **Core** |
+| 12 | **Figure** | **8×8 protein-pair AUC heatmap** — available: `allpairs_prod_20260408_063203/heatmap_auc_roc.png` | **Core** |
 | 13 | Figure | Delayed learning curve (H3N2) | Low (Paper 2) |
 | 14 | Fig/Table | Data remediation / wastewater inference | Deferred |
 | 15 | Figure | **Reliability diagram + ECE** | **Required** |
@@ -471,7 +484,7 @@ Maps paper sections to `roadmap_v2.md` tasks.
 | 3.5.2–3 Error/diagnostics | Task 12 | Conditional | Conditional | Conditional |
 | 3.5.4 Interventions | Task 12 + 4b | Conditional | Conditional | Conditional |
 | 3.6 Mixed-subtype test | New (Carla) | Not started | **High** | No |
-| 3.7 All protein pairs | Task 11 | Not started | **High** | Yes |
+| 3.7 All protein pairs | Task 11 | **Complete (12-fold CV, full dataset; 2026-04-08)** | **High** | No |
 | 4.2 UQ | New | Not started | **Required (last)** | Yes |
 | 4. Use cases | Deferred | Not started | Deferred | Deferred |
 

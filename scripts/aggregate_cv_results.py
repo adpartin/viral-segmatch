@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import (
     average_precision_score, f1_score, roc_auc_score, precision_score, recall_score,
+    confusion_matrix,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +50,9 @@ def compute_metrics(pred_df: pd.DataFrame, threshold: float = 0.5) -> dict:
     y_probs = pred_df["pred_prob"].astype(float).values
     y_pred  = (y_probs >= threshold).astype(int)
 
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    fp_fn_ratio = float(fp) / float(fn) if fn > 0 else float("inf")
+
     return {
         "f1_binary":   float(f1_score(y_true, y_pred, average="binary", pos_label=1, zero_division=0)),
         "f1_macro":    float(f1_score(y_true, y_pred, average="macro",  zero_division=0)),
@@ -57,6 +61,11 @@ def compute_metrics(pred_df: pd.DataFrame, threshold: float = 0.5) -> dict:
         "precision":   float(precision_score(y_true, y_pred, average="binary", pos_label=1, zero_division=0)),
         "recall":      float(recall_score(y_true, y_pred, average="binary", pos_label=1, zero_division=0)),
         "brier":       float(np.mean((y_probs - y_true) ** 2)),
+        "tp":          int(tp),
+        "fp":          int(fp),
+        "tn":          int(tn),
+        "fn":          int(fn),
+        "fp_fn_ratio": fp_fn_ratio,
         "n_test":      int(len(y_true)),
         "n_positive":  int(y_true.sum()),
         "threshold":   float(threshold),
@@ -96,7 +105,7 @@ def aggregate(training_dirs: list[Path], output_dir: Path,
     for fold_i, tdir in enumerate(training_dirs):
         pred_file = tdir / "test_predicted.csv"
         if not pred_file.exists():
-            print(f"⚠️  test_predicted.csv not found in fold {fold_i}: {tdir}")
+            print(f"WARNING: test_predicted.csv not found in fold {fold_i}: {tdir}")
             continue
 
         # Read optimal threshold if saved
@@ -118,15 +127,20 @@ def aggregate(training_dirs: list[Path], output_dir: Path,
               f"Brier={metrics['brier']:.4f}  n={metrics['n_test']}")
 
     if not rows:
-        print("❌ No per-fold results found. Nothing to aggregate.")
+        print("ERROR: No per-fold results found. Nothing to aggregate.")
         return
 
-    metric_cols = ["f1_binary", "f1_macro", "auc_roc", "auc_pr", "precision", "recall", "brier"]
+    metric_cols = ["f1_binary", "f1_macro", "auc_roc", "auc_pr", "precision", "recall",
+                   "brier", "tp", "fp", "tn", "fn", "fp_fn_ratio"]
     per_fold_df = pd.DataFrame(rows)
 
-    # Mean and std rows
+    # Mean and std rows. fp_fn_ratio mean uses pooled totals (sum_fp / sum_fn) rather than
+    # mean-of-ratios — more robust when individual folds have very small fn counts.
     means = {c: per_fold_df[c].mean() for c in metric_cols}
     stds  = {c: per_fold_df[c].std(ddof=1) for c in metric_cols}
+    _fp_total = float(per_fold_df["fp"].sum())
+    _fn_total = float(per_fold_df["fn"].sum())
+    means["fp_fn_ratio"] = (_fp_total / _fn_total) if _fn_total > 0 else float("inf")
     n_test_std = per_fold_df["n_test"].std(ddof=1)
     means.update({"fold_id": "mean", "n_test": int(per_fold_df["n_test"].mean()), "threshold": None, "training_dir": ""})
     stds.update({"fold_id": "std",  "n_test": int(n_test_std) if not np.isnan(n_test_std) else 0, "threshold": None, "training_dir": ""})
