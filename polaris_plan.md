@@ -10,8 +10,6 @@ Covers: Polaris system reference, bundle design, scaling phases, and HPC concept
 ### Context
 
 - **System:** Polaris (ALCF, HPE/Cray), A100 GPUs (4 per node)
-- **Active allocation:** IMPROVE_Aim1 — 97k node-hours remaining, expires 2026-04-01
-- **Secondary allocation:** bvbrc — 1k node-hours, expires 2026-05-01
 - **Project storage:** `/lus/eagle/projects/IMPROVE_Aim1` (fast Lustre, use for data and checkpoints)
 - **Home dir:** `/home/apartin` (slower, not for large I/O)
 
@@ -366,20 +364,27 @@ differently than SSH. Stage 4 output may not appear there. The authoritative log
 
 **Results (Step 6, job 6983977):** 23/28 SUCCEEDED, 5 FAILED.
 - Failed pairs: `ha_np`, `ha_ns1`, `na_m1`, `na_ns1`, `np_m1`
-- Root cause: **CUDA OOM on specific nodes.** The k-mer matrix (868K × 4096 ≈ 13 GB) is loaded
-  per fold process. With 4 concurrent folds, 4 copies live in CPU memory. On 5 nodes, GPU 0
-  (or GPU 2) hit OOM when moving the model to device — likely due to residual GPU memory from
-  other jobs or driver overhead on those specific nodes.
-- Pattern: each failed pair had exactly 3 folds fail (folds 0,4,8 or 2,4,8) — one per wave,
-  same GPU each time. The MLP itself is tiny; the OOM is node-specific, not a code bug.
-- The 23 successful pairs ran on different nodes without issues.
-- **Conclusion:** Pipeline validated at full 28-pair scale. Failures are transient node issues,
-  not code bugs. Re-running failed pairs on fresh nodes will succeed.
+- **Initial (wrong) hypothesis:** transient per-node CUDA OOM. The pattern (same GPU index
+  failing across waves) actually pointed to a deterministic per-process issue, not noise.
+- **Actual root cause (identified during Phase 3 debugging):** TensorFlow GPU pre-allocation
+  via transitive HuggingFace import. The Polaris system conda env has TF installed; when
+  `transformers` runs `is_tf_available()` on import (via `esm2_utils`), TF eagerly allocates
+  all GPU memory on the visible device, leaving <1 GB for PyTorch's `model.to(device)`. Fix:
+  set `TF_FORCE_GPU_ALLOW_GROWTH=true` and `TF_CPP_MIN_LOG_LEVEL=3` at the top of
+  `train_pair_classifier.py` *before* any import that can pull in TF. A `torch.cuda.mem_get_info()`
+  diagnostic was also added immediately before `model.to(device)` so this failure mode is
+  visible in the logs.
+- The 23 successful pairs ran on nodes that happened to import TF without triggering it
+  (race condition).
+- See `docs/hardware_notes.md` §3 for the full explanation.
 
-**Future work: GPU/memory profiling.** The OOM failures highlight the need for profiling
-(GPU memory, CPU memory, I/O) integrated into the pipeline. This would help diagnose
-node-specific issues, understand hardware utilization, and optimize resource allocation.
-See "Open Questions" section.
+**Future work: GPU/memory profiling.** Partially addressed:
+- Level 1 profiling (per-epoch `data_time` / `compute_time` / `eval_time` / `epoch_time`)
+  is now always-on in `training_history.csv`.
+- Level 2 micro-benchmark (pinned vs unpinned first-10-batches) is parked as a commented
+  block in `train_pair_classifier.py` for quick re-enable.
+- Heavy ALCF tools (`nsys`, `ncu`) still not integrated — left as future work.
+- See `docs/hardware_notes.md` §5.
 
 **Lessons learned:**
 - `qsub script.sh -- --args` does NOT work — PBS interprets `--` as "run command directly".
@@ -397,7 +402,7 @@ See "Open Questions" section.
 - After `-l` loads the default env, only `module load conda; conda activate base` + venv
   activation is needed. No manual `LD_LIBRARY_PATH` or `PATH` hacks required.
 
-### Phase 3 — Full production run (medium prod, 28 nodes, 6h)
+### Phase 3 — Full production run (medium prod, 28 nodes, 6h) — COMPLETE (2026-04-08)
 
 **Goal:** Run all 28 protein pairs with full dataset, 12-fold CV, 100 epochs.
 
@@ -415,39 +420,55 @@ nodes — no SSH keys needed. The head node's environment is inherited by mpiexe
 **Pre-requisite:** Phase 2 complete (Steps 1-6 validated: interactive, batch, and full 28-pair scale).
 
 ```
-[ ] Step 1: Restore master to Phase 3 settings
+[v] Step 1: Restore master to Phase 3 settings
       # In flu_28_major_protein_pairs_master.yaml:
       #   max_isolates_to_process: null  (full dataset, ~111K isolates)
       #   n_folds: 12
       #   epochs: 100
       #   patience: 100
 
-[ ] Step 2: Submit full production run
+[v] Step 2: Submit full production run
       qsub scripts/run_allpairs_polaris_prod.sh
 
-[ ] Step 3: Monitor
+[v] Step 3: Monitor
       qstat -u apartin                   # job status
       ls models/flu/July_2025/allpairs_prod_*/   # manifest dir created?
       # Per-pair logs: models/flu/July_2025/allpairs_prod_*/flu_28p_*.log
 
-[ ] Step 4: Verify all 28 pairs
-      cat models/flu/July_2025/allpairs_prod_*/manifest.txt   # 28 lines, all SUCCEEDED?
-      grep FAILED models/flu/July_2025/allpairs_prod_*/manifest.txt   # any failures?
-      # Re-run failures:
-      # qsub -v PAIRS="failed1 failed2" scripts/run_allpairs_polaris_prod.sh
-      # Or interactive:
-      # qsub -I -l select=N:ncpus=64:ngpus=4 -l walltime=1:00:00 -A IMPROVE_Aim1 -q debug-scaling -l filesystems=eagle
-      # bash scripts/run_allpairs_polaris_prod.sh --pairs "failed1 failed2" --skip_dataset
+[v] Step 4: Verify all 28 pairs
+      # 28/28 pairs covered, 334/336 folds completed (2 launcher races, not OOMs).
 
-[ ] Step 5: Aggregate into 8x8 heatmap
-      # (aggregation script TBD)
+[v] Step 5: Aggregate into 8x8 heatmap
+      # Done automatically by run_allpairs_polaris_prod.sh (calls
+      # src/analysis/aggregate_allpairs_results.py at the end). Outputs in
+      # allpairs_prod_<ts>/: allpairs_summary.{csv,json}, heatmap_auc_roc.{csv,png},
+      # heatmap_f1_binary.{csv,png}.
 ```
+
+**Results (job submitted 2026-04-08, manifest `allpairs_prod_20260408_063203/`):**
+- **334/336 folds complete** (2 launcher races: `pb1_ha/fold11`, `pb2_pa/fold6` — empty
+  logs, never started; not OOMs).
+- All completed folds ran the full 100 epochs.
+- **Per-fold runtime:** median 44.0 min, mean 43.4 min, range 31.3–45.0 min.
+- **Per-epoch:** median 25.0 s (data 3.0 s + compute 20.4 s + eval 1.0 s).
+- **val_AUC:** median 0.9944, range 0.9912–0.9972 (per-pair fold std σ ≈ 0.0005–0.0009).
+- **val_F1:** median 0.9711, range 0.9568–0.9821.
+- M1-containing pairs are easiest (PA·M1, HA·M1, PB2·M1, PB1·M1 ≈ 0.9956);
+  NA-containing surface pairs hardest (NA·NS1 0.9924, PB2·NA 0.9927).
+- **Total compute:** ~241 fold-hours.
+
+**Phase 3 fixes that made this possible** (see `docs/hardware_notes.md`):
+- `pin_memory: false` in master bundle — `cudaHostAlloc` serializes across the 4 concurrent
+  fold processes on a node; with `pin_memory=true` data loading was 515 s/epoch instead of 3 s.
+- `TF_FORCE_GPU_ALLOW_GROWTH=true` set before imports in `train_pair_classifier.py` — prevents
+  TF from eagerly grabbing all GPU memory via the HuggingFace transitive import.
+- GPU memory diagnostic (`torch.cuda.mem_get_info`) logged before `model.to(device)`.
+- `NUM_WORKERS = 0` documented as load-bearing (IPC overhead + `torch.from_numpy` fork-safety).
 
 ### Allocation cost
 
-IMPROVE_Aim1 has ~97K node-hours remaining (expires 2026-04-01).
-Phase 3: 28 nodes × 2.5h actual = **70 node-hours** (0.07% of allocation).
-Even at full 6h walltime billing: 28 × 6 = **168 node-hours** (0.17% of allocation).
+Phase 3 actual: ~241 fold-hours of compute, ~3.5h wall-clock on 28 nodes (4 GPUs each)
+≈ ~98 node-hours billed.
 
 ---
 
@@ -460,9 +481,8 @@ Even at full 6h walltime billing: 28 × 6 = **168 node-hours** (0.17% of allocat
 
 ## What Needs to Be Built
 
-### Data Aggregation
-
-1. **Cross-pair aggregation + heatmap** — collect 28 CV summaries into 8×8 AUC/F1 matrix. Reads manifest or scans `cv_runs/` dirs. Generates heatmap plot for paper.
+(Cross-pair aggregation + heatmap is now built — see `src/analysis/aggregate_allpairs_results.py`,
+called automatically by `run_allpairs_polaris_prod.sh`.)
 
 ---
 
@@ -592,9 +612,7 @@ sbank                                     # check remaining node-hours
 ## Open Questions
 
 1. **ESM-2 comparison**: K-mers only first, or also create an ESM-2 master for parallel comparison?
-2. **GPU/memory profiling**: Integrate profiling into the pipeline to understand hardware
-   utilization (GPU memory, CPU memory, I/O throughput) per stage. Motivated by Phase 2 Step 6
-   CUDA OOM failures on specific nodes — profiling would make such issues diagnosable rather
-   than opaque. Also an opportunity to understand Polaris A100 hardware characteristics better.
-   Options: `torch.cuda.memory_summary()`, `nvidia-smi` snapshots, Python `tracemalloc`,
-   or ALCF's profiling tools (e.g., `nsys`, `ncu`).
+2. **Deeper GPU/memory profiling**: Level 1 (per-epoch wall-clock breakdown) and Level 2
+   (pin_memory micro-benchmark) are now in place — see `docs/hardware_notes.md` §5. Heavier
+   ALCF tools (`nsys`, `ncu`, `tracemalloc`) are still not integrated; would be valuable for
+   future scaling tasks (GenSLM, learning curves) where the workload is more compute-bound.

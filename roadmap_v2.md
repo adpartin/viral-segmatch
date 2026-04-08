@@ -59,6 +59,16 @@ final paper results (no early stopping, no hyperparameter tuning).
   (typical convergence ~30–50 epochs), expect ~1–1.5h per fold. Set PBS walltime to 3h per
   fold for safety margin.
 
+**Polaris (A100, ensemble-packed 4 folds/node) — measured Phase 3, 2026-04-08:**
+After applying the optimizations from `speed_up.md` (batch_size=128,
+`eval_train_metrics=false`, `infer_batch_size=8192`) **and** the Polaris-specific fixes
+(`pin_memory=false`, TF GPU pre-allocation prevention; see `docs/hardware_notes.md`),
+per-epoch wall-clock dropped to **~25 s** (data 3.0 s + compute 20.4 s + eval 1.0 s) and
+per-fold runtime to **~44 min** at 100 epochs. This is comparable to a Lambda single-fold
+run despite running 4 folds concurrently on the same node — perfect ensemble-packing
+scaling once the cudaHostAlloc bottleneck was removed. All 28 pairs × 12 folds completed
+in ~3.5 h wall-clock on 28 nodes, ~98 node-hours total.
+
 ---
 
 ## Experiments: High Priority (2026-03-12 meeting)
@@ -88,7 +98,7 @@ cross-subtype) and the analysis-first priority order.
 
 ---
 
-### 11. All protein-pair combinations (8×8 heatmap) — NOT IMPLEMENTED
+### 11. All protein-pair combinations (8×8 heatmap) — COMPLETE (2026-04-08)
 
 > **[2026-03-12 meeting]** **TOP PRIORITY.** Jim: "I basically want to see the table... for all eight segments."
 
@@ -97,15 +107,27 @@ Results as 8×8 AUC/F1 heatmap.
 
 See `paper_outline_v2.md` Section 3.7 for paper framing and biology context.
 
-**Status:** Not started. Supported by existing pipeline — each pair is a new bundle.
+**Status:** **Complete on Polaris.** k-mer k=6 + slot_norm + concat, full Flu A dataset
+(~111K isolates), 12-fold CV, 100 epochs. 28 pairs run as 28 ensemble-packed nodes
+(4 folds/A100/node). 334/336 folds completed; 2 launcher races on `pb1_ha/fold11` and
+`pb2_pa/fold6` (not OOMs, not re-run).
 
-**Implementation:**
-- Generate 28 bundles programmatically.
-- HPC: PBS job array on Polaris (each job = one protein pair).
-- Aggregate into heatmap.
-- Run with k-mers (primary). ESM-2 optional.
+**Results summary:**
+- val_AUC across 28 pairs: median 0.9944, range [0.9924, 0.9958], spread only ~0.0034
+- val_F1: median 0.9711, range [0.9568, 0.9821]
+- Per-pair fold std σ_AUC ≈ 0.0005–0.0009 (very stable)
+- Easiest: M1-containing pairs (PA·M1, HA·M1, PB2·M1, PB1·M1 ≈ 0.9956)
+- Hardest: NA-containing surface pairs (NA·NS1 0.9924, PB2·NA 0.9927)
+- Manifest: `models/flu/July_2025/allpairs_prod_20260408_063203/`
+  (`allpairs_summary.{csv,json}`, `heatmap_auc_roc.{csv,png}`, `heatmap_f1_binary.{csv,png}`)
 
-**Effort:** Low–medium. Bundle generation + job array script + aggregation/plotting.
+**HPC findings:** Phase 3 only worked after diagnosing two interacting bugs unique to
+multi-process ensemble packing on Polaris: (1) `pin_memory=True` + cudaHostAlloc
+serialization across 4 concurrent fold processes (300× data-loading slowdown), and
+(2) TensorFlow GPU pre-allocation via transitive HuggingFace import (OOM at
+`model.to(device)`). Both fixed; see `polaris_plan.md` Phase 3 results and
+`docs/hardware_notes.md` for the full diagnosis. **These lessons should be carried over
+to any future Polaris scaling task** (Tasks 8, 9, GenSLM).
 
 ---
 
@@ -393,9 +415,9 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 
 > **[2026-03-12 meeting]** Jim: "if we scale up and if the accuracies hold, then writing up the paper is pretty much a formality."
 
-1. Scale up to ~50–100K isolates (Task 2)
-2. Run 8×8 all-segment heatmap with CV (Task 11)
-3. Stratified error analysis by pair type and metadata (unconditional)
+1. ~~Scale up to ~50–100K isolates (Task 2)~~ — done; Task 11 ran on full ~111K dataset.
+2. ~~Run 8×8 all-segment heatmap with CV (Task 11)~~ — done; results in `allpairs_prod_20260408_063203/`.
+3. **(NEXT)** Stratified error analysis by pair type and metadata (unconditional)
 4. Carla's mixed-subtype discrimination test
 5. If good across all pair types → no interventions needed
 6. If failures → parallel data-centric + model-centric interventions (Task 12)
@@ -415,7 +437,7 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 | Task | Status | Effort | Priority | Meeting |
 |------|--------|--------|----------|---------|
 | **2. Large dataset** | Partially supported | Scale + ledger | **High** | Jim's #1 |
-| **11. All pairs (8×8)** | Not started | Bundles + HPC | **High** | Jim's #2 |
+| **11. All pairs (8×8)** | **Complete (2026-04-08)** | — | **High** | Jim's #2 |
 | **NEW: Stratified eval** | Not started | Analysis script | **High (unconditional)** | Core deliverable |
 | **NEW: Mixed-subtype** | Not started | Dataset + eval | **High** | Carla's test |
 | 1. Cross-validation | Implemented | Run end-to-end | High | Default |
@@ -437,17 +459,20 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 **Done:**
 - ~~Scale to full dataset (~111K isolates)~~ — validated on Lambda (k-mer concat, 10-fold CV). See Runtime Analysis.
 - ~~Run CV end-to-end~~ — CV10 completed for: k-mer concat (5K + full), ESM-2 concat (5K), H3N2 variants (k-mer + ESM-2). Results in `models/flu/July_2025/cv_runs/`.
+- ~~Run Task 11 (all 28 protein pairs)~~ — Complete on Polaris (12-fold CV, full dataset, 100 epochs). See Task 11 above and `polaris_plan.md` Phase 3 results.
 
 **Remaining:**
-1. **Run Task 11 (all 28 protein pairs)** on Polaris with k-mers + CV.
-2. **Implement pair-distribution ledger** for every dataset.
-3. **Implement stratified evaluation script** (Levels 1–3).
-4. **Run stratified analysis** — determine if model performs well or needs fixes.
-5. **Implement Carla's mixed-subtype test.**
-6. **If failures** → parallel interventions (Task 12).
-7. **Fix pair_key dedup** for temporal holdout; re-run.
-8. **Implement UQ** — ensemble inference + calibration. Last required step.
-9. **Wastewater data sourcing** — Carla → Rachel Paretsky. Jim → assembled samples.
+1. **Implement pair-distribution ledger** for every dataset.
+2. **Implement stratified evaluation script** (Levels 1–3).
+3. **Run stratified analysis** — determine if model performs well or needs fixes.
+4. **Implement Carla's mixed-subtype test.**
+5. **If failures** → parallel interventions (Task 12).
+6. **Fix pair_key dedup** for temporal holdout; re-run.
+7. **Implement UQ** — ensemble inference + calibration. Last required step.
+8. **Wastewater data sourcing** — Carla → Rachel Paretsky. Jim → assembled samples.
+9. **Carry HPC lessons forward** — for any future Polaris scaling task (Tasks 8, 9, GenSLM),
+   consult `docs/hardware_notes.md` first to avoid re-discovering the `pin_memory` and TF
+   pre-allocation footguns.
 
 ---
 

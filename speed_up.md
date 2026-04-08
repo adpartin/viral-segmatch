@@ -3,6 +3,10 @@
 Baseline: k-mer k=6, slot_norm + concat, full dataset (~111K isolates), 100 epochs forced.
 Per-epoch baseline: **97.1s mean** (Lambda, single V100/A100 GPU).
 
+> **See also:** `docs/hardware_notes.md` for the *why* behind the configuration choices
+> below — especially `pin_memory`, `num_workers`, and the multi-process effects on Polaris
+> that this document (single-fold Lambda benchmarks) does not cover.
+
 ---
 
 ## 1. Skip full training metrics re-evaluation
@@ -77,10 +81,13 @@ How hardware and workload affect the optimal value:
 | Shared filesystem | Data preloaded in RAM, not read per-batch from NFS | No NFS bottleneck |
 | Multi-fold on same node | 10 folds on 4 GPUs (Polaris): workers compete for CPU cores | Use `num_workers=2` to avoid contention |
 
-**Recommendation:** `num_workers=2, pin_memory=True` is safe everywhere. Since data is
-pre-loaded and samples are small, benefit is modest.
+**Recommendation (validated):** `num_workers=0`. `pin_memory=True` only on single-process
+Lambda runs; `pin_memory=False` on multi-process Polaris ensemble packing (see Section 8
+below and `docs/hardware_notes.md` §1). The "set num_workers to CPU count" rule of thumb
+does *not* apply here — it assumes a disk-bound image pipeline, not in-memory numerical data.
 
-**Config:** `training.num_workers: 2`
+**Config:** `training.num_workers: 0` (also hard-coded in `train_pair_classifier.py` for
+correctness — see comment there about `torch.from_numpy` + forked workers).
 
 **Estimated speedup:** 5–15% (modest because `__getitem__` is lightweight).
 
@@ -206,7 +213,7 @@ significant with the full dataset where eval passes process more batches.
 |---|---|---|---|---|---|
 | 1 | Skip train metrics re-pass | `eval_train_metrics` | `false` | WORKS | ~45–50% epoch savings |
 | 2 | Larger inference batch size | `infer_batch_size` | `null` (= batch_size) | WORKS | Speedup on eval passes |
-| 3 | `num_workers` + `pin_memory` | `num_workers`, `pin_memory` | `0`, `false` | `num_workers` HURT, `pin_memory` HELPED | In-memory data makes workers overhead-only |
+| 3 | `num_workers` + `pin_memory` | `num_workers`, `pin_memory` | `0`, `false` | `num_workers` HURT; `pin_memory` HELPED on single-fold Lambda but HURT (~300×) under multi-fold Polaris ensemble packing — see `docs/hardware_notes.md` §1 | In-memory data makes workers overhead-only |
 | 4 | AMP (mixed precision) | `use_amp` | `false` | HURT | MLP too small, memory-bound not compute-bound |
 | 5 | `torch.compile` | `compile_model` | `false` | SKIPPED | |
 | 6 | Batch GPU→CPU transfers | (none) | Always on | WORKS (small) | Expect bigger gain on full dataset |
@@ -251,7 +258,10 @@ training:
   batch_size: 128          # Or tune as HP (64/128/256)
   eval_train_metrics: false
   infer_batch_size: 8192
-  pin_memory: true
+  pin_memory: true         # Single-fold workstation only.
+                           # Set FALSE for multi-fold ensemble packing on HPC
+                           # (Polaris 4 folds/node) — cudaHostAlloc serializes
+                           # across processes. See docs/hardware_notes.md §1.
   num_workers: 0
   use_amp: false
 ```
@@ -303,7 +313,58 @@ All runs use `flu_6mer_full` bundle (k-mer k=6, HA/NA, full dataset). The baseli
 
 ## Experiment Plan
 
-Full dataset benchmarking complete on Lambda (V100). Remaining:
-- Confirm on Polaris (A100) — expect similar or better results.
+Full dataset benchmarking complete on Lambda (V100) and Polaris (A100). See Section 8.
 
 **Hardware:** Lambda cluster (V100 GPUs) and Polaris (A100 GPUs).
+
+---
+
+## 8. Polaris production validation (April 2026, A100, ensemble-packed)
+
+Task 11 Phase 3: 28 protein pairs × 12-fold CV × 100 epochs on the full Flu A dataset
+(~111K isolates), k-mer k=6, slot_norm + concat. Each Polaris node ran 4 folds concurrently
+(one per A100), 28 nodes in parallel. Manifest: `allpairs_prod_20260408_063203/`.
+
+**Per-epoch breakdown (median across 334 completed folds, ~33,400 epochs total):**
+
+| Phase | Time |
+|-------|------|
+| `data_time` | 3.0 s |
+| `compute_time` | 20.4 s |
+| `eval_time` | 1.0 s |
+| **`epoch_time`** | **25.0 s** |
+
+- **Per-fold runtime:** median 44 min at 100 epochs (vs ~50 min on Lambda).
+- **Per-epoch:** ~25 s on Polaris A100 vs ~29 s on Lambda V100 — comparable, despite 4-way
+  ensemble packing on the same node.
+
+### What it took to get here
+
+The first Phase 3 attempt failed catastrophically: `data_time` was **515 s/epoch** (170×
+slower than the Lambda single-fold expectation) and one fold per node OOMed at
+`model.to(device)`. Two interacting bugs were diagnosed via Exp A/B/C scaling experiments
+(1 fold → 2 folds → 4 folds at full scale, 4 epochs each):
+
+1. **`pin_memory=True` + 4 concurrent fold processes → cudaHostAlloc serialization.**
+   The CUDA driver lock for pinned-memory allocation is shared across processes on the
+   same node. With 4 folds each pinning every batch, they spent essentially all their
+   time waiting on the driver. **Fix: `pin_memory: false` in the master bundle.**
+   Restored 1.6 s data_time (322× improvement).
+2. **TensorFlow GPU pre-allocation via transitive HuggingFace import.** TF is in the
+   Polaris system conda env; HF transformers' `is_tf_available()` check loads it on import,
+   and TF eagerly allocates all GPU memory. **Fix: `TF_FORCE_GPU_ALLOW_GROWTH=true` set
+   before any import in `train_pair_classifier.py`.**
+
+Full diagnosis in `docs/hardware_notes.md` §1, §3.
+
+### Key takeaways
+
+- **Lambda single-fold benchmarks do not predict HPC ensemble-packed behavior.** On Lambda
+  `pin_memory=True` is an 18% win; on Polaris with 4 concurrent folds it is a 300× loss.
+  Always re-profile at the concurrency level you will actually deploy.
+- **The 67% speedup combo from Section 7 (batch_size=128, eval_train_metrics=false,
+  infer_batch_size=8192) transfers cleanly to A100.** Per-epoch time is comparable to V100
+  on the same dataset.
+- **Per-fold runtime was the planning unit.** 12 folds / 4 GPUs = 3 waves × ~44 min ≈
+  2.5 h per pair. All 28 pairs in parallel on 28 nodes → ~3.5 h wall-clock for the full
+  Task 11 production run, well within the medium-prod 6 h walltime.
