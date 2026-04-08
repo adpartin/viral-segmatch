@@ -69,9 +69,9 @@ EXIT_CODE=${PIPESTATUS[0]}
 log ""
 log "========================================================================"
 if [ $EXIT_CODE -eq 0 ]; then
-    log "✅ Preprocessing completed successfully!"
+    log "Done. Preprocessing completed successfully."
 else
-    log "❌ Preprocessing failed with exit code: $EXIT_CODE"
+    log "ERROR: Preprocessing failed with exit code: $EXIT_CODE"
 fi
 log "Exit code:     $EXIT_CODE"
 log "Finished:      $(date '+%Y-%m-%d %H:%M:%S')"

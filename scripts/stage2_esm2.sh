@@ -125,9 +125,9 @@ set -e  # Re-enable exit on error
 log ""
 log "========================================================================"
 if [ $EXIT_CODE -eq 0 ]; then
-    log "✅ ESM-2 embeddings computation completed successfully!"
+    log "Done. ESM-2 embeddings computation completed successfully."
 else
-    log "❌ ESM-2 embeddings computation failed with exit code: $EXIT_CODE"
+    log "ERROR: ESM-2 embeddings computation failed with exit code: $EXIT_CODE"
 fi
 log "Exit code:     $EXIT_CODE"
 log "Finished:      $(date '+%Y-%m-%d %H:%M:%S')"
