@@ -52,10 +52,15 @@ def parse_pair_name(bundle_name: str) -> Optional[Tuple[str, str]]:
     return None
 
 
-def discover_cv_dirs(base_dir: Path, timestamp_filter: Optional[str] = None) -> Dict[str, Path]:
+def discover_cv_dirs(base_dir: Path, timestamp_filter: Optional[str] = None,
+                     tag_filter: Optional[str] = None) -> Dict[str, Path]:
     """Find cv_flu_28p_* directories, returning {bundle_name: cv_dir}.
 
     If timestamp_filter is given, only match dirs with that timestamp suffix.
+    If tag_filter is given, only match dirs whose bundle name ends with ``_{tag}``.
+    When tag_filter is None, dirs whose bundle has more than 4 underscore-separated
+    tokens are excluded — this prevents tagged runs from mixing into untagged
+    aggregation (and vice versa).
     Otherwise, take the latest dir per bundle.
     """
     pattern = "cv_flu_28p_*"
@@ -73,6 +78,15 @@ def discover_cv_dirs(base_dir: Path, timestamp_filter: Optional[str] = None) -> 
         if timestamp_filter and ts != timestamp_filter:
             continue
         bundle = name[3:-(len(ts) + 1)]  # strip "cv_" prefix and "_timestamp" suffix
+        if tag_filter:
+            # Require bundle to end with _{tag}; skip untagged runs
+            if not bundle.endswith(f"_{tag_filter}"):
+                continue
+        else:
+            # Exclude tagged runs so baseline aggregation is not polluted.
+            # Untagged bundles have exactly 4 tokens: flu_28p_{a}_{b}.
+            if len(bundle.split("_")) > 4:
+                continue
         dirs.setdefault(bundle, []).append(d)
 
     # Take latest per bundle (sorted alphabetically = chronologically)
@@ -282,6 +296,9 @@ def main():
     parser.add_argument("--output_dir", type=str, default=None,
                         help="Output directory for summary CSV and heatmaps "
                              "(default: same as manifest dir, or models/flu/July_2025/allpairs_summary/)")
+    parser.add_argument("--tag", type=str, default=None,
+                        help="Restrict discovery to cv dirs whose bundle ends with _{tag} "
+                             "(e.g., 'h3n2'). Without --tag, tagged runs are excluded.")
     parser.add_argument("--progress", action="store_true",
                         help="Show live progress table from status.json files and exit")
     args = parser.parse_args()
@@ -297,7 +314,8 @@ def main():
         sys.exit(1)
 
     # Discover CV dirs
-    cv_dirs = discover_cv_dirs(cv_base_dir, timestamp_filter=args.timestamp)
+    cv_dirs = discover_cv_dirs(cv_base_dir, timestamp_filter=args.timestamp,
+                                tag_filter=args.tag)
     if not cv_dirs:
         print(f"No cv_flu_28p_* directories found in {cv_base_dir}")
         sys.exit(1)

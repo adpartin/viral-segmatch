@@ -225,6 +225,14 @@ def parse_args():
                         "Use with --folds to update the manifest and re-aggregate.")
     p.add_argument("--skip_aggregate", action="store_true",
                    help="Skip the final aggregation step.")
+    p.add_argument("--override", type=str, nargs="+", default=None,
+                   help="Hydra-style dotlist overrides forwarded to Stage 3 and Stage 4 "
+                        "(e.g., dataset.hn_subtype=H3N2 dataset.host=human). Use with --tag "
+                        "to differentiate run directories.")
+    p.add_argument("--tag", type=str, default=None,
+                   help="Short tag injected into dataset/training/cv_run directory names to "
+                        "distinguish filtered runs (e.g., 'h3n2'). When --skip_dataset is set, "
+                        "auto-discovery looks for dataset_{bundle}_{tag}_*.")
     return p.parse_args()
 
 
@@ -232,6 +240,11 @@ def main():
     args = parse_args()
     cv_timer = Timer()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Tag suffix injected into every run_id (datasets, training, cv_runs) so filter
+    # variants don't collide. Empty when --tag is not set → existing paths unchanged.
+    tag_suffix = f"_{args.tag}" if args.tag else ""
+    override_flags = (["--override", *args.override] if args.override else [])
 
     # ── Tee stdout/stderr to a log file ───────────────────────────────────
     # Log starts in logs/cv/ (known immediately). At the end, a copy is
@@ -285,7 +298,7 @@ def main():
                 / cfg.virus.virus_name / cfg.virus.data_version / "runs"
             )
             bundle_slug = args.config_bundle.replace('/', '_')
-            candidates = sorted(datasets_base.glob(f"dataset_{bundle_slug}_*"))
+            candidates = sorted(datasets_base.glob(f"dataset_{bundle_slug}{tag_suffix}_*"))
             if not candidates:
                 print(f"ERROR: --skip_dataset but no dataset dirs found matching "
                       f"dataset_{bundle_slug}_* in {datasets_base}")
@@ -294,13 +307,14 @@ def main():
             print(f"Auto-discovered latest dataset dir: {dataset_run_dir}")
         print(f"Skipping Stage 3. Using existing dataset dir: {dataset_run_dir}")
     else:
-        run_id = f"dataset_{args.config_bundle.replace('/', '_')}_{timestamp}"
+        run_id = f"dataset_{args.config_bundle.replace('/', '_')}{tag_suffix}_{timestamp}"
         print(f"Stage 3: generating {n_folds}-fold dataset (run_id={run_id})...")
         stage3_cmd = [
             "python",
             str(PROJECT_ROOT / "src" / "datasets" / "dataset_segment_pairs.py"),
             "--config_bundle", args.config_bundle,
             "--run_output_subdir", run_id,
+            *override_flags,
         ]
         proc, _ = run_cmd(stage3_cmd, dry_run=args.dry_run)
         if proc is not None:
@@ -373,7 +387,7 @@ def main():
                 print(f"ERROR: --cv_runs_dir does not exist: {cv_runs_dir}")
                 sys.exit(1)
         else:
-            cv_run_id   = f"cv_{args.config_bundle.replace('/', '_')}_{train_timestamp}"
+            cv_run_id   = f"cv_{args.config_bundle.replace('/', '_')}{tag_suffix}_{train_timestamp}"
             cv_runs_dir = PROJECT_ROOT / "models" / virus_name / data_version / "cv_runs" / cv_run_id
         cv_runs_dir.mkdir(parents=True, exist_ok=True)
     else:
@@ -389,7 +403,7 @@ def main():
     def make_fold_cmd(fold_i: int, gpu: int) -> tuple[list[str], dict, str, Optional[Path]]:
         """Build the command, env, run_id, and fold_log path for a fold."""
         fold_dir = dataset_run_dir / f"fold_{fold_i}"
-        run_id_train = f"training_{args.config_bundle.replace('/', '_')}_fold{fold_i}_{train_timestamp}"
+        run_id_train = f"training_{args.config_bundle.replace('/', '_')}{tag_suffix}_fold{fold_i}_{train_timestamp}"
         cmd = [
             "python",
             str(PROJECT_ROOT / "src" / "models" / "train_pair_classifier.py"),
@@ -397,6 +411,7 @@ def main():
             "--cuda_name", f"cuda:{gpu}",
             "--dataset_dir", str(fold_dir),
             "--run_output_subdir", run_id_train,
+            *override_flags,
         ]
         env_override = {"CUDA_VISIBLE_DEVICES": str(gpu)}
         # Pre-create training output dir so we can write the log file there
@@ -443,7 +458,7 @@ def main():
 
         # Pre-register all run IDs (needed for manifest even in dry-run)
         for fold_i in folds_to_run:
-            run_id_train = f"training_{args.config_bundle.replace('/', '_')}_fold{fold_i}_{train_timestamp}"
+            run_id_train = f"training_{args.config_bundle.replace('/', '_')}{tag_suffix}_fold{fold_i}_{train_timestamp}"
             training_run_dirs[fold_i] = run_id_train
 
         while pending_folds or active:

@@ -1520,6 +1520,13 @@ parser.add_argument(
     type=str, default=None,
     help='Optional subdirectory name under default output_dir (e.g., experiment/run id).'
 )
+parser.add_argument(
+    '--override',
+    type=str, nargs='+', default=None,
+    help='Hydra-style dotlist overrides applied on top of the bundle (e.g., '
+         'dataset.hn_subtype=H3N2 dataset.host=human). Useful for filter sweeps '
+         'without creating new bundles.'
+)
 args = parser.parse_args()
 
 # Load config
@@ -1528,6 +1535,11 @@ config_bundle = args.config_bundle
 if config_bundle is None:
     raise ValueError("Must provide --config_bundle")
 config = get_virus_config_hydra(config_bundle, config_path=config_path)
+# Apply CLI dotlist overrides (e.g., dataset.hn_subtype=H3N2)
+if args.override:
+    from omegaconf import OmegaConf
+    config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.override))
+    print(f"Applied CLI overrides: {args.override}")
 print_config_summary(config)
 
 # Extract config values
