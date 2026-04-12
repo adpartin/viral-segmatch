@@ -205,22 +205,20 @@ Matrix subsetting fixed memory but NOT speed. Two remaining issues:
 See `polaris_plan.md` for detailed step-by-step checklists per phase.
 
 ## What's Next (immediate)
-1. **TEST Round 2 fixes** — 1-pair interactive run on Polaris to verify:
-   - Level 2 diagnostic output: pin_memory=True vs False batch times (expect dramatic difference)
-   - GPU memory diagnostic: free/total before model.to(device) on all 4 folds (especially fold 2)
-   - No fold 2 OOM (TF prevention should fix this)
-   - If pin_memory confirmed as bottleneck: set pin_memory=false in master bundle, re-test
-   ```
-   qsub -I -l select=1:ncpus=64:ngpus=4 -l walltime=1:00:00 -A IMPROVE_Aim1 -q debug-scaling -l filesystems=eagle
-   cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
-   source scripts/polaris_env.sh
-   python scripts/run_cv_lambda.py --config_bundle flu_28p_ha_na --gpus 0 1 2 3 --skip_dataset
-   ```
-2. **Update pin_memory in master bundle** — change to `false` if diagnostic confirms it's the bottleneck.
-3. **Re-submit Phase 3** (full 28-pair production run) once both issues resolved.
-4. Clean up old run dirs (user will delete manually — see cleanup list in conversation).
-5. Build cross-pair aggregation + 8×8 heatmap (script exists: `aggregate_allpairs_results.py`).
-6. Merge to master after Phase 3 succeeds.
+**H3N2 all-pairs sweep** — rerun the 28 protein-pair × 12-fold CV with the
+`dataset.hn_subtype=H3N2` filter applied via the new `--filter`/`--tag`
+mechanism (no new bundles). Runbook: `docs/allpairs_filter_sweep_runbook.md`.
+
+Plumbing added (committed on feature branch, not yet on master):
+- `--override key=value` in `dataset_segment_pairs.py` and `train_pair_classifier.py`
+- `--override` + `--tag` in `scripts/run_cv_lambda.py`
+- `--filter` + `--filter-tag` in `scripts/run_allpairs_polaris_prod.sh`
+- `--tag` in `src/analysis/aggregate_allpairs_results.py`
+
+Workflow summary (see runbook for detail):
+1. Stage 3 (serial loop over 28 bundles with `--skip_training --tag h3n2 --override dataset.hn_subtype=H3N2`)
+2. Stage 4 — interactive `qsub -I` then `bash scripts/run_allpairs_polaris_prod.sh --filter dataset.hn_subtype=H3N2 --skip_dataset`
+3. Aggregate with `--tag h3n2`
 
 ## What's Next (beyond Task 11)
 - Fix pair_key dedup for temporal holdout -- re-run for clean metrics
