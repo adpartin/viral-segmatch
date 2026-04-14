@@ -440,13 +440,12 @@ for i in "${!PIDS[@]}"; do
     fi
 done
 
-# --- Write dataset manifest (Stage 3 only) ---
-# After a --skip_training run, scan for the dataset dirs that were just created
-# and write a JSON manifest mapping bundle → dataset path. This manifest is the
-# input for Stage 4 via --dataset_manifest / DATASET_MANIFEST, decoupling dataset
-# creation from training so the same datasets can be reused with different
-# training configs (e.g., k-mer vs ESM-2).
-if [ "$SKIP_TRAINING" = true ] && [ "$SUCCEEDED" -gt 0 ]; then
+# --- Write dataset manifest ---
+# After Stage 3 completes (whether standalone or combined with Stage 4), scan for
+# the dataset dirs and write a JSON manifest mapping bundle → dataset path. This
+# manifest enables dataset reuse across training configs (e.g., k-mer vs ESM-2)
+# via --dataset_manifest / DATASET_MANIFEST in subsequent Stage 4 runs.
+if [ "$SKIP_DATASET" != true ] && [ "$SUCCEEDED" -gt 0 ]; then
     DATASET_MANIFEST_OUT="$MANIFEST_DIR/dataset_manifest.json"
     python3 -c "
 import json, sys
@@ -490,13 +489,41 @@ echo "Task 11 complete."
 echo "  Succeeded:  $SUCCEEDED / $NUM_BUNDLES"
 if [ $FAILED -gt 0 ]; then
     echo "  Failed:     $FAILED ($FAILED_BUNDLES )"
-    echo "  Re-run failed pairs with:"
+    echo ""
+    echo "  Re-run entire failed pairs:"
     echo "    --pairs \"$FAILED_BUNDLES\" --skip_dataset"
+    echo ""
+    echo "  Re-run only failed folds (per pair):"
+    for FB in $FAILED_BUNDLES; do
+        PAIR_LOG="$MANIFEST_DIR/${FB}.log"
+        # Extract failed fold numbers from run_cv_lambda.py output: "Training failed for folds: [6, 11]"
+        # run_cv_lambda.py prints a ready-to-use re-run command on failure
+        RERUN_CMD=$(grep -oP 'Re-run with: \K.*' "$PAIR_LOG" 2>/dev/null | tail -1)
+        if [ -n "$RERUN_CMD" ]; then
+            echo "    $RERUN_CMD"
+        else
+            echo "    # $FB: check $PAIR_LOG for details"
+        fi
+    done
 fi
 echo "  Manifest:   $MANIFEST_DIR/manifest.txt"
 echo "  Pair logs:  $MANIFEST_DIR/<bundle>.log"
 echo "  Summary:    $MANIFEST_DIR/allpairs_summary.csv"
 if [ -n "${PBS_JOBID:-}" ]; then
     echo "  PBS Job ID: $PBS_JOBID"
+
+    # Copy the PBS stdout log into the results dir for easier discovery.
+    # PBS writes to logs/allpairs/{JOBID}.OU after completion, but during
+    # execution we can't predict the full hostname suffix. Instead, save the
+    # job ID so the user (or check_allpairs_status.py) can find it later.
+    echo "$PBS_JOBID" > "$MANIFEST_DIR/pbs_job_id.txt"
+    PBS_LOG_DIR="$PROJECT_ROOT/logs/allpairs"
+    PBS_LOG_SRC=$(ls "$PBS_LOG_DIR/${PBS_JOBID}"*.OU 2>/dev/null | head -1)
+    if [ -n "$PBS_LOG_SRC" ] && [ -f "$PBS_LOG_SRC" ]; then
+        cp "$PBS_LOG_SRC" "$MANIFEST_DIR/pbs_job.log"
+        echo "  PBS log:    $MANIFEST_DIR/pbs_job.log"
+    else
+        echo "  PBS log:    (will appear in $PBS_LOG_DIR/${PBS_JOBID}*.OU after job ends)"
+    fi
 fi
 echo "============================================================"
