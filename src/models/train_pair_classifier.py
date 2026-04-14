@@ -1185,9 +1185,13 @@ print(f'pin_memory:      {PIN_MEMORY}')
 print(f'use_amp:         {USE_AMP}')
 
 print('\nLoad pair datasets.')
-train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv')
-val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv')
-test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv')
+# Use engine='python' to avoid a pandas C parser segfault triggered by certain
+# protein sequence byte patterns in large CSVs (observed on Polaris, fold 11 of
+# PB1/HA and fold 6 of PB2/PA). The Python engine is slower but only adds ~seconds.
+CSV_ENGINE = 'python'
+train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv', engine=CSV_ENGINE)
+val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv', engine=CSV_ENGINE)
+test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv', engine=CSV_ENGINE)
 
 # CUDA device
 CUDA_NAME = args.cuda_name
