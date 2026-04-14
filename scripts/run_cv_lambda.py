@@ -298,7 +298,12 @@ def main():
                 / cfg.virus.virus_name / cfg.virus.data_version / "runs"
             )
             bundle_slug = args.config_bundle.replace('/', '_')
-            candidates = sorted(datasets_base.glob(f"dataset_{bundle_slug}{tag_suffix}_*"))
+            # Match tag exactly: require timestamp (digit) right after the tag suffix
+            # to prevent e.g. tag "val_h3n2" from matching "val_h3n2_human" dirs.
+            candidates = sorted(
+                d for d in datasets_base.glob(f"dataset_{bundle_slug}{tag_suffix}_*")
+                if d.name.split(f"{bundle_slug}{tag_suffix}_")[1][0].isdigit()
+            )
             if not candidates:
                 print(f"ERROR: --skip_dataset but no dataset dirs found matching "
                       f"dataset_{bundle_slug}_* in {datasets_base}")
@@ -497,6 +502,13 @@ def main():
         failed = [fid for fid, ec in exit_codes.items() if ec != 0]
         if failed:
             print(f"ERROR: Training failed for folds: {failed}")
+            print(f"Dataset run dir: {dataset_run_dir}")
+            print(f"CV results dir: {cv_runs_dir}")
+            print(f"Re-run with: python3 scripts/run_cv_lambda.py "
+                  f"--config_bundle {args.config_bundle} --skip_dataset "
+                  f"--dataset_run_dir {dataset_run_dir} "
+                  f"--folds {' '.join(str(f) for f in failed)} "
+                  f"--cv_runs_dir {cv_runs_dir} --gpus 0 1 2 3")
             write_status(cv_runs_dir, "FAILED", n_folds, folds_done, folds_failed,
                          [], args.config_bundle)
             sys.exit(1)
