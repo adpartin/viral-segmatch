@@ -59,13 +59,21 @@ into the job. The env-var fallback makes the same script work for both modes.
 ## Step-by-step workflow (H3N2 example)
 
 Replace `dataset.hn_subtype=H3N2` with any override. Add more comma-separated
-overrides to `FILTERS_CSV` for stacking (e.g., `dataset.hn_subtype=H3N2,dataset.host=human`).
+overrides to `FILTERS_CSV` for stacking (e.g., `dataset.hn_subtype=H3N2,dataset.host=Human`).
 
-### Step 1 — Generate 28 filtered datasets (Stage 3, parallel, ~3 min)
+**Note:** Filter values are case-sensitive and must match the data exactly
+(e.g., `dataset.host=Human` not `human`).
+
+### Step 1 — Generate 28 filtered datasets (Stage 3, parallel)
 
 Parallelize across 28 nodes via the launcher with `--skip_training` / `SKIP_TRAINING=true`.
 Each node creates one pair's 12-fold dataset, then exits. GPUs sit idle but
-the job is short (~3 min total for all 28).
+the job is short.
+
+**Walltime guidance** (per pair on one node, all 28 run in parallel):
+- H3N2-only: ~27 min → use `walltime=00:45:00`
+- Unfiltered (full ~108K): ~75 min → use `walltime=01:30:00`
+- Other filters: scale proportionally to isolate count
 
 **Batch submission:**
 ```bash
@@ -152,7 +160,7 @@ pair, bypassing glob-based auto-discovery entirely.
 
 ```bash
 # Stage 3 (once): create H3N2 datasets
-qsub -l walltime=00:30:00 \
+qsub -l walltime=00:45:00 \
      -v FILTERS_CSV="dataset.hn_subtype=H3N2",SKIP_TRAINING=true \
      scripts/run_allpairs_polaris_prod.sh
 # → writes models/flu/July_2025/allpairs_prod_h3n2_<ts>/dataset_manifest.json
@@ -185,8 +193,8 @@ Both use the exact same `dataset_flu_28p_{a}_{b}_h3n2_*` dataset dirs.
 
 Before running full-epoch experiments with a new filter, run a short validation
 matrix to verify that the scripts work end-to-end across filter combos and
-feature sources. Each experiment uses 5 epochs / patience 5 to keep wall time
-short (~15-20 min per Stage 4 job).
+feature sources. Each experiment uses 20 epochs / patience 20 to keep wall time
+short while still verifying learning.
 
 ### 6-experiment grid
 
@@ -196,27 +204,27 @@ short (~15-20 min per Stage 4 job).
 | 2 | None (unfiltered)          | ESM-2   | `val_unfilt_esm2` | Exp 1 manifest |
 | 3 | `dataset.hn_subtype=H3N2`  | k-mer   | `val_h3n2`     | Own Stage 3   |
 | 4 | `dataset.hn_subtype=H3N2`  | ESM-2   | `val_h3n2_esm2`| Exp 3 manifest |
-| 5 | `dataset.hn_subtype=H3N2,dataset.host=human` | k-mer | `val_h3n2_human` | Own Stage 3 |
-| 6 | `dataset.hn_subtype=H3N2,dataset.host=human` | ESM-2 | `val_h3n2_human_esm2` | Exp 5 manifest |
+| 5 | `dataset.hn_subtype=H3N2,dataset.host=Human` | k-mer | `val_h3n2_human` | Own Stage 3 |
+| 6 | `dataset.hn_subtype=H3N2,dataset.host=Human` | ESM-2 | `val_h3n2_human_esm2` | Exp 5 manifest |
 
 ### Submission order and commands
 
 **Stage 3 — create datasets (3 jobs, can run in parallel):**
 
 ```bash
-# Exp 1: unfiltered datasets
-qsub -l walltime=00:30:00 \
+# Exp 1: unfiltered datasets (~75 min/pair on full ~108K dataset)
+qsub -l walltime=01:30:00 \
      -v FILTER_TAG="val_unfilt",SKIP_TRAINING=true \
      scripts/run_allpairs_polaris_prod.sh
 
-# Exp 3: H3N2 datasets
-qsub -l walltime=00:30:00 \
+# Exp 3: H3N2 datasets (~27 min/pair)
+qsub -l walltime=00:45:00 \
      -v FILTERS_CSV="dataset.hn_subtype=H3N2",FILTER_TAG="val_h3n2",SKIP_TRAINING=true \
      scripts/run_allpairs_polaris_prod.sh
 
-# Exp 5: H3N2 + human datasets
-qsub -l walltime=00:30:00 \
-     -v FILTERS_CSV="dataset.hn_subtype=H3N2|dataset.host=human",FILTER_TAG="val_h3n2_human",SKIP_TRAINING=true \
+# Exp 5: H3N2 + human datasets (~27 min/pair or less)
+qsub -l walltime=00:45:00 \
+     -v FILTERS_CSV="dataset.hn_subtype=H3N2|dataset.host=Human",FILTER_TAG="val_h3n2_human",SKIP_TRAINING=true \
      scripts/run_allpairs_polaris_prod.sh
 ```
 
@@ -228,33 +236,41 @@ with the actual timestamp.
 
 ```bash
 # Exp 1: unfiltered k-mer (auto-discovery, no manifest needed)
-qsub -l walltime=01:00:00 \
-     -v FILTERS_CSV="training.epochs=5|training.patience=5",FILTER_TAG="val_unfilt",SKIP_DATASET=true \
+qsub -l walltime=01:30:00 \
+     -v FILTERS_CSV="training.epochs=20|training.patience=20",FILTER_TAG="val_unfilt",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
+qsub -l walltime=04:30:00 \
+   -v FILTER_TAG="val_unfilt",SKIP_DATASET=true \
+   scripts/run_allpairs_polaris_prod.sh
+ 
 # Exp 2: unfiltered ESM-2 (reuse Exp 1 datasets via manifest)
-qsub -l walltime=01:00:00 \
-     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=5|training.patience=5",FILTER_TAG="val_unfilt_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_unfilt_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+qsub -l walltime=01:30:00 \
+     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=20|training.patience=20",FILTER_TAG="val_unfilt_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_unfilt_<ts>/dataset_manifest.json",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
+qsub -l walltime=04:30:00 \
+     -v FILTER_TAG="val_unfilt_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_unfilt_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+     scripts/run_allpairs_polaris_prod.sh
+     
 # Exp 3: H3N2 k-mer (auto-discovery)
-qsub -l walltime=01:00:00 \
-     -v FILTERS_CSV="dataset.hn_subtype=H3N2|training.epochs=5|training.patience=5",FILTER_TAG="val_h3n2",SKIP_DATASET=true \
+qsub -l walltime=01:30:00 \
+     -v FILTERS_CSV="dataset.hn_subtype=H3N2|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
 # Exp 4: H3N2 ESM-2 (reuse Exp 3 datasets via manifest)
-qsub -l walltime=01:00:00 \
-     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=5|training.patience=5",FILTER_TAG="val_h3n2_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+qsub -l walltime=01:30:00 \
+     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_<ts>/dataset_manifest.json",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
 # Exp 5: H3N2+human k-mer (auto-discovery)
-qsub -l walltime=01:00:00 \
-     -v FILTERS_CSV="dataset.hn_subtype=H3N2|dataset.host=human|training.epochs=5|training.patience=5",FILTER_TAG="val_h3n2_human",SKIP_DATASET=true \
+qsub -l walltime=01:30:00 \
+     -v FILTERS_CSV="dataset.hn_subtype=H3N2|dataset.host=Human|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2_human",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
 # Exp 6: H3N2+human ESM-2 (reuse Exp 5 datasets via manifest)
-qsub -l walltime=01:00:00 \
-     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=5|training.patience=5",FILTER_TAG="val_h3n2_human_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_human_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+qsub -l walltime=01:30:00 \
+     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2_human_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_human_<ts>/dataset_manifest.json",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 ```
 
@@ -274,12 +290,21 @@ python3 scripts/check_allpairs_status.py --tag val_h3n2_human_esm2 --compare-to 
 
 - `|` (pipe) is used as the separator in `FILTERS_CSV` to avoid PBS `-v` comma
   conflicts. The launcher auto-detects the separator.
-- Stage 3 walltime is 30 min (generous; typically ~3 min on 28 nodes).
-- Stage 4 walltime is 1 hour (5 epochs finishes in ~15-20 min on 28 nodes).
+- Stage 3 walltime depends on dataset size: ~75 min/pair for unfiltered (~108K
+  isolates), ~27 min/pair for H3N2-only. All 28 pairs run in parallel (1 per node).
+- Stage 4 walltime: 20 epochs takes ~30 min for unfiltered k-mer, ~18 min for
+  H3N2 k-mer. ESM-2 may take longer. Use 1:30 walltime for safety.
 - The `val_` prefix in all tags keeps validation runs separate from production.
-- `training.epochs=5` and `training.patience=5` are passed as config overrides
+- `training.epochs` and `training.patience` are passed as config overrides
   via `FILTERS_CSV`, not as separate flags — the override mechanism works for
   any config key, not just dataset filters.
+- **Filter values are case-sensitive** — must match the data exactly
+  (e.g., `dataset.host=Human` not `human`). Check metadata values in
+  `data/processed/flu/metadata_eda/flu_genomes_metadata_parsed.csv` if unsure.
+- **Stale dataset dirs**: If a Stage 3 job times out or fails, it leaves
+  partial dataset dirs (with `resolved_config.yaml` but no folds). Auto-discovery
+  picks the latest dir by timestamp — if that's a stale dir, Stage 4 will fail.
+  Clean up stale dirs before resubmitting.
 
 ---
 
@@ -298,13 +323,15 @@ python3 scripts/check_allpairs_status.py --tag val_h3n2_human_esm2 --compare-to 
   `aggregate_allpairs_results.py` without `--tag` excludes any bundle whose
   name has more than 4 underscore-separated tokens (i.e. anything with a
   tag suffix). Unfiltered 28-pair runs continue to aggregate normally.
-- **Stacking filters**: `FILTERS_CSV="dataset.hn_subtype=H3N2,dataset.host=human"`
+- **Stacking filters**: `FILTERS_CSV="dataset.hn_subtype=H3N2,dataset.host=Human"`
   auto-derives tag `h3n2_human`. No code changes needed.
 - **Config override hook**: `--override` works for any key in the config tree,
   not just dataset filters. You could use the same mechanism to sweep
   `training.batch_size`, `training.lr`, etc., just give each sweep a
   different `--filter-tag`.
-- **PBS queue note**: Step 1 (Stage 3 only) finishes in ~3 min so `debug` or
-  `debug-scaling` queue is fine. Step 2 needs ~90 min so use `prod` queue.
-  Both use the same 28-node allocation since the launcher currently requires
-  1 node per pair. For Step 1, this wastes GPUs but saves wall time.
+- **Stage 3 walltimes**: Unfiltered (full ~108K isolates) takes ~75 min/pair;
+  H3N2-only takes ~27 min/pair. Scale walltime proportionally to isolate count.
+- **PBS queue note**: Stage 3 with filters (H3N2) finishes in ~30 min so
+  `debug-scaling` queue works. Unfiltered Stage 3 needs ~90 min — use `prod`
+  or `medium`. Step 2 (Stage 4, 100 epochs) needs ~3.5 hours — use `prod`.
+  Both use the same 28-node allocation (1 node per pair).
