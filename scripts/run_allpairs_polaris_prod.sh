@@ -146,6 +146,9 @@
 
 set -euo pipefail
 
+JOB_START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+JOB_START_SEC=$(date +%s)
+
 # --- Resolve project root ---
 if [ -n "${PBS_O_WORKDIR:-}" ]; then
     PROJECT_ROOT="$PBS_O_WORKDIR"
@@ -483,9 +486,18 @@ python3 "$PROJECT_ROOT/src/analysis/aggregate_allpairs_results.py" \
     $AGG_FLAGS 2>&1 || echo "WARNING: Cross-pair aggregation failed (non-fatal)."
 
 # --- Summary ---
+JOB_END_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+JOB_END_SEC=$(date +%s)
+JOB_ELAPSED=$(( JOB_END_SEC - JOB_START_SEC ))
+JOB_ELAPSED_MIN=$(( JOB_ELAPSED / 60 ))
+JOB_ELAPSED_SEC=$(( JOB_ELAPSED % 60 ))
+
 echo ""
 echo "============================================================"
 echo "Task 11 complete."
+echo "  Started:    $JOB_START_TIME"
+echo "  Finished:   $JOB_END_TIME"
+echo "  Elapsed:    ${JOB_ELAPSED_MIN}m ${JOB_ELAPSED_SEC}s"
 echo "  Succeeded:  $SUCCEEDED / $NUM_BUNDLES"
 if [ $FAILED -gt 0 ]; then
     echo "  Failed:     $FAILED ($FAILED_BUNDLES )"
