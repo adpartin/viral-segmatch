@@ -720,7 +720,11 @@ def train_model(
             train_f1_macro = f1_score(train_labels, train_preds, average='macro')
             train_precision = precision_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
             train_recall = recall_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
-            train_auc = roc_auc_score(train_labels, train_probs)
+            try:
+                train_auc = roc_auc_score(train_labels, train_probs)
+            except ValueError:
+                # See val_auc comment: degenerate predictions break roc_auc_score.
+                train_auc = 0.5
             train_brier = float(np.mean((train_probs - np.array(train_labels)) ** 2))
         else:
             train_f1 = train_f1_macro = train_precision = train_recall = train_auc = train_brier = None
@@ -754,7 +758,15 @@ def train_model(
         val_f1_macro = f1_score(val_labels, val_preds, average='macro')
         val_precision = precision_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         val_recall = recall_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
-        val_auc = roc_auc_score(val_labels, val_probs)
+        try:
+            val_auc = roc_auc_score(val_labels, val_probs)
+        except ValueError:
+            # roc_auc_score measures how well the model ranks positives above
+            # negatives across all thresholds. When predictions are near-constant
+            # (degenerate model), the FPR values contain ties that break
+            # monotonicity, causing sklearn to raise ValueError. Fall back to
+            # AUC=0.5 (equivalent to random ranking) so training can continue.
+            val_auc = 0.5
         val_brier = float(np.mean((np.array(val_probs) - np.array(val_labels)) ** 2))
 
         # Select metric value for early stopping
@@ -956,7 +968,11 @@ def evaluate_on_split(
     test_f1_macro = f1_score(true_labels, pred_labels, average='macro')
     test_precision = precision_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
     test_recall = recall_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
-    test_auc = roc_auc_score(true_labels, probs)
+    try:
+        test_auc = roc_auc_score(true_labels, probs)
+    except ValueError:
+        # See train_model() val_auc comment: degenerate predictions break roc_auc_score.
+        test_auc = 0.5
 
     # Classification report
     print('\nClassification Report:')
