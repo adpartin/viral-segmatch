@@ -274,6 +274,65 @@ def plot_heatmap(matrix, metric: str, output_path: Path) -> None:
     print(f"Saved heatmap: {output_path}")
 
 
+def plot_barplot(table, metric: str, output_path: Path) -> None:
+    """Generate a horizontal bar plot with error bars for all 28 pairs."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print(f"WARNING: matplotlib not available, skipping bar plot for {metric}")
+        return
+
+    metric_labels = {
+        "auc_roc": "AUC-ROC",
+        "f1_binary": "F1 Score",
+        "precision": "Precision",
+        "recall": "Recall",
+    }
+    label = metric_labels.get(metric, metric)
+
+    mean_col = f"{metric}_mean"
+    std_col = f"{metric}_std"
+
+    # Filter to complete pairs with valid metrics
+    valid = table.dropna(subset=[mean_col, std_col]).copy()
+    if valid.empty:
+        print(f"WARNING: no valid data for bar plot ({metric})")
+        return
+
+    # Build pair label (e.g., "HA/M1") and sort alphabetically
+    valid["pair_label"] = valid["prot_a"] + "/" + valid["prot_b"]
+    valid = valid.sort_values("pair_label", ascending=True)
+
+    means = valid[mean_col].values
+    stds = valid[std_col].values
+    labels = valid["pair_label"].values
+
+    fig, ax = plt.subplots(figsize=(8, 10))
+    y_pos = range(len(labels))
+
+    bars = ax.barh(y_pos, means, xerr=stds, height=0.7,
+                   color="#4c91c9", edgecolor="white", capsize=3)
+
+    # Annotate each bar with the mean value (3 decimal places).
+    for i, (mean, std) in enumerate(zip(means, stds)):
+        ax.text(mean + std + 0.002, i, f"{mean:.3f}",
+                va="center", ha="left", fontsize=8)
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(labels, fontsize=9)
+    ax.set_xlabel(label)
+    ax.set_title(f"Protein Pair {label} (12-fold CV, mean ± std)", fontsize=13)
+    ax.set_xlim(left=0.0, right=1.05)
+    ax.invert_yaxis()
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved bar plot: {output_path}")
+
+
 def show_progress(cv_dirs: Dict[str, Path]) -> None:
     """Print live progress table from status.json files."""
     print(f"\n{'Bundle':<30} {'Status':<12} {'Done':>6} {'Failed':>8} {'Running':>9} {'Updated':<20}")
@@ -432,9 +491,13 @@ def main():
         matrix.to_csv(matrix_csv)
         print(f"Saved heatmap matrix: {matrix_csv}")
 
-        # Plot
+        # Plot heatmap
         plot_path = output_dir / f"heatmap_{metric}.png"
         plot_heatmap(matrix, metric, plot_path)
+
+        # Plot bar chart
+        bar_path = output_dir / f"barplot_{metric}.png"
+        plot_barplot(complete, metric, bar_path)
 
     # Save full results as JSON (for programmatic access)
     json_path = output_dir / "allpairs_summary.json"
