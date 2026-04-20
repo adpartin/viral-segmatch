@@ -5,8 +5,9 @@ This script analyzes the test results from the trained ESM-2 frozen pair classif
 providing both standard ML metrics and domain-specific insights for viral protein
 segment classification.
 
-Output directory: results/{virus_name}/{data_version}/{config_bundle}/training_analysis/
-(Config-specific - training results depend on model configuration)
+Output directory: <training_run_dir>/post_hoc/ — colocated with the run's
+test_predicted.csv and best_model.pt, but kept in a subfolder so analysis
+artifacts are easy to distinguish from training outputs.
 
 Generated plots:
 - confusion_matrix.png: Confusion matrix with TP/TN/FP/FN labels
@@ -1018,10 +1019,9 @@ def main(config_bundle: str,
             models_dir = base_models_dir
             print(f"Using base models directory: {models_dir}")
     
-    # Construct results directory (tied to training run for provenance)
-    # Format: results/{virus_name}/{data_version}/runs/{training_run_id}/training_analysis/
-    training_run_id = models_dir.name  # e.g., training_flu_schema_raw_slot_norm_unit_diff_20260310_143000
-    results_dir = project_root / 'results' / config.virus.virus_name / config.virus.data_version / 'runs' / training_run_id / 'training_analysis'
+    # Write analysis artifacts under the training run dir, colocated with
+    # test_predicted.csv and best_model.pt. Self-contained per-run artifacts.
+    results_dir = models_dir / 'post_hoc'
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # Load test results

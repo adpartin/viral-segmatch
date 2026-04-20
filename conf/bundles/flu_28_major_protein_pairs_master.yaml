@@ -56,4 +56,3 @@ training:
   # num_workers is hard-coded to 0 in train_pair_classifier.py (not configurable).
   # See the comment there for why: IPC overhead + torch.from_numpy() safety.
   use_amp: false               # MLP too small for Tensor Core benefits
-

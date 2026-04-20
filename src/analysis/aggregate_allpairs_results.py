@@ -350,6 +350,16 @@ def main():
     table.to_csv(csv_path, index=False)
     print(f"Saved cross-pair summary: {csv_path}")
 
+    # Save fp_fn sub-table (pairs ranked by FP/FN ratio — quick health check)
+    if "fp_fn_ratio_mean" in table.columns:
+        fp_fn_cols = [c for c in ["bundle", "prot_a", "prot_b", "status",
+                                  "fp_fn_ratio_mean", "fp_fn_ratio_std"]
+                      if c in table.columns]
+        fp_fn_path = output_dir / "allpairs_summary_fp_fn.csv"
+        table[fp_fn_cols].sort_values("fp_fn_ratio_mean", ascending=False,
+                                      na_position="last").to_csv(fp_fn_path, index=False)
+        print(f"Saved FP/FN ratio sub-table: {fp_fn_path}")
+
     # Print summary table
     print(f"\n{'Pair':<20} {'AUC':>12} {'F1':>12} {'Prec':>12} {'Recall':>12} {'Brier':>12}")
     print("-" * 80)

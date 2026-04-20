@@ -131,7 +131,7 @@ to any future Polaris scaling task** (Tasks 8, 9, GenSLM).
 
 ---
 
-### NEW: Stratified evaluation by pair type and metadata — NOT IMPLEMENTED
+### NEW: Stratified evaluation by pair type and metadata — PARTIAL (Level 2 only)
 
 > **[2026-03-12 meeting]** **Unconditional analytical deliverable.**
 
@@ -143,12 +143,30 @@ See `paper_outline_v2.md` Section 3.5.1 for the full hierarchical analysis frame
 (Level 1: pair-type regime; Level 2: per-category marginals with "other" bucket;
 Level 3: diagnostic cross-tabulation heatmaps) and the metadata confounder discussion.
 
-**Implementation needed:**
-- Analysis script: predictions + metadata → pair-type classification → per-group metrics
-- Pair-distribution ledger output
-- Minimum ~50–100 test pairs per category; pool smaller into "other"
+**Gap analysis (existing vs required):**
 
-**Effort:** Low. Post-hoc script on existing prediction outputs + metadata files.
+| Level | Requirement | Status |
+|-------|-------------|--------|
+| **1. Pair-type regime** | Per-category metrics for {positives, within-subtype negatives, cross-subtype negatives}. Requires tagging each *negative pair* by whether its two source isolates share a subtype. | **Missing.** The defining deliverable. Existing `error_analysis_by_hn_subtype.csv` uses a single `hn_subtype` column per row — works for positives (one isolate = one subtype) but cannot represent cross-subtype negatives (two subtypes). |
+| **2. Per-category marginals** | For each metadata axis independently (subtype, host, region, year), report metrics per category with "other" pooling for small groups. | **Partial.** `analyze_stage4_train.py:analyze_errors_by_metadata()` produces `error_analysis_by_{host,hn_subtype,year}.csv`, `performance_metrics_by_metadata.png`, `error_rates_by_metadata.png`. Assumes single-subtype pairs only (same Level 1 gap). No region axis. No explicit "other" bucket. |
+| **3. Cross-tab heatmap** | Full (subtype_a × subtype_b) FP-rate matrix as diagnostic. | **Missing.** |
+
+**Implementation needed:**
+- **Pair-type classifier** (unblocks Level 1 + fixes Level 2): for each prediction row,
+  look up `(subtype_a, subtype_b, host_a, host_b, year_a, year_b, region_a, region_b)`
+  from isolate metadata, tag each row: positive | within-subtype-neg | cross-subtype-neg
+  (and same for the other axes). Requires joining `test_predicted.csv` with
+  `isolate_metadata.csv`.
+- **Level 1 reporting** — metrics per {positive, within-subtype-neg, cross-subtype-neg}.
+- **Level 2 extension** — split negatives into within/cross in the existing marginal
+  stratification; add region axis; explicit "other" bucket for small categories
+  (~50–100 test pair minimum).
+- **Level 3 heatmap** — (subtype_a × subtype_b) FP-rate matrix for diagnostics.
+- **Pair-distribution ledger** output (Section 2.1.2 of `paper_outline_v2.md`).
+
+**Effort:** Low–medium. Extend `analyze_stage4_train.py:analyze_errors_by_metadata()`
+(around line 547) rather than writing from scratch. Post-hoc on existing
+`test_predicted.csv` + `isolate_metadata.csv`.
 
 ---
 
@@ -438,7 +456,7 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 |------|--------|--------|----------|---------|
 | **2. Large dataset** | Partially supported | Scale + ledger | **High** | Jim's #1 |
 | **11. All pairs (8×8)** | **Complete (2026-04-08)** | — | **High** | Jim's #2 |
-| **NEW: Stratified eval** | Not started | Analysis script | **High (unconditional)** | Core deliverable |
+| **NEW: Stratified eval** | Partial (Level 2 only) | Extend `analyze_errors_by_metadata` | **High (unconditional)** | Core deliverable |
 | **NEW: Mixed-subtype** | Not started | Dataset + eval | **High** | Carla's test |
 | 1. Cross-validation | Implemented | Run end-to-end | High | Default |
 | 3. Temporal holdout | Implemented | Fix dedup, re-run | High | Reframed |
