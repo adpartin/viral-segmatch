@@ -101,7 +101,10 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
   - Top-level `cv_info.json` with fold isolate assignments and seeds
 - Stage 4 trains per fold → `models/flu/{version}/runs/training_{bundle}_fold{k}_{ts}/`
   - Each training dir has `test_predicted.csv`, `optimal_threshold.txt`
+  - `train_pair_classifier.py` auto-invokes `analyze_stage4_train.py` at end of training, writing artifacts to `<training_run>/post_hoc/`. Guardrailed — post-hoc failure logs `WARNING:` but never changes training exit code. Opt-out with `--skip_post_hoc`.
+  - Backfill / refresh post_hoc over an entire sweep: `bash scripts/run_allpairs_post_hoc.sh <TAG>` (used for legacy runs predating in-train integration, or after analysis code evolves).
 - After all folds: `cv_run_manifest.json` (dataset run dir), `cv_summary.csv/json`
+- Cross-pair aggregation (`aggregate_allpairs_results.py`) emits `allpairs_summary.csv` + `allpairs_summary_fp_fn.csv`; also flags pairs with incomplete `post_hoc/` coverage (columns `post_hoc_n_with/n_total/missing_folds`).
 
 ### Config
 - `conf/dataset/default.yaml`: `n_folds: null`, `fold_id: null` (null = single-split, backward compat)

@@ -126,6 +126,34 @@ def parse_manifest(manifest_path: Path) -> List[Tuple[str, str]]:
     return results
 
 
+def check_post_hoc_coverage(cv_dir: Path) -> Tuple[int, int, List[str]]:
+    """Count how many training dirs for this CV run have post_hoc/ artifacts.
+
+    Reads cv_run_manifest.json to enumerate training_run_ids, then resolves each
+    to `models/{virus}/{version}/runs/{training_run_id}/` and checks whether
+    `post_hoc/` exists inside. Returns (n_with, n_total, missing_fold_ids).
+    """
+    manifest_path = cv_dir / "cv_run_manifest.json"
+    if not manifest_path.exists():
+        return 0, 0, []
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+    training_run_ids = manifest.get("training_run_ids", {})
+    # cv_dir layout: models/{virus}/{version}/cv_runs/cv_{bundle}_{ts}/
+    # training dirs: models/{virus}/{version}/runs/{training_run_id}/
+    runs_base = cv_dir.parent.parent / "runs"
+    n_total = len(training_run_ids)
+    n_with = 0
+    missing = []
+    for fold_id, run_id in sorted(training_run_ids.items(), key=lambda kv: int(kv[0])):
+        post_hoc_dir = runs_base / run_id / "post_hoc"
+        if post_hoc_dir.is_dir():
+            n_with += 1
+        else:
+            missing.append(fold_id)
+    return n_with, n_total, missing
+
+
 def _import_data_libs():
     """Import numpy/pandas lazily (not needed for --progress mode)."""
     import numpy as np
@@ -165,6 +193,12 @@ def build_cross_pair_table(cv_dirs: Dict[str, Path]):
         for metric in METRICS:
             row[f"{metric}_mean"] = mean.get(metric, None)
             row[f"{metric}_std"] = std.get(metric, None)
+
+        # Post-hoc coverage: how many folds have analyze_stage4_train.py artifacts
+        n_with, n_total, missing = check_post_hoc_coverage(cv_dir)
+        row["post_hoc_n_with"] = n_with
+        row["post_hoc_n_total"] = n_total
+        row["post_hoc_missing_folds"] = ",".join(missing) if missing else ""
         rows.append(row)
 
     return pd.DataFrame(rows)
@@ -349,6 +383,24 @@ def main():
     csv_path = output_dir / "allpairs_summary.csv"
     table.to_csv(csv_path, index=False)
     print(f"Saved cross-pair summary: {csv_path}")
+
+    # Post-hoc coverage report: flag pairs with missing post_hoc/ dirs so
+    # silent analyze_stage4_train.py failures (in-train call) are visible.
+    # To backfill missing dirs: bash scripts/run_allpairs_post_hoc.sh <TAG>
+    if "post_hoc_n_total" in table.columns and table["post_hoc_n_total"].sum() > 0:
+        total_with = int(table["post_hoc_n_with"].sum())
+        total_all = int(table["post_hoc_n_total"].sum())
+        incomplete = table[
+            (table["post_hoc_n_total"] > 0)
+            & (table["post_hoc_n_with"] < table["post_hoc_n_total"])
+        ]
+        print(f"\nPost-hoc coverage: {total_with}/{total_all} training dirs have post_hoc/ artifacts")
+        if len(incomplete) > 0:
+            print(f"WARNING: {len(incomplete)} pair(s) have incomplete post-hoc coverage:")
+            for _, r in incomplete.iterrows():
+                print(f"    {r['bundle']:40s}  {r['post_hoc_n_with']}/{r['post_hoc_n_total']}  "
+                      f"missing folds: [{r['post_hoc_missing_folds']}]")
+            print(f"  Backfill with: bash scripts/run_allpairs_post_hoc.sh <TAG>")
 
     # Save fp_fn sub-table (pairs ranked by FP/FN ratio — quick health check)
     if "fp_fn_ratio_mean" in table.columns:
