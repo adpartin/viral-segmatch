@@ -1040,6 +1040,12 @@ parser.add_argument(
     help='Hydra-style dotlist overrides applied on top of the bundle (e.g., '
          'dataset.hn_subtype=H3N2). Useful for filter sweeps without creating new bundles.'
 )
+parser.add_argument(
+    '--skip_post_hoc',
+    action='store_true',
+    help='Skip the post-hoc analysis (analyze_stage4_train.py) that normally runs '
+         'after training completes. Useful for fast debugging iterations.'
+)
 args = parser.parse_args()
 
 # Load config
@@ -1467,3 +1473,34 @@ print(f'\nFinished {Path(__file__).name}!')
 total_timer.stop_timer()
 total_timer.display_timer()
 total_timer.save_timer(output_dir)
+
+# ── Post-hoc analysis (guardrailed: failure never breaks training) ──────────
+# Runs analyze_stage4_train.py as a subprocess so any failure (import error,
+# plotting crash, stratification bug) is isolated from the training exit code.
+# Training artifacts (best_model.pt, test_predicted.csv, optimal_threshold.txt)
+# are already on disk at this point; the model is validly trained regardless of
+# post-hoc outcome. To refresh post_hoc later, use scripts/run_allpairs_post_hoc.sh.
+if not args.skip_post_hoc:
+    import subprocess
+    post_hoc_log = output_dir / 'post_hoc_run.log'
+    print(f'\nRunning post-hoc analysis -> {output_dir}/post_hoc/')
+    post_hoc_cmd = [
+        sys.executable,
+        str(project_root / 'src' / 'analysis' / 'analyze_stage4_train.py'),
+        '--config_bundle', config_bundle,
+        '--model_dir', str(output_dir),
+    ]
+    try:
+        with open(post_hoc_log, 'w') as logf:
+            rc = subprocess.call(post_hoc_cmd, stdout=logf, stderr=subprocess.STDOUT)
+        if rc != 0:
+            print(f'WARNING: post-hoc analysis exited with code {rc} for {output_dir}.')
+            print(f'         Training artifacts are unaffected. See log: {post_hoc_log}')
+            print(f'         To regenerate later: bash scripts/run_allpairs_post_hoc.sh <TAG>')
+        else:
+            print(f'Done. Post-hoc analysis complete. Log: {post_hoc_log}')
+    except Exception as e:
+        import traceback
+        print(f'WARNING: post-hoc analysis subprocess failed to launch for {output_dir}: {e}')
+        print(f'         Training artifacts are unaffected.')
+        traceback.print_exc()
