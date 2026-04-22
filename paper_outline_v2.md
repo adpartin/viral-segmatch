@@ -350,7 +350,7 @@ interventions, enabling direct comparison.
 consider pre-filtering or per-pair classifiers.
 
 **Training options:** (a) one subtype → test mixed (cross-subtype generalization);
-(b) mixed balanced → test mixed (out-of-the-box performance).
+(b) subtype-balanced training → test on subtype-balanced mix (Jim's formulation)
 
 ### 3.7 All protein-pair combinations (8×8 heatmap)
 
