@@ -19,7 +19,7 @@ databases often lack reliable metadata for this linkage. We frame segment matchi
 binary classification: given two sequence representations, predict whether they originate
 from the same viral isolate. We evaluate k-mer frequency features (primary) and protein
 language model representations (ESM-2, comparison baseline) with an MLP classifier on a
-subtype-balanced dataset of ~50–100K Flu A isolates across all 28 segment-pair
+["subtype-balanced dataset of ~50–100K" --> update this based on what we actually run] Flu A isolates across all 28 segment-pair
 combinations. We assess model performance stratified by HN subtype, host, and isolation
 year, and demonstrate the model's utility for data remediation and wastewater surveillance
 applications.
