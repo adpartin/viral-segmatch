@@ -536,6 +536,14 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 
 > Reference material for understanding the problem. Not paper prose.
 
+### Terminology used in this paper
+
+- **subtype-balanced** — the dataset has been explicitly resampled so that HN subtypes are approximately equally represented across splits (via downsampling dominant subtypes).
+- **subtype-filtered** — the dataset has been restricted to a single HN subtype (e.g., H3N2-only).
+- **natural** or **unfiltered** — the dataset reflects the actual (BV-BRC) frequencies without resampling; dominated by H3N2, H1N1, H5N1.
+
+These three terms are not interchangeable. In particular, "H3N2-only" is a filter, not a form of balance, despite being trivially "balanced" in the degenerate single-category sense.
+
 ### H-type vs N-type vs HN subtype terminology
 
 An H segment has an **H-type** (H1, H3, H5, etc.) and an N segment has an **N-type**
