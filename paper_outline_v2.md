@@ -83,6 +83,12 @@ of the 8 major segment gene products (PB2, PB1, PA, HA, NP, NA, M1, NS1).
   applied to both protein and genome sequences.
 - **Dataset scale:** ~50–100K isolates (see `roadmap_v2.md` Task 2 for scaling plan).
 
+#### Terminology
+
+- **Subtype-balanced** — explicitly resampled to equalize HN-subtype representation.
+- **Subtype-filtered** — restricted to one subtype.
+- **Natural** / **unfiltered** — sampled proportional to the (BV-BRC) data frequencies.
+
 #### 2.1.1 Negative pair taxonomy and pair-distribution analysis
 
 > **[2026-03-12 meeting]** New from group discussion. The **analysis framework** is the unconditional priority; balanced training is a conditional data-centric lever.
