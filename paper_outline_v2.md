@@ -137,6 +137,11 @@ within-subtype vs cross-subtype negative ratio explicitly.
 
 #### 2.1.2 Pair-distribution ledger
 
+In the completed Task 11 sweeps, post-filter train stayed at exactly 1:1 but val
+and test settled at ~0.20–0.51 pos:neg across pairs (median ~0.43), driven by
+cross-split `pair_key` collision removal. The ledger makes this visible per pair
+so that F1 reporting is interpreted against the correct class prior.
+
 For every experiment, maintain a full accounting of pair distributions:
 
 | Pair type | Subtype(s) | Label | Count |
@@ -226,7 +231,20 @@ stopping on validation loss.
 
 ### 2.6 Evaluation metrics
 
-F1, AUC-ROC, precision, recall, Brier score. Optimal threshold selected on validation set.
+**Primary:** AUC-ROC and PR-AUC. Both are threshold-free; AUC-ROC is class-prior
+invariant and is the correct primary metric for cross-pair comparison in the 8×8
+heatmap. PR-AUC is sensitive to class prior but reflects performance under the
+observed test distribution.
+
+**Secondary:** F1 at the validation-optimal threshold, with precision and recall
+reported separately. F1 is sensitive to class prior, so when compared across pairs
+it is reported alongside the post-filter positive:negative ratio of each pair's
+test set (see pair-distribution ledger, §2.1.2). The `pair_key` dedup step removes
+cross-split overlaps asymmetrically across classes and across pairs, producing
+post-filter val/test ratios of ~0.20–0.51 rather than the target 1:1 — so F1
+differences across pairs partly reflect class-prior differences, not model quality.
+
+**Calibration:** Brier score, ECE, reliability diagram (see §4.2).
 
 ---
 
