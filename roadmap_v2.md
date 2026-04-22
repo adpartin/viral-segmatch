@@ -106,6 +106,21 @@ in ~3.5 h wall-clock on 28 nodes, ~98 node-hours total.
 - Level 1 — pair-type regime (positive / within-subtype neg / cross-subtype neg)
 - Level 2 — per-axis marginals: HN subtype, **H-type**, **N-type**, host, isolation year, region
 
+Notes:
+- Post-filter class balance audit **complete** — see
+  `docs/audits/class_balance_audit.md`. Finding: post-filter val/test ratios
+  are 0.20–0.51 (vs 1:1 target), driven by `pair_key` cross-split removal.
+  Material for F1 interpretation; AUC-ROC conclusions unaffected. Optional
+  future work: oversample negatives during generation (`neg_to_pos_ratio > 1`)
+  and truncate post-filter to restore balance.
+- Negative-pair RNG determinism audit **complete** — see
+  `negative_pair_rng_fix_plan.md`. Finding: isolate-level splits are
+  deterministic in (master_seed, fold_id) and identical across the 28 pair
+  bundles. Negative-pair *identities* diverge across bundles (val/test overlap
+  ~0%) due to a plumbed `seed` argument silently discarded in
+  `create_negative_pairs`. Does not invalidate Task 11 results. Apply minimal
+  fix before generating balanced-subtype datasets so future runs are reproducible.
+
 **HPC fit:** Same as Task 11 — 28 pairs × 12 folds ensemble-packed on Polaris, ~3.5 h walltime.
 
 ---
