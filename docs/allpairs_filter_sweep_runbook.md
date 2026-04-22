@@ -218,13 +218,24 @@ qsub -l walltime=01:30:00 \
      scripts/run_allpairs_polaris_prod.sh
 
 # Exp 3: H3N2 datasets (~27 min/pair)
-qsub -l walltime=00:45:00 \
+qsub -l walltime=00:35:00 \
      -v FILTERS_CSV="dataset.hn_subtype=H3N2",FILTER_TAG="val_h3n2",SKIP_TRAINING=true \
      scripts/run_allpairs_polaris_prod.sh
 
-# Exp 5: H3N2 + human datasets (~27 min/pair or less)
+# Exp 5: Human datasets (~27 min/pair or less)
 qsub -l walltime=00:45:00 \
+     -v FILTERS_CSV="dataset.host=Human|dataset.generate_visualizations=false",FILTER_TAG="val_human",SKIP_TRAINING=true \
+     scripts/run_allpairs_polaris_prod.sh
+
+# Exp 7: H3N2 + human datasets (~27 min/pair or less)
+# (some folds didn't pass the visualization generation, but dataset were created)
+qsub -l walltime=00:30:00 \
      -v FILTERS_CSV="dataset.hn_subtype=H3N2|dataset.host=Human",FILTER_TAG="val_h3n2_human",SKIP_TRAINING=true \
+     scripts/run_allpairs_polaris_prod.sh
+
+# Skip visualization
+qsub -l walltime=00:30:00 \
+     -v FILTERS_CSV="dataset.hn_subtype=H3N2|dataset.host=Human|dataset.generate_visualizations=false",FILTER_TAG="val_h3n2_human",SKIP_TRAINING=true \
      scripts/run_allpairs_polaris_prod.sh
 ```
 
@@ -240,37 +251,44 @@ qsub -l walltime=01:30:00 \
      -v FILTERS_CSV="training.epochs=20|training.patience=20",FILTER_TAG="val_unfilt",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
+# Convergence
 qsub -l walltime=04:30:00 \
-   -v FILTER_TAG="val_unfilt",SKIP_DATASET=true \
-   scripts/run_allpairs_polaris_prod.sh
- 
-# Exp 2: unfiltered ESM-2 (reuse Exp 1 datasets via manifest)
-qsub -l walltime=01:30:00 \
-     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=20|training.patience=20",FILTER_TAG="val_unfilt_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_unfilt_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+     -v FILTER_TAG="val_unfilt",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
-qsub -l walltime=04:30:00 \
-     -v FILTER_TAG="val_unfilt_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_unfilt_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+# Exp 2: unfiltered ESM-2 (reuse Exp 1 datasets via manifest)
+qsub -l walltime=05:00:00 \
+     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=70|training.patience=70",FILTER_TAG="val_unfilt_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_unfilt_<ts>/dataset_manifest.json",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
-     
+
 # Exp 3: H3N2 k-mer (auto-discovery)
-qsub -l walltime=01:30:00 \
-     -v FILTERS_CSV="dataset.hn_subtype=H3N2|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2",SKIP_DATASET=true \
+qsub -l walltime=01:15:00 \
+     -v FILTER_TAG="val_h3n2",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
 # Exp 4: H3N2 ESM-2 (reuse Exp 3 datasets via manifest)
-qsub -l walltime=01:30:00 \
-     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+qsub -l walltime=01:40:00 \
+     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=70|training.patience=70",FILTER_TAG="val_h3n2_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_<ts>/dataset_manifest.json",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
-# Exp 5: H3N2+human k-mer (auto-discovery)
-qsub -l walltime=01:30:00 \
-     -v FILTERS_CSV="dataset.hn_subtype=H3N2|dataset.host=Human|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2_human",SKIP_DATASET=true \
+# Exp 5: Human k-mer (auto-discovery)
+qsub -l walltime=01:40:00 \
+     -v FILTER_TAG="val_human",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 
-# Exp 6: H3N2+human ESM-2 (reuse Exp 5 datasets via manifest)
+# Exp 6: Human ESM-2 (reuse Exp 5 datasets via manifest)
+qsub -l walltime=02:00:00 \
+     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=70|training.patience=70",FILTER_TAG="val_human_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_human_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+     scripts/run_allpairs_polaris_prod.sh
+
+# Exp 7: H3N2+human k-mer (auto-discovery)
+qsub -l walltime=01:15:00 \
+     -v FILTER_TAG="val_h3n2_human",SKIP_DATASET=true \
+     scripts/run_allpairs_polaris_prod.sh
+
+# Exp 8: H3N2+human ESM-2 (reuse Exp 7 datasets via manifest)
 qsub -l walltime=01:30:00 \
-     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=20|training.patience=20",FILTER_TAG="val_h3n2_human_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_human_<ts>/dataset_manifest.json",SKIP_DATASET=true \
+     -v FILTERS_CSV="training.feature_source=esm2|training.epochs=70|training.patience=70",FILTER_TAG="val_h3n2_human_esm2",DATASET_MANIFEST="models/flu/July_2025/allpairs_prod_val_h3n2_human_<ts>/dataset_manifest.json",SKIP_DATASET=true \
      scripts/run_allpairs_polaris_prod.sh
 ```
 
