@@ -73,28 +73,40 @@ in ~3.5 h wall-clock on 28 nodes, ~98 node-hours total.
 
 ## Experiments: High Priority (2026-03-12 meeting)
 
-### 2. Scale to large dataset — PARTIALLY SUPPORTED
+---
 
-> **[2026-03-12 meeting]** **TOP PRIORITY.** Jim: "expanding your training set... to include a large and balanced subset."
+### 2. Subtype-balanced training and test sets — NOT IMPLEMENTED
 
-**Goal:** Scale from 5K to ~50–100K isolates.
+> **[2026-03-12 meeting]** **TOP PRIORITY (Jim's #1).** Jim: "expanding your training set... to include a large and balanced subset. Like you want to balance your types and everything."
 
-**Approach — analysis first, then balance if needed:**
-1. Scale up with existing (random) sampling → fastest path to results at scale.
-2. Run stratified eval (new Task) → determines whether rebalancing is needed.
-3. If failures found → implement subtype-balanced sampling as data-centric intervention.
+**Status clarification (2026-04):** The "scale up" portion of Task 2 is complete — Task 11 ran on the full ~111K-isolate dataset with strong results. What remains is the **balancing** portion, which was the substantive part of Jim's ask.
 
-See `paper_outline_v2.md` Section 2.1.1 for the negative pair taxonomy (within-subtype vs
-cross-subtype) and the analysis-first priority order.
+**Goal:** Construct subtype-balanced train, val, and test sets so that per-subtype test performance is a clean measurement of model capability, not confounded by training-frequency effects.
 
-**Status:** Pipeline supports `max_isolates_to_process: null`. Tested at full scale (~111K isolates) in runtime profiling runs (k-mer concat, 10-fold CV, no early stopping).
+**Definitions (use consistently throughout the paper):**
+- **subtype-balanced** — explicitly resampled so HN-subtype representation is equalized across subtypes (downsampling dominant subtypes, optionally upsampling rare ones).
+- **subtype-filtered** — restricted to one subtype (e.g., H3N2-only).
+- **natural / unfiltered** — sampled proportional to BV-BRC frequencies (dominated by H3N2, H1N1, H5N1).
 
-**Implementation needed:**
-- Pair-distribution ledger output for each dataset (unconditional)
-- Subtype-stratified isolate sampling (conditional — data-centric lever)
-- Controlled negative pair generation with ratio parameter (conditional)
+**Implementation approaches:**
 
-**HPC fit:** High. Polaris handles k-mers + MLP easily at this scale.
+1. **Sub-sample from existing folds (faster pass).**
+   Reuse the fold structure from the completed Task 11 runs. Add a post-dataset balancing filter that downsamples each fold's train/val/test to equalize HN-subtype representation at the isolate level (important: balance must operate at isolate level, not independently per pair — otherwise the 28 pair classifiers no longer share the same underlying sample). Script: `scripts/balance_folds_by_subtype.py`. Re-run 28-pair job on Polaris.
+   - Pro: fast, no new dataset generation, preserves k-mer vs ESM-2 comparability.
+   - Con: only supports downsampling; loses data. Upsampling rare subtypes requires Approach 2.
+
+2. **Integrate balancing into dataset generation (canonical).**
+   Add a `subtype_balancing` config option to `src/datasets/dataset_segment_pairs.py`. Generate a new set of 28-pair × 12-fold datasets with balanced splits. Re-run the 28-pair job on Polaris.
+   - Pro: reusable; supports both down- and upsampling; principled; right place for pair-distribution ledger.
+   - Con: requires new Polaris dataset-generation job.
+
+**Recommended order:** (1) as a fast diagnostic — does balancing change results at all? If yes, (2) for the paper's canonical experiment. If no, stay with natural frequencies and report stratified eval only.
+
+**Stratified evaluation requirements** (apply to both the natural and balanced runs — see NEW: Stratified evaluation task):
+- Level 1 — pair-type regime (positive / within-subtype neg / cross-subtype neg)
+- Level 2 — per-axis marginals: HN subtype, **H-type**, **N-type**, host, isolation year, region
+
+**HPC fit:** Same as Task 11 — 28 pairs × 12 folds ensemble-packed on Polaris, ~3.5 h walltime.
 
 ---
 
