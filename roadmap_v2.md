@@ -193,6 +193,9 @@ Level 3: diagnostic cross-tabulation heatmaps) and the metadata confounder discu
   (~50–100 test pair minimum).
 - **Level 3 heatmap** — (subtype_a × subtype_b) FP-rate matrix for diagnostics.
 - **Pair-distribution ledger** output (Section 2.1.2 of `paper_outline_v2.md`).
+- **Metric choice:** Report AUC-ROC as primary (class-prior invariant). Report F1
+  alongside post-filter positive rate per pair. Consider also reporting PR-AUC or
+  balanced F1 for cross-pair comparison. See `docs/audits/class_balance_audit.md`.
 
 **Effort:** Low–medium. Extend `analyze_stage4_train.py:analyze_errors_by_metadata()`
 (around line 547) rather than writing from scratch. Post-hoc on existing
