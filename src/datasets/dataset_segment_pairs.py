@@ -144,6 +144,83 @@ def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
     return "__".join(sorted([seq_hash_a, seq_hash_b]))
 
 
+def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd.DataFrame:
+    """Attach nucleotide sequence (`dna_seq`) and md5 hash (`dna_hash`) to each
+    protein row via a join with `genome_final.*` in the same processed dir.
+
+    Rationale: the existing pipeline dedups/checks leakage using `seq_hash` over
+    protein sequences — the correct check for ESM-2 features, but not for k-mer
+    features (which are derived from DNA). Carrying DNA into the pair CSVs
+    makes post-hoc nucleotide-level leakage audits possible without re-running
+    Stage 3.
+
+    Join key: (assembly_id, genbank_ctg_id). Verified on the full Flu July 2025
+    dataset: genome side is unique on this key, every protein row matches
+    exactly one genome row, and canonical_segment agrees on both sides. Many
+    proteins can share one DNA contig (M1/M2, NS1/NEP, PA/PA-X) — that's
+    semantically correct; those proteins do originate from the same nucleotide
+    sequence, and DNA-derived features (k-mers) would be identical for them.
+
+    Fails loudly on: missing join columns, duplicate genome-side keys, row
+    count drift post-merge, or any unmatched protein row.
+    """
+    required = {"assembly_id", "genbank_ctg_id"}
+    missing = required - set(prot_df.columns)
+    if missing:
+        raise ValueError(
+            f"prot_df is missing columns required for DNA join: {sorted(missing)}"
+        )
+
+    genome_path = protein_input_path.parent / "genome_final"  # no extension; load_dataframe tries .parquet then .csv
+    print(f"\nAttach DNA sequences from genome_final (sibling of {protein_input_path.name}).")
+    genome_df = load_dataframe(genome_path)
+
+    genome_cols = ["assembly_id", "genbank_ctg_id", "dna_seq"]
+    miss_g = set(genome_cols) - set(genome_df.columns)
+    if miss_g:
+        raise ValueError(f"genome_final is missing required columns: {sorted(miss_g)}")
+    genome_small = genome_df[genome_cols].copy()
+
+    dup = genome_small.duplicated(["assembly_id", "genbank_ctg_id"]).sum()
+    if dup:
+        raise ValueError(
+            f"genome_final has {dup} duplicate (assembly_id, genbank_ctg_id) rows. "
+            "The DNA join would fan out protein rows; refusing to proceed."
+        )
+
+    before = len(prot_df)
+    merged = prot_df.merge(
+        genome_small,
+        on=["assembly_id", "genbank_ctg_id"],
+        how="left",
+        validate="many_to_one",
+    )
+    if len(merged) != before:
+        raise RuntimeError(
+            f"Row count changed after DNA merge: {before} -> {len(merged)}. "
+            "Merge fan-out suspected."
+        )
+
+    missing_dna = merged["dna_seq"].isna().sum()
+    if missing_dna:
+        raise RuntimeError(
+            f"{missing_dna:,} protein rows have no matching genome row. "
+            "Check that protein_final and genome_final came from the same "
+            "preprocess_flu.py run."
+        )
+
+    merged["dna_hash"] = merged["dna_seq"].apply(
+        lambda s: hashlib.md5(str(s).encode()).hexdigest()
+    )
+
+    n_unique_dna = merged["dna_hash"].nunique()
+    print(f"  genome_final rows:    {len(genome_df):,}")
+    print(f"  protein rows merged:  {before:,} (100.0% matched)")
+    print(f"  unique dna_hash:      {n_unique_dna:,} "
+          f"({n_unique_dna / before * 100:.1f}% of protein rows — many proteins share a contig)")
+    return merged
+
+
 def orient_pair_by_schema(dct: dict, func_left: str, func_right: str) -> Optional[dict]:
     """Force pair orientation by a (func_left, func_right) schema.
 
@@ -293,9 +370,13 @@ def create_positive_pairs(
                         'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
                         'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
                         'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+                        'dna_seq_a': getattr(row_a, 'dna_seq', None),
+                        'dna_seq_b': getattr(row_b, 'dna_seq', None),
                         'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
                         'func_a': row_a.function, 'func_b': row_b.function,
                         'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
+                        'dna_hash_a': getattr(row_a, 'dna_hash', None),
+                        'dna_hash_b': getattr(row_b, 'dna_hash', None),
                         'label': 1  # By definition a positive pair
                     }
                     dct = orient_pair_by_schema(dct, func_left=func_left, func_right=func_right)
@@ -317,9 +398,13 @@ def create_positive_pairs(
                         'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
                         'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
                         'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+                        'dna_seq_a': getattr(row_a, 'dna_seq', None),
+                        'dna_seq_b': getattr(row_b, 'dna_seq', None),
                         'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
                         'func_a': row_a.function, 'func_b': row_b.function,
                         'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
+                        'dna_hash_a': getattr(row_a, 'dna_hash', None),
+                        'dna_hash_b': getattr(row_b, 'dna_hash', None),
                         'label': 1  # By definition a positive pair
                     }
                     if canonicalize_pair_orientation_enabled:
@@ -521,9 +606,13 @@ def create_negative_pairs(
             'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
             'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
             'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
+            'dna_seq_a': getattr(row_a, 'dna_seq', None),
+            'dna_seq_b': getattr(row_b, 'dna_seq', None),
             'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
             'func_a': row_a.function, 'func_b': row_b.function,
             'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
+            'dna_hash_a': getattr(row_a, 'dna_hash', None),
+            'dna_hash_b': getattr(row_b, 'dna_hash', None),
             'label': 0  # Negative pair
         }
         if canonicalize_pair_orientation_enabled:
@@ -1666,6 +1755,10 @@ except FileNotFoundError:
     raise FileNotFoundError(f"Data file not found at: {input_file}")
 except Exception as e:
     raise RuntimeError(f"Error loading data from {input_file}: {e}")
+
+# Attach DNA sequences (carried through into the output pair CSVs so we can run
+# nucleotide-level leakage audits post-hoc without re-running Stage 3).
+prot_df = attach_dna_to_prot_df(prot_df, input_file)
 
 # Enrich with metadata (e.g., host, year, hn_subtype)
 print('\nEnrich dataframe with metadata.')
