@@ -23,6 +23,7 @@ Usage:
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -32,9 +33,25 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
-    confusion_matrix, classification_report, roc_curve, auc, 
+    confusion_matrix, classification_report, roc_curve, auc,
     precision_recall_curve, f1_score, roc_auc_score, average_precision_score
 )
+
+# Regex used to decide whether an hn_subtype string is parseable. Anything that
+# does not match lands in the "unknown" bucket for Level 1/2 stratification.
+# See docs/post_hoc_analysis_design.md ("Subtype parsing") for the empirical
+# distribution that motivates this rule (99.07% parse cleanly on val_unfilt;
+# the ~1% unknown is dominated by the untypable "HN" value).
+SUBTYPE_RE = re.compile(r'^H\d+N\d+$')
+
+# Year bins used for Level 2 year-axis stratification. Three bins keep strata
+# dense while separating the pre-2016 tail, the 2016-2020 pre-pandemic window,
+# and the 2021+ recent era. See docs/post_hoc_analysis_design.md ("Axis: year_bin").
+YEAR_BIN_EDGES = [(-np.inf, 2015, '<=2015'), (2016, 2020, '2016-2020'), (2021, np.inf, '2021+')]
+
+# Minimum samples to keep a stratum as its own row in Level 2 tables. Smaller
+# strata are collapsed into "other" per axis to avoid noisy per-fold metrics.
+LEVEL2_MIN_SAMPLES = 20
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
@@ -537,7 +554,7 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
     if len(fn_df) > 0:
         fn_df.to_csv(results_dir / 'false_negatives_detailed.csv', index=False)
     
-    print(f'\n✅ FP/FN analysis complete!')
+    print(f'\nDone. FP/FN analysis complete.')
     print(f'  - FP/FN ratio: {error_summary["fp_fn_ratio"]:.2f}')
     print(f'  - FP avg confidence: {error_summary["fp_avg_confidence"]:.3f}')
     print(f'  - FN avg confidence: {error_summary["fn_avg_confidence"]:.3f}')
@@ -545,151 +562,547 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
     return error_summary
 
 
+# ============================================================================
+# Stratified evaluation helpers (Level 1 / Level 2)
+#
+# Design reference: docs/post_hoc_analysis_design.md
+#
+# Two-sided metadata enrichment:
+#   The isolate_metadata table is joined twice onto each test pair (once per
+#   assembly_id_{a,b}) to produce per-side columns host_{a,b}, hn_subtype_{a,b}_raw,
+#   year_{a,b}. The original analyze_errors_by_metadata joined only on
+#   assembly_id_a, which silently dropped side-B metadata and was incorrect
+#   for cross-stratum negative pairs (e.g., a H1N1+H3N2 cross-subtype negative
+#   would be counted as H1N1 only). Positive pairs have assembly_id_a ==
+#   assembly_id_b by construction, so per-side columns collapse for positives.
+#
+# Subtype parsing:
+#   `^H\d+N\d+$` matches ~99% of isolates; the ~1% unknown (mostly literal "HN")
+#   is tracked as an explicit bucket rather than dropped.
+#
+# Year binning:
+#   Three fixed bins (<=2015, 2016-2020, 2021+) keep per-bin counts dense for
+#   per-fold analysis. Adjust YEAR_BIN_EDGES (module constant) if finer
+#   granularity is needed.
+# ============================================================================
+
+
+def _parse_subtype(s) -> str:
+    """Map a raw hn_subtype string to a canonical H<d>N<d> form or 'unknown'.
+
+    Any value not matching SUBTYPE_RE (NaN, 'HN', 'H1N', etc.) returns 'unknown'.
+    """
+    if pd.isna(s):
+        return 'unknown'
+    s = str(s)
+    return s if SUBTYPE_RE.match(s) else 'unknown'
+
+
+def _year_to_bin(y) -> str:
+    """Map a year (float/int) to a coarse bin label. NaN returns 'unknown'."""
+    if pd.isna(y):
+        return 'unknown'
+    y = float(y)
+    for lo, hi, label in YEAR_BIN_EDGES:
+        if lo <= y <= hi:
+            return label
+    return 'unknown'
+
+
+def _enrich_pairs_with_metadata(df: pd.DataFrame) -> pd.DataFrame:
+    """Add two-sided metadata columns to a pair-level dataframe.
+
+    For each pair we need metadata for BOTH assembly ids. We load the flu
+    metadata table once, then merge it twice: once on assembly_id_a, once on
+    assembly_id_b. Output columns:
+      host_a, host_b, hn_subtype_a_raw, hn_subtype_b_raw, year_a, year_b
+      subtype_a, subtype_b       (parsed with 'unknown' fallback)
+      year_bin_a, year_bin_b
+
+    Returns a COPY; raises on missing metadata file (caller catches).
+    """
+    from src.utils.metadata_enrichment import load_flu_metadata
+
+    meta = load_flu_metadata(project_root=project_root)
+    # hash_id == assembly_id in this pipeline; keep just the columns we stratify on.
+    meta = meta[['hash_id', 'host', 'hn_subtype', 'year']].rename(columns={'hash_id': 'assembly_id'})
+    meta['assembly_id'] = meta['assembly_id'].astype(str)
+
+    out = df.copy()
+    out['assembly_id_a'] = out['assembly_id_a'].astype(str)
+    out['assembly_id_b'] = out['assembly_id_b'].astype(str)
+
+    # Side A
+    meta_a = meta.rename(columns={
+        'assembly_id': 'assembly_id_a',
+        'host': 'host_a',
+        'hn_subtype': 'hn_subtype_a_raw',
+        'year': 'year_a',
+    })
+    out = out.merge(meta_a, on='assembly_id_a', how='left')
+
+    # Side B
+    meta_b = meta.rename(columns={
+        'assembly_id': 'assembly_id_b',
+        'host': 'host_b',
+        'hn_subtype': 'hn_subtype_b_raw',
+        'year': 'year_b',
+    })
+    out = out.merge(meta_b, on='assembly_id_b', how='left')
+
+    # Parse subtype and year_bin on each side. Using .apply is fine here: the
+    # test set is ~20K rows max and these helpers keep NaN handling readable.
+    out['subtype_a'] = out['hn_subtype_a_raw'].apply(_parse_subtype)
+    out['subtype_b'] = out['hn_subtype_b_raw'].apply(_parse_subtype)
+    out['year_bin_a'] = out['year_a'].apply(_year_to_bin)
+    out['year_bin_b'] = out['year_b'].apply(_year_to_bin)
+    return out
+
+
+def _compute_stratum_metrics(subset: pd.DataFrame) -> dict:
+    """Compute the full metric row for one stratum subset.
+
+    Metrics that require both classes (F1, AUC-ROC, AUC-PR, precision, recall)
+    are returned as NaN when the subset contains a single class rather than
+    silently coerced to 0.0. Uses `label` / `pred_label` / `pred_prob` from
+    the enriched dataframe; `pred_label` is already computed with the run's
+    val-optimal threshold upstream (see docs/post_hoc_analysis_design.md,
+    "Threshold handling"), so no re-thresholding is done here.
+    """
+    y_true = subset['label'].values
+    y_pred = subset['pred_label'].values
+    y_prob = subset['pred_prob'].values
+    n = len(subset)
+
+    tn = int(((y_true == 0) & (y_pred == 0)).sum())
+    fp = int(((y_true == 0) & (y_pred == 1)).sum())
+    fn = int(((y_true == 1) & (y_pred == 0)).sum())
+    tp = int(((y_true == 1) & (y_pred == 1)).sum())
+
+    accuracy = (tp + tn) / n if n > 0 else np.nan
+    fp_rate = fp / n if n > 0 else np.nan
+    fn_rate = fn / n if n > 0 else np.nan
+    error_rate = (fp + fn) / n if n > 0 else np.nan
+    precision = tp / (tp + fp) if (tp + fp) > 0 else np.nan
+    recall = tp / (tp + fn) if (tp + fn) > 0 else np.nan
+    # True-positive rate (sensitivity) = recall; only defined when stratum has
+    # any positives. True-negative rate (specificity) = TN/(TN+FP); only
+    # defined when stratum has any negatives. For single-class strata (e.g.,
+    # Level 1 negative-only regimes), the inapplicable side is NaN.
+    tpr = recall
+    tnr = tn / (tn + fp) if (tn + fp) > 0 else np.nan
+    if precision and recall and not (np.isnan(precision) or np.isnan(recall)):
+        f1 = 2 * precision * recall / (precision + recall)
+    else:
+        f1 = np.nan
+
+    # AUC metrics are ill-defined when the stratum has only one class.
+    if len(np.unique(y_true)) > 1:
+        auc_roc = roc_auc_score(y_true, y_prob)
+        auc_pr = average_precision_score(y_true, y_prob)
+    else:
+        auc_roc = np.nan
+        auc_pr = np.nan
+
+    pos_mask = y_true == 1
+    neg_mask = y_true == 0
+    return {
+        'n_samples': n,
+        'n_pos': int(pos_mask.sum()),
+        'n_neg': int(neg_mask.sum()),
+        'tp': tp, 'tn': tn, 'fp': fp, 'fn': fn,
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'tpr': tpr,
+        'tnr': tnr,
+        'f1_score': f1,
+        'auc_roc': auc_roc,
+        'auc_pr': auc_pr,
+        'fp_rate': fp_rate,
+        'fn_rate': fn_rate,
+        'error_rate': error_rate,
+        'fp_avg_confidence': float(y_prob[neg_mask].mean()) if neg_mask.any() else np.nan,
+        'fn_avg_confidence': float(y_prob[pos_mask].mean()) if pos_mask.any() else np.nan,
+    }
+
+
+def analyze_level1_pair_regime(df_enriched: pd.DataFrame, results_dir: Path) -> pd.DataFrame:
+    """Level 1 stratified evaluation: classify each test pair into a mutually
+    exclusive pair regime, then report per-regime metrics.
+
+    Regimes (see docs/post_hoc_analysis_design.md "Level 1"):
+      - positive: label == 1 (same isolate on both sides by construction).
+      - within_subtype_neg: label == 0, both sides parse to H<d>N<d>, and the
+        two subtypes match. "Hard" negatives: model cannot use subtype as a
+        shortcut.
+      - cross_subtype_neg: label == 0, both sides parse, and subtypes differ.
+        "Easy" negatives: subtype difference is a direct cue.
+      - unknown_neg: label == 0 and at least one side has an unparseable
+        subtype. Small residual bucket reported separately to keep it from
+        contaminating the two informative negative regimes.
+
+    A large gap (cross_subtype_neg accuracy ~ 1.0 but within_subtype_neg
+    accuracy much lower) is evidence the model is using subtype as a shortcut.
+    """
+    print('\n' + '=' * 60)
+    print('LEVEL 1 STRATIFIED EVAL: pair-regime')
+    print('=' * 60)
+
+    def _regime(row):
+        if row['label'] == 1:
+            return 'positive'
+        sa, sb = row['subtype_a'], row['subtype_b']
+        if sa == 'unknown' or sb == 'unknown':
+            return 'unknown_neg'
+        return 'within_subtype_neg' if sa == sb else 'cross_subtype_neg'
+
+    df_enriched = df_enriched.copy()
+    df_enriched['pair_regime'] = df_enriched.apply(_regime, axis=1)
+
+    # Fixed ordering; keeps downstream cross-fold aggregation scripts simple.
+    regimes = ['positive', 'within_subtype_neg', 'cross_subtype_neg', 'unknown_neg']
+    rows = []
+    for regime in regimes:
+        sub = df_enriched[df_enriched['pair_regime'] == regime]
+        if len(sub) == 0:
+            rows.append({'pair_regime': regime, 'n_samples': 0})
+            continue
+        m = _compute_stratum_metrics(sub)
+        m['pair_regime'] = regime
+        rows.append(m)
+
+    stats_df = pd.DataFrame(rows)
+    cols = ['pair_regime'] + [c for c in stats_df.columns if c != 'pair_regime']
+    stats_df = stats_df[cols]
+
+    output_file = results_dir / 'level1_pair_regime.csv'
+    stats_df.to_csv(output_file, index=False)
+    print(f"Saved Level 1 metrics to: {output_file}")
+    print(stats_df.round(3).to_string(index=False))
+
+    _plot_level1_pair_regime(stats_df, results_dir)
+    return stats_df
+
+
+def _plot_level1_pair_regime(stats_df: pd.DataFrame, results_dir: Path) -> None:
+    """Bar plot of TPR / TNR / F1 per pair regime with value labels.
+
+    Per-regime definability (single-class strata make most "standard" metrics
+    undefined — see docs/post_hoc_analysis_design.md "Level 1"):
+      - positive (all label=1): TPR defined (= recall = fraction of positive
+        pairs correctly classified). TNR undefined (no negatives). F1 defined
+        (precision = 1 because no FPs possible in this stratum).
+      - within_subtype_neg / cross_subtype_neg / unknown_neg (all label=0):
+        TNR defined (= fraction of negative pairs correctly classified). TPR
+        and F1 undefined (no positives).
+
+    TPR + TNR together give a unified "correctly-classified fraction" story
+    across both regime types. The asymmetric visibility (TPR appears only on
+    `positive`, TNR only on negatives) is intentional — it makes the shortcut
+    signal (TNR gap between within_subtype_neg and cross_subtype_neg) easy
+    to read off. Value labels render above each defined bar; undefined bars
+    are drawn as thin grey placeholders labeled "N/A" so the reader can tell
+    "undefined" apart from "zero".
+    """
+    plot_df = stats_df[stats_df['n_samples'] > 0].copy()
+    if plot_df.empty:
+        return
+    fig, ax = plt.subplots(figsize=(11, 5.5))
+    x = np.arange(len(plot_df))
+    width = 0.25
+    specs = [
+        (-width, 'tpr',      'TPR (sensitivity)',  'seagreen'),
+        (0.0,    'tnr',      'TNR (specificity)',  'steelblue'),
+        ( width, 'f1_score', 'F1',                 'purple'),
+    ]
+    for offset, col, label, color in specs:
+        values = plot_df[col].values
+        for xi, v in zip(x, values):
+            if pd.isna(v):
+                # Thin placeholder bar + "N/A" label so undefined is visibly
+                # different from a true zero.
+                ax.bar(xi + offset, 0.02, width, color='lightgrey',
+                       edgecolor='grey', alpha=0.5,
+                       label=label if xi == x[0] and not any(plot_df[col].notna()) else None)
+                ax.text(xi + offset, 0.03, 'N/A', ha='center', va='bottom',
+                        fontsize=8, color='grey')
+            else:
+                ax.bar(xi + offset, v, width, color=color, edgecolor='black',
+                       alpha=0.85,
+                       label=label if xi == next(i for i, vv in enumerate(values) if not pd.isna(vv)) + 0 and True else None)
+                ax.text(xi + offset, v + 0.01, f'{v:.3f}', ha='center',
+                        va='bottom', fontsize=8)
+    # Clean legend: build it manually because the per-bar label trick above
+    # can end up repeating entries.
+    from matplotlib.patches import Patch
+    legend_handles = [Patch(facecolor=c, edgecolor='black', label=lbl)
+                      for _, _, lbl, c in specs]
+    ax.legend(handles=legend_handles, loc='lower right')
+    # n_samples annotation above each regime.
+    for xi, n in zip(x, plot_df['n_samples']):
+        ax.text(xi, 1.08, f'n={n:,}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plot_df['pair_regime'], rotation=20, ha='right')
+    ax.set_ylim(0, 1.18)
+    ax.set_yticks(np.arange(0, 1.01, 0.1))
+    ax.set_ylabel('Score')
+    ax.set_title('Level 1: TPR / TNR / F1 by pair regime')
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    out = results_dir / 'level1_pair_regime.png'
+    plt.savefig(out, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved Level 1 plot to: {out}")
+
+
+def analyze_level2_by_axis(df_enriched: pd.DataFrame, axis: str, results_dir: Path) -> pd.DataFrame:
+    """Level 2 per-axis marginal stratification.
+
+    axis is one of {'host', 'subtype', 'year_bin'} and expects columns
+    {axis}_a and {axis}_b on df_enriched.
+
+    A pair is counted in stratum value V only if BOTH sides share that value
+    (host_a == host_b == V, etc.). Pairs where sides disagree go to a single
+    'mixed' stratum; pairs where either side is NaN/unknown go to 'unknown'.
+    This avoids double-counting and keeps per-stratum metrics interpretable
+    (the model is evaluated on a homogeneous within-stratum population plus
+    an explicit mixed/unknown residual).
+
+    Rare strata with fewer than LEVEL2_MIN_SAMPLES pairs are collapsed into
+    a single 'other' stratum to prevent very noisy per-fold metrics.
+    """
+    print('\n' + '=' * 60)
+    print(f'LEVEL 2 STRATIFIED EVAL: {axis}')
+    print('=' * 60)
+
+    col_a, col_b = f'{axis}_a', f'{axis}_b'
+    if col_a not in df_enriched.columns or col_b not in df_enriched.columns:
+        print(f"WARNING: columns {col_a}/{col_b} not available; skipping axis {axis}.")
+        return pd.DataFrame()
+
+    df = df_enriched.copy()
+    va = df[col_a].astype(str)
+    vb = df[col_b].astype(str)
+    unknown_mask = (va == 'unknown') | (vb == 'unknown') | (va == 'nan') | (vb == 'nan')
+    same_mask = (~unknown_mask) & (va == vb)
+
+    # Keep only values with enough same-side pairs as dedicated strata; rarer
+    # values fold into 'other' to avoid per-fold noise.
+    value_counts = va[same_mask].value_counts()
+    kept_values = set(value_counts[value_counts >= LEVEL2_MIN_SAMPLES].index)
+
+    def _stratum(row):
+        a, b = str(row[col_a]), str(row[col_b])
+        if a in ('unknown', 'nan') or b in ('unknown', 'nan'):
+            return 'unknown'
+        if a != b:
+            return 'mixed'
+        return a if a in kept_values else 'other'
+
+    df['stratum'] = df.apply(_stratum, axis=1)
+
+    rows = []
+    for value, sub in df.groupby('stratum', dropna=False):
+        if len(sub) == 0:
+            continue
+        m = _compute_stratum_metrics(sub)
+        m['stratum'] = value
+        rows.append(m)
+
+    stats_df = pd.DataFrame(rows).sort_values('n_samples', ascending=False).reset_index(drop=True)
+    cols = ['stratum'] + [c for c in stats_df.columns if c != 'stratum']
+    stats_df = stats_df[cols]
+
+    output_file = results_dir / f'level2_by_{axis}.csv'
+    stats_df.to_csv(output_file, index=False)
+    print(f"Saved Level 2 ({axis}) metrics to: {output_file}")
+    print(stats_df.round(3).to_string(index=False))
+
+    _plot_level2_axis(stats_df, axis, results_dir)
+    return stats_df
+
+
+def _plot_level2_axis(stats_df: pd.DataFrame, axis: str, results_dir: Path) -> None:
+    """Bar plot of F1 / AUC-ROC / AUC-PR per stratum for one axis.
+
+    AUC-PR is preferred over Accuracy for the Level 2 plots because
+    per-stratum subsets can be heavily class-imbalanced (e.g., a subtype
+    where nearly all pairs are negative), and AUC-PR summarizes the
+    precision-recall tradeoff without being dominated by the majority class.
+    All three metrics match the set used in performance_metrics_by_metadata.png
+    so the two plot families are directly comparable.
+
+    Strata with n_samples < LEVEL2_MIN_SAMPLES are collapsed into 'other'
+    upstream. The plot additionally surfaces 'mixed' (sides disagree) and
+    'unknown' (NaN/malformed side) buckets IF they appear in the data; the
+    title lists only the residual buckets actually present.
+    """
+    plot_df = stats_df[stats_df['n_samples'] > 0].copy()
+    if plot_df.empty:
+        return
+    fig, ax = plt.subplots(figsize=(max(10, 0.6 * len(plot_df) + 4), 5))
+    x = np.arange(len(plot_df))
+    width = 0.25
+    # Render each metric per-stratum so undefined (NaN) values can be shown
+    # as thin grey "N/A" placeholders instead of missing bars. See
+    # docs/post_hoc_analysis_design.md "Reading the plots" — two different
+    # reasons a bar can be missing (single-class stratum → AUC NaN;
+    # all-negative stratum → F1 also NaN).
+    specs = [
+        (-width, 'f1_score', 'F1',      'purple'),
+        (0.0,    'auc_roc',  'AUC-ROC', 'teal'),
+        ( width, 'auc_pr',   'AUC-PR',  'orange'),
+    ]
+    for offset, col, _label, color in specs:
+        for xi, v in zip(x, plot_df[col].values):
+            if pd.isna(v):
+                ax.bar(xi + offset, 0.02, width, color='lightgrey',
+                       edgecolor='grey', alpha=0.5)
+                ax.text(xi + offset, 0.03, 'N/A', ha='center', va='bottom',
+                        fontsize=7, color='grey')
+            else:
+                ax.bar(xi + offset, v, width, color=color,
+                       edgecolor='black', alpha=0.85)
+    # Legend built manually because per-bar drawing above would produce
+    # duplicate/missing legend entries.
+    from matplotlib.patches import Patch
+    legend_handles = [Patch(facecolor=c, edgecolor='black', label=lbl)
+                      for _, _, lbl, c in specs]
+    for xi, n in zip(x, plot_df['n_samples']):
+        ax.text(xi, 1.02, f'n={n:,}', ha='center', va='bottom', fontsize=8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(plot_df['stratum'], rotation=45, ha='right')
+    ax.set_ylim(0, 1.12)
+    ax.set_yticks(np.arange(0, 1.01, 0.1))
+    ax.set_ylabel('Score')
+    residuals_present = [b for b in ('mixed', 'unknown', 'other')
+                         if (plot_df['stratum'] == b).any()]
+    residual_note = f"; residuals in {{{', '.join(residuals_present)}}}" if residuals_present else ''
+    ax.set_title(f'Level 2: metrics by {axis} (both sides matching{residual_note})')
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.legend(handles=legend_handles, loc='lower right')
+    plt.tight_layout()
+    out = results_dir / f'level2_by_{axis}.png'
+    plt.savefig(out, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved Level 2 ({axis}) plot to: {out}")
+
+
+def write_stratified_eval_summary(level1_df: pd.DataFrame, level2: dict, results_dir: Path) -> None:
+    """Dump a short human-readable summary.md combining Level 1 and Level 2 tables.
+
+    Intended for a reviewer to glance at per-run before running any
+    cross-sweep aggregation. CSVs are the source of truth; this summary is
+    for convenience only.
+    """
+    out = results_dir / 'stratified_eval_summary.md'
+    lines = ['# Stratified evaluation summary', '', '## Level 1: pair regime', '']
+    lines.append(level1_df.round(3).to_markdown(index=False))
+    lines.append('')
+    for axis_label, l2_df in level2.items():
+        if l2_df is None or l2_df.empty:
+            continue
+        lines.append(f'## Level 2: {axis_label}')
+        lines.append('')
+        lines.append(l2_df.round(3).to_markdown(index=False))
+        lines.append('')
+    out.write_text('\n'.join(lines))
+    print(f"Saved stratified eval summary to: {out}")
+
+
+# ============================================================================
+# Legacy error-analysis entry point (preserved filenames, corrected semantics)
+# ============================================================================
+
+
 def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
-    """
-    Analyze error rates and performance metrics stratified by metadata (host, hn_subtype, year).
-    
-    This helps identify if the model performs differently across different hosts, subtypes, or years,
-    which is important for understanding model generalization and potential biases.
-    
+    """Stratified error analysis by host, hn_subtype, and year.
+
+    This is the historical entry point. It preserves the output filenames
+    `error_analysis_by_{host,hn_subtype,year}.csv` and their plots, and in
+    addition emits the Level 1 (pair-regime) and Level 2 (per-axis with
+    mixed/unknown buckets) tables and plots defined in
+    docs/post_hoc_analysis_design.md.
+
+    Semantic change vs the pre-2026-04 implementation:
+      1. Metadata is merged on BOTH sides of each pair (assembly_id_a AND
+         assembly_id_b), then a pair is counted in stratum V only when both
+         sides share V. The old code joined on side A only, silently dropping
+         side-B metadata for cross-stratum negatives.
+      2. The 'year' axis in the legacy CSV uses year bins (see YEAR_BIN_EDGES)
+         instead of raw year values, to keep per-fold strata dense.
+
     Args:
-        df: DataFrame with predictions and metadata (must have assembly_id_a, assembly_id_b)
-        y_true: True labels
-        y_pred: Predicted labels
-        y_prob: Prediction probabilities
-        results_dir: Directory to save analysis outputs
-    
+        df: DataFrame with predictions (must have assembly_id_a, assembly_id_b,
+            label, pred_label, pred_prob).
+        y_true, y_pred, y_prob: accepted for backwards-compatible signature;
+            the function reads columns directly from df.
+        results_dir: Where to write CSVs and PNGs.
+
     Returns:
-        Dictionary with stratified error statistics
+        Dict keyed by 'host' / 'hn_subtype' / 'year' with per-stratum DataFrames.
     """
-    from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
-    from pathlib import Path as PathType
-    
-    print('\n' + '='*60)
-    print('ERROR ANALYSIS BY METADATA')
-    print('='*60)
-    
-    # Enrich dataframe with metadata if not already present
-    df_analysis = df.copy()
-    df_analysis['y_true'] = y_true
-    df_analysis['y_pred'] = y_pred
-    df_analysis['y_prob'] = y_prob
-    
-    # Check if metadata columns exist
-    has_metadata = all(col in df_analysis.columns for col in ['host', 'hn_subtype', 'year'])
-    
-    if not has_metadata:
-        print("Enriching dataframe with metadata...")
-        try:
-            # Get project root (infer from file location)
-            project_root = PathType(__file__).resolve().parents[2]
-            # Enrich using assembly_id_a (metadata is per isolate, so either assembly_id works)
-            df_metadata = df_analysis[['assembly_id_a']].drop_duplicates().copy()
-            df_metadata = df_metadata.rename(columns={'assembly_id_a': 'assembly_id'})
-            df_metadata = enrich_prot_data_with_metadata(df_metadata, project_root=project_root)
-            
-            # Merge back to analysis dataframe
-            df_analysis = df_analysis.merge(
-                df_metadata[['assembly_id', 'host', 'year', 'hn_subtype']],
-                left_on='assembly_id_a',
-                right_on='assembly_id',
-                how='left'
-            ).drop(columns=['assembly_id'])
-        except Exception as e:
-            print(f"⚠️  Warning: Could not enrich with metadata: {e}")
-            print("   Skipping metadata-stratified error analysis")
-            return {}
-    
-    # Check if we have metadata after enrichment
-    if not all(col in df_analysis.columns for col in ['host', 'hn_subtype', 'year']):
-        print("⚠️  Warning: Metadata columns not available. Skipping metadata-stratified analysis.")
+    print('\n' + '=' * 60)
+    print('ERROR ANALYSIS BY METADATA (two-sided)')
+    print('=' * 60)
+
+    try:
+        df_enriched = _enrich_pairs_with_metadata(df)
+    except Exception as e:
+        # Without metadata we cannot stratify at all; the rest of the pipeline
+        # keeps running with basic metrics only.
+        print(f"WARNING: Could not enrich with metadata: {e}")
+        print("   Skipping metadata-stratified error analysis (Level 1/2 also skipped).")
         return {}
-    
-    # Compute metrics for each metadata variable
-    metadata_vars = ['host', 'hn_subtype', 'year']
+
+    # Legacy-schema CSVs: one row per value where BOTH sides agree on that
+    # value. Pairs with mismatched sides (mixed) and unknown-side pairs are
+    # simply excluded here, which keeps the legacy CSV schema unchanged.
+    # Level 2 (below) reports mixed/unknown as explicit strata instead.
+    legacy_axes = {
+        'host': ('host_a', 'host_b'),
+        'hn_subtype': ('subtype_a', 'subtype_b'),
+        'year': ('year_bin_a', 'year_bin_b'),
+    }
     all_stratified_stats = {}
-    
-    for var in metadata_vars:
-        if var not in df_analysis.columns:
-            continue
-        
-        print(f"\nAnalyzing errors by {var}...")
-        stratified_stats = []
-        
-        # Get unique values (excluding NaN)
-        unique_values = df_analysis[var].dropna().unique()
-        
-        for value in unique_values:
-            subset = df_analysis[df_analysis[var] == value]
-            if len(subset) < 5:  # Skip if too few samples
+    for axis_name, (col_a, col_b) in legacy_axes.items():
+        sub = df_enriched.copy()
+        va, vb = sub[col_a].astype(str), sub[col_b].astype(str)
+        same_mask = (va == vb) & (va != 'unknown') & (va != 'nan')
+        sub = sub.loc[same_mask].copy()
+        sub['_stratum'] = va[same_mask]
+
+        rows = []
+        for value, group in sub.groupby('_stratum'):
+            if len(group) < 5:
                 continue
-            
-            subset_y_true = subset['y_true'].values
-            subset_y_pred = subset['y_pred'].values
-            subset_y_prob = subset['y_prob'].values
-            
-            # Compute confusion matrix
-            tn = ((subset_y_true == 0) & (subset_y_pred == 0)).sum()
-            fp = ((subset_y_true == 0) & (subset_y_pred == 1)).sum()
-            fn = ((subset_y_true == 1) & (subset_y_pred == 0)).sum()
-            tp = ((subset_y_true == 1) & (subset_y_pred == 1)).sum()
-            
-            # Compute metrics
-            accuracy = (tp + tn) / len(subset) if len(subset) > 0 else 0
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-            f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-            fp_rate = fp / len(subset) if len(subset) > 0 else 0
-            fn_rate = fn / len(subset) if len(subset) > 0 else 0
-            error_rate = (fp + fn) / len(subset) if len(subset) > 0 else 0
-            
-            # Compute AUC-ROC if possible
-            try:
-                from sklearn.metrics import roc_auc_score, average_precision_score
-                auc_roc = roc_auc_score(subset_y_true, subset_y_prob) if len(set(subset_y_true)) > 1 else 0
-                auc_pr = average_precision_score(subset_y_true, subset_y_prob) if len(set(subset_y_true)) > 1 else 0
-            except:
-                auc_roc = 0
-                auc_pr = 0
-            
-            stratified_stats.append({
-                var: value,
-                'n_samples': len(subset),
-                'tp': int(tp),
-                'tn': int(tn),
-                'fp': int(fp),
-                'fn': int(fn),
-                'accuracy': accuracy,
-                'precision': precision,
-                'recall': recall,
-                'f1_score': f1,
-                'auc_roc': auc_roc,
-                'auc_pr': auc_pr,
-                'fp_rate': fp_rate,
-                'fn_rate': fn_rate,
-                'error_rate': error_rate,
-                'fp_avg_confidence': subset[subset['y_true'] == 0]['y_prob'].mean() if (subset['y_true'] == 0).any() else 0,
-                'fn_avg_confidence': subset[subset['y_true'] == 1]['y_prob'].mean() if (subset['y_true'] == 1).any() else 0,
-            })
-        
-        if not stratified_stats:
-            print(f"   No sufficient data for {var} analysis")
+            m = _compute_stratum_metrics(group)
+            m[axis_name] = value
+            rows.append(m)
+        if not rows:
+            print(f"   No sufficient data for {axis_name} analysis (both-sides matching).")
             continue
-        
-        stats_df = pd.DataFrame(stratified_stats)
-        stats_df = stats_df.sort_values('error_rate', ascending=False)
-        all_stratified_stats[var] = stats_df
-        
-        # Save to CSV
-        output_file = results_dir / f'error_analysis_by_{var}.csv'
-        stats_df.to_csv(output_file, index=False)
-        print(f"   Saved stratified metrics to: {output_file}")
-        print(f"   Analyzed {len(stats_df)} unique {var} values")
-    
-    # Create visualization plots
+
+        stats_df = pd.DataFrame(rows).sort_values('error_rate', ascending=False, na_position='last')
+        cols = [axis_name] + [c for c in stats_df.columns if c != axis_name]
+        stats_df = stats_df[cols]
+        all_stratified_stats[axis_name] = stats_df
+        out = results_dir / f'error_analysis_by_{axis_name}.csv'
+        stats_df.to_csv(out, index=False)
+        print(f"   Saved stratified metrics to: {out}")
+        print(f"   Analyzed {len(stats_df)} unique {axis_name} values (both-sides matching)")
+
     if all_stratified_stats:
         _plot_errors_by_metadata(all_stratified_stats, results_dir)
-    
+
+    # Level 1 / Level 2 (new outputs) — emitted from the same enriched df.
+    level1_df = analyze_level1_pair_regime(df_enriched, results_dir)
+    level2 = {}
+    for axis in ('host', 'subtype', 'year_bin'):
+        level2[axis] = analyze_level2_by_axis(df_enriched, axis, results_dir)
+    write_stratified_eval_summary(level1_df, level2, results_dir)
+
     return all_stratified_stats
 
 
@@ -732,17 +1145,13 @@ def _plot_errors_by_metadata(stratified_stats: dict, results_dir: Path):
         x_pos = np.arange(len(stats_df_plot))
         width = 0.35
         
-        # FP Rate bars with pattern
-        fp_bars = ax.bar(x_pos - width/2, stats_df_plot['fp_rate'], width, 
-                        label='FP Rate', color='red', alpha=0.8, edgecolor='black', linewidth=1.5)
-        for bar in fp_bars:
-            bar.set_hatch('///')  # Diagonal lines
-        
-        # FN Rate bars with different pattern
-        fn_bars = ax.bar(x_pos + width/2, stats_df_plot['fn_rate'], width, 
-                        label='FN Rate', color='blue', alpha=0.8, edgecolor='black', linewidth=1.5)
-        for bar in fn_bars:
-            bar.set_hatch('...')  # Dots
+        # FP Rate bars (color-only, no hatch; see commit message for rationale)
+        ax.bar(x_pos - width/2, stats_df_plot['fp_rate'], width,
+               label='FP Rate', color='red', alpha=0.8, edgecolor='black', linewidth=1.5)
+
+        # FN Rate bars
+        ax.bar(x_pos + width/2, stats_df_plot['fn_rate'], width,
+               label='FN Rate', color='blue', alpha=0.8, edgecolor='black', linewidth=1.5)
         
         var_label = var_labels[var]
         ax.set_xlabel(var_label, fontsize=12)
@@ -761,7 +1170,7 @@ def _plot_errors_by_metadata(stratified_stats: dict, results_dir: Path):
     output_path1 = results_dir / 'error_rates_by_metadata.png'
     plt.savefig(output_path1, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"✅ Saved error rates plot to: {output_path1}")
+    print(f"Saved error rates plot to: {output_path1}")
     
     # ========================================================================
     # Figure 2: Performance Metrics (F1 Score, AUC-ROC, AUC-PR)
@@ -781,23 +1190,17 @@ def _plot_errors_by_metadata(stratified_stats: dict, results_dir: Path):
         x_pos = np.arange(len(stats_df_plot))
         width = 0.25
         
-        # F1 Score bars with pattern
-        f1_bars = ax.bar(x_pos - width, stats_df_plot['f1_score'], width, 
-                        label='F1 Score', color='purple', alpha=0.8, edgecolor='black', linewidth=1.5)
-        for bar in f1_bars:
-            bar.set_hatch('///')  # Diagonal lines
-        
-        # AUC-ROC bars with different pattern
-        auc_roc_bars = ax.bar(x_pos, stats_df_plot['auc_roc'], width, 
-                             label='AUC-ROC', color='teal', alpha=0.8, edgecolor='black', linewidth=1.5)
-        for bar in auc_roc_bars:
-            bar.set_hatch('...')  # Dots
-        
-        # AUC-PR bars with different pattern
-        auc_pr_bars = ax.bar(x_pos + width, stats_df_plot['auc_pr'], width, 
-                            label='AUC-PR', color='orange', alpha=0.8, edgecolor='black', linewidth=1.5)
-        for bar in auc_pr_bars:
-            bar.set_hatch('xxx')  # Crosshatch
+        # F1 Score bars (color-only, no hatch)
+        ax.bar(x_pos - width, stats_df_plot['f1_score'], width,
+               label='F1 Score', color='purple', alpha=0.8, edgecolor='black', linewidth=1.5)
+
+        # AUC-ROC bars
+        ax.bar(x_pos, stats_df_plot['auc_roc'], width,
+               label='AUC-ROC', color='teal', alpha=0.8, edgecolor='black', linewidth=1.5)
+
+        # AUC-PR bars
+        ax.bar(x_pos + width, stats_df_plot['auc_pr'], width,
+               label='AUC-PR', color='orange', alpha=0.8, edgecolor='black', linewidth=1.5)
         
         var_label = var_labels[var]
         ax.set_xlabel(var_label, fontsize=12)
@@ -814,7 +1217,7 @@ def _plot_errors_by_metadata(stratified_stats: dict, results_dir: Path):
     output_path2 = results_dir / 'performance_metrics_by_metadata.png'
     plt.savefig(output_path2, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"✅ Saved performance metrics plot to: {output_path2}")
+    print(f"Saved performance metrics plot to: {output_path2}")
 
 
 def analyze_segment_performance(df):
@@ -1011,10 +1414,10 @@ def main(config_bundle: str,
                 )
                 if all_runs:
                     models_dir = all_runs[0]
-                    print(f"⚠️  No run found for bundle '{config_bundle}', using most recent run: {models_dir}")
+                    print(f"WARNING: No run found for bundle '{config_bundle}', using most recent run: {models_dir}")
                 else:
                     models_dir = base_models_dir
-                    print(f"⚠️  No training runs found, using base directory: {models_dir}")
+                    print(f"WARNING: No training runs found, using base directory: {models_dir}")
         else:
             models_dir = base_models_dir
             print(f"Using base models directory: {models_dir}")
@@ -1028,13 +1431,13 @@ def main(config_bundle: str,
     test_results_file = models_dir / 'test_predicted.csv'
     if not test_results_file.exists():
         raise FileNotFoundError(
-            f'❌ Test results file not found: {test_results_file}\n'
+            f'ERROR: Test results file not found: {test_results_file}\n'
             f'   Model directory: {models_dir}\n'
             f'   Hint: Use --model_dir to specify the exact training run directory'
         )
 
     df = pd.read_csv(test_results_file)
-    print(f'✅ Loaded {len(df)} test predictions')
+    print(f'Loaded {len(df)} test predictions')
 
     # Extract labels and predictions
     y_true = df['label'].values
@@ -1092,9 +1495,9 @@ def main(config_bundle: str,
         plot_roc_curve(y_true, y_prob, results_dir / 'roc_curve.png')
         plot_precision_recall_curve(y_true, y_prob, results_dir / 'precision_recall_curve.png')
         plot_prediction_distribution(y_true, y_prob, results_dir / 'prediction_distribution.png')
-        print("✅ Performance plots created (roc_curve.png, precision_recall_curve.png, prediction_distribution.png)")
+        print("Performance plots created (roc_curve.png, precision_recall_curve.png, prediction_distribution.png)")
     else:
-        print("⏭️  Skipping performance plots (create_performance_plots=False)")
+        print("Skipping performance plots (create_performance_plots=False)")
     
     # Enhanced FP/FN analysis
     error_summary = analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir)
