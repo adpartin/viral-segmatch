@@ -10,7 +10,7 @@ Flu A viral segment co-occurrence prediction. ESM-2 protein embeddings (frozen) 
 Primary virus: Influenza A. Bunya support exists but NOT actively maintained.
 
 ## Pipeline (4 stages)
-- Stage 1: `src/preprocess/preprocess_flu_protein.py` → `data/processed/flu/{version}/protein_final.csv` (run once)
+- Stage 1: `src/preprocess/preprocess_flu.py` → `data/processed/flu/{version}/protein_final.csv` + `genome_final.csv` (run once). Invoked by `scripts/stage1_preprocess_flu.sh`. Unified protein + genome extraction in one pass. `preprocess_flu_protein.py` still exists but is the older protein-only variant; not the active pipeline entry point.
 - Stage 2: `src/embeddings/compute_esm2_embeddings.py` → `data/embeddings/flu/{version}/master_esm2_embeddings.h5` (run once)
 - Stage 3: `src/datasets/dataset_segment_pairs.py` → `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` (per experiment)
 - Stage 4: `src/models/train_pair_classifier.py` → `models/flu/{version}/runs/training_{bundle}_{ts}/` (per experiment)
@@ -83,8 +83,10 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - See `docs/plans/temporal_holdout_plan.md` for full analysis and results
 
 ## In Development
-- Unified Flu preprocessing (`preprocess_flu.py`) -- see docs/genome_pipeline_design.md
 - `src/utils/dna_utils.py` -- DNA QC utilities (summarize_dna_qc complete, clean_dna_sequences untested)
+
+## Recently Promoted to Production
+- Unified Flu preprocessing (`src/preprocess/preprocess_flu.py`) -- emits both `protein_final.csv` and `genome_final.csv` in a single pass. Wired up via `scripts/stage1_preprocess_flu.sh`. Design notes: `docs/genome_pipeline_design.md`.
 
 ## HPC
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.

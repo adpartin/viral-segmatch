@@ -63,14 +63,12 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 
 | Stage | Script | Output | Runs |
 |-------|--------|--------|------|
-| 1. Preprocess | `src/preprocess/preprocess_flu_protein.py` | `data/processed/flu/{version}/protein_final.csv` | Once |
+| 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{version}/protein_final.csv` + `genome_final.csv` | Once |
 | 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
 | 3. Dataset | `src/datasets/dataset_segment_pairs.py` | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
 | 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
 
-Shell wrappers: `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`.
-
-There is no stage1 shell script; preprocessing is run directly.
+Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`.
 
 **Stage 3/4 decoupling**: Stage 4's shell script requires `--dataset_dir` explicitly and
 does not extract or validate a bundle name from the dataset path. This allows running
@@ -110,7 +108,8 @@ Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_proc
 ```
 src/
   preprocess/
-    preprocess_flu_protein.py       # Stage 1: GTO → protein_final.csv
+    preprocess_flu.py               # Stage 1 (ACTIVE): GTO → protein_final.csv + genome_final.csv
+    preprocess_flu_protein.py       # Older protein-only variant; superseded by preprocess_flu.py (kept for reference)
     flu_genomes_eda.py              # Generates flu_genomes_metadata_parsed.csv (run once)
     preprocess_bunya_protein.py     # Bunya preprocessing (NOT actively maintained)
     preprocess_bunya_genome.py      # Bunya genome preprocessing (NOT actively maintained; renamed from preprocess_bunya_dna.py)
@@ -166,7 +165,7 @@ Priority experiments for publication:
 1. **Cross-validation** (N splits, mean ± std metrics) — needs `fold_id`/`n_folds` in dataset config + job array
 2. **Large dataset** (full Flu A, ~100K isolates) — HPC required (Polaris)
 3. **Temporal holdout** (train 2021–2023, test 2024) — `year_train`/`year_test` config fields
-4. **Genome features** (k-mers + XGBoost/LightGBM, then GenSLM) — unified `preprocess_flu.py` planned
+4. **Genome features** (k-mers + XGBoost/LightGBM, then GenSLM) — unified `preprocess_flu.py` now in production (emits `genome_final.csv` alongside `protein_final.csv`)
 5. **PB2/PB1 + H3N2 bundle** — trivial; one new bundle
 6. **Accuracy vs genetic distance** — needs clade metadata from BV-BRC
 
@@ -190,8 +189,9 @@ Priority experiments for publication:
 ## What Is In Development (Not Yet Production)
 
 - `src/utils/dna_utils.py` — DNA sequence QC utilities
-- Unified Flu preprocessing (`preprocess_flu.py` — protein + genome extraction in one pass)
 - Temporal holdout split logic (`year_train`/`year_test`)
+
+Note: unified Flu preprocessing (`preprocess_flu.py`, protein + genome in one pass) was previously listed here; it is now in production and is the entry point invoked by `scripts/stage1_preprocess_flu.sh`.
 
 ---
 
@@ -243,5 +243,5 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 - **Shared vs. run-specific**: Preprocessing and embeddings are shared per `{virus}/{data_version}`. Datasets and models are per run in `runs/` subdirectories.
 - **Seed system**: Hierarchical — `master_seed` derives all process seeds. See `docs/SEED_SYSTEM.md`.
 - **Metrics**: F1, AUC-ROC, Brier score. Val imbalance is intentional (realistic); train is balanced.
-- **Proteins**: `preprocess_flu_protein.py` maps GTO replicon functions to standard protein names (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP).
+- **Proteins**: `preprocess_flu.py` maps GTO replicon functions to standard protein names (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP).
 - **Log messages**: No emojis in print/log output. Use text prefixes instead: `ERROR:` (fatal, script will raise/exit), `WARNING:` (non-fatal but noteworthy), `Done.` (success). Decorative emojis (`📊`, `🔍`, etc.) should be removed — the surrounding text is sufficient.
