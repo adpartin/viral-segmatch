@@ -232,7 +232,12 @@ def create_positive_pairs(
     1. Deduplication across isolates (same sequences in different isolates)
     2. Preventing data leakage during train/test split
     """
-    # Seeding is handled upstream by set_deterministic_seeds() in the CLI section.
+    # Positive-pair generation is currently purely combinatorial (itertools.
+    # combinations within each isolate group) and consumes no random draws,
+    # but we allocate a local RNG for symmetry with create_negative_pairs so
+    # future edits here cannot accidentally couple to the process-global
+    # random stream. See docs/plans/done/negative_pair_rng_fix_plan.md.
+    rng = random.Random(seed)  # noqa: F841  (reserved for future random draws)
     isolates = df.groupby('assembly_id')
 
     pos_pairs = []
@@ -370,7 +375,14 @@ def create_negative_pairs(
         cooccur_pairs: Set of canonical pair keys that co-occur in any isolate (blocked)
         allow_same_func_negatives: Whether to allow same-function negative pairs
         max_same_func_ratio: Maximum fraction of same-function negative pairs
-        seed: Random seed (not used directly, seeding done upstream)
+        seed: Per-call seed used to derive a local random.Random instance for
+            reproducible negative sampling. Making this function own its RNG
+            state (rather than reading from the process-global random stream)
+            ensures (a) the seed argument that generate_all_cv_folds computes
+            as master_seed + fold_i actually takes effect, (b) fold k's draws
+            don't depend on how many draws fold k-1 consumed, and (c) prior
+            Python-random consumers elsewhere in the process can't shift the
+            stream. See docs/plans/done/negative_pair_rng_fix_plan.md.
         max_attempts_multiplier: Max sampling attempts = num_negatives * this value
 
     Returns:
@@ -379,7 +391,10 @@ def create_negative_pairs(
         - Number of same-function negative pairs
         - Dict with rejection statistics
     """
-    # Seeding is handled upstream by set_deterministic_seeds() in the CLI section.
+    # Per-call deterministic RNG. Isolates this function from the process-global
+    # random stream (see docstring). Negative sampling is now a pure function of
+    # (seed, df, isolate_ids, cooccur_pairs, pair_mode, schema_pair).
+    rng = random.Random(seed)
     neg_pairs = []
     seen_pairs = set()  # Track unique pairs by brc_fea_id
     seen_seq_pairs = set()  # Track unique pairs by sequence hash
@@ -451,7 +466,7 @@ def create_negative_pairs(
 
     while len(neg_pairs) < num_negatives and attempts < max_attempts:
         attempts += 1
-        aid1, aid2 = random.sample(isolate_ids, 2)  # Sample 2 different isolates
+        aid1, aid2 = rng.sample(isolate_ids, 2)  # Sample 2 different isolates
         if pair_mode == "schema_ordered":
             # Schema-ordered negatives: sample func_left from isolate aid1 (slot A),
             # and func_right from isolate aid2 (slot B).
@@ -463,11 +478,11 @@ def create_negative_pairs(
             if not right_candidates:
                 rejection_stats['missing_right_func'] += 1
                 continue
-            row_a = random.choice(left_candidates)
-            row_b = random.choice(right_candidates)
+            row_a = rng.choice(left_candidates)
+            row_b = rng.choice(right_candidates)
         else:
-            row_a = random.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
-            row_b = random.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
+            row_a = rng.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
+            row_b = rng.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
 
         # Check if brc_fea_id pair is unique and not symmetric
         brc_pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))

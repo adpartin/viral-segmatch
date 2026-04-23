@@ -1,6 +1,13 @@
 # Plan: Fix Negative-Pair RNG Determinism in Dataset Generation
 
-**Status: DRAFT** — diagnosis complete, fix proposed, not yet implemented
+**Status: IN PROGRESS** — minimal fix (source A) landed in
+`src/datasets/dataset_segment_pairs.py`: `create_negative_pairs` uses a local
+`random.Random(seed)`, `create_positive_pairs` gets a reserved local RNG for
+symmetry. Regression + empirical cross-bundle overlap checks complete (see
+"Post-fix empirical verification" below). Source B (schema-specific rejection
+desync) remains — cross-bundle identity of negative-pair sets is **not** achieved
+by this fix. Next decision: pursue the structural change in "Optional:
+cross-bundle isolate-pair identity" or accept the residual ~13% gap.
 
 ## Motivation
 
@@ -111,6 +118,51 @@ Negative `(aid_a, aid_b)` overlap is high in train (~85%) because train carries
 bundles land on largely the same pairs by coincidence. In val/test (~10K and ~8K
 negatives respectively) overlap collapses to essentially random-coincidence level
 (~0.02%).
+
+## Post-fix empirical verification
+
+Re-measured cross-bundle negative-pair overlap after the minimal fix landed. To
+isolate the effect of the fix from the effect of sample size, the pre-fix
+baseline was re-run on the **same 2K-isolate subsample and same process** as
+the post-fix measurement (by `git stash`-ing the fix). The numbers in the
+earlier "Empirical verification" section were on the full 111K pipeline, so
+they're not directly comparable — this matched-subsample comparison is.
+
+Setup: `flu_28p_ha_na` vs `flu_28p_pb2_pb1`, `fold_0`, `master_seed=42`,
+`max_isolates_to_process=2000`, in-process `set_deterministic_seeds(42)` called
+once before each bundle's `split_dataset` call.
+
+| Split | Pre-fix Jaccard | Post-fix Jaccard | Pre-fix \|A∩B\| | Post-fix \|A∩B\| |
+|-------|:---:|:---:|:---:|:---:|
+| train | 86.81% | **86.81%** | 4,553 / 4,899 | 4,553 / 4,899 |
+| val   | 29.23% | **88.44%** | 261 / 583 | 543 / 590 |
+| test  | 20.40% | **86.05%** | 163 / 490 | 444 / 489 |
+
+What the deltas mean:
+
+- **Val/test Jaccard jumps 20–30% → 86–88%.** This is source (A) being fixed:
+  pre-fix, val's RNG state at entry was whatever state train left behind, and
+  train's state-advance was schema-specific; post-fix, val and test each open
+  with `random.Random(seed)` and are no longer downstream of train.
+- **Train overlap is bit-identical pre/post (86.81%).** Expected: train is the
+  first call after each `set_deterministic_seeds(42)`, so pre-fix and post-fix
+  both start from the same state. The 13.19% residual gap is source (B) —
+  `missing_left_func` / `missing_right_func` rejection consumes a `sample(...)`
+  draw before the schema check, and isolates lacking HA differ from those lacking
+  PB2, so iteration 2 onward desyncs regardless of whether the RNG is local.
+- **Caveat on pre-fix numbers.** The pre-fix val/test Jaccard of 29%/20% is
+  higher than the 0.02%/0.03% reported in the earlier "Empirical verification"
+  section. The earlier measurement was on separate process runs over the full
+  111K dataset; this one reseeds to 42 at each bundle boundary, so train's
+  schema-specific advancement is bounded by a single `split_dataset` call rather
+  than compounding across 12 folds. In the real pipeline, pre-fix val/test
+  overlap is essentially random-coincidence; my 29%/20% is an optimistic lower
+  bound on the divergence, and the fix closes an even larger gap than the table
+  shows.
+
+Within-bundle reproducibility (running `ha_na` twice in the same process with
+the same seed) is bit-identical post-fix across train/val/test, confirming the
+local-RNG path is deterministic.
 
 ## Why the negative pairs diverge
 
@@ -258,11 +310,16 @@ change if a downstream analysis actually needs it.
 
 ## Open questions
 
-- Should positives also get a local RNG for symmetry, even though they're
-  currently deterministic (no random calls)? Probably yes as a matter of hygiene,
-  so future edits to `create_positive_pairs` can't accidentally couple to global
-  state.
-- Should we also re-seed inside `generate_all_cv_folds` at each fold iteration
-  (belt-and-suspenders), so the local RNG in `create_negative_pairs` is the only
-  Python-random consumer per fold? Probably overkill given the local-RNG fix, but
-  worth noting.
+- ~~Should positives also get a local RNG for symmetry~~ — **Resolved (landed).**
+  `create_positive_pairs` now allocates `rng = random.Random(seed)` as a reserved
+  handle even though it has no random draws today. Defensive: future edits to
+  that function can't accidentally reach for module-level `random` state.
+- ~~Should we also re-seed inside `generate_all_cv_folds` at each fold iteration~~
+  — **Resolved (skipped).** Not needed: the local RNG in `create_negative_pairs`
+  is now the only Python-random consumer on the pair-generation hot path.
+- **Pursue method B (cross-bundle isolate-pair identity)?** Open. The
+  post-fix measurement shows a residual ~13% train / ~12% val/test gap driven
+  entirely by source (B): schema-specific rejection patterns. Closing this to
+  0% requires the structural change sketched in "Optional: cross-bundle
+  isolate-pair identity". Decision deferred until a downstream analysis
+  actually needs bit-identical negative sets across the 28 bundles.
