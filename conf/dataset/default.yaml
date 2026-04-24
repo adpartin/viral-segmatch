@@ -50,6 +50,26 @@ hn_subtype: null # null = no filter, or "H1N1", "H3N2", etc.
 geo_location: null  # null = no filter, or geographic location name (e.g., "Illinois")
 passage: null   # null = no filter, or passage value (e.g., "Original", "S1", "Egg")
 
+# Subtype balancing (Roadmap v2 Task 2). Downsamples isolates to equal
+# per-subtype representation once, before CV fold generation. See
+# docs/plans/subtype_balancing_plan.md for the full design and error rules.
+#
+# mode: natural | balanced
+#   - natural: no-op (default, backward compatible).
+#   - balanced: keep only isolates from included_subtypes; downsample each
+#     subtype to N isolates; N is min(available counts) when
+#     target_count_per_subtype='min', else the configured int (errors if
+#     int > min available -- upsampling not supported).
+#
+# Mutually exclusive with max_isolates_to_process (both sample isolates) and
+# with dataset.hn_subtype (single-subtype filter contradicts multi-subtype
+# balancing). Stage 3 errors out loudly if either is combined with balanced.
+subtype_selection:
+  mode: natural                   # natural | balanced
+  included_subtypes: null         # list[str], required when mode=balanced
+  target_count_per_subtype: min   # "min" or int
+  seed: null                      # null -> inherit RANDOM_SEED (master_seed -> datasets)
+
 # Temporal holdout split
 # year_train/year_test: null = disabled; list of years = temporal holdout mode
 # Mutually exclusive with year (single-value filter) and n_folds (CV mode)

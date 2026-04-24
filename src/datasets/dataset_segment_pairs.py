@@ -221,6 +221,139 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
     return merged
 
 
+def select_balanced_isolate_pool(
+    prot_df: pd.DataFrame,
+    subtype_selection_cfg,
+    master_seed: int,
+    output_dir: Path,
+) -> pd.DataFrame:
+    """Downsample isolates to equal per-subtype representation.
+
+    No-op when mode=natural (returns prot_df unchanged). When mode=balanced,
+    filters `prot_df` to only isolates drawn from `included_subtypes`, sampling
+    N assembly_ids per subtype where N is min(available counts) if
+    target_count_per_subtype=='min' or the configured integer otherwise.
+
+    Determinism: pure function of (seed, included_subtypes,
+    target_count_per_subtype, prot_df's per-subtype assembly_id sets). Uses a
+    local random.Random instance (no reads from the process-global random
+    stream) and iterates subtypes / assembly_ids in sorted order.
+
+    Upsampling is not supported -- errors if target_count_per_subtype exceeds
+    any subtype's available count. See docs/plans/subtype_balancing_plan.md
+    for the design and error rules.
+
+    When mode=balanced, writes subtype_selection_manifest.json to output_dir
+    with per-subtype counts, selected assembly_ids, and the seed used.
+    """
+    mode = getattr(subtype_selection_cfg, 'mode', 'natural') if subtype_selection_cfg is not None else 'natural'
+    if mode == 'natural':
+        return prot_df
+    if mode != 'balanced':
+        raise ValueError(
+            f"dataset.subtype_selection.mode must be 'natural' or 'balanced'; got {mode!r}"
+        )
+
+    if 'hn_subtype' not in prot_df.columns:
+        raise RuntimeError(
+            "hn_subtype column missing from prot_df. "
+            "select_balanced_isolate_pool must run after enrich_prot_data_with_metadata."
+        )
+
+    included_raw = getattr(subtype_selection_cfg, 'included_subtypes', None)
+    included = list(included_raw) if included_raw else []
+    if not included:
+        raise ValueError(
+            "dataset.subtype_selection.mode=balanced requires a non-empty "
+            "dataset.subtype_selection.included_subtypes list."
+        )
+    included_sorted = sorted(set(included))
+
+    # Per-subtype isolate counts (unique assembly_ids) restricted to included set.
+    counts = (
+        prot_df[prot_df['hn_subtype'].isin(included_sorted)]
+        .groupby('hn_subtype')['assembly_id']
+        .nunique()
+    )
+
+    missing = [st for st in included_sorted if st not in counts.index or int(counts[st]) == 0]
+    if missing:
+        available_top = (
+            prot_df['hn_subtype']
+            .value_counts(dropna=False)
+            .head(20)
+            .to_dict()
+        )
+        raise ValueError(
+            f"dataset.subtype_selection.included_subtypes references subtype(s) "
+            f"not present in the dataframe: {missing}. "
+            f"Top-20 available subtype counts (after upstream filters): {available_top}"
+        )
+
+    target = getattr(subtype_selection_cfg, 'target_count_per_subtype', 'min')
+    min_count = int(counts.min())
+    if target == 'min':
+        N = min_count
+    elif isinstance(target, int) and not isinstance(target, bool):
+        if target <= 0:
+            raise ValueError(
+                f"dataset.subtype_selection.target_count_per_subtype must be positive; got {target}"
+            )
+        if target > min_count:
+            per_st = {st: int(counts[st]) for st in included_sorted}
+            raise ValueError(
+                f"target_count_per_subtype={target} exceeds the minimum available count "
+                f"({min_count}). Upsampling is not supported. "
+                f"Per-subtype available counts: {per_st}. "
+                f"Lower the target or set target_count_per_subtype='min'."
+            )
+        N = target
+    else:
+        raise ValueError(
+            f"dataset.subtype_selection.target_count_per_subtype must be 'min' or "
+            f"a positive int; got {target!r}"
+        )
+
+    seed_cfg = getattr(subtype_selection_cfg, 'seed', None)
+    seed = int(seed_cfg) if seed_cfg is not None else int(master_seed)
+    rng = random.Random(seed)
+
+    selected_ids: list[str] = []
+    per_subtype_report: dict = {}
+    for st in included_sorted:
+        aids = sorted(prot_df.loc[prot_df['hn_subtype'] == st, 'assembly_id'].unique().tolist())
+        picked = rng.sample(aids, N)
+        selected_ids.extend(picked)
+        per_subtype_report[st] = {'available': int(counts[st]), 'selected': N}
+
+    before_isolates = int(prot_df['assembly_id'].nunique())
+    filtered = prot_df[prot_df['assembly_id'].isin(set(selected_ids))].reset_index(drop=True)
+    after_isolates = int(filtered['assembly_id'].nunique())
+
+    manifest = {
+        'mode': 'balanced',
+        'included_subtypes': included_sorted,
+        'target_count_per_subtype': target if target == 'min' else int(target),
+        'N': N,
+        'seed': seed,
+        'per_subtype': per_subtype_report,
+        'isolates_before': before_isolates,
+        'isolates_after': after_isolates,
+        'selected_assembly_ids': sorted(selected_ids),
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / 'subtype_selection_manifest.json'
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+
+    print(f"\nSubtype balancing: {included_sorted} at N={N} per subtype (seed={seed})")
+    for st in included_sorted:
+        r = per_subtype_report[st]
+        print(f"  {st}: selected {r['selected']:,} / {r['available']:,} available")
+    print(f"Isolates before balancing: {before_isolates:,}   after: {after_isolates:,}")
+    print(f"Wrote manifest: {manifest_path}")
+    return filtered
+
+
 def orient_pair_by_schema(dct: dict, func_left: str, func_right: str) -> Optional[dict]:
     """Force pair orientation by a (func_left, func_right) schema.
 
@@ -1787,6 +1920,33 @@ if YEAR_TRAIN is not None:
     after_count = prot_df['assembly_id'].nunique()
     print(f"Temporal filter: kept {after_count} isolates from years {sorted(all_years)} "
           f"(dropped {before_count - after_count})")
+
+# Subtype balancing (downsample to equal per-subtype representation).
+# See docs/plans/subtype_balancing_plan.md. No-op when mode=natural.
+# Mutually exclusive with max_isolates_to_process (both sample isolates) and
+# with dataset.hn_subtype (single-subtype filter contradicts multi-subtype balancing).
+subtype_sel_cfg = getattr(config.dataset, 'subtype_selection', None)
+subtype_sel_mode = getattr(subtype_sel_cfg, 'mode', 'natural') if subtype_sel_cfg is not None else 'natural'
+if subtype_sel_mode == 'balanced':
+    if MAX_ISOLATES_TO_PROCESS is not None:
+        raise ValueError(
+            f"dataset.subtype_selection.mode=balanced is incompatible with "
+            f"dataset.max_isolates_to_process={MAX_ISOLATES_TO_PROCESS} (both sub-sample isolates). "
+            "Set max_isolates_to_process=null or subtype_selection.mode=natural."
+        )
+    if hn_subtype_filter is not None:
+        raise ValueError(
+            f"dataset.subtype_selection.mode=balanced is incompatible with "
+            f"dataset.hn_subtype={hn_subtype_filter!r} (single-subtype filter contradicts "
+            "multi-subtype balancing). Clear the single-subtype filter or use "
+            "subtype_selection.mode=natural."
+        )
+prot_df = select_balanced_isolate_pool(
+    prot_df,
+    subtype_sel_cfg,
+    master_seed=RANDOM_SEED,
+    output_dir=output_dir,
+)
 
 # Sample a subset of isolates from the dataframe
 sampled_isolates_file = output_dir / 'sampled_isolates.txt'
