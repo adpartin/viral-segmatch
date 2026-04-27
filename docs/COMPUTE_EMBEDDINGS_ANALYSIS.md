@@ -404,7 +404,7 @@ Virus-agnostic version with command-line interface.
 - **Purpose**: Ensure all required embeddings exist before training
 - **Checks**: All `brc_a` and `brc_b` in pair datasets must have embeddings
 
-**Line 603-608**: Create `SegmentPairDataset` instances
+**Line 603-608**: Create `ESMPairDataset` instances
 - **Purpose**: Load embeddings on-demand during training
 - **Mechanism**: 
   - Load parquet index → build `id_to_row` mapping (line 120)
@@ -443,7 +443,7 @@ Virus-agnostic version with command-line interface.
    ├─> Load pair datasets
    ├─> Load master cache + parquet index
    ├─> Validate all required embeddings exist
-   ├─> Create SegmentPairDataset (row-based access)
+   ├─> Create ESMPairDataset (row-based access)
    └─> Train model
 ```
 

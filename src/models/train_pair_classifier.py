@@ -132,11 +132,14 @@ def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool]:
     return ("concat" in tokens, "diff" in tokens, "prod" in tokens, "unit_diff" in tokens)
 
 
-class SegmentPairDataset(Dataset):
+class ESMPairDataset(Dataset):
     """
-    Dataset for segment pairs with ESM-2 embeddings.
-    Always returns (emb_a, emb_b), label. Interaction features are computed in the model.
-    Uses row-based indexing for master cache access.
+    Dataset for segment pairs with ESM-2 protein embeddings.
+
+    Always returns (emb_a, emb_b), label. Interaction features (concat / diff /
+    unit_diff / prod) are computed inside the MLP, not here. Naming parallels
+    KmerPairDataset so it's clear which feature source each dataset wraps.
+    Uses row-based indexing into the master HDF5 cache.
     """
     # Shared cache so multiple datasets (train/val/test) can reuse the same embeddings
     _shared_embedding_cache: dict[str, np.ndarray] = {}
@@ -169,14 +172,14 @@ class SegmentPairDataset(Dataset):
         # Require master cache format (strict - no old format support)
         if 'emb' not in self.h5 or 'emb_keys' not in self.h5:
             raise ValueError(
-                f"❌ Invalid embeddings file format: {embeddings_file}. "
+                f"Invalid embeddings file format: {embeddings_file}. "
                 "Master cache format required (with 'emb' and 'emb_keys' datasets). "
                 "Old format is not supported."
             )
         
         # Display metadata (required for master cache format)
         if 'model_name' in self.h5.attrs:
-            print(f"📋 Embedding metadata: model={self.h5.attrs.get('model_name', 'unknown')}, "
+            print(f"Embedding metadata: model={self.h5.attrs.get('model_name', 'unknown')}, "
                   f"pooling={self.h5.attrs.get('pooling', 'unknown')}, "
                   f"layer={self.h5.attrs.get('layer', 'unknown')}, "
                   f"max_length={self.h5.attrs.get('max_length', 'unknown')}, "
@@ -204,12 +207,12 @@ class SegmentPairDataset(Dataset):
                 df = pd.read_parquet(index_file)
                 return dict(zip(df['brc_fea_id'], df['row']))
             else:
-                print(f"⚠️  Parquet index not found: {index_file}. Falling back to H5 key scan.")
+                print(f"WARNING: Parquet index not found: {index_file}. Falling back to H5 key scan.")
                 self.use_parquet = False
         
         # Master cache format requires parquet index
         raise ValueError(
-            f"❌ Parquet index not found: {index_file}. "
+            f"Parquet index not found: {index_file}. "
             "Master cache format requires parquet index for brc_fea_id to row mapping. "
             "Ensure the index file exists or regenerate embeddings."
         )
@@ -225,7 +228,7 @@ class SegmentPairDataset(Dataset):
         print("Pre-loading entire embeddings matrix into memory (shared cache)...")
         emb_matrix = self.h5['emb'][:].astype(np.float32)
         self._shared_embedding_cache[self.embeddings_file] = emb_matrix
-        print(f"✅ Pre-loading complete ({emb_matrix.shape[0]:,} embeddings cached).")
+        print(f"Pre-loading complete ({emb_matrix.shape[0]:,} embeddings cached).")
         return emb_matrix
 
     def __len__(self):
@@ -249,7 +252,7 @@ class SegmentPairDataset(Dataset):
                 missing.append(f"brc_a={row['brc_a']}")
             if row_b == -1:
                 missing.append(f"brc_b={row['brc_b']}")
-            raise KeyError(f"❌ Missing embeddings for: {', '.join(missing)}")
+            raise KeyError(f"Missing embeddings for: {', '.join(missing)}")
 
         # Access embeddings from cache (preloaded) or master cache (on-demand)
         if self.embeddings_cache is not None:
@@ -277,7 +280,7 @@ class SegmentPairDataset(Dataset):
 class KmerPairDataset(Dataset):
     """Dataset for segment pairs with k-mer features.
 
-    Returns (emb_a, emb_b), label — same interface as SegmentPairDataset
+    Returns (emb_a, emb_b), label — same interface as ESMPairDataset
     so the training loop and MLPClassifier work unchanged.
 
     Pairs are looked up via composite key (assembly_id::genbank_ctg_id)
@@ -839,7 +842,7 @@ def train_model(
             # Save validation probabilities and labels for threshold optimization
             best_val_probs = val_probs.copy()
             best_val_labels = np.array(val_labels)
-            print(f'  ✓ New best {early_stopping_metric}: {best_metric_value:.4f}')
+            print(f'  New best {early_stopping_metric}: {best_metric_value:.4f}')
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -890,9 +893,9 @@ def train_model(
             print(f"Best val F1 (macro): {max(history['val_f1_macro']):.4f}")
         print(f"Baseline (majority class) F1: {baseline_metrics['majority_f1']:.4f}")
         if max(history['val_f1']) > baseline_metrics['majority_f1']:
-            print("✅ Model learned! (F1 > baseline)")
+            print("Model learned! (F1 > baseline)")
         else:
-            print("⚠️  Model did not beat baseline - may indicate learning issues")
+            print("WARNING: Model did not beat baseline - may indicate learning issues")
         print('='*60 + "\n")
 
     # Find optimal threshold on validation set using best model's predictions
@@ -1162,7 +1165,7 @@ default_output_dir = paths['output_dir']
 # Dataset directory MUST be provided explicitly (not built from config)
 if not args.dataset_dir:
     raise ValueError(
-        "❌ --dataset_dir is required. "
+        "--dataset_dir is required. "
         "Datasets are in runs/ subdirectories: "
         "data/datasets/{virus}/{data_version}/runs/dataset_{config_bundle}_{timestamp}/"
     )
@@ -1185,7 +1188,7 @@ else:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     fallback_run_id = f"training_{config_bundle}_{timestamp}"
     output_dir = default_output_dir / 'runs' / fallback_run_id
-    print(f"⚠️  Warning: No run_output_subdir provided, using fallback: {fallback_run_id}")
+    print(f"WARNING: No run_output_subdir provided, using fallback: {fallback_run_id}")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Save resolved config snapshot for reproducibility
@@ -1273,7 +1276,7 @@ else:
     index_file = Path(embeddings_file).with_suffix('.parquet')
     if not index_file.exists():
         raise ValueError(
-            f"❌ Parquet index not found: {index_file}. "
+            f"Parquet index not found: {index_file}. "
             "Master cache format requires parquet index for validation."
         )
 
@@ -1284,14 +1287,14 @@ else:
         missing = required_ids - available_ids
         if missing:
             raise ValueError(
-                f"❌ Missing embeddings for {len(missing)} IDs in {df_name} set: {list(missing)[:5]}..."
+                f"Missing embeddings for {len(missing)} IDs in {df_name} set: {list(missing)[:5]}..."
             )
     print(f"All required embeddings available ({len(available_ids)} total embeddings)")
 
     # Create datasets (always returns (emb_a, emb_b), label)
-    train_dataset = SegmentPairDataset(train_pairs, embeddings_file)
-    val_dataset = SegmentPairDataset(val_pairs, embeddings_file)
-    test_dataset = SegmentPairDataset(test_pairs, embeddings_file)
+    train_dataset = ESMPairDataset(train_pairs, embeddings_file)
+    val_dataset = ESMPairDataset(val_pairs, embeddings_file)
+    test_dataset = ESMPairDataset(test_pairs, embeddings_file)
 
     # Get embedding dimension from model checkpoint
     EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
@@ -1441,7 +1444,7 @@ if EVAL_SWAPPED_TEST:
     if FEATURE_SOURCE == 'kmer':
         swapped_test_dataset = KmerPairDataset(swapped_test_pairs, kmer_matrix, kmer_key_to_row)
     else:
-        swapped_test_dataset = SegmentPairDataset(swapped_test_pairs, embeddings_file)
+        swapped_test_dataset = ESMPairDataset(swapped_test_pairs, embeddings_file)
     swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=INFER_BATCH_SIZE, shuffle=False,
                                      num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
     swapped_test_res_df = evaluate_on_split(

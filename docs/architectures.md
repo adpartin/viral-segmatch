@@ -90,7 +90,7 @@ Use shared \(g\), but allow per-slot LayerNorm / affine scaling (very low parame
 
 **Short answer**: implement in the **model**, not the dataset.
 
-- **SegmentPairDataset** should keep returning raw embeddings (a, b) as it does today.
+- **ESMPairDataset** should keep returning raw embeddings (a, b) as it does today.
 - **MLPClassifier / model code** should own the architecture:
   - Add optional slot transform blocks (shared or per-slot).
   - Add optional adapters / slot-specific norm.
