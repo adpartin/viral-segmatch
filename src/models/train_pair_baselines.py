@@ -80,6 +80,19 @@ def _resolve_feature_scaling(config, baseline_module) -> str:
 
 def main() -> None:
     total_timer = Timer()
+    phase_timers: dict[str, Timer] = {}
+
+    def begin_phase(label: str) -> Timer:
+        t = Timer()
+        phase_timers[label] = t
+        print(f'\n[phase {label}] starting...')
+        return t
+
+    def end_phase(label: str) -> None:
+        t = phase_timers[label]
+        t.stop_timer()
+        h, m, s = t.hms
+        print(f'[phase {label}] elapsed: {h:02}:{m:02}:{s:02} ({t.elapsed:.1f}s)')
 
     parser = argparse.ArgumentParser(description='Train sklearn-style pair baseline')
     parser.add_argument('--config_bundle', type=str, required=True,
@@ -150,15 +163,14 @@ def main() -> None:
     print(f'Dataset dir:     {dataset_dir}')
     print(f'Output dir:      {output_dir}')  # parsed by stage4_baselines.sh
 
-    # ── Pair CSVs ───────────────────────────────────────────────────────────
-    print('\nLoad pair CSVs.')
+    # ── Load data (CSVs + features + optional scaler) ──────────────────────
+    begin_phase('load_data')
     CSV_ENGINE = 'python'  # match trainer (avoids C parser segfault on certain seqs)
     train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv', engine=CSV_ENGINE)
     val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv',   engine=CSV_ENGINE)
     test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv',  engine=CSV_ENGINE)
     print(f'  train: {len(train_pairs):,} | val: {len(val_pairs):,} | test: {len(test_pairs):,}')
 
-    # ── Features ────────────────────────────────────────────────────────────
     if FEATURE_SOURCE == 'kmer':
         kmer_dir = build_embeddings_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
@@ -174,17 +186,20 @@ def main() -> None:
         kmer_dir=kmer_dir, kmer_k=KMER_K,
         output_dir=output_dir,
     )
+    end_phase('load_data')
 
     # ── Fit ─────────────────────────────────────────────────────────────────
+    begin_phase('fit')
     estimator = baseline_module.get_estimator(config, random_state=RANDOM_SEED)
-    print(f'\nFitting {type(estimator).__name__}: {estimator}')
+    print(f'Fitting {type(estimator).__name__}: {estimator}')
     estimator.fit(X_train, y_train)
-
     model_path = output_dir / 'best_model.joblib'
     joblib.dump(estimator, model_path)
     print(f'Saved fitted model to: {model_path}')
+    end_phase('fit')
 
-    # ── Predict ─────────────────────────────────────────────────────────────
+    # ── Inference ──────────────────────────────────────────────────────────
+    begin_phase('inference')
     val_probs   = estimator.predict_proba(X_val)[:, 1]
     test_probs  = estimator.predict_proba(X_test)[:, 1]
     train_probs = estimator.predict_proba(X_train)[:, 1]
@@ -196,6 +211,10 @@ def main() -> None:
         test_logits  = np.asarray(estimator.decision_function(X_test),  dtype=np.float32)
     else:
         train_logits = val_logits = test_logits = None
+    end_phase('inference')
+
+    # ── Eval (threshold + metrics + per-split prediction CSVs) ─────────────
+    begin_phase('eval')
 
     # ── Threshold selection (mirrors MLP) ───────────────────────────────────
     THRESHOLD_METRIC = getattr(config.training, 'threshold_metric', None)
@@ -234,6 +253,7 @@ def main() -> None:
 
     with open(output_dir / 'metrics_summary.json', 'w') as f:
         json.dump(summary, f, indent=2)
+    end_phase('eval')
 
     # ── Training info (parallels MLP's; null for inapplicable fields) ───────
     training_info = {
@@ -267,7 +287,13 @@ def main() -> None:
     print(f'\nFinished {Path(__file__).name}!')
     total_timer.stop_timer()
     total_timer.display_timer()
-    total_timer.save_timer(output_dir)
+
+    # Per-phase timing summary (also persisted via total_timer.save_timer below).
+    phase_seconds = {label: round(t.elapsed, 3) for label, t in phase_timers.items()}
+    print('Phase timings (seconds):')
+    for label, secs in phase_seconds.items():
+        print(f'  {label:<10s} {secs:>9.1f}s')
+    total_timer.save_timer(output_dir, extra={'phases_seconds': phase_seconds})
 
 
 if __name__ == '__main__':
