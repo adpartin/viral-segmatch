@@ -51,12 +51,12 @@ def load_pair_features_for_baselines(
     kmer_dir: Path,
     kmer_k: int,
     output_dir: Path,
-) -> tuple[
-    tuple[np.ndarray, np.ndarray],
-    tuple[np.ndarray, np.ndarray],
-    tuple[np.ndarray, np.ndarray],
-    Optional[StandardScaler],
-]:
+    ) -> tuple[
+        tuple[np.ndarray, np.ndarray],
+        tuple[np.ndarray, np.ndarray],
+        tuple[np.ndarray, np.ndarray],
+        Optional[StandardScaler],
+    ]:
     """Materialize concat'd pair features per split for sklearn baselines.
 
     Args:
