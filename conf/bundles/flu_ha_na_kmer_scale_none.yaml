@@ -11,3 +11,7 @@ dataset:
 
 training:
   feature_scaling: none
+
+# Run MLP + listed baselines via scripts/stage4_full.sh. Empty/null -> MLP only.
+baselines:
+  - logistic
