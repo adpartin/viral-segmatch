@@ -1130,6 +1130,7 @@ print(f'num_workers:     {NUM_WORKERS} (hard-coded)')
 print(f'pin_memory:      {PIN_MEMORY}')
 print(f'use_amp:         {USE_AMP}')
 
+total_timer.begin_phase('load_data')
 print('\nLoad pair datasets.')
 # Use engine='python' to avoid a pandas C parser segfault triggered by certain
 # protein sequence byte patterns in large CSVs (observed on Polaris, fold 11 of
@@ -1295,6 +1296,9 @@ if mlp_input_dim == 0:
 feature_desc = "+".join(feature_desc_parts) if feature_desc_parts else "0"
 print(f"MLP Input Dimension: {mlp_input_dim} ({feature_desc} * {out_dim})")
 
+total_timer.end_phase('load_data')
+total_timer.begin_phase('train')
+
 # Initialize model
 model = MLPClassifier(
     input_dim=mlp_input_dim,
@@ -1373,6 +1377,9 @@ best_model_path, optimal_threshold = train_model(
     use_amp=USE_AMP
 )
 
+total_timer.end_phase('train')
+total_timer.begin_phase('inference')
+
 # Evaluate
 print('\nEvaluate model.')
 model.load_state_dict(torch.load(best_model_path))
@@ -1407,6 +1414,8 @@ if EVAL_SWAPPED_TEST:
     swapped_preds_file = output_dir / 'test_predicted_swapped.csv'
     print(f'\nSave swapped-test predictions to: {swapped_preds_file}')
     swapped_test_res_df.to_csv(swapped_preds_file, index=False)
+
+total_timer.end_phase('inference')
 
 # Save training provenance
 training_info = {
