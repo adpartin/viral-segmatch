@@ -20,7 +20,7 @@ skip_kmer_pca_plots: false     # If true, skip kmer_pca_concat.png + kmer_pca_se
 # - unordered: original behavior (pairs are conceptually undirected; optional hash-based canonicalization can be applied)
 # - schema_ordered: force slot semantics by function schema (func_left -> *_a, func_right -> *_b)
 #                  This is an experimental/validation mode to remove "direction" as a free variable for directed features.
-pair_mode: unordered
+pair_mode: schema_ordered
 # Required when pair_mode=schema_ordered. Order is semantic; do NOT sort.
 # Example: ["HA", "NA"]
 schema_pair: null
@@ -29,7 +29,7 @@ schema_pair: null
 # The segment-matching task is conceptually undirected (a,b) ≡ (b,a), but we store directed columns
 # (*_a/*_b) and feed the model a directed representation (e.g., [emb_a, emb_b]).
 # Canonicalizing orientation helps prevent "direction → label" shortcut learning.
-canonicalize_pair_orientation: true
+canonicalize_pair_orientation: false
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
