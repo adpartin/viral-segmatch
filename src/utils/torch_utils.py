@@ -154,7 +154,7 @@ def create_lr_scheduler(
         )
         print(f"Using LR scheduler: StepLR (step_size={patience}, gamma={factor})")
     else:
-        print(f"⚠️  Unknown scheduler type: {scheduler_type}, proceeding without scheduler")
+        print(f"WARNING: Unknown scheduler type: {scheduler_type}, proceeding without scheduler")
         return None
     
     return scheduler

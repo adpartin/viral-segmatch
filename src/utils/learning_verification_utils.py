@@ -61,9 +61,9 @@ def check_initialization_loss(model, train_loader, criterion, device):
     print(f"Initial loss: {initial_loss:.4f}")
     print(f"Expected loss (balanced binary): ~{expected_loss:.4f}")
     if abs(initial_loss - expected_loss) < 0.2:
-        print("✅ Initialization loss looks reasonable")
+        print("Done. Initialization loss looks reasonable")
     else:
-        print(f"⚠️  Initialization loss differs significantly from expected (~{expected_loss:.4f})")
+        print(f"WARNING: Initialization loss differs significantly from expected (~{expected_loss:.4f})")
         print("   This might indicate data imbalance or model initialization issues")
     print('='*60 + "\n")
     
