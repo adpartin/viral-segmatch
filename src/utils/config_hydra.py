@@ -292,6 +292,24 @@ def get_aux_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]
     return mappings
 
 
+def get_function_short_name_map(config: DictConfig) -> dict[str, str]:
+    """Return the function → short-name mapping from config.virus.
+
+    Reads the optional `function_short_names` block (added per-virus). If the
+    block is missing, returns an empty dict so callers can fall back to the
+    full function string. Keys are the verbose function strings used in CSVs
+    (e.g., "Hemagglutinin precursor"); values are short labels (e.g., "HA").
+    """
+    virus = getattr(config, 'virus', None)
+    if virus is None:
+        return {}
+    raw = getattr(virus, 'function_short_names', None)
+    if raw is None:
+        return {}
+    # OmegaConf DictConfig → plain dict[str, str].
+    return {str(k): str(v) for k, v in dict(raw).items()}
+
+
 def _get_replicon_type_for_segment(virus_name: str, segment: str) -> Optional[str]:
     """Get the replicon type for a given segment."""
     if virus_name == 'bunya':

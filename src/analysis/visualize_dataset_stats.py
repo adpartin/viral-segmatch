@@ -57,9 +57,12 @@ import seaborn as sns
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.config_hydra import get_virus_config_hydra
+from src.utils.config_hydra import get_virus_config_hydra, get_function_short_name_map
 from src.utils.dim_reduction_utils import compute_pca_reduction
-from src.utils.plot_config import SPLIT_COLORS, SPLIT_MARKERS, LABEL_SCATTER_STYLES, apply_default_style
+from src.utils.plot_config import (
+    SPLIT_COLORS, SPLIT_MARKERS, LABEL_SCATTER_STYLES, apply_default_style,
+    PROTEIN_COLORS, PROTEIN_FALLBACK_PALETTE, get_protein_color,
+)
 from src.utils.embedding_utils import (
     create_pair_embeddings_concatenation,
     extract_unique_sequences_from_pairs,
@@ -68,6 +71,7 @@ from src.utils.embedding_utils import (
     plot_embeddings_by_category,
     sample_pairs_stratified,
 )
+from src.utils.kmer_utils import load_kmer_index, load_kmer_matrix
 
 
 def _collapse_to_top_n(series: pd.Series, top_n: int, other_label: str = 'Other') -> pd.Series:
@@ -103,7 +107,58 @@ def _load_pairs_minimal(run_dir: Path, split: str) -> Optional[pd.DataFrame]:
         return pd.read_csv(csv_path, low_memory=False)
 
 
-def _plot_pair_embedding_splits_2d(
+_CORNER_TO_AXES_XY = {
+    'upper left':  (0.02, 0.98, 'left',  'top'),
+    'upper right': (0.98, 0.98, 'right', 'top'),
+    'lower left':  (0.02, 0.02, 'left',  'bottom'),
+    'lower right': (0.98, 0.02, 'right', 'bottom'),
+}
+
+
+def _pick_sparse_corner(points_2d: np.ndarray, used: set[str], region_frac: float = 0.25) -> str:
+    """Pick a plot corner with few points to minimize legend/textbox overlap.
+
+    Uses a quadrant density heuristic on coordinates normalized to [0, 1].
+    """
+    x = points_2d[:, 0]
+    y = points_2d[:, 1]
+    xr = (x - np.nanmin(x)) / (np.nanmax(x) - np.nanmin(x) + 1e-12)
+    yr = (y - np.nanmin(y)) / (np.nanmax(y) - np.nanmin(y) + 1e-12)
+
+    corners = {
+        'upper left':  (xr <= region_frac) & (yr >= 1 - region_frac),
+        'upper right': (xr >= 1 - region_frac) & (yr >= 1 - region_frac),
+        'lower left':  (xr <= region_frac) & (yr <= region_frac),
+        'lower right': (xr >= 1 - region_frac) & (yr <= region_frac),
+    }
+    scores = []
+    for name, mask in corners.items():
+        if name in used:
+            continue
+        scores.append((int(np.sum(mask)), name))
+    if not scores:
+        return 'upper right'
+    scores.sort(key=lambda t: t[0])
+    return scores[0][1]
+
+
+def _draw_corner_textbox(ax, points_2d: np.ndarray, used_locs: set[str], text: str) -> None:
+    """Place a text box in a sparse corner of the axes (mutates `used_locs`)."""
+    if not text:
+        return
+    loc = _pick_sparse_corner(points_2d, used_locs)
+    used_locs.add(loc)
+    x0, y0, ha, va = _CORNER_TO_AXES_XY.get(loc, (0.98, 0.98, 'right', 'top'))
+    ax.text(
+        x0, y0, text,
+        transform=ax.transAxes,
+        ha=ha, va=va,
+        fontsize=9,
+        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, edgecolor='0.7'),
+    )
+
+
+def _plot_pair_features_splits_2d(
     reduced_2d: np.ndarray,
     pairs: pd.DataFrame,
     splits: list[str],
@@ -114,8 +169,14 @@ def _plot_pair_embedding_splits_2d(
     title: str,
     output_path: Path,
     filters_text: str = "",
+    sample_text: str = "",
     ) -> None:
-    """Scatter plot of 2D embeddings, colored by split and styled by label (pos/neg)."""
+    """Scatter plot of 2D pair feature vectors, colored by split, styled by label.
+
+    The "feature vector" can be ESM-2 pair embeddings (concat/diff/prod/unit_diff)
+    or k-mer pair features — anything reducible to 2D. Color encodes split
+    (train/val/test); marker fill encodes label (positive filled, negative hollow).
+    """
     fig, ax = plt.subplots(1, 1, figsize=(12, 9))
     # Plot per (split × label) so we can keep split color semantics and still indicate pos/neg.
     for split in splits:
@@ -162,32 +223,6 @@ def _plot_pair_embedding_splits_2d(
         )
         for s in splits
     ]
-    def _pick_sparse_corner(points_2d: np.ndarray, used: set[str], region_frac: float = 0.25) -> str:
-        """Pick a plot corner with few points, to minimize legend/text overlap.
-
-        We use a simple quadrant density heuristic on normalized coordinates.
-        """
-        x = points_2d[:, 0]
-        y = points_2d[:, 1]
-        xr = (x - np.nanmin(x)) / (np.nanmax(x) - np.nanmin(x) + 1e-12)
-        yr = (y - np.nanmin(y)) / (np.nanmax(y) - np.nanmin(y) + 1e-12)
-
-        corners = {
-            'upper left':  (xr <= region_frac) & (yr >= 1 - region_frac),
-            'upper right': (xr >= 1 - region_frac) & (yr >= 1 - region_frac),
-            'lower left':  (xr <= region_frac) & (yr <= region_frac),
-            'lower right': (xr >= 1 - region_frac) & (yr <= region_frac),
-        }
-        scores = []
-        for name, mask in corners.items():
-            if name in used:
-                continue
-            scores.append((int(np.sum(mask)), name))
-        if not scores:
-            return 'upper right'
-        scores.sort(key=lambda t: t[0])
-        return scores[0][1]
-
     used_locs: set[str] = set()
 
     # Place Split legend inside the axes, in a sparse corner.
@@ -250,26 +285,9 @@ def _plot_pair_embedding_splits_2d(
     # Title: keep clean (no 2nd-row filter text). Filters go into an in-axes textbox only.
     ax.set_title(title, fontweight='bold', fontsize=14)
     if filters_text:
-        # Place Filters textbox in a sparse corner distinct from legends.
-        filters_loc = _pick_sparse_corner(reduced_2d, used_locs)
-        used_locs.add(filters_loc)
-
-        # Map legend-like loc strings to axes coordinates.
-        loc_to_xy = {
-            'upper left': (0.02, 0.98, 'left', 'top'),
-            'upper right': (0.98, 0.98, 'right', 'top'),
-            'lower left': (0.02, 0.02, 'left', 'bottom'),
-            'lower right': (0.98, 0.02, 'right', 'bottom'),
-        }
-        x0, y0, ha, va = loc_to_xy.get(filters_loc, (0.98, 0.98, 'right', 'top'))
-        ax.text(
-            x0, y0,
-            f"Filters:\n{filters_text}",
-            transform=ax.transAxes,
-            ha=ha, va=va,
-            fontsize=9,
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, edgecolor='0.7'),
-        )
+        _draw_corner_textbox(ax, reduced_2d, used_locs, f"Filters:\n{filters_text}")
+    if sample_text:
+        _draw_corner_textbox(ax, reduced_2d, used_locs, sample_text)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches='tight')
@@ -302,10 +320,26 @@ def _load_filters_applied_from_run(run_dir: Path) -> dict:
         return {}
 
 
-def _format_filters_for_plot(filters_applied: Optional[dict]) -> str:
-    """Format dataset filters into a compact string for plot title/textbox."""
+def _format_filters_for_plot(
+    filters_applied: Optional[dict],
+    short_name_map: Optional[dict] = None,
+    ) -> str:
+    """Format dataset filters into a compact string for plot title/textbox.
+
+    `short_name_map` (e.g., the `function_short_names` block from the virus
+    config) is applied element-wise to any string filter value — so a filter
+    like `schema_pair=['Hemagglutinin precursor', 'Neuraminidase protein']`
+    renders as `schema_pair=['HA', 'NA']`.
+    """
     if not filters_applied:
         return ""
+
+    short_name_map = short_name_map or {}
+
+    def _shorten(x):
+        if isinstance(x, str):
+            return short_name_map.get(x, x)
+        return x
 
     parts: list[str] = []
     for k, v in filters_applied.items():
@@ -314,7 +348,7 @@ def _format_filters_for_plot(filters_applied: Optional[dict]) -> str:
 
         # Best-effort compact formatting for near-future multi-valued/range filters.
         if isinstance(v, (list, tuple, set)):
-            vv = list(v)
+            vv = [_shorten(x) for x in list(v)]
             if len(vv) == 0:
                 continue
             if len(vv) <= 4:
@@ -329,7 +363,7 @@ def _format_filters_for_plot(filters_applied: Optional[dict]) -> str:
                 parts.append(f"{k}={{...}}")
             continue
 
-        parts.append(f"{k}={v}")
+        parts.append(f"{k}={_shorten(v)}")
 
     return "; ".join(parts)
 
@@ -370,6 +404,64 @@ def _compute_interaction_features(
     return np.concatenate(features, axis=1)
 
 
+def _format_sample_counts(pairs: pd.DataFrame, per_split_totals: dict[str, int]) -> str:
+    """Compact 'sampled vs available' description for in-axes textbox.
+
+    `pairs` is the post-sampling concatenated frame with a `split` column;
+    `per_split_totals` is the pre-sampling row count from each split CSV.
+    """
+    if 'split' not in pairs.columns or not per_split_totals:
+        return ""
+    sampled_counts = pairs.groupby('split').size().to_dict()
+    total_sampled = int(sum(sampled_counts.values()))
+    total_available = int(sum(per_split_totals.values()))
+    lines = [f"Sampled: {total_sampled:,} / {total_available:,} pairs"]
+    for split in ('train', 'val', 'test'):
+        if split in per_split_totals:
+            n_s = int(sampled_counts.get(split, 0))
+            n_t = int(per_split_totals[split])
+            lines.append(f"  {split}: {n_s:,} / {n_t:,}")
+    return "\n".join(lines)
+
+
+def _resolve_kmer_k(kmer_dir: Path, k: Optional[int] = None) -> int:
+    """Resolve which k to use for k-mer PCA plots.
+
+    Priority: explicit `k` argument > `kmer_features_k{k}_metadata.json` > filename glob.
+    Errors if multiple k's are present and none was specified.
+    """
+    if k is not None:
+        return int(k)
+    metadata_files = sorted(kmer_dir.glob('kmer_features_k*_metadata.json'))
+    if metadata_files:
+        if len(metadata_files) > 1:
+            ks = sorted({_extract_k_from_filename(p.name) for p in metadata_files} - {None})
+            raise ValueError(
+                f"Multiple k-mer caches in {kmer_dir} (k in {ks}); pass k= explicitly."
+            )
+        with open(metadata_files[0]) as f:
+            return int(json.load(f)['k'])
+    npz_files = sorted(kmer_dir.glob('kmer_features_k*.npz'))
+    if not npz_files:
+        raise FileNotFoundError(f"No k-mer cache found under {kmer_dir}")
+    if len(npz_files) > 1:
+        ks = sorted({_extract_k_from_filename(p.name) for p in npz_files} - {None})
+        raise ValueError(
+            f"Multiple k-mer caches in {kmer_dir} (k in {ks}); pass k= explicitly."
+        )
+    parsed = _extract_k_from_filename(npz_files[0].name)
+    if parsed is None:
+        raise ValueError(f"Could not parse k from {npz_files[0].name}")
+    return parsed
+
+
+def _extract_k_from_filename(name: str) -> Optional[int]:
+    """Parse k from `kmer_features_k{k}{suffix}` filenames."""
+    import re
+    m = re.search(r'kmer_features_k(\d+)', name)
+    return int(m.group(1)) if m else None
+
+
 def _interaction_spec_to_filename(interaction_spec: str) -> str:
     """Convert interaction spec to a safe filename component.
 
@@ -386,7 +478,8 @@ def plot_pair_interactions(
     interactions: Optional[list] = None,
     max_per_label_per_split: int = 1000,
     random_state: int = 42,
-) -> None:
+    function_short_names: Optional[dict] = None,
+    ) -> None:
     """Generate PCA scatter plots of pair embeddings for multiple interaction modes.
 
     For each interaction mode (e.g., concat, diff, prod, unit_diff), computes
@@ -425,18 +518,20 @@ def plot_pair_interactions(
     split_markers = SPLIT_MARKERS
 
     filters_applied = _load_filters_applied_from_run(run_dir)
-    filters_text = _format_filters_for_plot(filters_applied)
+    filters_text = _format_filters_for_plot(filters_applied, function_short_names)
 
     # ── 1. Load and sample pairs (once for all interactions) ──────────────
     sampled = []
+    per_split_totals: dict[str, int] = {}
     for split in splits:
-        df = _load_pairs_minimal(run_dir, split)
+        df = _load_pairs_minimal(run_dir, split)  # load only necessary columns for embedding visualization
         if df is None or len(df) == 0:
             continue
         if 'label' in df.columns:
             df = df.copy()
             df['label'] = pd.to_numeric(df['label'], errors='coerce')
             df = df[df['label'].isin([0, 1])]
+        per_split_totals[split] = int(len(df))
         df_s = sample_pairs_stratified(
             df,
             max_per_label=max_per_label_per_split,
@@ -447,10 +542,11 @@ def plot_pair_interactions(
         sampled.append(df_s)
 
     if not sampled:
-        print(f"⚠️  plot_pair_interactions: no pair CSVs found in {run_dir}")
+        print(f"WARNING: plot_pair_interactions: no pair CSVs found in {run_dir}")
         return
 
     pairs = pd.concat(sampled, ignore_index=True)
+    sample_text = _format_sample_counts(pairs, per_split_totals)
 
     # ── 2. Load raw emb_a, emb_b (once, via concat then split) ───────────
     id_to_row = load_embedding_index(embeddings_file)
@@ -466,7 +562,7 @@ def plot_pair_interactions(
         use_unit_diff=False,
     )
     if len(concat_embs) == 0:
-        print("⚠️  plot_pair_interactions: no valid pair embeddings (missing IDs?)")
+        print("WARNING: plot_pair_interactions: no valid pair embeddings (missing IDs?)")
         return
 
     # Align pairs to valid mask
@@ -474,7 +570,7 @@ def plot_pair_interactions(
     pairs = pairs.loc[valid_mask].reset_index(drop=True)
     dropped = n_in - len(pairs)
     if dropped > 0:
-        print(f"ℹ️  plot_pair_interactions: dropped {dropped:,}/{n_in:,} sampled pairs (missing embeddings)")
+        print(f"plot_pair_interactions: dropped {dropped:,}/{n_in:,} sampled pairs (missing embeddings)")
     assert len(pairs) == len(concat_embs), "pairs/embeddings misalignment"
 
     D = concat_embs.shape[1] // 2
@@ -512,7 +608,7 @@ def plot_pair_interactions(
         try:
             features = _compute_interaction_features(emb_a, emb_b, spec)
         except ValueError as e:
-            print(f"⚠️  Skipping interaction '{spec}': {e}")
+            print(f"WARNING: skipping interaction '{spec}': {e}")
             continue
 
         # PCA → 2D
@@ -536,7 +632,7 @@ def plot_pair_interactions(
 
         # ── Plot ──
         out_path = output_dir / f"pair_pca_{safe_name}.png"
-        _plot_pair_embedding_splits_2d(
+        _plot_pair_features_splits_2d(
             reduced_2d=pca_2d,
             pairs=pairs_tmp,
             splits=splits,
@@ -547,6 +643,7 @@ def plot_pair_interactions(
             title=f"PCA: Pair Embeddings (features={spec})",
             output_path=out_path,
             filters_text=filters_text,
+            sample_text=sample_text,
         )
 
         # ── Diagnostics ──
@@ -588,9 +685,456 @@ def plot_pair_interactions(
         diag_path = output_dir / "pair_interaction_diagnostics.json"
         with open(diag_path, 'w') as f:
             json.dump(all_diagnostics, f, indent=2)
-        print(f"\n🧾 Saved interaction diagnostics: {diag_path}")
+        print(f"\nSaved interaction diagnostics: {diag_path}")
     except Exception as e:
-        print(f"⚠️  Failed to save diagnostics JSON: {e}")
+        print(f"WARNING: failed to save diagnostics JSON: {e}")
+
+
+# =============================================================================
+# K-mer PCA plots
+# =============================================================================
+
+def _plot_features_by_category_2d(
+    reduced_2d: np.ndarray,
+    categories: np.ndarray,
+    category_order: list[str],
+    category_counts: dict[str, int],
+    xlab: str,
+    ylab: str,
+    title: str,
+    output_path: Path,
+    filters_text: str = "",
+    extra_text: str = "",
+    ) -> None:
+    """Scatter plot of 2D feature vectors colored by a discrete category.
+
+    Used by `plot_kmer_pca` for the unique-segment plots, where each point is
+    one (assembly_id, segment) and color encodes biological protein identity
+    (HA, NA, ...). Colors are resolved via `plot_config.PROTEIN_COLORS` so a
+    given short name (e.g., "HA") is the same color across every plot in the
+    project. Names not in PROTEIN_COLORS fall through to a stable fallback
+    palette indexed by their position in `category_order`.
+    Legend entries include per-category counts.
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(12, 9))
+
+    cat_to_color: dict[str, str] = {}
+    fallback_i = 0
+    for cat in category_order:
+        if cat in PROTEIN_COLORS:
+            cat_to_color[cat] = PROTEIN_COLORS[cat]
+        else:
+            cat_to_color[cat] = get_protein_color(cat, fallback_index=fallback_i)
+            fallback_i += 1
+    for cat in category_order:
+        mask = (categories == cat)
+        if not mask.any():
+            continue
+        ax.scatter(
+            reduced_2d[mask, 0],
+            reduced_2d[mask, 1],
+            color=cat_to_color[cat],
+            s=22,
+            alpha=0.7,
+            edgecolors='none',
+            label=f"{cat} (n={category_counts.get(cat, int(mask.sum())):,})",
+        )
+
+    ax.set_xlabel(xlab, fontsize=12)
+    ax.set_ylabel(ylab, fontsize=12)
+    ax.set_title(title, fontweight='bold', fontsize=14)
+    ax.grid(True, alpha=0.3)
+
+    used_locs: set[str] = set()
+    legend_loc = _pick_sparse_corner(reduced_2d, used_locs)
+    used_locs.add(legend_loc)
+    ax.legend(
+        title='Protein',
+        loc=legend_loc,
+        fontsize=10,
+        frameon=True,
+        framealpha=0.85,
+    )
+
+    if filters_text:
+        _draw_corner_textbox(ax, reduced_2d, used_locs, f"Filters:\n{filters_text}")
+    if extra_text:
+        _draw_corner_textbox(ax, reduced_2d, used_locs, extra_text)
+
+    fig.tight_layout()
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def _plot_kmer_scree(
+    explained_variance_per_panel: dict[str, np.ndarray],
+    output_path: Path,
+    n_components: int = 10,
+    ) -> None:
+    """Multi-panel scree plot for k-mer PCA fits.
+
+    Shows the top-N explained variance ratios for each panel (e.g., the Plot 1
+    pair-concat fit and the three Plot 2 per-split fits). One subplot per fit;
+    bars for individual PC variance, line for cumulative.
+    """
+    panels = list(explained_variance_per_panel.items())
+    n = len(panels)
+    if n == 0:
+        return
+    cols = min(n, 2)
+    rows = (n + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(7 * cols, 4.5 * rows), squeeze=False)
+
+    for idx, (label, evr) in enumerate(panels):
+        r, c = divmod(idx, cols)
+        ax = axes[r][c]
+        evr = np.asarray(evr, dtype=float)
+        k = min(n_components, len(evr))
+        x = np.arange(1, k + 1)
+        bars = ax.bar(x, evr[:k], color='#4a90d9', edgecolor='#1f4c82', alpha=0.85)
+        # Cumulative line on a secondary axis.
+        cum = np.cumsum(evr[:k])
+        ax2 = ax.twinx()
+        ax2.plot(x, cum, color='#c0392b', marker='o', linewidth=1.5,
+                 markersize=4, label='cumulative')
+        ax2.set_ylim(0, 1.0)
+        ax2.set_ylabel('Cumulative variance', color='#c0392b', fontsize=9)
+        ax2.tick_params(axis='y', labelcolor='#c0392b')
+        for bar, v in zip(bars, evr[:k]):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                    f'{v:.1%}', ha='center', va='bottom', fontsize=8)
+        ax.set_xticks(x)
+        ax.set_xlabel('Principal component', fontsize=10)
+        ax.set_ylabel('Explained variance', fontsize=10)
+        ax.set_title(label, fontsize=11, fontweight='bold')
+        ax.set_ylim(0, max(0.05, evr[:k].max() * 1.25))
+        ax.grid(True, axis='y', alpha=0.3)
+
+    # Hide any leftover empty subplots.
+    for idx in range(n, rows * cols):
+        r, c = divmod(idx, cols)
+        axes[r][c].axis('off')
+
+    fig.suptitle('K-mer PCA: top-N explained variance', fontsize=13, fontweight='bold')
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def _build_kmer_lookup_keys(assembly_ids: pd.Series, ctgs: pd.Series) -> pd.Series:
+    """Build composite lookup keys matching `load_kmer_index` output.
+
+    Mirrors the key formation in `kmer_utils.get_kmer_pair_features`:
+    `f"{assembly_id}::{ctg}"` with both columns coerced to str.
+    """
+    return assembly_ids.astype(str) + '::' + ctgs.astype(str)
+
+
+def _densify_kmer_rows(kmer_matrix, row_indices: np.ndarray) -> np.ndarray:
+    """Densify a slice of the sparse k-mer CSR matrix to float32."""
+    return np.asarray(kmer_matrix[row_indices].todense(), dtype=np.float32)
+
+
+def plot_kmer_pca(
+    run_dir: Path,
+    kmer_dir: Path,
+    output_dir: Path,
+    virus_config,
+    k: Optional[int] = None,
+    max_per_label_per_split: int = 1000,
+    random_state: int = 42,
+    ) -> None:
+    """Generate PCA scatter plots of k-mer features for the dataset splits.
+
+    Two plot families:
+      1. `kmer_pca_concat.png` — one point per sample pair; vector is the
+         concatenation of k-mer vectors for (assembly_id_a, ctg_a) and
+         (assembly_id_b, ctg_b). Color = split, fill = label. Mirrors
+         `pair_pca_concat.png`.
+      2. `kmer_pca_segments_{split}.png` — one plot per split. Within each
+         split, sides A and B are deduped independently by (assembly_id, seg);
+         the deduped sides are concatenated and PCA'd. Each point is one
+         unique segment row; color encodes biological protein identity
+         (HA, NA, …) read from `virus_config.function_short_names`.
+
+    The function only depends on paths and config available on disk after
+    Stage 3 splits exist, so it is callable both from `visualize_dataset_stats`
+    and standalone after-the-fact.
+
+    Args:
+        run_dir: Dataset run directory containing {split}_pairs.csv files.
+        kmer_dir: Directory containing kmer_features_k{k}.npz +
+            kmer_features_k{k}_index.parquet (typically lives next to the
+            ESM-2 master HDF5 cache).
+        output_dir: Directory to save output PNGs.
+        virus_config: `cfg.virus` Hydra sub-node; used to resolve protein
+            short names for Plot 2.
+        k: k-mer size. If None, autodetect from kmer_dir.
+        max_per_label_per_split: Max pairs sampled per label per split for
+            Plot 1. Plot 2 is unique-by-(assembly_id, seg) per side and is
+            not subject to this cap.
+        random_state: Reproducible sampling/PCA seed.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    k = _resolve_kmer_k(kmer_dir, k)
+    print(f"\nplot_kmer_pca: using k={k}, kmer_dir={kmer_dir}")
+
+    kmer_matrix = load_kmer_matrix(kmer_dir, k)
+    key_to_row = load_kmer_index(kmer_dir, k)
+
+    func_short_names = get_function_short_name_map_from_config(virus_config)
+
+    splits = ['train', 'val', 'test']
+    filters_applied = _load_filters_applied_from_run(run_dir)
+    filters_text = _format_filters_for_plot(filters_applied, func_short_names)
+
+    # Per-panel explained-variance ratios are accumulated for the scree plot.
+    scree_evr: dict[str, np.ndarray] = {}
+
+    # ── Plot 1: concatenated k-mer pair PCA ──────────────────────────────
+    evr = _plot_kmer_pair_concat(
+        run_dir=run_dir,
+        splits=splits,
+        kmer_matrix=kmer_matrix,
+        key_to_row=key_to_row,
+        k=k,
+        output_path=output_dir / 'kmer_pca_concat.png',
+        max_per_label_per_split=max_per_label_per_split,
+        random_state=random_state,
+        filters_text=filters_text,
+    )
+    if evr is not None:
+        scree_evr['Pair concat (all splits)'] = evr
+
+    # ── Plot 2: unique-segment PCA per split ────────────────────────────
+    for split in splits:
+        out_path = output_dir / f'kmer_pca_segments_{split}.png'
+        evr = _plot_kmer_unique_segments(
+            run_dir=run_dir,
+            split=split,
+            kmer_matrix=kmer_matrix,
+            key_to_row=key_to_row,
+            k=k,
+            func_short_names=func_short_names,
+            output_path=out_path,
+            random_state=random_state,
+            filters_text=filters_text,
+        )
+        if evr is not None:
+            scree_evr[f'Unique vectors ({split})'] = evr
+
+    # ── Scree plot summarizing all four PCA fits ───────────────────────
+    if scree_evr:
+        _plot_kmer_scree(
+            explained_variance_per_panel=scree_evr,
+            output_path=output_dir / 'kmer_pca_scree.png',
+            n_components=10,
+        )
+
+
+def get_function_short_name_map_from_config(virus_config) -> dict[str, str]:
+    """Bridge to the Hydra-aware helper without requiring the wrapping cfg.
+
+    `get_function_short_name_map(cfg)` reads `cfg.virus.function_short_names`.
+    Plot callers tend to already hold a `cfg.virus` sub-node, so accept it
+    directly here and adapt.
+    """
+    raw = getattr(virus_config, 'function_short_names', None) if virus_config is not None else None
+    if raw is None:
+        return {}
+    return {str(k): str(v) for k, v in dict(raw).items()}
+
+
+def _plot_kmer_pair_concat(
+    run_dir: Path,
+    splits: list[str],
+    kmer_matrix,
+    key_to_row: dict,
+    k: int,
+    output_path: Path,
+    max_per_label_per_split: int,
+    random_state: int,
+    filters_text: str,
+    ) -> Optional[np.ndarray]:
+    """Build and plot the concatenated-pair PCA across all splits (Plot 1).
+
+    Returns the PCA explained_variance_ratio_ for use by the scree plot, or
+    None if no plot was produced.
+    """
+    sampled = []
+    per_split_totals: dict[str, int] = {}
+    for split in splits:
+        df = _load_pairs_minimal(run_dir, split)
+        if df is None or len(df) == 0:
+            continue
+        # `ctg_a`/`ctg_b` are needed for k-mer key lookup but aren't in the
+        # minimal-load column set, so fall back to a fresh read when missing.
+        if 'ctg_a' not in df.columns or 'ctg_b' not in df.columns:
+            df = pd.read_csv(run_dir / f'{split}_pairs.csv', low_memory=False)
+        if 'label' in df.columns:
+            df = df.copy()
+            df['label'] = pd.to_numeric(df['label'], errors='coerce')
+            df = df[df['label'].isin([0, 1])]
+        per_split_totals[split] = int(len(df))
+        df_s = sample_pairs_stratified(
+            df,
+            max_per_label=max_per_label_per_split,
+            label_col='label',
+            random_state=random_state,
+        ).assign(split=split)
+        sampled.append(df_s)
+
+    if not sampled:
+        print(f"WARNING: plot_kmer_pca: no pair CSVs found in {run_dir}")
+        return None
+    pairs = pd.concat(sampled, ignore_index=True)
+
+    # Build k-mer pair-concat features (drop pairs missing either side).
+    keys_a = _build_kmer_lookup_keys(pairs['assembly_id_a'], pairs['ctg_a'])
+    keys_b = _build_kmer_lookup_keys(pairs['assembly_id_b'], pairs['ctg_b'])
+    rows_a = keys_a.map(key_to_row)
+    rows_b = keys_b.map(key_to_row)
+    valid = rows_a.notna() & rows_b.notna()
+    n_in = len(pairs)
+    n_valid = int(valid.sum())
+    if n_valid == 0:
+        print("WARNING: plot_kmer_pca: no valid pairs (no matching k-mer rows)")
+        return None
+    if n_in - n_valid > 0:
+        print(f"plot_kmer_pca: dropped {n_in - n_valid:,}/{n_in:,} sampled pairs (missing k-mer rows)")
+    pairs = pairs.loc[valid].reset_index(drop=True)
+    rows_a = rows_a[valid].astype(int).to_numpy()
+    rows_b = rows_b[valid].astype(int).to_numpy()
+
+    emb_a = _densify_kmer_rows(kmer_matrix, rows_a)
+    emb_b = _densify_kmer_rows(kmer_matrix, rows_b)
+    features = np.concatenate([emb_a, emb_b], axis=1)
+
+    # Request more PCs than we plot so the scree summary has top-N data.
+    pca_reduced, pca_model = compute_pca_reduction(
+        features, n_components=10, return_model=True,
+        svd_solver='randomized', random_state=random_state,
+    )
+    pca_2d = pca_reduced[:, :2]
+    ev1 = pca_model.explained_variance_ratio_[0] if pca_model else 0
+    ev2 = pca_model.explained_variance_ratio_[1] if pca_model else 0
+
+    sample_text = _format_sample_counts(pairs, per_split_totals)
+
+    _plot_pair_features_splits_2d(
+        reduced_2d=pca_2d,
+        pairs=pairs,
+        splits=splits,
+        split_colors=SPLIT_COLORS,
+        split_markers=SPLIT_MARKERS,
+        xlab=f"PC1 ({ev1:.1%} var)",
+        ylab=f"PC2 ({ev2:.1%} var)",
+        title=f"PCA: Pair K-mer Features (concat, k={k})",
+        output_path=output_path,
+        filters_text=filters_text,
+        sample_text=sample_text,
+    )
+    return pca_model.explained_variance_ratio_ if pca_model is not None else None
+
+
+def _plot_kmer_unique_segments(
+    run_dir: Path,
+    split: str,
+    kmer_matrix,
+    key_to_row: dict,
+    k: int,
+    func_short_names: dict[str, str],
+    output_path: Path,
+    random_state: int,
+    filters_text: str,
+    ) -> Optional[np.ndarray]:
+    """Plot 2: unique-segment PCA for a single split, colored by protein.
+
+    Returns the PCA explained_variance_ratio_ for use by the scree plot, or
+    None if no plot was produced.
+    """
+    csv_path = run_dir / f'{split}_pairs.csv'
+    if not csv_path.exists():
+        print(f"WARNING: plot_kmer_pca: missing {csv_path.name}; skipping {split}")
+        return None
+    df = pd.read_csv(csv_path, low_memory=False)
+    required = {'assembly_id_a', 'assembly_id_b', 'ctg_a', 'ctg_b', 'seg_a', 'seg_b', 'func_a', 'func_b'}
+    missing = required - set(df.columns)
+    if missing:
+        print(f"WARNING: plot_kmer_pca: {csv_path.name} missing columns {sorted(missing)}; skipping {split}")
+        return None
+
+    # Per-side dedup by (assembly_id, seg). See design notes: cross-side dedup
+    # would silently drop a legitimately distinct k-mer vector when the same
+    # assembly appears in both slots (e.g., HA on side A and HA on side B
+    # would not be the same biological observation in a homo-pair bundle).
+    side_a = df[['assembly_id_a', 'ctg_a', 'seg_a', 'func_a']].rename(columns={
+        'assembly_id_a': 'assembly_id', 'ctg_a': 'ctg',
+        'seg_a': 'seg', 'func_a': 'func',
+    })
+    side_a = side_a.drop_duplicates(subset=['assembly_id', 'seg']).assign(side='a')
+    side_b = df[['assembly_id_b', 'ctg_b', 'seg_b', 'func_b']].rename(columns={
+        'assembly_id_b': 'assembly_id', 'ctg_b': 'ctg',
+        'seg_b': 'seg', 'func_b': 'func',
+    })
+    side_b = side_b.drop_duplicates(subset=['assembly_id', 'seg']).assign(side='b')
+    uniques = pd.concat([side_a, side_b], ignore_index=True)
+
+    # Map full function string → short label; fall back to the seg code if the
+    # function isn't in the short-name map (defensive — should not happen for
+    # any function in `selected_functions`).
+    uniques['short'] = uniques['func'].map(func_short_names).fillna(uniques['seg'].astype(str))
+
+    # k-mer row lookup; drop unique segments without a matching k-mer row.
+    keys = _build_kmer_lookup_keys(uniques['assembly_id'], uniques['ctg'])
+    rows = keys.map(key_to_row)
+    valid = rows.notna()
+    n_in = len(uniques)
+    n_valid = int(valid.sum())
+    if n_valid == 0:
+        print(f"WARNING: plot_kmer_pca: no k-mer rows matched for {split}; skipping")
+        return None
+    if n_in - n_valid > 0:
+        print(f"plot_kmer_pca[{split}]: dropped {n_in - n_valid:,}/{n_in:,} unique segments (missing k-mer rows)")
+    uniques = uniques.loc[valid].reset_index(drop=True)
+    rows = rows[valid].astype(int).to_numpy()
+
+    features = _densify_kmer_rows(kmer_matrix, rows)
+    # Request more PCs than we plot so the scree summary has top-N data.
+    pca_reduced, pca_model = compute_pca_reduction(
+        features, n_components=10, return_model=True,
+        svd_solver='randomized', random_state=random_state,
+    )
+    pca_2d = pca_reduced[:, :2]
+    ev1 = pca_model.explained_variance_ratio_[0] if pca_model else 0
+    ev2 = pca_model.explained_variance_ratio_[1] if pca_model else 0
+
+    counts_per_short = uniques['short'].value_counts().to_dict()
+    # Order legend by count (descending) for readability.
+    category_order = [c for c, _ in sorted(counts_per_short.items(), key=lambda kv: -kv[1])]
+
+    extra_text = (
+        f"Unique vectors: {len(uniques):,}\n"
+        f"Sides: a={int((uniques['side']=='a').sum()):,}, b={int((uniques['side']=='b').sum()):,}"
+    )
+
+    _plot_features_by_category_2d(
+        reduced_2d=pca_2d,
+        categories=uniques['short'].to_numpy(),
+        category_order=category_order,
+        category_counts=counts_per_short,
+        xlab=f"PC1 ({ev1:.1%} var)",
+        ylab=f"PC2 ({ev2:.1%} var)",
+        title=f"PCA: Unique feature vectors — {split} (k-mer, k={k})",
+        output_path=output_path,
+        filters_text=filters_text,
+        extra_text=extra_text,
+    )
+    return pca_model.explained_variance_ratio_ if pca_model is not None else None
 
 
 def plot_pair_embeddings_splits_overlap(
@@ -658,7 +1202,7 @@ def plot_pair_embeddings_splits_overlap(
         sampled.append(df_s)
 
     if not sampled:
-        print(f"⚠️  Skipping split-overlap plot: no pair CSVs found in {run_dir}")
+        print(f"WARNING: Skipping split-overlap plot: no pair CSVs found in {run_dir}")
         return
 
     pairs = pd.concat(sampled, ignore_index=True)
@@ -680,7 +1224,7 @@ def plot_pair_embeddings_splits_overlap(
         use_unit_diff=use_unit_diff,
     )
     if len(pair_embeddings) == 0:
-        print("⚠️  Skipping split-overlap plot: could not create any pair embeddings (missing embeddings?)")
+        print("WARNING: Skipping split-overlap plot: could not create any pair embeddings (missing embeddings?)")
         return
 
     # Align `pairs` to the returned embedding rows (critical when some IDs are
@@ -689,7 +1233,7 @@ def plot_pair_embeddings_splits_overlap(
     pairs = pairs.loc[valid_mask].reset_index(drop=True)
     dropped = n_in - len(pairs)
     if dropped > 0:
-        print(f"ℹ️  Split-overlap plot: dropped {dropped:,}/{n_in:,} sampled pairs due to missing embeddings")
+        print(f"Split-overlap plot: dropped {dropped:,}/{n_in:,} sampled pairs due to missing embeddings")
     assert len(pairs) == len(pair_embeddings), "pairs/embeddings misalignment: filter logic bug"
 
     # Feature descriptor for plot titles / logs.
@@ -917,9 +1461,9 @@ def plot_pair_embeddings_splits_overlap(
         diag_path = output_path.parent / "pair_embedding_order_diagnostics.json"
         with open(diag_path, 'w') as f:
             json.dump(diagnostics, f, indent=2)
-        print(f"\n🧾 Saved pair embedding ordering diagnostics: {diag_path}")
+        print(f"\nSaved pair embedding ordering diagnostics: {diag_path}")
     except Exception as e:
-        print(f"⚠️  Failed to save pair embedding ordering diagnostics JSON ({type(e).__name__}: {e})")
+        print(f"WARNING: Failed to save pair embedding ordering diagnostics JSON ({type(e).__name__}: {e})")
 
     # --- Extra PCA plots colored by seg_pair / func_pair (top-N, collapsed) ---
     def _plot_pca_by_category(
@@ -965,7 +1509,7 @@ def plot_pair_embeddings_splits_overlap(
         out_path = output_path.parent / out_name
         fig.savefig(out_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
-        print(f"✅ Saved: {out_path}")
+        print(f"Saved: {out_path}")
 
     _plot_pca_by_category(
         category_col='seg_pair',
@@ -980,7 +1524,7 @@ def plot_pair_embeddings_splits_overlap(
         title_prefix='PCA: Pair embeddings colored by func_pair',
     )
 
-    _plot_pair_embedding_splits_2d(
+    _plot_pair_features_splits_2d(
         reduced_2d=pca_2d,
         pairs=pairs,
         splits=splits,
@@ -1007,7 +1551,7 @@ def plot_pair_embeddings_splits_overlap(
             random_state=random_state,
             return_model=False,
         )
-        _plot_pair_embedding_splits_2d(
+        _plot_pair_features_splits_2d(
             reduced_2d=umap_2d,
             pairs=pairs,
             splits=splits,
@@ -1020,9 +1564,9 @@ def plot_pair_embeddings_splits_overlap(
             filters_text=filters_text,
         )
     except ImportError as e:
-        print(f"ℹ️  UMAP not available ({e}). Saved PCA plot only: {pca_path}")
+        print(f"UMAP not available ({e}). Saved PCA plot only: {pca_path}")
     except Exception as e:
-        print(f"⚠️  UMAP failed ({type(e).__name__}: {e}). Saved PCA plot only: {pca_path}")
+        print(f"WARNING: UMAP failed ({type(e).__name__}: {e}). Saved PCA plot only: {pca_path}")
 
 
 def plot_sequence_embeddings_by_confounders_from_pairs(
@@ -1059,7 +1603,7 @@ def plot_sequence_embeddings_by_confounders_from_pairs(
     pairs = pd.concat(sampled, ignore_index=True)
 
     if not protein_metadata_csv.exists():
-        print(f"⏭️  Skipping confounder embedding plots (missing protein metadata: {protein_metadata_csv})")
+        print(f"Skipping confounder embedding plots (missing protein metadata: {protein_metadata_csv})")
         return
 
     # Load protein metadata (minimal columns if possible)
@@ -1477,7 +2021,7 @@ def compute_crosstab_from_pairs(
         return None
         
     except Exception as e:
-        print(f"⚠️  Warning: Error computing crosstab from {pair_csv_path}: {e}")
+        print(f"WARNING: Error computing crosstab from {pair_csv_path}: {e}")
         return None
 
 
@@ -1535,7 +2079,7 @@ def plot_host_subtype_heatmap_by_split(
         plt.tight_layout()
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.close()
-        print("⏭️  Skipping host×subtype heatmap: could not load isolate metadata (missing/unreadable isolate_metadata.csv)")
+        print("Skipping host×subtype heatmap: could not load isolate metadata (missing/unreadable isolate_metadata.csv)")
         return
     
     all_crosstabs = {}
@@ -1643,26 +2187,33 @@ def visualize_dataset_stats(
     run_dir: Optional[Path] = None,
     project_root: Optional[Path] = None,
     generate_confounder_plots: bool = False,
+    skip_esm_pca_plots: bool = False,
+    skip_kmer_pca_plots: bool = False,
     ) -> None:
     """
     Generate visualization plots for a dataset.
-    
+
     Args:
         dataset_stats_path: Path to dataset_stats.json file
         bundle_name: Bundle name (for plot titles)
         output_dir_dataset: Output directory in dataset run folder (optional)
+        skip_esm_pca_plots: If True, skip the four pair_pca_*.png plots and the
+            pair_interaction_diagnostics.json file produced by
+            plot_pair_interactions().
+        skip_kmer_pca_plots: If True, skip kmer_pca_concat.png and the per-split
+            kmer_pca_segments_*.png plots produced by plot_kmer_pca().
     """
     # Load dataset statistics
     if not dataset_stats_path.exists():
         raise FileNotFoundError(f"Dataset stats file not found: {dataset_stats_path}")
-    
+
     with open(dataset_stats_path, 'r') as f:
         stats = json.load(f)
-    
+
     metadata_distributions = stats.get('metadata_distributions', {})
     split_sizes = stats.get('split_sizes', {})
     if not metadata_distributions:
-        print(f"⚠️  Warning: No metadata_distributions found in {dataset_stats_path}")
+        print(f"WARNING: no metadata_distributions found in {dataset_stats_path}")
         return
     
     # Determine run_dir and project_root if not provided
@@ -1716,7 +2267,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping host distribution (only 1 unique value)")
+        print("Skipping host distribution (only 1 unique value)")
 
     # 2. HN subtype distribution
     if has_subtype:
@@ -1730,7 +2281,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping subtype distribution (only 1 unique value)")
+        print("Skipping subtype distribution (only 1 unique value)")
 
     # 3. Geographic location distribution (geo_location_clean)
     if has_geo:
@@ -1744,7 +2295,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping geo_location distribution (insufficient variation)")
+        print("Skipping geo_location distribution (insufficient variation)")
 
     # 4. Passage distribution
     if has_passage:
@@ -1758,7 +2309,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping passage distribution (insufficient variation)")
+        print("Skipping passage distribution (insufficient variation)")
     
     # 5. Year distribution
     if has_year:
@@ -1783,11 +2334,11 @@ def visualize_dataset_stats(
                     start_year=start_year
                 )
             else:
-                print("⏭️  Skipping year distribution (very narrow range)")
+                print("Skipping year distribution (very narrow range)")
         else:
-            print("⏭️  Skipping year distribution (no year data)")
+            print("Skipping year distribution (no year data)")
     else:
-        print("⏭️  Skipping year distribution (only 1 unique value)")
+        print("Skipping year distribution (only 1 unique value)")
 
     # 6. Host × Subtype heatmap
     # Check if both host and subtype have sufficient variation
@@ -1801,17 +2352,22 @@ def visualize_dataset_stats(
             top_subtypes=15
         )
     else:
-        print("⏭️  Skipping host × subtype heatmap (insufficient variation in host or subtype)")
+        print("Skipping host × subtype heatmap (insufficient variation in host or subtype)")
 
     # 7. Low-dimensional PCA plots for each interaction mode (pair embeddings)
     # Generates pair_pca_concat.png, pair_pca_diff.png, pair_pca_prod.png,
-    # pair_pca_unit_diff.png + pair_interaction_diagnostics.json.
+    # pair_pca_unit_diff.png + pair_interaction_diagnostics.json,
+    # plus k-mer PCA plots (kmer_pca_concat.png + kmer_pca_segments_*.png).
     try:
         cfg = get_virus_config_hydra(bundle_name, config_path=str(project_root / 'conf'))
         virus_name = cfg.virus.virus_name
         data_version = cfg.virus.data_version
-        embeddings_file = project_root / 'data' / 'embeddings' / virus_name / data_version / 'master_esm2_embeddings.h5'
-        if embeddings_file.exists():
+        embeddings_dir = project_root / 'data' / 'embeddings' / virus_name / data_version
+        embeddings_file = embeddings_dir / 'master_esm2_embeddings.h5'
+
+        if skip_esm_pca_plots:
+            print("Skipping ESM-2 pair PCA plots (skip_esm_pca_plots=True)")
+        elif embeddings_file.exists():
             plot_pair_interactions(
                 run_dir=run_dir,
                 embeddings_file=embeddings_file,
@@ -1819,6 +2375,7 @@ def visualize_dataset_stats(
                 interactions=["concat", "diff", "prod", "unit_diff"],
                 max_per_label_per_split=1000,
                 random_state=42,
+                function_short_names=get_function_short_name_map_from_config(cfg.virus),
             )
             # Task 8 (optional): single-embedding confounder plots (derived from sequences appearing in pairs).
             # Disabled by default since it can be slow and is not required for the split-overlap sanity check.
@@ -1834,10 +2391,28 @@ def visualize_dataset_stats(
                     random_state=42,
                 )
         else:
-            print(f"⏭️  Skipping pair interaction plots (missing embeddings file: {embeddings_file})")
+            print(f"Skipping ESM-2 pair PCA plots (missing embeddings file: {embeddings_file})")
+
+        # K-mer PCA plots: cache lives next to ESM-2 embeddings.
+        if skip_kmer_pca_plots:
+            print("Skipping k-mer PCA plots (skip_kmer_pca_plots=True)")
+        else:
+            kmer_caches = list(embeddings_dir.glob('kmer_features_k*.npz'))
+            if kmer_caches:
+                plot_kmer_pca(
+                    run_dir=run_dir,
+                    kmer_dir=embeddings_dir,
+                    output_dir=plots_dir,
+                    virus_config=cfg.virus,
+                    k=None,  # autodetect from kmer_features_k*_metadata.json
+                    max_per_label_per_split=1000,
+                    random_state=42,
+                )
+            else:
+                print(f"Skipping k-mer PCA plots (no kmer_features_k*.npz under {embeddings_dir})")
     except Exception as e:
-        print(f"⏭️  Skipping pair interaction plots (could not resolve embeddings/config): {e}")
- 
+        print(f"WARNING: skipping pair interaction / k-mer plots ({type(e).__name__}: {e})")
+
     print(f"\n{'='*70}")
     print("VISUALIZATION COMPLETE")
     print(f"{'='*70}")
@@ -1909,6 +2484,16 @@ def main():
         action='store_true',
         help='Optional (Task 8): generate single-embedding confounder plots (can be slow). Default: off.'
     )
+    parser.add_argument(
+        '--skip_esm_pca_plots',
+        action='store_true',
+        help='Skip pair_pca_{concat,diff,prod,unit_diff}.png + pair_interaction_diagnostics.json.'
+    )
+    parser.add_argument(
+        '--skip_kmer_pca_plots',
+        action='store_true',
+        help='Skip kmer_pca_concat.png + kmer_pca_segments_{train,val,test}.png.'
+    )
     """
     python src/analysis/visualize_dataset_stats.py --bundle flu_ha_na_5ks --dataset_dir ./data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20260119_144322
     """
@@ -1977,12 +2562,12 @@ def main():
             run_dir = find_dataset_run_directory(base_dir, bundle_name)
 
         if run_dir is None:
-            print(f"⚠️  Warning: No run directory found for bundle '{bundle_name}'")
+            print(f"WARNING: No run directory found for bundle '{bundle_name}'")
             continue
 
         dataset_stats_path = run_dir / 'dataset_stats.json'
         if not dataset_stats_path.exists():
-            print(f"⚠️  Warning: dataset_stats.json not found in {run_dir}")
+            print(f"WARNING: dataset_stats.json not found in {run_dir}")
             continue
 
         # Determine output directories
@@ -1995,6 +2580,8 @@ def main():
             run_dir=run_dir,
             project_root=project_root,
             generate_confounder_plots=args.confounder_plots,
+            skip_esm_pca_plots=args.skip_esm_pca_plots,
+            skip_kmer_pca_plots=args.skip_kmer_pca_plots,
         )
 
 

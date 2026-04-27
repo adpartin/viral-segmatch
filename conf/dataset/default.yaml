@@ -13,6 +13,8 @@ max_isolates_to_process: null  # null = use all isolates; int = deterministic is
 
 # Plotting / post-processing
 generate_visualizations: true  # If true, generate dataset plots after dataset creation
+skip_esm_pca_plots: false      # If true, skip pair_pca_{concat,diff,prod,unit_diff}.png + pair_interaction_diagnostics.json
+skip_kmer_pca_plots: false     # If true, skip kmer_pca_concat.png + kmer_pca_segments_{split}.png
 
 # Pair construction mode
 # - unordered: original behavior (pairs are conceptually undirected; optional hash-based canonicalization can be applied)

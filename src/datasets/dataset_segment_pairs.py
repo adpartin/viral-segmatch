@@ -117,7 +117,7 @@ import sys
 from datetime import datetime
 from itertools import combinations
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Iterator, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -226,7 +226,7 @@ def select_balanced_isolate_pool(
     subtype_selection_cfg,
     master_seed: int,
     output_dir: Path,
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Downsample isolates to equal per-subtype representation.
 
     No-op when mode=natural (returns prot_df unchanged). When mode=balanced,
@@ -1450,6 +1450,8 @@ def save_split_output(
     schema_pair,
     filters_applied: dict,
     generate_visualizations: bool = True,
+    skip_esm_pca_plots: bool = False,
+    skip_kmer_pca_plots: bool = False,
     ) -> None:
     """Save train/val/test CSVs, dataset_stats.json, duplicate_stats.json, and optional plots.
 
@@ -1581,6 +1583,8 @@ def save_split_output(
                 dataset_stats_path=output_dir / 'dataset_stats.json',
                 bundle_name=config_bundle,
                 output_dir_dataset=output_dir,
+                skip_esm_pca_plots=skip_esm_pca_plots,
+                skip_kmer_pca_plots=skip_kmer_pca_plots,
             )
         except Exception as e:
             print(f"WARNING: Failed to generate visualizations: {e}")
@@ -1598,8 +1602,8 @@ def generate_all_cv_folds(
     canonicalize_pair_orientation_enabled: bool,
     pair_mode: str,
     schema_pair,
-    ) -> list[dict]:
-    """Generate all N CV fold splits in one pass.
+    ) -> Iterator[dict]:
+    """Generate all N CV fold splits, yielding each as it is produced.
 
     Splits isolates into N folds using KFold (stratified by isolate count into test sets).
     For each fold k:
@@ -1607,8 +1611,12 @@ def generate_all_cv_folds(
       - val isolates:   val_ratio fraction of the remaining isolates
       - train isolates: the rest
 
-    Returns a list of N dicts, each containing:
+    Yields N dicts in fold_id order (0..N-1), each containing:
       fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats
+
+    This is a generator so callers can write each fold to disk as it finishes,
+    rather than materializing all N folds in memory before the first write.
+    Reduces peak memory roughly N-fold and makes progress visible on disk.
     """
     from sklearn.model_selection import KFold
 
@@ -1629,7 +1637,6 @@ def generate_all_cv_folds(
     val_frac = val_ratio / (1.0 - 1.0 / n_folds)
     val_frac = min(val_frac, 0.5)
 
-    folds = []
     for fold_i, (trainval_idx, test_idx) in enumerate(kf.split(unique_isolates)):
         print(f"\n{'='*60}")
         print(f"CV: generating fold {fold_i + 1}/{n_folds}  "
@@ -1664,15 +1671,13 @@ def generate_all_cv_folds(
             cooccur_pairs=cooccur_pairs,
             cooccur_stats=cooccur_stats,
         )
-        folds.append({
+        yield {
             'fold_id':         fold_i,
             'train_pairs':     train_pairs,
             'val_pairs':       val_pairs,
             'test_pairs':      test_pairs,
             'duplicate_stats': dup_stats,
-        })
-
-    return folds
+        }
 
 
 def generate_temporal_split(
@@ -1798,6 +1803,8 @@ SHUFFLE_TRAIN_LABELS = getattr(config.dataset, 'shuffle_train_labels', False)
 SHUFFLE_TRAIN_LABELS_SEED = getattr(config.dataset, 'shuffle_train_labels_seed', None)
 N_FOLDS = getattr(config.dataset, 'n_folds', None)
 GENERATE_VISUALIZATIONS = getattr(config.dataset, 'generate_visualizations', True)
+SKIP_ESM_PCA_PLOTS = getattr(config.dataset, 'skip_esm_pca_plots', False)
+SKIP_KMER_PCA_PLOTS = getattr(config.dataset, 'skip_kmer_pca_plots', False)
 
 # Temporal holdout config
 YEAR_TRAIN = getattr(config.dataset, 'year_train', None)
@@ -2075,23 +2082,12 @@ filters_applied = {
 }
 
 if N_FOLDS is not None and N_FOLDS > 1:
-    # ── CV mode: generate all N folds in one run ──────────────────────────
+    # ── CV mode: generate + save each fold as soon as it's ready ──────────
     print(f'\nCV mode: generating {N_FOLDS} folds (seed={RANDOM_SEED}).')
-    folds = generate_all_cv_folds(
-        df=df,
-        n_folds=N_FOLDS,
-        seed=RANDOM_SEED,
-        neg_to_pos_ratio=neg_to_pos_ratio,
-        allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio,
-        hard_partition_isolates=HARD_PARTITION_ISOLATES,
-        val_ratio=VAL_RATIO,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
-        pair_mode=PAIR_MODE,
-        schema_pair=schema_pair,
-    )
 
-    # Write top-level CV metadata
+    # Write top-level CV metadata first, so the manifest is on disk before
+    # any fold generation starts. If a later fold fails, the manifest at
+    # least documents the intended layout.
     cv_info = {
         'n_folds': N_FOLDS,
         'master_seed': RANDOM_SEED,
@@ -2103,8 +2099,22 @@ if N_FOLDS is not None and N_FOLDS > 1:
         json.dump(cv_info, f, indent=2)
     print(f"Saved CV metadata to: {output_dir / 'cv_info.json'}")
 
-    # Save each fold
-    for fold_data in folds:
+    # generate_all_cv_folds is a generator -- save each fold as it yields.
+    # This means fold_{i}/ dirs appear on disk as generation progresses
+    # (visible progress; also reduces peak memory vs materializing all N).
+    for fold_data in generate_all_cv_folds(
+        df=df,
+        n_folds=N_FOLDS,
+        seed=RANDOM_SEED,
+        neg_to_pos_ratio=neg_to_pos_ratio,
+        allow_same_func_negatives=allow_same_func_negatives,
+        max_same_func_ratio=max_same_func_ratio,
+        hard_partition_isolates=HARD_PARTITION_ISOLATES,
+        val_ratio=VAL_RATIO,
+        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
+        pair_mode=PAIR_MODE,
+        schema_pair=schema_pair,
+    ):
         fold_dir = output_dir / f"fold_{fold_data['fold_id']}"
         print(f"\nSaving fold {fold_data['fold_id'] + 1}/{N_FOLDS} to: {fold_dir}")
         save_split_output(
@@ -2119,6 +2129,8 @@ if N_FOLDS is not None and N_FOLDS > 1:
             schema_pair=schema_pair,
             filters_applied=filters_applied,
             generate_visualizations=GENERATE_VISUALIZATIONS,
+            skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
+            skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
         )
 
 elif YEAR_TRAIN is not None:
@@ -2145,6 +2157,8 @@ elif YEAR_TRAIN is not None:
         schema_pair=schema_pair,
         filters_applied=filters_applied,
         generate_visualizations=GENERATE_VISUALIZATIONS,
+        skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
+        skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
     )
 
 else:
@@ -2165,6 +2179,8 @@ else:
         schema_pair=schema_pair,
         filters_applied=filters_applied,
         generate_visualizations=GENERATE_VISUALIZATIONS,
+        skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
+        skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
     )
 
 print(f'\nDone. Finished {Path(__file__).name}.')
