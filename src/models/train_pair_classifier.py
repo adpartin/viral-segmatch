@@ -32,8 +32,8 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import (
-    f1_score, roc_auc_score, classification_report,
-    precision_recall_curve, precision_score, recall_score
+    f1_score, roc_auc_score,
+    precision_score, recall_score
 )
 
 import torch
@@ -56,61 +56,14 @@ from src.utils.learning_verification_utils import (
     plot_learning_curves
 )
 from src.utils.kmer_utils import load_kmer_index, load_kmer_matrix, get_kmer_pair_features
+from src.models._pair_metrics import (
+    compute_pair_metrics,
+    find_optimal_threshold_pr,
+    swap_pairs_df_columns,
+)
 import h5py
 
 total_timer = Timer()
-
-
-def find_optimal_threshold_pr(y_true, y_probs, metric='f1'):
-    """
-    Find optimal threshold using Precision-Recall curve.
-    TODO: allow an option to generate a plot of the PR curve, showing the optimal threshold and the best score.
-
-    This method is preferred for imbalanced datasets and when optimizing F1.
-    It's faster than grid search and directly optimizes F1 score.
-
-    Args:
-        y_true: True binary labels (array-like)
-        y_probs: Predicted probabilities (array-like)
-        metric: Metric to optimize ('f1', 'f0.5', 'f2')
-            - 'f1': Maximize F1 score (harmonic mean of precision and recall)
-            - 'f0.5': Emphasize precision more (F0.5 = (1+0.5²) * P*R / (0.5²*P + R))
-            - 'f2': Emphasize recall more (F2 = (1+2²) * P*R / (2²*P + R))
-
-    Returns:
-        optimal_threshold: Threshold that maximizes the specified metric
-        best_score: Best score achieved at optimal threshold
-    """
-    precision, recall, thresholds = precision_recall_curve(y_true, y_probs)
-
-    # Handle edge case: no thresholds (all predictions same class)
-    if len(thresholds) == 0:
-        return 0.5, 0.0
-
-    # Calculate F-beta scores
-    if metric == 'f1':
-        # F1 = 2 * (precision * recall) / (precision + recall)
-        # Add small epsilon to avoid division by zero
-        f_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
-    elif metric == 'f0.5':
-        # F0.5 emphasizes precision: beta = 0.5
-        beta_sq = 0.5 ** 2
-        f_scores = (1 + beta_sq) * (precision * recall) / (beta_sq * precision + recall + 1e-10)
-    elif metric == 'f2':
-        # F2 emphasizes recall: beta = 2
-        beta_sq = 2 ** 2
-        f_scores = (1 + beta_sq) * (precision * recall) / (beta_sq * precision + recall + 1e-10)
-    else:
-        raise ValueError(f"Unknown metric: {metric}. Choose from 'f1', 'f0.5', 'f2'")
-
-    # Find best F-score (excluding last point which has threshold=None)
-    # The last point in precision_recall_curve has threshold=None and corresponds
-    # to the case where all predictions are positive
-    optimal_idx = np.argmax(f_scores[:-1])
-    optimal_threshold = thresholds[optimal_idx]
-    best_score = f_scores[optimal_idx]
-
-    return optimal_threshold, best_score
 
 
 def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool]:
@@ -963,56 +916,19 @@ def evaluate_on_split(
     mean_loss = loss_sum / len(data_loader.dataset)
     logits = all_logits.float().cpu().numpy().astype(np.float32, copy=False)
     probs = torch.sigmoid(all_logits).cpu().numpy()
-    pred_labels = (probs > threshold).astype(np.float32)
     true_labels = all_labels.cpu().numpy()
-    # Compute metrics for positive class (label=1, same isolate)
-    # Explicit parameters: average='binary', pos_label=1
-    test_f1 = f1_score(true_labels, pred_labels, average='binary', pos_label=1)
-    test_f1_macro = f1_score(true_labels, pred_labels, average='macro')
-    test_precision = precision_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
-    test_recall = recall_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
-    try:
-        test_auc = roc_auc_score(true_labels, probs)
-    except ValueError:
-        # See train_model() val_auc comment: degenerate predictions break roc_auc_score.
-        test_auc = 0.5
 
-    # Classification report
-    print('\nClassification Report:')
-    print(classification_report(true_labels, pred_labels, target_names=['Negative', 'Positive']))
-
-    # Create results df (preserve original columns and append predictions)
-    res_df = pairs_df.copy()
-    res_df['pred_label'] = pred_labels
-    res_df['pred_prob'] = probs
-    res_df['pred_logit'] = logits
+    metrics, res_df = compute_pair_metrics(
+        true_labels, probs, threshold, pairs_df, logits=logits,
+    )
 
     split_title = split_name.strip() if split_name is not None else "split"
-    print(f'{split_title} Loss: {mean_loss:.4f}, {split_title} F1 (binary): {test_f1:.4f}, {split_title} F1 (macro): {test_f1_macro:.4f}')
-    print(f'{split_title} Precision: {test_precision:.4f}, {split_title} Recall: {test_recall:.4f}, {split_title} AUC: {test_auc:.4f}')
+    print(f'{split_title} Loss: {mean_loss:.4f}, {split_title} F1 (binary): {metrics["f1"]:.4f}, {split_title} F1 (macro): {metrics["f1_macro"]:.4f}')
+    print(f'{split_title} Precision: {metrics["precision"]:.4f}, {split_title} Recall: {metrics["recall"]:.4f}, {split_title} AUC: {metrics["auc"]:.4f}')
     print(f'Using threshold: {threshold:.4f}')
     print(f'Note: Precision measures False Positives (FP), Recall measures False Negatives (FN)')
     print(f'      F1 (binary) focuses on positive class, F1 (macro) averages both classes')
     return res_df
-
-
-def swap_pairs_df_columns(pairs_df: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of pairs_df with every *_a/*_b column pair swapped.
-
-    This is used for the "swap test" diagnostic: evaluate a trained directed model
-    (e.g., features=[emb_a, emb_b]) on swapped inputs (b,a) with labels unchanged.
-    """
-    swapped = pairs_df.copy()
-    cols = list(swapped.columns)
-    for col_a in cols:
-        if not col_a.endswith("_a"):
-            continue
-        col_b = col_a[:-2] + "_b"
-        if col_b in swapped.columns:
-            tmp = swapped[col_a].copy()
-            swapped[col_a] = swapped[col_b]
-            swapped[col_b] = tmp
-    return swapped
 
 
 # Parser
