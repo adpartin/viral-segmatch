@@ -24,6 +24,18 @@ adapter_dims: null  # e.g., [128] this is the dimension of the adapter output
 # Feature source: which precomputed features to use
 feature_source: esm2  # esm2 | kmer
 
+# Feature scaling (applied before features enter the model).
+# - 'none' (default): pass raw features straight through.
+# - 'standard': StandardScaler (per-feature mean 0, unit variance) FIT ON THE
+#    TRAIN SPLIT ONLY; the same fitted scaler transforms val/test. Saved to
+#    feature_scaler.joblib for inference reuse.
+# Currently implemented for feature_source=kmer only. ESM-2 path raises
+# NotImplementedError when scaling is requested (TODO: per-dataset scaler hook).
+# Note: feature_scaling is independent from slot_transform (LayerNorm). They
+# are complementary — population-level (scaler, fixed) vs sample-level
+# (slot_norm, dynamic) — and can be combined.
+feature_scaling: none  # none | standard
+
 # Interaction spec: which features to compute from (emb_a, emb_b)
 interaction: concat  # concat | diff | prod | unit_diff | concat+unit_diff | etc.
 

@@ -1,0 +1,13 @@
+# STATUS: experimental -- StandardScaler ablation, baseline arm (no scaling).
+# Single split (no CV, no filters). Pair: HA / NA. K-mer (k=6) concat + slot_norm.
+# Counterpart: flu_ha_na_kmer_scale_standard.yaml.
+
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  n_folds: null   # single train/val/test split (override flu_ha_na's inherited CV=12)
+
+training:
+  feature_scaling: none

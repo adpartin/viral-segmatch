@@ -1106,6 +1106,11 @@ ADAPTER_DIMS = getattr(config.training, 'adapter_dims', None)
 # Interaction spec: "concat", "diff", "unit_diff", "prod", or combinations like "concat+unit_diff"
 INTERACTION_SPEC = getattr(config.training, 'interaction', 'concat')
 FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
+FEATURE_SCALING = getattr(config.training, 'feature_scaling', 'none')
+if FEATURE_SCALING not in {'none', 'standard'}:
+    raise ValueError(
+        f"training.feature_scaling must be 'none' or 'standard'; got {FEATURE_SCALING!r}"
+    )
 EVAL_TRAIN_METRICS = getattr(config.training, 'eval_train_metrics', False)
 INFER_BATCH_SIZE = getattr(config.training, 'infer_batch_size', None) or BATCH_SIZE
 # Hard-coded to 0. Do NOT change without addressing both issues below:
@@ -1299,6 +1304,36 @@ else:
     # Get embedding dimension from model checkpoint
     EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
 
+# ── Optional StandardScaler ────────────────────────────────────────────
+# Fit on TRAIN slot vectors only (no val/test leakage). The same fitted
+# scaler transforms train/val/test. K-mer datasets store features in a
+# per-fold dense matrix at `self.features`, so we mutate them in place.
+# ESM-2 datasets share a global embedding cache; per-dataset scaling there
+# requires a `__getitem__`-level hook that hasn't been wired yet.
+feature_scaler = None
+if FEATURE_SCALING == 'standard':
+    if FEATURE_SOURCE == 'kmer':
+        from sklearn.preprocessing import StandardScaler
+        import joblib
+        print('\nFitting StandardScaler on training k-mer features (per-feature mean/std)...')
+        feature_scaler = StandardScaler()
+        feature_scaler.fit(train_dataset.features)
+        train_dataset.features = feature_scaler.transform(train_dataset.features).astype(np.float32)
+        val_dataset.features   = feature_scaler.transform(val_dataset.features).astype(np.float32)
+        test_dataset.features  = feature_scaler.transform(test_dataset.features).astype(np.float32)
+        scaler_path = output_dir / 'feature_scaler.joblib'
+        joblib.dump(feature_scaler, scaler_path)
+        print(f'  fitted on {len(train_dataset.features):,} train rows '
+              f'({train_dataset.features.shape[1]:,} features)')
+        print(f'  saved scaler to: {scaler_path}')
+    else:
+        raise NotImplementedError(
+            "feature_scaling='standard' is currently implemented for feature_source='kmer' "
+            "only. ESM-2 support requires a per-dataset scaler hook in ESMPairDataset "
+            "(the embedding cache is shared across train/val/test, so in-place mutation "
+            "would leak across runs). TODO before running ESM ablations."
+        )
+
 train_loader = DataLoader(
     train_dataset, batch_size=BATCH_SIZE, shuffle=True,
     num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
@@ -1463,6 +1498,7 @@ training_info = {
     'dataset_dir': str(dataset_dir),
     'embeddings_file': str(embeddings_file),
     'feature_source': FEATURE_SOURCE,
+    'feature_scaling': FEATURE_SCALING,
     'interaction': INTERACTION_SPEC,
     'slot_transform': SLOT_TRANSFORM,
     'hidden_dims': list(HIDDEN_DIMS) if HIDDEN_DIMS else None,
