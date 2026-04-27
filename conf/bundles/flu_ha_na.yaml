@@ -1,0 +1,31 @@
+# STATUS: active -- HA/NA balanced-big3 full-dataset sweep.
+# Inherits Task 11 master (full dataset, 12-fold CV, k-mer k=6 slot_norm +
+# concat, 100 epochs). Adds baked-in subtype balancing on {H1N1, H3N2, H5N1}
+# so `run_cv_lambda.py --config_bundle flu_ha_na` runs the balanced sweep
+# with no CLI overrides.
+#
+# Alternative invocation without baking into a bundle (equivalent run):
+#   python scripts/run_cv_lambda.py --config_bundle flu_ha_na \
+#       --override dataset.subtype_selection.mode=balanced \
+#                  'dataset.subtype_selection.included_subtypes=[H1N1,H3N2,H5N1]'
+
+defaults:
+  - flu_28_major_protein_pairs_master
+  - _self_
+
+training:
+  feature_source: kmer  # kmer | esm2
+
+dataset:
+  schema_pair:
+    - "Hemagglutinin precursor"
+    - "Neuraminidase protein"
+  subtype_selection:
+    # mode: balanced
+    # included_subtypes: ["H1N1", "H3N2", "H5N1"]
+    # target_count_per_subtype defaults to 'min' (downsample to smallest
+    # available count, which on the full July 2025 dataset will be H5N1).
+    # seed defaults to RANDOM_SEED (derived from master_seed=42).
+  # max_isolates_to_process inherits null from master (full ~111K dataset).
+  # Must not be set here: mode=balanced + max_isolates_to_process errors out
+  # by design (see docs/plans/done/subtype_balancing_plan.md, error matrix).
