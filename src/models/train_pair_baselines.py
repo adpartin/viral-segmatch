@@ -50,6 +50,7 @@ from src.models._pair_metrics import compute_pair_metrics, find_optimal_threshol
 
 BASELINE_REGISTRY = {
     'logistic': 'src.models.baselines.logistic',
+    'lgbm':     'src.models.baselines.lgbm',
 }
 
 
@@ -189,10 +190,18 @@ def main() -> None:
     end_phase('load_data')
 
     # ── Fit ─────────────────────────────────────────────────────────────────
+    # Baselines may optionally expose ``fit(estimator, X_train, y_train, *,
+    # X_val=None, y_val=None, config=None)`` to take ownership of the fit
+    # call (e.g. LightGBM uses val for early stopping). Fall back to plain
+    # ``estimator.fit`` when the baseline doesn't define one.
     begin_phase('fit')
     estimator = baseline_module.get_estimator(config, random_state=RANDOM_SEED)
     print(f'Fitting {type(estimator).__name__}: {estimator}')
-    estimator.fit(X_train, y_train)
+    fit_fn = getattr(baseline_module, 'fit', None)
+    if fit_fn is not None:
+        fit_fn(estimator, X_train, y_train, X_val=X_val, y_val=y_val, config=config)
+    else:
+        estimator.fit(X_train, y_train)
     model_path = output_dir / 'best_model.joblib'
     joblib.dump(estimator, model_path)
     print(f'Saved fitted model to: {model_path}')
