@@ -10,7 +10,7 @@ dataset:
   n_folds: null   # single train/val/test split (override flu_ha_na's inherited CV=12)
 
 training:
-  feature_scaling: none
+  feature_scaling: none # none | standard (StandardScaler) with fit on train only, transform on val/test, saves feature_scaler.joblib
 
 # Run MLP + listed baselines via scripts/stage4_full.sh. Empty/null -> MLP only.
 baselines:

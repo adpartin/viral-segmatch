@@ -14,7 +14,14 @@ defaults:
   - _self_
 
 training:
+  epochs: 100
+  patience: 10
   feature_source: kmer  # kmer | esm2
+  # hidden_dims: [3] # bottleneck layer; default: [512, 256, 64]
+  # hidden_dims: [] # simulate logistic regression; default: [512, 256, 64]
+  # dropout: 0.0 # no dropout
+  # optimizer: sgd # try SGD instead of Adam
+  # momentum: 0.0 # no momentum
 
 dataset:
   schema_pair:
@@ -29,3 +36,11 @@ dataset:
   # max_isolates_to_process inherits null from master (full ~111K dataset).
   # Must not be set here: mode=balanced + max_isolates_to_process errors out
   # by design (see docs/plans/done/subtype_balancing_plan.md, error matrix).
+  n_folds: null   # single train/val/test split (override flu_28_major_protein_pairs_master's inherited CV=12)
+
+  # # No metadata filters
+  # host: null # control for host
+  # year: null # control for year
+  # hn_subtype: null # control for subtype
+  # geo_location: null
+  # passage: null

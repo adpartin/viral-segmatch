@@ -1,11 +1,10 @@
 # Dataset configuration for segment pairs
 # This config defines parameters for creating train/val/test splits and protein pairs
 
-# Task name for output directory
-# task_name: 'segment_pair_classifier' # TODO: we currently don't use this
-
 # Isolate partitioning strategy
-hard_partition_isolates: true  # true = partition isolates into train/val/test sets, false = partition proteins into train/val/test sets
+# true: isolate-level partitioning (no shared isolates between train/val/test); false: pair-level
+# partitioning (isolates can appear in multiple splits, but pairs are unique to splits)
+hard_partition_isolates: true
 
 # Protein filtering strategy
 use_selected_only: true  # true = use selected_functions, false = use all proteins
@@ -25,16 +24,18 @@ pair_mode: schema_ordered
 # Example: ["HA", "NA"]
 schema_pair: null
 
-# Pair orientation canonicalization
+# Pair orientation canonicalization (applies on to pair_mode=unordered)
 # The segment-matching task is conceptually undirected (a,b) ≡ (b,a), but we store directed columns
 # (*_a/*_b) and feed the model a directed representation (e.g., [emb_a, emb_b]).
 # Canonicalizing orientation helps prevent "direction → label" shortcut learning.
 canonicalize_pair_orientation: false
 
-# Dataset splitting parameters
-neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
+# Same-function negative pairs option
 allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
 max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs; not used when allow_same_func_negatives=false
+
+# Dataset splitting parameters
+neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
 
 # Train/validation/test split ratios
 train_ratio: 0.8  # 80% for training

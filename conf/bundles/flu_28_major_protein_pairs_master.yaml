@@ -23,7 +23,6 @@ virus:
     - "Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor"  # NS1 (S8)
 
 dataset:
-  pair_mode: schema_ordered
   schema_pair: null            # MUST be overridden by child bundles
   max_isolates_to_process: null  # Full dataset (~111K isolates)
   # max_isolates_to_process: 2000  # Phase 0-2 (5K isolates)
@@ -47,9 +46,8 @@ training:
   epochs: 100                    # Phase 3: full convergence
   # epochs: 5                  # Phase 0-2
   # patience: 100                # Early stopping on F1
-  patience: 15                # Early stopping on F1
+  patience: 20                # Early stopping on F1
   batch_size: 128              # 60% speedup vs batch_size=16 (see speed_up.md)
-  eval_train_metrics: false    # Skip redundant train eval pass (~45% epoch savings)
   infer_batch_size: 8192       # Large inference batches (no gradient memory needed)
   pin_memory: false            # Disabled: 2-4x overhead with concurrent folds on Polaris
                                # (cudaHostAlloc serializes across processes). 18% speedup on
