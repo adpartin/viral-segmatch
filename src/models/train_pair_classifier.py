@@ -29,6 +29,7 @@ from typing import Optional
 
 import h5py
 import pandas as pd
+import pyarrow.parquet as pq
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import (
@@ -302,7 +303,7 @@ class MLPClassifier(nn.Module):
         self,
         input_dim: int = 2560,
         hidden_dims: list[int] = [512, 256, 64],
-        dropout: float = 0.3,
+        dropout: float = 0.2,
         slot_transform: str = "none",
         slot_transform_dims: Optional[list[int]] = None,
         adapter_dims: Optional[list[int]] = None,
@@ -1132,13 +1133,51 @@ print(f'use_amp:         {USE_AMP}')
 
 total_timer.begin_phase('load_data')
 print('\nLoad pair datasets.')
-# Use engine='python' to avoid a pandas C parser segfault triggered by certain
-# protein sequence byte patterns in large CSVs (observed on Polaris, fold 11 of
-# PB1/HA and fold 6 of PB2/PA). The Python engine is slower but only adds ~seconds.
+# --- CSV loading (deprecated; kept commented for reference) -------------------
+# We previously loaded the pair files as CSV with engine='python' to avoid a
+# pandas C parser segfault triggered by certain protein sequence byte patterns
+# in large CSVs (observed on Polaris, fold 11 of PB1/HA and fold 6 of PB2/PA).
+# The Python engine was slower but added only ~seconds. We've since switched to
+# parquet (see below) which is faster, smaller on disk, and sidesteps the C
+# parser entirely — so the segfault workaround is no longer needed. Stage 3
+# writes parquet alongside CSV for all new datasets.
 CSV_ENGINE = 'python'
 train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv', engine=CSV_ENGINE)
 val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv', engine=CSV_ENGINE)
 test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv', engine=CSV_ENGINE)
+# -----------------------------------------------------------------------------
+
+# Parquet loading with column projection. We exclude the heavy sequence
+# strings (seq_a/seq_b, dna_seq_a/dna_seq_b) which are ~95% of the file size
+# on disk and unused at training time — k-mer features and ESM-2 embeddings
+# are precomputed and loaded from their own caches. Light metadata columns
+# (seg_*, func_*, hashes, pair_key) are kept because evaluate_on_split copies
+# the pair df into the predictions output and downstream analysis stratifies
+# by them.
+# KEEP_COLS = [
+#     'pair_key',
+#     'assembly_id_a', 'assembly_id_b',
+#     'brc_a', 'brc_b',
+#     'ctg_a', 'ctg_b',
+#     'seg_a', 'seg_b',
+#     'func_a', 'func_b',
+#     'seq_hash_a', 'seq_hash_b',
+#     'dna_hash_a', 'dna_hash_b',  # only present in datasets built on/after 2026-04-23
+#     'label',
+# ]
+
+
+# def _load_pairs_parquet(path: Path) -> pd.DataFrame:
+#     # Intersect KEEP_COLS with the file's actual schema so older datasets
+#     # (missing dna_hash_*) still load without raising.
+#     available = set(pq.ParquetFile(path).schema_arrow.names)
+#     cols = [c for c in KEEP_COLS if c in available]
+#     return pd.read_parquet(path, columns=cols)
+
+
+# train_pairs = _load_pairs_parquet(dataset_dir / 'train_pairs.parquet')
+# val_pairs   = _load_pairs_parquet(dataset_dir / 'val_pairs.parquet')
+# test_pairs  = _load_pairs_parquet(dataset_dir / 'test_pairs.parquet')
 
 # CUDA device
 CUDA_NAME = args.cuda_name
