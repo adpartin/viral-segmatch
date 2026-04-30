@@ -257,6 +257,8 @@ The exposure label:
 
 A sequence with both 0 should not appear in this table (it's not in any pair).
 
+**`seq_hash → function` consistency (defensive check).** When materializing the per-sequence table from `df`, build a `seq_hash → function` map via `df.groupby('seq_hash')['function'].unique()`. If any seq_hash maps to more than one distinct function, raise `ValueError` (or at minimum log a loud `WARNING:` and use `first()`) naming the offending seq_hashes. v2 assumes `seq_hash → function` is many-to-one — if it ever isn't, that's a Stage 1 (preprocessing) data-quality bug, not something v2 should silently paper over.
+
 
 ### 4.4 `compute_axis_flags`
 
@@ -278,6 +280,8 @@ For each axis in `axes` that exists as a column in `df` (also accept `geo_locati
 - `same_<axis>`: nullable boolean. `True` if both values are non-null and equal; `False` if both non-null and different; `pd.NA` if either is null.
 
 Implementation note: build `seq_hash → metadata` lookup from `df` once (groupby `seq_hash` + `first()` per axis), then map twice. Watch for and log any seq_hash that has multiple distinct values for an axis across its source rows — this indicates upstream metadata inconsistency.
+
+The same defensive policy from §4.3 applies to the `function` column, but escalated: a seq_hash mapping to >1 distinct `function` is treated as a hard error (raise `ValueError`), not a warning. Axis values like `host`/`year` can plausibly drift across biological duplicates (annotation noise); `function` is an upstream invariant that v2's slot semantics depend on, so violating it must fail loudly.
 
 Returns the input `pairs` with the new columns appended (do not mutate the caller's df; return a copy or work on a copy internally).
 
@@ -381,9 +385,10 @@ def generate_temporal_split_v2(*args, **kwargs):
 Same as v1's `save_split_output` plus:
 
 1. Write `sequence_exposure.csv` from the exposure table.
-2. Write `metadata_coverage.json` from `compute_metadata_coverage(df)`. (If called per-fold, this file is identical across folds — write it once at the parent level instead. See section 6.)
-3. Extend `dataset_stats.json` with new sections — see section 6.
-4. Add a `pair_builder_version: "v2"` field to `dataset_stats.json`.
+2. Extend `dataset_stats.json` with new sections — see section 6.
+3. Add a `pair_builder_version: "v2"` field to `dataset_stats.json`.
+
+Note: `metadata_coverage.json` is **not** written here. Its scope is per-run, not per-split (the source `df` is identical across splits and across CV folds), so it is computed and written once by the CLI dispatch (see §4.10) before the split / CV branch. Putting it in the per-split saver would either duplicate the file across folds or require a `write_metadata_coverage: bool` flag that pushes CV-vs-single-split branching into the wrong layer.
 
 
 ### 4.10 CLI dispatch
@@ -394,6 +399,7 @@ In the main script (kept in v1 file or extracted to a small launcher), after con
 PAIR_BUILDER_VERSION = getattr(config.dataset, "pair_builder_version", "v1")
 
 if PAIR_BUILDER_VERSION == "v2":
+    _validate_v2_config(config)  # see §5; uses raw config access, not getattr
     if YEAR_TRAIN is not None:
         raise ValueError(
             "pair_builder_version=v2 does not yet support temporal split "
@@ -403,13 +409,23 @@ if PAIR_BUILDER_VERSION == "v2":
         split_dataset_v2,
         generate_all_cv_folds_v2,
         save_split_output_v2,
+        compute_metadata_coverage,
     )
-    # dispatch to v2 builders
+
+    # Per-run artifact: written once before split / CV branching.
+    # df is already finalized at this point (filtering + isolate sampling done).
+    coverage = compute_metadata_coverage(df, axes=AXES_FOR_FLAGS)
+    with open(run_output_dir / "metadata_coverage.json", "w") as f:
+        json.dump(coverage, f, indent=2)
+
+    # Then dispatch to v2 builders for single-split / CV.
 elif PAIR_BUILDER_VERSION == "v1":
     # existing v1 dispatch
 else:
     raise ValueError(f"Unknown pair_builder_version: {PAIR_BUILDER_VERSION!r}")
 ```
+
+Note: the launcher `scripts/run_cv_lambda.py` does not need changes. Its contract with Stage 3 is "spawn the script once, expect `fold_*/` subdirs in the run output dir" — `metadata_coverage.json` simply lands in the parent of those fold dirs.
 
 
 ---
@@ -453,6 +469,8 @@ Other validations:
 
 Validation lives in a single function (e.g., `_validate_v2_config(config)`) called from the CLI dispatch before importing the v2 module. Keep it loud and explicit — these errors are the user's primary feedback for the v2 contract.
 
+**Validation reads the raw config, not Python-resolved values.** Use `OmegaConf.select(config, "dataset.pair_mode")` (returns `None` for absent keys) rather than `getattr(config.dataset, "pair_mode", "schema_ordered")` (collapses absent and explicit-but-default into the same string). This lets error messages distinguish "you set `pair_mode=unordered`" from "key was absent (defaulted)" — the former is a violation, the latter is fine. Runtime extraction further down the dispatch may keep the `getattr(..., default=<v2-appropriate>)` pattern; by that point the validator has already rejected anything forbidden, so defaults are safe. Do not unify the two patterns.
+
 
 ---
 
@@ -472,7 +490,7 @@ Columns: `seq_hash`, `function`, `assembly_ids` (semicolon-joined string for CSV
 
 ### `metadata_coverage.json`
 
-Written once at the run output directory (single-split mode) or once at the CV parent directory (CV mode) — not per fold, since the source `df` is the same.
+Written once at the run output directory by the CLI dispatch (§4.10), before any split / CV branching. The file lives at the run root in both single-split and CV modes — in CV mode this is the parent of `fold_0/ … fold_{N-1}/`. The source `df` is identical across splits and across folds, so per-fold copies would be redundant.
 
 Schema: dict from axis name to coverage stats (see 4.5).
 
@@ -616,3 +634,6 @@ These were decided in the design discussion (with Claude.ai) that produced this 
 15. **Three duplicate-handling cases must be documented in the v2 module docstring**: within-split positive duplicates (handled by unconditional dedup), within-split negative duplicates (handled by `seen_*` sets), cross-split duplicates (handled by `pair_key` overlap check). The "Duplicate handling" section of the docstring is the canonical reference.
 16. **Several v1-configurable behaviors are hard-coded in v2.** `pair_mode = "schema_ordered"`, `allow_same_func_negatives = False`, `max_same_func_ratio = 0.5` (vestigial), `canonicalize_pair_orientation_enabled = False`, `hard_partition_isolates = True`, `drop_within_split_pos_duplicates = True`. The corresponding parameters are dropped from v2 function signatures and v2 config validation rejects contradicting values. Each enforcement site has a comment referring back to v1 (`dataset_segment_pairs.py`) where the configurable version still lives. Full list and rationale in Section 2 "Hard-coded constraints (v2 simplifications)".
 17. **Coverage floor overrides `num_negatives`.** `min_required_for_coverage = max(|unique_seqs_in_slot_A|, |unique_seqs_in_slot_B|)` over `pos_pairs`. When `int(len(pos_pairs) * neg_to_pos_ratio) < min_required_for_coverage`, the coverage phase produces ≈ `min_required_for_coverage` pairs anyway and the fill phase becomes a no-op. The override is logged as a warning and surfaced in `dataset_stats.json` via `coverage_overrode_ratio: bool` plus `requested_negatives` and `min_required_for_coverage` numeric fields. Coverage takes precedence; the user-supplied ratio acts as a floor for fill, not a ceiling on output. Adding a `coverage_required: bool` opt-out flag is deliberately deferred — users wanting v1's no-coverage sampler can use `pair_builder_version=v1`. Detailed semantics in Section 4.2 "Coverage floor".
+18. **`metadata_coverage.json` is a per-run artifact, written by the CLI dispatch.** It is computed once after `df` is finalized and before split / CV branching, and saved to the run output dir (the parent of `fold_*/` in CV mode). `save_split_output_v2` does not write it. This keeps CV-vs-single-split branching out of the per-split saver and avoids redundant per-fold copies. Detail in §4.9 / §4.10 / §6.
+19. **v2 config validation reads raw config; runtime extraction may use defaults.** `_validate_v2_config` uses `OmegaConf.select` (returns `None` for absent keys) so "absent" and "explicitly set to a forbidden value" are distinguishable in error messages. Once validation passes, the runtime extraction code may use `getattr(config.dataset, key, <v2-appropriate default>)` as usual. The two patterns are deliberately separate; do not unify. Detail in §5.
+20. **`seq_hash → function` is a hard invariant in v2.** The seq_hash → function lookup raises `ValueError` if any seq_hash maps to >1 distinct function (treated as a Stage 1 preprocessing bug, not something v2 silently papers over). This is stronger than the warn-and-use-first policy applied to other axis values (host/year/etc.), because v2's slot semantics depend on function being well-defined per sequence. Detail in §4.3 / §4.4.
