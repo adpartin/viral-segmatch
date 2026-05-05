@@ -36,6 +36,10 @@ dataset:
   geo_location: null
   passage: null
 
+  # Plots
+  skip_esm_pca_plots: true    # If true, skip pair_pca_{concat,diff,prod,unit_diff}.png + pair_interaction_diagnostics.json
+  skip_kmer_pca_plots: false  # If true, skip kmer_pca_concat.png + kmer_pca_segments_{split}.png
+
 # Optimized training settings (see speed_up.md for benchmarks)
 # batch_size=128 + eval_train_metrics=false → 67% speedup on Lambda (single fold)
 # Full dataset: ~29s/epoch (vs 90s baseline), ~50 min/fold at 100 epochs

@@ -22,7 +22,7 @@ slot_transform_dims: null  # e.g., [1280, 512, 256] projection dimensions
 adapter_dims: null  # e.g., [128] this is the dimension of the adapter output
 
 # Feature source: which precomputed features to use
-feature_source: esm2  # esm2 | kmer
+feature_source: kmer  # esm2 | kmer
 
 # Feature scaling (applied before features enter the model).
 # - 'none' (default): pass raw features straight through.
