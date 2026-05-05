@@ -624,9 +624,7 @@ def _enrich_pairs_with_metadata(df: pd.DataFrame) -> pd.DataFrame:
     from src.utils.metadata_enrichment import load_flu_metadata
 
     meta = load_flu_metadata(project_root=project_root)
-    # hash_id == assembly_id in this pipeline; keep just the columns we stratify on.
-    meta = meta[['hash_id', 'host', 'hn_subtype', 'year']].rename(columns={'hash_id': 'assembly_id'})
-    meta['assembly_id'] = meta['assembly_id'].astype(str)
+    meta = meta[['assembly_id', 'host', 'hn_subtype', 'year']]
 
     out = df.copy()
     out['assembly_id_a'] = out['assembly_id_a'].astype(str)
