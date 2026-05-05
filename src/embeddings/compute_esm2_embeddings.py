@@ -77,7 +77,6 @@ print_config_summary(config)
 VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'embeddings')
-# USE_SELECTED_ONLY = config.embeddings.use_selected_only
 # MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
 MODEL_CKPT = config.embeddings.model_ckpt
 ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
