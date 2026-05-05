@@ -6,8 +6,7 @@
 # partitioning (isolates can appear in multiple splits, but pairs are unique to splits)
 hard_partition_isolates: true
 
-# Protein filtering strategy
-use_selected_only: true  # true = use selected_functions, false = use all proteins
+# Isolate sampling
 max_isolates_to_process: null  # null = use all isolates; int = deterministic isolate sampling
 
 # Plotting / post-processing
@@ -84,3 +83,28 @@ year_test: null   # e.g., [2024]
 # fold_id: used by launchers to select which fold dir to pass to the training script; null = ignored
 n_folds: null
 fold_id: null
+
+# Pair builder version
+# - v1 (default): original builder, supports unordered + schema_ordered modes, temporal split.
+# - v2: schema-mode-only builder with coverage-first negative sampling, within-split positive
+#       dedup, per-sequence exposure tracking, and metadata-axis annotations on every pair.
+#       Hard-codes pair_mode=schema_ordered, allow_same_func_negatives=false,
+#       canonicalize_pair_orientation=false, hard_partition_isolates=true. Does not yet
+#       support temporal split. See docs/plans/done/design_dataset_gen_v2.md.
+pair_builder_version: v1
+
+# v2-only: coverage-phase attempt cap. Each positive-pair seq gets up to this many tries
+# to find a valid negative partner before being logged as coverage_skipped.
+max_attempts_per_seq: 50
+
+# v2-only: metadata axes annotated on every pair as <axis>_a, <axis>_b, same_<axis>.
+axes_for_flags:
+  - hn_subtype
+  - host
+  - year
+  - geo_location
+  - passage
+
+# v2-only: placeholder for axis-quota sampling. Must be null (or empty); a non-empty
+# value raises NotImplementedError.
+axis_quotas: null
