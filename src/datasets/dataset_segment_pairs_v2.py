@@ -68,6 +68,9 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+pd.set_option('display.max_columns', None)
+pd.set_option('display.expand_frame_repr', 7)
+
 # Project root: src/datasets/dataset_segment_pairs_v2.py -> root
 _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
@@ -242,111 +245,122 @@ def create_positive_pairs_v2(
 # 4.2 create_negative_pairs_v2
 # ---------------------------------------------------------------------------
 def create_negative_pairs_v2(
-    df: pd.DataFrame,
-    pos_pairs: pd.DataFrame,
+    pos_df: pd.DataFrame,
     num_negatives: int,
-    isolate_ids: list,
     cooccur_pairs: set,
     schema_pair: Tuple[str, str],
     seed: int = 42,
     max_attempts_per_seq: int = 50,
     max_attempts_multiplier: int = 100,
     axis_quotas: Optional[dict] = None,
+    forbidden_pair_keys: Optional[set] = None,
     ) -> tuple[pd.DataFrame, dict]:
     """Generate negative pairs with a coverage-first two-phase sampler.
 
-    v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False
-    (impossible in schema mode), canonicalize_pair_orientation_enabled=False.
-    See dataset_segment_pairs.py (v1) for the configurable versions. v2 config
-    validation rejects any setting that contradicts these.
+    Operates entirely on `pos_df` (the within-split positive table from
+    `create_positive_pairs_v2` + the split partition). Under v2's strict
+    invariant (`pos_df['assembly_id_a'].is_unique`), each row is one
+    isolate's full schema-pair record: slot-A fields in `_a` columns and
+    slot-B fields in `_b` columns. Both the "self" side of a coverage pair
+    and the "partner" side are sourced from these rows -- no original `df`
+    is needed.
 
     Two phases:
-      1. Coverage phase: iterate every seq_hash appearing in `pos_pairs` (in
-         sorted order) and try up to `max_attempts_per_seq` to find a valid
-         negative partner from a different isolate. This guarantees every
-         positive-pair sequence appears in at least one negative (modulo
-         `seqs_with_zero_negatives`).
-      2. Fill phase: if the coverage phase produced fewer than `num_negatives`
-         pairs, top up using v1's random-sampling logic (sample two isolates,
-         one func_left from each, one func_right from the other) until
-         `num_negatives` is reached or `total_attempts` exhausts the budget.
+      1. Coverage phase: iterate every seq_hash in `pos_df` (sorted) and try
+         up to `max_attempts_per_seq` random partner isolates until at least
+         one accepted negative covers that seq. Guarantees every positive-
+         pair sequence appears in >=1 negative (modulo `coverage_skipped`).
+      2. Fill phase: if coverage produced fewer than `num_negatives`, top up
+         by sampling two distinct isolates and pairing the first's slot-A
+         row with the second's slot-B row, until quota is met or the attempt
+         budget exhausts.
 
-    Forward note: a future iteration may replace this with a multi-pass
-    round-robin sampler that bounds `max(neg_count) - min(neg_count) <= 1`
-    across all sequences. Not implemented now -- the simpler "every seq has
-    >=1 negative" guarantee is sufficient for the immediate evaluation needs.
+    Both phases route candidates through `_try_accept`, which short-circuits
+    on cooccur/duplicate-brc/duplicate-seq/forbidden_pair_keys before any
+    counter or list grows. Rejected candidates do not count toward either
+    phase's quota.
 
     Coverage floor (interaction with `num_negatives`): the minimum number of
     negatives this function will produce is
-    `max(|unique_slot_A_seqs|, |unique_slot_B_seqs|)` over `pos_pairs`. If
-    `num_negatives` falls below that, the coverage phase produces ~floor pairs
-    anyway and the fill phase becomes a no-op; `coverage_overrode_ratio` is
-    set to True and a warning is logged. See spec §4.2 "Coverage floor".
+    `max(|unique_slot_A_seqs|, |unique_slot_B_seqs|)` over `pos_df`. If
+    `num_negatives` falls below that, the coverage phase produces ~floor
+    pairs anyway and the fill phase becomes a no-op; `coverage_overrode_ratio`
+    is set to True and a warning is logged.
+
+    forbidden_pair_keys: optional set of canonical pair_keys that must not
+    appear in the output. Used by `split_dataset_v2` to thread already-
+    generated negatives from previous splits through subsequent calls,
+    making cross-split neg-neg collisions impossible by construction. If
+    None or empty, behaves identically to the prior independent-per-split
+    behavior. Rejections via this set are counted under
+    `cross_split_collision` in rejection_stats.
 
     Returns:
-        (neg_df, rejection_stats). rejection_stats includes the v1 schema-mode
-        keys (blocked_cooccur, duplicate_brc, duplicate_seq, missing_left_func,
-        missing_right_func, total_attempts) and v2-specific keys
-        (requested_negatives, min_required_for_coverage, coverage_phase_pairs,
-        fill_phase_pairs, achieved_negatives, coverage_overrode_ratio,
-        coverage_skipped, seqs_with_zero_negatives).
+        (neg_df, rejection_stats). rejection_stats includes blocked_cooccur,
+        duplicate_brc, duplicate_seq, cross_split_collision, total_attempts,
+        coverage_skipped, and v2 keys: requested_negatives,
+        min_required_for_coverage, coverage_phase_pairs, fill_phase_pairs,
+        achieved_negatives, coverage_overrode_ratio, seqs_with_zero_negatives.
     """
-    # ipdb.set_trace(context=10)
-    func_left, func_right = _validate_schema_pair(schema_pair, "create_negative_pairs_v2")
+    # Slot identity is carried by the _a/_b columns of pos_df, so we no longer
+    # need func_left / func_right inside this function. The call is kept for
+    # its side effect: rejecting a malformed schema_pair early.
+    _validate_schema_pair(schema_pair, "create_negative_pairs_v2")
     if axis_quotas is not None and len(axis_quotas) > 0:
         raise NotImplementedError("axis_quotas not yet supported; pass None")
+    if len(pos_df) == 0:
+        raise ValueError("create_negative_pairs_v2: pos_df is empty; nothing to generate negatives for.")
 
-    rng = random.Random(seed) # noqa: F841
+    rng = random.Random(seed)
     t_setup = time.time()
-    print(f"[diag] create_negative_pairs_v2: setup start "
-          f"(|df|={len(df):,}, |pos_pairs|={len(pos_pairs):,}, "
-          f"|isolate_ids|={len(isolate_ids):,})", flush=True)
+    print(f"[diag] create_negative_pairs_v2: setup start (|pos_df|={len(pos_df):,})", flush=True)
 
-    # Build per-isolate function buckets exactly as v1's schema-mode branch does.
-    df_subset = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
-    isolate_groups = {aid: list(grp.itertuples()) for aid, grp in df_subset.groupby('assembly_id')}
-    isolate_func_groups = {
-        aid: {
-            func_left: [r for r in rows if r.function == func_left],
-            func_right: [r for r in rows if r.function == func_right],
-        }
-        for aid, rows in isolate_groups.items()
-    }
-    print(f"[diag] create_negative_pairs_v2: isolate_func_groups built in "
-          f"{time.time()-t_setup:.2f}s ({len(isolate_func_groups):,} isolates).", flush=True)
-
-    # Coverage targets: seq_hashes appearing in slot A (func_left) and slot B
-    # (func_right) of pos_pairs. In schema mode the slot is determined by
-    # function, so the two sets have disjoint keys (a func_left seq only
-    # appears in target_seqs_left).
-    if len(pos_pairs) > 0:
-        target_seqs_left = set(pos_pairs.loc[:, 'seq_hash_a'].tolist())
-        target_seqs_right = set(pos_pairs.loc[:, 'seq_hash_b'].tolist())
-    else:
-        target_seqs_left = set()
-        target_seqs_right = set()
+    # Coverage targets: seq_hashes appearing in slot A and slot B of pos_df.
+    # In schema mode each seq_hash has exactly one function, so
+    # target_seqs_left and target_seqs_right are disjoint.
+    target_seqs_left = set(pos_df['seq_hash_a'].tolist())
+    target_seqs_right = set(pos_df['seq_hash_b'].tolist())
+    shared = target_seqs_left & target_seqs_right
+    if shared:
+        offenders = list(shared)[:5]
+        raise ValueError(
+            f"create_negative_pairs_v2: {len(shared)} seq_hash(es) appear in both "
+            f"slot A and slot B (e.g., {offenders})."
+        )
 
     neg_count_a: dict = {s: 0 for s in target_seqs_left}
     neg_count_b: dict = {s: 0 for s in target_seqs_right}
 
-    # seq_hash -> set of assembly_ids it appears in (across the FULL df, not
-    # the split-restricted subset, because biological duplicates outside the
-    # split still count as "same sequence").
-    t_s2i = time.time()
+    # Single pass over pos_df builds:
+    #   isolate_to_row     - aid -> the row for that isolate (it's 1:1)
+    #   seq_hash_to_row    - seq -> first row in which it appears (used as the
+    #                        "self" representative in the coverage phase) --> NOTE. What if a seq appears in multiple isolates? We could pick one at random, but that would add complexity and non-determinism. Instead we just take the first, which is deterministic but arbitrary. This means some isolates get favored as coverage partners over others; we can later analyze the distribution of coverage partners per isolate to see if this is a problem.
+    #   seq_to_isolates    - seq -> set of in-split isolates that contain it.
+    #                        Used to exclude same-seq isolates when picking a
+    #                        partner. Built from pos_df only. 
+    isolate_to_row: dict = {}
+    seq_hash_to_row: dict = {}
     seq_to_isolates: dict = {}
-    for r in df.itertuples():
-        s = r.seq_hash
-        a = r.assembly_id
-        if s in seq_to_isolates:
-            seq_to_isolates[s].add(a)
-        else:
-            seq_to_isolates[s] = {a}
-    print(f"[diag] create_negative_pairs_v2: seq_to_isolates built in "
-          f"{time.time()-t_s2i:.2f}s ({len(seq_to_isolates):,} unique seq_hashes).", flush=True)
+    for row in pos_df.itertuples(index=False):
+        # pos_df[['assembly_id_a', 'assembly_id_b', 'seq_hash_a', 'seq_hash_b']][:5]
+        aid = row.assembly_id_a
+        # isolate_to_row{aid: row}
+        isolate_to_row[aid] = row
+        # seq_hash_to_row{seq_hash: row}; seq_hash_to_row.keys()=[seq_hash_a row 1, seq_hash_b row 1, seq_hash_a row 2, seq_hash_b row 2, ...]
+        seq_hash_to_row.setdefault(row.seq_hash_a, row)
+        seq_hash_to_row.setdefault(row.seq_hash_b, row)
+        # seq_to_isolates{seq_hash: set(isolates_with_that_seq)}; seq_to_isolates.keys()=[seq_hash_a_row_1, seq_hash_b_row_1, seq_hash_a_row_2, ...]
+        seq_to_isolates.setdefault(row.seq_hash_a, set()).add(aid)
+        seq_to_isolates.setdefault(row.seq_hash_b, set()).add(aid)
+    isolate_ids_list = sorted(isolate_to_row.keys())
+    print(f"[diag] create_negative_pairs_v2: setup done in "
+          f"{time.time()-t_setup:.2f}s ({len(isolate_ids_list):,} isolates, "
+          f"{len(seq_to_isolates):,} unique seq_hashes across slot A + slot B).", flush=True)
 
-    # Coverage floor: max(|unique_slot_A|, |unique_slot_B|). Each negative pair
+    # Coverage floor: max(|unique_slot_A|, |unique_slot_B|). Each negative
     # contributes one A-coverage and one B-coverage simultaneously, so the
     # floor is governed by whichever side has more unique sequences.
+    # print('left unique seqs:', len(target_seqs_left), 'right unique seqs:', len(target_seqs_right))
     min_required_for_coverage = max(len(target_seqs_left), len(target_seqs_right))
     requested_negatives = int(num_negatives)
     coverage_overrode_ratio = min_required_for_coverage > requested_negatives
@@ -360,150 +374,120 @@ def create_negative_pairs_v2(
 
     seen_pairs: set = set()
     seen_seq_pairs: set = set()
+    # forbidden_pair_keys is the set of canonical pair_keys already produced
+    # in earlier (cross-split) calls. Treat None as empty-set so the check
+    # is a uniform set membership test below.
+    _forbidden = forbidden_pair_keys if forbidden_pair_keys is not None else set()
     rejection_stats: dict = {
         'blocked_cooccur': 0,
         'duplicate_brc': 0,
         'duplicate_seq': 0,
-        'missing_left_func': 0,
-        'missing_right_func': 0,
+        'cross_split_collision': 0,
         'total_attempts': 0,
         'coverage_skipped': [],
     }
     neg_pairs: list[dict] = []
 
-    def _build_pair_dct(row_a, row_b) -> dict:
+    def _build_neg_pair(a_src, b_src) -> dict:
+        """Build a negative pair dict using slot-A fields from a_src and
+        slot-B fields from b_src. Both args are pos_df itertuples rows."""
         return {
-            'pair_key': canonical_pair_key(row_a.seq_hash, row_b.seq_hash),
-            'assembly_id_a': row_a.assembly_id, 'assembly_id_b': row_b.assembly_id,
-            'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-            'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
-            'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
-            'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-            'dna_seq_a': getattr(row_a, 'dna_seq', None),
-            'dna_seq_b': getattr(row_b, 'dna_seq', None),
-            'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-            'func_a': row_a.function, 'func_b': row_b.function,
-            'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-            'dna_hash_a': getattr(row_a, 'dna_hash', None),
-            'dna_hash_b': getattr(row_b, 'dna_hash', None),
+            'pair_key': canonical_pair_key(a_src.seq_hash_a, b_src.seq_hash_b),
+            'assembly_id_a': a_src.assembly_id_a,
+            'assembly_id_b': b_src.assembly_id_a,  # b_src's home isolate
+            'brc_a': a_src.brc_a, 'brc_b': b_src.brc_b,
+            'ctg_a': a_src.ctg_a, 'ctg_b': b_src.ctg_b,
+            'seq_a': a_src.seq_a, 'seq_b': b_src.seq_b,
+            'dna_seq_a': a_src.dna_seq_a, 'dna_seq_b': b_src.dna_seq_b,
+            'seg_a': a_src.seg_a, 'seg_b': b_src.seg_b,
+            'func_a': a_src.func_a, 'func_b': b_src.func_b,
+            'seq_hash_a': a_src.seq_hash_a, 'seq_hash_b': b_src.seq_hash_b,
+            'dna_hash_a': a_src.dna_hash_a, 'dna_hash_b': b_src.dna_hash_b,
             'label': 0,
         }
 
-    def _try_accept(row_a, row_b) -> bool:
-        """Apply the same rejection checks as v1 schema mode. Returns True if
-        the pair was accepted (and side-effects: appended to neg_pairs, seen_*
-        sets updated, neg_count_a/b incremented)."""
-        brc_pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))
+    def _try_accept(a_src, b_src) -> bool:
+        """Apply rejection checks. Returns True iff the pair was accepted (and
+        side-effects: appended to neg_pairs, seen_* sets updated, neg_count_a/b
+        incremented). Rejection short-circuits before any side effect, so a
+        rejected candidate never counts toward a phase quota."""
+        brc_pair_key = tuple(sorted([a_src.brc_a, b_src.brc_b]))
         if brc_pair_key in seen_pairs:
             rejection_stats['duplicate_brc'] += 1
             return False
-        seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
+        seq_pair_key = canonical_pair_key(a_src.seq_hash_a, b_src.seq_hash_b)
         if seq_pair_key in cooccur_pairs:
             rejection_stats['blocked_cooccur'] += 1
             return False
         if seq_pair_key in seen_seq_pairs:
             rejection_stats['duplicate_seq'] += 1
             return False
-        # Schema orientation is correct by construction (we picked func_left
-        # for slot A and func_right for slot B); no orient_pair_by_schema swap
-        # is needed.
-        neg_pairs.append(_build_pair_dct(row_a, row_b))
+        if seq_pair_key in _forbidden:
+            # Already produced as a negative in an earlier (cross-split) call.
+            # Reject to keep splits' pair_key sets disjoint by construction.
+            rejection_stats['cross_split_collision'] += 1
+            return False
+        # Schema orientation is correct by construction (slot A = func_left,
+        # slot B = func_right); no orientation swap needed.
+        neg_pairs.append(_build_neg_pair(a_src, b_src))
         seen_pairs.add(brc_pair_key)
         seen_seq_pairs.add(seq_pair_key)
-        if row_a.seq_hash in neg_count_a:
-            neg_count_a[row_a.seq_hash] += 1
-        if row_b.seq_hash in neg_count_b:
-            neg_count_b[row_b.seq_hash] += 1
+        if a_src.seq_hash_a in neg_count_a:
+            neg_count_a[a_src.seq_hash_a] += 1
+        if b_src.seq_hash_b in neg_count_b:
+            neg_count_b[b_src.seq_hash_b] += 1
         return True
 
     # ---- Coverage phase --------------------------------------------------
-    isolate_ids_list = sorted(isolate_ids)
-    isolate_ids_set = set(isolate_ids_list)
-
-    # seq_hash -> function lookup (used to determine which slot a target seq
-    # belongs to). Hard error if any seq_hash maps to >1 function -- v2 slot
-    # semantics depend on this invariant. See spec §4.3 / §4.4.
-    seq_to_func = _build_seq_to_func(df)
-
-    # Pre-compute seq_hash -> first row in df_subset. We need a concrete row
-    # for the "self" representative when constructing each negative pair (the
-    # pair dict includes per-row metadata: brc_fea_id, prot_seq, segment,
-    # etc.). Doing `df_subset[df_subset['seq_hash'] == s]` per target seq is
-    # O(|df_subset|) -> 50K target seqs x 700K rows = 35B ops on a real flu
-    # train split. Pre-build the dict once.
-    seq_hash_to_row: dict = {}
-    for row in df_subset.itertuples():
-        seq_hash_to_row.setdefault(row.seq_hash, row)
-
+    # ipdb.set_trace(context=10)
+    # print('left unique seqs:', len(target_seqs_left), 'right unique seqs:', len(target_seqs_right))
     target_union = sorted(target_seqs_left | target_seqs_right)
     n_targets = len(target_union)
     print(f"\nCoverage phase: {n_targets:,} target seqs to cover "
           f"(min_required_for_coverage={min_required_for_coverage:,}).", flush=True)
     progress_step = max(n_targets // 20, 1)  # ~20 progress prints
-    coverage_phase_pairs_start = 0  # always 0; coverage phase fills neg_pairs from empty
     for i, s in enumerate(target_union):
         if i > 0 and i % progress_step == 0:
             print(f"  coverage phase: {i:,}/{n_targets:,} target seqs "
                   f"({100.0*i/n_targets:.1f}%); accepted={len(neg_pairs):,}, "
                   f"attempts={rejection_stats['total_attempts']:,}", flush=True)
-        s_func = seq_to_func.get(s)
-        if s_func == func_left:
+        # Slot membership: target_seqs_left and target_seqs_right are disjoint
+        # (validated above), so set membership unambiguously identifies the slot.
+        if s in target_seqs_left:
             if neg_count_a.get(s, 0) > 0:
                 continue
-            partner_bucket = func_right
             s_in_left = True
-        elif s_func == func_right:
+        else:
             if neg_count_b.get(s, 0) > 0:
                 continue
-            partner_bucket = func_left
             s_in_left = False
-        else:
-            # Shouldn't happen: pos_pairs sourced from df, and seq_to_func is
-            # built from df. Skip defensively.
-            rejection_stats['coverage_skipped'].append((s, 'unknown_function'))
-            continue
 
         excluded = seq_to_isolates.get(s, set())
-        # Restrict `excluded` to this split's isolate set, so the early-bail
-        # check ("`s` is in every isolate of this split") is accurate. O(|excluded|).
-        excluded_in_split = excluded & isolate_ids_set
-        if len(excluded_in_split) >= len(isolate_ids_list):
+        if len(excluded) >= len(isolate_ids_list):
             # No isolate in this split lacks `s` -> no possible negative partner.
             rejection_stats['coverage_skipped'].append((s, 'no_other_isolate'))
             continue
 
-        s_row = seq_hash_to_row.get(s)
-        if s_row is None:
-            # s appears in pos_pairs but not in df_subset (the split-restricted
-            # data). Should not happen if pos_pairs were generated from a
-            # subset of df_subset. Defensive skip.
-            rejection_stats['coverage_skipped'].append((s, 'no_row_for_seq'))
-            continue
+        # seq_hash_to_row is built from pos_df itself, so a target seq always
+        # has a self-row; no defensive miss check needed.
+        s_row = seq_hash_to_row[s]
 
         accepted = False
         for _attempt in range(max_attempts_per_seq):
             rejection_stats['total_attempts'] += 1
-            # Sample-and-reject: |excluded_in_split| is typically ~1 vs |isolate_ids|=86K,
-            # so the rejection rate is negligible. This avoids rebuilding a filtered
-            # candidate list O(N) per attempt.
+            # Sample-and-reject: |excluded| is typically small relative to
+            # |isolate_ids_list|, so the same-seq rejection rate is negligible.
             other_aid = rng.choice(isolate_ids_list)
-            if other_aid in excluded_in_split:
+            if other_aid in excluded:
                 continue
-            partner_rows = isolate_func_groups.get(other_aid, {}).get(partner_bucket, [])
-            if not partner_rows:
-                if partner_bucket == func_right:
-                    rejection_stats['missing_right_func'] += 1
-                else:
-                    rejection_stats['missing_left_func'] += 1
-                continue
-            partner_row = rng.choice(partner_rows)
+            other_row = isolate_to_row[other_aid]
 
             if s_in_left:
-                row_a, row_b = s_row, partner_row
+                a_src, b_src = s_row, other_row
             else:
-                row_a, row_b = partner_row, s_row
+                a_src, b_src = other_row, s_row
 
-            if _try_accept(row_a, row_b):
+            if _try_accept(a_src, b_src):
                 accepted = True
                 break
 
@@ -512,11 +496,12 @@ def create_negative_pairs_v2(
             if len(rejection_stats['coverage_skipped']) < 100:
                 rejection_stats['coverage_skipped'].append((s, 'attempts_exhausted'))
 
-    coverage_phase_pairs = len(neg_pairs) - coverage_phase_pairs_start
+    coverage_phase_pairs = len(neg_pairs)
     print(f"Coverage phase complete: {coverage_phase_pairs:,} negatives produced "
           f"({rejection_stats['total_attempts']:,} attempts).", flush=True)
 
     # ---- Fill phase ------------------------------------------------------
+    # ipdb.set_trace(context=10)
     fill_phase_target = max(requested_negatives, 0)
     max_total_attempts = rejection_stats['total_attempts'] + max(
         fill_phase_target * max_attempts_multiplier, 1
@@ -533,17 +518,7 @@ def create_negative_pairs_v2(
         if len(isolate_ids_list) < 2:
             break
         aid1, aid2 = rng.sample(isolate_ids_list, 2)
-        left_candidates = isolate_func_groups[aid1][func_left]
-        if not left_candidates:
-            rejection_stats['missing_left_func'] += 1
-            continue
-        right_candidates = isolate_func_groups[aid2][func_right]
-        if not right_candidates:
-            rejection_stats['missing_right_func'] += 1
-            continue
-        row_a = rng.choice(left_candidates)
-        row_b = rng.choice(right_candidates)
-        _try_accept(row_a, row_b)
+        _try_accept(isolate_to_row[aid1], isolate_to_row[aid2])
 
     fill_phase_pairs = len(neg_pairs) - coverage_phase_pairs
 
@@ -554,13 +529,8 @@ def create_negative_pairs_v2(
             f"sequence overlap across isolates."
         )
 
-    seqs_with_zero_negatives: list = []
-    for s, c in neg_count_a.items():
-        if c == 0 and len(seqs_with_zero_negatives) < 100:
-            seqs_with_zero_negatives.append(s)
-    for s, c in neg_count_b.items():
-        if c == 0 and len(seqs_with_zero_negatives) < 100:
-            seqs_with_zero_negatives.append(s)
+    seqs_with_zero_negatives = [s for s, c in neg_count_a.items() if c == 0]
+    seqs_with_zero_negatives.extend(s for s, c in neg_count_b.items() if c == 0)
 
     rejection_stats['requested_negatives'] = int(requested_negatives)
     rejection_stats['min_required_for_coverage'] = int(min_required_for_coverage)
@@ -570,7 +540,45 @@ def create_negative_pairs_v2(
     rejection_stats['coverage_overrode_ratio'] = bool(coverage_overrode_ratio)
     rejection_stats['seqs_with_zero_negatives'] = seqs_with_zero_negatives
 
+    # Hard coverage check: every seq_hash in pos_df (slot A or slot B) must
+    # appear in at least one negative pair. Reasons for failure are recorded
+    # in rejection_stats['coverage_skipped']: 'no_other_isolate' (s exists in
+    # every isolate of the split, so no partner is possible) or
+    # 'attempts_exhausted' (max_attempts_per_seq budget too low).
+    if seqs_with_zero_negatives:
+        raise ValueError(
+            f"create_negative_pairs_v2: coverage guarantee violated -- "
+            f"{len(seqs_with_zero_negatives)} target seq(s) have zero negative "
+            f"pairs (first 5: {seqs_with_zero_negatives[:5]}). Inspect "
+            f"rejection_stats['coverage_skipped'] for the reason categories."
+        )
+
     neg_df = pd.DataFrame(neg_pairs, columns=_PAIR_COLUMNS) if neg_pairs else pd.DataFrame(columns=_PAIR_COLUMNS)
+
+    """
+    ipdb.set_trace(context=10)
+    a_counts = neg_df['seq_hash_a'].value_counts()  # Series: seq_hash → count
+    b_counts = neg_df['seq_hash_b'].value_counts()
+
+    print(a_counts.describe())   # min/25%/50%/75%/max for slot A
+    print(b_counts.describe())
+    print(f"slot A: {(a_counts == 0).sum()} uncovered")  # should be 0 after our hard check
+    print(f"slot B: {(b_counts == 0).sum()} uncovered")
+
+    # Tidy two-column report per seq_hash and slot:
+    prev = pd.concat([
+        a_counts.rename('n_as_slot_a'),
+        b_counts.rename('n_as_slot_b'),
+    ], axis=1).fillna(0).astype(int)
+    prev['total'] = prev.sum(axis=1)
+    prev.sort_values('total', ascending=False).head(20)  # most-used seqs
+
+    # For coverage vs. positives sanity (every pos seq should be in the index):
+    pos_a = set(pos_df['seq_hash_a'])
+    pos_b = set(pos_df['seq_hash_b'])
+    print('slot-A pos seqs missing from neg:', len(pos_a - set(a_counts.index)))
+    print('slot-B pos seqs missing from neg:', len(pos_b - set(b_counts.index)))
+    """
     return neg_df, rejection_stats
 
 
@@ -599,8 +607,6 @@ def compute_exposure_stats(
     ) -> pd.DataFrame:
     """Per-sequence exposure table for one split.
 
-    pair_mode is not a parameter -- v2 is schema-mode only.
-
     Returns a DataFrame with one row per seq_hash that appears in pos_pairs OR
     neg_pairs. Columns: seq_hash, function, assembly_ids (list), n_pos_slot_a,
     n_pos_slot_b, n_pos_total, n_neg_slot_a, n_neg_slot_b, n_neg_total,
@@ -611,63 +617,64 @@ def compute_exposure_stats(
     """
     seq_to_func = _build_seq_to_func(df)
 
-    # Build seq_hash -> sorted list of assembly_ids from df (full data, not
-    # just the split). Biological duplicates may span isolates outside the
-    # split; we report all assembly_ids for transparency.
-    seq_to_assemblies: dict = {}
-    for r in df.itertuples():
-        s = r.seq_hash
-        a = r.assembly_id
-        if s in seq_to_assemblies:
-            seq_to_assemblies[s].add(a)
-        else:
-            seq_to_assemblies[s] = {a}
+    # seq_hash -> sorted list of assembly_ids that contain it (full data, not
+    # just this split -- biological duplicates outside the split are reported
+    # for transparency). Sort once globally before groupby so each group's
+    # list comes out sorted without a per-group lambda.
+    seq_to_assemblies = (
+        df[['seq_hash', 'assembly_id']]
+          .drop_duplicates()
+          .sort_values(['seq_hash', 'assembly_id'])
+          .groupby('seq_hash')['assembly_id']
+          .agg(list)
+          .to_dict()
+    )
 
-    # Counts per slot
-    counters: dict = {}
+    # Per-slot, per-label counts via value_counts (vectorized; no Python loop).
+    # Each Series is indexed by seq_hash; concat aligns on the union of keys.
+    def _slot_counts(pairs_df: pd.DataFrame, slot: str, label: str) -> pd.Series:
+        name = f'n_{label}_slot_{slot}'
+        if len(pairs_df) == 0:
+            return pd.Series(dtype=int, name=name)
+        return pairs_df[f'seq_hash_{slot}'].value_counts().rename(name)
 
-    def _bump(s: str, slot: str, label: int):
-        d = counters.setdefault(s, {
-            'n_pos_slot_a': 0, 'n_pos_slot_b': 0,
-            'n_neg_slot_a': 0, 'n_neg_slot_b': 0,
-        })
-        if label == 1:
-            d['n_pos_slot_a' if slot == 'a' else 'n_pos_slot_b'] += 1
-        else:
-            d['n_neg_slot_a' if slot == 'a' else 'n_neg_slot_b'] += 1
+    counts = pd.concat(
+        [
+            _slot_counts(pos_pairs, 'a', 'pos'),
+            _slot_counts(pos_pairs, 'b', 'pos'),
+            _slot_counts(neg_pairs, 'a', 'neg'),
+            _slot_counts(neg_pairs, 'b', 'neg'),
+        ],
+        axis=1,
+    ).fillna(0).astype(int)
 
-    for df_pairs, label in [(pos_pairs, 1), (neg_pairs, 0)]:
-        if len(df_pairs) == 0:
-            continue
-        for r in df_pairs[['seq_hash_a', 'seq_hash_b']].itertuples(index=False):
-            _bump(r.seq_hash_a, 'a', label)
-            _bump(r.seq_hash_b, 'b', label)
+    out_cols = [
+        'seq_hash', 'function', 'assembly_ids',
+        'n_pos_slot_a', 'n_pos_slot_b', 'n_pos_total',
+        'n_neg_slot_a', 'n_neg_slot_b', 'n_neg_total',
+        'exposure',
+    ]
+    if len(counts) == 0:
+        return pd.DataFrame(columns=out_cols)
 
-    rows: list[dict] = []
-    for s, c in counters.items():
-        n_pos_total = c['n_pos_slot_a'] + c['n_pos_slot_b']
-        n_neg_total = c['n_neg_slot_a'] + c['n_neg_slot_b']
-        if n_pos_total == 0 and n_neg_total == 0:
-            continue
-        if n_pos_total > 0 and n_neg_total > 0:
-            exposure = 'dual'
-        elif n_pos_total > 0:
-            exposure = 'pos_only'
-        else:
-            exposure = 'neg_only'
-        rows.append({
-            'seq_hash': s,
-            'function': seq_to_func.get(s),
-            'assembly_ids': sorted(seq_to_assemblies.get(s, [])),
-            'n_pos_slot_a': c['n_pos_slot_a'],
-            'n_pos_slot_b': c['n_pos_slot_b'],
-            'n_pos_total': n_pos_total,
-            'n_neg_slot_a': c['n_neg_slot_a'],
-            'n_neg_slot_b': c['n_neg_slot_b'],
-            'n_neg_total': n_neg_total,
-            'exposure': exposure,
-        })
-    return pd.DataFrame(rows)
+    counts.index.name = 'seq_hash'
+    counts['n_pos_total'] = counts['n_pos_slot_a'] + counts['n_pos_slot_b']
+    counts['n_neg_total'] = counts['n_neg_slot_a'] + counts['n_neg_slot_b']
+
+    has_pos = counts['n_pos_total'] > 0
+    has_neg = counts['n_neg_total'] > 0
+    exposure = pd.Series('neg_only', index=counts.index, dtype='object')
+    exposure[has_pos & has_neg] = 'dual'
+    exposure[has_pos & ~has_neg] = 'pos_only'
+    counts['exposure'] = exposure
+
+    # Defensive: a seq_hash present in pairs but absent from df gets None /
+    # [] (matches the old code's `.get(s)` / `.get(s, [])` semantics). Under
+    # v2 strict mode this can't happen, but preserve the contract.
+    counts['function'] = [seq_to_func.get(s) for s in counts.index]
+    counts['assembly_ids'] = [seq_to_assemblies.get(s, []) for s in counts.index]
+
+    return counts.reset_index()[out_cols]
 
 
 # ---------------------------------------------------------------------------
@@ -698,40 +705,52 @@ def compute_axis_flags(
     if len(out) == 0:
         return out
 
-    # Per-seq metadata: take first non-null per axis. Warn on conflicts.
-    df_for_lookup = df[['seq_hash'] + [c for c in df.columns if c != 'seq_hash']].copy()
-
     for axis in axes:
         col = axis
-        if col not in df_for_lookup.columns:
+        if col not in df.columns:
             # Try the geo_location_clean alias for the geo_location axis name.
-            if axis == 'geo_location' and 'geo_location_clean' in df_for_lookup.columns:
+            if axis == 'geo_location' and 'geo_location_clean' in df.columns:
                 col = 'geo_location_clean'
             else:
                 # Axis missing: skip (matches v2 spec §5 "axis missing -> warn,
-                # drop, continue"). Warn once.
+                # drop, continue").
                 print(f"WARNING: axis {axis!r} not present in df; skipping axis flags.")
                 continue
 
-        # seq_hash -> first-non-null value lookup
-        per_hash = df_for_lookup.groupby('seq_hash')[col].agg(
-            lambda s: s.dropna().iloc[0] if s.notna().any() else None
-        )
+        # Per-seq metadata: drop nulls first, then groupby once and reuse for
+        # both the lookup and the conflict check. Vectorized: no Python lambda.
+        grouped = df.dropna(subset=[col]).groupby('seq_hash')[col]
+        per_hash = grouped.first()
 
-        # Conflict check: log warning if any seq_hash has >1 distinct value
-        # (across non-null observations).
-        conflict_count = (
-            df_for_lookup.dropna(subset=[col])
-            .groupby('seq_hash')[col]
-            .nunique()
-            .gt(1)
-            .sum()
-        )
+        # Conflict detection: a single seq_hash mapping to >1 distinct values
+        # for this axis is EXPECTED biology, not a data bug.
+        #
+        # `seq_hash = md5(prot_seq)` collapses identical amino-acid sequences
+        # into the same key. The same protein can appear in mulitple isolates
+        # whose metadata differs for legitimate biological reasons:
+        #   - host:         cross-host transmission (avian -> human, swine -> human, ...)
+        #   - year:         conserved sequences observed across multiple years
+        #   - geo_location: strains that spread across continents
+        #   - hn_subtype:   same HA paired with different N partner (e.g., H1N1 and H1N2 share HA)
+        #   - passage:      same isolate annotated with different passage histories
+        # So a "conflict" here means the seq is shared across diverse contexts,
+        # which is normal for viral surveillance data.
+        #
+        # Implication for `<axis>_a` / `<axis>_b` / `same_<axis>`: we resolve
+        # to ONE value per seq via .first(), anchoring the annotation to
+        # whichever isolate appeared first in row order. Deterministic but
+        # arbitrary in the conflict case. So `same_<axis>` compares seq-level
+        # annotations, not pair-level isolate annotations -- it can disagree
+        # with what the two source isolates of the pair actually had. For a
+        # stricter pair-level comparison, look up by assembly_id_a/_b on the
+        # pair (every pair already carries both) instead of by seq_hash_a/_b.
+        conflict_count = grouped.nunique().gt(1).sum()
         if conflict_count > 0:
             print(
-                f"WARNING: {conflict_count} seq_hash(es) have multiple distinct values "
-                f"for axis {axis!r} across their source rows -- using first non-null. "
-                f"This indicates upstream metadata inconsistency."
+                f"axis {axis!r}: {conflict_count} seq_hash(es) appear across "
+                f"isolates with multiple distinct values. Expected for "
+                f"sequences shared across hosts/years/regions/subtypes/passages "
+                f"(biology, not a data bug). Using first non-null per seq."
             )
 
         a_vals = out['seq_hash_a'].map(per_hash)
@@ -739,15 +758,12 @@ def compute_axis_flags(
         out[f'{axis}_a'] = a_vals
         out[f'{axis}_b'] = b_vals
 
-        # same_<axis>: nullable boolean. True/False only when both non-null;
-        # pd.NA otherwise. Use a Python-level loop via mask logic (concise).
+        # same_<axis>: True iff both non-null and equal; False iff both non-null
+        # and different; pd.NA iff either side is null (two unknowns are not "same").
         both_present = a_vals.notna() & b_vals.notna()
-        equal = a_vals == b_vals
-        same_col = pd.Series([pd.NA] * len(out), dtype='object')
-        same_col[both_present & equal] = True
-        same_col[both_present & ~equal] = False
-        # Coerce to nullable boolean for clean serialization.
-        out[f'same_{axis}'] = pd.array(same_col.tolist(), dtype='boolean')
+        same = pd.Series(pd.NA, index=out.index, dtype='boolean')
+        same.loc[both_present] = (a_vals == b_vals).loc[both_present]
+        out[f'same_{axis}'] = same
 
     return out
 
@@ -804,7 +820,6 @@ def compute_metadata_coverage(
       - If neither the axis nor a known alias is present, the entry is
         `{'present': False}`.
     """
-    # breakpoint()
     out: dict = {}
     for axis in axes:
         col = axis
@@ -898,6 +913,18 @@ def split_dataset_v2(
       4. Negatives are generated per split via the coverage-first sampler
          (unchanged from prior v2).
 
+    NOTE/TODO: cross-split negative-negative pair_key collisions.
+    Positives are pair_key-disjoint across splits by construction (global
+    dedup gives each pair_key one home isolate). Negatives, however, are
+    sampled independently per split, so two splits can in principle produce
+    the same pair_key. The current code handles this with a post-hoc
+    overlap cleanup that drops the duplicates from val/test -- which can
+    silently void the per-seq coverage guarantee enforced inside
+    `create_negative_pairs_v2`. In practice no collisions have been
+    observed on Flu A so this is left as-is; if collisions show up, switch
+    to threading a `forbidden_pair_keys` set through the val/test calls so
+    overlap is impossible by construction.
+
     v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False,
     canonicalize_pair_orientation_enabled=False, hard_partition_isolates=True,
     drop_within_split_pos_duplicates=True. See dataset_segment_pairs.py (v1)
@@ -928,7 +955,7 @@ def split_dataset_v2(
     elif cooccur_stats is None:
         raise ValueError("cooccur_stats must be provided together with cooccur_pairs")
 
-    # Build the global positive pair table once, deduped to one row per unique
+    # Build the global positive pair dataframe once, deduped to one row per unique
     # pair_key with a deterministic representative assembly_id. The split is then
     # a partition of this table -- train/val/test are pair_key-disjoint by
     # construction, so no post-hoc cross-split overlap removal is needed.
@@ -952,7 +979,6 @@ def split_dataset_v2(
             f"v2 strict mode: {len(multi)} isolate(s) produce >1 pair_key after "
             f"global dedup. Schema-ordered v2 requires exactly one pair per isolate."
         )
-    ipdb.set_trace(context=10)  # debug breakpoint preserved from earlier session
 
     # Decide train/val/test membership.
     if train_isolates_override is not None:
@@ -994,56 +1020,55 @@ def split_dataset_v2(
               f"val={len(val_isolates):,}, test={len(test_isolates):,})", flush=True)
 
     # Generate negatives with coverage-first sampler.
+    # `forbidden_so_far` accumulates pair_keys produced in earlier splits and
+    # is threaded into subsequent calls. This makes cross-split neg-neg
+    # collisions impossible by construction (rather than relying on a
+    # post-hoc cleanup that silently voids the per-seq coverage guarantee).
+    # Order matters: train first, val next (forbidden = train), test last
+    # (forbidden = train | val).
     print("\nCreate negative pairs (coverage-first, schema mode)...", flush=True)
-    _t = time.time()
+    forbidden_so_far: set = set()
     train_neg, train_reject_stats = create_negative_pairs_v2(
-        df,
-        pos_pairs=train_pos,
+        pos_df=train_pos,
         num_negatives=int(len(train_pos) * neg_to_pos_ratio),
-        isolate_ids=train_isolates,
         cooccur_pairs=cooccur_pairs,
         schema_pair=schema_pair,
         seed=seed,
         max_attempts_per_seq=max_attempts_per_seq,
         max_attempts_multiplier=max_attempts_multiplier,
         axis_quotas=axis_quotas,
+        forbidden_pair_keys=forbidden_so_far,
     )
-    print(f"[diag] split_dataset_v2: create_negative_pairs_v2 train in {time.time()-_t:.2f}s "
+    print(f"split_dataset_v2: train negatives created: "
           f"({len(train_neg):,} pairs, {train_reject_stats.get('total_attempts', 0):,} attempts; "
           f"coverage={train_reject_stats['coverage_phase_pairs']:,}, "
           f"fill={train_reject_stats['fill_phase_pairs']:,})", flush=True)
+    forbidden_so_far |= set(train_neg['pair_key'])
 
-    _t = time.time()
     val_neg, val_reject_stats = create_negative_pairs_v2(
-        df,
-        pos_pairs=val_pos,
+        pos_df=val_pos,
         num_negatives=int(len(val_pos) * neg_to_pos_ratio),
-        isolate_ids=val_isolates,
         cooccur_pairs=cooccur_pairs,
         schema_pair=schema_pair,
         seed=seed,
         max_attempts_per_seq=max_attempts_per_seq,
         max_attempts_multiplier=max_attempts_multiplier,
         axis_quotas=axis_quotas,
+        forbidden_pair_keys=forbidden_so_far,
     )
-    print(f"[diag] split_dataset_v2: create_negative_pairs_v2 val in {time.time()-_t:.2f}s "
-          f"({len(val_neg):,} pairs)", flush=True)
+    forbidden_so_far |= set(val_neg['pair_key'])
 
-    _t = time.time()
     test_neg, test_reject_stats = create_negative_pairs_v2(
-        df,
-        pos_pairs=test_pos,
+        pos_df=test_pos,
         num_negatives=int(len(test_pos) * neg_to_pos_ratio),
-        isolate_ids=test_isolates,
         cooccur_pairs=cooccur_pairs,
         schema_pair=schema_pair,
         seed=seed,
         max_attempts_per_seq=max_attempts_per_seq,
         max_attempts_multiplier=max_attempts_multiplier,
         axis_quotas=axis_quotas,
+        forbidden_pair_keys=forbidden_so_far,
     )
-    print(f"[diag] split_dataset_v2: create_negative_pairs_v2 test in {time.time()-_t:.2f}s "
-          f"({len(test_neg):,} pairs)", flush=True)
 
     # Combine pos+neg per split, then attach axis flags, then compute exposure stats.
     train_pairs = pd.concat([train_pos, train_neg], ignore_index=True)
@@ -1063,102 +1088,90 @@ def split_dataset_v2(
 
     # Axis flag annotations.
     print("\nAttaching metadata-axis flags to pairs...")
-    _t = time.time()
     train_pairs = compute_axis_flags(train_pairs, df, axes=axes_for_flags)
     val_pairs = compute_axis_flags(val_pairs, df, axes=axes_for_flags)
     test_pairs = compute_axis_flags(test_pairs, df, axes=axes_for_flags)
-    print(f"[diag] split_dataset_v2: compute_axis_flags in {time.time()-_t:.2f}s", flush=True)
 
     # Exposure tables (computed on the pre-overlap-removal pos/neg DataFrames so
     # they reflect the actual rows that went into pair_key dedup).
-    _t = time.time()
+    # ipdb.set_trace(context=10)
+    print(f"Compute exposure stats", flush=True)
     train_exp = compute_exposure_stats(train_pos, train_neg, df)
     val_exp = compute_exposure_stats(val_pos, val_neg, df)
     test_exp = compute_exposure_stats(test_pos, test_neg, df)
-    print(f"[diag] split_dataset_v2: compute_exposure_stats in {time.time()-_t:.2f}s", flush=True)
+    # jj = test_exp[['seq_hash', 'function', 'n_pos_total', 'n_neg_total', 'exposure']]
+    # jj['n_pos_total'] - jj['n_neg_total']
 
-    # Cross-split pair_key overlap check (same logic as v1: keep in train,
-    # remove from val/test).
+    # Cross-split pair_key overlap check.
+    # Under v2's strict regime (global pos dedup + cooccur_pairs blocking pos
+    # vs neg + forbidden_pair_keys threading across split-level neg calls),
+    # train/val/test pair_keys are disjoint by construction. Any overlap here
+    # is a serious leakage condition: identical (seq_a, seq_b) negatives in
+    # two splits give the model the same (features, label) example in both
+    # training AND evaluation, silently inflating metrics. Treat as fatal.
     print("\nValidating pair_key partitioning...")
-    _t = time.time()
     train_pair_keys = set(train_pairs['pair_key'])
     val_pair_keys = set(val_pairs['pair_key'])
     test_pair_keys = set(test_pairs['pair_key'])
-    val_pairs_before = len(val_pairs)
-    test_pairs_before = len(test_pairs)
     train_val_key_overlap = train_pair_keys & val_pair_keys
     train_test_key_overlap = train_pair_keys & test_pair_keys
     val_test_key_overlap = val_pair_keys & test_pair_keys
-    total_key_overlap = len(train_val_key_overlap) + len(train_test_key_overlap) + len(val_test_key_overlap)
-
+    total_key_overlap = (
+        len(train_val_key_overlap)
+        + len(train_test_key_overlap)
+        + len(val_test_key_overlap)
+    )
     if total_key_overlap > 0:
-        train_val_pct = (len(train_val_key_overlap) / val_pairs_before * 100) if val_pairs_before > 0 else 0
-        train_test_pct = (len(train_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
-        val_test_pct = (len(val_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
-        print(f"   WARNING: Found {total_key_overlap} overlapping pair_keys across splits!")
-        print(f"      Train-Val:  {len(train_val_key_overlap)} ({train_val_pct:.2f}% of val)")
-        print(f"      Train-Test: {len(train_test_key_overlap)} ({train_test_pct:.2f}% of test)")
-        print(f"      Val-Test:   {len(val_test_key_overlap)} ({val_test_pct:.2f}% of test)")
-        val_pairs = val_pairs[~val_pairs['pair_key'].isin(train_val_key_overlap | val_test_key_overlap)]
-        test_pairs = test_pairs[~test_pairs['pair_key'].isin(train_test_key_overlap | val_test_key_overlap)]
-        val_removed = val_pairs_before - len(val_pairs)
-        test_removed = test_pairs_before - len(test_pairs)
-        val_removed_pct = (val_removed / val_pairs_before * 100) if val_pairs_before > 0 else 0
-        test_removed_pct = (test_removed / test_pairs_before * 100) if test_pairs_before > 0 else 0
-        print(f"   After removal: Train={len(train_pairs)}, "
-              f"Val={len(val_pairs)} (removed {val_removed}, {val_removed_pct:.2f}%), "
-              f"Test={len(test_pairs)} (removed {test_removed}, {test_removed_pct:.2f}%)")
-    else:
-        print(f"   No pair_key overlap detected. Train, Val, Test are mutually exclusive on pair_key.")
-    print(f"[diag] split_dataset_v2: pair_key validation in {time.time()-_t:.2f}s", flush=True)
+        raise ValueError(
+            f"Cross-split pair_key collision detected (LEAKAGE): "
+            f"train-val={len(train_val_key_overlap)}, "
+            f"train-test={len(train_test_key_overlap)}, "
+            f"val-test={len(val_test_key_overlap)}. "
+            f"This means identical (seq_a, seq_b) negatives appear in two "
+            f"splits, so the model would be evaluated on rows it trained on. "
+            f"forbidden_pair_keys threading across the per-split "
+            f"create_negative_pairs_v2 calls should make this impossible; "
+            f"if this fires, check that the running `forbidden_so_far` set "
+            f"is being passed and updated correctly between calls."
+        )
+    print("   No pair_key overlap. Train, Val, Test mutually exclusive on pair_key.")
 
     # Validate non-empty splits (preserved from v1).
     if len(train_pairs) == 0 or len(val_pairs) == 0 or len(test_pairs) == 0:
         raise ValueError('One or more sets are empty.')
 
-    # Check isolate overlap in pairs (preserved from v1; useful even with
-    # hard_partition_isolates hard-coded to True).
-    train_set = set(train_pairs['assembly_id_a']).union(set(train_pairs['assembly_id_b']))
-    val_set = set(val_pairs['assembly_id_a']).union(set(val_pairs['assembly_id_b']))
-    test_set = set(test_pairs['assembly_id_a']).union(set(test_pairs['assembly_id_b']))
-    train_val_overlap = train_set & val_set
-    train_test_overlap = train_set & test_set
-    val_test_overlap = val_set & test_set
-    if train_val_overlap or train_test_overlap or val_test_overlap:
-        print(f"Error: Overlap detected in isolate sets!")
-        if train_val_overlap:
-            print(f"Train-Val overlap: {train_val_overlap}")
-        if train_test_overlap:
-            print(f"Train-Test overlap: {train_test_overlap}")
-        if val_test_overlap:
-            print(f"Val-Test overlap: {val_test_overlap}")
-        raise ValueError("Isolate overlap detected in pair sets.")
+    # Defense-in-depth: under v2 strict mode (assembly_id_a.is_unique +
+    # row-level train_test_split + per-split negative sampling) the splits
+    # are isolate-disjoint by construction. A violation here means a deep
+    # regression in the split logic -- assert as a tripwire, do not handle.
+    train_set = set(train_pairs['assembly_id_a']) | set(train_pairs['assembly_id_b'])
+    val_set = set(val_pairs['assembly_id_a']) | set(val_pairs['assembly_id_b'])
+    test_set = set(test_pairs['assembly_id_a']) | set(test_pairs['assembly_id_b'])
+    assert not (train_set & val_set or train_set & test_set or val_set & test_set), \
+        "v2 invariant violated: isolate overlap across train/val/test"
 
     duplicate_stats = {
         'cooccur_stats': cooccur_stats,
         'train_reject_stats': train_reject_stats,
         'val_reject_stats': val_reject_stats,
         'test_reject_stats': test_reject_stats,
+        # pair_key_overlaps: schema preserved for the existing JSON consumer
+        # (downstream `duplicate_stats.json`). Under v2 strict mode the
+        # cross-split overlap assertion above guarantees these are all zero;
+        # any non-zero would have raised. The *_before_removal / *_after_removal
+        # fields are vestigial from the v1 cleanup model -- kept for backward
+        # compat, populated as before == after (no removal happens any more).
         'pair_key_overlaps': {
-            'train_val': {
-                'count': len(train_val_key_overlap),
-                'pct_of_val': (len(train_val_key_overlap) / val_pairs_before * 100) if val_pairs_before > 0 else 0,
-            },
-            'train_test': {
-                'count': len(train_test_key_overlap),
-                'pct_of_test': (len(train_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
-            },
-            'val_test': {
-                'count': len(val_test_key_overlap),
-                'pct_of_test': (len(val_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
-            },
-            'total_overlap': total_key_overlap,
-            'val_pairs_before_removal': val_pairs_before,
-            'test_pairs_before_removal': test_pairs_before,
+            'train_val':  {'count': 0, 'pct_of_val': 0},
+            'train_test': {'count': 0, 'pct_of_test': 0},
+            'val_test':   {'count': 0, 'pct_of_test': 0},
+            'total_overlap': 0,
+            'val_pairs_before_removal': len(val_pairs),
+            'test_pairs_before_removal': len(test_pairs),
             'val_pairs_after_removal': len(val_pairs),
             'test_pairs_after_removal': len(test_pairs),
-            'val_removed_pct': ((val_pairs_before - len(val_pairs)) / val_pairs_before * 100) if val_pairs_before > 0 else 0,
-            'test_removed_pct': ((test_pairs_before - len(test_pairs)) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
+            'val_removed_pct': 0,
+            'test_removed_pct': 0,
         },
         # Global pair_key dedup stats (one pass over the full df). In the
         # global-pos flow there is no within-split dedup — every pair_key has
@@ -1314,7 +1327,6 @@ def save_split_output_v2(
     that artifact has per-run scope and is written once by the CLI dispatch
     before split / CV branching.
     """
-    breakpoint()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Pair CSVs + parquets
