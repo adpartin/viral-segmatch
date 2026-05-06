@@ -55,6 +55,7 @@ Duplicate handling (canonical reference for the three cases)
    train).
 """
 
+import ipdb
 import json
 import random
 import sys
@@ -74,8 +75,7 @@ if str(_project_root) not in sys.path:
 
 from src.datasets._pair_helpers import (
     canonical_pair_key,
-    orient_pair_by_schema,
-    compute_isolate_pair_counts,
+    _validate_schema_pair,
     build_cooccurrence_set,
     get_metadata_distributions,
 )
@@ -106,10 +106,15 @@ _DEFAULT_AXES = ("host", "year", "hn_subtype", "geo_location", "passage")
 def create_positive_pairs_v2(
     df: pd.DataFrame,
     schema_pair: Tuple[str, str],
-    seed: int = 42,
+    # seed: int = 42,
     ) -> tuple[pd.DataFrame, dict]:
     """Generate within-isolate positive pairs in schema-ordered mode, then drop
     duplicate `pair_key` rows (within the input).
+
+    Vectorized via merge-on-`assembly_id`. Slot A is `func_left`, slot B is
+    `func_right` by construction (no post-hoc orientation needed). The previous
+    Python double-loop implementation is recoverable from git history (see
+    branch v2-pos-global-split).
 
     v2 hard-codes pair_mode='schema_ordered', drop_within_split_pos_duplicates=True,
     canonicalize_pair_orientation_enabled=False. See dataset_segment_pairs.py (v1)
@@ -121,8 +126,6 @@ def create_positive_pairs_v2(
         schema_pair: (func_left, func_right). func_left occupies slot A in every
             output pair; func_right occupies slot B. Must satisfy
             func_left != func_right.
-        seed: Reserved for symmetry with create_negative_pairs_v2; positive
-            generation is purely combinatorial and consumes no random draws.
 
     Returns:
         (pos_df, dedup_stats) where pos_df has the v1 positive-pair columns
@@ -130,81 +133,89 @@ def create_positive_pairs_v2(
         n_pos_before_dedup, n_pos_after_dedup, n_pos_duplicates_dropped, and
         a capped sample of duplicate_isolate_pairs for log readability.
     """
-    breakpoint()
-    if schema_pair is None or len(schema_pair) != 2:
-        raise ValueError("create_positive_pairs_v2 requires schema_pair=(func_left, func_right)")
-    func_left, func_right = schema_pair
-    if func_left == func_right:
-        raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
+    func_left, func_right = _validate_schema_pair(schema_pair, "create_positive_pairs_v2")
 
-    # Reserved for future random draws; matches v1 pattern (see v1 docstring).
-    rng = random.Random(seed)  # noqa: F841
-
-    pos_pairs: list[dict] = []
-    isolates_with_few_proteins: list[str] = []
-
+    empty_stats = {
+        'n_pos_before_dedup': 0,
+        'n_pos_after_dedup': 0,
+        'n_pos_duplicates_dropped': 0,
+        'duplicate_isolate_pairs': [],
+    }
     if len(df) == 0:
-        empty = pd.DataFrame(columns=_PAIR_COLUMNS)
-        return empty, {
-            'n_pos_before_dedup': 0,
-            'n_pos_after_dedup': 0,
-            'n_pos_duplicates_dropped': 0,
-            'duplicate_isolate_pairs': [],
-        }
+        return pd.DataFrame(columns=_PAIR_COLUMNS), empty_stats
 
-    for aid, grp in df.groupby('assembly_id'):
-        if len(grp) < 2:
-            isolates_with_few_proteins.append(aid)
-            continue
+    # All req_cols must be present; missing columns indicate an upstream
+    # regression (Stage 1 + attach_dna_to_prot_df should produce all nine).
+    # Padding with None would let k-mer / DNA features silently degrade.
+    req_cols = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq',
+                'dna_seq', 'canonical_segment', 'function', 'seq_hash', 'dna_hash']
+    missing = [c for c in req_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"create_positive_pairs_v2: df missing required columns: {missing}")
 
-        left_rows = [r for r in grp.itertuples() if r.function == func_left]
-        right_rows = [r for r in grp.itertuples() if r.function == func_right]
-        for row_a in left_rows:
-            for row_b in right_rows:
-                if row_a.brc_fea_id == row_b.brc_fea_id:
-                    raise AssertionError(
-                        f"Pair creation in isolate {aid}: duplicate brc_fea_id={row_a.brc_fea_id} "
-                        f"(must be unique per isolate; check Stage 1)."
-                    )
-                seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
-                dct = {
-                    'pair_key': seq_pair_key,
-                    'assembly_id_a': aid, 'assembly_id_b': aid,
-                    'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-                    'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
-                    'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
-                    'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-                    'dna_seq_a': getattr(row_a, 'dna_seq', None),
-                    'dna_seq_b': getattr(row_b, 'dna_seq', None),
-                    'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-                    'func_a': row_a.function, 'func_b': row_b.function,
-                    'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-                    'dna_hash_a': getattr(row_a, 'dna_hash', None),
-                    'dna_hash_b': getattr(row_b, 'dna_hash', None),
-                    'label': 1,
-                }
-                dct = orient_pair_by_schema(dct, func_left=func_left, func_right=func_right)
-                if dct is None:
-                    continue
-                pos_pairs.append(dct)
+    def _side(side_func: str, suffix: str) -> pd.DataFrame:
+        out = df.loc[df['function'] == side_func, req_cols].copy()
+        return out.rename(columns={
+            'brc_fea_id': f'brc_{suffix}',
+            'genbank_ctg_id': f'ctg_{suffix}',
+            'prot_seq': f'seq_{suffix}',
+            'dna_seq': f'dna_seq_{suffix}',
+            'canonical_segment': f'seg_{suffix}',
+            'function': f'func_{suffix}',
+            'seq_hash': f'seq_hash_{suffix}',
+            'dna_hash': f'dna_hash_{suffix}',
+        })
 
+    left = _side(func_left, 'a')
+    right = _side(func_right, 'b')
+    pos_df = left.merge(right, on='assembly_id', how='inner')
+
+    # Warn about isolates that have <2 proteins (one or both schema functions missing).
+    isolates_in_df = set(df['assembly_id'].unique())
+    isolates_with_pairs = set(pos_df['assembly_id'].unique()) if len(pos_df) > 0 else set()
+    isolates_with_few_proteins = isolates_in_df - isolates_with_pairs
     if isolates_with_few_proteins:
-        print(f'Warning: {len(isolates_with_few_proteins)} isolates have <2 proteins.')
+        print(f'Warning: {len(isolates_with_few_proteins)} isolates have <2 proteins '
+              f'(missing func_left and/or func_right). '
+              f'These rows are excluded from positive-pair generation.')
 
-    pos_df = pd.DataFrame(pos_pairs, columns=_PAIR_COLUMNS) if pos_pairs else pd.DataFrame(columns=_PAIR_COLUMNS)
+    if len(pos_df) == 0:
+        return pd.DataFrame(columns=_PAIR_COLUMNS), empty_stats
 
-    # Within-split positive dedup. v2 hard-codes drop_within_split_pos_duplicates=True.
-    # See dataset_segment_pairs.py (v1) -- the dedup behavior is new in v2.
+    pos_df['assembly_id_a'] = pos_df['assembly_id']
+    pos_df['assembly_id_b'] = pos_df['assembly_id']
+    pos_df['label'] = 1
+
+    # Create canonical pair_key in a vectorized way: lexicographically sorted seq_hash pair joined by '__'.
+    # Matches canonical_pair_key('a','b') = '__'.join(sorted([a,b])) in _pair_helpers.py.
+    h_a = pos_df['seq_hash_a'].astype(str).values
+    h_b = pos_df['seq_hash_b'].astype(str).values
+    a_first = h_a <= h_b
+    lo = np.where(a_first, h_a, h_b)
+    hi = np.where(a_first, h_b, h_a)
+    pos_df['pair_key'] = lo + '__' + hi
+
+    # Sanity check: no duplicate brc_fea_id must exist within an isolate.
+    # brc_fea_id is unique per isolate (Stage 1 invariant); same brc on both sides
+    # of a pair would mean a duplicated row leaked through preprocessing.
+    if (pos_df['brc_a'] == pos_df['brc_b']).any():
+        bad = pos_df.loc[pos_df['brc_a'] == pos_df['brc_b'], 'assembly_id'].head(5).tolist()
+        raise AssertionError(
+            f"Pair creation: duplicate brc_fea_id within isolate(s) {bad} "
+            f"(must be unique per isolate; check Stage 1)."
+        )
+
+    pos_df = pos_df.loc[:, _PAIR_COLUMNS]
+
+    # TODO. Below we drop dups based on pair_key computed on protein seq hashes.
+    # We also want to understand the duplicate situation on the DNA side, as well
+    # as on the k-mer side.
+
+    # Within-input pair_key dedup. v2 hard-codes drop_within_split_pos_duplicates=True.
+    # In the global-pos flow (split_dataset_v2), this runs once on the full pos_df and
+    # gives every pair_key a single representative isolate.
     n_before = len(pos_df)
-    if n_before == 0:
-        return pos_df, {
-            'n_pos_before_dedup': 0,
-            'n_pos_after_dedup': 0,
-            'n_pos_duplicates_dropped': 0,
-            'duplicate_isolate_pairs': [],
-        }
-
-    is_dup = pos_df.duplicated(subset=['pair_key'], keep='first')
+    is_dup = pos_df.duplicated(subset=['pair_key'], keep='first') # TODO. keep='first' is arbitrary; we can later decide to keep isolate by some criteria
     dup_rows = pos_df.loc[is_dup, ['assembly_id_a', 'assembly_id_b', 'pair_key']]
     duplicate_isolate_pairs = [
         (str(r.assembly_id_a), str(r.assembly_id_b), str(r.pair_key))
@@ -215,8 +226,8 @@ def create_positive_pairs_v2(
     n_dropped = n_before - n_after
 
     if n_dropped > 0:
-        print(f"Within-split positive dedup: dropped {n_dropped:,} duplicate pair_key rows "
-              f"(kept first); {n_before:,} -> {n_after:,}.")
+        print(f"Positive pair dedup: dropped {n_dropped:,} duplicate pair_key rows; "
+              f"{n_before:,} -> {n_after:,}.")
 
     dedup_stats = {
         'n_pos_before_dedup': int(n_before),
@@ -280,16 +291,12 @@ def create_negative_pairs_v2(
         fill_phase_pairs, achieved_negatives, coverage_overrode_ratio,
         coverage_skipped, seqs_with_zero_negatives).
     """
-    breakpoint()
+    # ipdb.set_trace(context=10)
+    func_left, func_right = _validate_schema_pair(schema_pair, "create_negative_pairs_v2")
     if axis_quotas is not None and len(axis_quotas) > 0:
         raise NotImplementedError("axis_quotas not yet supported; pass None")
-    if schema_pair is None or len(schema_pair) != 2:
-        raise ValueError("create_negative_pairs_v2 requires schema_pair=(func_left, func_right)")
-    func_left, func_right = schema_pair
-    if func_left == func_right:
-        raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
 
-    rng = random.Random(seed)
+    rng = random.Random(seed) # noqa: F841
     t_setup = time.time()
     print(f"[diag] create_negative_pairs_v2: setup start "
           f"(|df|={len(df):,}, |pos_pairs|={len(pos_pairs):,}, "
@@ -870,8 +877,26 @@ def split_dataset_v2(
     cooccur_pairs: Optional[set] = None,
     cooccur_stats: Optional[dict] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
-    """Build train/val/test splits with v2's coverage-first sampler, within-split
-    pos dedup, axis flag annotations, and exposure tables.
+    """Build train/val/test splits with global pair_key dedup, a plain
+    row-level shuffle on the deduped pos_df (safe under v2's strict
+    one-pair-per-isolate invariant), coverage-first negative sampling, axis
+    flag annotations, and exposure tables.
+
+    Flow:
+      1. Build the global positive table with one call to
+         `create_positive_pairs_v2(df, ...)`. This dedups pair_keys across the
+         full df and assigns each unique pair_key a single representative
+         assembly_id (the lexicographically smallest one).
+      2. Strict invariant: assert `pos_df['assembly_id_a'].is_unique`. With
+         schema_ordered + one func_left + one func_right per isolate, every
+         isolate yields exactly one pair_key. A violation means upstream data
+         has multi-row-per-function isolates and v2 cannot proceed.
+      3. Choose train/val/test: either from the override lists (CV path)
+         or via a plain `train_test_split` on pos_df rows (auto path).
+         Because the invariant holds, row-level split == isolate-level split,
+         and train/val/test are pair_key- AND isolate-disjoint by construction.
+      4. Negatives are generated per split via the coverage-first sampler
+         (unchanged from prior v2).
 
     v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False,
     canonicalize_pair_orientation_enabled=False, hard_partition_isolates=True,
@@ -881,15 +906,11 @@ def split_dataset_v2(
 
     Returns:
         (train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables)
-        where exposure_tables is `{'train': df, 'val': df, 'test': df}` and
-        duplicate_stats extends v1's dict with `pos_dedup_stats` (per split)
-        and `coverage_stats` (per split).
+        where exposure_tables is `{'train': df, 'val': df, 'test': df}`.
+        duplicate_stats includes `pos_dedup_global` (global pair_key dedup
+        before/after/dropped) and `coverage_stats` (per split).
     """
-    if schema_pair is None or len(schema_pair) != 2:
-        raise ValueError("split_dataset_v2 requires schema_pair=(func_left, func_right)")
-    func_left, func_right = schema_pair
-    if func_left == func_right:
-        raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
+    func_left, func_right = _validate_schema_pair(schema_pair, "split_dataset_v2")
     if axis_quotas is not None and len(axis_quotas) > 0:
         raise NotImplementedError("axis_quotas not yet supported; pass None")
 
@@ -907,98 +928,70 @@ def split_dataset_v2(
     elif cooccur_stats is None:
         raise ValueError("cooccur_stats must be provided together with cooccur_pairs")
 
-    # Stratified isolate split using compute_isolate_pair_counts (or use overrides).
-    unique_isolates = list(df['assembly_id'].unique())
+    # Build the global positive pair table once, deduped to one row per unique
+    # pair_key with a deterministic representative assembly_id. The split is then
+    # a partition of this table -- train/val/test are pair_key-disjoint by
+    # construction, so no post-hoc cross-split overlap removal is needed.
+    print("\nsplit_dataset_v2: Build global positive pairs (one call across full df)...", flush=True)
+    pos_df, pos_dedup_stats = create_positive_pairs_v2(df, schema_pair=schema_pair)
+    if len(pos_df) == 0:
+        raise ValueError(
+            f"No positive pairs generated from df. Verify schema_pair={schema_pair} "
+            f"matches the function values present in df."
+        )
 
+    # Each isolate must produce exactly one pair_key after global dedup.
+    # Holds when schema_ordered uses one func_left + one func_right per
+    # isolate (the common Flu A case). A violation means upstream data has
+    # multi-row-per-function isolates and v2's plain-split flow cannot
+    # proceed.
+    if not pos_df['assembly_id_a'].is_unique:
+        counts = pos_df['assembly_id_a'].value_counts()
+        multi = counts[counts > 1]
+        raise ValueError(
+            f"v2 strict mode: {len(multi)} isolate(s) produce >1 pair_key after "
+            f"global dedup. Schema-ordered v2 requires exactly one pair per isolate."
+        )
+    ipdb.set_trace(context=10)  # debug breakpoint preserved from earlier session
+
+    # Decide train/val/test membership.
     if train_isolates_override is not None:
+        # TODO/NOTE: haven't tested the CV with v2 yet!
+        # CV / external-control path: caller has already partitioned isolates.
+        # Filter the global pos_df by membership; pair_keys whose representative
+        # falls in val/test_isolates_override land in those splits, so disjointness
+        # is preserved as long as the override lists are themselves disjoint.
         train_isolates = list(train_isolates_override)
         val_isolates = list(val_isolates_override) if val_isolates_override is not None else []
         test_isolates = list(test_isolates_override) if test_isolates_override is not None else []
-    else:
-        # isolate_pos_counts: {assembly_id: int} mapping each isolate to the
-        # number of positive pairs it can produce (n_func_left * n_func_right
-        # in schema mode). Used to stratify isolates into pair-count buckets
-        # so train/val/test get balanced positive-pair density.
-        isolate_pos_counts = compute_isolate_pair_counts(
-            df,
-            pair_mode='schema_ordered',
-            schema_pair=schema_pair,
-        )
-
-        print("\nsplit_dataset_v2: Performing stratified isolate split.", flush=True)
-        # pos_count_groups: {n_pos_pairs: [assembly_id, ...]} bucketing isolates
-        # by how many positive pairs they yield. Each bucket is split
-        # independently so train/val/test get a representative mix of
-        # pair-count densities.
-        pos_count_groups: dict = {}
-        for aid in unique_isolates:
-            cnt = isolate_pos_counts[aid]
-            pos_count_groups.setdefault(cnt, []).append(aid)
-
-        train_isolates, val_isolates, test_isolates = [], [], []
-        for _pos_count, isolates in pos_count_groups.items():
-            if len(isolates) <= 1:
-                train_isolates.extend(isolates)
-                continue
-            train, temp = train_test_split(isolates, train_size=train_ratio, random_state=seed)
-            val, test = train_test_split(temp, train_size=val_ratio / (1 - train_ratio), random_state=seed)
-            train_isolates.extend(train)
-            val_isolates.extend(val)
-            test_isolates.extend(test)
-        print(f"split_dataset_v2: stratified isolate split completed: "
+        print(f"split_dataset_v2: using isolate overrides "
               f"(train={len(train_isolates):,}, val={len(val_isolates):,}, "
               f"test={len(test_isolates):,})", flush=True)
 
-        # v2 hard-codes hard_partition_isolates=True. See dataset_segment_pairs.py (v1)
-        # for the configurable version. Disjointness logic is kept; the parameter is gone.
-        print("\nsplit_dataset_v2: Enforce hard partition of isolates across splits", flush=True)
-        train_iso_set = set(train_isolates)
-        val_isolates = [aid for aid in val_isolates if aid not in train_iso_set]
-        val_iso_set = set(val_isolates)
-        test_isolates = [aid for aid in test_isolates if aid not in train_iso_set and aid not in val_iso_set]
-        test_iso_set = set(test_isolates)
-        unassigned = [aid for aid in unique_isolates
-                      if aid not in train_iso_set
-                      and aid not in val_iso_set
-                      and aid not in test_iso_set]
-        if unassigned:
-            print(f"Warning: {len(unassigned)} unassigned isolates.")
-            for aid in unassigned:
-                set_sizes = {'train': len(train_isolates), 'val': len(val_isolates), 'test': len(test_isolates)}
-                smallest_set = min(set_sizes, key=set_sizes.get)
-                if smallest_set == 'train':
-                    train_isolates.append(aid)
-                elif smallest_set == 'val':
-                    val_isolates.append(aid)
-                else:
-                    test_isolates.append(aid)
+        train_pos = pos_df[pos_df['assembly_id_a'].isin(set(train_isolates))].reset_index(drop=True)
+        val_pos = pos_df[pos_df['assembly_id_a'].isin(set(val_isolates))].reset_index(drop=True)
+        test_pos = pos_df[pos_df['assembly_id_a'].isin(set(test_isolates))].reset_index(drop=True)
+    else:
+        # Plain shuffle-split on the deduped pos_df. Safe because the is_unique assertion above
+        # guarantees each row is its own isolate, so row-level split == isolate-level split.
+        print("\nsplit_dataset_v2: Plain shuffle-split on pos_df rows...", flush=True)
+        test_size_outer = 1.0 - train_ratio - val_ratio
+        trainval_pos, test_pos = train_test_split(pos_df, test_size=test_size_outer, random_state=seed)
+        test_size_inner = val_ratio / (train_ratio + val_ratio)
+        train_pos, val_pos = train_test_split(trainval_pos, test_size=test_size_inner, random_state=seed)
 
-    # Generate positives (with within-split dedup) per split.
-    _t = time.time()
-    breakpoint()
-    train_pos, train_pos_dedup = create_positive_pairs_v2(
-        df[df['assembly_id'].isin(train_isolates)],
-        schema_pair=schema_pair,
-        seed=seed,
-    )
-    print(f"[diag] split_dataset_v2: create_positive_pairs_v2 train in {time.time()-_t:.2f}s "
-          f"({len(train_pos):,} pairs after dedup)", flush=True)
-    _t = time.time()
-    val_pos, val_pos_dedup = create_positive_pairs_v2(
-        df[df['assembly_id'].isin(val_isolates)],
-        schema_pair=schema_pair,
-        seed=seed,
-    )
-    print(f"[diag] split_dataset_v2: create_positive_pairs_v2 val in {time.time()-_t:.2f}s "
-          f"({len(val_pos):,} pairs after dedup)", flush=True)
-    _t = time.time()
-    test_pos, test_pos_dedup = create_positive_pairs_v2(
-        df[df['assembly_id'].isin(test_isolates)],
-        schema_pair=schema_pair,
-        seed=seed,
-    )
-    print(f"[diag] split_dataset_v2: create_positive_pairs_v2 test in {time.time()-_t:.2f}s "
-          f"({len(test_pos):,} pairs after dedup)", flush=True)
+        train_pos = train_pos.reset_index(drop=True)
+        val_pos = val_pos.reset_index(drop=True)
+        test_pos = test_pos.reset_index(drop=True)
+
+        # is_unique invariant => one row == one isolate, so .tolist() is the
+        # unique-isolate list directly (no .unique() needed).
+        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
+        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
+        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
+        print(f"split_dataset_v2: shuffle-split completed "
+              f"(train={len(train_isolates):,} pairs, "
+              f"val={len(val_isolates):,}, test={len(test_isolates):,})", flush=True)
 
     # Generate negatives with coverage-first sampler.
     print("\nCreate negative pairs (coverage-first, schema mode)...", flush=True)
@@ -1019,6 +1012,7 @@ def split_dataset_v2(
           f"({len(train_neg):,} pairs, {train_reject_stats.get('total_attempts', 0):,} attempts; "
           f"coverage={train_reject_stats['coverage_phase_pairs']:,}, "
           f"fill={train_reject_stats['fill_phase_pairs']:,})", flush=True)
+
     _t = time.time()
     val_neg, val_reject_stats = create_negative_pairs_v2(
         df,
@@ -1034,6 +1028,7 @@ def split_dataset_v2(
     )
     print(f"[diag] split_dataset_v2: create_negative_pairs_v2 val in {time.time()-_t:.2f}s "
           f"({len(val_neg):,} pairs)", flush=True)
+
     _t = time.time()
     test_neg, test_reject_stats = create_negative_pairs_v2(
         df,
@@ -1165,11 +1160,11 @@ def split_dataset_v2(
             'val_removed_pct': ((val_pairs_before - len(val_pairs)) / val_pairs_before * 100) if val_pairs_before > 0 else 0,
             'test_removed_pct': ((test_pairs_before - len(test_pairs)) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
         },
-        'pos_dedup_stats': {
-            'train': train_pos_dedup,
-            'val': val_pos_dedup,
-            'test': test_pos_dedup,
-        },
+        # Global pair_key dedup stats (one pass over the full df). In the
+        # global-pos flow there is no within-split dedup — every pair_key has
+        # one home isolate and lands in exactly one split — so per-split dedup
+        # numbers would be degenerate.
+        'pos_dedup_global': pos_dedup_stats,
         'coverage_stats': {
             'train': _coverage_substats(train_reject_stats),
             'val': _coverage_substats(val_reject_stats),
@@ -1405,12 +1400,9 @@ def save_split_output_v2(
             'test':  _axis_flag_summary(test_pairs, axes_for_flags),
         },
         'pos_dedup': {
-            split: {
-                'n_before': stats['n_pos_before_dedup'],
-                'n_after': stats['n_pos_after_dedup'],
-                'n_dropped': stats['n_pos_duplicates_dropped'],
-            }
-            for split, stats in duplicate_stats['pos_dedup_stats'].items()
+            'n_before': duplicate_stats['pos_dedup_global']['n_pos_before_dedup'],
+            'n_after': duplicate_stats['pos_dedup_global']['n_pos_after_dedup'],
+            'n_dropped': duplicate_stats['pos_dedup_global']['n_pos_duplicates_dropped'],
         },
         'coverage': {
             split: {
@@ -1454,7 +1446,7 @@ def save_split_output_v2(
             'test':  dict(duplicate_stats['test_reject_stats']),
         },
         'pair_key_overlaps': duplicate_stats['pair_key_overlaps'],
-        'pos_dedup': duplicate_stats['pos_dedup_stats'],
+        'pos_dedup': duplicate_stats['pos_dedup_global'],
         'coverage': duplicate_stats['coverage_stats'],
     }
     with open(output_dir / 'duplicate_stats.json', 'w') as f:

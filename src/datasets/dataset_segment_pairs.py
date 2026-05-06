@@ -1758,7 +1758,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             )
     else:
         # v2 single-split mode. (Temporal is rejected by _validate_v2_config.)
-        print('\nv2 single-split mode: generate train/val/test...')
+        print('\nv2: single-split mode: generate train/val/test...')
         _t = time.time()
         train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables = split_dataset_v2(
             df=df,

@@ -40,6 +40,24 @@ def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
     return "__".join(sorted([seq_hash_a, seq_hash_b]))
 
 
+def _validate_schema_pair(schema_pair, fn_name: str) -> Tuple[str, str]:
+    """Validate schema_pair and return (func_left, func_right).
+
+    Raises ValueError if schema_pair is None, not a 2-tuple, or contains two
+    equal functions. fn_name is embedded in error messages so the user can
+    identify which caller rejected their input.
+    """
+    if schema_pair is None or len(schema_pair) != 2:
+        raise ValueError(f"{fn_name} requires schema_pair=(func_left, func_right)")
+    func_left, func_right = schema_pair
+    if func_left == func_right:
+        raise ValueError(
+            f"{fn_name}: schema_pair must contain two different functions "
+            f"(func_left != func_right), got {schema_pair!r}"
+        )
+    return func_left, func_right
+
+
 def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd.DataFrame:
     """Attach nucleotide sequence (`dna_seq`) and md5 hash (`dna_hash`) to each
     protein row via a join with `genome_final.*` in the same processed dir.
