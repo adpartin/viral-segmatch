@@ -328,63 +328,22 @@ def create_error_analysis_plot(df: pd.DataFrame, results_dir: Path) -> None:
 
 
 def create_model_calibration_plot(df: pd.DataFrame, results_dir: Path) -> None:
-    """Create a plot showing model calibration and confidence."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-    
-    # 1. Calibration plot (reliability diagram)
+    """Create the combined calibration + probability-distribution figure.
+
+    Delegates to `plot_calibration_curve` (src/analysis/plot_calibration_curve.py)
+    and `plot_prediction_distribution` (src/analysis/analyze_stage4_train.py)
+    so the presentation figure stays in lockstep with the post-hoc panels.
+    """
+    from src.analysis.plot_calibration_curve import plot_calibration_curve
+    from src.analysis.analyze_stage4_train import plot_prediction_distribution
+
     y_true = df['label'].values
     y_prob = df['pred_prob'].values
-    
-    # Create bins for predicted probabilities
-    bin_boundaries = np.linspace(0, 1, 11)
-    bin_lowers = bin_boundaries[:-1]
-    bin_uppers = bin_boundaries[1:]
-    
-    accuracies = []
-    confidences = []
-    bin_sizes = []
-    
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        # Select predictions in this bin
-        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
-        prop_in_bin = in_bin.mean()
-        
-        if prop_in_bin > 0:
-            accuracy_in_bin = y_true[in_bin].mean()
-            avg_confidence_in_bin = y_prob[in_bin].mean()
-            
-            accuracies.append(accuracy_in_bin)
-            confidences.append(avg_confidence_in_bin)
-            bin_sizes.append(in_bin.sum())
-    
-    # Plot calibration curve
-    ax1.plot([0, 1], [0, 1], 'k--', alpha=0.5, label='Perfect Calibration')
-    ax1.plot(confidences, accuracies, 'bo-', linewidth=2, markersize=8, 
-             label='Model Calibration')
-    ax1.set_xlabel('Mean Predicted Probability')
-    ax1.set_ylabel('Fraction of Positives')
-    ax1.set_title('Model Calibration (Reliability Diagram)', fontsize=14, fontweight='bold')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # 2. Prediction probability histogram by true label
-    # Colors, xlabel, and title kept consistent with plot_prediction_distribution()
-    # in analyze_stage4_train.py
-    pos_probs = y_prob[y_true == 1]
-    neg_probs = y_prob[y_true == 0]
-    
-    ax2.hist(neg_probs, bins=30, alpha=0.7, label='Negative (Different Isolate)', 
-             color='#E74C3C', density=True)
-    ax2.hist(pos_probs, bins=30, alpha=0.7, label='Positive (Same Isolate)', 
-             color='#3498DB', density=True)
-    ax2.axvline(x=0.5, color='black', linestyle='--', alpha=0.8, 
-                label='Decision Threshold')
-    ax2.set_xlabel('Prediction Probability')
-    ax2.set_ylabel('Density')
-    ax2.set_title('Distribution of Prediction Probabilities', fontsize=14, fontweight='bold')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    plot_calibration_curve(y_true, y_prob, ax=ax1)
+    plot_prediction_distribution(y_true, y_prob, ax=ax2)
+
     plt.tight_layout()
     plt.savefig(results_dir / 'model_calibration.png', dpi=300, bbox_inches='tight')
     plt.show()

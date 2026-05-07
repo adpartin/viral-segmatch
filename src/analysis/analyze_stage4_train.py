@@ -60,7 +60,8 @@ sys.path.append(str(project_root))
 
 from src.utils.config_hydra import get_virus_config_hydra
 from src.utils.path_utils import build_training_paths
-from src.utils.plot_config import apply_default_style, SEGMENT_COLORS, SEGMENT_ORDER, map_protein_name
+from src.utils.plot_config import apply_default_style
+from src.analysis.plot_calibration_curve import plot_calibration_curve
 
 
 def compute_basic_metrics(y_true, y_pred, y_prob):
@@ -190,49 +191,6 @@ def plot_confusion_matrix(y_true, y_pred, save_path=None, show_labels=True):
     return fig
 
 
-def plot_confusion_matrix_simple(y_true, y_pred, save_path=None):
-    """Simplest possible confusion matrix plot to test for lines."""
-    cm = confusion_matrix(y_true, y_pred)
-    
-    # Save current matplotlib settings
-    import matplotlib as mpl
-    original_rc = mpl.rcParams.copy()
-    
-    # Override the global grid setting that's causing lines
-    mpl.rcParams.update({
-        'axes.grid': False,
-        'grid.alpha': 0,
-        'axes.axisbelow': False
-    })
-    
-    # Create figure with explicit styling to disable all lines
-    fig, ax = plt.subplots(figsize=(6, 4))
-    
-    # Disable all grid lines and styling
-    ax.grid(False)
-    ax.set_axisbelow(False)
-    
-    # Most basic heatmap with minimal settings
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                linewidths=0, cbar=False, ax=ax)
-    
-    # Explicitly disable grid on the heatmap
-    ax.grid(False)
-    
-    plt.title('Simple Confusion Matrix Test')
-    plt.tight_layout()
-    
-    if save_path:
-        test_path = save_path.parent / 'confusion_matrix_simple_test.png'
-        plt.savefig(test_path, dpi=300, bbox_inches='tight')
-    plt.show()
-    
-    # Restore original settings
-    mpl.rcParams.update(original_rc)
-    
-    return fig
-
-
 def plot_roc_curve(y_true, y_prob, save_path=None):
     """Plot ROC curve."""
     fpr, tpr, _ = roc_curve(y_true, y_prob)
@@ -285,42 +243,47 @@ def plot_precision_recall_curve(y_true, y_prob, save_path=None):
     plt.show()
 
 
-def plot_prediction_distribution(y_true, y_prob, save_path=None):
+def plot_prediction_distribution(y_true, y_prob, save_path=None, ax=None):
     """Plot distribution of prediction probabilities by true label.
 
-    Colors, xlabel, and title are kept consistent with the right panel of
-    ``create_model_calibration_plot`` in ``create_presentation_plots.py``.
+    If `ax` is provided, render onto it without creating a figure or saving;
+    the caller owns layout and saving. Used as a sub-panel by
+    `create_model_calibration_plot` in `create_presentation_plots.py`.
     """
-    plt.figure(figsize=(10, 6))
-    
-    # Separate probabilities by true label
+    standalone = ax is None
+    if standalone:
+        fig, ax = plt.subplots(figsize=(10, 6))
+
     pos_probs = y_prob[y_true == 1]
     neg_probs = y_prob[y_true == 0]
-    
-    plt.hist(neg_probs, bins=30, alpha=0.7, label='Negative (Different Isolate)', 
-             color='#E74C3C', density=True)
-    plt.hist(pos_probs, bins=30, alpha=0.7, label='Positive (Same Isolate)', 
-             color='#3498DB', density=True)
-    
-    plt.axvline(x=0.5, color='black', linestyle='--', alpha=0.8, label='Decision Threshold')
-    plt.xlabel('Prediction Probability')
-    plt.ylabel('Density')
-    plt.title('Distribution of Prediction Probabilities', fontweight='bold', fontsize=14)
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.show()
+
+    ax.hist(neg_probs, bins=30, alpha=0.7, label='Negative (Different Isolate)',
+            color='#E74C3C', density=True)
+    ax.hist(pos_probs, bins=30, alpha=0.7, label='Positive (Same Isolate)',
+            color='#3498DB', density=True)
+    ax.axvline(x=0.5, color='black', linestyle='--', alpha=0.8,
+               label='Decision Threshold')
+    ax.set_xlabel('Prediction Probability')
+    ax.set_ylabel('Density')
+    ax.set_title('Distribution of Prediction Probabilities',
+                 fontweight='bold', fontsize=14)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    if standalone:
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.show()
 
 
 def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
     """Detailed analysis of False Positives and False Negatives.
-    
-    This function generates the "False Positives by Protein Function" plot
-    and other FP/FN analysis visualizations.
-    
+
+    Saves `fp_fn_analysis.png` (two confidence panels) plus
+    `error_analysis_summary.csv`, `false_positives_detailed.csv`, and
+    `false_negatives_detailed.csv`.
+
     Args:
         df: DataFrame with predictions and metadata
         y_true: True labels
@@ -331,215 +294,79 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
     print('\n' + '='*60)
     print('FALSE POSITIVE & FALSE NEGATIVE ANALYSIS')
     print('='*60)
-    
-    # Create segment pair labels first
-    df['seg_pair'] = df.apply(
-        lambda row: f'{row["seg_a"]}-{row["seg_b"]}' 
-        if row['seg_a'] <= row['seg_b'] 
-        else f'{row["seg_b"]}-{row["seg_a"]}', axis=1
-    )
-    
-    # Add prediction columns to dataframe for easier analysis
+
+    # Add prediction columns for easier analysis
     df_analysis = df.copy()
     df_analysis['y_true'] = y_true
     df_analysis['y_pred'] = y_pred
     df_analysis['y_prob'] = y_prob
-    
+
     # Identify FP and FN
-    fp_mask = (df_analysis['y_true'] == 0) & (df_analysis['y_pred'] == 1)  # Predicted positive, actually negative
-    fn_mask = (df_analysis['y_true'] == 1) & (df_analysis['y_pred'] == 0)  # Predicted negative, actually positive
-    
+    fp_mask = (df_analysis['y_true'] == 0) & (df_analysis['y_pred'] == 1)
+    fn_mask = (df_analysis['y_true'] == 1) & (df_analysis['y_pred'] == 0)
+
     fp_df = df_analysis[fp_mask].copy()
     fn_df = df_analysis[fn_mask].copy()
-    
+
     print(f'False Positives (FP): {len(fp_df)}')
     print(f'False Negatives (FN): {len(fn_df)}')
     if len(fn_df) > 0:
         print(f'FP/FN ratio: {len(fp_df)/len(fn_df):.2f}')
     else:
-        print(f'FP/FN ratio: ∞ (no false negatives)')
-    
+        print(f'FP/FN ratio: inf (no false negatives)')
+
     # Confidence analysis
     print(f'\nConfidence Analysis:')
     if len(fp_df) > 0:
         print(f'FP average confidence: {fp_df["y_prob"].mean():.3f}')
-        print(f'FP confidence std: {fp_df["y_prob"].std():.3f}')
+        print(f'FP confidence std:     {fp_df["y_prob"].std():.3f}')
     else:
-        print(f'FP average confidence: N/A (no false positives)')
-        print(f'FP confidence std: N/A (no false positives)')
-    
+        print('FP average confidence: N/A (no false positives)')
     if len(fn_df) > 0:
         print(f'FN average confidence: {fn_df["y_prob"].mean():.3f}')
-        print(f'FN confidence std: {fn_df["y_prob"].std():.3f}')
+        print(f'FN confidence std:     {fn_df["y_prob"].std():.3f}')
     else:
-        print(f'FN average confidence: N/A (no false negatives)')
-        print(f'FN confidence std: N/A (no false negatives)')
-    
-    # Create FP/FN analysis plots
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-    
-    # 1. Confidence distribution comparison
+        print('FN average confidence: N/A (no false negatives)')
+
+    # Two confidence views: histogram (left) and boxplot (right). Earlier
+    # 2x2 grid included segment-pair and protein-function bar charts that
+    # are degenerate in v2 (one schema_pair => one bar each); removed.
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+
+    # 1. Confidence distribution histogram
     if len(fp_df) > 0:
-        axes[0, 0].hist(fp_df['y_prob'], bins=20, alpha=0.7, label=f'False Positives (n={len(fp_df)})', 
-                        color='red', density=False)
+        axes[0].hist(fp_df['y_prob'], bins=20, alpha=0.7,
+                     label=f'False Positives (n={len(fp_df)})',
+                     color='red', density=False)
     if len(fn_df) > 0:
-        axes[0, 0].hist(fn_df['y_prob'], bins=20, alpha=0.7, label=f'False Negatives (n={len(fn_df)})', 
-                        color='blue', density=False)
-    axes[0, 0].axvline(x=0.5, color='black', linestyle='--', label='Decision Threshold')
-    axes[0, 0].set_xlabel('Prediction Probability')
-    axes[0, 0].set_ylabel('Count')
-    axes[0, 0].set_title('Confidence Distribution: FP and FN', fontweight='bold')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    # 2. Error rate by segment pair
-    # Calculate error rates by segment pair
-    seg_error_stats = []
-    for seg_pair in df_analysis['seg_pair'].unique():
-        subset = df_analysis[df_analysis['seg_pair'] == seg_pair]
-        if len(subset) >= 5:  # Only analyze pairs with sufficient data
-            # Create masks for this subset
-            subset_fp_mask = (subset['y_true'] == 0) & (subset['y_pred'] == 1)
-            subset_fn_mask = (subset['y_true'] == 1) & (subset['y_pred'] == 0)
-            
-            fp_count = subset_fp_mask.sum()
-            fn_count = subset_fn_mask.sum()
-            total_errors = fp_count + fn_count
-            error_rate = total_errors / len(subset)
-            
-            seg_error_stats.append({
-                'seg_pair': seg_pair,
-                'total_samples': len(subset),
-                'fp_count': fp_count,
-                'fn_count': fn_count,
-                'total_errors': total_errors,
-                'error_rate': error_rate,
-                'fp_rate': fp_count / len(subset),
-                'fn_rate': fn_count / len(subset)
-            })
-    
-    if seg_error_stats:
-        seg_error_df = pd.DataFrame(seg_error_stats).sort_values('error_rate', ascending=False)
-        
-        # Plot top 10 segment pairs by error rate
-        top_errors = seg_error_df.head(10)
-        x_pos = np.arange(len(top_errors))
-        
-        fp_bars = axes[0, 1].bar(x_pos, top_errors['fp_rate'], alpha=0.7, label='FP Rate', color='red')
-        fn_bars = axes[0, 1].bar(x_pos, top_errors['fn_rate'], alpha=0.7, label='FN Rate', color='blue', 
-                                bottom=top_errors['fp_rate'])
-        axes[0, 1].set_xlabel('Segment Pair')
-        axes[0, 1].set_ylabel('Error Rate')
-        axes[0, 1].set_title('Error Rates by Segment Pair (Top 10)', fontweight='bold')
-        axes[0, 1].set_xticks(x_pos)
-        axes[0, 1].set_xticklabels(top_errors['seg_pair'], rotation=45, ha='right')
-        axes[0, 1].legend()
-        axes[0, 1].grid(True, alpha=0.3)
-        
-        # Add value labels on bars
-        for i, (fp_bar, fn_bar, fp_rate, fn_rate) in enumerate(zip(fp_bars, fn_bars, top_errors['fp_rate'], top_errors['fn_rate'])):
-            # Add FP rate label
-            if fp_rate > 0:
-                axes[0, 1].text(fp_bar.get_x() + fp_bar.get_width()/2., fp_rate/2, 
-                               f'{fp_rate:.2f}', ha='center', va='center', 
-                               fontweight='bold', color='white', fontsize=8)
-            
-            # Add FN rate label
-            if fn_rate > 0:
-                axes[0, 1].text(fn_bar.get_x() + fn_bar.get_width()/2., fp_rate + fn_rate/2, 
-                               f'{fn_rate:.2f}', ha='center', va='center', 
-                               fontweight='bold', color='white', fontsize=8)
-    
-    # 3. Function analysis for errors
-    # Analyze FP by function (considering both func_a and func_b)
-    if len(fp_df) > 0:
-        print(f"\nDebug: FP function analysis")
-        print(f"Total FP count: {len(fp_df)}")
-        
-        # Create a combined list of all functions involved in FPs
-        all_fp_functions = []
-        for _, row in fp_df.iterrows():
-            all_fp_functions.append(row['func_a'])
-            all_fp_functions.append(row['func_b'])
-        
-        print(f"Total function occurrences in FPs: {len(all_fp_functions)}")
-        print(f"Unique functions in FPs: {set(all_fp_functions)}")
-        
-        # Count function occurrences
-        from collections import Counter
-        func_counts = Counter(all_fp_functions)
-        print(f"Function counts in FPs:")
-        for func, count in func_counts.most_common():
-            print(f"  {func}: {count}")
-        
-        # Create function statistics
-        fp_func_stats = []
-        for func, count in func_counts.most_common():
-            # Calculate average confidence for this function
-            func_confidences = []
-            for _, row in fp_df.iterrows():
-                if row['func_a'] == func or row['func_b'] == func:
-                    func_confidences.append(row['y_prob'])
-            
-            fp_func_stats.append({
-                'function': func,
-                'count': count,
-                'avg_confidence': np.mean(func_confidences),
-                'std_confidence': np.std(func_confidences)
-            })
-        
-        fp_func_df = pd.DataFrame(fp_func_stats)
-        print(f"\nFP function stats (combined func_a and func_b):")
-        print(fp_func_df.round(3))
-        print(f"Number of unique functions with FPs: {len(fp_func_df)}")
-        
-        # Plot FP by function
-        if len(fp_func_df) > 0:
-            bars = axes[1, 0].bar(range(len(fp_func_df)), fp_func_df['count'], 
-                                 color='#6C5CE7', alpha=0.7)  # Calmer purple color
-            axes[1, 0].set_xlabel('Protein Function')
-            axes[1, 0].set_ylabel('False Positive Count')
-            axes[1, 0].set_title('False Positives by Protein Function', fontweight='bold')
-            axes[1, 0].set_xticks(range(len(fp_func_df)))
-            
-            # Use protein name abbreviations
-            func_labels = [map_protein_name(func) for func in fp_func_df['function']]
-            axes[1, 0].set_xticklabels(func_labels, rotation=45, ha='right')
-            
-            # Add count labels in the middle of bars
-            for bar, count in zip(bars, fp_func_df['count']):
-                height = bar.get_height()
-                axes[1, 0].text(bar.get_x() + bar.get_width()/2., height/2, 
-                               f'{count}', ha='center', va='center', 
-                               fontweight='bold', color='white', fontsize=10)
-            
-            axes[1, 0].grid(True, alpha=0.3)
-    
-    # 4. Confidence vs error type
+        axes[0].hist(fn_df['y_prob'], bins=20, alpha=0.7,
+                     label=f'False Negatives (n={len(fn_df)})',
+                     color='blue', density=False)
+    axes[0].axvline(x=0.5, color='black', linestyle='--', label='Decision Threshold')
+    axes[0].set_xlabel('Prediction Probability')
+    axes[0].set_ylabel('Count')
+    axes[0].set_title('Confidence Distribution: FP and FN', fontweight='bold')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    # 2. Confidence boxplot
     if len(fp_df) > 0 and len(fn_df) > 0:
-        all_errors = pd.concat([fp_df, fn_df])
-        all_errors['error_type'] = ['FP'] * len(fp_df) + ['FN'] * len(fn_df)
-        
-        axes[1, 1].boxplot([fp_df['y_prob'], fn_df['y_prob']], 
-                          labels=['False Positives', 'False Negatives'])
-        axes[1, 1].set_ylabel('Prediction Probability')
-        axes[1, 1].set_title('Confidence Distribution: FP and FN', fontweight='bold')
-        axes[1, 1].grid(True, alpha=0.3)
+        axes[1].boxplot([fp_df['y_prob'], fn_df['y_prob']],
+                        labels=['False Positives', 'False Negatives'])
+        axes[1].set_title('Confidence Distribution: FP and FN', fontweight='bold')
     elif len(fp_df) > 0:
-        axes[1, 1].boxplot([fp_df['y_prob']], labels=['False Positives'])
-        axes[1, 1].set_ylabel('Prediction Probability')
-        axes[1, 1].set_title('Confidence Distribution: FP Only', fontweight='bold')
-        axes[1, 1].grid(True, alpha=0.3)
+        axes[1].boxplot([fp_df['y_prob']], labels=['False Positives'])
+        axes[1].set_title('Confidence Distribution: FP Only', fontweight='bold')
     elif len(fn_df) > 0:
-        axes[1, 1].boxplot([fn_df['y_prob']], labels=['False Negatives'])
-        axes[1, 1].set_ylabel('Prediction Probability')
-        axes[1, 1].set_title('Confidence Distribution: FN Only', fontweight='bold')
-        axes[1, 1].grid(True, alpha=0.3)
+        axes[1].boxplot([fn_df['y_prob']], labels=['False Negatives'])
+        axes[1].set_title('Confidence Distribution: FN Only', fontweight='bold')
     else:
-        axes[1, 1].text(0.5, 0.5, 'No errors found', ha='center', va='center', 
-                        transform=axes[1, 1].transAxes, fontsize=14)
-        axes[1, 1].set_title('Confidence Distribution: No Errors', fontweight='bold')
-    
+        axes[1].text(0.5, 0.5, 'No errors found', ha='center', va='center',
+                     transform=axes[1].transAxes, fontsize=14)
+        axes[1].set_title('Confidence Distribution: No Errors', fontweight='bold')
+    axes[1].set_ylabel('Prediction Probability')
+    axes[1].grid(True, alpha=0.3)
+
     plt.tight_layout()
     plt.savefig(results_dir / 'fp_fn_analysis.png', dpi=300, bbox_inches='tight')
     plt.show()
@@ -595,28 +422,6 @@ def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
 #   per-fold analysis. Adjust YEAR_BIN_EDGES (module constant) if finer
 #   granularity is needed.
 # ============================================================================
-
-
-def _parse_subtype(s) -> str:
-    """Map a raw hn_subtype string to a canonical H<d>N<d> form or 'unknown'.
-
-    Any value not matching SUBTYPE_RE (NaN, 'HN', 'H1N', etc.) returns 'unknown'.
-    """
-    if pd.isna(s):
-        return 'unknown'
-    s = str(s)
-    return s if SUBTYPE_RE.match(s) else 'unknown'
-
-
-def _year_to_bin(y) -> str:
-    """Map a year (float/int) to a coarse bin label. NaN returns 'unknown'."""
-    if pd.isna(y):
-        return 'unknown'
-    y = float(y)
-    for lo, hi, label in YEAR_BIN_EDGES:
-        if lo <= y <= hi:
-            return label
-    return 'unknown'
 
 
 _ENRICH_BASE_COLS = ['host_a', 'host_b', 'hn_subtype_a', 'hn_subtype_b',
@@ -1232,7 +1037,12 @@ def _plot_errors_by_metadata(stratified_stats: dict, results_dir: Path):
 
 
 def analyze_segment_performance(df):
-    """Analyze performance by segment combinations."""
+    """Analyze performance by segment combinations.
+
+    **NOTE: Degenerate for v2** -- v2 schema_pair fixes one (func_left,
+    func_right), so the test set has a single seg_pair. Output is one row
+    that duplicates `metrics.csv`. Kept for v1 / future cross-protein runs.
+    """
     print('\n' + '='*50)
     print('SEGMENT-WISE PERFORMANCE ANALYSIS')
     print('='*50)
@@ -1282,56 +1092,6 @@ def analyze_segment_performance(df):
     print(seg_df.round(3))
 
     return seg_df
-
-
-def analyze_same_function_pairs(df):
-    """Analyze performance on same-function negative pairs."""
-    print('\n' + '='*50)
-    print('SAME-FUNCTION NEGATIVE PAIR ANALYSIS')
-    print('='*50)
-
-    # Same-function negative pairs (these should be hardest to classify)
-    same_func_neg = df[(df['label'] == 0) & (df['func_a'] == df['func_b'])]
-    diff_func_neg = df[(df['label'] == 0) & (df['func_a'] != df['func_b'])]
-
-    print(f'Same-function negative pairs: {len(same_func_neg)}')
-    print(f'Different-function negative pairs: {len(diff_func_neg)}')
-
-    if len(same_func_neg) > 0:
-        same_func_acc = (same_func_neg['label'] == same_func_neg['pred_label']).mean()
-        # Check if both classes are present for F1 score
-        unique_labels = same_func_neg['label'].unique()
-        if len(unique_labels) > 1:
-            same_func_f1 = f1_score(same_func_neg['label'], same_func_neg['pred_label'], average='binary')
-            print(f'Same-function negative F1: {same_func_f1:.3f}')
-        else:
-            print(f'Same-function negative F1: N/A (single class)')
-        print(f'Same-function negative accuracy: {same_func_acc:.3f}')
-
-        # Analyze by function type
-        func_stats = []
-        for func in same_func_neg['func_a'].unique():
-            subset = same_func_neg[same_func_neg['func_a'] == func]
-            if len(subset) > 5:
-                acc = (subset['label'] == subset['pred_label']).mean()
-                avg_prob = subset['pred_prob'].mean()
-                func_stats.append({
-                    'function': func,
-                    'count': len(subset),
-                    'accuracy': acc,
-                    'avg_prob': avg_prob,
-                    'errors': len(subset) - (subset['label'] == subset['pred_label']).sum()
-                })
-
-        if func_stats:
-            func_df = pd.DataFrame(func_stats).sort_values('accuracy', ascending=False)
-            print('\nSame-function negative performance by protein function:')
-            print(func_df.round(3))
-
-    if len(diff_func_neg) > 0:
-        diff_func_acc = (diff_func_neg['label'] == diff_func_neg['pred_label']).mean()
-        print(f'Different-function negative accuracy: {diff_func_acc:.3f}')
-    return None
 
 
 def analyze_prediction_confidence(df):
@@ -1476,9 +1236,6 @@ def main(config_bundle: str,
         show_labels=show_confusion_labels
     )
     
-    # Test simple confusion matrix to check for lines
-    plot_confusion_matrix_simple(y_true, y_pred, results_dir / 'confusion_matrix.png')
-    
     # Save confusion matrix to CSV
     cm_df = pd.DataFrame(
         cm,
@@ -1506,7 +1263,9 @@ def main(config_bundle: str,
         plot_roc_curve(y_true, y_prob, results_dir / 'roc_curve.png')
         plot_precision_recall_curve(y_true, y_prob, results_dir / 'precision_recall_curve.png')
         plot_prediction_distribution(y_true, y_prob, results_dir / 'prediction_distribution.png')
-        print("Performance plots created (roc_curve.png, precision_recall_curve.png, prediction_distribution.png)")
+        plot_calibration_curve(y_true, y_prob, save_path=results_dir / 'calibration_curve.png')
+        print("Performance plots created (roc_curve.png, precision_recall_curve.png, "
+              "prediction_distribution.png, calibration_curve.png)")
     else:
         print("Skipping performance plots (create_performance_plots=False)")
     
@@ -1518,7 +1277,6 @@ def main(config_bundle: str,
     
     # Domain-specific analyses
     segment_df = analyze_segment_performance(df)
-    analyze_same_function_pairs(df)
     analyze_prediction_confidence(df)
 
     # Save summary metrics
