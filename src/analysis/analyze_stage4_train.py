@@ -34,7 +34,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
     confusion_matrix, classification_report, roc_curve, auc,
-    precision_recall_curve, f1_score, roc_auc_score, average_precision_score
+    precision_recall_curve, f1_score, roc_auc_score, average_precision_score,
+    precision_score, recall_score, matthews_corrcoef,
 )
 
 # Regex used to decide whether an hn_subtype string is parseable. Anything that
@@ -73,6 +74,9 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     
     f1 = f1_score(y_true, y_pred, average='binary', pos_label=1)
     f1_macro = f1_score(y_true, y_pred, average='macro')
+    precision = precision_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0)
+    recall = recall_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0)
+    mcc = matthews_corrcoef(y_true, y_pred)
     roc_auc = roc_auc_score(y_true, y_prob)
     accuracy = (y_true == y_pred).mean()
     avg_precision = average_precision_score(y_true, y_prob)
@@ -84,25 +88,31 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     bce_loss = float(-np.mean(
         y_true * np.log(y_prob_clipped) + (1 - y_true) * np.log(1 - y_prob_clipped)
     ))
-    
+
     print(f'Accuracy: {accuracy:.3f}')
     print(f'F1 Score (binary): {f1:.3f}')
     print(f'F1 Score (macro): {f1_macro:.3f}')
+    print(f'Precision: {precision:.3f}')
+    print(f'Recall: {recall:.3f}')
+    print(f'MCC: {mcc:.3f}')
     print(f'AUC-ROC:  {roc_auc:.3f}')
     print(f'Average Precision: {avg_precision:.3f}')
     print(f'Brier Score: {brier_score:.4f}')
     print(f'BCE Loss: {bce_loss:.4f}')
-    
+
     print('\nClassification Report:')
     print(classification_report(y_true, y_pred,
             target_names=['Negative (Different Isolate)',
             'Positive (Same Isolate)'])
     )
-    
+
     return {
         'accuracy': accuracy,
         'f1_score': f1,
         'f1_macro': f1_macro,
+        'precision': precision,
+        'recall': recall,
+        'mcc': mcc,
         'auc_roc': roc_auc,
         'avg_precision': avg_precision,
         'brier_score': brier_score,
