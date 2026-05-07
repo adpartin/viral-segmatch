@@ -17,14 +17,12 @@ training:
   epochs: 100
   patience: 10
   feature_source: kmer  # kmer | esm2
-  hidden_dims: [10] # bottleneck layer; default: [512, 256, 64]
+  hidden_dims: [100] # bottleneck layer; default: [512, 256, 64]
   # hidden_dims: [] # simulate logistic regression; default: [512, 256, 64]
   # dropout: 0.0 # no dropout
-  # optimizer: sgd # try SGD instead of Adam
-  # momentum: 0.0 # no momentum
 
 dataset:
-  pair_builder_version: v2 # v1 | v2 (schema-mode-only, coverage-first negative sampling, within-split positive sampling)
+  pair_builder_version: v2 # v1 | v2
   schema_pair:
     - "Hemagglutinin precursor"
     - "Neuraminidase protein"
