@@ -94,7 +94,7 @@ def create_metrics_summary_plot(
     results_dir: Path,
     pred_csv_name: str = 'test_predicted.csv',
     save_name: str = 'metrics_summary.png',
-) -> None:
+    ) -> None:
     """Create a standalone metrics bar chart (single figure).
 
     If *pred_csv_name* is 'test_predicted_swapped.csv', metrics are recomputed
