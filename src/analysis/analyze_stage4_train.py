@@ -619,51 +619,54 @@ def _year_to_bin(y) -> str:
     return 'unknown'
 
 
+_ENRICH_BASE_COLS = ['host_a', 'host_b', 'hn_subtype_a', 'hn_subtype_b',
+                     'year_a', 'year_b']
+
+
 def _enrich_pairs_with_metadata(df: pd.DataFrame) -> pd.DataFrame:
-    """Add two-sided metadata columns to a pair-level dataframe.
+    """Add per-side parsed metadata columns to a pair-level dataframe.
 
-    For each pair we need metadata for BOTH assembly ids. We load the flu
-    metadata table once, then merge it twice: once on assembly_id_a, once on
-    assembly_id_b. Output columns:
-      host_a, host_b, hn_subtype_a_raw, hn_subtype_b_raw, year_a, year_b
-      subtype_a, subtype_b       (parsed with 'unknown' fallback)
-      year_bin_a, year_bin_b
+    Output columns added (or refreshed) on a copy of `df`:
+      subtype_a, subtype_b   -- canonical H<d>N<d> form, 'unknown' fallback
+      year_bin_a, year_bin_b -- coarse bin label (see YEAR_BIN_EDGES)
 
-    Returns a COPY; raises on missing metadata file (caller catches).
+    v2-attached pair DataFrames already carry host_{a,b}, hn_subtype_{a,b},
+    year_{a,b} (and same_* flags). When all the needed base columns are present
+    we derive subtype/year_bin in place. Otherwise (older v1 outputs) we fall
+    back to merging the isolate_metadata table, which raises if missing.
     """
-    from src.utils.metadata_enrichment import load_flu_metadata
-
-    meta = load_flu_metadata(project_root=project_root)
-    meta = meta[['assembly_id', 'host', 'hn_subtype', 'year']]
-
     out = df.copy()
-    out['assembly_id_a'] = out['assembly_id_a'].astype(str)
-    out['assembly_id_b'] = out['assembly_id_b'].astype(str)
+    have_all_base = all(c in out.columns for c in _ENRICH_BASE_COLS)
 
-    # Side A
-    meta_a = meta.rename(columns={
-        'assembly_id': 'assembly_id_a',
-        'host': 'host_a',
-        'hn_subtype': 'hn_subtype_a_raw',
-        'year': 'year_a',
-    })
-    out = out.merge(meta_a, on='assembly_id_a', how='left')
+    if not have_all_base:
+        from src.utils.metadata_enrichment import load_flu_metadata
 
-    # Side B
-    meta_b = meta.rename(columns={
-        'assembly_id': 'assembly_id_b',
-        'host': 'host_b',
-        'hn_subtype': 'hn_subtype_b_raw',
-        'year': 'year_b',
-    })
-    out = out.merge(meta_b, on='assembly_id_b', how='left')
+        meta = load_flu_metadata(project_root=project_root)[
+            ['assembly_id', 'host', 'hn_subtype', 'year']]
+        out['assembly_id_a'] = out['assembly_id_a'].astype(str)
+        out['assembly_id_b'] = out['assembly_id_b'].astype(str)
+        for side in ('a', 'b'):
+            renamed = meta.rename(columns={
+                'assembly_id': f'assembly_id_{side}',
+                'host': f'host_{side}',
+                'hn_subtype': f'hn_subtype_{side}',
+                'year': f'year_{side}',
+            })
+            out = out.merge(renamed, on=f'assembly_id_{side}', how='left')
 
-    # Parse subtype and year_bin on each side. Using .apply is fine here: the
-    # test set is ~20K rows max and these helpers keep NaN handling readable.
-    out['subtype_a'] = out['hn_subtype_a_raw'].apply(_parse_subtype)
-    out['subtype_b'] = out['hn_subtype_b_raw'].apply(_parse_subtype)
-    out['year_bin_a'] = out['year_a'].apply(_year_to_bin)
-    out['year_bin_b'] = out['year_b'].apply(_year_to_bin)
+    # Vectorized derivations from the base columns -- 2x str.match (subtype)
+    # and 2x cut (year bin); no per-row Python.
+    for side in ('a', 'b'):
+        raw = out[f'hn_subtype_{side}'].astype('string')
+        canonical = raw.where(raw.str.match(SUBTYPE_RE, na=False), other='unknown')
+        out[f'subtype_{side}'] = canonical.fillna('unknown').astype(str)
+
+        years = pd.to_numeric(out[f'year_{side}'], errors='coerce')
+        bins = pd.cut(years,
+                      bins=[-np.inf, 2015, 2020, np.inf],
+                      labels=['<=2015', '2016-2020', '2021+'])
+        out[f'year_bin_{side}'] = bins.astype(object).where(bins.notna(), 'unknown')
+
     return out
 
 
