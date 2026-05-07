@@ -277,6 +277,106 @@ def plot_prediction_distribution(y_true, y_prob, save_path=None, ax=None):
         plt.show()
 
 
+def _axis_columns(axis: str) -> tuple[str, str]:
+    """Return the (col_a, col_b) pair for a logical axis name.
+
+    Axes follow Level 1/2 conventions: 'subtype' uses the parsed canonical
+    form (subtype_a/_b after enrichment), 'year_bin' uses the binned form,
+    'host' / 'geo_location' / 'passage' use the v2-attached raw columns.
+    """
+    if axis == 'subtype':
+        return 'subtype_a', 'subtype_b'
+    if axis == 'year_bin':
+        return 'year_bin_a', 'year_bin_b'
+    return f'{axis}_a', f'{axis}_b'
+
+
+def _within_cross_masks(df_enriched: pd.DataFrame, axis: str) -> tuple[pd.Series, pd.Series]:
+    """Return (within_mask, cross_mask) for a given axis on enriched pairs.
+
+    Pairs are excluded from BOTH masks when either side is missing or
+    'unknown' on that axis -- we only ask within/cross questions when both
+    sides actually have a parseable value.
+    """
+    col_a, col_b = _axis_columns(axis)
+    a = df_enriched[col_a].astype('object')
+    b = df_enriched[col_b].astype('object')
+    known = a.notna() & b.notna() & (a != 'unknown') & (b != 'unknown')
+    within = known & (a == b)
+    cross = known & (a != b)
+    return within, cross
+
+
+def plot_neg_prob_by_axis(df_enriched: pd.DataFrame, results_dir: Path,
+                          axes: tuple = ('subtype', 'host', 'year_bin')) -> None:
+    """Pred-prob distributions of negatives, split into within-axis vs cross-axis.
+
+    For each axis, plot two overlaid histograms over `pred_prob`:
+      - Within-axis: negative pairs where both sides share the axis value
+        (e.g., both H3N2). These are the "hard" negatives.
+      - Cross-axis: negative pairs where sides differ (e.g., H3N2 vs H1N1).
+        The "easy" negatives.
+
+    A clear right-shift of the within-axis distribution past 0.5 is direct
+    visual evidence the model uses that axis as a shortcut: same-axis pairs
+    look more like positives.
+
+    Saves `neg_prob_distribution_by_axis.png`. No CSV output -- this is a
+    visual companion to Level 1/2 numerical tables.
+    """
+    print('\n' + '=' * 60)
+    print('NEGATIVE PRED-PROB DISTRIBUTION BY AXIS')
+    print('=' * 60)
+
+    neg = df_enriched[df_enriched['label'] == 0]
+    if len(neg) == 0:
+        print('  No negative pairs in test set; skipping.')
+        return
+
+    fig, axes_arr = plt.subplots(1, len(axes), figsize=(5.5 * len(axes), 4.5),
+                                  sharey=True)
+    if len(axes) == 1:
+        axes_arr = [axes_arr]
+
+    for ax_obj, axis in zip(axes_arr, axes):
+        within, cross = _within_cross_masks(neg, axis)
+        within_probs = neg.loc[within, 'pred_prob'].values
+        cross_probs = neg.loc[cross, 'pred_prob'].values
+        n_within = len(within_probs)
+        n_cross = len(cross_probs)
+
+        # FP rates per stratum (FP = predicted positive among true negatives).
+        fp_within = (within_probs > 0.5).mean() if n_within > 0 else float('nan')
+        fp_cross = (cross_probs > 0.5).mean() if n_cross > 0 else float('nan')
+
+        if n_cross > 0:
+            ax_obj.hist(cross_probs, bins=30, alpha=0.65,
+                        label=f'cross-{axis} (n={n_cross:,}, FP={fp_cross:.1%})',
+                        color='steelblue', density=True, range=(0, 1))
+        if n_within > 0:
+            ax_obj.hist(within_probs, bins=30, alpha=0.65,
+                        label=f'within-{axis} (n={n_within:,}, FP={fp_within:.1%})',
+                        color='crimson', density=True, range=(0, 1))
+        ax_obj.axvline(0.5, color='black', linestyle='--', alpha=0.7,
+                       label='Threshold 0.5')
+        ax_obj.set_xlabel('pred_prob')
+        ax_obj.set_title(f'Axis: {axis}', fontweight='bold')
+        ax_obj.legend(loc='upper center', fontsize=8)
+        ax_obj.grid(True, alpha=0.3)
+        ax_obj.set_xlim(0, 1)
+        print(f'  {axis:14s} within FP={fp_within:.3f} (n={n_within:,})  '
+              f'cross FP={fp_cross:.3f} (n={n_cross:,})')
+
+    axes_arr[0].set_ylabel('Density')
+    fig.suptitle('Negative pairs: pred_prob distribution within vs cross category',
+                 fontweight='bold')
+    plt.tight_layout()
+    out = results_dir / 'neg_prob_distribution_by_axis.png'
+    plt.savefig(out, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f'Saved to: {out}')
+
+
 def analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir: Path):
     """Detailed analysis of False Positives and False Negatives.
 
@@ -602,68 +702,58 @@ def analyze_level1_pair_regime(df_enriched: pd.DataFrame, results_dir: Path) -> 
 
 
 def _plot_level1_pair_regime(stats_df: pd.DataFrame, results_dir: Path) -> None:
-    """Bar plot of TPR / TNR / F1 per pair regime with value labels.
+    """Bar plot of TPR / TNR per pair regime with value labels.
 
-    Per-regime definability (single-class strata make most "standard" metrics
-    undefined — see docs/post_hoc_analysis_design.md "Level 1"):
-      - positive (all label=1): TPR defined (= recall = fraction of positive
-        pairs correctly classified). TNR undefined (no negatives). F1 defined
-        (precision = 1 because no FPs possible in this stratum).
+    Per-regime definability (single-class strata make TPR-or-TNR undefined
+    on the wrong side -- see docs/post_hoc_analysis_design.md "Level 1"):
+      - positive (all label=1): TPR defined; TNR undefined (no negatives).
       - within_subtype_neg / cross_subtype_neg / unknown_neg (all label=0):
-        TNR defined (= fraction of negative pairs correctly classified). TPR
-        and F1 undefined (no positives).
+        TNR defined; TPR undefined (no positives).
 
-    TPR + TNR together give a unified "correctly-classified fraction" story
-    across both regime types. The asymmetric visibility (TPR appears only on
-    `positive`, TNR only on negatives) is intentional — it makes the shortcut
-    signal (TNR gap between within_subtype_neg and cross_subtype_neg) easy
-    to read off. Value labels render above each defined bar; undefined bars
-    are drawn as thin grey placeholders labeled "N/A" so the reader can tell
-    "undefined" apart from "zero".
+    TPR + TNR together give a unified "correctly-classified fraction" story.
+    The asymmetric visibility (TPR on `positive`, TNR on negatives) makes
+    the shortcut signal -- the TNR gap between within_subtype_neg and
+    cross_subtype_neg -- easy to read off. Undefined bars are drawn as thin
+    grey placeholders labelled "N/A" so the reader can tell "undefined"
+    apart from "zero". F1 / fp_rate / accuracy are kept in the CSV for
+    downstream use but excluded from the plot to keep one bar per defined
+    metric per regime.
     """
     plot_df = stats_df[stats_df['n_samples'] > 0].copy()
     if plot_df.empty:
         return
     fig, ax = plt.subplots(figsize=(11, 5.5))
     x = np.arange(len(plot_df))
-    width = 0.25
+    width = 0.35
     specs = [
-        (-width, 'tpr',      'TPR (sensitivity)',  'seagreen'),
-        (0.0,    'tnr',      'TNR (specificity)',  'steelblue'),
-        ( width, 'f1_score', 'F1',                 'purple'),
+        (-width / 2, 'tpr', 'TPR (sensitivity)', 'seagreen'),
+        ( width / 2, 'tnr', 'TNR (specificity)', 'steelblue'),
     ]
     for offset, col, label, color in specs:
-        values = plot_df[col].values
-        for xi, v in zip(x, values):
+        for xi, v in zip(x, plot_df[col].values):
             if pd.isna(v):
-                # Thin placeholder bar + "N/A" label so undefined is visibly
-                # different from a true zero.
                 ax.bar(xi + offset, 0.02, width, color='lightgrey',
-                       edgecolor='grey', alpha=0.5,
-                       label=label if xi == x[0] and not any(plot_df[col].notna()) else None)
+                       edgecolor='grey', alpha=0.5)
                 ax.text(xi + offset, 0.03, 'N/A', ha='center', va='bottom',
                         fontsize=8, color='grey')
             else:
                 ax.bar(xi + offset, v, width, color=color, edgecolor='black',
-                       alpha=0.85,
-                       label=label if xi == next(i for i, vv in enumerate(values) if not pd.isna(vv)) + 0 and True else None)
+                       alpha=0.85)
                 ax.text(xi + offset, v + 0.01, f'{v:.3f}', ha='center',
                         va='bottom', fontsize=8)
-    # Clean legend: build it manually because the per-bar label trick above
-    # can end up repeating entries.
     from matplotlib.patches import Patch
     legend_handles = [Patch(facecolor=c, edgecolor='black', label=lbl)
                       for _, _, lbl, c in specs]
     ax.legend(handles=legend_handles, loc='lower right')
-    # n_samples annotation above each regime.
     for xi, n in zip(x, plot_df['n_samples']):
-        ax.text(xi, 1.08, f'n={n:,}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+        ax.text(xi, 1.08, f'n={n:,}', ha='center', va='bottom',
+                fontsize=9, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(plot_df['pair_regime'], rotation=20, ha='right')
     ax.set_ylim(0, 1.18)
     ax.set_yticks(np.arange(0, 1.01, 0.1))
     ax.set_ylabel('Score')
-    ax.set_title('Level 1: TPR / TNR / F1 by pair regime')
+    ax.set_title('Level 1: TPR / TNR by pair regime')
     ax.grid(True, alpha=0.3, axis='y')
     plt.tight_layout()
     out = results_dir / 'level1_pair_regime.png'
@@ -832,6 +922,143 @@ def write_stratified_eval_summary(level1_df: pd.DataFrame, level2: dict, results
 # ============================================================================
 
 
+def analyze_negative_hardness(
+    df_enriched: pd.DataFrame,
+    results_dir: Path,
+    axes: tuple = ('subtype', 'host', 'year_bin', 'geo_location', 'passage'),
+) -> tuple:
+    """Decompose negative-pair errors by how many metadata axes match.
+
+    For each negative pair, count how many of the given axes have BOTH
+    sides equal AND non-missing. That count (0..len(axes)) is the
+    "hardness" -- a negative where every axis matches looks identical to
+    a positive on metadata, so the model has no metadata shortcut.
+
+    Two outputs:
+      - error_by_match_count.csv -- one row per match_count (0..N),
+        aggregate FP rate, sample sizes, mean predicted probability.
+        Headline: monotonic FP-rate climb with match_count = model uses
+        metadata correlations as shortcuts.
+      - error_by_match_pattern.csv -- one row per unique pattern (e.g.
+        'host,subtype'), same metrics. Tells you WHICH axes drive the
+        hardness, since match_count alone collapses different axis
+        combinations into the same bucket.
+
+    Plus error_by_match_count.png: bar chart of FP rate vs match_count.
+
+    Returns (count_df, pattern_df).
+    """
+    print('\n' + '=' * 60)
+    print('NEGATIVE HARDNESS (match-count + match-pattern)')
+    print('=' * 60)
+
+    neg = df_enriched[df_enriched['label'] == 0].copy()
+    if len(neg) == 0:
+        print('  No negative pairs in test set; skipping.')
+        return pd.DataFrame(), pd.DataFrame()
+
+    # For each axis, compute boolean same-flag (both sides present, both
+    # non-unknown, equal). Vectorized -- no per-row Python.
+    match_flags = pd.DataFrame(index=neg.index)
+    valid_axes = []
+    for axis in axes:
+        col_a, col_b = _axis_columns(axis)
+        if col_a not in neg.columns or col_b not in neg.columns:
+            print(f'  Axis "{axis}" not available (missing {col_a}/{col_b}); skipping.')
+            continue
+        a = neg[col_a].astype('object')
+        b = neg[col_b].astype('object')
+        known = a.notna() & b.notna() & (a != 'unknown') & (b != 'unknown')
+        match_flags[axis] = (known & (a == b)).astype(bool)
+        valid_axes.append(axis)
+
+    if not valid_axes:
+        print('  No usable axes; skipping.')
+        return pd.DataFrame(), pd.DataFrame()
+
+    neg['match_count'] = match_flags[valid_axes].sum(axis=1).astype(int)
+    # match_pattern: sorted comma-joined list of matching axes ('' = no matches).
+    pattern_arrays = match_flags[valid_axes].values
+    axis_labels = np.array(valid_axes)
+    neg['match_pattern'] = [
+        ','.join(axis_labels[row].tolist()) if row.any() else 'none'
+        for row in pattern_arrays
+    ]
+
+    fp = (neg['pred_label'] == 1).astype(int)
+    neg = neg.assign(_fp=fp)
+
+    def _summarize(group: pd.DataFrame) -> pd.Series:
+        n = len(group)
+        n_fp = int(group['_fp'].sum())
+        return pd.Series({
+            'n_neg': n,
+            'n_fp': n_fp,
+            'fp_rate': n_fp / n if n > 0 else float('nan'),
+            'mean_pred_prob': float(group['pred_prob'].mean()) if n > 0 else float('nan'),
+            'fp_avg_pred_prob': float(group.loc[group['_fp'] == 1, 'pred_prob'].mean())
+                                 if n_fp > 0 else float('nan'),
+        })
+
+    # match-count table: one row per count from 0..len(valid_axes)
+    count_rows = []
+    for c in range(len(valid_axes) + 1):
+        sub = neg[neg['match_count'] == c]
+        row = _summarize(sub).to_dict()
+        row['match_count'] = c
+        count_rows.append(row)
+    count_df = pd.DataFrame(count_rows)
+    count_df = count_df[['match_count', 'n_neg', 'n_fp', 'fp_rate',
+                         'mean_pred_prob', 'fp_avg_pred_prob']]
+    count_path = results_dir / 'error_by_match_count.csv'
+    count_df.to_csv(count_path, index=False)
+    print(f'  Saved match-count table: {count_path}')
+    print(count_df.round(4).to_string(index=False))
+
+    # match-pattern table: one row per unique pattern, sorted by count then
+    # by frequency descending so the headline patterns rise to the top.
+    patt_rows = []
+    for pattern, sub in neg.groupby('match_pattern'):
+        row = _summarize(sub).to_dict()
+        row['match_pattern'] = pattern
+        row['match_count'] = int(sub['match_count'].iloc[0])
+        patt_rows.append(row)
+    pattern_df = pd.DataFrame(patt_rows)
+    pattern_df = pattern_df[['match_pattern', 'match_count', 'n_neg', 'n_fp',
+                             'fp_rate', 'mean_pred_prob', 'fp_avg_pred_prob']]
+    pattern_df = pattern_df.sort_values(
+        ['match_count', 'n_neg'], ascending=[True, False]
+    ).reset_index(drop=True)
+    pattern_path = results_dir / 'error_by_match_pattern.csv'
+    pattern_df.to_csv(pattern_path, index=False)
+    print(f'\n  Saved match-pattern table: {pattern_path}')
+    print(pattern_df.round(4).to_string(index=False))
+
+    # Plot: FP rate by match_count, with sample-size annotations.
+    fig, ax = plt.subplots(figsize=(8, 5))
+    valid = count_df['n_neg'] > 0
+    bars = ax.bar(count_df.loc[valid, 'match_count'],
+                  count_df.loc[valid, 'fp_rate'],
+                  color='crimson', edgecolor='black', alpha=0.8)
+    for xi, n, rate in zip(count_df.loc[valid, 'match_count'],
+                            count_df.loc[valid, 'n_neg'],
+                            count_df.loc[valid, 'fp_rate']):
+        ax.text(xi, rate + 0.005, f'{rate:.1%}\n(n={n:,})',
+                ha='center', va='bottom', fontsize=9)
+    ax.set_xlabel(f'match_count (axes that match between sides; max = {len(valid_axes)})')
+    ax.set_ylabel('FP rate')
+    ax.set_title('Negative-hardness: FP rate by metadata match-count')
+    ax.set_xticks(range(len(valid_axes) + 1))
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plot_path = results_dir / 'error_by_match_count.png'
+    plt.savefig(plot_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f'\n  Saved plot: {plot_path}')
+
+    return count_df, pattern_df
+
+
 def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
     """Stratified error analysis by host, hn_subtype, and year.
 
@@ -918,6 +1145,12 @@ def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
     for axis in ('host', 'subtype', 'year_bin'):
         level2[axis] = analyze_level2_by_axis(df_enriched, axis, results_dir)
     write_stratified_eval_summary(level1_df, level2, results_dir)
+
+    # Visual companion to Level 1: pred-prob distribution within vs cross axis.
+    plot_neg_prob_by_axis(df_enriched, results_dir)
+
+    # Negative-hardness: how many metadata axes match per negative pair?
+    analyze_negative_hardness(df_enriched, results_dir)
 
     return all_stratified_stats
 
