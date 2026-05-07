@@ -34,7 +34,8 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import (
     f1_score, roc_auc_score,
-    precision_score, recall_score
+    precision_score, recall_score,
+    average_precision_score, matthews_corrcoef,
 )
 
 import torch
@@ -492,7 +493,12 @@ def train_model(
     Train the MLP classifier with early stopping based on a configurable metric.
     
     Args:
-        early_stopping_metric: Metric to use for early stopping ('loss', 'f1', 'auc')
+        early_stopping_metric: Metric to use for early stopping. One of:
+            'loss'   -- BCE on val (lower is better, threshold-independent)
+            'f1'     -- F1 of positive class at threshold 0.5
+            'auc'    -- AUC-ROC, ranking-based, threshold-independent
+            'auc_pr' -- AUC-PR (avg precision), positive-class focused, threshold-independent
+            'mcc'    -- Matthews CC at threshold 0.5; full-CM, symmetric, 0 on collapse
             - 'loss': Lower is better (default, backward compatible)
             - 'f1': Higher is better
             - 'auc': Higher is better
@@ -544,7 +550,9 @@ def train_model(
         'val_f1_macro': [],  # F1 macro (average of both classes)
         'val_precision': [],  # Precision for positive class (measures FP)
         'val_recall': [],  # Recall for positive class (measures FN)
-        'val_auc': [],
+        'val_auc': [],      # AUC-ROC: ranking quality, threshold-independent
+        'val_auc_pr': [],   # AUC-PR (avg precision): positive-class focused, threshold-independent
+        'val_mcc': [],      # MCC at threshold 0.5: full-CM, symmetric
         'val_brier': [],
         'learning_rate': [],  # Track learning rate over epochs
         'epoch_time_sec': [],  # Wall-clock time per epoch (seconds)
@@ -575,14 +583,21 @@ def train_model(
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
 
     # Initialize best metric tracking based on metric type
+    # MCC is bounded in [-1, 1]; the others (f1, auc, auc_pr) are in [0, 1].
+    # Using -1.0 as the "no result yet" sentinel works for all four because the
+    # first computed value will always be >= -1.0.
+    _HIGHER_IS_BETTER_METRICS = ['f1', 'auc', 'auc_pr', 'mcc']
     if early_stopping_metric == 'loss':
         best_metric_value = float('inf')
         is_higher_better = False
-    elif early_stopping_metric in ['f1', 'auc']:
+    elif early_stopping_metric in _HIGHER_IS_BETTER_METRICS:
         best_metric_value = -1.0
         is_higher_better = True
     else:
-        raise ValueError(f"Unknown early_stopping_metric: {early_stopping_metric}. Choose from 'loss', 'f1', 'auc'")
+        raise ValueError(
+            f"Unknown early_stopping_metric: {early_stopping_metric}. "
+            f"Choose from 'loss', 'f1', 'auc', 'auc_pr', 'mcc'"
+        )
 
     # --- Level 2 diagnostic: micro-benchmark first 10 batches ---
     # Confirmed that pin_memory=True causes ~300x data-loading slowdown with 4 concurrent
@@ -724,6 +739,12 @@ def train_model(
             # monotonicity, causing sklearn to raise ValueError. Fall back to
             # AUC=0.5 (equivalent to random ranking) so training can continue.
             val_auc = 0.5
+        # Average precision (AUC-PR): integrates precision over recall;
+        # asymmetric (positive-class focused), useful when positives are rare.
+        val_auc_pr = average_precision_score(val_labels, val_probs)
+        # MCC: full-CM single number, symmetric across classes, returns 0 on
+        # collapse (constant predictions). Threshold-dependent at 0.5.
+        val_mcc = matthews_corrcoef(val_labels, val_preds)
         val_brier = float(np.mean((np.array(val_probs) - np.array(val_labels)) ** 2))
 
         # Select metric value for early stopping
@@ -733,6 +754,10 @@ def train_model(
             current_metric_value = val_f1
         elif early_stopping_metric == 'auc':
             current_metric_value = val_auc
+        elif early_stopping_metric == 'auc_pr':
+            current_metric_value = val_auc_pr
+        elif early_stopping_metric == 'mcc':
+            current_metric_value = val_mcc
 
         # Update learning rate scheduler if provided
         if lr_scheduler is not None:
@@ -766,6 +791,8 @@ def train_model(
         history['val_precision'].append(val_precision)
         history['val_recall'].append(val_recall)
         history['val_auc'].append(val_auc)
+        history['val_auc_pr'].append(val_auc_pr)
+        history['val_mcc'].append(val_mcc)
         history['val_brier'].append(val_brier)
         history['learning_rate'].append(current_lr)
         history['epoch_time_sec'].append(round(epoch_time, 2))
@@ -820,6 +847,8 @@ def train_model(
             'val_precision': history.get('val_precision', [None] * len(history['train_loss'])),
             'val_recall': history.get('val_recall', [None] * len(history['train_loss'])),
             'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
+            'val_auc_pr': history.get('val_auc_pr', [None] * len(history['train_loss'])),
+            'val_mcc': history.get('val_mcc', [None] * len(history['train_loss'])),
             'val_brier': history.get('val_brier', [None] * len(history['train_loss'])),
             'learning_rate': history.get('learning_rate', [None] * len(history['train_loss'])),
             'epoch_time_sec': history.get('epoch_time_sec', [None] * len(history['train_loss'])),

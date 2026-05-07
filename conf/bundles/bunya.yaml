@@ -78,5 +78,5 @@ training:
   patience: 15  # Early stopping
   batch_size: 16
   learning_rate: 0.001
-  early_stopping_metric: 'f1'  # Metric for early stopping; Options: 'loss', 'f1', 'auc', null (default: 'loss')
+  early_stopping_metric: 'f1'  # Options: 'loss', 'f1', 'auc' (=ROC), 'auc_pr' (=avg precision), 'mcc'. See conf/training/base.yaml.
   threshold_metric: null  # Threshold optimization metric; Options: 'f1', 'f0.5', 'f2', null (default: 0.5)
