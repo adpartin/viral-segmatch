@@ -1603,9 +1603,19 @@ def emit_split_overlap_stats(
             )
         rows.append(row)
 
-    out = pd.DataFrame(rows).sort_values(
-        ['split', 'label', 'seq_type', 'side']
+    # Sort so train/val/test rows for the same (seq_type, side, label) sit
+    # adjacent -- cross-split comparison becomes a single column scan rather
+    # than jumping across the table. Categorical on `split` enforces the
+    # canonical pipeline order (train -> val -> test), not alphabetical
+    # (which would give test -> train -> val).
+    out = pd.DataFrame(rows)
+    out['split'] = pd.Categorical(out['split'],
+                                   categories=['train', 'val', 'test'],
+                                   ordered=True)
+    out = out.sort_values(
+        ['seq_type', 'side', 'label', 'split']
     ).reset_index(drop=True)
+    out['split'] = out['split'].astype(str)
 
     csv_path = output_dir / 'split_overlap_stats.csv'
     out.to_csv(csv_path, index=False)
