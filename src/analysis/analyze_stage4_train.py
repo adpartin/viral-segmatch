@@ -710,14 +710,11 @@ def _plot_level1_pair_regime(stats_df: pd.DataFrame, results_dir: Path) -> None:
       - within_subtype_neg / cross_subtype_neg / unknown_neg (all label=0):
         TNR defined; TPR undefined (no positives).
 
-    TPR + TNR together give a unified "correctly-classified fraction" story.
-    The asymmetric visibility (TPR on `positive`, TNR on negatives) makes
-    the shortcut signal -- the TNR gap between within_subtype_neg and
-    cross_subtype_neg -- easy to read off. Undefined bars are drawn as thin
-    grey placeholders labelled "N/A" so the reader can tell "undefined"
-    apart from "zero". F1 / fp_rate / accuracy are kept in the CSV for
-    downstream use but excluded from the plot to keep one bar per defined
-    metric per regime.
+    Undefined metrics are simply omitted from the plot (no placeholder
+    bar). Each regime ends up with at most one bar -- TPR on `positive`,
+    TNR on the negative regimes. The shortcut signal is the TNR gap
+    between within_subtype_neg and cross_subtype_neg. F1 / fp_rate /
+    accuracy stay in the CSV for downstream use.
     """
     plot_df = stats_df[stats_df['n_samples'] > 0].copy()
     if plot_df.empty:
@@ -732,15 +729,11 @@ def _plot_level1_pair_regime(stats_df: pd.DataFrame, results_dir: Path) -> None:
     for offset, col, label, color in specs:
         for xi, v in zip(x, plot_df[col].values):
             if pd.isna(v):
-                ax.bar(xi + offset, 0.02, width, color='lightgrey',
-                       edgecolor='grey', alpha=0.5)
-                ax.text(xi + offset, 0.03, 'N/A', ha='center', va='bottom',
-                        fontsize=8, color='grey')
-            else:
-                ax.bar(xi + offset, v, width, color=color, edgecolor='black',
-                       alpha=0.85)
-                ax.text(xi + offset, v + 0.01, f'{v:.3f}', ha='center',
-                        va='bottom', fontsize=8)
+                continue  # Undefined for this regime; skip rather than draw a placeholder.
+            ax.bar(xi + offset, v, width, color=color, edgecolor='black',
+                   alpha=0.85)
+            ax.text(xi + offset, v + 0.01, f'{v:.3f}', ha='center',
+                    va='bottom', fontsize=8)
     from matplotlib.patches import Patch
     legend_handles = [Patch(facecolor=c, edgecolor='black', label=lbl)
                       for _, _, lbl, c in specs]
@@ -755,6 +748,14 @@ def _plot_level1_pair_regime(stats_df: pd.DataFrame, results_dir: Path) -> None:
     ax.set_ylabel('Score')
     ax.set_title('Level 1: TPR / TNR by pair regime')
     ax.grid(True, alpha=0.3, axis='y')
+
+    # Footnote: keep `unknown_neg` discoverable without inflating the plot.
+    if 'unknown_neg' in plot_df['pair_regime'].values:
+        fig.text(0.5, -0.02,
+                 "unknown_neg: negatives where at least one side's subtype didn't parse "
+                 "(mostly literal 'HN'); reported separately.",
+                 ha='center', fontsize=8, color='dimgrey', style='italic')
+
     plt.tight_layout()
     out = results_dir / 'level1_pair_regime.png'
     plt.savefig(out, dpi=200, bbox_inches='tight')
