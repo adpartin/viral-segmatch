@@ -26,7 +26,7 @@ this table and link from the plan.
 | 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion; Exp 1 makes this visible | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
 | 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage assertion + `seqs_with_zero_negatives` raise | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
 | 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Plan Exp 1 (split overlap stats); Plan Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ NOT ADDRESSED — measured 11–16% on v2 |
-| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Plan Exp 2 (cosine deciles); Plan Exp 3 (1-NN baseline); Plan Exp 6 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cosine = 0.994 |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Plan Exp 2 (cosine deciles); Plan Exp 3 (1-NN baseline); Plan Exp 5 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cosine = 0.994 |
 | 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Plan Exp 2 cosine deciles | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count (see `docs/results/2026-05-07_metadata_shortcut_negatives.md`) |
 
 Quick disambiguation:
@@ -54,7 +54,7 @@ lookup (k-NN with k=1) on the same splits and the same features:
 
 (a) **Generalization to novel sequences** — pairs whose individual
 sequences have cosine < 0.95 to all training sequences (or fall in a
-test cluster disjoint from any training cluster, per Plan Exp 6 with
+test cluster disjoint from any training cluster, per Plan Exp 5 with
 mmseqs2 at e.g. 95% identity).
 
 (b) **Generalization across populations** — pairs from a held-out
@@ -85,8 +85,8 @@ Mapping back to the table above:
 | Exp 2 — Stratified accuracy by nearest-train cosine | #4 (and indirectly #5) |
 | Exp 3 — k-NN baseline (k=1) | #4; provides the comparator for the biology criterion |
 | Exp 4 — Sequence-disjoint and strict-dedup splits | #3 directly; bounds #4 |
-| Exp 6 — mmseqs2 cluster-based splits | #4 at the biological-similarity level |
-| Anl 1 — Conservation analysis across representations | Does NOT directly assess any mode. Characterizes how dense the cluster space is per protein and per representation, which informs how to interpret Exp 4 / Exp 6 results. |
+| Exp 5 — mmseqs2 cluster-based splits | #4 at the biological-similarity level |
+| Anl 1 — Conservation analysis across representations | Does NOT directly assess any mode. Characterizes how dense the cluster space is per protein and per representation, which informs how to interpret Exp 4 / Exp 5 results. |
 
 The headline scientific test is **Exp 4** (the splits work) read
 alongside **Exp 3** (the k-NN baseline). If Exp 4 splits don't crash
@@ -117,7 +117,7 @@ requires running the experiments first.
   with experiment-by-experiment design.
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
   detailed design for Plan Exp 2 (cosine-controlled splits) and Plan
-  Exp 6 (mmseqs2 clusters).
+  Exp 5 (mmseqs2 clusters).
 - `docs/results/2026-05-07_metadata_shortcut_negatives.md` — the
   finding that triggered the formal taxonomy.
 - `docs/post_hoc_analysis_design.md` — Level 1 / Level 2 stratified

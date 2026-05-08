@@ -25,15 +25,15 @@ experiments that does.
 | 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion; Exp 1 makes this visible | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
 | 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage assertion + `seqs_with_zero_negatives` raise | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
 | 3 | Sequence-level **leakage** | Slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ NOT ADDRESSED — measured 11–16% on v2 |
-| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 6 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 5 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
 | 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 2 cosine deciles | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count |
 
 Experiments 3 and 4 from the action list below directly test these.
-Experiments 1 and 2 are diagnostics; 6 is escalation. The taxonomy
-itself (formerly Exp 6) is now persisted in
-`docs/methods/leakage_definitions.md`. The conservation analysis
-(formerly Exp 5) is in the **Background analyses** section as Anl 1
-— it characterizes the biological setting but doesn't itself test a
+Experiments 1 and 2 are diagnostics; 5 is escalation. The taxonomy
+and the operational "biology learning" definition are now persisted
+in `docs/methods/leakage_definitions.md`. The conservation analysis
+sits in the **Background analyses** section as Anl 1 — it
+characterizes the biological setting but doesn't itself test a
 mode in the table.
 
 ## Operational definition: "model learned biology"
@@ -65,10 +65,39 @@ Ordered by effort and dependency. Items 1–3 are quick and inform 4–5.
 ### Exp 1 — Cross-split overlap stats table
 
 **Why.** We currently log `pair_key` overlap only (verified zero by
-v2 invariant). We need explicit counts at the `seq_hash` and
+v2 assertion). We need explicit counts at the `seq_hash` and
 `dna_hash` level too, stratified by side (a/b) and label (pos/neg),
 so the sequence-level leakage (#3) is visible at a glance instead of
 having to re-derive it from train/val/test pair tables.
+
+Shape of the new CSV (real numbers from
+`dataset_flu_ha_na_20260506_150017`; the same-split column trivially
+equals `n_unique` and is shown for schema clarity):
+
+| split | label | axis     | side | n_unique | n_in_train | n_in_val | n_in_test |
+|-------|-------|----------|------|---------:|-----------:|---------:|----------:|
+| train | pos   | seq_hash | a    |   34,338 |     34,338 |    1,244 |     1,261 |
+| train | pos   | seq_hash | b    |   31,010 |     31,010 |    1,524 |     1,596 |
+| train | pos   | dna_hash | a    |   43,875 |     43,875 |      563 |       520 |
+| train | pos   | dna_hash | b    |   41,799 |     41,799 |      802 |       818 |
+| val   | pos   | seq_hash | a    |    5,057 |      1,244 |    5,057 |       417 |
+| val   | pos   | dna_hash | a    |    5,775 |        563 |    5,775 |       136 |
+| test  | pos   | seq_hash | a    |    5,072 |      1,261 |      417 |     5,072 |
+| test  | pos   | dna_hash | a    |    5,776 |        520 |      136 |     5,776 |
+| ...   | (rows for label=neg, all 4 axis/side combos, follow the same shape)               |
+
+Two patterns to read off this slice (HA/NA mixed, v2):
+- **seq_hash overlap is large**: ~25% of val/test HA sequences are
+  also present in train (1,244 / 5,057; 1,261 / 5,072).
+- **dna_hash overlap is much smaller**: only ~10% of val/test HA
+  DNA sequences are in train (563 / 5,775; 520 / 5,776) — confirming
+  synonymous codon variation between isolates that share the same
+  protein.
+
+Read across a row: "in this split, this label, this axis, this side
+— how many unique values are there, and how many of them also
+appear in each of the other splits?" A high `n_in_train` value on
+val/test rows = sequence-level leakage on that axis.
 
 **What.** Add `split_overlap_stats.csv` to Stage 3 output, alongside
 `dataset_stats.json`. One row per `(split, label, axis, side)`
@@ -178,7 +207,7 @@ minutes each).
 
 ---
 
-### Exp 6 — mmseqs2 cluster-based splits (escalation)
+### Exp 5 — mmseqs2 cluster-based splits (escalation)
 
 **Why.** Sequence-level dedup (Exp 4) is strictly stricter than
 isolate-level split but does NOT prevent near-neighbors with
@@ -201,7 +230,7 @@ split clusters across train/val/test. Each test pair has guaranteed
 **Trigger condition.** Run only if Exp 4 (the cheaper sequence-level
 dedup) leaves a story like "performance held — leakage less
 problematic than feared." Then we want a stricter test to rule out
-phylogenetic near-neighbors. If Exp 4 already crashes, Exp 6 is
+phylogenetic near-neighbors. If Exp 4 already crashes, Exp 5 is
 unnecessary for the leakage story (but might still be useful for
 phylo robustness).
 
@@ -279,22 +308,22 @@ Exp 3 (k-NN k=1 baseline)  ─── feeds Exp 4 interpretation
 Exp 4 (seq-disjoint splits)─── HEADLINE EXPERIMENT
        │
        ▼  (only if Exp 4 results say so)
-Exp 6 (mmseqs2 clusters)
+Exp 5 (mmseqs2 clusters)
 
 Anl 1 (conservation)       ─── background, can run anywhere
 ```
 
 Exp 1, 2, 3 can run in parallel (~half day total). Exp 4 is the
-load-bearing scientific test. Exp 6 is escalation. Anl 1 sits
+load-bearing scientific test. Exp 5 is escalation. Anl 1 sits
 outside the experimental dependency chain — it's biology framing
 that informs interpretation but doesn't gate other work. The
-taxonomy + biology-learning definition (formerly Exp 6) is already
-landed in `docs/methods/leakage_definitions.md`.
+taxonomy + biology-learning definition are already landed in
+`docs/methods/leakage_definitions.md`.
 
 ## Out of scope
 
 - Sequence-similarity controls beyond mmseqs2 clustering (e.g.
-  phylogenetic distance trees) — defer until after Exp 6 results.
+  phylogenetic distance trees) — defer until after Exp 5 results.
 - Hard-negative mining / focal loss — these are *mitigations* once
   leakage is characterized, tracked separately in roadmap_v2.md
   Task 12.

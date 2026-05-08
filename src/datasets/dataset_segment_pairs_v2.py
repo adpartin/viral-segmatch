@@ -1346,6 +1346,11 @@ def save_split_output_v2(
     test_pairs.to_parquet(output_dir / 'test_pairs.parquet', compression='zstd', index=False)
     print(f"[diag] save_v2: pair parquets done in {time.time()-_t:.2f}s", flush=True)
 
+    # Cross-split overlap stats (Exp 1 of the leakage diagnostics plan).
+    # Surfaces seq_hash / dna_hash overlap across splits that pair_key
+    # disjointness does not prevent.
+    emit_split_overlap_stats(train_pairs, val_pairs, test_pairs, output_dir)
+
     # Per-split sequence_exposure.csv
     for split_name, exp_df in exposure_tables.items():
         if exp_df is None or len(exp_df) == 0:
@@ -1489,6 +1494,88 @@ def save_split_output_v2(
             )
         except Exception as e:
             print(f"WARNING: Failed to generate visualizations: {e}")
+
+
+def emit_split_overlap_stats(
+    train_pairs: pd.DataFrame,
+    val_pairs: pd.DataFrame,
+    test_pairs: pd.DataFrame,
+    output_dir: Path,
+) -> pd.DataFrame:
+    """Emit `split_overlap_stats.csv`: per `(split, label, axis, side)` row,
+    the count of unique values and how many also appear in each of the other
+    splits.
+
+    Pair-key disjointness across splits is already enforced by v2 invariants;
+    this surfaces the *sequence-level* overlap (`seq_hash` and `dna_hash`)
+    that pair-key disjointness does NOT prevent. A reader can answer "how
+    many test sequences are also in train?" by reading one CSV instead of
+    re-deriving it from train/val/test pair tables.
+
+    Schema (one row per (split, label, axis, side)):
+        split        : 'train' | 'val' | 'test'
+        label        : 'pos' | 'neg'
+        axis         : 'seq_hash' | 'dna_hash'
+        side         : 'a' | 'b'
+        n_unique     : unique values in this (split, label, axis, side) cell
+        n_in_train   : how many of those values also appear anywhere in train
+        n_in_val     : same for val
+        n_in_test    : same for test
+
+    The same-split column trivially equals n_unique (kept for readability).
+    Cross-split columns count overlap with the OTHER split's same (axis,
+    side) values pooled across both labels — i.e. "is this value present
+    in the other split at all on this side, regardless of pos/neg?"
+
+    See plan: docs/plans/2026-05-07_leakage_diagnostics_plan.md (Exp 1).
+    """
+    splits = {'train': train_pairs, 'val': val_pairs, 'test': test_pairs}
+
+    # Pre-compute per-split per-(axis, side) value sets, pooled across labels.
+    # Keyed (split_name, axis, side) -> set. Used for cross-split overlap.
+    pooled: dict = {}
+    # Per-(split, label, axis, side) sets used for the n_unique row and
+    # for the same-split overlap (which equals n_unique).
+    per_cell: dict = {}
+
+    for split_name, df in splits.items():
+        for axis in ('seq_hash', 'dna_hash'):
+            for side in ('a', 'b'):
+                col = f'{axis}_{side}'
+                if col not in df.columns:
+                    continue
+                pooled[(split_name, axis, side)] = set(df[col].dropna())
+                for label_value, label_name in [(1, 'pos'), (0, 'neg')]:
+                    sub = df[df['label'] == label_value]
+                    per_cell[(split_name, label_name, axis, side)] = set(sub[col].dropna())
+
+    rows = []
+    for (split_name, label_name, axis, side), values in per_cell.items():
+        row = {
+            'split': split_name,
+            'label': label_name,
+            'axis': axis,
+            'side': side,
+            'n_unique': len(values),
+        }
+        for other in ('train', 'val', 'test'):
+            if other == split_name:
+                # Trivially equal to n_unique by construction; included for
+                # schema regularity so the CSV has a consistent column order.
+                row[f'n_in_{other}'] = len(values)
+            else:
+                other_pool = pooled.get((other, axis, side), set())
+                row[f'n_in_{other}'] = len(values & other_pool)
+        rows.append(row)
+
+    out = pd.DataFrame(rows).sort_values(
+        ['split', 'label', 'axis', 'side']
+    ).reset_index(drop=True)
+
+    csv_path = output_dir / 'split_overlap_stats.csv'
+    out.to_csv(csv_path, index=False)
+    print(f"Saved split overlap stats to: {csv_path}")
+    return out
 
 
 def _exposure_summary(exposure_tables: dict) -> dict:

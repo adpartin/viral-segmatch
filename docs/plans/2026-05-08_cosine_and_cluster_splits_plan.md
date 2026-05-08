@@ -278,6 +278,6 @@ This keeps the v2 builder readable as the experiments multiply.
 ## See also
 
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — parent plan;
-  this is the specific design for its Exp 2 and Exp 6.
+  this is the specific design for its Exp 2 and Exp 5.
 - `docs/results/2026-05-07_metadata_shortcut_negatives.md` — the
   analysis that motivated all of this.
