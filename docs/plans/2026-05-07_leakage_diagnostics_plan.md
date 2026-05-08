@@ -18,15 +18,15 @@ Aggregate metrics (AUC 0.978 → 0.990 across capacity) do not
 distinguish these two stories. This plan lays out a focused set of
 experiments that does.
 
-## Leakage taxonomy (canonical names + status)
+## Dataset issues (that may lead to overly optimistic predictions)
 
 | # | Canonical name | Synonyms | Description | Status |
 |---|---|---|---|---|
-| 1 | Pair-key leakage | identical-pair leakage; exact-pair overlap | Same `pair_key` in train and test. | ✅ ADDRESSED — v2 invariant + `forbidden_pair_keys` threading |
-| 2 | Slot-level leakage | per-seq imbalance | A sequence appears only as positive (or only as negative) in train. | ✅ ADDRESSED — v2 coverage phase + per-seq raise |
-| 3 | Sequence-level leakage | exact-seq overlap; per-seq cross-split overlap | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | ❌ NOT ADDRESSED — measured 11–16% on v2 |
-| 4 | Feature near-neighbor leakage | near-neighbor leakage; pair near-neighbor leakage; cluster leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
-| 5 | Metadata-shortcut leakage | metadata-correlation leakage; population leakage; demographic shortcut | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count |
+| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
+| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
+| 3 | Sequence-level **leakage** | Slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | ❌ NOT ADDRESSED — measured 11–16% on v2 |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
+| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count |
 
 Experiments 3, 4, 5 from the action list below directly test these.
 Experiments 1 and 2 are diagnostics; 6 is conceptual; 7 is escalation.
