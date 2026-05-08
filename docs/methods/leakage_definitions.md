@@ -75,16 +75,18 @@ require interpretability work this project does not commit to.
 ## How we test it
 
 The plan (`docs/plans/2026-05-07_leakage_diagnostics_plan.md`) lays
-out seven experiments. Mapping back to the table above:
+out five experiments (Exp N — assess a specific mode) and one
+background analysis (Anl N — characterize the data, no pass/fail).
+Mapping back to the table above:
 
-| Plan experiment | Tests |
+| Plan item | Tests |
 |---|---|
 | Exp 1 — Cross-split overlap stats table | Visibility for #1 and #3 |
 | Exp 2 — Stratified accuracy by nearest-train cosine | #4 (and indirectly #5) |
 | Exp 3 — k-NN baseline (k=1) | #4; provides the comparator for the biology criterion |
 | Exp 4 — Sequence-disjoint and strict-dedup splits | #3 directly; bounds #4 |
-| Exp 5 — Conservation analysis across representations | Background — characterizes how dense the cluster space is per protein and per representation |
 | Exp 6 — mmseqs2 cluster-based splits | #4 at the biological-similarity level |
+| Anl 1 — Conservation analysis across representations | Does NOT directly assess any mode. Characterizes how dense the cluster space is per protein and per representation, which informs how to interpret Exp 4 / Exp 6 results. |
 
 The headline scientific test is **Exp 4** (the splits work) read
 alongside **Exp 3** (the k-NN baseline). If Exp 4 splits don't crash

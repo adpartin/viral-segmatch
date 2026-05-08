@@ -28,10 +28,13 @@ experiments that does.
 | 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 6 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
 | 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 2 cosine deciles | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count |
 
-Experiments 3, 4, 5 from the action list below directly test these.
+Experiments 3 and 4 from the action list below directly test these.
 Experiments 1 and 2 are diagnostics; 6 is escalation. The taxonomy
 itself (formerly Exp 6) is now persisted in
-`docs/methods/leakage_definitions.md`.
+`docs/methods/leakage_definitions.md`. The conservation analysis
+(formerly Exp 5) is in the **Background analyses** section as Anl 1
+— it characterizes the biological setting but doesn't itself test a
+mode in the table.
 
 ## Operational definition: "model learned biology"
 
@@ -175,55 +178,6 @@ minutes each).
 
 ---
 
-### Exp 5 — Conservation analysis across representations
-
-**Why.** Frames the leakage discussion biologically: how conserved
-*are* the sequences we're working with, and is that conservation
-preserved across the representations the model sees? Also tests
-whether ESM-2 inflates similarity beyond what AA identity warrants.
-
-Naming note: this experiment uses **within-function / cross-function**
-to avoid colliding with the **within-subtype / cross-subtype**
-terminology of Level 1. "Function" matches the column in
-`protein_final.csv` (HA, NA, PB1, PB2, PA, NP, M1, …).
-
-**What.** A function-level conservation table + 2D embedding plot
-per representation (raw AA, raw DNA, k-mer, ESM-2). New analysis
-script `src/analysis/conservation_by_representation.py`. Output:
-`docs/results/<date>_conservation_by_representation.md` plus
-per-representation PCA/UMAP PNGs.
-
-**How.**
-1. Per function: sample 1000 random pairs of sequences.
-2. Compute pairwise similarity in each of the four representations:
-   AA identity, nucleotide identity, k-mer cosine, ESM-2 cosine.
-3. Aggregate per representation:
-   - **within-function mean similarity** = mean over pairs whose
-     two sequences share a function (HA-HA, NA-NA, …). Higher means
-     a tighter cluster for that function in this representation.
-   - **cross-function mean similarity** = mean over pairs whose two
-     sequences differ in function (HA-NA, HA-PB1, …). Acts as a
-     "floor" for what unrelated sequences look like.
-   - **ratio** = within-function / cross-function. >> 1 means the
-     representation cleanly separates functions; ≈ 1 means it
-     muddles them.
-4. PCA/UMAP per representation, colored by function.
-
-The first-page anchor is the `uniq_prot` / `uniq_dna` / `rows/prot`
-/ `dna/prot` table I already computed (HA = 41,896 unique proteins
-vs PB1 = 31,226 across ~114K isolates each; M1 = 4,771 — most
-conserved). Exp 5 builds on that with the per-representation
-similarity numbers and plots.
-
-**Effort.** Half a day.
-
-**Success.** Concrete answer to "is PB1 more conserved than HA?"
-(within-function similarity per representation) and "does ESM-2
-collapse functions more than AA identity warrants?" (compare
-within/cross ratios across representations).
-
----
-
 ### Exp 6 — mmseqs2 cluster-based splits (escalation)
 
 **Why.** Sequence-level dedup (Exp 4) is strictly stricter than
@@ -255,6 +209,65 @@ phylo robustness).
 
 ---
 
+## Background analyses
+
+These describe / characterize data; they don't test a hypothesis and
+don't have a pass/fail criterion. They sit alongside the experiments
+to inform interpretation. New entries go here under prefix `Anl N`.
+
+### Anl 1 — Conservation analysis across representations
+
+**Why.** Frames the leakage discussion biologically: how conserved
+*are* the sequences we're working with, and is that conservation
+preserved across the representations the model sees? Also tests
+whether ESM-2 inflates similarity beyond what AA identity warrants.
+Does NOT directly assess any mode in the taxonomy table — it
+characterizes the biological setting in which cluster leakage (#4)
+operates.
+
+Naming note: this analysis uses **within-function / cross-function**
+to avoid colliding with the **within-subtype / cross-subtype**
+terminology of Level 1. "Function" matches the column in
+`protein_final.csv` (HA, NA, PB1, PB2, PA, NP, M1, …).
+
+**What.** A function-level conservation table + 2D embedding plot
+per representation (raw AA, raw DNA, k-mer, ESM-2). New analysis
+script `src/analysis/conservation_by_representation.py`. Output:
+`docs/results/<date>_conservation_by_representation.md` plus
+per-representation PCA/UMAP PNGs.
+
+**How.**
+1. Per function: sample 1000 random pairs of sequences.
+2. Compute pairwise similarity in each of the four representations:
+   AA identity, nucleotide identity, k-mer cosine, ESM-2 cosine.
+3. Aggregate per representation:
+   - **within-function mean similarity** = mean over pairs whose
+     two sequences share a function (HA-HA, NA-NA, …). Higher means
+     a tighter cluster for that function in this representation.
+   - **cross-function mean similarity** = mean over pairs whose two
+     sequences differ in function (HA-NA, HA-PB1, …). Acts as a
+     "floor" for what unrelated sequences look like.
+   - **ratio** = within-function / cross-function. >> 1 means the
+     representation cleanly separates functions; ≈ 1 means it
+     muddles them.
+4. PCA/UMAP per representation, colored by function.
+
+The first-page anchor is the `uniq_prot` / `uniq_dna` / `rows/prot`
+/ `dna/prot` table I already computed (HA = 41,896 unique proteins
+vs PB1 = 31,226 across ~114K isolates each; M1 = 4,771 — most
+conserved). Anl 1 builds on that with the per-representation
+similarity numbers and plots.
+
+**Effort.** Half a day.
+
+**Output.** Concrete answer to "is PB1 more conserved than HA?"
+(within-function similarity per representation) and "does ESM-2
+collapse functions more than AA identity warrants?" (compare
+within/cross ratios across representations). No pass/fail — this is
+descriptive context.
+
+---
+
 ## Execution order and dependencies
 
 ```
@@ -267,15 +280,16 @@ Exp 4 (seq-disjoint splits)─── HEADLINE EXPERIMENT
        │
        ▼  (only if Exp 4 results say so)
 Exp 6 (mmseqs2 clusters)
-       │
-       ▼  (any time)
-Exp 5 (conservation)       ─── biology framing, can run anywhere
+
+Anl 1 (conservation)       ─── background, can run anywhere
 ```
 
 Exp 1, 2, 3 can run in parallel (~half day total). Exp 4 is the
-load-bearing scientific test. Exp 5 and 6 are escalations / context.
-The taxonomy + biology-learning definition (formerly Exp 6) is
-already landed in `docs/methods/leakage_definitions.md`.
+load-bearing scientific test. Exp 6 is escalation. Anl 1 sits
+outside the experimental dependency chain — it's biology framing
+that informs interpretation but doesn't gate other work. The
+taxonomy + biology-learning definition (formerly Exp 6) is already
+landed in `docs/methods/leakage_definitions.md`.
 
 ## Out of scope
 
