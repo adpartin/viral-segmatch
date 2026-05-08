@@ -74,7 +74,7 @@ Shape of the new CSV (real numbers from
 `dataset_flu_ha_na_20260506_150017`; the same-split column trivially
 equals `n_unique` and is shown for schema clarity):
 
-| split | label | axis     | side | n_unique | n_in_train | n_in_val | n_in_test |
+| split | label | seq_type | side | n_unique | n_in_train | n_in_val | n_in_test |
 |-------|-------|----------|------|---------:|-----------:|---------:|----------:|
 | train | pos   | seq_hash | a    |   34,338 |     34,338 |    1,244 |     1,261 |
 | train | pos   | seq_hash | b    |   31,010 |     31,010 |    1,524 |     1,596 |
@@ -84,7 +84,10 @@ equals `n_unique` and is shown for schema clarity):
 | val   | pos   | dna_hash | a    |    5,775 |        563 |    5,775 |       136 |
 | test  | pos   | seq_hash | a    |    5,072 |      1,261 |      417 |     5,072 |
 | test  | pos   | dna_hash | a    |    5,776 |        520 |      136 |     5,776 |
-| ...   | (rows for label=neg, all 4 axis/side combos, follow the same shape)               |
+| ...   | (rows for label=neg, all 4 seq_type/side combos, follow the same shape)           |
+
+`seq_type` is the kind of identifier the row tracks: `seq_hash`
+(protein hash) or `dna_hash` (nucleotide hash).
 
 Two patterns to read off this slice (HA/NA mixed, v2):
 - **seq_hash overlap is large**: ~25% of val/test HA sequences are
@@ -94,13 +97,13 @@ Two patterns to read off this slice (HA/NA mixed, v2):
   synonymous codon variation between isolates that share the same
   protein.
 
-Read across a row: "in this split, this label, this axis, this side
-— how many unique values are there, and how many of them also
+Read across a row: "in this split, this label, this seq_type, this
+side — how many unique values are there, and how many of them also
 appear in each of the other splits?" A high `n_in_train` value on
-val/test rows = sequence-level leakage on that axis.
+val/test rows = sequence-level leakage on that seq_type.
 
 **What.** Add `split_overlap_stats.csv` to Stage 3 output, alongside
-`dataset_stats.json`. One row per `(split, label, axis, side)`
+`dataset_stats.json`. One row per `(split, label, seq_type, side)`
 tuple. Columns: `n_unique`, `n_in_train`, `n_in_val`, `n_in_test`.
 
 **How.** Function in `src/datasets/dataset_segment_pairs_v2.py`,

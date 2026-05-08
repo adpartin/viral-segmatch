@@ -1507,9 +1507,9 @@ def emit_split_overlap_stats(
     test_pairs: pd.DataFrame,
     output_dir: Path,
     ) -> pd.DataFrame:
-    """Emit `split_overlap_stats.csv`: per `(split, label, axis, side)` row,
-    the count of unique values and how many also appear in each of the other
-    splits.
+    """Emit `split_overlap_stats.csv`: per `(split, label, seq_type, side)`
+    row, the count of unique values and how many also appear in each of the
+    other splits.
 
     Pair-key disjointness across splits is already enforced by v2 invariants;
     this surfaces the *sequence-level* overlap (`seq_hash` and `dna_hash`)
@@ -1517,49 +1517,51 @@ def emit_split_overlap_stats(
     many test sequences are also in train?" by reading one CSV instead of
     re-deriving it from train/val/test pair tables.
 
-    Schema (one row per (split, label, axis, side)):
+    Schema (one row per (split, label, seq_type, side)):
         split        : 'train' | 'val' | 'test'
         label        : 'pos' | 'neg'
-        axis         : 'seq_hash' | 'dna_hash'
+        seq_type     : 'seq_hash' | 'dna_hash'   (kind of identifier tracked)
         side         : 'a' | 'b'
-        n_unique     : unique values in this (split, label, axis, side) cell
+        n_unique     : unique values in this cell
         n_in_train   : how many of those values also appear anywhere in train
         n_in_val     : same for val
         n_in_test    : same for test
 
     The same-split column trivially equals n_unique (kept for readability).
-    Cross-split columns count overlap with the OTHER split's same (axis,
-    side) values pooled across both labels — i.e. "is this value present
-    in the other split at all on this side, regardless of pos/neg?"
+    Cross-split columns count overlap with the OTHER split's same
+    (seq_type, side) values pooled across both labels -- i.e. "is this
+    value present in the other split at all on this side, regardless of
+    pos/neg?"
 
     See plan: docs/plans/2026-05-07_leakage_diagnostics_plan.md (Exp 1).
     """
     splits = {'train': train_pairs, 'val': val_pairs, 'test': test_pairs}
 
-    # Pre-compute per-split per-(axis, side) value sets, pooled across labels.
-    # Keyed (split_name, axis, side) -> set. Used for cross-split overlap.
+    # Pre-compute per-split per-(seq_type, side) value sets, pooled across
+    # labels. Keyed (split_name, seq_type, side) -> set. Used for cross-split
+    # overlap.
     pooled: dict = {}
-    # Per-(split, label, axis, side) sets used for the n_unique row and
+    # Per-(split, label, seq_type, side) sets used for the n_unique row and
     # for the same-split overlap (which equals n_unique).
     per_cell: dict = {}
 
     for split_name, df in splits.items():
-        for axis in ('seq_hash', 'dna_hash'):
+        for seq_type in ('seq_hash', 'dna_hash'):
             for side in ('a', 'b'):
-                col = f'{axis}_{side}'
+                col = f'{seq_type}_{side}'
                 if col not in df.columns:
                     continue
-                pooled[(split_name, axis, side)] = set(df[col].dropna())
+                pooled[(split_name, seq_type, side)] = set(df[col].dropna())
                 for label_value, label_name in [(1, 'pos'), (0, 'neg')]:
                     sub = df[df['label'] == label_value]
-                    per_cell[(split_name, label_name, axis, side)] = set(sub[col].dropna())
+                    per_cell[(split_name, label_name, seq_type, side)] = set(sub[col].dropna())
 
     rows = []
-    for (split_name, label_name, axis, side), values in per_cell.items():
+    for (split_name, label_name, seq_type, side), values in per_cell.items():
         row = {
             'split': split_name,
             'label': label_name,
-            'axis': axis,
+            'seq_type': seq_type,
             'side': side,
             'n_unique': len(values),
         }
@@ -1569,12 +1571,12 @@ def emit_split_overlap_stats(
                 # schema regularity so the CSV has a consistent column order.
                 row[f'n_in_{other}'] = len(values)
             else:
-                other_pool = pooled.get((other, axis, side), set())
+                other_pool = pooled.get((other, seq_type, side), set())
                 row[f'n_in_{other}'] = len(values & other_pool)
         rows.append(row)
 
     out = pd.DataFrame(rows).sort_values(
-        ['split', 'label', 'axis', 'side']
+        ['split', 'label', 'seq_type', 'side']
     ).reset_index(drop=True)
 
     csv_path = output_dir / 'split_overlap_stats.csv'
