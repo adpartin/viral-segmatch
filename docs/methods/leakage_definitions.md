@@ -23,7 +23,7 @@ this table and link from the plan.
 
 | # | Canonical name | Synonyms | Description | Assessed by | Status |
 |---|---|---|---|---|---|
-| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion; Exp 1 makes this visible | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
+| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 within-split + cross-split protein-pair dedup | ✅ ADDRESSED — within-split protein-pair dedup (v2 strict mode) + cross-split protein-pair dedup (`forbidden_pair_keys` threading) |
 | 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage assertion + `seqs_with_zero_negatives` raise | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
 | 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Plan Exp 1 (split overlap stats); Plan Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ NOT ADDRESSED — measured 11–16% on v2 |
 | 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Plan Exp 2 (cosine deciles); Plan Exp 3 (1-NN baseline); Plan Exp 5 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cosine = 0.994 |
@@ -43,6 +43,28 @@ Quick disambiguation:
   the data level. Mode 5 is about the model preferring metadata
   correlations to sequence content. It's a shortcut, not a
   contamination.
+
+## Why `pair_key` is at the protein level
+
+`pair_key = canonical(seq_hash_a, seq_hash_b)` enforces pair identity
+at the protein level. Because all DNA encodings of a given protein
+pair share one `pair_key`, this is **strictly stronger** than
+DNA-level pair identity for the purposes of cross-split dedup,
+within-split dedup, and negative blocking — any DNA-level violation
+implies the corresponding protein-level violation, which v2 already
+forbids. So we do not need a separate DNA-level pair key.
+
+DNA-level concerns (per-feature label imbalance, cluster leakage on
+k-mer features) are addressed at the **slot** level (per `dna_hash`),
+not at the pair level. Specifically:
+
+- Mode #2 fix at DNA level → per-slot per-`dna_hash` coverage in the
+  v2 negative-sampling phase (planned; see
+  `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md`).
+- Mode #3 measurement at DNA level → `dna_hash` rows of
+  `split_overlap_stats.csv`.
+- Mode #3 mitigation at DNA level → split-mode partitioning on
+  `dna_hash` (Exp 4 in the plan).
 
 ---
 

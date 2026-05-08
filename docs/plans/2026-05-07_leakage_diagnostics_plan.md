@@ -22,7 +22,7 @@ experiments that does.
 
 | # | Canonical name | Synonyms | Description | Assessed by | Status |
 |---|---|---|---|---|---|
-| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
+| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 within-split + cross-split protein-pair dedup | ✅ ADDRESSED — within-split protein-pair dedup (v2 strict mode) + cross-split protein-pair dedup (`forbidden_pair_keys` threading) |
 | 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage assertion + `seqs_with_zero_negatives` raise | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
 | 3 | Sequence-level **leakage** | Slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ NOT ADDRESSED — measured 11–16% on v2 |
 | 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 5 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
@@ -39,7 +39,7 @@ mode in the table.
 ## Operational definition: "model learned biology"
 
 The model has learned biology-relevant signal **insofar as** its
-accuracy on tasks (a) and (b) below is meaningfully higher than a
+accuracy on tasks (a) and (b) (see below) is meaningfully higher than a
 1-NN lookup on the same splits:
 
 (a) **Generalization to novel sequences** — pairs whose individual
@@ -74,8 +74,7 @@ Full CSV from `dataset_flu_ha_na_20260508_122655` (HA/NA mixed, v2;
 24 rows = 3 splits × 2 labels × 2 seq_types × 2 sides). The
 `overlap_with_<own-split>` column trivially equals `n_unique` (the
 sequences in this cell are by definition all in their own split);
-likewise `pct_overlap_<own-split>` is trivially 100.0. Both are kept
-in the schema so the column count is constant.
+likewise `pct_overlap_<own-split>` is trivially 100.0.
 
 ```
 seq_type side label split  n_pairs  n_unique  overlap_with_train  overlap_with_val  overlap_with_test  pct_overlap_train  pct_overlap_val  pct_overlap_test
@@ -105,25 +104,18 @@ seq_hash    b   pos   val     5883      4849                1524              48
 seq_hash    b   pos  test     5883      4842                1596               577               4842               33.0             11.9             100.0
 ```
 
-Column order matches the sort key `(seq_type, side, label, split)`,
-so each train/val/test triplet for the same `(seq_type, side,
+Each train/val/test triplet for the same `(seq_type, side,
 label)` is adjacent — cross-split overlap is read off as a 3-row
 column scan.
 
-`seq_type` is the kind of identifier the row tracks: `seq_hash`
-(protein hash) or `dna_hash` (nucleotide hash). `n_pairs` repeats 4×
-per `(split, label)` (across the 4 seq_type/side rows) by design —
-it's there so the redundancy ratio (e.g. `n_pairs=47,060` collapses
-to `n_unique=34,338` for train pos seq_hash a) is visible inline.
+`seq_type` is: `seq_hash` (protein hash) or `dna_hash` (nucleotide hash).
 
 Three patterns to read off this run (HA/NA mixed, v2):
 - **seq_hash overlap is large**: ~25% of val/test HA sequences (side
   a) are also present in train (`pct_overlap_train` = 24.6 on val,
   24.9 on test). NA (side b) is even higher: ~31–33%.
 - **dna_hash overlap is much smaller**: ~9% on val/test for side a
-  (HA), ~13% on side b (NA). Synonymous codon variation between
-  isolates breaks DNA-level matches even when the protein is the
-  same.
+  (HA), ~13% on side b (NA). Synonymous codon variation.
 - **Same-side, same-seq_type rows are identical between pos and
   neg** (e.g. train pos seq_hash a = train neg seq_hash a = 34,338
   unique). That's a v2 invariant: per-sequence label imbalance is
@@ -131,9 +123,7 @@ Three patterns to read off this run (HA/NA mixed, v2):
   in BOTH pos and neg pairs on the same side.
 
 **What.** Add `split_overlap_stats.csv` to Stage 3 output, alongside
-`dataset_stats.json`. One row per `(split, label, seq_type, side)`
-tuple. Columns: `n_pairs`, `n_unique`, three `overlap_with_*` counts,
-three `pct_overlap_*` percentages.
+`dataset_stats.json`.
 
 **How.** Function in `src/datasets/dataset_segment_pairs_v2.py`,
 called from `split_dataset_v2` after the splits are finalized.
@@ -141,8 +131,8 @@ Reads from the train/val/test pair DataFrames already in memory.
 
 **Effort.** ~50 lines.
 
-**Success.** A reader can answer "how many test sequences are also
-in train?" by reading one CSV.
+**Success.** This can answer "how many test sequences are also
+in train?"
 
 ---
 
