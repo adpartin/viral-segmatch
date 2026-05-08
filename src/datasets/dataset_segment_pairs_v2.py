@@ -266,10 +266,19 @@ def create_negative_pairs_v2(
     is needed.
 
     Two phases:
-      1. Coverage phase: iterate every seq_hash in `pos_df` (sorted) and try
-         up to `max_attempts_per_seq` random partner isolates until at least
-         one accepted negative covers that seq. Guarantees every positive-
-         pair sequence appears in >=1 negative (modulo `coverage_skipped`).
+      1. Coverage phase: iterate every (slot, dna_hash) in `pos_df` (sorted)
+         and try up to `max_attempts_per_seq` random partner isolates until
+         at least one accepted negative covers that DNA. The DNA-level
+         coverage is **best-effort**: per the apriori feasibility analysis
+         (docs/results/2026-05-08_dna_coverage_feasibility_sweep.md), a few
+         DNA variants in tightly-filtered bundles cannot be covered when the
+         dominant protein has more DNA encodings than the partner-protein
+         universe can supply distinct neg pair_keys for. Uncovered DNAs are
+         logged in rejection_stats['dna_hashes_with_zero_negatives'] but do
+         NOT raise. The seq_hash-level guarantee (every seq_hash gets >=1
+         neg) is enforced as a hard raise at the end -- DNA-level coverage
+         subsumes seq_hash-level coverage in the typical case, so this raise
+         only fires if every DNA encoding a seq_hash failed.
       2. Fill phase: if coverage produced fewer than `num_negatives`, top up
          by sampling two distinct isolates and pairing the first's slot-A
          row with the second's slot-B row, until quota is met or the attempt
@@ -282,10 +291,11 @@ def create_negative_pairs_v2(
 
     Coverage floor (interaction with `num_negatives`): the minimum number of
     negatives this function will produce is
-    `max(|unique_slot_A_seqs|, |unique_slot_B_seqs|)` over `pos_df`. If
-    `num_negatives` falls below that, the coverage phase produces ~floor
-    pairs anyway and the fill phase becomes a no-op; `coverage_overrode_ratio`
-    is set to True and a warning is logged.
+    `max(|unique_slot_A_dnas|, |unique_slot_B_dnas|)` over `pos_df` (DNA
+    level, not seq_hash level). If `num_negatives` falls below that, the
+    coverage phase produces ~floor pairs anyway and the fill phase becomes
+    a no-op; `coverage_overrode_ratio` is set to True and a warning is
+    logged.
 
     forbidden_pair_keys: optional set of canonical pair_keys that must not
     appear in the output. Used by `split_dataset_v2` to thread already-
@@ -300,7 +310,8 @@ def create_negative_pairs_v2(
         duplicate_brc, duplicate_seq, cross_split_collision, total_attempts,
         coverage_skipped, and v2 keys: requested_negatives,
         min_required_for_coverage, coverage_phase_pairs, fill_phase_pairs,
-        achieved_negatives, coverage_overrode_ratio, seqs_with_zero_negatives.
+        achieved_negatives, coverage_overrode_ratio, seqs_with_zero_negatives,
+        dna_hashes_with_zero_negatives, n_dna_uncovered.
     """
     # Slot identity is carried by the _a/_b columns of pos_df, so we no longer
     # need func_left / func_right inside this function. The call is kept for
@@ -331,37 +342,57 @@ def create_negative_pairs_v2(
     neg_count_a: dict = {s: 0 for s in target_seqs_left}
     neg_count_b: dict = {s: 0 for s in target_seqs_right}
 
+    # DNA-level coverage targets (option C from
+    # docs/results/2026-05-08_dna_coverage_feasibility_sweep.md): per-slot
+    # unique dna_hash sets and per-(slot, dna) neg counts. The coverage
+    # phase iterates these instead of seq_hashes so that every DNA variant
+    # of every protein gets at least one negative counterexample where
+    # feasible. Uncovered DNAs are logged, not raised (best-effort).
+    target_dnas_left = set(pos_df['dna_hash_a'].tolist())
+    target_dnas_right = set(pos_df['dna_hash_b'].tolist())
+    neg_count_dna_a: dict = {d: 0 for d in target_dnas_left}
+    neg_count_dna_b: dict = {d: 0 for d in target_dnas_right}
+
     # Single pass over pos_df builds:
     #   isolate_to_row     - aid -> the row for that isolate (it's 1:1)
     #   seq_hash_to_row    - seq -> first row in which it appears (used as the
     #                        "self" representative in the coverage phase) --> NOTE. What if a seq appears in multiple isolates? We could pick one at random, but that would add complexity and non-determinism. Instead we just take the first, which is deterministic but arbitrary. This means some isolates get favored as coverage partners over others; we can later analyze the distribution of coverage partners per isolate to see if this is a problem.
+    #   dna_to_row_a       - dna -> first row in which it appears as slot-A.
+    #   dna_to_row_b       - dna -> first row in which it appears as slot-B.
+    #                        Used as the "self" representative in DNA-level
+    #                        coverage (analogous to seq_hash_to_row, but
+    #                        per-slot to give us a row whose slot-X dna_hash
+    #                        is the target DNA we want to cover).
     #   seq_to_isolates    - seq -> set of in-split isolates that contain it.
     #                        Used to exclude same-seq isolates when picking a
-    #                        partner. Built from pos_df only. 
+    #                        partner. Built from pos_df only.
     isolate_to_row: dict = {}
     seq_hash_to_row: dict = {}
+    dna_to_row_a: dict = {}
+    dna_to_row_b: dict = {}
     seq_to_isolates: dict = {}
     for row in pos_df.itertuples(index=False):
-        # pos_df[['assembly_id_a', 'assembly_id_b', 'seq_hash_a', 'seq_hash_b']][:5]
         aid = row.assembly_id_a
-        # isolate_to_row{aid: row}
         isolate_to_row[aid] = row
-        # seq_hash_to_row{seq_hash: row}; seq_hash_to_row.keys()=[seq_hash_a row 1, seq_hash_b row 1, seq_hash_a row 2, seq_hash_b row 2, ...]
         seq_hash_to_row.setdefault(row.seq_hash_a, row)
         seq_hash_to_row.setdefault(row.seq_hash_b, row)
-        # seq_to_isolates{seq_hash: set(isolates_with_that_seq)}; seq_to_isolates.keys()=[seq_hash_a_row_1, seq_hash_b_row_1, seq_hash_a_row_2, ...]
+        dna_to_row_a.setdefault(row.dna_hash_a, row)
+        dna_to_row_b.setdefault(row.dna_hash_b, row)
         seq_to_isolates.setdefault(row.seq_hash_a, set()).add(aid)
         seq_to_isolates.setdefault(row.seq_hash_b, set()).add(aid)
     isolate_ids_list = sorted(isolate_to_row.keys())
     print(f"[diag] create_negative_pairs_v2: setup done in "
           f"{time.time()-t_setup:.2f}s ({len(isolate_ids_list):,} isolates, "
-          f"{len(seq_to_isolates):,} unique seq_hashes across slot A + slot B).", flush=True)
+          f"{len(seq_to_isolates):,} unique seq_hashes; "
+          f"{len(target_dnas_left):,} slot-A DNAs, "
+          f"{len(target_dnas_right):,} slot-B DNAs).", flush=True)
 
-    # Coverage floor: max(|unique_slot_A|, |unique_slot_B|). Each negative
-    # contributes one A-coverage and one B-coverage simultaneously, so the
-    # floor is governed by whichever side has more unique sequences.
-    # print('left unique seqs:', len(target_seqs_left), 'right unique seqs:', len(target_seqs_right))
-    min_required_for_coverage = max(len(target_seqs_left), len(target_seqs_right))
+    # Coverage floor: max(|unique_slot_A_dnas|, |unique_slot_B_dnas|). Each
+    # accepted negative contributes one A-DNA-coverage and one B-DNA-coverage
+    # simultaneously, so the floor is governed by whichever side has more
+    # unique DNAs. This is strictly higher than the previous seq_hash floor
+    # by exactly the synonymous-codon redundancy of the dataset.
+    min_required_for_coverage = max(len(target_dnas_left), len(target_dnas_right))
     requested_negatives = int(num_negatives)
     coverage_overrode_ratio = min_required_for_coverage > requested_negatives
     if coverage_overrode_ratio and min_required_for_coverage > 0:
@@ -436,47 +467,58 @@ def create_negative_pairs_v2(
             neg_count_a[a_src.seq_hash_a] += 1
         if b_src.seq_hash_b in neg_count_b:
             neg_count_b[b_src.seq_hash_b] += 1
+        if a_src.dna_hash_a in neg_count_dna_a:
+            neg_count_dna_a[a_src.dna_hash_a] += 1
+        if b_src.dna_hash_b in neg_count_dna_b:
+            neg_count_dna_b[b_src.dna_hash_b] += 1
         return True
 
     # ---- Coverage phase --------------------------------------------------
-    # ipdb.set_trace(context=10)
-    # print('left unique seqs:', len(target_seqs_left), 'right unique seqs:', len(target_seqs_right))
-    target_union = sorted(target_seqs_left | target_seqs_right)
-    n_targets = len(target_union)
-    print(f"\nCoverage phase: {n_targets:,} target seqs to cover "
+    # Iterate every (slot, dna_hash) target. Each accepted neg covers one
+    # slot-A DNA and one slot-B DNA simultaneously; iterating both slots
+    # exposes any DNA that hasn't been covered by a side-effect of an
+    # earlier iteration. The order is (slot a DNAs sorted) then (slot b
+    # DNAs sorted) so the iteration is deterministic.
+    target_dna_iter = (
+        [(d, 'left')  for d in sorted(target_dnas_left)] +
+        [(d, 'right') for d in sorted(target_dnas_right)]
+    )
+    n_targets = len(target_dna_iter)
+    print(f"\nCoverage phase: {n_targets:,} target DNAs to cover "
           f"(min_required_for_coverage={min_required_for_coverage:,}).", flush=True)
     progress_step = max(n_targets // 20, 1)  # ~20 progress prints
-    for i, s in enumerate(target_union):
+    for i, (d, slot) in enumerate(target_dna_iter):
         if i > 0 and i % progress_step == 0:
-            print(f"  coverage phase: {i:,}/{n_targets:,} target seqs "
+            print(f"  coverage phase: {i:,}/{n_targets:,} target DNAs "
                   f"({100.0*i/n_targets:.1f}%); accepted={len(neg_pairs):,}, "
                   f"attempts={rejection_stats['total_attempts']:,}", flush=True)
-        # Slot membership: target_seqs_left and target_seqs_right are disjoint
-        # (validated above), so set membership unambiguously identifies the slot.
-        if s in target_seqs_left:
-            if neg_count_a.get(s, 0) > 0:
+
+        if slot == 'left':
+            if neg_count_dna_a.get(d, 0) > 0:
                 continue
+            s_row = dna_to_row_a[d]
             s_in_left = True
+            self_seq = s_row.seq_hash_a
         else:
-            if neg_count_b.get(s, 0) > 0:
+            if neg_count_dna_b.get(d, 0) > 0:
                 continue
+            s_row = dna_to_row_b[d]
             s_in_left = False
+            self_seq = s_row.seq_hash_b
 
-        excluded = seq_to_isolates.get(s, set())
+        # Excluded partners: any isolate that shares the self-row's seq_hash.
+        # Same-seq cross-pairs degenerate (would build a near-pos in feature
+        # space). Exclusion is by seq_hash because that's the unit of
+        # cooccur and pair_key identity; DNA-level membership is implicit
+        # (every isolate with this DNA has this seq_hash).
+        excluded = seq_to_isolates.get(self_seq, set())
         if len(excluded) >= len(isolate_ids_list):
-            # No isolate in this split lacks `s` -> no possible negative partner.
-            rejection_stats['coverage_skipped'].append((s, 'no_other_isolate'))
+            rejection_stats['coverage_skipped'].append((d, slot, 'no_other_isolate'))
             continue
-
-        # seq_hash_to_row is built from pos_df itself, so a target seq always
-        # has a self-row; no defensive miss check needed.
-        s_row = seq_hash_to_row[s]
 
         accepted = False
         for _attempt in range(max_attempts_per_seq):
             rejection_stats['total_attempts'] += 1
-            # Sample-and-reject: |excluded| is typically small relative to
-            # |isolate_ids_list|, so the same-seq rejection rate is negligible.
             other_aid = rng.choice(isolate_ids_list)
             if other_aid in excluded:
                 continue
@@ -494,7 +536,7 @@ def create_negative_pairs_v2(
         if not accepted:
             # Cap to 100 entries for log readability; further skips are dropped.
             if len(rejection_stats['coverage_skipped']) < 100:
-                rejection_stats['coverage_skipped'].append((s, 'attempts_exhausted'))
+                rejection_stats['coverage_skipped'].append((d, slot, 'attempts_exhausted'))
 
     coverage_phase_pairs = len(neg_pairs)
     print(f"Coverage phase complete: {coverage_phase_pairs:,} negatives produced "
@@ -531,6 +573,9 @@ def create_negative_pairs_v2(
 
     seqs_with_zero_negatives = [s for s, c in neg_count_a.items() if c == 0]
     seqs_with_zero_negatives.extend(s for s, c in neg_count_b.items() if c == 0)
+    dna_uncovered_a = [d for d, c in neg_count_dna_a.items() if c == 0]
+    dna_uncovered_b = [d for d, c in neg_count_dna_b.items() if c == 0]
+    n_dna_uncovered = len(dna_uncovered_a) + len(dna_uncovered_b)
 
     rejection_stats['requested_negatives'] = int(requested_negatives)
     rejection_stats['min_required_for_coverage'] = int(min_required_for_coverage)
@@ -539,18 +584,43 @@ def create_negative_pairs_v2(
     rejection_stats['achieved_negatives'] = int(len(neg_pairs))
     rejection_stats['coverage_overrode_ratio'] = bool(coverage_overrode_ratio)
     rejection_stats['seqs_with_zero_negatives'] = seqs_with_zero_negatives
+    rejection_stats['n_dna_uncovered'] = int(n_dna_uncovered)
+    rejection_stats['n_dna_uncovered_a'] = int(len(dna_uncovered_a))
+    rejection_stats['n_dna_uncovered_b'] = int(len(dna_uncovered_b))
+    # Cap full lists at 100 each for stats compactness; full audit lives in
+    # rejection_stats['coverage_skipped'] which records (dna_hash, slot, reason).
+    rejection_stats['dna_uncovered_a_sample'] = dna_uncovered_a[:100]
+    rejection_stats['dna_uncovered_b_sample'] = dna_uncovered_b[:100]
 
-    # Hard coverage check: every seq_hash in pos_df (slot A or slot B) must
-    # appear in at least one negative pair. Reasons for failure are recorded
-    # in rejection_stats['coverage_skipped']: 'no_other_isolate' (s exists in
-    # every isolate of the split, so no partner is possible) or
-    # 'attempts_exhausted' (max_attempts_per_seq budget too low).
+    # DNA-level coverage is best-effort (per
+    # docs/results/2026-05-08_dna_coverage_feasibility_sweep.md): some tight
+    # bundles physically can't cover every DNA because the dominant protein
+    # has more DNA encodings than the partner-protein universe can supply
+    # distinct neg pair_keys for. WARN only; do not raise.
+    if n_dna_uncovered > 0:
+        print(
+            f"WARNING: DNA-level coverage is partial -- "
+            f"{n_dna_uncovered:,} DNAs received zero negative pairs "
+            f"({len(dna_uncovered_a):,} on slot a, {len(dna_uncovered_b):,} on slot b). "
+            f"This is expected on tight bundles where partner-protein supply runs out; "
+            f"see rejection_stats['n_dna_uncovered'] and "
+            f"docs/results/2026-05-08_dna_coverage_feasibility_sweep.md."
+        )
+
+    # Hard coverage check at the SEQ_HASH level: every seq_hash in pos_df
+    # (slot A or slot B) must appear in at least one negative pair. The
+    # DNA-level loop above will satisfy this in the typical case (covering
+    # any one DNA of a seq_hash also covers that seq_hash), so this raise
+    # is a safety net for the rare case where every DNA encoding a single
+    # seq_hash failed.
     if seqs_with_zero_negatives:
         raise ValueError(
-            f"create_negative_pairs_v2: coverage guarantee violated -- "
-            f"{len(seqs_with_zero_negatives)} target seq(s) have zero negative "
-            f"pairs (first 5: {seqs_with_zero_negatives[:5]}). Inspect "
-            f"rejection_stats['coverage_skipped'] for the reason categories."
+            f"create_negative_pairs_v2: protein-level coverage guarantee "
+            f"violated -- {len(seqs_with_zero_negatives)} seq_hash(es) have "
+            f"zero negative pairs (first 5: {seqs_with_zero_negatives[:5]}). "
+            f"Every DNA encoding these seq_hashes failed; inspect "
+            f"rejection_stats['coverage_skipped']. This is rarer than DNA-level "
+            f"misses; if it fires, the bundle is likely too tight to be usable."
         )
 
     neg_df = pd.DataFrame(neg_pairs, columns=_PAIR_COLUMNS) if neg_pairs else pd.DataFrame(columns=_PAIR_COLUMNS)
