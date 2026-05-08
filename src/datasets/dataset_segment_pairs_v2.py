@@ -1334,20 +1334,23 @@ def save_split_output_v2(
     print(f"save_v2: write pair CSVs start "
           f"(train={len(train_pairs):,}, val={len(val_pairs):,}, test={len(test_pairs):,})",
           flush=True)
-    for split_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
+    # NOTE: do not name the loop variable `df` -- it would shadow the outer
+    # `df` parameter (the protein-level dataframe) and leave it pointing at
+    # test_pairs after the loop, breaking later code that does df['assembly_id'].
+    for split_name, split_df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
         _t_split = time.time()
-        df.to_csv(output_dir / f'{split_name}_pairs.csv', index=False)
-        print(f"save_v2: wrote {split_name}_pairs.csv (n={len(df):,}) "
+        split_df.to_csv(output_dir / f'{split_name}_pairs.csv', index=False)
+        print(f"save_v2: wrote {split_name}_pairs.csv (n={len(split_df):,}) "
               f"in {time.time()-_t_split:.2f}s", flush=True)
     print(f"save_v2: pair CSVs done in {time.time()-_t:.2f}s", flush=True)
 
     _t = time.time()
     print(f"save_v2: write pair parquets start", flush=True)
-    for split_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
+    for split_name, split_df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
         _t_split = time.time()
-        df.to_parquet(output_dir / f'{split_name}_pairs.parquet',
-                      compression='zstd', index=False)
-        print(f"save_v2: wrote {split_name}_pairs.parquet (n={len(df):,}) "
+        split_df.to_parquet(output_dir / f'{split_name}_pairs.parquet',
+                            compression='zstd', index=False)
+        print(f"save_v2: wrote {split_name}_pairs.parquet (n={len(split_df):,}) "
               f"in {time.time()-_t_split:.2f}s", flush=True)
     print(f"save_v2: pair parquets done in {time.time()-_t:.2f}s", flush=True)
 
@@ -1509,7 +1512,7 @@ def emit_split_overlap_stats(
     ) -> pd.DataFrame:
     """Emit `split_overlap_stats.csv`: per `(split, label, seq_type, side)`
     row, the count of unique values and how many also appear in each of the
-    other splits.
+    other splits, plus percentages.
 
     Pair-key disjointness across splits is already enforced by v2 invariants;
     this surfaces the *sequence-level* overlap (`seq_hash` and `dna_hash`)
@@ -1518,24 +1521,37 @@ def emit_split_overlap_stats(
     re-deriving it from train/val/test pair tables.
 
     Schema (one row per (split, label, seq_type, side)):
-        split        : 'train' | 'val' | 'test'
-        label        : 'pos' | 'neg'
-        seq_type     : 'seq_hash' | 'dna_hash'   (kind of identifier tracked)
-        side         : 'a' | 'b'
-        n_unique     : unique values in this cell
-        n_in_train   : how many of those values also appear anywhere in train
-        n_in_val     : same for val
-        n_in_test    : same for test
-
-    The same-split column trivially equals n_unique (kept for readability).
-    Cross-split columns count overlap with the OTHER split's same
-    (seq_type, side) values pooled across both labels -- i.e. "is this
-    value present in the other split at all on this side, regardless of
-    pos/neg?"
+        split               : 'train' | 'val' | 'test'
+        label               : 'pos' | 'neg'
+        seq_type            : 'seq_hash' | 'dna_hash'  (identifier tracked)
+        side                : 'a' | 'b'
+        n_pairs             : count of pairs in this (split, label) (repeats
+                              4x per (split, label) -- denormalized for
+                              readability of the redundancy ratio
+                              n_pairs vs n_unique).
+        n_unique            : unique values in this cell.
+        overlap_with_train  : count of values from this cell that also
+                              appear anywhere in train (any label, same
+                              seq_type, same side). Trivially equals
+                              n_unique on train rows; kept for column
+                              regularity.
+        overlap_with_val    : same for val.
+        overlap_with_test   : same for test.
+        pct_overlap_train   : 100 * overlap_with_train / n_unique, rounded
+                              to 1 decimal. Trivially 100.0 on train rows.
+        pct_overlap_val     : same for val.
+        pct_overlap_test    : same for test.
 
     See plan: docs/plans/2026-05-07_leakage_diagnostics_plan.md (Exp 1).
     """
     splits = {'train': train_pairs, 'val': val_pairs, 'test': test_pairs}
+
+    # Per-(split, label) total pair counts (used to populate n_pairs).
+    n_pairs_by_split_label = {
+        (split_name, label_name): int(((pairs_df['label'] == label_value)).sum())
+        for split_name, pairs_df in splits.items()
+        for label_value, label_name in [(1, 'pos'), (0, 'neg')]
+    }
 
     # Pre-compute per-split per-(seq_type, side) value sets, pooled across
     # labels. Keyed (split_name, seq_type, side) -> set. Used for cross-split
@@ -1545,34 +1561,46 @@ def emit_split_overlap_stats(
     # for the same-split overlap (which equals n_unique).
     per_cell: dict = {}
 
-    for split_name, df in splits.items():
+    for split_name, pairs_df in splits.items():
         for seq_type in ('seq_hash', 'dna_hash'):
             for side in ('a', 'b'):
                 col = f'{seq_type}_{side}'
-                if col not in df.columns:
+                if col not in pairs_df.columns:
                     continue
-                pooled[(split_name, seq_type, side)] = set(df[col].dropna())
+                pooled[(split_name, seq_type, side)] = set(pairs_df[col].dropna())
                 for label_value, label_name in [(1, 'pos'), (0, 'neg')]:
-                    sub = df[df['label'] == label_value]
+                    sub = pairs_df[pairs_df['label'] == label_value]
                     per_cell[(split_name, label_name, seq_type, side)] = set(sub[col].dropna())
 
     rows = []
     for (split_name, label_name, seq_type, side), values in per_cell.items():
+        n_unique = len(values)
+        # Compute overlap counts first; percentages are derived after.
+        overlap_counts = {}
+        for other in ('train', 'val', 'test'):
+            if other == split_name:
+                overlap_counts[other] = n_unique
+            else:
+                other_pool = pooled.get((other, seq_type, side), set())
+                overlap_counts[other] = len(values & other_pool)
+
         row = {
             'split': split_name,
             'label': label_name,
             'seq_type': seq_type,
             'side': side,
-            'n_unique': len(values),
+            'n_pairs': n_pairs_by_split_label[(split_name, label_name)],
+            'n_unique': n_unique,
+            'overlap_with_train': overlap_counts['train'],
+            'overlap_with_val': overlap_counts['val'],
+            'overlap_with_test': overlap_counts['test'],
         }
+        # Percentages last (mirrors user-requested column order).
         for other in ('train', 'val', 'test'):
-            if other == split_name:
-                # Trivially equal to n_unique by construction; included for
-                # schema regularity so the CSV has a consistent column order.
-                row[f'n_in_{other}'] = len(values)
-            else:
-                other_pool = pooled.get((other, seq_type, side), set())
-                row[f'n_in_{other}'] = len(values & other_pool)
+            row[f'pct_overlap_{other}'] = (
+                round(100.0 * overlap_counts[other] / n_unique, 1)
+                if n_unique > 0 else 0.0
+            )
         rows.append(row)
 
     out = pd.DataFrame(rows).sort_values(

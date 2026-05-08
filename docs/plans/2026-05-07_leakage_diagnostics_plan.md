@@ -70,41 +70,65 @@ v2 assertion). We need explicit counts at the `seq_hash` and
 so the sequence-level leakage (#3) is visible at a glance instead of
 having to re-derive it from train/val/test pair tables.
 
-Shape of the new CSV (real numbers from
-`dataset_flu_ha_na_20260506_150017`; the same-split column trivially
-equals `n_unique` and is shown for schema clarity):
+Full CSV from `dataset_flu_ha_na_20260508_122655` (HA/NA mixed, v2;
+24 rows = 3 splits × 2 labels × 2 seq_types × 2 sides). The
+`overlap_with_<own-split>` column trivially equals `n_unique` (the
+sequences in this cell are by definition all in their own split);
+likewise `pct_overlap_<own-split>` is trivially 100.0. Both are kept
+in the schema so the column count is constant.
 
-| split | label | seq_type | side | n_unique | n_in_train | n_in_val | n_in_test |
-|-------|-------|----------|------|---------:|-----------:|---------:|----------:|
-| train | pos   | seq_hash | a    |   34,338 |     34,338 |    1,244 |     1,261 |
-| train | pos   | seq_hash | b    |   31,010 |     31,010 |    1,524 |     1,596 |
-| train | pos   | dna_hash | a    |   43,875 |     43,875 |      563 |       520 |
-| train | pos   | dna_hash | b    |   41,799 |     41,799 |      802 |       818 |
-| val   | pos   | seq_hash | a    |    5,057 |      1,244 |    5,057 |       417 |
-| val   | pos   | dna_hash | a    |    5,775 |        563 |    5,775 |       136 |
-| test  | pos   | seq_hash | a    |    5,072 |      1,261 |      417 |     5,072 |
-| test  | pos   | dna_hash | a    |    5,776 |        520 |      136 |     5,776 |
-| ...   | (rows for label=neg, all 4 seq_type/side combos, follow the same shape)           |
+```
+split label seq_type side  n_pairs  n_unique  overlap_with_train  overlap_with_val  overlap_with_test  pct_overlap_train  pct_overlap_val  pct_overlap_test
+ test   neg dna_hash    a     7016      5331                 415                99               5331                7.8              1.9             100.0
+ test   neg dna_hash    b     7016      5162                 659               160               5162               12.8              3.1             100.0
+ test   neg seq_hash    a     7016      5072                1261               417               5072               24.9              8.2             100.0
+ test   neg seq_hash    b     7016      4842                1596               577               4842               33.0             11.9             100.0
+ test   pos dna_hash    a     5883      5776                 520               136               5776                9.0              2.4             100.0
+ test   pos dna_hash    b     5883      5683                 818               213               5683               14.4              3.7             100.0
+ test   pos seq_hash    a     5883      5072                1261               417               5072               24.9              8.2             100.0
+ test   pos seq_hash    b     5883      4842                1596               577               4842               33.0             11.9             100.0
+train   neg dna_hash    a    47859     37618               37618               417                403              100.0              1.1               1.1
+train   neg dna_hash    b    47859     35260               35260               620                635              100.0              1.8               1.8
+train   neg seq_hash    a    47859     34338               34338              1244               1261              100.0              3.6               3.7
+train   neg seq_hash    b    47859     31010               31010              1524               1596              100.0              4.9               5.1
+train   pos dna_hash    a    47060     43875               43875               563                520              100.0              1.3               1.2
+train   pos dna_hash    b    47060     41799               41799               802                818              100.0              1.9               2.0
+train   pos seq_hash    a    47060     34338               34338              1244               1261              100.0              3.6               3.7
+train   pos seq_hash    b    47060     31010               31010              1524               1596              100.0              4.9               5.1
+  val   neg dna_hash    a     7043      5310                 454              5310                100                8.5            100.0               1.9
+  val   neg dna_hash    b     7043      5205                 676              5205                175               13.0            100.0               3.4
+  val   neg seq_hash    a     7043      5057                1244              5057                417               24.6            100.0               8.2
+  val   neg seq_hash    b     7043      4849                1524              4849                577               31.4            100.0              11.9
+  val   pos dna_hash    a     5883      5775                 563              5775                136                9.7            100.0               2.4
+  val   pos dna_hash    b     5883      5657                 802              5657                213               14.2            100.0               3.8
+  val   pos seq_hash    a     5883      5057                1244              5057                417               24.6            100.0               8.2
+  val   pos seq_hash    b     5883      4849                1524              4849                577               31.4            100.0              11.9
+```
 
 `seq_type` is the kind of identifier the row tracks: `seq_hash`
-(protein hash) or `dna_hash` (nucleotide hash).
+(protein hash) or `dna_hash` (nucleotide hash). `n_pairs` repeats 4×
+per `(split, label)` (across the 4 seq_type/side rows) by design —
+it's there so the redundancy ratio (e.g. `n_pairs=47,060` collapses
+to `n_unique=34,338` for train pos seq_hash a) is visible inline.
 
-Two patterns to read off this slice (HA/NA mixed, v2):
-- **seq_hash overlap is large**: ~25% of val/test HA sequences are
-  also present in train (1,244 / 5,057; 1,261 / 5,072).
-- **dna_hash overlap is much smaller**: only ~10% of val/test HA
-  DNA sequences are in train (563 / 5,775; 520 / 5,776) — confirming
-  synonymous codon variation between isolates that share the same
-  protein.
-
-Read across a row: "in this split, this label, this seq_type, this
-side — how many unique values are there, and how many of them also
-appear in each of the other splits?" A high `n_in_train` value on
-val/test rows = sequence-level leakage on that seq_type.
+Three patterns to read off this run (HA/NA mixed, v2):
+- **seq_hash overlap is large**: ~25% of val/test HA sequences (side
+  a) are also present in train (`pct_overlap_train` = 24.6 on val,
+  24.9 on test). NA (side b) is even higher: ~31–33%.
+- **dna_hash overlap is much smaller**: ~9% on val/test for side a
+  (HA), ~13% on side b (NA). Synonymous codon variation between
+  isolates breaks DNA-level matches even when the protein is the
+  same.
+- **Same-side, same-seq_type rows are identical between pos and
+  neg** (e.g. train pos seq_hash a = train neg seq_hash a = 34,338
+  unique). That's a v2 invariant: per-sequence label imbalance is
+  prevented by the coverage phase, so every train sequence appears
+  in BOTH pos and neg pairs on the same side.
 
 **What.** Add `split_overlap_stats.csv` to Stage 3 output, alongside
 `dataset_stats.json`. One row per `(split, label, seq_type, side)`
-tuple. Columns: `n_unique`, `n_in_train`, `n_in_val`, `n_in_test`.
+tuple. Columns: `n_pairs`, `n_unique`, three `overlap_with_*` counts,
+three `pct_overlap_*` percentages.
 
 **How.** Function in `src/datasets/dataset_segment_pairs_v2.py`,
 called from `split_dataset_v2` after the splits are finalized.
