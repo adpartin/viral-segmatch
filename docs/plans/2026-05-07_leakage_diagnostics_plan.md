@@ -78,36 +78,37 @@ likewise `pct_overlap_<own-split>` is trivially 100.0. Both are kept
 in the schema so the column count is constant.
 
 ```
-split label seq_type side  n_pairs  n_unique  overlap_with_train  overlap_with_val  overlap_with_test  pct_overlap_train  pct_overlap_val  pct_overlap_test
-train   neg dna_hash    a    47859     37618               37618               417                403              100.0              1.1               1.1
-  val   neg dna_hash    a     7043      5310                 454              5310                100                8.5            100.0               1.9
- test   neg dna_hash    a     7016      5331                 415                99               5331                7.8              1.9             100.0
-train   pos dna_hash    a    47060     43875               43875               563                520              100.0              1.3               1.2
-  val   pos dna_hash    a     5883      5775                 563              5775                136                9.7            100.0               2.4
- test   pos dna_hash    a     5883      5776                 520               136               5776                9.0              2.4             100.0
-train   neg dna_hash    b    47859     35260               35260               620                635              100.0              1.8               1.8
-  val   neg dna_hash    b     7043      5205                 676              5205                175               13.0            100.0               3.4
- test   neg dna_hash    b     7016      5162                 659               160               5162               12.8              3.1             100.0
-train   pos dna_hash    b    47060     41799               41799               802                818              100.0              1.9               2.0
-  val   pos dna_hash    b     5883      5657                 802              5657                213               14.2            100.0               3.8
- test   pos dna_hash    b     5883      5683                 818               213               5683               14.4              3.7             100.0
-train   neg seq_hash    a    47859     34338               34338              1244               1261              100.0              3.6               3.7
-  val   neg seq_hash    a     7043      5057                1244              5057                417               24.6            100.0               8.2
- test   neg seq_hash    a     7016      5072                1261               417               5072               24.9              8.2             100.0
-train   pos seq_hash    a    47060     34338               34338              1244               1261              100.0              3.6               3.7
-  val   pos seq_hash    a     5883      5057                1244              5057                417               24.6            100.0               8.2
- test   pos seq_hash    a     5883      5072                1261               417               5072               24.9              8.2             100.0
-train   neg seq_hash    b    47859     31010               31010              1524               1596              100.0              4.9               5.1
-  val   neg seq_hash    b     7043      4849                1524              4849                577               31.4            100.0              11.9
- test   neg seq_hash    b     7016      4842                1596               577               4842               33.0             11.9             100.0
-train   pos seq_hash    b    47060     31010               31010              1524               1596              100.0              4.9               5.1
-  val   pos seq_hash    b     5883      4849                1524              4849                577               31.4            100.0              11.9
- test   pos seq_hash    b     5883      4842                1596               577               4842               33.0             11.9             100.0
+seq_type side label split  n_pairs  n_unique  overlap_with_train  overlap_with_val  overlap_with_test  pct_overlap_train  pct_overlap_val  pct_overlap_test
+dna_hash    a   neg train    47859     37618               37618               417                403              100.0              1.1               1.1
+dna_hash    a   neg   val     7043      5310                 454              5310                100                8.5            100.0               1.9
+dna_hash    a   neg  test     7016      5331                 415                99               5331                7.8              1.9             100.0
+dna_hash    a   pos train    47060     43875               43875               563                520              100.0              1.3               1.2
+dna_hash    a   pos   val     5883      5775                 563              5775                136                9.7            100.0               2.4
+dna_hash    a   pos  test     5883      5776                 520               136               5776                9.0              2.4             100.0
+dna_hash    b   neg train    47859     35260               35260               620                635              100.0              1.8               1.8
+dna_hash    b   neg   val     7043      5205                 676              5205                175               13.0            100.0               3.4
+dna_hash    b   neg  test     7016      5162                 659               160               5162               12.8              3.1             100.0
+dna_hash    b   pos train    47060     41799               41799               802                818              100.0              1.9               2.0
+dna_hash    b   pos   val     5883      5657                 802              5657                213               14.2            100.0               3.8
+dna_hash    b   pos  test     5883      5683                 818               213               5683               14.4              3.7             100.0
+seq_hash    a   neg train    47859     34338               34338              1244               1261              100.0              3.6               3.7
+seq_hash    a   neg   val     7043      5057                1244              5057                417               24.6            100.0               8.2
+seq_hash    a   neg  test     7016      5072                1261               417               5072               24.9              8.2             100.0
+seq_hash    a   pos train    47060     34338               34338              1244               1261              100.0              3.6               3.7
+seq_hash    a   pos   val     5883      5057                1244              5057                417               24.6            100.0               8.2
+seq_hash    a   pos  test     5883      5072                1261               417               5072               24.9              8.2             100.0
+seq_hash    b   neg train    47859     31010               31010              1524               1596              100.0              4.9               5.1
+seq_hash    b   neg   val     7043      4849                1524              4849                577               31.4            100.0              11.9
+seq_hash    b   neg  test     7016      4842                1596               577               4842               33.0             11.9             100.0
+seq_hash    b   pos train    47060     31010               31010              1524               1596              100.0              4.9               5.1
+seq_hash    b   pos   val     5883      4849                1524              4849                577               31.4            100.0              11.9
+seq_hash    b   pos  test     5883      4842                1596               577               4842               33.0             11.9             100.0
 ```
 
-Sorted by `(seq_type, side, label, split)` so each train/val/test
-triplet for the same `(seq_type, side, label)` is adjacent —
-cross-split overlap is read off as a 3-row column scan.
+Column order matches the sort key `(seq_type, side, label, split)`,
+so each train/val/test triplet for the same `(seq_type, side,
+label)` is adjacent — cross-split overlap is read off as a 3-row
+column scan.
 
 `seq_type` is the kind of identifier the row tracks: `seq_hash`
 (protein hash) or `dna_hash` (nucleotide hash). `n_pairs` repeats 4×

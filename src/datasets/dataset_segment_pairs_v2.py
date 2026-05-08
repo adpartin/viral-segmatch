@@ -1585,10 +1585,10 @@ def emit_split_overlap_stats(
                 overlap_counts[other] = len(values & other_pool)
 
         row = {
-            'split': split_name,
-            'label': label_name,
             'seq_type': seq_type,
             'side': side,
+            'label': label_name,
+            'split': split_name,
             'n_pairs': n_pairs_by_split_label[(split_name, label_name)],
             'n_unique': n_unique,
             'overlap_with_train': overlap_counts['train'],
