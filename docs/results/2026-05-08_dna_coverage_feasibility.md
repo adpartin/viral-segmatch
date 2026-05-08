@@ -4,6 +4,13 @@
 **Dataset:** `data/datasets/flu/July_2025/runs/dataset_flu_ha_na_20260508_125547`
 (HA/NA mixed, full Flu A, v2)
 **Script:** `eda/dna_coverage_feasibility.py`
+**Status:** apriori prediction confirmed in production. Option C
+(per-`dna_hash` coverage with best-effort logging) was implemented in
+`create_negative_pairs_v2` on 2026-05-08 and verified on
+`dataset_flu_ha_na_20260508_171512`: `n_dna_uncovered = 0` on every
+split; pos `n_unique` now matches neg `n_unique` on every `dna_hash`
+row of `split_overlap_stats.csv`; neg-pair count grew ~27% (47,859 →
+59,598 on train) as predicted by the coverage-floor lift.
 
 ## TL;DR
 

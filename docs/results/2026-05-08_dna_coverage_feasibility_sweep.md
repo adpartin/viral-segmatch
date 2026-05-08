@@ -3,6 +3,7 @@
 **Date:** 2026-05-08
 **Script:** `eda/dna_coverage_feasibility_sweep.py`
 **Scope:** apriori — runs on the Stage 1 source data (`protein_final.csv` + `genome_final.csv`) without needing any Stage 3 dataset to exist. Takes ~10 seconds for a six-bundle sweep.
+**Status:** Decision adopted (option C — best-effort DNA coverage with logging) and implemented in `create_negative_pairs_v2` on 2026-05-08. HA/NA verification: built `dataset_flu_ha_na_20260508_171512` with `n_dna_uncovered = 0` across all splits; pos `n_unique` now matches neg `n_unique` on every `dna_hash` row of `split_overlap_stats.csv`. Tight bundles flagged here (PB2/PB1 + Human + H3N2 + 2024) are expected to emit non-zero `n_dna_uncovered` if built; the WARNING and `dataset_stats.json` field record the gap.
 
 ## Why this question matters
 
