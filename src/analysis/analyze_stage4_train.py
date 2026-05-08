@@ -721,22 +721,24 @@ def _plot_level1_pair_regime(stats_df: pd.DataFrame, results_dir: Path) -> None:
         return
     fig, ax = plt.subplots(figsize=(11, 5.5))
     x = np.arange(len(plot_df))
-    width = 0.35
+    width = 0.5
+    # TPR is defined only on the positive regime; TNR only on negative
+    # regimes -- so per-regime there is at most one bar. Drawing both
+    # specs at offset 0 centers each bar under its xtick label without
+    # overlap risk (the two metrics never co-occur on the same regime).
     specs = [
-        (-width / 2, 'tpr', 'TPR (sensitivity)', 'seagreen'),
-        ( width / 2, 'tnr', 'TNR (specificity)', 'steelblue'),
+        ('tpr', 'TPR (sensitivity)', 'seagreen'),
+        ('tnr', 'TNR (specificity)', 'steelblue'),
     ]
-    for offset, col, label, color in specs:
+    for col, label, color in specs:
         for xi, v in zip(x, plot_df[col].values):
             if pd.isna(v):
-                continue  # Undefined for this regime; skip rather than draw a placeholder.
-            ax.bar(xi + offset, v, width, color=color, edgecolor='black',
-                   alpha=0.85)
-            ax.text(xi + offset, v + 0.01, f'{v:.3f}', ha='center',
-                    va='bottom', fontsize=8)
+                continue
+            ax.bar(xi, v, width, color=color, edgecolor='black', alpha=0.85)
+            ax.text(xi, v + 0.01, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
     from matplotlib.patches import Patch
     legend_handles = [Patch(facecolor=c, edgecolor='black', label=lbl)
-                      for _, _, lbl, c in specs]
+                      for _, lbl, c in specs]
     ax.legend(handles=legend_handles, loc='lower right')
     for xi, n in zip(x, plot_df['n_samples']):
         ax.text(xi, 1.08, f'n={n:,}', ha='center', va='bottom',

@@ -25,11 +25,13 @@ experiments that does.
 | 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion; Exp 1 makes this visible | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
 | 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage assertion + `seqs_with_zero_negatives` raise | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
 | 3 | Sequence-level **leakage** | Slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ NOT ADDRESSED — measured 11–16% on v2 |
-| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 7 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 6 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
 | 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 2 cosine deciles | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count |
 
 Experiments 3, 4, 5 from the action list below directly test these.
-Experiments 1 and 2 are diagnostics; 6 is conceptual; 7 is escalation.
+Experiments 1 and 2 are diagnostics; 6 is escalation. The taxonomy
+itself (formerly Exp 6) is now persisted in
+`docs/methods/leakage_definitions.md`.
 
 ## Operational definition: "model learned biology"
 
@@ -47,7 +49,9 @@ near-neighbor lookup. If MLP > 1-NN, real feature learning is
 happening. This definition is testable and motivates Experiments
 3 and 4.
 
-To be written into `docs/methods/` as a short reference (Experiment 7).
+This definition is also persisted in
+`docs/methods/leakage_definitions.md` as the project-level
+source-of-truth.
 
 ---
 
@@ -220,25 +224,7 @@ within/cross ratios across representations).
 
 ---
 
-### Exp 6 — Write `docs/methods/leakage_definitions.md`
-
-**Why.** The "model learned biology" definition above needs to live
-somewhere persistent so future runs / reviewers / collaborators read
-the same definition. Also captures the leakage taxonomy in one
-place.
-
-**What.** Short markdown (~1 page) with the taxonomy table from this
-plan plus the operational "biology learning" definition.
-
-**Effort.** 30 minutes.
-
-**Success.** A reader unfamiliar with the project can read this one
-file and understand which leakage modes we've addressed, which we're
-testing, and what the success criterion for "the model works" is.
-
----
-
-### Exp 7 — mmseqs2 cluster-based splits (escalation)
+### Exp 6 — mmseqs2 cluster-based splits (escalation)
 
 **Why.** Sequence-level dedup (Exp 4) is strictly stricter than
 isolate-level split but does NOT prevent near-neighbors with
@@ -261,7 +247,7 @@ split clusters across train/val/test. Each test pair has guaranteed
 **Trigger condition.** Run only if Exp 4 (the cheaper sequence-level
 dedup) leaves a story like "performance held — leakage less
 problematic than feared." Then we want a stricter test to rule out
-phylogenetic near-neighbors. If Exp 4 already crashes, Exp 7 is
+phylogenetic near-neighbors. If Exp 4 already crashes, Exp 6 is
 unnecessary for the leakage story (but might still be useful for
 phylo robustness).
 
@@ -274,26 +260,27 @@ phylo robustness).
 ```
 Exp 1 (overlap stats)      ─── independent diagnostic, run first
 Exp 2 (cosine deciles)     ─── feeds Exp 4 interpretation
-Exp 3 (1-NN baseline)      ─── feeds Exp 4 interpretation
-Exp 6 (definitions doc)    ─── 30 min, write before Exp 4 runs
+Exp 3 (k-NN k=1 baseline)  ─── feeds Exp 4 interpretation
        │
        ▼
 Exp 4 (seq-disjoint splits)─── HEADLINE EXPERIMENT
        │
        ▼  (only if Exp 4 results say so)
-Exp 7 (mmseqs2 clusters)
+Exp 6 (mmseqs2 clusters)
        │
        ▼  (any time)
 Exp 5 (conservation)       ─── biology framing, can run anywhere
 ```
 
-Exp 1, 2, 3, 6 can run in parallel (~half day total). Exp 4 is the
-load-bearing scientific test. Exp 5 and 7 are escalations / context.
+Exp 1, 2, 3 can run in parallel (~half day total). Exp 4 is the
+load-bearing scientific test. Exp 5 and 6 are escalations / context.
+The taxonomy + biology-learning definition (formerly Exp 6) is
+already landed in `docs/methods/leakage_definitions.md`.
 
 ## Out of scope
 
 - Sequence-similarity controls beyond mmseqs2 clustering (e.g.
-  phylogenetic distance trees) — defer until after Exp 7 results.
+  phylogenetic distance trees) — defer until after Exp 6 results.
 - Hard-negative mining / focal loss — these are *mitigations* once
   leakage is characterized, tracked separately in roadmap_v2.md
   Task 12.
