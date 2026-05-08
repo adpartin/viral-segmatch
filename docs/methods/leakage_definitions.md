@@ -24,10 +24,10 @@ this table and link from the plan.
 | # | Canonical name | Synonyms | Description | Assessed by | Addressed | Status |
 |---|---|---|---|---|---|---|
 | 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 within-split + cross-split protein-pair dedup | ✅ within-split protein-pair dedup (v2 strict mode) + cross-split protein-pair dedup (`forbidden_pair_keys` threading) | ✅ Verified zero `pair_key` overlap across splits via v2 strict-mode assertion (enforced at construction time). |
-| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage phase (per-`dna_hash` per slot) + protein-level safety raise; Plan Exp 1 split overlap stats; `n_dna_uncovered` in `dataset_stats.json` | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot). ✅ DNA level (option C, implemented 2026-05-08): coverage extended to per-`dna_hash` per slot, best-effort with logging. | Protein level: 0 imbalance on every dataset built. DNA level (HA/NA mixed, post-implementation): pos `n_unique` == neg `n_unique` on every `dna_hash` row; `n_dna_uncovered` = 0 across all splits. |
+| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) within a split. | v2 coverage phase (per-`dna_hash` per slot) + protein-level safety raise; Plan Exp 1 split overlap stats; `n_dna_uncovered` in `dataset_stats.json` | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot). ✅ DNA level (option C, implemented 2026-05-08): coverage extended to per-`dna_hash` per slot, best-effort with logging. | Protein level: 0 imbalance on every dataset built. DNA level (HA/NA mixed, post-implementation): pos `n_unique` == neg `n_unique` on every `dna_hash` row; `n_dna_uncovered` = 0 across all splits. |
 | 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Plan Exp 1 (split overlap stats); Plan Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ Not yet — Plan Exp 4 will add `seq_disjoint` and `strict_dedup` split modes. | ❌ Confirmed present (Plan Exp 1, HA/NA mixed): ~25% `seq_hash` overlap, ~10% `dna_hash` overlap, train vs val/test on slot a. |
-| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Plan Exp 2 (cosine deciles); Plan Exp 3 (1-NN baseline); Plan Exp 4 (partial bound — handles exact-DNA case only); Plan Exp 5 (mmseqs2 cluster splits) | ❌ Not yet. | ⚠️ Suggested but not formally measured. Anchor signal: median nearest-train PB1 cosine = 0.994. Awaiting Plan Exp 2 / Exp 3 / Exp 5 for a verdict. |
-| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Plan Exp 2 cosine deciles | ❌ Not yet. Candidate mitigations: hard-negative mining, adversarial / gradient-reversal training (DANN-style), Invariant Risk Minimization (IRM). Tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present: 30–50× FP-rate climb on match_count (HA/NA mixed; both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Plan Exp 2 (1-NN baseline); Plan Exp 3 (cosine deciles); Plan Exp 4 (partial bound — handles exact-DNA case only); Plan Exp 5 (mmseqs2 cluster splits) | ❌ Not yet. | ⚠️ Suggested but not formally measured. Anchor signal: median nearest-train PB1 cosine = 0.994. Awaiting Plan Exp 2 / Exp 3 / Exp 5 for a verdict. |
+| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Plan Exp 3 cosine deciles | ❌ Not yet. Candidate mitigations: hard-negative mining, adversarial / gradient-reversal training (DANN-style), Invariant Risk Minimization (IRM). Tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present: 30–50× FP-rate climb on match_count (HA/NA mixed; both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. |
 
 Quick disambiguation:
 
@@ -104,14 +104,14 @@ Mapping back to the table above:
 | Plan item | Tests |
 |---|---|
 | Exp 1 — Cross-split overlap stats table | Visibility for #1 and #3 |
-| Exp 2 — Stratified accuracy by nearest-train cosine | #4 (and indirectly #5) |
-| Exp 3 — k-NN baseline (k=1) | #4; provides the comparator for the biology criterion |
+| Exp 2 — k-NN baseline (k=1) | #4; provides the comparator for the biology criterion |
+| Exp 3 — Stratified accuracy by nearest-train cosine | #4 (and indirectly #5) |
 | Exp 4 — Sequence-disjoint and strict-dedup splits | #3 directly; bounds #4 |
 | Exp 5 — mmseqs2 cluster-based splits | #4 at the biological-similarity level |
 | Anl 1 — Conservation analysis across representations | Does NOT directly assess any mode. Characterizes how dense the cluster space is per protein and per representation, which informs how to interpret Exp 4 / Exp 5 results. |
 
 The headline scientific test is **Exp 4** (the splits work) read
-alongside **Exp 3** (the k-NN baseline). If Exp 4 splits don't crash
+alongside **Exp 2** (the k-NN baseline). If Exp 4 splits don't crash
 and the MLP beats k-NN, we have positive evidence the model learned
 something beyond memorization. If Exp 4 crashes, the current
 high-AUC numbers are inflated.
@@ -138,7 +138,7 @@ requires running the experiments first.
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — active plan
   with experiment-by-experiment design.
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
-  detailed design for Plan Exp 2 (cosine-controlled splits) and Plan
+  detailed design for Plan Exp 3 (cosine-controlled splits) and Plan
   Exp 5 (mmseqs2 clusters).
 - `docs/results/2026-05-07_metadata_shortcut_negatives.md` — the
   finding that triggered the formal taxonomy.

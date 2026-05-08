@@ -23,13 +23,13 @@ experiments that does.
 | # | Canonical name | Synonyms | Description | Assessed by | Addressed | Status |
 |---|---|---|---|---|---|---|
 | 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 within-split + cross-split protein-pair dedup | ✅ within-split protein-pair dedup (v2 strict mode) + cross-split protein-pair dedup (`forbidden_pair_keys` threading) | ✅ Verified zero `pair_key` overlap across splits via v2 strict-mode assertion (enforced at construction time). |
-| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage phase (per-`dna_hash` per slot) + protein-level safety raise; Exp 1 split overlap stats (per-seq_type pos vs neg `n_unique`); `n_dna_uncovered` in `dataset_stats.json` | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot). ✅ DNA level (v2 coverage phase enforces ≥1 per `dna_hash` per slot; tight bundles emit `n_dna_uncovered` in `dataset_stats.json` and a WARNING). | Protein level: 0 imbalance on every dataset built. DNA level (HA/NA mixed, post-implementation `dataset_flu_ha_na_20260508_171512`): pos `n_unique` == neg `n_unique` on every `dna_hash` row (43,875 / 43,875 slot a; 41,799 / 41,799 slot b); `n_dna_uncovered` = 0 across all splits. |
+| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) within a split. | v2 coverage phase (per-`dna_hash` per slot) + protein-level safety raise; Exp 1 split overlap stats (per-seq_type pos vs neg `n_unique`); `n_dna_uncovered` in `dataset_stats.json` | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot). ✅ DNA level (v2 coverage phase enforces ≥1 per `dna_hash` per slot; tight bundles emit `n_dna_uncovered` in `dataset_stats.json` and a WARNING). | Protein level: 0 imbalance on every dataset built. DNA level (HA/NA mixed, post-implementation `dataset_flu_ha_na_20260508_171512`): pos `n_unique` == neg `n_unique` on every `dna_hash` row (43,875 / 43,875 slot a; 41,799 / 41,799 slot b); `n_dna_uncovered` = 0 across all splits. |
 | 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ Not yet — Exp 4 will add `seq_disjoint` and `strict_dedup` split modes. | ❌ Confirmed present (Exp 1, HA/NA mixed): ~25% `seq_hash` overlap and ~10% `dna_hash` overlap between train and val/test on slot a. |
-| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 4 (partial bound — handles exact-DNA case only); Exp 5 (mmseqs2 cluster splits) | ❌ Not yet — Exp 2/3/5 will quantify; mitigation depends on results. | ⚠️ Suggested but not formally measured. Anchor signal: median nearest-train PB1 cosine = 0.994. Awaiting Exp 2 (decile plot) and Exp 3 (1-NN AUC) for a formal verdict; Exp 5 for the strictest test. |
-| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 2 cosine deciles | ❌ Not yet. Candidate mitigations: hard-negative mining (cheapest), adversarial / gradient-reversal training (DANN-style), Invariant Risk Minimization (IRM). Tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present: 30–50× FP-rate climb on match_count (HA/NA mixed, both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (1-NN baseline); Exp 3 (cosine deciles); Exp 4 (partial bound — handles exact-DNA case only); Exp 5 (mmseqs2 cluster splits) | ❌ Not yet — Exp 2/3/5 will quantify; mitigation depends on results. | ⚠️ Suggested but not formally measured. Anchor signal: median nearest-train PB1 cosine = 0.994. Awaiting Exp 2 (1-NN AUC) and Exp 3 (decile plot) for a formal verdict; Exp 5 for the strictest test. |
+| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 3 cosine deciles | ❌ Not yet. Candidate mitigations: hard-negative mining (cheapest), adversarial / gradient-reversal training (DANN-style), Invariant Risk Minimization (IRM). Tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present: 30–50× FP-rate climb on match_count (HA/NA mixed, both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. |
 
-Experiments 3 and 4 from the action list below directly test these.
-Experiments 1 and 2 are diagnostics; 5 is escalation. The taxonomy
+Experiments 2 and 4 from the action list below directly test these.
+Experiments 1 and 3 are diagnostics; 5 is escalation. The taxonomy
 and the operational "biology learning" definition are now persisted
 in `docs/methods/leakage_definitions.md`. The conservation analysis
 sits in the **Background analyses** section as Anl 1 — it
@@ -50,7 +50,7 @@ subtype, host, or year.
 If MLP ≈ 1-NN on these tasks, the model is doing nothing more than
 near-neighbor lookup. If MLP > 1-NN, real feature learning is
 happening. This definition is testable and motivates Experiments
-3 and 4.
+2 and 4.
 
 This definition is also persisted in
 `docs/methods/leakage_definitions.md` as the project-level
@@ -70,45 +70,51 @@ v2 assertion). We need explicit counts at the `seq_hash` and
 so the sequence-level leakage (#3) is visible at a glance instead of
 having to re-derive it from train/val/test pair tables.
 
-Full CSV from `dataset_flu_ha_na_20260508_171512` (HA/NA mixed, v2; 24 rows = 3 splits × 2 labels × 2
-seq_types × 2 sides). The `overlap_with_<own-split>` column trivially
-equals `n_unique` (the sequences in this cell are by definition all
-in their own split); likewise `pct_overlap_<own-split>` is trivially
-100.0.
+Full CSV from `dataset_flu_ha_na_20260508_171512` (HA/NA mixed, v2;
+12 rows per `seq_type` = 3 splits × 2 labels × 2 sides). The
+`overlap_with_<own-split>` column trivially equals `n_unique` (the
+sequences in this cell are by definition all in their own split);
+likewise `pct_overlap_<own-split>` is trivially 100.0.
+
+**dna_hash** (nucleotide hash):
 
 ```
-seq_type side label split  n_pairs  n_unique  overlap_with_train  overlap_with_val  overlap_with_test  pct_overlap_train  pct_overlap_val  pct_overlap_test
-dna_hash    a   neg train    59598     43875               43875               563                520              100.0              1.3               1.2
-dna_hash    a   neg   val     7881      5775                 563              5775                136                9.7            100.0               2.4
-dna_hash    a   neg  test     7866      5776                 520               136               5776                9.0              2.4             100.0
-dna_hash    a   pos train    47060     43875               43875               563                520              100.0              1.3               1.2
-dna_hash    a   pos   val     5883      5775                 563              5775                136                9.7            100.0               2.4
-dna_hash    a   pos  test     5883      5776                 520               136               5776                9.0              2.4             100.0
-dna_hash    b   neg train    59598     41799               41799               802                818              100.0              1.9               2.0
-dna_hash    b   neg   val     7881      5657                 802              5657                213               14.2            100.0               3.8
-dna_hash    b   neg  test     7866      5683                 818               213               5683               14.4              3.7             100.0
-dna_hash    b   pos train    47060     41799               41799               802                818              100.0              1.9               2.0
-dna_hash    b   pos   val     5883      5657                 802              5657                213               14.2            100.0               3.8
-dna_hash    b   pos  test     5883      5683                 818               213               5683               14.4              3.7             100.0
-seq_hash    a   neg train    59598     34338               34338              1244               1261              100.0              3.6               3.7
-seq_hash    a   neg   val     7881      5057                1244              5057                417               24.6            100.0               8.2
-seq_hash    a   neg  test     7866      5072                1261               417               5072               24.9              8.2             100.0
-seq_hash    a   pos train    47060     34338               34338              1244               1261              100.0              3.6               3.7
-seq_hash    a   pos   val     5883      5057                1244              5057                417               24.6            100.0               8.2
-seq_hash    a   pos  test     5883      5072                1261               417               5072               24.9              8.2             100.0
-seq_hash    b   neg train    59598     31010               31010              1524               1596              100.0              4.9               5.1
-seq_hash    b   neg   val     7881      4849                1524              4849                577               31.4            100.0              11.9
-seq_hash    b   neg  test     7866      4842                1596               577               4842               33.0             11.9             100.0
-seq_hash    b   pos train    47060     31010               31010              1524               1596              100.0              4.9               5.1
-seq_hash    b   pos   val     5883      4849                1524              4849                577               31.4            100.0              11.9
-seq_hash    b   pos  test     5883      4842                1596               577               4842               33.0             11.9             100.0
+side label split  n_pairs  n_unique  overlap_with_train  overlap_with_val  overlap_with_test  pct_overlap_train  pct_overlap_val  pct_overlap_test
+   a  neg train    59598     43875               43875               563                520              100.0              1.3               1.2
+   a  neg   val     7881      5775                 563              5775                136                9.7            100.0               2.4
+   a  neg  test     7866      5776                 520               136               5776                9.0              2.4             100.0
+   a  pos train    47060     43875               43875               563                520              100.0              1.3               1.2
+   a  pos   val     5883      5775                 563              5775                136                9.7            100.0               2.4
+   a  pos  test     5883      5776                 520               136               5776                9.0              2.4             100.0
+   b  neg train    59598     41799               41799               802                818              100.0              1.9               2.0
+   b  neg   val     7881      5657                 802              5657                213               14.2            100.0               3.8
+   b  neg  test     7866      5683                 818               213               5683               14.4              3.7             100.0
+   b  pos train    47060     41799               41799               802                818              100.0              1.9               2.0
+   b  pos   val     5883      5657                 802              5657                213               14.2            100.0               3.8
+   b  pos  test     5883      5683                 818               213               5683               14.4              3.7             100.0
 ```
 
-Each train/val/test triplet for the same `(seq_type, side,
-label)` is adjacent — cross-split overlap is read off as a 3-row
-column scan.
+**seq_hash** (protein hash):
 
-`seq_type` is: `seq_hash` (protein hash) or `dna_hash` (nucleotide hash).
+```
+side label split  n_pairs  n_unique  overlap_with_train  overlap_with_val  overlap_with_test  pct_overlap_train  pct_overlap_val  pct_overlap_test
+   a  neg train    59598     34338               34338              1244               1261              100.0              3.6               3.7
+   a  neg   val     7881      5057                1244              5057                417               24.6            100.0               8.2
+   a  neg  test     7866      5072                1261               417               5072               24.9              8.2             100.0
+   a  pos train    47060     34338               34338              1244               1261              100.0              3.6               3.7
+   a  pos   val     5883      5057                1244              5057                417               24.6            100.0               8.2
+   a  pos  test     5883      5072                1261               417               5072               24.9              8.2             100.0
+   b  neg train    59598     31010               31010              1524               1596              100.0              4.9               5.1
+   b  neg   val     7881      4849                1524              4849                577               31.4            100.0              11.9
+   b  neg  test     7866      4842                1596               577               4842               33.0             11.9             100.0
+   b  pos train    47060     31010               31010              1524               1596              100.0              4.9               5.1
+   b  pos   val     5883      4849                1524              4849                577               31.4            100.0              11.9
+   b  pos  test     5883      4842                1596               577               4842               33.0             11.9             100.0
+```
+
+Each train/val/test triplet for the same `(side, label)` is adjacent
+within each table — cross-split overlap is read off as a 3-row column
+scan.
 
 Three patterns to read off this run (HA/NA mixed, v2):
 - **seq_hash overlap is large**: ~25% of val/test HA sequences (side
@@ -138,30 +144,7 @@ in train?"
 
 ---
 
-### Exp 2 — Stratified accuracy by nearest-train cosine
-
-**Why.** Direct test of feature-near-neighbor leakage (#4). If
-test-set accuracy correlates strongly with cosine-distance-to-nearest-
-training-pair, the model is doing near-neighbor lookup, not
-generalization.
-
-**What.** Stratify the existing test predictions of an existing run
-into deciles by `cosine(test_feature, nearest_train_feature)`. Plot
-accuracy / FP rate / mean confidence per decile. New post-hoc output:
-`stratified_by_train_distance.csv` + `.png`.
-
-**How.** Compute joint k-mer feature for every train pair (cache as a
-sparse matrix). For each test pair, compute cosine to every train
-pair, take max. Stratify by max-cosine deciles. ~50 lines, runs in
-under a minute on existing test sizes.
-
-**Success.** A monotonic accuracy-vs-cosine plot decisively shows
-whether near-neighbor lookup explains the headline accuracy.
-Predicted: accuracy collapses on the lowest-cosine decile.
-
----
-
-### Exp 3 — k-NN baseline (with k=1)
+### Exp 2 — k-NN baseline (with k=1)
 
 **Why.** Operational test of the "model learned biology" definition.
 The k-NN family is the canonical non-parametric memorizer; with k=1
@@ -189,6 +172,29 @@ test pair. Output to a sibling run dir
 If gap is small (< 0.02 AUC), the MLP is operating mostly as a soft
 1-NN. If gap is large, the MLP is genuinely learning a
 generalizable representation.
+
+---
+
+### Exp 3 — Stratified accuracy by nearest-train cosine
+
+**Why.** Direct test of feature-near-neighbor leakage (#4). If
+test-set accuracy correlates strongly with cosine-distance-to-nearest-
+training-pair, the model is doing near-neighbor lookup, not
+generalization.
+
+**What.** Stratify the existing test predictions of an existing run
+into deciles by `cosine(test_feature, nearest_train_feature)`. Plot
+accuracy / FP rate / mean confidence per decile. New post-hoc output:
+`stratified_by_train_distance.csv` + `.png`.
+
+**How.** Compute joint k-mer feature for every train pair (cache as a
+sparse matrix). For each test pair, compute cosine to every train
+pair, take max. Stratify by max-cosine deciles. ~50 lines, runs in
+under a minute on existing test sizes.
+
+**Success.** A monotonic accuracy-vs-cosine plot decisively shows
+whether near-neighbor lookup explains the headline accuracy.
+Predicted: accuracy collapses on the lowest-cosine decile.
 
 ---
 
@@ -331,8 +337,8 @@ descriptive context.
 
 ```
 Exp 1 (overlap stats)      ─── independent diagnostic, run first
-Exp 2 (cosine deciles)     ─── feeds Exp 4 interpretation
-Exp 3 (k-NN k=1 baseline)  ─── feeds Exp 4 interpretation
+Exp 2 (k-NN k=1 baseline)  ─── feeds Exp 4 interpretation
+Exp 3 (cosine deciles)     ─── feeds Exp 4 interpretation
        │
        ▼
 Exp 4 (seq-disjoint splits)─── HEADLINE EXPERIMENT

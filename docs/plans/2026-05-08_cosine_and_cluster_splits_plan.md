@@ -74,7 +74,7 @@ suggest the model has learned a generalizable representation.
 |---|---|
 | `src/datasets/_split_helpers.py` (new) | Hosts `cosine_controlled_split(pos_df, features, tau, ratios, seed)`. Returns three index lists or boolean masks. |
 | `src/datasets/dataset_segment_pairs_v2.py` | Add `split_mode: cosine_controlled` branch in `split_dataset_v2`; reads `dataset.cosine_threshold` (default 0.9). |
-| `src/utils/similarity_utils.py` (new) | Shared helpers: `pair_features(df, kmer_or_esm)`, `nearest_cosine(matrix_test, matrix_train)`. Used by both Exp A and Exp B and by the parent plan's Exp 2. |
+| `src/utils/similarity_utils.py` (new) | Shared helpers: `pair_features(df, kmer_or_esm)`, `nearest_cosine(matrix_test, matrix_train)`. Used by both Exp A and Exp B and by the parent plan's Exp 3. |
 | `conf/dataset/default.yaml` | Add `split_mode` and `cosine_threshold` defaults (`assembly` / `null` to preserve existing behavior). |
 | `conf/bundles/flu_ha_na_cosine_t{N}.yaml` (4 new) | Bundles for τ ∈ {0.95, 0.9, 0.8, 0.7}. Inherit from `flu_ha_na`; override `split_mode` and `cosine_threshold`. |
 
@@ -242,7 +242,7 @@ models/flu/July_2025/runs/training_flu_ha_na_cluster_id{N}_<TS>/
 ## Shared infrastructure
 
 A small refactor pays off for both experiments and the parent plan's
-Exp 2:
+Exp 3:
 
 - `src/utils/similarity_utils.py` — pure functions for k-mer / ESM-2
   joint feature construction and cosine math. Unit-testable.
@@ -278,6 +278,6 @@ This keeps the v2 builder readable as the experiments multiply.
 ## See also
 
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — parent plan;
-  this is the specific design for its Exp 2 and Exp 5.
+  this is the specific design for its Exp 3 and Exp 5.
 - `docs/results/2026-05-07_metadata_shortcut_negatives.md` — the
   analysis that motivated all of this.
