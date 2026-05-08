@@ -20,13 +20,13 @@ experiments that does.
 
 ## Dataset issues (that may lead to overly optimistic predictions)
 
-| # | Canonical name | Synonyms | Description | Status |
-|---|---|---|---|---|
-| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
-| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
-| 3 | Sequence-level **leakage** | Slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | ❌ NOT ADDRESSED — measured 11–16% on v2 |
-| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
-| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count |
+| # | Canonical name | Synonyms | Description | Assessed by | Status |
+|---|---|---|---|---|---|
+| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion; Exp 1 makes this visible | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
+| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage assertion + `seqs_with_zero_negatives` raise | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
+| 3 | Sequence-level **leakage** | Slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ NOT ADDRESSED — measured 11–16% on v2 |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 7 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
+| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 2 cosine deciles | ❌ NOT ADDRESSED — quantified 30×–50× FP-rate climb on match_count |
 
 Experiments 3, 4, 5 from the action list below directly test these.
 Experiments 1 and 2 are diagnostics; 6 is conceptual; 7 is escalation.
@@ -103,20 +103,22 @@ Predicted: accuracy collapses on the lowest-cosine decile.
 
 ---
 
-### Exp 3 — 1-NN baseline
+### Exp 3 — k-NN baseline (with k=1)
 
 **Why.** Operational test of the "model learned biology" definition.
-If a parameter-free 1-NN classifier achieves AUC comparable to the
-MLP, the MLP has not learned anything beyond what nearest-neighbor
-matching captures.
+The k-NN family is the canonical non-parametric memorizer; with k=1
+it predicts the label of the single closest training point in feature
+space. If a 1-NN classifier achieves AUC comparable to the MLP, the
+MLP has not learned anything beyond what nearest-neighbor matching
+captures.
 
-**What.** Add `src/models/baseline_knn.py`. Train on the same
+**What.** Add `src/models/baselines/knn.py`. Train on the same
 features used by the MLP (k-mer concat). Evaluate AUC, F1, MCC on
 the same val/test splits. Write to a comparable `metrics.csv`.
 
-**How.** sklearn `NearestNeighbors` on L2-normalized concat features.
-Predict label of nearest train pair for each test pair. Output to a
-sibling run dir
+**How.** sklearn `NearestNeighbors` (k=1) on L2-normalized concat
+features. Predict label of the single nearest train pair for each
+test pair. Output to a sibling run dir
 `models/flu/.../runs/baseline_knn_<bundle>_<ts>/`.
 
 **Effort.** ~50 lines, ~1 hour.
@@ -172,9 +174,14 @@ minutes each).
 ### Exp 5 — Conservation analysis across representations
 
 **Why.** Frames the leakage discussion biologically: how conserved
-*are* the proteins we're working with, and is that conservation
+*are* the sequences we're working with, and is that conservation
 preserved across the representations the model sees? Also tests
 whether ESM-2 inflates similarity beyond what AA identity warrants.
+
+Naming note: this experiment uses **within-function / cross-function**
+to avoid colliding with the **within-subtype / cross-subtype**
+terminology of Level 1. "Function" matches the column in
+`protein_final.csv` (HA, NA, PB1, PB2, PA, NP, M1, …).
 
 **What.** A function-level conservation table + 2D embedding plot
 per representation (raw AA, raw DNA, k-mer, ESM-2). New analysis
@@ -186,18 +193,30 @@ per-representation PCA/UMAP PNGs.
 1. Per function: sample 1000 random pairs of sequences.
 2. Compute pairwise similarity in each of the four representations:
    AA identity, nucleotide identity, k-mer cosine, ESM-2 cosine.
-3. Aggregate: within-type mean similarity, cross-type mean
-   similarity, ratio.
-4. PCA/UMAP per representation, colored by function-type.
+3. Aggregate per representation:
+   - **within-function mean similarity** = mean over pairs whose
+     two sequences share a function (HA-HA, NA-NA, …). Higher means
+     a tighter cluster for that function in this representation.
+   - **cross-function mean similarity** = mean over pairs whose two
+     sequences differ in function (HA-NA, HA-PB1, …). Acts as a
+     "floor" for what unrelated sequences look like.
+   - **ratio** = within-function / cross-function. >> 1 means the
+     representation cleanly separates functions; ≈ 1 means it
+     muddles them.
+4. PCA/UMAP per representation, colored by function.
+
+The first-page anchor is the `uniq_prot` / `uniq_dna` / `rows/prot`
+/ `dna/prot` table I already computed (HA = 41,896 unique proteins
+vs PB1 = 31,226 across ~114K isolates each; M1 = 4,771 — most
+conserved). Exp 5 builds on that with the per-representation
+similarity numbers and plots.
 
 **Effort.** Half a day.
 
-**Success.** Concrete answer to "is PB1 more conserved than HA?" and
-"does ESM-2 collapse function-types more than AA identity warrants?"
-Initial counts (`uniq_prot/uniq_dna` per function on full dataset)
-already confirm Jim's qualitative claim: HA = 41,896 unique proteins
-vs PB1 = 31,226 across ~114K isolates each; M1 = 4,771 unique proteins
-(most conserved). Exp 5 puts numbers and pictures on this.
+**Success.** Concrete answer to "is PB1 more conserved than HA?"
+(within-function similarity per representation) and "does ESM-2
+collapse functions more than AA identity warrants?" (compare
+within/cross ratios across representations).
 
 ---
 
