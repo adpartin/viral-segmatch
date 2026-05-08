@@ -22,7 +22,7 @@ experiments that does.
 
 | # | Canonical name | Synonyms | Description | Assessed by | Status |
 |---|---|---|---|---|---|
-| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion; Exp 1 makes this visible | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
+| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 `pair_key` overlap assertion | ✅ ADDRESSED — v2 assertion + `forbidden_pair_keys` threading |
 | 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) in train. | v2 coverage assertion + `seqs_with_zero_negatives` raise | ✅ ADDRESSED — v2 coverage phase + per-sequence raise |
 | 3 | Sequence-level **leakage** | Slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ NOT ADDRESSED — measured 11–16% on v2 |
 | 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (cosine deciles); Exp 3 (1-NN baseline); Exp 5 (mmseqs2 cluster splits) | ❌ NOT ADDRESSED — median nearest-train PB1 cos = 0.994 |
@@ -107,7 +107,7 @@ tuple. Columns: `n_unique`, `n_in_train`, `n_in_val`, `n_in_test`.
 called from `split_dataset_v2` after the splits are finalized.
 Reads from the train/val/test pair DataFrames already in memory.
 
-**Effort.** ~50 lines, ~1 hour.
+**Effort.** ~50 lines.
 
 **Success.** A reader can answer "how many test sequences are also
 in train?" by reading one CSV.
@@ -130,8 +130,6 @@ accuracy / FP rate / mean confidence per decile. New post-hoc output:
 sparse matrix). For each test pair, compute cosine to every train
 pair, take max. Stratify by max-cosine deciles. ~50 lines, runs in
 under a minute on existing test sizes.
-
-**Effort.** ~hour.
 
 **Success.** A monotonic accuracy-vs-cosine plot decisively shows
 whether near-neighbor lookup explains the headline accuracy.
@@ -157,7 +155,7 @@ features. Predict label of the single nearest train pair for each
 test pair. Output to a sibling run dir
 `models/flu/.../runs/baseline_knn_<bundle>_<ts>/`.
 
-**Effort.** ~50 lines, ~1 hour.
+**Effort.** ~50 lines.
 
 **Success.** A side-by-side comparison table:
 
@@ -194,8 +192,7 @@ Re-train `flu_ha_na` (h=[100]) under each mode and compare.
 3. Re-train. Compare aggregate metrics + match-count FP rate +
    nearest-train-cosine stratified accuracy.
 
-**Effort.** Half a day implementation + 3 short training runs (~5
-minutes each).
+**Effort.** Implementation + 3 short training runs.
 
 **Success.** Headline result for the project. Possible outcomes:
 - **Both alternative splits crash.** Memorization was the dominant
@@ -234,7 +231,7 @@ phylogenetic near-neighbors. If Exp 4 already crashes, Exp 5 is
 unnecessary for the leakage story (but might still be useful for
 phylo robustness).
 
-**Effort.** ~1 day if no surprises (install + integrate).
+**Effort.** Install mmseqs2 + integrate into split dispatcher.
 
 ---
 
@@ -286,8 +283,6 @@ The first-page anchor is the `uniq_prot` / `uniq_dna` / `rows/prot`
 vs PB1 = 31,226 across ~114K isolates each; M1 = 4,771 — most
 conserved). Anl 1 builds on that with the per-representation
 similarity numbers and plots.
-
-**Effort.** Half a day.
 
 **Output.** Concrete answer to "is PB1 more conserved than HA?"
 (within-function similarity per representation) and "does ESM-2

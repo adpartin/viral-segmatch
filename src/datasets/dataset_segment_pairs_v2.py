@@ -1331,20 +1331,25 @@ def save_split_output_v2(
 
     # Pair CSVs + parquets
     _t = time.time()
-    print(f"[diag] save_v2: write pair CSVs start "
+    print(f"save_v2: write pair CSVs start "
           f"(train={len(train_pairs):,}, val={len(val_pairs):,}, test={len(test_pairs):,})",
           flush=True)
-    train_pairs.to_csv(output_dir / 'train_pairs.csv', index=False)
-    val_pairs.to_csv(output_dir / 'val_pairs.csv', index=False)
-    test_pairs.to_csv(output_dir / 'test_pairs.csv', index=False)
-    print(f"[diag] save_v2: pair CSVs done in {time.time()-_t:.2f}s", flush=True)
+    for split_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
+        _t_split = time.time()
+        df.to_csv(output_dir / f'{split_name}_pairs.csv', index=False)
+        print(f"save_v2: wrote {split_name}_pairs.csv (n={len(df):,}) "
+              f"in {time.time()-_t_split:.2f}s", flush=True)
+    print(f"save_v2: pair CSVs done in {time.time()-_t:.2f}s", flush=True)
 
     _t = time.time()
-    print(f"[diag] save_v2: write pair parquets start", flush=True)
-    train_pairs.to_parquet(output_dir / 'train_pairs.parquet', compression='zstd', index=False)
-    val_pairs.to_parquet(output_dir / 'val_pairs.parquet', compression='zstd', index=False)
-    test_pairs.to_parquet(output_dir / 'test_pairs.parquet', compression='zstd', index=False)
-    print(f"[diag] save_v2: pair parquets done in {time.time()-_t:.2f}s", flush=True)
+    print(f"save_v2: write pair parquets start", flush=True)
+    for split_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
+        _t_split = time.time()
+        df.to_parquet(output_dir / f'{split_name}_pairs.parquet',
+                      compression='zstd', index=False)
+        print(f"save_v2: wrote {split_name}_pairs.parquet (n={len(df):,}) "
+              f"in {time.time()-_t_split:.2f}s", flush=True)
+    print(f"save_v2: pair parquets done in {time.time()-_t:.2f}s", flush=True)
 
     # Cross-split overlap stats (Exp 1 of the leakage diagnostics plan).
     # Surfaces seq_hash / dna_hash overlap across splits that pair_key
@@ -1501,7 +1506,7 @@ def emit_split_overlap_stats(
     val_pairs: pd.DataFrame,
     test_pairs: pd.DataFrame,
     output_dir: Path,
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Emit `split_overlap_stats.csv`: per `(split, label, axis, side)` row,
     the count of unique values and how many also appear in each of the other
     splits.
