@@ -99,6 +99,9 @@ def main() -> None:
                         help='Accepted for shell-script symmetry; ignored by sklearn baselines.')
     parser.add_argument('--override', type=str, nargs='+', default=None,
                         help='Hydra dotlist overrides on top of the bundle.')
+    parser.add_argument('--skip_post_hoc', action='store_true',
+                        help='Skip the post-hoc analysis (analyze_stage4_train.py) that '
+                             'normally runs after training and writes <run_dir>/post_hoc/.')
     args = parser.parse_args()
 
     # ── Config ──────────────────────────────────────────────────────────────
@@ -296,6 +299,39 @@ def main() -> None:
     total_timer.stop_timer()
     total_timer.display_timer()
     total_timer.save_timer(output_dir)  # auto-includes phases_seconds
+
+    # Post-hoc analysis: same hook the MLP path uses (train_pair_classifier.py).
+    # analyze_stage4_train.py only consumes test_predicted.csv + the bundle
+    # config -- which the baselines write in the same schema -- so the same
+    # subprocess invocation works as-is. Guardrailed: any post-hoc failure is
+    # isolated from the training exit code; baseline artifacts on disk
+    # (best_model.joblib, *_predicted.csv, metrics_summary.json, etc.) are
+    # already valid at this point.
+    if not args.skip_post_hoc:
+        import subprocess
+        post_hoc_log = output_dir / 'post_hoc_run.log'
+        print(f'\nRunning post-hoc analysis -> {output_dir}/post_hoc/')
+        post_hoc_cmd = [
+            sys.executable,
+            str(project_root / 'src' / 'analysis' / 'analyze_stage4_train.py'),
+            '--config_bundle', args.config_bundle,
+            '--model_dir', str(output_dir),
+        ]
+        try:
+            with open(post_hoc_log, 'w') as logf:
+                rc = subprocess.call(post_hoc_cmd, stdout=logf, stderr=subprocess.STDOUT)
+            if rc != 0:
+                print(f'WARNING: post-hoc analysis exited with code {rc} for {output_dir}.')
+                print(f'         Baseline artifacts are unaffected. See log: {post_hoc_log}')
+                print(f'         To regenerate later: python src/analysis/analyze_stage4_train.py '
+                      f'--config_bundle {args.config_bundle} --model_dir {output_dir}')
+            else:
+                print(f'Done. Post-hoc analysis complete. Log: {post_hoc_log}')
+        except Exception as e:
+            import traceback
+            print(f'WARNING: post-hoc analysis subprocess failed to launch for {output_dir}: {e}')
+            print(f'         Baseline artifacts are unaffected.')
+            traceback.print_exc()
 
 
 if __name__ == '__main__':
