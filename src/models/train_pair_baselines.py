@@ -51,6 +51,7 @@ from src.models._pair_metrics import compute_pair_metrics, find_optimal_threshol
 BASELINE_REGISTRY = {
     'logistic': 'src.models.baselines.logistic',
     'lgbm':     'src.models.baselines.lgbm',
+    'knn':      'src.models.baselines.knn',
 }
 
 
@@ -159,19 +160,34 @@ def main() -> None:
     test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv',  engine=CSV_ENGINE)
     print(f'  train: {len(train_pairs):,} | val: {len(val_pairs):,} | test: {len(test_pairs):,}')
 
+    # ESM-2 baselines need the interaction + slot_transform from the bundle
+    # (matches the MLP path's behaviour). The k-mer path ignores them.
+    INTERACTION = str(getattr(config.training, 'interaction', 'concat'))
+    SLOT_TRANSFORM = str(getattr(config.training, 'slot_transform', 'none'))
+
     if FEATURE_SOURCE == 'kmer':
+        # k-mer features live under data/embeddings/{virus}/{ver}/ alongside ESM-2
         kmer_dir = build_embeddings_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
             data_version=DATA_VERSION, run_suffix="", config=config,
         )['output_dir']
-    else:
-        kmer_dir = None  # ESM-2 path will raise NotImplementedError inside the loader.
+        embeddings_file = None
+    else:  # esm2 — get the master HDF5 path the same way the MLP does
+        kmer_dir = None
+        embeddings_file = build_training_paths(
+            project_root=project_root, virus_name=VIRUS_NAME,
+            data_version=DATA_VERSION, run_suffix="", config=config,
+        )['embeddings_file']
+        print(f'Embeddings file: {embeddings_file}')
 
     (X_train, y_train), (X_val, y_val), (X_test, y_test), _ = load_pair_features_for_baselines(
         train_pairs, val_pairs, test_pairs,
         feature_source=FEATURE_SOURCE,
         feature_scaling=feature_scaling,
         kmer_dir=kmer_dir, kmer_k=KMER_K,
+        embeddings_file=embeddings_file,
+        interaction=INTERACTION,
+        slot_transform=SLOT_TRANSFORM,
         output_dir=output_dir,
     )
     total_timer.end_phase('load_data')
@@ -261,9 +277,9 @@ def main() -> None:
         'estimator': repr(estimator),
         'seed': RANDOM_SEED,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        # MLP-only knobs, recorded as null for downstream tooling parity.
-        'interaction': 'concat',
-        'slot_transform': None,
+        # Feature-construction knobs (mirror MLP's training_info.json).
+        'interaction': INTERACTION,
+        'slot_transform': SLOT_TRANSFORM,
         'hidden_dims': None,
         'dropout': None,
         'batch_size': None,
