@@ -25,12 +25,20 @@ shift
 BASELINE=""
 DATASET_DIR=""
 OUTPUT_DIR=""
+OVERRIDES=()  # Hydra-style dotlist overrides; collected here and passed
+              # through as --override <a> <b> ... at the end of the command.
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --baseline)    BASELINE="$2";    shift 2 ;;
         --dataset_dir) DATASET_DIR="$2"; shift 2 ;;
         --output_dir)  OUTPUT_DIR="$2";  shift 2 ;;
+        --override)
+            shift
+            while [[ $# -gt 0 && "$1" != --* ]]; do
+                OVERRIDES+=("$1"); shift
+            done
+            ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -58,6 +66,12 @@ if [ -n "$OUTPUT_DIR" ]; then
     CMD="$CMD --output_dir $OUTPUT_DIR"
 else
     CMD="$CMD --run_output_subdir $RUN_ID"
+fi
+if [ ${#OVERRIDES[@]} -gt 0 ]; then
+    CMD="$CMD --override"
+    for kv in "${OVERRIDES[@]}"; do
+        CMD="$CMD $kv"
+    done
 fi
 
 # --- Run ---
