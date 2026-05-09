@@ -952,12 +952,33 @@ def evaluate_on_split(
         true_labels, probs, threshold, pairs_df, logits=logits,
     )
 
+    # MCC and PR-AUC aren't in compute_pair_metrics's return dict; compute
+    # them inline so the log block reports the full panel (threshold-
+    # dependent: precision/recall/F1/MCC; ranking: ROC-AUC/PR-AUC).
+    pred_labels = (probs > threshold).astype(int)
+    mcc = matthews_corrcoef(true_labels, pred_labels)
+    pr_auc = average_precision_score(true_labels, probs)
+
     split_title = split_name.strip() if split_name is not None else "split"
-    print(f'{split_title} Loss: {mean_loss:.4f}, {split_title} F1 (binary): {metrics["f1"]:.4f}, {split_title} F1 (macro): {metrics["f1_macro"]:.4f}')
-    print(f'{split_title} Precision: {metrics["precision"]:.4f}, {split_title} Recall: {metrics["recall"]:.4f}, {split_title} AUC: {metrics["auc"]:.4f}')
-    print(f'Using threshold: {threshold:.4f}')
-    print(f'Note: Precision measures False Positives (FP), Recall measures False Negatives (FN)')
-    print(f'      F1 (binary) focuses on positive class, F1 (macro) averages both classes')
+    print(f'\n{split_title} metrics:')
+    print(f'Using threshold: {threshold:.2f}')
+    print(f'{split_title} Loss: {mean_loss:.4f}')
+    print(f'{split_title} Precision: {metrics["precision"]:.4f}')
+    print(f'{split_title} Recall: {metrics["recall"]:.4f}')
+    print(f'{split_title} F1 (binary): {metrics["f1"]:.4f}')
+    print(f'{split_title} F1 (macro): {metrics["f1_macro"]:.4f}')
+    print(f'{split_title} MCC: {mcc:.4f}')
+    print(f'{split_title} ROC-AUC: {metrics["auc"]:.4f}')
+    print(f'{split_title} PR-AUC: {pr_auc:.4f}')
+    print()
+    print('Note:')
+    print('Precision measures the fraction of predicted positives that are actually positive.')
+    print('Recall measures the fraction of actual positives that are correctly predicted.')
+    print('F1 (binary) is the harmonic mean of precision and recall for the positive class.')
+    print('F1 (macro) is the unweighted average of per-class F1 scores, ignoring class frequency.')
+    print('MCC is the correlation between predicted and true labels, balanced across all four confusion-matrix cells.')
+    print('ROC-AUC is the ranking quality across thresholds, balancing TPR against FPR.')
+    print('PR-AUC is the ranking quality across thresholds, emphasizing performance on the positive class.')
     return res_df
 
 
