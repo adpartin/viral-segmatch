@@ -15,6 +15,7 @@ defaults:
 
 training:
   epochs: 100
+  # epochs: 10
   patience: 10
   feature_source: kmer  # kmer | esm2
   hidden_dims: [100] # bottleneck layer; default: [512, 256, 64]

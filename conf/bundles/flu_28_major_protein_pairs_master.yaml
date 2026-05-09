@@ -45,7 +45,7 @@ dataset:
 # Full dataset: ~29s/epoch (vs 90s baseline), ~50 min/fold at 100 epochs
 training:
   feature_source: kmer
-  interaction: concat
+  interaction: concat         # concat | diff | prod | unit_diff | concat+unit_diff
   slot_transform: slot_norm
   epochs: 100                    # Phase 3: full convergence
   # epochs: 5                  # Phase 0-2

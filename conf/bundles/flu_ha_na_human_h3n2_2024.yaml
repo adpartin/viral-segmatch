@@ -30,7 +30,7 @@ dataset:
   # by design (see docs/plans/done/subtype_balancing_plan.md, error matrix).
   n_folds: null   # single train/val/test split (override flu_28_major_protein_pairs_master's inherited CV=12)
 
-  # Metadata filters: Human, H3N2, 2024
+  # Metadata filters
   host: "Human"
   year: 2024        # integer (metadata year column is Int64)
   hn_subtype: "H3N2"
