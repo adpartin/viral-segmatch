@@ -428,6 +428,10 @@ def create_negative_pairs_v2(
         seq_to_isolates.setdefault(row.seq_hash_a, set()).add(aid)
         seq_to_isolates.setdefault(row.seq_hash_b, set()).add(aid)
     isolate_ids_list = sorted(isolate_to_row.keys())
+    if regime_mode and isolate_to_cell is not None:
+        isolate_to_cell = {
+            aid: cell for aid, cell in isolate_to_cell.items() if aid in isolate_to_row
+        }
     print(f"[diag] create_negative_pairs_v2: setup done in "
           f"{time.time()-t_setup:.2f}s ({len(isolate_ids_list):,} isolates, "
           f"{len(seq_to_isolates):,} unique seq_hashes; "
