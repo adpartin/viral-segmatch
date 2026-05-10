@@ -830,21 +830,14 @@ def compute_metadata_coverage(
         Counts every protein row. Reflects *isolate-level* coverage:
         a sequence shared across 100 isolates contributes 100 rows.
       - Per-sequence: n_unique_seqs / n_unique_seqs_null / pct_unique_null
-        Collapses by `seq_hash` via `.first()` and counts unique sequences
-        with a non-null value. Reflects *sequence-level* coverage, which
-        is what matters for embedding-keyed lookups.
-
-    Caveats on per-sequence stats
-    -----------------------------
-    NOTE/TODO!
-    `.first()` assumes one value per `seq_hash`. This is well-defined for
-    HA/NA on the H/N subtype components, but for internal-protein bundles
-    (PB2/PB1/PA/NP/M1/NS1) a single sequence routinely appears in isolates
-    of different `hn_subtype`, `host`, or `year` (reassortment, host
-    sharing, multi-year persistence). For those axes, `.first()` returns
-    an arbitrary representative; the stat is computed but should be read
-    as "coverage of the per-sequence representative value", not as
-    "every isolate carrying this sequence has this value".
+        n_unique_seqs_null counts seq_hashes for which NO isolate carries
+        any non-null value -- it's the embedding-keyed-lookup floor (an
+        embedding referenced by such a seq has no metadata anywhere). For
+        seq_hashes that span multiple isolates with different metadata
+        (reassortment, multi-year persistence, etc.), per-sequence here
+        does NOT mean "every isolate carrying this seq has this value";
+        for that, look at pair-level <axis>_a / <axis>_b columns built by
+        compute_axis_flags (which keys on assembly_id).
 
     Other reported fields
     ---------------------
@@ -872,12 +865,12 @@ def compute_metadata_coverage(
         n_rows_null = int(df[col].isna().sum())
         pct_null = (n_rows_null / n_rows_total * 100.0) if n_rows_total > 0 else 0.0
 
-        # seq_hash is protein sequence identity; counting unique seq_hashes captures the number of unique sequences, which is more meaningful for coverage than counting rows (many rows may share the same sequence).
-        # n_unique_seqs_null counts how many unique sequences have null for this axis;
-        # pct_unique_null is the percentage of unique sequences with null for this axis.
-        per_seq = df.groupby('seq_hash')[col].first()
-        n_unique_seqs = int(len(per_seq))
-        n_unique_seqs_null = int(per_seq.isna().sum())
+        # n_unique_seqs_null = seq_hashes with NO non-null value across any
+        # isolate. Drop nulls first so seqs whose first row happens to be null
+        # but which have a valid value elsewhere are not undercounted.
+        n_unique_seqs = int(df['seq_hash'].nunique())
+        seqs_with_value = df.dropna(subset=[col])['seq_hash'].nunique()
+        n_unique_seqs_null = n_unique_seqs - int(seqs_with_value)
         pct_unique_null = (n_unique_seqs_null / n_unique_seqs * 100.0) if n_unique_seqs > 0 else 0.0
 
         non_null = df[col].dropna()
