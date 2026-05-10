@@ -153,14 +153,14 @@ space. If a 1-NN classifier achieves AUC comparable to the MLP, the
 MLP has not learned anything beyond what nearest-neighbor matching
 captures.
 
-**What.** Add `src/models/baselines/knn.py`. Train on the same
+**What.** Add `src/models/baselines/knn1_margin.py`. Train on the same
 features used by the MLP (k-mer concat). Evaluate AUC, F1, MCC on
 the same val/test splits. Write to a comparable `metrics.csv`.
 
 **How.** sklearn `NearestNeighbors` (k=1) on L2-normalized concat
 features. Predict label of the single nearest train pair for each
 test pair. Output to a sibling run dir
-`models/flu/.../runs/baseline_knn_<bundle>_<ts>/`.
+`models/flu/.../runs/baseline_knn1_margin_<bundle>_<ts>/`.
 
 **Effort.** ~50 lines.
 

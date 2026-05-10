@@ -31,7 +31,7 @@ guarantees that distinct pairs have distinct k-mer feature vectors
 protein → differing k-mer composition), so the eps test only fires on
 genuine self-matches.
 
-Bundle overrides under ``config.baseline_knn.*`` (defaults shown):
+Bundle overrides under ``config.baseline_knn1_margin.*`` (defaults shown):
 
 | key             | default | notes                                           |
 |-----------------|---------|-------------------------------------------------|
@@ -39,6 +39,11 @@ Bundle overrides under ``config.baseline_knn.*`` (defaults shown):
 | algorithm       | brute   | best for ~8K-dim k-mer concat (BLAS matmul)     |
 | feature_scaling | none    | cosine is scale-invariant; StandardScaler would |
 |                 |         | destroy non-negativity of k-mer counts          |
+
+The companion ``knn_vote`` baseline (``baselines/knn_vote.py``) wraps
+sklearn's standard KNeighborsClassifier with configurable k and weighting
+-- use that one for "smoothed local-neighborhood baseline" comparisons;
+this file is the dedicated leakage diagnostic.
 """
 from typing import Optional
 
@@ -49,7 +54,7 @@ LOO_EPS = 1e-9  # cosine distance below this counts as a self-match
 
 
 def name() -> str:
-    return "knn"
+    return "knn1_margin"
 
 
 def feature_scaling_default() -> str:
@@ -118,7 +123,7 @@ class KNN1Margin:
 
 
 def get_estimator(config, *, random_state: Optional[int] = None) -> KNN1Margin:
-    cfg = getattr(config, 'baseline_knn', None)
+    cfg = getattr(config, 'baseline_knn1_margin', None)
     cfg = dict(cfg) if cfg is not None else {}
     return KNN1Margin(
         n_jobs=int(cfg.get('n_jobs', -1)),
