@@ -1,7 +1,7 @@
 # Metadata-aware negative sampling — Plan
 
-**Status: IN PROGRESS**
-**Date:** 2026-05-09 (plan); 2026-05-10 (implementation start, branch
+**Status: IMPLEMENTED**
+**Date:** 2026-05-09 (plan); 2026-05-10 (implementation, branch
 `feature/metadata-aware-negative-sampling`)
 
 ## Context

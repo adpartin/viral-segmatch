@@ -87,6 +87,7 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 
 ## Recently Promoted to Production
 - Unified Flu preprocessing (`src/preprocess/preprocess_flu.py`) -- emits both `protein_final.csv` and `genome_final.csv` in a single pass. Wired up via `scripts/stage1_preprocess_flu.sh`. Design notes: `docs/genome_pipeline_design.md`.
+- Metadata-aware negative sampling (v2 builder, 2026-05-10). Opt-in via `dataset.negative_sampling.regime_targets`. 9 mutually-exclusive regimes over `(host, hn_subtype, year_or_year_bin)`. Coverage > quotas (hard invariant); manifest reports per-regime target/available/coverage_placed/fill_placed/achieved/shortfall. Pair CSVs gain `neg_regime` and `metadata_match_count`. Output `negative_regime_manifest.{json,csv}`. Pre-requisite bug fixes also landed: `compute_axis_flags` now keys on `assembly_id` (was `seq_hash`, wrong by 5-34% on positives), and `compute_metadata_coverage` per-seq null counter dropna-first. Plan: `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md`.
 
 ## HPC
 - For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
