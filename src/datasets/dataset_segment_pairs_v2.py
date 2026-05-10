@@ -98,6 +98,11 @@ _PAIR_COLUMNS = [
     'seq_hash_a', 'seq_hash_b',
     'dna_hash_a', 'dna_hash_b',
     'label',
+    # Populated only on negative pairs by the regime-aware sampler; pd.NA for
+    # positives. Both columns are pd.NA for negatives built by the legacy
+    # regime-blind sampler too (when axis_quotas / isolate_to_cell are None).
+    'neg_regime',
+    'metadata_match_count',
 ]
 
 _DEFAULT_AXES = ("host", "year", "hn_subtype", "geo_location", "passage")
@@ -208,7 +213,7 @@ def create_positive_pairs_v2(
             f"(must be unique per isolate; check Stage 1)."
         )
 
-    pos_df = pos_df.loc[:, _PAIR_COLUMNS]
+    pos_df = pos_df.reindex(columns=_PAIR_COLUMNS)
 
     # TODO. Below we drop dups based on pair_key computed on protein seq hashes.
     # We also want to understand the duplicate situation on the DNA side, as well
@@ -254,6 +259,9 @@ def create_negative_pairs_v2(
     max_attempts_multiplier: int = 100,
     axis_quotas: Optional[dict] = None,
     forbidden_pair_keys: Optional[set] = None,
+    isolate_to_cell: Optional[dict] = None,
+    sampling_axes: Optional[list] = None,
+    on_shortfall: str = 'redistribute',
     ) -> tuple[pd.DataFrame, dict]:
     """Generate negative pairs with a coverage-first two-phase sampler.
 
@@ -305,20 +313,59 @@ def create_negative_pairs_v2(
     behavior. Rejections via this set are counted under
     `cross_split_collision` in rejection_stats.
 
+    Regime-aware mode (axis_quotas + isolate_to_cell + sampling_axes
+    populated): the fill phase aims for the per-regime target counts
+    derived from `axis_quotas` (regime -> target fraction). Coverage phase
+    stays regime-blind. on_shortfall controls behavior when a regime can't
+    be filled to target. See
+    `docs/plans/2026-05-09_metadata_aware_negatives_plan.md`.
+
     Returns:
         (neg_df, rejection_stats). rejection_stats includes blocked_cooccur,
         duplicate_brc, duplicate_seq, cross_split_collision, total_attempts,
         coverage_skipped, and v2 keys: requested_negatives,
         min_required_for_coverage, coverage_phase_pairs, fill_phase_pairs,
         achieved_negatives, coverage_overrode_ratio, seqs_with_zero_negatives,
-        dna_hashes_with_zero_negatives, n_dna_uncovered.
+        dna_hashes_with_zero_negatives, n_dna_uncovered. In regime-aware
+        mode it also includes regime_manifest (per-regime
+        target/available/coverage_placed/fill_placed/achieved/shortfall_reason).
     """
-    # Slot identity is carried by the _a/_b columns of pos_df, so we no longer
-    # need func_left / func_right inside this function. The call is kept for
-    # its side effect: rejecting a malformed schema_pair early.
     _validate_schema_pair(schema_pair, "create_negative_pairs_v2")
-    if axis_quotas is not None and len(axis_quotas) > 0:
-        raise NotImplementedError("axis_quotas not yet supported; pass None")
+    regime_mode = (axis_quotas is not None) and (len(axis_quotas) > 0)
+    if regime_mode:
+        if isolate_to_cell is None or sampling_axes is None:
+            raise ValueError(
+                "create_negative_pairs_v2: axis_quotas requires isolate_to_cell "
+                "and sampling_axes; caller must build cells once and pass them in."
+            )
+        if on_shortfall not in {'redistribute', 'warn_only', 'error'}:
+            raise ValueError(
+                f"on_shortfall must be in {{'redistribute', 'warn_only', 'error'}}, "
+                f"got {on_shortfall!r}"
+            )
+        from src.datasets._negative_regime_sampling import (
+            REGIME_NAMES,
+            classify_pair_regime,
+            compute_match_count,
+            count_isolates_per_cell,
+            count_available_per_regime,
+            resolve_regime_targets,
+        )
+        missing_regimes = set(REGIME_NAMES) - set(axis_quotas.keys())
+        if missing_regimes:
+            raise ValueError(
+                f"axis_quotas missing regimes: {sorted(missing_regimes)}. "
+                f"Targets dict must include all 9 regime names."
+            )
+        target_sum = sum(axis_quotas.values())
+        if abs(target_sum - 1.0) > 1e-6:
+            raise ValueError(
+                f"axis_quotas fractions must sum to 1.0; got {target_sum}."
+            )
+        for r, v in axis_quotas.items():
+            if v < 0 or pd.isna(v):
+                raise ValueError(f"axis_quotas[{r!r}] must be >= 0; got {v!r}")
+
     if len(pos_df) == 0:
         raise ValueError("create_negative_pairs_v2: pos_df is empty; nothing to generate negatives for.")
 
@@ -418,14 +465,32 @@ def create_negative_pairs_v2(
         'coverage_skipped': [],
     }
     neg_pairs: list[dict] = []
+    # Regime mode bookkeeping. regime_counts is incremented by _try_accept and
+    # is the source-of-truth for the manifest's coverage_placed and fill_placed.
+    regime_counts: dict = {}
+    if regime_mode:
+        regime_counts = {r: 0 for r in REGIME_NAMES}
 
-    def _build_neg_pair(a_src, b_src) -> dict:
-        """Build a negative pair dict using slot-A fields from a_src and
-        slot-B fields from b_src. Both args are pos_df itertuples rows."""
+    def _classify_for_aids(a_aid, b_aid) -> tuple:
+        """(neg_regime, metadata_match_count) for a candidate isolate pair.
+        Returns (None, None) when not in regime_mode; the pair CSV columns
+        end up as pd.NA via DataFrame construction."""
+        if not regime_mode:
+            return None, None
+        cell_a = isolate_to_cell.get(a_aid)
+        cell_b = isolate_to_cell.get(b_aid)
+        if cell_a is None or cell_b is None:
+            return 'unknown_metadata_neg', None
+        return (
+            classify_pair_regime(cell_a, cell_b, axes=sampling_axes),
+            compute_match_count(cell_a, cell_b),
+        )
+
+    def _build_neg_pair(a_src, b_src, regime, mc) -> dict:
         return {
             'pair_key': canonical_pair_key(a_src.seq_hash_a, b_src.seq_hash_b),
             'assembly_id_a': a_src.assembly_id_a,
-            'assembly_id_b': b_src.assembly_id_a,  # b_src's home isolate
+            'assembly_id_b': b_src.assembly_id_a,
             'brc_a': a_src.brc_a, 'brc_b': b_src.brc_b,
             'ctg_a': a_src.ctg_a, 'ctg_b': b_src.ctg_b,
             'seq_a': a_src.seq_a, 'seq_b': b_src.seq_b,
@@ -435,6 +500,8 @@ def create_negative_pairs_v2(
             'seq_hash_a': a_src.seq_hash_a, 'seq_hash_b': b_src.seq_hash_b,
             'dna_hash_a': a_src.dna_hash_a, 'dna_hash_b': b_src.dna_hash_b,
             'label': 0,
+            'neg_regime': regime if regime is not None else pd.NA,
+            'metadata_match_count': mc if mc is not None else pd.NA,
         }
 
     def _try_accept(a_src, b_src) -> bool:
@@ -454,13 +521,10 @@ def create_negative_pairs_v2(
             rejection_stats['duplicate_seq'] += 1
             return False
         if seq_pair_key in _forbidden:
-            # Already produced as a negative in an earlier (cross-split) call.
-            # Reject to keep splits' pair_key sets disjoint by construction.
             rejection_stats['cross_split_collision'] += 1
             return False
-        # Schema orientation is correct by construction (slot A = func_left,
-        # slot B = func_right); no orientation swap needed.
-        neg_pairs.append(_build_neg_pair(a_src, b_src))
+        regime, mc = _classify_for_aids(a_src.assembly_id_a, b_src.assembly_id_a)
+        neg_pairs.append(_build_neg_pair(a_src, b_src, regime, mc))
         seen_pairs.add(brc_pair_key)
         seen_seq_pairs.add(seq_pair_key)
         if a_src.seq_hash_a in neg_count_a:
@@ -471,6 +535,8 @@ def create_negative_pairs_v2(
             neg_count_dna_a[a_src.dna_hash_a] += 1
         if b_src.dna_hash_b in neg_count_dna_b:
             neg_count_dna_b[b_src.dna_hash_b] += 1
+        if regime_mode and regime is not None:
+            regime_counts[regime] = regime_counts.get(regime, 0) + 1
         return True
 
     # ---- Coverage phase --------------------------------------------------
@@ -539,11 +605,11 @@ def create_negative_pairs_v2(
                 rejection_stats['coverage_skipped'].append((d, slot, 'attempts_exhausted'))
 
     coverage_phase_pairs = len(neg_pairs)
+    coverage_regime_counts = dict(regime_counts) if regime_mode else None
     print(f"Coverage phase complete: {coverage_phase_pairs:,} negatives produced "
           f"({rejection_stats['total_attempts']:,} attempts).", flush=True)
 
     # ---- Fill phase ------------------------------------------------------
-    # ipdb.set_trace(context=10)
     fill_phase_target = max(requested_negatives, 0)
     max_total_attempts = rejection_stats['total_attempts'] + max(
         fill_phase_target * max_attempts_multiplier, 1
@@ -552,15 +618,123 @@ def create_negative_pairs_v2(
         print(f"\nFill phase: targeting {fill_phase_target:,} total negatives "
               f"({fill_phase_target - len(neg_pairs):,} more to add).", flush=True)
 
-    while (
-        len(neg_pairs) < fill_phase_target
-        and rejection_stats['total_attempts'] < max_total_attempts
-    ):
-        rejection_stats['total_attempts'] += 1
-        if len(isolate_ids_list) < 2:
-            break
-        aid1, aid2 = rng.sample(isolate_ids_list, 2)
-        _try_accept(isolate_to_row[aid1], isolate_to_row[aid2])
+    if regime_mode:
+        # Per-regime targets and per-regime samplers.
+        regime_target_count = resolve_regime_targets(axis_quotas, fill_phase_target)
+        cell_counts = count_isolates_per_cell(isolate_to_cell)
+        regime_available = count_available_per_regime(cell_counts, axes=sampling_axes)
+
+        cells_sorted = sorted(cell_counts.keys(), key=lambda c: tuple(str(v) for v in c))
+        cell_pairs_by_regime: dict = {r: ([], []) for r in REGIME_NAMES}
+        for c1 in cells_sorted:
+            n1 = cell_counts[c1]
+            for c2 in cells_sorted:
+                n2 = cell_counts[c2]
+                w = (n1 * (n1 - 1)) if c1 == c2 else (n1 * n2)
+                if w == 0:
+                    continue
+                r = classify_pair_regime(c1, c2, axes=sampling_axes)
+                cell_pairs_by_regime[r][0].append((c1, c2))
+                cell_pairs_by_regime[r][1].append(w)
+
+        cell_to_isolates: dict = {}
+        for aid, cell in isolate_to_cell.items():
+            cell_to_isolates.setdefault(cell, []).append(aid)
+        for cell in cell_to_isolates:
+            cell_to_isolates[cell].sort()
+
+        def _sample_pair_in_regime(regime: str):
+            cells, weights = cell_pairs_by_regime.get(regime, ([], []))
+            if not cells:
+                return None
+            cell_pair = rng.choices(cells, weights=weights, k=1)[0]
+            c1, c2 = cell_pair
+            a_pool = cell_to_isolates.get(c1, [])
+            b_pool = cell_to_isolates.get(c2, [])
+            if not a_pool or not b_pool:
+                return None
+            aid_a = rng.choice(a_pool)
+            if c1 == c2:
+                if len(b_pool) < 2:
+                    return None
+                aid_b = aid_a
+                while aid_b == aid_a:
+                    aid_b = rng.choice(b_pool)
+            else:
+                aid_b = rng.choice(b_pool)
+            return aid_a, aid_b
+
+        # Greedy per-regime fill in deterministic order.
+        for regime in REGIME_NAMES:
+            target = regime_target_count.get(regime, 0)
+            already = regime_counts.get(regime, 0)
+            residual = max(target - already, 0)
+            if residual == 0:
+                continue
+            attempts_for_regime = 0
+            attempt_budget = residual * max_attempts_multiplier
+            while (
+                regime_counts.get(regime, 0) < target
+                and len(neg_pairs) < fill_phase_target
+                and attempts_for_regime < attempt_budget
+            ):
+                rejection_stats['total_attempts'] += 1
+                attempts_for_regime += 1
+                sampled = _sample_pair_in_regime(regime)
+                if sampled is None:
+                    break
+                aid_a, aid_b = sampled
+                _try_accept(isolate_to_row[aid_a], isolate_to_row[aid_b])
+
+        # Optional redistribute pass: any remaining budget is filled regime-blind
+        # but only accepting pairs whose regime is still under (overall) target.
+        if on_shortfall == 'redistribute' and len(neg_pairs) < fill_phase_target:
+            redistribute_attempts = 0
+            redistribute_budget = (fill_phase_target - len(neg_pairs)) * max_attempts_multiplier
+            while (
+                len(neg_pairs) < fill_phase_target
+                and redistribute_attempts < redistribute_budget
+                and rejection_stats['total_attempts'] < max_total_attempts
+            ):
+                rejection_stats['total_attempts'] += 1
+                redistribute_attempts += 1
+                if len(isolate_ids_list) < 2:
+                    break
+                aid1, aid2 = rng.sample(isolate_ids_list, 2)
+                a_aid, b_aid = aid1, aid2
+                regime, _ = _classify_for_aids(a_aid, b_aid)
+                if regime is None:
+                    continue
+                # Skip regimes that are already at or above target.
+                if regime_counts.get(regime, 0) >= regime_target_count.get(regime, 0):
+                    continue
+                _try_accept(isolate_to_row[a_aid], isolate_to_row[b_aid])
+
+        if on_shortfall == 'error' and len(neg_pairs) < fill_phase_target:
+            shortfall_summary = {
+                r: {
+                    'target': regime_target_count.get(r, 0),
+                    'achieved': regime_counts.get(r, 0),
+                    'available': regime_available.get(r, 0),
+                }
+                for r in REGIME_NAMES
+                if regime_counts.get(r, 0) < regime_target_count.get(r, 0)
+            }
+            raise RuntimeError(
+                f"on_shortfall='error': could not fill all regime targets. "
+                f"Achieved {len(neg_pairs):,}/{fill_phase_target:,} total. "
+                f"Shortfalls: {shortfall_summary}"
+            )
+    else:
+        while (
+            len(neg_pairs) < fill_phase_target
+            and rejection_stats['total_attempts'] < max_total_attempts
+        ):
+            rejection_stats['total_attempts'] += 1
+            if len(isolate_ids_list) < 2:
+                break
+            aid1, aid2 = rng.sample(isolate_ids_list, 2)
+            _try_accept(isolate_to_row[aid1], isolate_to_row[aid2])
 
     fill_phase_pairs = len(neg_pairs) - coverage_phase_pairs
 
@@ -587,6 +761,39 @@ def create_negative_pairs_v2(
     rejection_stats['n_dna_uncovered'] = int(n_dna_uncovered)
     rejection_stats['n_dna_uncovered_a'] = int(len(dna_uncovered_a))
     rejection_stats['n_dna_uncovered_b'] = int(len(dna_uncovered_b))
+
+    if regime_mode:
+        regime_manifest = []
+        for r in REGIME_NAMES:
+            achieved = int(regime_counts.get(r, 0))
+            target = int(regime_target_count.get(r, 0))
+            cov_placed = int(coverage_regime_counts.get(r, 0)) if coverage_regime_counts else 0
+            fill_placed = achieved - cov_placed
+            available = int(regime_available.get(r, 0))
+            shortfall = max(target - achieved, 0)
+            if shortfall == 0:
+                reason = None
+            elif available <= cov_placed:
+                reason = 'supply_exhausted'
+            elif on_shortfall == 'redistribute':
+                reason = 'supply_exhausted_after_redistribute'
+            else:
+                reason = f'attempt_budget_exceeded_or_{on_shortfall}'
+            regime_manifest.append({
+                'regime': r,
+                'target': target,
+                'available': available,
+                'coverage_placed': cov_placed,
+                'fill_placed': fill_placed,
+                'achieved': achieved,
+                'shortfall_reason': reason,
+            })
+        rejection_stats['regime_manifest'] = regime_manifest
+        rejection_stats['regime_config'] = {
+            'sampling_axes': list(sampling_axes),
+            'on_shortfall': on_shortfall,
+            'regime_targets': dict(axis_quotas),
+        }
     # Cap full lists at 100 each for stats compactness; full audit lives in
     # rejection_stats['coverage_skipped'] which records (dna_hash, slot, reason).
     rejection_stats['dna_uncovered_a_sample'] = dna_uncovered_a[:100]
@@ -917,6 +1124,10 @@ def split_dataset_v2(
     max_attempts_multiplier: int = 100,
     axes_for_flags: list = _DEFAULT_AXES,
     axis_quotas: Optional[dict] = None,
+    sampling_axes: Optional[list] = None,
+    year_match: str = 'binned',
+    year_bin_edges: Optional[list] = None,
+    on_shortfall: str = 'redistribute',
     train_isolates_override: Optional[list] = None,
     val_isolates_override: Optional[list] = None,
     test_isolates_override: Optional[list] = None,
@@ -969,8 +1180,31 @@ def split_dataset_v2(
         before/after/dropped) and `coverage_stats` (per split).
     """
     func_left, func_right = _validate_schema_pair(schema_pair, "split_dataset_v2")
+
+    isolate_to_cell: Optional[dict] = None
+    resolved_sampling_axes: Optional[list] = None
     if axis_quotas is not None and len(axis_quotas) > 0:
-        raise NotImplementedError("axis_quotas not yet supported; pass None")
+        from src.datasets._negative_regime_sampling import (
+            DEFAULT_AXES as _NEG_DEFAULT_AXES,
+            DEFAULT_YEAR_BIN_EDGES as _NEG_DEFAULT_YEAR_BIN_EDGES,
+            build_isolate_cells,
+        )
+        resolved_sampling_axes = list(sampling_axes) if sampling_axes else list(_NEG_DEFAULT_AXES)
+        meta_per_iso = (
+            df[['assembly_id'] + resolved_sampling_axes]
+            .drop_duplicates('assembly_id')
+            .copy()
+        )
+        edges_for_build = year_bin_edges if year_bin_edges is not None else _NEG_DEFAULT_YEAR_BIN_EDGES
+        isolate_to_cell = build_isolate_cells(
+            meta_per_iso,
+            axes=resolved_sampling_axes,
+            year_match=year_match,
+            year_bin_edges=edges_for_build,
+        )
+        print(f'\nsplit_dataset_v2: regime-aware mode enabled. axes={resolved_sampling_axes}, '
+              f'year_match={year_match}, on_shortfall={on_shortfall}, '
+              f'cells={len(set(isolate_to_cell.values())):,}.')
 
     # Build co-occurrence (or accept pre-computed for CV reuse).
     # cooccur_pairs: set of canonical pair-key strings, each of the form
@@ -1069,6 +1303,9 @@ def split_dataset_v2(
         max_attempts_multiplier=max_attempts_multiplier,
         axis_quotas=axis_quotas,
         forbidden_pair_keys=forbidden_so_far,
+        isolate_to_cell=isolate_to_cell,
+        sampling_axes=resolved_sampling_axes,
+        on_shortfall=on_shortfall,
     )
     print(f"split_dataset_v2: train negatives created: "
           f"({len(train_neg):,} pairs, {train_reject_stats.get('total_attempts', 0):,} attempts; "
@@ -1086,6 +1323,9 @@ def split_dataset_v2(
         max_attempts_multiplier=max_attempts_multiplier,
         axis_quotas=axis_quotas,
         forbidden_pair_keys=forbidden_so_far,
+        isolate_to_cell=isolate_to_cell,
+        sampling_axes=resolved_sampling_axes,
+        on_shortfall=on_shortfall,
     )
     forbidden_so_far |= set(val_neg['pair_key'])
 
@@ -1099,6 +1339,9 @@ def split_dataset_v2(
         max_attempts_multiplier=max_attempts_multiplier,
         axis_quotas=axis_quotas,
         forbidden_pair_keys=forbidden_so_far,
+        isolate_to_cell=isolate_to_cell,
+        sampling_axes=resolved_sampling_axes,
+        on_shortfall=on_shortfall,
     )
 
     # Combine pos+neg per split, then attach axis flags, then compute exposure stats.
@@ -1215,6 +1458,15 @@ def split_dataset_v2(
             'test': _coverage_substats(test_reject_stats),
         },
     }
+    if isolate_to_cell is not None:
+        duplicate_stats['regime_manifest'] = {
+            'config': train_reject_stats.get('regime_config'),
+            'splits': {
+                'train': train_reject_stats.get('regime_manifest'),
+                'val':   val_reject_stats.get('regime_manifest'),
+                'test':  test_reject_stats.get('regime_manifest'),
+            },
+        }
     exposure_tables = {'train': train_exp, 'val': val_exp, 'test': test_exp}
     return train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables
 
@@ -1248,6 +1500,10 @@ def generate_all_cv_folds_v2(
     max_attempts_multiplier: int = 100,
     axes_for_flags: list = _DEFAULT_AXES,
     axis_quotas: Optional[dict] = None,
+    sampling_axes: Optional[list] = None,
+    year_match: str = 'binned',
+    year_bin_edges: Optional[list] = None,
+    on_shortfall: str = 'redistribute',
     ) -> Iterator[dict]:
     """Generate all N CV fold splits, yielding each as a dict containing
     fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats, and
@@ -1301,6 +1557,10 @@ def generate_all_cv_folds_v2(
             max_attempts_multiplier=max_attempts_multiplier,
             axes_for_flags=axes_for_flags,
             axis_quotas=axis_quotas,
+            sampling_axes=sampling_axes,
+            year_match=year_match,
+            year_bin_edges=year_bin_edges,
+            on_shortfall=on_shortfall,
             train_isolates_override=train_ids,
             val_isolates_override=val_ids,
             test_isolates_override=test_ids,
@@ -1508,6 +1768,21 @@ def save_split_output_v2(
     with open(output_dir / 'duplicate_stats.json', 'w') as f:
         json.dump(duplicate_summary, f, indent=2, default=_jsonable)
     print(f"Saved duplicate stats to: {output_dir / 'duplicate_stats.json'}")
+
+    if 'regime_manifest' in duplicate_stats and duplicate_stats['regime_manifest'] is not None:
+        manifest = duplicate_stats['regime_manifest']
+        with open(output_dir / 'negative_regime_manifest.json', 'w') as f:
+            json.dump(manifest, f, indent=2, default=_jsonable)
+        rows = []
+        for split_name in ('train', 'val', 'test'):
+            split_rows = manifest.get('splits', {}).get(split_name) or []
+            for row in split_rows:
+                rows.append({'split': split_name, **row})
+        if rows:
+            pd.DataFrame(rows).to_csv(
+                output_dir / 'negative_regime_manifest.csv', index=False
+            )
+        print(f"Saved regime manifest: {output_dir / 'negative_regime_manifest.json'}")
 
     # Co-occurring pairs list (same as v1)
     if cooccur_stats['total_cooccur_pairs'] > 0:
@@ -1751,12 +2026,61 @@ def _validate_v2_config(config) -> None:
             f"got {hard_part!r}."
         )
 
-    # axis_quotas placeholder
+    # negative_sampling: optional regime-aware mode. Validate the dict shape
+    # if it's set; the actual sampler is in src/datasets/_negative_regime_sampling.py.
+    neg_sampling = OmegaConf.select(config, "dataset.negative_sampling")
+    if neg_sampling is not None:
+        from src.datasets._negative_regime_sampling import REGIME_NAMES, DEFAULT_AXES
+        regime_targets = OmegaConf.select(config, "dataset.negative_sampling.regime_targets")
+        if regime_targets is None:
+            raise ValueError(
+                "dataset.negative_sampling is set but regime_targets is null. "
+                "Provide a complete dict over the 9 regime names "
+                f"({sorted(REGIME_NAMES)}) summing to 1.0."
+            )
+        rt_keys = set(regime_targets.keys()) if hasattr(regime_targets, 'keys') else set(dict(regime_targets).keys())
+        missing = set(REGIME_NAMES) - rt_keys
+        if missing:
+            raise ValueError(
+                f"dataset.negative_sampling.regime_targets missing regimes: {sorted(missing)}."
+            )
+        rt_values = list(dict(regime_targets).values())
+        s = sum(float(v) for v in rt_values)
+        if abs(s - 1.0) > 1e-6:
+            raise ValueError(
+                f"dataset.negative_sampling.regime_targets must sum to 1.0; got {s}."
+            )
+        if any((v is None) or (float(v) < 0) for v in rt_values):
+            raise ValueError(
+                f"dataset.negative_sampling.regime_targets values must be >= 0; "
+                f"got {dict(regime_targets)}."
+            )
+        ym = OmegaConf.select(config, "dataset.negative_sampling.year_match")
+        if ym is not None and ym not in {'binned', 'exact'}:
+            raise ValueError(f"year_match must be 'binned' or 'exact'; got {ym!r}.")
+        os = OmegaConf.select(config, "dataset.negative_sampling.on_shortfall")
+        if os is not None and os not in {'redistribute', 'warn_only', 'error'}:
+            raise ValueError(
+                f"on_shortfall must be in {{'redistribute', 'warn_only', 'error'}}; "
+                f"got {os!r}."
+            )
+        axes = OmegaConf.select(config, "dataset.negative_sampling.axes")
+        if axes is not None:
+            extras = set(axes) - set(DEFAULT_AXES)
+            if extras:
+                raise ValueError(
+                    f"dataset.negative_sampling.axes must be a subset of "
+                    f"{sorted(DEFAULT_AXES)}; got extras {sorted(extras)}."
+                )
+
+    # legacy axis_quotas key (was a NotImplementedError placeholder); keep
+    # rejection so old bundles error explicitly and migrate to negative_sampling.
     axis_quotas = OmegaConf.select(config, "dataset.axis_quotas")
     if axis_quotas is not None and len(axis_quotas) > 0:
-        raise NotImplementedError(
-            f"v2 does not yet implement dataset.axis_quotas; got {axis_quotas!r}. "
-            "Set it to null or omit."
+        raise ValueError(
+            f"dataset.axis_quotas is no longer the entry point for regime-aware "
+            f"sampling; use dataset.negative_sampling.regime_targets instead. "
+            f"See docs/plans/2026-05-09_metadata_aware_negatives_plan.md."
         )
 
     # Temporal not yet supported

@@ -1680,7 +1680,29 @@ if PAIR_BUILDER_VERSION == 'v2':
     MAX_ATTEMPTS_PER_SEQ = getattr(config.dataset, 'max_attempts_per_seq', 50)
     AXES_FOR_FLAGS = list(getattr(config.dataset, 'axes_for_flags',
                                   ['hn_subtype', 'host', 'year', 'geo_location', 'passage']))
-    AXIS_QUOTAS = getattr(config.dataset, 'axis_quotas', None)
+
+    NEG_SAMPLING_CFG = getattr(config.dataset, 'negative_sampling', None)
+    AXIS_QUOTAS = None
+    SAMPLING_AXES = None
+    YEAR_MATCH = 'binned'
+    YEAR_BIN_EDGES = None
+    ON_SHORTFALL = 'redistribute'
+    if NEG_SAMPLING_CFG is not None:
+        from omegaconf import OmegaConf
+        rt = OmegaConf.to_container(NEG_SAMPLING_CFG.regime_targets, resolve=True)
+        AXIS_QUOTAS = {k: float(v) for k, v in rt.items()}
+        ax = getattr(NEG_SAMPLING_CFG, 'axes', None)
+        if ax is not None:
+            SAMPLING_AXES = list(ax)
+        ym = getattr(NEG_SAMPLING_CFG, 'year_match', None)
+        if ym is not None:
+            YEAR_MATCH = str(ym)
+        yb = getattr(NEG_SAMPLING_CFG, 'year_bin_edges', None)
+        if yb is not None:
+            YEAR_BIN_EDGES = [tuple(row) for row in OmegaConf.to_container(yb, resolve=True)]
+        os_v = getattr(NEG_SAMPLING_CFG, 'on_shortfall', None)
+        if os_v is not None:
+            ON_SHORTFALL = str(os_v)
 
     from src.datasets.dataset_segment_pairs_v2 import (
         split_dataset_v2,
@@ -1737,6 +1759,10 @@ if PAIR_BUILDER_VERSION == 'v2':
             max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
             axes_for_flags=AXES_FOR_FLAGS,
             axis_quotas=AXIS_QUOTAS,
+            sampling_axes=SAMPLING_AXES,
+            year_match=YEAR_MATCH,
+            year_bin_edges=YEAR_BIN_EDGES,
+            on_shortfall=ON_SHORTFALL,
         ):
             fold_dir = output_dir / f"fold_{fold_data['fold_id']}"
             print(f"\nSaving fold {fold_data['fold_id'] + 1}/{N_FOLDS} to: {fold_dir}")
@@ -1770,6 +1796,10 @@ if PAIR_BUILDER_VERSION == 'v2':
             max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
             axes_for_flags=AXES_FOR_FLAGS,
             axis_quotas=AXIS_QUOTAS,
+            sampling_axes=SAMPLING_AXES,
+            year_match=YEAR_MATCH,
+            year_bin_edges=YEAR_BIN_EDGES,
+            on_shortfall=ON_SHORTFALL,
         )
         print(f"stage3 v2: split_dataset_v2 (done in {time.time()-_t:.2f}s)", flush=True)
 

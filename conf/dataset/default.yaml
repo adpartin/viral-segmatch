@@ -105,6 +105,32 @@ axes_for_flags:
   - geo_location
   - passage
 
-# v2-only: placeholder for axis-quota sampling. Must be null (or empty); a non-empty
-# value raises NotImplementedError.
+# v2-only: legacy placeholder. Must be null. The regime-aware sampler now
+# lives under `negative_sampling` (below); a non-null `axis_quotas` is rejected
+# at config-validation time with a migration message.
 axis_quotas: null
+
+# v2-only: metadata-aware negative sampling. Default null (legacy regime-blind
+# fill phase). Setting any value enables regime-aware sampling; regime_targets
+# must be a complete dict over the 9 regime names summing to 1.0. See
+# `docs/plans/2026-05-09_metadata_aware_negatives_plan.md`.
+negative_sampling: null
+# Example (uncomment + adjust per bundle):
+# negative_sampling:
+#   axes: [host, hn_subtype, year]
+#   year_match: binned                # exact | binned
+#   year_bin_edges:                   # only used when year_match=binned
+#     - [-1e30, 2015, "<=2015"]       # use a finite sentinel for -inf in YAML
+#     - [2016, 2020, "2016-2020"]
+#     - [2021, 1e30, "2021+"]
+#   regime_targets:
+#     none_match:           0.20
+#     host_only:            0.10
+#     subtype_only:         0.10
+#     year_only:            0.10
+#     host_subtype_only:    0.10
+#     host_year_only:       0.05
+#     subtype_year_only:    0.05
+#     host_subtype_year:    0.30
+#     unknown_metadata_neg: 0.00
+#   on_shortfall: redistribute        # redistribute | warn_only | error
