@@ -5,7 +5,7 @@
 # Inheritance: flu.yaml → this file → flu_28p_{protA}_{protB}.yaml (28 children)
 
 defaults:
-  - flu                   # Inherits /kmer: default (k=6, 4096-dim) among other defaults.
+  - flu_base              # Inherits /kmer: default (k=6, 4096-dim) among other defaults.
                           # To switch to ESM-2: set training.feature_source: esm2 below
                           # (requires precomputed ESM-2 embeddings from Stage 2).
   - _self_
