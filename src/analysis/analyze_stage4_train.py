@@ -643,126 +643,355 @@ def _compute_stratum_metrics(subset: pd.DataFrame) -> dict:
     }
 
 
-def analyze_level1_pair_regime(df_enriched: pd.DataFrame, results_dir: Path) -> pd.DataFrame:
-    """Level 1 stratified evaluation: classify each test pair into a mutually
-    exclusive pair regime, then report per-regime metrics.
+# ----------------------------------------------------------------------------
+# Level 1: per-regime stratified evaluation over the 9-regime taxonomy from
+# the v2 metadata-aware negative sampler. Replaces the prior 4-bucket
+# (positive / within_subtype_neg / cross_subtype_neg / unknown_neg) view.
+#
+# See:
+#   docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md
+#   src/datasets/_negative_regime_sampling.py
+# ----------------------------------------------------------------------------
 
-    Regimes (see docs/post_hoc_analysis_design.md "Level 1"):
-      - positive: label == 1 (same isolate on both sides by construction).
-      - within_subtype_neg: label == 0, both sides parse to H<d>N<d>, and the
-        two subtypes match. "Hard" negatives: model cannot use subtype as a
-        shortcut.
-      - cross_subtype_neg: label == 0, both sides parse, and subtypes differ.
-        "Easy" negatives: subtype difference is a direct cue.
-      - unknown_neg: label == 0 and at least one side has an unparseable
-        subtype. Small residual bucket reported separately to keep it from
-        contaminating the two informative negative regimes.
+# Display order for the per-regime view. Positive first, then negatives by
+# ascending hardness (none-match easiest, all-three-match hardest), unknown last.
+_LEVEL1_REGIME_ORDER = (
+    'positive',
+    'none_match',
+    'host_only',
+    'subtype_only',
+    'year_only',
+    'host_subtype_only',
+    'host_year_only',
+    'subtype_year_only',
+    'host_subtype_year',
+    'unknown_metadata_neg',
+)
 
-    A large gap (cross_subtype_neg accuracy ~ 1.0 but within_subtype_neg
-    accuracy much lower) is evidence the model is using subtype as a shortcut.
+_UNKNOWN_FOOTNOTE = (
+    "unknown_metadata_neg: negatives where at least one side has a null "
+    "host, subtype, or year. Reported separately to keep it from "
+    "contaminating the metadata-defined regimes."
+)
+
+
+def _derive_neg_regime(df: pd.DataFrame) -> pd.Series:
+    """Per-row regime label, derived from per-side raw metadata.
+
+    Matches the v2 sampler's classification logic
+    (`src.datasets._negative_regime_sampling.classify_pair_regime`):
+    null on either side of any axis -> 'unknown_metadata_neg'; otherwise
+    the (host_match, subtype_match, year_bin_match) tuple maps to one of
+    the 8 known regimes. `bin_year` is reused so binning matches the
+    sampler exactly.
+
+    Used as a fallback when `neg_regime` is missing or null on a row
+    (legacy datasets pre-regime-aware sampling).
+    """
+    from src.datasets._negative_regime_sampling import bin_year, _MATCH_TUPLE_TO_REGIME
+
+    def _col(name):
+        if name in df.columns:
+            return df[name]
+        return pd.Series(pd.NA, index=df.index, dtype='object')
+
+    host_a, host_b = _col('host_a'), _col('host_b')
+    sub_a, sub_b = _col('hn_subtype_a'), _col('hn_subtype_b')
+    year_a_raw, year_b_raw = _col('year_a'), _col('year_b')
+    year_a = year_a_raw.apply(lambda y: bin_year(y) if pd.notna(y) else None)
+    year_b = year_b_raw.apply(lambda y: bin_year(y) if pd.notna(y) else None)
+
+    unknown_mask = (
+        host_a.isna() | host_b.isna()
+        | sub_a.isna() | sub_b.isna()
+        | year_a.isna() | year_b.isna()
+    )
+    host_match = (host_a == host_b)
+    sub_match = (sub_a == sub_b)
+    year_match = (year_a == year_b)
+
+    regime = pd.Series('unknown_metadata_neg', index=df.index, dtype='object')
+    known = ~unknown_mask
+    for (h, s, y), name in _MATCH_TUPLE_TO_REGIME.items():
+        mask = known & (host_match == h) & (sub_match == s) & (year_match == y)
+        regime[mask] = name
+    return regime
+
+
+def _resolve_neg_regime_column(df: pd.DataFrame) -> pd.Series:
+    """Per-row regime label for the level1 plots.
+
+    Positive rows -> 'positive'. Negative rows -> the v2-written `neg_regime`
+    column when present and non-null on the row; otherwise the derived value
+    from `_derive_neg_regime`. The two paths agree on regime-aware datasets;
+    the fallback is only exercised on legacy datasets (no `neg_regime`
+    column) or on rows that the sampler classified as `unknown_metadata_neg`
+    and serialized as null.
+    """
+    out = pd.Series('positive', index=df.index, dtype='object')
+    neg_mask = (df['label'] == 0)
+    if not neg_mask.any():
+        return out
+
+    if 'neg_regime' in df.columns:
+        sampler_vals = df.loc[neg_mask, 'neg_regime']
+        has_val = sampler_vals.notna()
+        out.loc[sampler_vals[has_val].index] = sampler_vals[has_val].astype(str)
+        derive_idx = sampler_vals[~has_val].index
+    else:
+        derive_idx = df.index[neg_mask]
+
+    if len(derive_idx) > 0:
+        out.loc[derive_idx] = _derive_neg_regime(df.loc[derive_idx])
+    return out
+
+
+def _resolve_match_count_column(df: pd.DataFrame) -> pd.Series:
+    """Per-row metadata-match count (0..3) for negatives, pd.NA for positives
+    and for negatives whose regime is `unknown_metadata_neg`.
+
+    Prefers the v2-written `metadata_match_count` column when present;
+    derives from the resolved regime (number of axes that match) otherwise.
+    """
+    out = pd.Series(pd.NA, index=df.index, dtype='Int64')
+    neg_mask = (df['label'] == 0)
+    if not neg_mask.any():
+        return out
+
+    if 'metadata_match_count' in df.columns:
+        sampler_vals = pd.to_numeric(df.loc[neg_mask, 'metadata_match_count'],
+                                     errors='coerce').astype('Int64')
+        has_val = sampler_vals.notna()
+        out.loc[sampler_vals[has_val].index] = sampler_vals[has_val]
+        derive_idx = sampler_vals[~has_val].index
+    else:
+        derive_idx = df.index[neg_mask]
+
+    if len(derive_idx) > 0:
+        regimes = _derive_neg_regime(df.loc[derive_idx])
+        regime_to_count = {
+            'none_match': 0,
+            'host_only': 1, 'subtype_only': 1, 'year_only': 1,
+            'host_subtype_only': 2, 'host_year_only': 2, 'subtype_year_only': 2,
+            'host_subtype_year': 3,
+        }
+        for idx, r in regimes.items():
+            mc = regime_to_count.get(r)
+            if mc is not None:
+                out.loc[idx] = mc
+            # else: regime == 'unknown_metadata_neg' -> leave as pd.NA
+    return out
+
+
+def analyze_level1_neg_regimes(df_enriched: pd.DataFrame,
+                               results_dir: Path) -> pd.DataFrame:
+    """Level 1: per-regime TPR (positive) / TNR (negatives) over the
+    9-regime taxonomy from the v2 metadata-aware negative sampler.
+
+    Reads `neg_regime` from the predictions df when present; falls back to
+    deriving from host_a/_b, hn_subtype_a/_b, year_a/_b when not.
+    `unknown_metadata_neg` is omitted from the plot when n_samples == 0
+    (its CSV row is still written for completeness).
     """
     print('\n' + '=' * 60)
-    print('LEVEL 1 STRATIFIED EVAL: pair-regime')
+    print('LEVEL 1: per-regime TPR / TNR (9-regime taxonomy)')
     print('=' * 60)
 
-    def _regime(row):
-        if row['label'] == 1:
-            return 'positive'
-        sa, sb = row['subtype_a'], row['subtype_b']
-        if sa == 'unknown' or sb == 'unknown':
-            return 'unknown_neg'
-        return 'within_subtype_neg' if sa == sb else 'cross_subtype_neg'
+    df = df_enriched.copy()
+    df['regime'] = _resolve_neg_regime_column(df)
 
-    df_enriched = df_enriched.copy()
-    df_enriched['pair_regime'] = df_enriched.apply(_regime, axis=1)
-
-    # Fixed ordering; keeps downstream cross-fold aggregation scripts simple.
-    regimes = ['positive', 'within_subtype_neg', 'cross_subtype_neg', 'unknown_neg']
     rows = []
-    for regime in regimes:
-        sub = df_enriched[df_enriched['pair_regime'] == regime]
+    for regime in _LEVEL1_REGIME_ORDER:
+        sub = df[df['regime'] == regime]
         if len(sub) == 0:
-            rows.append({'pair_regime': regime, 'n_samples': 0})
+            rows.append({'regime': regime, 'n_samples': 0})
             continue
         m = _compute_stratum_metrics(sub)
-        m['pair_regime'] = regime
+        m['regime'] = regime
         rows.append(m)
 
     stats_df = pd.DataFrame(rows)
-    cols = ['pair_regime'] + [c for c in stats_df.columns if c != 'pair_regime']
+    cols = ['regime'] + [c for c in stats_df.columns if c != 'regime']
     stats_df = stats_df[cols]
 
-    output_file = results_dir / 'level1_pair_regime.csv'
+    output_file = results_dir / 'level1_neg_regimes.csv'
     stats_df.to_csv(output_file, index=False)
-    print(f"Saved Level 1 metrics to: {output_file}")
+    print(f"Saved Level 1 (neg regimes) metrics to: {output_file}")
     print(stats_df.round(3).to_string(index=False))
 
-    _plot_level1_pair_regime(stats_df, results_dir)
+    _plot_level1_neg_regimes(stats_df, results_dir)
     return stats_df
 
 
-def _plot_level1_pair_regime(stats_df: pd.DataFrame, results_dir: Path) -> None:
-    """Bar plot of TPR / TNR per pair regime with value labels.
+def _plot_level1_neg_regimes(stats_df: pd.DataFrame, results_dir: Path) -> None:
+    """Bar plot of per-regime TPR (positive) / TNR (negatives).
 
-    Per-regime definability (single-class strata make TPR-or-TNR undefined
-    on the wrong side -- see docs/post_hoc_analysis_design.md "Level 1"):
-      - positive (all label=1): TPR defined; TNR undefined (no negatives).
-      - within_subtype_neg / cross_subtype_neg / unknown_neg (all label=0):
-        TNR defined; TPR undefined (no positives).
-
-    Undefined metrics are simply omitted from the plot (no placeholder
-    bar). Each regime ends up with at most one bar -- TPR on `positive`,
-    TNR on the negative regimes. The shortcut signal is the TNR gap
-    between within_subtype_neg and cross_subtype_neg. F1 / fp_rate /
-    accuracy stay in the CSV for downstream use.
+    Positive bar: seagreen (matches the existing TPR color elsewhere).
+    Negative bars: crimson (matches error_by_match_count.png).
     """
-    plot_df = stats_df[stats_df['n_samples'] > 0].copy()
+    plot_df = stats_df[stats_df['n_samples'] > 0].copy().reset_index(drop=True)
     if plot_df.empty:
         return
-    fig, ax = plt.subplots(figsize=(11, 5.5))
+
+    pos_color = 'seagreen'
+    neg_color = 'crimson'
+
+    fig, ax = plt.subplots(figsize=(13, 5.5))
     x = np.arange(len(plot_df))
     width = 0.5
-    # TPR is defined only on the positive regime; TNR only on negative
-    # regimes -- so per-regime there is at most one bar. Drawing both
-    # specs at offset 0 centers each bar under its xtick label without
-    # overlap risk (the two metrics never co-occur on the same regime).
-    specs = [
-        ('tpr', 'TPR (sensitivity)', 'seagreen'),
-        ('tnr', 'TNR (specificity)', 'steelblue'),
-    ]
-    for col, label, color in specs:
-        for xi, v in zip(x, plot_df[col].values):
-            if pd.isna(v):
-                continue
-            ax.bar(xi, v, width, color=color, edgecolor='black', alpha=0.85)
-            ax.text(xi, v + 0.01, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+    for xi, row in zip(x, plot_df.itertuples(index=False)):
+        if row.regime == 'positive':
+            v, color = row.tpr, pos_color
+        else:
+            v, color = row.tnr, neg_color
+        if pd.isna(v):
+            continue
+        ax.bar(xi, v, width, color=color, edgecolor='black', alpha=0.85)
+        ax.text(xi, v + 0.01, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+
     from matplotlib.patches import Patch
-    legend_handles = [Patch(facecolor=c, edgecolor='black', label=lbl)
-                      for _, lbl, c in specs]
-    ax.legend(handles=legend_handles, loc='lower right')
+    ax.legend(handles=[
+        Patch(facecolor=pos_color, edgecolor='black', label='TPR (positive)'),
+        Patch(facecolor=neg_color, edgecolor='black', label='TNR (negative regimes)'),
+    ], loc='lower right')
+
     for xi, n in zip(x, plot_df['n_samples']):
         ax.text(xi, 1.08, f'n={n:,}', ha='center', va='bottom',
                 fontsize=9, fontweight='bold')
     ax.set_xticks(x)
-    ax.set_xticklabels(plot_df['pair_regime'], rotation=20, ha='right')
+    ax.set_xticklabels(plot_df['regime'], rotation=25, ha='right')
     ax.set_ylim(0, 1.18)
     ax.set_yticks(np.arange(0, 1.01, 0.1))
     ax.set_ylabel('Score')
-    ax.set_title('Level 1: TPR / TNR by pair regime')
+    ax.set_title('Level 1: per-regime TPR / TNR')
     ax.grid(True, alpha=0.3, axis='y')
 
-    # Footnote: keep `unknown_neg` discoverable without inflating the plot.
-    if 'unknown_neg' in plot_df['pair_regime'].values:
-        fig.text(0.5, -0.02,
-                 "unknown_neg: negatives where at least one side's subtype didn't parse "
-                 "(mostly literal 'HN'); reported separately.",
+    if 'unknown_metadata_neg' in plot_df['regime'].values:
+        fig.text(0.5, -0.02, _UNKNOWN_FOOTNOTE,
                  ha='center', fontsize=8, color='dimgrey', style='italic')
 
     plt.tight_layout()
-    out = results_dir / 'level1_pair_regime.png'
+    out = results_dir / 'level1_neg_regimes.png'
     plt.savefig(out, dpi=200, bbox_inches='tight')
     plt.close()
     print(f"Saved Level 1 plot to: {out}")
+
+
+def analyze_level1_neg_regimes_agg(df_enriched: pd.DataFrame,
+                                   results_dir: Path) -> pd.DataFrame:
+    """Level 1: aggregated TPR (positive) + TNR by metadata-match count.
+
+    Compact 4-bar (or 5-bar with unknown) decomposition that collapses the
+    8 metadata-defined regimes into match_count = 0/1/2/3. Reads
+    `metadata_match_count` from the predictions df when present; falls back
+    to deriving from per-side metadata. `unknown_metadata_neg` (negatives
+    with any null axis) is shown as a separate bar when n_samples > 0.
+    """
+    print('\n' + '=' * 60)
+    print('LEVEL 1: aggregated TPR / TNR by metadata-match count')
+    print('=' * 60)
+
+    df = df_enriched.copy()
+    df['_match_count'] = _resolve_match_count_column(df)
+    df['_regime'] = _resolve_neg_regime_column(df)
+
+    rows = []
+    pos_sub = df[df['label'] == 1]
+    if len(pos_sub) > 0:
+        m = _compute_stratum_metrics(pos_sub)
+        m['bucket'] = 'positive'
+        rows.append(m)
+    else:
+        rows.append({'bucket': 'positive', 'n_samples': 0})
+
+    for c in (0, 1, 2, 3):
+        sub = df[(df['label'] == 0) & (df['_match_count'] == c)]
+        if len(sub) == 0:
+            rows.append({'bucket': f'match_count_{c}', 'n_samples': 0})
+            continue
+        m = _compute_stratum_metrics(sub)
+        m['bucket'] = f'match_count_{c}'
+        rows.append(m)
+
+    unk = df[(df['label'] == 0) & (df['_regime'] == 'unknown_metadata_neg')]
+    if len(unk) > 0:
+        m = _compute_stratum_metrics(unk)
+        m['bucket'] = 'unknown_metadata_neg'
+        rows.append(m)
+    else:
+        rows.append({'bucket': 'unknown_metadata_neg', 'n_samples': 0})
+
+    stats_df = pd.DataFrame(rows)
+    cols = ['bucket'] + [c for c in stats_df.columns if c != 'bucket']
+    stats_df = stats_df[cols]
+
+    output_file = results_dir / 'level1_neg_regimes_agg.csv'
+    stats_df.to_csv(output_file, index=False)
+    print(f"Saved Level 1 (aggregated) metrics to: {output_file}")
+    print(stats_df.round(3).to_string(index=False))
+
+    _plot_level1_neg_regimes_agg(stats_df, results_dir)
+    return stats_df
+
+
+def _plot_level1_neg_regimes_agg(stats_df: pd.DataFrame,
+                                 results_dir: Path) -> None:
+    """Bar plot of TPR (positive) + TNR (4 match-count buckets, optional unknown).
+
+    Positive bar: seagreen, matches level1_neg_regimes.png (same baseline
+    across both plots).
+    Negative bars: indigo, deliberately distinct from level1_neg_regimes.png's
+    crimson so it's obvious at-a-glance that this is a different
+    decomposition. Alternatives considered: 'darkred' / 'firebrick' (same
+    hue family, deeper), wine '#722f37' (near-burgundy), 'mediumpurple'
+    (lighter purple).
+    """
+    plot_df = stats_df[stats_df['n_samples'] > 0].copy().reset_index(drop=True)
+    if plot_df.empty:
+        return
+
+    pos_color = 'seagreen'
+    neg_color = 'indigo'
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    x = np.arange(len(plot_df))
+    width = 0.5
+    for xi, row in zip(x, plot_df.itertuples(index=False)):
+        if row.bucket == 'positive':
+            v, color = row.tpr, pos_color
+        else:
+            v, color = row.tnr, neg_color
+        if pd.isna(v):
+            continue
+        ax.bar(xi, v, width, color=color, edgecolor='black', alpha=0.85)
+        ax.text(xi, v + 0.01, f'{v:.3f}', ha='center', va='bottom', fontsize=8)
+
+    from matplotlib.patches import Patch
+    ax.legend(handles=[
+        Patch(facecolor=pos_color, edgecolor='black', label='TPR (positive)'),
+        Patch(facecolor=neg_color, edgecolor='black', label='TNR (negative buckets)'),
+    ], loc='lower right')
+
+    for xi, n in zip(x, plot_df['n_samples']):
+        ax.text(xi, 1.08, f'n={n:,}', ha='center', va='bottom',
+                fontsize=9, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(plot_df['bucket'], rotation=25, ha='right')
+    ax.set_ylim(0, 1.18)
+    ax.set_yticks(np.arange(0, 1.01, 0.1))
+    ax.set_ylabel('Score')
+    ax.set_title('Level 1: aggregated TPR / TNR by metadata-match count')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    if 'unknown_metadata_neg' in plot_df['bucket'].values:
+        fig.text(0.5, -0.02, _UNKNOWN_FOOTNOTE,
+                 ha='center', fontsize=8, color='dimgrey', style='italic')
+
+    plt.tight_layout()
+    out = results_dir / 'level1_neg_regimes_agg.png'
+    plt.savefig(out, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved Level 1 (aggregated) plot to: {out}")
 
 
 def analyze_level2_by_axis(df_enriched: pd.DataFrame, axis: str, results_dir: Path) -> pd.DataFrame:
@@ -898,7 +1127,10 @@ def _plot_level2_axis(stats_df: pd.DataFrame, axis: str, results_dir: Path) -> N
     print(f"Saved Level 2 ({axis}) plot to: {out}")
 
 
-def write_stratified_eval_summary(level1_df: pd.DataFrame, level2: dict, results_dir: Path) -> None:
+def write_stratified_eval_summary(level1_regimes_df: pd.DataFrame,
+                                  level1_agg_df: pd.DataFrame,
+                                  level2: dict,
+                                  results_dir: Path) -> None:
     """Dump a short human-readable summary.md combining Level 1 and Level 2 tables.
 
     Intended for a reviewer to glance at per-run before running any
@@ -906,8 +1138,13 @@ def write_stratified_eval_summary(level1_df: pd.DataFrame, level2: dict, results
     for convenience only.
     """
     out = results_dir / 'stratified_eval_summary.md'
-    lines = ['# Stratified evaluation summary', '', '## Level 1: pair regime', '']
-    lines.append(level1_df.round(3).to_markdown(index=False))
+    lines = ['# Stratified evaluation summary', '',
+             '## Level 1: per-regime TPR / TNR (9-regime taxonomy)', '']
+    lines.append(level1_regimes_df.round(3).to_markdown(index=False))
+    lines.append('')
+    lines.append('## Level 1: aggregated TPR / TNR by metadata-match count')
+    lines.append('')
+    lines.append(level1_agg_df.round(3).to_markdown(index=False))
     lines.append('')
     for axis_label, l2_df in level2.items():
         if l2_df is None or l2_df.empty:
@@ -1143,11 +1380,13 @@ def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
         _plot_errors_by_metadata(all_stratified_stats, results_dir)
 
     # Level 1 / Level 2 (new outputs) — emitted from the same enriched df.
-    level1_df = analyze_level1_pair_regime(df_enriched, results_dir)
+    # Two Level 1 views: per-regime (9 buckets) and aggregated (by match-count).
+    level1_regimes_df = analyze_level1_neg_regimes(df_enriched, results_dir)
+    level1_agg_df = analyze_level1_neg_regimes_agg(df_enriched, results_dir)
     level2 = {}
     for axis in ('host', 'subtype', 'year_bin'):
         level2[axis] = analyze_level2_by_axis(df_enriched, axis, results_dir)
-    write_stratified_eval_summary(level1_df, level2, results_dir)
+    write_stratified_eval_summary(level1_regimes_df, level1_agg_df, level2, results_dir)
 
     # Visual companion to Level 1: pred-prob distribution within vs cross axis.
     plot_neg_prob_by_axis(df_enriched, results_dir)

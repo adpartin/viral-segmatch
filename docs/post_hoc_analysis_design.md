@@ -77,26 +77,61 @@ Expect ~1% of isolates in the unknown bucket; all others parse cleanly.
 
 ---
 
-## Level 1: pair-regime stratification
+## Level 1: per-regime stratification (9-regime taxonomy)
 
-Classifies each test pair into one of four mutually exclusive regimes:
+Classifies each test pair using the same 9 mutually-exclusive regimes the v2
+metadata-aware negative sampler uses (see
+`docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md` and
+`src/datasets/_negative_regime_sampling.py`). The sampler writes the regime
+label into pair CSVs as the `neg_regime` column; the analyzer prefers that
+column when present and falls back to deriving from per-side metadata
+(`host_a/_b`, `hn_subtype_a/_b`, `year_a/_b` with the same `bin_year` rule
+the sampler uses) for legacy datasets.
 
-| Regime | Definition | Why it matters |
+| Regime | Definition (`label == 0`, except `positive`) | Hardness |
 |---|---|---|
 | `positive` | `label == 1` (same isolate) | Reference for the positive class |
-| `within_subtype_neg` | `label == 0` and both sides parsed and `hn_subtype_a == hn_subtype_b` | "Hard" negatives — model must use signal beyond subtype |
-| `cross_subtype_neg` | `label == 0` and both sides parsed and `hn_subtype_a != hn_subtype_b` | "Easy" negatives — subtype difference is a shortcut |
-| `unknown_neg` | `label == 0` and at least one side is `"unknown"` | Small residual bucket, reported separately |
+| `none_match` | host AND subtype AND year all differ | easiest — every metadata shortcut available |
+| `host_only` | host equal; subtype differs; year differs | one shortcut |
+| `subtype_only` | subtype equal; host differs; year differs | one shortcut |
+| `year_only` | year equal; host differs; subtype differs | one shortcut |
+| `host_subtype_only` | host AND subtype equal; year differs | two shortcuts |
+| `host_year_only` | host AND year equal; subtype differs | two shortcuts |
+| `subtype_year_only` | subtype AND year equal; host differs | two shortcuts |
+| `host_subtype_year` | all three match | hardest — no metadata shortcut |
+| `unknown_metadata_neg` | at least one sampling-axis value is null on either side | catch-all |
 
-For each regime, report: `n_samples, accuracy, precision, recall, f1, auc_roc,
-auc_pr, fp_rate, fn_rate, fp_avg_confidence, fn_avg_confidence`.
-`precision` and positive-class metrics are defined only for regimes that contain
-`label == 1` (i.e., `positive`); negative regimes report FP rate / confidence only.
+For each regime, report: `n_samples, accuracy, precision, recall, tpr, tnr,
+f1, auc_roc, auc_pr, fp_rate, fn_rate, fp_avg_confidence, fn_avg_confidence`.
+`positive` defines TPR; the negative regimes are single-class so only TNR /
+FP rate / confidence carry signal there. The plot renders one bar per regime
+(TPR for `positive` in seagreen; TNR for negatives in crimson);
+`unknown_metadata_neg` is omitted when `n_samples == 0`.
 
-**Why the gap between `within_subtype_neg` and `cross_subtype_neg` matters:**
-if accuracy on `cross_subtype_neg` ≈ 1.0 but accuracy on `within_subtype_neg` is
-much lower, the model is relying on subtype as a shortcut rather than true
-isolate-pair co-occurrence signal.
+**What to look for:** ascending TNR drop with increasing match count is
+direct evidence of metadata-shortcut leakage (mode #5 in
+`docs/methods/leakage_definitions.md`). The hardest regime
+`host_subtype_year` is where the model has no metadata cue at all and must
+discriminate on sequence content.
+
+### Aggregated companion: TPR / TNR by metadata-match count
+
+A coarser 4-bar view collapses the 8 metadata-defined negative regimes by
+how many sampling axes match (0, 1, 2, or 3). The sampler writes the count
+into pair CSVs as `metadata_match_count`; the analyzer prefers it when
+present, otherwise derives it from the same per-side metadata path. Buckets:
+
+- `positive` — `label == 1`.
+- `match_count_0` — exactly the `none_match` regime.
+- `match_count_1` — union of `host_only`, `subtype_only`, `year_only`.
+- `match_count_2` — union of `host_subtype_only`, `host_year_only`, `subtype_year_only`.
+- `match_count_3` — exactly the `host_subtype_year` regime.
+- `unknown_metadata_neg` — same residual bucket as Level 1, shown only when `n_samples > 0`.
+
+Plot bars use `seagreen` for the positive TPR (same as Level 1) and `indigo`
+for the negative TNRs (visually distinct from Level 1's crimson). Same
+underlying numbers as Level 1; provided for compactness in cross-pair
+comparisons.
 
 ---
 
@@ -170,11 +205,13 @@ Colocated with existing post-hoc artifacts in `<training_run>/post_hoc/`:
   `error_analysis_by_host.csv`, `error_analysis_by_hn_subtype.csv`,
   `error_analysis_by_year.csv`, error-analysis bar plots.
 - **New:**
-  - `level1_pair_regime.csv` — 4 rows (positive, within_subtype_neg, cross_subtype_neg, unknown_neg).
+  - `level1_neg_regimes.csv` — 10 rows (positive + 9 negative regimes).
+  - `level1_neg_regimes.png` — TPR / TNR bar plot per regime (seagreen / crimson).
+  - `level1_neg_regimes_agg.csv` — 6 rows (positive + 4 match-count buckets + unknown).
+  - `level1_neg_regimes_agg.png` — TPR / TNR bar plot aggregated by match count (seagreen / indigo).
   - `level2_by_host.csv` — one row per host stratum + `mixed` + `unknown`.
   - `level2_by_hn_subtype.csv` — one row per subtype stratum + `mixed` + `unknown`.
   - `level2_by_year_bin.csv` — one row per year bin stratum + `mixed` + `unknown`.
-  - `level1_pair_regime.png` — bar plot of accuracy/F1/AUC per regime.
   - `level2_by_{host,hn_subtype,year_bin}.png` — bar plots per axis.
   - `stratified_eval_summary.md` — human-readable summary per run.
 
@@ -187,9 +224,10 @@ backwards compatibility but will be augmented to honor both-sides matching
 ## Aggregation across the 28-pair sweep (future, not in this pass)
 
 A companion script (`src/analysis/aggregate_stratified_eval.py`, to be built)
-will gather per-run `level1_pair_regime.csv` and `level2_*.csv` files across
-all 28 pairs × 12 folds for a sweep (e.g., `val_unfilt`) and produce a
-cross-pair summary with mean ± std per regime and per stratum.
+will gather per-run `level1_neg_regimes.csv`, `level1_neg_regimes_agg.csv`,
+and `level2_*.csv` files across all 28 pairs × 12 folds for a sweep (e.g.,
+`val_unfilt`) and produce a cross-pair summary with mean ± std per regime
+and per stratum.
 
 ---
 

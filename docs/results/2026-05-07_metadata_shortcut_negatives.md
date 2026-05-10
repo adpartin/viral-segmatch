@@ -292,7 +292,12 @@ Mitigations, ordered by effort:
 
 In `<run_dir>/post_hoc/`:
 - `level1_pair_regime.csv` + `.png` — TPR / TNR by within/cross-subtype
-  regime
+  regime. **Note (2026-05-10):** these two files were the Level 1 outputs
+  at the time of this experiment. They have since been replaced by
+  `level1_neg_regimes.{csv,png}` (per-regime, 9 buckets) plus
+  `level1_neg_regimes_agg.{csv,png}` (aggregated by metadata-match count),
+  both using the same regime taxonomy as the v2 metadata-aware sampler.
+  See `docs/post_hoc_analysis_design.md` for the new outputs.
 - `level2_by_{host,subtype,year_bin}.csv` + `.png` — per-stratum
   metrics
 - `neg_prob_distribution_by_axis.png` — pred-prob histograms (within
