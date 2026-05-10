@@ -763,11 +763,14 @@ def compute_axis_flags(
     equal; False if both non-null and different; pd.NA if either is null.
     Two unknowns are not "same".
 
-    Implementation: build a `seq_hash -> metadata` lookup via groupby +
-    first(). Warns if any seq_hash maps to multiple distinct values for an
-    axis (upstream metadata inconsistency). The function column has a
-    stricter policy -- a seq_hash mapping to >1 distinct function is a hard
-    error (raised by `_build_seq_to_func`, called elsewhere in v2).
+    Lookup keys on `assembly_id`, not `seq_hash`. seq_hash collapses identical
+    amino-acid sequences across isolates with legitimately different metadata
+    (cross-host transmission, conserved sequences across years, etc.), so
+    keying on it can return a different isolate's value than the pair's actual
+    source isolate. assembly_id is the unique-per-isolate key that matches
+    what the pair actually carries; metadata enrichment guarantees one value
+    per assembly per axis. Quantified disagreement before the fix:
+    `eda/probe_metadata_lookup.py`.
 
     Returns a copy of `pairs` with the new columns appended.
     """
@@ -778,58 +781,23 @@ def compute_axis_flags(
     for axis in axes:
         col = axis
         if col not in df.columns:
-            # Try the geo_location_clean alias for the geo_location axis name.
             if axis == 'geo_location' and 'geo_location_clean' in df.columns:
                 col = 'geo_location_clean'
             else:
-                # Axis missing: skip (matches v2 spec §5 "axis missing -> warn,
-                # drop, continue").
                 print(f"WARNING: axis {axis!r} not present in df; skipping axis flags.")
                 continue
 
-        # Per-seq metadata: drop nulls first, then groupby once and reuse for
-        # both the lookup and the conflict check. Vectorized: no Python lambda.
-        grouped = df.dropna(subset=[col]).groupby('seq_hash')[col]
-        per_hash = grouped.first()
+        per_axis = (
+            df[['assembly_id', col]]
+            .drop_duplicates('assembly_id')
+            .set_index('assembly_id')[col]
+        )
 
-        # Conflict detection: a single seq_hash mapping to >1 distinct values
-        # for this axis is EXPECTED biology, not a data bug.
-        #
-        # `seq_hash = md5(prot_seq)` collapses identical amino-acid sequences
-        # into the same key. The same protein can appear in mulitple isolates
-        # whose metadata differs for legitimate biological reasons:
-        #   - host:         cross-host transmission (avian -> human, swine -> human, ...)
-        #   - year:         conserved sequences observed across multiple years
-        #   - geo_location: strains that spread across continents
-        #   - hn_subtype:   same HA paired with different N partner (e.g., H1N1 and H1N2 share HA)
-        #   - passage:      same isolate annotated with different passage histories
-        # So a "conflict" here means the seq is shared across diverse contexts,
-        # which is normal for viral surveillance data.
-        #
-        # Implication for `<axis>_a` / `<axis>_b` / `same_<axis>`: we resolve
-        # to ONE value per seq via .first(), anchoring the annotation to
-        # whichever isolate appeared first in row order. Deterministic but
-        # arbitrary in the conflict case. So `same_<axis>` compares seq-level
-        # annotations, not pair-level isolate annotations -- it can disagree
-        # with what the two source isolates of the pair actually had. For a
-        # stricter pair-level comparison, look up by assembly_id_a/_b on the
-        # pair (every pair already carries both) instead of by seq_hash_a/_b.
-        conflict_count = grouped.nunique().gt(1).sum()
-        if conflict_count > 0:
-            print(
-                f"axis {axis!r}: {conflict_count} seq_hash(es) appear across "
-                f"isolates with multiple distinct values. Expected for "
-                f"sequences shared across hosts/years/regions/subtypes/passages "
-                f"(biology, not a data bug). Using first non-null per seq."
-            )
-
-        a_vals = out['seq_hash_a'].map(per_hash)
-        b_vals = out['seq_hash_b'].map(per_hash)
+        a_vals = out['assembly_id_a'].map(per_axis)
+        b_vals = out['assembly_id_b'].map(per_axis)
         out[f'{axis}_a'] = a_vals
         out[f'{axis}_b'] = b_vals
 
-        # same_<axis>: True iff both non-null and equal; False iff both non-null
-        # and different; pd.NA iff either side is null (two unknowns are not "same").
         both_present = a_vals.notna() & b_vals.notna()
         same = pd.Series(pd.NA, index=out.index, dtype='boolean')
         same.loc[both_present] = (a_vals == b_vals).loc[both_present]
