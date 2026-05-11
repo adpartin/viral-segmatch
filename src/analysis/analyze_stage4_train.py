@@ -702,7 +702,7 @@ def _compute_stratum_metrics(subset: pd.DataFrame) -> dict:
 # ----------------------------------------------------------------------------
 
 # Display order for the per-regime view. Positive first, then negatives by
-# ascending hardness (none-match easiest, all-three-match hardest), unknown last.
+# ascending hardness (none-match easiest, all-three-match hardest).
 _LEVEL1_REGIME_ORDER = (
     'positive',
     'none_match',
@@ -713,13 +713,6 @@ _LEVEL1_REGIME_ORDER = (
     'host_year_only',
     'subtype_year_only',
     'host_subtype_year',
-    'unknown_metadata_neg',
-)
-
-_UNKNOWN_FOOTNOTE = (
-    "unknown_metadata_neg: negatives where at least one side has a null "
-    "host, subtype, or year. Reported separately to keep it from "
-    "contaminating the metadata-defined regimes."
 )
 
 
@@ -728,13 +721,17 @@ def _derive_neg_regime(df: pd.DataFrame) -> pd.Series:
 
     Matches the v2 sampler's classification logic
     (`src.datasets._negative_regime_sampling.classify_pair_regime`):
-    null on either side of any axis -> 'unknown_metadata_neg'; otherwise
-    the (host_match, subtype_match, year_bin_match) tuple maps to one of
-    the 8 known regimes. `bin_year` is reused so binning matches the
+    per-axis comparison treats null on either side as no-match (including
+    null == null) -- the resulting (host_match, subtype_match,
+    year_bin_match) tuple maps to one of the 8 regimes via
+    `_MATCH_TUPLE_TO_REGIME`. `bin_year` is reused so binning matches the
     sampler exactly.
 
     Used as a fallback when `neg_regime` is missing or null on a row
-    (legacy datasets pre-regime-aware sampling).
+    (legacy datasets pre-regime-aware sampling). The 2026-05-11 removal of
+    the `unknown_metadata_neg` regime simplified the mapping: pairs with
+    null axes simply land in whichever of the 8 regimes captures the
+    non-null axes that do match.
     """
     from src.datasets._negative_regime_sampling import bin_year, _MATCH_TUPLE_TO_REGIME
 
@@ -749,19 +746,18 @@ def _derive_neg_regime(df: pd.DataFrame) -> pd.Series:
     year_a = year_a_raw.apply(lambda y: bin_year(y) if pd.notna(y) else None)
     year_b = year_b_raw.apply(lambda y: bin_year(y) if pd.notna(y) else None)
 
-    unknown_mask = (
-        host_a.isna() | host_b.isna()
-        | sub_a.isna() | sub_b.isna()
-        | year_a.isna() | year_b.isna()
-    )
-    host_match = (host_a == host_b)
-    sub_match = (sub_a == sub_b)
-    year_match = (year_a == year_b)
+    # Per-axis match: True iff both sides are non-null AND equal. pandas '=='
+    # already returns False on NaN==NaN and on NaN==value, so we only need to
+    # explicitly suppress matches when either side is NA.
+    host_match = (host_a == host_b) & host_a.notna() & host_b.notna()
+    sub_match = (sub_a == sub_b) & sub_a.notna() & sub_b.notna()
+    year_match = (year_a == year_b) & year_a.notna() & year_b.notna()
 
-    regime = pd.Series('unknown_metadata_neg', index=df.index, dtype='object')
-    known = ~unknown_mask
+    # Default everything to 'none_match' then refine; the loop below covers
+    # all 8 (h, s, y) bool tuples so every row gets an assignment.
+    regime = pd.Series('none_match', index=df.index, dtype='object')
     for (h, s, y), name in _MATCH_TUPLE_TO_REGIME.items():
-        mask = known & (host_match == h) & (sub_match == s) & (year_match == y)
+        mask = (host_match == h) & (sub_match == s) & (year_match == y)
         regime[mask] = name
     return regime
 
@@ -795,8 +791,7 @@ def _resolve_neg_regime_column(df: pd.DataFrame) -> pd.Series:
 
 
 def _resolve_match_count_column(df: pd.DataFrame) -> pd.Series:
-    """Per-row metadata-match count (0..3) for negatives, pd.NA for positives
-    and for negatives whose regime is `unknown_metadata_neg`.
+    """Per-row metadata-match count (0..3) for negatives, pd.NA for positives.
 
     Prefers the v2-written `metadata_match_count` column when present;
     derives from the resolved regime (number of axes that match) otherwise.
@@ -824,25 +819,20 @@ def _resolve_match_count_column(df: pd.DataFrame) -> pd.Series:
             'host_subtype_year': 3,
         }
         for idx, r in regimes.items():
-            mc = regime_to_count.get(r)
-            if mc is not None:
-                out.loc[idx] = mc
-            # else: regime == 'unknown_metadata_neg' -> leave as pd.NA
+            out.loc[idx] = regime_to_count[r]
     return out
 
 
 def analyze_level1_neg_regimes(df_enriched: pd.DataFrame,
                                results_dir: Path) -> pd.DataFrame:
     """Level 1: per-regime TPR (positive) / TNR (negatives) over the
-    9-regime taxonomy from the v2 metadata-aware negative sampler.
+    8-regime taxonomy from the v2 metadata-aware negative sampler.
 
     Reads `neg_regime` from the predictions df when present; falls back to
     deriving from host_a/_b, hn_subtype_a/_b, year_a/_b when not.
-    `unknown_metadata_neg` is omitted from the plot when n_samples == 0
-    (its CSV row is still written for completeness).
     """
     print('\n' + '=' * 60)
-    print('LEVEL 1: per-regime TPR / TNR (9-regime taxonomy)')
+    print('LEVEL 1: per-regime TPR / TNR (8-regime taxonomy)')
     print('=' * 60)
 
     df = df_enriched.copy()
@@ -914,10 +904,6 @@ def _plot_level1_neg_regimes(stats_df: pd.DataFrame, results_dir: Path) -> None:
     ax.set_title('Level 1: per-regime TPR / TNR')
     ax.grid(True, alpha=0.3, axis='y')
 
-    if 'unknown_metadata_neg' in plot_df['regime'].values:
-        fig.text(0.5, -0.02, _UNKNOWN_FOOTNOTE,
-                 ha='center', fontsize=8, color='dimgrey', style='italic')
-
     plt.tight_layout()
     out = results_dir / 'level1_neg_regimes.png'
     plt.savefig(out, dpi=200, bbox_inches='tight')
@@ -929,11 +915,10 @@ def analyze_level1_neg_regimes_agg(df_enriched: pd.DataFrame,
                                    results_dir: Path) -> pd.DataFrame:
     """Level 1: aggregated TPR (positive) + TNR by metadata-match count.
 
-    Compact 4-bar (or 5-bar with unknown) decomposition that collapses the
-    8 metadata-defined regimes into match_count = 0/1/2/3. Reads
-    `metadata_match_count` from the predictions df when present; falls back
-    to deriving from per-side metadata. `unknown_metadata_neg` (negatives
-    with any null axis) is shown as a separate bar when n_samples > 0.
+    Compact 4-bar decomposition that collapses the 8 metadata-defined
+    regimes into match_count = 0/1/2/3. Reads `metadata_match_count` from
+    the predictions df when present; falls back to deriving from per-side
+    metadata.
     """
     print('\n' + '=' * 60)
     print('LEVEL 1: aggregated TPR / TNR by metadata-match count')
@@ -941,7 +926,6 @@ def analyze_level1_neg_regimes_agg(df_enriched: pd.DataFrame,
 
     df = df_enriched.copy()
     df['_match_count'] = _resolve_match_count_column(df)
-    df['_regime'] = _resolve_neg_regime_column(df)
 
     rows = []
     pos_sub = df[df['label'] == 1]
@@ -960,14 +944,6 @@ def analyze_level1_neg_regimes_agg(df_enriched: pd.DataFrame,
         m = _compute_stratum_metrics(sub)
         m['bucket'] = f'match_count_{c}'
         rows.append(m)
-
-    unk = df[(df['label'] == 0) & (df['_regime'] == 'unknown_metadata_neg')]
-    if len(unk) > 0:
-        m = _compute_stratum_metrics(unk)
-        m['bucket'] = 'unknown_metadata_neg'
-        rows.append(m)
-    else:
-        rows.append({'bucket': 'unknown_metadata_neg', 'n_samples': 0})
 
     stats_df = pd.DataFrame(rows)
     cols = ['bucket'] + [c for c in stats_df.columns if c != 'bucket']
@@ -1030,10 +1006,6 @@ def _plot_level1_neg_regimes_agg(stats_df: pd.DataFrame,
     ax.set_ylabel('Score')
     ax.set_title('Level 1: aggregated TPR / TNR by metadata-match count')
     ax.grid(True, alpha=0.3, axis='y')
-
-    if 'unknown_metadata_neg' in plot_df['bucket'].values:
-        fig.text(0.5, -0.02, _UNKNOWN_FOOTNOTE,
-                 ha='center', fontsize=8, color='dimgrey', style='italic')
 
     plt.tight_layout()
     out = results_dir / 'level1_neg_regimes_agg.png'
@@ -1350,29 +1322,28 @@ def analyze_negative_hardness(
 def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
     """Stratified error analysis by host, hn_subtype, and year.
 
-    This is the historical entry point. It preserves the output filenames
-    `error_analysis_by_{host,hn_subtype,year}.csv` and their plots, and in
-    addition emits the Level 1 (pair-regime) and Level 2 (per-axis with
-    mixed/unknown buckets) tables and plots defined in
-    docs/post_hoc_analysis_design.md.
+    Emits the Level 1 (pair-regime, 8 buckets + positive) and Level 2 (per-axis
+    with mixed/unknown/other residual buckets) tables and plots defined in
+    `docs/post_hoc_analysis_design.md`, plus the negative-hardness writeup
+    and the prediction-probability-by-axis plot.
 
-    Semantic change vs the pre-2026-04 implementation:
-      1. Metadata is merged on BOTH sides of each pair (assembly_id_a AND
-         assembly_id_b), then a pair is counted in stratum V only when both
-         sides share V. The old code joined on side A only, silently dropping
-         side-B metadata for cross-stratum negatives.
-      2. The 'year' axis in the legacy CSV uses year bins (see YEAR_BIN_EDGES)
-         instead of raw year values, to keep per-fold strata dense.
+    Two-sided semantics: metadata is merged on BOTH sides of each pair
+    (`assembly_id_a` AND `assembly_id_b`); strata are defined by both-sides
+    agreement. The `year` axis uses bins (see `YEAR_BIN_EDGES`) instead of
+    raw integers to keep per-fold strata dense.
+
+    Removed 2026-05-11: the legacy
+    `error_analysis_by_{host,hn_subtype,year}.csv` emission. Those CSVs were
+    a strict subset of `level2_by_{host,subtype,year_bin}.csv` (same
+    both-sides-matching schema, fewer metrics, no residual buckets); they
+    fed only the now-deleted `_plot_errors_by_metadata`.
 
     Args:
-        df: DataFrame with predictions (must have assembly_id_a, assembly_id_b,
-            label, pred_label, pred_prob).
+        df: DataFrame with predictions (must have `assembly_id_a`,
+            `assembly_id_b`, `label`, `pred_label`, `pred_prob`).
         y_true, y_pred, y_prob: accepted for backwards-compatible signature;
-            the function reads columns directly from df.
+            the function reads columns directly from `df`.
         results_dir: Where to write CSVs and PNGs.
-
-    Returns:
-        Dict keyed by 'host' / 'hn_subtype' / 'year' with per-stratum DataFrames.
     """
     print('\n' + '=' * 60)
     print('ERROR ANALYSIS BY METADATA (two-sided)')
@@ -1387,48 +1358,14 @@ def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
         print("   Skipping metadata-stratified error analysis (Level 1/2 also skipped).")
         return {}
 
-    # Legacy-schema CSVs: one row per value where BOTH sides agree on that
-    # value. Pairs with mismatched sides (mixed) and unknown-side pairs are
-    # simply excluded here, which keeps the legacy CSV schema unchanged.
-    # Level 2 (below) reports mixed/unknown as explicit strata instead.
-    legacy_axes = {
-        'host': ('host_a', 'host_b'),
-        'hn_subtype': ('subtype_a', 'subtype_b'),
-        'year': ('year_bin_a', 'year_bin_b'),
-    }
-    all_stratified_stats = {}
-    for axis_name, (col_a, col_b) in legacy_axes.items():
-        sub = df_enriched.copy()
-        va, vb = sub[col_a].astype(str), sub[col_b].astype(str)
-        same_mask = (va == vb) & (va != 'unknown') & (va != 'nan')
-        sub = sub.loc[same_mask].copy()
-        sub['_stratum'] = va[same_mask]
-
-        rows = []
-        for value, group in sub.groupby('_stratum'):
-            if len(group) < 5:
-                continue
-            m = _compute_stratum_metrics(group)
-            m[axis_name] = value
-            rows.append(m)
-        if not rows:
-            print(f"   No sufficient data for {axis_name} analysis (both-sides matching).")
-            continue
-
-        stats_df = pd.DataFrame(rows).sort_values('error_rate', ascending=False, na_position='last')
-        cols = [axis_name] + [c for c in stats_df.columns if c != axis_name]
-        stats_df = stats_df[cols]
-        all_stratified_stats[axis_name] = stats_df
-        out = results_dir / f'error_analysis_by_{axis_name}.csv'
-        stats_df.to_csv(out, index=False)
-        print(f"   Saved stratified metrics to: {out}")
-        print(f"   Analyzed {len(stats_df)} unique {axis_name} values (both-sides matching)")
-
-    if all_stratified_stats:
-        _plot_errors_by_metadata(all_stratified_stats, results_dir)
+    # Removed 2026-05-11: legacy `error_analysis_by_{host,hn_subtype,year}.csv`
+    # emission. Those CSVs were only consumed by the now-deleted
+    # `_plot_errors_by_metadata` and used both-sides-matching semantics that
+    # `analyze_level2_by_axis` already covers (with AUC-ROC / AUC-PR and the
+    # explicit mixed / unknown / other residual buckets).
 
     # Level 1 / Level 2 (new outputs) — emitted from the same enriched df.
-    # Two Level 1 views: per-regime (9 buckets) and aggregated (by match-count).
+    # Two Level 1 views: per-regime (8 buckets) and aggregated (by match-count).
     level1_regimes_df = analyze_level1_neg_regimes(df_enriched, results_dir)
     level1_agg_df = analyze_level1_neg_regimes_agg(df_enriched, results_dir)
     level2 = {}
@@ -1442,121 +1379,14 @@ def analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir: Path):
     # Negative-hardness: how many metadata axes match per negative pair?
     analyze_negative_hardness(df_enriched, results_dir)
 
-    return all_stratified_stats
 
-
-def _plot_errors_by_metadata(stratified_stats: dict, results_dir: Path):
-    """
-    Create plots showing error rates and performance metrics by metadata.
-    
-    Creates two separate figures:
-    1. Error rates (FP rate, FN rate) by metadata
-    2. Performance metrics (F1 Score, AUC-ROC, AUC-PR) by metadata
-    
-    Args:
-        stratified_stats: Dictionary with keys 'host', 'hn_subtype', 'year', each containing a DataFrame
-        results_dir: Directory to save plots
-    """
-    metadata_vars = ['host', 'hn_subtype', 'year']
-    var_labels = {'host': 'Host', 'hn_subtype': 'HN Subtype', 'year': 'Year'}
-    
-    # Get available variables
-    available_vars = [v for v in metadata_vars if v in stratified_stats]
-    n_vars = len(available_vars)
-    if n_vars == 0:
-        return
-    
-    # ========================================================================
-    # Figure 1: Error Rates (FP Rate, FN Rate)
-    # ========================================================================
-    fig1, axes1 = plt.subplots(n_vars, 1, figsize=(14, 5 * n_vars))
-    if n_vars == 1:
-        axes1 = [axes1]
-    
-    for plot_idx, var in enumerate(available_vars):
-        stats_df = stratified_stats[var]
-        
-        # Filter to top N by sample size (for readability)
-        top_n = min(15, len(stats_df))
-        stats_df_plot = stats_df.nlargest(top_n, 'n_samples')
-        
-        ax = axes1[plot_idx]
-        x_pos = np.arange(len(stats_df_plot))
-        width = 0.35
-        
-        # FP Rate bars (color-only, no hatch; see commit message for rationale)
-        ax.bar(x_pos - width/2, stats_df_plot['fp_rate'], width,
-               label='FP Rate', color='red', alpha=0.8, edgecolor='black', linewidth=1.5)
-
-        # FN Rate bars
-        ax.bar(x_pos + width/2, stats_df_plot['fn_rate'], width,
-               label='FN Rate', color='blue', alpha=0.8, edgecolor='black', linewidth=1.5)
-        
-        var_label = var_labels[var]
-        ax.set_xlabel(var_label, fontsize=12)
-        ax.set_ylabel('Rate', fontsize=12)
-        ax.set_title(f'Error Rates by {var_label} (Top {top_n} by sample size)', 
-                    fontsize=13, fontweight='bold')
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels([str(v) for v in stats_df_plot[var]], rotation=45, ha='right', fontsize=10)
-        ax.legend(fontsize=11)
-        ax.grid(True, alpha=0.3, axis='y')
-        
-        max_rate = max(stats_df_plot[['fp_rate', 'fn_rate']].max())
-        ax.set_ylim(0, max_rate * 1.15)
-    
-    plt.tight_layout()
-    output_path1 = results_dir / 'error_rates_by_metadata.png'
-    plt.savefig(output_path1, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"Saved error rates plot to: {output_path1}")
-    
-    # ========================================================================
-    # Figure 2: Performance Metrics (F1 Score, AUC-ROC, AUC-PR)
-    # ========================================================================
-    fig2, axes2 = plt.subplots(n_vars, 1, figsize=(14, 5 * n_vars))
-    if n_vars == 1:
-        axes2 = [axes2]
-    
-    for plot_idx, var in enumerate(available_vars):
-        stats_df = stratified_stats[var]
-        
-        # Filter to top N by sample size (for readability)
-        top_n = min(15, len(stats_df))
-        stats_df_plot = stats_df.nlargest(top_n, 'n_samples')
-        
-        ax = axes2[plot_idx]
-        x_pos = np.arange(len(stats_df_plot))
-        width = 0.25
-        
-        # F1 Score bars (color-only, no hatch)
-        ax.bar(x_pos - width, stats_df_plot['f1_score'], width,
-               label='F1 Score', color='purple', alpha=0.8, edgecolor='black', linewidth=1.5)
-
-        # AUC-ROC bars
-        ax.bar(x_pos, stats_df_plot['auc_roc'], width,
-               label='AUC-ROC', color='teal', alpha=0.8, edgecolor='black', linewidth=1.5)
-
-        # AUC-PR bars
-        ax.bar(x_pos + width, stats_df_plot['auc_pr'], width,
-               label='AUC-PR', color='orange', alpha=0.8, edgecolor='black', linewidth=1.5)
-        
-        var_label = var_labels[var]
-        ax.set_xlabel(var_label, fontsize=12)
-        ax.set_ylabel('Score', fontsize=12)
-        ax.set_title(f'Performance Metrics by {var_label} (Top {top_n} by sample size)', 
-                    fontsize=13, fontweight='bold')
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels([str(v) for v in stats_df_plot[var]], rotation=45, ha='right', fontsize=10)
-        ax.legend(fontsize=11)
-        ax.grid(True, alpha=0.3, axis='y')
-        ax.set_ylim(0, 1.05)
-    
-    plt.tight_layout()
-    output_path2 = results_dir / 'performance_metrics_by_metadata.png'
-    plt.savefig(output_path2, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"Saved performance metrics plot to: {output_path2}")
+# Removed 2026-05-11: `_plot_errors_by_metadata` (emitted
+# `error_rates_by_metadata.png` and `performance_metrics_by_metadata.png`).
+# Single-side metadata stratification is strictly subsumed by the
+# `level2_by_{host,subtype,year_bin}.png` trio (both-sides-matching + explicit
+# mixed/unknown/other residual buckets) for performance metrics, and by
+# `error_by_match_count.{csv,png}` + the per-FP/FN drill-down CSVs for error
+# direction.
 
 
 def analyze_segment_performance(df):
@@ -1795,11 +1625,14 @@ def main(config_bundle: str,
     # Enhanced FP/FN analysis
     error_summary = analyze_fp_fn_errors(df, y_true, y_pred, y_prob, results_dir)
     
-    # Metadata-stratified error analysis
-    metadata_error_stats = analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir)
-    
-    # Domain-specific analyses
-    segment_df = analyze_segment_performance(df)
+    # Metadata-stratified error analysis (level1 + level2 + summary)
+    analyze_errors_by_metadata(df, y_true, y_pred, y_prob, results_dir)
+
+    # Domain-specific analyses. analyze_segment_performance is degenerate
+    # under v2 (schema_ordered fixes a single (func_left, func_right), so the
+    # test set has one seg_pair and segment_metrics.csv would just restate
+    # metrics.csv). The function is retained in the module for v1 / future
+    # cross-protein runs but is not invoked from the default v2 pipeline.
     analyze_prediction_confidence(df)
 
     # Save summary metrics
@@ -1824,10 +1657,6 @@ def main(config_bundle: str,
         )
         analyze_metrics_summary(swap_metrics, results_dir,
                                 save_name='metrics_swapped.png')
-
-    # Save segment metrics
-    if 'segment_df' in locals():
-        segment_df.to_csv(results_dir / 'segment_metrics.csv', index=False)
 
     print(f'\nAnalysis complete! Results saved to: {results_dir}')
 
