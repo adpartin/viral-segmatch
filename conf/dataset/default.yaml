@@ -134,3 +134,12 @@ negative_sampling: null
 #     host_subtype_year:    0.30
 #     unknown_metadata_neg: 0.00
 #   on_shortfall: redistribute        # redistribute | warn_only | error
+
+# v2-only: split-strategy dispatch. Default 'random' preserves the existing
+# row-level shuffle-split. 'seq_disjoint' routes positive pairs by bipartite
+# (HA-DNA, NA-DNA) connected components so each unique dna_hash appears in at
+# most one split. Mitigates Mode #3 (sequence-level leakage) — see
+# docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
+# docs/methods/leakage_definitions.md.
+split_strategy:
+  mode: random   # 'random' (default) | 'seq_disjoint'

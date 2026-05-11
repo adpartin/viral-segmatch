@@ -1687,6 +1687,16 @@ if PAIR_BUILDER_VERSION == 'v2':
     YEAR_MATCH = 'binned'
     YEAR_BIN_EDGES = None
     ON_SHORTFALL = 'redistribute'
+
+    # Split-strategy dispatch (validated by _validate_v2_config below). Default
+    # 'random' preserves existing v2 behavior. See
+    # docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
+    SPLIT_STRATEGY_CFG = getattr(config.dataset, 'split_strategy', None)
+    SPLIT_STRATEGY_MODE = 'random'
+    if SPLIT_STRATEGY_CFG is not None:
+        m = getattr(SPLIT_STRATEGY_CFG, 'mode', None)
+        if m is not None:
+            SPLIT_STRATEGY_MODE = str(m)
     if NEG_SAMPLING_CFG is not None:
         from omegaconf import OmegaConf
         rt = OmegaConf.to_container(NEG_SAMPLING_CFG.regime_targets, resolve=True)
@@ -1800,6 +1810,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             year_match=YEAR_MATCH,
             year_bin_edges=YEAR_BIN_EDGES,
             on_shortfall=ON_SHORTFALL,
+            split_strategy_mode=SPLIT_STRATEGY_MODE,
         )
         print(f"stage3 v2: split_dataset_v2 (done in {time.time()-_t:.2f}s)", flush=True)
 

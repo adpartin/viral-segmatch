@@ -408,6 +408,193 @@ def get_metadata_distributions(df: pd.DataFrame, isolate_set: set) -> dict:
     return distributions
 
 
+def bipartite_components(pos_df: pd.DataFrame) -> tuple[pd.Series, dict]:
+    """Connected components of the bipartite (HA-DNA, NA-DNA) graph.
+
+    Nodes: ('a', dna_hash_a) and ('b', dna_hash_b) values from `pos_df`.
+    Edges: each unique `(dna_hash_a, dna_hash_b)` tuple. Computed by
+    iterative-path-compression union-find (no networkx dependency).
+
+    Returns:
+        (component_id, summary)
+        component_id: pd.Series aligned with pos_df.index, dtype int.
+            Each row is labelled with its component's representative id
+            (a contiguous integer 0..n_components-1).
+        summary: dict with `n_components`, `n_pairs`, `n_dnas_a`,
+            `n_dnas_b`, `largest_component_pairs`, `top_10_sizes`,
+            `singleton_components` (count of size-1 components).
+
+    The component label is stable under reordering of pos_df rows but
+    not under reordering of (a, b) sides. v2 schema-mode positives are
+    always (func_left, func_right) so this is fine.
+    """
+    if not {'dna_hash_a', 'dna_hash_b'}.issubset(pos_df.columns):
+        raise ValueError(
+            "bipartite_components: pos_df must contain dna_hash_a and dna_hash_b "
+            "columns (added by attach_dna_to_prot_df upstream)."
+        )
+
+    # Union-find on string node ids ('a:'+hash, 'b:'+hash). String prefix
+    # avoids the (rare) chance of an HA-DNA hash colliding with an NA-DNA
+    # hash collapsing two distinct nodes; md5 collision is astronomically
+    # unlikely but the prefix costs nothing.
+    parent: dict = {}
+    def find(x: str) -> str:
+        # Iterative path compression
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+    def union(x: str, y: str) -> None:
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[rx] = ry
+
+    edges = pos_df[['dna_hash_a', 'dna_hash_b']].drop_duplicates()
+    for h in pos_df['dna_hash_a'].unique():
+        parent[f'a:{h}'] = f'a:{h}'
+    for h in pos_df['dna_hash_b'].unique():
+        parent[f'b:{h}'] = f'b:{h}'
+    for h_a, h_b in zip(edges['dna_hash_a'].values, edges['dna_hash_b'].values):
+        union(f'a:{h_a}', f'b:{h_b}')
+
+    # Map each row to its component's root, then to a contiguous int id.
+    row_roots = [find(f'a:{h}') for h in pos_df['dna_hash_a'].values]
+    root_to_int: dict = {}
+    for r in sorted(set(row_roots)):
+        root_to_int[r] = len(root_to_int)
+    component_id = pd.Series(
+        [root_to_int[r] for r in row_roots],
+        index=pos_df.index,
+        dtype='int64',
+        name='component_id',
+    )
+
+    sizes = component_id.value_counts().sort_values(ascending=False)
+    summary = {
+        'n_components': int(component_id.nunique()),
+        'n_pairs': int(len(pos_df)),
+        'n_dnas_a': int(pos_df['dna_hash_a'].nunique()),
+        'n_dnas_b': int(pos_df['dna_hash_b'].nunique()),
+        'largest_component_pairs': int(sizes.iloc[0]) if len(sizes) else 0,
+        'top_10_sizes': [int(s) for s in sizes.head(10).tolist()],
+        'singleton_components': int((sizes == 1).sum()),
+    }
+    return component_id, summary
+
+
+def seq_disjoint_route_pos_df(
+    pos_df: pd.DataFrame,
+    train_ratio: float,
+    val_ratio: float,
+    seed: int,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Route `pos_df` rows into train/val/test by bipartite-component LPT-greedy.
+
+    Each connected component in the (HA-DNA, NA-DNA) bipartite graph is
+    indivisible: the whole component lands in one split. A component's
+    pairs always have both DNAs (slot a + slot b) present in that
+    split's positives, so cross-split DNA leakage from positives is
+    impossible by construction.
+
+    LPT-greedy bin-packing: sort components by size desc (then by
+    component-id for deterministic tie-breaking), assign each to the bin
+    whose remaining-capacity deficit (target - current) is largest.
+    With small components and three target ratios, this is within a
+    rounding-rounding error of the targets in practice.
+
+    `seed` is reserved for future tie-break shuffling but is not consumed
+    in this implementation (the algorithm is fully deterministic without
+    it). Accepted in the signature so the call site does not need a
+    special-case.
+
+    Returns:
+        (train_pos, val_pos, test_pos, audit) -- the three DataFrames are
+        row-disjoint partitions of pos_df preserving original column
+        order; `audit` is a JSON-serializable dict (see code for keys).
+    """
+    if not 0 < train_ratio < 1 or not 0 <= val_ratio < 1:
+        raise ValueError(
+            f"seq_disjoint_route_pos_df: invalid ratios "
+            f"train_ratio={train_ratio}, val_ratio={val_ratio}"
+        )
+    test_ratio = 1.0 - train_ratio - val_ratio
+    if test_ratio < 0:
+        raise ValueError(
+            f"seq_disjoint_route_pos_df: train+val ratios sum to >1 "
+            f"({train_ratio} + {val_ratio})"
+        )
+
+    component_id, cc_summary = bipartite_components(pos_df)
+
+    # Per-component pair counts, sorted (size desc, comp-id asc).
+    sizes = component_id.value_counts().sort_index()  # comp-id asc
+    sorted_comps = sorted(sizes.index, key=lambda c: (-int(sizes.loc[c]), int(c)))
+
+    n_pairs = int(len(pos_df))
+    targets = {
+        'train': train_ratio * n_pairs,
+        'val':   val_ratio * n_pairs,
+        'test':  test_ratio * n_pairs,
+    }
+    bin_count = {'train': 0, 'val': 0, 'test': 0}
+    comp_to_split: dict = {}
+
+    for c in sorted_comps:
+        s = int(sizes.loc[c])
+        # Largest remaining-deficit bin wins. Ties broken in
+        # train > val > test order for determinism (max() is stable).
+        order = ['train', 'val', 'test']
+        deficits = {k: targets[k] - bin_count[k] for k in order}
+        winner = max(order, key=lambda k: deficits[k])
+        comp_to_split[c] = winner
+        bin_count[winner] += s
+
+    split_for_row = component_id.map(comp_to_split)
+
+    train_pos = pos_df[split_for_row == 'train'].reset_index(drop=True)
+    val_pos = pos_df[split_for_row == 'val'].reset_index(drop=True)
+    test_pos = pos_df[split_for_row == 'test'].reset_index(drop=True)
+
+    achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
+
+    # Cross-split DNA-hash overlap should be 0 by construction. Compute
+    # anyway so the audit doubles as a regression check; the saver
+    # raises if any overlap is non-zero.
+    def _set(df: pd.DataFrame, side: str) -> set:
+        return set(df[f'dna_hash_{side}'].dropna())
+    overlaps: dict = {}
+    for side in ('a', 'b'):
+        sets = {sp: _set(d, side) for sp, d in
+                (('train', train_pos), ('val', val_pos), ('test', test_pos))}
+        overlaps[side] = {
+            'train_val':   len(sets['train'] & sets['val']),
+            'train_test':  len(sets['train'] & sets['test']),
+            'val_test':    len(sets['val'] & sets['test']),
+        }
+
+    target_pcts = {k: 100.0 * v / n_pairs for k, v in targets.items()}
+    achieved_pcts = {k: 100.0 * v / n_pairs for k, v in achieved.items()}
+    audit = {
+        'mode': 'seq_disjoint',
+        'algorithm': 'bipartite_cc_lpt_greedy',
+        'seed': int(seed),
+        'cc_summary': cc_summary,
+        'targets_pairs': {k: int(round(v)) for k, v in targets.items()},
+        'targets_pct':   {k: round(v, 4) for k, v in target_pcts.items()},
+        'achieved_pairs': achieved,
+        'achieved_pct':   {k: round(v, 4) for k, v in achieved_pcts.items()},
+        'max_target_deviation_pct': round(
+            max(abs(achieved_pcts[k] - target_pcts[k]) for k in achieved_pcts), 4
+        ),
+        'pairs_dropped': 0,  # CC-bin-packing never splits a component.
+        'dna_hash_overlap': overlaps,
+    }
+    return train_pos, val_pos, test_pos, audit
+
+
 def filter_by_metadata(
     prot_df: pd.DataFrame,
     hn_subtype: str = None,

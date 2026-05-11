@@ -1137,6 +1137,7 @@ def split_dataset_v2(
     test_isolates_override: Optional[list] = None,
     cooccur_pairs: Optional[set] = None,
     cooccur_stats: Optional[dict] = None,
+    split_strategy_mode: str = 'random',
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1250,7 +1251,17 @@ def split_dataset_v2(
         )
 
     # Decide train/val/test membership.
+    # Audit dict from seq_disjoint routing (None for the other paths). Threaded
+    # through duplicate_stats and emitted as seq_disjoint_audit.json by the
+    # saver. See docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
+    seq_disjoint_audit: Optional[dict] = None
     if train_isolates_override is not None:
+        if split_strategy_mode != 'random':
+            raise NotImplementedError(
+                f"split_dataset_v2: split_strategy_mode={split_strategy_mode!r} is not "
+                f"compatible with the CV-override path (train_isolates_override is set). "
+                f"Use mode='random' for CV; seq_disjoint is single-split-only for now."
+            )
         # TODO/NOTE: haven't tested the CV with v2 yet!
         # CV / external-control path: caller has already partitioned isolates.
         # Filter the global pos_df by membership; pair_keys whose representative
@@ -1266,7 +1277,30 @@ def split_dataset_v2(
         train_pos = pos_df[pos_df['assembly_id_a'].isin(set(train_isolates))].reset_index(drop=True)
         val_pos = pos_df[pos_df['assembly_id_a'].isin(set(val_isolates))].reset_index(drop=True)
         test_pos = pos_df[pos_df['assembly_id_a'].isin(set(test_isolates))].reset_index(drop=True)
-    else:
+    elif split_strategy_mode == 'seq_disjoint':
+        # Bipartite-component routing: each (HA-DNA, NA-DNA) connected
+        # component is indivisible; whole components are LPT-greedy bin-packed
+        # into train/val/test. Drops zero pairs by construction; cross-split
+        # DNA-hash overlap is impossible by construction (verified in audit).
+        # See docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
+        from src.datasets._pair_helpers import seq_disjoint_route_pos_df
+        print("\nsplit_dataset_v2: seq_disjoint routing on pos_df rows "
+              "(bipartite CC + LPT-greedy bin-pack)...", flush=True)
+        train_pos, val_pos, test_pos, seq_disjoint_audit = seq_disjoint_route_pos_df(
+            pos_df, train_ratio=train_ratio, val_ratio=val_ratio, seed=seed,
+        )
+        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
+        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
+        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
+        ach = seq_disjoint_audit['achieved_pct']
+        print(f"split_dataset_v2: seq_disjoint routing completed "
+              f"(train={len(train_pos):,} pairs [{ach['train']:.2f}%], "
+              f"val={len(val_pos):,} [{ach['val']:.2f}%], "
+              f"test={len(test_pos):,} [{ach['test']:.2f}%], "
+              f"n_components={seq_disjoint_audit['cc_summary']['n_components']:,}, "
+              f"largest_component={seq_disjoint_audit['cc_summary']['largest_component_pairs']} pairs)",
+              flush=True)
+    elif split_strategy_mode == 'random':
         # Plain shuffle-split on the deduped pos_df. Safe because the is_unique assertion above
         # guarantees each row is its own isolate, so row-level split == isolate-level split.
         print("\nsplit_dataset_v2: Plain shuffle-split on pos_df rows...", flush=True)
@@ -1287,6 +1321,11 @@ def split_dataset_v2(
         print(f"split_dataset_v2: shuffle-split completed "
               f"(train={len(train_isolates):,} pairs, "
               f"val={len(val_isolates):,}, test={len(test_isolates):,})", flush=True)
+    else:
+        raise ValueError(
+            f"split_dataset_v2: unknown split_strategy_mode={split_strategy_mode!r}; "
+            f"expected 'random' or 'seq_disjoint'."
+        )
 
     # Generate negatives with coverage-first sampler.
     # `forbidden_so_far` accumulates pair_keys produced in earlier splits and
@@ -1471,6 +1510,24 @@ def split_dataset_v2(
                 'test':  test_reject_stats.get('regime_manifest'),
             },
         }
+    if seq_disjoint_audit is not None:
+        # Re-audit the FINAL DataFrames (positives + negatives + axis flags +
+        # any post-hoc cleanup), not just the routed positives. Under v2's
+        # strict invariants this should still be all-zero -- the negatives
+        # sampler picks partners from per-split pos_df rows, so it cannot
+        # introduce a DNA from another split's pool. Verifying here makes the
+        # audit JSON a regression check on the whole pipeline, not just the
+        # routing step.
+        for side in ('a', 'b'):
+            t = set(train_pairs[f'dna_hash_{side}'].dropna())
+            v = set(val_pairs[f'dna_hash_{side}'].dropna())
+            te = set(test_pairs[f'dna_hash_{side}'].dropna())
+            seq_disjoint_audit['dna_hash_overlap_full_pairs_' + side] = {
+                'train_val':  len(t & v),
+                'train_test': len(t & te),
+                'val_test':   len(v & te),
+            }
+        duplicate_stats['seq_disjoint_audit'] = seq_disjoint_audit
     exposure_tables = {'train': train_exp, 'val': val_exp, 'test': test_exp}
     return train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables
 
@@ -1653,6 +1710,36 @@ def save_split_output_v2(
     # Surfaces seq_hash / dna_hash overlap across splits that pair_key
     # disjointness does not prevent.
     emit_split_overlap_stats(train_pairs, val_pairs, test_pairs, output_dir)
+
+    # seq_disjoint mode emits a routing audit. Hard-fail if the routing
+    # claimed any cross-split DNA overlap (it should be zero by construction;
+    # any non-zero is a bug in the routing or a regression in the negatives
+    # sampler that pulled a DNA from another split's pool).
+    sd_audit = duplicate_stats.get('seq_disjoint_audit')
+    if sd_audit is not None:
+        with open(output_dir / 'seq_disjoint_audit.json', 'w') as f:
+            json.dump(sd_audit, f, indent=2, default=str)
+        print(f"Saved seq_disjoint_audit.json to: {output_dir}")
+        for side in ('a', 'b'):
+            for pair_label, scope_key in (
+                ('positives-only', 'dna_hash_overlap'),
+                ('full-pairs', 'dna_hash_overlap_full_pairs_' + side),
+            ):
+                if scope_key == 'dna_hash_overlap':
+                    overlaps = sd_audit['dna_hash_overlap'][side]
+                else:
+                    overlaps = sd_audit[scope_key]
+                bad = {k: v for k, v in overlaps.items() if v != 0}
+                if bad:
+                    raise RuntimeError(
+                        f"seq_disjoint routing audit FAILED ({pair_label}, side={side}): "
+                        f"non-zero cross-split dna_hash overlap {bad}. "
+                        f"This means cross-split sequence-level leakage is present despite "
+                        f"split_strategy.mode=seq_disjoint. Check the routing helper "
+                        f"(src/datasets/_pair_helpers.py::seq_disjoint_route_pos_df) "
+                        f"and the negatives sampler (must source partners only from "
+                        f"per-split pos_df rows)."
+                    )
 
     # Per-split sequence_exposure.csv
     for split_name, exp_df in exposure_tables.items():
@@ -2093,4 +2180,21 @@ def _validate_v2_config(config) -> None:
         raise ValueError(
             "v2 does not yet support temporal split (dataset.year_train). "
             "Use pair_builder_version=v1 for temporal experiments, or contribute v2 support."
+        )
+
+    # split_strategy.mode dispatch.
+    split_mode = OmegaConf.select(config, "dataset.split_strategy.mode")
+    if split_mode is not None and split_mode not in {'random', 'seq_disjoint'}:
+        raise ValueError(
+            f"v2 requires dataset.split_strategy.mode in {{'random', 'seq_disjoint'}} "
+            f"(or absent); got {split_mode!r}. See "
+            f"docs/plans/2026-05-10_seq_disjoint_routing_plan.md."
+        )
+    n_folds = OmegaConf.select(config, "dataset.n_folds")
+    if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:
+        raise NotImplementedError(
+            f"dataset.split_strategy.mode='seq_disjoint' is not yet compatible with "
+            f"dataset.n_folds={n_folds} (CV mode). seq_disjoint is single-split-only "
+            f"for now; see docs/plans/2026-05-10_seq_disjoint_routing_plan.md "
+            f"'Out of scope' section."
         )
