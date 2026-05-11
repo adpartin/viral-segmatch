@@ -1275,64 +1275,10 @@ def generate_all_cv_folds(
         }
 
 
-def generate_temporal_split(
-    prot_df: pd.DataFrame,
-    year_train: list,
-    year_test: list,
-    val_ratio: float,
-    split_kwargs: dict,
-    ) -> tuple:
-    """Partition isolates by year for temporal holdout.
-
-    Train isolates come from year_train years. Val and test isolates are split from
-    year_test years so that val reflects the same future-season distribution as test
-    (important for early stopping and threshold tuning).
-
-    Returns (train_pairs, val_pairs, test_pairs, duplicate_stats) — same as split_dataset().
-    """
-    # Get year per isolate
-    isolate_years = prot_df.groupby("assembly_id")["year"].first()
-
-    # Validate: no overlap between train and test years
-    overlap = set(year_train) & set(year_test)
-    if overlap:
-        raise ValueError(f"year_train and year_test overlap: {overlap}")
-
-    # Partition isolates by year
-    train_isolates = isolate_years[isolate_years.isin(year_train)].index.tolist()
-    test_pool = isolate_years[isolate_years.isin(year_test)].index.tolist()
-
-    if len(test_pool) < 50:
-        print(f"WARNING: Only {len(test_pool)} isolates from test years {year_test}")
-    if len(train_isolates) < 50:
-        print(f"WARNING: Only {len(train_isolates)} train isolates from years {year_train}")
-
-    # Split val from test-year pool so val matches the test distribution
-    seed = split_kwargs.get("seed", 42)
-    train_ratio = split_kwargs.get("train_ratio", 0.8)
-    # val_ratio is relative to total data; rescale for the test pool
-    # Aim for val ~= val_ratio / (val_ratio + test_ratio) of test_pool
-    val_frac = val_ratio / (1.0 - train_ratio)  # e.g., 0.1 / 0.2 = 0.5
-    val_frac = min(val_frac, 0.5)  # never take more than half
-    val_frac = max(val_frac, 0.1)  # at least 10%
-    n_val = max(1, int(len(test_pool) * val_frac))
-    rng = np.random.RandomState(seed)
-    shuffled = rng.permutation(test_pool)
-    val_isolates = shuffled[:n_val].tolist()
-    test_isolates = shuffled[n_val:].tolist()
-
-    print(f"Temporal split: {len(train_isolates)} train, {len(val_isolates)} val, "
-          f"{len(test_isolates)} test isolates")
-    print(f"  Train years: {sorted(year_train)}")
-    print(f"  Val+test years: {sorted(year_test)} "
-          f"(val={len(val_isolates)}, test={len(test_isolates)})")
-
-    # Call split_dataset with overrides
-    updated_kwargs = {**split_kwargs,
-                      "train_isolates_override": train_isolates,
-                      "val_isolates_override": val_isolates,
-                      "test_isolates_override": test_isolates}
-    return split_dataset(**updated_kwargs)
+# Removed 2026-05-11: generate_temporal_split() and dataset.year_train /
+# dataset.year_test config keys. The temporal-holdout mechanism is superseded
+# by the general metadata_holdout path (year-axis holdout is its degenerate
+# case). See docs/plans/2026-05-11_metadata_holdout_plan.md.
 
 
 # Parser
@@ -1400,26 +1346,18 @@ SKIP_KMER_PCA_PLOTS = getattr(config.dataset, 'skip_kmer_pca_plots', False)
 # Pair builder selection (default v1 for backward compatibility).
 PAIR_BUILDER_VERSION = getattr(config.dataset, 'pair_builder_version', 'v1')
 
-# Temporal holdout config
-YEAR_TRAIN = getattr(config.dataset, 'year_train', None)
-YEAR_TEST = getattr(config.dataset, 'year_test', None)
-
-# Normalize to lists (Hydra may pass a single int or a ListConfig)
-if YEAR_TRAIN is not None:
-    YEAR_TRAIN = list(YEAR_TRAIN) if hasattr(YEAR_TRAIN, '__iter__') else [YEAR_TRAIN]
-if YEAR_TEST is not None:
-    YEAR_TEST = list(YEAR_TEST) if hasattr(YEAR_TEST, '__iter__') else [YEAR_TEST]
-
-# Mutual exclusivity checks
-# If temporal split is requested (year_train/year_test), ensure that year filter and n_folds are not set.
-if YEAR_TRAIN is not None or YEAR_TEST is not None:
-    if YEAR_TRAIN is None or YEAR_TEST is None:
-        raise ValueError("Both year_train and year_test must be set (or both null)")
-    year_filter_check = getattr(config.dataset, 'year', None)
-    if year_filter_check is not None:
-        raise ValueError("year (filter) and year_train/year_test (temporal split) are mutually exclusive")
-    if N_FOLDS is not None and N_FOLDS > 1:
-        raise ValueError("n_folds (CV) and year_train/year_test (temporal split) are mutually exclusive")
+# Loud rejection of legacy year_train / year_test keys. They were removed
+# 2026-05-11 (replaced by metadata_holdout under v2). Surface a clear migration
+# message rather than letting OmegaConf return None silently if a bundle still
+# carries them.
+for _legacy_key in ('year_train', 'year_test'):
+    if getattr(config.dataset, _legacy_key, None) is not None:
+        raise ValueError(
+            f"dataset.{_legacy_key} is no longer supported; the temporal-holdout "
+            f"mechanism was replaced by dataset.metadata_holdout under "
+            f"pair_builder_version=v2 on 2026-05-11. See "
+            f"docs/plans/2026-05-11_metadata_holdout_plan.md."
+        )
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -1502,6 +1440,23 @@ prot_df = attach_dna_to_prot_df(prot_df, input_file)
 print('\nEnrich dataframe with metadata.')
 prot_df = enrich_prot_data_with_metadata(prot_df, project_root=project_root)
 
+# Drop isolates with non-conforming hn_subtype (ambiguous typing). See
+# drop_ambiguous_hn_subtype docstring in _pair_helpers.py for the rationale.
+# Toggle via `dataset.drop_ambiguous_subtype` (default true). Setting it false
+# preserves the legacy behavior where ~1,006 'HN' / 'H?N' isolates flow
+# through to the regime sampler as `unknown_metadata_neg`.
+if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
+    from src.datasets._pair_helpers import drop_ambiguous_hn_subtype as _drop_ambig
+    prot_df, _ambig_summary = _drop_ambig(prot_df)
+    if _ambig_summary['n_isolates_dropped'] > 0:
+        print(f"\nWARNING: dropped {_ambig_summary['n_isolates_dropped']:,} "
+              f"isolates with non-HxNy hn_subtype: "
+              f"{_ambig_summary['value_counts']}")
+        print(f"   Protein records: "
+              f"{_ambig_summary['n_rows_total']:,} -> "
+              f"{_ambig_summary['n_rows_kept']:,} "
+              f"(dropped {_ambig_summary['n_rows_dropped']:,} rows)")
+
 # Filter isolates by metadata criteria (host, year, hn_subtype, geo_location, passage)
 hn_subtype_filter = getattr(config.dataset, 'hn_subtype', None)
 host_filter = getattr(config.dataset, 'host', None)
@@ -1517,14 +1472,6 @@ prot_df = filter_by_metadata(
     passage=passage_filter,
 )
 
-# Temporal holdout: filter to cotain the union of train + test years
-if YEAR_TRAIN is not None:
-    keep_years = list(YEAR_TRAIN) + list(YEAR_TEST)
-    before_count = prot_df['assembly_id'].nunique()
-    prot_df = prot_df[prot_df["year"].isin(keep_years)]
-    after_count = prot_df['assembly_id'].nunique()
-    print(f"Temporal filter: kept {after_count} isolates from years {sorted(keep_years)} "
-          f"(dropped {before_count - after_count})")
 
 # Jim's balancing request
 # Subtype balancing (downsample to equal per-subtype representation).
@@ -1668,8 +1615,6 @@ filters_applied = {
     'passage': passage_filter,
     'pair_mode': PAIR_MODE,
     'schema_pair': list(schema_pair) if schema_pair is not None else None,
-    'year_train': YEAR_TRAIN,
-    'year_test': YEAR_TEST,
 }
 
 if PAIR_BUILDER_VERSION == 'v2':
@@ -1793,7 +1738,23 @@ if PAIR_BUILDER_VERSION == 'v2':
                 skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
             )
     else:
-        # v2 single-split mode. (Temporal is rejected by _validate_v2_config.)
+        # v2 single-split mode. (Temporal/legacy year_train was removed
+        # 2026-05-11; see docs/plans/2026-05-11_metadata_holdout_plan.md.)
+        # If dataset.metadata_holdout is set, compute the three isolate-id
+        # lists from the per-slot filters and pass them through the existing
+        # *_isolates_override hook on split_dataset_v2.
+        HOLDOUT_CFG = getattr(config.dataset, 'metadata_holdout', None)
+        holdout_train_ids = holdout_val_ids = holdout_test_ids = None
+        holdout_dropped_df = None
+        if HOLDOUT_CFG is not None:
+            from omegaconf import OmegaConf
+            from src.datasets._pair_helpers import compute_metadata_holdout_isolates
+            holdout_dict = OmegaConf.to_container(HOLDOUT_CFG, resolve=True)
+            holdout_train_ids, holdout_val_ids, holdout_test_ids, holdout_dropped_df = \
+                compute_metadata_holdout_isolates(
+                    df, holdout_dict, seed=RANDOM_SEED, val_ratio=VAL_RATIO,
+                )
+
         print('\nv2: single-split mode: generate train/val/test...')
         _t = time.time()
         train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables = split_dataset_v2(
@@ -1811,8 +1772,30 @@ if PAIR_BUILDER_VERSION == 'v2':
             year_bin_edges=YEAR_BIN_EDGES,
             on_shortfall=ON_SHORTFALL,
             split_strategy_mode=SPLIT_STRATEGY_MODE,
+            train_isolates_override=holdout_train_ids,
+            val_isolates_override=holdout_val_ids,
+            test_isolates_override=holdout_test_ids,
         )
         print(f"stage3 v2: split_dataset_v2 (done in {time.time()-_t:.2f}s)", flush=True)
+
+        # Persist metadata_holdout artifacts next to dataset_stats.json.
+        if holdout_dropped_df is not None:
+            holdout_dropped_path = output_dir / 'metadata_holdout_dropped.csv'
+            holdout_dropped_df.to_csv(holdout_dropped_path, index=False)
+            print(f"Saved metadata_holdout dropped-isolates manifest "
+                  f"({len(holdout_dropped_df):,} isolate(s)) to: {holdout_dropped_path}")
+            # Stash a summary to be merged into dataset_stats.json by the saver.
+            duplicate_stats['metadata_holdout'] = {
+                'config': holdout_dict,
+                'n_train_isolates': len(holdout_train_ids),
+                'n_val_isolates': len(holdout_val_ids),
+                'n_test_isolates': len(holdout_test_ids),
+                'n_dropped': int(len(holdout_dropped_df)),
+                'val_source': (
+                    'explicit_filter' if (holdout_dict.get('val') is not None)
+                    else 'carved_from_train'
+                ),
+            }
 
         print(f'\nSave datasets: {output_dir}')
         # breakpoint()
@@ -1923,34 +1906,6 @@ elif PAIR_BUILDER_VERSION == 'v1':
                 skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
                 skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
             )
-
-    elif YEAR_TRAIN is not None:
-        # ── Temporal holdout mode ─────────────────────────────────────────────
-        print(f'\nTemporal holdout: train={YEAR_TRAIN}, test={YEAR_TEST}')
-        train_pairs, val_pairs, test_pairs, duplicate_stats = generate_temporal_split(
-            prot_df=df,
-            year_train=YEAR_TRAIN,
-            year_test=YEAR_TEST,
-            val_ratio=VAL_RATIO,
-            split_kwargs=split_kwargs,
-        )
-
-        print(f'\nSave datasets: {output_dir}')
-        save_split_output(
-            output_dir=output_dir,
-            train_pairs=train_pairs,
-            val_pairs=val_pairs,
-            test_pairs=test_pairs,
-            duplicate_stats=duplicate_stats,
-            df=df,
-            config_bundle=config_bundle,
-            pair_mode=PAIR_MODE,
-            schema_pair=schema_pair,
-            filters_applied=filters_applied,
-            generate_visualizations=GENERATE_VISUALIZATIONS,
-            skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
-            skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
-        )
 
     else:
         # ── Single-split mode (existing behavior) ─────────────────────────────

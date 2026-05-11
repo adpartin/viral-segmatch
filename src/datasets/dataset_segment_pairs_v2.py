@@ -483,8 +483,16 @@ def create_negative_pairs_v2(
             return None, None
         cell_a = isolate_to_cell.get(a_aid)
         cell_b = isolate_to_cell.get(b_aid)
+        # build_isolate_cells produces a cell for every assembly_id in df, so
+        # a None lookup here means the assembly_id isn't in df -- which means
+        # the sampler is operating on stale state.
         if cell_a is None or cell_b is None:
-            return 'unknown_metadata_neg', None
+            raise RuntimeError(
+                f"_classify_for_aids: missing cell for assembly_id "
+                f"a={a_aid!r} (cell={cell_a!r}), b={b_aid!r} (cell={cell_b!r}). "
+                f"isolate_to_cell should cover every isolate in df; this "
+                f"indicates a stale cell map."
+            )
         return (
             classify_pair_regime(cell_a, cell_b, axes=sampling_axes),
             compute_match_count(cell_a, cell_b),
@@ -1639,16 +1647,6 @@ def generate_all_cv_folds_v2(
 
 
 # ---------------------------------------------------------------------------
-# 4.8 generate_temporal_split_v2 (stub)
-# ---------------------------------------------------------------------------
-def generate_temporal_split_v2(*args, **kwargs):
-    raise NotImplementedError(
-        "Temporal split is not yet supported in pair_builder_version=v2. "
-        "Use pair_builder_version=v1 for temporal experiments, or contribute v2 support."
-    )
-
-
-# ---------------------------------------------------------------------------
 # 4.9 save_split_output_v2
 # ---------------------------------------------------------------------------
 def save_split_output_v2(
@@ -1800,6 +1798,12 @@ def save_split_output_v2(
                               duplicate_stats['test_reject_stats']['blocked_cooccur']),
         },
         'filters_applied': filters_applied,
+        # metadata_holdout summary; present only when the holdout dispatch
+        # was used. See docs/plans/2026-05-11_metadata_holdout_plan.md.
+        **(
+            {'metadata_holdout': duplicate_stats['metadata_holdout']}
+            if 'metadata_holdout' in duplicate_stats else {}
+        ),
         'exposure_summary': _exposure_summary(exposure_tables),
         'axis_flag_summary': {
             'train': _axis_flag_summary(train_pairs, axes_for_flags),
@@ -2126,10 +2130,21 @@ def _validate_v2_config(config) -> None:
         if regime_targets is None:
             raise ValueError(
                 "dataset.negative_sampling is set but regime_targets is null. "
-                "Provide a complete dict over the 9 regime names "
+                "Provide a complete dict over the 8 regime names "
                 f"({sorted(REGIME_NAMES)}) summing to 1.0."
             )
         rt_keys = set(regime_targets.keys()) if hasattr(regime_targets, 'keys') else set(dict(regime_targets).keys())
+        # Legacy key removal: unknown_metadata_neg was retired 2026-05-11
+        # alongside the dataset.drop_ambiguous_subtype default. Reject loudly
+        # so old bundles surface the migration message rather than silently
+        # mis-allocating budget to a nonexistent regime.
+        if 'unknown_metadata_neg' in rt_keys:
+            raise ValueError(
+                "dataset.negative_sampling.regime_targets contains "
+                "'unknown_metadata_neg' which is no longer supported "
+                "(retired 2026-05-11). Remove the key; its budget "
+                "redistributes to the 8 remaining regimes via on_shortfall."
+            )
         missing = set(REGIME_NAMES) - rt_keys
         if missing:
             raise ValueError(
@@ -2174,13 +2189,12 @@ def _validate_v2_config(config) -> None:
             f"See docs/plans/2026-05-09_metadata_aware_negatives_plan.md."
         )
 
-    # Temporal not yet supported
-    year_train = OmegaConf.select(config, "dataset.year_train")
-    if year_train is not None:
-        raise ValueError(
-            "v2 does not yet support temporal split (dataset.year_train). "
-            "Use pair_builder_version=v1 for temporal experiments, or contribute v2 support."
-        )
+    # Removed: dataset.year_train / dataset.year_test. The legacy temporal-
+    # holdout mechanism was retired 2026-05-11 in favor of the general
+    # metadata_holdout path (year-axis holdout is its degenerate case). If a
+    # bundle still references these keys, Hydra raises at config-load time
+    # because they no longer exist in conf/dataset/default.yaml. See
+    # docs/plans/2026-05-11_metadata_holdout_plan.md.
 
     # split_strategy.mode dispatch.
     split_mode = OmegaConf.select(config, "dataset.split_strategy.mode")
@@ -2198,3 +2212,31 @@ def _validate_v2_config(config) -> None:
             f"for now; see docs/plans/2026-05-10_seq_disjoint_routing_plan.md "
             f"'Out of scope' section."
         )
+
+    # metadata_holdout: structural validation only (deeper validation happens
+    # inside compute_metadata_holdout_isolates after df is loaded). Reject
+    # combinations with CV mode and with split_strategy.mode != 'random'.
+    holdout = OmegaConf.select(config, "dataset.metadata_holdout")
+    if holdout is not None:
+        if 'train' not in holdout or holdout.get('train') is None:
+            raise ValueError(
+                "dataset.metadata_holdout.train is required (filter dict). See "
+                "docs/plans/2026-05-11_metadata_holdout_plan.md."
+            )
+        if 'test' not in holdout or holdout.get('test') is None:
+            raise ValueError(
+                "dataset.metadata_holdout.test is required (filter dict). See "
+                "docs/plans/2026-05-11_metadata_holdout_plan.md."
+            )
+        if n_folds is not None and int(n_folds) > 1:
+            raise NotImplementedError(
+                f"dataset.metadata_holdout is not yet compatible with "
+                f"dataset.n_folds={n_folds} (CV mode). metadata_holdout is "
+                f"single-split-only for now."
+            )
+        if split_mode is not None and split_mode != 'random':
+            raise NotImplementedError(
+                f"dataset.metadata_holdout is mutually exclusive with "
+                f"dataset.split_strategy.mode={split_mode!r}. Set "
+                f"split_strategy.mode to 'random' (the default) or omit it."
+            )

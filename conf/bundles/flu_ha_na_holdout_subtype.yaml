@@ -1,0 +1,26 @@
+# STATUS: experimental -- HA/NA with metadata_holdout in year-axis-only mode
+# (the year_train/year_test replacement). Inherits flu_ha_na_neg_regimes; only
+# changes the split mechanism from random to a cross-population year holdout
+# (train 2021-2023, val carved from train, test 2024).
+#
+# Plan: docs/plans/2026-05-11_metadata_holdout_plan.md
+# Replaces the retired dataset.year_train / dataset.year_test mechanism.
+#
+# To exercise multi-axis holdout (host/subtype/year combined), add more keys
+# inside each train/test filter dict. host/hn_subtype/geo_location/passage
+# accept scalar or list; year accepts scalar/list/year_range.
+defaults:
+  - flu_ha_na_neg_regimes
+  - _self_
+
+dataset:
+  metadata_holdout:
+    train:
+      hn_subtype: ["H3N2"] # "H3N2", "H1N1", "H5N1"
+      # host: [] # "Human", "Pig", "Chicken"
+      # year_range: [2021, 2023]
+    test:
+      hn_subtype: ["H1N1"] # "H1N1", "H3N2", "H5N1"
+      # host: [] # "Human", "Pig", "Chicken"
+      # year_range: [2024, 9999]
+    val: null   # carve val_ratio (0.1 by default) off the train pool

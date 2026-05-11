@@ -2,7 +2,7 @@
 
 Companion to `dataset_segment_pairs_v2.py`. Implements:
 
-- 9 mutually-exclusive regimes over (host, hn_subtype, year_or_year_bin).
+- 8 mutually-exclusive regimes over (host, hn_subtype, year_or_year_bin).
 - Closed-form candidate-count via metadata-cell groupby (no enumeration).
 - Pair-level regime classification + match_count.
 
@@ -11,8 +11,12 @@ non-empty; otherwise the legacy regime-blind sampler runs unchanged.
 
 Cell representation: a tuple in `(host, hn_subtype, year_or_year_bin)`
 order matching the configured `axes` list. Null axis values become `None`
-in the tuple. Any tuple containing `None` belongs to the special
-`UNKNOWN_CELL` partition for purposes of regime classification.
+in the tuple. For classification, **null on either side of an axis counts
+as no-match on that axis** (a null host is treated as "different from
+everything," including another null host) -- the 8 regimes still cover
+every cell pair; there is no separate "unknown" bucket. See
+`docs/plans/2026-05-11_metadata_holdout_plan.md` for the 2026-05-11
+removal of the legacy `unknown_metadata_neg` regime.
 
 Determinism: this module is purely functional. It contains no RNG; any
 sampling order is owned by the caller.
@@ -33,7 +37,6 @@ REGIME_NAMES = (
     'host_year_only',
     'subtype_year_only',
     'host_subtype_year',
-    'unknown_metadata_neg',
 )
 
 DEFAULT_AXES = ('host', 'hn_subtype', 'year')
@@ -120,24 +123,40 @@ def build_isolate_cells(
     return out
 
 
+def _axis_match(a, b) -> bool:
+    """True iff both sides are non-null and equal.
+
+    Treats null on either side as no-match (including null == null). This
+    is conservative: two isolates whose host is "unknown" are not claimed
+    to share a host; they fall into whichever regime captures the other
+    axes' agreement.
+    """
+    if a is None or b is None:
+        return False
+    if pd.isna(a) or pd.isna(b):
+        return False
+    return a == b
+
+
 def classify_pair_regime(
     cell_a: tuple,
     cell_b: tuple,
     *,
     axes: Iterable[str] = DEFAULT_AXES,
     ) -> str:
-    """Classify an ordered pair of isolate cells into one of nine regimes.
+    """Classify an ordered pair of isolate cells into one of eight regimes.
 
-    Any None on either side -> unknown_metadata_neg. Otherwise compare each
-    axis; the resulting (host_match, subtype_match, year_match) tuple maps
-    to one of the eight known regimes.
+    Per-axis comparison uses `_axis_match`: null on either side of an axis
+    counts as no-match on that axis. The resulting
+    (host_match, subtype_match, year_match) tuple maps to one of the eight
+    regimes via `_MATCH_TUPLE_TO_REGIME`. Pairs where every axis comparison
+    is no-match (which includes any pair with all-null cells on both sides)
+    end up in `none_match`.
     """
-    if any(v is None for v in cell_a) or any(v is None for v in cell_b):
-        return 'unknown_metadata_neg'
     axes = list(axes)
     matches = {}
     for ax_idx, axis in enumerate(axes):
-        matches[axis] = (cell_a[ax_idx] == cell_b[ax_idx])
+        matches[axis] = _axis_match(cell_a[ax_idx], cell_b[ax_idx])
     key = (matches.get('host', False),
            matches.get('hn_subtype', False),
            matches.get('year', False))
@@ -147,13 +166,12 @@ def classify_pair_regime(
 def compute_match_count(
     cell_a: tuple,
     cell_b: tuple,
-    ) -> Optional[int]:
+    ) -> int:
     """Count axes (in the cell tuple order) where both sides are non-null
-    and equal. Returns None if either side has any null axis (regime is
-    unknown -- match_count is not defined)."""
-    if any(v is None for v in cell_a) or any(v is None for v in cell_b):
-        return None
-    return sum(1 for a, b in zip(cell_a, cell_b) if a == b)
+    and equal. Null on either side of an axis contributes 0 to the count
+    (matches `_axis_match` semantics).
+    """
+    return sum(1 for a, b in zip(cell_a, cell_b) if _axis_match(a, b))
 
 
 def count_isolates_per_cell(isolate_to_cell: dict) -> dict:

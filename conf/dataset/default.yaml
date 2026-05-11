@@ -72,12 +72,6 @@ subtype_selection:
   target_count_per_subtype: min   # "min" or int
   seed: null                      # null -> inherit RANDOM_SEED (master_seed -> datasets)
 
-# Temporal holdout split
-# year_train/year_test: null = disabled; list of years = temporal holdout mode
-# Mutually exclusive with year (single-value filter) and n_folds (CV mode)
-year_train: null  # e.g., [2021, 2022, 2023]
-year_test: null   # e.g., [2024]
-
 # Cross-validation
 # n_folds: null = single-split mode (default); int N = generate N CV folds in one dataset run
 # fold_id: used by launchers to select which fold dir to pass to the training script; null = ignored
@@ -85,13 +79,16 @@ n_folds: null
 fold_id: null
 
 # Pair builder version
-# - v1 (default): original builder, supports unordered + schema_ordered modes, temporal split.
-# - v2: schema-mode-only builder with coverage-first negative sampling, within-split positive
-#       dedup, per-sequence exposure tracking, and metadata-axis annotations on every pair.
-#       Hard-codes pair_mode=schema_ordered, allow_same_func_negatives=false,
-#       canonicalize_pair_orientation=false, hard_partition_isolates=true. Does not yet
-#       support temporal split. See docs/plans/done/design_dataset_gen_v2.md.
-pair_builder_version: v1
+# - v2 (default since 2026-05-11): schema-mode-only builder with coverage-first
+#       negative sampling, within-split positive dedup, per-sequence exposure
+#       tracking, metadata-axis annotations on every pair, and (opt-in) the
+#       regime-aware sampler, seq_disjoint split, and metadata_holdout
+#       cross-population split. Hard-codes pair_mode=schema_ordered,
+#       allow_same_func_negatives=false, canonicalize_pair_orientation=false,
+#       hard_partition_isolates=true. See docs/plans/done/design_dataset_gen_v2.md.
+# - v1: original builder, supports unordered + schema_ordered modes. Kept for
+#       legacy bundles only; new bundles should use v2.
+pair_builder_version: v2
 
 # v2-only: coverage-phase attempt cap. Each positive-pair seq gets up to this many tries
 # to find a valid negative partner before being logged as coverage_skipped.
@@ -112,8 +109,10 @@ axis_quotas: null
 
 # v2-only: metadata-aware negative sampling. Default null (legacy regime-blind
 # fill phase). Setting any value enables regime-aware sampling; regime_targets
-# must be a complete dict over the 9 regime names summing to 1.0. See
-# `docs/plans/2026-05-09_metadata_aware_negatives_plan.md`.
+# must be a complete dict over the 8 regime names summing to 1.0. See
+# `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md`. The legacy
+# `unknown_metadata_neg` regime was retired 2026-05-11 -- the validator
+# rejects it in regime_targets with a migration message.
 negative_sampling: null
 # Example (uncomment + adjust per bundle):
 # negative_sampling:
@@ -132,8 +131,16 @@ negative_sampling: null
 #     host_year_only:       0.05
 #     subtype_year_only:    0.05
 #     host_subtype_year:    0.30
-#     unknown_metadata_neg: 0.00
 #   on_shortfall: redistribute        # redistribute | warn_only | error
+
+# Drop isolates with ambiguous hn_subtype before pair generation. The full
+# Flu A enriched set carries ~1,006 isolates out of ~108,530 (~0.93%) whose
+# hn_subtype doesn't match the regex ^H\d+N\d+$ -- almost all are 'HN' (both
+# axes unknown), plus a couple of 'H1N' / 'H3N' singletons. Dropping them at
+# source removes the bulk of pairs that the now-retired unknown_metadata_neg
+# regime used to absorb. Set to false to retain them (legacy behavior).
+# Implemented by `_pair_helpers.drop_ambiguous_hn_subtype()`.
+drop_ambiguous_subtype: true
 
 # v2-only: split-strategy dispatch. Default 'random' preserves the existing
 # row-level shuffle-split. 'seq_disjoint' routes positive pairs by bipartite

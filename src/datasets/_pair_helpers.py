@@ -22,6 +22,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 # Project root is two levels up (src/datasets/_pair_helpers.py -> src/datasets -> src -> root)
@@ -595,13 +596,62 @@ def seq_disjoint_route_pos_df(
     return train_pos, val_pos, test_pos, audit
 
 
+# Axes supported on every slot of a metadata_holdout filter dict. Used both
+# by compute_metadata_holdout_isolates and by the v2 config validator to
+# reject unknown keys with a clear migration message.
+_HOLDOUT_AXES = ('hn_subtype', 'host', 'year', 'year_range', 'geo_location', 'passage')
+_HOLDOUT_ORDERED_AXES = ('year',)  # axes that accept a *_range counterpart
+
+
+def _validate_holdout_filter_spec(spec: dict, slot: str) -> dict:
+    """Validate a single train/val/test filter dict; return a clean dict.
+
+    Catches typos (unknown axis keys), ordered-axis misuse (host_range etc.),
+    and structural errors (empty list, year + year_range both set) before
+    handing the spec to filter_by_metadata, which does its own value-level
+    validation.
+    """
+    if spec is None:
+        raise ValueError(
+            f"metadata_holdout.{slot}: filter spec is null. To opt out of "
+            f"this slot, omit the key (only 'val' is optional)."
+        )
+    if not isinstance(spec, dict):
+        raise ValueError(
+            f"metadata_holdout.{slot}: filter must be a dict; got {type(spec).__name__}."
+        )
+
+    # Unknown keys -- look for typos first since they're the most common
+    # mistake (e.g., 'subtype' instead of 'hn_subtype'). Range keys on
+    # unordered axes get a more specific message.
+    bad_range_axes = {
+        f'{axis}_range' for axis in ('hn_subtype', 'host', 'geo_location', 'passage')
+    }
+    for key in spec.keys():
+        if key in _HOLDOUT_AXES:
+            continue
+        if key in bad_range_axes:
+            raise ValueError(
+                f"metadata_holdout.{slot}: '{key}' is not a supported key -- "
+                f"{key.split('_range')[0]} is not an ordered axis. Pass a "
+                f"list to '{key.split('_range')[0]}' for set membership instead."
+            )
+        raise ValueError(
+            f"metadata_holdout.{slot}: unknown axis key {key!r}. Supported: "
+            f"{sorted(_HOLDOUT_AXES)}."
+        )
+
+    return dict(spec)
+
+
 def filter_by_metadata(
     prot_df: pd.DataFrame,
-    hn_subtype: str = None,
-    host: str = None,
+    hn_subtype=None,
+    host=None,
     year=None,
-    geo_location: str = None,
-    passage: str = None,
+    year_range=None,
+    geo_location=None,
+    passage=None,
     ) -> pd.DataFrame:
     """Filter protein records by isolate-level metadata criteria.
 
@@ -609,17 +659,94 @@ def filter_by_metadata(
     criteria are identified, then ALL protein records from those isolates are
     kept. This ensures we don't lose proteins due to metadata merge issues
     (e.g., an isolate has host metadata on one protein but not another).
+
+    Each axis parameter accepts:
+      - None: no constraint on that axis (default).
+      - scalar (str/int): exact match.
+      - list / tuple: **set membership** (any length, including 1-element
+        ``[2020]``). Length-based semantics are deliberately rejected -- a
+        2-element list is always a set, never a range, to avoid surprises.
+
+    ``year_range`` (year-axis only) accepts a 2-element ``[min, max]`` list
+    for inclusive-range matching; mutually exclusive with ``year``. There is
+    no ``host_range`` / ``hn_subtype_range`` / etc. -- those axes are not
+    ordered. Pass a list for set membership instead.
+
+    Raises ValueError on: ``year`` and ``year_range`` both set; malformed
+    ``year_range``; empty list; geo_location / passage filter requested but
+    the corresponding column is missing from ``prot_df``.
     """
-    any_filter = any(f is not None for f in [hn_subtype, host, year, geo_location, passage])
+    if year is not None and year_range is not None:
+        raise ValueError(
+            "filter_by_metadata: 'year' and 'year_range' are mutually exclusive."
+        )
+
+    year_min, year_max = None, None
+    if year_range is not None:
+        if not isinstance(year_range, (list, tuple)) or len(year_range) != 2:
+            raise ValueError(
+                f"filter_by_metadata: year_range must be a 2-element [min, max] "
+                f"list; got {year_range!r}."
+            )
+        try:
+            year_min = int(year_range[0])
+            year_max = int(year_range[1])
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"filter_by_metadata: year_range elements must be ints; "
+                f"got {year_range!r}."
+            )
+        if year_min > year_max:
+            raise ValueError(
+                f"filter_by_metadata: year_range min ({year_min}) is greater "
+                f"than max ({year_max})."
+            )
+
+    def _to_list(value, axis: str, coerce_int: bool = False):
+        """Normalize scalar -> [scalar], pass through list/tuple as list.
+
+        Empty lists are rejected (probably a config typo: an empty filter
+        means "match nothing" which is never what a user wants). When
+        ``coerce_int`` is set, all entries are int-coerced (year semantics).
+        """
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            items = list(value)
+        else:
+            items = [value]
+        if len(items) == 0:
+            raise ValueError(
+                f"filter_by_metadata: {axis} list cannot be empty."
+            )
+        if coerce_int:
+            try:
+                items = [int(v) for v in items]
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"filter_by_metadata: {axis} values must be ints; got {value!r}."
+                )
+        return items
+
+    hn_set = _to_list(hn_subtype, 'hn_subtype')
+    host_set = _to_list(host, 'host')
+    year_set = _to_list(year, 'year', coerce_int=True)
+    geo_set = _to_list(geo_location, 'geo_location')
+    passage_set = _to_list(passage, 'passage')
+
+    any_filter = any(v is not None for v in
+                     [hn_set, host_set, year_set, year_range, geo_set, passage_set])
     if not any_filter:
         return prot_df
 
+    year_disp = year_set if year_set is not None else (
+        f"[{year_min}..{year_max}]" if year_range is not None else None)
     print('\nMetadata filtering enabled.')
-    print(f'HN subtype filter: {hn_subtype}')
-    print(f'Host filter: {host}')
-    print(f'Year filter: {year}')
-    print(f'Geographic location filter: {geo_location}')
-    print(f'Passage filter: {passage}')
+    print(f'  hn_subtype:   {hn_set}')
+    print(f'  host:         {host_set}')
+    print(f'  year:         {year_disp}')
+    print(f'  geo_location: {geo_set}')
+    print(f'  passage:      {passage_set}')
 
     meta_cols = ['assembly_id', 'hn_subtype', 'host', 'year']
     if 'geo_location_clean' in prot_df.columns:
@@ -628,51 +755,46 @@ def filter_by_metadata(
         meta_cols.append('passage')
     aid_meta = prot_df.groupby('assembly_id')[meta_cols].first().reset_index(drop=True)
 
-    print(f"\n   Available metadata columns: {meta_cols}")
-    if 'geo_location_clean' in aid_meta.columns:
-        unique_locations = aid_meta['geo_location_clean'].dropna().unique()
-        print(f"   Unique geo_location_clean values (first 20): {sorted(unique_locations)[:20]}")
-        if geo_location:
-            matching_locs = [loc for loc in unique_locations if geo_location.lower() in str(loc).lower()]
-            print(f"   Locations matching '{geo_location}' (case-insensitive): {matching_locs[:10]}")
-    else:
-        print(f"   WARNING: geo_location_clean column NOT found in prot_df!")
-        print(f"   Available columns with 'location' in name: {[c for c in prot_df.columns if 'location' in c.lower()]}")
-
     aid_mask = pd.Series([True] * len(aid_meta))
-    if host is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['host'].isin([host])
-        after = aid_mask.sum()
-        print(f"   Host filter '{host}': {before:,} -> {after:,} isolates")
 
-    if year is not None:
-        try:
-            year = int(year)
-        except (ValueError, TypeError):
-            pass
+    if host_set is not None:
         before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['year'].isin([year])
-        after = aid_mask.sum()
-        print(f"   Year filter '{year}': {before:,} -> {after:,} isolates")
+        aid_mask = aid_mask & aid_meta['host'].isin(host_set)
+        print(f"   host {host_set}: {before:,} -> {aid_mask.sum():,} isolates")
 
-    if hn_subtype is not None:
+    if year_set is not None:
         before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['hn_subtype'].isin([hn_subtype])
-        after = aid_mask.sum()
-        print(f"   HN subtype filter '{hn_subtype}': {before:,} -> {after:,} isolates")
+        aid_mask = aid_mask & aid_meta['year'].isin(year_set)
+        print(f"   year {year_set}: {before:,} -> {aid_mask.sum():,} isolates")
+    elif year_range is not None:
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['year'].between(year_min, year_max, inclusive='both')
+        print(f"   year [{year_min}..{year_max}]: {before:,} -> {aid_mask.sum():,} isolates")
 
-    if geo_location is not None:
+    if hn_set is not None:
         before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['geo_location_clean'].isin([geo_location])
-        after = aid_mask.sum()
-        print(f"   Geographic location filter '{geo_location}': {before:,} -> {after:,} isolates")
+        aid_mask = aid_mask & aid_meta['hn_subtype'].isin(hn_set)
+        print(f"   hn_subtype {hn_set}: {before:,} -> {aid_mask.sum():,} isolates")
 
-    if passage is not None and 'passage' in aid_meta.columns:
+    if geo_set is not None:
+        if 'geo_location_clean' not in aid_meta.columns:
+            raise ValueError(
+                "filter_by_metadata: geo_location filter requested but "
+                "'geo_location_clean' column is missing from prot_df."
+            )
         before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['passage'].isin([passage])
-        after = aid_mask.sum()
-        print(f"   Passage filter '{passage}': {before:,} -> {after:,} isolates")
+        aid_mask = aid_mask & aid_meta['geo_location_clean'].isin(geo_set)
+        print(f"   geo_location {geo_set}: {before:,} -> {aid_mask.sum():,} isolates")
+
+    if passage_set is not None:
+        if 'passage' not in aid_meta.columns:
+            raise ValueError(
+                "filter_by_metadata: passage filter requested but "
+                "'passage' column is missing from prot_df."
+            )
+        before = aid_mask.sum()
+        aid_mask = aid_mask & aid_meta['passage'].isin(passage_set)
+        print(f"   passage {passage_set}: {before:,} -> {aid_mask.sum():,} isolates")
 
     matching_isolates = aid_meta[aid_mask]['assembly_id'].tolist()
     n_before = len(prot_df)
@@ -683,3 +805,320 @@ def filter_by_metadata(
     print(f"   Protein records: {n_before:,} -> {n_after:,} ({100*n_after/n_before:.1f}%)")
 
     return prot_df
+
+
+def drop_ambiguous_hn_subtype(prot_df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Drop isolates whose hn_subtype is not fully specified (``^H\\d+N\\d+$``).
+
+    On the full Flu A enriched set (~108,530 isolates) this removes ~1,006 rows
+    (~0.93%) -- almost all are ``'HN'`` where both H and N indices are unknown,
+    plus a couple of singletons with incomplete N typing (``'H1N'``, ``'H3N'``).
+    Dropping them at source eliminates the ``unknown_metadata_neg`` regime from
+    downstream stratified eval, which otherwise gets a small "ambiguous"
+    bucket that complicates per-regime comparisons.
+
+    The caller is expected to honor the ``dataset.drop_ambiguous_subtype``
+    config knob (default True); this helper does the unconditional work and
+    returns a summary the caller can log.
+
+    Returns:
+        (filtered_prot_df, summary) where summary is::
+
+            {
+              'n_isolates_total':   int,
+              'n_isolates_dropped': int,
+              'n_isolates_kept':    int,
+              'n_rows_total':       int,
+              'n_rows_dropped':     int,
+              'n_rows_kept':        int,
+              'value_counts':       dict[str, int],   # per-value drop tally
+            }
+
+    No-op when ``hn_subtype`` is missing from ``prot_df`` (returns the df
+    unchanged with a summary noting zero drops).
+    """
+    summary = {
+        'n_isolates_total': int(prot_df['assembly_id'].nunique()),
+        'n_isolates_dropped': 0,
+        'n_isolates_kept': int(prot_df['assembly_id'].nunique()),
+        'n_rows_total': int(len(prot_df)),
+        'n_rows_dropped': 0,
+        'n_rows_kept': int(len(prot_df)),
+        'value_counts': {},
+    }
+    if 'hn_subtype' not in prot_df.columns:
+        return prot_df, summary
+
+    iso_sub = prot_df.groupby('assembly_id')['hn_subtype'].first()
+    hxny = iso_sub.fillna('').astype(str).str.fullmatch(r'H\d+N\d+').fillna(False)
+    ambig = iso_sub[~hxny]
+    if len(ambig) == 0:
+        return prot_df, summary
+
+    summary['value_counts'] = {
+        # value_counts keys can be NaN; coerce to the literal string '(null)'
+        # for JSON-friendliness and to keep the dict serializable as-is.
+        ('(null)' if pd.isna(k) else str(k)): int(v)
+        for k, v in ambig.value_counts(dropna=False).items()
+    }
+    keep_aids = set(iso_sub.index) - set(ambig.index)
+    n_rows_before = len(prot_df)
+    out_df = prot_df[prot_df['assembly_id'].isin(keep_aids)].reset_index(drop=True)
+
+    summary['n_isolates_dropped'] = int(len(ambig))
+    summary['n_isolates_kept'] = int(len(keep_aids))
+    summary['n_rows_dropped'] = int(n_rows_before - len(out_df))
+    summary['n_rows_kept'] = int(len(out_df))
+    return out_df, summary
+
+
+def _isolates_matching_holdout_spec(meta_per_iso: pd.DataFrame, spec: dict) -> set:
+    """Return the set of assembly_ids that match a metadata_holdout filter spec.
+
+    Operates on a per-isolate metadata frame (one row per assembly_id) and
+    returns just the matching assembly_ids -- no row-level protein-df
+    filtering. This is what compute_metadata_holdout_isolates needs: three
+    isolate-id sets to hand to split_dataset_v2's override hook.
+
+    Validation matches filter_by_metadata's: scalar/list set membership,
+    year_range for inclusive range on year, no _range on unordered axes,
+    no empty lists, year + year_range mutually exclusive.
+    """
+    if not spec:
+        # Empty spec means "match everything" -- every isolate qualifies.
+        return set(meta_per_iso['assembly_id'])
+
+    year = spec.get('year')
+    year_range = spec.get('year_range')
+    if year is not None and year_range is not None:
+        raise ValueError(
+            "metadata_holdout filter: 'year' and 'year_range' are mutually exclusive."
+        )
+
+    mask = pd.Series([True] * len(meta_per_iso), index=meta_per_iso.index)
+
+    def _normalize(value, axis: str, coerce_int: bool = False):
+        if value is None:
+            return None
+        items = list(value) if isinstance(value, (list, tuple)) else [value]
+        if len(items) == 0:
+            raise ValueError(f"metadata_holdout filter: {axis} list cannot be empty.")
+        if coerce_int:
+            try:
+                items = [int(v) for v in items]
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"metadata_holdout filter: {axis} values must be ints; got {value!r}."
+                )
+        return items
+
+    for axis, col, coerce in [
+        ('host', 'host', False),
+        ('hn_subtype', 'hn_subtype', False),
+        ('passage', 'passage', False),
+        ('geo_location', 'geo_location_clean', False),
+        ('year', 'year', True),
+    ]:
+        items = _normalize(spec.get(axis), axis, coerce_int=coerce)
+        if items is None:
+            continue
+        if col not in meta_per_iso.columns:
+            raise ValueError(
+                f"metadata_holdout filter: '{axis}' requested but column "
+                f"{col!r} is missing from the per-isolate metadata."
+            )
+        mask = mask & meta_per_iso[col].isin(items)
+
+    if year_range is not None:
+        if not isinstance(year_range, (list, tuple)) or len(year_range) != 2:
+            raise ValueError(
+                f"metadata_holdout filter: year_range must be a 2-element "
+                f"[min, max] list; got {year_range!r}."
+            )
+        try:
+            ymin, ymax = int(year_range[0]), int(year_range[1])
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"metadata_holdout filter: year_range elements must be ints; "
+                f"got {year_range!r}."
+            )
+        if ymin > ymax:
+            raise ValueError(
+                f"metadata_holdout filter: year_range min ({ymin}) is greater "
+                f"than max ({ymax})."
+            )
+        if 'year' not in meta_per_iso.columns:
+            raise ValueError(
+                "metadata_holdout filter: 'year_range' requested but 'year' "
+                "column is missing from the per-isolate metadata."
+            )
+        mask = mask & meta_per_iso['year'].between(ymin, ymax, inclusive='both')
+
+    return set(meta_per_iso.loc[mask, 'assembly_id'])
+
+
+def _describe_holdout_spec(spec: dict) -> str:
+    """One-line human-readable description of a filter spec; used for error
+    messages and the dropped-isolates manifest's `excluded_reason` column."""
+    if not spec:
+        return '(no constraints)'
+    parts = []
+    for k, v in spec.items():
+        parts.append(f"{k}={v}")
+    return ', '.join(parts)
+
+
+def compute_metadata_holdout_isolates(
+    df: pd.DataFrame,
+    holdout_cfg: dict,
+    seed: int,
+    val_ratio: float,
+    ) -> tuple:
+    """Compute (train, val, test) isolate-id lists for cross-population holdout.
+
+    See `docs/plans/2026-05-11_metadata_holdout_plan.md` for the design.
+    holdout_cfg has shape ``{'train': {filter dict}, 'test': {filter dict},
+    'val': null | {filter dict}}``. Each filter dict carries axis-keyed
+    constraints (host / hn_subtype / year / year_range / geo_location /
+    passage); scalars and lists are both supported (see filter_by_metadata
+    for value-level rules). When ``val`` is null, val is carved off the
+    train pool at ``val_ratio`` by deterministic random partition under
+    ``seed``.
+
+    Returns ``(train_ids, val_ids, test_ids, dropped_df)``:
+      - The three id lists are sorted, disjoint, and pairwise non-empty.
+        Empty pools raise.
+      - ``dropped_df`` has one row per isolate that matched no slot, with
+        identifier + metadata columns + ``excluded_reason`` (which filters
+        it failed to satisfy).
+
+    Raises ``ValueError`` on: missing required slot; multi-slot overlap;
+    empty pool after filtering; val carve too small for val_ratio.
+    """
+    # Structural validation: train/test required, val optional.
+    if 'train' not in holdout_cfg:
+        raise ValueError("metadata_holdout.train is required.")
+    if 'test' not in holdout_cfg:
+        raise ValueError("metadata_holdout.test is required.")
+    train_spec = _validate_holdout_filter_spec(holdout_cfg['train'], 'train')
+    test_spec = _validate_holdout_filter_spec(holdout_cfg['test'], 'test')
+    val_spec_raw = holdout_cfg.get('val')
+    explicit_val = val_spec_raw is not None
+    val_spec = _validate_holdout_filter_spec(val_spec_raw, 'val') if explicit_val else None
+
+    # Per-isolate metadata frame (one row per assembly_id, first observation).
+    meta_cols = ['assembly_id', 'hn_subtype', 'host', 'year']
+    if 'geo_location_clean' in df.columns:
+        meta_cols.append('geo_location_clean')
+    if 'passage' in df.columns:
+        meta_cols.append('passage')
+    meta_per_iso = df.groupby('assembly_id', as_index=False)[meta_cols[1:]].first()
+
+    # Apply filters per slot.
+    train_set = _isolates_matching_holdout_spec(meta_per_iso, train_spec)
+    test_set = _isolates_matching_holdout_spec(meta_per_iso, test_spec)
+    val_set = (
+        _isolates_matching_holdout_spec(meta_per_iso, val_spec) if explicit_val else set()
+    )
+
+    # Multi-slot overlap check. Each pair must be disjoint; report offenders.
+    def _overlap_msg(a_name: str, a_set: set, b_name: str, b_set: set) -> str:
+        common = sorted(a_set & b_set)
+        if not common:
+            return ''
+        head = common[:20]
+        more = f" (+ {len(common)-20:,} more)" if len(common) > 20 else ''
+        return (f"\n  {a_name} and {b_name} share {len(common):,} isolate(s): "
+                f"{head}{more}")
+
+    overlap_msgs = []
+    overlap_msgs.append(_overlap_msg('train', train_set, 'test', test_set))
+    if explicit_val:
+        overlap_msgs.append(_overlap_msg('train', train_set, 'val', val_set))
+        overlap_msgs.append(_overlap_msg('val', val_set, 'test', test_set))
+    overlap_msgs = [m for m in overlap_msgs if m]
+    if overlap_msgs:
+        raise ValueError(
+            "metadata_holdout: train/val/test filters yield overlapping "
+            "isolate sets -- the same isolate matches >1 slot, which would "
+            "leak across splits. Disambiguate the filter specs."
+            + ''.join(overlap_msgs)
+        )
+
+    # Val carving from train when val is implicit.
+    val_source = 'explicit_filter'
+    if not explicit_val:
+        val_source = 'carved_from_train'
+        if len(train_set) == 0:
+            raise ValueError(
+                f"metadata_holdout.train pool is empty under filter "
+                f"({_describe_holdout_spec(train_spec)}); cannot carve val from it."
+            )
+        n_val = int(round(len(train_set) * val_ratio))
+        if n_val < 1:
+            raise ValueError(
+                f"metadata_holdout: train pool has {len(train_set)} isolate(s); "
+                f"val_ratio={val_ratio} would carve 0. Either lower val_ratio, "
+                f"loosen the train filter, or pass an explicit val filter."
+            )
+        rng = np.random.RandomState(int(seed))
+        train_sorted = sorted(train_set)
+        idx = rng.permutation(len(train_sorted))
+        val_set = set(train_sorted[i] for i in idx[:n_val])
+        train_set = train_set - val_set
+
+    # Empty-pool tripwires (after the carve).
+    if len(train_set) == 0:
+        raise ValueError(
+            f"metadata_holdout.train pool is empty under filter "
+            f"({_describe_holdout_spec(train_spec)})."
+        )
+    if len(val_set) == 0:
+        raise ValueError(
+            "metadata_holdout.val pool is empty " + (
+                f"under filter ({_describe_holdout_spec(val_spec)})."
+                if explicit_val else "after carving from train."
+            )
+        )
+    if len(test_set) == 0:
+        raise ValueError(
+            f"metadata_holdout.test pool is empty under filter "
+            f"({_describe_holdout_spec(test_spec)})."
+        )
+
+    # Dropped-isolates manifest. One row per isolate not in any slot, with
+    # identifier + metadata columns + a short reason naming the offending
+    # axis(es) per slot.
+    assigned = train_set | val_set | test_set
+    dropped_iso = meta_per_iso[~meta_per_iso['assembly_id'].isin(assigned)].copy()
+    if len(dropped_iso) > 0:
+        train_desc = _describe_holdout_spec(train_spec)
+        test_desc = _describe_holdout_spec(test_spec)
+        val_desc = (_describe_holdout_spec(val_spec) if explicit_val
+                    else f'carved_from_train @ val_ratio={val_ratio}')
+        # Annotate which slots this isolate failed to match (None means it
+        # matched, str means it failed and the str names the slot's filter).
+        dropped_iso['matches_train'] = False
+        dropped_iso['matches_val'] = False
+        dropped_iso['matches_test'] = False
+        dropped_iso['excluded_reason'] = (
+            f"matched no slot. train={{{train_desc}}}; "
+            f"val={{{val_desc}}}; test={{{test_desc}}}."
+        )
+        if 'file' not in dropped_iso.columns:
+            # Attach file column from df if available (one file per assembly_id
+            # for Flu A; cheap groupby-first).
+            if 'file' in df.columns:
+                aid_to_file = df.groupby('assembly_id')['file'].first()
+                dropped_iso = dropped_iso.merge(
+                    aid_to_file.rename('file'), on='assembly_id', how='left'
+                )
+
+    train_ids = sorted(train_set)
+    val_ids = sorted(val_set)
+    test_ids = sorted(test_set)
+
+    print(f"\nmetadata_holdout: computed isolate partitions "
+          f"(train={len(train_ids):,}, val={len(val_ids):,} [{val_source}], "
+          f"test={len(test_ids):,}, dropped={len(dropped_iso):,})")
+    return train_ids, val_ids, test_ids, dropped_iso

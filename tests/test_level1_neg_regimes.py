@@ -48,8 +48,6 @@ from src.analysis.analyze_stage4_train import (
 #     each correctly predicted negative -> TNR = 1.0
 #   - 4 negatives in host_subtype_year, 1 correctly predicted neg ->
 #     TNR = 0.25 (the hardest regime, model fails)
-#   - 1 negative with a null axis -> unknown_metadata_neg, predicted neg ->
-#     TNR = 1.0
 #
 # Match-count rollup (Plot B):
 #   match_count_0 = 1 neg (none_match), TNR = 1.0
@@ -57,7 +55,10 @@ from src.analysis.analyze_stage4_train import (
 #   match_count_2 = 3 negs (host_subtype_only, host_year_only,
 #                           subtype_year_only), TNR = 1.0
 #   match_count_3 = 4 negs (host_subtype_year), TNR = 0.25
-#   unknown_metadata_neg = 1 neg, TNR = 1.0
+#
+# The legacy `unknown_metadata_neg` bucket was retired 2026-05-11 (null axes
+# now route into one of the 8 regimes via "null is no-match"); the synthetic
+# row that exercised it was removed.
 # ---------------------------------------------------------------------------
 
 # Known regime axis values for the 8 metadata-defined buckets. Each row is
@@ -79,8 +80,6 @@ _NEG_ROWS = [
     ('host_subtype_year',  'Human', 'Human', 'H3N2', 'H3N2', 2024, 2024, 1),
     ('host_subtype_year',  'Human', 'Human', 'H3N2', 'H3N2', 2024, 2024, 1),
     ('host_subtype_year',  'Human', 'Human', 'H3N2', 'H3N2', 2024, 2024, 1),
-    # one unknown-metadata-neg (null host on side B)
-    ('unknown_metadata_neg', 'Human', None, 'H3N2', 'H3N2', 2024, 2024, 0),
 ]
 # 4 positives, 3 predicted correctly -> TPR=0.75
 _POS_ROWS = [
@@ -104,7 +103,6 @@ def _make_predictions_df(with_sampler_columns: bool) -> pd.DataFrame:
         'host_only': 1, 'subtype_only': 1, 'year_only': 1,
         'host_subtype_only': 2, 'host_year_only': 2, 'subtype_year_only': 2,
         'host_subtype_year': 3,
-        'unknown_metadata_neg': pd.NA,
     }
 
     rows = []
@@ -175,7 +173,6 @@ def _check_level1_regimes(stats_df: pd.DataFrame, label: str):
         'host_year_only':      (1, None, 1.0),
         'subtype_year_only':   (1, None, 1.0),
         'host_subtype_year':   (4, None, 0.25),
-        'unknown_metadata_neg': (1, None, 1.0),
     }
     by_regime = stats_df.set_index('regime')
     for regime, (n_exp, tpr_exp, tnr_exp) in expected.items():
@@ -202,7 +199,6 @@ def _check_level1_agg(stats_df: pd.DataFrame, label: str):
         'match_count_1':         (3, None, 1.0),
         'match_count_2':         (3, None, 1.0),
         'match_count_3':         (4, None, 0.25),
-        'unknown_metadata_neg':  (1, None, 1.0),
     }
     by_bucket = stats_df.set_index('bucket')
     for bucket, (n_exp, tpr_exp, tnr_exp) in expected.items():

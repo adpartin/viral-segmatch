@@ -72,7 +72,7 @@ Key advances since Gen1:
 |------|----------|-------|
 | Baseline validation experiments | P1 | Embedding shuffle, mean embedding, swap-slot (see `docs/plans/baseline_validation_experiments_plan.md`) |
 | Cross-validation full run | P1 | Run N-fold CV for publication metrics |
-| Temporal holdout (train 2021-2023, test 2024) | P1 | Needs `year_train`/`year_test` config fields |
+| Temporal holdout (train 2021-2023, test 2024) | P1 | Use `dataset.metadata_holdout` (year_range). See `docs/plans/2026-05-11_metadata_holdout_plan.md`. |
 | Large dataset (full Flu A ~100K isolates) | P2 | HPC required (Polaris) |
 | K-mer + XGBoost/LightGBM | P2 | Tree-based classifier comparison |
 | Run embedding similarity analysis | P3 | Quantify embedding overlap |

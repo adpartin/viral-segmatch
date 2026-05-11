@@ -377,6 +377,13 @@ The dropped-parameter comment template applies at the top of this function.
 
 ### 4.8 `generate_temporal_split_v2`
 
+> **Historical note (2026-05-11):** This stub and the
+> `year_train`/`year_test` config keys were removed in favor of the more
+> general `dataset.metadata_holdout` mechanism (year-axis holdout is its
+> degenerate case). See `docs/plans/2026-05-11_metadata_holdout_plan.md`
+> for the replacement design. The text below is preserved as historical
+> design context.
+
 ```python
 def generate_temporal_split_v2(*args, **kwargs):
     raise NotImplementedError(
