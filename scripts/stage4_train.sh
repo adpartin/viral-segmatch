@@ -109,10 +109,6 @@ if [ $EXIT_CODE -eq 0 ] && [ "$SKIP_POSTPROCESSING" = false ]; then
         python src/analysis/analyze_stage4_train.py \
             --config_bundle "$CONFIG_BUNDLE" --model_dir "$ACTUAL_OUTPUT_DIR" \
             2>&1 | tee -a "$LOG_FILE" || echo "WARNING: analyze_stage4_train.py failed"
-
-        python src/analysis/create_presentation_plots.py \
-            --config_bundle "$CONFIG_BUNDLE" --model_dir "$ACTUAL_OUTPUT_DIR" \
-            2>&1 | tee -a "$LOG_FILE" || echo "WARNING: create_presentation_plots.py failed"
     else
         echo "WARNING: Could not detect output directory, skipping postprocessing"
     fi

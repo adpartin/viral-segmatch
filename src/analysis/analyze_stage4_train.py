@@ -121,6 +121,54 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     }
 
 
+def analyze_metrics_summary(metrics: dict, results_dir,
+                            save_name: str = 'metrics.png') -> None:
+    """Bar chart of headline binary classification metrics.
+
+    Five bars: F1 (binary), F1 (macro), AUC-ROC, AUC-PR, MCC. Drops
+    Accuracy (uninformative on class-imbalanced binary) and threshold-
+    independent ranking metrics that overlap with AUC.
+
+    Reads from a metrics dict (the return value of
+    ``compute_basic_metrics``) -- the caller is responsible for
+    computing it on the appropriate predictions (test_predicted.csv or
+    test_predicted_swapped.csv).
+
+    MCC lives in [-1, 1] but is non-negative for any reasonable model.
+    The y-axis is fixed at [0, 1.05] for visual parity with the [0,1]
+    metrics; a negative MCC bar would clip at the axis -- the printed
+    value-label still shows the true value.
+    """
+    metric_names = ['F1 (binary)', 'F1 (macro)', 'AUC-ROC', 'AUC-PR', 'MCC']
+    values = [
+        metrics['f1_score'],
+        metrics['f1_macro'],
+        metrics['auc_roc'],
+        metrics['avg_precision'],
+        metrics['mcc'],
+    ]
+    colors = ['#2E86AB', '#A23B72', '#6A4C93', '#F18F01', '#C73E1D']
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    bars = ax.bar(metric_names, values, color=colors, alpha=0.85, edgecolor='black')
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel('Score')
+    ax.set_title('Performance Metrics', fontsize=13, fontweight='bold')
+    for bar, value in zip(bars, values):
+        # Place the label just above the visible top of the bar; clip at 0 so
+        # negative values still get a label at axis level rather than off-canvas.
+        h = max(bar.get_height(), 0.0)
+        ax.text(bar.get_x() + bar.get_width() / 2.0, h + 0.01,
+                f'{value:.3f}', ha='center', va='bottom',
+                fontsize=10, fontweight='bold')
+    ax.grid(True, axis='y', alpha=0.3)
+    plt.tight_layout()
+    out = results_dir / save_name
+    plt.savefig(out, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved metrics summary plot to: {out}")
+
+
 def plot_confusion_matrix(y_true, y_pred, save_path=None, show_labels=True):
     """Plot confusion matrix with optional TP, TN, FP, FN labels and percentages."""
     cm = confusion_matrix(y_true, y_pred)
@@ -1758,10 +1806,29 @@ def main(config_bundle: str,
     metrics_df = pd.DataFrame([metrics])
     metrics_df.to_csv(results_dir / 'metrics.csv', index=False)
 
+    # Headline metrics bar chart -- replaces the old presentation-plots
+    # path (see deletion of src/analysis/create_presentation_plots.py).
+    analyze_metrics_summary(metrics, results_dir)
+
+    # Swap-test variant: only when the trainer also wrote
+    # test_predicted_swapped.csv (eval_swapped_test=True). Recompute basic
+    # metrics on the swapped predictions and emit a parallel bar chart so
+    # asymmetry vs the canonical orientation is visible at a glance.
+    swap_csv = models_dir / 'test_predicted_swapped.csv'
+    if swap_csv.exists():
+        swap_df = pd.read_csv(swap_csv)
+        swap_metrics = compute_basic_metrics(
+            swap_df['label'].values,
+            swap_df['pred_label'].values,
+            swap_df['pred_prob'].values,
+        )
+        analyze_metrics_summary(swap_metrics, results_dir,
+                                save_name='metrics_swapped.png')
+
     # Save segment metrics
     if 'segment_df' in locals():
         segment_df.to_csv(results_dir / 'segment_metrics.csv', index=False)
-    
+
     print(f'\nAnalysis complete! Results saved to: {results_dir}')
 
     # Key insights summary
