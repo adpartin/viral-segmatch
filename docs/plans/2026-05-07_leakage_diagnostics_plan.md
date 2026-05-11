@@ -24,7 +24,7 @@ experiments that does.
 |---|---|---|---|---|---|---|
 | 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 within-split + cross-split protein-pair dedup | ✅ within-split protein-pair dedup (v2 strict mode) + cross-split protein-pair dedup (`forbidden_pair_keys` threading) | ✅ Verified zero `pair_key` overlap across splits via v2 strict-mode assertion (enforced at construction time). |
 | 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) within a split. | v2 coverage phase (per-`dna_hash` per slot) + protein-level safety raise; Exp 1 split overlap stats (per-seq_type pos vs neg `n_unique`); `n_dna_uncovered` in `dataset_stats.json` | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot). ✅ DNA level (v2 coverage phase enforces ≥1 per `dna_hash` per slot; tight bundles emit `n_dna_uncovered` in `dataset_stats.json` and a WARNING). | Protein level: 0 imbalance on every dataset built. DNA level (HA/NA mixed, post-implementation `dataset_flu_ha_na_20260508_171512`): pos `n_unique` == neg `n_unique` on every `dna_hash` row (43,875 / 43,875 slot a; 41,799 / 41,799 slot b); `n_dna_uncovered` = 0 across all splits. |
-| 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ❌ Not yet — Exp 4 will add `seq_disjoint` and `strict_dedup` split modes. | ❌ Confirmed present (Exp 1, HA/NA mixed): ~25% `seq_hash` overlap and ~10% `dna_hash` overlap between train and val/test on slot a. |
+| 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ✅ `seq_disjoint` split mode landed 2026-05-11 (Exp 4a; `dataset.split_strategy.mode=seq_disjoint`). `strict_dedup` deliberately deferred — seq_disjoint achieves the same test with zero pair drops on HA/NA. | ✅ Mitigated. Re-train under seq_disjoint shows the MLP losing 3.8 pp on `host_subtype_year` TNR (0.872 → 0.834) while baselines barely move. MLP now falls **below** 1-NN on that regime (gap −0.014). See `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`. |
 | 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (1-NN baseline); Exp 3 (cosine deciles); Exp 4 (partial bound — handles exact-DNA case only); Exp 5 (mmseqs2 cluster splits) | ❌ Not yet — Exp 2/3/5 will quantify; mitigation depends on results. | ⚠️ Suggested but not formally measured. Anchor signal: median nearest-train PB1 cosine = 0.994. Awaiting Exp 2 (1-NN AUC) and Exp 3 (decile plot) for a formal verdict; Exp 5 for the strictest test. |
 | 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 3 cosine deciles | ❌ Not yet. Candidate mitigations: hard-negative mining (cheapest), adversarial / gradient-reversal training (DANN-style), Invariant Risk Minimization (IRM). Tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present: 30–50× FP-rate climb on match_count (HA/NA mixed, both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. |
 
@@ -199,6 +199,13 @@ Predicted: accuracy collapses on the lowest-cosine decile.
 ---
 
 ### Exp 4 — Sequence-disjoint and strict-dedup splits
+
+**Status (2026-05-11):** Exp 4a (`seq_disjoint`) IMPLEMENTED. See
+`docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md` for the
+implementation plan and `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`
+for results. Exp 4b (`strict_dedup`) deliberately deferred — seq_disjoint
+delivers the same scientific test with zero pair drops.
+
 
 **Why.** Direct test of sequence-level leakage (#3); partial bound
 on cluster leakage (#4). Both modes operate on **exact** `dna_hash`
