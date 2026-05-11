@@ -65,7 +65,7 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 |-------|--------|--------|------|
 | 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{version}/protein_final.csv` + `genome_final.csv` | Once |
 | 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
-| 3. Dataset | `src/datasets/dataset_segment_pairs.py` | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
+| 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → `dataset_segment_pairs_v2.py` (default builder since 2026-05-11) | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
 | 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
 
 Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`.
@@ -164,7 +164,7 @@ src/
 Priority experiments for publication:
 1. **Cross-validation** (N splits, mean ± std metrics) — needs `fold_id`/`n_folds` in dataset config + job array
 2. **Large dataset** (full Flu A, ~100K isolates) — HPC required (Polaris)
-3. **Temporal holdout** (train 2021–2023, test 2024) — `year_train`/`year_test` config fields
+3. **Temporal holdout** (train 2021–2023, test 2024) — use `dataset.metadata_holdout` under v2 (year-axis is the degenerate case). The legacy `year_train`/`year_test` keys were retired 2026-05-11.
 4. **Genome features** (k-mers + XGBoost/LightGBM, then GenSLM) — unified `preprocess_flu.py` now in production (emits `genome_final.csv` alongside `protein_final.csv`)
 5. **PB2/PB1 + H3N2 bundle** — trivial; one new bundle
 6. **Accuracy vs genetic distance** — needs clade metadata from BV-BRC
@@ -184,14 +184,19 @@ Priority experiments for publication:
 
 - `old_scripts/` — superseded by current stage scripts; see `old_scripts/README.md`
 - `src/preprocess/preprocess_bunya_protein.py` — Bunya preprocessing; see maintenance note in file
-- `conf/bundles/bunya.yaml` — Bunya experiment config; see maintenance note in file
+- `conf/bundles/bunya_base.yaml` — Bunya experiment config (renamed 2026-05-10 from `bunya.yaml`); see maintenance note in file
 
 ## What Is In Development (Not Yet Production)
 
 - `src/utils/dna_utils.py` — DNA sequence QC utilities
-- Temporal holdout split logic (`year_train`/`year_test`)
 
-Note: unified Flu preprocessing (`preprocess_flu.py`, protein + genome in one pass) was previously listed here; it is now in production and is the entry point invoked by `scripts/stage1_preprocess_flu.sh`.
+Note: unified Flu preprocessing (`preprocess_flu.py`) and the temporal-holdout
+mechanism were previously listed here. Preprocessing is in production (entry
+point: `scripts/stage1_preprocess_flu.sh`); the temporal-holdout `year_train` /
+`year_test` keys were retired 2026-05-11 in favor of the more general
+`dataset.metadata_holdout` (year-axis is its degenerate case, multi-axis
+cross-population holdouts are now first-class). See
+`docs/plans/done/2026-05-11_metadata_holdout_plan.md`.
 
 ---
 
