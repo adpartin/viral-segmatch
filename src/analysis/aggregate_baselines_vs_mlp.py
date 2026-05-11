@@ -10,7 +10,19 @@ MLP (no special-casing). Row labels are inferred from each run dir's
 training_info.json (`baseline` field for baselines; otherwise "MLP")
 unless --row_labels is provided.
 
-Usage:
+Usage (autodiscovery — preferred):
+    python src/analysis/aggregate_baselines_vs_mlp.py \\
+        --bundle flu_ha_na_seq_disjoint \\
+        --output_dir docs/results/baselines_vs_mlp_<bundle>_<TS>/
+
+    Picks the latest training_<bundle>_<TS> and baseline_<name>_<bundle>_<TS>
+    dirs under --runs_root (default: models/flu/July_2025/runs/), asserts
+    every picked run reports the same `dataset_dir` in training_info.json,
+    and uses canonical row order (MLP first, then logistic, lgbm,
+    knn1_margin, knn_vote). The bundle match is anchored: --bundle flu_ha_na
+    will NOT match training_flu_ha_na_seq_disjoint_*.
+
+Usage (explicit — for ad-hoc cross-bundle comparisons):
     python src/analysis/aggregate_baselines_vs_mlp.py \\
         --model_dirs \\
             models/.../baseline_logistic_<bundle>_<TS>/ \\
@@ -18,8 +30,8 @@ Usage:
             models/.../baseline_knn1_margin_<bundle>_<TS>/ \\
             models/.../baseline_knn_vote_<bundle>_<TS>/ \\
             models/.../training_<bundle>_<TS>/ \\
-        --row_labels "Logistic Regression,LightGBM,1-NN (margin),k-NN (k=5),MLP" \\
-        --output_dir results/.../baselines_vs_mlp_<TS>/
+        --row_labels "Logistic Regression" "LightGBM" "1-NN (margin)" "k-NN (k=5)" "MLP" \\
+        --output_dir docs/results/baselines_vs_mlp_<TS>/
 
 Outputs (under --output_dir):
     baselines_vs_mlp_heatmap.png
@@ -36,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -43,6 +56,23 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+# Autodiscovery: canonical row order. Any baseline outside this list is
+# appended alphabetically after the known ones (so a new baseline doesn't
+# silently fall off the heatmap).
+_BASELINE_CANONICAL_ORDER = ('logistic', 'lgbm', 'knn1_margin', 'knn_vote')
+
+# training_<bundle>_<YYYYMMDD>_<HHMMSS> -- the bundle can contain underscores
+# (e.g., flu_ha_na_seq_disjoint) and the suffix is the fixed-format timestamp.
+# Anchored so 'training_flu_ha_na_*' does NOT accidentally match
+# 'training_flu_ha_na_seq_disjoint_*' and vice versa.
+_TRAINING_DIR_RE = re.compile(r'^training_(?P<bundle>.+)_(?P<ts>\d{8}_\d{6})$')
+# baseline_<baseline_name>_<bundle>_<TS>. baseline_name is greedy from the
+# canonical list to handle multi-token names like 'knn1_margin' / 'knn_vote'.
+_BASELINE_NAME_PATTERN = '|'.join(re.escape(b) for b in _BASELINE_CANONICAL_ORDER)
+_BASELINE_DIR_RE = re.compile(
+    rf'^baseline_(?P<name>{_BASELINE_NAME_PATTERN})_(?P<bundle>.+)_(?P<ts>\d{{8}}_\d{{6}})$'
+)
 
 # Add project root to sys.path (kept consistent with sibling analysis scripts)
 project_root = Path(__file__).resolve().parents[2]
@@ -214,18 +244,137 @@ def _render_heatmap(values: pd.DataFrame, col_n: pd.Series, output_path: Path,
     print(f"Saved heatmap to: {output_path}")
 
 
+def _autodiscover_dirs(runs_root: Path, bundle: str
+                       ) -> tuple[list[Path], list[str], str]:
+    """Find the latest training_ + baseline_ runs for a bundle.
+
+    Anchored bundle match (the regex requires `bundle` to occupy the full
+    middle slot between the prefix and the timestamp), so this will NOT
+    pick up sibling bundles whose names share a prefix:
+      e.g. `--bundle flu_ha_na` does not match
+      `training_flu_ha_na_seq_disjoint_20260511_001322`.
+
+    For each baseline type, picks the latest-timestamp run. For MLP,
+    same. Cross-checks that every picked run's `training_info.json` reports
+    the same `dataset_dir` -- otherwise refuses to aggregate.
+
+    Returns (model_dirs, row_labels, shared_dataset_dir).
+    """
+    if not runs_root.exists():
+        raise FileNotFoundError(f"--runs_root does not exist: {runs_root}")
+
+    training_candidates: list[tuple[str, Path]] = []
+    baseline_candidates: dict[str, list[tuple[str, Path]]] = {}
+    for sub in runs_root.iterdir():
+        if not sub.is_dir():
+            continue
+        m_t = _TRAINING_DIR_RE.match(sub.name)
+        if m_t and m_t.group('bundle') == bundle:
+            training_candidates.append((m_t.group('ts'), sub))
+            continue
+        m_b = _BASELINE_DIR_RE.match(sub.name)
+        if m_b and m_b.group('bundle') == bundle:
+            baseline_candidates.setdefault(m_b.group('name'), []).append(
+                (m_b.group('ts'), sub)
+            )
+
+    if not training_candidates and not baseline_candidates:
+        raise FileNotFoundError(
+            f"No training_{bundle}_*  or  baseline_<name>_{bundle}_*  dirs found "
+            f"under {runs_root}. Check --bundle and --runs_root."
+        )
+
+    # Pick latest per kind.
+    mlp_dir: Optional[Path] = None
+    if training_candidates:
+        training_candidates.sort()
+        mlp_dir = training_candidates[-1][1]
+    baseline_dirs: dict[str, Path] = {}
+    for bname, lst in baseline_candidates.items():
+        lst.sort()
+        baseline_dirs[bname] = lst[-1][1]
+
+    # Row order: MLP first, then canonical baseline order (skipping absent),
+    # then any extras alphabetical (won't happen with the current registry but
+    # future-proofs against a new baseline that isn't in
+    # _BASELINE_CANONICAL_ORDER yet).
+    model_dirs: list[Path] = []
+    row_labels: list[str] = []
+    if mlp_dir is not None:
+        model_dirs.append(mlp_dir)
+        row_labels.append('MLP')
+    for bname in _BASELINE_CANONICAL_ORDER:
+        if bname in baseline_dirs:
+            model_dirs.append(baseline_dirs[bname])
+            row_labels.append(bname)
+    extras = sorted(set(baseline_dirs.keys()) - set(_BASELINE_CANONICAL_ORDER))
+    for bname in extras:
+        model_dirs.append(baseline_dirs[bname])
+        row_labels.append(bname)
+
+    # Cross-check provenance: every run must point at the same Stage-3 dataset.
+    dataset_dirs: dict[str, str] = {}
+    for d in model_dirs:
+        info = d / 'training_info.json'
+        if not info.exists():
+            raise FileNotFoundError(
+                f"Missing training_info.json in {d}; cannot validate provenance "
+                f"for autodiscovered run."
+            )
+        try:
+            ds = json.loads(info.read_text()).get('dataset_dir')
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Corrupt training_info.json in {d}: {e}")
+        if ds is None:
+            raise ValueError(
+                f"training_info.json in {d} has no 'dataset_dir' field; refusing "
+                f"to aggregate without provenance."
+            )
+        dataset_dirs[d.name] = ds
+
+    unique = set(dataset_dirs.values())
+    if len(unique) > 1:
+        msg = ["Autodiscovered runs disagree on dataset_dir; refusing to aggregate:"]
+        for n, ds in dataset_dirs.items():
+            msg.append(f"  {n}\n      dataset_dir={ds}")
+        msg.append("Pass --model_dirs explicitly to override.")
+        raise ValueError("\n".join(msg))
+    shared = next(iter(unique))
+
+    print(f"\nAutodiscovered {len(model_dirs)} run(s) for bundle={bundle!r}:")
+    print(f"  shared dataset_dir: {shared}")
+    for label, d in zip(row_labels, model_dirs):
+        ts = d.name.rsplit('_', 2)
+        ts_str = f"{ts[-2]}_{ts[-1]}"
+        print(f"  {label:<14s}  TS={ts_str}  {d.name}")
+    return model_dirs, row_labels, shared
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Aggregate per-regime TPR/TNR across MLP + baseline runs into a heatmap.'
     )
-    parser.add_argument('--model_dirs', type=str, nargs='+', required=True,
-                        help='One or more model run directories. Each must contain '
+    # Discovery mode: either supply --bundle (autodiscover the latest runs) or
+    # --model_dirs (explicit list). Exactly one of the two must be set.
+    parser.add_argument('--bundle', type=str, default=None,
+                        help='Bundle name (e.g., flu_ha_na_seq_disjoint). When set, '
+                             'autodiscovers the latest training_<bundle>_<TS> and '
+                             'baseline_<name>_<bundle>_<TS> dirs under --runs_root, '
+                             'and cross-checks that all picked runs share the same '
+                             'dataset_dir (refuses to aggregate otherwise). Mutually '
+                             'exclusive with --model_dirs.')
+    parser.add_argument('--runs_root', type=str,
+                        default='models/flu/July_2025/runs',
+                        help='Root dir under which to search for training_*/baseline_* '
+                             'subdirs (default: models/flu/July_2025/runs).')
+    parser.add_argument('--model_dirs', type=str, nargs='+', default=None,
+                        help='Explicit run directories (one or more). Each must contain '
                              'post_hoc/level1_neg_regimes.csv. Order = top-to-bottom row '
-                             'order of the heatmap.')
+                             'order of the heatmap. Mutually exclusive with --bundle.')
     parser.add_argument('--row_labels', type=str, nargs='+', default=None,
                         help='Optional row labels (one arg per label; quote labels that '
                              'contain spaces). Overrides auto-inference from '
-                             'training_info.json. Length must match --model_dirs.')
+                             'training_info.json.')
     parser.add_argument('--output_dir', type=str, required=True,
                         help='Where to write baselines_vs_mlp_heatmap.png and '
                              'baselines_vs_mlp.csv.')
@@ -234,20 +383,37 @@ def main() -> None:
                              'a default caption flagging featurization parity is used.')
     args = parser.parse_args()
 
-    model_dirs = [Path(p) for p in args.model_dirs]
-    for d in model_dirs:
-        if not d.exists():
-            raise FileNotFoundError(f"Model dir not found: {d}")
+    if (args.bundle is None) == (args.model_dirs is None):
+        parser.error('Exactly one of --bundle or --model_dirs must be set.')
 
-    if args.row_labels:
-        row_labels = list(args.row_labels)
-        if len(row_labels) != len(model_dirs):
-            raise ValueError(
-                f"--row_labels has {len(row_labels)} entries; "
-                f"--model_dirs has {len(model_dirs)}."
-            )
+    shared_dataset_dir: Optional[str] = None
+    if args.bundle is not None:
+        model_dirs, auto_labels, shared_dataset_dir = _autodiscover_dirs(
+            Path(args.runs_root), args.bundle
+        )
+        if args.row_labels:
+            row_labels = list(args.row_labels)
+            if len(row_labels) != len(model_dirs):
+                raise ValueError(
+                    f"--row_labels has {len(row_labels)} entries but "
+                    f"autodiscovery found {len(model_dirs)} runs."
+                )
+        else:
+            row_labels = auto_labels
     else:
-        row_labels = [_infer_row_label(d) for d in model_dirs]
+        model_dirs = [Path(p) for p in args.model_dirs]
+        for d in model_dirs:
+            if not d.exists():
+                raise FileNotFoundError(f"Model dir not found: {d}")
+        if args.row_labels:
+            row_labels = list(args.row_labels)
+            if len(row_labels) != len(model_dirs):
+                raise ValueError(
+                    f"--row_labels has {len(row_labels)} entries; "
+                    f"--model_dirs has {len(model_dirs)}."
+                )
+        else:
+            row_labels = [_infer_row_label(d) for d in model_dirs]
 
     print(f'Aggregating {len(model_dirs)} model run(s):')
     for label, d in zip(row_labels, model_dirs):
@@ -270,6 +436,11 @@ def main() -> None:
         "LayerNorm before concat; baselines apply each model's natural "
         "feature_scaling (StandardScaler for LR; none for LightGBM and k-NN)."
     )
+    if shared_dataset_dir is not None:
+        default_caption = (
+            f"Bundle: {args.bundle}. Shared dataset: {Path(shared_dataset_dir).name}. "
+            + default_caption
+        )
     caption = args.caption if args.caption is not None else default_caption
 
     png_path = output_dir / 'baselines_vs_mlp_heatmap.png'
