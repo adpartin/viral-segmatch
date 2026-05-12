@@ -194,7 +194,7 @@ See [`conf/bundles/README.md`](conf/bundles/README.md) for the full list and bun
    - Script: `./scripts/stage4_train.sh {bundle} --cuda_name cuda:X --dataset_dir {path}`
    - Provenance tracked in `training_info.json` saved to the training output directory
 
-*For detailed pipeline overview, see [Pipeline Overview](documentation/pipeline-overview.md)*
+*For the detailed pipeline overview, see [docs/methods/pipeline_overview.md](docs/methods/pipeline_overview.md).*
 
 ## 🧬 Supported Viruses
 
@@ -204,15 +204,11 @@ See [`conf/bundles/README.md`](conf/bundles/README.md) for the full list and bun
 ## 📈 Analysis Tools
 
 ```bash
-# Comprehensive results analysis (automatically finds latest training run)
-python src/analysis/analyze_stage4_train.py --config_bundle flu_schema_raw_slot_norm_unit_diff
+# Per-run analysis (autodiscovers the latest training run for a bundle)
+python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na
 
-# Or specify model directory explicitly
-python src/analysis/analyze_stage4_train.py --config_bundle flu_schema_raw_slot_norm_unit_diff \
-    --model_dir models/flu/July_2025/runs/training_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS
-
-# Presentation-ready plots
-python src/analysis/create_presentation_plots.py --config_bundle flu_schema_raw_slot_norm_unit_diff
+# Cross-model heatmap: MLP vs sklearn baselines, per metadata regime
+python src/analysis/aggregate_baselines_vs_mlp.py --bundle flu_ha_na
 ```
 
 *For detailed analysis guide, see [Results Analysis](documentation/analysis/results-analysis.md)*
@@ -220,9 +216,8 @@ python src/analysis/create_presentation_plots.py --config_bundle flu_schema_raw_
 ## 📚 Documentation
 
 ### User Guides (`documentation/`)
-- **[Quick Start Guide](documentation/quick-start.md)** - Complete setup and usage
-- **[Pipeline Overview](documentation/pipeline-overview.md)** - Understanding the 4-stage pipeline
-- **[Configuration Guide](documentation/configuration.md)** - Configuration overview
+- **[Installation](documentation/installation.md)** - Environment setup and dependencies
+- **[Quick Start Guide](documentation/quick-start.md)** - Complete setup and first run
 - **[Troubleshooting](documentation/troubleshooting.md)** - Common issues and solutions
 - **[Results Analysis](documentation/analysis/results-analysis.md)** - Understanding model performance
 
@@ -258,7 +253,6 @@ Protein conservation directly impacts model performance:
 ## 🛠️ Development
 
 - **Code Structure**: See [Code Structure](documentation/development/code-structure.md)
-- **Model Improvements**: See [Model Improvements](documentation/model-improvements.md)
 - **Adding New Viruses**: See [Configuration Guide](docs/conf_guide.md#creating-a-new-experiment)
 
 ## 📄 License

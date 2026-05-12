@@ -610,7 +610,7 @@ If missing, run:
 - **`docs/methods/`** - Methods reference docs (preprocess, k-mer features, leakage definitions, feature normalization, GTO format)
 
 ### User Guides (`documentation/`)
-- **`documentation/quick-start.md`** - Get started quickly
-- **`documentation/pipeline-overview.md`** - Understanding the 4-stage pipeline
+- **`documentation/quick-start.md`** - End-to-end first run
+- **`documentation/installation.md`** - Environment setup
 - **`documentation/troubleshooting.md`** - Common issues and solutions
 

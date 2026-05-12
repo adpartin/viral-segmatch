@@ -437,7 +437,7 @@ Same data preprocessing, different model initializations.
 
 ### User Guides (`documentation/`)
 - **Quick Start:** [`../documentation/quick-start.md`](../documentation/quick-start.md) - Get started quickly
-- **Configuration:** [`../documentation/configuration.md`](../documentation/configuration.md) - Configuration overview
+- **User guides:** [`../documentation/`](../documentation/) - quick-start, installation, troubleshooting
 
 ### Implementation
 - **`src/utils/seed_utils.py`** - Seed resolution and setting functions
