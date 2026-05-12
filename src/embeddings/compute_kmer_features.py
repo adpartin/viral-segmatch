@@ -48,16 +48,22 @@ total_timer = Timer()
 # Core k-mer functions
 # =============================================================================
 
-def build_kmer_vocabulary(k: int) -> list[str]:
-    """Return sorted list of all 4^k k-mers (ACGT alphabet)."""
-    return [''.join(bases) for bases in product('ACGT', repeat=k)]
+def build_kmer_vocabulary(k: int, alphabet: str = 'ACGT') -> list[str]:
+    """Return sorted list of all len(alphabet)^k k-mers over `alphabet`."""
+    return [''.join(bases) for bases in product(alphabet, repeat=k)]
 
 
-def compute_kmer_counts(seq: str, k: int) -> Counter:
-    """Count k-mers in *seq*, skipping windows that contain non-ACGT characters."""
+def compute_kmer_counts(seq: str, k: int, alphabet: str = 'ACGT') -> Counter:
+    """Count k-mers in *seq*, skipping any window with a character outside `alphabet`.
+
+    The sequence is uppercased before scanning, so `alphabet` should be
+    uppercase (canonical DNA 'ACGT' or canonical 20-AA protein
+    'ACDEFGHIKLMNPQRSTVWY'). Gaps, IUPAC ambiguity codes, and any other
+    non-alphabet character disqualify the containing k-mer.
+    """
     counts = Counter()
     seq_upper = seq.upper()
-    valid = set('ACGT')
+    valid = set(alphabet)
     for i in range(len(seq_upper) - k + 1):
         kmer = seq_upper[i:i + k]
         if all(c in valid for c in kmer):
@@ -69,43 +75,78 @@ def sequences_to_sparse_kmer_matrix(
     sequences: list[str],
     k: int,
     normalize: str = 'none',
+    alphabet: str = 'ACGT',
     ) -> sparse.csr_matrix:
-    """Convert a list of DNA sequences to a sparse CSR k-mer count matrix.
+    """Convert a list of biological sequences to a sparse CSR k-mer count matrix.
 
-    Each sequence becomes one row. Each column corresponds to one of the 4^k
-    possible k-mers (sorted lexicographically: AAA...A, AAA...C, ..., TTT...T).
-    Cell values are raw occurrence counts (before normalization).
+    Each sequence becomes one row. Columns enumerate **all** ``len(alphabet)^k``
+    possible k-mers, sorted lexicographically (e.g., for DNA k=3:
+    AAA, AAC, AAG, ..., TTT). Cell values are raw occurrence counts before
+    optional normalization.
 
-    Example (k=2, vocab = [AA, AC, AG, AT, CA, CC, ..., TT] — 16 columns):
+    Why a fixed ``len(alphabet)^k`` vocabulary (vs data-driven from observed k-mers):
+      Columns are aligned across runs, datasets, and splits with zero
+      handshake. Two matrices computed at different times can be merged
+      row-wise or compared column-by-column without remapping. The cost is
+      that unobserved-k-mer columns hold zeros — but CSR makes that
+      essentially free (only non-zero cells occupy memory). The alternative
+      (only columns for observed k-mers) is smaller per matrix but breaks
+      cross-dataset alignment.
 
+    Why float32 cells:
+      - int8 overflows at 127; common k-mers in long sequences can exceed
+        that. int16 would be safe for raw counts.
+      - Normalization (``'l1'``, ``'l2'``) produces fractional values, so
+        float is required regardless. Picking float32 up front avoids a
+        dtype switch later.
+      - Downstream consumers (sklearn, LightGBM, scipy) expect float
+        matrices; conversion would happen anyway.
+      - Storage: CSR only counts non-zeros, so the 4-byte/cell vs
+        2-byte/cell delta vs int16 is negligible at our scale.
+
+    Alphabet (DNA vs protein):
+      - DNA (default ``'ACGT'``): 4^k columns. Standard for genome k-mers.
+      - Protein (canonical 20-AA: ``'ACDEFGHIKLMNPQRSTVWY'``): 20^k columns.
+        Practical only up to k≈4 (160K cols). At k=5 (3.2M cols) the
+        exhaustive vocabulary becomes expensive to build (Python iteration
+        over ``product``) and the matrix gains many always-zero columns;
+        observed-vocabulary or feature-hashing approaches are more
+        appropriate at that scale.
+      Custom alphabets should be uppercase (sequences are uppercased
+      internally). Duplicate characters or empty alphabet → ValueError.
+
+    Example (DNA, k=2, vocab = [AA, AC, AG, AT, ..., TT] — 16 columns):
         sequences = ["AACG", "TTAC"]
-
-        "AACG" has 2-mers: AA(1), AC(1), CG(1)  ->  [1,1,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0]
-        "TTAC" has 2-mers: TT(1), TA(1), AC(1)  ->  [0,1,0,0, 0,0,0,0, 0,0,0,0, 1,0,1,1]
-
+        "AACG" 2-mers: AA(1), AC(1), CG(1)  ->  [1,1,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0]
+        "TTAC" 2-mers: TT(1), TA(1), AC(1)  ->  [0,1,0,0, 0,0,0,0, 0,0,0,0, 1,0,1,1]
         Output matrix shape: (2, 16) — 2 sequences x 4^2 k-mers
 
-    For the actual pipeline (k=6): each row has 4^6 = 4096 columns. Most cells
-    are zero (a ~2 kb flu segment has ~2000 6-mers out of 4096 possible), so a
-    sparse representation is efficient.
-
     Args:
-        sequences: list of DNA strings
-        k: k-mer size (default 6 -> 4096-dim; k=10 -> 1M-dim, must be sparse)
-        normalize: 'none' (raw counts), 'l1' (row sums to 1), 'l2' (unit L2 norm)
+        sequences: list of biological sequence strings (uppercased internally).
+        k: k-mer size. For DNA: k=6 -> 4096-dim; k=10 -> 1M-dim (sparse only).
+            For protein: k=3 -> 8000-dim; k=4 -> 160K-dim (sparse strongly
+            recommended beyond k=4).
+        normalize: 'none' (raw counts), 'l1' (row sums to 1), 'l2' (unit L2).
+        alphabet: characters defining the vocabulary; default ``'ACGT'`` (DNA).
+            For canonical protein k-mers pass ``'ACDEFGHIKLMNPQRSTVWY'``.
 
     Returns:
-        scipy CSR matrix of shape (len(sequences), 4^k)
+        scipy CSR matrix of shape (len(sequences), len(alphabet) ** k).
     """
-    # Build vocabulary: sorted list of all 4^k k-mers and their column indices
-    vocab = build_kmer_vocabulary(k)
+    if not alphabet:
+        raise ValueError("alphabet must be non-empty")
+    if len(set(alphabet)) != len(alphabet):
+        raise ValueError(f"alphabet has duplicate characters: {alphabet!r}")
+
+    # Build vocabulary: sorted list of all |alphabet|^k k-mers and their column indices.
+    vocab = build_kmer_vocabulary(k, alphabet=alphabet)
     kmer_to_idx = {kmer: i for i, kmer in enumerate(vocab)}
     vocab_size = len(vocab)
 
     # Accumulate COO-format triplets (row, col, value) for sparse matrix construction
     rows, cols, data = [], [], []
     for row_i, seq in enumerate(tqdm(sequences, desc=f'Computing {k}-mer counts')):
-        counts = compute_kmer_counts(seq, k)
+        counts = compute_kmer_counts(seq, k, alphabet=alphabet)
         for kmer, cnt in counts.items():
             if kmer in kmer_to_idx:
                 rows.append(row_i)              # sequence index
