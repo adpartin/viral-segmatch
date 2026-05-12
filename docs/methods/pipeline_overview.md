@@ -66,24 +66,25 @@ Four stages, two run-once-per-dataset (1, 2) and two per-experiment
 | Stage | Script | Output | Cost |
 |---|---|---|---|
 | 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{ver}/protein_final.csv` + `genome_final.csv` (one row per protein / contig) | Run once per data version |
-| 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` (+ k-mer Stage 2b) | `master_esm2_embeddings.h5` (1280-dim per protein) and/or `kmer_features_k6_*` | Run once per data version |
-| 3. Dataset (pair construction) | `src/datasets/dataset_segment_pairs.py` | `data/datasets/flu/{ver}/runs/dataset_<bundle>_<TS>/{train,val,test}_pairs.{csv,parquet}` plus stats / manifests | Per experiment (~minutes on full Flu A) |
+| 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` (+ k-mer Stage 2b: `src/embeddings/compute_kmer_features.py`) | `master_esm2_embeddings.h5` (1280-dim per protein) and/or `kmer_features_k6_*` | Run once per data version |
+| 3. Dataset (pair construction) | `src/datasets/dataset_segment_pairs.py` (CLI) → dispatches to `dataset_segment_pairs_v2.py` (default since 2026-05-11) | `data/datasets/flu/{ver}/runs/dataset_<bundle>_<TS>/{train,val,test}_pairs.{csv,parquet}` plus stats / manifests | Per experiment (~minutes on full Flu A) |
 | 4. Train | `src/models/train_pair_classifier.py` (MLP) and `src/models/train_pair_baselines.py` (sklearn baselines) | `models/flu/{ver}/runs/training_<bundle>_<TS>/{best_model.pt,test_predicted.csv,post_hoc/}` | Per experiment, per model |
 
 Configuration is **Hydra bundle-per-experiment**: one YAML under
 `conf/bundles/<bundle>.yaml` fully specifies an experiment. Bundles
-inherit from a chain of base configs (see
-`conf/bundles/README.md`).
+inherit from a chain of base configs (see `conf/bundles/README.md`).
 
-**See also**: `docs/methods/kmer_features.md` for stage 2b (k-mer
-counting); `docs/SEED_SYSTEM.md` for reproducibility seeding.
+**See also**: `docs/methods/preprocess.md` (stage 1 detail);
+`docs/gto_format_reference.md` (input GTO schema);
+`docs/methods/kmer_features.md` (stage 2b k-mer pipeline);
+`docs/SEED_SYSTEM.md` (reproducibility seeding).
 
 ---
 
 ## 4. Filtering and isolate sampling
 
 Stage 3 narrows the per-isolate dataframe in this fixed order before
-pair construction (see `dataset_segment_pairs.py:1503-1599`):
+pair construction:
 
 1. **Metadata enrichment** — joins host, year, hn_subtype, geo_location,
    passage from the parsed metadata.
@@ -123,13 +124,15 @@ The dedup rate depends on protein conservation:
 | PB2 / PB1 | ~51% dropped | Internal RdRp subunits under purifying selection → conserved → many isolates share the same protein-level pair |
 
 So a fixed isolate pool produces fewer positive pairs for conserved
-schema pairs than for diverse ones. Numerical example from the
-metadata-aware regime bundles (108,530 starting isolates):
+schema pairs than for diverse ones. Numerical example from the current
+production builds (`dataset_flu_ha_na_20260512_*` /
+`dataset_flu_pb2_pb1_20260512_*`, 108,530 starting isolates,
+`seq_disjoint` routing with `hash_key=seq`):
 
-| Schema pair | unique positive pair_keys |
+| Schema pair | unique positive pair_keys (train + val + test) |
 |---|---|
-| HA / NA | 58,826 |
-| PB2 / PB1 | 53,078 |
+| HA / NA | 58,388 |
+| PB2 / PB1 | 52,657 |
 
 ### 5.2 Negative pairs
 
@@ -145,10 +148,13 @@ Sampled across isolates with three guarantees:
    ≥1 negative pair. Without this, a sequence could end up
    "positive-only" and the model would learn to memorize "I've seen
    this protein → predict 1" — sequence-level label imbalance.
-3. **Regime mix** (opt-in): per-bundle target distribution over 9
-   mutually-exclusive metadata-match regimes (`none_match`,
-   `host_only`, ..., `host_subtype_year`, `unknown_metadata_neg`). See
-   §5.3.
+3. **Regime mix** (opt-in): per-bundle target distribution over 8
+   mutually-exclusive metadata-match regimes (`none_match`, `host_only`,
+   `subtype_only`, `year_only`, `host_subtype_only`, `host_year_only`,
+   `subtype_year_only`, `host_subtype_year`). See §5.3. (The legacy 9th
+   regime `unknown_metadata_neg` was retired 2026-05-11; null on any
+   metadata axis now classifies as no-match on that axis via the
+   existing 8-tuple mapping.)
 
 The sampler runs in two phases per split:
 - **Coverage phase** (regime-blind): walks every (slot, dna_hash) target
@@ -165,7 +171,7 @@ the regime mix is whatever coverage yields naturally. Setting
 `neg_to_pos_ratio: 2.0` (rather than 1.0) gives the regime-aware fill
 phase room to work.
 
-### 5.3 The 9 metadata-match regimes
+### 5.3 The 8 metadata-match regimes
 
 For each candidate negative `(isolate_i, isolate_j)`, classify by
 whether the host, hn_subtype, and year_bin axes match between the two
@@ -177,7 +183,6 @@ sides:
 | `host_only` / `subtype_only` / `year_only` | exactly one axis matches | one shortcut |
 | `host_subtype_only` / `host_year_only` / `subtype_year_only` | exactly two axes match | two shortcuts |
 | `host_subtype_year` | all three match | hardest — model must use sequence content |
-| `unknown_metadata_neg` | ≥1 axis is null on either side | catch-all |
 
 Why this taxonomy? Earlier work (`docs/results/2026-05-07_metadata_shortcut_negatives.md`)
 showed FP rate climbs **30–50× from `none_match` to `host_subtype_year`**
@@ -196,12 +201,19 @@ taxonomy this fits into).
 
 ### How the split is formed
 
-- **Isolate-disjoint by construction** (`hard_partition_isolates: true`,
-  hard-coded in v2). Train and val/test never share an isolate.
+- **Isolate-disjoint by construction** (`hard_partition_isolates: true`
+  in `conf/dataset/default.yaml`, enforced by v2). Train and val/test
+  never share an isolate.
+- **Routing within the isolate-disjoint partition** is controlled by
+  `dataset.split_strategy.mode`. As of 2026-05-11 the production
+  default for `flu_ha_na` and `flu_pb2_pb1` is **`seq_disjoint`** with
+  `hash_key: seq` — positives are routed so no `seq_hash` appears in
+  two splits. This is strictly stronger than isolate-disjoint and
+  eliminates mode #3 sequence-level leakage by construction (see
+  `docs/methods/leakage_definitions.md`).
 - Default ratio: 80 / 10 / 10 (`dataset.train_ratio` / `val_ratio`).
-- Isolate-level partition first, then per-split positive + negative
-  generation. The same `pair_key` cannot appear in two splits
-  (cross-split overlap is detected and would raise).
+- The same `pair_key` cannot appear in two splits (cross-split overlap
+  is detected and would raise).
 
 ### What the regime sampler does to per-split balance
 
@@ -222,17 +234,28 @@ no per-split override. Practical effects:
 
 ### Resulting label balance
 
-For a typical regime-aware run on full Flu A (HA/NA, neg_to_pos=2):
+Current production HA/NA regime-aware build
+(`dataset_flu_ha_na_regimes_20260512_114205`,
+`neg_to_pos_ratio: 2.0`, verified from `dataset_stats.json`):
 
 ```
-train: 141,180 pairs  (pos 47,060, neg 94,120, ratio 2.0)
-val  :  17,649 pairs  (pos  5,883, neg 11,766, ratio 2.0)
-test :  17,649 pairs  (pos  5,883, neg 11,766, ratio 2.0)
+train: 140,130 pairs  (pos 46,710, neg 93,420, ratio 2.0)
+val  :  17,517 pairs  (pos  5,839, neg 11,678, ratio 2.0)
+test :  17,517 pairs  (pos  5,839, neg 11,678, ratio 2.0)
 ```
+
+PB2/PB1 equivalent (`dataset_flu_pb2_pb1_regimes_20260512_114204`):
+train 126,375 / val 15,798 / test 15,798 (same 2.0 ratio).
+
+Non-regime bundles (`flu_ha_na`, `flu_pb2_pb1`) use
+`neg_to_pos_ratio: 2.0` as well (set 2026-05-12); achieved neg ratios
+drift slightly above 2.0 in val/test because the coverage phase
+overshoots `requested_negatives` to honor the per-sequence coverage
+minimum.
 
 Negative composition by regime is in `negative_regime_manifest.csv`
 (per split). For metric reporting we don't reweight by regime; the
-analyzer instead reports per-regime TPR / TNR explicitly (§8).
+analyzer instead reports per-regime TPR / TNR explicitly (§9).
 
 **See also**: `docs/methods/leakage_definitions.md` (modes #1 and #2);
 `split_overlap_stats.csv` in every Stage 3 output (per-split unique
@@ -255,33 +278,26 @@ Two `feature_source` options:
 
 ### 7.2 K-mers (`feature_source: kmer`, currently active)
 
-- k = 6 nucleotide k-mers, **4096-dim per slot**, **raw integer
-  counts**, no normalization at materialization time.
-- Sparse storage on disk (CSR), densified per-batch at training time.
+- k = 6 nucleotide k-mers, **4,096-dim per slot**, raw integer counts,
+  no normalization at materialization time. Storage is sparse CSR
+  (1.78 GB on disk for 868,240 segments), densified per-batch at
+  training time.
+- The same `compute_kmer_features.py` machinery also supports protein
+  k-mers via an `alphabet` parameter (added 2026-05-12); no active
+  bundle uses this path yet.
+- Per-slot transform applied at training time (in the MLP) and at
+  feature-materialization time (in `get_kmer_pair_features`, for k-NN
+  baselines): **`unit_norm`** (parameter-free L2 row-norm) in current
+  HA/NA & PB2/PB1 production. The older gen-3 bundles used `slot_norm`
+  (learnable per-slot LayerNorm). LightGBM is scale-invariant and uses
+  none; LR uses `StandardScaler` (linear model, scale matters for L2
+  regularization).
 
-**Why no normalization?** Three intersecting reasons:
-
-1. K-mer counts depend on segment length (longer segment → more
-   k-mers), which encodes a real biological signal but also a
-   length-confound.
-2. The MLP path applies per-slot **LayerNorm** before concatenation
-   (`slot_transform: slot_norm`, learnable γ/β). This per-row
-   standardization removes the gross magnitude differences without
-   destroying the directional information.
-3. The k-NN baselines use **cosine** distance, which already
-   normalizes vector lengths internally inside the distance formula.
-   Per-feature `StandardScaler` would actively distort the count
-   geometry (would make non-negative count vectors signed; would
-   amplify rare k-mers like an implicit TF-IDF).
-
-For LR specifically (linear in features) we **do** apply
-`StandardScaler` because L2 regularization is per-feature and
-sensitive to scale.
-
-**See also**: `docs/methods/kmer_features.md` (full pipeline,
-"Why not normalize counts?" section); `docs/methods/feature_normalization.md`
-(model × feature_source defaults matrix); `docs/methods/leakage_definitions.md`
-(how cluster leakage interacts with k-mer near-neighbors).
+**See also**: `docs/methods/kmer_features.md` (full pipeline: stride,
+storage, ambiguous-base handling, leakage protection);
+`docs/methods/feature_normalization.md` (full model × feature defaults
+matrix and the slot-transform options); `docs/gto_format_reference.md`
+(the GTO contig source the k-mers are computed over).
 
 ---
 
@@ -289,7 +305,7 @@ sensitive to scale.
 
 | Model | Role |
 |---|---|
-| **MLP** | The production classifier. Per-slot LayerNorm + concat → 3-layer MLP → BCE loss. |
+| **MLP** | The production classifier. Per-slot transform (current HA/NA & PB2/PB1: `unit_norm` — parameter-free L2 row-norm; older gen-3 bundles: `slot_norm` = learnable LayerNorm) → pair interaction (current: `unit_diff + prod`; older: `concat`) → 3-layer MLP → BCE loss. |
 | **Logistic regression** | Linear baseline. Tells us how much of the signal is captured by an affine combination of features. |
 | **LightGBM** | Tree-based baseline. Captures non-linear interactions without representation learning. |
 | **1-NN cosine-margin (`knn1_margin`)** | The *leakage anchor*. Score = cosine to nearest train positive minus cosine to nearest train negative. If MLP ≈ 1-NN on AUC, the MLP is doing soft near-neighbor lookup, not generalization. |
@@ -313,7 +329,7 @@ produces a **heatmap with one row per model and one column per
 regime**:
 
 - **Columns**: `positive` (TPR) + 8 negative regimes (TNR each, in
-  ascending hardness from `none_match` to `host_subtype_year`) + optional `unknown_metadata_neg`.
+  ascending hardness from `none_match` to `host_subtype_year`).
 - **Cells**: TPR for the positive column, TNR for the negatives. NaN
   cells (zero-sample regimes, single-class strata) render as grey
   `N/A`.
@@ -348,11 +364,24 @@ across many bundles.
 
 ### Caveats baked into the caption
 
-The MLP applies *learned* per-slot LayerNorm. The baselines apply each
-model's *natural* preprocessing — `StandardScaler` for LR, no scaling
-for LightGBM and k-NN. The heatmap caption flags this so reviewers
-don't read row-to-row score differences as model-quality differences
-when they could partly reflect featurization differences.
+Per-slot transform interacts differently with each model. Current
+HA/NA & PB2/PB1 production setting `slot_transform: unit_norm` is
+**parameter-free** (L2 row-norm), so it applies identically to the MLP
+and to the k-NN baseline path (`unit_norm` flows through
+`get_kmer_pair_features` unchanged). LR uses its own
+`StandardScaler` (per-feature, column-wise — a different operation).
+LightGBM uses none (tree splits are scale-invariant). The heatmap
+caption flags the mismatch so reviewers don't read row-to-row score
+differences as pure model-quality differences when they could partly
+reflect different preprocessing.
+
+For the older gen-3 bundles that use `slot_norm` (learnable
+LayerNorm), the MLP gets a trainable γ/β while the k-NN baseline
+path's coercion at `train_pair_baselines.py:430-435` falls back to
+`'none'` for k-mer features (`slot_norm` not supported on non-negative
+count vectors). In that setup the MLP and the k-NN baseline see
+genuinely different per-slot preprocessing — worth flagging when
+comparing.
 
 **See also**: `docs/methods/leakage_definitions.md` ("biology
 learning" criterion); `docs/post_hoc_analysis_design.md` (Level 1 / 2
@@ -369,9 +398,9 @@ The project tracks 5 canonical leakage modes (full taxonomy in
 | # | Mode | Status in this pipeline |
 |---|---|---|
 | 1 | Same-pair leakage (`pair_key` overlap across splits) | ✅ Mitigated — v2 cross-split assertion raises if any overlap. |
-| 2 | Sequence-level label imbalance (a sequence appears only as positive or only as negative) | ✅ Mitigated — v2 coverage phase per slot per `dna_hash`. |
-| 3 | Sequence-level leakage (same `seq_hash` / `dna_hash` in different splits) | ⚠️ Confirmed present (~25% seq_hash overlap on HA/NA mixed). Mitigation in plan: `seq_disjoint` / `strict_dedup` split modes. |
-| 4 | Cluster leakage (test pair feature-vector cosine-near a train pair) | ⚠️ Suggested but not formally measured. Plan Exp 2 (1-NN baseline) and Exp 5 (mmseqs2 cluster splits) will give a verdict. |
+| 2 | Sequence-level label imbalance (a sequence appears only as positive or only as negative) | ✅ Mitigated — v2 coverage phase iterates `(slot, seq_hash)` and `(slot, dna_hash)`; `n_seqs_with_zero_negatives = 0` on every current production build. |
+| 3 | Sequence-level leakage (same `seq_hash` / `dna_hash` in different splits) | ✅ **Mitigated** (2026-05-11) — `split_strategy.mode: seq_disjoint` with `hash_key: seq` is the production default for `flu_ha_na` and `flu_pb2_pb1`. Cross-split overlap on the active hash family is 0 by construction. |
+| 4 | Cluster leakage (test pair feature-vector cosine-near a train pair) | ⚠️ Partially. Exp 2 (1-NN baseline `knn1_margin`) and Exp 3 (`exp3_cosine_deciles.py`) are implemented; Exp 4 (seq_disjoint) bounds the exact-hash case. Exp 5 (mmseqs2 cluster splits) not yet implemented. Initial seq_disjoint result on PB2/PB1: 1-NN edges MLP on MCC (0.900 vs 0.887). |
 | 5 | Demographic shortcut (model uses metadata coincidence as proxy for "same isolate") | ⚠️ Confirmed present in legacy datasets. Construction-time mitigation in v2: `negative_sampling.regime_targets`. Re-test pending on regime-aware-built datasets via the heatmap. |
 
 Note: full mitigation of mode #5 cannot be achieved by sampling alone
@@ -389,11 +418,16 @@ For each topic, the deepest reference:
 
 | Topic | File |
 |---|---|
+| Stage 1 detail (GTO parsing) | `docs/methods/preprocess.md` |
+| Input GTO JSON schema (with corpus-wide statistics) | `docs/gto_format_reference.md` |
 | K-mer feature pipeline | `docs/methods/kmer_features.md` |
 | Leakage taxonomy + biology-learning criterion | `docs/methods/leakage_definitions.md` |
 | Per-(model × feature) preprocessing matrix | `docs/methods/feature_normalization.md` |
 | Stage 3 builder design | `docs/plans/done/design_dataset_gen_v2.md` |
 | Metadata-aware regime sampler design | `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md` |
+| seq_disjoint routing design (mode #3 mitigation) | `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md` |
+| Codon-aware k-mers feasibility note | `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md` |
 | Post-hoc analysis methodology | `docs/post_hoc_analysis_design.md` |
 | Original metadata-shortcut finding | `docs/results/2026-05-07_metadata_shortcut_negatives.md` |
+| Exp 4a seq_disjoint results (HA/NA) | `docs/results/2026-05-11_exp4a_seq_disjoint_results.md` |
 | Project memory / current state | `.claude/memory.md`, `CLAUDE.md` |
