@@ -1,238 +1,144 @@
 # Results Analysis
 
-Understanding and interpreting the output from the viral-segmatch pipeline.
+How to interpret the outputs of a training run + the post-hoc analysis
+pipeline. For methodology, see
+[`../../docs/methods/pipeline_overview.md`](../../docs/methods/pipeline_overview.md)
+and
+[`../../docs/post_hoc_analysis_design.md`](../../docs/post_hoc_analysis_design.md).
 
-**Note**: For detailed experiment results and analysis, see [`../../docs/EXPERIMENT_RESULTS_ANALYSIS.md`](../../docs/EXPERIMENT_RESULTS_ANALYSIS.md).
+## What gets produced after a training run
 
-## 📊 Analysis Scripts
+A successful Stage 4 run (`stage4_train.sh` for the MLP, or
+`stage4_baselines.sh` for the sklearn baselines) writes to:
 
-### 1. Comprehensive Analysis
-**Script**: `src/analysis/analyze_stage4_train.py`
+```
+models/flu/{data_version}/runs/training_<bundle>_<TS>/        # MLP run
+models/flu/{data_version}/runs/baseline_<name>_<bundle>_<TS>/ # Each baseline (logistic, lgbm, knn1_margin, knn_vote)
+```
 
-**Purpose**: Detailed ML analysis with extensive metrics and domain-specific insights.
+Each run directory contains at least:
 
-**Usage**:
+- `best_model.pt` (MLP) or `best_model.joblib` (sklearn baselines) — the trained model
+- `test_predicted.csv` — per-pair predictions on the test split
+- `training_info.json` — provenance (config bundle, dataset directory, hyperparameters, threshold, seed)
+- `post_hoc/` — analysis artifacts (see below)
+
+## Per-run post-hoc analysis
+
 ```bash
-# Basic analysis (automatically finds latest training run)
-python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na_5ks
+# Autodiscover the most recent training run for a bundle
+python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na
 
-# With explicit model directory
-python src/analysis/analyze_stage4_train.py \
-  --config_bundle flu_ha_na_5ks \
-  --model_dir models/flu/July_2025/runs/training_flu_ha_na_5ks_YYYYMMDD_HHMMSS
+# Or specify an explicit run directory
+python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na \
+    --model_dir models/flu/July_2025/runs/training_flu_ha_na_YYYYMMDD_HHMMSS
 ```
 
-**Outputs**:
-- `confusion_matrix.png` - Classification confusion matrix
-- `roc_curve.png` - ROC curve with AUC
-- `precision_recall_curve.png` - Precision-recall curve
-- `learning_curves.png` - Training history plots
-- `loss.png` - Loss curves
-- `f1.png` - F1 score curves
-- `metrics.csv` - Summary metrics
-- `confusion_matrix.csv` - Confusion matrix data
-- `confusion_matrix_summary.csv` - TP/TN/FP/FN summary
-- `error_analysis_summary.csv` - Error statistics
+Outputs (under `<run_dir>/post_hoc/`):
 
-### 2. Presentation Plots
-**Script**: `src/analysis/create_presentation_plots.py`
+| File | Content |
+|---|---|
+| `metrics.csv` | Summary: F1 (binary + macro), precision, recall, AUC-ROC, AUC-PR, MCC, Brier, BCE loss |
+| `confusion_matrix.png` / `.csv` | Test-set confusion matrix |
+| `roc_curve.png` | ROC curve with AUC |
+| `precision_recall_curve.png` | PR curve with average precision |
+| `learning_curves.png` (MLP only) | Train/val loss + F1 + AUC per epoch |
+| `level1_neg_regimes.csv` / `.png` | Per-metadata-regime TPR/TNR (8 negative regimes — see leakage_definitions.md for the taxonomy) |
+| `error_analysis_summary.csv` | FP / FN counts by stratum |
+| `fp_fn_analysis_*.png` | FP/FN distribution plots |
 
-**Purpose**: Clean, publication-ready visualizations for presentations.
+## Cross-model heatmap (the headline diagnostic)
 
-**Usage**:
+After running both the MLP and at least one baseline for the same bundle:
+
 ```bash
-# Generate presentation plots
-python src/analysis/create_presentation_plots.py --config_bundle flu_ha_na_5ks
+python src/analysis/aggregate_baselines_vs_mlp.py --bundle flu_ha_na
 ```
 
-**Outputs**:
-- `performance_summary.png` - 4-panel performance overview
-- `biological_insights.png` - Biological interpretation plots
-- `learning_curves.png` - Training history (if available)
+Outputs land in `results/flu/{data_version}/runs/baselines_vs_mlp_<bundle>_<TS>/`:
 
-## 📈 Key Metrics
+| File | Content |
+|---|---|
+| `baselines_vs_mlp_heatmap.png` | (n_models × 9 regimes) heatmap. Columns: `positive` (TPR) + 8 negative regimes (TNR each, ascending hardness from `none_match` to `host_subtype_year`). Rows: typically MLP + 4 baselines (logistic, lgbm, knn1_margin, knn_vote). |
+| `baselines_vs_mlp_overall.png` | Aggregate metrics (AUC-ROC, AUC-PR, F1, MCC) per model, side-by-side bars. |
+| `baselines_vs_mlp.csv` | The raw numbers from both plots. |
 
-### Classification Performance
-- **Accuracy**: Overall correct predictions
-- **F1 Score**: Harmonic mean of precision and recall
-- **AUC-ROC**: Area under ROC curve
-- **Average Precision**: Area under precision-recall curve
+## How to read the per-regime heatmap
 
-### Error Analysis
-- **False Positives (FP)**: Incorrectly predicted as same isolate
-- **False Negatives (FN)**: Incorrectly predicted as different isolate
-- **FP/FN Ratio**: Balance between error types
-- **Confidence Analysis**: Model certainty in predictions
+The **headline column** is `host_subtype_year` (TNR) — the hardest
+regime, where the two sides of a negative pair share host AND subtype
+AND year. The model has no metadata shortcut; whatever discrimination
+shows here must come from sequence content.
 
-### Domain-Specific Metrics
-- **Segment-wise Performance**: Performance by protein segment pair
-- **Function Analysis**: Performance by protein function
-- **Same-function Negatives**: Hardest cases to classify
+- **1-NN baseline (`knn1_margin`)** is the **leakage anchor**. A high
+  `host_subtype_year` TNR for 1-NN means the test set is densely
+  connected to train in feature space — even nearest-neighbor lookup
+  gets it right. This is the leakage signal.
+- For the MLP to claim "biology learning," it needs to **beat 1-NN by
+  ≥0.02 on AUC** on sequence-disjoint splits. If MLP ≈ 1-NN, the MLP
+  is doing soft memorization with extra steps. See
+  [`../../docs/methods/leakage_definitions.md`](../../docs/methods/leakage_definitions.md)
+  ("biology learning" criterion).
+- A model that scores ~1.0 on `none_match` but drops sharply on
+  `host_subtype_year` is using metadata coincidence as a shortcut.
 
-## 🔍 Understanding Results
+## Aggregate metrics — current production reference points
 
-### 1. Confusion Matrix
-```
-                Predicted
-Actual    Negative  Positive
-Negative     TN       FP
-Positive     FN       TP
-```
+Verified 2026-05-12 from the production HA/NA and PB2/PB1 builds
+(`baselines_vs_mlp_*_20260512_*/baselines_vs_mlp.csv`):
 
-**Interpretation**:
-- **TN (True Negatives)**: Correctly identified different isolates
-- **TP (True Positives)**: Correctly identified same isolates
-- **FP (False Positives)**: Incorrectly predicted same isolate
-- **FN (False Negatives)**: Incorrectly predicted different isolate
+| Model | HA/NA AUC-ROC | HA/NA MCC | PB2/PB1 AUC-ROC | PB2/PB1 MCC |
+|---|---:|---:|---:|---:|
+| MLP | 0.9771 | 0.885 | 0.9760 | 0.887 |
+| LightGBM | 0.9830 | 0.881 | 0.9824 | 0.879 |
+| 1-NN margin | 0.9771 | 0.892 | 0.9815 | 0.900 |
 
-### 2. ROC Curve
-- **X-axis**: False Positive Rate (1 - Specificity)
-- **Y-axis**: True Positive Rate (Sensitivity)
-- **AUC**: Area under curve (0.5 = random, 1.0 = perfect)
+On PB2/PB1 the 1-NN baseline edges the MLP on MCC (0.900 vs 0.887) —
+consistent with the conservation hypothesis (fewer truly-novel test
+sequences on conserved proteins) and inside the seed-noise band on a
+single-seed run. See
+[`../../docs/results/2026-05-11_exp4a_seq_disjoint_results.md`](../../docs/results/2026-05-11_exp4a_seq_disjoint_results.md)
+for the earlier HA/NA result under looser routing.
 
-### 3. Precision-Recall Curve
-- **X-axis**: Recall (Sensitivity)
-- **Y-axis**: Precision (Positive Predictive Value)
-- **AP**: Average Precision (area under curve)
+## Caveat baked into the heatmap caption
 
-### 4. Learning Curves
-- **Training Loss**: Model performance on training data
-- **Validation Loss**: Model performance on validation data
-- **F1 Score**: F1 score over epochs
-- **Learning Rate**: Learning rate schedule
+Per-slot preprocessing isn't uniform across models. The MLP applies
+its `slot_transform` (current production: `unit_norm`, parameter-free
+L2 row-norm). The sklearn baselines apply each model's natural
+preprocessing (`StandardScaler` for LR, none for LightGBM, cosine
+metric for 1-NN/k-NN which normalizes internally). The heatmap caption
+flags this so row-to-row score differences aren't read as pure
+model-quality differences when they could partly reflect featurization
+differences. See
+[`../../docs/methods/feature_normalization.md`](../../docs/methods/feature_normalization.md)
+for the full (model × feature_source) defaults matrix.
 
-## 📊 Current Performance Results
+## Debugging analysis
 
-### Key Finding: Conservation Hypothesis Confirmed ✅
+### Verify the test-predictions file
 
-Performance directly correlates with protein conservation levels:
-- **Variable segments (HA-NA)**: 92.3% accuracy, **91.6% F1**, 0.953 AUC
-- **Mixed segments (PB2-HA-NA)**: 85.4% accuracy, **85.5% F1**, 0.920 AUC  
-- **Conserved segments (PB2-PB1-PA)**: 71.9% accuracy, **75.3% F1**, 0.750 AUC
-
-*For detailed analysis, see [`../../docs/EXPERIMENT_RESULTS_ANALYSIS.md`](../../docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
-
-## 📁 Output File Structure
-
-```
-results/
-└── {virus}/
-    └── {data_version}/
-        └── {config_bundle}/
-            ├── training_analysis/          # Comprehensive analysis
-            │   ├── confusion_matrix.png
-            │   ├── roc_curve.png
-            │   ├── precision_recall_curve.png
-            │   ├── learning_curves.png
-            │   ├── loss.png
-            │   ├── f1.png
-            │   ├── metrics.csv
-            │   ├── confusion_matrix.csv
-            │   └── error_analysis_summary.csv
-            └── presentation_plots/         # Publication-ready plots
-                ├── performance_summary.png
-                └── biological_insights.png
-```
-
-## 🔧 Customizing Analysis
-
-### 1. Modify Analysis Parameters
 ```python
-# In analyze_stage4_train.py
-def main(config_bundle: str,
-         model_dir: str = None,
-         create_performance_plots: bool = True,  # Toggle plots
-         show_confusion_labels: bool = True      # Toggle labels
-    ):
-```
-
-### 2. Add Custom Metrics
-```python
-# Add to compute_basic_metrics function
-def compute_basic_metrics(y_true, y_pred, y_prob):
-    # ... existing code ...
-    
-    # Add custom metric
-    balanced_accuracy = (sensitivity + specificity) / 2
-    
-    return {
-        'accuracy': accuracy,
-        'f1_score': f1,
-        'auc_roc': auc,
-        'avg_precision': avg_precision,
-        'balanced_accuracy': balanced_accuracy  # New metric
-    }
-```
-
-## 📊 Interpreting Results
-
-### Good Performance Indicators
-- **AUC > 0.8**: Good discrimination ability
-- **F1 > 0.7**: Good balance of precision and recall
-- **Accuracy > 0.8**: High overall correctness
-- **Low FP/FN ratio**: Balanced error types
-
-### Red Flags
-- **AUC < 0.6**: Poor discrimination (worse than random)
-- **F1 < 0.5**: Poor precision-recall balance
-- **Very high FP**: Too many false positives
-- **Very high FN**: Too many false negatives
-
-### Domain-specific Considerations
-- **Same-function negatives**: Should be hardest cases
-- **Cross-function pairs**: Should show different performance patterns
-- **Function-specific errors**: May indicate data quality issues
-
-## 🔍 Debugging Analysis
-
-### 1. Check Input Data
-```python
-# Verify test predictions file
 import pandas as pd
 from pathlib import Path
 
-model_dir = Path('models/flu/July_2025/runs/training_flu_ha_na_5ks_YYYYMMDD_HHMMSS')
+model_dir = Path('models/flu/July_2025/runs/training_flu_ha_na_YYYYMMDD_HHMMSS')
 df = pd.read_csv(model_dir / 'test_predicted.csv')
-print(f"Shape: {df.shape}")
-print(f"Columns: {df.columns.tolist()}")
-print(f"Label distribution: {df['label'].value_counts()}")
+print(f'Shape: {df.shape}')
+print(f'Columns: {df.columns.tolist()}')
+print(f'Label distribution: {df["label"].value_counts().to_dict()}')
+print(f'Pred prob range: {df["pred_prob"].min():.3f} - {df["pred_prob"].max():.3f}')
 ```
 
-### 2. Validate Predictions
+### Verify metrics
+
 ```python
-# Check prediction ranges
-print(f"Prediction probabilities: {df['pred_prob'].min():.3f} - {df['pred_prob'].max():.3f}")
-print(f"Prediction labels: {df['pred_label'].unique()}")
+import pandas as pd
+metrics = pd.read_csv(model_dir / 'post_hoc' / 'metrics.csv')
+print(metrics.to_string())
 ```
 
-### 3. Verify Results Directory
-```python
-# Check output directory
-from pathlib import Path
-results_dir = Path('results/flu/July_2025/runs/training_flu_ha_na_5ks_YYYYMMDD_HHMMSS/training_analysis')
-print(f"Results directory exists: {results_dir.exists()}")
-print(f"Files in results: {list(results_dir.glob('*.png'))}")
-```
+## Related
 
-## 📝 Best Practices
-
-### 1. Document Analysis
-- Save analysis parameters
-- Document any custom modifications
-- Keep analysis logs
-
-### 2. Compare Results
-- Compare across different experiments
-- Track performance over time
-- Document improvements
-
-### 3. Validate Results
-- Check for data quality issues
-- Verify biological plausibility
-- Cross-reference with domain knowledge
-
-## 📚 Related Documentation
-
-- **[Detailed Experiment Analysis](../../docs/EXPERIMENT_RESULTS_ANALYSIS.md)** - Comprehensive results analysis
-- **[Project Status](../../docs/EXP_RESULTS_STATUS.md)** - Research status and roadmap
-- **[Presentation Plots](presentation-plots.md)** - Creating publication-ready plots
+- [`../../docs/methods/pipeline_overview.md`](../../docs/methods/pipeline_overview.md) — pipeline architecture and §9 evaluation methodology
+- [`../../docs/methods/leakage_definitions.md`](../../docs/methods/leakage_definitions.md) — 5-mode taxonomy + "biology learning" criterion
+- [`../../docs/post_hoc_analysis_design.md`](../../docs/post_hoc_analysis_design.md) — Level 1 / Level 2 stratified-eval design
