@@ -13,17 +13,8 @@ defaults:
   - flu_28_major_protein_pairs_master
   - _self_
 
-training:
-  epochs: 100
-  # epochs: 10
-  patience: 10
-  feature_source: kmer  # kmer | esm2
-  # hidden_dims: [100] # bottleneck layer; default: [512, 256, 64]
-  # hidden_dims: [] # simulate logistic regression; default: [512, 256, 64]
-  # dropout: 0.0 # no dropout
-
 dataset:
-  pair_builder_version: v2 # v1 | v2
+  pair_builder_version: v2 # v1 | v2 (default)
   schema_pair:
     - "RNA-dependent RNA polymerase PB2 subunit"  # PB2 (S1)
     - "RNA-dependent RNA polymerase catalytic core PB1 subunit"  # PB1 (S2)
@@ -45,6 +36,37 @@ dataset:
   # geo_location: null
   # passage: null
 
+  split_strategy:
+    mode: seq_disjoint # 'random' | 'seq_disjoint' (default)
+    hash_key: seq # 'seq' (protein, default) | 'dna' (nucleotide)
+
+training:
+  epochs: 100
+  # epochs: 10
+  patience: 10
+  feature_source: kmer  # kmer | esm2
+  # hidden_dims: [100] # bottleneck layer; default: [512, 256, 64]
+  # hidden_dims: [] # simulate logistic regression; default: [512, 256, 64]
+  # dropout: 0.0 # no dropout
+
+  # # Test 1: [|u  − v|, u * v]
+  # slot_transform: "none"
+  # interaction: "diff + prod"
+
+  # # Test 2: [|u_n − v_n|, u_n * v_n], where u_n and v_n are L2-normalized (unit norm) versions of the original k-mer count vectors u and v
+  # # This test is the primary representation for interpretability.
+  # slot_transform: "unit_norm"
+  # interaction: "diff + prod"
+
+  # Test 3: [|u_n − v_n|/‖·‖, u_n * v_n]
+  slot_transform: "unit_norm"
+  interaction: "unit_diff + prod"
+
+  # # Test 4: [|u_n − v_n|/‖·‖, (u_n * v_n)/‖·‖]
+  # # Here the magnitude fully stripped
+  # slot_transform: "unit_norm"
+  # interaction: "unit_diff + unit_prod"
+
 # Sklearn-style baselines that should run alongside the MLP. The list under
 # `baselines.enabled` is consumed by `src/models/train_pair_baselines.py`
 # when --baseline is omitted on the CLI. Per-baseline knobs live at top
@@ -55,9 +77,4 @@ dataset:
 baselines:
   # enabled: [logistic, lgbm, knn1_margin, knn_vote]
   enabled: [lgbm, knn1_margin]
-
-baseline_knn_vote:
-  k: 5
-  weights: distance   # 'uniform' or 'distance'
-# Other baselines use module defaults (logistic: feature_scaling=standard;
-# lgbm: feature_scaling=none; knn1_margin: feature_scaling=none).
+  
