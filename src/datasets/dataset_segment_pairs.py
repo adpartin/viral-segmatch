@@ -1117,9 +1117,17 @@ def save_split_output(
         },
         'filters_applied': filters_applied,
     }
+    # Inject pair_share + isolate_share into split_sizes (parity with v2).
+    from src.datasets._pair_helpers import compute_split_shares, format_split_summary_banner
+    compute_split_shares(dataset_stats['split_sizes'])
     with open(output_dir / 'dataset_stats.json', 'w') as f:
         json.dump(dataset_stats, f, indent=2)
     print(f"Saved dataset stats to: {output_dir / 'dataset_stats.json'}")
+
+    # End-of-stage summary banner. v1 doesn't support metadata_holdout, so the
+    # driver text is always "random".
+    print('\nFinal split sizes: '
+          + format_split_summary_banner(dataset_stats['split_sizes'], holdout_cfg=None))
 
     # Per-isolate metadata
     isolate_metadata_cols = ['assembly_id', 'host', 'hn_subtype', 'year']
@@ -1736,6 +1744,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 generate_visualizations=GENERATE_VISUALIZATIONS,
                 skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
                 skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
+                holdout_cfg=None,  # validator forbids holdout + CV combo
             )
     else:
         # v2 single-split mode. (Temporal/legacy year_train was removed
@@ -1746,6 +1755,7 @@ if PAIR_BUILDER_VERSION == 'v2':
         HOLDOUT_CFG = getattr(config.dataset, 'metadata_holdout', None)
         holdout_train_ids = holdout_val_ids = holdout_test_ids = None
         holdout_dropped_df = None
+        holdout_dict = None
         if HOLDOUT_CFG is not None:
             from omegaconf import OmegaConf
             from src.datasets._pair_helpers import compute_metadata_holdout_isolates
@@ -1814,6 +1824,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             generate_visualizations=GENERATE_VISUALIZATIONS,
             skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
             skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
+            holdout_cfg=holdout_dict,
         )
 
 elif PAIR_BUILDER_VERSION == 'v1':

@@ -61,7 +61,6 @@ from src.utils.config_hydra import get_virus_config_hydra, get_function_short_na
 from src.utils.dim_reduction_utils import compute_pca_reduction
 from src.utils.plot_config import (
     SPLIT_COLORS, SPLIT_MARKERS, LABEL_SCATTER_STYLES, apply_default_style,
-    PROTEIN_COLORS, PROTEIN_FALLBACK_PALETTE, get_protein_color,
 )
 from src.utils.embedding_utils import (
     create_pair_embeddings_concatenation,
@@ -694,89 +693,16 @@ def plot_pair_interactions(
 # K-mer PCA plots
 # =============================================================================
 
-def _plot_features_by_category_2d(
-    reduced_2d: np.ndarray,
-    categories: np.ndarray,
-    category_order: list[str],
-    category_counts: dict[str, int],
-    xlab: str,
-    ylab: str,
-    title: str,
-    output_path: Path,
-    filters_text: str = "",
-    extra_text: str = "",
-    ) -> None:
-    """Scatter plot of 2D feature vectors colored by a discrete category.
-
-    Used by `plot_kmer_pca` for the unique-segment plots, where each point is
-    one (assembly_id, segment) and color encodes biological protein identity
-    (HA, NA, ...). Colors are resolved via `plot_config.PROTEIN_COLORS` so a
-    given short name (e.g., "HA") is the same color across every plot in the
-    project. Names not in PROTEIN_COLORS fall through to a stable fallback
-    palette indexed by their position in `category_order`.
-    Legend entries include per-category counts.
-    """
-    fig, ax = plt.subplots(1, 1, figsize=(12, 9))
-
-    cat_to_color: dict[str, str] = {}
-    fallback_i = 0
-    for cat in category_order:
-        if cat in PROTEIN_COLORS:
-            cat_to_color[cat] = PROTEIN_COLORS[cat]
-        else:
-            cat_to_color[cat] = get_protein_color(cat, fallback_index=fallback_i)
-            fallback_i += 1
-    for cat in category_order:
-        mask = (categories == cat)
-        if not mask.any():
-            continue
-        ax.scatter(
-            reduced_2d[mask, 0],
-            reduced_2d[mask, 1],
-            color=cat_to_color[cat],
-            s=22,
-            alpha=0.7,
-            edgecolors='none',
-            label=f"{cat} (n={category_counts.get(cat, int(mask.sum())):,})",
-        )
-
-    ax.set_xlabel(xlab, fontsize=12)
-    ax.set_ylabel(ylab, fontsize=12)
-    ax.set_title(title, fontweight='bold', fontsize=14)
-    ax.grid(True, alpha=0.3)
-
-    used_locs: set[str] = set()
-    legend_loc = _pick_sparse_corner(reduced_2d, used_locs)
-    used_locs.add(legend_loc)
-    ax.legend(
-        title='Protein',
-        loc=legend_loc,
-        fontsize=10,
-        frameon=True,
-        framealpha=0.85,
-    )
-
-    if filters_text:
-        _draw_corner_textbox(ax, reduced_2d, used_locs, f"Filters:\n{filters_text}")
-    if extra_text:
-        _draw_corner_textbox(ax, reduced_2d, used_locs, extra_text)
-
-    fig.tight_layout()
-    plt.savefig(output_path, dpi=200, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
 def _plot_kmer_scree(
     explained_variance_per_panel: dict[str, np.ndarray],
     output_path: Path,
-    n_components: int = 10,
+    n_components: int = 12,
     ) -> None:
     """Multi-panel scree plot for k-mer PCA fits.
 
-    Shows the top-N explained variance ratios for each panel (e.g., the Plot 1
-    pair-concat fit and the three Plot 2 per-split fits). One subplot per fit;
-    bars for individual PC variance, line for cumulative.
+    Shows the top-N explained variance ratios for each panel. One subplot per
+    fit; bars for individual PC variance, red line on the secondary axis for
+    the running cumulative.
     """
     panels = list(explained_variance_per_panel.items())
     n = len(panels)
@@ -799,14 +725,14 @@ def _plot_kmer_scree(
         ax2.plot(x, cum, color='#c0392b', marker='o', linewidth=1.5,
                  markersize=4, label='cumulative')
         ax2.set_ylim(0, 1.0)
-        ax2.set_ylabel('Cumulative variance', color='#c0392b', fontsize=9)
+        ax2.set_ylabel('Cumulative explained variance ratio', color='#c0392b', fontsize=9)
         ax2.tick_params(axis='y', labelcolor='#c0392b')
         for bar, v in zip(bars, evr[:k]):
             ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
                     f'{v:.1%}', ha='center', va='bottom', fontsize=8)
         ax.set_xticks(x)
         ax.set_xlabel('Principal component', fontsize=10)
-        ax.set_ylabel('Explained variance', fontsize=10)
+        ax.set_ylabel('Explained variance ratio (per PC)', fontsize=10)
         ax.set_title(label, fontsize=11, fontweight='bold')
         ax.set_ylim(0, max(0.05, evr[:k].max() * 1.25))
         ax.grid(True, axis='y', alpha=0.3)
@@ -816,7 +742,7 @@ def _plot_kmer_scree(
         r, c = divmod(idx, cols)
         axes[r][c].axis('off')
 
-    fig.suptitle('K-mer PCA: top-N explained variance', fontsize=13, fontweight='bold')
+    fig.suptitle('K-mer PCA: top-N explained variance ratio', fontsize=13, fontweight='bold')
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
@@ -846,22 +772,17 @@ def plot_kmer_pca(
     max_per_label_per_split: int = 1000,
     random_state: int = 42,
     ) -> None:
-    """Generate PCA scatter plots of k-mer features for the dataset splits.
+    """Generate the pair-concatenated k-mer PCA plot and its companion scree.
 
-    Two plot families:
-      1. `kmer_pca_concat.png` — one point per sample pair; vector is the
-         concatenation of k-mer vectors for (assembly_id_a, ctg_a) and
-         (assembly_id_b, ctg_b). Color = split, fill = label. Mirrors
-         `pair_pca_concat.png`.
-      2. `kmer_pca_segments_{split}.png` — one plot per split. Within each
-         split, sides A and B are deduped independently by (assembly_id, seg);
-         the deduped sides are concatenated and PCA'd. Each point is one
-         unique segment row; color encodes biological protein identity
-         (HA, NA, …) read from `virus_config.function_short_names`.
+    Produces two files:
+      - `kmer_pca_concat.png` — one point per sample pair; vector is the
+        concatenation of k-mer vectors for (assembly_id_a, ctg_a) and
+        (assembly_id_b, ctg_b). Color = split, fill = label. Mirrors
+        `pair_pca_concat.png`.
+      - `kmer_pca_scree.png` — top-12 per-PC explained variance ratio (bars)
+        + the cumulative line for those 12 components on a secondary axis.
 
-    The function only depends on paths and config available on disk after
-    Stage 3 splits exist, so it is callable both from `visualize_dataset_stats`
-    and standalone after-the-fact.
+    Callable both from `visualize_dataset_stats` and standalone after-the-fact.
 
     Args:
         run_dir: Dataset run directory containing {split}_pairs.csv files.
@@ -870,11 +791,10 @@ def plot_kmer_pca(
             ESM-2 master HDF5 cache).
         output_dir: Directory to save output PNGs.
         virus_config: `cfg.virus` Hydra sub-node; used to resolve protein
-            short names for Plot 2.
+            short names for the filter-text caption.
         k: k-mer size. If None, autodetect from kmer_dir.
         max_per_label_per_split: Max pairs sampled per label per split for
-            Plot 1. Plot 2 is unique-by-(assembly_id, seg) per side and is
-            not subject to this cap.
+            the scatter plot.
         random_state: Reproducible sampling/PCA seed.
     """
     output_dir = Path(output_dir)
@@ -910,29 +830,12 @@ def plot_kmer_pca(
     if evr is not None:
         scree_evr['Pair concat (all splits)'] = evr
 
-    # ── Plot 2: unique-segment PCA per split ────────────────────────────
-    for split in splits:
-        out_path = output_dir / f'kmer_pca_segments_{split}.png'
-        evr = _plot_kmer_unique_segments(
-            run_dir=run_dir,
-            split=split,
-            kmer_matrix=kmer_matrix,
-            key_to_row=key_to_row,
-            k=k,
-            func_short_names=func_short_names,
-            output_path=out_path,
-            random_state=random_state,
-            filters_text=filters_text,
-        )
-        if evr is not None:
-            scree_evr[f'Unique vectors ({split})'] = evr
-
-    # ── Scree plot summarizing all four PCA fits ───────────────────────
+    # ── Scree summary (top-12 per-PC variance ratio + cumulative line) ─
     if scree_evr:
         _plot_kmer_scree(
             explained_variance_per_panel=scree_evr,
             output_path=output_dir / 'kmer_pca_scree.png',
-            n_components=10,
+            n_components=12,
         )
 
 
@@ -1014,9 +917,12 @@ def _plot_kmer_pair_concat(
     emb_b = _densify_kmer_rows(kmer_matrix, rows_b)
     features = np.concatenate([emb_a, emb_b], axis=1)
 
-    # Request more PCs than we plot so the scree summary has top-N data.
+    # Request more PCs than the 2D scatter needs so the scree has enough data
+    # for its top-12 bars + cumulative line; randomized SVD requires
+    # n_components < min(M, N), so we cap defensively.
+    n_components = min(12, features.shape[0] - 1, features.shape[1])
     pca_reduced, pca_model = compute_pca_reduction(
-        features, n_components=10, return_model=True,
+        features, n_components=n_components, return_model=True,
         svd_solver='randomized', random_state=random_state,
     )
     pca_2d = pca_reduced[:, :2]
@@ -1037,102 +943,6 @@ def _plot_kmer_pair_concat(
         output_path=output_path,
         filters_text=filters_text,
         sample_text=sample_text,
-    )
-    return pca_model.explained_variance_ratio_ if pca_model is not None else None
-
-
-def _plot_kmer_unique_segments(
-    run_dir: Path,
-    split: str,
-    kmer_matrix,
-    key_to_row: dict,
-    k: int,
-    func_short_names: dict[str, str],
-    output_path: Path,
-    random_state: int,
-    filters_text: str,
-    ) -> Optional[np.ndarray]:
-    """Plot 2: unique-segment PCA for a single split, colored by protein.
-
-    Returns the PCA explained_variance_ratio_ for use by the scree plot, or
-    None if no plot was produced.
-    """
-    csv_path = run_dir / f'{split}_pairs.csv'
-    if not csv_path.exists():
-        print(f"WARNING: plot_kmer_pca: missing {csv_path.name}; skipping {split}")
-        return None
-    df = pd.read_csv(csv_path, low_memory=False)
-    required = {'assembly_id_a', 'assembly_id_b', 'ctg_a', 'ctg_b', 'seg_a', 'seg_b', 'func_a', 'func_b'}
-    missing = required - set(df.columns)
-    if missing:
-        print(f"WARNING: plot_kmer_pca: {csv_path.name} missing columns {sorted(missing)}; skipping {split}")
-        return None
-
-    # Per-side dedup by (assembly_id, seg). See design notes: cross-side dedup
-    # would silently drop a legitimately distinct k-mer vector when the same
-    # assembly appears in both slots (e.g., HA on side A and HA on side B
-    # would not be the same biological observation in a homo-pair bundle).
-    side_a = df[['assembly_id_a', 'ctg_a', 'seg_a', 'func_a']].rename(columns={
-        'assembly_id_a': 'assembly_id', 'ctg_a': 'ctg',
-        'seg_a': 'seg', 'func_a': 'func',
-    })
-    side_a = side_a.drop_duplicates(subset=['assembly_id', 'seg']).assign(side='a')
-    side_b = df[['assembly_id_b', 'ctg_b', 'seg_b', 'func_b']].rename(columns={
-        'assembly_id_b': 'assembly_id', 'ctg_b': 'ctg',
-        'seg_b': 'seg', 'func_b': 'func',
-    })
-    side_b = side_b.drop_duplicates(subset=['assembly_id', 'seg']).assign(side='b')
-    uniques = pd.concat([side_a, side_b], ignore_index=True)
-
-    # Map full function string → short label; fall back to the seg code if the
-    # function isn't in the short-name map (defensive — should not happen for
-    # any function in `selected_functions`).
-    uniques['short'] = uniques['func'].map(func_short_names).fillna(uniques['seg'].astype(str))
-
-    # k-mer row lookup; drop unique segments without a matching k-mer row.
-    keys = _build_kmer_lookup_keys(uniques['assembly_id'], uniques['ctg'])
-    rows = keys.map(key_to_row)
-    valid = rows.notna()
-    n_in = len(uniques)
-    n_valid = int(valid.sum())
-    if n_valid == 0:
-        print(f"WARNING: plot_kmer_pca: no k-mer rows matched for {split}; skipping")
-        return None
-    if n_in - n_valid > 0:
-        print(f"plot_kmer_pca[{split}]: dropped {n_in - n_valid:,}/{n_in:,} unique segments (missing k-mer rows)")
-    uniques = uniques.loc[valid].reset_index(drop=True)
-    rows = rows[valid].astype(int).to_numpy()
-
-    features = _densify_kmer_rows(kmer_matrix, rows)
-    # Request more PCs than we plot so the scree summary has top-N data.
-    pca_reduced, pca_model = compute_pca_reduction(
-        features, n_components=10, return_model=True,
-        svd_solver='randomized', random_state=random_state,
-    )
-    pca_2d = pca_reduced[:, :2]
-    ev1 = pca_model.explained_variance_ratio_[0] if pca_model else 0
-    ev2 = pca_model.explained_variance_ratio_[1] if pca_model else 0
-
-    counts_per_short = uniques['short'].value_counts().to_dict()
-    # Order legend by count (descending) for readability.
-    category_order = [c for c, _ in sorted(counts_per_short.items(), key=lambda kv: -kv[1])]
-
-    extra_text = (
-        f"Unique vectors: {len(uniques):,}\n"
-        f"Sides: a={int((uniques['side']=='a').sum()):,}, b={int((uniques['side']=='b').sum()):,}"
-    )
-
-    _plot_features_by_category_2d(
-        reduced_2d=pca_2d,
-        categories=uniques['short'].to_numpy(),
-        category_order=category_order,
-        category_counts=counts_per_short,
-        xlab=f"PC1 ({ev1:.1%} var)",
-        ylab=f"PC2 ({ev2:.1%} var)",
-        title=f"PCA: Unique feature vectors — {split} (k-mer, k={k})",
-        output_path=output_path,
-        filters_text=filters_text,
-        extra_text=extra_text,
     )
     return pca_model.explained_variance_ratio_ if pca_model is not None else None
 
@@ -1717,6 +1527,182 @@ def should_plot_distribution(distribution_dict: dict, min_unique: int = 2) -> bo
     return unique_values >= min_unique
 
 
+# Per-regime display order for the split-composition stack. Positive first
+# (single segment), then negatives by ascending hardness — same order used by
+# `_LEVEL1_REGIME_ORDER` in src/analysis/analyze_stage4_train.py.
+_SPLIT_COMP_NEG_ORDER = (
+    'none_match',
+    'host_only',
+    'subtype_only',
+    'year_only',
+    'host_subtype_only',
+    'host_year_only',
+    'subtype_year_only',
+    'host_subtype_year',
+)
+
+
+def _load_regime_manifest_for_composition(
+    manifest_csv: Path,
+    ) -> Optional[dict]:
+    """Read negative_regime_manifest.csv into {split -> {regime -> achieved}}.
+
+    Returns None if the file is absent or unreadable; the caller falls back to
+    a pos-vs-neg 2-segment stack.
+    """
+    if not manifest_csv.exists():
+        return None
+    try:
+        df = pd.read_csv(manifest_csv)
+    except Exception as e:
+        print(f"WARNING: failed to read regime manifest {manifest_csv}: {e}")
+        return None
+    required_cols = {'split', 'regime', 'achieved'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        print(f"WARNING: regime manifest missing columns {sorted(missing)}; "
+              f"falling back to pos/neg 2-segment stack")
+        return None
+    out: dict = {}
+    for (split, regime), sub in df.groupby(['split', 'regime']):
+        out.setdefault(str(split), {})[str(regime)] = int(sub['achieved'].sum())
+    return out
+
+
+def _plot_split_composition(
+    split_sizes: dict,
+    coverage: dict,
+    regime_manifest_csv: Path,
+    bundle_name: str,
+    output_path: Path,
+    holdout_active: bool = False,
+    ) -> None:
+    """Stacked-bar plot of train/val/test composition.
+
+    Bottom segment = positive pairs. If a regime manifest exists, the negative
+    portion is split into eight regime segments in `_SPLIT_COMP_NEG_ORDER`
+    (ascending hardness). Otherwise the negative portion is a single segment.
+
+    Annotations per bar: total pair count above the bar, achieved neg:pos
+    ratio, and the requested (config) neg:pos ratio for comparison. When
+    `holdout_active=True`, an additional caption flags that the configured
+    train_ratio/val_ratio/test_ratio were superseded by metadata_holdout
+    filters (a frequent source of "why doesn't the split match 80/10/10?"
+    confusion).
+    """
+    splits = ['train', 'val', 'test']
+    splits = [s for s in splits if s in split_sizes]
+    if not splits:
+        print("WARNING: _plot_split_composition: no split data found; skipping")
+        return
+
+    regime_data = _load_regime_manifest_for_composition(regime_manifest_csv)
+
+    pos_counts = np.array([int(split_sizes[s].get('positive_pairs', 0)) for s in splits], dtype=int)
+    neg_counts = np.array([int(split_sizes[s].get('negative_pairs', 0)) for s in splits], dtype=int)
+    total_counts = pos_counts + neg_counts
+
+    # Achieved neg:pos per split. Requested neg:pos derived from coverage's
+    # requested_negatives (post-overshoot, this is what the builder targeted).
+    achieved_ratios = [
+        (neg_counts[i] / pos_counts[i]) if pos_counts[i] > 0 else float('nan')
+        for i in range(len(splits))
+    ]
+    requested_ratios = []
+    for i, s in enumerate(splits):
+        req = coverage.get(s, {}).get('requested_negatives') if coverage else None
+        if req is not None and pos_counts[i] > 0:
+            requested_ratios.append(req / pos_counts[i])
+        else:
+            requested_ratios.append(float('nan'))
+
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+    x = np.arange(len(splits))
+    bar_width = 0.55
+
+    # Positive segment at the bottom.
+    pos_color = '#2ca02c'
+    ax.bar(x, pos_counts, width=bar_width, color=pos_color,
+           edgecolor='white', linewidth=0.5, label='positive')
+
+    # Negative stack: by regime if manifest present, else single segment.
+    if regime_data is not None:
+        regimes_present = [r for r in _SPLIT_COMP_NEG_ORDER
+                           if any(regime_data.get(s, {}).get(r, 0) > 0 for s in splits)]
+        # Use tab10 starting at index 1 (index 0 is reserved for positive's
+        # visual anchor); cycle if >9 regimes ever appear.
+        palette = plt.get_cmap('tab10').colors
+        regime_colors = {r: palette[(i + 1) % len(palette)]
+                         for i, r in enumerate(_SPLIT_COMP_NEG_ORDER)}
+        bottom = pos_counts.astype(float).copy()
+        for r in regimes_present:
+            heights = np.array([regime_data.get(s, {}).get(r, 0) for s in splits], dtype=int)
+            ax.bar(x, heights, width=bar_width, bottom=bottom,
+                   color=regime_colors[r], edgecolor='white', linewidth=0.5,
+                   label=f'neg: {r}')
+            bottom = bottom + heights
+        # Sanity check: bottom should equal total. If a residual exists (manifest
+        # disagrees with split_sizes), show it as a hatched "unaccounted" bar.
+        residual = total_counts - bottom.astype(int)
+        if np.any(residual > 0):
+            ax.bar(x, residual, width=bar_width, bottom=bottom,
+                   color='#cccccc', edgecolor='white', linewidth=0.5,
+                   hatch='//', label='neg: unaccounted')
+    else:
+        ax.bar(x, neg_counts, width=bar_width, bottom=pos_counts,
+               color='#d62728', edgecolor='white', linewidth=0.5,
+               label='negative')
+
+    # Total-count annotation above each bar.
+    for i, total in enumerate(total_counts):
+        ax.text(x[i], total + max(total_counts) * 0.01,
+                f'{total:,}', ha='center', va='bottom', fontsize=10,
+                fontweight='bold')
+
+    # Per-bar ratio annotation centered vertically inside the bar so it
+    # renders consistently regardless of bar height (small val bars don't
+    # collide with the x-axis the way an in-positive-segment anchor would).
+    for i in range(len(splits)):
+        ach = achieved_ratios[i]
+        req = requested_ratios[i]
+        ach_txt = f'ach neg:pos = {ach:.2f}' if not np.isnan(ach) else 'ach neg:pos = —'
+        req_txt = f'req = {req:.2f}' if not np.isnan(req) else 'req = —'
+        ax.text(x[i], total_counts[i] * 0.5, f'{ach_txt}\n{req_txt}',
+                ha='center', va='center', fontsize=8, color='black',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                          edgecolor='#888888', alpha=0.92))
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([s.capitalize() for s in splits], fontsize=11)
+    ax.set_ylabel('Pair count', fontsize=11)
+    ax.set_title(f'Split composition — {bundle_name}', fontsize=12, fontweight='bold')
+    ax.set_ylim(0, max(total_counts) * 1.12)
+    ax.grid(True, axis='y', alpha=0.3)
+    if holdout_active:
+        # Build "actual = X/Y/Z (isolates)" using isolate_share (added by
+        # compute_split_shares). Falls back gracefully if shares are absent.
+        share_parts = []
+        for s in splits:
+            sh = split_sizes.get(s, {}).get('isolate_share')
+            share_parts.append(f'{sh:.1%}' if sh is not None else '—')
+        share_line = ' / '.join(share_parts)
+        ax.text(0.01, 0.99,
+                f'Holdout active: actual = {share_line} (isolates)\n'
+                f'train_ratio/val_ratio/test_ratio ignored',
+                transform=ax.transAxes, ha='left', va='top', fontsize=9,
+                color='#5a3a00',
+                bbox=dict(boxstyle='round,pad=0.4', facecolor='#fff2cc',
+                          edgecolor='#bf9000', alpha=0.9))
+    # Legend outside on the right; reverse order so positive sits at top.
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[::-1], labels[::-1], loc='center left',
+              bbox_to_anchor=(1.01, 0.5), fontsize=9, frameon=False)
+    fig.tight_layout()
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
 def plot_distribution_by_split(
     metadata_distributions: dict,
     metadata_key: str,
@@ -1785,13 +1771,20 @@ def plot_distribution_by_split(
         ax.set_yticklabels(series.index, fontsize=9)
         ax.set_xlabel(ylabel, fontsize=11)
         
-        # Title: "X of N" where N = total isolates in split (consistent across all metadata plots)
+        # Title: "X of N (P%)" where N = total isolates in split and P = isolate_share
+        # across train+val+test. Surfaces holdout-driven imbalances at a glance.
+        share = None
+        if split_sizes and split in split_sizes:
+            share = split_sizes[split].get('isolate_share')
+        share_txt = f', {share:.1%} of dataset' if share is not None else ''
         if displayed_count < dist_total:
-            ax.set_title(f'{split.capitalize()} Split (showing {displayed_count:,} of {total_isolates:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (showing {displayed_count:,} of {total_isolates:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         else:
-            ax.set_title(f'{split.capitalize()} Split (n={total_isolates:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (n={total_isolates:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         ax.grid(axis='x', alpha=0.3)
         ax.grid(axis='y', visible=False)
         
@@ -1810,15 +1803,19 @@ def plot_distribution_by_split(
 def plot_year_distribution_by_split(
     metadata_distributions: dict,
     output_path: Path,
-    start_year: int = 2000
+    start_year: int = 2000,
+    split_sizes: Optional[dict] = None,
     ) -> None:
     """
     Plot year distribution as histograms across train/val/test splits.
-    
+
     Args:
         metadata_distributions: Dict with 'train', 'val', 'test' keys
         output_path: Path to save the plot
         start_year: Minimum year to display
+        split_sizes: Optional dict with 'train'/'val'/'test' -> {'isolate_share': ...}.
+                     When provided, each subplot title shows the split's share of the
+                     full dataset (post-filtering) — mirrors `plot_distribution_by_split`.
     """
     splits = ['train', 'val', 'test']
     fig, axes = plt.subplots(3, 1, figsize=(12, 10))
@@ -1914,13 +1911,19 @@ def plot_year_distribution_by_split(
         ax.set_xlabel('Year', fontsize=11)
         ax.set_ylabel('Number of Isolates', fontsize=11)
         
-        # Title showing displayed count out of total
+        # Title showing displayed count out of total + dataset share (when known).
+        share = None
+        if split_sizes and split in split_sizes:
+            share = split_sizes[split].get('isolate_share')
+        share_txt = f', {share:.1%} of dataset' if share is not None else ''
         if displayed_count < total_count:
-            ax.set_title(f'{split.capitalize()} Split (showing {displayed_count:,} of {total_count:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (showing {displayed_count:,} of {total_count:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         else:
-            ax.set_title(f'{split.capitalize()} Split (n={total_count:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (n={total_count:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         ax.grid(alpha=0.3, axis='y')
         
         # Add statistics
@@ -2045,7 +2048,8 @@ def plot_host_subtype_heatmap_by_split(
     bundle_name: str,
     output_path: Path,
     top_hosts: int = 15,
-    top_subtypes: int = 15
+    top_subtypes: int = 15,
+    split_sizes: Optional[dict] = None,
     ) -> None:
     """
     Plot host × HN subtype heatmap across train/val/test splits.
@@ -2167,8 +2171,13 @@ def plot_host_subtype_heatmap_by_split(
         )
         ax.set_xlabel('H/N Subtype', fontsize=11)
         ax.set_ylabel('Host', fontsize=11)
-        ax.set_title(f'{split.capitalize()} Split (n={crosstab_filtered.sum().sum():,} isolates)', 
-                    fontsize=12, fontweight='bold')
+        share = None
+        if split_sizes and split in split_sizes:
+            share = split_sizes[split].get('isolate_share')
+        share_txt = f', {share:.1%} of dataset' if share is not None else ''
+        ax.set_title(
+            f'{split.capitalize()} Split (n={crosstab_filtered.sum().sum():,} isolates{share_txt})',
+            fontsize=12, fontweight='bold')
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
         plt.setp(ax.get_yticklabels(), rotation=0)
     
@@ -2200,8 +2209,8 @@ def visualize_dataset_stats(
         skip_esm_pca_plots: If True, skip the four pair_pca_*.png plots and the
             pair_interaction_diagnostics.json file produced by
             plot_pair_interactions().
-        skip_kmer_pca_plots: If True, skip kmer_pca_concat.png and the per-split
-            kmer_pca_segments_*.png plots produced by plot_kmer_pca().
+        skip_kmer_pca_plots: If True, skip kmer_pca_concat.png + the scree
+            summary produced by plot_kmer_pca().
     """
     # Load dataset statistics
     if not dataset_stats_path.exists():
@@ -2254,6 +2263,21 @@ def visualize_dataset_stats(
     top_n = 20
     start_year = 2000
     # breakpoint()
+
+    # 0. Split composition (pos vs neg, broken out by regime if a manifest is present)
+    coverage = stats.get('coverage', {})
+    holdout_active = stats.get('metadata_holdout') is not None
+    try:
+        _plot_split_composition(
+            split_sizes=split_sizes,
+            coverage=coverage,
+            regime_manifest_csv=run_dir / 'negative_regime_manifest.csv',
+            bundle_name=bundle_name,
+            output_path=plots_dir / 'split_composition.png',
+            holdout_active=holdout_active,
+        )
+    except Exception as e:
+        print(f"WARNING: failed to render split_composition.png ({type(e).__name__}: {e})")
 
     # 1. Host distribution
     if has_host:
@@ -2331,7 +2355,8 @@ def visualize_dataset_stats(
                 plot_year_distribution_by_split(
                     metadata_distributions,
                     plots_dir / 'year_distribution.png',
-                    start_year=start_year
+                    start_year=start_year,
+                    split_sizes=split_sizes,
                 )
             else:
                 print("Skipping year distribution (very narrow range)")
@@ -2349,7 +2374,8 @@ def visualize_dataset_stats(
             bundle_name=bundle_name,
             output_path=plots_dir / 'host_subtype_heatmap.png',
             top_hosts=15,
-            top_subtypes=15
+            top_subtypes=15,
+            split_sizes=split_sizes,
         )
     else:
         print("Skipping host × subtype heatmap (insufficient variation in host or subtype)")
@@ -2357,7 +2383,7 @@ def visualize_dataset_stats(
     # 7. Low-dimensional PCA plots for each interaction mode (pair embeddings)
     # Generates pair_pca_concat.png, pair_pca_diff.png, pair_pca_prod.png,
     # pair_pca_unit_diff.png + pair_interaction_diagnostics.json,
-    # plus k-mer PCA plots (kmer_pca_concat.png + kmer_pca_segments_*.png).
+    # plus k-mer PCA plots (kmer_pca_concat.png + kmer_pca_scree.png).
     try:
         cfg = get_virus_config_hydra(bundle_name, config_path=str(project_root / 'conf'))
         virus_name = cfg.virus.virus_name
@@ -2492,7 +2518,7 @@ def main():
     parser.add_argument(
         '--skip_kmer_pca_plots',
         action='store_true',
-        help='Skip kmer_pca_concat.png + kmer_pca_segments_{train,val,test}.png.'
+        help='Skip kmer_pca_concat.png + kmer_pca_scree.png.'
     )
     """
     python src/analysis/visualize_dataset_stats.py --bundle flu_ha_na_5ks --dataset_dir ./data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20260119_144322

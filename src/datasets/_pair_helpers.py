@@ -968,6 +968,75 @@ def _describe_holdout_spec(spec: dict) -> str:
     return ', '.join(parts)
 
 
+def compute_split_shares(split_sizes: dict) -> None:
+    """In-place: add `pair_share` and `isolate_share` per split entry.
+
+    Each share is the slot's count divided by the cross-split sum
+    (train+val+test), as a float in [0, 1]. This is the right denominator
+    for "what fraction of the dataset (post-filtering) is this split?"
+    — metadata_holdout commonly produces splits that don't follow the
+    configured train/val/test ratios, so this exposes the actual achieved
+    split balance to downstream consumers.
+    """
+    slots = ('train', 'val', 'test')
+    total_pairs = sum(split_sizes.get(s, {}).get('pairs', 0) for s in slots)
+    total_iso = sum(split_sizes.get(s, {}).get('isolates', 0) for s in slots)
+    for s in slots:
+        if s not in split_sizes:
+            continue
+        p = split_sizes[s].get('pairs', 0)
+        i = split_sizes[s].get('isolates', 0)
+        split_sizes[s]['pair_share'] = round(p / total_pairs, 4) if total_pairs > 0 else 0.0
+        split_sizes[s]['isolate_share'] = round(i / total_iso, 4) if total_iso > 0 else 0.0
+
+
+def format_split_summary_banner(
+    split_sizes: dict,
+    holdout_cfg: Optional[dict] = None,
+    ) -> str:
+    """Return a one-line summary string for end-of-Stage-3 stdout.
+
+    Format example::
+
+        train=8,814 (45.7%) [hn_subtype=['H3N2']], val=981 (5.1%) [carved from train], test=9,503 (49.2%) [hn_subtype=['H1N1']]
+
+    Driver text per slot:
+      - random split (no holdout_cfg): ``random``
+      - holdout train/test/val (explicit filter): ``_describe_holdout_spec`` output
+      - holdout val implicit (cfg.val is None): ``carved from train``
+
+    Requires `compute_split_shares` to have already run so the share fields
+    are present; falls back to recomputing on-the-fly if missing.
+    """
+    slots = ('train', 'val', 'test')
+    # Recompute shares if absent (defensive — callers should call compute_split_shares first).
+    have_shares = all(
+        'isolate_share' in split_sizes.get(s, {}) for s in slots if s in split_sizes
+    )
+    if not have_shares:
+        compute_split_shares(split_sizes)
+
+    parts = []
+    for slot in slots:
+        if slot not in split_sizes:
+            continue
+        info = split_sizes[slot]
+        n_iso = info.get('isolates', 0)
+        share = info.get('isolate_share', 0.0)
+        if holdout_cfg is None:
+            driver = 'random'
+        else:
+            slot_spec = holdout_cfg.get(slot)
+            if slot == 'val' and slot_spec is None:
+                driver = 'carved from train'
+            elif slot_spec is None:
+                driver = '(unconstrained)'
+            else:
+                driver = _describe_holdout_spec(slot_spec)
+        parts.append(f"{slot}={n_iso:,} ({share:.1%}) [{driver}]")
+    return ', '.join(parts)
+
+
 def compute_metadata_holdout_isolates(
     df: pd.DataFrame,
     holdout_cfg: dict,

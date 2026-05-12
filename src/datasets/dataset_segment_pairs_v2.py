@@ -1664,6 +1664,7 @@ def save_split_output_v2(
     generate_visualizations: bool = True,
     skip_esm_pca_plots: bool = False,
     skip_kmer_pca_plots: bool = False,
+    holdout_cfg: Optional[dict] = None,
     ) -> None:
     """Save v2 output files for one split (or one CV fold).
 
@@ -1829,9 +1830,23 @@ def save_split_output_v2(
         },
     }
 
+    # Inject pair_share + isolate_share into split_sizes so downstream
+    # consumers (plots, banner) don't have to recompute denominators.
+    from src.datasets._pair_helpers import (
+        compute_split_shares,
+        format_split_summary_banner,
+    )
+    compute_split_shares(dataset_stats['split_sizes'])
+
     with open(output_dir / 'dataset_stats.json', 'w') as f:
         json.dump(dataset_stats, f, indent=2, default=_jsonable)
     print(f"Saved dataset stats to: {output_dir / 'dataset_stats.json'}")
+
+    # End-of-stage summary banner. holdout_cfg already comes in as a plain
+    # dict (or None) from the caller — the OmegaConf → dict conversion lives
+    # at the dispatch site in dataset_segment_pairs.py.
+    print('\nFinal split sizes: '
+          + format_split_summary_banner(dataset_stats['split_sizes'], holdout_cfg))
 
     # Per-isolate metadata
     isolate_metadata_cols = ['assembly_id', 'host', 'hn_subtype', 'year']
