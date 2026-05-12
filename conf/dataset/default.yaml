@@ -144,9 +144,21 @@ drop_ambiguous_subtype: true
 
 # v2-only: split-strategy dispatch. Default 'random' preserves the existing
 # row-level shuffle-split. 'seq_disjoint' routes positive pairs by bipartite
-# (HA-DNA, NA-DNA) connected components so each unique dna_hash appears in at
-# most one split. Mitigates Mode #3 (sequence-level leakage) — see
-# docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
+# (side-A, side-B) connected components so each unique sequence on the chosen
+# hash family appears in at most one split. Mitigates Mode #3 (sequence-level
+# leakage) — see docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
 # docs/methods/leakage_definitions.md.
+#
+# hash_key picks the hash family used to define components when mode=seq_disjoint:
+#   - 'seq' (default): partition on `seq_hash_a`/`seq_hash_b` — the **protein**
+#     hash (md5 of the protein sequence). Stricter: no protein appears in two
+#     splits, even across synonymous-mutation DNA variants. The right choice
+#     for ESM-2 features (protein-level) and a strict superset of DNA-level
+#     disjointness.
+#   - 'dna': partition on `dna_hash_a`/`dna_hash_b` — the **nucleotide** hash.
+#     Looser: two pairs with the same protein but different DNAs can land in
+#     different splits. Appropriate when downstream features are DNA-derived
+#     (k-mer) and maximum sample-level granularity is desired.
 split_strategy:
-  mode: random   # 'random' (default) | 'seq_disjoint'
+  mode: seq_disjoint  # 'random' (default) | 'seq_disjoint' (default)
+  hash_key: seq       # 'seq' (protein, default) | 'dna' (nucleotide)

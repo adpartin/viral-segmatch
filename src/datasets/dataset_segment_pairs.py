@@ -1646,10 +1646,17 @@ if PAIR_BUILDER_VERSION == 'v2':
     # docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
     SPLIT_STRATEGY_CFG = getattr(config.dataset, 'split_strategy', None)
     SPLIT_STRATEGY_MODE = 'random'
+    # hash_key picks the routing hash family when mode=seq_disjoint:
+    # 'seq' = protein (default, stricter); 'dna' = nucleotide (looser, but
+    # appropriate when training features are DNA-derived such as k-mer).
+    SPLIT_STRATEGY_HASH_KEY = 'seq'
     if SPLIT_STRATEGY_CFG is not None:
         m = getattr(SPLIT_STRATEGY_CFG, 'mode', None)
         if m is not None:
             SPLIT_STRATEGY_MODE = str(m)
+        hk = getattr(SPLIT_STRATEGY_CFG, 'hash_key', None)
+        if hk is not None:
+            SPLIT_STRATEGY_HASH_KEY = str(hk)
     if NEG_SAMPLING_CFG is not None:
         from omegaconf import OmegaConf
         rt = OmegaConf.to_container(NEG_SAMPLING_CFG.regime_targets, resolve=True)
@@ -1782,6 +1789,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             year_bin_edges=YEAR_BIN_EDGES,
             on_shortfall=ON_SHORTFALL,
             split_strategy_mode=SPLIT_STRATEGY_MODE,
+            split_strategy_hash_key=SPLIT_STRATEGY_HASH_KEY,
             train_isolates_override=holdout_train_ids,
             val_isolates_override=holdout_val_ids,
             test_isolates_override=holdout_test_ids,

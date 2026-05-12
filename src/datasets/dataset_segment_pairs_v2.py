@@ -1146,6 +1146,7 @@ def split_dataset_v2(
     cooccur_pairs: Optional[set] = None,
     cooccur_stats: Optional[dict] = None,
     split_strategy_mode: str = 'random',
+    split_strategy_hash_key: str = 'seq',
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1286,16 +1287,21 @@ def split_dataset_v2(
         val_pos = pos_df[pos_df['assembly_id_a'].isin(set(val_isolates))].reset_index(drop=True)
         test_pos = pos_df[pos_df['assembly_id_a'].isin(set(test_isolates))].reset_index(drop=True)
     elif split_strategy_mode == 'seq_disjoint':
-        # Bipartite-component routing: each (HA-DNA, NA-DNA) connected
-        # component is indivisible; whole components are LPT-greedy bin-packed
-        # into train/val/test. Drops zero pairs by construction; cross-split
-        # DNA-hash overlap is impossible by construction (verified in audit).
+        # Bipartite-component routing: each connected component (on the
+        # hash family selected by split_strategy_hash_key — seq_hash by
+        # default for protein-level partitioning, or dna_hash for the
+        # looser nucleotide-level partition) is indivisible; whole
+        # components are LPT-greedy bin-packed into train/val/test. Drops
+        # zero pairs by construction; cross-split hash overlap on the
+        # chosen family is impossible by construction (verified in audit).
         # See docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
         from src.datasets._pair_helpers import seq_disjoint_route_pos_df
-        print("\nsplit_dataset_v2: seq_disjoint routing on pos_df rows "
-              "(bipartite CC + LPT-greedy bin-pack)...", flush=True)
+        print(f"\nsplit_dataset_v2: seq_disjoint routing on pos_df rows "
+              f"(bipartite CC + LPT-greedy bin-pack, hash_key={split_strategy_hash_key!r})...",
+              flush=True)
         train_pos, val_pos, test_pos, seq_disjoint_audit = seq_disjoint_route_pos_df(
             pos_df, train_ratio=train_ratio, val_ratio=val_ratio, seed=seed,
+            hash_key=split_strategy_hash_key,
         )
         train_isolates = sorted(train_pos['assembly_id_a'].tolist())
         val_isolates = sorted(val_pos['assembly_id_a'].tolist())
@@ -1521,20 +1527,31 @@ def split_dataset_v2(
     if seq_disjoint_audit is not None:
         # Re-audit the FINAL DataFrames (positives + negatives + axis flags +
         # any post-hoc cleanup), not just the routed positives. Under v2's
-        # strict invariants this should still be all-zero -- the negatives
-        # sampler picks partners from per-split pos_df rows, so it cannot
-        # introduce a DNA from another split's pool. Verifying here makes the
-        # audit JSON a regression check on the whole pipeline, not just the
-        # routing step.
-        for side in ('a', 'b'):
-            t = set(train_pairs[f'dna_hash_{side}'].dropna())
-            v = set(val_pairs[f'dna_hash_{side}'].dropna())
-            te = set(test_pairs[f'dna_hash_{side}'].dropna())
-            seq_disjoint_audit['dna_hash_overlap_full_pairs_' + side] = {
-                'train_val':  len(t & v),
-                'train_test': len(t & te),
-                'val_test':   len(v & te),
-            }
+        # strict invariants this should still be all-zero for the chosen
+        # hash family -- the negatives sampler picks partners from per-split
+        # pos_df rows, so it cannot introduce a hash from another split's
+        # pool. Verifying here makes the audit JSON a regression check on
+        # the whole pipeline, not just the routing step.
+        #
+        # Both seq_hash and dna_hash counters are emitted regardless of the
+        # chosen hash_key: the one matching hash_key is the by-construction
+        # guarantee (hard-failed by the saver); the other is a diagnostic.
+        # Under hash_key='seq', dna_hash is also 0 (protein equality
+        # implies DNA grouping). Under hash_key='dna', seq_hash is usually
+        # non-zero (synonymous variants land in different splits).
+        for family in ('seq', 'dna'):
+            for side in ('a', 'b'):
+                col = f'{family}_hash_{side}'
+                if col not in train_pairs.columns:
+                    continue
+                t = set(train_pairs[col].dropna())
+                v = set(val_pairs[col].dropna())
+                te = set(test_pairs[col].dropna())
+                seq_disjoint_audit[f'{family}_hash_overlap_full_pairs_' + side] = {
+                    'train_val':  len(t & v),
+                    'train_test': len(t & te),
+                    'val_test':   len(v & te),
+                }
         duplicate_stats['seq_disjoint_audit'] = seq_disjoint_audit
     exposure_tables = {'train': train_exp, 'val': val_exp, 'test': test_exp}
     return train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables
@@ -1719,20 +1736,29 @@ def save_split_output_v2(
         with open(output_dir / 'seq_disjoint_audit.json', 'w') as f:
             json.dump(sd_audit, f, indent=2, default=str)
         print(f"Saved seq_disjoint_audit.json to: {output_dir}")
+        # Hard-fail only on the hash family that the routing was built on
+        # (split_strategy.hash_key — 'seq' by default for protein-level
+        # disjointness; 'dna' for nucleotide-level). The OTHER family is
+        # diagnostic only: its non-zero counters are expected under
+        # hash_key='dna' (synonymous variants of the same protein in
+        # different splits) and should be zero under hash_key='seq'.
+        active_key = sd_audit.get('hash_key', 'seq')  # 'seq' default; back-compat for older audits
+        positives_scope_key = f'{active_key}_hash_overlap'
         for side in ('a', 'b'):
             for pair_label, scope_key in (
-                ('positives-only', 'dna_hash_overlap'),
-                ('full-pairs', 'dna_hash_overlap_full_pairs_' + side),
+                ('positives-only', positives_scope_key),
+                ('full-pairs', f'{active_key}_hash_overlap_full_pairs_' + side),
             ):
-                if scope_key == 'dna_hash_overlap':
-                    overlaps = sd_audit['dna_hash_overlap'][side]
+                if scope_key == positives_scope_key:
+                    overlaps = sd_audit[positives_scope_key].get(side, {})
                 else:
-                    overlaps = sd_audit[scope_key]
+                    overlaps = sd_audit.get(scope_key, {})
                 bad = {k: v for k, v in overlaps.items() if v != 0}
                 if bad:
                     raise RuntimeError(
-                        f"seq_disjoint routing audit FAILED ({pair_label}, side={side}): "
-                        f"non-zero cross-split dna_hash overlap {bad}. "
+                        f"seq_disjoint routing audit FAILED ({pair_label}, "
+                        f"hash_key={active_key!r}, side={side}): non-zero "
+                        f"cross-split {active_key}_hash overlap {bad}. "
                         f"This means cross-split sequence-level leakage is present despite "
                         f"split_strategy.mode=seq_disjoint. Check the routing helper "
                         f"(src/datasets/_pair_helpers.py::seq_disjoint_route_pos_df) "
@@ -2218,6 +2244,14 @@ def _validate_v2_config(config) -> None:
             f"v2 requires dataset.split_strategy.mode in {{'random', 'seq_disjoint'}} "
             f"(or absent); got {split_mode!r}. See "
             f"docs/plans/2026-05-10_seq_disjoint_routing_plan.md."
+        )
+    # split_strategy.hash_key: 'seq' (protein, default — stricter) or 'dna'
+    # (nucleotide — appropriate when training on DNA k-mer features).
+    split_hash_key = OmegaConf.select(config, "dataset.split_strategy.hash_key")
+    if split_hash_key is not None and split_hash_key not in {'seq', 'dna'}:
+        raise ValueError(
+            f"v2 requires dataset.split_strategy.hash_key in {{'seq', 'dna'}} "
+            f"(or absent — defaults to 'seq'); got {split_hash_key!r}."
         )
     n_folds = OmegaConf.select(config, "dataset.n_folds")
     if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:

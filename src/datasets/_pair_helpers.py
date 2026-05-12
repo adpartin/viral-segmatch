@@ -409,34 +409,55 @@ def get_metadata_distributions(df: pd.DataFrame, isolate_set: set) -> dict:
     return distributions
 
 
-def bipartite_components(pos_df: pd.DataFrame) -> tuple[pd.Series, dict]:
-    """Connected components of the bipartite (HA-DNA, NA-DNA) graph.
+def bipartite_components(
+    pos_df: pd.DataFrame,
+    hash_key: str = 'seq',
+    ) -> tuple[pd.Series, dict]:
+    """Connected components of the bipartite (side-A, side-B) hash graph.
 
-    Nodes: ('a', dna_hash_a) and ('b', dna_hash_b) values from `pos_df`.
-    Edges: each unique `(dna_hash_a, dna_hash_b)` tuple. Computed by
-    iterative-path-compression union-find (no networkx dependency).
+    Nodes: ('a', H_a) and ('b', H_b) values from `pos_df`, where H is
+    chosen by `hash_key`:
+      - hash_key='seq'  (default): protein-level — columns seq_hash_a /
+        seq_hash_b. Two pairs sharing the same protein sequence on a side
+        land in the same component, even if their DNAs differ
+        (synonymous mutations). STRICTER guarantee.
+      - hash_key='dna': nucleotide-level — columns dna_hash_a / dna_hash_b.
+        Two pairs sharing the same DNA on a side land in the same
+        component; pairs with synonymous-mutation variants of the same
+        protein can land in different components. Looser guarantee, but
+        appropriate when the downstream feature is DNA-derived (k-mer).
+
+    Edges: each unique `(H_a, H_b)` tuple. Computed by iterative-path-
+    compression union-find (no networkx dependency).
 
     Returns:
         (component_id, summary)
         component_id: pd.Series aligned with pos_df.index, dtype int.
             Each row is labelled with its component's representative id
             (a contiguous integer 0..n_components-1).
-        summary: dict with `n_components`, `n_pairs`, `n_dnas_a`,
-            `n_dnas_b`, `largest_component_pairs`, `top_10_sizes`,
-            `singleton_components` (count of size-1 components).
+        summary: dict with `n_components`, `n_pairs`, `hash_key`,
+            `n_hashes_a`, `n_hashes_b`, `largest_component_pairs`,
+            `top_10_sizes`, `singleton_components`.
 
     The component label is stable under reordering of pos_df rows but
     not under reordering of (a, b) sides. v2 schema-mode positives are
     always (func_left, func_right) so this is fine.
     """
-    if not {'dna_hash_a', 'dna_hash_b'}.issubset(pos_df.columns):
+    if hash_key not in {'seq', 'dna'}:
         raise ValueError(
-            "bipartite_components: pos_df must contain dna_hash_a and dna_hash_b "
-            "columns (added by attach_dna_to_prot_df upstream)."
+            f"bipartite_components: hash_key must be 'seq' or 'dna'; "
+            f"got {hash_key!r}."
+        )
+    col_a = f'{hash_key}_hash_a'
+    col_b = f'{hash_key}_hash_b'
+    if not {col_a, col_b}.issubset(pos_df.columns):
+        raise ValueError(
+            f"bipartite_components: pos_df must contain {col_a} and {col_b} "
+            f"columns (for hash_key={hash_key!r})."
         )
 
     # Union-find on string node ids ('a:'+hash, 'b:'+hash). String prefix
-    # avoids the (rare) chance of an HA-DNA hash colliding with an NA-DNA
+    # avoids the (rare) chance of a side-a hash colliding with a side-b
     # hash collapsing two distinct nodes; md5 collision is astronomically
     # unlikely but the prefix costs nothing.
     parent: dict = {}
@@ -453,16 +474,16 @@ def bipartite_components(pos_df: pd.DataFrame) -> tuple[pd.Series, dict]:
         if rx != ry:
             parent[rx] = ry
 
-    edges = pos_df[['dna_hash_a', 'dna_hash_b']].drop_duplicates()
-    for h in pos_df['dna_hash_a'].unique():
+    edges = pos_df[[col_a, col_b]].drop_duplicates()
+    for h in pos_df[col_a].unique():
         parent[f'a:{h}'] = f'a:{h}'
-    for h in pos_df['dna_hash_b'].unique():
+    for h in pos_df[col_b].unique():
         parent[f'b:{h}'] = f'b:{h}'
-    for h_a, h_b in zip(edges['dna_hash_a'].values, edges['dna_hash_b'].values):
+    for h_a, h_b in zip(edges[col_a].values, edges[col_b].values):
         union(f'a:{h_a}', f'b:{h_b}')
 
     # Map each row to its component's root, then to a contiguous int id.
-    row_roots = [find(f'a:{h}') for h in pos_df['dna_hash_a'].values]
+    row_roots = [find(f'a:{h}') for h in pos_df[col_a].values]
     root_to_int: dict = {}
     for r in sorted(set(row_roots)):
         root_to_int[r] = len(root_to_int)
@@ -477,8 +498,9 @@ def bipartite_components(pos_df: pd.DataFrame) -> tuple[pd.Series, dict]:
     summary = {
         'n_components': int(component_id.nunique()),
         'n_pairs': int(len(pos_df)),
-        'n_dnas_a': int(pos_df['dna_hash_a'].nunique()),
-        'n_dnas_b': int(pos_df['dna_hash_b'].nunique()),
+        'hash_key': hash_key,
+        'n_hashes_a': int(pos_df[col_a].nunique()),
+        'n_hashes_b': int(pos_df[col_b].nunique()),
         'largest_component_pairs': int(sizes.iloc[0]) if len(sizes) else 0,
         'top_10_sizes': [int(s) for s in sizes.head(10).tolist()],
         'singleton_components': int((sizes == 1).sum()),
@@ -491,30 +513,43 @@ def seq_disjoint_route_pos_df(
     train_ratio: float,
     val_ratio: float,
     seed: int,
+    hash_key: str = 'seq',
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Route `pos_df` rows into train/val/test by bipartite-component LPT-greedy.
 
-    Each connected component in the (HA-DNA, NA-DNA) bipartite graph is
-    indivisible: the whole component lands in one split. A component's
-    pairs always have both DNAs (slot a + slot b) present in that
-    split's positives, so cross-split DNA leakage from positives is
-    impossible by construction.
+    Each connected component in the bipartite (side-A, side-B) hash graph
+    is indivisible: the whole component lands in one split. The graph is
+    built on the hash family selected by `hash_key`:
+
+      - hash_key='seq' (default): protein-level partitioning via
+        seq_hash_a / seq_hash_b. The stricter choice — guarantees no
+        protein appears in two splits. The right key for ESM-2 features
+        (a protein-level feature) and also a strict superset of the DNA
+        guarantee since two synonymous-mutation DNAs share their protein.
+      - hash_key='dna': nucleotide-level partitioning via dna_hash_a /
+        dna_hash_b. Looser — synonymous-mutation variants of the same
+        protein can land in different splits. Appropriate when the
+        downstream feature is DNA-derived (k-mer) and you want maximum
+        sample-level granularity.
 
     LPT-greedy bin-packing: sort components by size desc (then by
     component-id for deterministic tie-breaking), assign each to the bin
     whose remaining-capacity deficit (target - current) is largest.
-    With small components and three target ratios, this is within a
-    rounding-rounding error of the targets in practice.
 
     `seed` is reserved for future tie-break shuffling but is not consumed
     in this implementation (the algorithm is fully deterministic without
-    it). Accepted in the signature so the call site does not need a
-    special-case.
+    it).
+
+    The returned audit dict reports overlap counts for BOTH seq_hash and
+    dna_hash families regardless of `hash_key`, so the diagnostic value
+    is preserved either way. The by-construction guarantee is on the
+    `hash_key`-selected family; the other family is reported as a
+    secondary diagnostic.
 
     Returns:
         (train_pos, val_pos, test_pos, audit) -- the three DataFrames are
         row-disjoint partitions of pos_df preserving original column
-        order; `audit` is a JSON-serializable dict (see code for keys).
+        order; `audit` is a JSON-serializable dict.
     """
     if not 0 < train_ratio < 1 or not 0 <= val_ratio < 1:
         raise ValueError(
@@ -527,8 +562,13 @@ def seq_disjoint_route_pos_df(
             f"seq_disjoint_route_pos_df: train+val ratios sum to >1 "
             f"({train_ratio} + {val_ratio})"
         )
+    if hash_key not in {'seq', 'dna'}:
+        raise ValueError(
+            f"seq_disjoint_route_pos_df: hash_key must be 'seq' or 'dna'; "
+            f"got {hash_key!r}."
+        )
 
-    component_id, cc_summary = bipartite_components(pos_df)
+    component_id, cc_summary = bipartite_components(pos_df, hash_key=hash_key)
 
     # Per-component pair counts, sorted (size desc, comp-id asc).
     sizes = component_id.value_counts().sort_index()  # comp-id asc
@@ -561,26 +601,39 @@ def seq_disjoint_route_pos_df(
 
     achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
 
-    # Cross-split DNA-hash overlap should be 0 by construction. Compute
-    # anyway so the audit doubles as a regression check; the saver
-    # raises if any overlap is non-zero.
-    def _set(df: pd.DataFrame, side: str) -> set:
-        return set(df[f'dna_hash_{side}'].dropna())
-    overlaps: dict = {}
-    for side in ('a', 'b'):
-        sets = {sp: _set(d, side) for sp, d in
-                (('train', train_pos), ('val', val_pos), ('test', test_pos))}
-        overlaps[side] = {
-            'train_val':   len(sets['train'] & sets['val']),
-            'train_test':  len(sets['train'] & sets['test']),
-            'val_test':    len(sets['val'] & sets['test']),
-        }
+    # Cross-split hash overlap. For the family selected by `hash_key` the
+    # by-construction guarantee is that all six counters are 0; the
+    # saver hard-fails if any are non-zero. The OTHER family is reported
+    # as a diagnostic — under hash_key='seq', dna_hash overlaps are
+    # always 0 too (protein equality implies DNA grouping). Under
+    # hash_key='dna', seq_hash overlaps are usually non-zero (synonymous
+    # mutations of the same protein land in different splits).
+    def _set(df: pd.DataFrame, col: str) -> set:
+        return set(df[col].dropna())
+    overlaps_by_family: dict = {}
+    for family in ('seq', 'dna'):
+        col_template = f'{family}_hash_{{side}}'
+        family_overlaps: dict = {}
+        for side in ('a', 'b'):
+            col = col_template.format(side=side)
+            if col not in pos_df.columns:
+                continue
+            sets = {sp: _set(d, col) for sp, d in
+                    (('train', train_pos), ('val', val_pos), ('test', test_pos))}
+            family_overlaps[side] = {
+                'train_val':   len(sets['train'] & sets['val']),
+                'train_test':  len(sets['train'] & sets['test']),
+                'val_test':    len(sets['val'] & sets['test']),
+            }
+        if family_overlaps:
+            overlaps_by_family[family] = family_overlaps
 
     target_pcts = {k: 100.0 * v / n_pairs for k, v in targets.items()}
     achieved_pcts = {k: 100.0 * v / n_pairs for k, v in achieved.items()}
     audit = {
         'mode': 'seq_disjoint',
         'algorithm': 'bipartite_cc_lpt_greedy',
+        'hash_key': hash_key,
         'seed': int(seed),
         'cc_summary': cc_summary,
         'targets_pairs': {k: int(round(v)) for k, v in targets.items()},
@@ -591,7 +644,11 @@ def seq_disjoint_route_pos_df(
             max(abs(achieved_pcts[k] - target_pcts[k]) for k in achieved_pcts), 4
         ),
         'pairs_dropped': 0,  # CC-bin-packing never splits a component.
-        'dna_hash_overlap': overlaps,
+        # Primary guarantee (hard-fail in saver): overlaps_by_family[hash_key].
+        # Other family is diagnostic. Both kept under the legacy
+        # `dna_hash_overlap` alias too so existing readers keep working.
+        'seq_hash_overlap': overlaps_by_family.get('seq', {}),
+        'dna_hash_overlap': overlaps_by_family.get('dna', {}),
     }
     return train_pos, val_pos, test_pos, audit
 
