@@ -12,8 +12,8 @@ unless --row_labels is provided.
 
 Usage (autodiscovery — preferred):
     python src/analysis/aggregate_baselines_vs_mlp.py \\
-        --bundle flu_ha_na_seq_disjoint \\
-        --output_dir docs/results/baselines_vs_mlp_<bundle>_<TS>/
+        --bundle flu_ha_na \\
+        --output_dir results/flu/July_2025/runs/baselines_vs_mlp_<bundle>_<TS>/
 
     Picks the latest training_<bundle>_<TS> and baseline_<name>_<bundle>_<TS>
     dirs under --runs_root (default: models/flu/July_2025/runs/), asserts
@@ -31,11 +31,17 @@ Usage (explicit — for ad-hoc cross-bundle comparisons):
             models/.../baseline_knn_vote_<bundle>_<TS>/ \\
             models/.../training_<bundle>_<TS>/ \\
         --row_labels "Logistic Regression" "LightGBM" "1-NN (margin)" "k-NN (k=5)" "MLP" \\
-        --output_dir docs/results/baselines_vs_mlp_<TS>/
+        --output_dir results/flu/July_2025/runs/baselines_vs_mlp_<TS>/
 
 Outputs (under --output_dir):
-    baselines_vs_mlp_heatmap.png
-    baselines_vs_mlp.csv
+    baselines_vs_mlp_heatmap.png    (per-regime TPR/TNR matrix + sidebar)
+    baselines_vs_mlp_overall.png    (companion bar chart of overall AUC/F1/MCC)
+    baselines_vs_mlp.csv            (numeric values)
+
+Convention: aggregator outputs live under `results/`, not `docs/results/`.
+The `docs/` tree is reserved for hand-authored writeups and decision logs;
+machine-generated aggregator outputs live alongside dataset and model
+runs under their respective top-level dirs.
 
 Note on featurization parity: the MLP applies a learned per-slot
 LayerNorm before concat (slot_transform=slot_norm); sklearn baselines

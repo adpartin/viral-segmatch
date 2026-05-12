@@ -89,7 +89,7 @@ Usage
         --run_dirs models/flu/July_2025/runs/training_flu_ha_na_20260508_214253 \\
                    models/flu/July_2025/runs/baseline_knn_flu_ha_na_20260508_211301 \\
         --run_labels MLP 1-NN \\
-        --output_dir docs/results/exp3_cosine_deciles_ha_na_20260508
+        --output_dir results/flu/July_2025/runs/exp3_cosine_deciles_ha_na_20260508
 """
 from __future__ import annotations
 
