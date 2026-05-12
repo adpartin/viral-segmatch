@@ -1,5 +1,5 @@
 {
-  "_comment": "Trimmed excerpt of a real BV-BRC PATRIC GTO file (data/raw/Full_Flu_Annos/July_2025/0000003012.gto). DNA and protein_translation strings are truncated for readability; feature_creation_event and annotations (audit-trail fields) are omitted. See docs/gto_format_reference.md for the schema walk-through.",
+  "_comment": "Trimmed excerpt of a real BV-BRC PATRIC GTO file (data/raw/Full_Flu_Annos/July_2025/0000003012.gto). DNA and protein_translation strings are truncated for readability; feature_creation_event and annotations (audit-trail fields) are omitted. See docs/methods/gto_format_reference.md for the schema walk-through.",
   "id": "197911.84799",
   "ncbi_taxonomy_id": 197911,
   "scientific_name": "Influenza A virus (A/mallard/Wisconsin/394/1977(H4N1))",

@@ -3,7 +3,7 @@
 > Reference notes on how Stage 1 parses GTO files and emits
 > `protein_final.csv` / `genome_final.csv`. Source: `src/preprocess/preprocess_flu.py`.
 > See also:
-> - `docs/gto_format_reference.md` — comprehensive walk-through of the
+> - `docs/methods/gto_format_reference.md` — comprehensive walk-through of the
 >   BV-BRC GTO JSON schema (contigs vs features, the `location` field,
 >   spliced multi-entry CDSs, the "major protein" convention from
 >   `conf/virus/flu.yaml`). This `preprocess.md` focuses on **what Stage 1
@@ -37,7 +37,7 @@ DNA to protein rows (`_pair_helpers.py::attach_dna_to_prot_df`).
 Verified against `00621bf88c.gto` (July 2025) and cross-checked
 against the full corpus (108,530 assemblies → 1,793,563 CDS rows in
 `protein_final.parquet`, 868,240 contigs in `genome_final.parquet`).
-See `docs/gto_format_reference.md` for the full schema walk-through;
+See `docs/methods/gto_format_reference.md` for the full schema walk-through;
 the table below focuses on **which fields Stage 1 reads and where they
 land**.
 

@@ -75,7 +75,7 @@ Configuration is **Hydra bundle-per-experiment**: one YAML under
 inherit from a chain of base configs (see `conf/bundles/README.md`).
 
 **See also**: `docs/methods/preprocess.md` (stage 1 detail);
-`docs/gto_format_reference.md` (input GTO schema);
+`docs/methods/gto_format_reference.md` (input GTO schema);
 `docs/methods/kmer_features.md` (stage 2b k-mer pipeline);
 `docs/SEED_SYSTEM.md` (reproducibility seeding).
 
@@ -296,7 +296,7 @@ Two `feature_source` options:
 **See also**: `docs/methods/kmer_features.md` (full pipeline: stride,
 storage, ambiguous-base handling, leakage protection);
 `docs/methods/feature_normalization.md` (full model × feature defaults
-matrix and the slot-transform options); `docs/gto_format_reference.md`
+matrix and the slot-transform options); `docs/methods/gto_format_reference.md`
 (the GTO contig source the k-mers are computed over).
 
 ---
@@ -419,7 +419,7 @@ For each topic, the deepest reference:
 | Topic | File |
 |---|---|
 | Stage 1 detail (GTO parsing) | `docs/methods/preprocess.md` |
-| Input GTO JSON schema (with corpus-wide statistics) | `docs/gto_format_reference.md` |
+| Input GTO JSON schema (with corpus-wide statistics) | `docs/methods/gto_format_reference.md` |
 | K-mer feature pipeline | `docs/methods/kmer_features.md` |
 | Leakage taxonomy + biology-learning criterion | `docs/methods/leakage_definitions.md` |
 | Per-(model × feature) preprocessing matrix | `docs/methods/feature_normalization.md` |

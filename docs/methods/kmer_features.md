@@ -5,7 +5,7 @@
 > This doc is draft methods text for `paper_outline_v2.md` §2.x.
 >
 > See also:
-> - `docs/gto_format_reference.md` — schema-level reference for the
+> - `docs/methods/gto_format_reference.md` — schema-level reference for the
 >   GTO input (the `contigs[]` array this pipeline reads). Covers
 >   what's annotated vs implicit (UTRs, introns) and the per-segment
 >   non-coding fraction (median ≤ 3.01% across all 8 flu segments in
@@ -191,7 +191,7 @@ tune k exhaustively.
 Raw counts encode both composition *and* length. Since segment lengths
 differ substantially across canonical segments (corpus medians:
 S1 = 2,296 nt, S2 = 2,301, S3 = 2,189, S4 = 1,715, S5 = 1,524, S6 = 1,420,
-S7 = 993, S8 = 860 — see `docs/gto_format_reference.md` §6.5), raw
+S7 = 993, S8 = 860 — see `docs/methods/gto_format_reference.md` §6.5), raw
 counts carry some length information as a confound. Two responses:
 
 1. A per-slot transform is applied to `v_a` and `v_b` before the

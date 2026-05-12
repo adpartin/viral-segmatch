@@ -3,7 +3,7 @@
 **Status: PROPOSED** (no implementation; this is an interpretability/feasibility note)
 **Date:** 2026-05-12
 
-**See also:** `docs/gto_format_reference.md` — comprehensive walk-through
+**See also:** `docs/methods/gto_format_reference.md` — comprehensive walk-through
 of the GTO JSON schema, the `contigs` / `features` split, the `location`
 field (including the spliced multi-entry case for M2 / NEP), and the
 "major protein" convention from `conf/virus/flu.yaml`. That document is
@@ -153,7 +153,7 @@ Even after switching to CDS + stride-3:
 ## Empirical UTR / non-coding fraction in this corpus
 
 The audit step originally listed as "recommended diagnostic" has now
-been run (see `docs/gto_format_reference.md` §6.3 and §6.5 for the full
+been run (see `docs/methods/gto_format_reference.md` §6.3 and §6.5 for the full
 tables). Key numbers, from 20,000 randomly sampled contigs:
 
 - **Non-coding fraction per segment, median:** 0.61% (S1), 1.13% (S2),
