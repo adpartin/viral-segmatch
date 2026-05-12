@@ -8,6 +8,7 @@ defaults:
   - /kmer: default
   - /dataset: default
   - /training: base
+  - /baselines: default
   - _self_
 
 # ===================================================================

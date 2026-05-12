@@ -54,7 +54,7 @@ def get_estimator(config, *, random_state: Optional[int] = None):
         reg_alpha=float(cfg.get('reg_alpha', 0.1)),
         reg_lambda=float(cfg.get('reg_lambda', 0.1)),
         objective='binary',
-        n_jobs=int(cfg.get('n_jobs', -1)),
+        n_jobs=int(cfg.get('n_jobs', 16)),
         random_state=random_state,
         verbose=-1,
     )
