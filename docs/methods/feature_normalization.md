@@ -13,31 +13,33 @@ the code default match.
 
 ## TL;DR — model × feature defaults
 
-| Model               | ESM-2 embeddings (1280-dim per slot, signed, dense) | Nucleotide k-mer (4096-dim per slot, non-neg counts) | Protein k-mer (not yet implemented) |
+| Model               | ESM-2 embeddings (1280-dim per slot, signed, dense) | Nucleotide k-mer (4096-dim per slot, non-neg counts) | Protein k-mer (code path in production, no active bundle) |
 |---|---|---|---|
 | **Logistic regression** | StandardScaler                       | StandardScaler                                 | StandardScaler (extrapolated)                |
 | **LightGBM**            | none                                  | none                                            | none (extrapolated)                          |
-| **1-NN (margin) — `knn1_margin`** | none + slot_norm (recommended)¹ | none (sklearn's `metric='cosine'` normalizes vector lengths internally) | none (extrapolated)        |
-| **k-NN (vote) — `knn_vote`**      | none + slot_norm (recommended)¹ | none (same as 1-NN)                              | none (extrapolated)                          |
-| **MLP (deep learning)** | learned per-slot LayerNorm (`slot_transform: slot_norm`) | learned per-slot LayerNorm (`slot_transform: slot_norm`) | learned per-slot LayerNorm (extrapolated) |
+| **1-NN (margin) — `knn1_margin`** | none + slot_norm or unit_norm (recommended)¹ | none, optionally + `unit_norm` per bundle | none (extrapolated)        |
+| **k-NN (vote) — `knn_vote`**      | none + slot_norm or unit_norm (recommended)¹ | none, optionally + `unit_norm` per bundle | none (extrapolated)                          |
+| **MLP (deep learning)** | learned per-slot LayerNorm (`slot_transform: slot_norm`) — original setup. `unit_norm` (parameter-free L2 row-norm) also supported. | `slot_norm` or `unit_norm`. **Current HA/NA & PB2/PB1 production bundles use `unit_norm + (unit_diff + prod)` per Test 3 (2026-05-12).** | learned per-slot LayerNorm (extrapolated) |
 
 ¹ ESM-2 has a "protein-type subspace offset" (see "Features" below).
-For cosine k-NN on ESM-2, applying `slot_transform: slot_norm` before
-concat is the recommended fix; today the kmer-only coercion in
-`train_pair_baselines.py` does NOT fire for ESM-2, so a bundle that
-sets `training.slot_transform: slot_norm` will get it on ESM-2 k-NN
-runs as expected. Not yet measured against `none` on ESM-2 — the active
-bundle is k-mer.
+For cosine k-NN on ESM-2, applying a per-slot transform before the
+distance computation is the recommended fix. Two options:
+`slot_transform: slot_norm` (numpy LayerNorm — zero-mean / unit-variance
+per row) or `slot_transform: unit_norm` (L2 row-norm only). The kmer-only
+coercion in `train_pair_baselines.py:430` does NOT fire for ESM-2, so a
+bundle that sets either flows through. Not yet measured against `none`
+on ESM-2 — the active bundles are k-mer.
 
-Defaults in code:
+Defaults in code (live in `conf/baselines/default.yaml` as of 2026-05-12,
+which is the single source of truth via `# @package bundles`):
 
 - LR: `src/models/baselines/logistic.py::feature_scaling_default()` → `'standard'`
 - LightGBM: `src/models/baselines/lgbm.py::feature_scaling_default()` → `'none'`
 - 1-NN (margin): `src/models/baselines/knn1_margin.py::feature_scaling_default()` → `'none'`
 - k-NN (vote): `src/models/baselines/knn_vote.py::feature_scaling_default()` → `'none'`
-- MLP slot transform: `conf/training/base.yaml::slot_transform` → `'none'` (each
-  bundle that wants `slot_norm` opts in via `training.slot_transform: slot_norm`;
-  the active gen-3 bundles do).
+- MLP slot transform: `conf/training/base.yaml::slot_transform` → `'none'`
+  (each bundle opts in: legacy gen-3 bundles use `'slot_norm'`; current
+  `flu_ha_na` and `flu_pb2_pb1` use `'unit_norm'`).
 
 ---
 
@@ -113,13 +115,25 @@ For k-mer counts the natural geometry already plays well with cosine
 (k-mer composition vectors point in directions that group same-segment
 isolates close together regardless of segment length). Applying
 `StandardScaler` would actively distort that geometry. Empirical
-support from this project: with `feature_scaling: none`, both
-`knn1_margin` and `knn_vote` reach test AUC ≈ 0.984 on
-`flu_ha_na_neg_regimes` (k-mer, k=6, full Flu-A) — competitive with
-LightGBM (AUC ≈ 0.988) and a tight upper bound for what near-neighbor
-lookup can produce. See
+support from this project (current production bundles
+`flu_ha_na` and `flu_pb2_pb1`, `seq_disjoint` routing + `unit_norm` +
+`unit_diff + prod`, single seed, results verified 2026-05-12 from
+`results/flu/July_2025/runs/baselines_vs_mlp_*_20260512_*/baselines_vs_mlp.csv`):
+
+| Model | HA/NA AUC-ROC | HA/NA MCC | PB2/PB1 AUC-ROC | PB2/PB1 MCC |
+|---|---:|---:|---:|---:|
+| LightGBM     | 0.9830 | 0.881 | 0.9824 | 0.879 |
+| 1-NN margin  | 0.9771 | 0.892 | 0.9815 | 0.900 |
+| k-NN vote    | (in same run) | — | (in same run) | — |
+| MLP          | 0.9771 | 0.885 | 0.9760 | 0.887 |
+
+The 1-NN and MLP results are nearly indistinguishable on aggregate
+metrics under this setup — and on PB2/PB1 the 1-NN baseline narrowly
+edges the MLP on MCC (0.900 vs 0.887). See
 `docs/methods/leakage_definitions.md` for the role of the 1-NN result
-in the "biology learning" criterion.
+in the "biology learning" criterion and `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`
+for the earlier HA/NA Exp 4a numbers under the looser `hash_key=dna`
+routing.
 
 For ESM-2 features the picture changes — see ESM-2 section below.
 
@@ -128,15 +142,25 @@ For ESM-2 features the picture changes — see ESM-2 section below.
 Neural networks benefit from input standardization both for convergence
 (gradients balanced across coordinates) and for the model's internal
 LayerNorm/BatchNorm to start in a useful regime. The project's MLP path
-applies `slot_transform: slot_norm`, which is `nn.LayerNorm(embed_dim)`
-on each slot independently *before* the interaction (concat / unit_diff /
-…) is computed.
+supports two per-slot transforms applied **before** the interaction
+(concat / unit_diff / unit_prod / …) is computed:
 
-`slot_norm` is **learnable** — `γ` and `β` are trained alongside the
-classifier. This differs from the unparameterized numpy LayerNorm the
-baseline harness exposes (`_pair_features.py::_apply_slot_norm`) by the
-γ/β learning. The standardization (zero-mean, unit-variance per row) is
-identical; only the trainable scale/shift on top differs.
+- **`slot_norm`** — `nn.LayerNorm(embed_dim)` on each slot
+  independently. **Learnable** (`γ` and `β` are trained alongside the
+  classifier). This is the gen-3 / original setup; the legacy 28-pair
+  sweeps in `paper_outline_v2.md` use it.
+- **`unit_norm`** — parameter-free L2 row-norm per slot, added
+  2026-05-12. No γ/β; equivalent to applying `Normalizer(norm='l2')`
+  per slot. Current HA/NA and PB2/PB1 production bundles use this
+  setting (Test 3, paired with `interaction: unit_diff + prod`).
+
+The legacy `slot_norm` differs from the unparameterized numpy
+LayerNorm the baseline harness exposes (`_pair_features.py:96
+::_apply_slot_norm`) by the γ/β learning. The standardization
+(zero-mean, unit-variance per row) is identical; only the trainable
+scale/shift on top differs. `unit_norm` has a numpy counterpart at
+`_pair_features.py:113::_apply_unit_norm` that mirrors the MLP path
+exactly (no parameters to mirror).
 
 Why slot-LEVEL rather than feature-LEVEL standardization? See ESM-2
 section below — the MLP needs per-row normalization to remove the
@@ -177,14 +201,19 @@ section below — the MLP needs per-row normalization to remove the
   pipeline (Stage 2b script, storage layout, sparse → dense conversion
   cost, why-not-normalize discussion).
 
-### Protein k-mers — not currently used
+### Protein k-mers — in production code, no active bundle
 
-A possible future feature source: amino-acid n-grams of protein
-sequences (vocabulary = 20^k, e.g., 8000 for k=3, 160000 for k=4). Same
+Amino-acid n-grams of protein sequences (vocabulary = 20^k, e.g.,
+8,000 for k=3, 160,000 for k=4). As of 2026-05-12,
+`sequences_to_sparse_kmer_matrix` accepts an `alphabet` parameter (DNA
+default `'ACGT'`, protein `'ACDEFGHIKLMNPQRSTVWY'`), so the same
+machinery handles both. Practical ceiling is k≈4 before the exhaustive
+`|alphabet|^k` vocabulary becomes impractical to enumerate. Same
 mathematical properties as nucleotide k-mers — non-negative counts,
 sparse, length-confounded — so the same model × scaling defaults
 extrapolate (StandardScaler for LR; none for LightGBM / k-NN; learned
-LayerNorm for MLP). Not yet measured.
+LayerNorm or `unit_norm` for MLP). No active bundle exercises this
+path; treat the extrapolations as unverified until benchmarked.
 
 ---
 
@@ -204,14 +233,11 @@ input live in the same equivalence class up to a coefficient remapping.
 
 Default: `feature_scaling: standard`. Same default as ESM-2; overrides
 the natural sparsity of count vectors (densifies when StandardScaler
-mean-shifts them to zero). For our matrix size (~141K rows × 8192 dims
-= ~9 GB densified) this is fine. For substantially larger sweeps a
-sparse-friendly variant (TF-IDF, or LR with `solver='saga'` on the
-sparse matrix without StandardScaler) would be the right swap.
-
-### LR + protein k-mers
-
-Same default as nucleotide; extrapolated. Unverified.
+mean-shifts them to zero). For our matrix size (~104K pair rows × 8,192
+dims for the current HA/NA build, ≈ 3.4 GB densified at float32; doubles
+under `neg_to_pos_ratio: 2.0`) this is fine. For substantially larger
+sweeps a sparse-friendly variant (TF-IDF, or LR with `solver='saga'` on
+the sparse matrix without StandardScaler) would be the right swap.
 
 ### LightGBM + any feature source
 
@@ -233,36 +259,46 @@ on ESM-2 — flag if testing.
 
 Default: `feature_scaling: none`. Cosine handles vector-norm
 normalization internally (see "Models" section). Per-feature
-StandardScaler would distort the count geometry. The kmer-slot_norm
-coercion in `train_pair_baselines.py` forces `slot_transform: none` here
-because the kmer baseline path explicitly rejects slot_norm
-(`_pair_features.py:298-303`) — non-negative count vectors don't benefit
-from feature-axis LayerNorm. Bundle setting `training.slot_transform:
-slot_norm` (for the MLP) is silently coerced back to `none` for the
-baseline run with a printed note.
+StandardScaler would distort the count geometry.
 
-### 1-NN / k-NN + protein k-mers
-
-Same default as nucleotide; extrapolated. Unverified.
+The k-mer baseline path **accepts** `slot_transform ∈ {'none',
+'unit_norm'}` (`src/utils/kmer_utils.py:110-119`). `slot_norm` is
+explicitly rejected for k-mer features (non-negative count vectors
+don't benefit from feature-axis LayerNorm). If a bundle sets
+`training.slot_transform: slot_norm` for the MLP, the coercion at
+`train_pair_baselines.py:430-435` forces the baseline run to use
+`'none'` with a printed note. `unit_norm` flows through unchanged —
+the current HA/NA and PB2/PB1 bundles use this, so the k-NN baseline
+sees the same per-slot transform as the MLP for those runs.
 
 ### MLP + ESM-2
 
-Default: `slot_transform: slot_norm` (learnable per-slot LayerNorm).
-**Critical** per project finding (CLAUDE.md): "LayerNorm (slot_norm) is
-critical for homogeneous subsets: Without it, raw HA/NA embeddings live
-in slightly different subspaces; unit_diff then picks up slot offset
-rather than biological signal."
+Default in active ESM-2 bundles: `slot_transform: slot_norm` (learnable
+per-slot LayerNorm). `unit_norm` is also supported but not actively
+benchmarked on ESM-2 in current bundles. **Critical** per project
+finding (CLAUDE.md): "LayerNorm (slot_norm) is critical for homogeneous
+subsets: Without it, raw HA/NA embeddings live in slightly different
+subspaces; unit_diff then picks up slot offset rather than biological
+signal."
 
 ### MLP + nucleotide k-mers
 
-Default in active bundles: `slot_transform: slot_norm`. The benefit on
-k-mer is empirically smaller than on ESM-2 (see CLAUDE.md "K-mer concat
-does NOT collapse on H3N2"), but the bundle is configured uniformly so
-the MLP architecture is the same across feature sources.
+Current production for `flu_ha_na` and `flu_pb2_pb1` (gen-3, 2026-05-12):
+`slot_transform: unit_norm` + `interaction: unit_diff + prod` (Test 3
+of the four-interaction sweep). All four Tests 1–4 lie within ~0.5% F1
+and ~0.1% AUC-ROC on a single-seed run — differences are at seed-noise
+level; multiple seeds needed before claiming a winner. The earlier
+gen-3 28-pair sweep (`paper_outline_v2.md` §11) used
+`slot_transform: slot_norm` + `interaction: concat`; that combination
+also works on k-mer.
 
-### MLP + protein k-mers
+The benefit of any per-slot transform on k-mer is empirically smaller
+than on ESM-2 (see CLAUDE.md "K-mer concat does NOT collapse on H3N2").
 
-Same default as nucleotide; extrapolated. Unverified.
+**Protein k-mers** for all three model classes (LR, k-NN, MLP):
+extrapolated from the nucleotide-k-mer defaults; no active bundle
+exercises this path. See the TL;DR table at the top for the
+extrapolation.
 
 ---
 
@@ -285,28 +321,36 @@ Same default as nucleotide; extrapolated. Unverified.
   questions.
 - **For ESM-2 baselines specifically: slot_transform from the bundle
   flows through.** The kmer-only coercion in
-  `train_pair_baselines.py` does NOT fire for ESM-2, so if your bundle
-  sets `training.slot_transform: slot_norm` for the MLP, the ESM-2
-  baselines will also get slot_norm applied (via the unparameterized
-  `_apply_slot_norm` in `_pair_features.py`). This is usually what you
-  want; flag it if you're trying to compare scenario-by-scenario.
+  `train_pair_baselines.py:430-435` is conditional on
+  `FEATURE_SOURCE == 'kmer'`, so it does NOT fire for ESM-2. If your
+  bundle sets `training.slot_transform: slot_norm` (or `unit_norm`)
+  for the MLP, the ESM-2 baselines will also see that transform applied
+  (via the unparameterized `_apply_slot_norm` / `_apply_unit_norm`
+  in `_pair_features.py:96` / `:113`). This is usually what you want;
+  flag it if you're trying to compare scenario-by-scenario.
 
 ---
 
 ## See also
 
+- `conf/baselines/default.yaml` — single source of truth for baseline
+  hyperparameter and `feature_scaling` defaults (centralized
+  2026-05-12; wired via `# @package bundles`).
 - `docs/methods/kmer_features.md` — full k-mer pipeline; "Why not
   normalize counts?" section discusses the length confound.
 - `docs/methods/leakage_definitions.md` — uses 1-NN as the leakage
   anchor for the "biology learning" criterion.
 - `src/models/_pair_features.py` — the baseline-side feature loader;
-  `_apply_slot_norm` (numpy LayerNorm) and the kmer-rejection of
-  slot_norm live here.
+  `_apply_slot_norm` (line 96, numpy LayerNorm) and `_apply_unit_norm`
+  (line 113, L2 row-norm) live here. The k-mer slot_norm rejection
+  itself lives in `src/utils/kmer_utils.py:114-119`.
 - `src/models/train_pair_baselines.py` — the multi-baseline runner;
-  shared materialization, per-baseline scaling, kmer-slot_norm
-  coercion.
+  shared materialization, per-baseline scaling, k-mer slot_transform
+  coercion at lines 430–435 (slot_transform forced to `'none'` for
+  k-mer baselines unless it's already `'none'` or `'unit_norm'`).
 - `src/analysis/aggregate_baselines_vs_mlp.py` — cross-model heatmap;
-  default caption flags the featurization mismatch.
+  default caption flags the featurization mismatch. Outputs at
+  `results/{virus}/{data_version}/runs/baselines_vs_mlp_*`.
 - `CLAUDE.md` — recurring "Key Findings" section enumerating the
   ESM-2 vs k-mer × interaction × slot_transform results that motivate
   these defaults.
