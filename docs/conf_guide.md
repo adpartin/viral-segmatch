@@ -606,9 +606,8 @@ If missing, run:
 
 ### Technical Documentation (`docs/`)
 - **`docs/SEED_SYSTEM.md`** - Comprehensive seed hierarchy guide
-- **`docs/EXP_RESULTS_STATUS.md`** - Project status and research roadmap
-- **`docs/EXPERIMENT_RESULTS_ANALYSIS.md`** - Detailed experiment results analysis
-- **`docs/EXPERIMENT_TRACKING_GUIDE.md`** - How to track experiments
+- **`docs/methods/pipeline_overview.md`** - Multi-audience pipeline synthesis (data, models, evaluation)
+- **`docs/methods/`** - Methods reference docs (preprocess, k-mer features, leakage definitions, feature normalization, GTO format)
 
 ### User Guides (`documentation/`)
 - **`documentation/quick-start.md`** - Get started quickly

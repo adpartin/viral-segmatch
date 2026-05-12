@@ -228,10 +228,11 @@ Caught downstream (existing v2 mechanism, unchanged):
 
 ### Doc cleanup
 
-- `docs/EXP_RESULTS_STATUS.md` — prune `year_train`/`year_test`
-  references; redirect any temporal-holdout mentions to `metadata_holdout`.
-- `docs/plans/design_dataset_gen_v2.md` — prune `year_train` rejection
-  references; note that v2 supports `metadata_holdout` instead.
+- `docs/plans/done/2026-05-11_design_dataset_gen_v2.md` — done; the
+  year_train rejection reference has been updated to point at
+  `metadata_holdout`.
+- (`docs/EXP_RESULTS_STATUS.md` was deleted during the 2026-05-12
+  docs prune; no further cleanup needed there.)
 
 ### Deleted
 

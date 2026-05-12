@@ -432,8 +432,8 @@ Same data preprocessing, different model initializations.
 ## See Also
 
 ### Technical Documentation (`docs/`)
-- **Configuration Guide:** [CONFIGURATION_GUIDE.md](./CONFIGURATION_GUIDE.md) - Detailed configuration documentation
-- **Experiment Tracking:** [EXPERIMENT_TRACKING_GUIDE.md](./EXPERIMENT_TRACKING_GUIDE.md) - How to track experiments
+- **Configuration Guide:** [conf_guide.md](./conf_guide.md) - Detailed configuration documentation
+- **Pipeline overview:** [methods/pipeline_overview.md](./methods/pipeline_overview.md) - Multi-audience pipeline synthesis
 
 ### User Guides (`documentation/`)
 - **Quick Start:** [`../documentation/quick-start.md`](../documentation/quick-start.md) - Get started quickly

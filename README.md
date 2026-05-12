@@ -79,7 +79,7 @@ ls -lt data/datasets/flu/July_2025/runs/ | head -3
 - **LayerNorm (`slot_norm`) is critical for ESM-2**: Without per-slot normalization, raw HA/NA embeddings live in slightly different subspaces and `unit_diff` picks up slot offset rather than biological signal.
 - **Conservation hypothesis** (Gen1): Variable segments (HA-NA) achieve 91.6% F1; conserved segments (PB2-PB1-PA) are limited to 75.3% F1 by biological constraints.
 
-*For detailed analysis, see [Experiment Results](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
+*For the full pipeline + evaluation methodology, see [docs/methods/pipeline_overview.md](docs/methods/pipeline_overview.md).*
 
 ## 📁 Project Structure
 
@@ -170,7 +170,7 @@ See [`conf/bundles/README.md`](conf/bundles/README.md) for the full list and bun
 - `selected_functions`: Protein selection
 - `allow_same_func_negatives`: Control same-function negative pairs
 
-*For detailed configuration guide, see [Configuration Guide](docs/CONFIGURATION_GUIDE.md)*
+*For detailed configuration guide, see [Configuration Guide](docs/conf_guide.md)*
 
 ## 🔬 Pipeline Stages
 
@@ -227,11 +227,10 @@ python src/analysis/create_presentation_plots.py --config_bundle flu_schema_raw_
 - **[Results Analysis](documentation/analysis/results-analysis.md)** - Understanding model performance
 
 ### Technical Documentation (`docs/`)
-- **[Configuration Guide](docs/CONFIGURATION_GUIDE.md)** - Comprehensive configuration documentation
-- **[Experiment Results](docs/EXPERIMENT_RESULTS_ANALYSIS.md)** - Detailed experiment analysis
-- **[Project Status](docs/EXP_RESULTS_STATUS.md)** - Research status and roadmap
+- **[Pipeline overview](docs/methods/pipeline_overview.md)** - Multi-audience synthesis (data, models, evaluation)
+- **[Methods reference docs](docs/methods/)** - preprocess, k-mer features, leakage definitions, feature normalization, GTO format
+- **[Configuration Guide](docs/conf_guide.md)** - Hydra configuration documentation
 - **[Seed System](docs/SEED_SYSTEM.md)** - Reproducibility and seed management
-- **[Experiment Tracking](docs/EXPERIMENT_TRACKING_GUIDE.md)** - Tracking experiments
 
 ## 🔬 Research Findings
 
@@ -254,13 +253,13 @@ Protein conservation directly impacts model performance:
 - **Matches or exceeds ESM-2 on mixed-subtype HA-NA**: AUC 0.982 vs 0.966–0.975.
 - Needs cross-validation confirmation before publication.
 
-*For comprehensive analysis, see [Experiment Results Analysis](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
+*For comprehensive analysis, see [docs/methods/pipeline_overview.md](docs/methods/pipeline_overview.md) and the per-topic methods docs.*
 
 ## 🛠️ Development
 
 - **Code Structure**: See [Code Structure](documentation/development/code-structure.md)
 - **Model Improvements**: See [Model Improvements](documentation/model-improvements.md)
-- **Adding New Viruses**: See [Configuration Guide](docs/CONFIGURATION_GUIDE.md#creating-a-new-experiment)
+- **Adding New Viruses**: See [Configuration Guide](docs/conf_guide.md#creating-a-new-experiment)
 
 ## 📄 License
 
