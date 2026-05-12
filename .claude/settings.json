@@ -2,7 +2,9 @@
   "model": "opus",
   "permissions": {
     "deny": [
-      "Bash(rm -rf *)"
+      "Bash(rm *)",
+      "Bash(rm -rf *)",
+      "Bash(curl *)"
     ],
     "allow": [
       "Bash(git status)",
@@ -20,8 +22,7 @@
       "Bash(ls *)",
       "Bash(head *)",
       "Bash(wc *)",
-      "Bash(mkdir *)",
-      "Bash(mkdir -p *)"
+      "Bash(mkdir *)"
     ]
   }
 }
