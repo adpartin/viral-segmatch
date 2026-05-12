@@ -483,8 +483,13 @@ hard invariants.
 - Hard-negative mining beyond regime stratification (curriculum learning,
   focal loss, adversarial training, gradient reversal). Tracked in
   `roadmap_v2.md` Task 12.
-- Cross-bundle isolate-pair identity. Different problem, different plan
-  (`docs/plans/negative_pair_rng_fix_plan.md`).
+- Cross-bundle isolate-pair identity. Different problem; the local-RNG
+  fix that addressed the within-bundle determinism is now in v2's
+  negative sampler (`random.Random(seed)` instances). The deeper
+  cross-bundle question was retired with the corresponding plan
+  (2026-05-12) since `seq_disjoint` routing restructures negative
+  sampling enough that cross-bundle pair identity is no longer
+  meaningful or reachable.
 - Modifying the coverage phase. It stays regime-blind by design.
 - Sampling for positives. Positives are deterministic combinatorial pairs
   within each isolate; no sampling decisions to make.
@@ -528,7 +533,6 @@ hard invariants.
 - `docs/results/2026-05-07_metadata_shortcut_negatives.md` — the trigger result.
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — broader leakage taxonomy.
 - `docs/plans/done/2026-05-11_design_dataset_gen_v2.md` — v2 builder spec.
-- `docs/plans/negative_pair_rng_fix_plan.md` — RNG determinism in v2.
 - `src/datasets/dataset_segment_pairs_v2.py` — current `axis_quotas` placeholder.
 - `src/datasets/_pair_helpers.py` — shared helpers (`canonical_pair_key`, etc.).
 - `src/analysis/analyze_stage4_train.py:analyze_negative_hardness` — post-hoc

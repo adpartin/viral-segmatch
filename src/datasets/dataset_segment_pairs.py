@@ -209,7 +209,7 @@ def create_positive_pairs(
     # combinations within each isolate group) and consumes no random draws,
     # but we allocate a local RNG for symmetry with create_negative_pairs so
     # future edits here cannot accidentally couple to the process-global
-    # random stream. See docs/plans/done/negative_pair_rng_fix_plan.md.
+    # random stream.
     rng = random.Random(seed)  # noqa: F841  (reserved for future random draws)
     isolates = df.groupby('assembly_id')
 
@@ -363,7 +363,7 @@ def create_negative_pairs(
             as master_seed + fold_i actually takes effect, (b) fold k's draws
             don't depend on how many draws fold k-1 consumed, and (c) prior
             Python-random consumers elsewhere in the process can't shift the
-            stream. See docs/plans/done/negative_pair_rng_fix_plan.md.
+            stream.
         max_attempts_multiplier: Max sampling attempts = num_negatives * this value
 
     Returns:
