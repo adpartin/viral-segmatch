@@ -134,7 +134,6 @@ src/
     esm2_utils.py                   # ESM-2 tokenization, batch embedding
     embedding_utils.py              # Load/index embeddings from HDF5
     metadata_enrichment.py          # Load flu_genomes_metadata_parsed.csv
-    experiment_registry.py          # ORPHAN — registry tracking module; no callers in src/ as of 2026-05-12
     seed_utils.py                   # Hierarchical seed system
     learning_verification_utils.py  # Karpathy-style sanity checks
     plot_config.py                  # Colors, protein name mapping
