@@ -84,13 +84,13 @@ dataset. Provenance is tracked via `training_info.json` saved in the training ou
 - Bundles: `conf/bundles/{bundle_name}.yaml` — one file per named experiment
 - Virus configs: `conf/virus/flu.yaml`, `conf/virus/bunya.yaml`
 - Data paths: `conf/paths/flu.yaml`, `conf/paths/bunya.yaml`
-- Defaults: `conf/dataset/default.yaml`, `conf/embeddings/default.yaml`, `conf/training/base.yaml`
+- Defaults: `conf/dataset/default.yaml`, `conf/embeddings/default.yaml`, `conf/training/base.yaml`, `conf/baselines/default.yaml`
 - Config loader: `src/utils/config_hydra.py`
 
 **Convention**: One bundle = one reproducible experiment. Bundle names encode the experiment:
 `flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na_5ks`, `flu_schema_raw_slot_norm_unit_diff_h3n2`.
 
-Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `training.slot_transform`, `training.interaction`.
+Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `dataset.split_strategy.{mode,hash_key}`, `dataset.metadata_holdout`, `training.slot_transform`, `training.interaction`. Sklearn-baseline knobs live under `baseline_<name>.*` at the bundle root (defaults inherited from `conf/baselines/default.yaml`).
 
 **Bundle organization** (see `conf/bundles/README.md` for full detail):
 - Each bundle has a `# STATUS: active|ablation|experimental|legacy|not maintained` header comment.
@@ -115,7 +115,7 @@ src/
     preprocess_bunya_genome.py      # Bunya genome preprocessing (NOT actively maintained; renamed from preprocess_bunya_dna.py)
   embeddings/
     compute_esm2_embeddings.py      # Stage 2: sequences → ESM-2 HDF5 cache
-    compute_kmer_features.py        # Stage 2b: DNA → k-mer sparse matrix
+    compute_kmer_features.py        # Stage 2b: DNA (or protein, via alphabet param) → k-mer sparse matrix
   datasets/
     dataset_segment_pairs.py        # Stage 3: pairs + train/val/test splits
   models/
@@ -156,6 +156,9 @@ src/
 - **Delayed learning on H3N2 + unit_diff**: Characteristic plateau-then-breakthrough (~epochs 10–32, seed-dependent). Increase `patience` to 40+ for H3N2-only runs.
 - **High FP rate on filtered datasets**: Likely due to subtype/host confounders in negative pairs. Hypothesis: model learns "same population" rather than "same isolate." Hard negatives or strict metadata filtering can test this.
 - **K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA**: AUC 0.982 vs 0.966–0.975. Both interactions work with k-mers.
+- **K-mer interaction sweep on HA/NA (Tests 1–4, 2026-05-12)**: With Test 1 = `[|u-v|, u*v]` (raw), Test 2 = same on L2-normalized slots, Test 3 = `[|u_n-v_n|/||·||, u_n*v_n]`, Test 4 = same with `unit_prod` on the second term — all four lie within ~0.5% on F1 and ~0.1% on AUC-ROC. Test 3 narrowly leads on most aggregate metrics. Differences are at seed-noise level on a single-seed run; multiple seeds needed before claiming any winner. Important detail: `unit_diff` is element-wise abs first then L2-normalize (matches the symmetric `diff = |u-v|` semantics); previously it was a *signed* normalization.
+- **seq_disjoint scales to conserved proteins (2026-05-12)**: PB2/PB1 with `hash_key=seq` produces 14,924 components, largest = 20,214 pairs (~38% of total), and still achieves 80/10/10 within 0.0011%. The dominant components fit inside the train target so the bin-packer hits the ratios cleanly. HA/NA with the same routing: 21,719 components, largest 11,748 (~20%). Both runs drop zero pairs.
+- **1-NN edges MLP on PB2/PB1 under seq_disjoint** (MCC 0.900 vs 0.887). Consistent with the conservation-effect interpretation: PB2/PB1 has fewer distinct proteins overall, so eval splits contain fewer truly novel proteins and lookup-style baselines have an easier time.
 
 ---
 
@@ -197,6 +200,21 @@ point: `scripts/stage1_preprocess_flu.sh`); the temporal-holdout `year_train` /
 `dataset.metadata_holdout` (year-axis is its degenerate case, multi-axis
 cross-population holdouts are now first-class). See
 `docs/plans/done/2026-05-11_metadata_holdout_plan.md`.
+
+K-mer protein support (`compute_kmer_features.py::sequences_to_sparse_kmer_matrix`
+with `alphabet='ACDEFGHIKLMNPQRSTVWY'`) is in production code as of 2026-05-12.
+Practical limit is k≈4 (160K cols) before the exhaustive `|alphabet|^k`
+vocabulary becomes impractical; observed-vocab or feature hashing would be
+needed for larger k.
+
+## Aggregator Output Convention
+
+Machine-generated aggregator outputs (`baselines_vs_mlp_heatmap.png`,
+`baselines_vs_mlp_overall.png`, `baselines_vs_mlp.csv` and similar) live
+under `results/{virus}/{data_version}/runs/`, mirroring the layout of
+`data/datasets/` and `models/`. The `docs/` tree is reserved for
+hand-authored writeups, plans, and methods notes — not for files an
+aggregator script writes on every run.
 
 ---
 
