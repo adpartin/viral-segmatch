@@ -2,7 +2,14 @@
 
 > Reference notes on how Stage 1 parses GTO files and emits
 > `protein_final.csv` / `genome_final.csv`. Source: `src/preprocess/preprocess_flu.py`.
-> See also: `docs/methods/pipeline_overview.md` §3.
+> See also:
+> - `docs/gto_format_reference.md` — comprehensive walk-through of the
+>   BV-BRC GTO JSON schema (contigs vs features, the `location` field,
+>   spliced multi-entry CDSs, the "major protein" convention from
+>   `conf/virus/flu.yaml`). This `preprocess.md` focuses on **what Stage 1
+>   parses and how it filters**; `gto_format_reference.md` is the schema
+>   itself, with corpus-wide statistics.
+> - `docs/methods/pipeline_overview.md` §3.
 
 ---
 
@@ -27,15 +34,20 @@ DNA to protein rows (`_pair_helpers.py::attach_dna_to_prot_df`).
 
 ## 2. GTO field map
 
-Verified against a real Flu A GTO (`00621bf88c.gto`, July 2025).
+Verified against `00621bf88c.gto` (July 2025) and cross-checked
+against the full corpus (108,530 assemblies → 1,793,563 CDS rows in
+`protein_final.parquet`, 868,240 contigs in `genome_final.parquet`).
+See `docs/gto_format_reference.md` for the full schema walk-through;
+the table below focuses on **which fields Stage 1 reads and where they
+land**.
 
 | GTO field | Where used | Notes |
 |---|---|---|
-| `ncbi_taxonomy_id`, `genetic_code`, `scientific_name` | meta → protein rows | Accessed with `gto[k]` (KeyError on absence — fail-loud). Not joined into genome rows. |
+| `ncbi_taxonomy_id`, `genetic_code`, `scientific_name` | meta → protein rows | Accessed with `gto[k]` (KeyError on absence — fail-loud). Not joined into genome rows. `genetic_code` is `11` in 1,793,563 / 1,793,563 (100%) rows — a BV-BRC artifact; flu actually uses NCBI code 1. |
 | `quality.genome_quality` | meta → both tables | Becomes column `quality`. Used in `Poor` filter. Single value per assembly (not per segment). |
-| `contigs[*].{id, replicon_type, contig_quality, dna}` | genome rows | `replicon_type` defaults to `'Unassigned'` if absent. `contig_quality` is stored but never filtered on (acknowledged TODO). |
-| `features[*].{id, type, function, protein_translation, location, feature_quality, family_assignments}` | protein rows | `feature_quality` is captured but never used (often absent on `mat_peptide` features anyway). |
-| `location[0][0]` | derives `genbank_ctg_id` | Spliced features (NEP, NS3, PA-X, M2) have multi-interval locations on a **single** contig — `[0][0]` is safe for Flu A. Would need revisiting for cross-contig features. |
+| `contigs[*].{id, replicon_type, contig_quality, dna}` | genome rows | `replicon_type` defaults to `'Unassigned'` if absent. `contig_quality` is stored but never filtered on (acknowledged TODO). `contig_quality == 'Good'` in 108,530 / 108,530 (100%) corpus rows. |
+| `features[*].{id, type, function, protein_translation, location, feature_quality, family_assignments}` | protein rows | `feature_quality` is captured but never used. **By BV-BRC convention it's populated only on the 8 "major" proteins** (`selected_functions` in `conf/virus/flu.yaml`) — absent on all `mat_peptide` features and on alternative-frame products (M2, NEP, PB1-F2, PA-X, etc.). Verified in a 200-GTO sample: 1,601 / 3,715 features carried it (43.1%), close to 200 GTOs × 8 majors. |
+| `location[0][0]` | derives `genbank_ctg_id` | Spliced features (multi-entry `location`) all have **both entries on the same contig** for Flu A — `[0][0]` is safe. Empirically: PA-X, NS3, M2, M42, PB2-S1, NEP all have 100% single-contig multi-entry locations across this corpus. Would need revisiting for cross-contig features (none observed). |
 | `family_assignments[0][1]` | column `family` | Format is `[[family_type, family_id, fn_name, source]]`; `[0][1]` extracts the family_id (e.g., `Alphainfluenzavirus.PB2.1.pssm`). |
 
 **Silently dropped top-level fields:** `domain`, `analysis_events`,
@@ -61,10 +73,17 @@ ambiguous_residues, …, has_internal_stop`), and `esm2_ready_seq` (the
 cleaned sequence used downstream).
 
 **`length` semantics:** AA length **as parsed from the GTO**, captured
-at parse time and never recomputed. After ESM-2 prep, terminal stops are
-stripped and X residues are imputed (default `→ G`), so the **stored
-length and `len(esm2_ready_seq)` can differ by 1**. Consumers needing
-the model-input length should use `len(esm2_ready_seq)`.
+at parse time and never recomputed. The GTO's `protein_translation`
+string includes the stop codon as a trailing `*`, so `length` counts
+that character too (verified on a representative PB2 row: `prot_seq`
+length 760 = `location[0][3]` / 3 = 2280 / 3). After ESM-2 prep,
+terminal stops are stripped (`strip_terminal_stop=True`) and X residues
+are imputed (default `→ G`), so the **stored length and
+`len(esm2_ready_seq)` differ by 1 in 1,771,244 / 1,793,563 rows
+(98.76%) and are equal in 22,319 (1.24%)** — the 1.24% are entries
+without a terminal stop in the parsed `prot_seq` (`has_terminal_stop ==
+False`). Consumers needing the model-input length should use
+`len(esm2_ready_seq)`.
 
 ### `genome_final.csv` (one row per contig)
 
@@ -136,8 +155,6 @@ of the filter pipeline. This is a strong invariant: a row in
 | 5 | **`quality` is genome-level, not per-segment.** A "Good" genome with one "Poor" segment passes. Per-segment `contig_quality` is captured but ignored. | `apply_protein_basic_filters`, `apply_genome_basic_filters` | Documented TODO. |
 | 6 | **`feature_quality` captured but never filtered on.** Often absent on `mat_peptide` features anyway. | `preprocess_flu.py:95, 561` | Documented TODO. |
 | 7 | **`prot_df_no_seq` saved but not subtracted.** Rows with missing `prot_seq` carry through until `esm2_ready_seq.notna()` filters them. Asymmetric with the genome side, which drops missing `dna_seq` explicitly. | `preprocess_flu.py:1075-1077` | Cosmetic. |
-| 8 | **`enforce_single_file` is dead code.** Replaced by `handle_assembly_duplicates`. Marked superseded but still in `gto_utils.py`. | `gto_utils.py:51-131` | Cosmetic. |
-| 9 | **`max_files_to_preprocess` mutates the global `random` state.** Project convention is `random.Random(seed)` (see `seed_utils.py`). | `aggregate_data_from_gto_files:163` | Cosmetic. |
 
 ---
 
@@ -156,14 +173,30 @@ to `conf/virus/flu.yaml` would make them visible in
 
 ## 7. What is verified correct
 
-Empirically checked against a real GTO (and code-reviewed against the
-schema in `conf/virus/flu.yaml`):
+Empirically checked against the full corpus and code-reviewed against
+the schema in `conf/virus/flu.yaml`:
 
-- All required top-level fields are present in real GTOs.
-- 8 contigs per GTO, one per `Segment 1..8`. `replicon_to_segment`
-  covers exactly this set.
-- Spliced features (`NEP`, `NS3`, `PA-X`, …) all live on a single
-  contig per feature — `location[0][0]` is sound.
+- All required top-level GTO fields (`contigs`, `features`,
+  `ncbi_taxonomy_id`, `genetic_code`, `scientific_name`, `quality`) are
+  present in 200 / 200 sampled GTOs.
+- **8 contigs per GTO**, one per `Segment 1..8`: **108,530 / 108,530
+  (100.00%)** assemblies in this corpus have exactly 8 contigs.
+  `replicon_to_segment` covers exactly this set.
+- **Spliced features all stay on a single contig.** Six functions are
+  multi-entry-location in the corpus (every row of each function has
+  two `location` entries on the **same** `contig_id`), so
+  `location[0][0]` is safe:
+
+  | Function | Short | Rows in corpus | Multi-entry locations |
+  |---|---|---:|---:|
+  | `Host mRNA degrading protein PA-X` | PA-X | 72,272 | 100% |
+  | `Hypothetical host adaptation protein NS3` | NS3 | 101,617 | 100% |
+  | `M2 ion channel` | M2 | 107,091 | 100% |
+  | `M42 alternative ion channel` | M42 | 104,389 | 100% |
+  | `Splice variant of PB2, RIG-I-dependent interferon signaling pathway inhibitor` | PB2-S1 | 426 | 100% |
+  | `Nuclear export protein` | NEP | 105,413 | 100% |
+
+  All other major and auxiliary functions have single-entry locations.
 - `family_assignments[0][1]` correctly extracts the family ID
   (`Alphainfluenzavirus.<PROT>.<N>.pssm`).
 - Cache invalidation requires **both** parquets — safe against
