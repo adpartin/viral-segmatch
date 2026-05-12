@@ -104,9 +104,6 @@ Duplicate handling (blocked negatives):
 - This creates contradictory labels and potential data leakage
 - Solution: Block negative pairs where sequences co-occur in ANY isolate
 - Split by pair_key (not just isolate) to prevent same pair appearing in train and test
-
-For deeper discussion of ordering artifacts / PCA diagnostics, see:
-  docs/PAIR_EMBEDDING_ORDERING_AND_NORM_ARTIFACT.md
 """
 
 import argparse

@@ -9,8 +9,9 @@ existing analyses in `src/analysis/analyze_stage4_train.py` and extends them wit
 
 Scope boundary: this is **evaluation-time** stratification of already-trained
 all-pairs models. Training-time stratified datasets (filter train to a single
-stratum, or train-on-X / test-on-Y) are a separate topic covered by
-`docs/STRATIFIED_EXPERIMENTS_PLAN.md`.
+stratum, or train-on-X / test-on-Y) are a separate topic — see
+`dataset.metadata_holdout` in `conf/dataset/default.yaml` and the
+holdout plan at `docs/plans/done/2026-05-11_metadata_holdout_plan.md`.
 
 ---
 
