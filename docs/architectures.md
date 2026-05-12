@@ -2,6 +2,18 @@
 
 This note captures two related ideas discussed while validating **schema-ordered** datasets (e.g., HA→NA where slot A is always HA and slot B is always NA).
 
+**Implementation status (2026-05-12):** all four ablation-ladder items
+below are implemented as `training.slot_transform` options in
+`src/models/train_pair_classifier.py` —
+`{none, shared, slot_specific, shared_adapter}` corresponds to ladder
+items 1→4. Two parameter-free variants are also supported:
+`slot_norm` (learnable LayerNorm per slot — referenced as
+"Option 2 — slot-specific normalization") and `unit_norm` (L2 row-norm
+per slot, added 2026-05-12). Current production bundles
+(`flu_ha_na`, `flu_pb2_pb1`) use `unit_norm`. See
+`docs/methods/feature_normalization.md` for the empirical
+recommendations per (model, feature_source).
+
 Note on formatting:
 - Some renderers do not support LaTeX math. To keep this doc portable, equations are written in plain text below (e.g., "a' = f_A(a)").
 
