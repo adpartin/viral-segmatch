@@ -1,306 +1,175 @@
 # Code Structure
 
-Understanding the organization and architecture of the viral-segmatch project.
+High-level orientation for new contributors. The **authoritative
+module-by-module reference** lives in
+[`../../CLAUDE.md`](../../CLAUDE.md) ("Active Source Files" section);
+this doc is the conceptual / "how does it all fit together" overview.
 
-**Note**: For detailed technical documentation and research results, see [`../../docs/`](../../docs/).
-
-## 🏗️ Project Architecture
+## Top-level layout
 
 ```
 viral-segmatch/
-├── src/                          # Python source code
-│   ├── embeddings/               # ESM-2 embedding generation
-│   ├── datasets/                 # Dataset creation
-│   ├── models/                   # Model training
-│   ├── analysis/                 # Analysis and visualization
-│   └── utils/                    # Utility functions
-├── scripts/                      # Shell scripts for automation
-├── conf/                         # Hydra configuration files
-├── data/                         # Data directories (auto-created)
-├── models/                       # Trained models (auto-created)
-├── results/                      # Analysis results (auto-created)
-├── logs/                         # Execution logs (auto-created)
-├── docs/                         # Technical documentation and research logs
-└── documentation/                # User guides and tutorials
+├── src/                # Python source code (per-stage pipeline + utilities)
+├── scripts/            # Lean shell wrappers for each pipeline stage
+├── conf/               # Hydra configuration (bundles, virus, dataset, training, baselines)
+├── data/               # Pipeline outputs (not in git; symlink raw GTOs in)
+├── models/             # Trained models (created by Stage 4)
+├── results/            # Cross-model heatmaps and aggregator outputs
+├── docs/               # Methods / technical / plans documentation
+└── documentation/      # User guides (this directory)
 ```
 
-## 📁 Source Code Organization
+## The 4 pipeline stages
 
-### Core Pipeline (`src/`)
+| Stage | Entry script | Output |
+|---|---|---|
+| 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{ver}/protein_final.csv` + `genome_final.csv` |
+| 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{ver}/master_esm2_embeddings.h5` |
+| 2b. K-mer features | `src/embeddings/compute_kmer_features.py` | `data/embeddings/flu/{ver}/kmer_features_k6.npz` + sidecar parquet index |
+| 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → dispatches to `dataset_segment_pairs_v2.py` (default since 2026-05-11) | `data/datasets/flu/{ver}/runs/dataset_<bundle>_<TS>/` |
+| 4. Train MLP | `src/models/train_pair_classifier.py` | `models/flu/{ver}/runs/training_<bundle>_<TS>/` |
+| 4. Train baselines | `src/models/train_pair_baselines.py` | `models/flu/{ver}/runs/baseline_<name>_<bundle>_<TS>/` |
 
-#### 1. Embeddings (`src/embeddings/`)
-- **`compute_esm2_embeddings.py`**: Generate ESM-2 embeddings
-- **Purpose**: Convert protein sequences to ESM-2 embeddings
-- **Input**: `protein_final.csv` from preprocessing
-- **Output**: Master embeddings cache (`master_esm2_embeddings.h5` + `.parquet`)
+Shell wrappers in `scripts/` that wrap each stage and call from
+`./scripts/stage*_*.sh`:
 
-#### 2. Datasets (`src/datasets/`)
-- **`dataset_segment_pairs.py`**: Create segment pair datasets
-- **Purpose**: Generate training/validation/test datasets with co-occurrence blocking
-- **Input**: ESM-2 embeddings + protein metadata
-- **Output**: Segment pair datasets (CSV files in `runs/` subdirectories)
+- `stage1_preprocess_flu.sh`
+- `stage2_esm2.sh` / `stage2b_kmer.sh`
+- `stage3_dataset.sh`
+- `stage4_train.sh` / `stage4_baselines.sh`
 
-#### 3. Models (`src/models/`)
-- **`train_pair_classifier.py`**: Train ESM-2 classifier
-- **Purpose**: Train frozen ESM-2 classifier on segment pairs
-- **Input**: Segment pair datasets
-- **Output**: Trained model + predictions + analysis
+## Source-tree map (high level)
 
-#### 4. Analysis (`src/analysis/`)
-- **`analyze_stage4_train.py`**: Comprehensive analysis
-- **`create_presentation_plots.py`**: Publication-ready plots
-- **Purpose**: Analyze model performance and generate visualizations
+### `src/preprocess/`
 
-### Utilities (`src/utils/`)
+GTO JSON → tabular protein + genome outputs. `preprocess_flu.py` is the
+active script (unifies the older protein-only and genome-only
+preprocessors). See
+[`../../docs/methods/preprocess.md`](../../docs/methods/preprocess.md)
+for the detailed parse map and filter pipeline.
 
-#### Configuration Management
-- **`config_hydra.py`**: Hydra configuration loading
-- **`path_utils.py`**: Path generation and management
-- **`seed_utils.py`**: Hierarchical seed management
-- **`torch_utils.py`**: PyTorch utilities (optimizers, schedulers)
+### `src/embeddings/`
 
-#### Data Processing
-- **`data_utils.py`**: Data loading and processing utilities
-- **`protein_utils.py`**: Protein-related utilities
-- **`learning_verification_utils.py`**: Learning verification functions
+Stage 2 featurization. ESM-2 path (`compute_esm2_embeddings.py`) is
+GPU-heavy. K-mer path (`compute_kmer_features.py`) is CPU-only, ~5–10
+min on full Flu-A. As of 2026-05-12 the same machinery supports
+protein k-mers via an `alphabet` parameter, though no active bundle
+uses that yet. See
+[`../../docs/methods/kmer_features.md`](../../docs/methods/kmer_features.md).
 
-#### Experiment Management
-- **`experiment_registry.py`**: Experiment tracking and registration
+### `src/datasets/`
 
-## 🔧 Configuration System
+Stage 3 pair construction + train/val/test split.
+`dataset_segment_pairs.py` is the CLI entry point;
+`dataset_segment_pairs_v2.py` is the default builder. Shared helpers
+in `_pair_helpers.py`. Negative-regime sampler in
+`_negative_regime_sampling.py` (8 regimes: `none_match`, `host_only`,
+`subtype_only`, `year_only`, `host_subtype_only`, `host_year_only`,
+`subtype_year_only`, `host_subtype_year`).
 
-### Hydra Configuration (`conf/`)
+### `src/models/`
 
-#### Bundle System
-```
-conf/bundles/
-├── bunya.yaml                 # Bunyavirus baseline
-├── flu.yaml                   # Flu base config
-├── flu_ha_na_5ks.yaml         # Flu: HA-NA (variable segments)
-├── flu_pb2_pb1_pa_5ks.yaml    # Flu: PB2-PB1-PA (conserved segments)
-└── flu_pb2_ha_na_5ks.yaml     # Flu: PB2-HA-NA (mixed)
-```
+Stage 4 training. `train_pair_classifier.py` is the MLP path;
+`train_pair_baselines.py` runs sklearn baselines from
+`baselines/{logistic,lgbm,knn1_margin,knn_vote}.py`. Shared feature
+loading in `_pair_features.py`; shared metric helpers in
+`_pair_metrics.py`. Defaults centralized in
+`conf/baselines/default.yaml`.
 
-#### Default Configurations
-```
-conf/
-├── virus/                     # Virus biological facts
-│   ├── flu.yaml
-│   └── bunya.yaml
-├── paths/                     # Path configurations
-│   ├── flu.yaml
-│   └── bunya.yaml
-├── embeddings/
-│   └── default.yaml           # ESM-2 embedding defaults
-├── dataset/
-│   └── default.yaml           # Dataset creation defaults
-└── training/
-    └── base.yaml              # Training defaults
-```
+### `src/analysis/`
 
-### Configuration Loading
-```python
-# Load configuration
-from src.utils.config_hydra import get_virus_config_hydra
-config = get_virus_config_hydra('flu_ha_na_5ks')
+Post-hoc analysis and visualization. Key entry points:
+- `analyze_stage4_train.py` — per-run analysis (confusion matrix, ROC,
+  per-regime heatmap, FP/FN breakdown).
+- `aggregate_baselines_vs_mlp.py` — cross-model heatmap aggregator.
+- `exp3_cosine_deciles.py` — leakage diagnostic Exp 3.
 
-# Access parameters
-print(f"Virus: {config.virus.virus_name}")
-print(f"Max isolates: {config.max_isolates_to_process}")
-```
+### `src/utils/`
 
-*For detailed configuration guide, see [`../../docs/CONFIGURATION_GUIDE.md`](../../docs/CONFIGURATION_GUIDE.md)*
+Pipeline-wide utilities. Most-used:
+- `config_hydra.py` — Hydra config loader (primary entry).
+- `path_utils.py` — path generation for inputs / outputs.
+- `seed_utils.py` — hierarchical seed system (see
+  [`../../docs/SEED_SYSTEM.md`](../../docs/SEED_SYSTEM.md)).
+- `esm2_utils.py`, `embedding_utils.py` — ESM-2 + embedding I/O.
+- `kmer_utils.py` — k-mer feature loading + pair construction.
+- `metadata_enrichment.py` — joins host/year/subtype/etc. onto the
+  per-isolate dataframe.
+- `gto_utils.py`, `protein_utils.py` — GTO parsing + protein QC.
+- `learning_verification_utils.py` — Karpathy-style training-sanity
+  checks (see
+  [`../../docs/plans/2026-05-12_model_validation_plan.md`](../../docs/plans/2026-05-12_model_validation_plan.md)).
 
-## 🚀 Automation Scripts
+For the authoritative file-by-file list with descriptions, see the
+"Active Source Files" section of [`../../CLAUDE.md`](../../CLAUDE.md).
 
-### Shell Scripts (`scripts/`)
+## Configuration
 
-#### Standardized Stage Scripts
-- **`stage2_esm2.sh`**: ESM-2 embedding generation
-- **`stage3_dataset.sh`**: Dataset creation
-- **`stage4_train.sh`**: Model training
+Hydra **bundle-per-experiment**. Each experiment is one YAML in
+`conf/bundles/`. Bundles inherit from a chain of base configs in
+`conf/{virus,paths,dataset,embeddings,training,baselines}/`. See
+[`../../conf/bundles/README.md`](../../conf/bundles/README.md) for the
+inheritance chain and bundle status conventions (`active` /
+`ablation` / `experimental` / `legacy`).
 
-#### Legacy Scripts (for reference)
-- **`preprocess_*_protein.sh`**: Preprocessing scripts
-- **`esm2_*.sh`**: Legacy embedding scripts
-- **`dataset_*.sh`**: Legacy dataset scripts
-- **`classifier_*.sh`**: Legacy training scripts
+Detailed config docs: [`../../docs/conf_guide.md`](../../docs/conf_guide.md).
 
-#### Script Features
-- **Error handling**: Comprehensive error checking
-- **Logging**: Automatic logging to `logs/` directory
-- **Path management**: Automatic path resolution
-- **Configuration**: Hydra integration
-- **Experiment registry**: Automatic experiment tracking
+## Design principles
 
-## 📊 Data Flow Architecture
+1. **Configuration-driven.** Every stage takes a single `--config_bundle`
+   argument; everything else flows from there.
+2. **Stage decoupling.** Stages 1 and 2 are shared per
+   `(virus, data_version)`. Stages 3 and 4 are per-experiment.
+   Stage 3 produces a dataset directory; Stage 4's `--dataset_dir` is
+   required and is how training picks up that build. Same dataset, N
+   training runs.
+3. **Master cache for embeddings.** ESM-2 embeddings (and k-mer
+   features) are computed once per data version and reused across all
+   downstream bundles. The protein-level row index lives alongside the
+   HDF5 / NPZ for O(1) lookup.
+4. **Hierarchical seeding.** `master_seed` → per-process seeds via
+   `seed_utils.resolve_process_seed`. See
+   [`../../docs/SEED_SYSTEM.md`](../../docs/SEED_SYSTEM.md).
+5. **Lean shell wrappers.** Each `stage*_*.sh` is a thin wrapper around
+   the Python entry point with provenance logging. No registry; no
+   experiment-tracking system. Stages 1, 2b, 3, 4 follow the lean
+   pattern at <100 lines each; stage2_esm2 is the one outlier still
+   on the older verbose pattern (see
+   [`../../docs/plans/code_cleanup_plan.md`](../../docs/plans/code_cleanup_plan.md)
+   item 3).
 
-### Stage 1: Preprocessing
-```
-Raw GTO Files → Preprocessing Script → protein_final.csv
-Location: data/processed/{virus}/{data_version}/ (shared)
-```
+## Adding a new bundle
 
-### Stage 2: Embeddings
-```
-protein_final.csv → ESM-2 Embeddings → master_esm2_embeddings.h5 + .parquet
-Location: data/embeddings/{virus}/{data_version}/ (shared, master cache)
-```
+1. Create `conf/bundles/<name>.yaml` with a `# STATUS: active|ablation|…`
+   header comment.
+2. Set up the `defaults:` chain — typically `flu_base` or
+   `flu_schema_raw_slot_norm_unit_diff` for current Gen-3 bundles, or
+   inherit from `flu_28_major_protein_pairs_master` for an all-pairs
+   sweep variant.
+3. Set the bundle-specific overrides (`virus.selected_functions`,
+   `dataset.split_strategy.{mode,hash_key}`, `training.slot_transform`,
+   `training.interaction`, etc.).
+4. Smoke-test the config load:
+   ```bash
+   python -c "
+   from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
+   print_config_summary(get_virus_config_hydra('<name>'))
+   "
+   ```
+5. Run Stages 3 + 4 on the new bundle.
 
-### Stage 3: Dataset Creation
-```
-ESM-2 embeddings → Segment Pairs → train/val/test datasets
-Location: data/datasets/{virus}/{data_version}/runs/dataset_{bundle}_{timestamp}/
-```
+## Adding a new analysis script
 
-### Stage 4: Training
-```
-Segment Pairs → ESM-2 Classifier → Trained Model + Predictions
-Location: models/{virus}/{data_version}/runs/training_{bundle}_{timestamp}/
-```
+1. Place under `src/analysis/`.
+2. Take `--config_bundle` (and optionally `--model_dir`) at minimum.
+3. Read inputs from the conventional locations (use
+   `path_utils.build_training_paths` to derive them).
+4. Write outputs under the run directory (`models/.../runs/.../post_hoc/`
+   for per-run; `results/.../runs/...` for cross-bundle aggregators).
 
-### Stage 5: Analysis
-```
-Predictions → Analysis Scripts → Results + Plots
-Location: results/{virus}/{data_version}/runs/{training_run_id}/
-```
+## Related documentation
 
-## 🔧 Key Design Patterns
-
-### 1. Configuration-Driven
-- All scripts use Hydra configuration
-- Consistent parameter management
-- Easy experiment customization
-
-### 2. Path Management
-- Centralized path generation (`path_utils.py`)
-- Consistent naming conventions
-- Automatic directory creation
-- Shared vs experiment-specific paths
-
-### 3. Error Handling
-- Comprehensive error checking
-- Detailed logging
-- Graceful failure handling
-
-### 4. Modularity
-- Each stage is independent
-- Clear input/output contracts
-- Reusable components
-
-### 5. Master Cache System
-- Embeddings computed once, reused everywhere
-- Efficient HDF5 + Parquet storage
-- O(1) lookup via parquet index
-
-## 📁 Data Directory Structure
-
-### Automatic Path Generation
-```
-data/
-├── raw/                          # Original data
-├── processed/
-│   └── {virus}/
-│       └── {data_version}/      # Preprocessed data (shared)
-├── embeddings/
-│   └── {virus}/
-│       └── {data_version}/       # ESM-2 embeddings (shared, master cache)
-│           ├── master_esm2_embeddings.h5
-│           └── master_esm2_embeddings.parquet
-├── datasets/
-│   └── {virus}/
-│       └── {data_version}/
-│           └── runs/             # Experiment-specific datasets
-│               └── dataset_{bundle}_{timestamp}/
-└── models/
-    └── {virus}/
-        └── {data_version}/
-            └── runs/             # Experiment-specific models
-                └── training_{bundle}_{timestamp}/
-```
-
-**Key Principle**: Preprocessing and embeddings are **shared** per virus/data_version. Datasets and models are **experiment-specific** in `runs/` subdirectories.
-
-## 🔍 Key Components
-
-### 1. Path Utilities (`src/utils/path_utils.py`)
-```python
-def build_training_paths(project_root, virus_name, data_version, run_suffix, config):
-    """Generate training-specific paths."""
-    return {
-        'dataset_dir': dataset_dir,
-        'embeddings_file': embeddings_file,
-        'output_dir': output_dir
-    }
-```
-
-### 2. Configuration Loading (`src/utils/config_hydra.py`)
-```python
-def get_virus_config_hydra(config_bundle, config_path='conf'):
-    """Load Hydra configuration for virus."""
-    # Load and merge configuration
-    # Return flattened DictConfig
-```
-
-### 3. Master Embeddings (`src/embeddings/compute_esm2_embeddings.py`)
-```python
-# Master cache format:
-# - master_esm2_embeddings.h5: (N, 1280) embedding array
-# - master_esm2_embeddings.parquet: brc_fea_id → row index mapping
-```
-
-## 🎯 Extension Points
-
-### Adding New Viruses
-1. **Create virus config** in `conf/virus/`
-2. **Create paths config** in `conf/paths/`
-3. **Create bundle config** in `conf/bundles/`
-4. **Add preprocessing script** (if needed)
-
-### Adding New Analysis
-1. **Create analysis script** in `src/analysis/`
-2. **Follow existing patterns**
-3. **Add to documentation**
-
-### Customizing Experiments
-1. **Modify configuration files** in `conf/bundles/`
-2. **Adjust sampling parameters**
-3. **Run individual stages**
-
-## 📝 Development Guidelines
-
-### Code Style
-- **Python**: Follow PEP 8
-- **Shell**: Use consistent formatting
-- **Documentation**: Clear docstrings
-
-### Testing
-- **Unit tests**: Test individual functions
-- **Integration tests**: Test pipeline stages
-- **End-to-end tests**: Test complete workflows
-
-### Documentation
-- **Code comments**: Explain complex logic
-- **Docstrings**: Document functions and classes
-- **README files**: Document each module
-
-## 🔧 Maintenance
-
-### Regular Tasks
-- **Update dependencies**: Keep packages current
-- **Review logs**: Check for errors and issues
-- **Clean up**: Remove old data and logs
-- **Backup**: Backup important results
-
-### Monitoring
-- **Disk space**: Monitor data directory usage
-- **Performance**: Track execution times
-- **Errors**: Review error logs regularly
-- **Results**: Validate output quality
-
-## 📚 Related Documentation
-
-- **[Configuration Guide](../../docs/CONFIGURATION_GUIDE.md)** - Detailed configuration documentation
-- **[Experiment Results](../../docs/EXPERIMENT_RESULTS_ANALYSIS.md)** - Current experiment results
-- **[Project Status](../../docs/EXP_RESULTS_STATUS.md)** - Research status and roadmap
-- **[Pipeline Overview](../pipeline-overview.md)** - Pipeline overview
+- [`../../CLAUDE.md`](../../CLAUDE.md) — authoritative module-by-module file list.
+- [`../../docs/methods/pipeline_overview.md`](../../docs/methods/pipeline_overview.md) — pipeline architecture deep dive.
+- [`../../docs/conf_guide.md`](../../docs/conf_guide.md) — Hydra configuration system.
+- [`../../docs/methods/`](../../docs/methods/) — per-topic methods reference docs.
