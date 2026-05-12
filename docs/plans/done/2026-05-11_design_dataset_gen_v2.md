@@ -1,5 +1,19 @@
 # `dataset_segment_pairs_v2.py` — Design Spec
 
+**Status: IMPLEMENTED** (v2 is the default pair builder since 2026-05-11).
+
+Implementation lives in `src/datasets/dataset_segment_pairs_v2.py`. The v1
+CLI script (`dataset_segment_pairs.py`) dispatches to v2 when
+`dataset.pair_builder_version=v2` (default). This document is preserved as
+the design rationale — refer to it when modifying the v2 builder's
+contract or output schema.
+
+Subsequent refinements landed in dedicated plans (now in `done/`):
+- `2026-05-09_metadata_aware_negatives_plan.md` — regime-aware negative sampler
+- `2026-05-10_seq_disjoint_routing_plan.md` — `split_strategy.mode: seq_disjoint`
+- `2026-05-11_metadata_holdout_plan.md` — replaced `year_train`/`year_test`
+  with `metadata_holdout` (year-axis holdout is a degenerate case)
+
 ## 0. Reading order
 
 1. Section 1 (Context) — what v1 does and why v2 exists.
@@ -477,7 +491,7 @@ Hard-coded values that must not contradict (raise `ValueError` if set to anythin
 
 Other validations:
 - `dataset.axis_quotas` non-null/non-empty → raise `NotImplementedError` (placeholder; not yet implemented).
-- `dataset.year_train` set → raise `ValueError` (temporal not yet supported in v2).
+- `dataset.year_train` set → raise `ValueError` — temporal holdout is now handled by `dataset.metadata_holdout` (year-axis is the degenerate case); see `docs/plans/done/2026-05-11_metadata_holdout_plan.md`.
 - `dataset.axes_for_flags` axis missing from `df` → warn, drop from list, continue.
 
 Validation lives in a single function (e.g., `_validate_v2_config(config)`) called from the CLI dispatch before importing the v2 module. Keep it loud and explicit — these errors are the user's primary feedback for the v2 contract.
