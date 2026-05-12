@@ -1,0 +1,211 @@
+{
+  "_comment": "Trimmed excerpt of a real BV-BRC PATRIC GTO file (data/raw/Full_Flu_Annos/July_2025/0000003012.gto). DNA and protein_translation strings are truncated for readability; feature_creation_event and annotations (audit-trail fields) are omitted. See docs/gto_format_reference.md for the schema walk-through.",
+  "id": "197911.84799",
+  "ncbi_taxonomy_id": 197911,
+  "scientific_name": "Influenza A virus (A/mallard/Wisconsin/394/1977(H4N1))",
+  "domain": "Viruses",
+  "genetic_code": 11,
+  "quality": {
+    "genome_quality": "Good"
+  },
+  "contigs": [
+    {
+      "id": "1406633.10",
+      "replicon_type": "Segment 1",
+      "replicon_geometry": "linear",
+      "contig_quality": "Good",
+      "dna": "tcaaatatattcaatatggagagaataaaagaactaagagatctaatgtcacagtcccgcactcgcgagatactcaccaaaaccactgtggaccatatggccataatcaaaaaatacaca...[truncated; full length 2316 chars]"
+    },
+    {
+      "id": "1406633.4",
+      "replicon_type": "Segment 4",
+      "replicon_geometry": "linear",
+      "contig_quality": "Good",
+      "dna": "ggaaacaatgctatcaatcacgattctgttcctgctcatagcagagggctcctctcagaattacacagggaatcctgtgatatgcttgggacatcatgctgtatccaatgggacaacggt...[truncated; full length 1713 chars]"
+    },
+    {
+      "id": "1406633.6",
+      "replicon_type": "Segment 7",
+      "replicon_geometry": "linear",
+      "contig_quality": "Good",
+      "dna": "tagatattgaaagatgagtcttctaaccgaggtcgaaacgtacgttctctctatcgtcccgtcaggccccctcaaagccgagatcgcgcagagacttgaagatgtttttgcagggaaaaa...[truncated; full length 1002 chars]"
+    }
+  ],
+  "features": [
+    {
+      "id": "fig|197911.84799.CDS.1",
+      "type": "CDS",
+      "function": "RNA-dependent RNA polymerase PB2 subunit",
+      "location": [
+        [
+          "1406633.10",
+          "16",
+          "+",
+          "2280"
+        ]
+      ],
+      "protein_translation": "MERIKELRDLMSQSRTREILTKTTVDHMAIIKKYTSGRQEKNPALRMKWMMAMKYPITAD...[truncated; full length 760 chars]",
+      "family_assignments": [
+        [
+          "Alphainfluenzavirus",
+          "Alphainfluenzavirus.PB2.1.pssm",
+          "RNA-dependent RNA polymerase PB2 subunit",
+          "LowVan Annotate"
+        ]
+      ],
+      "alias_pairs": [
+        [
+          "gene",
+          "PB2"
+        ]
+      ],
+      "feature_quality": "Good"
+    },
+    {
+      "id": "fig|197911.84799.CDS.8",
+      "type": "CDS",
+      "function": "Hemagglutinin precursor",
+      "location": [
+        [
+          "1406633.4",
+          "8",
+          "+",
+          "1695"
+        ]
+      ],
+      "protein_translation": "MLSITILFLLIAEGSSQNYTGNPVICLGHHAVSNGTTVKTLTDDQVEVVTAQELVESQHL...[truncated; full length 565 chars]",
+      "family_assignments": [
+        [
+          "Alphainfluenzavirus",
+          "Alphainfluenzavirus.HA.8.pssm",
+          "Hemagglutinin precursor",
+          "LowVan Annotate"
+        ]
+      ],
+      "alias_pairs": [
+        [
+          "gene",
+          "HA0"
+        ]
+      ],
+      "feature_quality": "Good"
+    },
+    {
+      "id": "fig|197911.84799.CDS.11",
+      "type": "CDS",
+      "function": "Matrix protein 1",
+      "location": [
+        [
+          "1406633.6",
+          "14",
+          "+",
+          "759"
+        ]
+      ],
+      "protein_translation": "MSLLTEVETYVLSIVPSGPLKAEIAQRLEDVFAGKNTDLEALMEWLKTRPILSPLTKGIL...[truncated; full length 253 chars]",
+      "family_assignments": [
+        [
+          "Alphainfluenzavirus",
+          "Alphainfluenzavirus.M1.1.pssm",
+          "Matrix protein 1",
+          "LowVan Annotate"
+        ]
+      ],
+      "alias_pairs": [
+        [
+          "gene",
+          "M1"
+        ]
+      ],
+      "feature_quality": "Good"
+    },
+    {
+      "id": "fig|197911.84799.mat_peptide.1",
+      "type": "mat_peptide",
+      "function": "Mature hemagglutinin N-terminal receptor binding subunit",
+      "location": [
+        [
+          "1406633.4",
+          "56",
+          "+",
+          "981"
+        ]
+      ],
+      "protein_translation": "QNYTGNPVICLGHHAVSNGTTVKTLTDDQVEVVTAQELVESQHLPELCPSPLRLIDGQTC...[truncated; full length 327 chars]",
+      "family_assignments": [
+        [
+          "Alphainfluenzavirus",
+          "Alphainfluenzavirus.HA1.7.pssm",
+          "Mature hemagglutinin N-terminal receptor binding subunit",
+          "LowVan Annotate"
+        ]
+      ],
+      "alias_pairs": [
+        [
+          "gene",
+          "HA1"
+        ]
+      ],
+      "feature_quality": null
+    },
+    {
+      "id": "fig|197911.84799.mat_peptide.2",
+      "type": "mat_peptide",
+      "function": "Mature hemagglutinin C-terminal membrane fusion subunit",
+      "location": [
+        [
+          "1406633.4",
+          "1037",
+          "+",
+          "666"
+        ]
+      ],
+      "protein_translation": "GLFGAIAGFIENGWQGLIDGWYGFRHQNAEGTGTAADLKSTQAAIDQINGKLNRLIEKTN...[truncated; full length 222 chars]",
+      "family_assignments": [
+        [
+          "Alphainfluenzavirus",
+          "Alphainfluenzavirus.HA2.2.pssm",
+          "Mature hemagglutinin C-terminal membrane fusion subunit",
+          "LowVan Annotate"
+        ]
+      ],
+      "alias_pairs": [
+        [
+          "gene",
+          "HA2"
+        ]
+      ],
+      "feature_quality": null
+    },
+    {
+      "id": "fig|197911.84799.CDS.15",
+      "type": "CDS",
+      "function": "M2 ion channel",
+      "location": [
+        [
+          "1406633.6",
+          "14",
+          "+",
+          26
+        ],
+        [
+          "1406633.6",
+          728,
+          "+",
+          268
+        ]
+      ],
+      "protein_translation": "MSLLTEVETPTRNGWECRCSDSSDPLVIAASIIGILHLILWILDRLFFKCIYRRLKYGLK...[truncated; full length 98 chars]",
+      "family_assignments": [
+        [
+          "Alphainfluenzavirus",
+          "M2",
+          "M2 ion channel",
+          "LowVan Splice Variant Feature"
+        ]
+      ],
+      "alias_pairs": null,
+      "feature_quality": null
+    }
+  ]
+}
