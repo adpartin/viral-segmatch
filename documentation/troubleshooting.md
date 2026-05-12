@@ -1,330 +1,207 @@
 # Troubleshooting Guide
 
-Common issues and solutions for the viral-segmatch project.
+Common errors when running the viral-segmatch pipeline, and what to do
+about them. For technical documentation, see [`../docs/`](../docs/).
 
-**Note**: For detailed technical documentation and research results, see [`../docs/`](../docs/).
+## Errors during Stage 3 (dataset construction) or Stage 4 (training)
 
-## 🚨 Common Errors
+### `FileNotFoundError: Test results file not found`
 
-### 1. Division by Zero in Analysis
-**Error**: `ZeroDivisionError: division by zero` in `analyze_fp_fn_errors`
+The training run didn't finish, or you're pointing at the wrong run
+directory.
 
-**Cause**: No false negatives (FN) in the dataset, causing division by zero when calculating FP/FN ratio.
-
-**Solution**: ✅ **Fixed in latest version** - The script now handles zero FN cases gracefully.
-
-### 2. File Not Found Errors
-**Error**: `FileNotFoundError: Test results file not found`
-
-**Cause**: Model directory path is incorrect or model hasn't been trained.
-
-**Solutions**:
-1. **Check model directory**:
-   ```bash
-   ls -la models/flu/July_2025/runs/training_flu_ha_na_5ks_*/
-   ```
-
-2. **Use explicit model directory**:
-   ```bash
-   python src/analysis/analyze_stage4_train.py \
-     --config_bundle flu_ha_na_5ks \
-     --model_dir models/flu/July_2025/runs/training_flu_ha_na_5ks_YYYYMMDD_HHMMSS
-   ```
-
-3. **Train model first**:
-   ```bash
-   ./scripts/stage4_train.sh flu_ha_na_5ks --cuda_name cuda:7 \
-       --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_YYYYMMDD_HHMMSS
-   ```
-
-### 3. Missing Configuration Files
-**Error**: `ConfigKeyError: Missing key data_version`
-
-**Cause**: Incorrect configuration access or missing keys.
-
-**Solution**:
-```python
-# Wrong:
-data_version = config['data_version']
-
-# Correct:
-data_version = config.virus.data_version
-```
-
-## 🔧 Configuration Issues
-
-### 1. Hydra Configuration Errors
-**Error**: `ConfigKeyError: Missing key virus_name`
-
-**Cause**: Incorrect bundle name or missing configuration.
-
-**Solutions**:
-1. **Check available bundles**:
-   ```bash
-   ls conf/bundles/
-   ```
-
-2. **Verify bundle content**:
-   ```python
-   from src.utils.config_hydra import get_virus_config_hydra
-   config = get_virus_config_hydra('flu_ha_na_5ks')
-   print(config.virus.virus_name)
-   ```
-
-3. **Use correct bundle name**:
-   ```bash
-   # Correct
-   ./scripts/stage3_dataset.sh flu_ha_na_5ks
-   
-   # Incorrect
-   ./scripts/stage3_dataset.sh flu_ha_na_5k  # Missing 's'
-   ```
-
-### 2. Path Resolution Issues
-**Error**: Paths not found or incorrect
-
-**Solutions**:
-1. **Check path generation**:
-   ```python
-   from src.utils.path_utils import build_training_paths
-   from src.utils.config_hydra import get_virus_config_hydra
-   config = get_virus_config_hydra('flu_ha_na_5ks')
-   paths = build_training_paths(
-       project_root=Path('.'),
-       virus_name=config.virus.virus_name,
-       data_version=config.virus.data_version,
-       run_suffix='',
-       config=config
-   )
-   print(paths)
-   ```
-
-2. **Verify directory structure**:
-   ```bash
-   ls -la data/embeddings/flu/July_2025/
-   ls -la data/datasets/flu/July_2025/runs/
-   ```
-
-3. **Create missing directories** (usually auto-created):
-   ```bash
-   mkdir -p data/{embeddings,datasets}/flu/July_2025/
-   ```
-
-## 💾 Data Issues
-
-### 1. Missing Input Files
-**Error**: `FileNotFoundError: Input file not found`
-
-**Solutions**:
-1. **Check preprocessing output**:
-   ```bash
-   ls -la data/processed/flu/July_2025/protein_final.csv
-   ```
-
-2. **Run preprocessing first** (if needed):
-   ```bash
-   ./scripts/preprocess_flu_protein.sh
-   ```
-
-3. **Check embeddings exist**:
-   ```bash
-   ls -la data/embeddings/flu/July_2025/master_esm2_embeddings.h5
-   ```
-
-4. **Run embeddings if missing**:
-   ```bash
-   ./scripts/stage2_esm2.sh flu --cuda_name cuda:7
-   ```
-
-### 2. Insufficient Data
-**Error**: "No data found" or empty datasets
-
-**Solutions**:
-1. **Check data filtering**:
-   ```python
-   from src.utils.config_hydra import get_virus_config_hydra
-   config = get_virus_config_hydra('flu_ha_na_5ks')
-   print(config.virus.selected_functions)
-   ```
-
-2. **Increase sampling size**:
-   ```yaml
-   max_isolates_to_process: 5000  # Instead of 1000
-   ```
-
-3. **Check data quality**:
-   ```bash
-   head data/processed/flu/July_2025/protein_final.csv
-   ```
-
-### 3. Can't Find Dataset Directory
-**Error**: Dataset directory not found when running training
-
-**Solutions**:
-1. **List all dataset runs**:
-   ```bash
-   ls -lt data/datasets/flu/July_2025/runs/ | head -5
-   ```
-
-2. **Search for specific bundle**:
-   ```bash
-   ls -d data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_*
-   ```
-
-3. **Use most recent run**:
-   ```bash
-   DATASET_DIR=$(ls -td data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_* | head -1)
-   ./scripts/stage4_train.sh flu_ha_na_5ks --cuda_name cuda:7 --dataset_dir "$DATASET_DIR"
-   ```
-
-## 🐍 Python Environment Issues
-
-### 1. Import Errors
-**Error**: `ModuleNotFoundError: No module named 'fair_esm'`
-
-**Solutions**:
-1. **Activate correct environment**:
-   ```bash
-   conda activate cepi
-   ```
-
-2. **Install missing packages**:
-   ```bash
-   pip install fair-esm transformers h5py
-   ```
-
-3. **Check Python path**:
-   ```python
-   import sys
-   print(sys.path)
-   ```
-
-### 2. CUDA Issues
-**Error**: CUDA not available or GPU memory errors
-
-**Solutions**:
-1. **Check CUDA availability**:
-   ```python
-   import torch
-   print(f"CUDA available: {torch.cuda.is_available()}")
-   print(f"CUDA device count: {torch.cuda.device_count()}")
-   ```
-
-2. **Use CPU fallback**:
-   ```bash
-   # Set CUDA device to CPU
-   export CUDA_VISIBLE_DEVICES=""
-   ```
-
-3. **Reduce batch size**:
-   ```yaml
-   training:
-     batch_size: 16  # Instead of 32
-   ```
-
-## 📊 Analysis Issues
-
-### 1. Empty Results
-**Error**: No plots generated or empty analysis
-
-**Solutions**:
-1. **Check input data**:
-   ```python
-   import pandas as pd
-   df = pd.read_csv('models/flu/July_2025/runs/training_flu_ha_na_5ks_*/test_predicted.csv')
-   print(f"Data shape: {df.shape}")
-   print(f"Columns: {df.columns.tolist()}")
-   ```
-
-2. **Verify model predictions**:
-   ```python
-   print(f"Unique labels: {df['label'].unique()}")
-   print(f"Unique predictions: {df['pred_label'].unique()}")
-   ```
-
-3. **Check file permissions**:
-   ```bash
-   ls -la results/flu/July_2025/flu_ha_na_5ks/
-   ```
-
-### 2. Plot Generation Errors
-**Error**: Matplotlib or plotting errors
-
-**Solutions**:
-1. **Check display backend**:
-   ```python
-   import matplotlib
-   matplotlib.use('Agg')  # For headless environments
-   ```
-
-2. **Verify data types**:
-   ```python
-   print(df.dtypes)
-   print(df['pred_prob'].min(), df['pred_prob'].max())
-   ```
-
-## 🔍 Debugging Tips
-
-### 1. Enable Verbose Logging
 ```bash
-# Check script logs
-tail -f logs/datasets/dataset_segment_pairs_flu_ha_na_5ks_*.log
-tail -f logs/training/train_pair_classifier_flu_ha_na_5ks_*.log
+# List recent training runs
+ls -lt models/flu/July_2025/runs/ | head -5
+
+# Find the most recent training run for a bundle
+ls -td models/flu/July_2025/runs/training_flu_ha_na_* | head -1
+
+# Re-run training against an existing dataset directory
+./scripts/stage4_train.sh --config_bundle flu_ha_na --cuda_name cuda:0 \
+    --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_YYYYMMDD_HHMMSS
 ```
 
-### 2. Check Intermediate Files
+### `Can't find dataset directory`
+
+Stage 4's shell script requires `--dataset_dir` explicitly. It does not
+extract a bundle name from the path or autodiscover the latest
+dataset.
+
 ```bash
-# Verify each stage output
-ls -la data/processed/flu/July_2025/
-ls -la data/embeddings/flu/July_2025/
-ls -la data/datasets/flu/July_2025/runs/ | head -5
-ls -la models/flu/July_2025/runs/ | head -5
+# List all dataset runs for the bundle
+ls -lt data/datasets/flu/July_2025/runs/dataset_flu_ha_na_* | head -5
+
+# Use the most recent
+DATASET_DIR=$(ls -td data/datasets/flu/July_2025/runs/dataset_flu_ha_na_* | head -1)
+./scripts/stage4_train.sh --config_bundle flu_ha_na --cuda_name cuda:0 --dataset_dir "$DATASET_DIR"
 ```
 
-### 3. Test with Small Datasets
-```yaml
-# Use smaller sampling for testing
-max_isolates_to_process: 100  # Instead of 5000
-```
+### `ConfigKeyError: Missing key …`
 
-### 4. Verify Configuration
+Bundle name typo or trying to read a key that isn't in the resolved
+config.
+
 ```bash
-# Test configuration loading
-python -c "from src.utils.config_hydra import get_virus_config_hydra; config = get_virus_config_hydra('flu_ha_na_5ks'); print('OK')"
+# Check available bundles
+ls conf/bundles/*.yaml
+
+# Inspect what's actually in the resolved config for a bundle
+python -c "
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
+config = get_virus_config_hydra('flu_ha_na')
+print_config_summary(config)
+"
 ```
 
-## 📞 Getting Help
+When accessing config keys in code, use dotted access (`config.virus.virus_name`)
+rather than dict-style (`config['virus_name']`).
 
-### 1. Check Existing Documentation
-- Review [Pipeline Overview](pipeline-overview.md)
-- Check [Configuration Guide](../docs/CONFIGURATION_GUIDE.md)
-- Look at existing [`../docs/`](../docs/) for technical notes
+### Stage 3 raises on `seq_hash_overlap` or `dna_hash_overlap`
 
-### 2. Verify System Requirements
-- Python 3.9+
-- CUDA-capable GPU (recommended)
-- Sufficient disk space
-- Internet connection for model downloads
+The v2 builder's hard-fail audit detected cross-split sequence-hash
+overlap on the active hash family (`hash_key=seq` by default, or
+`hash_key=dna`). This usually means:
 
-### 3. Test Basic Functionality
+- An upstream change to the routing logic introduced a bug.
+- The bundle has an incompatible combination of `split_strategy.mode`
+  and `hash_key`.
+
+The audit dict (`split_strategy_audit` in the run directory) reports
+both `seq_hash_overlap` and `dna_hash_overlap` regardless of which
+family is active, so you can see the diagnostic side too. See
+[`../docs/methods/leakage_definitions.md`](../docs/methods/leakage_definitions.md)
+(mode #3) for the full taxonomy.
+
+## Data setup issues
+
+### Missing input files
+
 ```bash
-# Test configuration loading
-python -c "from src.utils.config_hydra import get_virus_config_hydra; print('OK')"
+# Stage 1 outputs (must run first if missing)
+ls -la data/processed/flu/July_2025/protein_final.csv data/processed/flu/July_2025/genome_final.csv
 
-# Test path utilities
-python -c "from src.utils.path_utils import build_training_paths; print('OK')"
+# Stage 2 outputs
+ls -la data/embeddings/flu/July_2025/master_esm2_embeddings.h5
+ls -la data/embeddings/flu/July_2025/kmer_features_k6.npz
 
-# Test ESM-2 availability
-python -c "import fair_esm; print('OK')"
+# Re-run a missing stage
+./scripts/stage1_preprocess_flu.sh  --config_bundle flu_base
+./scripts/stage2_esm2.sh           --config_bundle flu_base --cuda_name cuda:0
+./scripts/stage2b_kmer.sh          --config_bundle flu_base
 ```
 
-### 4. Check Recent Changes
-- Review git history for recent modifications
-- Check if issues are related to recent updates
-- Verify all dependencies are up to date
+### Insufficient pairs after Stage 3
 
-## 📚 Related Documentation
+If `dataset_stats.json` shows a tiny `split_sizes`, check whether the
+bundle's metadata filters (host, year, hn_subtype) are too restrictive
+for the dataset:
 
-- **[Configuration Guide](../docs/CONFIGURATION_GUIDE.md)** - Detailed configuration documentation
-- **[Experiment Results](../docs/EXPERIMENT_RESULTS_ANALYSIS.md)** - Current experiment results
-- **[Project Status](../docs/EXP_RESULTS_STATUS.md)** - Research status and roadmap
+```bash
+# Inspect the bundle for filter knobs
+grep -E "host|year|hn_subtype|max_isolates_to_process" conf/bundles/flu_ha_na.yaml
+
+# Or lower max_isolates_to_process for a quick smoke test
+# (override at the CLI rather than editing the bundle)
+python src/datasets/dataset_segment_pairs.py \
+    --config_bundle flu_ha_na \
+    --override dataset.max_isolates_to_process=500
+```
+
+## Python environment issues
+
+### `ModuleNotFoundError: No module named 'fair_esm' / 'lightgbm' / ...`
+
+Activate the conda env and reinstall:
+
+```bash
+conda activate cepi
+pip install fair-esm transformers h5py lightgbm
+```
+
+### CUDA not available or out of memory
+
+```bash
+# Check CUDA
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+
+# Force CPU
+export CUDA_VISIBLE_DEVICES=""
+
+# Lower batch size in the bundle override
+# (or edit conf/training/base.yaml directly for a global change)
+./scripts/stage4_train.sh --config_bundle flu_ha_na --cuda_name cuda:0 \
+    --dataset_dir <DIR> training.batch_size=16
+```
+
+## Post-hoc analysis issues
+
+### `analyze_stage4_train.py` complains about missing `test_predicted.csv`
+
+The training run didn't finish or its output is in a different directory.
+Pass `--model_dir` explicitly:
+
+```bash
+python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na \
+    --model_dir models/flu/July_2025/runs/training_flu_ha_na_YYYYMMDD_HHMMSS
+```
+
+### `aggregate_baselines_vs_mlp.py` finds no matching runs
+
+The aggregator autodiscovers runs by bundle name with anchored matching
+(so `--bundle flu_ha_na` does NOT pick up `flu_ha_na_regimes`).
+For an explicit list of run directories instead of autodiscovery:
+
+```bash
+python src/analysis/aggregate_baselines_vs_mlp.py --model_dirs \
+    models/flu/July_2025/runs/training_flu_ha_na_YYYYMMDD_HHMMSS \
+    models/flu/July_2025/runs/baseline_lgbm_flu_ha_na_YYYYMMDD_HHMMSS \
+    models/flu/July_2025/runs/baseline_knn1_margin_flu_ha_na_YYYYMMDD_HHMMSS
+```
+
+It cross-checks `training_info.json::dataset_dir` across the picks and
+refuses to aggregate on a mismatch — if you get a refusal there, the
+runs aren't from the same dataset build.
+
+## Debugging tips
+
+### Check the logs
+
+Every shell-wrapped stage writes a log under `logs/`. Tail the most
+recent log to see where a failure happened:
+
+```bash
+ls -t logs/datasets/ | head -3
+ls -t logs/training/ | head -3
+tail -200 logs/training/<file>.log
+```
+
+### Test on a tiny subset first
+
+Most bundles support `dataset.max_isolates_to_process` for a quick
+smoke test:
+
+```bash
+python src/datasets/dataset_segment_pairs.py \
+    --config_bundle flu_ha_na \
+    --override dataset.max_isolates_to_process=200
+```
+
+The resulting dataset directory will run end-to-end in minutes.
+
+### Verify configuration before running
+
+```bash
+python -c "
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
+config = get_virus_config_hydra('flu_ha_na')
+print_config_summary(config)
+"
+```
+
+## Related documentation
+
+- [`../docs/conf_guide.md`](../docs/conf_guide.md) — Hydra configuration system.
+- [`../docs/methods/pipeline_overview.md`](../docs/methods/pipeline_overview.md) — pipeline architecture.
+- [`../docs/methods/leakage_definitions.md`](../docs/methods/leakage_definitions.md) — leakage taxonomy.
+- [`quick-start.md`](quick-start.md) — first-time setup.
