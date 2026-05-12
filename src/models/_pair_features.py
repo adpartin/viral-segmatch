@@ -67,17 +67,18 @@ _LAYER_NORM_EPS = 1e-5
 
 def _parse_interaction_flags(
     interaction: str,
-) -> tuple[bool, bool, bool, bool]:
+) -> tuple[bool, bool, bool, bool, bool]:
     """Mirror of ``train_pair_classifier.parse_interaction_flags``.
 
+    Returns (use_concat, use_diff, use_prod, use_unit_diff, use_unit_prod).
     Duplicated here to keep the baselines path free of imports from
     the MLP trainer (which pulls torch). Kept in lockstep with the MLP
     parser — if syntax changes there, mirror it here.
     """
     if interaction is None:
-        return False, False, False, False
+        return False, False, False, False, False
     tokens = [t.strip().lower() for t in str(interaction).split("+") if t.strip()]
-    allowed = {"concat", "diff", "prod", "unit_diff"}
+    allowed = {"concat", "diff", "prod", "unit_diff", "unit_prod"}
     unknown = [t for t in tokens if t not in allowed]
     if unknown:
         raise ValueError(
@@ -88,6 +89,7 @@ def _parse_interaction_flags(
         "diff" in tokens,
         "prod" in tokens,
         "unit_diff" in tokens,
+        "unit_prod" in tokens,
     )
 
 
@@ -108,6 +110,17 @@ def _apply_slot_norm(emb: np.ndarray) -> np.ndarray:
     return (emb - mu) / (sd + _LAYER_NORM_EPS)
 
 
+def _apply_unit_norm(emb: np.ndarray) -> np.ndarray:
+    """Numpy L2 row-normalization: x -> x / max(||x||, eps).
+
+    Mirrors the MLP path's ``slot_transform='unit_norm'`` branch.
+    Eps floor matches ``_UNIT_DIFF_EPS`` so the same numerical
+    pipeline is shared across MLP and baselines.
+    """
+    norms = np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), _UNIT_DIFF_EPS)
+    return emb / norms
+
+
 def _interaction_block(
     emb_a: np.ndarray,
     emb_b: np.ndarray,
@@ -116,16 +129,17 @@ def _interaction_block(
     """Apply the requested interaction(s) to per-slot embeddings.
 
     Output column order matches the MLP trainer (concat, diff,
-    unit_diff, prod) when multiple flags are set, so the resulting
-    feature space is bit-for-bit comparable across MLP and baseline
-    runs that use the same ``interaction`` string.
+    unit_diff, prod, unit_prod) when multiple flags are set, so the
+    resulting feature space is bit-for-bit comparable across MLP and
+    baseline runs that use the same ``interaction`` string.
     """
-    use_concat, use_diff, use_prod, use_unit_diff = _parse_interaction_flags(interaction)
-    if not (use_concat or use_diff or use_prod or use_unit_diff):
+    flags = _parse_interaction_flags(interaction)
+    use_concat, use_diff, use_prod, use_unit_diff, use_unit_prod = flags
+    if not any(flags):
         raise ValueError(
             f"interaction={interaction!r} produced no active flags. "
-            f"Choose from concat / diff / unit_diff / prod or "
-            f"+-separated combinations (e.g., 'concat+unit_diff')."
+            f"Choose from concat / diff / unit_diff / prod / unit_prod or "
+            f"+-separated combinations (e.g., 'unit_diff+unit_prod')."
         )
     parts = []
     if use_concat:
@@ -134,13 +148,21 @@ def _interaction_block(
     if use_diff:
         parts.append(np.abs(emb_a - emb_b))
     if use_unit_diff:
-        diff_raw = emb_a - emb_b
+        # Element-wise abs in the numerator (symmetric in a/b, like `diff`),
+        # then L2-normalize. Mirrors the MLP path.
+        diff_abs = np.abs(emb_a - emb_b)
         norms = np.maximum(
-            np.linalg.norm(diff_raw, axis=1, keepdims=True), _UNIT_DIFF_EPS
+            np.linalg.norm(diff_abs, axis=1, keepdims=True), _UNIT_DIFF_EPS
         )
-        parts.append(diff_raw / norms)
+        parts.append(diff_abs / norms)
     if use_prod:
         parts.append(emb_a * emb_b)
+    if use_unit_prod:
+        prod_raw = emb_a * emb_b
+        norms = np.maximum(
+            np.linalg.norm(prod_raw, axis=1, keepdims=True), _UNIT_DIFF_EPS
+        )
+        parts.append(prod_raw / norms)
     return np.concatenate(parts, axis=1)
 
 
@@ -160,10 +182,10 @@ def _load_esm2_pair_features(
     rows. Mirrors the missing-pair handling in
     ``embedding_utils.create_pair_embeddings_concatenation``.
     """
-    if slot_transform not in {"none", "slot_norm"}:
+    if slot_transform not in {"none", "slot_norm", "unit_norm"}:
         raise ValueError(
             f"slot_transform={slot_transform!r} not supported in baseline harness "
-            f"(use 'none' or 'slot_norm'). The trainable variants "
+            f"(use 'none', 'slot_norm', or 'unit_norm'). The trainable variants "
             f"(shared, slot_specific, shared_adapter) live inside the MLP."
         )
 
@@ -203,6 +225,9 @@ def _load_esm2_pair_features(
     if slot_transform == "slot_norm":
         emb_a = _apply_slot_norm(emb_a)
         emb_b = _apply_slot_norm(emb_b)
+    elif slot_transform == "unit_norm":
+        emb_a = _apply_unit_norm(emb_a)
+        emb_b = _apply_unit_norm(emb_b)
 
     X = _interaction_block(emb_a, emb_b, interaction).astype(np.float32, copy=False)
     return X, labels.astype(np.int64, copy=False)
@@ -266,11 +291,15 @@ def load_pair_features_for_baselines(
             feature_source='kmer'.
         embeddings_file: for the ESM-2 path. Required when
             feature_source='esm2'.
-        interaction: ``'concat'`` (default), ``'diff'``,
-            ``'unit_diff'``, ``'prod'``, or ``+``-separated. The
-            k-mer path supports ``'concat'`` only — others raise.
-        slot_transform: ``'none'`` (default) or ``'slot_norm'``. The
-            k-mer path supports ``'none'`` only — others raise.
+        interaction: ``'concat'`` (default), ``'diff'``, ``'unit_diff'``,
+            ``'prod'``, ``'unit_prod'``, or ``+``-separated combinations
+            (e.g., ``'unit_diff+unit_prod'``). Both feature sources
+            support the full set.
+        slot_transform: ``'none'`` (default), ``'slot_norm'``, or
+            ``'unit_norm'``. The k-mer path accepts ``'none'`` or
+            ``'unit_norm'`` (LayerNorm-style ``'slot_norm'`` is not
+            wired for non-negative count vectors). The ESM-2 path
+            accepts all three.
 
     Returns:
         ``((X_train, y_train), (X_val, y_val), (X_test, y_test),
@@ -288,28 +317,32 @@ def load_pair_features_for_baselines(
         )
 
     if feature_source == "kmer":
-        if interaction != "concat":
+        if slot_transform not in {"none", "unit_norm"}:
             raise NotImplementedError(
-                f"k-mer baseline path supports interaction='concat' only "
-                f"(got {interaction!r}). Project finding: k-mer is "
-                f"interaction-agnostic in practice (unit_diff ≈ concat) "
-                f"so a separate path hasn't been wired."
-            )
-        if slot_transform != "none":
-            raise NotImplementedError(
-                f"k-mer baseline path supports slot_transform='none' only "
-                f"(got {slot_transform!r}). Non-negative count vectors "
-                f"don't benefit from feature-axis LayerNorm."
+                f"k-mer baseline path supports slot_transform in {{'none', 'unit_norm'}} "
+                f"(got {slot_transform!r}). LayerNorm-style 'slot_norm' is not wired here "
+                f"because non-negative count vectors don't benefit from it; the MLP path "
+                f"does support it if you want to compare."
             )
         if kmer_dir is None or kmer_k is None:
             raise ValueError("kmer_dir and kmer_k are required for feature_source='kmer'.")
-        print(f"\nLoading k-mer pair features (k={kmer_k}) from {kmer_dir}")
+        print(f"\nLoading k-mer pair features (k={kmer_k}, "
+              f"slot_transform={slot_transform!r}, interaction={interaction!r}) from {kmer_dir}")
         key_to_row = load_kmer_index(Path(kmer_dir), kmer_k)
         kmer_matrix = load_kmer_matrix(Path(kmer_dir), kmer_k)
         print(f"  k-mer matrix: {kmer_matrix.shape}")
-        X_train, y_train = get_kmer_pair_features(train_pairs, kmer_matrix, key_to_row, interaction="concat")
-        X_val, y_val = get_kmer_pair_features(val_pairs, kmer_matrix, key_to_row, interaction="concat")
-        X_test, y_test = get_kmer_pair_features(test_pairs, kmer_matrix, key_to_row, interaction="concat")
+        X_train, y_train = get_kmer_pair_features(
+            train_pairs, kmer_matrix, key_to_row,
+            interaction=interaction, slot_transform=slot_transform,
+        )
+        X_val, y_val = get_kmer_pair_features(
+            val_pairs, kmer_matrix, key_to_row,
+            interaction=interaction, slot_transform=slot_transform,
+        )
+        X_test, y_test = get_kmer_pair_features(
+            test_pairs, kmer_matrix, key_to_row,
+            interaction=interaction, slot_transform=slot_transform,
+        )
 
     else:  # feature_source == "esm2"
         if embeddings_file is None:

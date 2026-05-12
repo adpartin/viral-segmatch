@@ -58,6 +58,7 @@ def get_kmer_pair_features(
     kmer_matrix: sparse.csr_matrix,
     key_to_row: Dict[str, int],
     interaction: str = 'concat',
+    slot_transform: str = 'none',
     ) -> Tuple[np.ndarray, np.ndarray]:
     """Build pair feature matrix from k-mer features and pair CSV.
 
@@ -68,7 +69,16 @@ def get_kmer_pair_features(
         pairs_df: DataFrame with assembly_id_a, ctg_a, assembly_id_b, ctg_b, label
         kmer_matrix: sparse CSR matrix from load_kmer_matrix
         key_to_row: mapping from load_kmer_index
-        interaction: 'concat', 'diff', 'unit_diff', or combinations like 'concat+unit_diff'
+        interaction: 'concat', 'diff', 'unit_diff', 'prod', 'unit_prod', or
+            combinations like 'unit_diff+unit_prod'. Semantics mirror the
+            MLP path (`train_pair_classifier._compute_interaction`):
+              - diff      = |emb_a - emb_b|
+              - unit_diff = |emb_a - emb_b| / max(||·||₂, 1e-8)   (abs, L2-norm)
+              - prod      = emb_a * emb_b
+              - unit_prod = (emb_a * emb_b) / max(||·||₂, 1e-8)
+        slot_transform: 'none' (default) or 'unit_norm'. With 'unit_norm',
+            each row of emb_a and emb_b is L2-normalized before the
+            interaction (matches MLP `slot_transform='unit_norm'`).
 
     Returns:
         features: dense (N, D) float32 array
@@ -97,9 +107,20 @@ def get_kmer_pair_features(
     emb_a = np.asarray(kmer_matrix[idx_a].todense(), dtype=np.float32)
     emb_b = np.asarray(kmer_matrix[idx_b].todense(), dtype=np.float32)
 
-    # Build interaction features (same logic as ESM-2 pair features)
+    # Optional per-slot L2 row normalization (mirrors MLP slot_transform='unit_norm').
+    if slot_transform == 'unit_norm':
+        emb_a = emb_a / np.maximum(np.linalg.norm(emb_a, axis=1, keepdims=True), 1e-8)
+        emb_b = emb_b / np.maximum(np.linalg.norm(emb_b, axis=1, keepdims=True), 1e-8)
+    elif slot_transform != 'none':
+        raise ValueError(
+            f"get_kmer_pair_features: slot_transform={slot_transform!r} not supported "
+            f"(use 'none' or 'unit_norm'). Non-negative count vectors don't benefit "
+            f"from LayerNorm-style slot_norm."
+        )
+
+    # Build interaction features (mirrors the MLP path's _compute_interaction).
     tokens = {t.strip().lower() for t in interaction.split('+')}
-    allowed = {'concat', 'diff', 'unit_diff', 'prod'}
+    allowed = {'concat', 'diff', 'unit_diff', 'prod', 'unit_prod'}
     unknown = tokens - allowed
     if unknown:
         raise ValueError(f"Unknown interaction tokens: {unknown}")
@@ -111,12 +132,15 @@ def get_kmer_pair_features(
     if 'diff' in tokens:
         features.append(np.abs(emb_a - emb_b))
     if 'unit_diff' in tokens:
-        diff = emb_a - emb_b
-        norms = np.linalg.norm(diff, axis=1, keepdims=True)
-        norms = np.maximum(norms, 1e-8)
-        features.append(diff / norms)
+        diff_abs = np.abs(emb_a - emb_b)
+        norms = np.maximum(np.linalg.norm(diff_abs, axis=1, keepdims=True), 1e-8)
+        features.append(diff_abs / norms)
     if 'prod' in tokens:
         features.append(emb_a * emb_b)
+    if 'unit_prod' in tokens:
+        prod = emb_a * emb_b
+        norms = np.maximum(np.linalg.norm(prod, axis=1, keepdims=True), 1e-8)
+        features.append(prod / norms)
     if not features:
         raise ValueError("At least one interaction term must be enabled")
 

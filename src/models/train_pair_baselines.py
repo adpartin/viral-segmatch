@@ -425,11 +425,13 @@ def main() -> None:
     # slot_transform back to 'none' here so a bundle that sets
     # slot_norm=true for the MLP doesn't break the baseline runs.
     # ESM-2 baselines do support slot_norm — leave their setting alone.
-    if FEATURE_SOURCE == 'kmer' and SLOT_TRANSFORM != 'none':
+    # 'unit_norm' is now supported on the k-mer path (parameter-free L2
+    # row-norm), so it's allowed through unchanged.
+    if FEATURE_SOURCE == 'kmer' and SLOT_TRANSFORM not in {'none', 'unit_norm'}:
         print(
             f"NOTE: bundle sets training.slot_transform={SLOT_TRANSFORM!r} "
-            "(for the MLP). The kmer baseline path uses each baseline's "
-            "feature_scaling instead, so slot_transform is forced to 'none' "
+            "(for the MLP). The kmer baseline path doesn't support that transform "
+            "(only 'none' and 'unit_norm'), so slot_transform is forced to 'none' "
             "for this run."
         )
         SLOT_TRANSFORM = 'none'

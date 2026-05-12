@@ -68,23 +68,34 @@ import h5py
 total_timer = Timer()
 
 
-def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool]:
+def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool, bool]:
     """
-    Parse interaction spec string into (use_concat, use_diff, use_prod, use_unit_diff).
-    Accepts: "concat", "diff", "prod", "unit_diff", or combinations like "concat+diff" (any order).
+    Parse interaction spec string into
+    (use_concat, use_diff, use_prod, use_unit_diff, use_unit_prod).
+    Accepts: "concat", "diff", "prod", "unit_diff", "unit_prod", or combinations
+    like "unit_diff+unit_prod" (any order).
 
-    unit_diff: L2-normalized difference (emb_a - emb_b) / (||emb_a - emb_b|| + eps).
-    Preserves only the *direction* of the difference, removing magnitude information.
-    Use as a diagnostic to test whether the model relies on diff magnitude vs direction.
+    unit_diff: L2-normalized abs-difference |emb_a - emb_b| / max(|||emb_a - emb_b|||, eps).
+        Element-wise abs (matching `diff`) so the operation is symmetric
+        in (a, b); then L2-normalized so magnitude is collapsed.
+    unit_prod: L2-normalized element-wise product (emb_a * emb_b) / max(||emb_a * emb_b||, eps).
+        Removes magnitude from the agreement signal; pairs well with
+        slot_transform='unit_norm' for a fully magnitude-invariant pipeline.
     """
     if interaction is None:
-        return False, False, False, False
+        return False, False, False, False, False
     tokens = [t.strip().lower() for t in str(interaction).split('+') if t.strip()]
-    allowed = {"concat", "diff", "prod", "unit_diff"}
+    allowed = {"concat", "diff", "prod", "unit_diff", "unit_prod"}
     unknown = [t for t in tokens if t not in allowed]
     if unknown:
         raise ValueError(f"Unknown interaction tokens: {unknown} (allowed: {sorted(allowed)})")
-    return ("concat" in tokens, "diff" in tokens, "prod" in tokens, "unit_diff" in tokens)
+    return (
+        "concat" in tokens,
+        "diff" in tokens,
+        "prod" in tokens,
+        "unit_diff" in tokens,
+        "unit_prod" in tokens,
+    )
 
 
 class ESMPairDataset(Dataset):
@@ -312,6 +323,7 @@ class MLPClassifier(nn.Module):
         use_diff: bool = False,
         use_prod: bool = False,
         use_unit_diff: bool = False,
+        use_unit_prod: bool = False,
         embed_dim: Optional[int] = None,
     ):
         super().__init__()
@@ -321,6 +333,7 @@ class MLPClassifier(nn.Module):
         self.use_diff = use_diff
         self.use_prod = use_prod
         self.use_unit_diff = use_unit_diff
+        self.use_unit_prod = use_unit_prod
 
         self.slot_transform_shared = None
         self.slot_transform_a = None
@@ -385,6 +398,13 @@ class MLPClassifier(nn.Module):
             self.norm_a = nn.LayerNorm(out_dim)
             self.norm_b = nn.LayerNorm(out_dim)
 
+        elif self.slot_transform == "unit_norm":
+            # Per-slot L2 row normalization: u -> u / max(||u||, eps).
+            # No learned parameters; collapses magnitude to 1 so downstream
+            # interactions operate on direction only. Pairs well with
+            # unit_prod / unit_diff for a fully magnitude-invariant pipeline.
+            pass
+
         elif self.slot_transform != "none":
             raise ValueError(f"Unknown slot_transform: {self.slot_transform!r}")
 
@@ -436,6 +456,13 @@ class MLPClassifier(nn.Module):
                 a = self.slot_transform_shared(a)
                 b = self.slot_transform_shared(b)
             return self.norm_a(a), self.norm_b(b)
+
+        if self.slot_transform == "unit_norm":
+            # L2 row-normalization. Eps clamp mirrors unit_diff/unit_prod.
+            a_norm = torch.linalg.norm(a, dim=1, keepdim=True).clamp(min=1e-8)
+            b_norm = torch.linalg.norm(b, dim=1, keepdim=True).clamp(min=1e-8)
+            return a / a_norm, b / b_norm
+
         raise ValueError(f"Unknown slot_transform: {self.slot_transform!r}")
 
     def _compute_interaction(self, a: torch.Tensor, b: torch.Tensor
@@ -455,13 +482,22 @@ class MLPClassifier(nn.Module):
         if self.use_diff:
             features.append(torch.abs(a - b))
         if self.use_unit_diff:
-            diff = a - b
+            # Element-wise abs in the numerator (symmetric in a/b, like `diff`),
+            # then L2-normalize. Note: ||·|| is invariant to elementwise abs, so
+            # the denominator is the same whether we abs first or not.
+            diff = torch.abs(a - b)
             norm = torch.linalg.norm(diff, dim=1, keepdim=True).clamp(min=1e-8)
             features.append(diff / norm)
         if self.use_prod:
             features.append(a * b)
+        if self.use_unit_prod:
+            prod = a * b
+            norm = torch.linalg.norm(prod, dim=1, keepdim=True).clamp(min=1e-8)
+            features.append(prod / norm)
         if not features:
-            raise ValueError("At least one of concat/diff/prod/unit_diff must be enabled for interaction.")
+            raise ValueError(
+                "At least one of concat/diff/prod/unit_diff/unit_prod must be enabled for interaction."
+            )
         return torch.cat(features, dim=1)
 
     def forward(self, x: torch.Tensor, x_b: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -1354,7 +1390,8 @@ test_loader = DataLoader(
     num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
 
 # Resolve interaction flags from training.interaction
-USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
+USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW, USE_UNIT_PROD_RAW = \
+    parse_interaction_flags(INTERACTION_SPEC)
 
 # Compute input dimension based on feature flags and slot transform
 if SLOT_TRANSFORM in {"shared", "slot_specific", "shared_adapter"}:
@@ -1380,6 +1417,9 @@ if USE_UNIT_DIFF_RAW:
 if USE_PROD_RAW:
     mlp_input_dim += out_dim
     feature_desc_parts.append("1")
+if USE_UNIT_PROD_RAW:
+    mlp_input_dim += out_dim
+    feature_desc_parts.append("1")
 if mlp_input_dim == 0:
     raise ValueError("At least one interaction term must be enabled (training.interaction).")
 feature_desc = "+".join(feature_desc_parts) if feature_desc_parts else "0"
@@ -1400,6 +1440,7 @@ model = MLPClassifier(
     use_diff=USE_DIFF_RAW,
     use_prod=USE_PROD_RAW,
     use_unit_diff=USE_UNIT_DIFF_RAW,
+    use_unit_prod=USE_UNIT_PROD_RAW,
     embed_dim=EMBED_DIM,
 )
 
