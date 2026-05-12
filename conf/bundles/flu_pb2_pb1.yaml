@@ -44,3 +44,20 @@ dataset:
   # hn_subtype: null # control for subtype
   # geo_location: null
   # passage: null
+
+# Sklearn-style baselines that should run alongside the MLP. The list under
+# `baselines.enabled` is consumed by `src/models/train_pair_baselines.py`
+# when --baseline is omitted on the CLI. Per-baseline knobs live at top
+# level under `baseline_<name>` (matches the existing pattern that each
+# baseline module reads from). See:
+#   src/models/baselines/{logistic,lgbm,knn1_margin,knn_vote}.py
+#   src/analysis/aggregate_baselines_vs_mlp.py
+baselines:
+  # enabled: [logistic, lgbm, knn1_margin, knn_vote]
+  enabled: [lgbm, knn1_margin]
+
+baseline_knn_vote:
+  k: 5
+  weights: distance   # 'uniform' or 'distance'
+# Other baselines use module defaults (logistic: feature_scaling=standard;
+# lgbm: feature_scaling=none; knn1_margin: feature_scaling=none).
