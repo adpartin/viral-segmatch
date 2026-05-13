@@ -10,10 +10,14 @@ __pycache__/
 
 # Claude Code (machine-specific overrides only; settings.json and memory.md are tracked)
 .claude/settings.local.json
+# Runtime lock for Claude Code ScheduleWakeup / CronCreate
+.claude/scheduled_tasks.lock
+# NFS "silly-rename" files for deleted-but-still-open file handles
+.claude/.nfs*
 
 # CEPI
 _notes.txt
-prompts.txt
+prompt.txt
 data/
 data/raw/Anno_Updates/
 data/raw/Full_Flu_Annos/
