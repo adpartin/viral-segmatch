@@ -128,7 +128,6 @@ src/
     analyze_stage1_preprocess.py    # Preprocessing QC
     analyze_stage2_embeddings.py    # Embedding quality checks
     analyze_stage3_datasets.py      # Dataset balance/distribution
-    create_presentation_plots.py    # PPT-ready figures
   utils/
     config_hydra.py                 # Hydra config loader (primary)
     esm2_utils.py                   # ESM-2 tokenization, batch embedding
