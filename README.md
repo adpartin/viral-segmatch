@@ -103,7 +103,6 @@ viral-segmatch/
 │   └── training/           # Training configs
 ├── eda/                    # Exploratory analysis scripts (not pipeline)
 ├── examples/               # HuggingFace reference scripts (not pipeline)
-├── old_scripts/            # Superseded scripts (not maintained)
 ├── data/                   # Data directories
 │   ├── processed/          # Preprocessed data (shared)
 │   ├── embeddings/         # ESM-2 embeddings (shared, master cache)

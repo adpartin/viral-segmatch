@@ -68,11 +68,11 @@ No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/c
 - `.claude/` -- settings.json (permissions) + memory.md (this file)
 - `eda/` -- exploratory scripts (bunya EDA moved here; NOT pipeline)
 - `examples/` -- HuggingFace reference scripts (NOT pipeline)
-- `old_scripts/` -- superseded scripts (NOT maintained)
 - `flu_genomes_eda.py` stays in `src/preprocess/` -- generates flu_genomes_metadata_parsed.csv (pipeline input)
 
 ## Not Maintained
-- `old_scripts/`, `src/preprocess/preprocess_bunya_protein.py`, `conf/bundles/bunya_base.yaml` (renamed from `bunya.yaml` in the 2026-05-10 base-bundle cleanup; still flagged not-maintained in its STATUS comment)
+- `src/preprocess/preprocess_bunya_protein.py`, `conf/bundles/bunya_base.yaml` (renamed from `bunya.yaml` in the 2026-05-10 base-bundle cleanup; still flagged not-maintained in its STATUS comment)
+- `old_scripts/` was deleted entirely on 2026-05-13; recover via git history (`git log --diff-filter=D --diff-filter=R -- old_scripts/`) if ever needed.
 
 ## Removed (2026-05-11)
 - `dataset.year_train` / `dataset.year_test`: legacy temporal-holdout config keys + the v1 `generate_temporal_split` function. Replaced by the general `dataset.metadata_holdout`. Old bundles using these keys raise at config-load time with a migration message pointing at `docs/plans/done/2026-05-11_metadata_holdout_plan.md`.

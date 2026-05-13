@@ -184,7 +184,6 @@ Priority experiments for publication:
 
 ## What Is NOT Maintained
 
-- `old_scripts/` — superseded by current stage scripts; see `old_scripts/README.md`
 - `src/preprocess/preprocess_bunya_protein.py` — Bunya preprocessing; see maintenance note in file
 - `conf/bundles/bunya_base.yaml` — Bunya experiment config (renamed 2026-05-10 from `bunya.yaml`); see maintenance note in file
 
@@ -238,7 +237,6 @@ viral-segmatch/
 │   └── bundles/                # One YAML per named experiment
 ├── eda/                        # Exploratory analysis scripts (not pipeline)
 ├── examples/                   # HuggingFace reference scripts (not pipeline)
-├── old_scripts/                # Superseded scripts (not maintained)
 ├── notebooks/                  # Jupyter notebooks
 ├── docs/                       # Technical docs
 ├── documentation/              # User guides
