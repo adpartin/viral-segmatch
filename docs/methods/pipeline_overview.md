@@ -35,20 +35,21 @@ HA/NA and PB2/PB1 plus a 28-pair sweep.
 
 ## 2. Why this question is biologically interesting
 
-Reassortment — the swapping of segments between co-infecting Flu A
-strains — is the proximate cause of pandemic emergence (1918, 1957,
-1968, 2009). Surveillance pipelines need to know which segment
-combinations are plausible (have been seen together) and which are
-novel reassortants. A model that scores arbitrary segment pairs for
-"do these belong together?" supports:
+Several viral-genomics tasks — from data-repository QA to
+wastewater-based metagenomic assembly to retrospective surveillance —
+share the same primitive: deciding whether two viral protein segments
+belong to the same isolate. A model that scores arbitrary segment
+pairs for "do these belong together?" supports:
 
 - **Data remediation**: flagging mis-joined or contaminated genome
   records in BV-BRC and similar repositories.
 - **Wastewater surveillance**: assembling consensus segments from
   fragmented metagenomic data and asking whether the inferred
   segment-pair memberships are coherent.
-- **Reassortant detection**: flagging genuinely-novel cross-strain
-  combinations as they emerge.
+- **Reassortment forecasting**: segment pairs the model rates as
+  compatible but never co-observed are candidate future
+  reassortants — potential outbreak strains worth flagging for
+  monitoring.
 
 The model is intentionally trained to discriminate at the **isolate**
 level (same vs different isolate), not at the population level (same
@@ -88,8 +89,8 @@ pair construction:
 
 1. **Metadata enrichment** — joins host, year, hn_subtype, geo_location,
    passage from the parsed metadata.
-2. **Metadata filtering** — `dataset.host/year/hn_subtype/...` keep only
-   matching isolates.
+2. **Metadata filtering** (optional) — `dataset.host/year/hn_subtype/...`
+   keep only matching isolates.
 3. **Subtype balancing** (optional) — downsamples to equal per-subtype
    representation. Mutually exclusive with `hn_subtype` filter.
 4. **`max_isolates_to_process`** — optional random isolate cap.
