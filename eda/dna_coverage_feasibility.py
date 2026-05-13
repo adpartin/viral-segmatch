@@ -2,6 +2,22 @@
 """
 DNA-level coverage feasibility for v2 negative sampling.
 
+Status (2026-05-13)
+-------------------
+Companion to `docs/results/2026-05-08_dna_coverage_feasibility.md`,
+which documents the verdict. The feasibility verdict it produced
+motivated extending v2's coverage phase to iterate `(slot, dna_hash)`
+tuples (mode #2 leakage fix at DNA level — landed 2026-05-08; see
+`dataset_segment_pairs_v2.py` and `docs/methods/leakage_definitions.md`
+mode #2). The script is preserved as a reproducibility hook for that
+result doc.
+
+**Note on hard-coded inputs:** the `DATASET_DIR` constant near the top
+of the file points at `dataset_flu_ha_na_20260508_125547`, which no
+longer exists in `data/datasets/`. Update the constant to point at a
+current build (e.g. a `dataset_flu_ha_na_*` run from
+`data/datasets/flu/July_2025/runs/`) before re-running.
+
 Question
 --------
 v2's coverage phase guarantees: for every protein `seq_hash` H on each slot,

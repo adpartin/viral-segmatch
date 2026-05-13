@@ -988,8 +988,9 @@ def compute_axis_flags(
     keying on it can return a different isolate's value than the pair's actual
     source isolate. assembly_id is the unique-per-isolate key that matches
     what the pair actually carries; metadata enrichment guarantees one value
-    per assembly per axis. Quantified disagreement before the fix:
-    `eda/probe_metadata_lookup.py`.
+    per assembly per axis. (The disagreement that motivated this fix was
+    quantified by `eda/probe_metadata_lookup.py`, deleted 2026-05-13;
+    recoverable via git history.)
 
     Returns a copy of `pairs` with the new columns appended.
     """

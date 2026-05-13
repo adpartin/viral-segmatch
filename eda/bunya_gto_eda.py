@@ -1,6 +1,41 @@
 """
-Exploratory analysis of Bunyavirales GTO files.
-File triplet: contig_quality, feature_quality, qual.gto
+Exploratory analysis of Bunyavirales GTO file structure.
+
+Status (2026-05-13): NOT MAINTAINED. Bunya preprocessing is in the
+"What Is NOT Maintained" list in CLAUDE.md, and the data_version this
+script points at (`April_2025`) is itself superseded. Preserved as a
+reference for how to inspect a quality-annotated GTO file triplet
+should the Bunya path ever be revived; do not expect it to run
+unmodified against current data layouts.
+
+Purpose
+-------
+Inspects the per-assembly outputs of the Bunya quality-annotation
+pipeline. Each assembly produces three files in
+`data/raw/Anno_Updates/<data_version>/bunya-from-datasets/Quality_GTOs/`:
+
+- `<accession>.contig_quality` — per-contig quality flags (TSV)
+- `<accession>.feature_quality` — per-feature (CDS) quality flags (TSV)
+- `<accession>.qual.gto` — the full GTO JSON (same schema family as Flu
+  GTOs; see `docs/methods/gto_format_reference.md`)
+
+The script picks one assembly (hard-coded `ex_file` constant) and:
+- prints the contig_quality and feature_quality tables
+- prints the top-level keys of the GTO JSON
+- enumerates the per-feature keys
+- prints one representative feature in full
+- lists every feature's (id, type, function) triple
+
+Run
+---
+    python eda/bunya_gto_eda.py
+
+To inspect a different assembly, edit `ex_file` near the top. To
+point at a different data version, edit `data_version`.
+
+Outputs
+-------
+stdout only.
 """
 
 import sys

@@ -2,6 +2,23 @@
 """
 Apriori DNA-coverage feasibility sweep across active flu bundles.
 
+Status (2026-05-13)
+-------------------
+Companion to `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md`,
+which documents the verdict. The feasibility result it produced
+informed the DNA-level extension of v2's coverage phase (mode #2 leakage
+fix at DNA level — landed 2026-05-08). Preserved as a reproducibility
+hook for that result doc.
+
+**Note on hard-coded inputs:** the `BUNDLES` list near the top of the
+file references several bundle names that have since been retired
+(`flu_ha_na_human_h3n2`, `flu_ha_na_human_h3n2_2024`, plus the
+"(implied filter)" and "(hypothetical)" PB2/PB1 variants). These were
+included for the original sweep; trim the list to currently-active
+bundles (see `conf/bundles/` and especially `conf/bundles/README.md`
+for status) before re-running. The metric and methodology described
+below are unchanged.
+
 Reads protein_final.csv and genome_final.csv (Stage 1 outputs), enriches
 with metadata, applies each bundle's filter spec (selected_functions,
 host, hn_subtype, year), and computes the cross-split feasibility metric:
