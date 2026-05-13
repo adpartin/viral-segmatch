@@ -109,10 +109,8 @@ Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_proc
 src/
   preprocess/
     preprocess_flu.py               # Stage 1 (ACTIVE): GTO → protein_final.csv + genome_final.csv
-    preprocess_flu_protein.py       # Older protein-only variant; superseded by preprocess_flu.py (kept for reference)
     flu_genomes_eda.py              # Generates flu_genomes_metadata_parsed.csv (run once)
-    preprocess_bunya_protein.py     # Bunya preprocessing (NOT actively maintained)
-    preprocess_bunya_genome.py      # Bunya genome preprocessing (NOT actively maintained; renamed from preprocess_bunya_dna.py)
+    preprocess_bunya_protein.py     # Bunya preprocessing (NOT actively maintained; reference-only)
   embeddings/
     compute_esm2_embeddings.py      # Stage 2: sequences → ESM-2 HDF5 cache
     compute_kmer_features.py        # Stage 2b: DNA (or protein, via alphabet param) → k-mer sparse matrix

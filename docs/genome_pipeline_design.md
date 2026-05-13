@@ -1,10 +1,19 @@
 # Genome Pipeline Design
 
-**Implementation status (March 2026):**
-- ✅ `preprocess_flu.py` — unified protein + genome extraction (implemented)
+**Status: HISTORICAL design rationale.** The design described here
+has been implemented; this doc is preserved because it explains *why*
+the current pipeline looks the way it does. Some script names below
+are historical (the older `preprocess_flu_protein.py` and
+`preprocess_bunya_genome.py` referenced as motivation for the unified
+script were deleted 2026-05-13 — `preprocess_flu.py` is now the only
+active Flu Stage-1 script; recover the deleted ones via git history
+if needed).
+
+**Implementation status (March 2026, current as of 2026-05-13):**
+- ✅ `preprocess_flu.py` — unified protein + genome extraction (implemented; now the only Flu Stage-1 script)
 - ✅ `compute_kmer_features.py` — Stage 2b k-mer feature extraction (implemented)
 - ✅ K-mer + MLP training — integrated into `train_pair_classifier.py` via `feature_source=kmer`
-- K-mer + XGBoost/LightGBM — not started
+- ✅ K-mer + LightGBM — integrated as a baseline in `src/models/baselines/lgbm.py` (May 2026)
 - GenSLM embeddings — not started
 - ESM-2 + k-mer combined (multi-modal) — not started
 

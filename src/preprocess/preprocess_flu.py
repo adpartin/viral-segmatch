@@ -2,10 +2,11 @@
 Preprocess protein and genome data from GTO files for Flu A.
 
 Unified script that parses each GTO file once and extracts both:
-- Protein data -> protein_final.csv (identical to preprocess_flu_protein.py output)
-- Genome data  -> genome_final.csv (new)
+- Protein data -> protein_final.csv
+- Genome data  -> genome_final.csv
 
-See docs/genome_pipeline_design.md for design decisions.
+See docs/genome_pipeline_design.md for design decisions and history
+(this script absorbed and replaced the now-deleted preprocess_flu_protein.py).
 
 Example:
 ```bash
@@ -180,7 +181,7 @@ def aggregate_data_from_gto_files(
 
 
 # =============================================================================
-# Protein pipeline functions (copied from preprocess_flu_protein.py)
+# Protein pipeline functions
 # =============================================================================
 
 def validate_protein_counts(
@@ -1085,7 +1086,7 @@ print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
 
 
 # =============================================================================
-# PROTEIN PIPELINE (identical to preprocess_flu_protein.py)
+# PROTEIN PIPELINE
 # =============================================================================
 print(f"\n{'#'*60}")
 print(f"# PROTEIN PIPELINE")

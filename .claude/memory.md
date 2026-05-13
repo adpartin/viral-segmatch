@@ -10,7 +10,7 @@ Flu A viral segment co-occurrence prediction. ESM-2 protein embeddings (frozen) 
 Primary virus: Influenza A. Bunya support exists but NOT actively maintained.
 
 ## Pipeline (4 stages)
-- Stage 1: `src/preprocess/preprocess_flu.py` → `data/processed/flu/{version}/protein_final.csv` + `genome_final.csv` (run once). Invoked by `scripts/stage1_preprocess_flu.sh`. Unified protein + genome extraction in one pass. `preprocess_flu_protein.py` still exists but is the older protein-only variant; not the active pipeline entry point.
+- Stage 1: `src/preprocess/preprocess_flu.py` → `data/processed/flu/{version}/protein_final.csv` + `genome_final.csv` (run once). Invoked by `scripts/stage1_preprocess_flu.sh`. Unified protein + genome extraction in one pass. (The legacy `preprocess_flu_protein.py` was deleted 2026-05-13 after the unified script absorbed its logic; recoverable via git history if ever needed.)
 - Stage 2: `src/embeddings/compute_esm2_embeddings.py` → `data/embeddings/flu/{version}/master_esm2_embeddings.h5` (run once)
 - Stage 3: `src/datasets/dataset_segment_pairs.py` → `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` (per experiment)
 - Stage 4: `src/models/train_pair_classifier.py` → `models/flu/{version}/runs/training_{bundle}_{ts}/` (per experiment)

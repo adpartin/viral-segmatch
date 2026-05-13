@@ -218,19 +218,19 @@ Hydra allows overriding any config value from the command line:
 
 ```bash
 # Override master seed
-python preprocess_flu_protein.py --virus_name flu master_seed=123
+python src/preprocess/preprocess_flu.py --config_bundle flu master_seed=123
 
 # Override preprocessing seed specifically
-python preprocess_flu_protein.py --virus_name flu process_seeds.preprocessing=999
+python src/preprocess/preprocess_flu.py --config_bundle flu process_seeds.preprocessing=999
 
 # Override max_files_to_process
-python preprocess_flu_protein.py --virus_name flu max_files_to_process=1000
+python src/preprocess/preprocess_flu.py --config_bundle flu max_files_to_process=1000
 
 # Multiple overrides
-python preprocess_flu_protein.py --virus_name flu master_seed=42 max_files_to_process=500
+python src/preprocess/preprocess_flu.py --config_bundle flu master_seed=42 max_files_to_process=500
 
 # Override run_suffix manually
-python preprocess_flu_protein.py --virus_name flu run_suffix="_custom_run"
+python src/preprocess/preprocess_flu.py --config_bundle flu run_suffix="_custom_run"
 ```
 
 ---
