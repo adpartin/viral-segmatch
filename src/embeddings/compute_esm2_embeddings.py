@@ -1,6 +1,32 @@
 """
-Precompute ESM-2 embeddings for protein sequences.
-Virus-agnostic version with command-line interface.
+Compute ESM-2 embeddings for protein sequences (Stage 2).
+
+Input:  protein_final.csv (Stage 1 output; uses the `esm2_ready_seq`
+        column which has internal stops handled and terminal stops
+        stripped).
+Output: `master_esm2_embeddings.h5` — HDF5 file with two datasets:
+            `emb`       (N_proteins, 1280)  float32 array
+            `emb_keys`  (N_proteins,)       brc_fea_id strings
+        `master_esm2_embeddings.parquet` — brc_fea_id → row index map.
+        `failed_brc_fea_ids.csv` — per-sequence failures (cumulative
+            across runs, deduped).
+
+GPU-recommended. Embeddings are saved directly to a master HDF5 cache
+shared across all runs for a given (virus, data_version). Sequences
+already present in the cache are skipped on subsequent runs unless
+`--force-recompute` is set.
+
+The cache is universal: it covers every protein in `protein_final.csv`
+regardless of bundle filtering or isolate sampling. Filtering happens
+downstream at Stage 3 (`dataset_segment_pairs.py`).
+
+Example:
+```bash
+python src/embeddings/compute_esm2_embeddings.py \
+    --config_bundle flu_base --cuda_name cuda:0
+or
+run using ./scripts/stage2_esm2.sh
+```
 """
 import argparse
 import sys
@@ -34,14 +60,14 @@ def log_memory_usage(stage: str):
     """Log current memory usage."""
     process = psutil.Process()
     memory_mb = process.memory_info().rss / 1024 / 1024
-    print(f"📊 Memory usage {stage}: {memory_mb:.1f} MB")
+    print(f"Memory usage {stage}: {memory_mb:.1f} MB")
 
 # Parser
 parser = argparse.ArgumentParser(description='Compute ESM-2 embeddings for protein sequences')
 parser.add_argument(
     '--config_bundle',
     type=str, default=None,
-    help='Config bundle to use (e.g., flu_a, bunya).'
+    help='Config bundle to use (e.g., flu_base).'
 )
 parser.add_argument(
     '--cuda_name', '-c',
@@ -69,7 +95,7 @@ args = parser.parse_args()
 config_path = str(project_root / 'conf') # Pass the config path explicitly
 config_bundle = args.config_bundle
 if config_bundle is None:
-    raise ValueError("❌ Must provide --config_bundle")
+    raise ValueError("Must provide --config_bundle")
 config = get_virus_config_hydra(config_bundle, config_path=config_path)
 print_config_summary(config)
 
@@ -77,7 +103,6 @@ print_config_summary(config)
 VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'embeddings')
-# MAX_ISOLATES_TO_PROCESS = config.max_isolates_to_process
 MODEL_CKPT = config.embeddings.model_ckpt
 ESM2_MAX_RESIDUES = config.embeddings.esm2_max_residues
 BATCH_SIZE = config.embeddings.batch_size
@@ -147,83 +172,29 @@ try:
     df = load_dataframe(input_file)
     print(f"Loaded {len(df):,} protein records")
 except FileNotFoundError:
-    raise FileNotFoundError(f"❌ Data file not found at: {input_file}")
+    raise FileNotFoundError(f"Data file not found at: {input_file}")
 except Exception as e:
-    raise RuntimeError(f"❌ Error loading data from {input_file}: {e}")
+    raise RuntimeError(f"Error loading data from {input_file}: {e}")
 
 # Validate required columns
 required_cols = ['brc_fea_id', ESM2_PROTEIN_SEQ_COL, 'length']
 missing_cols = [col for col in required_cols if col not in df.columns]
 if missing_cols:
-    raise ValueError(f"❌ Missing required columns: {missing_cols}.")
+    raise ValueError(f"Missing required columns: {missing_cols}.")
 
 # Check for duplicate IDs
 # Duplicate brc_fea_id values would cause issues in the parquet index mapping
 # (only the last occurrence would be mapped). This should be caught upstream
 # in preprocessing, but we validate here as a safeguard.
 if df['brc_fea_id'].duplicated().any():
-    raise ValueError("❌ Duplicate brc_fea_id found in input data.")
+    raise ValueError("Duplicate brc_fea_id found in input data.")
 
-# # Apply isolate-based sampling if specified
-# if MAX_ISOLATES_TO_PROCESS:
-#     print(f'\nSample {MAX_ISOLATES_TO_PROCESS} isolates from protein sequence data ({input_file.name}).')
-#     # Get unique isolates (assembly_id)
-#     unique_isolates = df['assembly_id'].unique()
-#     print(f"Found {len(unique_isolates)} unique isolates.")
-
-#     if len(unique_isolates) > MAX_ISOLATES_TO_PROCESS:
-#         print(f"Sample {MAX_ISOLATES_TO_PROCESS} isolates from {len(unique_isolates)} total isolates.")
-#         # Sample isolates, not individual records
-#         sampled_isolates = np.random.choice(
-#             unique_isolates, 
-#             size=MAX_ISOLATES_TO_PROCESS, 
-#             replace=False
-#         )
-#         # Extract protein records based on the sampled isolates
-#         df = df[df['assembly_id'].isin(sampled_isolates)].reset_index(drop=True)
-#         print(f"Extracted {len(df)} protein records based on the {len(sampled_isolates)} sampled isolates.")
-
-#         # Save sampled isolates for dataset script
-#         with open(output_dir / 'sampled_isolates.txt', 'w') as f:
-#             for isolate in sorted(sampled_isolates):
-#                 f.write(f"{isolate}\n")
-#         print(f"Saved list of {len(sampled_isolates)} sampled isolates to sampled_isolates.txt")
-#     else:
-#         print(f"Use all {len(unique_isolates)} isolates (isolates required to sample > isolates available, no sampling needed).")
-#         print(f"Total protein records: {len(df)}")
-# else:
-#     print(f"Use all {len(df)} records from all isolates (no sampling needed)")
-print(f"Use all {len(df)} records from all isolates (sampling disabled in embeddings stage)")
-
-# # Filter to selected proteins if configured
-# # breakpoint()
-# if USE_SELECTED_ONLY:
-#     if 'function' not in df.columns:
-#         raise ValueError("❌ DataFrame must contain 'function' column to filter selected protein records.")
-
-#     # Load selected functions from config
-#     try:
-#         if 'selected_functions' in config.virus:
-#             selected_functions = config.virus.selected_functions
-#             print(f"\nRetrieved {len(selected_functions)} selected functions from config for virus '{VIRUS_NAME}':")
-#             for i, func in enumerate(selected_functions, 1):
-#                 print(f"  {i}. {func}")
-#         else:
-#             raise ValueError(f"❌ No 'selected_functions' found in config for virus '{VIRUS_NAME}'.")
-#     except Exception as e:
-#         raise ValueError(f"❌ Failed to load config for virus '{VIRUS_NAME}': {e}")
-
-#     print(f"Filter protein records based on {len(selected_functions)} selected functions.")
-#     original_count = len(df)
-#     df = df[df['function'].isin(selected_functions)].reset_index(drop=True)
-#     print(f"Filtered {len(df)} protein records from {original_count} based on selected functions.")
-# else:
-#     print("Use all proteins.")
-
-# Note: Embeddings are computed for ALL proteins in the dataset.
-# USE_SELECTED_ONLY and MAX_ISOLATES_TO_PROCESS toggles are intentionally disabled here;
-# dataset creation handles any filtering or sampling so the master cache stays universal.
-print("Computing embeddings for all proteins (embedding stage ignores selected-only & isolate limits).")
+# Stage 2 computes embeddings for ALL proteins in the dataset by design.
+# Per-bundle filtering (selected_functions) and isolate sampling
+# (max_isolates_to_process) are handled downstream at Stage 3
+# (dataset_segment_pairs.py), so the master cache stays universal and
+# reusable across all bundles for the same (virus, data_version).
+print(f"Computing embeddings for all {len(df)} records (Stage 2 ignores selected_functions / max_isolates_to_process by design).")
 
 
 # Validate and deduplicate
@@ -245,20 +216,20 @@ n_before_missing_filter = len(df)
 df = df[df[ESM2_PROTEIN_SEQ_COL].notna()].reset_index(drop=True)
 if len(df) < n_before_missing_filter:
     n_missing = n_before_missing_filter - len(df)
-    print(f'⚠️ Dropped {n_missing} records with missing/None sequences (should be rare - sequences are filtered during preprocessing)')
+    print(f'WARNING: Dropped {n_missing} records with missing/None sequences (should be rare - sequences are filtered during preprocessing)')
 
 # Check for invalid sequences (non-standard amino acids)
 standard_aa_pattern = ''.join(STANDARD_AMINO_ACIDS)
 invalid_seqs = df[df[ESM2_PROTEIN_SEQ_COL].str.contains(f'[^{standard_aa_pattern}]', na=False)]
 # TODO: should we filter out invalid sequences??
 if not invalid_seqs.empty:
-    print(f'⚠️ {len(invalid_seqs)} invalid sequences found:')
+    print(f'WARNING: {len(invalid_seqs)} invalid sequences found:')
     print(invalid_seqs[['brc_fea_id', ESM2_PROTEIN_SEQ_COL]].head())
 
 # Identify proteins longer than ESM-2 max length
 truncated_seqs = df[df['length'] > ESM2_MAX_RESIDUES][['brc_fea_id', 'canonical_segment', 'length']]
 if not truncated_seqs.empty:
-    print(f'⚠️ {len(truncated_seqs)} sequences truncated (>{ESM2_MAX_RESIDUES} residues):')
+    print(f'WARNING: {len(truncated_seqs)} sequences truncated (>{ESM2_MAX_RESIDUES} residues):')
     print(truncated_seqs.head())
 
 # Remove exact duplicate records (same brc_fea_id + same sequence)
@@ -281,7 +252,6 @@ print(f"\nMaster cache file: {master_embeddings_file}")
 print(f"  (Shared across all runs for {VIRUS_NAME}/{DATA_VERSION})")
 
 # Compute embeddings (with master cache support)
-# breakpoint()
 print(f"\n{'='*50}")
 print(f'Compute ESM-2 embeddings ({MODEL_CKPT}).')
 print('='*50)
@@ -304,7 +274,7 @@ embeddings, brc_fea_ids, failed_ids = compute_esm2_embeddings(
     emb_storage_precision=EMB_STORAGE_PRECISION
 )
 comp_timer.stop_timer()
-print(f"  ⏱️  Computation time: {comp_timer.get_elapsed_string()}")
+print(f"  Computation time: {comp_timer.get_elapsed_string()}")
 log_memory_usage("after embeddings computation")
 
 # Note: Embeddings are now saved directly to master cache during computation
@@ -344,15 +314,15 @@ if master_embeddings_file.exists():
 
             # Print metadata attributes
             if f.attrs:
-                print('📋 Metadata attributes:')
+                print('Metadata attributes:')
                 for key, value in f.attrs.items():
                     print(f'   {key}: {value}')
         else:
-            print('⚠️ Master cache exists but missing required datasets')
+            print('WARNING: Master cache exists but missing required datasets')
 else:
-    print('⚠️ Master cache file not found')
+    print('WARNING: Master cache file not found')
 if failed_ids:
-    print(f'⚠️ Failed to process {len(failed_ids)} sequences: {failed_ids[:5]}...')
+    print(f'WARNING: Failed to process {len(failed_ids)} sequences: {failed_ids[:5]}...')
 
-print(f'\n✅ Finished {Path(__file__).name}!')
+print(f'\nDone. Finished {Path(__file__).name}.')
 total_timer.display_timer()
