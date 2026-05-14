@@ -1,4 +1,4 @@
-"""Similarity-leakage diagnostic: nearest train-neighbor identity, aa vs dna.
+"""Similarity-leakage diagnostic: nearest train-neighbor identity, aa vs nt.
 
 Purpose
 -------
@@ -34,7 +34,7 @@ named leakage modes in docs/methods/leakage_definitions.md.
 
 Cross-references
 ----------------
-  - docs/results/2026-05-13_aa_vs_dna_similarity_leakage.md
+  - docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md
       The note that calls this script and records the headline result.
   - docs/methods/leakage_definitions.md
       The 5-mode leakage taxonomy. This script targets mode #4
@@ -45,7 +45,7 @@ Cross-references
 
 Example
 -------
-    python src/analysis/similarity_leakage_aa_vs_dna.py \\
+    python src/analysis/similarity_leakage_aa_vs_nt.py \\
         --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_regimes_20260512_114205
 
 The script is read-only on the dataset; it does not modify any file.

@@ -1,11 +1,11 @@
-# AA vs DNA similarity leakage in the HA/NA regimes dataset
+# aa-vs-nt similarity leakage in the HA/NA regimes dataset
 
 **Date.** 2026-05-13.
 **Dataset.** `data/datasets/flu/July_2025/runs/dataset_flu_ha_na_regimes_20260512_114205` (HA/NA, regimes-based negatives, `split_strategy.mode=seq_disjoint`, `hash_key=seq`, neg_to_pos_ratio=2.0).
-**Script.** `src/analysis/similarity_leakage_aa_vs_dna.py`.
+**Script.** `src/analysis/similarity_leakage_aa_vs_nt.py`.
 **Reproduce.**
 ```
-python src/analysis/similarity_leakage_aa_vs_dna.py \
+python src/analysis/similarity_leakage_aa_vs_nt.py \
     --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_regimes_20260512_114205
 ```
 
@@ -130,7 +130,7 @@ if it shrinks or disappears, it was the similarity leakage. Plan:
   reference the same test protein.
 - Only the HA/NA dataset was evaluated. PB2/PB1 may behave
   differently — protein-level conservation is tighter on the
-  polymerase subunits, so the aa-vs-dna asymmetry could be more
+  polymerase subunits, so the aa-vs-nt asymmetry could be more
   pronounced there. Worth re-running this diagnostic with
   `--dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_pb2_pb1_regimes_20260512_114204`
   to confirm.
