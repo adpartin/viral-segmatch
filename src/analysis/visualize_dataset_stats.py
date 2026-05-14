@@ -1551,7 +1551,7 @@ def _load_regime_manifest_for_composition(
     """Read negative_regime_manifest.csv into {split -> {regime -> achieved}}.
 
     Returns None if the file is absent or unreadable; the caller falls back to
-    a pos-vs-neg 2-segment stack.
+    deriving counts from the saved pair CSVs.
     """
     if not manifest_csv.exists():
         return None
@@ -1564,12 +1564,380 @@ def _load_regime_manifest_for_composition(
     missing = required_cols - set(df.columns)
     if missing:
         print(f"WARNING: regime manifest missing columns {sorted(missing)}; "
-              f"falling back to pos/neg 2-segment stack")
+              f"falling back to pair-CSV derivation")
         return None
     out: dict = {}
     for (split, regime), sub in df.groupby(['split', 'regime']):
         out.setdefault(str(split), {})[str(regime)] = int(sub['achieved'].sum())
     return out
+
+
+def _derive_regime_counts_from_pairs(
+    run_dir: Path,
+    splits: list,
+    ) -> dict:
+    """Compute {split -> {regime -> count}} for negatives by classifying each
+    saved pair via same_host / same_hn_subtype / same_year. Works whether or
+    not regime-aware sampling was used at construction time.
+
+    Returns an empty dict if no pair CSV is readable. Regimes with zero
+    negatives are simply absent from the inner dict; callers should treat
+    a missing key as "N/A" rather than as zero.
+    """
+    out: dict = {}
+    for sp in splits:
+        csv = run_dir / f'{sp}_pairs.csv'
+        if not csv.exists():
+            continue
+        try:
+            df = pd.read_csv(
+                csv, engine='python',
+                usecols=['label', 'same_hn_subtype', 'same_host', 'same_year'],
+            )
+        except Exception as e:
+            print(f"WARNING: failed reading {csv}: {e}; skipping {sp} in "
+                  f"regime derivation")
+            continue
+        neg = df[df['label'] == 0]
+        if len(neg) == 0:
+            out[sp] = {}
+            continue
+
+        def _regime(row):
+            h = bool(row['same_host'])
+            s = bool(row['same_hn_subtype'])
+            y = bool(row['same_year'])
+            if not h and not s and not y: return 'none_match'
+            if h and not s and not y:     return 'host_only'
+            if not h and s and not y:     return 'subtype_only'
+            if not h and not s and y:     return 'year_only'
+            if h and s and not y:         return 'host_subtype_only'
+            if h and not s and y:         return 'host_year_only'
+            if not h and s and y:         return 'subtype_year_only'
+            return 'host_subtype_year'
+
+        regimes = neg.apply(_regime, axis=1)
+        counts = regimes.value_counts().to_dict()
+        out[sp] = {r: int(c) for r, c in counts.items()}
+    return out
+
+
+def _read_split_composition_config(run_dir: Path) -> tuple:
+    """Extract (neg_to_pos_ratio, regime_targets) from resolved_config.yaml.
+
+    Returns (None, None) on read failure. regime_targets is None when
+    regime-aware sampling is disabled for the run.
+    """
+    cfg_path = run_dir / 'resolved_config.yaml'
+    if not cfg_path.exists():
+        return None, None
+    try:
+        import yaml
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+    except Exception as e:
+        print(f"WARNING: failed reading {cfg_path}: {e}")
+        return None, None
+    ds = cfg.get('dataset', {}) or {}
+    ratio = ds.get('neg_to_pos_ratio')
+    ns = ds.get('negative_sampling') or {}
+    targets = ns.get('regime_targets') if isinstance(ns, dict) else None
+    return ratio, targets
+
+
+def _format_regime_targets_lines(targets: dict, per_line: int = 4) -> list:
+    """Multi-line summary of regime_targets as fractions in _SPLIT_COMP_NEG_ORDER.
+
+    Returns a list of lines; first line is prefixed `regime_targets:` and the
+    rest are indented for visual alignment. `per_line` controls how many
+    `regime=value` pairs go on each line.
+    """
+    if not targets:
+        return []
+    items = [f'{r}={float(targets[r]):.2f}'
+             for r in _SPLIT_COMP_NEG_ORDER if r in targets]
+    chunks = [items[i:i + per_line] for i in range(0, len(items), per_line)]
+    lines = []
+    for i, chunk in enumerate(chunks):
+        prefix = 'regime_targets: ' if i == 0 else '                '
+        lines.append(prefix + ', '.join(chunk))
+    return lines
+
+
+def _split_composition_text_annotations(
+    neg_to_pos_ratio,
+    regime_targets,
+    holdout_active: bool,
+    split_sizes: dict,
+    splits: list,
+    ) -> list:
+    """Build the upper-left text-annotation lines for a split-composition plot.
+
+    Returns a list of (line, color, bg) tuples. Caller renders them in order.
+    """
+    lines = []
+    if neg_to_pos_ratio is not None:
+        lines.append((f'neg_to_pos_ratio (config) = {float(neg_to_pos_ratio):.2f}',
+                      'black', None))
+    for regime_line in _format_regime_targets_lines(regime_targets):
+        lines.append((regime_line, 'black', None))
+    if holdout_active:
+        share_parts = []
+        for s in splits:
+            sh = split_sizes.get(s, {}).get('isolate_share')
+            share_parts.append(f'{sh:.1%}' if sh is not None else '—')
+        lines.append((
+            f'Holdout active: actual = {" / ".join(share_parts)} (isolates); '
+            f'train_ratio/val_ratio/test_ratio ignored',
+            '#5a3a00', '#fff2cc',
+        ))
+    return lines
+
+
+def _render_split_composition_vstacked(
+    splits: list,
+    pos_counts: np.ndarray,
+    regime_counts_per_split: dict,
+    by_regime: bool,
+    annotations: list,
+    bundle_name: str,
+    output_path: Path,
+    ) -> None:
+    """Plot variant: vertical bars, positive at bottom + negative stacked on top.
+    When `by_regime=True` the negative portion is split into 8 regime segments
+    (ascending hardness, _SPLIT_COMP_NEG_ORDER).
+    """
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+    x = np.arange(len(splits))
+    bar_width = 0.55
+
+    # Positive segment at the bottom.
+    ax.bar(x, pos_counts, width=bar_width, color='#2ca02c',
+           edgecolor='white', linewidth=0.5, label='positive')
+
+    if by_regime:
+        palette = plt.get_cmap('tab10').colors
+        regime_colors = {r: palette[(i + 1) % len(palette)]
+                         for i, r in enumerate(_SPLIT_COMP_NEG_ORDER)}
+        bottom = pos_counts.astype(float).copy()
+        neg_totals = np.zeros(len(splits), dtype=int)
+        for r in _SPLIT_COMP_NEG_ORDER:
+            heights = np.array(
+                [regime_counts_per_split.get(s, {}).get(r, 0) for s in splits],
+                dtype=int,
+            )
+            if heights.sum() == 0:
+                continue
+            ax.bar(x, heights, width=bar_width, bottom=bottom,
+                   color=regime_colors[r], edgecolor='white', linewidth=0.5,
+                   label=f'neg: {r}')
+            bottom = bottom + heights
+            neg_totals += heights
+        total_counts = pos_counts + neg_totals
+    else:
+        neg_counts = np.array(
+            [sum(regime_counts_per_split.get(s, {}).values()) for s in splits],
+            dtype=int,
+        )
+        ax.bar(x, neg_counts, width=bar_width, bottom=pos_counts,
+               color='#d62728', edgecolor='white', linewidth=0.5,
+               label='negative')
+        total_counts = pos_counts + neg_counts
+
+    # Total-count annotation above each bar.
+    top = int(max(total_counts)) if len(total_counts) else 1
+    for i, total in enumerate(total_counts):
+        ax.text(x[i], total + top * 0.01,
+                f'{int(total):,}', ha='center', va='bottom', fontsize=10,
+                fontweight='bold')
+
+    # Achieved neg:pos centered inside each bar.
+    for i in range(len(splits)):
+        ach = (total_counts[i] - pos_counts[i]) / pos_counts[i] if pos_counts[i] > 0 else float('nan')
+        txt = f'ach neg:pos = {ach:.2f}' if not np.isnan(ach) else 'ach neg:pos = —'
+        ax.text(x[i], total_counts[i] * 0.5, txt,
+                ha='center', va='center', fontsize=8, color='black',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                          edgecolor='#888888', alpha=0.92))
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([s.capitalize() for s in splits], fontsize=11)
+    ax.set_ylabel('Pair count', fontsize=11)
+    ax.set_title(f'Split composition — {bundle_name}', fontsize=12, fontweight='bold')
+    # Add extra top margin to fit text annotations without colliding with bar
+    # count labels. The margin scales with the number of annotation lines.
+    n_anno_lines = len(annotations)
+    ax.set_ylim(0, top * 1.12)
+    ax.grid(True, axis='y', alpha=0.3)
+
+    # Legend outside on the right; reverse order so positive sits at top.
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[::-1], labels[::-1], loc='center left',
+              bbox_to_anchor=(1.01, 0.5), fontsize=9, frameon=False)
+    fig.tight_layout()
+    # Make room above the axes for the figure-level annotation lines.
+    if annotations:
+        fig.subplots_adjust(top=1 - _annotation_top_reserved(len(annotations)))
+        _render_text_annotations(fig, ax, annotations)
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def _render_split_composition_grouped(
+    splits: list,
+    pos_counts: np.ndarray,
+    regime_counts_per_split: dict,
+    by_regime: bool,
+    annotations: list,
+    bundle_name: str,
+    output_path: Path,
+    ) -> None:
+    """Plot variant: horizontal bars, NOT stacked. For each split there is
+    a group of bars (positive + neg or positive + 8 regime bars); each bar
+    is labeled with its count. Bars with zero count are rendered as a thin
+    placeholder and labeled "N/A".
+    """
+    if by_regime:
+        bar_categories = ['positive'] + [f'neg: {r}' for r in _SPLIT_COMP_NEG_ORDER]
+        n_bars_per_group = 1 + len(_SPLIT_COMP_NEG_ORDER)
+    else:
+        bar_categories = ['positive', 'negative']
+        n_bars_per_group = 2
+
+    n_groups = len(splits)
+    fig_height = max(4.5, 0.42 * n_bars_per_group * n_groups + 1.5)
+    fig, ax = plt.subplots(figsize=(11, fig_height))
+
+    pos_color = '#2ca02c'
+    neg_blended_color = '#d62728'
+    palette = plt.get_cmap('tab10').colors
+    regime_colors = {r: palette[(i + 1) % len(palette)]
+                     for i, r in enumerate(_SPLIT_COMP_NEG_ORDER)}
+
+    # Layout: groups stacked top-to-bottom (train at top), bars within a group
+    # also top-to-bottom. y-coordinates are negated so larger y is lower.
+    y_positions = []
+    bar_labels = []
+    bar_colors = []
+    bar_values = []
+    bar_value_strs = []
+    group_centers = []   # y-coord at the center of each group, for the split label
+
+    intra_group_gap = 0.0
+    inter_group_gap = 1.0
+
+    cursor = 0.0
+    for gi, sp in enumerate(splits):
+        group_top = cursor
+        for bi, cat in enumerate(bar_categories):
+            y = cursor
+            cursor += 1.0 + intra_group_gap
+
+            if cat == 'positive':
+                count = int(pos_counts[gi])
+                color = pos_color
+            elif cat == 'negative':
+                count = int(sum(regime_counts_per_split.get(sp, {}).values()))
+                color = neg_blended_color
+            else:
+                regime = cat.split('neg: ', 1)[1]
+                count = int(regime_counts_per_split.get(sp, {}).get(regime, 0))
+                color = regime_colors[regime]
+
+            y_positions.append(y)
+            bar_labels.append(cat)
+            bar_colors.append(color)
+            bar_values.append(count)
+            bar_value_strs.append(f'{count:,}' if count > 0 else 'N/A')
+
+        group_bottom = cursor - 1.0 - intra_group_gap
+        group_centers.append((group_top + group_bottom) / 2.0)
+        cursor += inter_group_gap
+
+    y_arr = np.array(y_positions)
+    val_arr = np.array(bar_values, dtype=float)
+    # For "N/A" bars we draw a tiny visible nub so the row is locatable on
+    # the y-axis; the label "N/A" carries the meaning.
+    max_val = max(1.0, val_arr.max() if len(val_arr) else 1.0)
+    display_widths = np.where(val_arr > 0, val_arr, max_val * 0.005)
+    ax.barh(-y_arr, display_widths, color=bar_colors, edgecolor='white',
+            linewidth=0.4, height=0.85)
+
+    # Tick labels = the regime/positive/negative names, in the same order.
+    ax.set_yticks(-y_arr)
+    ax.set_yticklabels(bar_labels, fontsize=8)
+
+    # Value labels at the bar tip.
+    pad = max_val * 0.01
+    for i, (v, vs) in enumerate(zip(val_arr, bar_value_strs)):
+        ax.text(display_widths[i] + pad, -y_arr[i], vs,
+                ha='left', va='center', fontsize=8,
+                color='#555555' if v == 0 else 'black')
+
+    # Group labels (split names) on the right, near the group center.
+    for gi, sp in enumerate(splits):
+        ax.text(1.005, -group_centers[gi], sp.capitalize(),
+                transform=ax.get_yaxis_transform(),
+                ha='left', va='center', fontsize=11, fontweight='bold',
+                rotation=270)
+
+    # Horizontal separator lines between groups, drawn at the midpoint
+    # of the inter_group_gap.
+    if len(splits) > 1:
+        group_size = (1.0 + intra_group_gap) * n_bars_per_group + inter_group_gap
+        for gi in range(1, len(splits)):
+            sep_y = -(gi * group_size - inter_group_gap / 2.0 - 0.5)
+            ax.axhline(sep_y, color='#cccccc', linewidth=0.7, linestyle=':')
+
+    ax.set_xlabel('Pair count', fontsize=11)
+    ax.set_title(f'Split composition — {bundle_name}', fontsize=12, fontweight='bold')
+    ax.set_xlim(0, max_val * 1.18)
+    ax.grid(True, axis='x', alpha=0.3)
+
+    fig.tight_layout()
+    # Make room above the axes for the figure-level annotation lines.
+    if annotations:
+        fig.subplots_adjust(top=1 - _annotation_top_reserved(len(annotations)))
+        _render_text_annotations(fig, ax, annotations)
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+_ANNO_LINE_H = 0.028  # fraction of figure height per annotation line
+_ANNO_TITLE_PAD = 0.035  # extra room reserved below the annotation block for the axes title
+
+
+def _annotation_top_reserved(n_lines: int) -> float:
+    """Figure-fraction of top space that must be reserved for n annotation lines
+    plus padding for the axes title that sits below them. Returns the value to
+    subtract from 1.0 to get a suitable `subplots_adjust(top=...)`.
+    """
+    if n_lines <= 0:
+        return 0.0
+    return _ANNO_LINE_H * n_lines + _ANNO_TITLE_PAD
+
+
+def _render_text_annotations(fig, ax, annotations: list) -> None:
+    """Render annotation lines (built by `_split_composition_text_annotations`)
+    as figure-level text above the axes — out of the data area so they never
+    overlap bars or bar-count labels. The caller must reserve enough top
+    space via `fig.subplots_adjust(top=1 - _annotation_top_reserved(n))`
+    before invoking this; otherwise the axes title can collide with the
+    bottom annotation line.
+    """
+    if not annotations:
+        return
+    bbox = ax.get_position()
+    for i, (line, color, bg) in enumerate(annotations):
+        # First line at the figure top; subsequent lines stack downward.
+        y = 0.99 - i * _ANNO_LINE_H
+        kw = dict(ha='left', va='top', fontsize=9, color=color)
+        if bg:
+            kw['bbox'] = dict(boxstyle='round,pad=0.3', facecolor=bg,
+                              edgecolor='#bf9000', alpha=0.9)
+        fig.text(bbox.x0, y, line, **kw)
 
 
 def _plot_split_composition(
@@ -1579,19 +1947,22 @@ def _plot_split_composition(
     bundle_name: str,
     output_path: Path,
     holdout_active: bool = False,
+    run_dir: Optional[Path] = None,
     ) -> None:
-    """Stacked-bar plot of train/val/test composition.
+    """Top-level orchestrator: emits 4 split-composition PNGs.
 
-    Bottom segment = positive pairs. If a regime manifest exists, the negative
-    portion is split into eight regime segments in `_SPLIT_COMP_NEG_ORDER`
-    (ascending hardness). Otherwise the negative portion is a single segment.
+    Output files (all in the same directory as `output_path`):
+      - split_composition.png                       (plot 1: vstacked, blended neg)
+      - split_composition_by_regime.png             (plot 2: vstacked, 8 regime segments)
+      - split_composition_grouped.png               (plot 3: horizontal grouped, pos vs neg)
+      - split_composition_grouped_by_regime.png     (plot 4: horizontal grouped, pos + 8 regimes)
 
-    Annotations per bar: total pair count above the bar, achieved neg:pos
-    ratio, and the requested (config) neg:pos ratio for comparison. When
-    `holdout_active=True`, an additional caption flags that the configured
-    train_ratio/val_ratio/test_ratio were superseded by metadata_holdout
-    filters (a frequent source of "why doesn't the split match 80/10/10?"
-    confusion).
+    The first filename (`output_path`) determines the directory; the other
+    three filenames are derived from it. Per-regime breakdown for plots 2
+    and 4 is drawn from the regime manifest when available, otherwise
+    derived from the saved pair CSVs (same_host / same_hn_subtype /
+    same_year columns), so all 4 plots render even when regime-aware
+    sampling is off.
     """
     splits = ['train', 'val', 'test']
     splits = [s for s in splits if s in split_sizes]
@@ -1599,111 +1970,63 @@ def _plot_split_composition(
         print("WARNING: _plot_split_composition: no split data found; skipping")
         return
 
-    regime_data = _load_regime_manifest_for_composition(regime_manifest_csv)
+    pos_counts = np.array(
+        [int(split_sizes[s].get('positive_pairs', 0)) for s in splits],
+        dtype=int,
+    )
 
-    pos_counts = np.array([int(split_sizes[s].get('positive_pairs', 0)) for s in splits], dtype=int)
-    neg_counts = np.array([int(split_sizes[s].get('negative_pairs', 0)) for s in splits], dtype=int)
-    total_counts = pos_counts + neg_counts
-
-    # Achieved neg:pos per split. Requested neg:pos derived from coverage's
-    # requested_negatives (post-overshoot, this is what the builder targeted).
-    achieved_ratios = [
-        (neg_counts[i] / pos_counts[i]) if pos_counts[i] > 0 else float('nan')
-        for i in range(len(splits))
-    ]
-    requested_ratios = []
-    for i, s in enumerate(splits):
-        req = coverage.get(s, {}).get('requested_negatives') if coverage else None
-        if req is not None and pos_counts[i] > 0:
-            requested_ratios.append(req / pos_counts[i])
-        else:
-            requested_ratios.append(float('nan'))
-
-    fig, ax = plt.subplots(figsize=(10, 6.5))
-    x = np.arange(len(splits))
-    bar_width = 0.55
-
-    # Positive segment at the bottom.
-    pos_color = '#2ca02c'
-    ax.bar(x, pos_counts, width=bar_width, color=pos_color,
-           edgecolor='white', linewidth=0.5, label='positive')
-
-    # Negative stack: by regime if manifest present, else single segment.
-    if regime_data is not None:
-        regimes_present = [r for r in _SPLIT_COMP_NEG_ORDER
-                           if any(regime_data.get(s, {}).get(r, 0) > 0 for s in splits)]
-        # Use tab10 starting at index 1 (index 0 is reserved for positive's
-        # visual anchor); cycle if >9 regimes ever appear.
-        palette = plt.get_cmap('tab10').colors
-        regime_colors = {r: palette[(i + 1) % len(palette)]
-                         for i, r in enumerate(_SPLIT_COMP_NEG_ORDER)}
-        bottom = pos_counts.astype(float).copy()
-        for r in regimes_present:
-            heights = np.array([regime_data.get(s, {}).get(r, 0) for s in splits], dtype=int)
-            ax.bar(x, heights, width=bar_width, bottom=bottom,
-                   color=regime_colors[r], edgecolor='white', linewidth=0.5,
-                   label=f'neg: {r}')
-            bottom = bottom + heights
-        # Sanity check: bottom should equal total. If a residual exists (manifest
-        # disagrees with split_sizes), show it as a hatched "unaccounted" bar.
-        residual = total_counts - bottom.astype(int)
-        if np.any(residual > 0):
-            ax.bar(x, residual, width=bar_width, bottom=bottom,
-                   color='#cccccc', edgecolor='white', linewidth=0.5,
-                   hatch='//', label='neg: unaccounted')
+    # Per-split per-regime negative counts. Prefer the manifest (regime-aware
+    # builds) and fall back to deriving from pair CSVs (regime-blind builds).
+    manifest_counts = _load_regime_manifest_for_composition(regime_manifest_csv)
+    if manifest_counts is not None:
+        regime_counts_per_split = manifest_counts
+    elif run_dir is not None:
+        regime_counts_per_split = _derive_regime_counts_from_pairs(run_dir, splits)
     else:
-        ax.bar(x, neg_counts, width=bar_width, bottom=pos_counts,
-               color='#d62728', edgecolor='white', linewidth=0.5,
-               label='negative')
+        regime_counts_per_split = {}
 
-    # Total-count annotation above each bar.
-    for i, total in enumerate(total_counts):
-        ax.text(x[i], total + max(total_counts) * 0.01,
-                f'{total:,}', ha='center', va='bottom', fontsize=10,
-                fontweight='bold')
+    # Pull annotation inputs (config-level neg_to_pos_ratio + regime_targets).
+    neg_to_pos_ratio, regime_targets = (None, None)
+    if run_dir is not None:
+        neg_to_pos_ratio, regime_targets = _read_split_composition_config(run_dir)
+    annotations = _split_composition_text_annotations(
+        neg_to_pos_ratio=neg_to_pos_ratio,
+        regime_targets=regime_targets,
+        holdout_active=holdout_active,
+        split_sizes=split_sizes,
+        splits=splits,
+    )
 
-    # Per-bar ratio annotation centered vertically inside the bar so it
-    # renders consistently regardless of bar height (small val bars don't
-    # collide with the x-axis the way an in-positive-segment anchor would).
-    for i in range(len(splits)):
-        ach = achieved_ratios[i]
-        req = requested_ratios[i]
-        ach_txt = f'ach neg:pos = {ach:.2f}' if not np.isnan(ach) else 'ach neg:pos = —'
-        req_txt = f'req = {req:.2f}' if not np.isnan(req) else 'req = —'
-        ax.text(x[i], total_counts[i] * 0.5, f'{ach_txt}\n{req_txt}',
-                ha='center', va='center', fontsize=8, color='black',
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
-                          edgecolor='#888888', alpha=0.92))
+    out_dir = output_path.parent
+    primary_stem = output_path.stem  # usually "split_composition"
+    suffix = output_path.suffix or '.png'
+    paths = {
+        'vstacked_blended':  out_dir / f'{primary_stem}{suffix}',
+        'vstacked_regimes':  out_dir / f'{primary_stem}_by_regime{suffix}',
+        'grouped_blended':   out_dir / f'{primary_stem}_grouped{suffix}',
+        'grouped_regimes':   out_dir / f'{primary_stem}_grouped_by_regime{suffix}',
+    }
 
-    ax.set_xticks(x)
-    ax.set_xticklabels([s.capitalize() for s in splits], fontsize=11)
-    ax.set_ylabel('Pair count', fontsize=11)
-    ax.set_title(f'Split composition — {bundle_name}', fontsize=12, fontweight='bold')
-    ax.set_ylim(0, max(total_counts) * 1.12)
-    ax.grid(True, axis='y', alpha=0.3)
-    if holdout_active:
-        # Build "actual = X/Y/Z (isolates)" using isolate_share (added by
-        # compute_split_shares). Falls back gracefully if shares are absent.
-        share_parts = []
-        for s in splits:
-            sh = split_sizes.get(s, {}).get('isolate_share')
-            share_parts.append(f'{sh:.1%}' if sh is not None else '—')
-        share_line = ' / '.join(share_parts)
-        ax.text(0.01, 0.99,
-                f'Holdout active: actual = {share_line} (isolates)\n'
-                f'train_ratio/val_ratio/test_ratio ignored',
-                transform=ax.transAxes, ha='left', va='top', fontsize=9,
-                color='#5a3a00',
-                bbox=dict(boxstyle='round,pad=0.4', facecolor='#fff2cc',
-                          edgecolor='#bf9000', alpha=0.9))
-    # Legend outside on the right; reverse order so positive sits at top.
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[::-1], labels[::-1], loc='center left',
-              bbox_to_anchor=(1.01, 0.5), fontsize=9, frameon=False)
-    fig.tight_layout()
-    plt.savefig(output_path, dpi=200, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
+    _render_split_composition_vstacked(
+        splits, pos_counts, regime_counts_per_split,
+        by_regime=False, annotations=annotations,
+        bundle_name=bundle_name, output_path=paths['vstacked_blended'],
+    )
+    _render_split_composition_vstacked(
+        splits, pos_counts, regime_counts_per_split,
+        by_regime=True, annotations=annotations,
+        bundle_name=bundle_name, output_path=paths['vstacked_regimes'],
+    )
+    _render_split_composition_grouped(
+        splits, pos_counts, regime_counts_per_split,
+        by_regime=False, annotations=annotations,
+        bundle_name=bundle_name, output_path=paths['grouped_blended'],
+    )
+    _render_split_composition_grouped(
+        splits, pos_counts, regime_counts_per_split,
+        by_regime=True, annotations=annotations,
+        bundle_name=bundle_name, output_path=paths['grouped_regimes'],
+    )
 
 
 def plot_distribution_by_split(
@@ -2267,7 +2590,11 @@ def visualize_dataset_stats(
     start_year = 2000
     # breakpoint()
 
-    # 0. Split composition (pos vs neg, broken out by regime if a manifest is present)
+    # 0. Split composition (4 PNGs: vstacked-blended, vstacked-by-regime,
+    # grouped-blended, grouped-by-regime). All 4 render regardless of whether
+    # regime-aware sampling was used; the by-regime variants derive the
+    # negative breakdown from the regime manifest if present, otherwise from
+    # the saved pair CSVs.
     coverage = stats.get('coverage', {})
     holdout_active = stats.get('metadata_holdout') is not None
     try:
@@ -2278,9 +2605,10 @@ def visualize_dataset_stats(
             bundle_name=bundle_name,
             output_path=plots_dir / 'split_composition.png',
             holdout_active=holdout_active,
+            run_dir=run_dir,
         )
     except Exception as e:
-        print(f"WARNING: failed to render split_composition.png ({type(e).__name__}: {e})")
+        print(f"WARNING: failed to render split_composition plots ({type(e).__name__}: {e})")
 
     # 1. Host distribution
     if has_host:
