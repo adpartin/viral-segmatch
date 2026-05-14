@@ -17,50 +17,130 @@
 
 ## Overview
 
-For each genomic segment (one DNA contig per influenza segment), we compute
-a **bag-of-k-mers** frequency representation. Each segment becomes a fixed
-4,096-dimensional vector whose i-th entry is the number of times the i-th
-lexicographically-ordered 6-mer occurs in the segment's DNA. Stacked across
-all segments in the dataset, this yields a sparse matrix of shape
-(`N_segments`, `4^k`) which is the feature cache for the pair classifier.
+K-mer features are a **bag-of-k-mers** frequency representation: each input
+sequence becomes a fixed-length vector whose i-th entry counts the
+occurrences of the i-th lexicographically-ordered k-mer over an alphabet.
+Stacked across all input sequences, this yields a sparse matrix of shape
+(`N_rows`, `len(alphabet)^k`) which is the feature cache for the pair
+classifier.
 
-Pair features for classification are formed by looking up the two segments'
-k-mer vectors and applying a fixed interaction (concat, diff, unit_diff, or
-element-wise product) before passing to an MLP.
+Two alphabets are supported, selected via `kmer.alphabet`:
 
-The production configuration is **k = 6**, **no normalization** (raw integer
-counts), **all overlapping windows** (stride = 1), **ACGT-only alphabet**
-(skip any window containing an ambiguous base).
+| `kmer.alphabet` | Source | Vocabulary | Index keys (occurrence) |
+|---|---|---|---|
+| `nt` (default) | `genome_final.csv → dna_seq` (one row per contig) | `ACGT` | `(assembly_id, genbank_ctg_id)` |
+| `aa` | `protein_final.csv → prot_seq` (one row per protein) | `ACDEFGHIKLMNPQRSTVWY` (canonical 20-AA) | `(assembly_id, brc_fea_id)` |
 
-`sequences_to_sparse_kmer_matrix` also accepts an `alphabet` parameter
-(added 2026-05-12), so the same machinery can compute protein k-mers
-over the canonical 20-AA alphabet `'ACDEFGHIKLMNPQRSTVWY'`. This is in
-production code but not currently used in any active modeling bundle.
-Practical ceiling is k≈4 (160K cols) before the exhaustive vocabulary
-becomes impractical.
+Pair features for classification are formed by looking up the two sides'
+k-mer vectors via the composite occurrence key and applying a fixed
+interaction (`concat`, `diff`, `unit_diff`, `prod`, `unit_prod`, or a
+`+`-separated combination) before passing to the MLP.
+
+Practical ceiling for `aa`: k≈4 (160K cols) before the exhaustive `20^k`
+vocabulary becomes impractical to enumerate.
+
+### Cache layout: dedup-by-sequence (aa), per-occurrence (nt)
+
+The **aa cache** is sequence-deduplicated on write: the matrix stores
+one row per unique `prot_seq` (keyed internally by `md5(prot_seq)`),
+and the parquet index allows N-to-1 mapping from
+`(assembly_id, brc_fea_id)` occurrences to matrix rows. This mirrors
+the ESM-2 cache pattern and saves substantial space on flu where
+~4.8× of proteins are sequence-redundant across isolates.
+
+The **nt cache** currently stores **one row per contig occurrence**
+(no dedup yet). Phase 6 of the cache-symmetry plan
+(`docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md`) is the
+follow-up migration that will dedup nt by `md5(dna_seq)` and gate the
+swap on a cross-cache equality test.
+
+The hash is never an external API; it's a write-time dedup primitive.
+Pair-time lookup goes through the composite occurrence key in the
+parquet index.
 
 ## Data flow
 
 | Stage | Script | Input | Output | Level |
 |---|---|---|---|---|
-| 1 | `src/preprocess/preprocess_flu.py` | GTO JSON files (one per isolate) | `genome_final.csv` (one row per contig) | contigs extracted from `gto.contigs[]` |
-| 2b | `src/embeddings/compute_kmer_features.py` | `genome_final.csv` (column `dna_seq`) | `kmer_features_k6.npz` (sparse CSR), `kmer_features_k6_index.parquet` (row→key), `kmer_features_k6_metadata.json` | one vector per contig |
-| 3 | `src/datasets/dataset_segment_pairs.py` | `protein_final.csv`, `genome_final.csv` | pair CSVs carrying `(assembly_id_{a,b}, ctg_{a,b}, label, …)` | pair rows |
-| 4 (train) | `src/models/train_pair_classifier.py` + `src/utils/kmer_utils.py::get_kmer_pair_features` | pair CSVs + k-mer npz + index | MLP predictions | pair features |
+| 1 | `src/preprocess/preprocess_flu.py` | GTO JSON files (one per isolate) | `protein_final.csv` (one row per protein), `genome_final.csv` (one row per contig) | per occurrence |
+| 2b | `src/embeddings/compute_kmer_features.py` | nt: `genome_final.csv → dna_seq`; aa: `protein_final.csv → prot_seq` | `kmer_features_{alphabet}_k{k}.{npz,parquet,json}` (alphabet ∈ {nt, aa}) | nt: per contig; aa: per unique prot_seq |
+| 3 | `src/datasets/dataset_segment_pairs.py` | `protein_final.csv`, `genome_final.csv` | pair CSVs carrying `(assembly_id_{a,b}, ctg_{a,b}, brc_{a,b}, label, …)` | pair rows |
+| 4 (train) | `src/models/train_pair_classifier.py` + `src/utils/kmer_utils.py::get_kmer_pair_features` | pair CSVs + k-mer npz + parquet index | MLP predictions | pair features |
 
-Storage for the production Flu-A July 2025 dataset
-(`data/embeddings/flu/July_2025/kmer_features_k6_*`, verified against
-the on-disk artifact 2026-05-12):
+Filename pattern: `kmer_features_{nt|aa}_k{k}.npz`. The companion
+parquet/JSON sidecars share the same prefix.
 
-| Quantity | Value |
-|---|---:|
-| Segments (matrix rows) | 868,240 |
-| Vocabulary (matrix columns, 4^6) | 4,096 |
-| Non-zero entries | 1,049,945,579 |
-| Sparsity (fraction of zero cells) | 70.48% |
-| Avg distinct 6-mers per segment | 1,209.3 |
-| NPZ file size on disk | 1.78 GB |
-| Index parquet size | 9.8 MB |
+Storage for the production Flu-A July 2025 dataset (verified against
+on-disk artifacts 2026-05-13):
+
+| Cache | Matrix rows | Vocabulary | Index rows (occurrences) | NPZ size |
+|---|---:|---:|---:|---:|
+| `kmer_features_nt_k6.npz` | 868,240 | 4,096 (4⁶) | 868,240 | 1.78 GB |
+| `kmer_features_nt_k3.npz` | 868,240 | 64 (4³) | 868,240 | 25 MB |
+| `kmer_features_aa_k3.npz` | 375,413 (unique `prot_seq`) | 8,000 (20³) | 1,793,563 | 71 MB |
+
+The aa cache is sequence-deduplicated: 1,793,563 protein-occurrence
+rows collapse to 375,413 unique sequences (20.9% retention) and the
+index records the N-to-1 mapping.
+
+## Scaling and practical limits
+
+The current pipeline uses **exhaustive enumeration of the
+`|alphabet|^k` vocabulary**. This is fine at small k but hits hard
+walls quickly on the aa side, since `20^k` grows much faster than
+`4^k`. Three independent bottlenecks govern feasibility.
+
+### Bottleneck 1 — vocabulary enumeration (Python memory at build time)
+
+`build_kmer_vocabulary` materialises every k-mer string in a Python
+list, plus a string→column-index dict for the counter. Memory
+estimates (both structures combined, rough orders of magnitude):
+
+| alphabet | k | Vocab size | Build-time memory |
+|---|---:|---:|---:|
+| nt (4) | 6 | 4,096 | trivial |
+| nt | 10 | 1,048,576 | ~200 MB |
+| aa (20) | 3 | 8,000 | trivial |
+| aa | 4 | 160,000 | ~30 MB |
+| aa | 5 | 3,200,000 | ~700 MB |
+| aa | 6 | 64,000,000 | ~10 GB |
+| aa | 7 | 1,280,000,000 | OOM on any reasonable machine |
+
+### Bottleneck 2 — sparse cache size on disk (almost flat past k=3)
+
+NNZ per sequence is bounded by `(L − k + 1)` distinct k-mers, where
+`L` ≈ 500 aa for an average flu protein. Total NNZ ≈
+`N_seqs × ~498`, **independent of k once k ≥ 3**. The CSR file is
+~70 MB at aa k=3 and stays ~1–2 GB at any larger k. Disk is not the
+bottleneck.
+
+### Bottleneck 3 — MLP input dim (the wall at training time)
+
+`EMBED_DIM = |alphabet|^k` is the input width of the first Linear
+layer. With the default `hidden_dims[0] = 512`:
+
+| alphabet | k | EMBED_DIM | First Linear layer params | Weight memory (fp32) |
+|---|---:|---:|---:|---:|
+| nt | 6 | 4,096 | 2.1M | 8 MB |
+| nt | 10 | 1,048,576 | 537M | 2.1 GB |
+| aa | 3 | 8,000 | 4.1M | 16 MB |
+| aa | 4 | 160,000 | 82M | 328 MB |
+| aa | 5 | 3,200,000 | 1.6B | 6.5 GB |
+| aa | 6 | 64,000,000 | 32B | 128 GB |
+
+Densification at training time multiplies this further:
+`KmerPairDataset` does `kmer_matrix[unique_rows].todense()`, so a
+single dense row at aa k=6 is 256 MB and a batch of 128 pairs × 2
+slots is ~64 GB — infeasible even before the MLP.
+
+### Bottom line
+
+- **nt up to k≈10** is reachable but the MLP first layer dominates GPU memory.
+- **nt k=6** is the current production setting; comfortable.
+- **aa up to k=4** is reachable with the current pipeline. k=3 is the bundle in use today.
+- **aa k≥5** is not feasible with the exhaustive-vocab approach. Going there would require either **observed-vocab** (enumerate only k-mers actually seen — bounded by ~`N_seqs × L` distinct, probably 1–10M at aa k=6) or **feature hashing** (hash each k-mer into a fixed-size index space, e.g. 2^18 = 256K columns). Neither is implemented; both would require redesign of `compute_kmer_features.py` and the loader. See
+  `docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` for the
+  current pipeline state and follow-up work.
 
 ## GTO → contigs
 
@@ -174,10 +254,36 @@ roadmap/audit docs; cross-references given.
 
 ### Why k-mers at all?
 
-Reference-free, alignment-free, CPU-cheap, and interpretable (each
-feature is a specific 6-mer count). For influenza A, k-mer MLP matches
-or exceeds ESM-2 on the full 28-pair sweep — median AUC 0.994 vs ESM-2
-0.976 (see `roadmap_v2.md` §11 for the per-pair table).
+Four practical properties, each independent.
+
+**Alignment-free.** No multiple-sequence alignment (MSA) is required.
+MSA is super-linear in number of sequences, makes tool- and
+parameter-dependent gap-placement choices that bias downstream analysis,
+degrades on highly divergent sequences (e.g., across flu subtypes for
+the most variable segments), and is often infeasible at the
+millions-of-sequences scale relevant to viral surveillance archives.
+K-mer counting is linear in sequence length and tool-independent.
+
+**Reference-free.** No pretrained model is required. K-mer vectors are
+computed directly from the raw DNA in the GTO; the pipeline has no
+external weight file or training-corpus dependency. ESM-2, by contrast,
+requires the `esm2_t33_650M_UR50D` checkpoint pretrained on UniRef
+protein sequences.
+
+**Compute-cheap.** Stage 2b runs CPU-only and completes in ~5–10
+minutes on the full Flu A July 2025 dataset (868,240 segments). ESM-2
+inference (Stage 2a) requires a GPU and is the slowest stage in our
+pipeline.
+
+**Interpretable per-feature.** Each of the 4,096 features is a specific
+6-mer count, so feature attributions are localized at the nucleotide
+level. Caveat: stride-1 k-mers mix all three reading frames plus UTRs
+and introns, so attributions cannot be read as codon-level signal —
+see `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`.
+
+**Empirically.** For influenza A, k-mer + MLP matches or exceeds ESM-2
++ MLP on the full 28-pair sweep — median val AUC 0.994 vs ESM-2 0.976
+(see `roadmap_v2.md` §11 for the per-pair table).
 
 ### Why k = 6?
 

@@ -158,10 +158,44 @@ distribution as a data-centric lever.
 
 ### 2.2 Feature representations
 
+We use **k-mer frequency vectors** as the primary sequence representation.
+K-mers are a long-standing primitive for genome comparison: each sequence
+becomes a fixed-length count vector over a `4^k`-sized vocabulary, and
+similarity reduces to a vector operation. Four practical properties
+motivate the choice in our setting:
+
+- **Alignment-free.** No multiple-sequence alignment (MSA) is required.
+  MSA scales super-linearly with the number of sequences, makes tool- and
+  parameter-dependent gap-placement choices that can bias downstream
+  analysis, degrades on highly divergent sequences (e.g., across flu
+  subtypes for the most variable segments), and is often infeasible at
+  the surveillance-archive scale we target — the full Flu A corpus has
+  868,240 segments. K-mer counting is linear in sequence length.
+- **Reference-free.** No pretrained model is required. K-mer vectors are
+  computed directly from the raw nucleotide sequence, so the pipeline
+  has no external weight-file dependency.
+- **Compute-cheap.** Feature extraction is CPU-only and runs in ~5–10
+  minutes on the full Flu A corpus; no GPU is needed at the feature
+  stage.
+- **Interpretable per-feature.** Each dimension is a specific 6-mer
+  count, localizing attribution at the nucleotide level. Caveat:
+  stride-1 k-mers mix all three reading frames plus UTRs and introns,
+  so attributions cannot be read directly as codon-level signal — see
+  `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`.
+
+We additionally run **ESM-2** as a learned-representation reference.
+ESM-2 is the natural alternative for sequence-only segment classification:
+a frozen transformer pretrained on UniRef protein sequences, requiring
+no alignment but a GPU and the 650M-parameter `esm2_t33_650M_UR50D`
+checkpoint at inference. The empirical comparison appears in §3 —
+k-mer + MLP matches or exceeds ESM-2 + MLP across the 28-pair sweep
+(median val AUC 0.994 vs 0.976; see `roadmap_v2.md` §11 for the
+per-pair table).
+
 | Feature | Source | Dimensionality | Description | Role |
 |---------|--------|---------------|-------------|------|
 | K-mer (k=6) | Nucleotide sequences | 4096 | Sparse frequency vectors over 6-mer vocabulary | **Primary** |
-| ESM-2 | `esm2_t33_650M_UR50D` | 1280 | Frozen protein language model mean-pool embeddings | Comparison baseline |
+| ESM-2 | `esm2_t33_650M_UR50D` | 1280 | Frozen protein language model mean-pool embeddings | Reference |
 
 ### 2.3 Interaction approaches
 
