@@ -1463,16 +1463,26 @@ if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
               f"(dropped {_ambig_summary['n_rows_dropped']:,} rows)")
 
 # Filter isolates by metadata criteria (host, year, hn_subtype, geo_location, passage)
-hn_subtype_filter = getattr(config.dataset, 'hn_subtype', None)
-host_filter = getattr(config.dataset, 'host', None)
-year_filter = getattr(config.dataset, 'year', None)
-geo_location_filter = getattr(config.dataset, 'geo_location', None)
-passage_filter = getattr(config.dataset, 'passage', None)
+# year vs year_range: mutually exclusive; year for scalar/list set membership,
+# year_range for inclusive [min, max]. The helper enforces the exclusion.
+# OmegaConf returns ListConfig for list-typed fields; coerce to Python list
+# at the boundary so filter_by_metadata's isinstance(..., (list, tuple))
+# checks succeed.
+from omegaconf import ListConfig
+def _coerce_filter(v):
+    return list(v) if isinstance(v, ListConfig) else v
+hn_subtype_filter   = _coerce_filter(getattr(config.dataset, 'hn_subtype', None))
+host_filter         = _coerce_filter(getattr(config.dataset, 'host', None))
+year_filter         = _coerce_filter(getattr(config.dataset, 'year', None))
+year_range_filter   = _coerce_filter(getattr(config.dataset, 'year_range', None))
+geo_location_filter = _coerce_filter(getattr(config.dataset, 'geo_location', None))
+passage_filter      = _coerce_filter(getattr(config.dataset, 'passage', None))
 prot_df = filter_by_metadata(
     prot_df,
     hn_subtype=hn_subtype_filter,
     host=host_filter,
     year=year_filter,
+    year_range=year_range_filter,
     geo_location=geo_location_filter,
     passage=passage_filter,
 )
@@ -1616,6 +1626,7 @@ filters_applied = {
     'hn_subtype': hn_subtype_filter,
     'host': host_filter,
     'year': year_filter,
+    'year_range': list(year_range_filter) if year_range_filter is not None else None,
     'geo_location': geo_location_filter,
     'passage': passage_filter,
     'pair_mode': PAIR_MODE,

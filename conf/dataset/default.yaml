@@ -46,11 +46,12 @@ shuffle_train_labels_seed: null  # Seed for label shuffling (null = use RANDOM_S
 
 # Metadata filtering (Optional. Filter isolates by host, year, H/N subtype, etc.)
 # If any of these are specified, metadata will be enriched and isolates filtered
-host: null      # null = no filter, or "Human", "Pig", "Chicken", etc.
-year: null      # null = no filter, or integer year (e.g., 2020)
-hn_subtype: null # null = no filter, or "H1N1", "H3N2", etc.
-geo_location: null  # null = no filter, or geographic location name (e.g., "Illinois")
-passage: null   # null = no filter, or passage value (e.g., "Original", "S1", "Egg")
+host: null         # null = no filter, scalar (e.g. "Human"), or list (e.g. ["Human","Pig"]) for set membership
+year: null         # null = no filter, scalar (e.g. 2020), or list for set membership. Mutually exclusive with year_range.
+year_range: null   # null = no filter, or [min, max] inclusive (e.g. [2008, 9999]). Mutually exclusive with year.
+hn_subtype: null   # null = no filter, scalar (e.g. "H3N2"), or list (e.g. ["H3N2","H1N1"]) for set membership
+geo_location: null # null = no filter, scalar, or list for set membership
+passage: null      # null = no filter, scalar (e.g. "Original"), or list for set membership
 
 # Subtype balancing (Roadmap v2 Task 2). Downsamples isolates to equal
 # per-subtype representation once, before CV fold generation. See
