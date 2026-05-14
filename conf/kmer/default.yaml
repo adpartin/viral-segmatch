@@ -1,3 +1,16 @@
 # Default k-mer feature configuration
-k: 6          # k-mer size (4^k dimensions: k=6 → 4096, k=10 → 1048576)
-normalize: none  # Normalization: 'none' (raw counts), 'l1' (frequency), 'l2' (unit vector)
+k: 6                # k-mer size. Vocab size is len(alphabet)**k.
+                    # nt (|ACGT|=4): k=6 → 4096, k=10 → 1,048,576.
+                    # aa (|20-AA|=20): k=3 → 8000, k=4 → 160,000.
+normalize: none     # 'none' (raw counts), 'l1' (frequency), or 'l2' (unit vector).
+alphabet: nt        # 'nt' (DNA, 'ACGT', reads genome_final.csv → dna_seq) or
+                    # 'aa' (protein, 'ACDEFGHIKLMNPQRSTVWY', reads protein_final.csv → prot_seq).
+                    # See docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+                    #
+                    # Practical k ceilings (current exhaustive-vocab pipeline):
+                    #   nt: k≤10 (4^10 ≈ 1M cols). Production: k=6.
+                    #   aa: k≤4 (20^4 = 160K cols). Bundles use k=3 (8K cols).
+                    # Higher aa k OOMs at build time (vocab list) AND at training
+                    # time (MLP first-layer params). Would require observed-vocab
+                    # or feature hashing; not implemented. See "Scaling and
+                    # practical limits" in docs/methods/kmer_features.md.

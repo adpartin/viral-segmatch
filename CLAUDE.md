@@ -196,11 +196,24 @@ point: `scripts/stage1_preprocess_flu.sh`); the temporal-holdout `year_train` /
 cross-population holdouts are now first-class). See
 `docs/plans/done/2026-05-11_metadata_holdout_plan.md`.
 
-K-mer protein support (`compute_kmer_features.py::sequences_to_sparse_kmer_matrix`
-with `alphabet='ACDEFGHIKLMNPQRSTVWY'`) is in production code as of 2026-05-12.
-Practical limit is k≈4 (160K cols) before the exhaustive `|alphabet|^k`
-vocabulary becomes impractical; observed-vocab or feature hashing would be
-needed for larger k.
+K-mer aa support is in production end-to-end as of 2026-05-13 (Stage 2b
+CLI, loader, MLP, baselines, bundles). `kmer.alphabet ∈ {nt, aa}`,
+default `nt`. Bundles: `flu_{ha_na,pb2_pb1}_kmer_{nt,aa}_k3.yaml`.
+See `docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md`.
+
+Scaling limits (exhaustive `|alphabet|^k` vocab; current pipeline does
+NOT do observed-vocab or feature hashing):
+
+- **nt** practical to k≈10 (4^10 ≈ 1M cols, ~2 GB MLP first layer at default `hidden_dims=[512,…]`). Production: k=6.
+- **aa** practical ceiling is k=4 (20^4 = 160K cols, ~330 MB first layer). Current bundles use k=3 (8K cols).
+- **aa k=5** breaks GPU: 3.2M cols → 1.6B params in the first linear layer (~6.5 GB just for weights), plus per-row densification of 12+ MB makes batches huge.
+- **aa k=6** breaks build: 64M-entry vocab list + dict ≈ 10 GB Python memory at compute time. First MLP layer would also be 32B params.
+- **aa k≥7** OOMs anywhere.
+
+If aa k≥5 is needed, would require redesign: observed-vocab (only
+enumerate k-mers seen in the data) or feature hashing
+(`HashingVectorizer`-style). See "Scaling and practical limits"
+in `docs/methods/kmer_features.md` for the full numeric breakdown.
 
 ## Aggregator Output Convention
 

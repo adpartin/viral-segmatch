@@ -92,6 +92,12 @@ def _resolve_kmer_k(config) -> int:
     return 6
 
 
+def _resolve_kmer_alphabet(config) -> str:
+    if hasattr(config, 'kmer') and config.get('kmer') is not None:
+        return str(config.kmer.get('alphabet', 'nt')).lower()
+    return 'nt'
+
+
 def _resolve_feature_scaling(config, baseline_module) -> str:
     """Resolution order: per-baseline bundle override → baseline module default."""
     cfg_key = f'baseline_{baseline_module.name()}'
@@ -414,6 +420,7 @@ def main() -> None:
     RANDOM_SEED = resolve_process_seed(config, 'training')
     FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
     KMER_K = _resolve_kmer_k(config)
+    KMER_ALPHABET = _resolve_kmer_alphabet(config)
     INTERACTION = str(getattr(config.training, 'interaction', 'concat'))
     SLOT_TRANSFORM = str(getattr(config.training, 'slot_transform', 'none'))
 
@@ -491,7 +498,7 @@ def main() -> None:
             train_pairs, val_pairs, test_pairs,
             feature_source=FEATURE_SOURCE,
             feature_scaling='none',  # raw; per-baseline scaling applied below
-            kmer_dir=kmer_dir, kmer_k=KMER_K,
+            kmer_dir=kmer_dir, kmer_k=KMER_K, kmer_alphabet=KMER_ALPHABET,
             embeddings_file=embeddings_file,
             interaction=INTERACTION,
             slot_transform=SLOT_TRANSFORM,

@@ -177,10 +177,10 @@ def _load_esm2_pair_features(
     """Load ESM-2 (emb_a, emb_b) per pair, apply slot_transform, then
     interaction. Returns ``(X, y)`` as float32 numpy arrays.
 
-    Drops pairs whose ``brc_a`` or ``brc_b`` isn't in the embedding
-    index; the caller's pair CSV row order is preserved among kept
-    rows. Mirrors the missing-pair handling in
-    ``embedding_utils.create_pair_embeddings_concatenation``.
+    Drops pairs whose ``(assembly_id, brc_fea_id)`` composite key (for
+    either side) isn't in the embedding index; the caller's pair CSV
+    row order is preserved among kept rows. Mirrors the missing-pair
+    handling in ``embedding_utils.create_pair_embeddings_concatenation``.
     """
     if slot_transform not in {"none", "slot_norm", "unit_norm"}:
         raise ValueError(
@@ -189,10 +189,14 @@ def _load_esm2_pair_features(
             f"(shared, slot_specific, shared_adapter) live inside the MLP."
         )
 
-    # Vectorized brc -> embedding-row mapping. .map yields NaN for
-    # unknowns; we drop those before reading the HDF5 cache.
-    a_idx = pairs_df["brc_a"].map(id_to_row)
-    b_idx = pairs_df["brc_b"].map(id_to_row)
+    # Composite (assembly_id, brc_fea_id) tuple lookup. See
+    # docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+    keys_a = list(zip(pairs_df["assembly_id_a"].astype(str),
+                      pairs_df["brc_a"].astype(str)))
+    keys_b = list(zip(pairs_df["assembly_id_b"].astype(str),
+                      pairs_df["brc_b"].astype(str)))
+    a_idx = pd.Series([id_to_row.get(k) for k in keys_a], index=pairs_df.index)
+    b_idx = pd.Series([id_to_row.get(k) for k in keys_b], index=pairs_df.index)
     valid = a_idx.notna() & b_idx.notna()
     if not valid.any():
         raise RuntimeError(
@@ -234,13 +238,13 @@ def _load_esm2_pair_features(
 
 
 def _load_esm2_brc_index(embeddings_file: Path) -> dict:
-    """Load the ``brc_fea_id`` -> embedding-row mapping from the
+    """Load the (assembly_id, brc_fea_id) -> embedding-row mapping from the
     parquet index sidecar (``<embeddings_file>.parquet``).
 
-    Mirrors ``ESMPairDataset.__init__`` in the MLP trainer — column
-    names are pinned to ``'brc_fea_id'`` / ``'row'`` to match what
-    Stage 2 (``compute_esm2_embeddings.py``) writes. If the schema
-    changes there, mirror the change here.
+    Mirrors ``ESMPairDataset._build_id_to_row`` in the MLP trainer.
+    Composite-tuple keying matches the contract in
+    docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md and is shared
+    with the aa k-mer cache.
     """
     index_file = Path(embeddings_file).with_suffix(".parquet")
     if not index_file.exists():
@@ -249,7 +253,13 @@ def _load_esm2_brc_index(embeddings_file: Path) -> dict:
             "Stage 2 (compute_esm2_embeddings.py) writes this alongside the .h5."
         )
     df = pd.read_parquet(index_file)
-    return dict(zip(df["brc_fea_id"], df["row"]))
+    if "assembly_id" not in df.columns:
+        raise KeyError(
+            f"Parquet index at {index_file} is missing 'assembly_id'. "
+            "Run scripts/migrate_esm2_parquet_add_assembly_id.py to upgrade."
+        )
+    keys = list(zip(df["assembly_id"].astype(str), df["brc_fea_id"].astype(str)))
+    return dict(zip(keys, df["row"]))
 
 
 def load_pair_features_for_baselines(
@@ -263,6 +273,7 @@ def load_pair_features_for_baselines(
     # k-mer specific (required when feature_source='kmer')
     kmer_dir: Optional[Path] = None,
     kmer_k: Optional[int] = None,
+    kmer_alphabet: str = 'nt',
     # ESM-2 specific (required when feature_source='esm2')
     embeddings_file: Optional[Path] = None,
     # Interaction & slot transform (apply to either source where supported)
@@ -326,22 +337,27 @@ def load_pair_features_for_baselines(
             )
         if kmer_dir is None or kmer_k is None:
             raise ValueError("kmer_dir and kmer_k are required for feature_source='kmer'.")
-        print(f"\nLoading k-mer pair features (k={kmer_k}, "
+        if kmer_alphabet not in {'nt', 'aa'}:
+            raise ValueError(f"kmer_alphabet must be 'nt' or 'aa'; got {kmer_alphabet!r}")
+        print(f"\nLoading k-mer pair features (alphabet={kmer_alphabet}, k={kmer_k}, "
               f"slot_transform={slot_transform!r}, interaction={interaction!r}) from {kmer_dir}")
-        key_to_row = load_kmer_index(Path(kmer_dir), kmer_k)
-        kmer_matrix = load_kmer_matrix(Path(kmer_dir), kmer_k)
+        key_to_row = load_kmer_index(Path(kmer_dir), kmer_k, alphabet=kmer_alphabet)
+        kmer_matrix = load_kmer_matrix(Path(kmer_dir), kmer_k, alphabet=kmer_alphabet)
         print(f"  k-mer matrix: {kmer_matrix.shape}")
         X_train, y_train = get_kmer_pair_features(
             train_pairs, kmer_matrix, key_to_row,
             interaction=interaction, slot_transform=slot_transform,
+            alphabet=kmer_alphabet,
         )
         X_val, y_val = get_kmer_pair_features(
             val_pairs, kmer_matrix, key_to_row,
             interaction=interaction, slot_transform=slot_transform,
+            alphabet=kmer_alphabet,
         )
         X_test, y_test = get_kmer_pair_features(
             test_pairs, kmer_matrix, key_to_row,
             interaction=interaction, slot_transform=slot_transform,
+            alphabet=kmer_alphabet,
         )
 
     else:  # feature_source == "esm2"

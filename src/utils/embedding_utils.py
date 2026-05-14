@@ -10,87 +10,93 @@ import pandas as pd
 import h5py
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Optional, Dict, Tuple, List, Union
+from typing import Optional, Dict, Tuple, List, Union, Iterable
 from sklearn.utils import resample
 
 from src.utils.dim_reduction_utils import compute_pca_reduction
 
 
-def load_embedding_index(embeddings_file: Path) -> Dict[str, int]:
-    """Load brc_fea_id -> row index mapping from parquet index.
-    
+def load_embedding_index(embeddings_file: Path) -> Dict[Tuple[str, str], int]:
+    """Load (assembly_id, brc_fea_id) -> row index mapping from parquet index.
+
     The master format stores embeddings efficiently:
-    - HDF5 file: Contains 'emb' dataset with shape (N, D) where N = num proteins
-    - Parquet file: Maps brc_fea_id (string) → row index (int) in the HDF5
-    
-    This allows O(1) lookup of any protein's embedding by its BRC ID.
-    
+    - HDF5 file: 'emb' dataset of shape (N, D) where N = num proteins
+    - Parquet file: columns (cache_key, row, brc_fea_id, assembly_id);
+      the composite (assembly_id, brc_fea_id) is the public lookup key.
+
+    The composite-key contract is shared with the aa k-mer cache (see
+    docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md). It is robust
+    if `brc_fea_id` ever loses global uniqueness across data sources.
+
     Args:
-        embeddings_file: Path to master HDF5 cache file
-    
+        embeddings_file: Path to master HDF5 cache file.
+
     Returns:
-        dict: Mapping {brc_fea_id: row_index}
-    
+        dict mapping (assembly_id, brc_fea_id) -> row index.
+
     Raises:
-        FileNotFoundError: If parquet index file doesn't exist
-    
+        FileNotFoundError: If parquet index file doesn't exist.
+        KeyError: If parquet predates the 2026-05-13 migration (missing
+            `assembly_id` column). Run
+            scripts/migrate_esm2_parquet_add_assembly_id.py.
+
     Example:
-        >>> id_to_row = load_embedding_index(Path("data/embeddings/flu/July_2025/master_esm2_embeddings.h5"))
-        >>> row_idx = id_to_row["BRC12345"]
+        >>> id_to_row = load_embedding_index(
+        ...     Path('data/embeddings/flu/July_2025/master_esm2_embeddings.h5'))
+        >>> row_idx = id_to_row[('11320.197911.84799', 'fig|197911.84799.CDS.1')]
     """
     parquet_file = embeddings_file.with_suffix('.parquet')
     if not parquet_file.exists():
         raise FileNotFoundError(f"Parquet index not found: {parquet_file}")
-    
+
     index_df = pd.read_parquet(parquet_file)
-    return dict(zip(index_df['brc_fea_id'], index_df['row']))
+    if 'assembly_id' not in index_df.columns:
+        raise KeyError(
+            f"Parquet index at {parquet_file} is missing 'assembly_id'. "
+            "Run scripts/migrate_esm2_parquet_add_assembly_id.py to upgrade."
+        )
+    keys = list(zip(index_df['assembly_id'].astype(str),
+                    index_df['brc_fea_id'].astype(str)))
+    return dict(zip(keys, index_df['row']))
 
 
 def load_embeddings_by_ids(
-    brc_ids: List[str],
+    keys: Iterable[Tuple[str, str]],
     embeddings_file: Path,
-    id_to_row: Optional[Dict[str, int]] = None
-    ) -> Tuple[np.ndarray, List[str]]:
-    """Load embeddings for specific brc_fea_ids from master cache.
-    
+    id_to_row: Optional[Dict[Tuple[str, str], int]] = None,
+    ) -> Tuple[np.ndarray, List[Tuple[str, str]]]:
+    """Load embeddings for a list of (assembly_id, brc_fea_id) tuples.
+
     Args:
-        brc_ids: List of brc_fea_ids to load
-        embeddings_file: Path to master HDF5 cache file
-        id_to_row: Optional pre-loaded mapping (for efficiency if loading multiple times)
-    
+        keys: Iterable of (assembly_id, brc_fea_id) tuples.
+        embeddings_file: Path to master HDF5 cache file.
+        id_to_row: Optional pre-loaded mapping (avoids re-reading parquet).
+
     Returns:
-        embeddings: (N, D) array of embeddings where N = number of valid IDs found
-        valid_ids: List of brc_ids that were successfully loaded
-    
-    Example:
-        >>> embeddings, valid_ids = load_embeddings_by_ids(
-        ...     ["BRC1", "BRC2", "BRC3"],
-        ...     Path("data/embeddings/flu/July_2025/master_esm2_embeddings.h5")
-        ... )
-        >>> print(f"Loaded {len(valid_ids)} embeddings of shape {embeddings.shape}")
+        embeddings: (N, D) array where N = number of valid keys found.
+        valid_keys: list of (assembly_id, brc_fea_id) tuples successfully loaded.
     """
-    # Load index if not provided
     if id_to_row is None:
         id_to_row = load_embedding_index(embeddings_file)
-    
+
     embeddings = []
-    valid_ids = []
-    
+    valid_keys: List[Tuple[str, str]] = []
+
     with h5py.File(embeddings_file, 'r') as f:
         if 'emb' not in f:
             raise ValueError(f"Invalid embeddings file format: {embeddings_file}. Master format required.")
-        
+
         emb_data = f['emb']
-        for brc_id in brc_ids:
-            if brc_id in id_to_row:
-                row_idx = id_to_row[brc_id]
+        for key in keys:
+            row_idx = id_to_row.get(key)
+            if row_idx is not None:
                 embeddings.append(emb_data[row_idx])
-                valid_ids.append(brc_id)
-    
+                valid_keys.append(key)
+
     if len(embeddings) == 0:
         return np.array([]), []
-    
-    return np.array(embeddings), valid_ids
+
+    return np.array(embeddings), valid_keys
 
 
 def extract_unique_sequences_from_pairs(
@@ -273,10 +279,14 @@ def create_pair_embeddings_concatenation(
             return empty_embs, empty_labels, np.array([], dtype=bool)
         return empty_embs, empty_labels
 
-    # Vectorized ID -> row mapping (fast, avoids Python iterrows loop)
-    # Note: pandas .map returns NaN for missing keys.
-    a_idx = pairs_df['brc_a'].map(id_to_row)
-    b_idx = pairs_df['brc_b'].map(id_to_row)
+    # Vectorized lookup via composite (assembly_id, brc_fea_id) tuple keys.
+    # See docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+    keys_a = list(zip(pairs_df['assembly_id_a'].astype(str),
+                      pairs_df['brc_a'].astype(str)))
+    keys_b = list(zip(pairs_df['assembly_id_b'].astype(str),
+                      pairs_df['brc_b'].astype(str)))
+    a_idx = pd.Series([id_to_row.get(k) for k in keys_a], index=pairs_df.index)
+    b_idx = pd.Series([id_to_row.get(k) for k in keys_b], index=pairs_df.index)
     valid_mask = a_idx.notna() & b_idx.notna()
 
     if valid_mask.sum() == 0:

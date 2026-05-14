@@ -1,0 +1,12 @@
+# STATUS: active -- PB2/PB1, aa k-mer k=3 sweep.
+# Thin overlay on flu_pb2_pb1 (PB2/PB1 balanced-big3 full-dataset sweep).
+# Only kmer.k and kmer.alphabet are overridden vs the parent. See
+# docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+
+defaults:
+  - flu_pb2_pb1
+  - _self_
+
+kmer:
+  k: 3
+  alphabet: aa

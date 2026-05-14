@@ -1449,16 +1449,19 @@ def plot_sequence_embeddings_by_confounders_from_pairs(
     if len(seqs_for_plot) > max_sequences:
         seqs_for_plot = seqs_for_plot.sample(n=max_sequences, random_state=random_state).reset_index(drop=True)
 
-    # Load embeddings
+    # Load embeddings via composite (assembly_id, brc_fea_id) keys.
     id_to_row = load_embedding_index(embeddings_file)
-    embeddings, valid_ids = load_embeddings_by_ids(
-        seqs_for_plot['brc_fea_id'].tolist(),
+    keys = list(zip(seqs_for_plot['assembly_id'].astype(str),
+                    seqs_for_plot['brc_fea_id'].astype(str)))
+    embeddings, valid_keys = load_embeddings_by_ids(
+        keys,
         embeddings_file,
         id_to_row=id_to_row,
     )
     if len(embeddings) == 0:
         return
-    seqs_for_plot = seqs_for_plot[seqs_for_plot['brc_fea_id'].isin(valid_ids)].reset_index(drop=True)
+    valid_brc_ids = {brc for _, brc in valid_keys}
+    seqs_for_plot = seqs_for_plot[seqs_for_plot['brc_fea_id'].isin(valid_brc_ids)].reset_index(drop=True)
 
     # Reduce dimensionality (UMAP preferred; PCA fallback)
     method = 'UMAP'

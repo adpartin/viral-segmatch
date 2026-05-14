@@ -2,7 +2,13 @@
 K-mer feature loading and pair feature construction utilities.
 
 Parallel to embedding_utils.py but for sparse k-mer features stored as
-scipy .npz + parquet index.
+scipy .npz + parquet index. Supports both alphabets:
+    nt: occurrence keyed by (assembly_id, genbank_ctg_id); pair-table
+        lookup uses (assembly_id_a, ctg_a) / (assembly_id_b, ctg_b).
+    aa: occurrence keyed by (assembly_id, brc_fea_id); pair-table
+        lookup uses (assembly_id_a, brc_a) / (assembly_id_b, brc_b).
+
+See docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
 """
 
 import numpy as np
@@ -12,42 +18,74 @@ from typing import Dict, Tuple
 from scipy import sparse
 
 
-def load_kmer_index(kmer_dir: Path, k: int) -> Dict[str, int]:
-    """Load (assembly_id::genbank_ctg_id) → row index mapping from parquet.
+def _occurrence_col(alphabet: str) -> str:
+    if alphabet == 'nt':
+        return 'genbank_ctg_id'
+    if alphabet == 'aa':
+        return 'brc_fea_id'
+    raise ValueError(f"alphabet must be 'nt' or 'aa'; got {alphabet!r}")
+
+
+def _pair_side_col(alphabet: str, side: str) -> str:
+    """Return the pair-table column for the occurrence key on one side."""
+    suffix = 'a' if side == 'a' else 'b'
+    if alphabet == 'nt':
+        return f'ctg_{suffix}'
+    if alphabet == 'aa':
+        return f'brc_{suffix}'
+    raise ValueError(f"alphabet must be 'nt' or 'aa'; got {alphabet!r}")
+
+
+def load_kmer_index(kmer_dir: Path, k: int, alphabet: str = 'nt'
+                    ) -> Dict[Tuple[str, str], int]:
+    """Load (assembly_id, occurrence_id) -> row mapping from parquet.
 
     Args:
-        kmer_dir: Directory containing kmer_features_k{k}_index.parquet
-        k: k-mer size
+        kmer_dir: Directory containing the alphabet-tagged k-mer cache.
+        k: k-mer size.
+        alphabet: 'nt' or 'aa'.
 
     Returns:
-        dict mapping "assembly_id::genbank_ctg_id" → row index
+        dict mapping (assembly_id, occurrence_id) tuple -> row index.
+        For nt, occurrence_id is genbank_ctg_id (normalized through
+        str(float(...))); for aa, it's brc_fea_id.
     """
-    index_file = kmer_dir / f'kmer_features_k{k}_index.parquet'
+    index_file = kmer_dir / f'kmer_features_{alphabet}_k{k}_index.parquet'
     if not index_file.exists():
         raise FileNotFoundError(f"K-mer index not found: {index_file}")
 
     idx_df = pd.read_parquet(index_file)
-    # Normalize genbank_ctg_id through float round-trip so keys match pair CSVs.
-    # Stage 3 writes ctg columns as float, so "1564510.10" becomes "1564510.1".
-    # Apply the same normalization here to ensure consistent key lookup.
-    ctg_normalized = idx_df['genbank_ctg_id'].apply(
-        lambda x: str(float(x)) if x.replace('.', '', 1).isdigit() else x
-    )
-    keys = idx_df['assembly_id'].astype(str) + '::' + ctg_normalized
+    occ_col = _occurrence_col(alphabet)
+
+    if alphabet == 'nt':
+        # Normalize genbank_ctg_id through float round-trip so keys match
+        # pair CSVs. Stage 3 writes ctg columns as float, so "1564510.10"
+        # becomes "1564510.1".
+        occ_normalized = idx_df[occ_col].astype(str).apply(
+            lambda x: str(float(x)) if x.replace('.', '', 1).isdigit() else x
+        )
+    else:
+        occ_normalized = idx_df[occ_col].astype(str)
+
+    keys = list(zip(idx_df['assembly_id'].astype(str), occ_normalized))
     return dict(zip(keys, idx_df['row']))
 
 
-def load_kmer_matrix(kmer_dir: Path, k: int) -> sparse.csr_matrix:
+def load_kmer_matrix(kmer_dir: Path, k: int, alphabet: str = 'nt'
+                     ) -> sparse.csr_matrix:
     """Load sparse k-mer feature matrix from .npz file.
 
     Args:
-        kmer_dir: Directory containing kmer_features_k{k}.npz
-        k: k-mer size
+        kmer_dir: Directory containing the alphabet-tagged k-mer cache.
+        k: k-mer size.
+        alphabet: 'nt' or 'aa'.
 
     Returns:
-        scipy CSR matrix of shape (N_segments, 4^k)
+        scipy CSR matrix of shape (N_rows, len(alphabet)**k). For aa the
+        matrix is sequence-deduplicated (N_rows = unique sequences); for
+        nt it has one row per occurrence (Phase 6 will migrate this).
     """
-    npz_file = kmer_dir / f'kmer_features_k{k}.npz'
+    npz_file = kmer_dir / f'kmer_features_{alphabet}_k{k}.npz'
     if not npz_file.exists():
         raise FileNotFoundError(f"K-mer features not found: {npz_file}")
     return sparse.load_npz(npz_file)
@@ -56,41 +94,47 @@ def load_kmer_matrix(kmer_dir: Path, k: int) -> sparse.csr_matrix:
 def get_kmer_pair_features(
     pairs_df: pd.DataFrame,
     kmer_matrix: sparse.csr_matrix,
-    key_to_row: Dict[str, int],
+    key_to_row: Dict[Tuple[str, str], int],
     interaction: str = 'concat',
     slot_transform: str = 'none',
+    alphabet: str = 'nt',
     ) -> Tuple[np.ndarray, np.ndarray]:
     """Build pair feature matrix from k-mer features and pair CSV.
 
-    Pairs are looked up using composite keys built from
-    (assembly_id_a, ctg_a) and (assembly_id_b, ctg_b) columns.
+    Composite (assembly_id, occurrence_id) tuples drive the lookup. For
+    `alphabet='nt'` the occurrence column is `ctg_a/b`; for
+    `alphabet='aa'` it is `brc_a/b`.
 
     Args:
-        pairs_df: DataFrame with assembly_id_a, ctg_a, assembly_id_b, ctg_b, label
-        kmer_matrix: sparse CSR matrix from load_kmer_matrix
-        key_to_row: mapping from load_kmer_index
-        interaction: 'concat', 'diff', 'unit_diff', 'prod', 'unit_prod', or
-            combinations like 'unit_diff+unit_prod'. Semantics mirror the
-            MLP path (`train_pair_classifier._compute_interaction`):
-              - diff      = |emb_a - emb_b|
-              - unit_diff = |emb_a - emb_b| / max(||·||₂, 1e-8)   (abs, L2-norm)
-              - prod      = emb_a * emb_b
-              - unit_prod = (emb_a * emb_b) / max(||·||₂, 1e-8)
-        slot_transform: 'none' (default) or 'unit_norm'. With 'unit_norm',
-            each row of emb_a and emb_b is L2-normalized before the
-            interaction (matches MLP `slot_transform='unit_norm'`).
+        pairs_df: DataFrame with assembly_id_a/b plus either ctg_a/b
+            (nt) or brc_a/b (aa), and a label column.
+        kmer_matrix: sparse CSR matrix from load_kmer_matrix.
+        key_to_row: mapping from load_kmer_index (composite tuples).
+        interaction: 'concat', 'diff', 'unit_diff', 'prod', 'unit_prod',
+            or '+'-separated combinations (e.g., 'unit_diff+prod').
+            Semantics mirror the MLP path
+            (`train_pair_classifier._compute_interaction`).
+        slot_transform: 'none' (default) or 'unit_norm'. With
+            'unit_norm', each row of emb_a and emb_b is L2-normalized
+            before the interaction (matches MLP
+            `slot_transform='unit_norm'`).
+        alphabet: 'nt' or 'aa'.
 
     Returns:
-        features: dense (N, D) float32 array
-        labels: (N,) int array
+        features: dense (N, D) float32 array.
+        labels: (N,) int array.
     """
-    # Build composite keys for both sides
-    keys_a = pairs_df['assembly_id_a'].astype(str) + '::' + pairs_df['ctg_a'].astype(str)
-    keys_b = pairs_df['assembly_id_b'].astype(str) + '::' + pairs_df['ctg_b'].astype(str)
+    # Build composite tuple keys based on alphabet-specific columns.
+    occ_col_a = _pair_side_col(alphabet, 'a')
+    occ_col_b = _pair_side_col(alphabet, 'b')
+    keys_a = list(zip(pairs_df['assembly_id_a'].astype(str),
+                      pairs_df[occ_col_a].astype(str)))
+    keys_b = list(zip(pairs_df['assembly_id_b'].astype(str),
+                      pairs_df[occ_col_b].astype(str)))
 
     # Map to row indices
-    rows_a = keys_a.map(key_to_row)
-    rows_b = keys_b.map(key_to_row)
+    rows_a = pd.Series([key_to_row.get(k) for k in keys_a], index=pairs_df.index)
+    rows_b = pd.Series([key_to_row.get(k) for k in keys_b], index=pairs_df.index)
     valid = rows_a.notna() & rows_b.notna()
 
     n_invalid = (~valid).sum()

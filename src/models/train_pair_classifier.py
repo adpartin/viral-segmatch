@@ -160,27 +160,32 @@ class ESMPairDataset(Dataset):
             self.embeddings_cache = None
     
     def _build_id_to_row(self) -> dict:
-        """
-        Build mapping from brc_fea_id to row index in master cache.
-        
-        Returns:
-            dict: Mapping {brc_fea_id: row_index}
+        """Build (assembly_id, brc_fea_id) -> row index mapping from the
+        parquet index sidecar.
+
+        Composite-tuple keying matches the contract in
+        docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
         """
         if self.use_parquet:
-            # Use parquet index file
             index_file = Path(self.embeddings_file).with_suffix('.parquet')
             if index_file.exists():
                 df = pd.read_parquet(index_file)
-                return dict(zip(df['brc_fea_id'], df['row']))
+                if 'assembly_id' not in df.columns:
+                    raise KeyError(
+                        f"Parquet index at {index_file} is missing 'assembly_id'. "
+                        "Run scripts/migrate_esm2_parquet_add_assembly_id.py to upgrade."
+                    )
+                keys = list(zip(df['assembly_id'].astype(str),
+                                df['brc_fea_id'].astype(str)))
+                return dict(zip(keys, df['row']))
             else:
                 print(f"WARNING: Parquet index not found: {index_file}. Falling back to H5 key scan.")
                 self.use_parquet = False
-        
-        # Master cache format requires parquet index
+
         raise ValueError(
             f"Parquet index not found: {index_file}. "
-            "Master cache format requires parquet index for brc_fea_id to row mapping. "
-            "Ensure the index file exists or regenerate embeddings."
+            "Master cache format requires parquet index for (assembly_id, brc_fea_id) "
+            "to row mapping. Ensure the index file exists or regenerate embeddings."
         )
 
     def _get_or_preload_shared_embeddings(self) -> np.ndarray:
@@ -205,19 +210,20 @@ class ESMPairDataset(Dataset):
         Return the aggregated embedding vector for a segment pair and its label.
         Uses row-based indexing for fast access to master cache.
         """
-        # breakpoint()
         row = self.pairs.iloc[idx]
 
-        # Get row indices for brc_a and brc_b
-        row_a = self.id_to_row.get(row['brc_a'], -1)
-        row_b = self.id_to_row.get(row['brc_b'], -1)
+        # Composite (assembly_id, brc_fea_id) lookup for each slot.
+        key_a = (str(row['assembly_id_a']), str(row['brc_a']))
+        key_b = (str(row['assembly_id_b']), str(row['brc_b']))
+        row_a = self.id_to_row.get(key_a, -1)
+        row_b = self.id_to_row.get(key_b, -1)
 
         if row_a == -1 or row_b == -1:
             missing = []
             if row_a == -1:
-                missing.append(f"brc_a={row['brc_a']}")
+                missing.append(f"key_a={key_a}")
             if row_b == -1:
-                missing.append(f"brc_b={row['brc_b']}")
+                missing.append(f"key_b={key_b}")
             raise KeyError(f"Missing embeddings for: {', '.join(missing)}")
 
         # Access embeddings from cache (preloaded) or master cache (on-demand)
@@ -249,8 +255,10 @@ class KmerPairDataset(Dataset):
     Returns (emb_a, emb_b), label — same interface as ESMPairDataset
     so the training loop and MLPClassifier work unchanged.
 
-    Pairs are looked up via composite key (assembly_id::genbank_ctg_id)
-    using ctg_a/ctg_b columns in the pair CSV.
+    Pairs are looked up via composite (assembly_id, occurrence_id)
+    tuple keys. The occurrence column is alphabet-dependent:
+        nt: ctg_a / ctg_b
+        aa: brc_a / brc_b
     """
 
     def __init__(
@@ -258,12 +266,21 @@ class KmerPairDataset(Dataset):
         pairs: pd.DataFrame,
         kmer_matrix,   # scipy sparse CSR
         key_to_row: dict,
+        alphabet: str = 'nt',
         ) -> None:
-        # Pre-compute row indices for each pair
-        keys_a = pairs['assembly_id_a'].astype(str) + '::' + pairs['ctg_a'].astype(str)
-        keys_b = pairs['assembly_id_b'].astype(str) + '::' + pairs['ctg_b'].astype(str)
-        rows_a = keys_a.map(key_to_row).astype(int).values
-        rows_b = keys_b.map(key_to_row).astype(int).values
+        if alphabet == 'nt':
+            occ_col_a, occ_col_b = 'ctg_a', 'ctg_b'
+        elif alphabet == 'aa':
+            occ_col_a, occ_col_b = 'brc_a', 'brc_b'
+        else:
+            raise ValueError(f"alphabet must be 'nt' or 'aa'; got {alphabet!r}")
+
+        keys_a = list(zip(pairs['assembly_id_a'].astype(str),
+                          pairs[occ_col_a].astype(str)))
+        keys_b = list(zip(pairs['assembly_id_b'].astype(str),
+                          pairs[occ_col_b].astype(str)))
+        rows_a = np.array([key_to_row[k] for k in keys_a], dtype=np.int64)
+        rows_b = np.array([key_to_row[k] for k in keys_b], dtype=np.int64)
 
         # Subset the sparse matrix to only the rows used by this fold's pairs.
         # Full matrix is 868K×4096 (14.2 GB dense). Each fold uses ~100-200K unique
@@ -1276,9 +1293,14 @@ if FEATURE_SOURCE == 'kmer':
     from omegaconf import OmegaConf
     if hasattr(config, 'kmer') and config.get('kmer') is not None:
         KMER_K = int(config.kmer.get('k', 6))
+        KMER_ALPHABET = str(config.kmer.get('alphabet', 'nt')).lower()
     else:
         KMER_K = 6
-    EMBED_DIM = 4 ** KMER_K
+        KMER_ALPHABET = 'nt'
+    if KMER_ALPHABET not in {'nt', 'aa'}:
+        raise ValueError(f"kmer.alphabet must be 'nt' or 'aa'; got {KMER_ALPHABET!r}")
+    _alpha_size = 4 if KMER_ALPHABET == 'nt' else 20
+    EMBED_DIM = _alpha_size ** KMER_K
 
     # K-mer features live alongside ESM-2 embeddings
     kmer_dir = build_embeddings_paths(
@@ -1286,24 +1308,25 @@ if FEATURE_SOURCE == 'kmer':
         data_version=DATA_VERSION, run_suffix="", config=config,
     )['output_dir']
     print(f'K-mer dir: {kmer_dir}')
-    print(f'K-mer k={KMER_K}, embed_dim={EMBED_DIM}')
+    print(f'K-mer alphabet={KMER_ALPHABET}, k={KMER_K}, embed_dim={EMBED_DIM}')
 
-    kmer_key_to_row = load_kmer_index(kmer_dir, KMER_K)
-    kmer_matrix = load_kmer_matrix(kmer_dir, KMER_K)
+    kmer_key_to_row = load_kmer_index(kmer_dir, KMER_K, alphabet=KMER_ALPHABET)
+    kmer_matrix = load_kmer_matrix(kmer_dir, KMER_K, alphabet=KMER_ALPHABET)
     print(f'Loaded k-mer matrix: {kmer_matrix.shape}')
 
-    # Validate that pair CSVs have ctg_a/ctg_b columns
+    # Validate that pair CSVs have the alphabet-specific occurrence columns.
+    required_pair_cols = ['ctg_a', 'ctg_b'] if KMER_ALPHABET == 'nt' else ['brc_a', 'brc_b']
     for name, pdf in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
-        for col in ['ctg_a', 'ctg_b']:
+        for col in required_pair_cols:
             if col not in pdf.columns:
                 raise ValueError(
-                    f"Pair CSV ({name}) missing '{col}' column. "
-                    "Re-run Stage 3 (dataset_segment_pairs.py) to add ctg columns."
+                    f"Pair CSV ({name}) missing {col!r} column. "
+                    "Re-run Stage 3 (dataset_segment_pairs.py)."
                 )
 
-    train_dataset = KmerPairDataset(train_pairs, kmer_matrix, kmer_key_to_row)
-    val_dataset = KmerPairDataset(val_pairs, kmer_matrix, kmer_key_to_row)
-    test_dataset = KmerPairDataset(test_pairs, kmer_matrix, kmer_key_to_row)
+    train_dataset = KmerPairDataset(train_pairs, kmer_matrix, kmer_key_to_row, alphabet=KMER_ALPHABET)
+    val_dataset = KmerPairDataset(val_pairs, kmer_matrix, kmer_key_to_row, alphabet=KMER_ALPHABET)
+    test_dataset = KmerPairDataset(test_pairs, kmer_matrix, kmer_key_to_row, alphabet=KMER_ALPHABET)
 
 else:
     # --- ESM-2 embedding path (default) ---
@@ -1328,15 +1351,24 @@ else:
         )
 
     index_df = pd.read_parquet(index_file)
-    available_ids = set(index_df['brc_fea_id'].unique())
+    if 'assembly_id' not in index_df.columns:
+        raise KeyError(
+            f"Parquet index at {index_file} is missing 'assembly_id'. "
+            "Run scripts/migrate_esm2_parquet_add_assembly_id.py to upgrade."
+        )
+    available_keys = set(zip(index_df['assembly_id'].astype(str),
+                             index_df['brc_fea_id'].astype(str)))
     for df_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
-        required_ids = set(df['brc_a']).union(set(df['brc_b']))
-        missing = required_ids - available_ids
+        keys_a = set(zip(df['assembly_id_a'].astype(str), df['brc_a'].astype(str)))
+        keys_b = set(zip(df['assembly_id_b'].astype(str), df['brc_b'].astype(str)))
+        required = keys_a | keys_b
+        missing = required - available_keys
         if missing:
             raise ValueError(
-                f"Missing embeddings for {len(missing)} IDs in {df_name} set: {list(missing)[:5]}..."
+                f"Missing embeddings for {len(missing)} (assembly_id, brc_fea_id) "
+                f"pairs in {df_name} set: {list(missing)[:5]}..."
             )
-    print(f"All required embeddings available ({len(available_ids)} total embeddings)")
+    print(f"All required embeddings available ({len(available_keys)} total composite keys)")
 
     # Create datasets (always returns (emb_a, emb_b), label)
     train_dataset = ESMPairDataset(train_pairs, embeddings_file)
