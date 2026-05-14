@@ -15,7 +15,7 @@ defaults:
   - _self_
 
 dataset:
-  neg_to_pos_ratio: 2.0  # overrides the default
+  neg_to_pos_ratio: 1.5  # overrides the default
 
   negative_sampling:
     axes: [host, hn_subtype, year]

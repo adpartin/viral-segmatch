@@ -29,7 +29,7 @@ dataset:
   # by design (see docs/plans/done/subtype_balancing_plan.md, error matrix).
   n_folds: null   # single train/val/test split (override flu_28_major_protein_pairs_master's inherited CV=12)
 
-  neg_to_pos_ratio: 2.0  # overrides the default
+  neg_to_pos_ratio: 1.5  # overrides the default
 
   # # No metadata filters
   # host: null # control for host
@@ -42,10 +42,14 @@ dataset:
     mode: seq_disjoint # 'random' | 'seq_disjoint' (default)
     hash_key: seq # 'seq' (protein, default) | 'dna' (nucleotide)
 
+kmer:
+  k: 6
+  alphabet: nt
+
 training:
   epochs: 100
   # epochs: 10
-  patience: 10
+  patience: 20
   feature_source: kmer  # kmer | esm2
   # hidden_dims: [100] # bottleneck layer; default: [512, 256, 64]
   # hidden_dims: [] # simulate logistic regression; default: [512, 256, 64]
@@ -78,4 +82,5 @@ training:
 #   src/analysis/aggregate_baselines_vs_mlp.py
 baselines:
   # enabled: [logistic, lgbm, knn1_margin, knn_vote]
-  enabled: [lgbm, knn1_margin]
+  # enabled: [lgbm, knn1_margin]
+  enabled: [lgbm]
