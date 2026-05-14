@@ -1754,7 +1754,7 @@ def _render_split_composition_vstacked(
     # Achieved neg:pos centered inside each bar.
     for i in range(len(splits)):
         ach = (total_counts[i] - pos_counts[i]) / pos_counts[i] if pos_counts[i] > 0 else float('nan')
-        txt = f'ach neg:pos = {ach:.2f}' if not np.isnan(ach) else 'ach neg:pos = —'
+        txt = f'neg:pos (achieved) = {ach:.2f}' if not np.isnan(ach) else 'neg:pos (achieved) = —'
         ax.text(x[i], total_counts[i] * 0.5, txt,
                 ha='center', va='center', fontsize=8, color='black',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
@@ -1777,7 +1777,7 @@ def _render_split_composition_vstacked(
     fig.tight_layout()
     # Make room above the axes for the figure-level annotation lines.
     if annotations:
-        fig.subplots_adjust(top=1 - _annotation_top_reserved(len(annotations)))
+        fig.subplots_adjust(bottom=_annotation_bottom_reserved(len(annotations)))
         _render_text_annotations(fig, ax, annotations)
     plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
@@ -1898,7 +1898,7 @@ def _render_split_composition_grouped(
     fig.tight_layout()
     # Make room above the axes for the figure-level annotation lines.
     if annotations:
-        fig.subplots_adjust(top=1 - _annotation_top_reserved(len(annotations)))
+        fig.subplots_adjust(bottom=_annotation_bottom_reserved(len(annotations)))
         _render_text_annotations(fig, ax, annotations)
     plt.savefig(output_path, dpi=200, bbox_inches='tight')
     plt.close()
@@ -1906,34 +1906,39 @@ def _render_split_composition_grouped(
 
 
 _ANNO_LINE_H = 0.028  # fraction of figure height per annotation line
-_ANNO_TITLE_PAD = 0.035  # extra room reserved below the annotation block for the axes title
+_ANNO_XAXIS_PAD = 0.05  # extra room reserved above the annotation block for the x-axis tick labels and xlabel
 
 
-def _annotation_top_reserved(n_lines: int) -> float:
-    """Figure-fraction of top space that must be reserved for n annotation lines
-    plus padding for the axes title that sits below them. Returns the value to
-    subtract from 1.0 to get a suitable `subplots_adjust(top=...)`.
+def _annotation_bottom_reserved(n_lines: int) -> float:
+    """Figure-fraction of bottom space to reserve for n annotation lines. Includes
+    a small margin above the lines so the x-axis label and tick labels stay
+    visible. The caller subtracts this via
+    `fig.subplots_adjust(bottom=_annotation_bottom_reserved(n))`.
     """
     if n_lines <= 0:
         return 0.0
-    return _ANNO_LINE_H * n_lines + _ANNO_TITLE_PAD
+    return _ANNO_LINE_H * n_lines + _ANNO_XAXIS_PAD
 
 
 def _render_text_annotations(fig, ax, annotations: list) -> None:
     """Render annotation lines (built by `_split_composition_text_annotations`)
-    as figure-level text above the axes — out of the data area so they never
-    overlap bars or bar-count labels. The caller must reserve enough top
-    space via `fig.subplots_adjust(top=1 - _annotation_top_reserved(n))`
-    before invoking this; otherwise the axes title can collide with the
-    bottom annotation line.
+    in the figure footer, below the x-axis label. This keeps them clear of
+    both the title (top) and bars (interior).
+
+    The caller must reserve enough bottom space via
+    `fig.subplots_adjust(bottom=_annotation_bottom_reserved(n))` before
+    invoking this; otherwise lines collide with the x-axis label.
     """
     if not annotations:
         return
     bbox = ax.get_position()
+    # First annotation line sits just above figure y=0, lines stack upward
+    # toward the axes. Reverse iteration so the original order reads
+    # top-to-bottom (line 0 of the list ends up on top, closest to the axes).
+    n = len(annotations)
     for i, (line, color, bg) in enumerate(annotations):
-        # First line at the figure top; subsequent lines stack downward.
-        y = 0.99 - i * _ANNO_LINE_H
-        kw = dict(ha='left', va='top', fontsize=9, color=color)
+        y = 0.01 + (n - 1 - i) * _ANNO_LINE_H
+        kw = dict(ha='left', va='bottom', fontsize=9, color=color)
         if bg:
             kw['bbox'] = dict(boxstyle='round,pad=0.3', facecolor=bg,
                               edgecolor='#bf9000', alpha=0.9)
