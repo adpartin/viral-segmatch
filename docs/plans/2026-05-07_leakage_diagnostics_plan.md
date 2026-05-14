@@ -22,11 +22,11 @@ experiments that does.
 
 | # | Canonical name | Synonyms | Description | Assessed by | Addressed | Status |
 |---|---|---|---|---|---|---|
-| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 within-split + cross-split protein-pair dedup | ✅ within-split protein-pair dedup (v2 strict mode) + cross-split protein-pair dedup (`forbidden_pair_keys` threading) | ✅ Verified zero `pair_key` overlap across splits via v2 strict-mode assertion (enforced at construction time). |
-| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) within a split. | v2 coverage phase (per-`dna_hash` per slot) + protein-level safety raise; Exp 1 split overlap stats (per-seq_type pos vs neg `n_unique`); `n_dna_uncovered` in `dataset_stats.json` | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot). ✅ DNA level (v2 coverage phase enforces ≥1 per `dna_hash` per slot; tight bundles emit `n_dna_uncovered` in `dataset_stats.json` and a WARNING). | Protein level: 0 imbalance on every dataset built. DNA level (HA/NA mixed, post-implementation `dataset_flu_ha_na_20260508_171512`): pos `n_unique` == neg `n_unique` on every `dna_hash` row (43,875 / 43,875 slot a; 41,799 / 41,799 slot b); `n_dna_uncovered` = 0 across all splits. |
+| 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test | | ✅ within-split & cross-split protein-pair dedup (`forbidden_pair_keys` threading) | ✅ Verified zero `pair_key` overlap across splits (via v2 strict-mode assertion) |
+| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) within a split | v2 coverage phase (per-`dna_hash` per slot) + protein-level safety raise; Exp 1 split overlap stats (per-seq_type pos vs neg `n_unique`); `n_dna_uncovered` in `dataset_stats.json` | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot). ✅ DNA level (v2 coverage phase enforces ≥1 per `dna_hash` per slot; tight bundles emit `n_dna_uncovered` in `dataset_stats.json` and a WARNING). | Protein level: 0 imbalance on every dataset built. DNA level (HA/NA mixed, post-implementation `dataset_flu_ha_na_20260508_171512`): pos `n_unique` == neg `n_unique` on every `dna_hash` row (43,875 / 43,875 slot a; 41,799 / 41,799 slot b); `n_dna_uncovered` = 0 across all splits. |
 | 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Exp 1 (split overlap stats); Exp 4 (seq-disjoint / strict-dedup re-train) | ✅ `seq_disjoint` split mode landed 2026-05-11 (Exp 4a; `dataset.split_strategy.mode=seq_disjoint`). `strict_dedup` deliberately deferred — seq_disjoint achieves the same test with zero pair drops on HA/NA. | ✅ Mitigated. Re-train under seq_disjoint shows the MLP losing 3.8 pp on `host_subtype_year` TNR (0.872 → 0.834) while baselines barely move. MLP now falls **below** 1-NN on that regime (gap −0.014). See `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`. |
 | 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Exp 2 (1-NN baseline); Exp 3 (cosine deciles); Exp 4 (partial bound — handles exact-DNA case only); Exp 5 (mmseqs2 cluster splits) | ❌ Not yet — Exp 2/3/5 will quantify; mitigation depends on results. | ⚠️ Suggested but not formally measured. Anchor signal: median nearest-train PB1 cosine = 0.994. Awaiting Exp 2 (1-NN AUC) and Exp 3 (decile plot) for a formal verdict; Exp 5 for the strictest test. |
-| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 3 cosine deciles | ❌ Not yet. Candidate mitigations: hard-negative mining (cheapest), adversarial / gradient-reversal training (DANN-style), Invariant Risk Minimization (IRM). Tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present: 30–50× FP-rate climb on match_count (HA/NA mixed, both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. |
+| 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate" | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Exp 3 cosine deciles | ❌ Not yet. Candidate mitigations: hard-negative mining (cheapest), adversarial / gradient-reversal training (DANN-style), Invariant Risk Minimization (IRM). Tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present: 30–50× FP-rate climb on match_count (HA/NA mixed, both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. |
 
 Experiments 2 and 4 from the action list below directly test these.
 Experiments 1 and 3 are diagnostics; 5 is escalation. The taxonomy
@@ -252,34 +252,50 @@ outcomes:
 
 ---
 
-### Exp 5 — mmseqs2 cluster-based splits (escalation)
+### Exp 5 — mmseqs2 cluster-disjoint splits
 
-**Why.** Sequence-level dedup (Exp 4) is strictly stricter than
-isolate-level split but does NOT prevent near-neighbors with
-synonymous codon variation (k-mer cosine ~0.99 across different DNA).
-Cluster-based splits address this by partitioning at a similarity
-threshold.
+**Framing.** Extend our current `seq_disjoint` routing — which is
+implicitly cluster-disjoint at the **100% identity threshold** — to a
+tunable threshold like 95% via mmseqs2, so that pairs across splits
+don't just have **non-identical** sequences but **non-similar**
+sequences. The threshold trades partitioning freedom (and hence
+dataset size) for the strength of the generalization test.
 
-**What.** Use mmseqs2 to cluster proteins at e.g. 95% identity, then
-split clusters across train/val/test. Each test pair has guaranteed
-< 95% AA identity to any train pair. New option in
-`split_dataset_v2`: `split_mode: cluster_disjoint`.
+**Why now.** `seq_disjoint` (Exp 4) addresses mode #3 (exact-hash
+sequence-level leakage) but leaves mode #4 (cluster leakage) open.
+The 2026-05-13 aa-vs-nt similarity diagnostic
+(`docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md`) showed
+that even under `hash_key=seq`, **~48% of test HA proteins have a
+train-side neighbor at ≥99.5% aa identity**. The current model results
+are therefore upper-bounded by some unknown amount of near-neighbor
+lookup; Exp 5 quantifies how much.
+
+**What.** Use mmseqs2 to cluster all unique proteins at a chosen
+identity threshold; partition clusters across train/val/test; route
+pairs into the split where both sequences' clusters land. New routing
+mode `split_strategy.mode: cluster_disjoint` in `split_dataset_v2`.
 
 **How.**
-1. Install mmseqs2 (one line, mamba/bioconda).
-2. Export protein FASTA from `protein_final.csv`.
-3. Run `mmseqs easy-cluster` at 95% identity, 80% coverage.
-4. Parse cluster TSV, assign clusters to splits, route pairs.
-5. Re-train and compare.
+1. Install mmseqs2 (`mamba install -c bioconda mmseqs2`).
+2. Export unique-sequence FASTA from `protein_final[esm2_ready_seq]`
+   (already QC-cleaned: terminal `*` stripped, X→G imputed).
+3. Run `mmseqs easy-cluster --min-seq-id 0.95 -c 0.8 --cov-mode 0`.
+4. Parse cluster TSV → `(seq_hash, cluster_id)` lookup.
+5. Cluster-disjoint route in `_split_helpers`; raise on cluster
+   misalignment with `pos_df`.
+6. Re-train (MLP + LGBM) on `flu_ha_na` and `flu_pb2_pb1` at thresholds
+   {0.95, 0.90, 0.80}; compare to `seq_disjoint` (= 1.00 threshold)
+   baseline. Headline metric: AUC-ROC and `host_subtype_year` TNR vs
+   threshold.
 
-**Trigger condition.** Run only if Exp 4 (the cheaper sequence-level
-dedup) leaves a story like "performance held — leakage less
-problematic than feared." Then we want a stricter test to rule out
-phylogenetic near-neighbors. If Exp 4 already crashes, Exp 5 is
-unnecessary for the leakage story (but might still be useful for
-phylo robustness).
+**Detailed design.** `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`
+(Experiment B). Same doc also describes Experiment A
+(cosine-controlled splits) as a complementary attack on mode #4 in
+the model's feature space rather than in sequence space — secondary
+priority, run only if cluster-disjoint results need disambiguation.
 
-**Effort.** Install mmseqs2 + integrate into split dispatcher.
+**Effort.** ~1 day for the cluster script + routing helper; ~30 min
+wall-clock for 6 training runs (2 schema pairs × 3 thresholds).
 
 ---
 
