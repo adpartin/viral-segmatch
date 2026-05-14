@@ -1,0 +1,20 @@
+# STATUS: experimental -- HA/NA tightened pool. Inherits flu_ha_na (regime-blind
+# at neg_to_pos_ratio=1.5, seq_disjoint routing); narrows the isolate pool to
+# {Human, Pig} x {H3N2, H1N1} x year >= 2008 via Phase 1 metadata filters.
+#
+# Goal: a more homogeneous slice where (a) the regime taxonomy partially
+# collapses (only 2 hosts and 2 subtypes -> many random pairs already match
+# on multiple axes, so the natural negative distribution is harder), and
+# (b) within-distribution generalization can be tested without the
+# Influenza A-wide demographic confounds.
+#
+# Mechanism: dataset.host / dataset.hn_subtype / dataset.year_range filters
+# applied at Phase 1 before pair construction. seq_disjoint routing stays on.
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  host:        ["Human", "Pig"]
+  hn_subtype:  ["H3N2",  "H1N1"]
+  year_range:  [2008, 9999]
