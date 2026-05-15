@@ -296,6 +296,169 @@ near-identical neighbors."
 
 ---
 
+## Experiment B-nt — nt-level cluster-disjoint splits (follow-up)
+
+**Status:** proposed; not started.
+**Motivation:** the aa-level sweep collapsed at id099 on both schema pairs
+(see `docs/results/2026-05-14_protein_redundancy_per_function.md`
+bipartite feasibility table — HA/NA largest bipartite component at
+id095 = 98.5 %, PB2/PB1 at id099 already 87 %). nt clustering at the
+same threshold produces **smaller, more numerous clusters** because
+synonymous codon variation puts aa-identical sequences in different
+nt clusters. This is expected to extend the threshold sweep into
+ranges that aa cannot reach without bipartite collapse.
+
+### What changes vs. Experiment B (aa)
+
+| | aa cluster_disjoint (Exp B) | nt cluster_disjoint (Exp B-nt) |
+|---|---|---|
+| Sequence input | `prot_seq` (per `protein_final`) | **CDS DNA** extracted from contigs via `location` |
+| mmseqs flag | (default protein) | `--search-type 3` (nucleotide) |
+| Cluster size at threshold T | larger (each cluster pools all synonymous variants) | smaller (synonymous variants split across clusters) |
+| Leakage mode blocked | **mode #4 at the aa level** (the diagnostic-confirmed mode) | mode #4 at the nt level — a *different* mode that does NOT subsume aa-level leakage |
+| Threshold sweep reach (on flu A) | id100 ≈ seq_disjoint, id099 just feasible, id095 collapses | extrapolated: id095 likely feasible, id090 plausible, id080 worth trying |
+
+### Why this answers a *different* question
+
+aa near-neighbor leakage was measured at 48 % of test HA proteins
+having a ≥99.5 % aa-identical training neighbor under seq_disjoint
+(`docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md`). The nt
+counterpart was 42 % — 6 pp lower because synonymous codons push some
+near-aa pairs farther apart at the nt level. nt clustering at id095
+would block all nt near-neighbors at that radius, but **a perfect-aa
+match with synonymous codon differences would land in two nt clusters
+→ could split across train/test → aa-level near-neighbor leakage
+persists in that subset**. So this experiment quantifies "how much
+test accuracy depends on nt near-neighbors specifically," not "does
+the model learn aa-biology rather than memorize near-aa-neighbors."
+
+If the goal is the latter (the leakage we measured), stay with aa.
+If the goal is "extend the threshold sweep to give more data points
+along a leakage-strictness axis" — and a slightly-different one is
+acceptable — nt is the path.
+
+### Tradeoffs
+
+- **Pro:** denser threshold sweep. Likely 2-3 additional usable
+  thresholds below the aa@id099 ceiling. With more data points the
+  performance-vs-threshold curve becomes a proper sweep rather than
+  the current 2-point delta.
+- **Pro:** orthogonal evidence. Combining aa-cluster_disjoint at id099
+  with nt-cluster_disjoint at multiple thresholds gives independent
+  attribution to the two leakage axes.
+- **Con:** does not address the larger leakage source. The aa-level
+  density is the one we measured at ~48 %; nt is the smaller tail.
+- **Con:** mmseqs2 is less sensitive on DNA than on protein at the
+  same `--min-seq-id`. Cluster boundaries on nt are noisier; consider
+  raising `-c` (alignment coverage) compensation.
+- **Con:** more work to set up (CDS extraction is not in the codebase).
+- **Con:** threshold semantics differ. nt-id-95 ≠ aa-id-95. A rough
+  rule of thumb: synonymous codon usage gives ~1-3 nt changes per aa
+  change, so nt-id-95 is roughly aa-id-85-95 depending on codon-usage
+  bias. We can't just compare aa-id-X to nt-id-X side-by-side without
+  per-function calibration.
+
+### Caveats
+
+- **The cluster TSV / `seq_hash` join changes.** `seq_hash` is the
+  md5 of the protein sequence. nt clustering's cluster_id is keyed
+  by a **CDS-DNA hash**, not the existing `dna_hash` column (which
+  hashes the full contig). The routing helper must use the new
+  CDS-hash, or we'd be joining apples to oranges.
+- **Aux-protein splicing.** M2 and NEP are spliced — their CDS spans
+  multiple intervals in the GTO `location` field. The extractor must
+  concatenate intervals in the correct order and orientation. Single
+  bugs here would produce wrong CDS bytes and silent garbage clusters.
+- **The aa-vs-nt similarity diagnostic was only run on HA/NA.** The
+  6 pp aa-tail-excess number doesn't necessarily generalize to
+  PB2/PB1 (where polymerase-subunit codon usage may differ).
+  Worth re-running the diagnostic on PB2/PB1 before deciding nt is
+  worth implementing.
+- **CDS DNA length differs from `length` column.** `protein_final.length`
+  is the protein length. The CDS is `3 × length` nucleotides (plus stop
+  codon if present, plus introns for spliced functions). Any code that
+  reuses the existing `length` field must be aware.
+- **Tight bundles change behavior, too.** Tight bundles filter on
+  metadata (host, subtype, year) before pair construction. nt
+  clustering would be computed on the **full corpus** (same as aa
+  currently), then joined to the filtered pos_df. No re-cluster per
+  bundle is needed; one cluster lookup parquet per threshold serves
+  all bundles.
+
+### Non-trivial implementation details
+
+1. **CDS-extraction helper** (the main lift, not in codebase). Inputs:
+   `genome_final.csv` (contig DNA), `protein_final.csv` (per-row
+   `location` field, parsed via the existing `protein_utils.py`
+   helpers). Outputs per row: a single CDS DNA string. Handles:
+   - Single-interval locations: trivial substring + reverse-complement
+     when strand=-1.
+   - Multi-interval (spliced) locations: concatenate substrings in
+     `location` order. Test with M2 and NEP specifically — they're
+     known multi-interval; M42, NS3 may also be.
+   - Phase / frame: the first codon of the CDS must be in frame.
+     GTO `location` records are 1-indexed inclusive, but pandas/Python
+     slicing is 0-indexed half-open — easy off-by-one.
+   - Edge cases: missing `location`, non-canonical strand values, CDS
+     that doesn't translate back to `prot_seq`. Add a sanity check
+     after extraction: translate CDS, compare with `prot_seq` (or its
+     `esm2_ready_seq` form); mismatches indicate location parse errors
+     and should hard-fail.
+2. **CDS-hash column.** Add `cds_dna_hash = md5(cds_dna)` to a new
+   `cds_final.parquet` (or extend `protein_final` if column proliferation
+   is acceptable). This is the join key for nt cluster lookups.
+3. **`export_function_fasta` extension.** Currently calls `clean_for_mmseqs`
+   (strips trailing `*`, validates `*`-free). The nt analogue needs no
+   `*` stripping but should:
+   - Reject sequences containing `N` (ambiguous nucleotides) at >5 %
+     (mmseqs handles a few `N`s; >5 % degrades clustering).
+   - Validate length is a multiple of 3 (post-splice, pre-stop-codon
+     handling).
+4. **mmseqs invocation.** `easy-cluster --min-seq-id <th> -c 0.8
+   --cov-mode 0 --search-type 3`. The `--search-type 3` flag enables
+   nucleotide mode. Default sensitivity (`-s 7.5`) is fine; the alphabet
+   change is the substantive difference.
+5. **Routing changes.** `_split_helpers.attach_cluster_ids` currently
+   joins on `seq_hash`. For nt mode, it joins on `cds_dna_hash`.
+   Simplest: parameterize the join column. Bundle config gets a new
+   key `dataset.split_strategy.cluster_alphabet: aa|nt` (default `aa`).
+   `cluster_id_path` then points at the alphabet-appropriate parquet.
+6. **Bundle naming.** `flu_{ha_na,pb2_pb1}_cluster_nt_id{NN}.yaml`.
+   The redundancy / feasibility / sweep machinery is reusable;
+   only the alphabet flag and the cluster_id_path differ.
+
+### Suggested execution order
+
+1. Re-run the aa-vs-nt similarity diagnostic on PB2/PB1 (small —
+   diagnostic script already exists; just point it at the PB2/PB1
+   regimes dataset).
+2. Decide based on (1): if PB2/PB1's aa-tail-excess is comparable to
+   HA/NA's, the nt experiment is worth doing. If aa-tail-excess is
+   much higher on PB2/PB1, nt would block proportionally less of
+   the leakage and may not be worth the engineering.
+3. Build the CDS-extraction helper + sanity test (translate-back
+   round-trip).
+4. Build `cds_final.parquet` once (one-time, per data version).
+5. Run the redundancy assessment on nt at {1.00, 0.95, 0.90, 0.85,
+   0.80}, plus per-function bipartite feasibility on the active
+   schema pairs.
+6. Pick feasible thresholds (likely 0.95 down to 0.85 on HA/NA;
+   maybe 0.95 down to 0.90 on PB2/PB1).
+7. Build datasets, train LGBM, compare.
+8. Performance-vs-threshold plot becomes a multi-point sweep
+   instead of the current 2-point delta.
+
+### Effort estimate
+
+- CDS extractor + tests: 1-2 days. The location-parsing edge cases
+  on spliced functions are the time sink.
+- The rest reuses existing `clustering_utils`, `_split_helpers`,
+  feasibility, plotting machinery. ~half-day to wire alphabet
+  parameterization through. Sweep + analysis: a few hours of
+  compute + a results doc.
+
+---
+
 ## Experiment A — Cosine-controlled splits (secondary)
 
 Same headline goal — test how much hard-regime performance depended on

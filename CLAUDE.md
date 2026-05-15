@@ -116,6 +116,10 @@ src/
     compute_kmer_features.py        # Stage 2b: DNA (or protein, via alphabet param) → k-mer sparse matrix
   datasets/
     dataset_segment_pairs.py        # Stage 3: pairs + train/val/test splits
+    dataset_segment_pairs_v2.py     # v2 builder (default; coverage-first + regime-aware)
+    _pair_helpers.py                # Shared helpers (seq_disjoint routing, filters)
+    _split_helpers.py               # cluster_disjoint routing (mmseqs2-based)
+    _negative_regime_sampling.py    # 8-regime classifier + priority chain for racov
   models/
     train_pair_classifier.py  # Stage 4: MLP classifier training
   analysis/
@@ -126,6 +130,9 @@ src/
     analyze_stage1_preprocess.py    # Preprocessing QC
     analyze_stage2_embeddings.py    # Embedding quality checks
     analyze_stage3_datasets.py      # Dataset balance/distribution
+    protein_redundancy_per_function.py   # mmseqs2 per-function cluster sweep
+    cluster_disjoint_feasibility.py      # Bipartite-CC feasibility pre-flight
+    aggregate_cluster_disjoint_ratios.py # Ratio-sweep aggregator
   utils/
     config_hydra.py                 # Hydra config loader (primary)
     esm2_utils.py                   # ESM-2 tokenization, batch embedding
@@ -136,6 +143,7 @@ src/
     plot_config.py                  # Colors, protein name mapping
     gto_utils.py, protein_utils.py, path_utils.py, timer_utils.py
     kmer_utils.py                   # Load k-mer features, pair construction
+    clustering_utils.py             # mmseqs2 wrappers (FASTA export, TSV parse)
     dna_utils.py                    # DNA QC utilities (in development)
     dim_reduction_utils.py          # PCA/UMAP wrappers
 ```
@@ -187,6 +195,11 @@ Priority experiments for publication:
 ## What Is In Development (Not Yet Production)
 
 - `src/utils/dna_utils.py` — DNA sequence QC utilities
+- **Experiment B-nt** (nt-level cluster_disjoint) — proposed follow-up to
+  Experiment B; requires a CDS extractor (not in codebase) before the
+  existing cluster routing can switch to nucleotide alphabet. See
+  `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` §
+  "Experiment B-nt".
 
 Note: unified Flu preprocessing (`preprocess_flu.py`) and the temporal-holdout
 mechanism were previously listed here. Preprocessing is in production (entry
