@@ -1,6 +1,18 @@
 # Dataset configuration for segment pairs
 # This config defines parameters for creating train/val/test splits and protein pairs
 
+# Pair builder version
+# - v2 (default since 2026-05-11): schema-mode-only builder with coverage-first
+#       negative sampling, within-split positive dedup, per-sequence exposure
+#       tracking, metadata-axis annotations on every pair, and (opt-in) the
+#       regime-aware sampler, seq_disjoint split, and metadata_holdout
+#       cross-population split. Hard-codes pair_mode=schema_ordered,
+#       allow_same_func_negatives=false, canonicalize_pair_orientation=false,
+#       hard_partition_isolates=true. See docs/plans/done/design_dataset_gen_v2.md.
+# - v1: original builder, supports unordered + schema_ordered modes. Kept for
+#       legacy bundles only; new bundles should use v2.
+pair_builder_version: v2
+
 # Isolate partitioning strategy
 # true: isolate-level partitioning (no shared isolates between train/val/test); false: pair-level
 # partitioning (isolates can appear in multiple splits, but pairs are unique to splits)
@@ -79,18 +91,6 @@ subtype_selection:
 n_folds: null
 fold_id: null
 
-# Pair builder version
-# - v2 (default since 2026-05-11): schema-mode-only builder with coverage-first
-#       negative sampling, within-split positive dedup, per-sequence exposure
-#       tracking, metadata-axis annotations on every pair, and (opt-in) the
-#       regime-aware sampler, seq_disjoint split, and metadata_holdout
-#       cross-population split. Hard-codes pair_mode=schema_ordered,
-#       allow_same_func_negatives=false, canonicalize_pair_orientation=false,
-#       hard_partition_isolates=true. See docs/plans/done/design_dataset_gen_v2.md.
-# - v1: original builder, supports unordered + schema_ordered modes. Kept for
-#       legacy bundles only; new bundles should use v2.
-pair_builder_version: v2
-
 # v2-only: coverage-phase attempt cap. Each positive-pair seq gets up to this many tries
 # to find a valid negative partner before being logged as coverage_skipped.
 max_attempts_per_seq: 50
@@ -124,15 +124,15 @@ negative_sampling: null
 #     - [2016, 2020, "2016-2020"]
 #     - [2021, 1e30, "2021+"]
 #   regime_targets:
-#     none_match:           0.20
+#     none_match:           0.05
 #     host_only:            0.10
 #     subtype_only:         0.10
 #     year_only:            0.10
-#     host_subtype_only:    0.10
-#     host_year_only:       0.05
-#     subtype_year_only:    0.05
-#     host_subtype_year:    0.30
-#   on_shortfall: redistribute        # redistribute | warn_only | error
+#     host_subtype_only:    0.15
+#     host_year_only:       0.15
+#     subtype_year_only:    0.15
+#     host_subtype_year:    0.20
+#   on_shortfall: redistribute  # redistribute | warn_only | error
 
 # Drop isolates with ambiguous hn_subtype before pair generation. The full
 # Flu A enriched set carries ~1,006 isolates out of ~108,530 (~0.93%) whose

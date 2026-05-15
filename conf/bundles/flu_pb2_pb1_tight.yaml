@@ -26,12 +26,12 @@ dataset:
       - [2016, 2020, "2016-2020"]
       - [2021,  1.0e+30, "2021+"]
     regime_targets:
-      none_match:           0.10
+      none_match:           0.05
       host_only:            0.10
       subtype_only:         0.10
       year_only:            0.10
-      host_subtype_only:    0.10
-      host_year_only:       0.10
-      subtype_year_only:    0.10
-      host_subtype_year:    0.30   # the hardest-negative regime (no metadata shortcut)
+      host_subtype_only:    0.15
+      host_year_only:       0.15
+      subtype_year_only:    0.15
+      host_subtype_year:    0.20
     on_shortfall: redistribute
