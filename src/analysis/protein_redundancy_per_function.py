@@ -41,6 +41,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.clustering_utils import (  # noqa: E402
+    export_function_cds_fasta,
     export_function_fasta,
     run_mmseqs_easy_cluster,
     parse_cluster_tsv,
@@ -79,14 +80,25 @@ def cluster_one_function_one_threshold(
     out_root: Path,
     threads: Optional[int] = None,
     force: bool = False,
+    alphabet: str = 'aa',
+    algorithm: str = 'cluster',
 ) -> dict:
     """Run mmseqs at one threshold on the FASTA for one function.
 
     Caches the FASTA per function (re-used across thresholds).
     Caches the cluster parquet per (function, threshold); skip if present unless force=True.
 
+    Args:
+        prot_df: input rows. For `alphabet='aa'` must contain `function` +
+            `prot_seq`; for `alphabet='nt'` must contain `function`,
+            `cds_dna`, `cds_dna_hash` (from `cds_final.parquet`).
+        alphabet: 'aa' (default) or 'nt'. Determines which exporter is used
+            and whether `--search-type 3` is passed to mmseqs.
+
     Returns the redundancy stats dict for this (function, threshold).
     """
+    if alphabet not in {'aa', 'nt'}:
+        raise ValueError(f"alphabet must be 'aa' or 'nt', got {alphabet!r}")
     if short_name not in SHORT_TO_FUNCTION:
         raise KeyError(f"Unknown short_name={short_name!r}. Known: {sorted(SHORT_TO_FUNCTION)}")
     full_name = SHORT_TO_FUNCTION[short_name]
@@ -104,9 +116,14 @@ def cluster_one_function_one_threshold(
 
     # FASTA export (cached across thresholds)
     if not fasta_path.exists() or force:
-        export_stats = export_function_fasta(prot_df, full_name, fasta_path)
-        print(f"  [{short_name}] FASTA: {export_stats['n_unique_sequences']:,} unique seqs "
-              f"({export_stats['n_with_x']:,} contain X)")
+        if alphabet == 'aa':
+            export_stats = export_function_fasta(prot_df, full_name, fasta_path)
+            print(f"  [{short_name}] FASTA (aa): {export_stats['n_unique_sequences']:,} "
+                  f"unique seqs ({export_stats['n_with_x']:,} contain X)")
+        else:
+            export_stats = export_function_cds_fasta(prot_df, full_name, fasta_path)
+            print(f"  [{short_name}] FASTA (nt): {export_stats['n_unique_sequences']:,} "
+                  f"unique CDS ({export_stats['n_with_ambiguity']:,} contain non-ACGT)")
     else:
         print(f"  [{short_name}] FASTA cached at {fasta_path.name}")
 
@@ -126,11 +143,14 @@ def cluster_one_function_one_threshold(
             cov_mode=0,
             threads=threads,
             log_path=log_path,
+            alphabet=alphabet,
+            algorithm=algorithm,
         )
         lookup = parse_cluster_tsv(result.cluster_tsv, cluster_id_prefix=short_name)
         lookup['function'] = full_name
         lookup['function_short'] = short_name
         lookup['threshold'] = float(threshold)
+        lookup['alphabet'] = alphabet
         lookup.to_parquet(cluster_parquet, index=False)
         print(f"  [{short_name} @ {threshold:.2f}] clustered "
               f"{len(lookup):,} seqs -> {lookup['cluster_id'].nunique():,} clusters "
@@ -169,28 +189,52 @@ def write_results_markdown(
     out_md: Path,
     stats_df: pd.DataFrame,
     protein_final_path: str,
+    alphabet: str = 'aa',
+    algorithm: str = 'cluster',
 ) -> None:
     """Write a human-readable markdown table per threshold."""
     out_md = Path(out_md)
     out_md.parent.mkdir(parents=True, exist_ok=True)
 
     today = time.strftime('%Y-%m-%d')
+    alphabet_label = 'aa' if alphabet == 'aa' else 'nt (CDS DNA)'
+    subcmd = 'easy-cluster' if algorithm == 'cluster' else 'easy-linclust'
+    dbtype_flag = ' --dbtype 2' if alphabet == 'nt' else ''
 
     lines = []
-    lines.append("# Protein redundancy per function — mmseqs2 sweep")
+    lines.append(f"# Per-function redundancy ({alphabet_label}) — mmseqs2 sweep")
     lines.append("")
     lines.append(f"**Date.** {today}.")
     lines.append(f"**Input.** `{protein_final_path}`.")
-    lines.append(f"**Tool.** mmseqs2 `easy-cluster --min-seq-id <th> -c 0.8 --cov-mode 0`.")
+    lines.append(f"**Alphabet.** {alphabet_label}.")
+    lines.append(f"**Tool.** mmseqs2 `{subcmd} --min-seq-id <th> -c 0.8 --cov-mode 0{dbtype_flag}`.")
     lines.append(f"**Script.** `src/analysis/protein_redundancy_per_function.py`.")
     lines.append("")
     lines.append("## Method")
     lines.append("")
-    lines.append("For each major protein function, dedup `prot_seq` "
-                 "on md5(`prot_seq.rstrip('*')`), export to FASTA, and cluster "
-                 "at multiple aa-identity thresholds with mmseqs2 `easy-cluster`. "
-                 "`X` residues are left in place (mmseqs handles them natively); "
-                 "internal `*` rows would be dropped but none exist in this corpus.")
+    if alphabet == 'aa':
+        lines.append(f"For each major protein function, dedup `prot_seq` "
+                     f"on md5(`prot_seq.rstrip('*')`), export to FASTA, and cluster "
+                     f"at multiple aa-identity thresholds with mmseqs2 `{subcmd}`. "
+                     f"`X` residues are left in place (mmseqs handles them natively); "
+                     f"internal `*` rows would be dropped but none exist in this corpus.")
+    else:
+        sensitivity_note = (
+            'linclust (linear-time, less sensitive) was chosen over the '
+            'sensitive easy-cluster path because easy-cluster\'s prefilter is '
+            'an order of magnitude slower on the longer nt sequences while '
+            'producing within-noise different cluster counts on this corpus.'
+            if algorithm == 'linclust' else
+            'easy-cluster (sensitive cascaded clustering) was used.'
+        )
+        lines.append(f"For each major protein function, dedup `cds_dna` on "
+                     f"`cds_dna_hash` (md5 of the CDS DNA), export to FASTA, and "
+                     f"cluster at multiple nt-identity thresholds with mmseqs2 "
+                     f"`{subcmd} --dbtype 2`. IUPAC ambiguity codes (N, R, Y, "
+                     f"...) are left in place — mmseqs scores them natively. "
+                     f"CDS is reconstructed by `src/preprocess/extract_cds_dna.py` "
+                     f"from Stage 1 outputs (validated via translate-back). "
+                     f"{sensitivity_note}")
     lines.append("")
     lines.append("## Results — cluster-size distribution per (function, threshold)")
     lines.append("")
@@ -244,42 +288,63 @@ def write_results_markdown(
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Per-function mmseqs2 redundancy assessment.")
-    p.add_argument('--protein_final', required=True,
-                   help='Path to protein_final.parquet (or .csv).')
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument('--protein_final',
+                     help='aa-mode input: path to protein_final.parquet (or .csv).')
+    src.add_argument('--cds_final',
+                     help='nt-mode input: path to cds_final.parquet (built by '
+                          'src/preprocess/extract_cds_dna.py). Implies --alphabet nt.')
+    p.add_argument('--alphabet', choices=['aa', 'nt'], default=None,
+                   help='Sequence alphabet (default: aa for --protein_final, nt for --cds_final).')
     p.add_argument('--out_root', required=True,
-                   help='Output directory root (e.g. data/processed/flu/July_2025/clusters).')
+                   help='Output directory root (e.g. data/processed/flu/July_2025/clusters or '
+                        'clusters_nt).')
     p.add_argument('--thresholds', nargs='+', type=float, required=True,
                    help='Identity thresholds (e.g. 1.00 0.99 0.95 0.90 0.80).')
     p.add_argument('--functions', nargs='+', default=['HA', 'NA', 'PB2', 'PB1', 'PA', 'NP', 'M1', 'M2', 'NEP', 'NS1'],
                    help='Function short names to cluster.')
     p.add_argument('--threads', type=int, default=None, help='mmseqs --threads.')
+    p.add_argument('--algorithm', choices=['cluster', 'linclust'], default='cluster',
+                   help='mmseqs subcommand. cluster=easy-cluster (sensitive, slow), '
+                        'linclust=easy-linclust (linear time, less sensitive). '
+                        'linclust is recommended for the nt CDS sweep on the full corpus.')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
     p.add_argument('--results_md', default=None,
-                   help='Path to results markdown (default: docs/results/<date>_protein_redundancy_per_function.md).')
+                   help='Path to results markdown (default: docs/results/<date>_redundancy_<alphabet>.md).')
     p.add_argument('--no_combined', action='store_true',
                    help='Skip writing combined_cluster.parquet per threshold.')
     args = p.parse_args()
 
-    # Load protein_final
-    pf_path = Path(args.protein_final)
-    print(f"Loading {pf_path}...")
+    if args.protein_final and not args.alphabet:
+        args.alphabet = 'aa'
+    if args.cds_final and not args.alphabet:
+        args.alphabet = 'nt'
+    if args.protein_final and args.alphabet == 'nt':
+        raise SystemExit("--protein_final is aa-only; use --cds_final for nt mode.")
+    if args.cds_final and args.alphabet == 'aa':
+        raise SystemExit("--cds_final is nt-only; use --protein_final for aa mode.")
+
+    in_path = Path(args.protein_final or args.cds_final)
+    print(f"Loading {in_path}  (alphabet={args.alphabet}) ...")
     t0 = time.time()
-    if pf_path.suffix == '.csv':
-        df = pd.read_csv(pf_path, usecols=['function', 'prot_seq'])
+    if args.alphabet == 'aa':
+        usecols = ['function', 'prot_seq']
     else:
-        df = pd.read_parquet(pf_path, columns=['function', 'prot_seq'])
+        usecols = ['function', 'cds_dna', 'cds_dna_hash']
+    if in_path.suffix == '.csv':
+        df = pd.read_csv(in_path, usecols=usecols)
+    else:
+        df = pd.read_parquet(in_path, columns=usecols)
     print(f"  Loaded {len(df):,} rows in {time.time()-t0:.1f}s")
 
     out_root = Path(args.out_root)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    # Validate function names
     unknown = [f for f in args.functions if f not in SHORT_TO_FUNCTION]
     if unknown:
         raise SystemExit(f"Unknown function short names: {unknown}. "
                          f"Known: {sorted(SHORT_TO_FUNCTION)}")
 
-    # Sweep
     all_stats = []
     for threshold in args.thresholds:
         print(f"\n=== threshold = {threshold:.2f} ===")
@@ -291,6 +356,8 @@ def main() -> None:
                 out_root=out_root,
                 threads=args.threads,
                 force=args.force,
+                alphabet=args.alphabet,
+                algorithm=args.algorithm,
             )
             all_stats.append(stats)
 
@@ -307,10 +374,15 @@ def main() -> None:
     # Markdown report
     if args.results_md is None:
         today = time.strftime('%Y-%m-%d')
-        results_md = PROJECT_ROOT / 'docs' / 'results' / f"{today}_protein_redundancy_per_function.md"
+        suffix = f"_{args.alphabet}" if args.alphabet == 'nt' else ''
+        results_md = (
+            PROJECT_ROOT / 'docs' / 'results'
+            / f"{today}_protein_redundancy_per_function{suffix}.md"
+        )
     else:
         results_md = Path(args.results_md)
-    write_results_markdown(results_md, stats_df, str(pf_path))
+    write_results_markdown(results_md, stats_df, str(in_path),
+                           alphabet=args.alphabet, algorithm=args.algorithm)
 
 
 if __name__ == '__main__':

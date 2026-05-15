@@ -45,18 +45,40 @@ def _threshold_label(t: float) -> str:
     return f"id{int(round(t * 100)):03d}"
 
 
-def build_isolate_pairs(prot_df: pd.DataFrame, schema_pair: Tuple[str, str]) -> pd.DataFrame:
+def build_isolate_pairs(
+    df: pd.DataFrame,
+    schema_pair: Tuple[str, str],
+    alphabet: str = 'aa',
+) -> pd.DataFrame:
     """Return a DataFrame with one row per isolate that has BOTH proteins of schema_pair.
 
     Columns: assembly_id, seq_hash_a, seq_hash_b (matching the v2 pair convention:
     slot a = func_left = schema_pair[0]; slot b = func_right = schema_pair[1]).
-    Uses raw-sequence md5 (matches Stage 1's seq_hash).
+
+    Hash semantics depend on `alphabet`:
+        - 'aa' (default): `seq_hash` is `md5(prot_seq)` (matches Stage 1).
+          Input df must contain 'function' + 'prot_seq'.
+        - 'nt': `seq_hash` is the CDS DNA hash (i.e. the column populated by
+          `extract_cds_dna.py` as `cds_dna_hash`). Input df must contain
+          'function' + 'cds_dna_hash'. The output column is still named
+          `seq_hash_*` so the cluster_lookup join (which is keyed on
+          `seq_hash`) works without modification.
     """
     func_left, func_right = schema_pair
-    sub = prot_df[prot_df['function'].isin([func_left, func_right])].copy()
-    sub['seq_hash'] = sub['prot_seq'].astype(str).map(
-        lambda s: hashlib.md5(s.encode()).hexdigest()
-    )
+    sub = df[df['function'].isin([func_left, func_right])].copy()
+    if alphabet == 'aa':
+        sub['seq_hash'] = sub['prot_seq'].astype(str).map(
+            lambda s: hashlib.md5(s.encode()).hexdigest()
+        )
+    elif alphabet == 'nt':
+        if 'cds_dna_hash' not in sub.columns:
+            raise ValueError(
+                "alphabet='nt' requires 'cds_dna_hash' column "
+                "(build cds_final via src/preprocess/extract_cds_dna.py)"
+            )
+        sub['seq_hash'] = sub['cds_dna_hash']
+    else:
+        raise ValueError(f"alphabet must be 'aa' or 'nt', got {alphabet!r}")
     a = sub[sub['function'] == func_left][['assembly_id', 'seq_hash']].rename(
         columns={'seq_hash': 'seq_hash_a'})
     b = sub[sub['function'] == func_right][['assembly_id', 'seq_hash']].rename(
@@ -173,21 +195,40 @@ FUNCTION_TO_SHORT = {
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Pre-flight bipartite-component feasibility for cluster_disjoint.")
-    p.add_argument('--protein_final', required=True, help='Path to protein_final.parquet.')
-    p.add_argument('--clusters_root', required=True, help='Root of cluster artifacts (e.g. data/.../clusters).')
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument('--protein_final', help='aa-mode input: path to protein_final.parquet.')
+    src.add_argument('--cds_final',     help='nt-mode input: path to cds_final.parquet.')
+    p.add_argument('--alphabet', choices=['aa', 'nt'], default=None,
+                   help='Sequence alphabet (default: aa for --protein_final, nt for --cds_final).')
+    p.add_argument('--clusters_root', required=True,
+                   help='Root of cluster artifacts. For nt mode this should be the '
+                        'clusters_nt/ directory built with --alphabet nt.')
     p.add_argument('--schema_pair', nargs=2, required=True,
                    help='Two function names (slot_a, slot_b).')
     p.add_argument('--thresholds', nargs='+', type=float, required=True)
     p.add_argument('--out_csv', default=None, help='Optional output CSV path.')
     args = p.parse_args()
 
-    print(f"Loading {args.protein_final}...")
-    df = pd.read_parquet(args.protein_final, columns=['assembly_id', 'function', 'prot_seq'])
+    if args.protein_final and not args.alphabet:
+        args.alphabet = 'aa'
+    if args.cds_final and not args.alphabet:
+        args.alphabet = 'nt'
+    if args.protein_final and args.alphabet == 'nt':
+        raise SystemExit("--protein_final is aa-only; use --cds_final for nt mode.")
+    if args.cds_final and args.alphabet == 'aa':
+        raise SystemExit("--cds_final is nt-only; use --protein_final for aa mode.")
+
+    in_path = args.protein_final or args.cds_final
+    print(f"Loading {in_path}  (alphabet={args.alphabet}) ...")
+    if args.alphabet == 'aa':
+        df = pd.read_parquet(in_path, columns=['assembly_id', 'function', 'prot_seq'])
+    else:
+        df = pd.read_parquet(in_path, columns=['assembly_id', 'function', 'cds_dna_hash'])
     print(f"  {len(df):,} rows")
 
     schema_pair = tuple(args.schema_pair)
     print(f"\nschema_pair = {schema_pair}")
-    isolate_pairs = build_isolate_pairs(df, schema_pair)
+    isolate_pairs = build_isolate_pairs(df, schema_pair, alphabet=args.alphabet)
     print(f"  Isolates with both proteins: {len(isolate_pairs):,}")
     print(f"  Unique seq_hash_a: {isolate_pairs['seq_hash_a'].nunique():,}")
     print(f"  Unique seq_hash_b: {isolate_pairs['seq_hash_b'].nunique():,}")

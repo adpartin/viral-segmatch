@@ -100,6 +100,64 @@ def export_function_fasta(
     }
 
 
+def export_function_cds_fasta(
+    cds_df: pd.DataFrame,
+    function_name: str,
+    out_path: Path,
+) -> dict:
+    """Export unique CDS DNA sequences for one function to FASTA.
+
+    Nt counterpart of `export_function_fasta`. Takes a cds_final-style
+    DataFrame (must contain 'function', 'cds_dna', 'cds_dna_hash')
+    instead of the aa protein table, and writes one FASTA entry per
+    unique `cds_dna_hash` with the hash as the header. The body is the
+    raw CDS DNA — no `*`-stripping (DNA has no terminal-stop
+    representation) and no IUPAC scrubbing (mmseqs accepts ambiguity
+    codes natively in nt search-type 3).
+
+    Returns a stats dict mirroring `export_function_fasta`.
+    """
+    if 'cds_dna' not in cds_df.columns or 'cds_dna_hash' not in cds_df.columns:
+        raise ValueError(
+            "cds_df must contain 'cds_dna' and 'cds_dna_hash' columns "
+            "(build via src/preprocess/extract_cds_dna.py)"
+        )
+    sub = cds_df[cds_df['function'] == function_name]
+    if len(sub) == 0:
+        raise ValueError(f"No rows match function={function_name!r}")
+    n_rows = len(sub)
+
+    seq_df = (
+        sub[['cds_dna_hash', 'cds_dna']]
+        .drop_duplicates(subset='cds_dna_hash')
+        .reset_index(drop=True)
+    )
+
+    # Sanity: every cds_dna_hash should map to a single distinct cds_dna.
+    if seq_df['cds_dna_hash'].duplicated().any():
+        n_dup = int(seq_df['cds_dna_hash'].duplicated().sum())
+        raise AssertionError(
+            f"{n_dup} duplicate cds_dna_hash rows after drop_duplicates — "
+            f"hash<->dna mapping is inconsistent."
+        )
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open('w') as f:
+        for _, row in seq_df.iterrows():
+            f.write(f">{row['cds_dna_hash']}\n{row['cds_dna']}\n")
+
+    return {
+        'function': function_name,
+        'n_rows_input': int(n_rows),
+        'n_unique_sequences': int(len(seq_df)),
+        'n_with_ambiguity': int(
+            seq_df['cds_dna'].str.contains('[^ACGTacgt]', regex=True).sum()
+        ),
+        'fasta_path': str(out_path),
+    }
+
+
 @dataclass
 class MMseqsResult:
     """Output paths from a single mmseqs easy-cluster run."""
@@ -122,8 +180,10 @@ def run_mmseqs_easy_cluster(
     mmseqs_bin: str = 'mmseqs',
     log_path: Optional[Path] = None,
     extra_args: Optional[list] = None,
+    alphabet: str = 'aa',
+    algorithm: str = 'cluster',
 ) -> MMseqsResult:
-    """Run `mmseqs easy-cluster` as a subprocess.
+    """Run `mmseqs easy-cluster` (or `easy-linclust`) as a subprocess.
 
     Defaults match the plan: --min-seq-id={min_seq_id} -c 0.8 --cov-mode 0.
     Produces <out_prefix>_cluster.tsv among other outputs.
@@ -139,6 +199,14 @@ def run_mmseqs_easy_cluster(
         mmseqs_bin: binary name on PATH (default 'mmseqs').
         log_path: if given, mmseqs stdout/stderr is written here.
         extra_args: any additional flags to append.
+        alphabet: 'aa' (default) or 'nt'. 'nt' passes `--dbtype 2` so
+            mmseqs treats the input as nucleotides; required for the
+            Experiment B-nt CDS clustering path.
+        algorithm: 'cluster' (default, `easy-cluster` — slower, sensitive
+            cascaded clustering) or 'linclust' (`easy-linclust` — linear
+            time, less sensitive). linclust is appropriate for the nt
+            redundancy sweep on the full corpus where easy-cluster's
+            prefilter is the bottleneck.
     """
     fasta_path = Path(fasta_path)
     out_prefix = Path(out_prefix)
@@ -148,12 +216,19 @@ def run_mmseqs_easy_cluster(
         raise FileNotFoundError(f"FASTA not found: {fasta_path}")
     if shutil.which(mmseqs_bin) is None:
         raise RuntimeError(f"mmseqs binary not on PATH: {mmseqs_bin!r}")
+    if alphabet not in {'aa', 'nt'}:
+        raise ValueError(f"alphabet must be 'aa' or 'nt', got {alphabet!r}")
+    if algorithm not in {'cluster', 'linclust'}:
+        raise ValueError(
+            f"algorithm must be 'cluster' or 'linclust', got {algorithm!r}"
+        )
 
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
+    subcmd = 'easy-cluster' if algorithm == 'cluster' else 'easy-linclust'
     cmd = [
-        mmseqs_bin, 'easy-cluster',
+        mmseqs_bin, subcmd,
         str(fasta_path),
         str(out_prefix),
         str(tmp_dir),
@@ -161,6 +236,11 @@ def run_mmseqs_easy_cluster(
         '-c', f'{coverage:g}',
         '--cov-mode', str(cov_mode),
     ]
+    if alphabet == 'nt':
+        # `easy-cluster`/`easy-linclust` accept --dbtype through createdb;
+        # 2 = nucleotide. (`--search-type 3` is a `search`-only flag in
+        # mmseqs 18 and gets rejected here.)
+        cmd += ['--dbtype', '2']
     if threads is not None:
         cmd += ['--threads', str(threads)]
     if extra_args:
