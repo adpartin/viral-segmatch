@@ -12,16 +12,36 @@ This script answers: given a schema_pair and a cluster threshold, what does the
 bipartite-component-size distribution look like? If the largest component
 exceeds 80% of pairs, the partition is forced and 80/10/10 is unachievable.
 
+Supports both alphabets:
+  - aa via `--protein_final`: hashes `prot_seq` with md5 to match Stage 1's
+    `seq_hash`, joins to aa cluster lookups under `<clusters_root>/id<NN>/`.
+  - nt via `--cds_final`: uses `cds_dna_hash` from `cds_final.parquet`
+    (Stage 1.5 output) as the slot key, joins to nt cluster lookups under
+    `<clusters_root>/id<NN>/` (typically `clusters_nt/`).
+
+The two modes are mutually exclusive; `--alphabet` is inferred from which
+input is provided unless overridden.
+
 CLI:
-    python -m src.analysis.cluster_disjoint_feasibility \
-        --protein_final data/processed/flu/July_2025/protein_final.parquet \
-        --clusters_root data/processed/flu/July_2025/clusters \
-        --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
-        --thresholds 1.00 0.99 0.95 0.90 0.80 \
+    # aa feasibility (HA/NA)
+    python -m src.analysis.cluster_disjoint_feasibility \\
+        --protein_final data/processed/flu/July_2025/protein_final.parquet \\
+        --clusters_root data/processed/flu/July_2025/clusters \\
+        --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \\
+        --thresholds 1.00 0.99 0.95 0.90 0.80 \\
         --out_csv docs/results/2026-05-14_cluster_disjoint_feasibility_ha_na.csv
 
+    # nt feasibility (HA/NA on CDS DNA)
+    python -m src.analysis.cluster_disjoint_feasibility \\
+        --cds_final     data/processed/flu/July_2025/cds_final.parquet \\
+        --clusters_root data/processed/flu/July_2025/clusters_nt \\
+        --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \\
+        --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \\
+        --out_csv docs/results/2026-05-15_cluster_disjoint_feasibility_nt_ha_na.csv
+
 Produces a per-threshold summary table:
-    threshold  n_pairs  n_components  largest_pct  p99_pct  p90_pct  feasible_8010
+    threshold  n_pairs  n_components  largest_pct  second_pct  p99_cumpct
+    p90_cumpct  top5_pct  singleton_components  feasible_8010
 """
 from __future__ import annotations
 

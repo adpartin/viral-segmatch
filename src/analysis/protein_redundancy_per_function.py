@@ -2,27 +2,51 @@
 
 Step 1 of the cluster-disjoint splits plan
 (`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`):
-characterize the within-function protein-sequence redundancy of
-`protein_final` at several mmseqs2 identity thresholds. The cluster-size
-distribution per (function, threshold) decides which thresholds are
-feasible for cluster-disjoint routing (a threshold that collapses too
-much of a function into one giant cluster makes the partition trivial /
-forces unacceptable pair-drops).
+characterize the within-function sequence redundancy at several mmseqs2
+identity thresholds. The cluster-size distribution per (function,
+threshold) decides which thresholds are feasible for cluster-disjoint
+routing (a threshold that collapses too much of a function into one
+giant cluster makes the partition trivial / forces unacceptable
+pair-drops).
 
-Side effect: produces the per-function cluster lookups that the routing
-helper consumes downstream. Two artifact layouts are written:
+Supports two alphabets:
+  - aa: clusters `prot_seq` from `protein_final.parquet` (Stage 1 output)
+        using `mmseqs easy-cluster` (sensitive cascaded path).
+  - nt: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output
+        from `src/preprocess/extract_cds_dna.py`) using `mmseqs
+        easy-linclust` (linear-time; ~8x faster on long CDS sequences,
+        within-noise different cluster counts at our thresholds).
+        nt mode passes `--dbtype 2` to mmseqs.
 
-  data/processed/flu/{version}/clusters/
+Side effect: produces the per-function cluster lookups that the
+routing helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
+consumes downstream. Artifact layout:
+
+  <out_root>/
     fasta/<short_name>.fasta           (one per function; reused across thresholds)
     id<th>/<short_name>_cluster.parquet (one per (function, threshold))
     id<th>/combined_cluster.parquet     (concatenation of per-function parquets)
 
+Typical out_root values:
+  data/processed/flu/{version}/clusters     (aa)
+  data/processed/flu/{version}/clusters_nt  (nt)
+
 CLI:
-    python -m src.analysis.protein_redundancy_per_function \
-        --protein_final data/processed/flu/July_2025/protein_final.parquet \
-        --out_root data/processed/flu/July_2025/clusters \
-        --thresholds 1.00 0.99 0.95 0.90 0.80 \
-        --functions HA NA PB2 PB1 PA NP M1 M2 NEP NS1 \
+    # aa redundancy sweep — sensitive easy-cluster
+    python -m src.analysis.protein_redundancy_per_function \\
+        --protein_final data/processed/flu/July_2025/protein_final.parquet \\
+        --out_root      data/processed/flu/July_2025/clusters \\
+        --thresholds 1.00 0.99 0.95 0.90 0.80 \\
+        --functions HA NA PB2 PB1 PA NP M1 M2 NEP NS1 \\
+        --threads 8
+
+    # nt redundancy sweep — fast easy-linclust on cds_final
+    python -m src.analysis.protein_redundancy_per_function \\
+        --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
+        --out_root   data/processed/flu/July_2025/clusters_nt \\
+        --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \\
+        --functions HA NA PB2 PB1 \\
+        --algorithm linclust \\
         --threads 8
 """
 from __future__ import annotations

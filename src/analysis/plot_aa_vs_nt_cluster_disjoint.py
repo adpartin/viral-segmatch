@@ -6,12 +6,18 @@ and each model in {LGBM, 1-NN cosine margin}, this script reads
 `post_hoc/metrics.csv` from the latest matching baseline run and emits
 a grouped-bar PNG + a flat CSV summary.
 
-Including the 1-NN cosine-margin baseline alongside LGBM is the
-operational leakage diagnostic described in
-`docs/methods/leakage_definitions.md`: 1-NN is a near-neighbor lookup,
-so it benefits maximally from similarity leakage and suffers
-disproportionately under cluster_disjoint. The 1-NN-vs-LGBM gap is
-therefore the residual-leakage signal at each routing.
+1-NN cosine margin is the operational leakage diagnostic described in
+`docs/methods/leakage_definitions.md` — its prediction is exactly the
+label of the nearest train pair under cosine distance, so its accuracy
+is the upper bound on what near-neighbor lookup can achieve on the given
+dataset. The 1-NN-vs-LGBM gap at each routing therefore lower-bounds
+what LGBM is doing *beyond* near-neighbor lookup. On Flu A (2026-05-15)
+this gap turned out to be ≤0 at every cell — 1-NN matched LGBM at
+id100 cells and slightly outperformed LGBM at id099 cells, indicating
+that cluster_disjoint weakens the near-neighbor signal gradually
+rather than removing it (see
+`docs/results/2026-05-15_cluster_disjoint_nt_results.md` for the full
+reading).
 
 The reference deliverable promised by step 9 of
 `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt
