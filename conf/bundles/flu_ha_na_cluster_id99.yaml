@@ -1,0 +1,19 @@
+# STATUS: experimental -- HA/NA cluster_disjoint routing at aa identity >= 0.99.
+# Inherits flu_ha_na (full unfiltered, k-mer k=6 nt, unit_norm + unit_diff+prod,
+# LGBM baseline). Overrides only split_strategy to switch from seq_disjoint to
+# cluster_disjoint at threshold 0.99 (catches near-identity neighbors that
+# seq_disjoint at 100% identity does not).
+#
+# See:
+#   docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md (Experiment B)
+#   docs/results/2026-05-14_protein_redundancy_per_function.md (feasibility table)
+
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  split_strategy:
+    mode: cluster_disjoint
+    cluster_id_path: data/processed/flu/July_2025/clusters/id099/combined_cluster.parquet
+    cluster_id_threshold: 0.99

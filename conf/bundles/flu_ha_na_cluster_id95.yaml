@@ -1,0 +1,19 @@
+# STATUS: infeasible -- bipartite collapse at id095 on the full-corpus HA/NA pool.
+# Per-function clustering at id095 keeps fine structure (HA=711 clusters,
+# NA=625 clusters with largest ~11-13% of unique seqs). BUT the bipartite
+# graph on (cluster_id_a, cluster_id_b) collapses: one mega-component covers
+# 98.5% of deduped pairs (because dominant HA clusters connect to dominant
+# NA clusters via thousands of shared isolates). Stage 3 will produce a
+# 98.5 / 0.8 / 0.8 split — too skewed to be informative.
+# Kept for reference; not run. See
+# docs/results/2026-05-14_cluster_disjoint_feasibility_ha_na.csv.
+
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  split_strategy:
+    mode: cluster_disjoint
+    cluster_id_path: data/processed/flu/July_2025/clusters/id095/combined_cluster.parquet
+    cluster_id_threshold: 0.95

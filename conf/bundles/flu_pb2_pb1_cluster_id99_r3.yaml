@@ -1,0 +1,16 @@
+# STATUS: experimental -- PB2/PB1 cluster_disjoint id099 at neg_to_pos_ratio=3.0.
+# Inherits flu_pb2_pb1_cluster_id99 (cluster_disjoint at aa identity >= 0.99,
+# train-heavy 87/6.4/6.4 split). Tripled negative count vs r=1.5 to test
+# whether the FP-precision drop seen at r=1.5 (MLP precision = 0.74) can be
+# improved by harder decision-boundary training.
+#
+# See:
+#   docs/results/2026-05-14_cluster_disjoint_id99_results.md
+#   docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md (Experiment B)
+
+defaults:
+  - flu_pb2_pb1_cluster_id99
+  - _self_
+
+dataset:
+  neg_to_pos_ratio: 3.0
