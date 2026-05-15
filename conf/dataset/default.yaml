@@ -133,6 +133,24 @@ negative_sampling: null
 #     subtype_year_only:    0.15
 #     host_subtype_year:    0.20
 #   on_shortfall: redistribute  # redistribute | warn_only | error
+#
+# on_shortfall semantics — what happens when a regime cannot reach its target
+# within the per-regime sampling budget (e.g. the eligible pair pool for that
+# regime is too small after metadata filtering / co-occurrence exclusion):
+#   - 'redistribute' (default, recommended): after per-regime sampling finishes,
+#       run one regime-blind redistribution pass that accepts ANY pair whose
+#       regime is still under target, until the total `fill_phase_target` is
+#       met or the redistribution attempt budget runs out. Maximizes total
+#       negatives placed at the cost of skewing the achieved per-regime mix.
+#   - 'warn_only': accept the partial sample as-is. The achieved per-regime
+#       mix matches what the budget could produce; total pair count may fall
+#       short. Useful for diagnostic runs where the goal is to *measure* the
+#       per-regime availability, not to hit a target.
+#   - 'error': raise RuntimeError if any regime is below target after the
+#       per-regime pass. Per-regime shortfall summary
+#       (target / achieved / available) is included in the message. Use when
+#       you want the run to fail loudly rather than silently produce a
+#       skewed dataset.
 
 # Drop isolates with ambiguous hn_subtype before pair generation. The full
 # Flu A enriched set carries ~1,006 isolates out of ~108,530 (~0.93%) whose
@@ -143,14 +161,23 @@ negative_sampling: null
 # Implemented by `_pair_helpers.drop_ambiguous_hn_subtype()`.
 drop_ambiguous_subtype: true
 
-# v2-only: split-strategy dispatch. Default 'random' preserves the existing
-# row-level shuffle-split. 'seq_disjoint' routes positive pairs by bipartite
-# (side-A, side-B) connected components so each unique sequence on the chosen
-# hash family appears in at most one split. Mitigates Mode #3 (sequence-level
-# leakage) — see docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
-# docs/methods/leakage_definitions.md.
+# v2-only: split-strategy dispatch. Three modes are supported:
 #
-# hash_key picks the hash family used to define components when mode=seq_disjoint:
+#   - 'random' (legacy): row-level shuffle-split. Fast; allows sequence and
+#     cluster leakage across splits. Useful as a baseline only.
+#   - 'seq_disjoint' (current default): routes positive pairs by bipartite
+#     (side-A, side-B) connected components on the chosen hash family so each
+#     unique sequence appears in at most one split. Mitigates leakage Mode #3
+#     (sequence-level leakage). See
+#     docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
+#     docs/methods/leakage_definitions.md.
+#   - 'cluster_disjoint' (Experiment B / B-nt): routes by bipartite-CC on
+#     mmseqs2 cluster ids instead of identity hashes; mitigates leakage Mode #4
+#     (cluster leakage — near-clone neighbors below identity but high
+#     similarity). See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+#
+# hash_key picks the hash family used to define components when mode=seq_disjoint
+# (ignored in the other modes):
 #   - 'seq' (default): partition on `seq_hash_a`/`seq_hash_b` — the **protein**
 #     hash (md5 of the protein sequence). Stricter: no protein appears in two
 #     splits, even across synonymous-mutation DNA variants. The right choice
@@ -160,6 +187,33 @@ drop_ambiguous_subtype: true
 #     Looser: two pairs with the same protein but different DNAs can land in
 #     different splits. Appropriate when downstream features are DNA-derived
 #     (k-mer) and maximum sample-level granularity is desired.
+#
+# cluster_disjoint-only parameters (required when mode=cluster_disjoint;
+# ignored otherwise):
+#   - cluster_id_path: path to a (seq_hash, cluster_id) parquet produced by
+#     `src/analysis/protein_redundancy_per_function.py`. Typically points at
+#     `data/processed/<virus>/<version>/clusters/id<NN>/combined_cluster.parquet`
+#     for aa clustering, or `clusters_nt/id<NN>/combined_cluster.parquet`
+#     for nt (CDS DNA) clustering.
+#   - cluster_id_threshold: float (0–1). Documentation-only; the actual
+#     threshold is whatever was used to build cluster_id_path. Recorded in
+#     the cluster_disjoint_audit so runs can be cross-referenced.
+#   - cluster_alphabet: 'aa' (default) or 'nt'. 'aa' joins on seq_hash
+#     (md5 of prot_seq); 'nt' attaches cds_dna_hash to pos_df via
+#     `_pair_helpers.attach_cds_dna_hash_to_pos_df` and joins on that.
+#     'nt' requires `cds_final.parquet` to exist next to protein_final
+#     (built by `src/preprocess/extract_cds_dna.py`).
+#
+# Feasibility caveat for cluster_disjoint on Flu A: only id100 and id099 are
+# operable on the full corpus on both alphabets — below those thresholds the
+# bipartite mega-component collapses to >80% of pairs and 80/10/10 splits
+# become infeasible. See
+# docs/results/2026-05-14_protein_redundancy_per_function.md (aa) and
+# docs/results/2026-05-15_cluster_disjoint_nt_results.md (nt).
 split_strategy:
-  mode: seq_disjoint  # 'random' (default) | 'seq_disjoint' (default)
+  mode: seq_disjoint  # 'random' | 'seq_disjoint' (default) | 'cluster_disjoint'
   hash_key: seq       # 'seq' (protein, default) | 'dna' (nucleotide)
+  # cluster_disjoint-only knobs — set when mode=cluster_disjoint.
+  # cluster_id_path:      data/processed/flu/July_2025/clusters/id099/combined_cluster.parquet
+  # cluster_id_threshold: 0.99
+  # cluster_alphabet:     aa   # 'aa' (default) | 'nt'
