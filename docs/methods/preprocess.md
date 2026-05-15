@@ -129,7 +129,14 @@ The protein and genome tables are kept separate by design:
 1. Drop rows where `assign_protein_segments` left `canonical_segment` null
    (function and replicon_type didn't match a known biological mapping).
 2. Keep `type == 'CDS'` only.
-3. Drop `quality == 'Poor'` (genome-level).
+3. Drop `quality == 'Poor'` (genome-level, applies to the whole assembly)
+   OR `feature_quality == 'Poor'` (per-protein, set only on the 8 majors).
+   `feature_quality == NaN` (the BV-BRC state for auxiliaries — M2, NEP,
+   M42, NS3, PA-X, etc.) is NOT treated as Poor; the filter only fires on
+   the explicit string `'Poor'`. On the current Flu A July 2025 corpus the
+   feature_quality drop is a no-op (0 rows), but the filter is in place
+   for defense-in-depth against future GTO releases with one Poor major
+   in an otherwise-Good isolate.
 4. Drop `replicon_type == 'Unassigned'`.
 5. `handle_assembly_duplicates`: collapse `(prot_seq, assembly_id)`
    duplicates. For Flu A every file is one assembly, so the GCF/GCA
@@ -144,7 +151,10 @@ The protein and genome tables are kept separate by design:
 `handle_genome_duplicates`):
 
 1. Drop null `canonical_segment`.
-2. Drop `quality == 'Poor'` (genome-level — same limitation).
+2. Drop `quality == 'Poor'` (genome-level) OR `contig_quality == 'Poor'`
+   (per-contig). Same NaN-aware semantics as the protein side: `NaN` is
+   not treated as Poor. No-op on the current corpus; in place for future
+   GTO releases with one Poor segment in an otherwise-Good isolate.
 3. Drop `replicon_type == 'Unassigned'`.
 4. Drop missing `dna_seq`.
 5. `summarize_dna_qc`: annotate length, GC, ambiguous-base fraction.
@@ -165,7 +175,9 @@ of the filter pipeline. This is a strong invariant: a row in
 | QC step | Applies to | Module |
 |---|---|---|
 | Assembly deduplication | Both | `gto_utils.py` |
-| Genome quality filter (`quality == 'Poor'`) | Both | `preprocess_flu.py` |
+| Genome-level quality filter (`quality == 'Poor'`) | Both | `preprocess_flu.py` |
+| Per-protein quality filter (`feature_quality == 'Poor'`; NaN-tolerant) | Protein only | `preprocess_flu.py` |
+| Per-contig quality filter (`contig_quality == 'Poor'`; NaN-tolerant) | DNA only | `preprocess_flu.py` |
 | Single-file-per-assembly enforcement | Both | `gto_utils.py` |
 | Replicon-type validation (`Unassigned` drop) | Both | `preprocess_flu.py` |
 | Amino-acid ambiguity (B / Z / J / X / U / O) | Protein only | `protein_utils.py` |
@@ -185,8 +197,8 @@ of the filter pipeline. This is a strong invariant: a row in
 | 2 | **ESM-2 prep thresholds hardcoded.** `max_internal_stops=0.1`, `max_x_residues=0.1`, `x_imputation='G'`, `strip_terminal_stop=True` live as locals in main. Should move under `virus.preprocessing.esm2_prep:` in `flu.yaml` so they appear in `resolved_config.yaml`. | `preprocess_flu.py:1159-1162` | Real (reproducibility) |
 | 3 | **`gto['id']` silently ignored.** BV-BRC genome ID never captured. Pipeline-internal `assembly_id` is filename-derived. | `extract_data_from_gto` | Real (linkability), but currently no consumer needs it. |
 | 4 | **Genome metadata is a subset of protein metadata.** Genome rows lack `assembly_prefix, ncbi_taxonomy_id, genetic_code, scientific_name`. | `extract_data_from_gto:135` | Cosmetic — Stage 3 only pulls `dna_seq`. |
-| 5 | **`quality` is genome-level, not per-segment.** A "Good" genome with one "Poor" segment passes. Per-segment `contig_quality` is captured but ignored. | `apply_protein_basic_filters`, `apply_genome_basic_filters` | Documented TODO. |
-| 6 | **`feature_quality` captured but never filtered on.** Often absent on `mat_peptide` features anyway. | `preprocess_flu.py:95, 561` | Documented TODO. |
+| 5 | ~~**`quality` is genome-level, not per-segment.**~~ Resolved 2026-05-15: `apply_genome_basic_filters` now drops on `contig_quality == 'Poor'` in addition to the genome-level `quality`. NaN (the BV-BRC state for un-annotated contigs) is NOT treated as Poor. No-op on the current corpus; defense-in-depth for future releases. | `apply_genome_basic_filters` | Resolved |
+| 6 | ~~**`feature_quality` captured but never filtered on.**~~ Resolved 2026-05-15: `apply_protein_basic_filters` now drops on `feature_quality == 'Poor'`. NaN (the BV-BRC state for auxiliary proteins like M2/NEP/M42/NS3/PA-X) is NOT treated as Poor. No-op on the current corpus; defense-in-depth for future releases. | `apply_protein_basic_filters` | Resolved |
 | 7 | **`prot_df_no_seq` saved but not subtracted.** Rows with missing `prot_seq` carry through until `esm2_ready_seq.notna()` filters them. Asymmetric with the genome side, which drops missing `dna_seq` explicitly. | `preprocess_flu.py:1075-1077` | Cosmetic. |
 
 ---
