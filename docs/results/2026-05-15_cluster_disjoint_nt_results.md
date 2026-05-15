@@ -139,6 +139,72 @@ flat CSV: `lgbm_cluster_aa_vs_nt.csv`.)
    result that reflects what each partition is and isn't blocking, not
    a model failure.
 
+### 1-NN cosine margin (leakage upper bound) at every routing
+
+To test whether the cluster_disjoint partition is removing near-neighbor
+leakage, we ran the 1-NN cosine-margin baseline (`baselines/knn1_margin.py`
+— the dedicated leakage diagnostic) on the same 8 dataset × pair cells
+as LGBM. The prediction of 1-NN is the label of the nearest train pair
+under cosine distance, so its accuracy is exactly the upper bound of
+"how much can you predict from nearest-neighbor lookup alone?"
+
+| Pair    | Routing            | LGBM F1 | 1-NN F1 | Δ (1NN−LGBM) | LGBM AUC-PR | 1-NN AUC-PR |
+|---|---|---:|---:|---:|---:|---:|
+| HA/NA   | seq_disjoint       | 0.931 | 0.938 | +0.007 | 0.971 | 0.963 |
+| HA/NA   | aa cluster_id099   | 0.660 | **0.817** | **+0.157** | 0.823 | 0.872 |
+| HA/NA   | nt cluster_id100   | 0.958 | 0.964 | +0.006 | 0.986 | 0.977 |
+| HA/NA   | nt cluster_id099   | 0.861 | 0.883 | +0.022 | 0.927 | 0.937 |
+| PB2/PB1 | seq_disjoint       | 0.930 | 0.941 | +0.011 | 0.970 | 0.970 |
+| PB2/PB1 | aa cluster_id099   | 0.759 | **0.828** | **+0.069** | 0.854 | 0.862 |
+| PB2/PB1 | nt cluster_id100   | 0.965 | 0.968 | +0.003 | 0.988 | 0.979 |
+| PB2/PB1 | nt cluster_id099   | 0.863 | 0.893 | +0.030 | 0.910 | 0.942 |
+
+**Going-in hypothesis (didn't survive):** 1-NN ≈ LGBM at id100 and
+1-NN ≪ LGBM at id099. If cluster_disjoint successfully removed
+near-neighbor leakage, the test set would be far from train and 1-NN
+would collapse while LGBM (with its richer model class) would survive.
+
+**Actual finding:** 1-NN ≥ LGBM at *every* routing, and the
+1-NN-over-LGBM gap is *widest* at aa id099 — the routing intended to be
+the hardest. The cluster_disjoint partition makes the task harder for
+both models (LGBM drops 27 pp F1 on HA/NA seq_disjoint → aa id099;
+1-NN drops 12 pp on the same pairing), but LGBM degrades *more* than
+1-NN. AUC-PR tells the same story qualitatively but with smaller gaps:
++5 pp on HA/NA aa id099, near-ties elsewhere.
+
+**Three plausible readings, all consistent with the data:**
+
+a. **Cluster_disjoint does not eliminate the near-neighbor signal — it
+   weakens it gradually.** Even at aa id099, every test pair still has
+   a *closest* train pair (just farther away than under seq_disjoint).
+   1-NN's prediction-by-nearest-neighbor stays well-calibrated under
+   this weakening; LGBM's tree splits over-rely on features that don't
+   generalize across the cluster boundary.
+
+b. **LGBM's hyperparameters are tuned for the seq_disjoint distribution.**
+   The production LGBM defaults (in `conf/baselines/default.yaml`)
+   were not re-tuned for the harder cluster_disjoint distributions.
+   This is the cheapest fix to test if we want to revisit.
+
+c. **The leakage-diagnostic doctrine should be read in both directions.**
+   The doctrine in `docs/methods/leakage_definitions.md` says "if a
+   sophisticated model is not meaningfully better than 1-NN, it is
+   doing soft near-neighbor lookup, not generalization." The corollary
+   on this dataset: LGBM is doing near-neighbor lookup (id100 cells)
+   *and* losing to 1-NN when the lookup gets harder (id099 cells).
+   That suggests there's no LGBM-shaped headroom beyond 1-NN here;
+   the comparison "MLP/LGBM vs 1-NN" is informative as a residual-
+   leakage gauge but does not by itself confirm that cluster_disjoint
+   removed the leakage — *both* models retain enough signal that 1-NN
+   stays at 0.82–0.94 F1 across all four routings.
+
+The cluster_disjoint partition IS doing what it claims (the F1 drop
+from seq_disjoint to aa id099 is real and large on both models); the
+"1-NN as upper bound" story just shows that the residual leakage at
+id099 is still substantial — consistent with the 47–55% of test
+proteins that retain a ≥99.5%-identical aa neighbor in train per the
+2026-05-13 similarity diagnostic.
+
 ## Caveat on PB2/PB1 partial mitigation
 
 The aa-vs-nt similarity diagnostic on PB2/PB1 showed a ~30 pp
@@ -156,9 +222,10 @@ in their header (`conf/bundles/flu_pb2_pb1_cluster_nt_id*.yaml`).
 
 - Cluster artifacts: `data/processed/flu/July_2025/clusters_nt/id{NN}/`
 - Datasets: `data/datasets/flu/July_2025/runs/dataset_flu_{ha_na,pb2_pb1}_cluster_nt_id{100,099}_*`
-- Models: `models/flu/July_2025/runs/baseline_lgbm_flu_{ha_na,pb2_pb1}_cluster_nt_id{100,099}_*`
-- Plot script: `src/analysis/plot_aa_vs_nt_cluster_disjoint.py`
-- Plot output: `results/flu/July_2025/runs/cluster_aa_vs_nt/`
+- LGBM runs: `models/flu/July_2025/runs/baseline_lgbm_flu_{ha_na,pb2_pb1}_cluster_nt_id{100,099}_*`
+- 1-NN runs: `models/flu/July_2025/runs/baseline_knn1_margin_flu_{ha_na,pb2_pb1}_{,cluster_id99,cluster_nt_id{100,099}}_*`
+- Plot script: `src/analysis/plot_aa_vs_nt_cluster_disjoint.py` (autodiscovers latest LGBM + 1-NN runs per bundle and emits the comparison)
+- Plot output: `results/flu/July_2025/runs/cluster_aa_vs_nt/cluster_aa_vs_nt.{png,csv}`
 
 ## Related
 

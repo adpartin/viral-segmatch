@@ -1,9 +1,17 @@
-"""Plot the aa-vs-nt cluster_disjoint LGBM comparison (Experiment B-nt).
+"""Plot the aa-vs-nt cluster_disjoint comparison (Experiment B-nt).
 
-For each schema pair (HA/NA, PB2/PB1) and each routing configuration
+For each schema pair (HA/NA, PB2/PB1), each routing configuration
 {seq_disjoint, aa-cluster_id099, nt-cluster_id100, nt-cluster_id099},
-this script reads `post_hoc/metrics.csv` from the corresponding LGBM
-baseline run and emits a grouped-bar PNG + a flat CSV summary.
+and each model in {LGBM, 1-NN cosine margin}, this script reads
+`post_hoc/metrics.csv` from the latest matching baseline run and emits
+a grouped-bar PNG + a flat CSV summary.
+
+Including the 1-NN cosine-margin baseline alongside LGBM is the
+operational leakage diagnostic described in
+`docs/methods/leakage_definitions.md`: 1-NN is a near-neighbor lookup,
+so it benefits maximally from similarity leakage and suffers
+disproportionately under cluster_disjoint. The 1-NN-vs-LGBM gap is
+therefore the residual-leakage signal at each routing.
 
 The reference deliverable promised by step 9 of
 `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt
@@ -38,9 +46,9 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 
-# Routing label → bundle name pattern (used to autodiscover the LGBM run).
-# The pattern is matched against baseline_lgbm_<bundle>_<TS> directories;
-# the latest matching timestamp wins.
+# Routing label → bundle name pattern (used to autodiscover the run).
+# The pattern is matched against baseline_<model>_<bundle>_<TS>
+# directories; the latest matching timestamp wins.
 _ROUTINGS = [
     ('seq_disjoint',      'flu_{pair}'),
     ('aa cluster_id099',  'flu_{pair}_cluster_id99'),
@@ -51,6 +59,12 @@ _PAIRS = [
     ('HA/NA',   'ha_na'),
     ('PB2/PB1', 'pb2_pb1'),
 ]
+# (model_label, baseline_subdir_prefix). 1-NN cosine margin is the
+# leakage diagnostic; LGBM is the production baseline.
+_MODELS = [
+    ('LGBM',           'lgbm',         '#1f78b4'),
+    ('1-NN margin',    'knn1_margin',  '#e31a1c'),
+]
 _METRIC_DISPLAY = [
     ('f1_score',      'F1'),
     ('avg_precision', 'AUC-PR'),
@@ -59,14 +73,14 @@ _METRIC_DISPLAY = [
 ]
 
 
-def _latest_lgbm_dir(runs_root: Path, bundle: str) -> Optional[Path]:
-    """Return the latest `baseline_lgbm_<bundle>_<YYYYMMDD_HHMMSS>` dir.
+def _latest_baseline_dir(runs_root: Path, model_prefix: str, bundle: str) -> Optional[Path]:
+    """Return the latest `baseline_<model_prefix>_<bundle>_<YYYYMMDD_HHMMSS>` dir.
 
     Bundle match is anchored — `bundle='flu_ha_na'` does NOT match
     `flu_ha_na_cluster_id99`, etc.
     """
     pattern = re.compile(
-        rf'^baseline_lgbm_{re.escape(bundle)}_(\d{{8}}_\d{{6}})$'
+        rf'^baseline_{re.escape(model_prefix)}_{re.escape(bundle)}_(\d{{8}}_\d{{6}})$'
     )
     candidates: list[tuple[str, Path]] = []
     for p in runs_root.iterdir():
@@ -95,21 +109,23 @@ def build_summary(runs_root: Path) -> pd.DataFrame:
     for pair_label, pair_short in _PAIRS:
         for routing_label, bundle_tmpl in _ROUTINGS:
             bundle = bundle_tmpl.format(pair=pair_short)
-            model_dir = _latest_lgbm_dir(runs_root, bundle)
-            row: dict = {
-                'pair': pair_label,
-                'routing': routing_label,
-                'bundle': bundle,
-                'model_dir': str(model_dir) if model_dir else '',
-            }
-            metrics = _load_metrics_row(model_dir) if model_dir else None
-            if metrics is None:
-                for col, _disp in _METRIC_DISPLAY:
-                    row[col] = float('nan')
-            else:
-                for col, _disp in _METRIC_DISPLAY:
-                    row[col] = metrics.get(col, float('nan'))
-            rows.append(row)
+            for model_label, model_prefix, _color in _MODELS:
+                model_dir = _latest_baseline_dir(runs_root, model_prefix, bundle)
+                row: dict = {
+                    'pair': pair_label,
+                    'routing': routing_label,
+                    'model': model_label,
+                    'bundle': bundle,
+                    'model_dir': str(model_dir) if model_dir else '',
+                }
+                metrics = _load_metrics_row(model_dir) if model_dir else None
+                if metrics is None:
+                    for col, _disp in _METRIC_DISPLAY:
+                        row[col] = float('nan')
+                else:
+                    for col, _disp in _METRIC_DISPLAY:
+                        row[col] = metrics.get(col, float('nan'))
+                rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -117,7 +133,7 @@ def plot_summary(df: pd.DataFrame, out_png: Path) -> None:
     n_metrics = len(_METRIC_DISPLAY)
     fig, axes = plt.subplots(
         nrows=len(_PAIRS), ncols=n_metrics,
-        figsize=(3.4 * n_metrics, 3.4 * len(_PAIRS)),
+        figsize=(3.7 * n_metrics, 3.4 * len(_PAIRS)),
         sharey='col',
     )
     if len(_PAIRS) == 1:
@@ -126,22 +142,33 @@ def plot_summary(df: pd.DataFrame, out_png: Path) -> None:
         axes = axes[:, None]
 
     routings = [r[0] for r in _ROUTINGS]
-    # Color by alphabet/routing class so visual cues are consistent across panels.
-    colors = {
-        'seq_disjoint':     '#7a7a7a',     # neutral gray (baseline)
-        'aa cluster_id099': '#1f78b4',     # blue (aa)
-        'nt cluster_id100': '#33a02c',     # green dark (nt strict)
-        'nt cluster_id099': '#b2df8a',     # green light (nt 99)
-    }
+    model_labels = [m[0] for m in _MODELS]
+    model_colors = {m[0]: m[2] for m in _MODELS}
+
+    n_models = len(_MODELS)
+    width = 0.8 / n_models  # total group width = 0.8, evenly split across models
 
     for row, (pair_label, _) in enumerate(_PAIRS):
-        sub = df[df['pair'] == pair_label].set_index('routing').reindex(routings)
+        sub = df[df['pair'] == pair_label]
         for col, (metric_col, metric_disp) in enumerate(_METRIC_DISPLAY):
             ax = axes[row, col]
-            values = sub[metric_col].values
             xs = np.arange(len(routings))
-            ax.bar(xs, values, color=[colors[r] for r in routings],
-                   edgecolor='black', linewidth=0.6)
+            for mi, model_label in enumerate(model_labels):
+                vals = (
+                    sub[sub['model'] == model_label]
+                    .set_index('routing')
+                    .reindex(routings)[metric_col].values
+                )
+                offset = (mi - (n_models - 1) / 2) * width
+                bars = ax.bar(xs + offset, vals, width,
+                              color=model_colors[model_label],
+                              edgecolor='black', linewidth=0.5,
+                              label=model_label if (row == 0 and col == 0) else None)
+                for x, v in zip(xs + offset, vals):
+                    if np.isfinite(v):
+                        ax.annotate(f'{v:.3f}', xy=(x, v),
+                                    xytext=(0, 2), textcoords='offset points',
+                                    ha='center', fontsize=6.5)
             ax.set_xticks(xs)
             ax.set_xticklabels(routings, rotation=30, ha='right', fontsize=8)
             ax.set_ylim(0.0, 1.0)
@@ -153,16 +180,18 @@ def plot_summary(df: pd.DataFrame, out_png: Path) -> None:
                 ax.set_ylabel(f'{pair_label}\n{metric_disp}', fontsize=10)
             else:
                 ax.set_ylabel(metric_disp, fontsize=10)
-            for x, v in zip(xs, values):
-                if np.isfinite(v):
-                    ax.annotate(f'{v:.3f}', xy=(x, v),
-                                xytext=(0, 2), textcoords='offset points',
-                                ha='center', fontsize=7)
+
+    # Legend once, top-right of the figure.
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    if handles:
+        fig.legend(handles, labels, loc='upper right', ncol=len(model_labels),
+                   bbox_to_anchor=(0.99, 0.99), frameon=False)
 
     fig.suptitle(
-        'LGBM test metrics: seq_disjoint vs aa/nt cluster_disjoint '
+        'LGBM vs 1-NN cosine margin test metrics across routings '
         '(Experiment B-nt)\nFull Flu A corpus; k-mer k=6 nt features, '
-        'unit_norm + unit_diff+prod, single seed.',
+        'unit_norm + unit_diff+prod, single seed. The 1-NN gap to LGBM '
+        'at each routing is the residual-leakage signal.',
         fontsize=10, y=1.02,
     )
     fig.tight_layout()
@@ -195,8 +224,8 @@ def main() -> None:
             print(missing.to_string(index=False))
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = out_dir / 'lgbm_cluster_aa_vs_nt.csv'
-    out_png = out_dir / 'lgbm_cluster_aa_vs_nt.png'
+    out_csv = out_dir / 'cluster_aa_vs_nt.csv'
+    out_png = out_dir / 'cluster_aa_vs_nt.png'
     df.to_csv(out_csv, index=False)
     plot_summary(df, out_png)
     print(f'\nWrote: {out_csv}')
