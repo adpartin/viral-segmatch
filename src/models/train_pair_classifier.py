@@ -27,7 +27,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import h5py
+# h5py is lazy-imported inside ESMPairDataset where it is actually needed.
+# Module-level import breaks the k-mer training path whenever the conda env
+# has a libhdf5/h5py ABI mismatch (e.g., after a bioconda install pulled a
+# different libhdf5).
 import pandas as pd
 import pyarrow.parquet as pq
 import numpy as np
@@ -63,7 +66,6 @@ from src.models._pair_metrics import (
     find_optimal_threshold_pr,
     swap_pairs_df_columns,
 )
-import h5py
 
 total_timer = Timer()
 
@@ -131,8 +133,9 @@ class ESMPairDataset(Dataset):
         
         # Build id_to_row mapping (must be done before opening H5)
         self.id_to_row = self._build_id_to_row()
-        
+
         # Open H5 file to read metadata and optionally preload embeddings
+        import h5py  # lazy: only the ESM-2 path uses HDF5
         self.h5 = h5py.File(embeddings_file, 'r')
         
         # Require master cache format (strict - no old format support)

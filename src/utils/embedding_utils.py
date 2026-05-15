@@ -7,7 +7,10 @@ extracting sequences from pairs, and creating visualizations.
 
 import numpy as np
 import pandas as pd
-import h5py
+# h5py is lazy-imported inside the functions that use it (search for `import h5py`
+# below). Module-level import breaks any caller that doesn't actually touch HDF5
+# whenever the conda env has a libhdf5/h5py ABI mismatch (e.g., after a bioconda
+# install pulled a different libhdf5).
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional, Dict, Tuple, List, Union, Iterable
@@ -82,6 +85,7 @@ def load_embeddings_by_ids(
     embeddings = []
     valid_keys: List[Tuple[str, str]] = []
 
+    import h5py  # lazy: ESM-2 only
     with h5py.File(embeddings_file, 'r') as f:
         if 'emb' not in f:
             raise ValueError(f"Invalid embeddings file format: {embeddings_file}. Master format required.")
@@ -301,6 +305,7 @@ def create_pair_embeddings_concatenation(
     b_rows = b_idx.loc[valid_mask].astype(int).to_numpy()
     labels = pairs_df.loc[valid_mask, 'label'].to_numpy()
 
+    import h5py  # lazy: ESM-2 only
     with h5py.File(embeddings_file, 'r') as f:
         if 'emb' not in f:
             raise ValueError(f"Invalid embeddings file format: {embeddings_file}. Master format required.")

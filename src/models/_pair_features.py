@@ -46,7 +46,11 @@ experiment, extend ``_load_kmer_pair_features`` here.
 from pathlib import Path
 from typing import Optional
 
-import h5py
+# NOTE: h5py is lazy-imported inside _load_esm2_pair_features below. Keeping
+# it module-scope made the whole baseline path (including the k-mer branch,
+# which never touches HDF5) crash at startup on environments where the h5py
+# wheel and the loaded HDF5 .so are ABI-mismatched (e.g., after a conda
+# install that pulls a different libhdf5).
 import joblib
 import numpy as np
 import pandas as pd
@@ -213,6 +217,7 @@ def _load_esm2_pair_features(
 
     # h5py fancy indexing requires increasing/unique indices; collapse
     # to the unique set per slot and re-expand afterwards.
+    import h5py  # lazy: only required on the ESM-2 baseline path
     with h5py.File(embeddings_file, "r") as f:
         if "emb" not in f:
             raise ValueError(
