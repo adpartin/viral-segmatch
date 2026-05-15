@@ -107,6 +107,14 @@ _PAIR_COLUMNS = [
 
 _DEFAULT_AXES = ("host", "year", "hn_subtype", "geo_location", "passage")
 
+# Regime-aware coverage: per-regime attempt budget before falling through to
+# the next regime in COVERAGE_PRIORITY_CHAIN. With 8 regimes total, the
+# worst case is 8 * 10 = 80 attempts per (slot, dna_hash); the last-resort
+# uniform sampler adds another `max_attempts_per_seq` (default 50). In
+# practice acceptance comes long before any cap.
+# Plan: docs/plans/2026-05-14_regime_aware_coverage_plan.md (decision #6).
+_REGIME_AWARE_COVERAGE_BUDGET = 10
+
 
 # ---------------------------------------------------------------------------
 # 4.1 create_positive_pairs_v2
@@ -223,7 +231,21 @@ def create_positive_pairs_v2(
     # In the global-pos flow (split_dataset_v2), this runs once on the full pos_df and
     # gives every pair_key a single representative isolate.
     n_before = len(pos_df)
-    is_dup = pos_df.duplicated(subset=['pair_key'], keep='first') # TODO. keep='first' is arbitrary; we can later decide to keep isolate by some criteria
+    # `keep='first'` is arbitrary on host: the surviving isolate per pair_key is
+    # whichever assembly_id comes first lexicographically. If we ever want to
+    # bias the representative toward common hosts (e.g., Human > Pig > Chicken
+    # > Duck > ... > unknown) without dropping diversity, the clean fix is:
+    # pre-sort `pos_df` by a host_priority column here, then keep='first' will
+    # pick the highest-priority host that carries each pair. The alternative
+    # ("Human-only experiment") is to filter with `dataset.host: ['Human']`
+    # in the bundle — that drops the other hosts entirely instead of just
+    # changing which isolate represents each pair. The two are orthogonal:
+    # the filter narrows the corpus and shrinks the regime taxonomy to the
+    # 4 host-match regimes; this priority knob preserves full diversity and
+    # only affects representative metadata. Not yet implemented because the
+    # downstream impact (regime classification uses the representative's cell)
+    # has not been measured.
+    is_dup = pos_df.duplicated(subset=['pair_key'], keep='first')
     dup_rows = pos_df.loc[is_dup, ['assembly_id_a', 'assembly_id_b', 'pair_key']]
     duplicate_isolate_pairs = [
         (str(r.assembly_id_a), str(r.assembly_id_b), str(r.pair_key))
@@ -262,6 +284,7 @@ def create_negative_pairs_v2(
     isolate_to_cell: Optional[dict] = None,
     sampling_axes: Optional[list] = None,
     on_shortfall: str = 'redistribute',
+    regime_aware_coverage: bool = False,
     ) -> tuple[pd.DataFrame, dict]:
     """Generate negative pairs with a coverage-first two-phase sampler.
 
@@ -315,10 +338,18 @@ def create_negative_pairs_v2(
 
     Regime-aware mode (axis_quotas + isolate_to_cell + sampling_axes
     populated): the fill phase aims for the per-regime target counts
-    derived from `axis_quotas` (regime -> target fraction). Coverage phase
-    stays regime-blind. on_shortfall controls behavior when a regime can't
-    be filled to target. See
+    derived from `axis_quotas` (regime -> target fraction). on_shortfall
+    controls behavior when a regime can't be filled to target. See
     `docs/plans/2026-05-09_metadata_aware_negatives_plan.md`.
+
+    `regime_aware_coverage` (default False) — when True (and regime mode is
+    active), the COVERAGE phase walks `COVERAGE_PRIORITY_CHAIN` and prefers
+    partners from the hardest feasible regime for each (slot, dna_hash).
+    The per-regime attempt budget is 10; if all 8 regimes are exhausted
+    without acceptance, the existing uniform-random sampler runs as a last
+    resort (mode #2 coverage guarantee). When False (the historical default),
+    coverage stays regime-blind. See
+    `docs/plans/2026-05-14_regime_aware_coverage_plan.md`.
 
     Returns:
         (neg_df, rejection_stats). rejection_stats includes blocked_cooccur,
@@ -345,6 +376,8 @@ def create_negative_pairs_v2(
             )
         from src.datasets._negative_regime_sampling import (
             REGIME_NAMES,
+            COVERAGE_PRIORITY_CHAIN,
+            build_cell_regime_partners,
             classify_pair_regime,
             compute_match_count,
             count_isolates_per_cell,
@@ -365,6 +398,15 @@ def create_negative_pairs_v2(
         for r, v in axis_quotas.items():
             if v < 0 or pd.isna(v):
                 raise ValueError(f"axis_quotas[{r!r}] must be >= 0; got {v!r}")
+    elif regime_aware_coverage:
+        # Flag is only meaningful in regime mode (needs isolate_to_cell +
+        # sampling_axes to build the partner map). Fail loud rather than
+        # silently no-op.
+        raise ValueError(
+            "create_negative_pairs_v2: regime_aware_coverage=True requires "
+            "regime mode (axis_quotas + isolate_to_cell + sampling_axes). "
+            "Either provide axis_quotas or set regime_aware_coverage=False."
+        )
 
     if len(pos_df) == 0:
         raise ValueError("create_negative_pairs_v2: pos_df is empty; nothing to generate negatives for.")
@@ -428,10 +470,24 @@ def create_negative_pairs_v2(
         seq_to_isolates.setdefault(row.seq_hash_a, set()).add(aid)
         seq_to_isolates.setdefault(row.seq_hash_b, set()).add(aid)
     isolate_ids_list = sorted(isolate_to_row.keys())
+    cell_to_isolates: dict = {}
+    cell_partner_map: dict = {}
     if regime_mode and isolate_to_cell is not None:
         isolate_to_cell = {
             aid: cell for aid, cell in isolate_to_cell.items() if aid in isolate_to_row
         }
+        # Build cell -> [isolate_ids] map once; used by both regime-aware
+        # coverage (Phase 2 of the regime-aware-coverage plan) and the
+        # existing regime-aware fill phase below.
+        for aid, cell in isolate_to_cell.items():
+            cell_to_isolates.setdefault(cell, []).append(aid)
+        for cell in cell_to_isolates:
+            cell_to_isolates[cell].sort()
+        if regime_aware_coverage:
+            # {self_cell -> {regime -> [partner_cells]}} (deterministic order).
+            cell_partner_map = build_cell_regime_partners(
+                isolate_to_cell, axes=sampling_axes,
+            )
     print(f"[diag] create_negative_pairs_v2: setup done in "
           f"{time.time()-t_setup:.2f}s ({len(isolate_ids_list):,} isolates, "
           f"{len(seq_to_isolates):,} unique seq_hashes; "
@@ -468,6 +524,13 @@ def create_negative_pairs_v2(
         'total_attempts': 0,
         'coverage_skipped': [],
     }
+    # Regime-aware coverage diagnostics (per
+    # docs/plans/2026-05-14_regime_aware_coverage_plan.md Phase 3).
+    # Populated only when regime_aware_coverage=True; surfaced under
+    # rejection_stats['coverage_regime_aware'] at the end.
+    cov_aware_attempts: dict = {r: 0 for r in REGIME_NAMES} if regime_aware_coverage else {}
+    cov_aware_acceptances: dict = {r: 0 for r in REGIME_NAMES} if regime_aware_coverage else {}
+    cov_aware_fell_back_to_uniform = 0
     neg_pairs: list[dict] = []
     # Regime mode bookkeeping. regime_counts is incremented by _try_accept and
     # is the source-of-truth for the manifest's coverage_placed and fill_placed.
@@ -595,21 +658,70 @@ def create_negative_pairs_v2(
             continue
 
         accepted = False
-        for _attempt in range(max_attempts_per_seq):
-            rejection_stats['total_attempts'] += 1
-            other_aid = rng.choice(isolate_ids_list)
-            if other_aid in excluded:
-                continue
-            other_row = isolate_to_row[other_aid]
 
-            if s_in_left:
-                a_src, b_src = s_row, other_row
-            else:
-                a_src, b_src = other_row, s_row
+        # Regime-aware coverage: walk COVERAGE_PRIORITY_CHAIN, drawing partner
+        # cells weighted by cell size; per-regime attempt budget = 10. Fall
+        # through to the uniform sampler below when the chain is exhausted
+        # without acceptance.
+        # Plan: docs/plans/2026-05-14_regime_aware_coverage_plan.md Phase 2.
+        if regime_aware_coverage:
+            self_aid = s_row.assembly_id_a
+            self_cell = isolate_to_cell.get(self_aid)
+            if self_cell is None:
+                raise RuntimeError(
+                    f"regime_aware_coverage: missing cell for self isolate "
+                    f"{self_aid!r}. isolate_to_cell should cover every isolate "
+                    f"in pos_df."
+                )
+            partner_map = cell_partner_map.get(self_cell, {})
+            for regime in COVERAGE_PRIORITY_CHAIN:
+                partner_cells = partner_map.get(regime, [])
+                if not partner_cells:
+                    continue
+                weights = [cell_to_isolates.get(c, []) and len(cell_to_isolates[c]) or 0
+                           for c in partner_cells]
+                if sum(weights) == 0:
+                    continue
+                cov_aware_attempts[regime] += 1
+                for _attempt in range(_REGIME_AWARE_COVERAGE_BUDGET):
+                    rejection_stats['total_attempts'] += 1
+                    cell_p = rng.choices(partner_cells, weights=weights, k=1)[0]
+                    pool = cell_to_isolates.get(cell_p, [])
+                    if not pool:
+                        continue
+                    other_aid = rng.choice(pool)
+                    if other_aid in excluded:
+                        continue
+                    other_row = isolate_to_row[other_aid]
+                    if s_in_left:
+                        a_src, b_src = s_row, other_row
+                    else:
+                        a_src, b_src = other_row, s_row
+                    if _try_accept(a_src, b_src):
+                        accepted = True
+                        cov_aware_acceptances[regime] += 1
+                        break
+                if accepted:
+                    break
+            if not accepted:
+                cov_aware_fell_back_to_uniform += 1
 
-            if _try_accept(a_src, b_src):
-                accepted = True
-                break
+        if not accepted:
+            for _attempt in range(max_attempts_per_seq):
+                rejection_stats['total_attempts'] += 1
+                other_aid = rng.choice(isolate_ids_list)
+                if other_aid in excluded:
+                    continue
+                other_row = isolate_to_row[other_aid]
+
+                if s_in_left:
+                    a_src, b_src = s_row, other_row
+                else:
+                    a_src, b_src = other_row, s_row
+
+                if _try_accept(a_src, b_src):
+                    accepted = True
+                    break
 
         if not accepted:
             # Cap to 100 entries for log readability; further skips are dropped.
@@ -649,11 +761,8 @@ def create_negative_pairs_v2(
                 cell_pairs_by_regime[r][0].append((c1, c2))
                 cell_pairs_by_regime[r][1].append(w)
 
-        cell_to_isolates: dict = {}
-        for aid, cell in isolate_to_cell.items():
-            cell_to_isolates.setdefault(cell, []).append(aid)
-        for cell in cell_to_isolates:
-            cell_to_isolates[cell].sort()
+        # cell_to_isolates was built once in setup (regime_mode branch) and is
+        # reused here by the fill phase's _sample_pair_in_regime helper.
 
         def _sample_pair_in_regime(regime: str):
             cells, weights = cell_pairs_by_regime.get(regime, ([], []))
@@ -773,6 +882,22 @@ def create_negative_pairs_v2(
     rejection_stats['n_dna_uncovered'] = int(n_dna_uncovered)
     rejection_stats['n_dna_uncovered_a'] = int(len(dna_uncovered_a))
     rejection_stats['n_dna_uncovered_b'] = int(len(dna_uncovered_b))
+
+    if regime_aware_coverage:
+        # Per docs/plans/2026-05-14_regime_aware_coverage_plan.md Phase 3.
+        # Diagnostics for whether the priority chain was effective. Surfaced
+        # in dataset_stats.json via the existing coverage_stats path.
+        rejection_stats['coverage_regime_aware'] = {
+            'enabled': True,
+            'per_regime_budget': _REGIME_AWARE_COVERAGE_BUDGET,
+            'priority_chain': list(COVERAGE_PRIORITY_CHAIN),
+            'regime_aware_attempts_per_regime': {r: int(c) for r, c in cov_aware_attempts.items()},
+            'regime_aware_acceptances_per_regime': {r: int(c) for r, c in cov_aware_acceptances.items()},
+            'fell_back_to_uniform': int(cov_aware_fell_back_to_uniform),
+            'n_target_dnas': int(n_targets),
+        }
+    else:
+        rejection_stats['coverage_regime_aware'] = {'enabled': False}
 
     if regime_mode:
         regime_manifest = []
@@ -1141,6 +1266,7 @@ def split_dataset_v2(
     year_match: str = 'binned',
     year_bin_edges: Optional[list] = None,
     on_shortfall: str = 'redistribute',
+    regime_aware_coverage: bool = False,
     train_isolates_override: Optional[list] = None,
     val_isolates_override: Optional[list] = None,
     test_isolates_override: Optional[list] = None,
@@ -1148,6 +1274,8 @@ def split_dataset_v2(
     cooccur_stats: Optional[dict] = None,
     split_strategy_mode: str = 'random',
     split_strategy_hash_key: str = 'seq',
+    cluster_id_path: Optional[str] = None,
+    cluster_id_threshold: Optional[float] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1261,16 +1389,19 @@ def split_dataset_v2(
         )
 
     # Decide train/val/test membership.
-    # Audit dict from seq_disjoint routing (None for the other paths). Threaded
-    # through duplicate_stats and emitted as seq_disjoint_audit.json by the
-    # saver. See docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
+    # Audit dicts from non-random routing modes (None for the other paths). Threaded
+    # through duplicate_stats and emitted as {seq,cluster}_disjoint_audit.json by the
+    # saver. See docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
+    # docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
     seq_disjoint_audit: Optional[dict] = None
+    cluster_disjoint_audit: Optional[dict] = None
     if train_isolates_override is not None:
         if split_strategy_mode != 'random':
             raise NotImplementedError(
                 f"split_dataset_v2: split_strategy_mode={split_strategy_mode!r} is not "
                 f"compatible with the CV-override path (train_isolates_override is set). "
-                f"Use mode='random' for CV; seq_disjoint is single-split-only for now."
+                f"Use mode='random' for CV; seq_disjoint / cluster_disjoint are "
+                f"single-split-only for now."
             )
         # TODO/NOTE: haven't tested the CV with v2 yet!
         # CV / external-control path: caller has already partitioned isolates.
@@ -1315,6 +1446,43 @@ def split_dataset_v2(
               f"n_components={seq_disjoint_audit['cc_summary']['n_components']:,}, "
               f"largest_component={seq_disjoint_audit['cc_summary']['largest_component_pairs']} pairs)",
               flush=True)
+    elif split_strategy_mode == 'cluster_disjoint':
+        # mmseqs2-cluster-disjoint routing: each connected component on the
+        # bipartite (cluster_id_a, cluster_id_b) graph is indivisible. Routes
+        # pairs into the split where BOTH sequences' clusters land; pairs whose
+        # seq_hashes aren't covered by the cluster lookup are dropped.
+        # See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+        from src.datasets._split_helpers import (
+            cluster_disjoint_route_pos_df, load_cluster_lookup,
+        )
+        if cluster_id_path is None:
+            raise ValueError(
+                "split_dataset_v2: cluster_id_path is required when "
+                "split_strategy_mode='cluster_disjoint'."
+            )
+        print(f"\nsplit_dataset_v2: cluster_disjoint routing "
+              f"(bipartite CC + LPT-greedy bin-pack on cluster_ids; "
+              f"cluster_id_path={cluster_id_path}, "
+              f"cluster_id_threshold={cluster_id_threshold})...", flush=True)
+        cluster_lookup = load_cluster_lookup(cluster_id_path)
+        train_pos, val_pos, test_pos, cluster_disjoint_audit = cluster_disjoint_route_pos_df(
+            pos_df, cluster_lookup,
+            train_ratio=train_ratio, val_ratio=val_ratio, seed=seed,
+            cluster_id_threshold=cluster_id_threshold,
+            cluster_lookup_path=str(cluster_id_path),
+        )
+        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
+        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
+        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
+        ach = cluster_disjoint_audit['achieved_pct']
+        att = cluster_disjoint_audit['attach_audit']
+        print(f"split_dataset_v2: cluster_disjoint routing completed "
+              f"(train={len(train_pos):,} pairs [{ach['train']:.2f}%], "
+              f"val={len(val_pos):,} [{ach['val']:.2f}%], "
+              f"test={len(test_pos):,} [{ach['test']:.2f}%], "
+              f"n_components={cluster_disjoint_audit['cc_summary']['n_components']:,}, "
+              f"largest_component={cluster_disjoint_audit['cc_summary']['largest_component_pairs']} pairs, "
+              f"pairs_dropped_in_cluster_join={att['n_input']-att['n_kept']})", flush=True)
     elif split_strategy_mode == 'random':
         # Plain shuffle-split on the deduped pos_df. Safe because the is_unique assertion above
         # guarantees each row is its own isolate, so row-level split == isolate-level split.
@@ -1339,7 +1507,7 @@ def split_dataset_v2(
     else:
         raise ValueError(
             f"split_dataset_v2: unknown split_strategy_mode={split_strategy_mode!r}; "
-            f"expected 'random' or 'seq_disjoint'."
+            f"expected 'random', 'seq_disjoint', or 'cluster_disjoint'."
         )
 
     # Generate negatives with coverage-first sampler.
@@ -1364,6 +1532,7 @@ def split_dataset_v2(
         isolate_to_cell=isolate_to_cell,
         sampling_axes=resolved_sampling_axes,
         on_shortfall=on_shortfall,
+        regime_aware_coverage=regime_aware_coverage,
     )
     print(f"split_dataset_v2: train negatives created: "
           f"({len(train_neg):,} pairs, {train_reject_stats.get('total_attempts', 0):,} attempts; "
@@ -1384,6 +1553,7 @@ def split_dataset_v2(
         isolate_to_cell=isolate_to_cell,
         sampling_axes=resolved_sampling_axes,
         on_shortfall=on_shortfall,
+        regime_aware_coverage=regime_aware_coverage,
     )
     forbidden_so_far |= set(val_neg['pair_key'])
 
@@ -1400,6 +1570,7 @@ def split_dataset_v2(
         isolate_to_cell=isolate_to_cell,
         sampling_axes=resolved_sampling_axes,
         on_shortfall=on_shortfall,
+        regime_aware_coverage=regime_aware_coverage,
     )
 
     # Combine pos+neg per split, then attach axis flags, then compute exposure stats.
@@ -1554,6 +1725,41 @@ def split_dataset_v2(
                     'val_test':   len(v & te),
                 }
         duplicate_stats['seq_disjoint_audit'] = seq_disjoint_audit
+    if cluster_disjoint_audit is not None:
+        # Re-audit the FINAL DataFrames at the cluster-id level: by construction
+        # cluster_id_a and cluster_id_b overlap across splits should be zero
+        # (negatives are sampled from per-split positives, so they can't pull
+        # cluster_ids from outside their split's positive pool — same invariant
+        # as seq_disjoint). seq_hash / dna_hash overlaps MAY be non-zero at
+        # thresholds < 1.0 (different sequences in the same cluster can land
+        # in different splits' positives → their hashes can co-occur in
+        # negatives via partner sampling), so those are diagnostic only.
+        for side in ('a', 'b'):
+            col = f'cluster_id_{side}'
+            if col not in train_pairs.columns:
+                continue
+            t  = set(train_pairs[col].dropna())
+            v  = set(val_pairs[col].dropna())
+            te = set(test_pairs[col].dropna())
+            cluster_disjoint_audit[f'cluster_id_overlap_full_pairs_{side}'] = {
+                'train_val':  len(t & v),
+                'train_test': len(t & te),
+                'val_test':   len(v & te),
+            }
+        for family in ('seq', 'dna'):
+            for side in ('a', 'b'):
+                col = f'{family}_hash_{side}'
+                if col not in train_pairs.columns:
+                    continue
+                t  = set(train_pairs[col].dropna())
+                v  = set(val_pairs[col].dropna())
+                te = set(test_pairs[col].dropna())
+                cluster_disjoint_audit[f'{family}_hash_overlap_full_pairs_{side}'] = {
+                    'train_val':  len(t & v),
+                    'train_test': len(t & te),
+                    'val_test':   len(v & te),
+                }
+        duplicate_stats['cluster_disjoint_audit'] = cluster_disjoint_audit
     exposure_tables = {'train': train_exp, 'val': val_exp, 'test': test_exp}
     return train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables
 
@@ -1570,6 +1776,10 @@ def _coverage_substats(reject_stats: dict) -> dict:
         'coverage_overrode_ratio': reject_stats.get('coverage_overrode_ratio', False),
         'seqs_with_zero_negatives': reject_stats.get('seqs_with_zero_negatives', []),
         'coverage_skipped': reject_stats.get('coverage_skipped', []),
+        # Regime-aware coverage diagnostics (always present; 'enabled' tells
+        # consumers whether the priority chain was active).
+        # See docs/plans/2026-05-14_regime_aware_coverage_plan.md Phase 3.
+        'coverage_regime_aware': reject_stats.get('coverage_regime_aware', {'enabled': False}),
     }
 
 
@@ -1591,6 +1801,7 @@ def generate_all_cv_folds_v2(
     year_match: str = 'binned',
     year_bin_edges: Optional[list] = None,
     on_shortfall: str = 'redistribute',
+    regime_aware_coverage: bool = False,
     ) -> Iterator[dict]:
     """Generate all N CV fold splits, yielding each as a dict containing
     fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats, and
@@ -1648,6 +1859,7 @@ def generate_all_cv_folds_v2(
             year_match=year_match,
             year_bin_edges=year_bin_edges,
             on_shortfall=on_shortfall,
+        regime_aware_coverage=regime_aware_coverage,
             train_isolates_override=train_ids,
             val_isolates_override=val_ids,
             test_isolates_override=test_ids,
@@ -1727,6 +1939,38 @@ def save_split_output_v2(
     # Surfaces seq_hash / dna_hash overlap across splits that pair_key
     # disjointness does not prevent.
     emit_split_overlap_stats(train_pairs, val_pairs, test_pairs, output_dir)
+
+    # cluster_disjoint mode emits a routing audit. Hard-fail on cluster_id
+    # cross-split overlap (zero by construction). seq_hash / dna_hash overlaps
+    # at the full-pairs level are diagnostic only — at thresholds < 1.0,
+    # different proteins in the same cluster can land in different splits'
+    # negatives via partner sampling.
+    cd_audit = duplicate_stats.get('cluster_disjoint_audit')
+    if cd_audit is not None:
+        with open(output_dir / 'cluster_disjoint_audit.json', 'w') as f:
+            json.dump(cd_audit, f, indent=2, default=str)
+        print(f"Saved cluster_disjoint_audit.json to: {output_dir}")
+        # Hard-fail on cluster_id overlap. Both positives-only and full-pairs scopes.
+        for side in ('a', 'b'):
+            for pair_label, audit_key in (
+                ('positives-only', 'cluster_id_overlap'),
+                ('full-pairs',     f'cluster_id_overlap_full_pairs_{side}'),
+            ):
+                if pair_label == 'positives-only':
+                    overlaps = cd_audit.get(audit_key, {}).get(side, {})
+                else:
+                    overlaps = cd_audit.get(audit_key, {})
+                bad = {k: v for k, v in overlaps.items() if v != 0}
+                if bad:
+                    raise RuntimeError(
+                        f"cluster_disjoint routing audit FAILED ({pair_label}, "
+                        f"side={side}): non-zero cross-split cluster_id overlap {bad}. "
+                        f"This means a cluster spans splits despite "
+                        f"split_strategy.mode=cluster_disjoint. Check the routing helper "
+                        f"(src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df) "
+                        f"and the negatives sampler (must source partners only from "
+                        f"per-split pos_df rows)."
+                    )
 
     # seq_disjoint mode emits a routing audit. Hard-fail if the routing
     # claimed any cross-split DNA overlap (it should be zero by construction;
@@ -2220,6 +2464,14 @@ def _validate_v2_config(config) -> None:
                     f"dataset.negative_sampling.axes must be a subset of "
                     f"{sorted(DEFAULT_AXES)}; got extras {sorted(extras)}."
                 )
+        # Regime-aware coverage flag — must be bool. Default off.
+        rac = OmegaConf.select(config, "dataset.negative_sampling.regime_aware_coverage")
+        if rac is not None and not isinstance(rac, bool):
+            raise ValueError(
+                f"dataset.negative_sampling.regime_aware_coverage must be a bool "
+                f"(or absent — defaults to False); got {rac!r} of type {type(rac).__name__}. "
+                f"See docs/plans/2026-05-14_regime_aware_coverage_plan.md."
+            )
 
     # legacy axis_quotas key (was a NotImplementedError placeholder); keep
     # rejection so old bundles error explicitly and migrate to negative_sampling.
@@ -2240,20 +2492,43 @@ def _validate_v2_config(config) -> None:
 
     # split_strategy.mode dispatch.
     split_mode = OmegaConf.select(config, "dataset.split_strategy.mode")
-    if split_mode is not None and split_mode not in {'random', 'seq_disjoint'}:
+    if split_mode is not None and split_mode not in {'random', 'seq_disjoint', 'cluster_disjoint'}:
         raise ValueError(
-            f"v2 requires dataset.split_strategy.mode in {{'random', 'seq_disjoint'}} "
-            f"(or absent); got {split_mode!r}. See "
-            f"docs/plans/2026-05-10_seq_disjoint_routing_plan.md."
+            f"v2 requires dataset.split_strategy.mode in "
+            f"{{'random', 'seq_disjoint', 'cluster_disjoint'}} (or absent); "
+            f"got {split_mode!r}. See "
+            f"docs/plans/2026-05-10_seq_disjoint_routing_plan.md and "
+            f"docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
         )
     # split_strategy.hash_key: 'seq' (protein, default — stricter) or 'dna'
     # (nucleotide — appropriate when training on DNA k-mer features).
+    # Only meaningful for mode='seq_disjoint'; cluster_disjoint always operates
+    # on protein-level clusters from mmseqs2.
     split_hash_key = OmegaConf.select(config, "dataset.split_strategy.hash_key")
     if split_hash_key is not None and split_hash_key not in {'seq', 'dna'}:
         raise ValueError(
             f"v2 requires dataset.split_strategy.hash_key in {{'seq', 'dna'}} "
             f"(or absent — defaults to 'seq'); got {split_hash_key!r}."
         )
+    # cluster_disjoint mode requires a cluster_id_path pointing at the mmseqs2 lookup parquet.
+    if split_mode == 'cluster_disjoint':
+        cluster_id_path = OmegaConf.select(config, "dataset.split_strategy.cluster_id_path")
+        if cluster_id_path is None:
+            raise ValueError(
+                "dataset.split_strategy.mode='cluster_disjoint' requires "
+                "dataset.split_strategy.cluster_id_path to point at a (seq_hash, cluster_id) "
+                "parquet (typically data/processed/flu/<version>/clusters/id<NN>/combined_cluster.parquet). "
+                "See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
+            )
+        cluster_id_threshold = OmegaConf.select(config, "dataset.split_strategy.cluster_id_threshold")
+        if cluster_id_threshold is not None:
+            try:
+                float(cluster_id_threshold)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"dataset.split_strategy.cluster_id_threshold must be a float "
+                    f"(or absent); got {cluster_id_threshold!r}."
+                )
     n_folds = OmegaConf.select(config, "dataset.n_folds")
     if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:
         raise NotImplementedError(
@@ -2261,6 +2536,12 @@ def _validate_v2_config(config) -> None:
             f"dataset.n_folds={n_folds} (CV mode). seq_disjoint is single-split-only "
             f"for now; see docs/plans/2026-05-10_seq_disjoint_routing_plan.md "
             f"'Out of scope' section."
+        )
+    if split_mode == 'cluster_disjoint' and n_folds is not None and int(n_folds) > 1:
+        raise NotImplementedError(
+            f"dataset.split_strategy.mode='cluster_disjoint' is not yet compatible with "
+            f"dataset.n_folds={n_folds} (CV mode). cluster_disjoint is single-split-only "
+            f"for now."
         )
 
     # metadata_holdout: structural validation only (deeper validation happens
@@ -2288,5 +2569,7 @@ def _validate_v2_config(config) -> None:
             raise NotImplementedError(
                 f"dataset.metadata_holdout is mutually exclusive with "
                 f"dataset.split_strategy.mode={split_mode!r}. Set "
-                f"split_strategy.mode to 'random' (the default) or omit it."
+                f"split_strategy.mode to 'random' (the default) or omit it. "
+                f"(seq_disjoint / cluster_disjoint produce their own train/val/test "
+                f"routing and cannot be combined with the metadata-holdout dispatch.)"
             )

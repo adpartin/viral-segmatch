@@ -215,6 +215,65 @@ def count_available_per_regime(
     return counts
 
 
+# Priority chain for regime-aware coverage: try the hardest regime first
+# (host_subtype_year), fall through to easier regimes, with subtype > host > year
+# tie-break across same axis-count groups. Documented in
+# `docs/plans/2026-05-14_regime_aware_coverage_plan.md` (decision #2).
+COVERAGE_PRIORITY_CHAIN = (
+    'host_subtype_year',
+    'subtype_year_only',
+    'host_year_only',
+    'host_subtype_only',
+    'year_only',
+    'subtype_only',
+    'host_only',
+    'none_match',
+)
+
+
+def build_cell_regime_partners(
+    isolate_to_cell: dict,
+    *,
+    axes: Iterable[str] = DEFAULT_AXES,
+    ) -> dict:
+    """Map each self_cell to its per-regime partner-cell list.
+
+    For every unique cell in `isolate_to_cell` and every regime in REGIME_NAMES,
+    enumerate the partner cells (including the self_cell itself when the pair
+    is well-defined within-cell) that yield that regime when paired ordered
+    (self_cell, partner_cell). Returns:
+
+        {self_cell -> {regime -> [partner_cell, ...]}}
+
+    Inner lists are sorted (deterministic). Empty regimes are omitted from
+    the inner dict. The map is reusable across all coverage iterations.
+
+    Cost: O(n_cells^2). Typical n_cells is 8-40 across observed configs;
+    this is microseconds.
+
+    Used by `create_negative_pairs_v2` in regime-aware coverage mode
+    (`docs/plans/2026-05-14_regime_aware_coverage_plan.md` Phase 1).
+    """
+    axes = list(axes)
+    cells = sorted(
+        set(isolate_to_cell.values()),
+        key=lambda c: tuple(str(v) for v in c),
+    )
+    out: dict = {}
+    for self_cell in cells:
+        per_regime: dict = {r: [] for r in REGIME_NAMES}
+        for partner_cell in cells:
+            # Within-cell pair (self_cell == partner_cell) lands in
+            # host_subtype_year (every axis matches by construction);
+            # classify_pair_regime returns the correct regime for either
+            # case, so no branch needed here.
+            regime = classify_pair_regime(self_cell, partner_cell, axes=axes)
+            per_regime[regime].append(partner_cell)
+        # Drop empty regimes for compactness (consumers use .get())
+        out[self_cell] = {r: lst for r, lst in per_regime.items() if lst}
+    return out
+
+
 def resolve_regime_targets(
     regime_targets: dict,
     num_negatives: int,

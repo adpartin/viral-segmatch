@@ -1,8 +1,9 @@
 # Regime-aware coverage phase — Plan
 
-**Status: IN PROGRESS**
-**Date:** 2026-05-14 (plan)
-**Branch:** TBD (off `feature/aa-kmer-support` after current work merges)
+**Status: IMPLEMENTED**
+**Date:** 2026-05-14 (plan), 2026-05-15 (implemented).
+**Branch:** `feature/cluster-disjoint-splits` (carried alongside the cluster-disjoint work).
+**Results doc:** `docs/results/2026-05-15_regime_aware_coverage_validation.md`
 
 ## Context
 

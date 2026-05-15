@@ -412,23 +412,23 @@ def get_metadata_distributions(df: pd.DataFrame, isolate_set: set) -> dict:
 def bipartite_components(
     pos_df: pd.DataFrame,
     hash_key: str = 'seq',
+    col_a: Optional[str] = None,
+    col_b: Optional[str] = None,
     ) -> tuple[pd.Series, dict]:
     """Connected components of the bipartite (side-A, side-B) hash graph.
 
-    Nodes: ('a', H_a) and ('b', H_b) values from `pos_df`, where H is
-    chosen by `hash_key`:
-      - hash_key='seq'  (default): protein-level — columns seq_hash_a /
-        seq_hash_b. Two pairs sharing the same protein sequence on a side
-        land in the same component, even if their DNAs differ
-        (synonymous mutations). STRICTER guarantee.
-      - hash_key='dna': nucleotide-level — columns dna_hash_a / dna_hash_b.
-        Two pairs sharing the same DNA on a side land in the same
-        component; pairs with synonymous-mutation variants of the same
-        protein can land in different components. Looser guarantee, but
-        appropriate when the downstream feature is DNA-derived (k-mer).
+    Two parameter styles, mutually exclusive:
 
-    Edges: each unique `(H_a, H_b)` tuple. Computed by iterative-path-
-    compression union-find (no networkx dependency).
+    1. `hash_key` (legacy): selects a hash family — 'seq' (protein-level,
+       columns seq_hash_a / seq_hash_b — stricter) or 'dna' (nucleotide-
+       level — looser; allows synonymous-mutation variants to land in
+       different splits).
+    2. `col_a` / `col_b` (explicit): pass arbitrary node-id column names.
+       Used by cluster-disjoint routing (col_a='cluster_id_a',
+       col_b='cluster_id_b'). When given, `hash_key` is ignored.
+
+    Edges: each unique `(node_a, node_b)` tuple. Computed by iterative-
+    path-compression union-find (no networkx dependency).
 
     Returns:
         (component_id, summary)
@@ -443,17 +443,23 @@ def bipartite_components(
     not under reordering of (a, b) sides. v2 schema-mode positives are
     always (func_left, func_right) so this is fine.
     """
-    if hash_key not in {'seq', 'dna'}:
-        raise ValueError(
-            f"bipartite_components: hash_key must be 'seq' or 'dna'; "
-            f"got {hash_key!r}."
-        )
-    col_a = f'{hash_key}_hash_a'
-    col_b = f'{hash_key}_hash_b'
+    if col_a is not None or col_b is not None:
+        if col_a is None or col_b is None:
+            raise ValueError("bipartite_components: pass both col_a and col_b, or neither.")
+        node_key_label = f'explicit({col_a},{col_b})'
+    else:
+        if hash_key not in {'seq', 'dna'}:
+            raise ValueError(
+                f"bipartite_components: hash_key must be 'seq' or 'dna'; "
+                f"got {hash_key!r}."
+            )
+        col_a = f'{hash_key}_hash_a'
+        col_b = f'{hash_key}_hash_b'
+        node_key_label = hash_key
     if not {col_a, col_b}.issubset(pos_df.columns):
         raise ValueError(
             f"bipartite_components: pos_df must contain {col_a} and {col_b} "
-            f"columns (for hash_key={hash_key!r})."
+            f"columns (key={node_key_label!r})."
         )
 
     # Union-find on string node ids ('a:'+hash, 'b:'+hash). String prefix
@@ -498,7 +504,9 @@ def bipartite_components(
     summary = {
         'n_components': int(component_id.nunique()),
         'n_pairs': int(len(pos_df)),
-        'hash_key': hash_key,
+        'hash_key': node_key_label,
+        'col_a': col_a,
+        'col_b': col_b,
         'n_hashes_a': int(pos_df[col_a].nunique()),
         'n_hashes_b': int(pos_df[col_b].nunique()),
         'largest_component_pairs': int(sizes.iloc[0]) if len(sizes) else 0,
