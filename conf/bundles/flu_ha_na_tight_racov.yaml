@@ -1,0 +1,15 @@
+# STATUS: experimental -- HA/NA tight + regime_aware_coverage=true.
+# Inherits flu_ha_na_tight (Human+Pig × H3N2+H1N1 × year>=2008, ratio=1.5,
+# k-mer nt k=6, unit_norm + unit_diff+prod, LGBM). Flips the new coverage-phase
+# regime priority chain on. The fill phase already targets the same
+# regime_targets (host_subtype_year=0.30, etc.) via the parent bundle.
+#
+# Phase 5 validation cell of docs/plans/2026-05-14_regime_aware_coverage_plan.md.
+
+defaults:
+  - flu_ha_na_tight
+  - _self_
+
+dataset:
+  negative_sampling:
+    regime_aware_coverage: true
