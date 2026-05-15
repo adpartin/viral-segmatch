@@ -1,0 +1,20 @@
+# STATUS: experimental -- PB2/PB1 cluster_disjoint routing at nt CDS identity >= 0.99.
+# Inherits flu_pb2_pb1_cluster_nt_id100; lowers the nt clustering threshold to 0.99.
+#
+# Feasibility (docs/results/2026-05-15_cluster_disjoint_feasibility_nt_pb2_pb1.csv):
+# n_components=6,129, largest_pct=59.7, second_pct=16.4. Marginal — the
+# second-largest component exceeds the 10% val/test target, so the
+# 80/10/10 partition will be skewed in routing. id095 and below collapse
+# to a single mega-component (largest ≥99% of pairs) and are NOT feasible
+# on the full Flu A corpus.
+#
+# Same partial-mitigation caveat as flu_pb2_pb1_cluster_nt_id100.yaml.
+
+defaults:
+  - flu_pb2_pb1_cluster_nt_id100
+  - _self_
+
+dataset:
+  split_strategy:
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt/id099/combined_cluster.parquet
+    cluster_id_threshold: 0.99
