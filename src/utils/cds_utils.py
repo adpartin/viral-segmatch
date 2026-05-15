@@ -44,7 +44,12 @@ def parse_location(loc: object) -> list[tuple[str, int, str, int]]:
 
     Accepts either the in-memory list form or the CSV repr-string form.
     Each returned tuple is `(contig_id, start_1based, strand, length)`.
-    Raises `ValueError` on malformed input.
+    Raises `ValueError` on malformed input — including BV-BRC sentinel
+    annotations where `length <= 0` (most commonly `-1`, used to flag
+    incomplete spliced annotations on M42 / M2 / NEP / NS3 / PA-X).
+    Such rows are not reconstructible from `location` alone; callers
+    should let them fall into the warn-and-skip bucket rather than
+    silently produce a truncated CDS.
     """
     if isinstance(loc, str):
         try:
@@ -58,7 +63,19 @@ def parse_location(loc: object) -> list[tuple[str, int, str, int]]:
         if len(entry) != 4:
             raise ValueError(f"location entry must have 4 fields, got {entry!r}")
         ctg, start, strand, length = entry
-        out.append((str(ctg), int(start), str(strand), int(length)))
+        s, L = int(start), int(length)
+        if s < 1:
+            raise ValueError(
+                f"non-positive start_1based in location entry {entry!r} "
+                f"(BV-BRC uses 1-based inclusive coordinates)"
+            )
+        if L <= 0:
+            raise ValueError(
+                f"non-positive exon length in location entry {entry!r} "
+                f"(BV-BRC sentinel for incomplete / un-reconstructible "
+                f"spliced annotations; ~30% of M42 rows on Flu A July 2025)"
+            )
+        out.append((str(ctg), s, str(strand), L))
     return out
 
 

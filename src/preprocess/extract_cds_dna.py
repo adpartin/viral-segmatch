@@ -25,6 +25,23 @@ Usage:
 
 Outputs:
     data/processed/<virus>/<data_version>/cds_final.parquet
+
+Validation status (2026-05-15):
+    Unspliced selected_functions (8 Flu A majors): 868,240 / 868,240
+        rows extracted and translate-back-validated — 100% pass under
+        --strict mode (the default).
+    Spliced auxiliary functions (M2, NEP, M42, NS3, PA-X, PB2 splice
+        variant): empirically validated end-to-end. Per-function
+        retention with --allow_validation_warnings:
+          M2  98.76%, NEP 99.69%, M42 68.48% (~30% bear BV-BRC `-1`
+          sentinel on the second exon — incomplete annotations rejected
+          at parse time), NS3 99.90%, PA-X 99.61%, PB2-splice 100.00%.
+        Overall 456,265 / 491,208 = 92.9% across all 6 spliced
+        functions; sub-1% translate-back failures on 4 of 6 trace to
+        anomalous GTO prot_seq annotations (terminal 'X' instead of
+        stop). Pass `--allow_validation_warnings` to include spliced
+        functions; the default mode hard-fails on the first
+        translate-back mismatch to protect against silently wrong CDS.
 """
 from __future__ import annotations
 

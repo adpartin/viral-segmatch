@@ -62,6 +62,27 @@ def test_parse_location_rejects_wrong_arity():
     raise AssertionError('expected ValueError on 3-tuple entry')
 
 
+def test_parse_location_rejects_nonpositive_length():
+    # BV-BRC sentinel: length=-1 marks incomplete spliced annotations
+    # (~30% of M42 rows on Flu A July 2025). Must be rejected at parse
+    # time so callers can route the row to warn-and-skip instead of
+    # producing a truncated CDS.
+    for bad_length in (-1, 0):
+        try:
+            parse_location([['c', '14', '+', 26], ['c', 728, '+', bad_length]])
+        except ValueError:
+            continue
+        raise AssertionError(f'expected ValueError on length={bad_length}')
+
+
+def test_parse_location_rejects_nonpositive_start():
+    try:
+        parse_location([['c', 0, '+', 26]])
+    except ValueError:
+        return
+    raise AssertionError('expected ValueError on start=0')
+
+
 def test_unspliced_extraction_matches_doc():
     """PB2-style: location = [[ctg, 16, '+', 2280]] -> contig[15:2295]."""
     cds = 'ATG' + 'AAA' * 758 + 'TAG'        # 2280 nt = 760 codons
@@ -225,6 +246,8 @@ if __name__ == '__main__':
         test_parse_location_list,
         test_parse_location_rejects_empty,
         test_parse_location_rejects_wrong_arity,
+        test_parse_location_rejects_nonpositive_length,
+        test_parse_location_rejects_nonpositive_start,
         test_unspliced_extraction_matches_doc,
         test_spliced_extraction_skips_intron,
         test_strand_minus_reverse_complements,
