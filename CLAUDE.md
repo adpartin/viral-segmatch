@@ -64,11 +64,12 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 | Stage | Script | Output | Runs |
 |-------|--------|--------|------|
 | 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{version}/protein_final.csv` + `genome_final.csv` | Once |
+| 1.5. CDS extraction (opt) | `src/preprocess/extract_cds_dna.py` | `data/processed/flu/{version}/cds_final.parquet` | Once, for nt cluster_disjoint |
 | 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
 | 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → `dataset_segment_pairs_v2.py` (default builder since 2026-05-11) | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
 | 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
 
-Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`.
+Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`. Stage 1.5 has no shell wrapper — invoked directly when needed (`python src/preprocess/extract_cds_dna.py --config_bundle <virus_bundle>`).
 
 **Stage 3/4 decoupling**: Stage 4's shell script requires `--dataset_dir` explicitly and
 does not extract or validate a bundle name from the dataset path. This allows running
@@ -109,6 +110,7 @@ Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_proc
 src/
   preprocess/
     preprocess_flu.py               # Stage 1 (ACTIVE): GTO → protein_final.csv + genome_final.csv
+    extract_cds_dna.py              # Stage 1.5 (optional): protein_final + genome_final → cds_final.parquet (CDS DNA + cds_dna_hash). Prereq for nt cluster_disjoint.
     flu_genomes_eda.py              # Generates flu_genomes_metadata_parsed.csv (run once)
     preprocess_bunya_protein.py     # Bunya preprocessing (NOT actively maintained; reference-only)
   embeddings/
@@ -143,7 +145,8 @@ src/
     plot_config.py                  # Colors, protein name mapping
     gto_utils.py, protein_utils.py, path_utils.py, timer_utils.py
     kmer_utils.py                   # Load k-mer features, pair construction
-    clustering_utils.py             # mmseqs2 wrappers (FASTA export, TSV parse)
+    clustering_utils.py             # mmseqs2 wrappers (FASTA export, TSV parse); alphabet={aa,nt}, algorithm={cluster,linclust}
+    cds_utils.py                    # CDS reconstruction (parse_location, extract_cds_dna, translate_dna with IUPAC, compute_cds_dna_hash)
     dna_utils.py                    # DNA QC utilities (in development)
     dim_reduction_utils.py          # PCA/UMAP wrappers
 ```
@@ -163,6 +166,8 @@ src/
 - **K-mer interaction sweep on HA/NA (Tests 1–4, 2026-05-12)**: With Test 1 = `[|u-v|, u*v]` (raw), Test 2 = same on L2-normalized slots, Test 3 = `[|u_n-v_n|/||·||, u_n*v_n]`, Test 4 = same with `unit_prod` on the second term — all four lie within ~0.5% on F1 and ~0.1% on AUC-ROC. Test 3 narrowly leads on most aggregate metrics. Differences are at seed-noise level on a single-seed run; multiple seeds needed before claiming any winner. Important detail: `unit_diff` is element-wise abs first then L2-normalize (matches the symmetric `diff = |u-v|` semantics); previously it was a *signed* normalization.
 - **seq_disjoint scales to conserved proteins (2026-05-12)**: PB2/PB1 with `hash_key=seq` produces 14,924 components, largest = 20,214 pairs (~38% of total), and still achieves 80/10/10 within 0.0011%. The dominant components fit inside the train target so the bin-packer hits the ratios cleanly. HA/NA with the same routing: 21,719 components, largest 11,748 (~20%). Both runs drop zero pairs.
 - **1-NN edges MLP on PB2/PB1 under seq_disjoint** (MCC 0.900 vs 0.887). Consistent with the conservation-effect interpretation: PB2/PB1 has fewer distinct proteins overall, so eval splits contain fewer truly novel proteins and lookup-style baselines have an easier time.
+- **Experiment B-nt feasibility ceiling = aa ceiling on Flu A (2026-05-15)**: nt CDS-level cluster_disjoint hits the same bipartite mega-component collapse as aa cluster_disjoint, at the same thresholds (only id100 and id099 are operable on the full corpus; id095 and below dump >98% of pairs into one component on both alphabets). The hope that nt's higher synonymous diversity would unlock lower-threshold splits did not pan out — the corpus's metadata structure dominates the alphabet choice. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
+- **1-NN cosine margin ≥ LGBM at every cluster_disjoint routing (2026-05-15)**: ran 1-NN + LGBM head-to-head on 8 cells (HA/NA × PB2/PB1 × {seq_disjoint, aa id099, nt id100, nt id099}). 1-NN matches LGBM at id100/seq_disjoint cells and OUTPERFORMS LGBM at id099 cells (+16 pp F1 on HA/NA aa id099, +7 pp on PB2/PB1 aa id099). Going-in hypothesis "1-NN drops more than LGBM under cluster_disjoint" did not survive. Read: cluster_disjoint weakens the near-neighbor signal *gradually* rather than eliminating it; 1-NN's prediction-by-nearest-pair stays well-calibrated under that weakening while LGBM's tree splits rely on signal that doesn't generalize across the cluster boundary. The "MLP vs 1-NN" leakage doctrine is informative as a residual-leakage gauge but does not by itself confirm that cluster_disjoint removed leakage. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md` § "1-NN cosine margin (leakage upper bound)".
 
 ---
 
@@ -195,19 +200,19 @@ Priority experiments for publication:
 ## What Is In Development (Not Yet Production)
 
 - `src/utils/dna_utils.py` — DNA sequence QC utilities
-- **Experiment B-nt** (nt-level cluster_disjoint) — proposed follow-up to
-  Experiment B; requires a CDS extractor (not in codebase) before the
-  existing cluster routing can switch to nucleotide alphabet. See
-  `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` §
-  "Experiment B-nt".
 
-Note: unified Flu preprocessing (`preprocess_flu.py`) and the temporal-holdout
-mechanism were previously listed here. Preprocessing is in production (entry
-point: `scripts/stage1_preprocess_flu.sh`); the temporal-holdout `year_train` /
+Note: unified Flu preprocessing (`preprocess_flu.py`), the temporal-holdout
+mechanism, and Experiment B-nt (nt-level cluster_disjoint) were previously
+listed here. All are now in production. Preprocessing entry point:
+`scripts/stage1_preprocess_flu.sh`. Temporal-holdout `year_train` /
 `year_test` keys were retired 2026-05-11 in favor of the more general
 `dataset.metadata_holdout` (year-axis is its degenerate case, multi-axis
-cross-population holdouts are now first-class). See
-`docs/plans/done/2026-05-11_metadata_holdout_plan.md`.
+cross-population holdouts are now first-class); see
+`docs/plans/done/2026-05-11_metadata_holdout_plan.md`. Experiment B-nt
+landed 2026-05-15 — CDS extractor (`src/preprocess/extract_cds_dna.py`),
+`dataset.split_strategy.cluster_alphabet: aa|nt` knob, 4 nt cluster bundles,
+LGBM + 1-NN results; on Flu A only id100/id099 are feasible (same ceiling
+as aa); see `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
 
 K-mer aa support is in production end-to-end as of 2026-05-13 (Stage 2b
 CLI, loader, MLP, baselines, bundles). `kmer.alphabet ∈ {nt, aa}`,
