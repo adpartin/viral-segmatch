@@ -1663,8 +1663,12 @@ if PAIR_BUILDER_VERSION == 'v2':
     # appropriate when training features are DNA-derived such as k-mer).
     SPLIT_STRATEGY_HASH_KEY = 'seq'
     # cluster_id_path and cluster_id_threshold only consumed when mode='cluster_disjoint'.
+    # cluster_alphabet picks aa vs nt clustering (default aa).
+    # cds_final_path is mandatory when cluster_alphabet='nt' (Experiment B-nt).
     CLUSTER_ID_PATH = None
     CLUSTER_ID_THRESHOLD = None
+    CLUSTER_ALPHABET = 'aa'
+    CDS_FINAL_PATH = None
     if SPLIT_STRATEGY_CFG is not None:
         m = getattr(SPLIT_STRATEGY_CFG, 'mode', None)
         if m is not None:
@@ -1678,6 +1682,16 @@ if PAIR_BUILDER_VERSION == 'v2':
         ct = getattr(SPLIT_STRATEGY_CFG, 'cluster_id_threshold', None)
         if ct is not None:
             CLUSTER_ID_THRESHOLD = float(ct)
+        ca = getattr(SPLIT_STRATEGY_CFG, 'cluster_alphabet', None)
+        if ca is not None:
+            CLUSTER_ALPHABET = str(ca)
+        cf = getattr(SPLIT_STRATEGY_CFG, 'cds_final_path', None)
+        if cf is not None:
+            CDS_FINAL_PATH = str(cf)
+    # Default CDS path: data/processed/<virus>/<version>/cds_final.parquet
+    # (alongside the input protein_final).
+    if CLUSTER_ALPHABET == 'nt' and CDS_FINAL_PATH is None:
+        CDS_FINAL_PATH = str(input_file.parent / 'cds_final.parquet')
     if NEG_SAMPLING_CFG is not None:
         from omegaconf import OmegaConf
         rt = OmegaConf.to_container(NEG_SAMPLING_CFG.regime_targets, resolve=True)
@@ -1818,6 +1832,8 @@ if PAIR_BUILDER_VERSION == 'v2':
             split_strategy_hash_key=SPLIT_STRATEGY_HASH_KEY,
             cluster_id_path=CLUSTER_ID_PATH,
             cluster_id_threshold=CLUSTER_ID_THRESHOLD,
+            cluster_alphabet=CLUSTER_ALPHABET,
+            cds_final_path=CDS_FINAL_PATH,
             train_isolates_override=holdout_train_ids,
             val_isolates_override=holdout_val_ids,
             test_isolates_override=holdout_test_ids,

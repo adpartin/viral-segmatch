@@ -141,6 +141,90 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
     return merged
 
 
+def attach_cds_dna_hash_to_pos_df(
+    pos_df: pd.DataFrame,
+    cds_final_path: Path,
+    schema_pair: Tuple[str, str],
+) -> pd.DataFrame:
+    """Add `cds_dna_hash_a` and `cds_dna_hash_b` columns to pos_df.
+
+    Required by the nt-alphabet branch of cluster_disjoint routing
+    (Experiment B-nt, see `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`).
+    The values come from `cds_final.parquet` (built by
+    `src/preprocess/extract_cds_dna.py`), keyed on
+    `(assembly_id, function)` — unique by construction for the 8 majors.
+
+    Args:
+        pos_df: must contain `assembly_id` plus the seq_hash_a/b /
+            dna_hash_a/b columns from `create_positive_pairs_v2`.
+        cds_final_path: path to `cds_final.parquet`. Must contain columns
+            `assembly_id`, `function`, `cds_dna_hash`.
+        schema_pair: `(func_left, func_right)` — slot A and slot B.
+
+    Returns a new DataFrame with `cds_dna_hash_a` and `cds_dna_hash_b`
+    attached. Raises if any pos_df row fails the lookup (Stage 3 strictness:
+    no silent drops).
+    """
+    cds_final_path = Path(cds_final_path)
+    if not cds_final_path.exists():
+        raise FileNotFoundError(
+            f"attach_cds_dna_hash_to_pos_df: cds_final not found at "
+            f"{cds_final_path}. Build it with "
+            f"`python src/preprocess/extract_cds_dna.py --config_bundle <virus_bundle>`."
+        )
+    func_left, func_right = _validate_schema_pair(
+        schema_pair, "attach_cds_dna_hash_to_pos_df"
+    )
+    # pos_df from v2's create_positive_pairs_v2 carries assembly_id_a and
+    # assembly_id_b (one per slot). Under v2's schema_ordered + one-pair-per-
+    # isolate invariant these are equal, so either is fine — use them both
+    # explicitly so the join works even on a hypothetical future v1-shape pos_df.
+    for col in ('assembly_id_a', 'assembly_id_b'):
+        if col not in pos_df.columns:
+            raise ValueError(f"pos_df must contain '{col}'")
+
+    cds_df = pd.read_parquet(
+        cds_final_path,
+        columns=['assembly_id', 'function', 'cds_dna_hash'],
+    )
+    cds_df['assembly_id'] = cds_df['assembly_id'].astype(str)
+
+    def _lookup_for(func: str, suffix: str) -> pd.DataFrame:
+        sub = cds_df[cds_df['function'] == func][['assembly_id', 'cds_dna_hash']]
+        if sub['assembly_id'].duplicated().any():
+            raise AssertionError(
+                f"cds_final has duplicate assembly_id rows for function={func!r}"
+            )
+        return sub.rename(columns={
+            'assembly_id': f'assembly_id_{suffix}',
+            'cds_dna_hash': f'cds_dna_hash_{suffix}',
+        })
+
+    out = pos_df.copy()
+    out['assembly_id_a'] = out['assembly_id_a'].astype(str)
+    out['assembly_id_b'] = out['assembly_id_b'].astype(str)
+    before = len(out)
+    out = out.merge(_lookup_for(func_left, 'a'), on='assembly_id_a', how='left')
+    out = out.merge(_lookup_for(func_right, 'b'), on='assembly_id_b', how='left')
+    if len(out) != before:
+        raise RuntimeError(
+            f"attach_cds_dna_hash_to_pos_df: row count changed "
+            f"({before} -> {len(out)}); fan-out from non-unique key suspected."
+        )
+    missing = out[['cds_dna_hash_a', 'cds_dna_hash_b']].isna().any(axis=1).sum()
+    if missing:
+        raise RuntimeError(
+            f"attach_cds_dna_hash_to_pos_df: {missing} rows have no "
+            f"matching CDS — check that schema_pair functions match "
+            f"those used to build cds_final."
+        )
+    print(f"attach_cds_dna_hash_to_pos_df: attached cds_dna_hash to "
+          f"{len(out):,} pos_df rows "
+          f"(unique cds_dna_hash_a={out['cds_dna_hash_a'].nunique():,}, "
+          f"cds_dna_hash_b={out['cds_dna_hash_b'].nunique():,}).")
+    return out
+
+
 def select_balanced_isolate_pool(
     prot_df: pd.DataFrame,
     subtype_selection_cfg,

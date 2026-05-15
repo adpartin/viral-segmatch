@@ -61,21 +61,33 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
 def attach_cluster_ids(
     pos_df: pd.DataFrame,
     cluster_lookup: pd.DataFrame,
+    pos_hash_col: str = 'seq_hash',
 ) -> tuple[pd.DataFrame, dict]:
-    """Add `cluster_id_a` and `cluster_id_b` columns to pos_df via a join on seq_hash.
+    """Add `cluster_id_a` and `cluster_id_b` columns to pos_df via a join
+    on the chosen hash column.
 
-    Pairs whose seq_hash_a or seq_hash_b is missing from the lookup are
-    DROPPED. The audit dict records how many were dropped and why.
+    For aa cluster_disjoint (default): join `pos_df.seq_hash_{a,b}` against
+    `cluster_lookup.seq_hash`. For nt cluster_disjoint
+    (Experiment B-nt), pass `pos_hash_col='cds_dna_hash'`; the join then
+    consumes `pos_df.cds_dna_hash_{a,b}` (attached via
+    `attach_cds_dna_hash_to_pos_df`). In both cases the cluster_lookup
+    parquet itself keeps the legacy `seq_hash` column name — the values
+    inside are aa md5 for `clusters/` and CDS-DNA md5 for `clusters_nt/`.
+
+    Pairs whose pos-side hash is missing from the lookup are DROPPED.
 
     Returns:
         (pos_df_with_ids, audit_dict)
         pos_df_with_ids has cluster_id_a / cluster_id_b columns added.
         audit_dict has counts: n_input, n_kept, n_dropped_missing_a,
-        n_dropped_missing_b, n_dropped_missing_both.
+        n_dropped_missing_b, n_dropped_missing_both, and pos_hash_col.
     """
-    if {'seq_hash_a', 'seq_hash_b'} - set(pos_df.columns):
+    pos_col_a = f'{pos_hash_col}_a'
+    pos_col_b = f'{pos_hash_col}_b'
+    if {pos_col_a, pos_col_b} - set(pos_df.columns):
         raise ValueError(
-            "attach_cluster_ids: pos_df must contain seq_hash_a and seq_hash_b columns."
+            f"attach_cluster_ids: pos_df must contain {pos_col_a} and "
+            f"{pos_col_b} columns (pos_hash_col={pos_hash_col!r})."
         )
     if {'seq_hash', 'cluster_id'} - set(cluster_lookup.columns):
         raise ValueError(
@@ -85,12 +97,12 @@ def attach_cluster_ids(
     lookup = cluster_lookup[['seq_hash', 'cluster_id']].drop_duplicates(subset='seq_hash')
 
     out = pos_df.merge(
-        lookup.rename(columns={'seq_hash': 'seq_hash_a', 'cluster_id': 'cluster_id_a'}),
-        on='seq_hash_a', how='left',
+        lookup.rename(columns={'seq_hash': pos_col_a, 'cluster_id': 'cluster_id_a'}),
+        on=pos_col_a, how='left',
     )
     out = out.merge(
-        lookup.rename(columns={'seq_hash': 'seq_hash_b', 'cluster_id': 'cluster_id_b'}),
-        on='seq_hash_b', how='left',
+        lookup.rename(columns={'seq_hash': pos_col_b, 'cluster_id': 'cluster_id_b'}),
+        on=pos_col_b, how='left',
     )
 
     missing_a = out['cluster_id_a'].isna()
@@ -104,6 +116,7 @@ def attach_cluster_ids(
         'n_dropped_missing_a': int((missing_a & ~missing_both).sum()),
         'n_dropped_missing_b': int((missing_b & ~missing_both).sum()),
         'n_dropped_missing_both': int(missing_both.sum()),
+        'pos_hash_col': pos_hash_col,
     }
 
     kept = out[~drop_mask].reset_index(drop=True)
@@ -118,6 +131,8 @@ def cluster_disjoint_route_pos_df(
     seed: int,
     cluster_id_threshold: Optional[float] = None,
     cluster_lookup_path: Optional[str] = None,
+    pos_hash_col: str = 'seq_hash',
+    cluster_alphabet: str = 'aa',
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Route `pos_df` rows into train/val/test such that no cluster spans splits.
 
@@ -152,7 +167,9 @@ def cluster_disjoint_route_pos_df(
             f"({train_ratio} + {val_ratio})"
         )
 
-    pos_with_ids, attach_audit = attach_cluster_ids(pos_df, cluster_lookup)
+    pos_with_ids, attach_audit = attach_cluster_ids(
+        pos_df, cluster_lookup, pos_hash_col=pos_hash_col,
+    )
 
     if len(pos_with_ids) == 0:
         raise ValueError(
@@ -235,6 +252,8 @@ def cluster_disjoint_route_pos_df(
         'algorithm': 'bipartite_cc_lpt_greedy_on_cluster_ids',
         'cluster_lookup_path': cluster_lookup_path,
         'cluster_id_threshold': cluster_id_threshold,
+        'cluster_alphabet': cluster_alphabet,
+        'pos_hash_col': pos_hash_col,
         'seed': int(seed),
         'attach_audit': attach_audit,
         'cc_summary': cc_summary,

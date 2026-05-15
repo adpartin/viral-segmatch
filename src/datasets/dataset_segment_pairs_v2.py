@@ -1276,6 +1276,8 @@ def split_dataset_v2(
     split_strategy_hash_key: str = 'seq',
     cluster_id_path: Optional[str] = None,
     cluster_id_threshold: Optional[float] = None,
+    cluster_alphabet: str = 'aa',
+    cds_final_path: Optional[str] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1452,6 +1454,9 @@ def split_dataset_v2(
         # pairs into the split where BOTH sequences' clusters land; pairs whose
         # seq_hashes aren't covered by the cluster lookup are dropped.
         # See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+        # cluster_alphabet='aa' (default) clusters protein sequences;
+        # cluster_alphabet='nt' clusters CDS DNA — the latter joins on
+        # cds_dna_hash, so we attach it to pos_df here before routing.
         from src.datasets._split_helpers import (
             cluster_disjoint_route_pos_df, load_cluster_lookup,
         )
@@ -1460,8 +1465,27 @@ def split_dataset_v2(
                 "split_dataset_v2: cluster_id_path is required when "
                 "split_strategy_mode='cluster_disjoint'."
             )
+        if cluster_alphabet not in {'aa', 'nt'}:
+            raise ValueError(
+                f"split_dataset_v2: cluster_alphabet must be 'aa' or 'nt', "
+                f"got {cluster_alphabet!r}"
+            )
+        if cluster_alphabet == 'nt':
+            if cds_final_path is None:
+                raise ValueError(
+                    "split_dataset_v2: cluster_alphabet='nt' requires "
+                    "cds_final_path (the cds_final.parquet path)."
+                )
+            from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
+            pos_df = attach_cds_dna_hash_to_pos_df(
+                pos_df, cds_final_path, schema_pair=schema_pair,
+            )
+            pos_hash_col = 'cds_dna_hash'
+        else:
+            pos_hash_col = 'seq_hash'
         print(f"\nsplit_dataset_v2: cluster_disjoint routing "
               f"(bipartite CC + LPT-greedy bin-pack on cluster_ids; "
+              f"cluster_alphabet={cluster_alphabet}, "
               f"cluster_id_path={cluster_id_path}, "
               f"cluster_id_threshold={cluster_id_threshold})...", flush=True)
         cluster_lookup = load_cluster_lookup(cluster_id_path)
@@ -1470,6 +1494,8 @@ def split_dataset_v2(
             train_ratio=train_ratio, val_ratio=val_ratio, seed=seed,
             cluster_id_threshold=cluster_id_threshold,
             cluster_lookup_path=str(cluster_id_path),
+            pos_hash_col=pos_hash_col,
+            cluster_alphabet=cluster_alphabet,
         )
         train_isolates = sorted(train_pos['assembly_id_a'].tolist())
         val_isolates = sorted(val_pos['assembly_id_a'].tolist())
@@ -2529,6 +2555,12 @@ def _validate_v2_config(config) -> None:
                     f"dataset.split_strategy.cluster_id_threshold must be a float "
                     f"(or absent); got {cluster_id_threshold!r}."
                 )
+        cluster_alphabet = OmegaConf.select(config, "dataset.split_strategy.cluster_alphabet")
+        if cluster_alphabet is not None and cluster_alphabet not in {'aa', 'nt'}:
+            raise ValueError(
+                f"dataset.split_strategy.cluster_alphabet must be 'aa' or 'nt' "
+                f"(or absent — defaults to 'aa'); got {cluster_alphabet!r}."
+            )
     n_folds = OmegaConf.select(config, "dataset.n_folds")
     if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:
         raise NotImplementedError(
