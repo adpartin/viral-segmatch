@@ -1,0 +1,29 @@
+# STATUS: experimental -- HA/NA cluster_disjoint id99 + ratio=3 + regime_aware_coverage=true.
+# Inherits flu_ha_na_cluster_id99_r3 (full corpus, ratio=3.0, cluster_disjoint id99).
+# Tests whether the AUC-PR drop seen at r=3 without regime-aware coverage
+# (0.797 -> 0.728) reverses when the additional negatives are biased
+# toward hard regimes via the priority chain.
+
+defaults:
+  - flu_ha_na_cluster_id99_r3
+  - _self_
+
+dataset:
+  negative_sampling:
+    axes: [host, hn_subtype, year]
+    year_match: binned
+    year_bin_edges:
+      - [-1.0e+30, 2015, "<=2015"]
+      - [2016, 2020, "2016-2020"]
+      - [2021,  1.0e+30, "2021+"]
+    regime_targets:
+      none_match:           0.05
+      host_only:            0.10
+      subtype_only:         0.10
+      year_only:            0.10
+      host_subtype_only:    0.15
+      host_year_only:       0.15
+      subtype_year_only:    0.15
+      host_subtype_year:    0.20
+    on_shortfall: redistribute
+    regime_aware_coverage: true

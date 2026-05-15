@@ -1,0 +1,28 @@
+# STATUS: experimental -- PB2/PB1 cluster_disjoint id99 + regime_aware_coverage=true.
+# Inherits flu_pb2_pb1_cluster_id99 (full corpus, ratio=1.5, cluster_disjoint id99 —
+# train-heavy 87/6.4/6.4 due to the bipartite mega-component). Adds regime-aware
+# negative sampling with regime_aware_coverage flipped on.
+
+defaults:
+  - flu_pb2_pb1_cluster_id99
+  - _self_
+
+dataset:
+  negative_sampling:
+    axes: [host, hn_subtype, year]
+    year_match: binned
+    year_bin_edges:
+      - [-1.0e+30, 2015, "<=2015"]
+      - [2016, 2020, "2016-2020"]
+      - [2021,  1.0e+30, "2021+"]
+    regime_targets:
+      none_match:           0.05
+      host_only:            0.10
+      subtype_only:         0.10
+      year_only:            0.10
+      host_subtype_only:    0.15
+      host_year_only:       0.15
+      subtype_year_only:    0.15
+      host_subtype_year:    0.20
+    on_shortfall: redistribute
+    regime_aware_coverage: true
