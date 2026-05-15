@@ -101,6 +101,24 @@ genome cross-merge.
 **`length` semantics:** nucleotide length (from `summarize_dna_qc`).
 Different unit from the protein-side `length`.
 
+### Why two output files instead of one merged DataFrame
+
+The protein and genome tables are kept separate by design:
+
+- **Cardinality mismatch.** `protein_final` has multiple rows per
+  segment per isolate (e.g. M1 + M2 on Segment 7); `genome_final` has
+  exactly one row per segment. A merged table would duplicate each
+  contig's `dna_seq` across all the proteins that live on it, bloating
+  the file 2–5× for no information gain.
+- **Downstream independence.** Protein data feeds Stage 2a (ESM-2
+  embeddings); genome data feeds Stage 2b (k-mer features). Different
+  consumers, different schemas, different cadences for rebuilds.
+- **Join on demand.** Stage 3 (`dataset_segment_pairs.py`) joins the
+  two on `(assembly_id, genbank_ctg_id)` only when the downstream
+  feature path actually needs both — see
+  `_pair_helpers.attach_dna_to_prot_df` and (for Experiment B-nt)
+  `_pair_helpers.attach_cds_dna_hash_to_pos_df`.
+
 ---
 
 ## 4. Filter pipeline
@@ -141,6 +159,21 @@ claiming "PB2 on Segment 3" stays unassigned and is dropped at step 1
 of the filter pipeline. This is a strong invariant: a row in
 `protein_final.csv` is guaranteed biology-consistent at the
 (function, replicon_type) level.
+
+### QC step coverage: general vs sequence-specific
+
+| QC step | Applies to | Module |
+|---|---|---|
+| Assembly deduplication | Both | `gto_utils.py` |
+| Genome quality filter (`quality == 'Poor'`) | Both | `preprocess_flu.py` |
+| Single-file-per-assembly enforcement | Both | `gto_utils.py` |
+| Replicon-type validation (`Unassigned` drop) | Both | `preprocess_flu.py` |
+| Amino-acid ambiguity (B / Z / J / X / U / O) | Protein only | `protein_utils.py` |
+| Internal / terminal stop codons | Protein only | `protein_utils.py` |
+| ESM-2 sequence preparation (X-imputation, stop strip) | Protein only | `protein_utils.py` |
+| IUPAC ambiguity codes (N / R / Y / W / S / K) | DNA only | `dna_utils.py` |
+| GC content + ambig-fraction annotation | DNA only | `dna_utils.py` |
+| Sequence length validation | Both (different thresholds) | respective utils |
 
 ---
 

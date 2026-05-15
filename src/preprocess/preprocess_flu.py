@@ -5,8 +5,10 @@ Unified script that parses each GTO file once and extracts both:
 - Protein data -> protein_final.csv
 - Genome data  -> genome_final.csv
 
-See docs/genome_pipeline_design.md for design decisions and history
-(this script absorbed and replaced the now-deleted preprocess_flu_protein.py).
+See docs/methods/preprocess.md for the current reference (output schemas,
+filter pipeline, QC step coverage, why two output files instead of one
+merged DataFrame). This script absorbed and replaced the now-deleted
+preprocess_flu_protein.py.
 
 Example:
 ```bash

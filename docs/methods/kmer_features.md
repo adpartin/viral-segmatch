@@ -285,6 +285,25 @@ see `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`.
 + MLP on the full 28-pair sweep — median val AUC 0.994 vs ESM-2 0.976
 (see `roadmap_v2.md` §11 for the per-pair table).
 
+### Why a separate Stage 2b instead of computing k-mers inside Stage 3?
+
+Three reasons, all the same pattern as Stage 2a (ESM-2 embeddings):
+
+- **Cost amortization.** K-mer enumeration over the full corpus
+  (868,240 contigs × 4,096 columns for nt k=6) is the kind of work you
+  want to do once and reuse across experiments. Stage 3 builds many
+  per-bundle datasets against the same Stage 1 outputs; if k-mer
+  computation lived inside Stage 3 it would re-run on every
+  cluster_disjoint / metadata_holdout / regime-aware bundle.
+- **Hyperparameter independence.** `k`, alphabet, vocab, and
+  normalization are featurization choices that vary across experiments
+  but should not invalidate the dataset construction. Splitting the
+  cache off makes "swap k from 3 to 6" a one-line bundle change with
+  no Stage 3 re-run.
+- **Symmetry with Stage 2a.** ESM-2 already follows compute-once /
+  load-many; k-mer caches mirror it so the two feature paths look the
+  same to Stage 3 and Stage 4.
+
 ### Why k = 6?
 
 k = 6 is the smallest k at which the 4^k = 4,096 vocabulary is richer

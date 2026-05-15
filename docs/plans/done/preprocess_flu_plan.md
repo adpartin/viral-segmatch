@@ -4,7 +4,7 @@
 
 ## Context
 
-Currently `preprocess_flu_protein.py` handles protein-only extraction from GTO files. We want `preprocess_flu.py` that parses each GTO file **once** and extracts both protein and genome data, producing `protein_final.csv` (unchanged) and `genome_final.csv` (new). The design is documented in `docs/genome_pipeline_design.md`.
+Currently `preprocess_flu_protein.py` handles protein-only extraction from GTO files. We want `preprocess_flu.py` that parses each GTO file **once** and extracts both protein and genome data, producing `protein_final.csv` (unchanged) and `genome_final.csv` (new). The design rationale (cardinality mismatch, downstream independence, join-on-demand) is folded into `docs/methods/preprocess.md` § 3; the original standalone design doc (`docs/genome_pipeline_design.md`) was retired 2026-05-15.
 
 `preprocess_flu_protein.py` stays as-is for backward compatibility. The new script replaces it for future runs.
 
