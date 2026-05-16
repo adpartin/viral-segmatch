@@ -188,7 +188,7 @@ Mechanic by flag:
   sweep on the full Flu A corpus, linclust is ~8× faster than
   easy-cluster and produces within-noise different cluster counts at
   our thresholds. Used as the default for the nt redundancy sweep
-  (`docs/results/2026-05-15_protein_redundancy_per_function_nt.md`).
+  (`docs/results/2026-05-15_seq_redundancy_per_function_nt.md`).
 
 ---
 

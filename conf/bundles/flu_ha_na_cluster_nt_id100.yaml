@@ -19,7 +19,7 @@
 #   1. data/processed/flu/July_2025/cds_final.parquet (Stage 1.5)
 #      python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 #   2. data/processed/flu/July_2025/clusters_nt/id100/combined_cluster.parquet (Step 6)
-#      python -m src.analysis.protein_redundancy_per_function \
+#      python -m src.analysis.seq_redundancy_per_function \
 #          --cds_final data/processed/flu/July_2025/cds_final.parquet \
 #          --out_root  data/processed/flu/July_2025/clusters_nt \
 #          --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \

@@ -2543,7 +2543,8 @@ def _validate_v2_config(config) -> None:
             raise ValueError(
                 "dataset.split_strategy.mode='cluster_disjoint' requires "
                 "dataset.split_strategy.cluster_id_path to point at a (seq_hash, cluster_id) "
-                "parquet (typically data/processed/flu/<version>/clusters/id<NN>/combined_cluster.parquet). "
+                "parquet (typically data/processed/flu/<version>/clusters_aa/id<NN>/combined_cluster.parquet "
+                "or clusters_nt/id<NN>/combined_cluster.parquet). "
                 "See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
             )
         cluster_id_threshold = OmegaConf.select(config, "dataset.split_strategy.cluster_id_threshold")

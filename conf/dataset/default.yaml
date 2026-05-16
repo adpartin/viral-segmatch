@@ -191,8 +191,8 @@ drop_ambiguous_subtype: true
 # cluster_disjoint-only parameters (required when mode=cluster_disjoint;
 # ignored otherwise):
 #   - cluster_id_path: path to a (seq_hash, cluster_id) parquet produced by
-#     `src/analysis/protein_redundancy_per_function.py`. Typically points at
-#     `data/processed/<virus>/<version>/clusters/id<NN>/combined_cluster.parquet`
+#     `src/analysis/seq_redundancy_per_function.py`. Typically points at
+#     `data/processed/<virus>/<version>/clusters_aa/id<NN>/combined_cluster.parquet`
 #     for aa clustering, or `clusters_nt/id<NN>/combined_cluster.parquet`
 #     for nt (CDS DNA) clustering.
 #   - cluster_id_threshold: float (0–1). Documentation-only; the actual
@@ -208,12 +208,12 @@ drop_ambiguous_subtype: true
 # operable on the full corpus on both alphabets — below those thresholds the
 # bipartite mega-component collapses to >80% of pairs and 80/10/10 splits
 # become infeasible. See
-# docs/results/2026-05-14_protein_redundancy_per_function.md (aa) and
+# docs/results/2026-05-15_seq_redundancy_per_function.md (aa) and
 # docs/results/2026-05-15_cluster_disjoint_nt_results.md (nt).
 split_strategy:
   mode: seq_disjoint  # 'random' | 'seq_disjoint' (default) | 'cluster_disjoint'
   hash_key: seq       # 'seq' (protein, default) | 'dna' (nucleotide)
   # cluster_disjoint-only knobs — set when mode=cluster_disjoint.
-  # cluster_id_path:      data/processed/flu/July_2025/clusters/id099/combined_cluster.parquet
+  # cluster_id_path:      data/processed/flu/July_2025/clusters_aa/id099/combined_cluster.parquet
   # cluster_id_threshold: 0.99
   # cluster_alphabet:     aa   # 'aa' (default) | 'nt'

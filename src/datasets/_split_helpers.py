@@ -33,7 +33,7 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
     """Load a (seq_hash -> cluster_id) lookup from a parquet file.
 
     Accepts the per-(function, threshold) parquet emitted by
-    `protein_redundancy_per_function.py` or the per-threshold `combined_cluster.parquet`.
+    `seq_redundancy_per_function.py` or the per-threshold `combined_cluster.parquet`.
     Required columns: `seq_hash`, `cluster_id`. Optional: `function`, `function_short`,
     `threshold`, `cluster_rep` — left intact if present.
 

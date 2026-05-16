@@ -2,38 +2,37 @@
 
 Step 1 of the cluster-disjoint splits plan
 (`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`):
-characterize the within-function sequence redundancy at several mmseqs2
-identity thresholds. The cluster-size distribution per (function,
-threshold) decides which thresholds are feasible for cluster-disjoint
-routing (a threshold that collapses too much of a function into one
-giant cluster makes the partition trivial / forces unacceptable
-pair-drops).
+characterize the within-function sequence redundancy at several mmseqs2 identity
+thresholds. The cluster-size distribution per (function, threshold) decides which
+thresholds are feasible for cluster-disjoint routing (a threshold that collapses
+too much of a function into one giant cluster makes the partition trivial / forces
+unacceptable pair-drops).
 
 Supports two alphabets:
-  - aa: clusters `prot_seq` from `protein_final.parquet` (Stage 1 output)
-        using `mmseqs easy-cluster` (sensitive cascaded path).
-  - nt: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output
-        from `src/preprocess/extract_cds_dna.py`) using `mmseqs
-        easy-linclust` (linear-time; ~8x faster on long CDS sequences,
-        within-noise different cluster counts at our thresholds).
-        nt mode passes `--dbtype 2` to mmseqs.
+  - aa: clusters `prot_seq` from `protein_final.parquet` (Stage 1 output) using
+        `mmseqs easy-cluster` (sensitive cascaded path).
+  - nt: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output from
+        `src/preprocess/extract_cds_dna.py`) using `mmseqs easy-linclust`
+        (linear-time; ~8x faster on long CDS sequences, within-noise different
+        cluster counts at our thresholds). nt mode passes `--dbtype 2` to mmseqs.
 
-Side effect: produces the per-function cluster lookups that the
-routing helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
-consumes downstream. Artifact layout:
-
-  <out_root>/
-    fasta/<short_name>.fasta           (one per function; reused across thresholds)
-    id<th>/<short_name>_cluster.parquet (one per (function, threshold))
-    id<th>/combined_cluster.parquet     (concatenation of per-function parquets)
+This produces the per-function cluster lookups that the routing
+helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
+consumes downstream.
 
 Typical out_root values:
   data/processed/flu/{version}/clusters     (aa)
   data/processed/flu/{version}/clusters_nt  (nt)
 
+Artifact layout:
+  <out_root>/
+    fasta/<short_name>.fasta            (one per function; reused across thresholds)
+    id<th>/<short_name>_cluster.parquet (one per (function, threshold))
+    id<th>/combined_cluster.parquet     (concatenation of per-function parquets)
+
 CLI:
     # aa redundancy sweep — sensitive easy-cluster
-    python -m src.analysis.protein_redundancy_per_function \\
+    python -m src.analysis.seq_redundancy_per_function \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters \\
         --thresholds 1.00 0.99 0.95 0.90 0.80 \\
@@ -41,7 +40,7 @@ CLI:
         --threads 8
 
     # nt redundancy sweep — fast easy-linclust on cds_final
-    python -m src.analysis.protein_redundancy_per_function \\
+    python -m src.analysis.seq_redundancy_per_function \\
         --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
         --out_root   data/processed/flu/July_2025/clusters_nt \\
         --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \\
@@ -154,6 +153,8 @@ def cluster_one_function_one_threshold(
     # mmseqs run
     if cluster_parquet.exists() and not force:
         lookup = pd.read_parquet(cluster_parquet)
+        elapsed_seconds = None  # cached — no fresh runtime
+        cached = True
         print(f"  [{short_name} @ {threshold:.2f}] cluster parquet cached "
               f"({len(lookup):,} rows, {lookup['cluster_id'].nunique():,} clusters)")
     else:
@@ -170,6 +171,8 @@ def cluster_one_function_one_threshold(
             alphabet=alphabet,
             algorithm=algorithm,
         )
+        elapsed_seconds = time.time() - t0
+        cached = False
         lookup = parse_cluster_tsv(result.cluster_tsv, cluster_id_prefix=short_name)
         lookup['function'] = full_name
         lookup['function_short'] = short_name
@@ -178,7 +181,7 @@ def cluster_one_function_one_threshold(
         lookup.to_parquet(cluster_parquet, index=False)
         print(f"  [{short_name} @ {threshold:.2f}] clustered "
               f"{len(lookup):,} seqs -> {lookup['cluster_id'].nunique():,} clusters "
-              f"in {time.time()-t0:.1f}s")
+              f"in {elapsed_seconds:.1f}s")
 
     # Stats
     dist = cluster_size_distribution(lookup[['cluster_id']])
@@ -186,6 +189,10 @@ def cluster_one_function_one_threshold(
         'function': full_name,
         'function_short': short_name,
         'threshold': float(threshold),
+        'alphabet': alphabet,
+        'algorithm': algorithm,
+        'elapsed_seconds': elapsed_seconds,
+        'cached': cached,
         'cluster_parquet': str(cluster_parquet),
     })
     return dist
@@ -215,7 +222,7 @@ def write_results_markdown(
     protein_final_path: str,
     alphabet: str = 'aa',
     algorithm: str = 'cluster',
-) -> None:
+    ) -> None:
     """Write a human-readable markdown table per threshold."""
     out_md = Path(out_md)
     out_md.parent.mkdir(parents=True, exist_ok=True)
@@ -232,7 +239,7 @@ def write_results_markdown(
     lines.append(f"**Input.** `{protein_final_path}`.")
     lines.append(f"**Alphabet.** {alphabet_label}.")
     lines.append(f"**Tool.** mmseqs2 `{subcmd} --min-seq-id <th> -c 0.8 --cov-mode 0{dbtype_flag}`.")
-    lines.append(f"**Script.** `src/analysis/protein_redundancy_per_function.py`.")
+    lines.append(f"**Script.** `src/analysis/seq_redundancy_per_function.py`.")
     lines.append("")
     lines.append("## Method")
     lines.append("")
@@ -395,13 +402,54 @@ def main() -> None:
     stats_df.to_csv(stats_csv, index=False)
     print(f"\nWrote stats CSV: {stats_csv}")
 
+    # Save a runtime.json — per-(function, threshold) wall time + a small
+    # rollup. Cached rows have elapsed_seconds = None and contribute to
+    # n_cached. Lets future readers verify aa-vs-nt timing trade-offs from
+    # data instead of recollection (and informs easy-cluster vs easy-linclust
+    # choices on new corpora).
+    fresh = [r for r in all_stats if not r['cached'] and r['elapsed_seconds'] is not None]
+    fresh_secs = [float(r['elapsed_seconds']) for r in fresh]
+    rt = {
+        'alphabet': args.alphabet,
+        'algorithm': args.algorithm,
+        'threads': args.threads,
+        'functions': list(args.functions),
+        'thresholds': [float(t) for t in args.thresholds],
+        'n_runs_total': len(all_stats),
+        'n_cached': sum(1 for r in all_stats if r['cached']),
+        'n_fresh': len(fresh),
+        'fresh_elapsed_seconds_total': sum(fresh_secs),
+        'fresh_elapsed_seconds_min': min(fresh_secs) if fresh_secs else None,
+        'fresh_elapsed_seconds_median': float(pd.Series(fresh_secs).median()) if fresh_secs else None,
+        'fresh_elapsed_seconds_max': max(fresh_secs) if fresh_secs else None,
+        'per_run': [
+            {
+                'function_short': r['function_short'],
+                'threshold': r['threshold'],
+                'alphabet': r['alphabet'],
+                'algorithm': r['algorithm'],
+                'n_sequences': r['n_sequences'],
+                'n_clusters': r['n_clusters'],
+                'elapsed_seconds': r['elapsed_seconds'],
+                'cached': r['cached'],
+            }
+            for r in all_stats
+        ],
+    }
+    runtime_json = out_root / 'runtime.json'
+    with runtime_json.open('w') as f:
+        json.dump(rt, f, indent=2)
+    print(f"Wrote runtime JSON: {runtime_json} "
+          f"(n_fresh={rt['n_fresh']}, n_cached={rt['n_cached']}, "
+          f"total fresh = {rt['fresh_elapsed_seconds_total']:.1f}s)")
+
     # Markdown report
     if args.results_md is None:
         today = time.strftime('%Y-%m-%d')
         suffix = f"_{args.alphabet}" if args.alphabet == 'nt' else ''
         results_md = (
             PROJECT_ROOT / 'docs' / 'results'
-            / f"{today}_protein_redundancy_per_function{suffix}.md"
+            / f"{today}_seq_redundancy_per_function{suffix}.md"
         )
     else:
         results_md = Path(args.results_md)

@@ -1,7 +1,7 @@
-"""Consolidated clustering structural analysis (aa + nt, 8 majors).
+"""Consolidated clustering structural analysis (aa + nt, 8 majors proteins).
 
-Reads the per-function redundancy sweep outputs (from
-`protein_redundancy_per_function.py`) and bipartite-component
+Reads the per-function (major protein) redundancy sweep outputs (from
+`seq_redundancy_per_function.py`) and bipartite-component
 feasibility tables (from `cluster_disjoint_feasibility.py`) and emits
 a single set of plots + tables that articulate, for each of the 8 major
 Flu A protein functions at each mmseqs2 identity threshold:
@@ -26,7 +26,7 @@ different inputs and consumers:
 
 CLI:
     python -m src.analysis.cluster_analysis_summary \\
-        [--clusters_aa  data/processed/flu/July_2025/clusters] \\
+        [--clusters_aa  data/processed/flu/July_2025/clusters_aa] \\
         [--clusters_nt  data/processed/flu/July_2025/clusters_nt] \\
         [--protein_final data/processed/flu/July_2025/protein_final.csv] \\
         [--cds_final     data/processed/flu/July_2025/cds_final.parquet] \\
@@ -88,7 +88,7 @@ _SCHEMA_PAIRS = [
 # ----------------------------------------------------------------------
 
 def load_redundancy_stats(clusters_root: Path, alphabet: str) -> pd.DataFrame:
-    """Load redundancy_stats.csv emitted by protein_redundancy_per_function.py.
+    """Load redundancy_stats.csv emitted by seq_redundancy_per_function.py.
 
     `keep_default_na=False` is critical: the `function_short` column
     contains the literal string `'NA'` (Neuraminidase), which pandas
@@ -96,7 +96,7 @@ def load_redundancy_stats(clusters_root: Path, alphabet: str) -> pd.DataFrame:
     """
     p = clusters_root / 'redundancy_stats.csv'
     if not p.exists():
-        raise FileNotFoundError(f'{p} not found — run protein_redundancy_per_function.py first.')
+        raise FileNotFoundError(f'{p} not found — run seq_redundancy_per_function.py first.')
     df = pd.read_csv(p, keep_default_na=False, na_values=[''])
     df = df[df['function_short'].isin(_SHORT_ORDER)].copy()
     df['alphabet'] = alphabet
@@ -351,7 +351,7 @@ def plot_bipartite_largest_pct(feasibilities: list[pd.DataFrame], out_png: Path)
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--clusters_aa', default=str(PROJ / 'data/processed/flu/July_2025/clusters'),
+    p.add_argument('--clusters_aa', default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
                    help='Directory containing aa redundancy_stats.csv + per-(function, threshold) cluster parquets.')
     p.add_argument('--clusters_nt', default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'),
                    help='Directory containing nt redundancy_stats.csv + per-(function, threshold) cluster parquets.')

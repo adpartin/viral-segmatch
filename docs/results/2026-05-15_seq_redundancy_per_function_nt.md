@@ -4,7 +4,7 @@
 **Input.** `data/processed/flu/July_2025/cds_final.parquet`.
 **Alphabet.** nt (CDS DNA).
 **Tool.** mmseqs2 `easy-linclust --min-seq-id <th> -c 0.8 --cov-mode 0 --dbtype 2`.
-**Script.** `src/analysis/protein_redundancy_per_function.py`.
+**Script.** `src/analysis/seq_redundancy_per_function.py`.
 
 ## Method
 

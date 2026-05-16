@@ -61,7 +61,7 @@ biases differ.
 The original sweep at thresholds {1.00, 0.95, 0.90, 0.80} (plus the
 optional 0.99) cannot be done as designed on the unfiltered flu A corpus.
 The per-function cluster-size distribution
-(`2026-05-14_protein_redundancy_per_function.md`) suggested workable
+(`2026-05-14_seq_redundancy_per_function.md`) suggested workable
 counts at 0.95 (HA/NA largest 11–13% of unique seqs), but **bipartite-
 component analysis on the actual routing input
 (`src/analysis/cluster_disjoint_feasibility.py`) reveals the binding
@@ -157,8 +157,8 @@ each.
 ## Artifacts
 
 Cluster artifacts (one-time, per data version):
-- `data/processed/flu/July_2025/clusters/id{100,099,095,090,080}/`
-- `data/processed/flu/July_2025/clusters/redundancy_stats.csv`
+- `data/processed/flu/July_2025/clusters_aa/id{100,099,095,090,080}/` (renamed from `clusters/` 2026-05-15 for symmetry with `clusters_nt/`)
+- `data/processed/flu/July_2025/clusters_aa/redundancy_stats.csv` + `runtime.json`
 
 Datasets:
 - `data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cluster_id99_20260514_215801/`
@@ -248,7 +248,7 @@ is the right next step: force the additional negatives to be hard ones
 ## Related
 
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` — Experiment B plan
-- `docs/results/2026-05-14_protein_redundancy_per_function.md` — per-function
+- `docs/results/2026-05-14_seq_redundancy_per_function.md` — per-function
   cluster sizes at multiple thresholds + bipartite feasibility table
 - `docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md` — diagnostic
   that motivated this experiment (HA/NA had ~48% of test proteins with

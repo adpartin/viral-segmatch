@@ -81,7 +81,7 @@ Re-train and compare to `seq_disjoint` baseline.
    This characterizes the per-function redundancy — which is the data
    property that determines how aggressive a cluster-disjoint split can
    be without dropping unacceptable numbers of pairs. Output:
-   `docs/results/<date>_protein_redundancy_per_function.md` with a
+   `docs/results/<date>_seq_redundancy_per_function.md` with a
    per-function table per threshold.
 2. **Cluster all unique proteins.** Run `mmseqs easy-cluster` on the
    unique-sequence FASTA exported from `protein_final.csv`.
@@ -219,7 +219,7 @@ under-cluster at low identity thresholds.
 | File | Purpose |
 |---|---|
 | `scripts/cluster_proteins_mmseqs.sh` | Export protein FASTA, run mmseqs, parse TSV → `data/processed/flu/{version}/protein_clusters_id{N}.parquet` (one-time per dataset version × threshold) |
-| `src/analysis/protein_redundancy_per_function.py` | Pre-clustering assessment (step 1 of Method): per-function cluster-size distributions at multiple thresholds, written to a results doc |
+| `src/analysis/seq_redundancy_per_function.py` | Pre-clustering assessment (step 1 of Method): per-function cluster-size distributions at multiple thresholds, written to a results doc |
 | `src/datasets/_split_helpers.py` (new or extend existing) | `cluster_disjoint_split(pos_df, cluster_lookup, ratios, seed)`. Routing decision happens at Phase 3 (positive-pair routing); does not need `regime_targets` — those drive Phase 4/5 negative sampling, which runs on the already-partitioned positives. |
 | `src/datasets/dataset_segment_pairs_v2.py` | Add `split_strategy.mode: cluster_disjoint` branch; read `dataset.cluster_id_path` |
 | `conf/dataset/default.yaml` | Document the new mode |
@@ -245,7 +245,7 @@ depends on protein length; the table above gives the typical range.
 Artifacts:
 - `data/processed/flu/July_2025/protein_clusters_id{95,90,80}.parquet`.
 - The pre-clustering assessment doc (step 1):
-  `docs/results/<date>_protein_redundancy_per_function.md`.
+  `docs/results/<date>_seq_redundancy_per_function.md`.
 - Three Stage 3 runs at thresholds {0.95, 0.90, 0.80}.
 - LGBM training runs per threshold (matching the existing production
   bundle settings — nt 6-mers, `unit_norm`, `unit_diff + prod`).
@@ -300,7 +300,7 @@ near-identical neighbors."
 
 **Status:** proposed; not started.
 **Motivation:** the aa-level sweep collapsed at id099 on both schema pairs
-(see `docs/results/2026-05-14_protein_redundancy_per_function.md`
+(see `docs/results/2026-05-14_seq_redundancy_per_function.md`
 bipartite feasibility table — HA/NA largest bipartite component at
 id095 = 98.5 %, PB2/PB1 at id099 already 87 %). nt clustering at the
 same threshold produces **smaller, more numerous clusters** because

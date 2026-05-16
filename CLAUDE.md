@@ -132,7 +132,7 @@ src/
     analyze_stage1_preprocess.py    # Preprocessing QC
     analyze_stage2_embeddings.py    # Embedding quality checks
     analyze_stage3_datasets.py      # Dataset balance/distribution
-    protein_redundancy_per_function.py   # mmseqs2 per-function cluster sweep
+    seq_redundancy_per_function.py   # mmseqs2 per-function cluster sweep
     cluster_disjoint_feasibility.py      # Bipartite-CC feasibility pre-flight
     aggregate_cluster_disjoint_ratios.py # Ratio-sweep aggregator
   utils/
