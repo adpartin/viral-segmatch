@@ -78,9 +78,9 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     precision = precision_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0)
     recall = recall_score(y_true, y_pred, average='binary', pos_label=1, zero_division=0)
     mcc = matthews_corrcoef(y_true, y_pred)
-    roc_auc = roc_auc_score(y_true, y_prob)
+    auc_roc = roc_auc_score(y_true, y_prob)
     accuracy = (y_true == y_pred).mean()
-    avg_precision = average_precision_score(y_true, y_prob)
+    auc_pr = average_precision_score(y_true, y_prob)
     brier_score = float(np.mean((y_prob - y_true) ** 2))
 
     # BCE loss on the test set (matches training criterion)
@@ -96,8 +96,8 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
     print(f'Precision: {precision:.3f}')
     print(f'Recall: {recall:.3f}')
     print(f'MCC: {mcc:.3f}')
-    print(f'AUC-ROC:  {roc_auc:.3f}')
-    print(f'Average Precision: {avg_precision:.3f}')
+    print(f'AUC-ROC: {auc_roc:.3f}')
+    print(f'AUC-PR: {auc_pr:.3f}')
     print(f'Brier Score: {brier_score:.4f}')
     print(f'BCE Loss: {bce_loss:.4f}')
 
@@ -114,8 +114,8 @@ def compute_basic_metrics(y_true, y_pred, y_prob):
         'precision': precision,
         'recall': recall,
         'mcc': mcc,
-        'auc_roc': roc_auc,
-        'avg_precision': avg_precision,
+        'auc_roc': auc_roc,
+        'auc_pr': auc_pr,
         'brier_score': brier_score,
         'loss': bce_loss
     }
@@ -144,7 +144,7 @@ def analyze_metrics_summary(metrics: dict, results_dir,
         metrics['f1_score'],
         metrics['f1_macro'],
         metrics['auc_roc'],
-        metrics['avg_precision'],
+        metrics['auc_pr'],
         metrics['mcc'],
     ]
     colors = ['#2E86AB', '#A23B72', '#6A4C93', '#F18F01', '#C73E1D']
@@ -242,11 +242,11 @@ def plot_confusion_matrix(y_true, y_pred, save_path=None, show_labels=True):
 def plot_roc_curve(y_true, y_prob, save_path=None):
     """Plot ROC curve."""
     fpr, tpr, _ = roc_curve(y_true, y_prob)
-    roc_auc = auc(fpr, tpr)
-    
+    auc_roc = auc(fpr, tpr)
+
     plt.figure(figsize=(8, 6))
-    plt.plot(fpr, tpr, color='darkorange', lw=2, 
-             label=f'ROC curve (AUC = {roc_auc:.3f})')
+    plt.plot(fpr, tpr, color='darkorange', lw=2,
+             label=f'ROC curve (AUC-ROC = {auc_roc:.3f})')
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random')
     
     plt.xlim([0.0, 1.0])
@@ -266,16 +266,16 @@ def plot_roc_curve(y_true, y_prob, save_path=None):
 def plot_precision_recall_curve(y_true, y_prob, save_path=None):
     """Plot precision-recall curve."""
     precision, recall, _ = precision_recall_curve(y_true, y_prob)
-    avg_precision = average_precision_score(y_true, y_prob)
-    
+    auc_pr = average_precision_score(y_true, y_prob)
+
     plt.figure(figsize=(8, 6))
     plt.plot(recall, precision, color='darkorange', lw=2,
-             label=f'PR curve (AP = {avg_precision:.3f})')
-    
+             label=f'PR curve (AUC-PR = {auc_pr:.3f})')
+
     # Baseline (random classifier)
     baseline = np.sum(y_true) / len(y_true)
     plt.axhline(y=baseline, color='navy', linestyle='--', lw=2,
-                label=f'Random (AP = {baseline:.3f})')
+                label=f'Random (AUC-PR = {baseline:.3f})')
     
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
@@ -1414,17 +1414,17 @@ def analyze_segment_performance(df):
     for seg_pair in df['seg_pair'].unique():
         subset = df[df['seg_pair'] == seg_pair]
         if len(subset) > 10:  # Only analyze pairs with sufficient data
-            # Check if both classes are present for F1, AUC, AP, Brier
+            # Check if both classes are present for F1, AUC-ROC, AUC-PR, Brier
             unique_labels = subset['label'].unique()
             if len(unique_labels) > 1:
                 f1 = f1_score(subset['label'], subset['pred_label'], average='binary')
-                auc = roc_auc_score(subset['label'], subset['pred_prob'])
-                avg_precision = average_precision_score(subset['label'], subset['pred_prob'])
+                auc_roc = roc_auc_score(subset['label'], subset['pred_prob'])
+                auc_pr = average_precision_score(subset['label'], subset['pred_prob'])
                 brier_score = float(np.mean((subset['pred_prob'].values - subset['label'].values) ** 2))
             else:
                 f1 = np.nan
-                auc = np.nan
-                avg_precision = np.nan
+                auc_roc = np.nan
+                auc_pr = np.nan
                 brier_score = np.nan
 
             acc = (subset['label'] == subset['pred_label']).mean()
@@ -1434,8 +1434,8 @@ def analyze_segment_performance(df):
                 'count': len(subset),
                 'accuracy': acc,
                 'f1_score': f1,
-                'auc_roc': auc,
-                'avg_precision': avg_precision,
+                'auc_roc': auc_roc,
+                'auc_pr': auc_pr,
                 'brier_score': brier_score,
                 'pos_rate': subset['label'].mean()
             })
@@ -1667,7 +1667,7 @@ def main(config_bundle: str,
     print(f'• Overall accuracy: {metrics["accuracy"]:.3f}')
     print(f'• F1 score: {metrics["f1_score"]:.3f}')
     print(f'• AUC-ROC: {metrics["auc_roc"]:.3f}')
-    print(f'• Average precision: {metrics["avg_precision"]:.3f}')
+    print(f'• AUC-PR: {metrics["auc_pr"]:.3f}')
     print(f'• False Positives: {error_summary["fp_count"]}')
     print(f'• False Negatives: {error_summary["fn_count"]}')
     print(f'• FP/FN ratio: {error_summary["fp_fn_ratio"]:.2f}')

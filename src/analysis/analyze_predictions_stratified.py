@@ -120,8 +120,8 @@ MATCH_FIELDS = [
 ]
 
 
-def _safe_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
-    """ROC-AUC that returns NaN when only one label is present.
+def _safe_auc_roc(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    """AUC-ROC that returns NaN when only one label is present.
 
     sklearn raises ``ValueError`` on a single-class y_true, which is
     common in tiny strata. Returning NaN keeps the per-stratum table
@@ -135,7 +135,7 @@ def _safe_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
 def _classification_metrics(df: pd.DataFrame) -> dict:
     """Standard binary metrics for a stratum.
 
-    Returns ``{n, n_pos, frac_pos, auc, f1, precision, recall,
+    Returns ``{n, n_pos, frac_pos, auc_roc, f1, precision, recall,
     accuracy}``. ``f1`` / ``precision`` / ``recall`` use
     ``zero_division=0`` so that all-one-class strata don't error out
     — they return 0.0 instead, which is the correct conservative
@@ -152,7 +152,7 @@ def _classification_metrics(df: pd.DataFrame) -> dict:
         "n": int(n),
         "n_pos": int(y_true.sum()),
         "frac_pos": float(y_true.mean()),
-        "auc": _safe_auc(y_true, y_score),
+        "auc_roc": _safe_auc_roc(y_true, y_score),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
@@ -352,7 +352,7 @@ def run_analysis(
     print("\n=== Overall test metrics ===")
     overall = overall_metrics(test)
     print(f"  n={overall['n']:,}  pos_frac={overall['frac_pos']:.3f}  "
-          f"AUC={overall['auc']:.4f}  F1={overall['f1']:.4f}  "
+          f"AUC-ROC={overall['auc_roc']:.4f}  F1={overall['f1']:.4f}  "
           f"Acc={overall['accuracy']:.4f}")
 
     print("\n=== 1) Hash-overlap stratification (modes #3 / #4) ===")

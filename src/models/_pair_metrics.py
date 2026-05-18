@@ -99,7 +99,7 @@ def compute_pair_metrics(
             (per-epoch eval) don't want the noise.
 
     Returns:
-        metrics: dict with keys f1, f1_macro, precision, recall, auc.
+        metrics: dict with keys f1, f1_macro, precision, recall, auc_roc.
         res_df:  copy of ``pairs_df`` with prediction columns appended.
     """
     pred_labels = (y_probs > threshold).astype(np.float32)
@@ -111,11 +111,11 @@ def compute_pair_metrics(
     precision = precision_score(y_true, pred_labels, average='binary', pos_label=1, zero_division=0)
     recall = recall_score(y_true, pred_labels, average='binary', pos_label=1, zero_division=0)
     try:
-        auc = roc_auc_score(y_true, y_probs)
+        auc_roc = roc_auc_score(y_true, y_probs)
     except ValueError:
         # Degenerate predictions (all same class) break roc_auc_score; fall
         # back to chance.
-        auc = 0.5
+        auc_roc = 0.5
 
     if print_classification_report:
         print('\nClassification Report:')
@@ -132,7 +132,7 @@ def compute_pair_metrics(
         'f1_macro': f1_macro,
         'precision': precision,
         'recall': recall,
-        'auc': auc,
+        'auc_roc': auc_roc,
     }
     return metrics, res_df
 

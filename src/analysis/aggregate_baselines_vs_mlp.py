@@ -109,10 +109,10 @@ _METRIC_FOR_REGIME = {r: ('tpr' if r == 'positive' else 'tnr') for r in _REGIME_
 # (overall.png -- option b). Keys must match `post_hoc/metrics.csv` columns
 # emitted by analyze_stage4_train.py. All four live in [0,1] so they share
 # the per-regime colormap.
-_OVERALL_METRIC_KEYS = ('auc_roc', 'avg_precision', 'f1_score', 'mcc')
+_OVERALL_METRIC_KEYS = ('auc_roc', 'auc_pr', 'f1_score', 'mcc')
 _OVERALL_METRIC_LABELS = {
     'auc_roc': 'AUC-ROC',
-    'avg_precision': 'AUC-PR',
+    'auc_pr': 'AUC-PR',
     'f1_score': 'F1',
     'mcc': 'MCC',
 }

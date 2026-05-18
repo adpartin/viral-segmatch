@@ -196,8 +196,8 @@ def per_bucket_metrics(
     """Compute classification metrics for each bucket.
 
     Returns one row per bucket with ``n``, ``n_pos``, ``frac_pos``,
-    ``auc``, ``f1``, ``accuracy``, ``fp_rate``, ``mean_pred_prob``.
-    AUC is NaN on single-class buckets (sklearn would raise).
+    ``auc_roc``, ``f1``, ``accuracy``, ``fp_rate``, ``mean_pred_prob``.
+    AUC-ROC is NaN on single-class buckets (sklearn would raise).
     """
     rows = []
     y = pred_df["label"].to_numpy()
@@ -212,9 +212,9 @@ def per_bucket_metrics(
         p_k = p[mask]
         yp_k = yp[mask]
         try:
-            auc = float(roc_auc_score(y_k, p_k))
+            auc_roc = float(roc_auc_score(y_k, p_k))
         except ValueError:
-            auc = float("nan")
+            auc_roc = float("nan")
         n_pos = int(y_k.sum())
         n_neg = n - n_pos
         rows.append({
@@ -222,7 +222,7 @@ def per_bucket_metrics(
             "n": n,
             "n_pos": n_pos,
             "frac_pos": float(y_k.mean()),
-            "auc": auc,
+            "auc_roc": auc_roc,
             "f1": float(f1_score(y_k, yp_k, zero_division=0)),
             "accuracy": float((yp_k == y_k).mean()),
             "fp_rate": float((yp_k[y_k == 0] == 1).mean()) if n_neg > 0 else float("nan"),
@@ -236,20 +236,20 @@ def plot_auc_vs_bucket(
     edges: np.ndarray,
     out_png: Path,
 ) -> None:
-    """One line per run: AUC across buckets. Bucket centres are
+    """One line per run: AUC-ROC across buckets. Bucket centres are
     annotated with the cosine-edge mid-point so readers can decode
     the x-axis to a similarity range."""
     fig, ax = plt.subplots(figsize=(9, 5))
     for run, sub in long_df.groupby("run", sort=False):
-        ax.plot(sub["bucket"], sub["auc"], marker="o", label=run)
+        ax.plot(sub["bucket"], sub["auc_roc"], marker="o", label=run)
     centres = (edges[:-1] + edges[1:]) / 2
     ax.set_xticks(range(len(centres)))
     ax.set_xticklabels([f"{i}\n[{edges[i]:.3f},\n{edges[i+1]:.3f})"
                         for i in range(len(centres))],
                        fontsize=8)
     ax.set_xlabel("Cosine bucket  (0 = farthest from train, 9 = closest)")
-    ax.set_ylabel("Test AUC")
-    ax.set_title("AUC vs max-train-cosine bucket\n"
+    ax.set_ylabel("Test AUC-ROC")
+    ax.set_title("AUC-ROC vs max-train-cosine bucket\n"
                  "(bucket-0 is the closest analog to out-of-cluster pairs in this test set)")
     ax.set_ylim(0.45, 1.02)
     ax.axhline(0.5, ls="--", c="grey", alpha=0.5, label="chance")
@@ -347,19 +347,19 @@ def main() -> None:
         df["run"] = label
         long_rows.append(df)
 
-        # headline AUC for the summary
+        # headline AUC-ROC for the summary
         try:
-            overall_auc = float(roc_auc_score(pred_df["label"], pred_df["pred_prob"]))
+            overall_auc_roc = float(roc_auc_score(pred_df["label"], pred_df["pred_prob"]))
         except ValueError:
-            overall_auc = float("nan")
+            overall_auc_roc = float("nan")
         per_run_overall[label] = {
             "run_dir": str(run_dir),
-            "overall_auc": overall_auc,
-            "bucket0_auc": float(df.loc[df.bucket == 0, "auc"].iloc[0]) if (df.bucket == 0).any() else None,
+            "overall_auc_roc": overall_auc_roc,
+            "bucket0_auc_roc": float(df.loc[df.bucket == 0, "auc_roc"].iloc[0]) if (df.bucket == 0).any() else None,
         }
 
         print(f"\n{label}:")
-        print(df[["bucket", "n", "n_pos", "auc", "f1", "fp_rate"]].to_string(index=False))
+        print(df[["bucket", "n", "n_pos", "auc_roc", "f1", "fp_rate"]].to_string(index=False))
 
     long_df = pd.concat(long_rows, ignore_index=True)
     long_df.to_csv(args.output_dir / "cosine_deciles.csv", index=False)

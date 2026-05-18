@@ -550,14 +550,14 @@ def train_model(
     
     Args:
         early_stopping_metric: Metric to use for early stopping. One of:
-            'loss'   -- BCE on val (lower is better, threshold-independent)
-            'f1'     -- F1 of positive class at threshold 0.5
-            'auc'    -- AUC-ROC, ranking-based, threshold-independent
-            'auc_pr' -- AUC-PR (avg precision), positive-class focused, threshold-independent
-            'mcc'    -- Matthews CC at threshold 0.5; full-CM, symmetric, 0 on collapse
+            'loss'    -- BCE on val (lower is better, threshold-independent)
+            'f1'      -- F1 of positive class at threshold 0.5
+            'auc_roc' -- AUC-ROC, ranking-based, threshold-independent
+            'auc_pr'  -- AUC-PR, positive-class focused, threshold-independent
+            'mcc'     -- Matthews CC at threshold 0.5; full-CM, symmetric, 0 on collapse
             - 'loss': Lower is better (default, backward compatible)
             - 'f1': Higher is better
-            - 'auc': Higher is better
+            - 'auc_roc': Higher is better
         threshold_metric: Metric to optimize for threshold selection ('f1', 'f0.5', 'f2', or None)
             - 'f1': Maximize F1 score (default)
             - 'f0.5': Emphasize precision more
@@ -606,8 +606,8 @@ def train_model(
         'val_f1_macro': [],  # F1 macro (average of both classes)
         'val_precision': [],  # Precision for positive class (measures FP)
         'val_recall': [],  # Recall for positive class (measures FN)
-        'val_auc': [],      # AUC-ROC: ranking quality, threshold-independent
-        'val_auc_pr': [],   # AUC-PR (avg precision): positive-class focused, threshold-independent
+        'val_auc_roc': [],  # AUC-ROC: ranking quality, threshold-independent
+        'val_auc_pr': [],   # AUC-PR: positive-class focused, threshold-independent
         'val_mcc': [],      # MCC at threshold 0.5: full-CM, symmetric
         'val_brier': [],
         'learning_rate': [],  # Track learning rate over epochs
@@ -626,7 +626,7 @@ def train_model(
             'train_f1_macro': [],
             'train_precision': [],
             'train_recall': [],
-            'train_auc': [],
+            'train_auc_roc': [],
             'train_brier': [],
         })
     
@@ -639,10 +639,10 @@ def train_model(
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
 
     # Initialize best metric tracking based on metric type
-    # MCC is bounded in [-1, 1]; the others (f1, auc, auc_pr) are in [0, 1].
+    # MCC is bounded in [-1, 1]; the others (f1, auc_roc, auc_pr) are in [0, 1].
     # Using -1.0 as the "no result yet" sentinel works for all four because the
     # first computed value will always be >= -1.0.
-    _HIGHER_IS_BETTER_METRICS = ['f1', 'auc', 'auc_pr', 'mcc']
+    _HIGHER_IS_BETTER_METRICS = ['f1', 'auc_roc', 'auc_pr', 'mcc']
     if early_stopping_metric == 'loss':
         best_metric_value = float('inf')
         is_higher_better = False
@@ -652,7 +652,7 @@ def train_model(
     else:
         raise ValueError(
             f"Unknown early_stopping_metric: {early_stopping_metric}. "
-            f"Choose from 'loss', 'f1', 'auc', 'auc_pr', 'mcc'"
+            f"Choose from 'loss', 'f1', 'auc_roc', 'auc_pr', 'mcc'"
         )
 
     # --- Level 2 diagnostic: micro-benchmark first 10 batches ---
@@ -749,13 +749,13 @@ def train_model(
             train_precision = precision_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
             train_recall = recall_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
             try:
-                train_auc = roc_auc_score(train_labels, train_probs)
+                train_auc_roc = roc_auc_score(train_labels, train_probs)
             except ValueError:
-                # See val_auc comment: degenerate predictions break roc_auc_score.
-                train_auc = 0.5
+                # See val_auc_roc comment: degenerate predictions break roc_auc_score.
+                train_auc_roc = 0.5
             train_brier = float(np.mean((train_probs - np.array(train_labels)) ** 2))
         else:
-            train_f1 = train_f1_macro = train_precision = train_recall = train_auc = train_brier = None
+            train_f1 = train_f1_macro = train_precision = train_recall = train_auc_roc = train_brier = None
 
         model.eval()
         val_loss = 0
@@ -787,16 +787,17 @@ def train_model(
         val_precision = precision_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         val_recall = recall_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         try:
-            val_auc = roc_auc_score(val_labels, val_probs)
+            val_auc_roc = roc_auc_score(val_labels, val_probs)
         except ValueError:
             # roc_auc_score measures how well the model ranks positives above
             # negatives across all thresholds. When predictions are near-constant
             # (degenerate model), the FPR values contain ties that break
             # monotonicity, causing sklearn to raise ValueError. Fall back to
-            # AUC=0.5 (equivalent to random ranking) so training can continue.
-            val_auc = 0.5
-        # Average precision (AUC-PR): integrates precision over recall;
-        # asymmetric (positive-class focused), useful when positives are rare.
+            # AUC-ROC=0.5 (equivalent to random ranking) so training can continue.
+            val_auc_roc = 0.5
+        # AUC-PR (sklearn's average_precision_score): integrates precision
+        # over recall; asymmetric (positive-class focused), useful when
+        # positives are rare.
         val_auc_pr = average_precision_score(val_labels, val_probs)
         # MCC: full-CM single number, symmetric across classes, returns 0 on
         # collapse (constant predictions). Threshold-dependent at 0.5.
@@ -808,8 +809,8 @@ def train_model(
             current_metric_value = val_loss
         elif early_stopping_metric == 'f1':
             current_metric_value = val_f1
-        elif early_stopping_metric == 'auc':
-            current_metric_value = val_auc
+        elif early_stopping_metric == 'auc_roc':
+            current_metric_value = val_auc_roc
         elif early_stopping_metric == 'auc_pr':
             current_metric_value = val_auc_pr
         elif early_stopping_metric == 'mcc':
@@ -840,13 +841,13 @@ def train_model(
             history['train_f1_macro'].append(train_f1_macro)
             history['train_precision'].append(train_precision)
             history['train_recall'].append(train_recall)
-            history['train_auc'].append(train_auc)
+            history['train_auc_roc'].append(train_auc_roc)
             history['train_brier'].append(train_brier)
         history['val_f1'].append(val_f1)
         history['val_f1_macro'].append(val_f1_macro)
         history['val_precision'].append(val_precision)
         history['val_recall'].append(val_recall)
-        history['val_auc'].append(val_auc)
+        history['val_auc_roc'].append(val_auc_roc)
         history['val_auc_pr'].append(val_auc_pr)
         history['val_mcc'].append(val_mcc)
         history['val_brier'].append(val_brier)
@@ -858,11 +859,11 @@ def train_model(
         if eval_train_metrics:
             print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
                   f'Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}, '
-                  f'Train AUC: {train_auc:.4f}, Val AUC: {val_auc:.4f} '
+                  f'Train AUC-ROC: {train_auc_roc:.4f}, Val AUC-ROC: {val_auc_roc:.4f} '
                   f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}] {timing_str}')
         else:
             print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
-                  f'Val F1: {val_f1:.4f}, Val AUC: {val_auc:.4f} '
+                  f'Val F1: {val_f1:.4f}, Val AUC-ROC: {val_auc_roc:.4f} '
                   f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}] {timing_str}')
 
         # Check if current metric is better than best
@@ -896,13 +897,13 @@ def train_model(
             'train_f1_macro': history.get('train_f1_macro', [None] * len(history['train_loss'])),
             'train_precision': history.get('train_precision', [None] * len(history['train_loss'])),
             'train_recall': history.get('train_recall', [None] * len(history['train_loss'])),
-            'train_auc': history.get('train_auc', [None] * len(history['train_loss'])),
+            'train_auc_roc': history.get('train_auc_roc', [None] * len(history['train_loss'])),
             'train_brier': history.get('train_brier', [None] * len(history['train_loss'])),
             'val_f1': history.get('val_f1', [None] * len(history['train_loss'])),
             'val_f1_macro': history.get('val_f1_macro', [None] * len(history['train_loss'])),
             'val_precision': history.get('val_precision', [None] * len(history['train_loss'])),
             'val_recall': history.get('val_recall', [None] * len(history['train_loss'])),
-            'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
+            'val_auc_roc': history.get('val_auc_roc', [None] * len(history['train_loss'])),
             'val_auc_pr': history.get('val_auc_pr', [None] * len(history['train_loss'])),
             'val_mcc': history.get('val_mcc', [None] * len(history['train_loss'])),
             'val_brier': history.get('val_brier', [None] * len(history['train_loss'])),
@@ -1008,12 +1009,12 @@ def evaluate_on_split(
         true_labels, probs, threshold, pairs_df, logits=logits,
     )
 
-    # MCC and PR-AUC aren't in compute_pair_metrics's return dict; compute
+    # MCC and AUC-PR aren't in compute_pair_metrics's return dict; compute
     # them inline so the log block reports the full panel (threshold-
-    # dependent: precision/recall/F1/MCC; ranking: ROC-AUC/PR-AUC).
+    # dependent: precision/recall/F1/MCC; ranking: AUC-ROC/AUC-PR).
     pred_labels = (probs > threshold).astype(int)
     mcc = matthews_corrcoef(true_labels, pred_labels)
-    pr_auc = average_precision_score(true_labels, probs)
+    auc_pr = average_precision_score(true_labels, probs)
 
     split_title = split_name.strip() if split_name is not None else "split"
     print(f'\n{split_title} metrics:')
@@ -1024,8 +1025,8 @@ def evaluate_on_split(
     print(f'{split_title} F1 (binary): {metrics["f1"]:.4f}')
     print(f'{split_title} F1 (macro): {metrics["f1_macro"]:.4f}')
     print(f'{split_title} MCC: {mcc:.4f}')
-    print(f'{split_title} ROC-AUC: {metrics["auc"]:.4f}')
-    print(f'{split_title} PR-AUC: {pr_auc:.4f}')
+    print(f'{split_title} AUC-ROC: {metrics["auc_roc"]:.4f}')
+    print(f'{split_title} AUC-PR: {auc_pr:.4f}')
     print()
     print('Note:')
     print('Precision measures the fraction of predicted positives that are actually positive.')
@@ -1033,8 +1034,8 @@ def evaluate_on_split(
     print('F1 (binary) is the harmonic mean of precision and recall for the positive class.')
     print('F1 (macro) is the unweighted average of per-class F1 scores, ignoring class frequency.')
     print('MCC is the correlation between predicted and true labels, balanced across all four confusion-matrix cells.')
-    print('ROC-AUC is the ranking quality across thresholds, balancing TPR against FPR.')
-    print('PR-AUC is the ranking quality across thresholds, emphasizing performance on the positive class.')
+    print('AUC-ROC is the ranking quality across thresholds, balancing TPR against FPR.')
+    print('AUC-PR is the ranking quality across thresholds, emphasizing performance on the positive class.')
     return res_df
 
 

@@ -198,7 +198,7 @@ paper-ready reporting:
    class prior that ranges from 1:2 to 1:5. Otherwise readers will attribute
    the F1 spread to model behavior rather than to filtering.
 
-3. **Consider reporting balanced F1** (or precision@recall=0.95, or PR-AUC)
+3. **Consider reporting balanced F1** (or precision@recall=0.95, or AUC-PR)
    for cross-pair comparison in the paper's main tables. The audit CSVs are
    sufficient to recompute any of these from the stored per-fold predictions
    without re-running training.

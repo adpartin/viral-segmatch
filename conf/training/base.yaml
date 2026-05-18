@@ -41,12 +41,12 @@ interaction: concat  # concat | diff | prod | unit_diff | concat+unit_diff | etc
 
 # Training control
 patience: 15  # Early stopping patience
-early_stopping_metric: 'f1'  # Options: 'loss' (lower better); 'f1', 'auc' (= AUC-ROC), 'auc_pr' (= avg precision), 'mcc' (higher better). 'loss', 'auc', 'auc_pr' are threshold-independent; 'f1', 'mcc' use threshold 0.5.
+early_stopping_metric: 'f1'  # Options: 'loss' (lower better); 'f1', 'auc_roc', 'auc_pr', 'mcc' (higher better). 'loss', 'auc_roc', 'auc_pr' are threshold-independent; 'f1', 'mcc' use threshold 0.5.
 threshold_metric: null  # Threshold optimization metric; null (no optimization; use 0.5), 'f1' (default), 'f0.5' (emphasize precision), 'f2' (emphasize recall); This metric is used to determine the threshold for the binary classifier; the threshold is the metric value that is used to classify the pairs as positive or negative
 
 # Performance
 eval_train_metrics: false  # Run a full forward pass over training data each epoch to compute
-                           # train F1/AUC/precision/recall/Brier. Doubles epoch time. Enable
+                           # train F1/AUC-ROC/precision/recall/Brier. Doubles epoch time. Enable
                            # when debugging model behavior; disable for production/HPC runs.
                            # train_loss is always tracked regardless of this setting.
 infer_batch_size: null     # Batch size for inference passes (train eval, val eval, test eval).

@@ -310,7 +310,7 @@ def _run_one_baseline(
         )
         out_csv = output_dir / f'{split_name}_predicted.csv'
         res_df.to_csv(out_csv, index=False)
-        print(f'{split_name} F1: {metrics["f1"]:.4f}, AUC: {metrics["auc"]:.4f}, '
+        print(f'{split_name} F1: {metrics["f1"]:.4f}, AUC-ROC: {metrics["auc_roc"]:.4f}, '
               f'Precision: {metrics["precision"]:.4f}, Recall: {metrics["recall"]:.4f}')
         print(f'Saved predictions to: {out_csv}')
         summary[split_name] = metrics
@@ -551,7 +551,7 @@ def main() -> None:
         else:
             test_m = r['metrics']['test']
             print(f"  {r['baseline']:<14s}  test F1={test_m['f1']:.4f}  "
-                  f"AUC={test_m['auc']:.4f}  ({r['wall_seconds']:.1f}s)  "
+                  f"AUC-ROC={test_m['auc_roc']:.4f}  ({r['wall_seconds']:.1f}s)  "
                   f"-> {r['output_dir']}")
     total_timer.display_timer()
     print(f'\nFinished {Path(__file__).name}!')

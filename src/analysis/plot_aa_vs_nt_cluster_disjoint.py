@@ -72,10 +72,10 @@ _MODELS = [
     ('1-NN margin',    'knn1_margin',  '#e31a1c'),
 ]
 _METRIC_DISPLAY = [
-    ('f1_score',      'F1'),
-    ('avg_precision', 'AUC-PR'),
-    ('auc_roc',       'AUC-ROC'),
-    ('mcc',           'MCC'),
+    ('f1_score', 'F1'),
+    ('auc_pr',   'AUC-PR'),
+    ('auc_roc',  'AUC-ROC'),
+    ('mcc',      'MCC'),
 ]
 
 

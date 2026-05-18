@@ -88,7 +88,7 @@ Use shared \(g\), but allow per-slot LayerNorm / affine scaling (very low parame
 - In schema-ordered datasets, the model is **not required** to be swap-invariant under directed features like [emb_a, emb_b]. Swapping A/B breaks the schema semantics.
 - If you compare architectures, keep an eye on:
   - performance on the “hard” subsets (e.g., H3N2, human-only)
-  - calibration / PR-AUC (not only accuracy)
+  - calibration / AUC-PR (not only accuracy)
   - sensitivity to swapped inputs (expected to degrade in schema mode)
 
 ## Recommended ablation ladder (minimal)

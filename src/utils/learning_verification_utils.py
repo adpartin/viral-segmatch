@@ -169,11 +169,11 @@ def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None,
             - 'train_loss': List of training losses per epoch
             - 'val_loss': List of validation losses per epoch
             - 'val_f1': List of validation F1 scores per epoch
-            - 'val_auc': List of validation AUC-ROC scores per epoch
+            - 'val_auc_roc': List of validation AUC-ROC scores per epoch
         output_dir: Path object where plot will be saved
         bundle_name: Optional bundle name to include in the title
         dpi: Resolution for saved plot
-    
+
     Returns:
         Path: Path to the main saved plot file (perf_curves2.png)
     """
@@ -181,16 +181,16 @@ def plot_learning_curves(history, output_dir, bundle_name: Optional[str] = None,
     num_epochs = len(history['train_loss'])
 
     # ------------------------------------------------------------------
-    # perf_curves2.png  (4-panel: loss, F1, AUC, F1 gap)
+    # perf_curves2.png  (4-panel: loss, F1, AUC-ROC, F1 gap)
     # ------------------------------------------------------------------
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
     _plot_loss_and_f1(history, axes[0], epochs, num_epochs)
 
-    # AUC curves (bottom left)
-    if 'train_auc' in history and len(history['train_auc']) > 0:
-        axes[1, 0].plot(epochs, history['train_auc'], 'b--', label='Train AUC', linewidth=2, alpha=0.7)
-    axes[1, 0].plot(epochs, history['val_auc'], 'm-', label='Val AUC', linewidth=2)
+    # AUC-ROC curves (bottom left)
+    if 'train_auc_roc' in history and len(history['train_auc_roc']) > 0:
+        axes[1, 0].plot(epochs, history['train_auc_roc'], 'b--', label='Train AUC-ROC', linewidth=2, alpha=0.7)
+    axes[1, 0].plot(epochs, history['val_auc_roc'], 'm-', label='Val AUC-ROC', linewidth=2)
     axes[1, 0].set_xlabel('Epoch')
     axes[1, 0].set_ylabel('AUC-ROC')
     axes[1, 0].set_title('Train and Validation AUC-ROC')

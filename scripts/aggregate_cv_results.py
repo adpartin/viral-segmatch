@@ -122,7 +122,7 @@ def aggregate(training_dirs: list[Path], output_dir: Path,
         metrics["fold_id"] = fold_i
         metrics["training_dir"] = str(tdir)
         rows.append(metrics)
-        print(f"  fold {fold_i}: F1={metrics['f1_binary']:.4f}  AUC={metrics['auc_roc']:.4f}  "
+        print(f"  fold {fold_i}: F1={metrics['f1_binary']:.4f}  AUC-ROC={metrics['auc_roc']:.4f}  "
               f"Prec={metrics['precision']:.4f}  Rec={metrics['recall']:.4f}  "
               f"Brier={metrics['brier']:.4f}  n={metrics['n_test']}")
 

@@ -113,8 +113,8 @@ def create_lr_scheduler(
     Args:
         optimizer: Optimizer instance
         scheduler_type: Type of scheduler ('reduce_on_plateau', 'cosine', 'step', or None)
-        early_stopping_metric: Metric used for early stopping ('loss', 'f1', 'auc')
-            Used to determine mode for ReduceLROnPlateau
+        early_stopping_metric: Metric used for early stopping ('loss', 'f1',
+            'auc_roc', 'auc_pr', 'mcc'). Used to determine mode for ReduceLROnPlateau.
         epochs: Total number of epochs (for CosineAnnealingLR)
         patience: Patience for ReduceLROnPlateau or step_size for StepLR
         factor: Factor to reduce LR by
@@ -130,7 +130,7 @@ def create_lr_scheduler(
     
     if scheduler_type == 'reduce_on_plateau':
         # Reduce LR when metric plateaus (works with early_stopping_metric)
-        mode = 'max' if early_stopping_metric in ['f1', 'auc'] else 'min'
+        mode = 'max' if early_stopping_metric in ['f1', 'auc_roc', 'auc_pr', 'mcc'] else 'min'
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode=mode,
