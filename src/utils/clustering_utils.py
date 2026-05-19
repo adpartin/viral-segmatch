@@ -12,6 +12,7 @@ pure-Python helpers around the external `mmseqs` binary:
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -177,7 +178,7 @@ def run_mmseqs_easy_cluster(
     coverage: float = 0.8,
     cov_mode: int = 0,
     threads: Optional[int] = None,
-    mmseqs_bin: str = 'mmseqs',
+    mmseqs_bin: Optional[str] = None,
     log_path: Optional[Path] = None,
     extra_args: Optional[list] = None,
     alphabet: str = 'aa',
@@ -196,7 +197,10 @@ def run_mmseqs_easy_cluster(
         coverage: -c argument (default 0.8).
         cov_mode: --cov-mode argument (default 0 = bidirectional).
         threads: --threads argument; None lets mmseqs decide (uses all cores).
-        mmseqs_bin: binary name on PATH (default 'mmseqs').
+        mmseqs_bin: path or PATH-name of the mmseqs binary. If None (default),
+            falls back to the `MMSEQS_BIN` env var, and then to `'mmseqs'`
+            (lookup on PATH). Use this to point at an isolated mmseqs2 env
+            without putting it on PATH (see .claude/memory.md "Env Management").
         log_path: if given, mmseqs stdout/stderr is written here.
         extra_args: any additional flags to append.
         alphabet: 'aa' (default) or 'nt'. 'nt' passes `--dbtype 2` so
@@ -212,10 +216,18 @@ def run_mmseqs_easy_cluster(
     out_prefix = Path(out_prefix)
     tmp_dir = Path(tmp_dir)
 
+    if mmseqs_bin is None:
+        mmseqs_bin = os.environ.get('MMSEQS_BIN', 'mmseqs')
+
     if not fasta_path.exists():
         raise FileNotFoundError(f"FASTA not found: {fasta_path}")
     if shutil.which(mmseqs_bin) is None:
-        raise RuntimeError(f"mmseqs binary not on PATH: {mmseqs_bin!r}")
+        raise RuntimeError(
+            f"mmseqs binary not found: {mmseqs_bin!r}. "
+            f"Set MMSEQS_BIN env var to the dedicated-env binary "
+            f"(e.g. /homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs) "
+            f"or put 'mmseqs' on PATH."
+        )
     if alphabet not in {'aa', 'nt'}:
         raise ValueError(f"alphabet must be 'aa' or 'nt', got {alphabet!r}")
     if algorithm not in {'cluster', 'linclust'}:

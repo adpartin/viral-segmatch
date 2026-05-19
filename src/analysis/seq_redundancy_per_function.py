@@ -105,6 +105,7 @@ def cluster_one_function_one_threshold(
     force: bool = False,
     alphabet: str = 'aa',
     algorithm: str = 'cluster',
+    mmseqs_bin: Optional[str] = None,
 ) -> dict:
     """Run mmseqs at one threshold on the FASTA for one function.
 
@@ -170,6 +171,7 @@ def cluster_one_function_one_threshold(
             log_path=log_path,
             alphabet=alphabet,
             algorithm=algorithm,
+            mmseqs_bin=mmseqs_bin,
         )
         elapsed_seconds = time.time() - t0
         cached = False
@@ -335,6 +337,10 @@ def main() -> None:
     p.add_argument('--functions', nargs='+', default=['HA', 'NA', 'PB2', 'PB1', 'PA', 'NP', 'M1', 'M2', 'NEP', 'NS1'],
                    help='Function short names to cluster.')
     p.add_argument('--threads', type=int, default=None, help='mmseqs --threads.')
+    p.add_argument('--mmseqs_bin', default=None,
+                   help='Path/name of the mmseqs binary. Default: $MMSEQS_BIN, then "mmseqs" on PATH. '
+                        'On Lambda set MMSEQS_BIN=/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs '
+                        'so the dedicated env is used without putting mmseqs on PATH.')
     p.add_argument('--algorithm', choices=['cluster', 'linclust'], default='cluster',
                    help='mmseqs subcommand. cluster=easy-cluster (sensitive, slow), '
                         'linclust=easy-linclust (linear time, less sensitive). '
@@ -389,6 +395,7 @@ def main() -> None:
                 force=args.force,
                 alphabet=args.alphabet,
                 algorithm=args.algorithm,
+                mmseqs_bin=args.mmseqs_bin,
             )
             all_stats.append(stats)
 

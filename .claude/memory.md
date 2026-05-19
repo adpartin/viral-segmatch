@@ -299,6 +299,55 @@ in `run_allpairs_polaris_prod.sh`; `--tag` in `aggregate_allpairs_results.py`.
 - FP/FN diagnostics (Task 12) -- mostly subsumed by the per-regime heatmap now; revisit if any regime shows surprising behavior
 - Quantify unlinked BV-BRC records (ask Jim) -- scopes the remediation demo
 
+## Env Management
+**Rule**: bioconda / kalininalab CLI tools and experimental Python packages
+live in **dedicated conda envs**, never in the main `segmatch` pipeline env.
+
+**Why**: bioconda installs frequently pull a different `libhdf5` build than
+conda-forge, which breaks the precompiled `h5py` wheel in the same env. Two
+incidents:
+- 2026-05-15: `conda install -c bioconda mmseqs2` into `cepi` broke `h5py`
+  -> forced the lazy-h5py refactor in `src/utils/{esm2,embedding}_utils.py`
+  and `src/models/{train_pair_classifier,_pair_features}.py` (so k-mer-only
+  paths no longer crash on h5py import).
+- 2026-05-19: `conda install -c conda-forge -c bioconda -c kalininalab datasail`
+  into `cepi` broke `h5py` again (`undefined symbol: H5Pset_fapl_ros3`),
+  also pulling ~55 transitive solver deps (cvxpy, scip, suitesparse, ipopt,
+  mumps, ...). `conda remove --force datasail` removed only the package, not
+  the transitive deps -- env stayed polluted.
+
+**How to apply**:
+1. Pipeline env: `segmatch` (built from `environment.yml`, conda-forge only).
+2. CLI-only tools: dedicated env per tool; expose binary path via Hydra
+   config. mmseqs2 is the existing example -- `clustering_utils.py:172`
+   takes `mmseqs_bin: str` already, so no code change needed beyond pointing
+   at `/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs`.
+3. Experimental Python tools (e.g., `datasail`): dedicated env; run as
+   subprocess from `segmatch` if needed, or read its outputs (split CSVs)
+   back into segmatch.
+4. **Never `conda remove --force` to clean up bioconda damage** -- it leaves
+   transitive deps orphaned. Rebuild the env from `environment.yml` instead.
+
+**Envs as of 2026-05-19**:
+- `cepi`: legacy pipeline env, polluted by DataSAIL leftovers + bio CLI tools.
+  Retire after `segmatch` is validated by one Stage 3+4 run.
+- `segmatch`: clean pipeline env, built from `environment.yml` 2026-05-19.
+  Pending end-to-end Stage 3+4 validation.
+- `datasail`: dedicated env for the DataSAIL bake-off
+  (`feature/datasail-bakeoff` branch). Built 2026-05-19.
+- `mmseqs2`: dedicated env, built 2026-05-19. mmseqs2 version `18.8cc5c`.
+  Binary path: `/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs`.
+
+**`MMSEQS_BIN` env var convention** (wired 2026-05-19): on Lambda, set
+`export MMSEQS_BIN=/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs` in
+your shell rc (or per-session before running `seq_redundancy_per_function.py`).
+`run_mmseqs_easy_cluster` in `src/utils/clustering_utils.py:172` resolves the
+binary in this order: explicit `mmseqs_bin=` kwarg -> `MMSEQS_BIN` env var
+-> `'mmseqs'` on PATH. `seq_redundancy_per_function.py` exposes a
+`--mmseqs_bin` CLI override. Hydra config was considered but skipped: the
+only mmseqs caller is an argparse script, and on Polaris `module load`
+puts mmseqs on PATH so the default works there.
+
 ## User Preferences
 - Concise responses, no emojis unless asked
 - No unnecessary refactoring beyond what's asked
