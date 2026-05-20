@@ -255,6 +255,79 @@ via mmseqs2 splits) remains open.
 
 ---
 
+## Relation to prior-art split taxonomies
+
+The segmatch leakage modes (#1 same-pair, #2 sequence-label imbalance,
+#3 sequence-level, #4 cluster, #5 demographic-shortcut) and the
+corresponding mitigations (`pair_key` dedup, `seq_disjoint`,
+`cluster_disjoint`, `regime_aware_coverage`) overlap with — but are
+not identical to — two prior-art taxonomies in the data-leakage
+literature. The differences matter for paper writeups and for
+tooling interop.
+
+### Park & Marcotte 2012 (Nat. Methods Correspondence)
+
+P&M characterize *test pairs* (post-hoc) by component overlap with
+the training set, after a CD-HIT 40% redundancy-reduction
+preprocessing pass:
+- **C1**: test pair shares both components with train.
+- **C2**: test pair shares one component with train.
+- **C3**: test pair shares neither component with train.
+
+A typical random CV produces ~99% C1 test pairs (P&M main, p2). In
+the HIPPIE PPI population, C1/C2/C3 represent 19.2% / 49.2% / 31.6%
+of human protein pairs — i.e., random CV is unrepresentative of the
+population. P&M is a *diagnostic* framework: it labels each test
+pair by class but doesn't prescribe a splitting algorithm.
+
+### DataSAIL (Joeres et al., Nat. Commun. 2025)
+
+DataSAIL proposes *split strategies* (algorithmic recipes):
+- **R**: random interaction-based.
+- **I1 / I2**: identity-based, one-/two-dimensional (entity holdout
+  on one or both axes).
+- **S1 / S2**: similarity-based, one-/two-dimensional (cluster
+  holdout via similarity matrix).
+
+For 2D modes (I2, S2), DataSAIL *drops* pairs that straddle the
+fold boundary ("interactions can get lost", DataSAIL main p3).
+Underlying algorithm is cluster-then-ILP minimizing total cross-fold
+similarity L(π), with class stratification constraint C (e.g.,
+balance positives vs negatives in each fold). DataSAIL cites P&M as
+reference 8 in the PPI motivation but does not use the C1/C2/C3
+vocabulary.
+
+### Cross-reference table
+
+| segmatch | DataSAIL | P&M (test composition produced) | Notes |
+|---|---|---|---|
+| `split_strategy.mode=random` | R | C1-dominated (~99% in CV) | Verified P&M main p2 |
+| `seq_disjoint, hash_key=seq` | I2 (2D, R=1) | C3 only | Equivalent in *intent*; differs in algorithm — bicc routes whole CCs atomically, DataSAIL drops straddling pairs |
+| `cluster_disjoint cluster_alphabet=aa id100` | ≈ I2 | C3 only | mmseqs2 id100 ≈ seq_disjoint hash_key=seq |
+| `cluster_disjoint id<100` (id099, id095, ...) | S2 (2D, R=1) | C3 + cluster-novel | Same intent; algorithm differs (mmseqs2 cascade + bicc-route vs spectral+ILP+drop) |
+| `regime_aware_coverage` (8 regimes over host × hn_subtype × year) | C-stratification (informally) | (orthogonal to C-classes) | Same goal as DataSAIL's C constraint (preserve confounder distribution); different operational level (per-cell negative sampling vs per-fold class balance) |
+
+P&M's C1/C2/C3 and DataSAIL's R/I1/I2/S1/S2 are not synonyms: P&M
+classifies *test pairs*, DataSAIL classifies *split strategies*. A
+DataSAIL split strategy *produces* a test set with a specific
+P&M-class composition. Earlier internal notes ("C1 is R, C2 is I1,
+C3 is I2") are directionally right but conflate the two conceptual
+levels; the table above is the careful version.
+
+### Naming convention in segmatch
+
+segmatch retains `seq_disjoint`, `cluster_disjoint`, and the
+bipartite-CC routing terminology because: (a) the route-not-drop
+algorithmic property is distinguishing and worth a clear name; (b)
+the threshold sweep (id100, id099, id095, ...) is a knob DataSAIL
+absorbs internally — naming it explicitly is useful for our 8-major-
+pair sweeps. On first mention in writeups, cross-refer to DataSAIL's
+I2/S2 with parenthetical: e.g., "cluster_disjoint id095 (DataSAIL
+S2-equivalent at 95% identity threshold; algorithm: bipartite-CC
+LPT-greedy)". See `clustering_overview.md` § 4.4 for the naming
+chain (bipartite-CC LPT-greedy ≈ cluster_disjoint routing ≈
+BiCC-Split ≈ bicc).
+
 ## See also
 
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — active plan

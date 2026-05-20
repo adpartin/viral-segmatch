@@ -335,6 +335,34 @@ Deep dive on equivalences and non-equivalences:
 `docs/methods/leakage_definitions.md` § "Routing equivalence and
 mmseqs argument semantics".
 
+### 4.4 Naming: bipartite-CC LPT-greedy ≈ cluster_disjoint routing ≈ BiCC-Split
+
+The routing algorithm goes by several names across docs, code, and
+writeups:
+- **bipartite-CC LPT-greedy** — the precise technical name (bipartite
+  connected components of (slot_A_cluster, slot_B_cluster), bin-packed
+  via Longest-Processing-Time first-fit decreasing into the requested
+  split fractions).
+- **cluster_disjoint routing** — the user-facing config name in
+  `dataset.split_strategy.mode: cluster_disjoint` and in
+  `seq_disjoint_route_pos_df` / `cluster_disjoint_route_pos_df`.
+- **BiCC-Split** — paper/prose shorthand ("Bipartite Connected-Component
+  Split"), abbreviated **BiCC** or **bicc** in inline references.
+
+These are the same algorithm. In committed docs, prefer **bipartite-CC
+LPT-greedy** on first mention with the abbreviation **bicc** for
+subsequent references. Reserve `cluster_disjoint` for code/config and
+`BiCC-Split` for manuscript prose where a memorable name is useful.
+
+The algorithm differs from DataSAIL's split heuristic (cluster + ILP)
+in two ways: (a) routing operates on bipartite-CCs as atomic units,
+never dropping pairs ("CC bin-packing never splits a component",
+`_split_helpers.py:267`), where DataSAIL's I2/S2 explicitly drop
+pairs that straddle folds; (b) bicc's LPT-greedy is a heuristic that
+hits the requested split fractions within ~0.01% on Flu A (memory.md
+"seq_disjoint scales to conserved proteins"), where DataSAIL solves
+an NP-hard ILP via a heuristic clustering pre-pass.
+
 ---
 
 ## 5. Pipeline integration
