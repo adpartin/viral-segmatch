@@ -54,11 +54,27 @@ fixes that landed alongside it.
    largest-cluster-%% companion table; routing implications). §6 left
    unchanged — its id100 retention numbers don't depend on sweep
    granularity. Concrete signature surfaced: PB2 717→77 at id097→id096.
-4. **Move `docs/results/2026-05-15_seq_redundancy_per_function*.md`
-   to `data/processed/.../clusters_{aa,nt}/`** (matching the convention
-   we adopted in commit `74e798e`) and update the 9 references in
-   committed docs (`docs/methods/`, `CLAUDE.md`, `.claude/memory.md`).
+4. **Migrate machine-generated files out of `docs/results/`** —
+   scope expanded by the 2026-05-20 audit (Smaller #2). Two
+   generators involved:
+   - `seq_redundancy_per_function.py` writes the
+     `2026-05-15_seq_redundancy_per_function*.md` (2 files). New
+     default already points at `<out_root>/redundancy_summary.md`
+     (commit `74e798e`); old files just need to be migrated and 9
+     references updated in `docs/methods/`, `CLAUDE.md`,
+     `.claude/memory.md`.
+   - `cluster_disjoint_feasibility.py:279` writes the
+     `*_cluster_disjoint_feasibility_*.csv` files (4 files: aa and
+     nt × HA/NA and PB2/PB1). Script default **still points at
+     `docs/results/`** per docstring lines 32, 40 — needs the same
+     out-of-docs/ redirect we did for the seq_redundancy script.
+     Referenced from `cluster_analysis_summary.py:115-117` and
+     `plot_aa_vs_nt_cluster_disjoint.py:28`; both call sites need
+     updating.
+
    Mid-size refactor — propose a plan doc before doing it.
+   Open question: what to do with `docs/results/figs/` (5 PNGs,
+   0 references, unclear provenance — see audit notes).
 
 ## DataSAIL follow-ups
 
@@ -120,8 +136,13 @@ items worth revisiting before deciding to fully retire the bake-off.
    today, but adding the kwarg for defensive consistency would
    prevent a future-self foot-gun if anyone ever adds a column with
    the literal `'NA'`. (~2 lines.)~~ — **DONE 2026-05-20** (commit `25280e2`).
-2. **`docs/results/` machine-vs-handauthored audit**. The 2026-05-15
+2. ~~**`docs/results/` machine-vs-handauthored audit**. The 2026-05-15
    seq_redundancy markdowns aren't the only machine-generated files
    in `docs/results/` — the `*_cluster_disjoint_feasibility_*.csv`
    files are likely also machine outputs. Audit + plan migration to
-   `results/` if so.
+   `results/` if so.~~ — **DONE 2026-05-20**: 22 files audited.
+   15 hand-authored markdowns confirmed (keep). 6 machine-generated
+   (2 seq_redundancy markdowns + 4 feasibility CSVs) — migration
+   work folded into Cluster sweep #4's expanded scope. 5 orphan PNGs
+   in `docs/results/figs/` flagged as unclear (0 references,
+   provenance unknown).
