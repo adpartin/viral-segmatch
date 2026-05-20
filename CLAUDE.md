@@ -132,7 +132,7 @@ src/
     analyze_stage1_preprocess.py    # Preprocessing QC
     analyze_stage2_embeddings.py    # Embedding quality checks
     analyze_stage3_datasets.py      # Dataset balance/distribution
-    seq_redundancy_per_function.py       # mmseqs2 per-function cluster sweep (aa easy-cluster, nt easy-linclust); emits runtime.json
+    seq_redundancy_per_function.py       # mmseqs2 per-function cluster sweep (aa easy-cluster, nt easy-linclust); emits redundancy_stats.csv, runtime.json, and redundancy_summary.md alongside the data (not in docs/)
     cluster_disjoint_feasibility.py      # Bipartite-CC feasibility pre-flight (aa via --protein_final, nt via --cds_final)
     cluster_analysis_summary.py          # Post-hoc structural summary: 8x2 redundancy table, mutations-tolerated per threshold, cluster-collapse + bipartite-feasibility plots
     plot_aa_vs_nt_cluster_disjoint.py    # LGBM + 1-NN cluster-disjoint test-metric comparison across routings
