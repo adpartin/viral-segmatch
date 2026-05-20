@@ -1,7 +1,7 @@
 # DataSAIL vs segmatch bicc — Bake-off plan
 
-**Status: IN PROGRESS**
-**Date:** 2026-05-19
+**Status: PAUSED after Phase 0** (decision criterion 2 met: DataSAIL C2 drop rate >50% across all configs tested; see `docs/results/2026-05-20_datasail_phase0_results.md`)
+**Date:** 2026-05-19; Phase 0 results documented 2026-05-20.
 **Branch:** `feature/datasail-bakeoff`
 **Parent doc:** `docs/methods/leakage_definitions.md` § "Relation to prior-art split taxonomies"
 
@@ -181,7 +181,7 @@ After workflow (a) completes:
 
 | Phase | Scope | Exit criterion |
 |---|---|---|
-| Phase 0 | Sanity run on ~100 isolates HA/NA aa, R=1, C=1 (no stratification), workflow (a) | DataSAIL produces a valid fold assignment without errors; drop rate is recorded; round-trip back to segmatch format works |
+| Phase 0 | Sanity run on ~100 isolates HA/NA aa, R=1, C=1 (no stratification), workflow (a) | **COMPLETE 2026-05-20.** Wrapper works; I2 drop rate 2-7% across K and ε, C2 drop rate 51-71% (decision criterion #2 met). Two unexpected findings: (i) DataSAIL package uses C1/C2 where paper uses S1/S2; (ii) I2 ILP has no objective function — fold sizes drift unpredictably from 80/10/10 target depending on ε. See `docs/results/2026-05-20_datasail_phase0_results.md`. |
 | Phase 1 | Full HA/NA aa, R=1, C=1, workflow (a) | Full positives routed; per-fold CSVs written; bicc baseline (`cluster_disjoint id095`) run on same positives |
 | Phase 2 | Full HA/NA aa, R=1, C=2 (host axis), workflow (a) | Same as Phase 1 + stratification check (host distribution preserved across folds within ε) |
 | Phase 3 | Full evaluation: train MLP, LGBM, 1-NN on both DataSAIL and bicc splits; aggregate via heatmap | Side-by-side comparison ready for writeup |
