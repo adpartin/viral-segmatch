@@ -44,11 +44,16 @@ fixes that landed alongside it.
    now = 76 (previously 75 under the float bug). Bonus: collapse plots
    `cluster_counts_vs_threshold.png` and `bipartite_largest_pct_vs_threshold.png`
    regenerated with the granular id097/id096 trajectory — feeds item #3.
-3. **Update `clustering_overview.md` §6 + §8** with new cluster counts
+3. ~~**Update `clustering_overview.md` §6 + §8** with new cluster counts
    (per-function redundancy table) + collapse plots covering the
    full id100→id080 trajectory at one-unit resolution. The PB2/PB1
    collapse signature at id097→id096 (89%/79% drop) is the headline
-   finding to surface. (~30 min after the CSV rebuild.)
+   finding to surface. (~30 min after the CSV rebuild.)~~ — **DONE
+   2026-05-20** (commit `f91b805`): §8 rewritten into 4 subsections
+   (one-unit-resolution n_clusters table; two-collapse-modes prose;
+   largest-cluster-%% companion table; routing implications). §6 left
+   unchanged — its id100 retention numbers don't depend on sweep
+   granularity. Concrete signature surfaced: PB2 717→77 at id097→id096.
 4. **Move `docs/results/2026-05-15_seq_redundancy_per_function*.md`
    to `data/processed/.../clusters_{aa,nt}/`** (matching the convention
    we adopted in commit `74e798e`) and update the 9 references in
