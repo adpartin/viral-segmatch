@@ -101,12 +101,12 @@ items worth revisiting before deciding to fully retire the bake-off.
 
 ## Smaller items / minor polish
 
-1. **`cluster_analysis_summary.py:141`** reads `protein_final.csv`
+1. ~~**`cluster_analysis_summary.py:141`** reads `protein_final.csv`
    for length stats but doesn't pass `keep_default_na=False`. The
    `function` column uses full names (no `'NA'` trap), so it's safe
    today, but adding the kwarg for defensive consistency would
    prevent a future-self foot-gun if anyone ever adds a column with
-   the literal `'NA'`. (~2 lines.)
+   the literal `'NA'`. (~2 lines.)~~ — **DONE 2026-05-20** (commit `25280e2`).
 2. **`docs/results/` machine-vs-handauthored audit**. The 2026-05-15
    seq_redundancy markdowns aren't the only machine-generated files
    in `docs/results/` — the `*_cluster_disjoint_feasibility_*.csv`
