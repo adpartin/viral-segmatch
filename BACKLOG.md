@@ -54,30 +54,21 @@ fixes that landed alongside it.
    largest-cluster-%% companion table; routing implications). §6 left
    unchanged — its id100 retention numbers don't depend on sweep
    granularity. Concrete signature surfaced: PB2 717→77 at id097→id096.
-4. **Migrate machine-generated files out of `docs/results/`** —
+4. ~~**Migrate machine-generated files out of `docs/results/`** —
    scope expanded by the 2026-05-20 audit (Smaller #2). Two
-   generators involved:
-   - `seq_redundancy_per_function.py` writes the
-     `2026-05-15_seq_redundancy_per_function*.md` (2 files). New
-     default already points at `<out_root>/redundancy_summary.md`
-     (commit `74e798e`); old files just need to be migrated and 9
-     references updated in `docs/methods/`, `CLAUDE.md`,
-     `.claude/memory.md`.
-   - `cluster_disjoint_feasibility.py:279` writes the
-     `*_cluster_disjoint_feasibility_*.csv` files (4 files: aa and
-     nt × HA/NA and PB2/PB1). Script default **still points at
-     `docs/results/`** per docstring lines 32, 40 — needs the same
-     out-of-docs/ redirect we did for the seq_redundancy script.
-     Referenced from `cluster_analysis_summary.py:115-117` and
-     `plot_aa_vs_nt_cluster_disjoint.py:28`; both call sites need
-     updating.
-
-   **Plan doc ready: `docs/plans/2026-05-20_docs_results_migration_plan.md`
-   (Status: PROPOSED).** Three phases sketched (feasibility-CSV
-   redirect, seq_redundancy markdown cleanup, figs/ triage). Total
-   estimated ~1 hour active work.
-   Open question (deferred to Phase 3): what to do with
-   `docs/results/figs/` (5 PNGs, 0 references, unclear provenance).
+   generators involved...~~ — **DONE 2026-05-20**:
+   - Phase 1 (`cluster_disjoint_feasibility.py` redirect + 4 CSV
+     regeneration + 3 consumer-script updates): commit `8c9a733`.
+   - Phase 2 (bulk reference updates across 8 files): commit `8c9a733`.
+   - Deletions (4 CSVs + 2 markdowns): commit `6e6fcb9`.
+   - Phase 3 (figs/): KEEP ALL 5 — honest re-review showed each PNG
+     has unique content not reproduced by current tools
+     (`cluster_id99_calibration` is a model-calibration plot;
+     `redundancy_largest_pct` is per-function not per-pair; the
+     other two have hand-crafted narrative titles the auto-gen
+     plots lack). No deletions in figs/.
+   - Plan doc moved to `docs/plans/done/` would be appropriate but
+     remains in `docs/plans/` for now; status mark unchanged.
 
 ## DataSAIL follow-ups
 
