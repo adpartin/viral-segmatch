@@ -23,21 +23,21 @@ The two modes are mutually exclusive; `--alphabet` is inferred from which
 input is provided unless overridden.
 
 CLI:
-    # aa feasibility (HA/NA)
+    # aa feasibility (HA/NA). --out_csv defaults to
+    # results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_aa.csv
     python -m src.analysis.cluster_disjoint_feasibility \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
-        --clusters_root data/processed/flu/July_2025/clusters \\
+        --clusters_root data/processed/flu/July_2025/clusters_aa \\
         --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \\
-        --thresholds 1.00 0.99 0.95 0.90 0.80 \\
-        --out_csv docs/results/2026-05-14_cluster_disjoint_feasibility_ha_na.csv
+        --thresholds 1.00 0.99 0.95 0.90 0.80
 
-    # nt feasibility (HA/NA on CDS DNA)
+    # nt feasibility (HA/NA on CDS DNA). --out_csv defaults to
+    # results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_nt.csv
     python -m src.analysis.cluster_disjoint_feasibility \\
         --cds_final     data/processed/flu/July_2025/cds_final.parquet \\
         --clusters_root data/processed/flu/July_2025/clusters_nt \\
         --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \\
-        --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \\
-        --out_csv docs/results/2026-05-15_cluster_disjoint_feasibility_nt_ha_na.csv
+        --thresholds 1.00 0.99 0.95 0.90 0.85 0.80
 
 Produces a per-threshold summary table:
     threshold  n_pairs  n_components  largest_pct  second_pct  p99_cumpct
@@ -226,7 +226,12 @@ def main() -> None:
     p.add_argument('--schema_pair', nargs=2, required=True,
                    help='Two function names (slot_a, slot_b).')
     p.add_argument('--thresholds', nargs='+', type=float, required=True)
-    p.add_argument('--out_csv', default=None, help='Optional output CSV path.')
+    p.add_argument('--out_csv', default=None,
+                   help='Output CSV path. If omitted, defaults to '
+                        'results/flu/July_2025/runs/cluster_disjoint_feasibility/'
+                        'feasibility_<pair_short>_<alphabet>.csv. Pair short '
+                        'is derived from the schema_pair via FUNCTION_TO_SHORT '
+                        '(e.g., HA + NA -> "ha_na").')
     args = p.parse_args()
 
     if args.protein_final and not args.alphabet:
@@ -274,10 +279,23 @@ def main() -> None:
     print("\nSummary:")
     print(df_out.to_string(index=False))
 
-    if args.out_csv:
-        Path(args.out_csv).parent.mkdir(parents=True, exist_ok=True)
-        df_out.to_csv(args.out_csv, index=False)
-        print(f"\nWrote: {args.out_csv}")
+    if args.out_csv is None:
+        try:
+            shorts = [FUNCTION_TO_SHORT[f] for f in schema_pair]
+        except KeyError as e:
+            raise SystemExit(
+                f"Cannot derive default --out_csv: schema_pair entry not in "
+                f"FUNCTION_TO_SHORT: {e}. Pass --out_csv explicitly."
+            )
+        pair_short = '_'.join(s.lower() for s in shorts)
+        args.out_csv = str(
+            PROJECT_ROOT / 'results' / 'flu' / 'July_2025' / 'runs'
+            / 'cluster_disjoint_feasibility'
+            / f'feasibility_{pair_short}_{args.alphabet}.csv'
+        )
+    Path(args.out_csv).parent.mkdir(parents=True, exist_ok=True)
+    df_out.to_csv(args.out_csv, index=False)
+    print(f"\nWrote: {args.out_csv}")
 
 
 if __name__ == '__main__':

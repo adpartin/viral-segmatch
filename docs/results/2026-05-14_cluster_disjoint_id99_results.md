@@ -182,8 +182,8 @@ Comparison CSV + plot:
 
 Feasibility analysis:
 - `src/analysis/cluster_disjoint_feasibility.py`
-- `docs/results/2026-05-14_cluster_disjoint_feasibility_ha_na.csv`
-- `docs/results/2026-05-14_cluster_disjoint_feasibility_pb2_pb1.csv`
+- `results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_aa.csv`
+- `results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_pb2_pb1_aa.csv`
 
 ## Followup: ratio=1.5 vs ratio=3.0 on cluster_id99 (2026-05-14)
 

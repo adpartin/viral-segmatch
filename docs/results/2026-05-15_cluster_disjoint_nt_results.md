@@ -29,7 +29,7 @@ representation more diversity per protein cluster.
 
 The bipartite-component pre-flight check
 (`src/analysis/cluster_disjoint_feasibility.py`,
-`docs/results/2026-05-15_cluster_disjoint_feasibility_nt_{ha_na,pb2_pb1}.csv`)
+`results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_{ha_na,pb2_pb1}_nt.csv`)
 rules out the lower-threshold sweep on the full Flu A corpus:
 
 | Schema | Threshold | n_components | largest % | second % | 80/10/10 feasible |
@@ -236,7 +236,7 @@ in their header (`conf/bundles/flu_pb2_pb1_cluster_nt_id*.yaml`).
 - `docs/results/2026-05-14_seq_redundancy_per_function.md` — aa
   redundancy sweep + feasibility table; the parallel reference for the
   nt picture above.
-- `docs/results/2026-05-15_seq_redundancy_per_function_nt.md` —
+- `data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` —
   nt redundancy sweep (autogen by the per-function script).
 - `docs/methods/leakage_definitions.md` — leakage mode #4 (cluster
   leakage) is what this experiment targets.

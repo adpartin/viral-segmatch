@@ -106,15 +106,15 @@ def load_redundancy_stats(clusters_root: Path, alphabet: str) -> pd.DataFrame:
 def load_feasibility(feasibility_dir: Path, pair_short: str, alphabet: str) -> Optional[pd.DataFrame]:
     """Load the per-pair bipartite feasibility CSV.
 
-    aa: docs/results/2026-05-14_cluster_disjoint_feasibility_<pair>.csv
-    nt: docs/results/2026-05-15_cluster_disjoint_feasibility_nt_<pair>.csv
+    Default path (set by `cluster_disjoint_feasibility.py` since the
+    2026-05-20 docs/results migration):
+        <feasibility_dir>/feasibility_<pair_short>_<alphabet>.csv
+    e.g. `results/.../cluster_disjoint_feasibility/feasibility_ha_na_aa.csv`.
 
-    Returns None if missing (graceful: the plot just drops that line).
+    `pair_short` is lowercase ("ha_na", "pb2_pb1"). Returns None if the
+    file is missing (graceful: the plot just drops that line).
     """
-    if alphabet == 'aa':
-        p = feasibility_dir / f'2026-05-14_cluster_disjoint_feasibility_{pair_short}.csv'
-    else:
-        p = feasibility_dir / f'2026-05-15_cluster_disjoint_feasibility_nt_{pair_short}.csv'
+    p = feasibility_dir / f'feasibility_{pair_short.lower()}_{alphabet}.csv'
     if not p.exists():
         return None
     df = pd.read_csv(p, keep_default_na=False, na_values=[''])
@@ -374,9 +374,11 @@ def main() -> None:
                    help='Stage 1 protein_final.csv (or .parquet) — used for aa length stats.')
     p.add_argument('--cds_final', default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'),
                    help='Stage 1.5 cds_final.parquet — used for nt length stats.')
-    p.add_argument('--feasibility_dir', default=str(PROJ / 'docs/results'),
-                   help='Directory containing 2026-05-14_cluster_disjoint_feasibility_*.csv (aa) and '
-                        '2026-05-15_cluster_disjoint_feasibility_nt_*.csv (nt).')
+    p.add_argument('--feasibility_dir',
+                   default=str(PROJ / 'results/flu/July_2025/runs/cluster_disjoint_feasibility'),
+                   help='Directory containing feasibility_<pair>_<alphabet>.csv files '
+                        '(emitted by cluster_disjoint_feasibility.py since the '
+                        '2026-05-20 docs/results migration).')
     p.add_argument('--out_dir', default=str(PROJ / 'results/flu/July_2025/runs/cluster_analysis'),
                    help='Output directory for tables + plots.')
     args = p.parse_args()

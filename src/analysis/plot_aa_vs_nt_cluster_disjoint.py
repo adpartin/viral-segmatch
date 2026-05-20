@@ -25,7 +25,7 @@ The reference deliverable promised by step 9 of
 as a 4-routing comparison rather than a true threshold sweep — the
 bipartite-component collapse on the full Flu A corpus rules out feasible
 nt cluster_disjoint below id099 (see
-`docs/results/2026-05-15_cluster_disjoint_feasibility_nt_*.csv`).
+`results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_*_nt.csv`).
 
 CLI:
     python -m src.analysis.plot_aa_vs_nt_cluster_disjoint \

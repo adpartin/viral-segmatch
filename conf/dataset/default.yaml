@@ -208,7 +208,7 @@ drop_ambiguous_subtype: true
 # operable on the full corpus on both alphabets — below those thresholds the
 # bipartite mega-component collapses to >80% of pairs and 80/10/10 splits
 # become infeasible. See
-# docs/results/2026-05-15_seq_redundancy_per_function.md (aa) and
+# data/processed/flu/July_2025/clusters_aa/redundancy_summary.md (aa) and
 # docs/results/2026-05-15_cluster_disjoint_nt_results.md (nt).
 split_strategy:
   mode: seq_disjoint  # 'random' | 'seq_disjoint' (default) | 'cluster_disjoint'

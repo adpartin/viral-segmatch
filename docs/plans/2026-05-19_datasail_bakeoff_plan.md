@@ -60,7 +60,7 @@ into our pipeline:
 - The drop rate on positives is directly interpretable as the
   feasibility cost of strict S2 splitting — the same kind of
   feasibility question we already mapped for bicc in
-  `docs/results/2026-05-15_seq_redundancy_per_function.md`.
+  `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md`.
 
 (b) and (c) are deferred until (a) is validated. (b) couples the
 bake-off to whether DataSAIL handles our 8-regime structure as a

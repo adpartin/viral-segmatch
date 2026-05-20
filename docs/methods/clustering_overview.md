@@ -9,8 +9,8 @@ reader who has not used mmseqs2 before.
 For the *experimental findings* on Flu A see
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (model-side
 results) and the two redundancy autogen docs
-`docs/results/2026-05-15_seq_redundancy_per_function.md` (aa) and
-`docs/results/2026-05-15_seq_redundancy_per_function_nt.md` (nt). This
+`data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (aa) and
+`data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` (nt). This
 doc explains the *machinery*; those docs report the *numbers we got*.
 
 For the exact routing-equivalence semantics across the four
@@ -672,14 +672,14 @@ python -m src.analysis.cluster_disjoint_feasibility \
     --clusters_root data/processed/flu/July_2025/clusters_aa \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
     --thresholds 1.00 0.99 0.95 0.90 0.80 \
-    --out_csv docs/results/2026-05-14_cluster_disjoint_feasibility_ha_na.csv
+    --out_csv results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_aa.csv
 
 python -m src.analysis.cluster_disjoint_feasibility \
     --cds_final     data/processed/flu/July_2025/cds_final.parquet \
     --clusters_root data/processed/flu/July_2025/clusters_nt \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
     --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \
-    --out_csv docs/results/2026-05-15_cluster_disjoint_feasibility_nt_ha_na.csv
+    --out_csv results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_nt.csv
 
 # (repeat for PB2/PB1)
 
@@ -714,12 +714,12 @@ bipartite_largest_pct_vs_threshold.png    — Plot C (§9)
   sequences via k-mer features (different scope, different cache).
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` — the
   model-side experiment (LGBM + 1-NN at each routing).
-- `docs/results/2026-05-15_seq_redundancy_per_function.md` (aa) and
-  `docs/results/2026-05-15_seq_redundancy_per_function_nt.md` (nt) —
+- `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (aa) and
+  `data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` (nt) —
   autogen per-threshold cluster-size tables for all 8 majors.
-- `docs/results/2026-05-14_cluster_disjoint_feasibility_{ha_na,pb2_pb1}.csv`
+- `results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_{ha_na,pb2_pb1}_aa.csv`
   (aa) and
-  `docs/results/2026-05-15_cluster_disjoint_feasibility_nt_{ha_na,pb2_pb1}.csv`
+  `results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_{ha_na,pb2_pb1}_nt.csv`
   (nt) — raw bipartite-CC feasibility numbers per pair × alphabet ×
   threshold.
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` — the

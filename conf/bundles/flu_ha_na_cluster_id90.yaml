@@ -3,7 +3,7 @@
 # the bipartite graph has only 8 components with the largest covering 99.3%
 # of deduped pairs. Stage 3 will produce a ~99 / 0.5 / 0.5 split.
 # Kept for reference; not run. See
-# docs/results/2026-05-14_cluster_disjoint_feasibility_ha_na.csv.
+# results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_aa.csv.
 
 defaults:
   - flu_ha_na

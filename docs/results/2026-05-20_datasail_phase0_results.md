@@ -113,7 +113,7 @@ Observations:
 ### Why C2 drops so much: corpus structure
 
 Our prior cluster-disjoint feasibility study
-(`docs/results/2026-05-15_seq_redundancy_per_function.md` §
+(`data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` §
 feasibility table, and `docs/results/2026-05-15_cluster_disjoint_nt_results.md`)
 established that the Flu A HA/NA bipartite-cluster graph collapses
 into one mega-component containing >80% of pairs below id099 on the
@@ -220,6 +220,6 @@ In rough priority order:
 - `docs/methods/leakage_definitions.md` § "Relation to prior-art split taxonomies"
 - `docs/methods/clustering_overview.md` § 4.4 (bicc naming)
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (bicc feasibility ceiling)
-- `docs/results/2026-05-15_seq_redundancy_per_function.md` (corpus redundancy structure)
+- `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (corpus redundancy structure)
 - DataSAIL paper: `refs/joeres2025_datasail.pdf` and `refs/joeres2025_datasail_supp.pdf`
 - DataSAIL source (in conda env): `/homes/apartin/miniconda3/envs/datasail/lib/python3.10/site-packages/datasail/`

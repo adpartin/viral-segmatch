@@ -6,7 +6,7 @@
 # NA clusters via thousands of shared isolates). Stage 3 will produce a
 # 98.5 / 0.8 / 0.8 split — too skewed to be informative.
 # Kept for reference; not run. See
-# docs/results/2026-05-14_cluster_disjoint_feasibility_ha_na.csv.
+# results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_aa.csv.
 
 defaults:
   - flu_ha_na
