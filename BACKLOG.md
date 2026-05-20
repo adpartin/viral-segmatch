@@ -26,16 +26,24 @@ plan from meetings) and `docs/plans/` (active and completed plans).
 Triggered by the 2026-05-19/20 one-unit-increment sweep + the script
 fixes that landed alongside it.
 
-1. **Rebuild cumulative `redundancy_stats.csv`** by re-running
+1. ~~**Rebuild cumulative `redundancy_stats.csv`** by re-running
    `seq_redundancy_per_function.py` once for aa and once for nt with
    the full threshold list (1.0, 0.99, 0.98, 0.97, 0.96, 0.95, 0.90,
    0.85, 0.80). Cluster parquets are cached so each run is a few
    minutes. The merge-fix (commit `74e798e`) now appends rather than
-   overwrites. (~5 min compute total.)
-2. **Regenerate `mutations_tolerated_table.csv`** by re-running
+   overwrites. (~5 min compute total.)~~ — **DONE 2026-05-20**:
+   aa = 80 rows (8 thresholds × 10 functions); nt = 72 rows
+   (9 thresholds × 8 functions; M2/NEP auto-skipped). All cached
+   reads, ~1 min total. Outputs live under `data/processed/.../
+   clusters_{aa,nt}/redundancy_stats.csv` (gitignored).
+2. ~~**Regenerate `mutations_tolerated_table.csv`** by re-running
    `cluster_analysis_summary.py` after the CSV rebuild. The float
    precision fix (commit `67ddb62`) is in place; CSV needs to refresh
-   to pick it up. (~1 min.)
+   to pick it up. (~1 min.)~~ — **DONE 2026-05-20**: 144 rows
+   (8 functions × 2 alphabets × 9 thresholds). Verified PB2 at id090
+   now = 76 (previously 75 under the float bug). Bonus: collapse plots
+   `cluster_counts_vs_threshold.png` and `bipartite_largest_pct_vs_threshold.png`
+   regenerated with the granular id097/id096 trajectory — feeds item #3.
 3. **Update `clustering_overview.md` §6 + §8** with new cluster counts
    (per-function redundancy table) + collapse plots covering the
    full id100→id080 trajectory at one-unit resolution. The PB2/PB1
