@@ -72,9 +72,12 @@ fixes that landed alongside it.
      `plot_aa_vs_nt_cluster_disjoint.py:28`; both call sites need
      updating.
 
-   Mid-size refactor — propose a plan doc before doing it.
-   Open question: what to do with `docs/results/figs/` (5 PNGs,
-   0 references, unclear provenance — see audit notes).
+   **Plan doc ready: `docs/plans/2026-05-20_docs_results_migration_plan.md`
+   (Status: PROPOSED).** Three phases sketched (feasibility-CSV
+   redirect, seq_redundancy markdown cleanup, figs/ triage). Total
+   estimated ~1 hour active work.
+   Open question (deferred to Phase 3): what to do with
+   `docs/results/figs/` (5 PNGs, 0 references, unclear provenance).
 
 ## DataSAIL follow-ups
 
@@ -122,11 +125,17 @@ items worth revisiting before deciding to fully retire the bake-off.
 
 ## Infrastructure
 
-1. **Validate `segmatch` env end-to-end** by running one Stage 3 +
+1. ~~**Validate `segmatch` env end-to-end** by running one Stage 3 +
    Stage 4 cycle with an existing bundle. Env was built 2026-05-19
    but only smoke-tested at the import layer. Until this completes
    successfully we cannot retire the `cepi` env. Suggested bundle:
-   `flu_ha_na` (production default).
+   `flu_ha_na` (production default).~~ — **DONE 2026-05-20**: ran
+   `flu_ha_na` with `dataset.max_isolates_to_process=2000
+   training.epochs=5 training.patience=10`. Stage 3 done in 2 min;
+   Stage 4 done in 2 min on GPU; model learned (Test F1=0.802,
+   AUC-ROC=0.92). No new errors — only pre-existing pandas dtype +
+   matplotlib deprecation warnings. **`cepi` env is unblocked for
+   retirement.**
 
 ## Smaller items / minor polish
 
