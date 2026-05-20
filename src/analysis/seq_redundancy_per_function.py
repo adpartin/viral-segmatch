@@ -21,7 +21,7 @@ helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
 consumes downstream.
 
 Typical out_root values:
-  data/processed/flu/{version}/clusters     (aa)
+  data/processed/flu/{version}/clusters_aa  (aa; renamed from `clusters/` on 2026-05-15)
   data/processed/flu/{version}/clusters_nt  (nt)
 
 Artifact layout:
@@ -34,9 +34,8 @@ CLI:
     # aa redundancy sweep — sensitive easy-cluster
     python -m src.analysis.seq_redundancy_per_function \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
-        --out_root      data/processed/flu/July_2025/clusters \\
-        --thresholds 1.00 0.99 0.95 0.90 0.80 \\
-        --functions HA NA PB2 PB1 PA NP M1 M2 NEP NS1 \\
+        --out_root      data/processed/flu/July_2025/clusters_aa \\
+        --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.80 \\
         --threads 8
 
     # nt redundancy sweep — fast easy-linclust on cds_final
@@ -117,7 +116,10 @@ def cluster_one_function_one_threshold(
             `prot_seq`; for `alphabet='nt'` must contain `function`,
             `cds_dna`, `cds_dna_hash` (from `cds_final.parquet`).
         alphabet: 'aa' (default) or 'nt'. Determines which exporter is used
-            and whether `--search-type 3` is passed to mmseqs.
+            and whether `--dbtype 2` is passed to mmseqs (the nucleotide
+            alphabet declaration). `--search-type 3` is NOT a valid flag on
+            easy-cluster/easy-linclust in mmseqs 18; the original plan
+            referenced it, but the current code uses `--dbtype 2` instead.
 
     Returns the redundancy stats dict for this (function, threshold).
     """
@@ -333,7 +335,7 @@ def main() -> None:
     p.add_argument('--alphabet', choices=['aa', 'nt'], default=None,
                    help='Sequence alphabet (default: aa for --protein_final, nt for --cds_final).')
     p.add_argument('--out_root', required=True,
-                   help='Output directory root (e.g. data/processed/flu/July_2025/clusters or '
+                   help='Output directory root (e.g. data/processed/flu/July_2025/clusters_aa or '
                         'clusters_nt).')
     p.add_argument('--thresholds', nargs='+', type=float, required=True,
                    help='Identity thresholds (e.g. 1.00 0.99 0.95 0.90 0.80).')

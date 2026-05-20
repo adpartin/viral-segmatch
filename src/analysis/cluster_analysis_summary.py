@@ -30,8 +30,8 @@ CLI:
         [--clusters_nt  data/processed/flu/July_2025/clusters_nt] \\
         [--protein_final data/processed/flu/July_2025/protein_final.csv] \\
         [--cds_final     data/processed/flu/July_2025/cds_final.parquet] \\
-        [--feasibility_dir docs/results] \\
-        [--out_dir       results/flu/July_2025/runs/cluster_analysis]
+        [--feasibility_dir results/flu/July_2025/runs/cluster_disjoint_feasibility] \\
+        [--out_dir         results/flu/July_2025/runs/cluster_analysis]
 
 Outputs (under --out_dir):
     cluster_summary.csv               — per (function, alphabet, threshold) row
