@@ -13,7 +13,7 @@ Flu A protein functions at each mmseqs2 identity threshold:
     an 80/10/10 routing, per schema pair × alphabet.
   - How many residue mismatches each threshold *concretely* admits
     inside a cluster, per function — making "id095" mean something
-    biological (`max_mutations = floor(L * (1 - t))`).
+    biological (`max_mutations = L - ceil(L * t)`).
 
 This script is the structural counterpart to
 `plot_aa_vs_nt_cluster_disjoint.py`, which reads model-results from
@@ -175,18 +175,25 @@ def compute_length_stats(protein_final: Path, cds_final: Path) -> pd.DataFrame:
 def build_mutations_tolerated(length_stats: pd.DataFrame, thresholds: list[float]) -> pd.DataFrame:
     """At each (function, alphabet, threshold), max admitted mismatches.
 
-    max_mutations = floor(median_length * (1 - threshold))
+    max_mutations = L - ceil(L * t)
 
     Concrete biological meaning of "id <t>": inside a cluster, two
     sequences differ in at most this many residue positions
     (aa or nt depending on alphabet). The same threshold is
     biologically stricter on shorter proteins / CDS.
+
+    The formula is written as `L - ceil(L * t)` rather than the
+    mathematically equivalent `floor(L * (1 - t))` because the latter
+    suffers float-precision error when `1 - t` produces a non-exact
+    binary fraction (e.g., `1 - 0.9 = 0.0999...` in float, so
+    `int(760 * (1 - 0.9)) = 75` rather than the correct 76).
     """
+    import math
     out_rows: list[dict] = []
     for _, row in length_stats.iterrows():
         L = row['median']
         for t in thresholds:
-            mut = int(L * (1.0 - t))
+            mut = int(L - math.ceil(L * t))
             out_rows.append({
                 'function_short': row['function_short'],
                 'alphabet': row['alphabet'],

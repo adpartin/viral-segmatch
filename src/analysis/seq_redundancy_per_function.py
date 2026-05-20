@@ -382,6 +382,20 @@ def main() -> None:
         raise SystemExit(f"Unknown function short names: {unknown}. "
                          f"Known: {sorted(SHORT_TO_FUNCTION)}")
 
+    # Skip functions absent from the input (e.g., M2/NEP are not in
+    # cds_final.parquet because the CDS extractor only covers the 8
+    # majors). Avoids aborting mid-sweep on the first missing function.
+    present_functions = set(df['function'].unique())
+    skipped = [f for f in args.functions
+               if SHORT_TO_FUNCTION[f] not in present_functions]
+    if skipped:
+        print(f"  NOTE: skipping {len(skipped)} function(s) with no rows in "
+              f"this input: {skipped}")
+        args.functions = [f for f in args.functions if f not in skipped]
+        if not args.functions:
+            raise SystemExit("No functions to process after skipping. "
+                             "Check the input file's `function` column.")
+
     all_stats = []
     for threshold in args.thresholds:
         print(f"\n=== threshold = {threshold:.2f} ===")
