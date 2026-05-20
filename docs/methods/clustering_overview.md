@@ -494,41 +494,97 @@ especially when comparing across function pairs of different lengths
 
 ## 8. Cluster collapse trajectory
 
-Source: `cluster_counts_vs_threshold.png` (from
+Source: `cluster_counts_vs_threshold.png` and
+`bipartite_largest_pct_vs_threshold.png` (from
 `cluster_analysis_summary.py`); raw values in `cluster_summary.csv`.
+The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.90,
+0.80} on aa (nt adds 0.85).
 
-The plot shows per-function `n_clusters` (log Y) as the identity
-threshold drops from 1.00 to 0.80. All 16 lines (8 functions × 2
-alphabets) trace a roughly sigmoidal collapse:
+### 8.1 Per-function `n_clusters` at one-unit resolution (aa)
 
-- **At id100** clusters ≈ unique sequences (singleton-heavy: 99% of
-  clusters on each function are size-1 at this threshold;
-  `fraction_singletons` column in `cluster_summary.csv`).
-- **By id095** clusters drop ~10–100× on aa, 10–100× on nt (most aa
-  near-clones merge; nt near-clones too, but the nt side started with
-  more unique sequences so it collapses to a higher absolute count).
-- **By id080** every function is down to single-digit cluster counts
-  on both alphabets, except HA and NA (which retain ~85–135 clusters
-  on nt — HA and NA are the most aa-diverse and that diversity
-  partially survives nt clustering at this stringency).
+| Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id080 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| PB2 | 33,573 | 7,935 | 2,058 |   717 | **77** |    26 |   2 |   2 |
+| PB1 | 30,808 | 10,782 | 2,400 |   612 |   127 |    50 |   4 |   2 |
+| PA  | 34,153 | 10,450 | 2,166 |   924 |   554 |   158 |   3 |   2 |
+| HA  | 41,708 | 11,039 | 3,400 | 1,753 | 1,075 |   711 | 110 |  23 |
+| NP  | 17,258 |  1,981 |   541 |   153 |    73 |    44 |   7 |   2 |
+| NA  | 37,102 | 10,184 | 3,407 | 1,612 | 1,043 |   625 | 108 |  39 |
+| M1  |  4,633 |    698 |   154 |    82 |    43 |    26 |   7 |   2 |
+| NS1 | 21,864 |  6,313 | 2,829 | 1,461 |   814 |   485 |  98 |  10 |
 
-**Interpretation.**
+(`cluster_counts_vs_threshold.png` plots the same data per-alphabet
+on log Y; the **bolded cell** flags the steepest per-function
+single-unit transition — PB2 collapses 717→77 between id097 and id096,
+an 89% drop.)
 
-The aa lines (solid markers) and nt lines (dashed markers) for the
-same function track each other in shape but the nt line sits ~2–10×
-higher on the Y axis at id095 and below. That's the synonymous-codon
-diversity: at id095 nt, two proteins with the same aa but distinct
-codon usage are still in different clusters.
+The nt equivalent (in `cluster_summary.csv`) follows the same shape
+but with ~2–3× higher counts at the same threshold — synonymous-codon
+variation means two proteins with identical aa but distinct codons
+are still in different nt clusters until the threshold loosens enough
+to absorb them.
 
-By id080 both alphabets converge to ~10 clusters per function on the
-polymerase subunits — the threshold is loose enough that whatever
-nucleotide diversity remained is below 80% identity, so the same big
-biological "subtype-cluster" structure dominates regardless of
-alphabet.
+### 8.2 Two distinct collapse modes
 
-The shape of the collapse is corpus-driven, not algorithm-driven:
+- **Sharp collapse on the conserved proteins** (PB2, PB1, NP, M1).
+  Cluster count drops nearly an order of magnitude in a single
+  threshold unit. PB2 is the cleanest example (717 → **77** at
+  id097→id096, −89%); NP follows (153 → 73 at the same step, −52%).
+  These are the most aa-conserved Flu A proteins; their sequence
+  space is narrow at the population level, so a small relaxation of
+  identity threshold collapses many near-identical clusters at once.
+  By id090 these functions are down to 2–7 clusters total —
+  essentially "Flu A polymerase, variant 1 of N small subfamilies".
+
+- **Gradual collapse on the surface proteins** (HA, NA, NS1). HA's
+  count drops smoothly: 1,753 → 1,075 → 711 → 110 → 23 across
+  id097/096/095/090/080. HA and NA carry substantial aa-level
+  variation (antigenic drift drives diversity), and NS1 has the
+  length-variation noise discussed in §6. These functions retain
+  meaningful cluster structure even at id080 (HA: 23 aa clusters,
+  NA: 39, NS1: 10).
+
+- **PA is intermediate.** A polymerase subunit by function, but
+  collapses less sharply than PB2/PB1/NP — 924 → 554 → 158 across
+  id097/096/095. By id090 it's down to 3 clusters, behaviourally
+  with the other polymerases.
+
+### 8.3 Largest cluster as % of corpus
+
+`bipartite_largest_pct_vs_threshold.png` shows the same picture from
+the other angle ("how much of the corpus does one cluster swallow"):
+
+| Function | id100 | id099 | id097 | id096 | id095 | id090 | id080 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| PB2 | 0.1% | 14.4% | 43.4% | 69.2% | 80.3% | **100%** | **100%** |
+| PB1 | 0.1% | 17.3% | 37.5% | 34.1% | 74.7% | **100%** | **100%** |
+| PA  | 0.0% | 13.7% | 47.0% | 60.8% | 69.3% | **100%** | **100%** |
+| NP  | 0.1% |  8.9% | 30.1% | 41.9% | 46.8% |  99.8% | **100%** |
+| M1  | 0.2% | 12.8% | 22.8% | 38.1% | 48.7% |  76.1% | **100%** |
+| HA  | 0.0% |  5.0% |  9.7% |  9.9% | 11.2% |  24.2% |  29.9% |
+| NA  | 0.1% |  4.7% |  8.7% | 10.3% | 13.2% |  20.4% |  38.7% |
+| NS1 | 0.1% |  5.0% |  9.3% | 15.6% | 14.9% |  20.4% |  53.6% |
+
+Bolded cells: one cluster contains the entire corpus. By id090, the
+five conserved functions (PB2/PB1/PA/NP/M1) have swallowed everything;
+HA, NA, NS1 remain ≤30%.
+
+### 8.4 Why this matters for routing
+
+The collapse trajectory directly predicts the bipartite-CC
+feasibility ceiling documented in §9. Function-pairs whose components
+collapse sharpest at low thresholds (polymerase pairs like PB2/PB1)
+form a single mega-component once either slot's clustering collapses,
+defeating the LPT-greedy routing. HA/NA preserves the most structural
+diversity at any given threshold and remains the most "splittable"
+target.
+
+The shape of the collapse is **corpus-driven, not algorithm-driven**:
 easy-cluster (aa) and easy-linclust (nt) both produce similar collapse
-trajectories on their respective alphabets.
+trajectories on their respective alphabets. Switching alphabet shifts
+the curves vertically (nt sits higher) but doesn't unlock new
+splittable thresholds on the polymerases (see
+`docs/results/2026-05-15_cluster_disjoint_nt_results.md`).
 
 ---
 
