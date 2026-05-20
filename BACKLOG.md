@@ -108,11 +108,48 @@ items worth revisiting before deciding to fully retire the bake-off.
    vertices). Could be a genuine methodological contribution. First
    action: **draft a plan doc** outlining the algorithm + a
    small-scale feasibility test on HA/NA at id095.
-2. **t-SNE / UMAP train/val/test cluster visualization** with
-   confounder overlays (host, hn_subtype, year). Inspired by DataSAIL
-   Fig. 3 and P&M's framing of "how representative is your test set."
-   First action: **decide on the feature space** (ESM-2 embeddings,
-   k-mer features, or both) and the coloring scheme.
+2. **2-D embedding visualization** (PCA / UMAP) of train/val/test
+   pairs with confounder overlays (host, hn_subtype, year). Inspired
+   by DataSAIL Fig. 3 (which used ECFP fingerprints for small
+   molecules; for protein-pair data the analog is ESM-2 embeddings
+   or k-mer feature vectors) and P&M's "how representative is your
+   test set" framing.
+
+   **Inventory of existing infrastructure** (audited 2026-05-20):
+   - `src/utils/dim_reduction_utils.py` provides
+     `compute_pca_reduction()` and `compute_umap_reduction()`
+     (umap-learn is an optional dep — installed in segmatch env).
+   - `src/analysis/visualize_dataset_stats.py:950` —
+     `plot_pair_embeddings_splits_overlap()` already produces a PCA
+     2-D plot (always) plus a UMAP plot (when umap-learn is
+     present). Supports `pre_pca_dim` to PCA-reduce before UMAP.
+   - `src/analysis/visualize_dataset_stats.py:766` — `plot_kmer_pca()`
+     does PCA on k-mer features specifically.
+   - **No t-SNE anywhere in the codebase.** Decision: add t-SNE
+     only if we determine UMAP is insufficient (UMAP is generally
+     preferred for genomics — better at preserving global structure
+     than t-SNE).
+
+   **Observed gap**: for some Stage 3 bundles (e.g.,
+   `dataset_flu_ha_na_regimes_ratio3_20260513_211559`), the `plots/`
+   dir contains only categorical-distribution + split-composition
+   PNGs — NO PCA/UMAP plots. Either the call isn't wired through
+   for k-mer-feature bundles, or it's gated on a config flag.
+
+   **First actions**:
+   1. Trace the call site for `plot_pair_embeddings_splits_overlap`
+      in `visualize_dataset_stats.py` to confirm why it's not
+      invoked for the regimes bundle. Likely needs pair embeddings
+      passed in (which kmer-bundles may not thread through).
+   2. Decide which feature space(s) to project: ESM-2 (1280-dim,
+      "learned biology"), k-mer-nt (4096-dim, "string statistics"),
+      k-mer-aa (8000-dim), or pair-level joint features (slot_a +
+      slot_b interaction).
+   3. Decide on coloring scheme: split (train/val/test) + a second
+      facet by confounder (host, hn_subtype, year).
+   4. After choices made, either fix the existing wiring or write
+      a small dedicated analysis script — depending on how invasive
+      the fix is.
 
 ## Infrastructure
 
