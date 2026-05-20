@@ -48,8 +48,8 @@ rules out the lower-threshold sweep on the full Flu A corpus:
 | PB2/PB1| 0.80 |      3 | 100.0 | 0.0 | NO |
 
 The same bipartite mega-component collapse seen on aa clustering between
-id099 and id095 (`docs/results/2026-05-14_seq_redundancy_per_function.md`)
-also dominates the nt picture. The mmseqs2 nucleotide alphabet adds more
+id099 and id095 (`data/processed/flu/July_2025/clusters_aa/redundancy_summary.md`
+and `docs/methods/clustering_overview.md` §8) also dominates the nt picture. The mmseqs2 nucleotide alphabet adds more
 within-cluster diversity per threshold, but Flu A's metadata structure
 (8 segments, ~16 dominant HxNy subtype × host × year cells) ties the
 slots together strongly enough that two clusters connect into one
@@ -233,9 +233,9 @@ in their header (`conf/bundles/flu_pb2_pb1_cluster_nt_id*.yaml`).
   Experiment B (aa, IMPLEMENTED 2026-05-15) and B-nt (this note).
 - `docs/results/2026-05-14_cluster_disjoint_id99_results.md` — aa-side
   cluster_id099 LGBM/MLP results.
-- `docs/results/2026-05-14_seq_redundancy_per_function.md` — aa
-  redundancy sweep + feasibility table; the parallel reference for the
-  nt picture above.
+- `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` — aa
+  redundancy sweep; the parallel reference for the nt picture above.
+  (Feasibility table now lives in `docs/methods/clustering_overview.md` §9.)
 - `data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` —
   nt redundancy sweep (autogen by the per-function script).
 - `docs/methods/leakage_definitions.md` — leakage mode #4 (cluster

@@ -231,7 +231,7 @@ Mapping back to the table above, with current implementation status:
 | Exp 2 — k-NN baseline (k=1) | #4; provides the comparator for the biology criterion | ✅ Done; `knn1_margin` and `knn_vote` baselines in `src/models/train_pair_baselines.py`, defaults in `conf/baselines/default.yaml`. |
 | Exp 3 — Stratified accuracy by nearest-train cosine | #4 (and indirectly #5) | ✅ Done; `src/analysis/exp3_cosine_deciles.py`. |
 | Exp 4 — Sequence-disjoint splits | #3 directly; bounds #4 at exact-hash level | ✅ Done as `seq_disjoint` routing (2026-05-11); plan moved to `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md`. Default `hash_key=seq` (tightened 2026-05-12). `strict_dedup` deferred. |
-| Exp 5 — mmseqs2 cluster-based splits | #4 at the biological-similarity level | ⏳ Not implemented; design at `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`. |
+| Exp 5 — mmseqs2 cluster-based splits | #4 at the biological-similarity level | ✅ **IMPLEMENTED 2026-05-15** as `split_strategy.mode: cluster_disjoint` with `cluster_alphabet: aa\|nt`. Both alphabets hit the same feasibility ceiling on Flu A (only id100/id099 operable). Results: `docs/results/2026-05-15_cluster_disjoint_nt_results.md` and `docs/results/2026-05-14_cluster_disjoint_id99_results.md`. Plan moved to: `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` (still in `docs/plans/`, both B = aa and B-nt sections marked IMPLEMENTED). |
 | Anl 1 — Conservation analysis across representations | Does NOT directly assess any mode. Characterizes how dense the cluster space is per protein and per representation, which informs how to interpret Exp 4 / Exp 5 results. | ⏳ Pending. |
 
 The headline scientific test is **Exp 4** (the splits work) read
@@ -250,8 +250,16 @@ alongside **Exp 2** (the k-NN baseline). Status as of 2026-05-12:
 
 The "biology learning" definition above is a binary criterion based
 on those two experiments together. We now have one positive case
-(HA/NA) and one inconclusive case (PB2/PB1). Cluster leakage (mode #4
-via mmseqs2 splits) remains open.
+(HA/NA) and one inconclusive case (PB2/PB1).
+
+Cluster leakage (mode #4 via mmseqs2 splits) was assessed by the
+implemented `cluster_disjoint` routing (2026-05-15): aa id099 drops
+LGBM F1 by −27 pp on HA/NA and −17 pp on PB2/PB1 vs `seq_disjoint`,
+confirming residual cluster leakage in the production baseline is
+real and large. 1-NN cosine margin ≥ LGBM at every cluster_disjoint
+routing — read as "cluster_disjoint weakens the near-neighbor signal
+gradually rather than eliminating it." Full discussion in
+`docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
 
 ---
 
@@ -334,7 +342,8 @@ BiCC-Split ≈ bicc).
   with experiment-by-experiment design.
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
   detailed design for Plan Exp 3 (cosine-controlled splits, ✅
-  implemented) and Plan Exp 5 (mmseqs2 clusters, ⏳ pending).
+  implemented) and Plan Exp 5 (mmseqs2 clusters, ✅ implemented
+  2026-05-15 — both aa and nt).
 - `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md` — Exp 4
   implementation plan, moved to `done/` on 2026-05-11.
 - `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md` —

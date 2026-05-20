@@ -130,23 +130,24 @@ Measured cost on the Flu A July 2025 corpus
 `clusters_nt/runtime.json`, both written by
 `src/analysis/seq_redundancy_per_function.py`):
 
-| Alphabet | Algorithm | n_runs | Total (s) | Median/run (s) | Max/run (s) |
-|---|---|---:|---:|---:|---:|
-| aa | easy-cluster | 50 (10 fn × 5 th) | 3,011 | 4.8 | 570 (PA @ id100) |
-| nt | easy-linclust | 48 (8 fn × 6 th) | 986 | 6.7 | 217 (PB1 @ id100) |
+| Alphabet | Algorithm | Sweep | Median/run (s) | Max/run (s) |
+|---|---|---|---:|---:|
+| aa | easy-cluster | 80 runs (10 fn × 8 thresholds: id100/099/098/097/096/095/090/080) | 4.8 | 570 (PA @ id100) |
+| nt | easy-linclust | 72 runs (8 fn × 9 thresholds, adds id085) | 6.7 | 217 (PB1 @ id100) |
 
-Both runs used `--threads 8` and were issued separately (no
-parallelism). The aa side spent most of its time on the high-identity
-thresholds where the cascaded prefilter examines many candidate pairs.
-The nt side avoids that cost by construction.
+Both runs used `--threads 8`. The aa side spends most of its time on
+the high-identity thresholds where the cascaded prefilter examines
+many candidate pairs (id100 dominates the total). The nt side avoids
+that cost by construction.
 
 **Choice on Flu A:** aa stays on easy-cluster because it's already
-fast at this corpus size (median < 5 s) and gives the more sensitive
-answer. nt is on easy-linclust because easy-cluster on full-length CDS
-(2,000–2,300 nt) was hitting wall-clock costs that did not scale to
-24-run sweeps. Cluster counts on overlapping (function, threshold)
-cells agreed within noise between the two algorithms during a
-side-by-side check at id ≥ 0.80.
+fast at this corpus size (median < 5 s per (function, threshold)
+cell) and gives the more sensitive answer. nt is on easy-linclust
+because easy-cluster on full-length CDS (2,000–2,300 nt) was hitting
+wall-clock costs that did not scale to multi-threshold sweeps.
+Cluster counts on overlapping (function, threshold) cells agreed
+within noise between the two algorithms during a side-by-side check
+at id ≥ 0.80.
 
 ---
 
@@ -376,8 +377,8 @@ Stage 3 via `src/datasets/_split_helpers.py`):
 | Step | Script | Reads | Writes |
 |---|---|---|---|
 | Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `genome_final.csv` | `cds_final.parquet` |
-| Cluster sweep | `src/analysis/seq_redundancy_per_function.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_aa/` or `clusters_nt/` (per-function FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `runtime.json`, autogen `_seq_redundancy_per_function*.md`) |
-| Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` | one cluster lookup + `protein_final` or `cds_final` | per-pair `_cluster_disjoint_feasibility_*.csv` under `docs/results/` |
+| Cluster sweep | `src/analysis/seq_redundancy_per_function.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-function FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `runtime.json`, `redundancy_summary.md` |
+| Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` | one cluster lookup + `protein_final` or `cds_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/feasibility_<pair>_<alphabet>.csv` |
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
 
 For consolidated structural analysis (the next section's tables and
@@ -445,7 +446,7 @@ one panel per alphabet.)
 ## 7. What an identity threshold concretely admits
 
 For an L-residue sequence and threshold t,
-`max_mismatches_inside_cluster = floor(L × (1 − t))`. The same
+`max_mismatches_inside_cluster = L − ceil(L × t)`. The same
 threshold is therefore looser on long proteins and stricter on short
 ones. Concrete numbers per function:
 
@@ -551,8 +552,11 @@ to absorb them.
 
 ### 8.3 Largest cluster as % of corpus
 
-`bipartite_largest_pct_vs_threshold.png` shows the same picture from
-the other angle ("how much of the corpus does one cluster swallow"):
+Per-function "how much of the corpus does one cluster swallow"
+(derived as `largest_cluster / n_sequences × 100` from
+`cluster_summary.csv`; not plotted as such — the
+`bipartite_largest_pct_vs_threshold.png` plot is a different
+per-pair view, see §9):
 
 | Function | id100 | id099 | id097 | id096 | id095 | id090 | id080 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -568,6 +572,13 @@ the other angle ("how much of the corpus does one cluster swallow"):
 Bolded cells: one cluster contains the entire corpus. By id090, the
 five conserved functions (PB2/PB1/PA/NP/M1) have swallowed everything;
 HA, NA, NS1 remain ≤30%.
+
+Note: this is the per-FUNCTION largest cluster fraction (one number
+per function per threshold). §9 reports the per-PAIR largest
+bipartite-COMPONENT fraction — that's the quantity that actually
+gates 80/10/10 feasibility, and it can be much larger than the per-
+function cluster fraction because two functions' clusters get linked
+by shared isolates.
 
 ### 8.4 Why this matters for routing
 
@@ -592,35 +603,38 @@ splittable thresholds on the polymerases (see
 
 The §4.2 question — "is the largest CC small enough for 80/10/10?" —
 answered per (schema pair, alphabet, threshold). Source: the four
-feasibility CSVs under `docs/results/`, generated by
-`src/analysis/cluster_disjoint_feasibility.py`. Consolidated plot:
-`bipartite_largest_pct_vs_threshold.png` from
+feasibility CSVs at
+`results/flu/{version}/runs/cluster_disjoint_feasibility/feasibility_<pair>_<alphabet>.csv`,
+generated by `src/analysis/cluster_disjoint_feasibility.py`.
+Consolidated plot: `bipartite_largest_pct_vs_threshold.png` from
 `cluster_analysis_summary.py`.
 
 Largest bipartite-component fraction (% of deduped pairs):
 
-| Schema pair | Alphabet | id100 | id099 | id095 | id090 | id085 | id080 |
-|---|---|---:|---:|---:|---:|---:|---:|
-| HA/NA   | aa | 20.2 | 80.0 | 98.5 | 99.3 | n/a  | 100.0 |
-| HA/NA   | nt | 1.5  | 69.4 | 98.2 | 99.1 | 99.6 | 100.0 |
-| PB2/PB1 | aa | 38.4 | 87.1 | 100.0 | 100.0 | n/a  | 100.0 |
-| PB2/PB1 | nt | 2.9  | 59.7 | 99.1  | 99.5  | 100.0 | 100.0 |
+| Schema pair | Alphabet | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| HA/NA   | aa | 20.2 | 80.0 | 93.7 | 96.6 | 97.7 | 98.5 | 99.3 | n/a  | 100.0 |
+| HA/NA   | nt |  1.5 | 69.3 | 91.0 | 95.7 | 97.8 | 98.2 | 99.1 | 99.6 | 100.0 |
+| PB2/PB1 | aa | 38.4 | 87.1 | 98.0 | 99.8 |100.0 |100.0 |100.0 | n/a  | 100.0 |
+| PB2/PB1 | nt |  2.9 | 59.7 | 93.9 | 97.2 | 98.2 | 99.1 | 99.5 |100.0 | 100.0 |
 
 A cell is structurally feasible for 80/10/10 if the largest CC is ≤80%
 (train can fit it). Looking at the table:
 
-- **id100 (every cell):** feasible. Largest CC is at most 38% (PB2/PB1
-  aa). Routing has room.
-- **id099 (every cell):** marginal — values cluster around 60–87%.
-  HA/NA aa at 80.0% and PB2/PB1 aa at 87.1% are right at or above the
-  ceiling; the LPT-greedy bin-packer can sometimes squeeze them in
-  thanks to second-place CCs being small (5–6% on HA/NA, 0.3% on
-  PB2/PB1), but the val/test deficits get filled from smaller
-  components and the 80/10/10 ratios drift slightly.
-- **id095 and below:** infeasible across every cell. The largest CC
-  exceeds 98% of pairs on every line. There's no way to assign that
-  one CC to a single bin without violating either the 80% train cap
-  or starving val/test.
+- **id100 (every cell):** feasible. Largest CC is at most 38%
+  (PB2/PB1 aa). Routing has room.
+- **id099 (marginal):** HA/NA aa at 80.0% and PB2/PB1 aa at 87.1% are
+  right at or above the ceiling; the LPT-greedy bin-packer can
+  sometimes squeeze them in thanks to second-place CCs being small
+  (5–6% on HA/NA, 0.3% on PB2/PB1), but the val/test deficits get
+  filled from smaller components and the 80/10/10 ratios drift
+  slightly. The nt side is more comfortable here (60–69%).
+- **id098 (already infeasible on aa):** HA/NA aa at 93.7% and
+  PB2/PB1 aa at 98.0% are past the 80% ceiling. nt is also above the
+  ceiling at this threshold (91–94%). The "id098 sweet spot"
+  intuition doesn't survive.
+- **id097 and below:** infeasible everywhere. Largest CC ≥95% on
+  every line.
 
 **Interpretation: the feasibility ceiling is corpus-driven, not
 alphabet-driven.** Aa and nt curves cross the 80% line at the same
@@ -650,40 +664,40 @@ python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 
 # 2. Per-function clustering sweep — once per (alphabet, data version).
 #    Writes <out_root>/{fasta,id<NN>}/, redundancy_stats.csv, runtime.json,
-#    and an autogen markdown under docs/results/.
+#    redundancy_summary.md (alongside the stats CSV; not under docs/).
+#    The merge-fix in seq_redundancy_per_function.py preserves prior
+#    threshold rows on re-run, so subset reruns don't wipe the CSV.
 python -m src.analysis.seq_redundancy_per_function \
     --protein_final data/processed/flu/July_2025/protein_final.parquet \
     --out_root      data/processed/flu/July_2025/clusters_aa \
-    --thresholds 1.00 0.99 0.95 0.90 0.80 \
-    --functions HA NA PB2 PB1 PA NP M1 M2 NEP NS1 \
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.80 \
     --threads 8
 
 python -m src.analysis.seq_redundancy_per_function \
     --cds_final  data/processed/flu/July_2025/cds_final.parquet \
     --out_root   data/processed/flu/July_2025/clusters_nt \
-    --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \
-    --functions HA NA PB2 PB1 PA NP M1 NS1 \
-    --algorithm linclust \
-    --threads 8
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \
+    --algorithm  linclust \
+    --threads    8
 
 # 3. Bipartite-component feasibility per schema pair × alphabet.
+#    --out_csv defaults to
+#    results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_<pair>_<alphabet>.csv
 python -m src.analysis.cluster_disjoint_feasibility \
     --protein_final data/processed/flu/July_2025/protein_final.parquet \
     --clusters_root data/processed/flu/July_2025/clusters_aa \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
-    --thresholds 1.00 0.99 0.95 0.90 0.80 \
-    --out_csv results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_aa.csv
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.80
 
 python -m src.analysis.cluster_disjoint_feasibility \
     --cds_final     data/processed/flu/July_2025/cds_final.parquet \
     --clusters_root data/processed/flu/July_2025/clusters_nt \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
-    --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \
-    --out_csv results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_nt.csv
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80
 
-# (repeat for PB2/PB1)
+# (repeat the two feasibility calls for PB2/PB1)
 
-# 4. Consolidated structural summary (table + 3 plots).
+# 4. Consolidated structural summary (CSVs + plots).
 python -m src.analysis.cluster_analysis_summary
 ```
 

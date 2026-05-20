@@ -274,7 +274,10 @@ def write_results_markdown(
     cols = ['function_short', 'threshold', 'n_sequences', 'n_clusters',
             'largest_cluster', 'p99_cluster_size', 'p90_cluster_size',
             'median_cluster_size', 'fraction_singletons']
-    for th, sub in stats_df.groupby('threshold'):
+    # Iterate strict-to-loose (id100 first, id080 last) to mirror the
+    # cluster-collapse-as-threshold-relaxes narrative used in
+    # docs/methods/clustering_overview.md §8.
+    for th, sub in stats_df.sort_values('threshold', ascending=False).groupby('threshold', sort=False):
         lines.append(f"### threshold = {th:.2f}")
         lines.append("")
         tbl = sub[cols].copy().sort_values('function_short')
