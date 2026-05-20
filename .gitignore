@@ -18,6 +18,8 @@ __pycache__/
 # CEPI
 _notes.txt
 prompt.txt
+# External reference papers — keep hand-authored notes (.md), ignore PDFs
+refs/*.pdf
 data/
 data/raw/Anno_Updates/
 data/raw/Full_Flu_Annos/
