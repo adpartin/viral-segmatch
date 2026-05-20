@@ -347,7 +347,8 @@ def main() -> None:
                         'linclust is recommended for the nt CDS sweep on the full corpus.')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
     p.add_argument('--results_md', default=None,
-                   help='Path to results markdown (default: docs/results/<date>_redundancy_<alphabet>.md).')
+                   help='Path to results markdown. Default: <out_root>/redundancy_summary.md '
+                        '(alongside the stats CSV; not under docs/).')
     p.add_argument('--no_combined', action='store_true',
                    help='Skip writing combined_cluster.parquet per threshold.')
     args = p.parse_args()
@@ -417,11 +418,39 @@ def main() -> None:
             cpath = aggregate_combined_lookup(out_root, threshold, args.functions)
             print(f"  combined parquet -> {cpath}")
 
-    # Save the per-(function, threshold) stats CSV
-    stats_df = pd.DataFrame(all_stats)
+    # Save the per-(function, threshold) stats CSV.
+    # Append/merge with any prior CSV so re-running with a subset of
+    # thresholds doesn't wipe out earlier sweep results. Re-running
+    # the same (function_short, threshold) overwrites just those rows.
+    # `keep_default_na=False, na_values=['']` is required when reading
+    # because function_short='NA' (Neuraminidase) would otherwise be
+    # parsed as NaN (see CLAUDE.md Conventions).
+    stats_df_new = pd.DataFrame(all_stats)
     stats_csv = out_root / 'redundancy_stats.csv'
+    if stats_csv.exists():
+        prior = pd.read_csv(stats_csv, keep_default_na=False, na_values=[''])
+        same_schema = set(prior.columns) == set(stats_df_new.columns)
+        if same_schema:
+            key_cols = ['function_short', 'threshold']
+            keys_now = set(map(tuple, stats_df_new[key_cols].itertuples(index=False, name=None)))
+            prior_keys = list(map(tuple, prior[key_cols].itertuples(index=False, name=None)))
+            keep_mask = [k not in keys_now for k in prior_keys]
+            prior = prior[keep_mask].reset_index(drop=True)
+            stats_df = pd.concat([prior, stats_df_new], ignore_index=True)
+            n_carried = len(prior)
+            print(f"\nMerging stats CSV: carried {n_carried:,} prior rows + "
+                  f"{len(stats_df_new):,} new rows = {len(stats_df):,} total.")
+        else:
+            print(f"\nWARNING: prior {stats_csv.name} has a different column "
+                  f"schema; overwriting instead of merging.")
+            stats_df = stats_df_new
+    else:
+        stats_df = stats_df_new
+    stats_df = stats_df.sort_values(
+        ['threshold', 'function_short'], ascending=[False, True]
+    ).reset_index(drop=True)
     stats_df.to_csv(stats_csv, index=False)
-    print(f"\nWrote stats CSV: {stats_csv}")
+    print(f"Wrote stats CSV: {stats_csv}")
 
     # Save a runtime.json — per-(function, threshold) wall time + a small
     # rollup. Cached rows have elapsed_seconds = None and contribute to
@@ -464,14 +493,13 @@ def main() -> None:
           f"(n_fresh={rt['n_fresh']}, n_cached={rt['n_cached']}, "
           f"total fresh = {rt['fresh_elapsed_seconds_total']:.1f}s)")
 
-    # Markdown report
+    # Markdown report. Defaults to <out_root>/redundancy_summary.md so
+    # the auto-generated markdown lives next to the stats CSV and the
+    # cluster parquets, NOT in docs/results/. CLAUDE.md "Aggregator
+    # Output Convention" reserves docs/ for hand-authored writeups —
+    # machine outputs belong with the data they describe.
     if args.results_md is None:
-        today = time.strftime('%Y-%m-%d')
-        suffix = f"_{args.alphabet}" if args.alphabet == 'nt' else ''
-        results_md = (
-            PROJECT_ROOT / 'docs' / 'results'
-            / f"{today}_seq_redundancy_per_function{suffix}.md"
-        )
+        results_md = out_root / 'redundancy_summary.md'
     else:
         results_md = Path(args.results_md)
     write_results_markdown(results_md, stats_df, str(in_path),
