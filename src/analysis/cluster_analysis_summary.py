@@ -138,7 +138,15 @@ def compute_length_stats(protein_final: Path, cds_final: Path) -> pd.DataFrame:
     rows: list[dict] = []
     if protein_final.exists():
         if protein_final.suffix == '.csv':
-            prot = pd.read_csv(protein_final, usecols=['function', 'length'])
+            # keep_default_na=False guards the project-wide 'NA'-string trap
+            # (CLAUDE.md Conventions): the current `function` column uses
+            # full names so no row is affected today, but adding the kwarg
+            # defensively prevents a silent data loss if any future column
+            # in protein_final.csv ever contains the literal string 'NA'.
+            prot = pd.read_csv(
+                protein_final, usecols=['function', 'length'],
+                keep_default_na=False, na_values=[''],
+            )
         else:
             prot = pd.read_parquet(protein_final, columns=['function', 'length'])
         prot = prot[prot['function'].isin(_FUNCTION_TO_SHORT)].copy()
