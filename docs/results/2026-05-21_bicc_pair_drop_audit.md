@@ -95,7 +95,9 @@ Reordered by relevance now that the no-drop status is confirmed:
    is PB1 (collapses faster than PB2 at the same threshold). Test:
    cluster PB2 at id097 + PB1 at id099 and re-run the bipartite-CC.
    If the largest CC drops below 80%, this combination is feasible
-   where symmetric id097 isn't.
+   where symmetric id097 isn't. See direction #5 for the principled
+   generalization (calibrating per-function thresholds to a uniform
+   absolute mismatch budget rather than picking them ad hoc).
 
 2. **Drop budget / CC-splitting (techniques #3 + #4 merged).** Now
    directly relevant because the alternative is the ratio drift above.
@@ -112,6 +114,77 @@ Reordered by relevance now that the no-drop status is confirmed:
 4. **Karmarkar-Karp (was #5).** Confirmed not helpful here. Cannot pack
    a 98%-of-corpus item into an 80% slot. Useful only at the marginal
    case (PB2/PB1 aa id099) where the gap is small.
+
+5. **Absolute-mutation-tolerance clustering (generalizes #1).** Instead
+   of a uniform identity threshold `t` across functions, pick a target
+   absolute mismatch budget `ε` (in residues) and set per-function
+   thresholds as
+
+   ```
+   t_f = 1 − ε / L_f
+   ```
+
+   where `L_f` is the median sequence length of function `f`. This makes
+   every function admit roughly the same absolute number of residue
+   changes per cluster, regardless of length.
+
+   Concrete numbers for ε = 5 aa on Flu A medians (from
+   `clustering_overview.md` §7's length column):
+
+   | Function | L_f (aa) | t_f    | Equivalent idXX |
+   |---|---:|---:|---|
+   | PB2  | 760 | 0.9934 | ~id0993 |
+   | PB1  | 758 | 0.9934 | ~id0993 |
+   | PA   | 717 | 0.9930 | ~id0993 |
+   | HA   | 567 | 0.9912 | ~id0991 |
+   | NP   | 499 | 0.9900 | ~id099  |
+   | NA   | 470 | 0.9894 | ~id0989 |
+   | M1   | 253 | 0.9802 | ~id098  |
+   | NS1  | 231 | 0.9784 | ~id098  |
+
+   **Why this matters for BiCC.** At today's uniform id095, PB2 has
+   26 aa clusters and PB1 has 50 — densely connected by isolates, the
+   mega-CC forms. The same threshold admits ~38 aa changes per cluster
+   on the polymerases, which over-pools them relative to HA/NA at the
+   same threshold (which admit ~28 aa changes — 12% of HA's length vs
+   PB2's 5%). Under ε = 5 absolute clustering, PB2 and PB1 each get
+   thousands of clusters → the bipartite graph stays sparse → mega-CC
+   needs a much looser ε before it forms. This is the principled
+   version of #1: rather than picking per-function thresholds ad hoc
+   ("PB2 at id097 + PB1 at id099") we calibrate them to a uniform
+   biological strictness.
+
+   **Why this matters for the classifier.** Today's uniform idXX has
+   a side effect that's easy to miss: test-set sequences are at most
+   `L_f × (1 − t)` residues away from their nearest train sequence,
+   which varies by ~3× across functions (38 aa for PB2 vs 12 for M1
+   at id095). The model is asked to generalize over different
+   biological-novelty levels per protein. Under ε = 5 absolute, every
+   test pair is at least ~5 aa novel on both slots — apples-to-apples
+   across function pairs.
+
+   **Caveats.**
+   - `ε = 5` is itself a choice. Smaller `ε` = more clusters per
+     function = more conservative leakage barrier but tighter
+     feasibility ceiling. Sweep needed.
+   - "Same absolute strictness across functions" assumes every aa
+     substitution has equivalent biological impact across proteins,
+     which isn't strictly true (a mutation in HA's receptor-binding
+     domain ≠ one in M1's nuclear-export tail). A rigorous version
+     would calibrate `ε_f` to per-function evolutionary rates from
+     a flu phylogeny — but that's a much bigger lift, and ε-uniform
+     is closer to biologically meaningful than t-uniform.
+   - mmseqs2 takes a float `--min-seq-id`, so per-function `t_f`
+     values fit the existing wrapper unchanged. The change is
+     mostly in the config layer and the `cluster_id_threshold`
+     key in `dataset.split_strategy` (which currently assumes a
+     single threshold).
+
+   Implementation cost: small. New config knob
+   `dataset.split_strategy.cluster_thresholds_per_function: {PB2: t1,
+   HA: t2, ...}` or `cluster_epsilon: 5`. Stage 1.5 (cluster
+   generation) loops the existing easy-cluster invocation per
+   function with its `t_f`.
 
 ## Next concrete steps (proposed)
 

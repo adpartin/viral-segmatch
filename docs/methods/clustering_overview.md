@@ -645,10 +645,21 @@ differ between functions at the same threshold: the threshold itself
 admits more mutations on the longer proteins, so more sequences fall
 into the same cluster.
 
-For thinking about *biological similarity*, prefer the
-mutations-admitted number over the bare identity threshold —
-especially when comparing across function pairs of different lengths
-(e.g., HA/NA's 470–567 aa range vs PB2/PB1's 758–760 aa range).
+**A framing observation, not yet validated.** For thinking about
+*biological similarity*, the mutations-admitted number is sometimes
+argued to be more informative than the bare identity threshold —
+particularly when comparing across function pairs of different
+lengths (e.g., HA/NA's 470–567 aa range vs PB2/PB1's 758–760 aa
+range). This is a working hypothesis on our pipeline, not an
+established result. The operational consequence — picking per-function
+thresholds to enforce a uniform absolute mismatch budget rather than
+a uniform fractional identity — is tracked as an improvement direction
+in `docs/results/2026-05-21_bicc_pair_drop_audit.md` (direction #5).
+Open question we have not resolved: under what task framings
+(per-site divergence vs functional impact vs evolutionary distance)
+is fractional vs absolute the right unit? And does uniform-absolute
+really treat each residue equally given per-protein evolutionary-rate
+variation?
 
 ---
 
