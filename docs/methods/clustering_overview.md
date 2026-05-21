@@ -148,6 +148,12 @@ threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 
 ## 2. Sequence-space clustering 101
 
+> **Note on the word "pair" in this section.** In §2, "pair" refers to
+> *two sequences being aligned by mmseqs2* (the O(N²) alignment problem
+> the k-mer prefilter solves), not the (HA, NA) co-occurring training
+> pairs from §1. mmseqs2 operates per-function on single sequences;
+> the lift from per-function clusters to training-pair routing is in §4.
+
 ### 2.1 What "similarity" means
 
 mmseqs2 reduces a pair of biological sequences to a single number in the range
@@ -163,7 +169,7 @@ PB2 protein admits ~38 aa mutations within a cluster; "id 0.95" on a
 The same threshold is **biologically stricter on shorter proteins**
 (fewer absolute mutations admitted). See § 7 for a per-function table.
 
-### 2.2 Why not just compare every pair to every pair?
+### 2.2 Why not align every sequence to every other sequence?
 
 On the Flu A July 2025 corpus the protein side has 108,530 isolates ×
 8 selected functions = 868,240 protein records. Even after deduplication,
