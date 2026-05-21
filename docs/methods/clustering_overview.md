@@ -150,7 +150,7 @@ threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 
 > **Note on the word "pair" in this section.** In §2, "pair" refers to
 > *two sequences being aligned by mmseqs2* (the O(N²) alignment problem
-> the mmseqs2's k-mer prefilter solves), not the (HA, NA) co-occurring training
+> mmseqs2's k-mer prefilter solves), not the (HA, NA) co-occurring training
 > pairs from §1. mmseqs2 operates per-function on single sequences;
 > the path from per-function clusters to training-pair routing is in §4.
 
@@ -168,9 +168,10 @@ where:
 - `identity` ∈ [0, 1] is the percent identity — the value compared
   against the `--min-seq-id` threshold.
 - `n_identical` = the number of alignment columns in which both
-  sequences carry the same residue (a *match*).
+  sequences carry the same residue (a *match*). Gap columns are
+  never matches by definition.
 - `alignment_length` = the total number of columns in the local
-  alignment, counting matches, **mismatches** (columns where both
+  alignment, counting **matches**, **mismatches** (columns where both
   sequences have a residue but they differ), and **gaps** (columns
   where one sequence has a residue and the other has a placeholder
   `-`, representing an insertion in one or a deletion in the other).
@@ -196,10 +197,10 @@ The same threshold is **biologically stricter on shorter proteins**
 ### 2.2 Why not align every sequence to every other sequence?
 
 On the Flu A July 2025 corpus the protein side has 108,530 isolates ×
-8 selected functions = 868,240 protein records. Even after deduplication,
-HA has ~42,000 unique aa sequences and ~65,000 unique nt CDS. Computing
-exact alignments for every pair would be 65,000² / 2 ≈ 2 × 10⁹
-alignments. Infeasible.
+8 major proteins = 868,240 protein records. Even after deduplication,
+HA has ~42,000 unique aa sequences (~65,000 unique nt CDS — same order
+of magnitude). Computing exact alignments for every aa sequence pair
+would be 42,000² / 2 ≈ 9 × 10⁸ alignments. Infeasible.
 
 mmseqs2 sidesteps the quadratic with a **k-mer prefilter + alignment
 cascade**:
@@ -231,11 +232,12 @@ cascade**:
                  ▼  high-scoring pairs
                  │
    ┌───────────────────────────┐
-   │ Step 3. Cluster assignment│  Pick a cluster representative per
-   │                           │  connected component of the high-
-   │   each member joins its   │  scoring graph; assign every member
-   │   representative          │  to its representative.
-   │                           │
+   │ Step 3. Cluster assignment│  Default --cluster-mode 0 (Set-Cover,
+   │                           │  greedy): pick the sequence with the
+   │   greedy representative   │  most unassigned similar neighbors as
+   │   selection (Set-Cover)   │  the next cluster representative;
+   │                           │  absorb it + its neighbors into one
+   │                           │  cluster; repeat until all assigned.
    └─────────────┬─────────────┘
                  │
                  ▼
