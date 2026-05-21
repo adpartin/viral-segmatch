@@ -75,14 +75,27 @@ side-by-side: HA on the left, NA on the right.
 - `seq_disjoint` and `cluster_disjoint` routings will have zero "multiple" points by construction.
 - `random` routing will show "multiple" prominently — that's the leakage story.
 
-**Sampling**: all unique sequences appearing in any pair, no subsampling
-(typically thousands, not millions, of sequences — well within UMAP's
-limits).
+**Sampling**: capped at `max_sequences_per_function=5000` per protein
+type (so the HA + NA total is ≤ 10,000 sequences per run). Sampling is
+**stratified by split-membership color** with a guaranteed minimum
+allocation (up to 500) for the leakage category — this keeps the
+"appears in multiple splits" minority visible under random routing
+even when it's a small fraction of the corpus.
 
 **Projection**: TruncatedSVD / UMAP fit on the union of all HA + NA
 k-mer vectors in the run, then the two subplots filter to their
 respective protein type. This ensures both subplots share the same 2-D
-coordinate system. UMAP runs on a TruncatedSVD-50 pre-reduction.
+coordinate system. UMAP runs on a TruncatedSVD-50 pre-reduction
+(`umap_pre_pca_dim=50` — name kept for API back-compat though the
+reducer is TruncatedSVD).
+
+**SVD axis labels** intentionally omit per-component variance ratios.
+TruncatedSVD orders components by descending singular value, not
+projected variance. On uncentered count data (k-mer counts), the
+first singular vector aligns with the corpus mean direction, so the
+SVD1 variance ratio can be smaller than SVD2's — which would read
+backwards relative to the PCA convention people expect. UMAP labels
+are just "UMAP 1" / "UMAP 2" by the same logic.
 
 ---
 
@@ -96,7 +109,9 @@ protein type, since each pair is HA-NA by construction).
 Same convention as the existing `_plot_pair_features_splits_2d`.
 
 **Projection**: TruncatedSVD + UMAP, fit on the union of all sampled
-pairs in the run. UMAP runs on a TruncatedSVD-50 pre-reduction.
+pairs in the run. UMAP runs on a TruncatedSVD-50 pre-reduction. SVD
+axis labels intentionally omit variance ratios (see sequence-level
+section above for the rationale).
 
 ---
 
@@ -128,10 +143,15 @@ construction is the main cost). Three runs total ≈ 10–15 min sequential.
 
 ### Phase 4: Review + iterate
 
-Open the 6 PNGs (3 runs × 2 plot types — pair PCA+UMAP and sequence
-PCA+UMAP each share a panel) side-by-side. Confirm the random →
-seq_disjoint → cluster_disjoint progression looks right. Tweak
-plotting (e.g., point size, alpha, legend placement) as needed.
+Open the 12 PNGs (3 runs × 4 output files —
+`kmer_{sequence,pair}_{svd,umap}.png` per run) side-by-side. Confirm
+the random → seq_disjoint → cluster_disjoint progression looks right.
+Tweak plotting (e.g. point size, alpha, legend placement, layer order)
+as needed.
+
+Headline figures are the **sequence UMAP** panels (closest analog to
+DataSAIL Fig. 4). The SVD panels are linear-baseline sanity checks;
+the pair-level panels show what the model actually trains on.
 
 ### Phase 5: Cleanup + commit
 
@@ -140,6 +160,20 @@ plotting (e.g., point size, alpha, legend placement) as needed.
   + link to this plan.
 - Move this plan to `docs/plans/done/` with status flipped to IMPLEMENTED.
 - Single PR back to master.
+
+---
+
+## Reproducibility
+
+All three reducers are deterministic when seeded:
+`PCA(svd_solver='randomized', random_state=42)`,
+`TruncatedSVD(algorithm='randomized', random_state=42)`,
+`umap.UMAP(random_state=42)`. The new module hard-codes
+`random_state=42` as the default and the orchestrator calls into it
+with the same. Setting `random_state` on UMAP forces `n_jobs=1` (we
+see the umap-learn warning during runs — expected, not an error). The
+3 runs produced under these settings are bit-for-bit reproducible
+given the same source data.
 
 ---
 

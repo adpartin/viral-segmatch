@@ -128,6 +128,16 @@ def plot_kmer_routing_geometry(
         umap_pre_pca_dim=umap_pre_pca_dim,
         random_state=random_state,
     )
+    plot_kmer_pair_negatives_by_regime(
+        run_dir=run_dir,
+        kmer_dir=kmer_dir,
+        output_dir=output_dir,
+        alphabet=alphabet,
+        k=k,
+        max_per_regime=500,
+        umap_pre_pca_dim=umap_pre_pca_dim,
+        random_state=random_state,
+    )
 
 
 def plot_kmer_sequence_geometry(
@@ -195,19 +205,26 @@ def plot_kmer_sequence_geometry(
     # 2-D panel: TruncatedSVD directly (k-mer features are non-negative
     # count vectors — see dim_reduction_utils module docstring for why
     # TruncatedSVD, not PCA, is the right tool here).
-    svd_2d, svd_model = compute_truncated_svd_reduction(
+    #
+    # Axis labels intentionally omit per-component variance ratios:
+    # TruncatedSVD orders components by descending singular value, not by
+    # projected variance. On uncentered count data the first singular
+    # vector aligns with the corpus mean direction, so SVD1's projected
+    # variance can be *smaller* than SVD2's — which would be confusing to
+    # display ("SVD1 0.5% / SVD2 13% var" reads as if SVD2 is more
+    # important when it really is in the TruncatedSVD ordering).
+    svd_2d, _svd_model = compute_truncated_svd_reduction(
         features,
         n_components=2,
         return_model=True,
         algorithm="randomized",
         random_state=random_state,
     )
-    ev1, ev2 = svd_model.explained_variance_ratio_[:2]
     _draw_sequence_panels(
         coords=svd_2d,
         seq_table=seq_table,
-        xlab=f"SVD1 ({ev1:.1%} var)",
-        ylab=f"SVD2 ({ev2:.1%} var)",
+        xlab="SVD1",
+        ylab="SVD2",
         sup_title=_sup_title("Sequence TruncatedSVD", alphabet, k, run_dir),
         output_path=output_dir / "kmer_sequence_svd.png",
     )
@@ -304,19 +321,20 @@ def plot_kmer_pair_geometry(
         f"features shape={features.shape}"
     )
 
-    svd_2d, svd_model = compute_truncated_svd_reduction(
+    # See sequence-level path above for why per-component variance
+    # ratios are intentionally omitted from SVD axis labels.
+    svd_2d, _svd_model = compute_truncated_svd_reduction(
         features,
         n_components=2,
         return_model=True,
         algorithm="randomized",
         random_state=random_state,
     )
-    ev1, ev2 = svd_model.explained_variance_ratio_[:2]
     _draw_pair_panel(
         coords=svd_2d,
         pairs=pairs,
-        xlab=f"SVD1 ({ev1:.1%} var)",
-        ylab=f"SVD2 ({ev2:.1%} var)",
+        xlab="SVD1",
+        ylab="SVD2",
         title=_pair_title("Pair TruncatedSVD — concat", alphabet, k, run_dir),
         output_path=output_dir / "kmer_pair_svd.png",
     )
@@ -346,6 +364,207 @@ def plot_kmer_pair_geometry(
             "WARNING: plot_kmer_pair_geometry: umap-learn not installed; "
             "skipping UMAP panel"
         )
+
+
+# ============================================================================
+# Negatives-by-regime geometry
+# ============================================================================
+
+# 8-regime order (matches `_negative_regime_sampling._SPLIT_COMP_NEG_ORDER`
+# in visualize_dataset_stats). Listed here too so the plotting module is
+# self-contained.
+_NEG_REGIMES = (
+    "none_match",
+    "host_only",
+    "subtype_only",
+    "year_only",
+    "host_subtype_only",
+    "host_year_only",
+    "subtype_year_only",
+    "host_subtype_year",
+)
+
+
+def plot_kmer_pair_negatives_by_regime(
+    run_dir: Path,
+    kmer_dir: Path,
+    output_dir: Path,
+    alphabet: Optional[str] = None,
+    k: Optional[int] = None,
+    max_per_regime: int = 500,
+    umap_pre_pca_dim: int = 50,
+    random_state: int = 42,
+) -> None:
+    """Pair-level k-mer geometry of *negatives only*, colored by `neg_regime`.
+
+    Tests whether the 8 metadata-driven negative regimes (none_match,
+    host_only, …, host_subtype_year) form distinct clusters in k-mer
+    feature space, or are just metadata-level distinctions intermixed in
+    feature space.
+
+    Feature vector is the same `concat(kmer_a, kmer_b)` as the regular
+    pair plot — only the row filter (label==0) and coloring scheme
+    differ. Stratified sampling caps each regime at `max_per_regime`
+    rows so under-represented regimes (e.g. `subtype_year_only`)
+    survive sub-sampling.
+
+    Outputs (under `output_dir`):
+        - `kmer_pair_negatives_svd.png`
+        - `kmer_pair_negatives_umap.png`  (when UMAP is available)
+    """
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    k, alphabet = _resolve_k_and_alphabet(kmer_dir, alphabet=alphabet, k=k)
+    kmer_matrix = load_kmer_matrix(kmer_dir, k=k, alphabet=alphabet)
+    key_to_row = load_kmer_index(kmer_dir, k=k, alphabet=alphabet)
+
+    pairs = _load_all_pairs(run_dir)
+    pairs["label"] = pd.to_numeric(pairs["label"], errors="coerce")
+    pairs = pairs[pairs["label"] == 0].reset_index(drop=True)
+
+    if "neg_regime" not in pairs.columns:
+        print(
+            f"WARNING: plot_kmer_pair_negatives_by_regime: no `neg_regime` "
+            f"column in {run_dir} pair CSVs — skipping"
+        )
+        return
+
+    pairs = _stratified_sample_by_regime(
+        pairs, max_per_regime=max_per_regime, random_state=random_state,
+    )
+    if pairs.empty:
+        print(
+            f"WARNING: plot_kmer_pair_negatives_by_regime: no negative pairs "
+            f"after sampling in {run_dir}"
+        )
+        return
+
+    rows_a, valid_a = _lookup_kmer_rows(pairs, "a", key_to_row, alphabet)
+    rows_b, valid_b = _lookup_kmer_rows(pairs, "b", key_to_row, alphabet)
+    valid = (valid_a & valid_b).values
+
+    n_in = len(pairs)
+    pairs = pairs.loc[valid].reset_index(drop=True)
+    rows_a = rows_a[valid]
+    rows_b = rows_b[valid]
+    if n_in - len(pairs):
+        print(
+            f"plot_kmer_pair_negatives_by_regime: dropped "
+            f"{n_in - len(pairs):,}/{n_in:,} pairs (missing k-mer rows)"
+        )
+    if len(pairs) == 0:
+        return
+
+    emb_a = np.asarray(kmer_matrix[rows_a].todense(), dtype=np.float32)
+    emb_b = np.asarray(kmer_matrix[rows_b].todense(), dtype=np.float32)
+    features = np.concatenate([emb_a, emb_b], axis=1)
+    print(
+        f"plot_kmer_pair_negatives_by_regime: {len(pairs):,} sampled "
+        f"negative pairs across {pairs['neg_regime'].nunique()} regimes; "
+        f"features shape={features.shape}"
+    )
+
+    # See sequence-level path for why per-component variance ratios are
+    # intentionally omitted from SVD axis labels.
+    svd_2d, _svd_model = compute_truncated_svd_reduction(
+        features, n_components=2, return_model=True,
+        algorithm="randomized", random_state=random_state,
+    )
+    _draw_negatives_by_regime_panel(
+        coords=svd_2d, pairs=pairs,
+        xlab="SVD1", ylab="SVD2",
+        title=_pair_title(
+            "Negatives by regime — TruncatedSVD — concat",
+            alphabet, k, run_dir,
+        ),
+        output_path=output_dir / "kmer_pair_negatives_svd.png",
+    )
+
+    if UMAP_AVAILABLE:
+        pre_dim = min(umap_pre_pca_dim, features.shape[0] - 1, features.shape[1])
+        pre_svd, _ = compute_truncated_svd_reduction(
+            features, n_components=pre_dim,
+            algorithm="randomized", random_state=random_state,
+        )
+        umap_2d, _ = compute_umap_reduction(
+            pre_svd, n_components=2, random_state=random_state,
+        )
+        _draw_negatives_by_regime_panel(
+            coords=umap_2d, pairs=pairs,
+            xlab="UMAP 1", ylab="UMAP 2",
+            title=_pair_title(
+                f"Negatives by regime — UMAP (TruncatedSVD-{pre_dim} "
+                f"pre-step) — concat",
+                alphabet, k, run_dir,
+            ),
+            output_path=output_dir / "kmer_pair_negatives_umap.png",
+        )
+    else:
+        print(
+            "WARNING: plot_kmer_pair_negatives_by_regime: umap-learn not "
+            "installed; skipping UMAP panel"
+        )
+
+
+def _stratified_sample_by_regime(
+    pairs: pd.DataFrame, max_per_regime: int, random_state: int,
+) -> pd.DataFrame:
+    """Sub-sample at most `max_per_regime` rows per `neg_regime`."""
+    chunks = []
+    rng_seed = random_state
+    for regime, grp in pairs.groupby("neg_regime", sort=False):
+        if len(grp) <= max_per_regime:
+            chunks.append(grp)
+        else:
+            chunks.append(grp.sample(n=max_per_regime, random_state=rng_seed))
+            rng_seed += 1
+    if not chunks:
+        return pairs.iloc[0:0]
+    return pd.concat(chunks, ignore_index=True)
+
+
+def _regime_color_palette() -> dict[str, tuple]:
+    """8-color palette keyed by regime, avoiding tab10's green (index 2)
+    so the positive-bar color used elsewhere doesn't collide if these
+    plots are stacked next to a split-composition figure."""
+    tab10 = list(plt.get_cmap("tab10").colors)
+    palette = [c for i, c in enumerate(tab10) if i != 2]
+    return {r: palette[i % len(palette)] for i, r in enumerate(_NEG_REGIMES)}
+
+
+def _draw_negatives_by_regime_panel(
+    coords: np.ndarray, pairs: pd.DataFrame,
+    xlab: str, ylab: str, title: str, output_path: Path,
+) -> None:
+    """Single-panel scatter: all negatives, color = `neg_regime`."""
+    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
+    color_for = _regime_color_palette()
+
+    for regime in _NEG_REGIMES:
+        mask = (pairs["neg_regime"] == regime).values
+        if mask.sum() == 0:
+            continue
+        ax.scatter(
+            coords[mask, 0], coords[mask, 1],
+            marker="o", s=18, alpha=0.7,
+            facecolors=color_for[regime], edgecolors="none",
+            label=f"{regime} (n={int(mask.sum()):,})",
+        )
+
+    ax.set_xlabel(xlab, fontsize=12)
+    ax.set_ylabel(ylab, fontsize=12)
+    ax.set_title(title, fontweight="bold", fontsize=13)
+    ax.grid(True, alpha=0.3)
+    ax.legend(
+        title="neg_regime",
+        loc="center left", bbox_to_anchor=(1.01, 0.5),
+        fontsize=9, frameon=False,
+    )
+    fig.tight_layout()
+    plt.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close()
+    print(f"Saved: {output_path}")
 
 
 # ============================================================================

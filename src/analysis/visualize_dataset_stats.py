@@ -1404,6 +1404,9 @@ def _split_composition_text_annotations(
     """Build the upper-left text-annotation lines for a split-composition plot.
 
     Returns a list of (line, color, bg) tuples. Caller renders them in order.
+    The block always includes per-split achieved-ratio + absolute count +
+    proportional share lines so the grouped plot is self-contained without
+    needing per-bar overlays.
     """
     lines = []
     if neg_to_pos_ratio is not None:
@@ -1411,107 +1414,58 @@ def _split_composition_text_annotations(
                       'black', None))
     for regime_line in _format_regime_targets_lines(regime_targets):
         lines.append((regime_line, 'black', None))
+
+    # Per-split achieved metrics. Pulled from split_sizes (Stage 3's
+    # canonical record); written as compact `train/val/test` triples so
+    # all three values sit on one line each.
+    achieved_parts: list[str] = []
+    count_parts: list[str] = []
+    share_parts: list[str] = []
+    total_pairs = 0
+    for s in splits:
+        info = split_sizes.get(s, {}) or {}
+        n_pos = int(info.get('positive_pairs', 0))
+        n_neg = int(info.get('negative_pairs', 0))
+        n_pairs = int(info.get('pairs', n_pos + n_neg))
+        total_pairs += n_pairs
+        ratio = (n_neg / n_pos) if n_pos > 0 else float('nan')
+        achieved_parts.append(
+            f'{s}={ratio:.2f}' if not np.isnan(ratio) else f'{s}=—'
+        )
+        count_parts.append(f'{s}={n_pairs:,}')
+
+    for s in splits:
+        info = split_sizes.get(s, {}) or {}
+        n_pairs = int(info.get('pairs', 0))
+        share = n_pairs / total_pairs if total_pairs > 0 else float('nan')
+        share_parts.append(
+            f'{s}={share:.2f}' if not np.isnan(share) else f'{s}=—'
+        )
+
+    lines.append((
+        'neg:pos (achieved): ' + ', '.join(achieved_parts),
+        'black', None,
+    ))
+    lines.append((
+        'pair counts: ' + ', '.join(count_parts),
+        'black', None,
+    ))
+    lines.append((
+        'split share: ' + ', '.join(share_parts),
+        'black', None,
+    ))
+
     if holdout_active:
-        share_parts = []
+        share_parts_iso = []
         for s in splits:
             sh = split_sizes.get(s, {}).get('isolate_share')
-            share_parts.append(f'{sh:.1%}' if sh is not None else '—')
+            share_parts_iso.append(f'{sh:.1%}' if sh is not None else '—')
         lines.append((
-            f'Holdout active: actual = {" / ".join(share_parts)} (isolates); '
+            f'Holdout active: actual = {" / ".join(share_parts_iso)} (isolates); '
             f'train_ratio/val_ratio/test_ratio ignored',
             '#5a3a00', '#fff2cc',
         ))
     return lines
-
-
-def _render_split_composition_vstacked(
-    splits: list,
-    pos_counts: np.ndarray,
-    regime_counts_per_split: dict,
-    by_regime: bool,
-    annotations: list,
-    bundle_name: str,
-    output_path: Path,
-    ) -> None:
-    """Plot variant: vertical bars, positive at bottom + negative stacked on top.
-    When `by_regime=True` the negative portion is split into 8 regime segments
-    (ascending hardness, _SPLIT_COMP_NEG_ORDER).
-    """
-    fig, ax = plt.subplots(figsize=(10, 6.5))
-    x = np.arange(len(splits))
-    bar_width = 0.55
-
-    # Positive segment at the bottom.
-    ax.bar(x, pos_counts, width=bar_width, color='#2ca02c',
-           edgecolor='white', linewidth=0.5, label='positive')
-
-    if by_regime:
-        palette = plt.get_cmap('tab10').colors
-        regime_colors = {r: palette[(i + 1) % len(palette)]
-                         for i, r in enumerate(_SPLIT_COMP_NEG_ORDER)}
-        bottom = pos_counts.astype(float).copy()
-        neg_totals = np.zeros(len(splits), dtype=int)
-        for r in _SPLIT_COMP_NEG_ORDER:
-            heights = np.array(
-                [regime_counts_per_split.get(s, {}).get(r, 0) for s in splits],
-                dtype=int,
-            )
-            if heights.sum() == 0:
-                continue
-            ax.bar(x, heights, width=bar_width, bottom=bottom,
-                   color=regime_colors[r], edgecolor='white', linewidth=0.5,
-                   label=f'neg: {r}')
-            bottom = bottom + heights
-            neg_totals += heights
-        total_counts = pos_counts + neg_totals
-    else:
-        neg_counts = np.array(
-            [sum(regime_counts_per_split.get(s, {}).values()) for s in splits],
-            dtype=int,
-        )
-        ax.bar(x, neg_counts, width=bar_width, bottom=pos_counts,
-               color='#d62728', edgecolor='white', linewidth=0.5,
-               label='negative')
-        total_counts = pos_counts + neg_counts
-
-    # Total-count annotation above each bar.
-    top = int(max(total_counts)) if len(total_counts) else 1
-    for i, total in enumerate(total_counts):
-        ax.text(x[i], total + top * 0.01,
-                f'{int(total):,}', ha='center', va='bottom', fontsize=10,
-                fontweight='bold')
-
-    # Achieved neg:pos centered inside each bar.
-    for i in range(len(splits)):
-        ach = (total_counts[i] - pos_counts[i]) / pos_counts[i] if pos_counts[i] > 0 else float('nan')
-        txt = f'neg:pos (achieved) = {ach:.2f}' if not np.isnan(ach) else 'neg:pos (achieved) = —'
-        ax.text(x[i], total_counts[i] * 0.5, txt,
-                ha='center', va='center', fontsize=8, color='black',
-                bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
-                          edgecolor='#888888', alpha=0.92))
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([s.capitalize() for s in splits], fontsize=11)
-    ax.set_ylabel('Pair count', fontsize=11)
-    ax.set_title(f'Split composition — {bundle_name}', fontsize=12, fontweight='bold')
-    # Add extra top margin to fit text annotations without colliding with bar
-    # count labels. The margin scales with the number of annotation lines.
-    n_anno_lines = len(annotations)
-    ax.set_ylim(0, top * 1.12)
-    ax.grid(True, axis='y', alpha=0.3)
-
-    # Legend outside on the right; reverse order so positive sits at top.
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[::-1], labels[::-1], loc='center left',
-              bbox_to_anchor=(1.01, 0.5), fontsize=9, frameon=False)
-    fig.tight_layout()
-    # Make room above the axes for the figure-level annotation lines.
-    if annotations:
-        fig.subplots_adjust(bottom=_annotation_bottom_reserved(len(annotations)))
-        _render_text_annotations(fig, ax, annotations)
-    plt.savefig(output_path, dpi=200, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
 
 
 def _render_split_composition_grouped(
@@ -1541,8 +1495,12 @@ def _render_split_composition_grouped(
 
     pos_color = '#2ca02c'
     neg_blended_color = '#d62728'
-    palette = plt.get_cmap('tab10').colors
-    regime_colors = {r: palette[(i + 1) % len(palette)]
+    # Skip tab10's green (index 2) — it's identical to the positive
+    # color, so giving it to any regime causes a confusing color clash
+    # ("neg: host_only" used to be drawn in the same green as positive).
+    tab10 = list(plt.get_cmap('tab10').colors)
+    regime_palette = [c for i, c in enumerate(tab10) if i != 2]
+    regime_colors = {r: regime_palette[i % len(regime_palette)]
                      for i, r in enumerate(_SPLIT_COMP_NEG_ORDER)}
 
     # Layout: groups stacked top-to-bottom (train at top), bars within a group
@@ -1636,7 +1594,7 @@ def _render_split_composition_grouped(
 
 
 _ANNO_LINE_H = 0.028  # fraction of figure height per annotation line
-_ANNO_XAXIS_PAD = 0.05  # extra room reserved above the annotation block for the x-axis tick labels and xlabel
+_ANNO_XAXIS_PAD = 0.10  # extra room reserved above the annotation block for the x-axis tick labels and xlabel (bumped 2026-05-20 — was clipping into xticks with 5+ annotation lines)
 
 
 def _annotation_bottom_reserved(n_lines: int) -> float:
@@ -1684,20 +1642,25 @@ def _plot_split_composition(
     holdout_active: bool = False,
     run_dir: Optional[Path] = None,
     ) -> None:
-    """Top-level orchestrator: emits 4 split-composition PNGs.
+    """Top-level orchestrator: emits 2 split-composition PNGs.
 
     Output files (all in the same directory as `output_path`):
-      - split_composition.png                       (plot 1: vstacked, blended neg)
-      - split_composition_by_regime.png             (plot 2: vstacked, 8 regime segments)
-      - split_composition_grouped.png               (plot 3: horizontal grouped, pos vs neg)
-      - split_composition_grouped_by_regime.png     (plot 4: horizontal grouped, pos + 8 regimes)
+      - split_composition_grouped.png               (horizontal grouped, pos vs neg)
+      - split_composition_grouped_by_regime.png     (horizontal grouped, pos + 8 regimes)
 
-    The first filename (`output_path`) determines the directory; the other
-    three filenames are derived from it. Per-regime breakdown for plots 2
-    and 4 is drawn from the regime manifest when available, otherwise
-    derived from the saved pair CSVs (same_host / same_hn_subtype /
-    same_year columns), so all 4 plots render even when regime-aware
-    sampling is off.
+    `output_path` determines the directory and the stem; the second
+    filename is derived by appending `_by_regime`. Per-regime breakdown
+    is drawn from the regime manifest when available, otherwise derived
+    from the saved pair CSVs (same_host / same_hn_subtype / same_year
+    columns), so both plots render even when regime-aware sampling is
+    off.
+
+    The previous vstacked variants (`split_composition.png` +
+    `split_composition_by_regime.png`) were dropped 2026-05-20 — the
+    stacked-bar layout collapsed neg:pos into one column per split,
+    which read as a single mass rather than a comparable breakdown.
+    The horizontal-grouped variants make the per-category counts
+    legible at a glance.
     """
     splits = ['train', 'val', 'test']
     splits = [s for s in splits if s in split_sizes]
@@ -1736,22 +1699,10 @@ def _plot_split_composition(
     primary_stem = output_path.stem  # usually "split_composition"
     suffix = output_path.suffix or '.png'
     paths = {
-        'vstacked_blended':  out_dir / f'{primary_stem}{suffix}',
-        'vstacked_regimes':  out_dir / f'{primary_stem}_by_regime{suffix}',
         'grouped_blended':   out_dir / f'{primary_stem}_grouped{suffix}',
         'grouped_regimes':   out_dir / f'{primary_stem}_grouped_by_regime{suffix}',
     }
 
-    _render_split_composition_vstacked(
-        splits, pos_counts, regime_counts_per_split,
-        by_regime=False, annotations=annotations,
-        bundle_name=bundle_name, output_path=paths['vstacked_blended'],
-    )
-    _render_split_composition_vstacked(
-        splits, pos_counts, regime_counts_per_split,
-        by_regime=True, annotations=annotations,
-        bundle_name=bundle_name, output_path=paths['vstacked_regimes'],
-    )
     _render_split_composition_grouped(
         splits, pos_counts, regime_counts_per_split,
         by_regime=False, annotations=annotations,
