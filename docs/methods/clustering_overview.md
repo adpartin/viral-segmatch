@@ -186,10 +186,12 @@ sequence's length.
 
 The match unit is **residues**: amino acids (aa) for proteins,
 nucleotides (nt) for DNA. Length is counted in residues too. As a
-first-order intuition, when the alignment spans the full sequence,
-"id 0.95" on a 760-aa PB2 protein admits ~38 aa mismatches within a
-cluster; "id 0.95" on a 2,280-nt PB2 CDS admits ~114 nt mismatches.
-(For the exact per-function/per-threshold table see §7.)
+first-order intuition, when the alignment spans both sequences
+end-to-end with no gaps (typical when comparing two sequences of
+similar length within a function), "id 0.95" on a 760-aa PB2 protein
+admits ~38 aa mismatches within a cluster; "id 0.95" on a 2,280-nt
+PB2 CDS admits ~114 nt mismatches. (For the exact
+per-function/per-threshold table see §7.)
 
 The same threshold is **biologically stricter on shorter proteins**
 (fewer absolute mutations admitted). See § 7 for a per-function table.
