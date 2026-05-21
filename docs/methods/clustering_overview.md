@@ -150,21 +150,45 @@ threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 
 > **Note on the word "pair" in this section.** In §2, "pair" refers to
 > *two sequences being aligned by mmseqs2* (the O(N²) alignment problem
-> the k-mer prefilter solves), not the (HA, NA) co-occurring training
+> the mmseqs2's k-mer prefilter solves), not the (HA, NA) co-occurring training
 > pairs from §1. mmseqs2 operates per-function on single sequences;
-> the lift from per-function clusters to training-pair routing is in §4.
+> the path from per-function clusters to training-pair routing is in §4.
 
 ### 2.1 What "similarity" means
 
-mmseqs2 reduces a pair of biological sequences to a single number in the range
-[0, 1] called **percent identity** — the fraction of aligned positions
-that match between two sequences. 0.95 identity means at most ~5% of
-positions disagree.
+mmseqs2 represents similarity of two biological sequences using **percent
+identity**. With the default `--seq-id-mode 0`, identity is computed as
 
-The match unit is **residues**: amino acids for proteins, nucleotides
-for DNA. Length is counted in residues too. So "id 0.95" on a 760-aa
-PB2 protein admits ~38 aa mutations within a cluster; "id 0.95" on a
-2,280-nt PB2 CDS admits ~114 nt mutations.
+```
+identity = n_identical / alignment_length
+```
+
+where:
+
+- `identity` ∈ [0, 1] is the percent identity — the value compared
+  against the `--min-seq-id` threshold.
+- `n_identical` = the number of alignment columns in which both
+  sequences carry the same residue (a *match*).
+- `alignment_length` = the total number of columns in the local
+  alignment, counting matches, **mismatches** (columns where both
+  sequences have a residue but they differ), and **gaps** (columns
+  where one sequence has a residue and the other has a placeholder
+  `-`, representing an insertion in one or a deletion in the other).
+
+`alignment_length` is *not* the length of either input sequence — it
+can exceed both when one sequence has insertions relative to the
+other. An `--min-seq-id` threshold of 0.95 is a *floor* — only
+sequence pairs with identity ≥ 0.95 are admitted to the same cluster.
+§3.2's coverage rule pins the alignment to span ≥80% of the shorter
+sequence, so in practice `alignment_length` is close to the shorter
+sequence's length.
+
+The match unit is **residues**: amino acids (aa) for proteins,
+nucleotides (nt) for DNA. Length is counted in residues too. As a
+first-order intuition, when the alignment spans the full sequence,
+"id 0.95" on a 760-aa PB2 protein admits ~38 aa mismatches within a
+cluster; "id 0.95" on a 2,280-nt PB2 CDS admits ~114 nt mismatches.
+(For the exact per-function/per-threshold table see §7.)
 
 The same threshold is **biologically stricter on shorter proteins**
 (fewer absolute mutations admitted). See § 7 for a per-function table.
@@ -440,6 +464,19 @@ exceeds the largest bin's target, the routing is structurally
 infeasible at 80/10/10. The largest-CC fraction is therefore the
 quantity to check before committing to a (pair, alphabet, threshold)
 configuration.
+
+**The router never drops pairs.** When the largest CC exceeds the
+80% train quota, LPT-greedy still places the whole CC in train —
+train just overflows its target. The router does not split CCs and
+does not discard boundary pairs; "infeasible" in this doc means
+"the achieved 80/10/10 ratios drift", not "pairs are lost". The audit
+JSON's `pairs_dropped_in_routing` and `pairs_dropped_in_cluster_join`
+are always 0 in practice (verified 2026-05-21 across HA/NA aa id099,
+HA/NA aa id095, PB2/PB1 aa id099, HA/NA nt id099, PB2/PB1 nt id099 —
+see `docs/results/2026-05-21_bicc_pair_drop_audit.md`). The
+operational consequence is that at sub-feasibility thresholds, val
+and test starve: HA/NA aa id095 produces a 98.5 / 0.76 / 0.76 split
+rather than 80 / 10 / 10, even though every pair is routed somewhere.
 
 ### 4.3 The four implemented routings — quick reference
 
@@ -735,22 +772,50 @@ Largest bipartite-component fraction (% of deduped pairs):
 | 1/2 | PB2/PB1 | nt |  2.9 | 59.7 | 93.9 | 97.2 | 98.2 | 99.1 | 99.5 | 100.0 | 100.0 |
 
 A cell is structurally feasible for 80/10/10 if the largest CC is ≤80%
-(train can fit it). Looking at the table:
+(train can fit it cleanly). What "infeasible" means in practice: the
+router still places every pair (see §4.2 — `pairs_dropped_*` are
+always 0), but train absorbs the mega-CC and val/test drift toward
+zero. Reading the table by that frame:
 
 - **id100 (every cell):** feasible. Largest CC is at most 38%
   (PB2/PB1 aa). Routing has room.
-- **id099 (marginal):** HA/NA aa at 80.0% and PB2/PB1 aa at 87.1% are
-  right at or above the ceiling; the LPT-greedy bin-packer can
-  sometimes squeeze them in thanks to second-place CCs being small
-  (5–6% on HA/NA, 0.3% on PB2/PB1), but the val/test deficits get
-  filled from smaller components and the 80/10/10 ratios drift
-  slightly. The nt side is more comfortable here (60–69%).
-- **id098 (already infeasible on aa):** HA/NA aa at 93.7% and
-  PB2/PB1 aa at 98.0% are past the 80% ceiling. nt is also above the
-  ceiling at this threshold (91–94%). The "id098 sweet spot"
-  intuition doesn't survive.
-- **id097 and below:** infeasible everywhere. Largest CC ≥95% on
-  every line.
+- **id099 (mixed: clean on nt and HA/NA aa; marginal on PB2/PB1 aa):**
+  HA/NA aa at 80.0% lands right at the ceiling but the second-place
+  CC is small (5–6%), so the bin-packer still achieves 80/10/10 within
+  0.0007% on the empirical run. PB2/PB1 aa at 87.1% is over the
+  ceiling — train absorbs 87% (vs the 80% target) and val/test get
+  6.4% each (vs 10%). Usable but composition-drifted. nt is more
+  comfortable here (60–69% largest CC, both pairs achieve clean
+  80/10/10).
+- **id098 (predicted broken on aa):** HA/NA aa at 93.7% and PB2/PB1 aa
+  at 98.0% are past the 80% ceiling. nt is also above ceiling (91–94%).
+  Not currently built; the §8.1 collapse trajectory and the
+  largest-CC % both predict a 90+ / <5 / <5 split. The "id098 sweet
+  spot" intuition doesn't survive.
+- **id097 and below (broken everywhere — but builds still run):** at
+  HA/NA aa id095 (the one sub-ceiling threshold we did build) the
+  routing produces 98.48 / 0.76 / 0.76 — val and test get 1,107 pairs
+  each vs 14,597 intended (a 92% capacity loss on the held-out splits).
+  Every pair is routed; the dataset exists; it just isn't usable for
+  evaluation. Largest CC ≥95% on every line of the table predicts the
+  same pattern for the cells we haven't built.
+
+**Observed train share on existing runs (2026-05-21 audit):**
+
+| Segments | Schema pair | Alphabet | Threshold | Largest CC % | Achieved train % | Max ratio drift |
+|---|---|---|---|---:|---:|---:|
+| 4/6 | HA/NA   | aa | id099 | 80.0 | 80.00 | 0.0007% |
+| 4/6 | HA/NA   | nt | id099 | 69.3 | 80.00 | 0.0007% |
+| 1/2 | PB2/PB1 | nt | id099 | 59.7 | 80.00 | 0.0011% |
+| 1/2 | PB2/PB1 | aa | id099 | 87.1 | 87.12 | 7.12 pp |
+| 4/6 | HA/NA   | aa | id095 | 98.5 | 98.48 | 18.48 pp |
+
+Read: the largest-CC % is the algorithmic *input* (and the predictor
+of feasibility); the achieved-train % is the realised *output* and
+the actually-actionable number for downstream consumers. When largest
+CC ≤ 80%, the two diverge only at the 4th decimal. When largest CC >
+80%, achieved train % tracks largest CC % closely (the bin-packer
+can't undo what the mega-CC dictates).
 
 **Interpretation: the feasibility ceiling is corpus-driven, not
 alphabet-driven.** Aa and nt curves cross the 80% line at the same
@@ -767,6 +832,11 @@ The empirical confirmation is in
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md`: the
 production B-nt experiment was limited to (id100, id099) on both
 alphabets, mirroring the aa feasibility ceiling exactly.
+
+See also: `docs/results/2026-05-21_bicc_pair_drop_audit.md` for the
+audit that produced the achieved-train % numbers above, the no-drop
+finding, and the resulting improvement directions (per-function
+asymmetric thresholds, drop budget, CC-splitting).
 
 ---
 
