@@ -21,55 +21,6 @@ plan from meetings) and `docs/plans/` (active and completed plans).
 
 ---
 
-## Cluster sweep cleanup
-
-Triggered by the 2026-05-19/20 one-unit-increment sweep + the script
-fixes that landed alongside it.
-
-1. ~~**Rebuild cumulative `redundancy_stats.csv`** by re-running
-   `seq_redundancy_per_function.py` once for aa and once for nt with
-   the full threshold list (1.0, 0.99, 0.98, 0.97, 0.96, 0.95, 0.90,
-   0.85, 0.80). Cluster parquets are cached so each run is a few
-   minutes. The merge-fix (commit `74e798e`) now appends rather than
-   overwrites. (~5 min compute total.)~~ — **DONE 2026-05-20**:
-   aa = 80 rows (8 thresholds × 10 functions); nt = 72 rows
-   (9 thresholds × 8 functions; M2/NEP auto-skipped). All cached
-   reads, ~1 min total. Outputs live under `data/processed/.../
-   clusters_{aa,nt}/redundancy_stats.csv` (gitignored).
-2. ~~**Regenerate `mutations_tolerated_table.csv`** by re-running
-   `cluster_analysis_summary.py` after the CSV rebuild. The float
-   precision fix (commit `67ddb62`) is in place; CSV needs to refresh
-   to pick it up. (~1 min.)~~ — **DONE 2026-05-20**: 144 rows
-   (8 functions × 2 alphabets × 9 thresholds). Verified PB2 at id090
-   now = 76 (previously 75 under the float bug). Bonus: collapse plots
-   `cluster_counts_vs_threshold.png` and `bipartite_largest_pct_vs_threshold.png`
-   regenerated with the granular id097/id096 trajectory — feeds item #3.
-3. ~~**Update `clustering_overview.md` §6 + §8** with new cluster counts
-   (per-function redundancy table) + collapse plots covering the
-   full id100→id080 trajectory at one-unit resolution. The PB2/PB1
-   collapse signature at id097→id096 (89%/79% drop) is the headline
-   finding to surface. (~30 min after the CSV rebuild.)~~ — **DONE
-   2026-05-20** (commit `f91b805`): §8 rewritten into 4 subsections
-   (one-unit-resolution n_clusters table; two-collapse-modes prose;
-   largest-cluster-%% companion table; routing implications). §6 left
-   unchanged — its id100 retention numbers don't depend on sweep
-   granularity. Concrete signature surfaced: PB2 717→77 at id097→id096.
-4. ~~**Migrate machine-generated files out of `docs/results/`** —
-   scope expanded by the 2026-05-20 audit (Smaller #2). Two
-   generators involved...~~ — **DONE 2026-05-20**:
-   - Phase 1 (`cluster_disjoint_feasibility.py` redirect + 4 CSV
-     regeneration + 3 consumer-script updates): commit `8c9a733`.
-   - Phase 2 (bulk reference updates across 8 files): commit `8c9a733`.
-   - Deletions (4 CSVs + 2 markdowns): commit `6e6fcb9`.
-   - Phase 3 (figs/): KEEP ALL 5 — honest re-review showed each PNG
-     has unique content not reproduced by current tools
-     (`cluster_id99_calibration` is a model-calibration plot;
-     `redundancy_largest_pct` is per-function not per-pair; the
-     other two have hand-crafted narrative titles the auto-gen
-     plots lack). No deletions in figs/.
-   - Plan doc moved to `docs/plans/done/` would be appropriate but
-     remains in `docs/plans/` for now; status mark unchanged.
-
 ## DataSAIL follow-ups
 
 Bake-off paused after Phase 0 (see
@@ -100,14 +51,18 @@ items worth revisiting before deciding to fully retire the bake-off.
 
 ## Methodology ideas — possible paper contributions
 
-1. **Boundary-sample drop scheme** — identify sequences at the edge of
-   clusters whose presence keeps clusters "close" in similarity space,
-   drop a small fraction of them to unlock cleaner bicc routing at
-   lower identity thresholds (where bicc currently mega-collapses).
-   Hybrid between bicc (no drop) and DataSAIL/LoHi (drop pairs /
-   vertices). Could be a genuine methodological contribution. First
-   action: **draft a plan doc** outlining the algorithm + a
-   small-scale feasibility test on HA/NA at id095.
+1. **BiCC improvements (boundary-sample drop / CC-splitting /
+   absolute-mutation-tolerance clustering)**. Formalized 2026-05-21 in
+   `docs/results/2026-05-21_bicc_pair_drop_audit.md` as directions #3,
+   #4, and #5. The audit doc quantified the drop sizes needed to
+   recover 80/10/10 on real bundles (~7% on PB2/PB1 aa id099, ~18%
+   on HA/NA aa id095) and added the principled
+   absolute-mutation-tolerance variant (`t_f = 1 − ε/L_f`). Could be
+   a genuine methodological contribution. First action: **draft a
+   plan doc** picking one direction (start with #5
+   absolute-mutation-tolerance + #1 per-function asymmetric thresholds
+   on PB2/PB1 aa as a quick-win prototype) + a small-scale
+   feasibility test target.
 2. **2-D embedding visualization** (PCA / UMAP) of train/val/test
    pairs with confounder overlays (host, hn_subtype, year). Inspired
    by DataSAIL Fig. 3 (which used ECFP fingerprints for small
@@ -151,35 +106,3 @@ items worth revisiting before deciding to fully retire the bake-off.
       a small dedicated analysis script — depending on how invasive
       the fix is.
 
-## Infrastructure
-
-1. ~~**Validate `segmatch` env end-to-end** by running one Stage 3 +
-   Stage 4 cycle with an existing bundle. Env was built 2026-05-19
-   but only smoke-tested at the import layer. Until this completes
-   successfully we cannot retire the `cepi` env. Suggested bundle:
-   `flu_ha_na` (production default).~~ — **DONE 2026-05-20**: ran
-   `flu_ha_na` with `dataset.max_isolates_to_process=2000
-   training.epochs=5 training.patience=10`. Stage 3 done in 2 min;
-   Stage 4 done in 2 min on GPU; model learned (Test F1=0.802,
-   AUC-ROC=0.92). No new errors — only pre-existing pandas dtype +
-   matplotlib deprecation warnings. **`cepi` env is unblocked for
-   retirement.**
-
-## Smaller items / minor polish
-
-1. ~~**`cluster_analysis_summary.py:141`** reads `protein_final.csv`
-   for length stats but doesn't pass `keep_default_na=False`. The
-   `function` column uses full names (no `'NA'` trap), so it's safe
-   today, but adding the kwarg for defensive consistency would
-   prevent a future-self foot-gun if anyone ever adds a column with
-   the literal `'NA'`. (~2 lines.)~~ — **DONE 2026-05-20** (commit `25280e2`).
-2. ~~**`docs/results/` machine-vs-handauthored audit**. The 2026-05-15
-   seq_redundancy markdowns aren't the only machine-generated files
-   in `docs/results/` — the `*_cluster_disjoint_feasibility_*.csv`
-   files are likely also machine outputs. Audit + plan migration to
-   `results/` if so.~~ — **DONE 2026-05-20**: 22 files audited.
-   15 hand-authored markdowns confirmed (keep). 6 machine-generated
-   (2 seq_redundancy markdowns + 4 feasibility CSVs) — migration
-   work folded into Cluster sweep #4's expanded scope. 5 orphan PNGs
-   in `docs/results/figs/` flagged as unclear (0 references,
-   provenance unknown).
