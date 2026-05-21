@@ -1,4 +1,4 @@
-"""Consolidated clustering structural analysis (aa + nt, 8 majors proteins).
+"""Consolidated clustering structural analysis (aa + nt, 8 major proteins).
 
 Reads the per-function (major protein) redundancy sweep outputs (from
 `seq_redundancy_per_function.py`) and bipartite-component
@@ -366,13 +366,17 @@ def plot_bipartite_largest_pct(feasibilities: list[pd.DataFrame], out_png: Path)
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--clusters_aa', default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
+    p.add_argument('--clusters_aa',
+                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
                    help='Directory containing aa redundancy_stats.csv + per-(function, threshold) cluster parquets.')
-    p.add_argument('--clusters_nt', default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'),
+    p.add_argument('--clusters_nt',
+                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'),
                    help='Directory containing nt redundancy_stats.csv + per-(function, threshold) cluster parquets.')
-    p.add_argument('--protein_final', default=str(PROJ / 'data/processed/flu/July_2025/protein_final.csv'),
+    p.add_argument('--protein_final',
+                   default=str(PROJ / 'data/processed/flu/July_2025/protein_final.csv'),
                    help='Stage 1 protein_final.csv (or .parquet) — used for aa length stats.')
-    p.add_argument('--cds_final', default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'),
+    p.add_argument('--cds_final',
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'),
                    help='Stage 1.5 cds_final.parquet — used for nt length stats.')
     p.add_argument('--feasibility_dir',
                    default=str(PROJ / 'results/flu/July_2025/runs/cluster_disjoint_feasibility'),

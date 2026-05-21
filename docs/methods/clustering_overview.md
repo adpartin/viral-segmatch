@@ -1,20 +1,18 @@
 # Clustering overview (aa and nt) for cluster_disjoint splits
 
-This is the methods reference for what protein/nucleotide sequence
-clustering does in this pipeline, what mmseqs2's parameters
-concretely mean, and how a per-function clustering becomes the
-train/val/test partition the model actually sees. It is written for a
-reader who has not used mmseqs2 before.
+This reference covers: what protein (aa) and nucleotide (nt) sequence
+clustering does in this pipeline, what mmseqs2's parameters mean, and
+how a per-function clustering is used to generate train/val/test splits.
 
 For the *experimental findings* on Flu A see
-`docs/results/2026-05-15_cluster_disjoint_nt_results.md` (model-side
-results) and the two redundancy autogen docs
+`docs/results/2026-05-15_cluster_disjoint_nt_results.md` (model training
+results) and two sequence redundancy autogen docs
 `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (aa) and
 `data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` (nt). This
 doc explains the *machinery*; those docs report the *numbers we got*.
 
-For the exact routing-equivalence semantics across the four
-implemented modes (seq_disjoint hash_key={seq,dna}, cluster_disjoint
+For the routing-equivalence semantics across the four implemented modes
+(seq_disjoint hash_key={seq,dna}, cluster_disjoint
 cluster_alphabet={aa,nt}), see `docs/methods/leakage_definitions.md`
 § "Routing equivalence and mmseqs argument semantics".
 
@@ -22,21 +20,128 @@ cluster_alphabet={aa,nt}), see `docs/methods/leakage_definitions.md`
 
 ## 1. Why we cluster in this pipeline
 
-The classifier's job is to predict whether two protein segments
-co-occur in the same flu isolate. A random train/val/test split leaks
-near-neighbor information: test pairs typically have a train neighbor
-that's 99–100% identical at the protein level, and the model can
-exploit that without learning any pair-co-occurrence biology. This is
-leakage mode #4 ("cluster leakage" / "near-neighbor leakage") in
-`docs/methods/leakage_definitions.md`.
+The segmatch classifier's job is to predict whether two segments co-occur in
+the same flu isolate. A random train/val/test split can result
+in highly similar sequence pairs being distributed across train,
+validation, and test sets (the very similar pairs can be called
+near-neighbors). Thus, test pairs typically have a train neighbor
+that's extremely similar at the sequence level, and the model can
+exploit that to make accurate predictions without learning any pair-co-occurrence biology. We
+defined this as leakage mode #4 ("cluster leakage" / "near-neighbor
+leakage") in `docs/methods/leakage_definitions.md`.
 
-Clustering puts a *radius* around each protein: all sequences within
-the radius collapse to one cluster id. We then partition pairs so that
-no cluster id appears on both sides of the train/test boundary. That
-mitigates mode #4 by construction at the chosen radius.
+Clustering uses an alignment-identity threshold *t*. For each input
+sequence X (aa or nt), pairwise alignment with every candidate sequence Y
+yields a percent-identity number; Y is in X's neighborhood at
+threshold t if identity(X, Y) ≥ t and the coverage rule of §3.2 is
+met. Intuitively, this defines a *radius* around X — the set of
+sequences alignable to it at identity ≥ t. Two sequences whose radii
+overlap (i.e., are pairwise within threshold t of each other)
+collapse to the same cluster id by transitive closure. The threshold
+t is set by `--min-seq-id` in mmseqs (formal semantics in §3.1).
 
-The clustering itself happens once per (data version, alphabet, identity
-threshold). Stage 3 reads the cluster lookups when
+**Visual schematic — simplified single-sequence view.** The schematic
+below uses a single-sequence simplification of the splitting task to
+show *why* random splitting leaks and *how* clustering by radius
+mitigates it. The real segmatch task operates on *pairs* (two
+sequences per training example, one per function slot), which adds a
+second dimension — covered at the end of this section, with the full
+pair-level construction in §4.
+
+**Step 1 — random split lets near-neighbors leak.** Consider A1 and A2, two
+protein sequences differing by 1 aa. A random shuffle can assign them
+to different splits.
+
+```
+   ●  A1               assigned to TRAIN
+   │
+   │   ← 1 aa apart (near-neighbor pair in sequence space)
+   │
+   ●  A2               assigned to TEST
+```
+
+The model memorizes A1's neighborhood at training time and trivially
+scores A2 at evaluation — without learning anything about the sequence biology. Test sequences typically have a train-side
+neighbor within a handful of aa edits, allowing for shortcut learning.
+
+**Step 2 — clustering at radius t collapses near-neighbors to one cluster id.**
+Sequences within identity threshold t of each other join the same
+cluster (transitive closure on the pairwise-alignment relation; see
+the operational definition above). At t = 0.99 on a 760-aa protein
+the radius admits up to 7 aa mismatches (§7).
+
+```
+   ┌─────────────┐
+   │   ●  A1     │
+   │      │      │  cluster C_γ   ← A1 and A2 now in the same
+   │   ●  A2     │                  cluster (1-aa edit ≤ radius
+   └─────────────┘                  at t = 0.99)
+
+   ┌─────────────┐
+   │  ●  B1      │
+   │     ●  B2   │  cluster C_α   (3 near-identical sequences)
+   │  ●  B3      │
+   └─────────────┘
+
+   ┌─────┐
+   │ ● C │          cluster C_β   (isolated sequence)
+   └─────┘
+```
+
+**Step 3 — partition by CLUSTER, not by sequence.** Each cluster is
+indivisible: every member goes to one split.
+
+```
+   C_α ───► train       (B1, B2, B3 all in train)
+   C_β ───► train       (C in train)
+   C_γ ───► test        (A1 and A2 both in test — the
+                         near-neighbor edge is no longer
+                         across the train/test boundary)
+```
+
+The cluster-disjoint rule (single-sequence version) is: no cluster id
+appears on both sides of any split boundary. Near-neighbor edges that
+exist *within* a cluster therefore cannot straddle splits, mitigating
+mode #4 by construction at the chosen radius t.
+
+**The radius t controls the trade-off:**
+
+- `t = 1.0` — only exact matches collapse (essentially `seq_disjoint`, §4.3).
+- `t = 0.99` — ~1% mismatches collapse (Flu A feasibility ceiling on HA/NA and PB2/PB1 pairs, §9).
+- `t = 0.90` — 10% mismatches collapse; on the conserved proteins (PB2/PB1/PA/NP/M1) the corpus collapses to ≤7 clusters total (§8.1) and 80/10/10 routing breaks.
+
+A stricter radius removes more leakage but also collapses more of the
+corpus into mega-clusters that overflow the largest split's quota.
+§9's feasibility ceiling is the threshold below which 80/10/10 routing
+becomes structurally impossible.
+
+**From single sequences to pairs.** The schematic above shows
+clustering one function (e.g., HA sequences clustered into HA cluster
+ids). The real segmatch task adds a second dimension: each training
+example is a *pair* ([HA, NA], or [PB2, PB1],...), and the goal is to
+predict pair co-occurrence. Cluster-disjoint routing on pairs has
+additional mechanics:
+
+1. **Cluster per function, independently.** HA sequences get HA
+   cluster ids (`HA_c1`, `HA_c2`, …); NA sequences get NA cluster
+   ids (`NA_c1`, `NA_c2`, …). mmseqs never sees two functions at once.
+2. **Each pair carries a tuple of two cluster ids.** A pair
+   (HA_x in isolate i, NA_y in isolate i) becomes
+   `(cluster(HA_x), cluster(NA_y))`, e.g., `(HA_c1, NA_c5)`.
+3. **Build a bipartite graph** with HA clusters on one side, NA
+   clusters on the other; an edge `HA_ck ─ NA_cm` exists iff some
+   pair has that combination.
+4. **Bipartite connected components** on this graph are the
+   indivisible routing units. All pairs in a CC must go to the same
+   split.
+5. **Bin-pack CCs into 80/10/10** via LPT-greedy.
+
+§4 walks through this paired construction with a bipartite-graph
+ASCII diagram and the LPT-greedy routing details. The single-sequence
+intuition above is the prerequisite for the paired version.
+
+The clustering itself happens once per (data version, alphabet (`aa`|`nt`), identity
+threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 `dataset.split_strategy.mode: cluster_disjoint` is set in the bundle.
 
 ---
@@ -45,7 +150,7 @@ threshold). Stage 3 reads the cluster lookups when
 
 ### 2.1 What "similarity" means
 
-mmseqs2 reduces a pair of biological sequences to a single number in
+mmseqs2 reduces a pair of biological sequences to a single number in the range
 [0, 1] called **percent identity** — the fraction of aligned positions
 that match between two sequences. 0.95 identity means at most ~5% of
 positions disagree.
@@ -445,6 +550,10 @@ one panel per alphabet.)
 
 ## 7. What an identity threshold concretely admits
 
+**Source.** `cluster_analysis_summary.py`. `mutations_tolerated_table.csv`
+contains values for idXX. `sequence_length_summary.csv` contains sequence
+length values.
+
 For an L-residue sequence and threshold t,
 `max_mismatches_inside_cluster = L − ceil(L × t)`. The same
 threshold is therefore looser on long proteins and stricter on short
@@ -472,15 +581,13 @@ ones. Concrete numbers per function:
 | M1  |   759 | 0 |  7 | 15 | 22 | 30 |  37 |  75 | 151 |
 | NS1 |   693 | 0 |  6 | 13 | 20 | 27 |  34 |  69 | 138 |
 
-Each cell is `L − ceil(L × t)`, the maximum admitted residue
+Each table cell is `L − ceil(L × t)`, the maximum admitted residue
 mismatches inside a cluster at identity threshold `t` for the
-function's median-length sequence. Both tables: `mutations_tolerated_table.csv`
-from `cluster_analysis_summary.py`. Lengths from
-`sequence_length_summary.csv` in the same dir.
+median-length sequence `L`. In mmseqs, threshold `t` is by arg `--min-seq-id`.
 
 **Interpretation.** "id095" is not one biological criterion — it's
-seven different ones (one per function) when read this way. id095 on
-M1 is **3× stricter** than id095 on PB2 because M1 is roughly 3×
+eight different ones (one per function/segment) when read this way.
+id095 on M1 is **3× stricter** than id095 on PB2 because M1 is roughly 3×
 shorter. This explains why per-function cluster collapse rates in §8
 differ between functions at the same threshold: the threshold itself
 admits more mutations on the longer proteins, so more sequences fall
@@ -495,11 +602,11 @@ especially when comparing across function pairs of different lengths
 
 ## 8. Cluster collapse trajectory
 
-Source: `cluster_counts_vs_threshold.png` and
-`bipartite_largest_pct_vs_threshold.png` (from
-`cluster_analysis_summary.py`); raw values in `cluster_summary.csv`.
-The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.90,
-0.80} on aa (nt adds 0.85).
+Source. `cluster_analysis_summary.py`. `cluster_summary.csv` contains
+raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
+0.95, 0.90, 0.85, 0.80}. `cluster_counts_vs_threshold.png` and
+`bipartite_largest_pct_vs_threshold.png`; 
+
 
 ### 8.1 Per-function `n_clusters` at one-unit resolution (aa)
 
@@ -514,10 +621,8 @@ The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.90,
 | M1  |  4,633 |    698 |   154 |    82 |    43 |    26 |   7 |   2 |
 | NS1 | 21,864 |  6,313 | 2,829 | 1,461 |   814 |   485 |  98 |  10 |
 
-(`cluster_counts_vs_threshold.png` plots the same data per-alphabet
-on log Y; the **bolded cell** flags the steepest per-function
-single-unit transition — PB2 collapses 717→77 between id097 and id096,
-an 89% drop.)
+PB2 at id096 is the steepest per-function single-unit transition — PB2
+collapses 717→77 between id097 and id096 (an 89% drop).
 
 The nt equivalent (in `cluster_summary.csv`) follows the same shape
 but with ~2–3× higher counts at the same threshold — synonymous-codon
@@ -569,7 +674,7 @@ per-pair view, see §9):
 | NA  | 0.1% |  4.7% |  8.7% | 10.3% | 13.2% |  20.4% |  38.7% |
 | NS1 | 0.1% |  5.0% |  9.3% | 15.6% | 14.9% |  20.4% |  53.6% |
 
-Bolded cells: one cluster contains the entire corpus. By id090, the
+100% mean the cluster contains the entire corpus. By id090, the
 five conserved functions (PB2/PB1/PA/NP/M1) have swallowed everything;
 HA, NA, NS1 remain ≤30%.
 
@@ -582,18 +687,18 @@ by shared isolates.
 
 ### 8.4 Why this matters for routing
 
-The collapse trajectory directly predicts the bipartite-CC
+The per-function collapse trajectory predicts the bipartite-CC
 feasibility ceiling documented in §9. Function-pairs whose components
-collapse sharpest at low thresholds (polymerase pairs like PB2/PB1)
+collapse sharpest at initial thresholds (polymerase pairs like PB2/PB1)
 form a single mega-component once either slot's clustering collapses,
 defeating the LPT-greedy routing. HA/NA preserves the most structural
 diversity at any given threshold and remains the most "splittable"
-target.
+pair.
 
 The shape of the collapse is **corpus-driven, not algorithm-driven**:
 easy-cluster (aa) and easy-linclust (nt) both produce similar collapse
-trajectories on their respective alphabets. Switching alphabet shifts
-the curves vertically (nt sits higher) but doesn't unlock new
+trajectories on their respective alphabets. Switching alphabet (aa vs nt)
+shifts the curves vertically (nt sits higher) but doesn't unlock new
 splittable thresholds on the polymerases (see
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md`).
 
