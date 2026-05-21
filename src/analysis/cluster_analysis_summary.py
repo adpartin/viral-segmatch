@@ -297,12 +297,15 @@ def plot_cluster_counts_vs_threshold(red_aa: pd.DataFrame, red_nt: pd.DataFrame,
     ax.grid(True, which='both', linestyle=':', alpha=0.4)
     ax.set_axisbelow(True)
 
-    # Legend: functions only (aa marker o, nt marker s mentioned in caption)
+    # Two legends, both anchored OUTSIDE the axes on the right so they
+    # never overlap the curves (which fan from top-left at id100 down to
+    # bottom-right at id080).
     handles = [plt.Line2D([0], [0], color=_FUNCTION_COLORS[s], marker='o',
                           linestyle='-', label=s, markersize=5)
                for s in _SHORT_ORDER]
-    leg1 = ax.legend(handles=handles, loc='lower left', fontsize=8,
-                     ncol=2, title='function', frameon=False)
+    leg1 = ax.legend(handles=handles, loc='upper left',
+                     bbox_to_anchor=(1.02, 1.0), fontsize=8, ncol=1,
+                     title='function', frameon=False)
     ax.add_artist(leg1)
     style_handles = [
         plt.Line2D([0], [0], color='#444', marker='o', linestyle='-',
@@ -310,12 +313,15 @@ def plot_cluster_counts_vs_threshold(red_aa: pd.DataFrame, red_nt: pd.DataFrame,
         plt.Line2D([0], [0], color='#444', marker='s', linestyle='--',
                    label='nt (cds_dna)', markersize=5),
     ]
-    ax.legend(handles=style_handles, loc='lower right', fontsize=8,
+    ax.legend(handles=style_handles, loc='upper left',
+              bbox_to_anchor=(1.02, 0.35), fontsize=8,
               title='alphabet', frameon=False)
 
     ax.set_title('Cluster collapse vs identity threshold (per function, aa vs nt)',
                  fontsize=11)
-    fig.tight_layout()
+    # Reserve right-side space for the external legends; bbox_inches='tight'
+    # on savefig then includes them in the PNG.
+    fig.tight_layout(rect=[0, 0, 0.85, 1])
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=180, bbox_inches='tight')
     plt.close(fig)
