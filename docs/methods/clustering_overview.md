@@ -613,7 +613,7 @@ raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
 `bipartite_largest_pct_vs_threshold.png`.
 
 
-### 8.1 Per-function `n_clusters` at one-unit resolution (aa)
+### 8.1 Per-function `n_clusters` at 1 pp resolution (aa)
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -626,7 +626,7 @@ raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
 | 7 | M1  |  4,633 |    698 |   154 |    82 |    43 |    26 |   7 |  3 |   2 |
 | 8 | NS1 | 21,864 |  6,313 | 2,829 | 1,461 |   814 |   485 |  98 | 29 |  10 |
 
-PB2 at id096 is the steepest per-function single-unit transition — PB2
+PB2 at id096 is the steepest per-function 1 pp transition — PB2
 collapses 717→77 between id097 and id096 (an 89% drop).
 
 The nt equivalent (in `cluster_summary.csv`) follows the same shape
@@ -639,7 +639,7 @@ to absorb them.
 
 - **Sharp collapse on the conserved proteins** (PB2, PB1, NP, M1).
   Cluster count drops nearly an order of magnitude in a single
-  threshold unit. PB2 is the cleanest example (717 → **77** at
+  1 pp step. PB2 is the cleanest example (717 → **77** at
   id097→id096, −89%); NP follows (153 → 73 at the same step, −52%).
   These are the most aa-conserved Flu A proteins; their sequence
   space is narrow at the population level, so a small relaxation of
