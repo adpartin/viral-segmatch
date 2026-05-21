@@ -70,7 +70,7 @@ from src.utils.embedding_utils import (
     plot_embeddings_by_category,
     sample_pairs_stratified,
 )
-from src.utils.kmer_utils import load_kmer_index, load_kmer_matrix
+from src.analysis.plot_kmer_routing_geometry import plot_kmer_routing_geometry
 
 
 def _collapse_to_top_n(series: pd.Series, top_n: int, other_label: str = 'Other') -> pd.Series:
@@ -423,44 +423,6 @@ def _format_sample_counts(pairs: pd.DataFrame, per_split_totals: dict[str, int])
     return "\n".join(lines)
 
 
-def _resolve_kmer_k(kmer_dir: Path, k: Optional[int] = None) -> int:
-    """Resolve which k to use for k-mer PCA plots.
-
-    Priority: explicit `k` argument > `kmer_features_k{k}_metadata.json` > filename glob.
-    Errors if multiple k's are present and none was specified.
-    """
-    if k is not None:
-        return int(k)
-    metadata_files = sorted(kmer_dir.glob('kmer_features_k*_metadata.json'))
-    if metadata_files:
-        if len(metadata_files) > 1:
-            ks = sorted({_extract_k_from_filename(p.name) for p in metadata_files} - {None})
-            raise ValueError(
-                f"Multiple k-mer caches in {kmer_dir} (k in {ks}); pass k= explicitly."
-            )
-        with open(metadata_files[0]) as f:
-            return int(json.load(f)['k'])
-    npz_files = sorted(kmer_dir.glob('kmer_features_k*.npz'))
-    if not npz_files:
-        raise FileNotFoundError(f"No k-mer cache found under {kmer_dir}")
-    if len(npz_files) > 1:
-        ks = sorted({_extract_k_from_filename(p.name) for p in npz_files} - {None})
-        raise ValueError(
-            f"Multiple k-mer caches in {kmer_dir} (k in {ks}); pass k= explicitly."
-        )
-    parsed = _extract_k_from_filename(npz_files[0].name)
-    if parsed is None:
-        raise ValueError(f"Could not parse k from {npz_files[0].name}")
-    return parsed
-
-
-def _extract_k_from_filename(name: str) -> Optional[int]:
-    """Parse k from `kmer_features_k{k}{suffix}` filenames."""
-    import re
-    m = re.search(r'kmer_features_k(\d+)', name)
-    return int(m.group(1)) if m else None
-
-
 def _interaction_spec_to_filename(interaction_spec: str) -> str:
     """Convert interaction spec to a safe filename component.
 
@@ -690,153 +652,16 @@ def plot_pair_interactions(
 
 
 # =============================================================================
-# K-mer PCA plots
+# K-mer plot helpers
 # =============================================================================
-
-def _plot_kmer_scree(
-    explained_variance_per_panel: dict[str, np.ndarray],
-    output_path: Path,
-    n_components: int = 12,
-    ) -> None:
-    """Multi-panel scree plot for k-mer PCA fits.
-
-    Shows the top-N explained variance ratios for each panel. One subplot per
-    fit; bars for individual PC variance, red line on the secondary axis for
-    the running cumulative.
-    """
-    panels = list(explained_variance_per_panel.items())
-    n = len(panels)
-    if n == 0:
-        return
-    cols = min(n, 2)
-    rows = (n + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(7 * cols, 4.5 * rows), squeeze=False)
-
-    for idx, (label, evr) in enumerate(panels):
-        r, c = divmod(idx, cols)
-        ax = axes[r][c]
-        evr = np.asarray(evr, dtype=float)
-        k = min(n_components, len(evr))
-        x = np.arange(1, k + 1)
-        bars = ax.bar(x, evr[:k], color='#4a90d9', edgecolor='#1f4c82', alpha=0.85)
-        # Cumulative line on a secondary axis.
-        cum = np.cumsum(evr[:k])
-        ax2 = ax.twinx()
-        ax2.plot(x, cum, color='#c0392b', marker='o', linewidth=1.5,
-                 markersize=4, label='cumulative')
-        ax2.set_ylim(0, 1.0)
-        ax2.set_ylabel('Cumulative explained variance ratio', color='#c0392b', fontsize=9)
-        ax2.tick_params(axis='y', labelcolor='#c0392b')
-        for bar, v in zip(bars, evr[:k]):
-            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                    f'{v:.1%}', ha='center', va='bottom', fontsize=8)
-        ax.set_xticks(x)
-        ax.set_xlabel('Principal component', fontsize=10)
-        ax.set_ylabel('Explained variance ratio (per PC)', fontsize=10)
-        ax.set_title(label, fontsize=11, fontweight='bold')
-        ax.set_ylim(0, max(0.05, evr[:k].max() * 1.25))
-        ax.grid(True, axis='y', alpha=0.3)
-
-    # Hide any leftover empty subplots.
-    for idx in range(n, rows * cols):
-        r, c = divmod(idx, cols)
-        axes[r][c].axis('off')
-
-    fig.suptitle('K-mer PCA: top-N explained variance ratio', fontsize=13, fontweight='bold')
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
-    plt.savefig(output_path, dpi=200, bbox_inches='tight')
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
-def _build_kmer_lookup_keys(assembly_ids: pd.Series, ctgs: pd.Series) -> pd.Series:
-    """Build composite lookup keys matching `load_kmer_index` output.
-
-    Mirrors the key formation in `kmer_utils.get_kmer_pair_features`:
-    `f"{assembly_id}::{ctg}"` with both columns coerced to str.
-    """
-    return assembly_ids.astype(str) + '::' + ctgs.astype(str)
-
-
-def _densify_kmer_rows(kmer_matrix, row_indices: np.ndarray) -> np.ndarray:
-    """Densify a slice of the sparse k-mer CSR matrix to float32."""
-    return np.asarray(kmer_matrix[row_indices].todense(), dtype=np.float32)
-
-
-def plot_kmer_pca(
-    run_dir: Path,
-    kmer_dir: Path,
-    output_dir: Path,
-    virus_config,
-    k: Optional[int] = None,
-    max_per_label_per_split: int = 1000,
-    random_state: int = 42,
-    ) -> None:
-    """Generate the pair-concatenated k-mer PCA plot and its companion scree.
-
-    Produces two files:
-      - `kmer_pca_concat.png` — one point per sample pair; vector is the
-        concatenation of k-mer vectors for (assembly_id_a, ctg_a) and
-        (assembly_id_b, ctg_b). Color = split, fill = label. Mirrors
-        `pair_pca_concat.png`.
-      - `kmer_pca_scree.png` — top-12 per-PC explained variance ratio (bars)
-        + the cumulative line for those 12 components on a secondary axis.
-
-    Callable both from `visualize_dataset_stats` and standalone after-the-fact.
-
-    Args:
-        run_dir: Dataset run directory containing {split}_pairs.csv files.
-        kmer_dir: Directory containing kmer_features_k{k}.npz +
-            kmer_features_k{k}_index.parquet (typically lives next to the
-            ESM-2 master HDF5 cache).
-        output_dir: Directory to save output PNGs.
-        virus_config: `cfg.virus` Hydra sub-node; used to resolve protein
-            short names for the filter-text caption.
-        k: k-mer size. If None, autodetect from kmer_dir.
-        max_per_label_per_split: Max pairs sampled per label per split for
-            the scatter plot.
-        random_state: Reproducible sampling/PCA seed.
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    k = _resolve_kmer_k(kmer_dir, k)
-    print(f"\nplot_kmer_pca: using k={k}, kmer_dir={kmer_dir}")
-
-    kmer_matrix = load_kmer_matrix(kmer_dir, k)
-    key_to_row = load_kmer_index(kmer_dir, k)
-
-    func_short_names = get_function_short_name_map_from_config(virus_config)
-
-    splits = ['train', 'val', 'test']
-    filters_applied = _load_filters_applied_from_run(run_dir)
-    filters_text = _format_filters_for_plot(filters_applied, func_short_names)
-
-    # Per-panel explained-variance ratios are accumulated for the scree plot.
-    scree_evr: dict[str, np.ndarray] = {}
-
-    # ── Plot 1: concatenated k-mer pair PCA ──────────────────────────────
-    evr = _plot_kmer_pair_concat(
-        run_dir=run_dir,
-        splits=splits,
-        kmer_matrix=kmer_matrix,
-        key_to_row=key_to_row,
-        k=k,
-        output_path=output_dir / 'kmer_pca_concat.png',
-        max_per_label_per_split=max_per_label_per_split,
-        random_state=random_state,
-        filters_text=filters_text,
-    )
-    if evr is not None:
-        scree_evr['Pair concat (all splits)'] = evr
-
-    # ── Scree summary (top-12 per-PC variance ratio + cumulative line) ─
-    if scree_evr:
-        _plot_kmer_scree(
-            explained_variance_per_panel=scree_evr,
-            output_path=output_dir / 'kmer_pca_scree.png',
-            n_components=12,
-        )
+# K-mer pair / sequence routing-geometry plots are produced by
+# src.analysis.plot_kmer_routing_geometry. The previous in-file
+# `plot_kmer_pca` + its private helpers (`_plot_kmer_pair_concat`,
+# `_plot_kmer_scree`, `_resolve_kmer_k`, `_build_kmer_lookup_keys`,
+# `_densify_kmer_rows`) were removed when the new module landed — they
+# produced only a single PCA panel under the old `kmer_features_k{k}.*`
+# naming and had a latent key-format bug. Only the small bridge below
+# is kept here because plot_pair_interactions also needs it.
 
 
 def get_function_short_name_map_from_config(virus_config) -> dict[str, str]:
@@ -850,101 +675,6 @@ def get_function_short_name_map_from_config(virus_config) -> dict[str, str]:
     if raw is None:
         return {}
     return {str(k): str(v) for k, v in dict(raw).items()}
-
-
-def _plot_kmer_pair_concat(
-    run_dir: Path,
-    splits: list[str],
-    kmer_matrix,
-    key_to_row: dict,
-    k: int,
-    output_path: Path,
-    max_per_label_per_split: int,
-    random_state: int,
-    filters_text: str,
-    ) -> Optional[np.ndarray]:
-    """Build and plot the concatenated-pair PCA across all splits (Plot 1).
-
-    Returns the PCA explained_variance_ratio_ for use by the scree plot, or
-    None if no plot was produced.
-    """
-    sampled = []
-    per_split_totals: dict[str, int] = {}
-    for split in splits:
-        df = _load_pairs_minimal(run_dir, split)
-        if df is None or len(df) == 0:
-            continue
-        # `ctg_a`/`ctg_b` are needed for k-mer key lookup but aren't in the
-        # minimal-load column set, so fall back to a fresh read when missing.
-        if 'ctg_a' not in df.columns or 'ctg_b' not in df.columns:
-            df = pd.read_csv(run_dir / f'{split}_pairs.csv', low_memory=False)
-        if 'label' in df.columns:
-            df = df.copy()
-            df['label'] = pd.to_numeric(df['label'], errors='coerce')
-            df = df[df['label'].isin([0, 1])]
-        per_split_totals[split] = int(len(df))
-        df_s = sample_pairs_stratified(
-            df,
-            max_per_label=max_per_label_per_split,
-            label_col='label',
-            random_state=random_state,
-        ).assign(split=split)
-        sampled.append(df_s)
-
-    if not sampled:
-        print(f"WARNING: plot_kmer_pca: no pair CSVs found in {run_dir}")
-        return None
-    pairs = pd.concat(sampled, ignore_index=True)
-
-    # Build k-mer pair-concat features (drop pairs missing either side).
-    keys_a = _build_kmer_lookup_keys(pairs['assembly_id_a'], pairs['ctg_a'])
-    keys_b = _build_kmer_lookup_keys(pairs['assembly_id_b'], pairs['ctg_b'])
-    rows_a = keys_a.map(key_to_row)
-    rows_b = keys_b.map(key_to_row)
-    valid = rows_a.notna() & rows_b.notna()
-    n_in = len(pairs)
-    n_valid = int(valid.sum())
-    if n_valid == 0:
-        print("WARNING: plot_kmer_pca: no valid pairs (no matching k-mer rows)")
-        return None
-    if n_in - n_valid > 0:
-        print(f"plot_kmer_pca: dropped {n_in - n_valid:,}/{n_in:,} sampled pairs (missing k-mer rows)")
-    pairs = pairs.loc[valid].reset_index(drop=True)
-    rows_a = rows_a[valid].astype(int).to_numpy()
-    rows_b = rows_b[valid].astype(int).to_numpy()
-
-    emb_a = _densify_kmer_rows(kmer_matrix, rows_a)
-    emb_b = _densify_kmer_rows(kmer_matrix, rows_b)
-    features = np.concatenate([emb_a, emb_b], axis=1)
-
-    # Request more PCs than the 2D scatter needs so the scree has enough data
-    # for its top-12 bars + cumulative line; randomized SVD requires
-    # n_components < min(M, N), so we cap defensively.
-    n_components = min(12, features.shape[0] - 1, features.shape[1])
-    pca_reduced, pca_model = compute_pca_reduction(
-        features, n_components=n_components, return_model=True,
-        svd_solver='randomized', random_state=random_state,
-    )
-    pca_2d = pca_reduced[:, :2]
-    ev1 = pca_model.explained_variance_ratio_[0] if pca_model else 0
-    ev2 = pca_model.explained_variance_ratio_[1] if pca_model else 0
-
-    sample_text = _format_sample_counts(pairs, per_split_totals)
-
-    _plot_pair_features_splits_2d(
-        reduced_2d=pca_2d,
-        pairs=pairs,
-        splits=splits,
-        split_colors=SPLIT_COLORS,
-        split_markers=SPLIT_MARKERS,
-        xlab=f"PC1 ({ev1:.1%} var)",
-        ylab=f"PC2 ({ev2:.1%} var)",
-        title=f"PCA: Pair K-mer Features (concat, k={k})",
-        output_path=output_path,
-        filters_text=filters_text,
-        sample_text=sample_text,
-    )
-    return pca_model.explained_variance_ratio_ if pca_model is not None else None
 
 
 def plot_pair_embeddings_splits_overlap(
@@ -2540,8 +2270,11 @@ def visualize_dataset_stats(
         skip_esm_pca_plots: If True, skip the four pair_pca_*.png plots and the
             pair_interaction_diagnostics.json file produced by
             plot_pair_interactions().
-        skip_kmer_pca_plots: If True, skip kmer_pca_concat.png + the scree
-            summary produced by plot_kmer_pca().
+        skip_kmer_pca_plots: If True, skip the four routing-geometry PNGs
+            (kmer_sequence_{svd,umap}.png + kmer_pair_{svd,umap}.png)
+            produced by plot_kmer_routing_geometry(). The flag name is
+            kept for backwards compatibility with callers that knew it
+            as a "skip kmer reduction plots" switch.
     """
     # Load dataset statistics
     if not dataset_stats_path.exists():
@@ -2716,10 +2449,13 @@ def visualize_dataset_stats(
     else:
         print("Skipping host × subtype heatmap (insufficient variation in host or subtype)")
 
-    # 7. Low-dimensional PCA plots for each interaction mode (pair embeddings)
-    # Generates pair_pca_concat.png, pair_pca_diff.png, pair_pca_prod.png,
-    # pair_pca_unit_diff.png + pair_interaction_diagnostics.json,
-    # plus k-mer PCA plots (kmer_pca_concat.png + kmer_pca_scree.png).
+    # 7. Low-dimensional plots
+    # ESM-2 side: pair_pca_{concat,diff,prod,unit_diff}.png +
+    #   pair_interaction_diagnostics.json (from plot_pair_interactions).
+    # K-mer side: routing-geometry plots from plot_kmer_routing_geometry
+    #   — kmer_sequence_{pca,umap}.png (per-function subplots, color = split,
+    #   gray = "appears in multiple splits") + kmer_pair_{pca,umap}.png
+    #   (one point per sampled pair, color = split, fill = label).
     try:
         cfg = get_virus_config_hydra(bundle_name, config_path=str(project_root / 'conf'))
         virus_name = cfg.virus.virus_name
@@ -2755,23 +2491,31 @@ def visualize_dataset_stats(
         else:
             print(f"Skipping ESM-2 pair PCA plots (missing embeddings file: {embeddings_file})")
 
-        # K-mer PCA plots: cache lives next to ESM-2 embeddings.
+        # K-mer routing-geometry plots: cache lives next to ESM-2 embeddings.
+        # Pulls `alphabet` and `k` from the bundle config so the cache picked
+        # matches what training will actually consume (multiple caches can
+        # coexist in the embeddings dir — e.g., nt_k6 + aa_k3 + nt_k3).
         if skip_kmer_pca_plots:
-            print("Skipping k-mer PCA plots (skip_kmer_pca_plots=True)")
+            print("Skipping k-mer routing-geometry plots (skip_kmer_pca_plots=True)")
         else:
-            kmer_caches = list(embeddings_dir.glob('kmer_features_k*.npz'))
-            if kmer_caches:
-                plot_kmer_pca(
+            kmer_alphabet = str(getattr(cfg.kmer, 'alphabet', 'nt'))
+            kmer_k = int(getattr(cfg.kmer, 'k', 6))
+            expected_cache = embeddings_dir / f"kmer_features_{kmer_alphabet}_k{kmer_k}.npz"
+            if expected_cache.exists():
+                plot_kmer_routing_geometry(
                     run_dir=run_dir,
                     kmer_dir=embeddings_dir,
                     output_dir=plots_dir,
-                    virus_config=cfg.virus,
-                    k=None,  # autodetect from kmer_features_k*_metadata.json
+                    function_to_short=get_function_short_name_map_from_config(cfg.virus),
+                    alphabet=kmer_alphabet,
+                    k=kmer_k,
                     max_per_label_per_split=1000,
+                    max_sequences_per_function=5000,
+                    umap_pre_pca_dim=50,
                     random_state=42,
                 )
             else:
-                print(f"Skipping k-mer PCA plots (no kmer_features_k*.npz under {embeddings_dir})")
+                print(f"Skipping k-mer routing-geometry plots (no {expected_cache.name} under {embeddings_dir})")
     except Exception as e:
         print(f"WARNING: skipping pair interaction / k-mer plots ({type(e).__name__}: {e})")
 

@@ -1,12 +1,34 @@
 """
 Dimensionality reduction utilities for embedding visualization.
 
-Provides wrappers around PCA and UMAP for consistent usage across analysis scripts.
+Provides wrappers around PCA, TruncatedSVD, and UMAP for consistent usage
+across analysis scripts.
+
+**Choosing PCA vs TruncatedSVD**: both reduce dimensionality via SVD, but
+they treat the input differently and the right choice depends on the
+feature type. The rule used throughout this codebase:
+
+- **Use `compute_pca_reduction`** for **dense, signed, real-valued**
+  embeddings — e.g. ESM-2 (1280-dim, learned biology), trained model
+  activations, distance metrics. PCA centers the data (X − mean) before
+  SVD, which is the canonical reduction for these inputs.
+
+- **Use `compute_truncated_svd_reduction`** for **sparse, non-negative,
+  count-like** features — e.g. k-mer count vectors (4096-dim nt k=6,
+  8000-dim aa k=3), TF-IDF, bag-of-words. TruncatedSVD does *not*
+  center; it operates directly on the raw counts. Centering would
+  destroy the non-negativity that makes these features meaningful and
+  would densify the sparse representation. This is the canonical
+  reduction used in LSI/LSA for text — k-mer features are mathematically
+  the same shape.
+
+Both routines support a `return_model=True` flag to expose the fitted
+sklearn estimator for downstream inspection (e.g. explained variance).
 """
 
 import numpy as np
 from typing import Optional, Tuple
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, TruncatedSVD
 
 try:
     import umap
@@ -46,6 +68,49 @@ def compute_pca_reduction(
         return reduced_embeddings, pca
     else:
         return reduced_embeddings, None
+
+
+def compute_truncated_svd_reduction(
+    features,
+    n_components: int = 2,
+    return_model: bool = False,
+    algorithm: str = "randomized",
+    random_state: Optional[int] = None,
+    ) -> Tuple[np.ndarray, Optional[TruncatedSVD]]:
+    """Reduce sparse / count-like features with TruncatedSVD.
+
+    Mirror of `compute_pca_reduction` but using `sklearn.decomposition.TruncatedSVD`
+    (no mean-centering, accepts sparse `X` directly). This is the
+    appropriate reduction for non-negative count features like k-mer
+    counts, TF-IDF, etc. — see the module docstring for the rule.
+
+    Args:
+        features: (N, D) array or sparse matrix. Sparse `X` is kept sparse
+            internally by TruncatedSVD; dense `X` is also accepted.
+        n_components: Number of components (default: 2).
+        return_model: If True, return the fitted TruncatedSVD estimator
+            (exposes `explained_variance_ratio_`, `components_`, …).
+        algorithm: TruncatedSVD solver — "randomized" (default, fast) or
+            "arpack" (deterministic for very small problems).
+        random_state: Seed for the randomized solver.
+
+    Returns:
+        reduced: (N, n_components) dense ndarray.
+        model: Optional fitted TruncatedSVD (when `return_model=True`).
+
+    Example:
+        >>> reduced, svd = compute_truncated_svd_reduction(
+        ...     kmer_matrix, n_components=50, return_model=True
+        ... )
+        >>> variance_kept = svd.explained_variance_ratio_.sum()
+    """
+    svd = TruncatedSVD(
+        n_components=n_components, algorithm=algorithm, random_state=random_state,
+    )
+    reduced = svd.fit_transform(features)
+    if return_model:
+        return reduced, svd
+    return reduced, None
 
 
 def compute_umap_reduction(

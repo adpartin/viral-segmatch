@@ -1,0 +1,21 @@
+# STATUS: experimental -- HA/NA random routing for the routing-geometry
+# visualization comparison (BACKLOG.md Methodology #2).
+# Inherits flu_ha_na (full unfiltered, k-mer k=6 nt, unit_norm +
+# unit_diff+prod, LGBM baseline). Overrides only split_strategy to
+# switch from seq_disjoint (the default) to random.
+#
+# Under random routing, individual sequences can appear in multiple
+# splits (train/val/test). This is the "no leakage control" / blended
+# baseline used to contrast with seq_disjoint and cluster_disjoint in
+# the 2-D embedding plots.
+#
+# See:
+#   docs/plans/2026-05-20_routing_geometry_viz_plan.md
+
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  split_strategy:
+    mode: random
