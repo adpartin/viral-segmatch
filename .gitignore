@@ -20,6 +20,8 @@ _notes.txt
 prompt.txt
 # External reference papers + personal study notes — entire directory ignored
 refs/
+# Scratch / smoke-test outputs, downloaded reference figures, etc.
+tmp/
 data/
 data/raw/Anno_Updates/
 data/raw/Full_Flu_Annos/
