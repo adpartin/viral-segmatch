@@ -20,14 +20,14 @@ cluster_alphabet={aa,nt}), see `docs/methods/leakage_definitions.md`
 
 ## 1. Why we cluster in this pipeline
 
-The segmatch classifier's job is to predict whether two segments co-occur in
+The segmatch classifier predicts whether two sequences from different proteins/segments co-occur in
 the same flu isolate. A random train/val/test split can result
 in highly similar sequence pairs being distributed across train,
 validation, and test sets (the very similar pairs can be called
-near-neighbors). Thus, test pairs typically have a train neighbor
+*near-neighbors*). Thus, test pairs typically have a train neighbor
 that's extremely similar at the sequence level, and the model can
-exploit that to make accurate predictions without learning any pair-co-occurrence biology. We
-defined this as leakage mode #4 ("cluster leakage" / "near-neighbor
+exploit this similarity to make accurate predictions without learning any pair-co-occurrence biology. We
+define this as leakage mode #4 ("cluster leakage" / "near-neighbor
 leakage") in `docs/methods/leakage_definitions.md`.
 
 Clustering uses an alignment-identity threshold *t*. For each input
@@ -37,13 +37,13 @@ threshold t if identity(X, Y) ≥ t and the coverage rule of §3.2 is
 met. Intuitively, this defines a *radius* around X — the set of
 sequences alignable to it at identity ≥ t. Two sequences whose radii
 overlap (i.e., are pairwise within threshold t of each other)
-collapse to the same cluster id by transitive closure. The threshold
-t is set by `--min-seq-id` in mmseqs (formal semantics in §3.1).
+collapse into the same cluster id by *transitive closure*. In mmseqs, the threshold
+t is set by `--min-seq-id` (formal semantics in §3.1).
 
-**Visual schematic — simplified single-sequence view.** The schematic
+**Simplified single-sequence view.** The schematic
 below uses a single-sequence simplification of the splitting task to
 show *why* random splitting leaks and *how* clustering by radius
-mitigates it. The real segmatch task operates on *pairs* (two
+mitigates it. The real `segmatch` task operates on *pairs* (two
 sequences per training example, one per function slot), which adds a
 second dimension — covered at the end of this section, with the full
 pair-level construction in §7.
@@ -61,7 +61,7 @@ to different splits.
 ```
 
 The model memorizes A1's neighborhood at training time and trivially
-scores A2 at evaluation — without learning anything about the sequence biology. Test sequences typically have a train-side
+predicts A2 at evaluation — without learning anything about the sequence biology. Test sequences typically have a train-side
 neighbor within a handful of aa edits, allowing for shortcut learning.
 
 **Step 2 — clustering at radius t collapses near-neighbors to one cluster id.**
@@ -106,21 +106,27 @@ mode #4 by construction at the chosen radius t.
 
 **The radius t controls the trade-off:**
 
-- `t = 1.0` — only exact matches collapse (essentially `seq_disjoint`, §7.3).
-- `t = 0.99` — ~1% mismatches collapse (Flu A feasibility ceiling on HA/NA and PB2/PB1 pairs, §9).
-- `t = 0.90` — 10% mismatches collapse; on the conserved proteins (PB2/PB1/PA/NP/M1) the corpus collapses to ≤7 clusters total (§6.1) and 80/10/10 routing breaks.
+- `t = 1.0` — pairs with 100% identity over the aligned region cluster
+together. Approximately equivalent to `seq_disjoint` on 7 of the 8 major
+functions, but looser on NA where more sequences of different lengths
+cluster via the coverage rule (check §3.2 for actual numbers).
+`seq_disjoint` itself splits on seq hash of the full sequence (§7.3).
+- `t = 0.99` — Up to ~1% mismatches over the aligned region cluster
+together.
+- `t = 0.90` — Up to 10% mismatches over the aligned region cluster
+together.
 
-A stricter radius removes more leakage but also collapses more of the
-corpus into mega-clusters that overflow the largest split's quota.
-§9's feasibility ceiling is the threshold below which 80/10/10 routing
+A lower `t` removes more leakage but also merges more of the corpus
+into mega-clusters. Once a single cluster contains more than ~80% of
+all pairs it can't fit into a 0.8 of train, and 80/10/10 routing
 becomes structurally impossible.
 
-**From single sequences to pairs.** The schematic above shows
-clustering one function (e.g., HA sequences clustered into HA cluster
-ids). The real segmatch task adds a second dimension: each training
-example is a *pair* ([HA, NA], or [PB2, PB1],...), and the goal is to
-predict pair co-occurrence. Cluster-disjoint routing on pairs has
-additional mechanics:
+**From single sequences to pairs.** The schematic above discusses
+clustering in the context of a single function (e.g., HA sequences
+clustered into multiple cluster ids). The actual segmatch task includes
+two dimensions: each training example is a *pair* ([HA, NA], or [PB2, PB1],...),
+and the goal is to predict pair co-occurrence. Cluster-disjoint
+routing on pairs has additional mechanics:
 
 1. **Cluster per function, independently.** HA sequences get HA
    cluster ids (`HA_c1`, `HA_c2`, …); NA sequences get NA cluster
@@ -156,9 +162,9 @@ threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 
 ### 2.1 What sequenece "similarity" means
 
-mmseqs2 represents similarity of two biological sequences using **percent
-identity**. With the default `--seq-id-mode 0` (alternatives: 1 = shorter
-sequence, 2 = longer sequence — discussed below), identity is computed as
+mmseqs2 represents similarity of two sequences using **percent
+identity**. With the default `--seq-id-mode 0` (other values: 1 = shorter
+sequence, 2 = longer sequence — discussed below), identity is computed using
 
 ```
 identity = n_identical / alignment_length
@@ -167,45 +173,42 @@ identity = n_identical / alignment_length
 where:
 
 - `identity` ∈ [0, 1] is the percent identity — the value compared
-  against the `--min-seq-id` threshold.
+  against the threshold `t` which is set by `--min-seq-id`.
 - `n_identical` = the number of alignment columns in which both
   sequences carry the same residue (a *match*). Gap columns are
-  never matches by definition.
+  not matches by definition.
 - `alignment_length` = the total number of columns in the local
   alignment, counting **matches**, **mismatches** (columns where both
   sequences have a residue but they differ), and **gaps** (columns
-  where one sequence has a residue and the other has a placeholder
+  where one sequence has a residue but the other has a placeholder
   `-`, representing an insertion in one or a deletion in the other).
 
 `alignment_length` is *not* the length of either input sequence — it
 can exceed both when one sequence has insertions relative to the
 other. An `--min-seq-id` threshold of 0.95 is a *floor* — only
-sequence pairs with identity ≥ 0.95 are admitted to the same cluster.
+sequence pairs with `identity` ≥ 0.95 are admitted to the same cluster.
 
 The match unit is **residues**: amino acids (aa) for proteins,
 nucleotides (nt) for DNA. Length is counted also in residues. As a
 first-order intuition, when the alignment spans both sequences
 end-to-end with no gaps (typical when comparing two sequences of
 similar length within a function), "id 0.95" on a 760-aa PB2 protein
-admits ~38 aa mismatches within a cluster; "id 0.95" on a 2,280-nt
-PB2 CDS admits ~114 nt mismatches. (For the exact
-per-function/per-threshold table see §5.)
+admits ~38 aa mismatches within a cluster (for empirical numbers
+see §5).
 
-**`--seq-id-mode` documentation gotcha.** This flag is not listed in
-the official PDF userguide at https://mmseqs.com/latest/userguide.pdf
-(which covers concepts rather than every CLI flag). The canonical
-reference for every parameter is `mmseqs <subcommand> --help`, e.g.
-`mmseqs easy-cluster --help`, which on the installed binary (v18.8cc5c)
-shows:
+The flag `--seq-id-mode` is not listed in the user guide
+https://mmseqs.com/latest/userguide.pdf. The canonical reference for
+every parameter can be obtained with `mmseqs <subcommand> --help`, e.g.
+`mmseqs easy-linclust --help`. For `--seq-id-mode` we get:
 
 ```
 --seq-id-mode INT     0: alignment length 1: shorter, 2: longer sequence [0]
 ```
 
-**Worked examples** — three small alignments to fix intuition for the
-identity formula and its interaction with the coverage rule. In each
-case, "mode N" refers to `--seq-id-mode N` (the identity denominator);
-coverage uses a separate `--cov-mode` discussed in §3.2.
+**Examples** below provide intuition for the identity formula and
+its interaction with the coverage rule. In each case, "mode N" refers
+to `--seq-id-mode N` (the identity denominator); the coverage mode is
+set by separate `--cov-mode` discussed in §3.2.
 
 ```
 Case 1: no gaps, one mismatch
@@ -216,7 +219,7 @@ status:  = = = = = = = = = X            (= match, X mismatch)
 
 alignment_length  = 10  (columns in the alignment)
 n_identical       =  9
-identity (mode 0) = 9 / 10 = 0.90  ← what mmseqs compares to --min-seq-id
+identity (mode 0) = 9 / 10 = 0.90 ← that's what mmseqs compares to --min-seq-id
 
 Case 2: one internal gap (different-length sequences)
 ─────────────────────────────────────────────
@@ -225,20 +228,19 @@ Seq B:   M K T V R Q E L K L            (residues: 10; alignment row: 10 cols)
 status:  = = = G = = = = = =            (G = gap)
 
 alignment_length  = 10  (every column counts: matches + mismatches + gaps)
-n_identical       =  9  (gap columns are never identical by definition)
+n_identical       =  9  (gap columns are not identical by definition)
 identity (mode 0) = 9 / 10 = 0.90
 identity (mode 1) = 9 /  9 = 1.00  ← over shorter sequence  (9 residues)
 identity (mode 2) = 9 / 10 = 0.90  ← over longer sequence  (10 residues)
 
-So mode 0 makes gaps cost identity (an indel pushes the value down);
-mode 1 ignores indels entirely. We pin mode 0 — see §3.2 for the
-coverage discussion that interacts with this choice.
+We pin --seq-id-mode to 0 — see §3.2 for the coverage discussion that
+interacts with this choice.
 
 Case 3: fragment vs full protein — identity passes, coverage fails
 ─────────────────────────────────────────────
 Seq A:   M K T V R Q E L K L                                     (10 residues; fragment)
 Seq B:   M K T V R Q E L K L Q W S P R M N K T L H A V S Q E S F (40 residues; full)
-         = = = = = = = = = = ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  (= aligned, ─ unaligned in B)
+         = = = = = = = = = = ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ (= aligned, ─ unaligned in B)
 
 alignment_length  = 10
 n_identical       = 10
@@ -262,71 +264,12 @@ discussion and `--cov-mode` alternatives.
 Note that the same threshold is **biologically stricter on shorter proteins**
 (fewer absolute mutations admitted). See § 5 for a per-function table.
 
-### 2.2 Why not align every sequence to every other sequence?
+### 2.2 easy-cluster vs easy-linclust
 
-In the Flu A July 2025 corpus there are 108,530 isolates × 8 major
-proteins = 868,240 protein records. Even after deduplication,
-HA has ~42,000 unique aa sequences (~65,000 unique nt CDS — same order
-of magnitude). Computing exact alignments for every aa sequence pair
-would be 42,000² / 2 ≈ 9 × 10⁸ alignments. Infeasible.
+mmseqs2 provides two main methods for clustering:
 
-mmseqs2 sidesteps the quadratic with a k-mer prefilter + alignment
-cascade:
-
-```
-   FASTA (one entry per unique sequence)
-            │
-            ▼
-   ┌───────────────────────────┐
-   │ Step 1. k-mer prefilter   │  Extract every length-k subsequence
-   │                           │  from each input sequence. Build an
-   │   query   k-mers indexed  │  index of (k-mer → target seqs).
-   │     │     ▼               │  For each query, look up its k-mers
-   │     └─►  match list       │  and rank candidate targets by the
-   │                           │  number of shared k-mers above a
-   └─────────────┬─────────────┘  score threshold.
-                 │
-                 ▼  candidate (query, target) pairs — O(N) on average
-                 │
-   ┌───────────────────────────┐
-   │ Step 2. Banded alignment  │  For each surviving candidate pair,
-   │                           │  run a banded Smith–Waterman
-   │   query ────────────►     │  alignment and compute exact percent
-   │             alignment     │  identity + coverage. Drop pairs that
-   │   target ────────────►    │  fail --min-seq-id or the coverage
-   │                           │  cutoff.
-   └─────────────┬─────────────┘
-                 │
-                 ▼  high-scoring pairs
-                 │
-   ┌───────────────────────────┐
-   │ Step 3. Cluster assignment│  Default --cluster-mode 0 (Set-Cover,
-   │                           │  greedy): pick the sequence with the
-   │   greedy representative   │  most unassigned similar neighbors as
-   │   selection (Set-Cover)   │  the next cluster representative;
-   │                           │  absorb it + its neighbors into one
-   │                           │  cluster; repeat until all assigned.
-   └─────────────┬─────────────┘
-                 │
-                 ▼
-   cluster_tsv  (one row per member: rep_id ⟷ member_id)
-```
-
-The k-mer prefilter is the load-bearing step: it converts the quadratic
-all-pairs problem into a roughly linear "look up similar k-mers"
-problem. The trade-off is that sequences below the prefilter score
-threshold never reach the alignment step, so a fast prefilter can miss
-true matches (sensitivity loss).
-
-### 2.3 easy-cluster vs easy-linclust
-
-mmseqs2 ships two main entry points for unsupervised clustering:
-
-- **`easy-cluster`** — runs the cascade above in multiple sensitivity
-  passes (cascaded clustering, with optional re-assignment). Higher
-  sensitivity. Slower per run on long sequences.
-- **`easy-linclust`** — a linear-time variant that uses a single-pass
-  prefilter and skips the cascade. Lower sensitivity. Faster.
+- **`easy-cluster`** — runs standard cascaded clustering workflow, using multiple sensitivity stages and optional reassignment; generally more sensitive, but slower.
+-  **`easy-linclust`** — runs the Linclust workflow, designed for near-linear-time clustering of very large sequence sets; much faster, but usually less sensitive than cascaded clustering.
 
 **Choice on Flu A: symmetric easy-linclust on both alphabets** (since
 2026-05-22). The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_cluster`
@@ -337,38 +280,6 @@ CLI (see that wrapper's docstring for the full pinned set:
 `--cluster-mode 0`, `--seq-id-mode 0`, `--similarity-type 2`,
 `-e 0.001`, `--dbtype 1` (aa) / `2` (nt), in addition to the
 caller-supplied `--min-seq-id`, `-c 0.8`, `--cov-mode 0`).
-
-**Why symmetric** (was asymmetric, easy-cluster on aa + easy-linclust
-on nt, prior to 2026-05-22). A 2026-05-21 validation experiment
-compared easy-cluster vs easy-linclust on identical aa input at
-identical parameters. On the full Flu A corpus the two algorithms
-disagreed by a factor of 5–500× on cluster counts at sub-id100
-thresholds (e.g., PB2 at id095: 26 clusters under easy-cluster vs
-6,491 under easy-linclust — a 250× ratio). The gap was scale-dependent
-(under 6% at N = 100, growing super-linearly to ~520% at the full
-corpus N ≈ 42K) and traced to easy-cluster's 3-round cascade + spaced
-k-mers chaining transitively-similar sequences that easy-linclust's
-single-pass prefilter cannot bridge. Under the prior asymmetric setup,
-any observed aa-vs-nt difference confounded the alphabet effect with
-the algorithm sensitivity gap. Symmetric easy-linclust holds the
-algorithm constant so that aa-vs-nt comparisons (in §4, §5, §6, §9)
-reflect alphabet diversity rather than algorithm sensitivity. Full
-write-up: `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`.
-
-Measured cost on the Flu A July 2025 corpus
-(`data/processed/flu/{version}/clusters_aa/runtime.json` and
-`clusters_nt/runtime.json`, both written by
-`src/analysis/seq_redundancy_per_function.py`):
-
-| Alphabet | Algorithm | Sweep | Median/run (s) | Max/run (s) |
-|---|---|---|---:|---:|
-| aa | easy-linclust | 90 runs (10 fn × 9 thresholds: id100/099/098/097/096/095/090/085/080) | 1.5 | 11 (PA @ id097) |
-| nt | easy-linclust | 72 runs (8 fn × 9 thresholds: same set as aa) | 6.7 | 217 (PB1 @ id100) |
-
-Both alphabets now share one algorithm. The aa-vs-nt runtime
-asymmetry (~4× faster on aa) reflects sequence-length differences
-(~570 aa median vs ~1700 nt median; nt sequences are 3× longer and
-the prefilter cost scales accordingly).
 
 ---
 
@@ -456,7 +367,7 @@ length" alongside the identity threshold.
 **Coverage's empirical bite on Flu A.** Per-function cluster counts
 across the dedup → id100 → id099 cascade:
 
-| Segment | Function | Input rows | Unique aa seqs | id100  | id099  |
+| Segment | Function | Total seqs | Unique aa seqs | id100  | id099  |
 |---:|---|---:|---:|---:|---:|
 | 1 | PB2 | 108,530 | 33,663 | 33,601 | 18,354 |
 | 2 | PB1 | 108,530 | 31,226 | 30,822 | 17,209 |
@@ -538,7 +449,7 @@ Source: `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 Per-function unique-sequence counts at threshold = 1.00 (i.e., exact
 identity clustering — every cluster has all-identical members):
 
-| Segment | Function | Input rows | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
+| Segment | Function | Total seqs | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
 |---:|---|---:|---:|---:|---:|---:|
 | 1 | PB2 | 108,530 | 33,663 | 31.0% | 67,341 | 62.1% |
 | 2 | PB1 | 108,530 | 31,226 | 28.8% | 67,034 | 61.8% |
