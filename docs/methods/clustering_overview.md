@@ -180,9 +180,6 @@ where:
 can exceed both when one sequence has insertions relative to the
 other. An `--min-seq-id` threshold of 0.95 is a *floor* — only
 sequence pairs with identity ≥ 0.95 are admitted to the same cluster.
-[TODO: understand this -->] §3.2's coverage rule pins the alignment to span ≥80% of the shorter
-sequence, so in practice `alignment_length` is close to the shorter
-sequence's length.
 
 The match unit is **residues**: amino acids (aa) for proteins,
 nucleotides (nt) for DNA. Length is counted also in residues. As a
@@ -192,6 +189,72 @@ similar length within a function), "id 0.95" on a 760-aa PB2 protein
 admits ~38 aa mismatches within a cluster; "id 0.95" on a 2,280-nt
 PB2 CDS admits ~114 nt mismatches. (For the exact
 per-function/per-threshold table see §5.)
+
+**`--seq-id-mode` documentation gotcha.** This flag is not listed in
+the official PDF userguide at https://mmseqs.com/latest/userguide.pdf
+(which covers concepts rather than every CLI flag). The canonical
+reference for every parameter is `mmseqs <subcommand> --help`, e.g.
+`mmseqs easy-cluster --help`, which on the installed binary (v18.8cc5c)
+shows:
+
+```
+--seq-id-mode INT     0: alignment length 1: shorter, 2: longer sequence [0]
+```
+
+**Worked examples** — three small alignments to fix intuition for the
+identity formula and its interaction with the coverage rule:
+
+```
+Case 1: no gaps, one mismatch
+─────────────────────────────────────────────
+Seq A:   M K T V R Q E L K L            (10 residues)
+Seq B:   M K T V R Q E L K Y            (10 residues)
+status:  = = = = = = = = = X            (= match, X mismatch)
+
+alignment_length  = 10  (columns in the alignment)
+n_identical       =  9
+identity (mode 0) = 9 / 10 = 0.90  ← what mmseqs compares to --min-seq-id
+
+Case 2: one internal gap (different-length sequences)
+─────────────────────────────────────────────
+Seq A:   M K T - R Q E L K L            (residues:  9; alignment row: 10 cols)
+Seq B:   M K T V R Q E L K L            (residues: 10; alignment row: 10 cols)
+status:  = = = G = = = = = =            (G = gap)
+
+alignment_length  = 10  (every column counts: matches + mismatches + gaps)
+n_identical       =  9  (gap columns are never identical by definition)
+identity (mode 0) = 9 / 10 = 0.90
+identity (mode 1) = 9 /  9 = 1.00  ← over shorter sequence  (9 residues)
+identity (mode 2) = 9 / 10 = 0.90  ← over longer sequence  (10 residues)
+
+So mode 0 makes gaps cost identity (an indel pushes the value down);
+mode 1 ignores indels entirely. We pin mode 0 — see §3.2 for the
+coverage discussion that interacts with this choice.
+
+Case 3: fragment vs full protein — identity passes, coverage fails
+─────────────────────────────────────────────
+Seq A:   M K T V R Q E L K L                                     (10 residues; fragment)
+Seq B:   M K T V R Q E L K L Q W S P R M N K T L H A V S Q E S F (40 residues; full)
+         = = = = = = = = = = ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─  (= aligned, ─ unaligned in B)
+
+alignment_length  = 10
+n_identical       = 10
+identity (mode 0) = 10 / 10 = 1.00      ✓ identity passes even at t = 1.0
+
+cov(A)  = 10 / 10 = 1.00                ✓
+cov(B)  = 10 / 40 = 0.25                ✗ fails -c 0.8 (under --cov-mode 0)
+
+Under --cov-mode 0 BOTH sequences must have ≥80% of their residues
+inside the aligned region, so the pair does NOT cluster despite
+identity = 1.00.
+```
+
+This is the second mechanism behind §3.1's "modulo coverage" caveat:
+the coverage gate stops fragment-vs-full matches from clustering at
+t = 1.0, but it still permits length-variants where ≤20% of each
+sequence is unaligned (e.g., NA stalk-deletion isoforms aligning to
+NA stalk-full proteins — see §4). See §3.2 for the full coverage
+discussion and `--cov-mode` alternatives.
 
 Note that the same threshold is **biologically stricter on shorter proteins**
 (fewer absolute mutations admitted). See § 5 for a per-function table.
@@ -321,8 +384,15 @@ mechanics that actually drive behavior are below.
 
 Range [0, 1]. Two sequences cluster iff their pairwise identity is
 ≥ t (and they pass the coverage rule below). Counted on residues
-(aa for protein, nt for DNA). At t = 1.0, only exact matches cluster
-(modulo coverage and ambiguity handling).
+(aa for protein, nt for DNA). At t = 1.0, only sequence pairs with
+100% identity *over the aligned region* cluster — the aligned region
+need not span the whole sequence. Under our `-c 0.8 --cov-mode 0`
+settings (§3.2), up to 20% of each sequence can lie outside the
+alignment, so length-variants (e.g., NA stalk-deletion isoforms) can
+still cluster at t = 1.0 even though the full strings differ. See
+§2.1 Case 3 for a worked example and §6.3's NA id100 row (6.9% of
+the corpus pooled into one cluster) for the empirical evidence on
+Flu A.
 
 The biological meaning is per-function — the *same threshold* admits
 different numbers of mutations on a 760-aa PB2 protein vs a 252-aa
