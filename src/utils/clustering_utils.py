@@ -182,12 +182,32 @@ def run_mmseqs_easy_cluster(
     log_path: Optional[Path] = None,
     extra_args: Optional[list] = None,
     alphabet: str = 'aa',
-    algorithm: str = 'cluster',
+    algorithm: str = 'linclust',
 ) -> MMseqsResult:
-    """Run `mmseqs easy-cluster` (or `easy-linclust`) as a subprocess.
+    """Run `mmseqs easy-linclust` (or `easy-cluster`) as a subprocess.
 
-    Defaults match the plan: --min-seq-id={min_seq_id} -c 0.8 --cov-mode 0.
     Produces <out_prefix>_cluster.tsv among other outputs.
+
+    **Pinned mmseqs parameters** (set explicitly on the command line even
+    when the value equals the mmseqs2 default, so the per-run log
+    unambiguously records what we chose vs what we inherited):
+
+    - `--min-seq-id <t>` — identity threshold (caller-supplied via `min_seq_id`).
+    - `-c 0.8` / `--cov-mode 0` — bidirectional ≥80% coverage rule.
+    - `--dbtype 1` (aa) or `--dbtype 2` (nt) — explicit alphabet, no auto-detect.
+    - `--cluster-mode 0` — Set-Cover greedy assignment (mmseqs2 default; pinned
+      because mode 2 = CDHIT-style and mode 1 = BLASTclust are valid alternatives).
+    - `--seq-id-mode 0` — identity = matches / alignment_length (mmseqs2 default;
+      pinned because mode 1 = shorter, mode 2 = longer are valid alternatives,
+      and they give materially different cluster radii on length-variant corpora).
+    - `--similarity-type 2` — sequence-identity scoring (mmseqs2 default; pinned
+      because alignment-score scoring is the alternative).
+    - `-e 0.001` — alignment e-value cutoff (mmseqs2 default; pinned for
+      reproducibility against future default drifts).
+
+    All other mmseqs2 flags (sensitivity, k-mer size, masking, alignment-mode,
+    etc.) are left at mmseqs2's tuned defaults. The per-run log dumps the full
+    parameter set; consult that log for forensic reproduction.
 
     Args:
         fasta_path: input FASTA file.
@@ -202,15 +222,19 @@ def run_mmseqs_easy_cluster(
             (lookup on PATH). Use this to point at an isolated mmseqs2 env
             without putting it on PATH (see .claude/memory.md "Env Management").
         log_path: if given, mmseqs stdout/stderr is written here.
-        extra_args: any additional flags to append.
-        alphabet: 'aa' (default) or 'nt'. 'nt' passes `--dbtype 2` so
-            mmseqs treats the input as nucleotides; required for the
-            Experiment B-nt CDS clustering path.
-        algorithm: 'cluster' (default, `easy-cluster` — slower, sensitive
-            cascaded clustering) or 'linclust' (`easy-linclust` — linear
-            time, less sensitive). linclust is appropriate for the nt
-            redundancy sweep on the full corpus where easy-cluster's
-            prefilter is the bottleneck.
+        extra_args: any additional flags to append. Caller-supplied flags
+            appear AFTER the pinned set on the command line, so they can
+            override (mmseqs2 takes the last value when a flag is repeated).
+        alphabet: 'aa' (default) or 'nt'. Selects `--dbtype 1` (aa) or
+            `--dbtype 2` (nt). Required for the Experiment B-nt CDS clustering
+            path (nt).
+        algorithm: 'linclust' (default, `easy-linclust` — linear-time, single-pass)
+            or 'cluster' (`easy-cluster` — sensitive 3-round cascade). Both
+            alphabets use linclust since 2026-05-22; see
+            `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
+            for the rationale (the asymmetric easy-cluster/easy-linclust choice
+            conflated algorithm sensitivity with alphabet diversity in §8/§9
+            of the methods doc; symmetric linclust gives a cleaner comparison).
     """
     fasta_path = Path(fasta_path)
     out_prefix = Path(out_prefix)
@@ -239,23 +263,32 @@ def run_mmseqs_easy_cluster(
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     subcmd = 'easy-cluster' if algorithm == 'cluster' else 'easy-linclust'
+    # `--dbtype` is the only flag that differs between alphabets:
+    #   --dbtype 1 = amino acid, --dbtype 2 = nucleotide.
+    # We pin it explicitly (no --dbtype 0 auto-detect) so the alphabet is
+    # part of the audit trail. `--search-type 3` is a `search`-only flag
+    # in mmseqs 18 and gets rejected on easy-cluster / easy-linclust.
+    dbtype = '1' if alphabet == 'aa' else '2'
     cmd = [
         mmseqs_bin, subcmd,
         str(fasta_path),
         str(out_prefix),
         str(tmp_dir),
+        # Pinned set — see docstring for rationale on each.
         '--min-seq-id', f'{min_seq_id:g}',
         '-c', f'{coverage:g}',
         '--cov-mode', str(cov_mode),
+        '--dbtype', dbtype,
+        '--cluster-mode', '0',     # Set-Cover greedy (mmseqs2 default; explicit for audit)
+        '--seq-id-mode', '0',      # matches / alignment_length (mmseqs2 default)
+        '--similarity-type', '2',  # sequence-identity scoring (mmseqs2 default)
+        '-e', '0.001',             # alignment e-value cutoff (mmseqs2 default)
     ]
-    if alphabet == 'nt':
-        # `easy-cluster`/`easy-linclust` accept --dbtype through createdb;
-        # 2 = nucleotide. (`--search-type 3` is a `search`-only flag in
-        # mmseqs 18 and gets rejected here.)
-        cmd += ['--dbtype', '2']
     if threads is not None:
         cmd += ['--threads', str(threads)]
     if extra_args:
+        # Caller-supplied flags go LAST. mmseqs2 takes the last value on
+        # repetition, so extra_args can override anything in the pinned set.
         cmd += list(extra_args)
 
     if log_path is not None:
@@ -275,7 +308,7 @@ def run_mmseqs_easy_cluster(
         elif hasattr(proc, 'stdout'):
             tail = (proc.stdout or '')[-2000:] + (proc.stderr or '')[-2000:]
         raise RuntimeError(
-            f"mmseqs easy-cluster failed (returncode={proc.returncode}).\n"
+            f"mmseqs {subcmd} failed (returncode={proc.returncode}).\n"
             f"CMD: {' '.join(cmd)}\n"
             f"Tail of output:\n{tail}"
         )
