@@ -8,8 +8,8 @@ slim parquet with the columns Stage 3 / clustering will consume.
 Validation is performed in-loop:
 - HARD-FAIL on any selected-function row where translate-back disagrees
   with the stored `prot_seq` (modulo a trailing '*'). Selected functions
-  are the 8 majors used by the modeling pipeline (PB2, PB1, PA, HA, NP,
-  NA, M1, NS1 by default — read from `conf/virus/<virus>.yaml`).
+  are the 8 major proteins used by the modeling pipeline (PB2, PB1, PA,
+  HA, NP, NA, M1, NS1 by default — read from `conf/virus/flu.yaml`).
 - Rows whose CDS slice runs off the end of the contig, or whose
   protein cannot be located in the genome table, are dropped with a
   WARNING.
@@ -25,6 +25,26 @@ Usage:
 
 Outputs:
     data/processed/<virus>/<data_version>/cds_final.parquet
+
+    One row per (isolate, function): each row contains the coding sequence
+    (`cds_dna`) of one selected protein along with its hash (`cds_dna_hash`,
+    used as the nt-level cluster key). UTRs, introns, and intergenic DNA
+    are NOT included — only the CDS. For spliced proteins (M2, NEP, M42,
+    etc.) exons are joined in the order they appear in `location`. The
+    full genome contig (not consumed downstream by clustering) lives
+    separately in `genome_final.csv` under the `dna_seq` column.
+
+TODO (over-specified `--config_bundle`):
+    This script reads only three fields from the bundle config —
+    `virus_name`, `data_version`, `selected_functions` — all of which come
+    from `config.virus.*` (i.e., from `conf/virus/<name>.yaml` directly,
+    not from any bundle-level keys). A future simplification could replace
+    `--config_bundle` with `--virus <name>` and load `conf/virus/<name>.yaml`
+    directly via Hydra's group-config loader. That would be more
+    semantically accurate (this is a virus-level preprocessing step, not
+    bundle-level), but it deviates from the convention used by Stages 1,
+    2, 3, 4 (all take `--config_bundle`). Leaving as-is for now; not
+    blocking.
 
 Validation status (2026-05-15):
     Unspliced selected_functions (8 Flu A majors): 868,240 / 868,240
@@ -183,6 +203,32 @@ def main():
     n_validate_fail = 0
     sample_log: list[str] = []
 
+    # Per-row CDS extraction. Each protein row produces one cds_dna.
+    # Steps (mirrored in the loop body below):
+    #   1. Look up the protein's matching contig DNA in `ctg_lookup`
+    #      (built from genome_final) via the (assembly_id, genbank_ctg_id)
+    #      key. Rows whose contig is missing are dropped with a WARNING.
+    #   2. Parse the protein's `location` field — a Python list of exon
+    #      tuples (contig_id, start_1based, strand, length), one per exon.
+    #      `parse_location` (src/utils/cds_utils.py) handles the in-memory
+    #      list form and the CSV repr-string form, and rejects BV-BRC's
+    #      `length=-1` sentinel (incomplete spliced annotations on
+    #      ~30% of M42 rows).
+    #   3. Inside `extract_cds_dna`: slice the contig at each exon's
+    #      [start, start+length) coordinates, concatenate the slices in
+    #      the order they appear in `location` (joining splice junctions
+    #      for spliced proteins), and reverse-complement the whole
+    #      concatenation if the strand is `-`. Mixed strands within one
+    #      location raise ValueError.
+    #   4. Validate by translate-back (`_validate_row`): the translation
+    #      of `cds_dna` must match `prot_seq` (X residues wildcarded,
+    #      single trailing `*` tolerated). In strict mode (default),
+    #      a mismatch on a selected function raises immediately. With
+    #      --allow_validation_warnings, the row is dropped with a warning.
+    #   5. Successful rows contribute one entry each to cds_list,
+    #      cds_hashes (md5(cds_dna)), and keep_idx (used to slice
+    #      `prot` after the loop). `cds_length` is derived later from
+    #      `len(cds_dna)`.
     for i, row in enumerate(prot.itertuples(index=False)):
         key = (row.assembly_id, row.genbank_ctg_id)
         contig = ctg_lookup.get(key)

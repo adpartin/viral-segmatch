@@ -148,13 +148,13 @@ threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 
 ## 2. Sequence-space clustering 101
 
-> **Note on the word "pair" in this section.** In §2, "pair" refers to
+> Note that in §2, "pair" refers to
 > *two sequences being aligned by mmseqs2* (the O(N²) alignment problem
-> mmseqs2's k-mer prefilter solves), not the (HA, NA) co-occurring training
-> pairs from §1. mmseqs2 operates per-function on single sequences;
+> mmseqs2's k-mer prefilter solves), not the (HA, NA) co-occurring
+> pairs from §1. mmseqs2 operates per function (or segment) on single sequences;
 > the path from per-function clusters to training-pair routing is in §4.
 
-### 2.1 What "similarity" means
+### 2.1 What sequenece "similarity" means
 
 mmseqs2 represents similarity of two biological sequences using **percent
 identity**. With the default `--seq-id-mode 0`, identity is computed as
@@ -180,12 +180,12 @@ where:
 can exceed both when one sequence has insertions relative to the
 other. An `--min-seq-id` threshold of 0.95 is a *floor* — only
 sequence pairs with identity ≥ 0.95 are admitted to the same cluster.
-§3.2's coverage rule pins the alignment to span ≥80% of the shorter
+[TODO: understand this -->] §3.2's coverage rule pins the alignment to span ≥80% of the shorter
 sequence, so in practice `alignment_length` is close to the shorter
 sequence's length.
 
 The match unit is **residues**: amino acids (aa) for proteins,
-nucleotides (nt) for DNA. Length is counted in residues too. As a
+nucleotides (nt) for DNA. Length is counted also in residues. As a
 first-order intuition, when the alignment spans both sequences
 end-to-end with no gaps (typical when comparing two sequences of
 similar length within a function), "id 0.95" on a 760-aa PB2 protein
@@ -193,19 +193,19 @@ admits ~38 aa mismatches within a cluster; "id 0.95" on a 2,280-nt
 PB2 CDS admits ~114 nt mismatches. (For the exact
 per-function/per-threshold table see §7.)
 
-The same threshold is **biologically stricter on shorter proteins**
+Note that the same threshold is **biologically stricter on shorter proteins**
 (fewer absolute mutations admitted). See § 7 for a per-function table.
 
 ### 2.2 Why not align every sequence to every other sequence?
 
-On the Flu A July 2025 corpus the protein side has 108,530 isolates ×
-8 major proteins = 868,240 protein records. Even after deduplication,
+In the Flu A July 2025 corpus there are 108,530 isolates × 8 major
+proteins = 868,240 protein records. Even after deduplication,
 HA has ~42,000 unique aa sequences (~65,000 unique nt CDS — same order
 of magnitude). Computing exact alignments for every aa sequence pair
 would be 42,000² / 2 ≈ 9 × 10⁸ alignments. Infeasible.
 
-mmseqs2 sidesteps the quadratic with a **k-mer prefilter + alignment
-cascade**:
+mmseqs2 sidesteps the quadratic with a k-mer prefilter + alignment
+cascade:
 
 ```
    FASTA (one entry per unique sequence)
@@ -246,7 +246,7 @@ cascade**:
    cluster_tsv  (one row per member: rep_id ⟷ member_id)
 ```
 
-The prefilter is the load-bearing step: it converts the quadratic
+The k-mer prefilter is the load-bearing step: it converts the quadratic
 all-pairs problem into a roughly linear "look up similar k-mers"
 problem. The trade-off is that sequences below the prefilter score
 threshold never reach the alignment step, so a fast prefilter can miss
@@ -273,11 +273,6 @@ Measured cost on the Flu A July 2025 corpus
 |---|---|---|---:|---:|
 | aa | easy-cluster | 90 runs (10 fn × 9 thresholds: id100/099/098/097/096/095/090/085/080) | 4.8 | 570 (PA @ id100) |
 | nt | easy-linclust | 72 runs (8 fn × 9 thresholds: same set as aa) | 6.7 | 217 (PB1 @ id100) |
-
-Both runs used `--threads 8`. The aa side spends most of its time on
-the high-identity thresholds where the cascaded prefilter examines
-many candidate pairs (id100 dominates the total). The nt side avoids
-that cost by construction.
 
 **Choice on Flu A:** aa stays on easy-cluster because it's already
 fast at this corpus size (median < 5 s per (function, threshold)
@@ -671,7 +666,7 @@ raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
 `bipartite_largest_pct_vs_threshold.png`.
 
 
-### 8.1 Per-function `n_clusters` at 1 pp resolution (aa)
+### 8.1 Per-function `n_clusters` (aa)
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|

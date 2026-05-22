@@ -1,4 +1,4 @@
-"""Pre-clustering redundancy assessment per protein function.
+"""Pre-clustering redundancy assessment per protein function or segment.
 
 Step 1 of the cluster-disjoint splits plan
 (`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`):
@@ -13,8 +13,11 @@ Supports two alphabets:
         `mmseqs easy-cluster` (sensitive cascaded path).
   - nt: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output from
         `src/preprocess/extract_cds_dna.py`) using `mmseqs easy-linclust`
-        (linear-time; ~8x faster on long CDS sequences, within-noise different
-        cluster counts at our thresholds). nt mode passes `--dbtype 2` to mmseqs.
+        (linear-time; substantially faster than easy-cluster on long CDS
+        sequences). nt mode passes `--dbtype 2` to mmseqs. Note that the
+        asymmetric algorithm choice (aa=easy-cluster vs nt=easy-linclust)
+        is for historical/speed reasons; cross-algorithm equivalence on
+        this corpus has not been independently verified.
 
 This produces the per-function cluster lookups that the routing
 helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
@@ -31,19 +34,18 @@ Artifact layout:
     id<th>/combined_cluster.parquet     (concatenation of per-function parquets)
 
 CLI:
-    # aa redundancy sweep — sensitive easy-cluster
+    # aa redundancy sweep — sensitive easy-cluster (current production)
     python -m src.analysis.seq_redundancy_per_function \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_aa \\
-        --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.80 \\
+        --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
 
-    # nt redundancy sweep — fast easy-linclust on cds_final
+    # nt redundancy sweep — fast easy-linclust on cds_final (current production)
     python -m src.analysis.seq_redundancy_per_function \\
         --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
         --out_root   data/processed/flu/July_2025/clusters_nt \\
-        --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \\
-        --functions HA NA PB2 PB1 \\
+        --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --algorithm linclust \\
         --threads 8
 """
@@ -72,8 +74,12 @@ from src.utils.clustering_utils import (  # noqa: E402
 
 
 # Function-name → short alias (mirrors conf/virus/flu.yaml::function_short_names).
-# Only the 9 major core functions + NS1 are listed by default; auxiliary functions
-# (PB1-F2 etc.) can be added by extending --functions on the CLI.
+# The 10 entries cover the 9 core Flu A proteins (PB2, PB1, PA, HA, NP, NA, M1,
+# M2, NEP — see `core_functions` in conf/virus/flu.yaml) + NS1 (an "auxiliary"
+# by the always-vs-sometimes-present dimension, but the primary gene product of
+# segment 8 and one of the 8 majors used by the ML pipeline). Additional
+# auxiliary functions (PB1-F2, PA-X, HA1, HA2, M42, NS3, ...) can be added by
+# extending --functions on the CLI.
 FUNCTION_TO_SHORT = {
     'RNA-dependent RNA polymerase PB2 subunit': 'PB2',
     'RNA-dependent RNA polymerase catalytic core PB1 subunit': 'PB1',
@@ -255,10 +261,9 @@ def write_results_markdown(
                      f"internal `*` rows would be dropped but none exist in this corpus.")
     else:
         sensitivity_note = (
-            'linclust (linear-time, less sensitive) was chosen over the '
-            'sensitive easy-cluster path because easy-cluster\'s prefilter is '
-            'an order of magnitude slower on the longer nt sequences while '
-            'producing within-noise different cluster counts on this corpus.'
+            'linclust (linear-time, less sensitive than easy-cluster) was '
+            'chosen for speed on the longer nt sequences. Cross-algorithm '
+            'equivalence on this corpus has not been independently verified.'
             if algorithm == 'linclust' else
             'easy-cluster (sensitive cascaded clustering) was used.'
         )
