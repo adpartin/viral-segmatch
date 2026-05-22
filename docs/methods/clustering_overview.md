@@ -453,6 +453,40 @@ majors is small (`gto_format_reference.md` §6.5: std ≤ 2.8 aa per
 function), so cov-mode 0 effectively just enforces "near-identical
 length" alongside the identity threshold.
 
+**Coverage's empirical bite on Flu A.** Per-function cluster counts
+across the dedup → id100 → id099 cascade:
+
+| Segment | Function | Input rows | Unique aa seqs | id100  | id099  |
+|---:|---|---:|---:|---:|---:|
+| 1 | PB2 | 108,530 | 33,663 | 33,601 | 18,354 |
+| 2 | PB1 | 108,530 | 31,226 | 30,822 | 17,209 |
+| 3 | PA  | 108,530 | 34,217 | 34,162 | 18,520 |
+| 4 | HA  | 108,530 | 41,896 | 41,760 | 22,679 |
+| 5 | NP  | 108,530 | 17,684 | 17,533 | 10,483 |
+| 6 | NA  | 108,530 | 37,488 | 18,753 |  9,369 |
+| 7 | M1  | 108,530 |  4,771 |  4,712 |  1,764 |
+| 8 | NS1 | 108,530 | 22,225 | 22,131 | 13,508 |
+
+**`Unique aa seqs` vs `id100` — the coverage-driven gap.** `Unique aa
+seqs` is the post-md5-dedup count: every byte-distinct protein string
+is its own row. `id100` is the mmseqs cluster count at threshold = 1.0
+under `-c 0.8 --cov-mode 0`: pairs with 100% identity over the aligned
+region AND ≥80% mutual coverage cluster together — even if the full
+strings differ in length. On 7 of 8 functions the gap is ≤1.3% (e.g.,
+HA 41,896 → 41,760 = 0.3%, M1 4,771 → 4,712 = 1.2%). **NA: 37,488 →
+18,753 = 50% reduction.** The mechanism is NA's stalk-length
+variation — stalk-deletion isoforms are 100% identical to stalk-full
+counterparts over the aligned region (head + membrane), and the
+deletion is small enough relative to NA's ~470 aa length that ≥80%
+coverage on each side passes. They cluster at id100 even though the
+strings differ in residue count. See §2.1 Case 3 for the schematic
+and the NA caveat block at the end of §4 for the full reading-guide
+note.
+
+The `id100` → `id099` column drop is an identity-threshold effect,
+not a coverage effect; see §3.1 (and §6.1 for the full
+id100…id080 n_clusters sweep).
+
 ### 3.3 `--dbtype` and the alphabet
 
 mmseqs2 represents biological sequences differently depending on
