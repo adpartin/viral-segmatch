@@ -157,7 +157,8 @@ threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 ### 2.1 What sequenece "similarity" means
 
 mmseqs2 represents similarity of two biological sequences using **percent
-identity**. With the default `--seq-id-mode 0`, identity is computed as
+identity**. With the default `--seq-id-mode 0` (alternatives: 1 = shorter
+sequence, 2 = longer sequence — discussed below), identity is computed as
 
 ```
 identity = n_identical / alignment_length
@@ -202,7 +203,9 @@ shows:
 ```
 
 **Worked examples** — three small alignments to fix intuition for the
-identity formula and its interaction with the coverage rule:
+identity formula and its interaction with the coverage rule. In each
+case, "mode N" refers to `--seq-id-mode N` (the identity denominator);
+coverage uses a separate `--cov-mode` discussed in §3.2.
 
 ```
 Case 1: no gaps, one mismatch
@@ -501,7 +504,7 @@ Source: `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 Per-function unique-sequence counts at threshold = 1.00 (i.e., exact
 identity clustering — every cluster has all-identical members):
 
-| Segment | Function | Input rows | Unique aa | % unique aa | Unique nt | % unique nt |
+| Segment | Function | Input rows | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
 |---:|---|---:|---:|---:|---:|---:|
 | 1 | PB2 | 108,530 | 33,663 | 31.0% | 67,341 | 62.1% |
 | 2 | PB1 | 108,530 | 31,226 | 28.8% | 67,034 | 61.8% |
@@ -516,12 +519,12 @@ Column meanings:
 
 - `Input rows` = the number of isolates that carry this protein
   (108,530 in this corpus on every function).
-- `Unique aa` / `Unique nt` = unique sequence count after md5-dedup on
-  `prot_seq` / `cds_dna` respectively. This is the FASTA row count
-  that mmseqs sees as input. It is *not* an mmseqs cluster count —
-  it's the pre-clustering dedup result and is algorithm-agnostic.
-- `% unique aa` / `% unique nt` = `Unique aa` / `Input rows` (and the
-  same for nt). Read as the **diversity/uniqueness rate**: high % =
+- `Unique aa seqs` / `Unique nt seqs` = unique sequence count after
+  md5-dedup on `prot_seq` / `cds_dna` respectively. This is the FASTA
+  row count that mmseqs sees as input. It is *not* an mmseqs cluster
+  count — it's the pre-clustering dedup result and is algorithm-agnostic.
+- `% unique aa` / `% unique nt` = `Unique aa seqs` / `Input rows` (and
+  the same for nt). Read as the **diversity/uniqueness rate**: high % =
   more diverse population at the sequence level, low % = heavily
   redundant population.
 
