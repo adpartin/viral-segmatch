@@ -1,6 +1,43 @@
 # 2026-05-21 — aa clustering algorithm validation: easy-cluster vs easy-linclust
 
-**Status: IN PROGRESS**
+**Status: IMPLEMENTED** (2026-05-22)
+
+## Implementation summary
+
+Decision reached on 2026-05-22 after completing Phases 0, 3, and 5 (1, 2,
+and 4 were skipped — 1 and 2 because Phase 0 falsified their underlying
+hypotheses, 4 because Phase 3's finding was conclusive enough that an
+independent third tool wouldn't change the decision).
+
+**Outcome:** switch to symmetric `mmseqs easy-linclust` on both aa and nt.
+The asymmetric easy-cluster/easy-linclust setup conflated alphabet
+diversity with algorithm sensitivity in §6/§9 of the methods doc, and the
+"corpus-driven not algorithm-driven" framing was falsified by Phase 0's
+scaling experiment (5x–500x cluster-count disagreement between the two
+algorithms on identical aa input).
+
+Full writeup with decision rationale, headline number shifts, and follow-up
+work: `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`.
+
+Implementation commits on `feature/symmetric-easy-linclust`:
+
+- `af049c9` — record Phase 0 + Phase 3 findings in this plan
+- `09e0411` — `clustering_overview.md` section shuffle (reorder + cross-ref renumbering)
+- `9d9578a` — wrapper defaults switched to linclust + pinned mmseqs2 flags
+- `71eaa3a` — `clustering_overview.md` content rewrite under linclust numbers
+
+Data regenerated under linclust (clusters_aa, two aa feasibility CSVs,
+cluster_analysis_summary outputs). Prior aa easy-cluster artifacts
+archived at `data/processed/flu/July_2025/clusters_aa_easy_cluster_archive/`
+for reversibility.
+
+Follow-ups tracked in `BACKLOG.md`:
+- Rebuild cluster_disjoint datasets (id099 HA/NA + PB2/PB1, possibly id098).
+- Re-run downstream LGBM / 1-NN / MLP comparisons on rebuilt datasets.
+- Cross-tab aa vs nt cluster memberships to resolve the "nt < aa cluster
+  count at id099" mechanism question (methodology open question).
+
+---
 
 ## Problem
 
@@ -129,6 +166,93 @@ mmseqs `_cluster.tsv` directly.
 
 ---
 
+## Phase 0 — completed 2026-05-21
+
+### Parameter parity audit
+
+Both algorithms run on the same 100-HA FASTA at id097. Parameter dumps captured
+from `mmseqs ... -v 3` stdout. Detailed comparison in `tmp/phase0/`.
+
+**Key finding: 60 parameters identical, 1 directly differs, 13 cluster-only.**
+
+The 60 identical parameters include the operationally important ones we set:
+`Cluster mode = 0` (Set-Cover), `Coverage threshold = 0.8`, `Coverage mode = 0`,
+`Seq. id. threshold = 0.97`, `Seq. id. mode = 0`, `Similarity type = 2`.
+
+| Parameter | easy-cluster | easy-linclust | Note |
+|---|---|---|---|
+| Spaced k-mers | 1 (on) | 0 (off) | only directly differing param |
+| Cascaded clustering steps | 3 | absent | linclust is single-pass by design |
+| Sensitivity | 4 | absent | linclust has no `-s` knob |
+| Cluster reassign | false (default) | absent | off in cluster by default |
+| Single step clustering | false | absent | cluster cascade is multi-step |
+
+### Scaling experiment (HA at id097, sequential subsets)
+
+| N | easy-cluster | easy-linclust | %diff | t_cluster | t_linclust |
+|---:|---:|---:|---:|---:|---:|
+| 100 | 37 | 39 | +5.4% | 2.1s | 0.5s |
+| 1,000 | 183 | 230 | +25.7% | 2.5s | 0.7s |
+| 5,000 | 490 | 1,131 | +130.8% | 4.6s | 1.0s |
+| 10,000 | 723 | 2,359 | +226.3% | 7.9s | 1.3s |
+| 20,000 | 1,089 | 5,052 | +363.9% | 14.0s | 2.0s |
+| 41,896 (full) | 1,706 | 10,558 | +519% | 30.1s | 3.9s |
+
+**Disagreement is super-linear in N.** At small scale (N=100) the algorithms
+agree to within 1 cluster. At full corpus the gap is 5×+. Diagnosis: easy-cluster's
+3-round cascade + spaced k-mers chain together transitively-similar sequences whose
+pairwise identity may be below threshold; easy-linclust's single-pass prefilter
+catches direct pairs but cannot bridge chains.
+
+### Hypothesis status after Phase 0
+
+| Hyp | Status | Evidence |
+|---|---|---|
+| A — cluster-mode default differs | **FALSIFIED** | Both use mode 0 per logs + `--help` |
+| B — Sensitivity defaults (cascade vs single-pass) | **CONFIRMED** | cluster has cascade params; linclust doesn't |
+| C — cluster-reassign | **NOT THE CAUSE** | cluster's reassign is `false` by default |
+| D — flu-corpus pathology (scale-dependent transitive closure) | **STRONGLY CONFIRMED** | scaling table shows super-linear gap growth |
+| E — bookkeeping | **RULED OUT** | TSV semantics identical |
+
+### Implications for Phases 1 and 2
+
+- **Phase 1 (force `--cluster-mode 0` on linclust) is moot.** Both algorithms
+  already default to mode 0. There's no setting to change.
+- **Phase 2 (turn off `--cluster-reassign`) is moot.** Cluster-reassign is
+  already off (`false`) in easy-cluster by default. The gap we observe is the
+  baseline behavior.
+
+The original plan structure assumed cluster-mode and/or reassign were the
+explanation. Phase 0 shows the actual difference is the **cascade + spaced
+k-mers** (hypothesis B), and the effect is amplified by **transitive closure
+at scale** (hypothesis D). The remaining question is no longer "why the
+algorithms differ" but "which clustering is biologically meaningful for our
+leakage-prevention goal" — a methodology choice, not a parameter bug.
+
+### Interpretation framing for Phase 3
+
+The two algorithms encode two valid interpretations of "cluster at id097":
+
+- **easy-cluster (chain-merge):** A merges with B (id 0.98), B with C
+  (id 0.98), even if A and C are at id 0.95 (below threshold). The cascade
+  transitively groups all chain-connected sequences. STRONGER leakage
+  barrier (covers chain-near-neighbors too); aggressive on conserved
+  proteins; produces mega-clusters that drive the BiCC pair-routing
+  problem (see `docs/results/2026-05-21_bicc_pair_drop_audit.md`).
+- **easy-linclust (strict-pair):** A and B in the same cluster iff
+  direct identity ≥ 0.97. No chaining. WEAKER but DIRECT-DEFINITION-
+  MATCHING — clusters reflect what "near-neighbor at id097" literally
+  means. May miss chain-connected near-neighbors; under-clusters
+  conserved proteins.
+
+Phase 3's empirical question: for the disputed pairs (in same easy-cluster
+cluster but different easy-linclust clusters), what are the *actual*
+direct pairwise identities? The distribution tells us whether the cascade
+is over-merging via sub-threshold chains or whether linclust is missing
+truly direct near-neighbors.
+
+---
+
 ## Investigation plan
 
 Phased, each phase with go/no-go decision. Estimated total: ~1 working day if everything
@@ -157,7 +281,10 @@ side-by-side diff table of effective parameters.
 the cascade, narrow scope to those before testing Phase 1 / 2. If anything else is
 unexpectedly different, fix it first.
 
-### Phase 1 — Same `--cluster-mode` control (~30 min)
+### Phase 1 — Same `--cluster-mode` control (~30 min) — SKIPPED, MOOT
+
+(Phase 0 falsified hypothesis A — both algorithms already default to
+`Cluster mode = 0`. Forcing it explicit would change nothing.)
 
 **Question.** How much of the gap is just from cluster-mode default differences (H/A)?
 
@@ -170,7 +297,10 @@ extreme-divergence zone).
   easy-linclust everywhere + force `--cluster-mode 0`. Phase 2/3 optional.
 - If gap persists at >2×: hypothesis A insufficient. Continue to Phase 2.
 
-### Phase 2 — `--cluster-reassign 0` control (~30 min)
+### Phase 2 — `--cluster-reassign 0` control (~30 min) — SKIPPED, MOOT
+
+(Phase 0 showed cluster-reassign is already `false` by default in easy-cluster.
+Turning it off would change nothing because it's already off.)
 
 **Question.** Is easy-cluster's optional re-assign step responsible for the
 conserved-protein mega-clusters (H/C)?
@@ -282,27 +412,24 @@ or document as separate exploratory work.
 
 ## Decision tree (summary)
 
+Post-Phase-0 (Phases 1 + 2 SKIPPED as moot):
+
 ```
-Phase 0 (parameter parity)
-   ├── only --cluster-mode / cascade differ → Phase 1
-   └── unexpected param differences → fix wrapper first, re-run
-
-Phase 1 (force --cluster-mode 0 on linclust)
-   ├── gap closes (<10%) → Decision = "switch to linclust + cluster-mode 0", skip 2/3
-   └── gap persists (>2×) → Phase 2
-
-Phase 2 (turn off cluster-reassign in cluster)
-   ├── cluster counts jump → re-assign is the cause → Phase 3 (which mode is right?)
-   └── counts barely move → re-assign not the cause → Phase 3 (sensitivity gap is real)
+Phase 0 (parameter parity)  → DONE; cascade + spaced k-mers + scale-dependence identified
 
 Phase 3 (ground-truth on PB2 id096)
-   ├── easy-cluster over-merges (within-cluster id < 0.96) → linclust wins, switch
-   ├── easy-linclust under-merges (cross-cluster id >= 0.96) → cluster wins, keep asym
-   └── both valid (different operating points) → Phase 4 or methodology call
+   ├── easy-cluster over-merges (within-cluster id < 0.96 on many pairs)
+   │     → linclust's strict-pair view matches the leakage definition better.
+   │     → Decision: switch to easy-linclust on both alphabets.
+   ├── easy-cluster's chain-merged pairs are mostly ≥ 0.96 (sub-threshold pairs are rare)
+   │     → cascade is justified; linclust is missing direct near-neighbors.
+   │     → Decision: keep easy-cluster on aa; consider easy-cluster on nt too.
+   └── mixed picture (cascade has many sub-threshold chains BUT linclust misses
+       direct pairs too) → Phase 4 (CD-HIT tie-breaker) or methodology call.
 
 Phase 4 (CD-HIT tie-breaker, optional)
-   ├── CD-HIT agrees with mmseqs cluster → cluster wins
-   └── CD-HIT agrees with mmseqs linclust → linclust wins
+   ├── CD-HIT agrees with mmseqs cluster → cluster (cascade) view wins
+   └── CD-HIT agrees with mmseqs linclust → linclust (strict-pair) view wins
 
 Phase 5 — decide + writeup + (optionally) re-generate downstream artifacts.
 ```

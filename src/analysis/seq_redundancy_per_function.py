@@ -8,16 +8,21 @@ thresholds are feasible for cluster-disjoint routing (a threshold that collapses
 too much of a function into one giant cluster makes the partition trivial / forces
 unacceptable pair-drops).
 
-Supports two alphabets:
-  - aa: clusters `prot_seq` from `protein_final.parquet` (Stage 1 output) using
-        `mmseqs easy-cluster` (sensitive cascaded path).
+Supports two alphabets, both clustered with `mmseqs easy-linclust` since
+2026-05-22 (symmetric algorithm choice — see
+`docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
+for why we no longer use easy-cluster on aa):
+  - aa: clusters `prot_seq` from `protein_final.parquet` (Stage 1 output).
+        `--dbtype 1` (amino acid alphabet).
   - nt: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output from
-        `src/preprocess/extract_cds_dna.py`) using `mmseqs easy-linclust`
-        (linear-time; substantially faster than easy-cluster on long CDS
-        sequences). nt mode passes `--dbtype 2` to mmseqs. Note that the
-        asymmetric algorithm choice (aa=easy-cluster vs nt=easy-linclust)
-        is for historical/speed reasons; cross-algorithm equivalence on
-        this corpus has not been independently verified.
+        `src/preprocess/extract_cds_dna.py`). `--dbtype 2` (nucleotide
+        alphabet).
+
+The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_cluster`
+pins the decision-relevant mmseqs flags explicitly (--cluster-mode 0,
+--seq-id-mode 0, --similarity-type 2, -e 0.001, in addition to the
+identity / coverage / dbtype flags); see that wrapper's docstring for
+the full pinned set + rationale.
 
 This produces the per-function cluster lookups that the routing
 helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
@@ -34,20 +39,22 @@ Artifact layout:
     id<th>/combined_cluster.parquet     (concatenation of per-function parquets)
 
 CLI:
-    # aa redundancy sweep — sensitive easy-cluster (current production)
+    # aa redundancy sweep (easy-linclust is the default since 2026-05-22).
     python -m src.analysis.seq_redundancy_per_function \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_aa \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
 
-    # nt redundancy sweep — fast easy-linclust on cds_final (current production)
+    # nt redundancy sweep (same default).
     python -m src.analysis.seq_redundancy_per_function \\
         --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
         --out_root   data/processed/flu/July_2025/clusters_nt \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
-        --algorithm linclust \\
         --threads 8
+
+    # The default is symmetric. Pass --algorithm cluster explicitly if you
+    # want easy-cluster's 3-round cascade for a one-off comparison.
 """
 from __future__ import annotations
 
@@ -94,6 +101,20 @@ FUNCTION_TO_SHORT = {
 }
 SHORT_TO_FUNCTION = {v: k for k, v in FUNCTION_TO_SHORT.items()}
 
+# Flu A canonical segment id per short name. Segments 7 and 8 host two
+# proteins each (M1+M2 on 7, NS1+NEP on 8). Used by write_results_markdown
+# to add a Segment column to the per-threshold tables and to sort rows by
+# segment order (PB2 first, NEP last) instead of alphabetical.
+SHORT_TO_SEGMENT = {
+    'PB2': 1, 'PB1': 2, 'PA': 3, 'HA': 4, 'NP': 5, 'NA': 6,
+    'M1':  7, 'M2':  7, 'NS1': 8, 'NEP': 8,
+}
+# Canonical row order within the redundancy_summary.md tables: by segment id,
+# with the segment's primary (major) protein listed before its alternative
+# reading frame products. Matches conf/virus/flu.yaml::protein_order.
+SHORT_CANONICAL_ORDER = ['PB2', 'PB1', 'PA', 'HA', 'NP', 'NA',
+                         'M1', 'M2', 'NS1', 'NEP']
+
 
 def _threshold_label(threshold: float) -> str:
     """Format float threshold as a stable directory label, e.g. 0.95 -> 'id095'."""
@@ -109,7 +130,7 @@ def cluster_one_function_one_threshold(
     threads: Optional[int] = None,
     force: bool = False,
     alphabet: str = 'aa',
-    algorithm: str = 'cluster',
+    algorithm: str = 'linclust',
     mmseqs_bin: Optional[str] = None,
 ) -> dict:
     """Run mmseqs at one threshold on the FASTA for one function.
@@ -231,7 +252,7 @@ def write_results_markdown(
     stats_df: pd.DataFrame,
     protein_final_path: str,
     alphabet: str = 'aa',
-    algorithm: str = 'cluster',
+    algorithm: str = 'linclust',
     ) -> None:
     """Write a human-readable markdown table per threshold."""
     out_md = Path(out_md)
@@ -278,25 +299,36 @@ def write_results_markdown(
     lines.append("")
     lines.append("## Results — cluster-size distribution per (function, threshold)")
     lines.append("")
-    cols = ['function_short', 'threshold', 'n_sequences', 'n_clusters',
-            'largest_cluster', 'p99_cluster_size', 'p90_cluster_size',
-            'median_cluster_size', 'fraction_singletons']
+    # Order column data: Segment goes leftmost; threshold is the per-table
+    # header value, not a column; remaining columns are the actual stats.
+    data_cols = ['n_sequences', 'n_clusters', 'largest_cluster',
+                 'p99_cluster_size', 'p90_cluster_size',
+                 'median_cluster_size', 'fraction_singletons']
+    header_cols = ['Segment', 'function_short'] + data_cols
     # Iterate strict-to-loose (id100 first, id080 last) to mirror the
     # cluster-collapse-as-threshold-relaxes narrative used in
     # docs/methods/clustering_overview.md §8.
+    sort_index = {s: i for i, s in enumerate(SHORT_CANONICAL_ORDER)}
     for th, sub in stats_df.sort_values('threshold', ascending=False).groupby('threshold', sort=False):
         lines.append(f"### threshold = {th:.2f}")
         lines.append("")
-        tbl = sub[cols].copy().sort_values('function_short')
+        tbl = sub.copy()
+        # Sort by segment order (PB2 first, NEP last). Functions absent
+        # from SHORT_CANONICAL_ORDER get pushed to the end alphabetically.
+        tbl['_sort'] = tbl['function_short'].map(
+            lambda s: sort_index.get(s, len(SHORT_CANONICAL_ORDER))
+        )
+        tbl = tbl.sort_values(['_sort', 'function_short']).drop(columns='_sort')
         tbl['fraction_singletons'] = tbl['fraction_singletons'].map(lambda x: f"{x:.3f}")
         tbl['median_cluster_size'] = tbl['median_cluster_size'].astype(int)
-        lines.append("| " + " | ".join(c for c in cols if c != 'threshold') + " |")
-        lines.append("|" + "|".join(["---:"] * (len(cols) - 1)) + "|")
+        lines.append("| " + " | ".join(header_cols) + " |")
+        # Right-align all numeric columns; left-align function_short.
+        align = ['---:', '---'] + ['---:'] * len(data_cols)
+        lines.append("|" + "|".join(align) + "|")
         for _, row in tbl.iterrows():
-            row_cells = []
-            for c in cols:
-                if c == 'threshold':
-                    continue
+            seg = SHORT_TO_SEGMENT.get(row['function_short'], '')
+            row_cells = [str(seg), str(row['function_short'])]
+            for c in data_cols:
                 v = row[c]
                 if isinstance(v, float):
                     row_cells.append(f"{v:.3f}")
@@ -351,10 +383,14 @@ def main() -> None:
                    help='Path/name of the mmseqs binary. Default: $MMSEQS_BIN, then "mmseqs" on PATH. '
                         'On Lambda set MMSEQS_BIN=/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs '
                         'so the dedicated env is used without putting mmseqs on PATH.')
-    p.add_argument('--algorithm', choices=['cluster', 'linclust'], default='cluster',
-                   help='mmseqs subcommand. cluster=easy-cluster (sensitive, slow), '
-                        'linclust=easy-linclust (linear time, less sensitive). '
-                        'linclust is recommended for the nt CDS sweep on the full corpus.')
+    p.add_argument('--algorithm', choices=['cluster', 'linclust'], default='linclust',
+                   help='mmseqs subcommand. linclust=easy-linclust (default since '
+                        '2026-05-22; linear time, single-pass — used on both '
+                        'alphabets for cross-alphabet consistency). cluster=easy-cluster '
+                        '(sensitive 3-round cascade; retained as an option but no '
+                        'longer the default — the asymmetric easy-cluster/easy-linclust '
+                        'choice conflated algorithm with alphabet in clustering_overview.md '
+                        '§8/§9; see docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md).')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
     p.add_argument('--results_md', default=None,
                    help='Path to results markdown. Default: <out_root>/redundancy_summary.md '
