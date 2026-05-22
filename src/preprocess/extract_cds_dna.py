@@ -128,14 +128,18 @@ def _validate_row(prot_seq: str, cds_dna: str) -> tuple[bool, str]:
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--config_bundle', required=True,
+    p.add_argument('--config_bundle',
+                   required=True,
                    help='Hydra bundle name (only the virus block is used).')
-    p.add_argument('--functions', nargs='+', default=None,
+    p.add_argument('--functions',
+                   nargs='+', default=None,
                    help='Override selected_functions (full function strings).')
-    p.add_argument('--out_filename', default='cds_final.parquet',
+    p.add_argument('--out_filename',
+                   default='cds_final.parquet',
                    help='Output filename (placed under '
                         'data/processed/<virus>/<version>/).')
-    p.add_argument('--allow_validation_warnings', action='store_true',
+    p.add_argument('--allow_validation_warnings',
+                   action='store_true',
                    help='Demote translate-back mismatch on selected '
                         'functions from HARD-FAIL to WARNING.')
     args = p.parse_args()
