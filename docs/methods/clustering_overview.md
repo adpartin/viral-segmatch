@@ -131,9 +131,12 @@ routing on pairs has additional mechanics:
 1. **Cluster per function, independently.** HA sequences get HA
    cluster ids (`HA_c1`, `HA_c2`, …); NA sequences get NA cluster
    ids (`NA_c1`, `NA_c2`, …). mmseqs never sees two functions at once.
-2. **Each pair carries a tuple of two cluster ids.** A pair
-   (HA_x in isolate i, NA_y in isolate i) becomes
-   `(cluster(HA_x), cluster(NA_y))`, e.g., `(HA_c1, NA_c5)`.
+2. **Each positive pair carries a tuple of two cluster ids.** A
+   positive pair `(HA_i, NA_i)` — both proteins from isolate i —
+   becomes the cluster tuple `(cluster(HA_i), cluster(NA_i))`, e.g.,
+   `(HA_c1, NA_c5)`. Note that negative pairs are constructed within
+   each split *after* the routing decision; the bipartite graph that
+   drives routing is built from positives only.
 3. **Build a bipartite graph** with HA clusters on one side, NA
    clusters on the other; an edge `HA_ck ─ NA_cm` exists iff some
    pair has that combination.
