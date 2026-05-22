@@ -1,6 +1,43 @@
 # 2026-05-21 — aa clustering algorithm validation: easy-cluster vs easy-linclust
 
-**Status: IN PROGRESS**
+**Status: IMPLEMENTED** (2026-05-22)
+
+## Implementation summary
+
+Decision reached on 2026-05-22 after completing Phases 0, 3, and 5 (1, 2,
+and 4 were skipped — 1 and 2 because Phase 0 falsified their underlying
+hypotheses, 4 because Phase 3's finding was conclusive enough that an
+independent third tool wouldn't change the decision).
+
+**Outcome:** switch to symmetric `mmseqs easy-linclust` on both aa and nt.
+The asymmetric easy-cluster/easy-linclust setup conflated alphabet
+diversity with algorithm sensitivity in §6/§9 of the methods doc, and the
+"corpus-driven not algorithm-driven" framing was falsified by Phase 0's
+scaling experiment (5x–500x cluster-count disagreement between the two
+algorithms on identical aa input).
+
+Full writeup with decision rationale, headline number shifts, and follow-up
+work: `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`.
+
+Implementation commits on `feature/symmetric-easy-linclust`:
+
+- `af049c9` — record Phase 0 + Phase 3 findings in this plan
+- `09e0411` — `clustering_overview.md` section shuffle (reorder + cross-ref renumbering)
+- `9d9578a` — wrapper defaults switched to linclust + pinned mmseqs2 flags
+- `71eaa3a` — `clustering_overview.md` content rewrite under linclust numbers
+
+Data regenerated under linclust (clusters_aa, two aa feasibility CSVs,
+cluster_analysis_summary outputs). Prior aa easy-cluster artifacts
+archived at `data/processed/flu/July_2025/clusters_aa_easy_cluster_archive/`
+for reversibility.
+
+Follow-ups tracked in `BACKLOG.md`:
+- Rebuild cluster_disjoint datasets (id099 HA/NA + PB2/PB1, possibly id098).
+- Re-run downstream LGBM / 1-NN / MLP comparisons on rebuilt datasets.
+- Cross-tab aa vs nt cluster memberships to resolve the "nt < aa cluster
+  count at id099" mechanism question (methodology open question).
+
+---
 
 ## Problem
 
