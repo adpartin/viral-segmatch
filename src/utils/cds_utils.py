@@ -59,6 +59,7 @@ def parse_location(loc: object) -> list[tuple[str, int, str, int]]:
     if not isinstance(loc, (list, tuple)) or len(loc) == 0:
         raise ValueError(f"location must be a non-empty list, got {loc!r}")
     out: list[tuple[str, int, str, int]] = []
+
     for entry in loc:
         if len(entry) != 4:
             raise ValueError(f"location entry must have 4 fields, got {entry!r}")
@@ -76,6 +77,7 @@ def parse_location(loc: object) -> list[tuple[str, int, str, int]]:
                 f"spliced annotations; ~30% of M42 rows on Flu A July 2025)"
             )
         out.append((str(ctg), s, str(strand), L))
+
     return out
 
 
