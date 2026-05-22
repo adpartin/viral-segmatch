@@ -49,6 +49,48 @@ items worth revisiting before deciding to fully retire the bake-off.
    Worth a GitHub issue against `kalininalab/DataSAIL` if we ever
    re-engage.
 
+## Algorithm-switch follow-ups (post 2026-05-22)
+
+The 2026-05-22 switch from asymmetric easy-cluster (aa) + easy-linclust
+(nt) to symmetric easy-linclust on both alphabets (see
+`docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`)
+invalidated aa cluster artifacts that downstream datasets and ML
+results depend on. Three concrete follow-ups:
+
+1. **Rebuild cluster_disjoint datasets under linclust aa artifacts.**
+   The HA/NA aa id099 and PB2/PB1 aa id099 datasets currently in
+   `data/datasets/flu/July_2025/runs/dataset_flu_*_cluster_id99_*` were
+   built against the prior easy-cluster aa cluster parquets. Under
+   symmetric linclust the cluster IDs are different. Need to rebuild
+   at id099 (and likely id098 too — under linclust id098 is now at
+   88–93% largest CC, much closer to feasibility than the prior 94–98%
+   under easy-cluster). Concrete next action: bump the relevant Stage 3
+   bundles and re-run `scripts/stage3_dataset.sh` against the new
+   `clusters_aa/idNN/combined_cluster.parquet`. (~2 h compute + cleanup.)
+2. **Re-run downstream LGBM / 1-NN / MLP comparisons on the rebuilt
+   datasets.** The headline finding in
+   `docs/results/2026-05-15_cluster_disjoint_nt_results.md` ("1-NN cosine
+   margin ≥ LGBM at every cluster_disjoint routing") was measured against
+   datasets built from the prior easy-cluster aa artifacts. May or may
+   not survive the rebuild. Concrete next action: run the same 8-cell
+   comparison (HA/NA × PB2/PB1 × {seq_disjoint, aa id100, aa id099, nt id100, nt id099})
+   after item #1, with the linclust-era datasets. (~4 h compute on
+   Lambda GPUs after #1 is done.)
+3. **Cross-tab analysis for the "nt < aa cluster count at id099"
+   mechanism** (open methodology question from
+   `clustering_overview.md` §6.1 + the validation results doc § "Open
+   questions"). Under symmetric linclust, nt has FEWER clusters than
+   aa at id099-id098 on most functions — opposite of the prior framing
+   and not currently explained. Concrete next action: write a small
+   analysis script that joins
+   `clusters_aa/id099/<fn>_cluster.parquet` with
+   `clusters_nt/id099/<fn>_cluster.parquet` on `assembly_id`,
+   cross-tabulates aa cluster ID vs nt cluster ID for each function,
+   and produces (a) for each nt cluster, distribution of distinct aa
+   clusters it spans; (b) within-nt-cluster aa pairwise identity
+   histogram. HA at id099 is the cleanest test case (aa = 22,679 vs
+   nt = 12,150). (~1–2 h work; no new sweep needed.)
+
 ## Methodology ideas — possible paper contributions
 
 1. **BiCC improvements (boundary-sample drop / CC-splitting /
