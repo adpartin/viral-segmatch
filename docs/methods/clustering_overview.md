@@ -586,6 +586,26 @@ raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
 | 7 | M1  |  4,712 |  1,764 |  1,033 |  1,003 |    708 |    129 | **24** |  10 |  3 |
 | 8 | NS1 | 22,131 | 13,508 |  9,109 |  6,405 |  4,306 |  3,458 |   786 |  196 | 174 |
 
+**Per-function `n_clusters` (nt)**, for comparison:
+
+| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 66,475 | 11,484 |  4,562 |  2,968 |  1,353 |    954 |    180 |  24 |   5 |
+| 2 | PB1 | 66,138 | 14,990 |  6,276 |  2,548 |  1,307 |    742 |    121 |  18 |  10 |
+| 3 | PA  | 64,406 | 11,184 |  4,356 |  2,214 |  1,071 |    719 |     47 |  13 |   3 |
+| 4 | HA  | 64,526 | 12,150 |  6,412 |  3,444 |  1,843 |  1,277 |    275 | 141 |  85 |
+| 5 | NP  | 52,097 | 11,627 |  4,754 |  2,559 |  1,427 |  1,182 |     66 |  12 |   3 |
+| 6 | NA  | 57,987 | 12,092 |  4,840 |  2,611 |  1,662 |  1,108 |    250 | 134 |  91 |
+| 7 | M1  | 31,974 | 10,227 |  4,239 |  1,420 |  1,101 |    619 |     48 |   5 |   2 |
+| 8 | NS1 | 37,458 | 12,012 |  4,133 |  1,988 |  1,245 |    800 |    196 |  91 |   8 |
+
+nt at id100 always exceeds aa at id100 (synonymous variants split into
+distinct nt singletons). The id095→id090 conserved-protein cliff
+visible on aa (§6.1 aa table) is muted on nt: PB2 nt drops 954→180
+(−81%) where aa drops 6,491→24 (−99.6%). At id090, nt retains 47–275
+clusters on every function whereas aa is reduced to 6–29 on the five
+conserved functions.
+
 **No single-pp cliff.** Under symmetric easy-linclust the steepest
 1 pp drop on any function is ~25% (PB2 at id098→id097: 10,035→7,634).
 The conserved-protein cliff is now at the **id095→id090** transition
@@ -613,15 +633,22 @@ easy-linclust the relationship is more complex:
 - At id100 (exact identity), nt has more clusters than aa on every
   function (synonymous variants split into distinct nt singletons —
   the long-standing intuition holds here).
-- At id099 and id098, **nt collapses faster than aa** on most functions
-  (HA at id099: 22,679 aa clusters vs 12,150 nt clusters — nt has
-  *fewer* despite starting with more unique sequences).
-- The mechanism for this reversal is **not yet established**. Candidate
-  explanations (k-mer prefilter dynamics across alphabets, codon-similarity
-  geometry within an aa-similarity neighborhood) require a cross-tab
-  analysis on the aa and nt cluster parquets to test — not yet done.
-  Tracked as a methodology open question; raw data for the analysis lives
-  in `data/processed/flu/July_2025/clusters_{aa,nt}/id<NN>/<short>_cluster.parquet`.
+- At id099 and id098, **nt has fewer clusters than aa** on five of
+  eight functions (HA at id099: 22,679 aa clusters vs 12,150 nt
+  clusters). M1 is the strongest outlier in the other direction
+  (id099: 1,764 aa vs 10,227 nt, a 5.8× excess).
+- **Mechanism (cross-tab analysis, 2026-05-22):** aa and nt
+  clusterings at id099 are *not nested* — each finds within-cluster
+  variation the other misses, on every function. Two opposing
+  effects compete: (A) nt's rep-based clustering on the longer CDS
+  sequence absorbs aa-distinct point-variant swarms into a single nt
+  cluster (drives nt < aa); (B) synonymous-codon variation fragments
+  aa-identical CDS across multiple nt id099 balls (drives nt > aa).
+  Net direction depends on the function's aa-vs-synonymous diversity
+  balance. Full numbers, per-function regime table, and two
+  illustrative walkthroughs in
+  `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
+  Cross-tab script: `src/analysis/aa_nt_cluster_crosstab.py`.
 
 ### 6.2 Two collapse modes (one deferred cliff, one gradual)
 
