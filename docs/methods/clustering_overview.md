@@ -346,7 +346,7 @@ prevents that fragment from clustering with the full protein.
 ```
                                  [identity = 100% on the aligned region]
 query   ════════════════════════════════════════════════   L_q = 800
-                       ║║║║║║
+                       ║║║║║║║║║║║║║║║║║║
 target                 [─── fragment ───]                  L_t = 200
                        covered region: 200 residues
 
