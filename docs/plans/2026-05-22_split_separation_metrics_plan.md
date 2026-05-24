@@ -34,21 +34,26 @@ tested. Full writeup, tables, and reproduce commands:
 `docs/results/2026-05-24_datasail_lpi_results.md`.
 
 **MMD leg (Step 2) — Phase 1 + Phase 2 done at 1000-isolate
-subsample on Flu A HA/NA, per-slot (S1), on TWO feature spaces
-(ESM-2 and aa k=3).** Script: `src/analysis/mmd_per_slot.py` (runs
-in `segmatch` env). Phase 1 wiring sanity passed on both feature
-spaces (random per-entity 50/50 splits give MMD² at the bias-term
-noise floor). Phase 2 with fixed σ per feature space and 500-
+subsample on Flu A HA/NA, per-slot (S1), on THREE feature spaces
+(ESM-2, aa k=3, nt k=6).** Script: `src/analysis/mmd_per_slot.py`
+(runs in `segmatch` env). Phase 1 wiring sanity passed on all three
+feature spaces. Phase 2 with fixed σ per feature space and 500-
 permutation p-values produced the ordering random ≤ seq_disjoint <
 cluster_disjoint id099 on every (slot × feature space) cell.
-cluster_disjoint id099 reaches p ≈ 0.002 in all four cells (0/500
+cluster_disjoint id099 reaches p ≈ 0.002 in all six cells (0/500
 permutations exceeded observed MMD²) — robust to both slot and
-feature space. random is non-significant in all four cells
-(p > 0.6). seq_disjoint is feature-space-dependent on HA (ESM-2
-p = 0.166 not sig; aa k=3 p = 0.004 sig) and consistent on NA
-(both feature spaces give borderline p ≈ 0.06). Not tested: full-
-corpus scale, pair-level (S2), nt k-mer features, downstream
-generalization gap. Full writeup, tables, side-by-side comparison,
+feature space. random is non-significant in all six cells (p > 0.6).
+seq_disjoint shows a monotonic sensitivity ordering ESM-2 < aa k=3
+< nt k=6 on both slots: ESM-2 not sig on HA (p = 0.166) and
+borderline on NA (p = 0.056); aa k=3 sig on HA (p = 0.004) and
+borderline on NA (p = 0.062); nt k=6 highly sig on both slots
+(p = 0.002 each, the add-one floor). nt k=6 also has the highest
+cluster_disjoint discrimination ratio (23.1× HA / 14.2× NA vs
+ESM-2's 12.1×/13.1×) — empirically consistent with project's
+"K-mer (k=6) matches or exceeds ESM-2 on mixed-subtype HA/NA"
+finding from a different angle. Not tested: full-corpus scale,
+pair-level (S2), other k-mer variants (aa k=4, nt k=3), downstream
+generalization gap. Full writeup, tables, side-by-side comparisons,
 reproduce commands, and explicit "what we can / cannot claim":
 `docs/results/2026-05-24_mmd_per_slot_results.md`.
 

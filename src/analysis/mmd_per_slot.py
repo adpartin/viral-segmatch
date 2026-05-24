@@ -55,16 +55,33 @@ SLOT_NAME = {'a': 'HA', 'b': 'NA'}
 
 
 def load_unique_slot_entities(dataset_dir: Path, slot: str,
-                               n_isolates: int, subsample_seed: int
+                               n_isolates: int, subsample_seed: int,
+                               dedup_by: str = 'protein',
                                ) -> pd.DataFrame:
-    """Load positives, subsample isolates, dedup by seq_hash on one slot.
+    """Load positives, subsample isolates, dedup by protein or DNA on one slot.
 
-    Returns a DataFrame [assembly_id, brc_fea_id, seq_hash, orig_split,
-    is_ambiguous] — one row per unique protein. `orig_split` is the first
-    split the entity was seen in; `is_ambiguous` flags entities whose
-    pairs straddle multiple splits (only happens under random per-pair
-    routing).
+    `dedup_by='protein'` (default): one row per unique `seq_hash_{slot}`.
+    Used for ESM-2 and aa k-mer (both keyed by `brc_fea_id`, both
+    protein-level).
+    `dedup_by='dna'`: one row per unique `dna_hash_{slot}`. Used for nt
+    k-mer (keyed by `ctg_id`, DNA-level). The same protein may have
+    multiple unique DNA encodings across isolates via synonymous codons,
+    so DNA-level dedup gives slightly more entities than protein-level.
+
+    Returns a DataFrame [assembly_id, brc_fea_id, ctg_id, seq_hash,
+    dna_hash, orig_split, is_ambiguous] — one row per unique entity by
+    the chosen dedup key. `is_ambiguous` flags entities whose pairs
+    straddle multiple splits (only happens under random per-pair).
     """
+    if dedup_by == 'protein':
+        dedup_src = f'seq_hash_{slot}'
+        dedup_renamed = 'seq_hash'
+    elif dedup_by == 'dna':
+        dedup_src = f'dna_hash_{slot}'
+        dedup_renamed = 'dna_hash'
+    else:
+        raise ValueError(f"dedup_by must be 'protein' or 'dna', got {dedup_by}")
+
     frames = []
     for split_name in ('train', 'val', 'test'):
         df = pd.read_csv(dataset_dir / f'{split_name}_pairs.csv', low_memory=False)
@@ -84,47 +101,63 @@ def load_unique_slot_entities(dataset_dir: Path, slot: str,
     # entity-disjoint routings (seq_disjoint, cluster_disjoint); ~1% for
     # random per-pair on this corpus.
     multi_split = (pos
-                   .groupby(f'seq_hash_{slot}')['orig_split']
+                   .groupby(dedup_src)['orig_split']
                    .nunique())
     ambiguous = set(multi_split[multi_split > 1].index)
 
-    # One row per unique seq_hash. Pair-CSV columns are slot-suffixed
-    # (brc_a, seq_hash_a, ...); rename to plain names for the lookup.
+    # Carry all lookup keys + both hashes through so downstream loaders
+    # can pick whichever they need.
     cols = {
         f'assembly_id_{slot}': 'assembly_id',
         f'brc_{slot}': 'brc_fea_id',
+        f'ctg_{slot}': 'ctg_id',
         f'seq_hash_{slot}': 'seq_hash',
+        f'dna_hash_{slot}': 'dna_hash',
         'orig_split': 'orig_split',
     }
     entities = (pos
-                .drop_duplicates(subset=f'seq_hash_{slot}')
+                .drop_duplicates(subset=dedup_src)
                 .loc[:, list(cols.keys())]
                 .rename(columns=cols)
                 .reset_index(drop=True))
-    entities['is_ambiguous'] = entities['seq_hash'].isin(ambiguous)
+    entities['is_ambiguous'] = entities[dedup_renamed].isin(ambiguous)
     return entities
 
 
 def load_features(entities: pd.DataFrame, feature_space: str,
                    embedding_path: Path, kmer_dir: Path, kmer_k: int,
-                   ) -> tuple[np.ndarray, pd.DataFrame]:
-    """Load per-entity features. Returns (features, filtered_entities).
+                   ) -> tuple[np.ndarray, pd.DataFrame, int]:
+    """Load per-entity features. Returns (features, filtered_entities, n_missing).
 
-    Both ESM-2 and aa k-mer caches use the same (assembly_id, brc_fea_id)
-    composite key, so the entity set is identical across feature spaces
-    in principle. If some entities are missing from a cache, we filter
-    `entities` to match the loaded subset (in row order) and report the
-    miss count.
+    ESM-2 and aa k-mer use (assembly_id, brc_fea_id) lookup; nt k-mer
+    uses (assembly_id, normalized_ctg_id). Normalization mirrors
+    `kmer_utils.load_kmer_index`: convert numeric strings through
+    str(float(x)) so '1406633' and '1406633.0' map to the same key.
     """
-    keys = list(zip(entities['assembly_id'].astype(str),
-                    entities['brc_fea_id'].astype(str)))
-
     if feature_space == 'esm2':
+        keys = list(zip(entities['assembly_id'].astype(str),
+                        entities['brc_fea_id'].astype(str)))
         emb, valid_keys = load_embeddings_by_ids(keys, embedding_path)
     elif feature_space == 'kmer_aa':
+        keys = list(zip(entities['assembly_id'].astype(str),
+                        entities['brc_fea_id'].astype(str)))
         key_to_row = load_kmer_index(kmer_dir, k=kmer_k, alphabet='aa')
         kmer_csr = load_kmer_matrix(kmer_dir, k=kmer_k, alphabet='aa')
-        # Pick the rows for our entities; track which keys hit.
+        row_idx, valid_keys = [], []
+        for key in keys:
+            r = key_to_row.get(key)
+            if r is not None:
+                row_idx.append(r)
+                valid_keys.append(key)
+        emb = kmer_csr[row_idx].toarray().astype(np.float32)
+    elif feature_space == 'kmer_nt':
+        def _norm_ctg(x):
+            x = str(x)
+            return str(float(x)) if x.replace('.', '', 1).isdigit() else x
+        keys = list(zip(entities['assembly_id'].astype(str),
+                        entities['ctg_id'].apply(_norm_ctg)))
+        key_to_row = load_kmer_index(kmer_dir, k=kmer_k, alphabet='nt')
+        kmer_csr = load_kmer_matrix(kmer_dir, k=kmer_k, alphabet='nt')
         row_idx, valid_keys = [], []
         for key in keys:
             r = key_to_row.get(key)
@@ -328,9 +361,10 @@ def main():
                    help='Seed for the permutation test shuffles.')
     p.add_argument('--feature_space',
                    default='esm2',
-                   choices=['esm2', 'kmer_aa'],
-                   help='esm2: 1280-dim ESM-2 protein embeddings (default). '
-                        'kmer_aa: aa k-mer count vectors (vocab_size = 20^k).')
+                   choices=['esm2', 'kmer_aa', 'kmer_nt'],
+                   help='esm2 / kmer_aa: protein-level (dedup by seq_hash, '
+                        'lookup by brc_fea_id). kmer_nt: DNA-level (dedup by '
+                        'dna_hash, lookup by ctg_id).')
     p.add_argument('--embedding_path',
                    type=Path,
                    default=Path('data/embeddings/flu/July_2025/master_esm2_embeddings.h5'),
@@ -350,9 +384,15 @@ def main():
     slot_name = SLOT_NAME[args.slot]
     routing_label = args.routing_label or args.dataset_dir.name
 
-    print(f'Loading unique slot_{args.slot} ({slot_name}) entities ...')
+    # Each feature space has its natural dedup key. ESM-2 and aa k-mer
+    # are protein-level (one entity per unique seq_hash); nt k-mer is
+    # DNA-level (one entity per unique dna_hash).
+    dedup_by = 'dna' if args.feature_space == 'kmer_nt' else 'protein'
+
+    print(f'Loading unique slot_{args.slot} ({slot_name}) entities (dedup_by={dedup_by}) ...')
     entities = load_unique_slot_entities(
         args.dataset_dir, args.slot, args.n_isolates, args.subsample_seed,
+        dedup_by=dedup_by,
     )
     n_ambig = int(entities['is_ambiguous'].sum())
     print(f'  {len(entities)} unique {slot_name} seq_hashes '
