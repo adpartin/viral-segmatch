@@ -76,18 +76,6 @@ results depend on. Three concrete follow-ups:
    comparison (HA/NA × PB2/PB1 × {seq_disjoint, aa id100, aa id099, nt id100, nt id099})
    after item #1, with the linclust-era datasets. (~4 h compute on
    Lambda GPUs after #1 is done.)
-3. ~~**Cross-tab analysis for the "nt < aa cluster count at id099"
-   mechanism**~~ — DONE 2026-05-22. Script
-   `src/analysis/aa_nt_cluster_crosstab.py` + results
-   `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`. Headline:
-   aa and nt clusterings are NOT nested — both directions of
-   disagreement happen on every function (Effect A: nt clusters absorb
-   multi-aa swarms via rep-based diameter; Effect B: aa clusters
-   fragment across nt via synonymous variation). Net direction
-   varies by protein. The "worst-pairwise within-cluster ~98% nt
-   identity" structural claim was not directly measured (left as a
-   followup in the results doc).
-
 ## Methodology ideas — possible paper contributions
 
 1. **BiCC improvements (boundary-sample drop / CC-splitting /
