@@ -34,20 +34,22 @@ tested. Full writeup, tables, and reproduce commands:
 `docs/results/2026-05-24_datasail_lpi_results.md`.
 
 **MMD leg (Step 2) — Phase 1 + Phase 2 done at 1000-isolate
-subsample on Flu A HA/NA, per-slot (S1).** Script:
-`src/analysis/mmd_per_slot.py` (runs in `segmatch` env). Phase 1
-wiring sanity passed (random per-entity 50/50 splits give MMD² at
-the noise floor consistent with the biased estimator's bias term).
-Phase 2 with fixed σ = 1.0719 and 500-permutation p-values produced
-the ordering random ≤ seq_disjoint < cluster_disjoint id099 on both
-slots: cluster_disjoint id099 reaches p ≈ 0.002 on both slots
-(0/500 permutations exceeded observed MMD²); seq_disjoint borderline
-(p = 0.06–0.17); random not significant (p = 0.64–0.86). HA and NA
-agree on ordering; HA's absolute MMD² values are roughly 3× NA's
-at the fixed σ (not disentangled — could be biology or σ-tuning).
-Not tested: full-corpus scale, pair-level (S2), k-mer features,
-downstream generalization gap. Full writeup, tables, reproduce
-commands, and explicit "what we can / cannot claim":
+subsample on Flu A HA/NA, per-slot (S1), on TWO feature spaces
+(ESM-2 and aa k=3).** Script: `src/analysis/mmd_per_slot.py` (runs
+in `segmatch` env). Phase 1 wiring sanity passed on both feature
+spaces (random per-entity 50/50 splits give MMD² at the bias-term
+noise floor). Phase 2 with fixed σ per feature space and 500-
+permutation p-values produced the ordering random ≤ seq_disjoint <
+cluster_disjoint id099 on every (slot × feature space) cell.
+cluster_disjoint id099 reaches p ≈ 0.002 in all four cells (0/500
+permutations exceeded observed MMD²) — robust to both slot and
+feature space. random is non-significant in all four cells
+(p > 0.6). seq_disjoint is feature-space-dependent on HA (ESM-2
+p = 0.166 not sig; aa k=3 p = 0.004 sig) and consistent on NA
+(both feature spaces give borderline p ≈ 0.06). Not tested: full-
+corpus scale, pair-level (S2), nt k-mer features, downstream
+generalization gap. Full writeup, tables, side-by-side comparison,
+reproduce commands, and explicit "what we can / cannot claim":
 `docs/results/2026-05-24_mmd_per_slot_results.md`.
 
 ---

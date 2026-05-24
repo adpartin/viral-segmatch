@@ -47,6 +47,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.embedding_utils import load_embeddings_by_ids
+from src.utils.kmer_utils import load_kmer_index, load_kmer_matrix
 from src.utils.dim_reduction_utils import compute_pca_reduction
 
 
@@ -102,6 +103,44 @@ def load_unique_slot_entities(dataset_dir: Path, slot: str,
                 .reset_index(drop=True))
     entities['is_ambiguous'] = entities['seq_hash'].isin(ambiguous)
     return entities
+
+
+def load_features(entities: pd.DataFrame, feature_space: str,
+                   embedding_path: Path, kmer_dir: Path, kmer_k: int,
+                   ) -> tuple[np.ndarray, pd.DataFrame]:
+    """Load per-entity features. Returns (features, filtered_entities).
+
+    Both ESM-2 and aa k-mer caches use the same (assembly_id, brc_fea_id)
+    composite key, so the entity set is identical across feature spaces
+    in principle. If some entities are missing from a cache, we filter
+    `entities` to match the loaded subset (in row order) and report the
+    miss count.
+    """
+    keys = list(zip(entities['assembly_id'].astype(str),
+                    entities['brc_fea_id'].astype(str)))
+
+    if feature_space == 'esm2':
+        emb, valid_keys = load_embeddings_by_ids(keys, embedding_path)
+    elif feature_space == 'kmer_aa':
+        key_to_row = load_kmer_index(kmer_dir, k=kmer_k, alphabet='aa')
+        kmer_csr = load_kmer_matrix(kmer_dir, k=kmer_k, alphabet='aa')
+        # Pick the rows for our entities; track which keys hit.
+        row_idx, valid_keys = [], []
+        for key in keys:
+            r = key_to_row.get(key)
+            if r is not None:
+                row_idx.append(r)
+                valid_keys.append(key)
+        emb = kmer_csr[row_idx].toarray().astype(np.float32)
+    else:
+        raise ValueError(f"unknown feature_space: {feature_space}")
+
+    n_missing = len(keys) - len(valid_keys)
+    if n_missing:
+        valid_set = set(valid_keys)
+        keep = [k in valid_set for k in keys]
+        entities = entities[keep].reset_index(drop=True)
+    return emb, entities, n_missing
 
 
 def rbf_kernel(X: np.ndarray, Y: np.ndarray, sigma: float) -> np.ndarray:
@@ -287,10 +326,23 @@ def main():
     p.add_argument('--permutation_seed',
                    type=int, default=0,
                    help='Seed for the permutation test shuffles.')
+    p.add_argument('--feature_space',
+                   default='esm2',
+                   choices=['esm2', 'kmer_aa'],
+                   help='esm2: 1280-dim ESM-2 protein embeddings (default). '
+                        'kmer_aa: aa k-mer count vectors (vocab_size = 20^k).')
     p.add_argument('--embedding_path',
                    type=Path,
                    default=Path('data/embeddings/flu/July_2025/master_esm2_embeddings.h5'),
-                   help='Master ESM-2 HDF5 cache.')
+                   help='Master ESM-2 HDF5 cache (used when feature_space=esm2).')
+    p.add_argument('--kmer_dir',
+                   type=Path,
+                   default=Path('data/embeddings/flu/July_2025'),
+                   help='Directory holding the k-mer cache (used when '
+                        'feature_space=kmer_aa).')
+    p.add_argument('--kmer_k',
+                   type=int, default=3,
+                   help='k for the k-mer cache. aa k=3 has vocab_size 8000.')
     p.add_argument('--out_csv', required=True, type=Path)
     args = p.parse_args()
 
@@ -308,18 +360,17 @@ def main():
     if n_ambig:
         print(f'  {n_ambig} entities ambiguous (multi-split) — handling depends on mode')
 
-    print('Loading ESM-2 embeddings ...')
+    print(f'Loading features (feature_space={args.feature_space}) ...')
     t0 = time.time()
-    keys = list(zip(entities['assembly_id'].astype(str),
-                    entities['brc_fea_id'].astype(str)))
-    emb, valid_keys = load_embeddings_by_ids(keys, args.embedding_path)
-    n_missing = len(keys) - len(valid_keys)
+    emb, entities, n_missing = load_features(
+        entities, args.feature_space,
+        embedding_path=args.embedding_path,
+        kmer_dir=args.kmer_dir, kmer_k=args.kmer_k,
+    )
     if n_missing:
-        # Filter entities to those with embeddings, same order as before.
-        valid_set = set(valid_keys)
-        keep = [k in valid_set for k in keys]
-        entities = entities[keep].reset_index(drop=True)
-        print(f'  WARNING: filtered {n_missing} entities missing from embedding cache')
+        print(f'  WARNING: filtered {n_missing} entities missing from {args.feature_space} cache')
+    else:
+        print(f'  all entities found in cache (0 missing)')
     print(f'  loaded {emb.shape} in {time.time() - t0:.1f}s')
 
     print(f'PCA to {args.pca_dim} dims ...')
@@ -352,14 +403,15 @@ def main():
         row['partition_mode'] = args.partition_mode
         row['routing_label'] = routing_label
         row['slot'] = args.slot
+        row['feature_space'] = args.feature_space
         row['subsample_seed'] = args.subsample_seed
         row['n_entities'] = len(entities)
         row['n_isolates'] = args.n_isolates
         row['sigma'] = sigma
 
     out_df = pd.DataFrame(rows)
-    col_order = ['partition_mode', 'routing_label', 'slot', 'split_seed',
-                 'n_A', 'n_B', 'mmd2', 'p_value', 'n_extreme',
+    col_order = ['partition_mode', 'routing_label', 'slot', 'feature_space',
+                 'split_seed', 'n_A', 'n_B', 'mmd2', 'p_value', 'n_extreme',
                  'n_permutations', 'n_ambiguous_dropped',
                  'subsample_seed', 'n_entities', 'n_isolates', 'sigma']
     out_df = out_df[col_order]

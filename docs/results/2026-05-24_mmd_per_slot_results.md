@@ -6,7 +6,8 @@
 (MMD leg)
 **Code:** `src/analysis/mmd_per_slot.py` (runs in the `segmatch` conda env)
 **Status:** Phase 1 (wiring sanity) + Phase 2 (real comparison) done at the
-1000-isolate subsample. Full-corpus run flagged as a follow-up.
+1000-isolate subsample on **both ESM-2 and aa k=3 feature spaces**.
+Full-corpus run flagged as a follow-up.
 
 ---
 
@@ -25,12 +26,24 @@ To keep claims tight, here is exactly what these experiments cover.
   (fixed across runs).
 - **Slots** — HA (`slot a`) and NA (`slot b`), measured independently
   one slot at a time (S1-style; not the pair-level S2 case).
-- **Feature space** — ESM-2 protein embeddings (1280-dim per protein),
-  PCA-reduced to 50 dims per run via `compute_pca_reduction`.
-- **Kernel** — RBF, bandwidth σ = 1.0719 fixed across all dataset-labels
-  runs (originally chosen as the median heuristic on cluster_id099 HA;
-  fixing makes MMD² values directly comparable across the six routings
-  × slot runs).
+- **Feature spaces** — two protein-level feature spaces compared,
+  each PCA-reduced to 50 dims via `compute_pca_reduction`:
+  - **ESM-2** (1280-dim per protein, learned embeddings) — the
+    project's general-purpose protein representation.
+  - **aa k=3** (8000-dim per protein, k-mer count vector) — the
+    project's strongest classifier feature on Flu A per memory.md
+    "Key Findings".
+  Same entity key on both sides (`(assembly_id, brc_fea_id)`), so
+  the entity set is identical across feature spaces by construction.
+- **Kernel** — RBF. σ is fixed across runs *within* a feature space
+  so MMD² values are directly comparable across routings × slots
+  inside that feature space. σ values DIFFER between feature spaces
+  (ESM-2: σ = 1.0719; aa k=3: σ = 29.3192) because the two feature
+  spaces have very different raw-magnitude scales — each σ was the
+  median heuristic computed on cluster_id099 HA in its own feature
+  space. **Cross-feature-space MMD² values are not directly
+  comparable in absolute terms**; the right comparison is within-
+  feature-space ratios and p-values.
 - **Estimator** — biased MMD² (Gretton 2012 Eq. 4):
   `MMD² = mean(K(X,X)) + mean(K(Y,Y)) − 2·mean(K(X,Y))`.
 - **Significance** — permutation test, 500 train/test label shuffles per
@@ -44,9 +57,9 @@ To keep claims tight, here is exactly what these experiments cover.
     labels, with the permutation test on top.
 
 **What was not tested in this round**: full-corpus scale; other Flu A
-pairs (PB2/PB1, etc.); k-mer feature spaces; pair-level (S2) MMD;
-downstream model performance to validate whether MMD-detected shift
-translates to a generalization gap; any other virus.
+pairs (PB2/PB1, etc.); nt k-mer feature spaces (only aa k=3 covered);
+pair-level (S2) MMD; downstream model performance to validate whether
+MMD-detected shift translates to a generalization gap; any other virus.
 
 ---
 
@@ -66,9 +79,21 @@ translates to a generalization gap; any other virus.
    - random — not significant: HA p = 0.639, NA p = 0.864.
 4. **HA and NA agree on ordering and significance.** No analogue of the
    HA / NA asymmetry reported in `2026-05-24_datasail_lpi_results.md`
-   under DataSAIL's `mmseqs` similarity. HA's absolute MMD² values are
-   roughly 3× NA's; this difference is not disentangled here (see
-   "What is not tested").
+   under DataSAIL's `mmseqs` similarity. Under ESM-2, HA's absolute
+   MMD² values are roughly 3× NA's; not disentangled (see "What is
+   not tested").
+
+5. **Feature-space robustness check (aa k=3) passes the headline test
+   and partially refines the picture.** All cluster_disjoint id099 and
+   random p-values agree across ESM-2 and aa k=3 (cluster_disjoint
+   p ≈ 0.002 everywhere, random p > 0.6 everywhere). seq_disjoint
+   diverges on HA: ESM-2 calls it not significant (p = 0.166), aa k=3
+   calls it significant (p = 0.004). On NA both feature spaces agree
+   on a borderline call (p ≈ 0.06). The aa-k3 advantage on HA
+   seq_disjoint is consistent with the project's existing "K-mer
+   dominates ESM-2 on H3N2" finding (memory.md), but the effect is
+   slot-dependent — not a universal claim that aa k=3 is more
+   sensitive than ESM-2 for MMD on this corpus.
 
 ---
 
@@ -178,6 +203,60 @@ distribution" plus the biased estimator's bias.
 `× random` is the multiplier vs the row's own random baseline on the
 same slot.
 
+### Feature-space robustness — aa k=3 cross-check
+
+Same script, same datasets, same subsample seed, same partitions —
+only the feature space and σ change. aa k=3 uses the project's
+k-mer cache at `data/embeddings/flu/July_2025/kmer_features_aa_k3.npz`,
+keyed by the same `(assembly_id, brc_fea_id)` composite. Entity sets
+are identical to the ESM-2 runs (0 cache misses on both feature
+spaces — verified at run time).
+
+**Phase 1 wiring sanity (aa k=3, HA, 10 random per-entity 50/50 splits):**
+mean MMD² = +0.00124, std = 0.00045, range [+0.00067, +0.00235].
+Passes the same noise-floor sanity check as ESM-2.
+σ measured here = 29.3192 (vs ESM-2's 1.0719 — k-mer count vectors
+have larger raw magnitudes, so the PCA-50 median pairwise distance
+is much larger).
+
+**Phase 2 (aa k=3, fixed σ = 29.3192, 500-permutation):**
+
+| Slot | Routing | n_train | n_test | MMD² | n_extreme/500 | p-value |
+|---|---|---:|---:|---:|---:|---:|
+| HA | random | 766 | 97 | +0.002888 | 308 | 0.617 |
+| HA | seq_disjoint | 756 | 99 | +0.020771 | 1 | **0.004** |
+| HA | cluster_disjoint id099 | 758 | 98 | +0.053951 | 0 | **0.002** |
+| NA | random | 747 | 79 | +0.002586 | 322 | 0.645 |
+| NA | seq_disjoint | 742 | 99 | +0.006719 | 30 | 0.062 |
+| NA | cluster_disjoint id099 | 738 | 98 | +0.022333 | 0 | **0.002** |
+
+**Side-by-side p-value comparison (ESM-2 vs aa k=3):**
+
+| Slot | Routing | ESM-2 p | aa k=3 p | Agreement |
+|---|---|---:|---:|---|
+| HA | random | 0.639 | 0.617 | both non-significant |
+| HA | seq_disjoint | 0.166 | 0.004 | **diverge** — aa k=3 sig, ESM-2 not |
+| HA | cluster_disjoint id099 | 0.002 | 0.002 | both highly significant (floor) |
+| NA | random | 0.864 | 0.645 | both non-significant |
+| NA | seq_disjoint | 0.056 | 0.062 | both borderline (agree) |
+| NA | cluster_disjoint id099 | 0.002 | 0.002 | both highly significant (floor) |
+
+Observations from the side-by-side:
+
+- The **cluster_disjoint id099 result is robust to feature space** on
+  both slots (p ≈ 0.002 everywhere; 0 of 500 permutations exceeded
+  observed MMD² in every cell).
+- The **random baseline is robust to feature space** on both slots
+  (p > 0.6 everywhere).
+- The **seq_disjoint signal is feature-space-dependent on HA but
+  consistent on NA**. HA shows a real disagreement (ESM-2 misses
+  what aa k=3 catches at α = 0.05). NA shows agreement at the
+  borderline level.
+- Whether the HA seq_disjoint divergence reflects a genuine
+  feature-space sensitivity difference, or PCA-50 capturing different
+  structure on the 8000-dim aa-k3 vs 1280-dim ESM-2 inputs, is not
+  disentangled here.
+
 ### Earlier Phase 2 run with per-run σ (kept for traceability)
 
 Before fixing σ, each Phase 2 run picked its own median bandwidth.
@@ -204,7 +283,7 @@ Phase 2 above bypasses this.
 ### What the empirical results show
 
 - On the three 1000-isolate Flu A HA/NA datasets tested with the
-  chosen kernel and feature space:
+  ESM-2 PCA-50 feature space:
   - MMD² for cluster_disjoint id099 sits 12× (HA) or 13× (NA) above
     its corresponding random baseline.
   - The permutation test rejects the null "same distribution" at p ≈
@@ -218,6 +297,13 @@ Phase 2 above bypasses this.
     low end of its own null distribution; not concerning.
 - HA and NA agree on routing ordering. No HA / NA asymmetry analogous
   to the L(π) result on the same datasets.
+- Repeating the same six runs on aa k=3 features (same datasets, same
+  partitions, same subsample seed, different feature space and σ)
+  preserves the cluster_disjoint id099 result (p ≈ 0.002 on both
+  slots) and the random baseline (p > 0.6 on both slots). The
+  seq_disjoint p-value diverges between feature spaces on HA only
+  (ESM-2 p = 0.166, aa k=3 p = 0.004). On NA both feature spaces
+  give a borderline result (p ≈ 0.06).
 
 ### What this does not establish
 
@@ -249,8 +335,14 @@ Phase 2 above bypasses this.
   measure properties of the partition; whether a property is desirable
   depends on the use case (cluster_disjoint deliberately maximizes the
   property MMD detects).
-- **Generalizability beyond Flu A HA/NA, ESM-2, and id099.**
-  Untested.
+- **Generalizability beyond Flu A HA/NA, ESM-2 + aa k=3, and id099.**
+  Untested. Other k-mer variants (nt k=3, nt k=6) are also untested.
+- **What drives the HA seq_disjoint divergence between feature
+  spaces.** Could be a genuine feature-space sensitivity difference
+  (aa k=3 catching exact-residue patterns that ESM-2 smooths over),
+  or a PCA-50 artifact (8000-dim aa-k3 reduced to 50 may capture
+  different variance than 1280-dim ESM-2 reduced to 50). Not
+  disentangled here.
 
 ---
 
@@ -265,7 +357,7 @@ conda run -n segmatch python src/analysis/mmd_per_slot.py \
     --n_split_seeds 10 \
     --out_csv results/flu/July_2025/runs/split_separation_mmd/phase1_random_HA.csv
 
-# Phase 2 (dataset labels, fixed sigma, with permutation test):
+# Phase 2 ESM-2 (dataset labels, fixed sigma = 1.0719, permutation test).
 # Six runs, ~2-3 min each.
 for SLOT in a b; do
   for PAIR in \
@@ -281,14 +373,34 @@ for SLOT in a b; do
       --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_${SNAME}.csv
   done
 done
+
+# Phase 2 aa k=3 (same datasets and partitions, sigma = 29.3192).
+# Six runs, ~1 min each (faster than ESM-2 — no HDF5 load).
+for SLOT in a b; do
+  for PAIR in \
+    "random:dataset_flu_ha_na_random_20260520_210647" \
+    "seq_disjoint:dataset_flu_ha_na_seq_disjoint_20260520_211109" \
+    "cluster_disjoint_aa_id099:dataset_flu_ha_na_cluster_id99_20260520_211534"; do
+    LABEL="${PAIR%%:*}"; DSDIR="${PAIR##*:}"
+    SNAME=$([ "$SLOT" = "a" ] && echo HA || echo NA)
+    conda run -n segmatch python src/analysis/mmd_per_slot.py \
+      --dataset_dir data/datasets/flu/July_2025/runs/${DSDIR} \
+      --slot ${SLOT} --feature_space kmer_aa --kmer_k 3 \
+      --partition_mode dataset_labels --routing_label ${LABEL} \
+      --sigma 29.3192 --n_permutations 500 \
+      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_${SNAME}_kmer_aa_k3.csv
+  done
+done
 ```
 
 Outputs (gitignored under `results/`):
 
-- `results/flu/July_2025/runs/split_separation_mmd/phase1_random_HA.csv`
-- `results/flu/July_2025/runs/split_separation_mmd/phase2_perm_{random,seq_disjoint,cluster_disjoint_aa_id099}_{HA,NA}.csv`
+- `results/flu/July_2025/runs/split_separation_mmd/phase1_random_HA.csv` — ESM-2 Phase 1.
+- `results/flu/July_2025/runs/split_separation_mmd/phase1_random_HA_kmer_aa_k3.csv` — aa k=3 Phase 1.
+- `results/flu/July_2025/runs/split_separation_mmd/phase2_perm_{random,seq_disjoint,cluster_disjoint_aa_id099}_{HA,NA}.csv` — ESM-2 Phase 2.
+- `results/flu/July_2025/runs/split_separation_mmd/phase2_perm_{...}_{HA,NA}_kmer_aa_k3.csv` — aa k=3 Phase 2.
 - `results/flu/July_2025/runs/split_separation_mmd/phase2_fixed_sigma_{random,seq_disjoint,cluster_id099}_{HA,NA}.csv`
-  (earlier no-permutation runs; still on disk for traceability)
+  (earlier no-permutation ESM-2 runs; still on disk for traceability)
 
 ---
 
