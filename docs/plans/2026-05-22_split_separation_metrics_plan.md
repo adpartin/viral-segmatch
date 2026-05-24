@@ -1,6 +1,6 @@
 # Split-separation metrics for train/val/test partitions
 
-**Status: L(π) LEG PAUSED · MMD LEG NOT STARTED**
+**Status: L(π) LEG PAUSED · MMD LEG PHASE 1+2 DONE (full-corpus follow-up pending)**
 
 Add two complementary distribution-aware metrics — DataSAIL's L(π) and
 MMD on PCA-reduced pair embeddings — to the existing 1-NN cosine
@@ -33,10 +33,22 @@ mmseqspp identity scale differs from id099); neither is directly
 tested. Full writeup, tables, and reproduce commands:
 `docs/results/2026-05-24_datasail_lpi_results.md`.
 
-**MMD leg (Step 2) — not started.** Independent of the L(π) leg.
-Findings above do not directly bear on whether MMD on PCA-reduced
-embeddings will discriminate routings on this corpus; the two metrics
-operate on different feature spaces.
+**MMD leg (Step 2) — Phase 1 + Phase 2 done at 1000-isolate
+subsample on Flu A HA/NA, per-slot (S1).** Script:
+`src/analysis/mmd_per_slot.py` (runs in `segmatch` env). Phase 1
+wiring sanity passed (random per-entity 50/50 splits give MMD² at
+the noise floor consistent with the biased estimator's bias term).
+Phase 2 with fixed σ = 1.0719 and 500-permutation p-values produced
+the ordering random ≤ seq_disjoint < cluster_disjoint id099 on both
+slots: cluster_disjoint id099 reaches p ≈ 0.002 on both slots
+(0/500 permutations exceeded observed MMD²); seq_disjoint borderline
+(p = 0.06–0.17); random not significant (p = 0.64–0.86). HA and NA
+agree on ordering; HA's absolute MMD² values are roughly 3× NA's
+at the fixed σ (not disentangled — could be biology or σ-tuning).
+Not tested: full-corpus scale, pair-level (S2), k-mer features,
+downstream generalization gap. Full writeup, tables, reproduce
+commands, and explicit "what we can / cannot claim":
+`docs/results/2026-05-24_mmd_per_slot_results.md`.
 
 ---
 
