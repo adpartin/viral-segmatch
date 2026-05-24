@@ -1,6 +1,6 @@
 # Split-separation metrics for train/val/test partitions
 
-**Status: IN PROGRESS**
+**Status: L(π) LEG PAUSED · MMD LEG NOT STARTED**
 
 Add two complementary distribution-aware metrics — DataSAIL's L(π) and
 MMD on PCA-reduced pair embeddings — to the existing 1-NN cosine
@@ -12,6 +12,31 @@ Absorbs **BACKLOG DataSAIL #1** ("Compute L(π) on bicc splits at
 id100, id099, id095"); cross-refs but does not absorb the
 sister-plan `2026-05-20_routing_geometry_viz_plan.md` (qualitative
 2-D visualization of the same routing geometry).
+
+---
+
+## Implementation status (2026-05-24)
+
+**L(π) leg (Step 1) — PAUSED on Flu A HA/NA.** Wrapper, synthetic
+validation, and first runs on three 1000-isolate-subsample routings
+(cluster_disjoint id099, seq_disjoint, random) are done on branch
+`feature/lpi-measurement`. Under `similarity='mmseqs'` the ratios
+differ widely between routings and slots but the pattern doesn't match
+a clean "more leakage ↔ higher L(π)" reading. Under
+`similarity='mmseqspp'` all six (routing × slot) ratios collapse to
+within ~1 % of each other at ~0.34, which is the partition-shape
+constant for 80/10/10. A diagnostic on the mmseqspp similarity matrix
+shows a bimodal/zero-inflated distribution (67 % of pairs sim = 0,
+16–22 % > 0.9), so the collapse is not a low-variance artifact. Two
+interpretations remain (partition leaks at mmseqspp scale, vs
+mmseqspp identity scale differs from id099); neither is directly
+tested. Full writeup, tables, and reproduce commands:
+`docs/results/2026-05-24_datasail_lpi_results.md`.
+
+**MMD leg (Step 2) — not started.** Independent of the L(π) leg.
+Findings above do not directly bear on whether MMD on PCA-reduced
+embeddings will discriminate routings on this corpus; the two metrics
+operate on different feature spaces.
 
 ---
 
