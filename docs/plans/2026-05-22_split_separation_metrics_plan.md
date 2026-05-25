@@ -1,6 +1,6 @@
 # Split-separation metrics for train/val/test partitions
 
-**Status: L(π) LEG PAUSED · MMD LEG PHASE 1+2 DONE (full-corpus follow-up pending)**
+**Status: L(π) LEG PAUSED · MMD LEG S1 + S2 DONE on HA-NA (full-corpus + idXX-sweep follow-ups pending)**
 
 Add two complementary distribution-aware metrics — DataSAIL's L(π) and
 MMD on PCA-reduced pair embeddings — to the existing 1-NN cosine
@@ -51,11 +51,31 @@ borderline on NA (p = 0.062); nt k=6 highly sig on both slots
 cluster_disjoint discrimination ratio (23.1× HA / 14.2× NA vs
 ESM-2's 12.1×/13.1×) — empirically consistent with project's
 "K-mer (k=6) matches or exceeds ESM-2 on mixed-subtype HA/NA"
-finding from a different angle. Not tested: full-corpus scale,
-pair-level (S2), other k-mer variants (aa k=4, nt k=3), downstream
+finding from a different angle. Not tested at S1: full-corpus
+scale, other k-mer variants (aa k=4, nt k=3), downstream
 generalization gap. Full writeup, tables, side-by-side comparisons,
 reproduce commands, and explicit "what we can / cannot claim":
 `docs/results/2026-05-24_mmd_per_slot_results.md`.
+
+**MMD leg (Step 2, S2 pair-level) — Done at 1000-isolate subsample
+on Flu A HA-NA, on THREE feature spaces (ESM-2, aa k=3, nt k=6),
+using Test 3 production interaction (`slot_transform=unit_norm`,
+`interaction=unit_diff+prod`).** Script: `src/analysis/mmd_per_pair.py`
+(sibling to per_slot). Same trajectory random < seq_disjoint <
+cluster_disjoint id099 in all three feature spaces at the pair level.
+cluster_disjoint id099 at p ≈ 0.002 floor (0/500) in all three.
+ESM-2 seq_disjoint amplifies from S1 borderline (HA p=0.166, NA
+p=0.056) to S2 sig (pair p=0.034); k-mer seq_disjoint was already at
+the floor at S1 HA and stays at the floor at S2. Pair-level
+cluster/random discrimination ratios are larger or equal to slot
+ratios in every feature space (ESM-2 12.1× → 20.7×, aa k=3 18.6×
+→ 20.0×, nt k=6 23.1× → 23.5×). nt k=6 has the largest pair-level
+ratio (23.5×). Cross-feature σ span collapses from ~50× at the slot
+level to ~3× at the pair level because Test 3 normalizes per slot
+before the interaction. Not tested at S2: full-corpus scale, other
+pair interactions (plain concat, `unit_diff` alone), PB2-PB1 or
+other bundles, downstream generalization gap. Full writeup:
+`docs/results/2026-05-24_mmd_per_pair_results.md`.
 
 ---
 
