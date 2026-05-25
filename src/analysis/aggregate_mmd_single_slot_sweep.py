@@ -145,46 +145,68 @@ def _load_reference_baselines(results_dir: Path, feature_space: str
     return pd.DataFrame(rows)
 
 
+def _seed_from_dirname(name: str, default: int = 42) -> int:
+    """Extract seed from dir name pattern `..._seed{N}_{timestamp}`. Falls
+    back to `default` if no `_seedN_` segment is present (the original
+    single-seed runs were named without it; master_seed=42 was the
+    default)."""
+    m = re.search(r'_seed(\d+)_', name)
+    return int(m.group(1)) if m else default
+
+
 def _load_perf_for_idxx(models_dir: Path, idxx: int, model: str
-                          ) -> Optional[dict]:
-    """Locate the most recent (idxx, model) training/baseline dir and read its
-    post_hoc/metrics.csv. Returns the metrics dict + dir path, or None if no
-    matching dir found.
+                          ) -> list:
+    """Return one dict per training run found for this (idxx, model) —
+    one row per seed. A run is "found" iff its `post_hoc/metrics.csv`
+    exists. Seed is parsed from the dir name (`_seedN_` segment, else 42).
     """
     prefix = MODEL_DIR_PREFIX[model]
-    candidates = sorted(
-        models_dir.glob(f'{prefix}{idxx:03d}_*'),
-        key=lambda p: p.name,
-        reverse=True,
-    )
+    candidates = sorted(models_dir.glob(f'{prefix}{idxx:03d}_*'),
+                        key=lambda p: p.name)
+    seen_seeds = {}
     for cand in candidates:
         metrics_csv = cand / 'post_hoc' / 'metrics.csv'
-        if metrics_csv.exists():
-            row = pd.read_csv(metrics_csv).iloc[0]
-            return {
-                'idxx':      idxx,
-                'model':     model,
-                'f1_score':  float(row['f1_score']),
-                'mcc':       float(row['mcc']),
-                'auc_roc':   float(row['auc_roc']),
-                'auc_pr':    float(row.get('avg_precision', float('nan'))),
-                'accuracy':  float(row['accuracy']),
-                'precision': float(row['precision']),
-                'recall':    float(row['recall']),
-                'brier':     float(row['brier_score']),
-                'source_dir': str(cand),
-            }
-    return None
+        if not metrics_csv.exists():
+            continue
+        seed = _seed_from_dirname(cand.name)
+        # If we have multiple runs for the same seed, keep the most recent
+        # (sorted ascending → later entries are newer).
+        row = pd.read_csv(metrics_csv).iloc[0]
+        seen_seeds[seed] = {
+            'idxx':      idxx,
+            'model':     model,
+            'seed':      seed,
+            'f1_score':  float(row['f1_score']),
+            'mcc':       float(row['mcc']),
+            'auc_roc':   float(row['auc_roc']),
+            'auc_pr':    float(row.get('avg_precision', float('nan'))),
+            'accuracy':  float(row['accuracy']),
+            'precision': float(row['precision']),
+            'recall':    float(row['recall']),
+            'brier':     float(row['brier_score']),
+            'source_dir': str(cand),
+        }
+    return list(seen_seeds.values())
 
 
 def aggregate_perf(models_dir: Path, models: list) -> pd.DataFrame:
+    """Long-format perf table: one row per (idxx, model, seed)."""
     rows = []
     for idxx in SWEEP_THRESHOLDS:
         for model in models:
-            r = _load_perf_for_idxx(models_dir, idxx, model)
-            if r is not None:
-                rows.append(r)
+            rows.extend(_load_perf_for_idxx(models_dir, idxx, model))
     return pd.DataFrame(rows)
+
+
+def aggregate_perf_summary(perf_df: pd.DataFrame) -> pd.DataFrame:
+    """Mean/std/min/max/n per (idxx, model) across seeds for each metric."""
+    if perf_df.empty:
+        return perf_df
+    metrics = ['f1_score', 'mcc', 'auc_roc', 'auc_pr', 'accuracy',
+               'precision', 'recall', 'brier']
+    agg = perf_df.groupby(['idxx', 'model'])[metrics].agg(['mean', 'std', 'min', 'max', 'count'])
+    agg.columns = [f'{m}_{stat}' for m, stat in agg.columns]
+    return agg.reset_index()
 
 
 def aggregate(results_dir: Path, feature_spaces: list,
@@ -287,7 +309,9 @@ def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
 def plot_perf(perf_df: pd.DataFrame, out_path: Path,
               metrics: list = ('f1_score', 'auc_roc', 'mcc')) -> None:
     """Three subplots, one per metric. x = idXX (high -> low), y = metric.
-    One line per model (MLP, LGBM, 1-NN)."""
+    Mean across seeds plotted as the line; ± std as a shaded band; individual
+    seed values as small open markers. Single-seed cells show as a point
+    only (no band)."""
     if perf_df.empty:
         print('plot_perf: no rows to plot, skipping.')
         return
@@ -300,15 +324,26 @@ def plot_perf(perf_df: pd.DataFrame, out_path: Path,
 
     for ax, metric in zip(axes, metrics):
         for model, style in MODEL_STYLE.items():
-            sub = perf_df[perf_df['model'] == model].sort_values('idxx', ascending=False)
+            sub = perf_df[perf_df['model'] == model]
             if sub.empty:
                 continue
-            xs = [x_positions[v] for v in sub['idxx']]
-            ys = sub[metric].values
-            ax.plot(xs, ys, color=style['color'], linewidth=1.5, alpha=0.85,
+            agg = sub.groupby('idxx')[metric].agg(['mean', 'std', 'count']).sort_index(ascending=False)
+            xs = [x_positions[v] for v in agg.index]
+            means = agg['mean'].values
+            stds = agg['std'].fillna(0.0).values
+            # Shaded ±1 std band (only when >1 seed).
+            ax.fill_between(xs, means - stds, means + stds, color=style['color'], alpha=0.18)
+            ax.plot(xs, means, color=style['color'], linewidth=1.5, alpha=0.9,
                     marker=style['marker'], markersize=8,
                     markeredgecolor='black', markeredgewidth=0.5,
-                    label=style['label'])
+                    label=f"{style['label']}  (n_seed≤{int(agg['count'].max())})")
+            # Individual seed points as small open markers.
+            for v in agg.index:
+                ys_seed = sub[sub['idxx'] == v][metric].values
+                if len(ys_seed) > 1:
+                    ax.scatter([x_positions[v]] * len(ys_seed), ys_seed,
+                               facecolor='none', edgecolor=style['color'],
+                               marker=style['marker'], s=30, alpha=0.5, linewidth=0.8)
         ax.set_xticks(list(x_positions.values()))
         ax.set_xticklabels([f'id{v:03d}' for v in x_positions.keys()])
         ax.set_xlabel('Cluster identity threshold (lighter constraint → heavier)')
@@ -318,9 +353,10 @@ def plot_perf(perf_df: pd.DataFrame, out_path: Path,
         ax.legend(loc='best', fontsize=9, framealpha=0.9)
 
     fig.suptitle('Held-out test performance vs cluster-identity threshold\n'
-                 '(single-slot HA-only routing, aa k=3 features, Test 3 interaction)',
+                 '(single-slot HA-only routing, aa k=3 features, Test 3 interaction; '
+                 'line=mean, band=±1 std, dots=per-seed)',
                  fontsize=11)
-    fig.tight_layout(rect=[0, 0, 1, 0.92])
+    fig.tight_layout(rect=[0, 0, 1, 0.91])
     fig.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close(fig)
     print(f'Wrote perf plot: {out_path}')
@@ -348,21 +384,33 @@ def plot_mmd_vs_perf(sweep_df: pd.DataFrame, perf_df: pd.DataFrame,
     fig, ax = plt.subplots(figsize=(7.0, 5.0))
     merged = perf_df.merge(mmd_sub, on='idxx')
     for model, style in MODEL_STYLE.items():
-        sub = merged[merged['model'] == model].sort_values('mmd2')
+        sub = merged[merged['model'] == model]
         if sub.empty:
             continue
-        ax.plot(sub['mmd2'], sub[metric], color=style['color'], linewidth=1.5,
-                alpha=0.85, marker=style['marker'], markersize=10,
-                markeredgecolor='black', markeredgewidth=0.5,
-                label=style['label'])
-        for _, r in sub.iterrows():
+        # Aggregate mean ± std per idxx (and hence per mmd2).
+        agg = (sub.groupby(['idxx', 'mmd2'])[metric]
+               .agg(['mean', 'std', 'count']).reset_index()
+               .sort_values('mmd2'))
+        ax.errorbar(agg['mmd2'], agg['mean'],
+                    yerr=agg['std'].fillna(0.0),
+                    color=style['color'], linewidth=1.5, alpha=0.9,
+                    marker=style['marker'], markersize=10,
+                    markeredgecolor='black', markeredgewidth=0.5,
+                    capsize=3, capthick=1.0,
+                    label=f"{style['label']}  (n_seed≤{int(agg['count'].max())})")
+        # Per-seed scatter overlay (small open markers).
+        if (agg['count'] > 1).any():
+            ax.scatter(sub['mmd2'], sub[metric],
+                       facecolor='none', edgecolor=style['color'],
+                       marker=style['marker'], s=20, alpha=0.4, linewidth=0.7)
+        for _, r in agg.iterrows():
             ax.annotate(f'id{int(r["idxx"]):03d}',
-                        (r['mmd2'], r[metric]),
+                        (r['mmd2'], r['mean']),
                         xytext=(5, 5), textcoords='offset points',
                         fontsize=8, alpha=0.7)
     ax.set_xlabel(f'MMD²  ({mmd_feature} {mmd_role}, label={mmd_label_filter}; '
                   f'smaller → more train/test overlap)')
-    ax.set_ylabel(f'Test {metric}')
+    ax.set_ylabel(f'Test {metric}  (mean ± std across seeds)')
     ax.set_title(f'Test {metric} vs MMD² — does distribution shift predict perf drop?')
     ax.grid(True, alpha=0.3)
     ax.legend(loc='best', fontsize=9, framealpha=0.9)
@@ -413,12 +461,19 @@ def main() -> None:
     plot_path = args.out_dir / 'sweep_mmd_vs_idxx.png'
     plot_sweep(sweep_df, refs_by_fs, plot_path, label_filter='pos')
 
-    # Perf rollup — silently skips any model whose dirs don't exist yet.
+    # Perf rollup — long format (one row per idxx × model × seed) plus
+    # a mean ± std summary across seeds.
     perf_df = aggregate_perf(args.models_dir, args.models)
     if not perf_df.empty:
         perf_csv = args.out_dir / 'sweep_perf.csv'
         perf_df.to_csv(perf_csv, index=False)
-        print(f"Wrote perf CSV: {perf_csv}  ({len(perf_df)} rows)")
+        n_seed_max = int(perf_df.groupby(['idxx', 'model']).size().max())
+        print(f"Wrote perf CSV: {perf_csv}  ({len(perf_df)} rows, "
+              f"up to {n_seed_max} seeds per (idxx, model))")
+        summary_df = aggregate_perf_summary(perf_df)
+        summary_csv = args.out_dir / 'sweep_perf_summary.csv'
+        summary_df.to_csv(summary_csv, index=False)
+        print(f"Wrote perf summary CSV: {summary_csv}  ({len(summary_df)} rows)")
         plot_perf(perf_df, args.out_dir / 'sweep_perf_vs_idxx.png')
         # Pair MMD on kmer_aa is the natural x-axis (matches Test 3 + the
         # model's feature space). Emit one F1-vs-MMD plot per label_filter
