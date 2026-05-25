@@ -39,6 +39,18 @@ import matplotlib.pyplot as plt
 
 SWEEP_THRESHOLDS = [100, 99, 98, 97, 96, 95]   # high -> low (id↓ moves right on x-axis)
 
+# Each model has a different output-dir prefix under models/.../runs/.
+MODEL_DIR_PREFIX = {
+    'mlp':         'training_flu_ha_na_kmer_aa_k3_HAonly_id',
+    'lgbm':        'baseline_lgbm_flu_ha_na_kmer_aa_k3_HAonly_id',
+    'knn1_margin': 'baseline_knn1_margin_flu_ha_na_kmer_aa_k3_HAonly_id',
+}
+MODEL_STYLE = {
+    'mlp':         {'color': '#1f77b4', 'marker': 'o', 'label': 'MLP'},
+    'lgbm':        {'color': '#2ca02c', 'marker': 's', 'label': 'LGBM'},
+    'knn1_margin': {'color': '#d62728', 'marker': '^', 'label': '1-NN (cosine margin)'},
+}
+
 
 def _feature_suffix(feature_space: str) -> str:
     """File suffix convention used by the MMD scripts."""
@@ -117,6 +129,48 @@ def _load_reference_baselines(results_dir: Path, feature_space: str
                 'sigma':         float(row['sigma']),
                 'source_file':   str(path),
             })
+    return pd.DataFrame(rows)
+
+
+def _load_perf_for_idxx(models_dir: Path, idxx: int, model: str
+                          ) -> Optional[dict]:
+    """Locate the most recent (idxx, model) training/baseline dir and read its
+    post_hoc/metrics.csv. Returns the metrics dict + dir path, or None if no
+    matching dir found.
+    """
+    prefix = MODEL_DIR_PREFIX[model]
+    candidates = sorted(
+        models_dir.glob(f'{prefix}{idxx:03d}_*'),
+        key=lambda p: p.name,
+        reverse=True,
+    )
+    for cand in candidates:
+        metrics_csv = cand / 'post_hoc' / 'metrics.csv'
+        if metrics_csv.exists():
+            row = pd.read_csv(metrics_csv).iloc[0]
+            return {
+                'idxx':      idxx,
+                'model':     model,
+                'f1_score':  float(row['f1_score']),
+                'mcc':       float(row['mcc']),
+                'auc_roc':   float(row['auc_roc']),
+                'auc_pr':    float(row.get('avg_precision', float('nan'))),
+                'accuracy':  float(row['accuracy']),
+                'precision': float(row['precision']),
+                'recall':    float(row['recall']),
+                'brier':     float(row['brier_score']),
+                'source_dir': str(cand),
+            }
+    return None
+
+
+def aggregate_perf(models_dir: Path, models: list) -> pd.DataFrame:
+    rows = []
+    for idxx in SWEEP_THRESHOLDS:
+        for model in models:
+            r = _load_perf_for_idxx(models_dir, idxx, model)
+            if r is not None:
+                rows.append(r)
     return pd.DataFrame(rows)
 
 
@@ -208,6 +262,88 @@ def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path) -> None
     print(f"Wrote plot: {out_path}")
 
 
+def plot_perf(perf_df: pd.DataFrame, out_path: Path,
+              metrics: list = ('f1_score', 'auc_roc', 'mcc')) -> None:
+    """Three subplots, one per metric. x = idXX (high -> low), y = metric.
+    One line per model (MLP, LGBM, 1-NN)."""
+    if perf_df.empty:
+        print('plot_perf: no rows to plot, skipping.')
+        return
+    n = len(metrics)
+    fig, axes = plt.subplots(1, n, figsize=(5.5 * n, 4.5), sharex=True)
+    if n == 1:
+        axes = [axes]
+    idxx_sorted = sorted(perf_df['idxx'].unique(), reverse=True)
+    x_positions = {v: i for i, v in enumerate(idxx_sorted)}
+
+    for ax, metric in zip(axes, metrics):
+        for model, style in MODEL_STYLE.items():
+            sub = perf_df[perf_df['model'] == model].sort_values('idxx', ascending=False)
+            if sub.empty:
+                continue
+            xs = [x_positions[v] for v in sub['idxx']]
+            ys = sub[metric].values
+            ax.plot(xs, ys, color=style['color'], linewidth=1.5, alpha=0.85,
+                    marker=style['marker'], markersize=8,
+                    markeredgecolor='black', markeredgewidth=0.5,
+                    label=style['label'])
+        ax.set_xticks(list(x_positions.values()))
+        ax.set_xticklabels([f'id{v:03d}' for v in x_positions.keys()])
+        ax.set_xlabel('Cluster identity threshold (lighter constraint → heavier)')
+        ax.set_ylabel(metric)
+        ax.set_title(f'Test {metric} vs idXX')
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='best', fontsize=9, framealpha=0.9)
+
+    fig.suptitle('Held-out test performance vs cluster-identity threshold\n'
+                 '(single-slot HA-only routing, aa k=3 features, Test 3 interaction)',
+                 fontsize=11)
+    fig.tight_layout(rect=[0, 0, 1, 0.92])
+    fig.savefig(out_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print(f'Wrote perf plot: {out_path}')
+
+
+def plot_mmd_vs_perf(sweep_df: pd.DataFrame, perf_df: pd.DataFrame,
+                      out_path: Path, mmd_role: str = 'pair',
+                      mmd_feature: str = 'kmer_aa',
+                      metric: str = 'f1_score') -> None:
+    """Single panel: x = MMD² of one (role, feature), y = perf metric.
+    One marker per (model × idXX); idXX labeled by annotation."""
+    if perf_df.empty or sweep_df.empty:
+        print('plot_mmd_vs_perf: missing data, skipping.')
+        return
+    mmd_sub = sweep_df[(sweep_df['feature_space'] == mmd_feature)
+                       & (sweep_df['role'] == mmd_role)][['idxx', 'mmd2']]
+    if mmd_sub.empty:
+        print(f'plot_mmd_vs_perf: no MMD rows for ({mmd_feature}, {mmd_role}).')
+        return
+    fig, ax = plt.subplots(figsize=(7.0, 5.0))
+    merged = perf_df.merge(mmd_sub, on='idxx')
+    for model, style in MODEL_STYLE.items():
+        sub = merged[merged['model'] == model].sort_values('mmd2')
+        if sub.empty:
+            continue
+        ax.plot(sub['mmd2'], sub[metric], color=style['color'], linewidth=1.5,
+                alpha=0.85, marker=style['marker'], markersize=10,
+                markeredgecolor='black', markeredgewidth=0.5,
+                label=style['label'])
+        for _, r in sub.iterrows():
+            ax.annotate(f'id{int(r["idxx"]):03d}',
+                        (r['mmd2'], r[metric]),
+                        xytext=(5, 5), textcoords='offset points',
+                        fontsize=8, alpha=0.7)
+    ax.set_xlabel(f'MMD²  ({mmd_feature} {mmd_role}; smaller → more train/test overlap)')
+    ax.set_ylabel(f'Test {metric}')
+    ax.set_title(f'Test {metric} vs MMD² — does distribution shift predict perf drop?')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best', fontsize=9, framealpha=0.9)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    print(f'Wrote MMD-vs-perf plot: {out_path}')
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--results_dir', type=Path,
@@ -217,6 +353,13 @@ def main() -> None:
                     choices=['esm2', 'kmer_aa', 'kmer_nt'])
     ap.add_argument('--out_dir', type=Path,
                     default=Path('results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate'))
+    ap.add_argument('--models_dir', type=Path,
+                    default=Path('models/flu/July_2025/runs'),
+                    help='Where MLP + baseline training output dirs live.')
+    ap.add_argument('--models', nargs='+',
+                    default=['mlp', 'lgbm', 'knn1_margin'],
+                    help='Which trained models to aggregate perf for. '
+                         'Skips any whose dirs do not exist yet.')
     args = ap.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -240,6 +383,22 @@ def main() -> None:
 
     plot_path = args.out_dir / 'sweep_mmd_vs_idxx.png'
     plot_sweep(sweep_df, refs_by_fs, plot_path)
+
+    # Perf rollup — silently skips any model whose dirs don't exist yet.
+    perf_df = aggregate_perf(args.models_dir, args.models)
+    if not perf_df.empty:
+        perf_csv = args.out_dir / 'sweep_perf.csv'
+        perf_df.to_csv(perf_csv, index=False)
+        print(f"Wrote perf CSV: {perf_csv}  ({len(perf_df)} rows)")
+        plot_perf(perf_df, args.out_dir / 'sweep_perf_vs_idxx.png')
+        # Pair MMD on kmer_aa is the natural x-axis (matches Test 3 + the
+        # model's feature space). Plot F1 against it.
+        plot_mmd_vs_perf(sweep_df, perf_df,
+                          args.out_dir / 'sweep_perf_vs_mmd_pair_kmer_aa.png',
+                          mmd_role='pair', mmd_feature='kmer_aa',
+                          metric='f1_score')
+    else:
+        print('No perf rows aggregated (training likely still in progress).')
 
     # Compact per-feature summary table to stdout.
     print()

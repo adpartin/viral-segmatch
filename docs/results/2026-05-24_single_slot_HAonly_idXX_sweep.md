@@ -113,6 +113,64 @@ NA stays well below bilateral cluster_id099's NA shift in most cells.
 NA orange, pair purple), filled markers for p ≤ 0.05, dashed
 reference lines for bilateral cluster_id099 and dotted for random.
 
+### Held-out test performance (aa k=3 features, Test 3 interaction)
+
+One MLP + two baselines (LGBM, 1-NN cosine margin) trained per
+dataset using the `flu_ha_na_kmer_aa_k3` bundle. Single seed
+(`seed=42`). Six GPUs in parallel for the MLP step; baselines on CPU.
+Stage 4 invocations and output dirs follow the standard convention
+(`models/.../runs/training_*_HAonly_idXXX_*` and
+`baseline_{lgbm,knn1_margin}_*_HAonly_idXXX_*`).
+
+| idXX | MLP F1 | LGBM F1 | 1-NN F1 | MLP AUC-ROC | LGBM AUC-ROC | 1-NN AUC-ROC | MLP MCC | LGBM MCC | 1-NN MCC |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 100 | 0.963 | 0.950 | 0.958 | 0.985 | 0.989 | 0.985 | 0.938 | 0.916 | 0.930 |
+| 099 | 0.947 | 0.930 | 0.939 | 0.980 | 0.981 | 0.980 | 0.911 | 0.882 | 0.898 |
+| 098 | 0.937 | 0.917 | 0.931 | 0.976 | 0.977 | 0.973 | 0.893 | 0.860 | 0.883 |
+| 097 | 0.937 | 0.915 | 0.930 | 0.974 | 0.974 | 0.973 | 0.893 | 0.856 | 0.882 |
+| 096 | 0.919 | 0.898 | 0.920 | 0.968 | 0.967 | 0.969 | 0.864 | 0.828 | 0.866 |
+| 095 | 0.917 | 0.891 | 0.911 | 0.966 | 0.960 | 0.965 | 0.859 | 0.815 | 0.849 |
+
+Drops from id100 → id095 (percentage points):
+
+| Model | Δ F1 | Δ AUC-ROC | Δ MCC |
+|---|---:|---:|---:|
+| MLP         | 4.6 | 1.9 | 7.9 |
+| LGBM        | 5.9 | 3.0 | 10.0 |
+| 1-NN margin | 4.7 | 2.0 | 8.1 |
+
+Plots:
+- `sweep_perf_vs_idxx.png` — three panels (F1, AUC-ROC, MCC),
+  three lines per panel (MLP, LGBM, 1-NN).
+- `sweep_perf_vs_mmd_pair_kmer_aa.png` — single panel scatter of
+  F1 vs S2 pair MMD² (aa k=3), one line per model, annotated by
+  idXX.
+
+### MMD ↔ perf relationship
+
+Pairing the F1 numbers above with the aa k=3 pair-MMD² from the
+sweep gives a nearly linear F1-vs-MMD relationship across the six
+thresholds, in all three models:
+
+- All three models trace approximately straight lines in F1-vs-MMD²
+  space.
+- The model ordering (MLP > 1-NN > LGBM at every threshold) is
+  preserved across the entire sweep — distribution shift weakens
+  everything roughly proportionally, not a specific model class.
+- The id097 ≈ id098 plateau on F1 (MLP: 0.9367 vs 0.9366) lines up
+  with the id097 dip on S1 NA MMD: the constrained-slot HA MMD did
+  grow id098 → id097 but the unconstrained-slot NA MMD dropped, and
+  the pair S2 MMD did not grow either — and F1 did not drop. The
+  three (HA, NA, pair) MMD signals are coherent with the perf signal
+  on a per-cell basis, not just in aggregate.
+
+Caveat on interpretability: cross-feature-space MMD² values are not
+directly comparable (different σ per feature space). The F1-vs-MMD
+plot uses the aa k=3 pair MMD as the x-axis because that matches
+the feature space the model was trained on; an ESM-2-pair x-axis
+gives a similarly monotone scatter but with different MMD²
+magnitudes.
+
 ## Observations
 
 1. **HA MMD grows monotonically with id↓** in both feature spaces.
@@ -173,17 +231,22 @@ reference lines for bilateral cluster_id099 and dotted for random.
 
 ### What this does not establish
 
-- **Not a model-performance claim.** MMD measures feature-distribution
-  shift; it does not directly predict generalization gap, AUC drop,
-  or any downstream metric. Training models on each of these six
-  datasets and pairing MMD with held-out performance is the missing
-  piece to complete the "gradual shift → gradual perf drop" story.
-- **One sweep, one direction, one alphabet, one pair.** PB2-PB1 is
-  biologically different (no subtype coupling, polymerase complex
-  co-conservation instead) and may show a very different NA-shift
-  trajectory. nt aa cluster_disjoint single-slot HA-only is feasible
-  through id097 per pre-flight and would test alphabet-dependence;
-  not run.
+- **Single seed per model.** All three models (MLP, LGBM, 1-NN)
+  trained with `seed=42` only. Single-seed F1 has noise on the
+  order of ~1 pp on this kind of dataset; the trends across idXX
+  are larger than that, but absolute numbers should not be over-read.
+  Multi-seed (e.g., 3 seeds) would tighten claims about model
+  ordering and small inter-cell differences (e.g., the id097 ≈
+  id098 plateau).
+- **One feature space for training (aa k=3).** ESM-2 training across
+  the same six datasets is the natural cross-check — would it show
+  the same MMD↔perf trajectory? Skipped to keep the batch tight.
+- **One sweep, one direction, one cluster-alphabet, one pair.**
+  PB2-PB1 is biologically different (no subtype coupling, polymerase
+  complex co-conservation instead) and may show a very different
+  NA-shift trajectory. nt cluster_disjoint single-slot HA-only is
+  feasible through id097 per pre-flight and would test alphabet
+  dependence at the routing step; not run.
 - **One subsample, one set of σ values.** Subsample_seed=42 is fixed
   across S1/S2/sweep work; no resampling. σ was set by Phase 1
   median heuristic on the cluster_id099 set and held fixed; an
@@ -196,6 +259,13 @@ reference lines for bilateral cluster_id099 and dotted for random.
 - **The "biological coupling" story has been validated at id098
   only** (Cramér's V = 0.90 on HA-cluster × NA-subtype). It is
   plausible at other thresholds but not directly verified.
+- **MMD↔perf is a within-corpus correlation, not a generalization
+  guarantee.** The near-linear F1-vs-MMD² relationship was measured
+  on one corpus, one slot constraint, one model-feature stack. The
+  shape (and even the sign) of the relationship is not guaranteed
+  to hold under heavier regimes (e.g., id < 0.95 if feasibility
+  could be unlocked), under multi-axis metadata holdout, or on
+  another virus / protein pair.
 
 ### Implications for the bigger picture
 
@@ -263,7 +333,29 @@ for THR in 100 099 098 097 096 095; do
       --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_NA_pair_kmer_aa_k3_test3.csv
 done
 
-# Aggregate + plot:
+# Train MLP + LGBM + 1-NN on each dataset, in parallel across 6 GPUs.
+# Uses bash array indexing (NOT zsh — IDXX[0] in zsh is empty, drops the
+# first iteration silently and you lose one threshold; bash IDXX[0]=100).
+IDXX=(100 099 098 097 096 095)
+mkdir -p logs/training/sweep_HAonly
+for i in 0 1 2 3 4 5; do
+  thr=${IDXX[$i]}
+  gpu=$((i + 1))   # GPUs 1-6
+  ds=$(ls -d data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cluster_aa_id${thr}_HAonly_* | head -1)
+  TS=$(date +%Y%m%d_%H%M%S)
+  OUT_MLP=models/flu/July_2025/runs/training_flu_ha_na_kmer_aa_k3_HAonly_id${thr}_${TS}
+  OUT_LGBM=models/flu/July_2025/runs/baseline_lgbm_flu_ha_na_kmer_aa_k3_HAonly_id${thr}_${TS}
+  OUT_KNN=models/flu/July_2025/runs/baseline_knn1_margin_flu_ha_na_kmer_aa_k3_HAonly_id${thr}_${TS}
+  (
+    bash scripts/stage4_train.sh   flu_ha_na_kmer_aa_k3 --cuda_name cuda:${gpu} --dataset_dir $ds --output_dir $OUT_MLP
+    bash scripts/stage4_baselines.sh flu_ha_na_kmer_aa_k3 --baseline lgbm        --dataset_dir $ds --output_dir $OUT_LGBM
+    bash scripts/stage4_baselines.sh flu_ha_na_kmer_aa_k3 --baseline knn1_margin --dataset_dir $ds --output_dir $OUT_KNN
+  ) > logs/training/sweep_HAonly/id${thr}_${TS}.log 2>&1 &
+  sleep 1
+done
+wait
+
+# Aggregate MMD + perf + plot (auto-skips models whose dirs don't exist):
 python -m src.analysis.aggregate_mmd_single_slot_sweep --feature_spaces esm2 kmer_aa
 ```
 
