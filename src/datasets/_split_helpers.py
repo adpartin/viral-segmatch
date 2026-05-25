@@ -205,6 +205,18 @@ def cluster_disjoint_route_pos_df(
         # slot's cluster_id, and cc_summary reports atom-size stats in the
         # same fields that the bilateral path emits (so downstream code that
         # logs n_components / largest_component_pairs keeps working).
+        #
+        # Why LPT-greedy here and not sklearn?
+        # We could replace this single-slot path with sklearn's
+        # `GroupShuffleSplit(groups=cluster_id_{slot})` for a 1-shot split
+        # or `GroupKFold` for k-fold CV. LPT-greedy is preferred for the
+        # single-shot 80/10/10 case because it hits the target ratios
+        # exactly (it places the largest atom in the most-under-target bin
+        # by construction); GroupShuffleSplit is random and at idXX where
+        # the largest atom is a non-trivial fraction of pairs it can
+        # overshoot the test-bin target by ~80%. For CV / multi-fold work
+        # `GroupKFold(n_splits=k)` is the natural primitive — see
+        # BACKLOG.md § "Single-slot routing follow-ups" #3.
         component_id = pos_with_ids[f'cluster_id_{single_slot}'].copy()
         atom_sizes = component_id.value_counts().sort_values(ascending=False).values
         cc_summary = {

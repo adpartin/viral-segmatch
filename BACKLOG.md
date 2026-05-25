@@ -49,6 +49,39 @@ items worth revisiting before deciding to fully retire the bake-off.
    Worth a GitHub issue against `kalininalab/DataSAIL` if we ever
    re-engage.
 
+## Single-slot routing follow-ups (post 2026-05-24)
+
+The 2026-05-24 single-slot cluster_disjoint mode (commit `4607050`)
+has been exercised only on HA-NA HA-only across id100..id095 with
+aa cluster_alphabet. These items extend that footprint.
+
+1. **NA-only sibling sweep on HA-NA at id100..id095** (slot-symmetry
+   check). Predicts: NA MMD grows monotonically with id↓, HA MMD
+   inherits a coupling-driven shift via the same H↔N subtype channel
+   we measured at id098 (Cramér's V = 0.90). If the HA shift under
+   NA-only is comparable to the NA shift under HA-only, that's strong
+   evidence the coupling channel is symmetric, not HA-driven.
+   Concrete next action: copy the 6 `flu_ha_na_cluster_aa_idXXX_HAonly.yaml`
+   bundles to `_NAonly.yaml` variants with `single_slot: b`; build
+   datasets, run aa k=3 MMD sweep + train MLP/LGBM/1-NN.
+   (~3 hours total compute, similar shape to the HA-only batch.)
+2. **PB2-PB1 single-slot sweep on at least one slot direction.**
+   PB2-PB1 has no subtype coupling (polymerase complex co-conservation
+   instead). Predicts: unconstrained-slot MMD shifts MUCH less than
+   under HA-NA, because the biological coupling channel is different.
+   Falsifies / supports the "subtype coupling explains the HA-NA NA
+   shift" story. Feasibility pre-flight is required first (PB2-PB1
+   cluster distributions differ from HA-NA). Concrete next action:
+   run `single_slot_cluster_disjoint_feasibility.py` on PB2-PB1; if
+   id098 is feasible, create one bundle and one sweep.
+3. **CV-style fold support for cluster_disjoint single-slot.** Replace
+   the current LPT-greedy bin-packing with sklearn's `GroupKFold`
+   keyed on `cluster_id_{single_slot}` for the multi-fold path; keep
+   LPT-greedy for the single-shot 80/10/10 case where exact ratios
+   matter. ~50 lines + tests. Enables true CV (mean ± std across
+   folds, both split + training stochasticity) on top of the existing
+   model-seed variance.
+
 ## Algorithm-switch follow-ups (post 2026-05-22)
 
 The 2026-05-22 switch from asymmetric easy-cluster (aa) + easy-linclust
