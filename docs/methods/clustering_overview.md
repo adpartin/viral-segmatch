@@ -494,13 +494,21 @@ Columns:
 
 ## 6. Cluster collapse trajectory
 
-Source. `cluster_analysis_summary.py`. `cluster_summary.csv` contains
-raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
-0.95, 0.90, 0.85, 0.80}. Plots: `cluster_counts_vs_threshold.png` and
-`bipartite_largest_pct_vs_threshold.png`.
+**Source.** `src/analysis/cluster_analysis_summary.py`;
+`results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
+(raw values for all subsections below). The threshold sweep covers
+{1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.90, 0.85, 0.80}. Plots:
+`cluster_counts_vs_threshold.png`, `bipartite_largest_pct_vs_threshold.png`.
 
+### 6.1 Per-function n_clusters across thresholds
 
-### 6.1 Per-function `n_clusters` (aa)
+Columns:
+- `Segment` / `Function`: standard 8-protein labels.
+- `id###`: number of mmseqs clusters for that function at threshold
+  `t = ###/100`. Lower threshold → more sequences cluster together →
+  fewer clusters.
+
+**aa.**
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -513,7 +521,7 @@ raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
 | 7 | M1  |  4,712 |  1,764 |  1,033 |  1,003 |    708 |    129 | **24** |  10 |  3 |
 | 8 | NS1 | 22,131 | 13,508 |  9,109 |  6,405 |  4,306 |  3,458 |   786 |  196 | 174 |
 
-**Per-function `n_clusters` (nt)**, for comparison:
+**nt.**
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -526,85 +534,41 @@ raw values. The sweep covers thresholds {1.00, 0.99, 0.98, 0.97, 0.96,
 | 7 | M1  | 31,974 | 10,227 |  4,239 |  1,420 |  1,101 |    619 |     48 |   5 |   2 |
 | 8 | NS1 | 37,458 | 12,012 |  4,133 |  1,988 |  1,245 |    800 |    196 |  91 |   8 |
 
+**Takeaways.**
 
-====================================
+- **Two collapse modes (deferred-cliff vs gradual).** PB2/PB1/PA/NP/M1
+  retain moderate counts through id095, then drop sharply at id095→id090
+  (PB2: 6,491→24, −99.6%). HA/NA/NS1 decline smoothly across the whole
+  sweep and retain meaningful structure even at id080. The cliff vs
+  smooth split matches each protein's biology: polymerase and structural
+  proteins are under tight constraint; surface and length-varying
+  proteins carry persistent diversity.
+- **NA is the most-gradual outlier**, even within the surface-protein
+  group. NA's id095→id090 drop is only 2,134→1,077 (−50%, much smaller
+  than HA's 7,578→910 = −88%). Stalk-length variation already pools
+  NA into ~7% of the corpus at id100 (see §6.4 NA note), so further
+  sequence-level consolidation has less to do.
+- **No single-pp cliff.** The steepest 1-pp drop on any function is
+  ~25% (PB2 at id098→id097: 10,035→7,634). The conserved-protein cliff
+  is at the 5-pp id095→id090 transition, not at any single threshold
+  step.
+- **nt at id100 always exceeds aa at id100** (synonymous variants
+  split into distinct nt singletons). The aa-vs-nt relationship
+  inverts at id099 and id098 on most functions — see §6.3 worked
+  example for the non-nesting mechanism.
+- **NA's id100 mismatch with §4.** NA has 18,753 aa clusters at id100
+  vs 37,488 md5-dedup unique aa sequences from §4 — about half. The
+  stalk-length collapse mechanism (§4 NA note) groups stalk-deletion
+  isoforms with stalk-full counterparts under the ≥80% coverage rule.
 
-Moved from section 3.2
-
-[TODO: Need to add "Total seqs"	"Unique aa seqs"]
-
-**`Unique aa seqs` vs `id100` — the coverage-driven gap.** `Unique aa
-seqs` is the post-md5-dedup count: every byte-distinct protein sequence
-is its own row. `id100` is the mmseqs cluster count at threshold = 1.0
-under `-c 0.8 --cov-mode 0`: pairs with 100% identity over the aligned
-region AND ≥80% mutual coverage cluster together — even if the full
-sequences differ in length. On 7 of 8 functions the gap is ≤1.3% (e.g.,
-HA 41,896 → 41,760 = 0.3%, M1 4,771 → 4,712 = 1.2%). **NA: 37,488 →
-18,753 = 50% reduction.** The mechanism is NA's stalk-length
-variation — stalk-deletion isoforms are 100% identical to stalk-full
-counterparts over the aligned region (head + membrane), and the
-deletion is small enough relative to NA's ~470 aa length that ≥80%
-coverage on each side passes. They cluster at id100 even though the
-sequences differ in residue count. See §2.1 Case 1 for the schematic
-and the NA caveat block at the end of §4 for the full reading-guide
-note.
-
-The `id100` → `id099` column drop is an identity-threshold effect,
-not a coverage effect; see §3.1 (and §6.1 for the full
-id100…id080 n_clusters sweep).
-
-====================================
-
-nt at id100 always exceeds aa at id100 (synonymous variants split into
-distinct nt singletons). The id095→id090 conserved-protein cliff
-visible on aa (§6.1 aa table) is muted on nt: PB2 nt drops 954→180
-(−81%) where aa drops 6,491→24 (−99.6%). At id090, nt retains 47–275
-clusters on every function whereas aa is reduced to 6–29 on the five
-conserved functions.
-
-**No single-pp cliff.** Under symmetric easy-linclust the steepest
-1 pp drop on any function is ~25% (PB2 at id098→id097: 10,035→7,634).
-The conserved-protein cliff is now at the **id095→id090** transition
-(a 5 pp identity gap): PB2 6,491→24 (−99.6%), PB1 2,033→6 (−99.7%),
-PA 8,002→17 (−99.8%), NP 526→29 (−94.5%), M1 129→24 (−81.4%). These
-five conserved-protein values are bolded above.
-
-(Historical note. Prior to 2026-05-22 this section's table was
-produced under easy-cluster's 3-round cascade, which chained
-transitively-similar conserved-protein sequences into one cluster
-much earlier in the threshold sweep. The same PB2 trajectory under
-easy-cluster was 717→77 between id097 and id096 — a 1 pp cliff at
-id096. Under symmetric easy-linclust the cascade no longer chains
-those sequences, the cliff moves down to the 5 pp id095→id090 gap,
-and the conserved-vs-surface contrast is muted relative to the prior
-narrative. See §2.3 for the algorithm-change rationale.)
-
-**aa vs nt at the same threshold — surprising under symmetric easy-linclust.**
-Under the prior asymmetric setup (easy-cluster on aa, easy-linclust on
-nt), nt cluster counts were always higher than aa counts at the same
-threshold, which was attributed to synonymous-codon variation keeping
-aa-identical sequences in distinct nt clusters. Under symmetric
-easy-linclust the relationship is more complex:
-
-- At id100 (exact identity), nt has more clusters than aa on every
-  function (synonymous variants split into distinct nt singletons —
-  the long-standing intuition holds here).
-- At id099 and id098, **nt has fewer clusters than aa** on five of
-  eight functions (HA at id099: 22,679 aa clusters vs 12,150 nt
-  clusters). M1 is the strongest outlier in the other direction
-  (id099: 1,764 aa vs 10,227 nt, a 5.8× excess).
-- **Mechanism (cross-tab analysis, 2026-05-22):** aa and nt
-  clusterings at id099 are *not nested* — each finds within-cluster
-  variation the other misses, on every function. Two opposing
-  effects compete: (A) nt's rep-based clustering on the longer CDS
-  sequence absorbs aa-distinct point-variant swarms into a single nt
-  cluster (drives nt < aa); (B) synonymous-codon variation fragments
-  aa-identical CDS across multiple nt id099 balls (drives nt > aa).
-  Net direction depends on the function's aa-vs-synonymous diversity
-  balance. Full numbers, per-function regime table, and two
-  illustrative walkthroughs in
-  `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
-  Cross-tab script: `src/analysis/aa_nt_cluster_crosstab.py`.
+**Caveat: algorithm switch (2026-05-22).** The numbers above use
+symmetric `easy-linclust` on both alphabets. Prior runs used
+`easy-cluster` on aa, which chained transitively-similar sequences
+much further: the same PB2 trajectory under `easy-cluster` had a
+1-pp cliff at id097→id096 (717→77 clusters) instead of the 5-pp
+id095→id090 cliff seen here. Cluster counts disagreed by 5×–500× on
+the same aa input at identical parameters. See §2.2 for the
+algorithm-choice rationale.
 
 ### 6.2 Worked example: NS1 vs M1 — real diversity vs length-variation artifact
 
@@ -654,46 +618,75 @@ evidenced by the small id100 vs md5-dedup gap). The §4 read of
 diversity than M1, with a small measurement-artifact contribution
 on top".
 
-### 6.3 Two collapse modes (one deferred cliff, one gradual)
+### 6.3 Worked example: aa vs nt non-nesting at id099
 
-Two patterns are visible in the §6.1 table:
+§6.1's Takeaways noted that nt has more clusters than aa at id100 on
+every function (synonymous variants are distinct nt singletons), but
+the relationship inverts at id099 and id098 on most functions. This
+section explains why.
 
-- **Deferred-cliff functions** (PB2, PB1, PA, NP, M1). Cluster counts
-  decrease moderately through id100 → id095 (e.g., PB2: 33,601 →
-  6,491, ~80% retention), then drop sharply at id095 → id090 (PB2:
-  6,491 → 24, −99.6%). The conserved-protein "cliff" exists but
-  spans a 5 pp identity gap rather than a single pp step. These are
-  the most aa-conserved Flu A proteins (consistent with their role
-  in polymerase activity and particle structure — high constraint,
-  low aa drift); their sequence space is narrow enough that loosening
-  the identity threshold from 0.95 to 0.90 absorbs nearly every
-  remaining cluster. By id090 they are down to 6–29 clusters total —
-  essentially "Flu A polymerase, a handful of population-level
-  subfamilies".
+**The inversion.** At id099, nt has *fewer* clusters than aa on five
+of eight functions:
 
-- **Gradual functions** (HA, NA, NS1). Cluster counts decline
-  smoothly across the whole threshold sweep, retaining meaningful
-  structure even at id080 (HA: 176 aa clusters, NA: 73, NS1: 174).
-  HA and NA carry substantial aa-level variation — antigenic drift
-  drives diversity — and NS1 has the length-variation noise discussed
-  in §4 (NS1 is short with a variable C-terminal tail). NS1 in
-  particular has a smaller id095 → id090 drop (3,458 → 786, −77%)
-  than the deferred-cliff group, though it's still substantial.
+| Function | aa clusters (id099) | nt clusters (id099) | nt / aa ratio |
+|---|---:|---:|---:|
+| PB2 | 18,354 | 11,484 | 0.63 |
+| PB1 | 17,209 | 14,990 | 0.87 |
+| PA  | 18,520 | 11,184 | 0.60 |
+| HA  | 22,679 | 12,150 | 0.54 |
+| NP  | 10,483 | 11,627 | 1.11 |
+| NA  |  9,369 | 12,092 | 1.29 |
+| M1  |  1,764 | 10,227 | 5.80 |
+| NS1 | 13,508 | 12,012 | 0.89 |
 
-- **NA is the most-gradual outlier**, even within the surface-protein
-  group. NA's id095 → id090 drop is only 2,134 → 1,077 (−50%, much
-  smaller than HA's 7,578 → 910 = −88%). This is partly the
-  stalk-length-variation effect from §4 — NA's clusters are already
-  pooled by length variation at id100, so further sequence-level
-  consolidation has less effect.
+Five functions have ratio < 1 (nt has fewer clusters). M1 is the
+strongest outlier in the other direction (5.8× nt excess).
+
+**Mechanism: aa and nt clusterings are NOT nested.** Cross-tab analysis
+(`src/analysis/aa_nt_cluster_crosstab.py`, 2026-05-22) found that on
+every function, aa and nt cluster boundaries at id099 disagree in BOTH
+directions — each alphabet groups some sequences that the other
+separates. Two opposing effects compete:
+
+- **Effect A (drives nt < aa):** id099 on nt tolerates ~3× more
+  residue changes than id099 on aa (e.g., 22 vs 7 on PB2 — see §5),
+  because the CDS is ~3× longer than the protein. This larger nt
+  cluster radius absorbs swarms of aa-distinct point variants into
+  a single nt cluster.
+- **Effect B (drives nt > aa):** synonymous-codon variation
+  fragments aa-identical CDS across multiple nt clusters. The same
+  protein encoded by several synonymous CDS variants can end up in
+  distinct nt clusters if those variants differ at enough nt positions
+  to fall outside each other's nt cluster radius.
+
+Net direction depends on the function's aa-vs-synonymous diversity
+balance:
+- **Effect A dominates** on PB2/PB1/PA/HA (longer proteins + more
+  aa diversity → more aa swarms for nt to absorb).
+- **Effect B dominates** on M1 (short + tightly aa-conserved → almost
+  all M1 diversity is synonymous, so nt sees many distinct codon
+  variants per aa cluster).
+
+**Takeaway.** The intuition "nt has more clusters than aa because of
+synonymous codons" holds at id100 but breaks below that. At id099 and
+id098 most functions show the opposite direction. Use this framing
+instead: aa and nt cluster boundaries diverge in BOTH directions
+simultaneously; net cluster count depends on which effect (A or B)
+dominates for each protein.
+
+Full numbers and per-function regime walkthrough:
+`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
 
 ### 6.4 Largest cluster as % of corpus
 
-Per-function "how much of the corpus does one cluster swallow"
-(derived as `largest_cluster / n_sequences × 100` from
-`cluster_summary.csv`; not plotted as such — the
-`bipartite_largest_pct_vs_threshold.png` plot is a different
-per-pair view, see §9):
+**Source.** `src/analysis/cluster_analysis_summary.py`;
+`cluster_summary.csv` column: `largest_cluster / n_sequences × 100`.
+
+Columns:
+- `Segment` / `Function`: standard 8-protein labels.
+- `id###`: percentage of the function's sequences that fall into its
+  single largest cluster at threshold `t = ###/100`. 100% means one
+  cluster contains every sequence of that function.
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -706,54 +699,26 @@ per-pair view, see §9):
 | 6 | NA  | 6.9% |  8.7% |  8.9% |  8.8% | 13.2% | 13.2% |  17.9% |  32.4% |  37.7% |
 | 8 | NS1 | 0.0% |  3.9% |  4.8% |  9.4% | 11.7% | 16.3% |  21.1% |  29.5% |  52.4% |
 
-100% means the cluster contains the entire corpus. **Conserved-protein
-collapse is delayed**: under symmetric easy-linclust the largest
-cluster fraction stays below 25% through id095 on every function
-except M1 (which reaches 57% at id095), then jumps to 96–100% at
-id090 on PB2/PB1/PA/NP/M1. By id090 the five conserved functions have
-swallowed essentially the entire corpus; HA, NA, NS1 remain ≤30%
-(HA = 22.8%, NA = 17.9%, NS1 = 21.1% at id090).
+Rows are grouped by collapse mode from §6.1: top 5 are deferred-cliff
+functions, bottom 3 are gradual.
 
-NA's id100 fraction (6.9%) is the only sub-id100 entry visibly above
-zero — the stalk-length effect from §4 again: NA's id100 cluster
-already pools ~7% of the corpus through length-variant absorption,
-before any sequence-similarity clustering takes effect.
+**Takeaways.**
 
-Note: this is the per-FUNCTION largest cluster fraction (one number
-per function per threshold). §9 reports the per-PAIR largest
-bipartite-COMPONENT fraction — that's the quantity that actually
-gates 80/10/10 feasibility, and it can be much larger than the per-
-function cluster fraction because two functions' clusters get linked
-by shared isolates.
+- **Conserved-protein collapse is delayed.** PB2/PB1/PA/NP/M1 stay
+  below 25% through id095 (M1 is the highest at 57% at id095), then
+  jump to 96–100% at id090. By id090 the five conserved functions
+  have absorbed essentially the entire corpus into one cluster each;
+  HA/NA/NS1 remain ≤30%.
+- **NA's id100 anomaly: 6.9% already.** NA is the only function with
+  a sub-id100 entry visibly above zero, because of the stalk-length
+  collapse mechanism (§4 NA note). NA's id100 cluster pools ~7% of
+  the corpus through length-variant absorption before any
+  sequence-similarity clustering takes effect.
 
-### 6.5 Why this matters for routing
-
-The per-function collapse trajectory predicts the bipartite-CC
-feasibility ceiling documented in §9. Function-pairs whose components
-collapse sharpest at the conserved-protein cliff (polymerase pairs
-like PB2/PB1) form a single mega-component once either slot's
-clustering collapses at id095 → id090, defeating the LPT-greedy
-routing. HA/NA retains the most structural diversity at any given
-threshold and remains the most "splittable" pair.
-
-**The collapse shape is both corpus-driven AND algorithm-driven** —
-not the "corpus-driven only" framing this section asserted prior to
-2026-05-22. A 2026-05-21 validation experiment found that easy-cluster's
-3-round cascade chains transitively-similar sequences much further
-than easy-linclust's single-pass prefilter does, producing cluster
-counts that disagreed by 5×–500× on the same aa input at identical
-parameters (§2.3). Under symmetric easy-linclust the algorithm
-contribution is held constant on both alphabets, so the trajectories
-above reflect corpus structure rather than an algorithm × alphabet
-confound. This re-baselines the §9 feasibility comparison: any
-aa-vs-nt difference in the new measurements (§9) reflects alphabet
-diversity, not algorithm sensitivity.
-
-Earlier results that relied on the corpus-driven-only framing — in
-particular the §9 comparison and the
-`docs/results/2026-05-15_cluster_disjoint_nt_results.md` write-up —
-should be re-read with the understanding that the prior aa numbers
-were generated under easy-cluster.
+**Note.** This is the per-FUNCTION largest cluster fraction (one
+number per function per threshold). §9 reports the per-PAIR largest
+bipartite-COMPONENT fraction — a different metric used to characterize
+the bilateral cluster_disjoint routing's feasibility.
 
 ---
 
@@ -801,6 +766,13 @@ Pairs inside one CC must land in the same split — otherwise a cluster
 on one side would be in both train and test, defeating the purpose.
 The routing is a **bin-packing of indivisible CCs**.
 
+Concretely, the per-function collapse trajectory (§6.1) predicts the
+resulting bipartite-CC sizes. When either slot's clusters collapse
+into one mega-cluster — for example PB2 at id090 has only 24 clusters
+absorbing 99.6% of the corpus (§6.4) — the bipartite graph collapses
+into a single mega-component too, and the routing becomes structurally
+infeasible (no 80/10/10 split is possible).
+
 ### 7.2 80/10/10 by LPT-greedy
 
 The routing helper
@@ -833,6 +805,12 @@ see `docs/results/2026-05-21_bicc_pair_drop_audit.md`). The
 operational consequence is that at sub-feasibility thresholds, val
 and test starve: HA/NA aa id095 produces a 98.5 / 0.76 / 0.76 split
 rather than 80 / 10 / 10, even though every pair is routed somewhere.
+
+Which function pairs are splittable at which thresholds follows
+directly from §6.1's collapse trajectory: HA/NA (gradual on both
+slots) remains splittable longest; polymerase pairs (PB2/PB1, both
+deferred-cliff) cliff together at id090. The empirical feasibility
+ceiling for each (pair, alphabet, threshold) combination is in §9.
 
 ### 7.3 The four implemented routings — quick reference
 
@@ -982,7 +960,7 @@ can't undo what the mega-CC dictates).
 **Interpretation: feasibility ceiling is now algorithm-controlled.**
 Under symmetric easy-linclust the §6 collapse trajectory is corpus-
 driven by construction (algorithm is constant across alphabets, see
-§6.5). The aa-vs-nt feasibility gap at id099 (aa near ceiling, nt
+§6.1 Caveat). The aa-vs-nt feasibility gap at id099 (aa near ceiling, nt
 comfortably below) is now a clean comparison: it reflects the
 alphabet's underlying diversity structure plus the corpus's
 metadata-driven bipartite linking, not an algorithm × alphabet
