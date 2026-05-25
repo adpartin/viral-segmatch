@@ -69,7 +69,7 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 | 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → `dataset_segment_pairs_v2.py` (default builder since 2026-05-11) | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
 | 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
 
-Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`. Stage 1.5 has no shell wrapper — invoked directly when needed (`python src/preprocess/extract_cds_dna.py --config_bundle <virus_bundle>`).
+Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh` (MLP only), `scripts/stage4_baselines.sh` (one baseline per call), `scripts/stage4_full.sh` (MLP + every baseline in `bundle.baselines.enabled` — bug fixed 2026-05-25 to read `.enabled` correctly), `scripts/stage4_sweep.sh` (Stage 4 across multiple datasets × seeds in parallel — added 2026-05-25), `scripts/mmd_sweep.sh` (S1+S2 MMD across multiple datasets for one feature_space × label_filter — added 2026-05-25). Stage 1.5 has no shell wrapper — invoked directly when needed (`python src/preprocess/extract_cds_dna.py --config_bundle <virus_bundle>`).
 
 **Stage 3/4 decoupling**: Stage 4's shell script requires `--dataset_dir` explicitly and
 does not extract or validate a bundle name from the dataset path. This allows running

@@ -44,12 +44,33 @@ echo "=== [stage4_full] MLP: ./scripts/stage4_train.sh $CONFIG_BUNDLE ${ARGS[*]}
 "$SCRIPT_DIR/stage4_train.sh" "$CONFIG_BUNDLE" "${ARGS[@]}"
 
 # --- Read bundle.baselines ---
+# Accepts two shapes of the `baselines` block in the bundle YAML:
+#   (a) `baselines: [lgbm, knn1_margin]`  (a plain list)
+#   (b) `baselines: {enabled: [lgbm, knn1_margin]}`  (dict with enabled)
+# Both are in use across the bundles. The previous version of this
+# block called `list()` on a DictConfig under shape (b), which returns
+# dict KEYS (['enabled']) and tried to run a baseline called "enabled".
+# This fix reads `.enabled` if present, falls back to the value
+# itself if it is already a sequence.
 BASELINES=$(python -c "
 import sys
 sys.path.insert(0, '.')
 from src.utils.config_hydra import get_virus_config_hydra
 c = get_virus_config_hydra(sys.argv[1], config_path='./conf')
-bls = list(getattr(c, 'baselines', None) or [])
+b = getattr(c, 'baselines', None)
+if b is None:
+    bls = []
+elif hasattr(b, 'enabled') and b.enabled is not None:
+    bls = list(b.enabled)
+elif isinstance(b, (list, tuple)):
+    bls = list(b)
+else:
+    # Last-ditch: try iterating; DictConfig.values() would also work
+    # for the dict shape, but we've already handled enabled above.
+    try:
+        bls = list(b)
+    except TypeError:
+        bls = []
 print(' '.join(bls))
 " "$CONFIG_BUNDLE")
 

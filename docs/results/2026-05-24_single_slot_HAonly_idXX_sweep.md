@@ -427,96 +427,71 @@ magnitudes.
 
 ## Reproduce
 
+End-to-end with the wrapper scripts (`scripts/stage4_sweep.sh` and
+`scripts/mmd_sweep.sh`). Both are bash-and-zsh portable and accept a
+`{thr}` placeholder in the dataset-pattern; no inline editing needed.
+
 ```bash
-# Build the 6 sweep datasets (HA-only single-slot at each idXX):
+# 1. Build the 6 sweep datasets (HA-only single-slot at each idXX):
 for THR in 100 099 098 097 096 095; do
   bash scripts/stage3_dataset.sh flu_ha_na_cluster_aa_id${THR}_HAonly
 done
 
-# Run MMD at each threshold for each feature space.
-# ESM-2 path (slow, ~5 min/run × 18 = ~75 min):
-SIGMA_S1=1.0719; SIGMA_S2=0.3588
-for THR in 100 099 098 097 096 095; do
-  DS=$(ls -d data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cluster_aa_id${THR}_HAonly_* | head -1)
-  LABEL="cluster_aa_id${THR}_HAonly"
-  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot a \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space esm2 \
-      --sigma $SIGMA_S1 --n_permutations 500 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_esm2.csv
-  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot b \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space esm2 \
-      --sigma $SIGMA_S1 --n_permutations 500 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_NA_esm2.csv
-  python src/analysis/mmd_per_pair.py --dataset_dir $DS \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space esm2 \
-      --sigma $SIGMA_S2 --n_permutations 500 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_NA_pair_esm2_test3.csv
-done
+# 2. MMD sweep — aa k=3, positives only (the primary measurement).
+#    sigma values come from the prior Phase 1 sanity runs (see
+#    docs/results/2026-05-24_mmd_per_{slot,pair}_results.md).
+bash scripts/mmd_sweep.sh \
+    --thresholds "100 099 098 097 096 095" \
+    --dataset_pattern "dataset_flu_ha_na_cluster_aa_id{thr}_HAonly_*" \
+    --routing_label_pattern "cluster_aa_id{thr}_HAonly" \
+    --feature_space kmer_aa --kmer_k 3 \
+    --sigma_s1 29.3192 --sigma_s2 1.0720
 
-# aa k=3 path (fast, ~1 min/run × 18 = ~15 min):
-SIGMA_S1=29.3192; SIGMA_S2=1.0720
-for THR in 100 099 098 097 096 095; do
-  DS=$(ls -d data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cluster_aa_id${THR}_HAonly_* | head -1)
-  LABEL="cluster_aa_id${THR}_HAonly"
-  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot a \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
-      --sigma $SIGMA_S1 --n_permutations 500 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_kmer_aa_k3.csv
-  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot b \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
-      --sigma $SIGMA_S1 --n_permutations 500 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_NA_kmer_aa_k3.csv
-  python src/analysis/mmd_per_pair.py --dataset_dir $DS \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
-      --sigma $SIGMA_S2 --n_permutations 500 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_NA_pair_kmer_aa_k3_test3.csv
-done
+# 3. Same sweep with ESM-2 (slow — ~75 min — HDF5 load dominates).
+bash scripts/mmd_sweep.sh \
+    --thresholds "100 099 098 097 096 095" \
+    --dataset_pattern "dataset_flu_ha_na_cluster_aa_id{thr}_HAonly_*" \
+    --routing_label_pattern "cluster_aa_id{thr}_HAonly" \
+    --feature_space esm2 \
+    --sigma_s1 1.0719 --sigma_s2 0.3588
 
-# Optional: negative-only MMD sweep (sanity check that perf drop is not
-# negative-driven). Same loop, add --label_filter 0 and a _neg output suffix.
-# Use 'both' to MMD all pairs jointly.
-for THR in 100 099 098 097 096 095; do
-  DS=$(ls -d data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cluster_aa_id${THR}_HAonly_* | head -1)
-  LABEL="cluster_aa_id${THR}_HAonly"
-  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot a \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
-      --sigma $SIGMA_S1 --n_permutations 500 --label_filter 0 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_kmer_aa_k3_neg.csv
-  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot b \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
-      --sigma $SIGMA_S1 --n_permutations 500 --label_filter 0 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_NA_kmer_aa_k3_neg.csv
-  python src/analysis/mmd_per_pair.py --dataset_dir $DS \
-      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
-      --sigma $SIGMA_S2 --n_permutations 500 --label_filter 0 \
-      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_NA_pair_kmer_aa_k3_test3_neg.csv
-done
+# 4. Negative-only MMD sweep (decomposes the perf trajectory).
+bash scripts/mmd_sweep.sh \
+    --thresholds "100 099 098 097 096 095" \
+    --dataset_pattern "dataset_flu_ha_na_cluster_aa_id{thr}_HAonly_*" \
+    --routing_label_pattern "cluster_aa_id{thr}_HAonly" \
+    --feature_space kmer_aa --kmer_k 3 \
+    --sigma_s1 29.3192 --sigma_s2 1.0720 \
+    --label_filter 0 --out_suffix "_neg"
 
-# Train MLP + LGBM + 1-NN on each dataset, in parallel across 6 GPUs.
-# Uses bash array indexing (NOT zsh — IDXX[0] in zsh is empty, drops the
-# first iteration silently and you lose one threshold; bash IDXX[0]=100).
-IDXX=(100 099 098 097 096 095)
-mkdir -p logs/training/sweep_HAonly
-for i in 0 1 2 3 4 5; do
-  thr=${IDXX[$i]}
-  gpu=$((i + 1))   # GPUs 1-6
-  ds=$(ls -d data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cluster_aa_id${thr}_HAonly_* | head -1)
-  TS=$(date +%Y%m%d_%H%M%S)
-  OUT_MLP=models/flu/July_2025/runs/training_flu_ha_na_kmer_aa_k3_HAonly_id${thr}_${TS}
-  OUT_LGBM=models/flu/July_2025/runs/baseline_lgbm_flu_ha_na_kmer_aa_k3_HAonly_id${thr}_${TS}
-  OUT_KNN=models/flu/July_2025/runs/baseline_knn1_margin_flu_ha_na_kmer_aa_k3_HAonly_id${thr}_${TS}
-  (
-    bash scripts/stage4_train.sh   flu_ha_na_kmer_aa_k3 --cuda_name cuda:${gpu} --dataset_dir $ds --output_dir $OUT_MLP
-    bash scripts/stage4_baselines.sh flu_ha_na_kmer_aa_k3 --baseline lgbm        --dataset_dir $ds --output_dir $OUT_LGBM
-    bash scripts/stage4_baselines.sh flu_ha_na_kmer_aa_k3 --baseline knn1_margin --dataset_dir $ds --output_dir $OUT_KNN
-  ) > logs/training/sweep_HAonly/id${thr}_${TS}.log 2>&1 &
-  sleep 1
-done
-wait
+# 5. Both-labels MMD (the "what the model sees" summary).
+bash scripts/mmd_sweep.sh \
+    --thresholds "100 099 098 097 096 095" \
+    --dataset_pattern "dataset_flu_ha_na_cluster_aa_id{thr}_HAonly_*" \
+    --routing_label_pattern "cluster_aa_id{thr}_HAonly" \
+    --feature_space kmer_aa --kmer_k 3 \
+    --sigma_s1 29.3192 --sigma_s2 1.0720 \
+    --label_filter both --out_suffix "_both"
 
-# Aggregate MMD + perf + plot (auto-skips models whose dirs don't exist):
-python -m src.analysis.aggregate_mmd_single_slot_sweep --feature_spaces esm2 kmer_aa
+# 6. Train MLP + LGBM + 1-NN, 3 seeds × 6 datasets, parallel across
+#    GPUs 1-6. Each seed batch runs in parallel; seeds run sequentially.
+bash scripts/stage4_sweep.sh \
+    --bundle flu_ha_na_kmer_aa_k3 \
+    --thresholds "100 099 098 097 096 095" \
+    --dataset_pattern "dataset_flu_ha_na_cluster_aa_id{thr}_HAonly_*" \
+    --output_prefix training_flu_ha_na_kmer_aa_k3_HAonly \
+    --seeds "42 43 44" \
+    --baselines "lgbm knn1_margin" \
+    --start_gpu 1
+
+# 7. Aggregate MMD + perf + plot (auto-detects available seeds, label
+#    filters, feature spaces).
+python -m src.analysis.aggregate_mmd_single_slot_sweep \
+    --feature_spaces esm2 kmer_aa
 ```
+
+`scripts/stage4_sweep.sh --help` and `scripts/mmd_sweep.sh --help`
+document all flags (dataset_root, log_dir, n_permutations, etc.).
 
 Subtype-coupling sanity check on the POC dataset
 (`docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md` interpretation):
