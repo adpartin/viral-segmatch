@@ -230,7 +230,7 @@ cov(B)  = 9 / 10 = 0.90               ✓ (≥ 0.8)
 BOTH coverages ≥ 0.8 under --cov-mode 0, so this pair DOES cluster
 despite the sequences being different lengths. This is the empirical
 "NA stalk-deletion isoforms cluster with NA stalk-full" pattern at
-t = 1.0 (see §3.1; §6.3's NA id100 row pools 6.9% of the NA corpus
+t = 1.0 (see §3.1; §6.4's NA id100 row pools 6.9% of the NA corpus
 into one cluster).
 
 Case 2: fragment vs full protein — identity passes, coverage fails (does not cluster)
@@ -327,7 +327,7 @@ aligned region doesn't have to span the whole sequence. Under our
 lie outside the alignment, so sequences that differ only in length
 (length-variants — e.g., NA stalk-deletion isoforms) can still
 cluster at t = 1.0 even though the sequences are not identical. See
-§2.1 Case 1 example and §6.3's NA id100 row (6.9% of
+§2.1 Case 1 example and §6.4's NA id100 row (6.9% of
 the corpus pooled into one cluster) for the empirical evidence on
 Flu A.
 
@@ -386,10 +386,7 @@ Note that `--alph-size` is set internally by mmseqs (aa: 21, nucl: 5).
 
 ## 4. Corpus redundancy (Flu A)
 
-Source: `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
-(from `cluster_analysis_summary.py`, which reads
-`clusters_{aa,nt}/redundancy_stats.csv` written by
-`seq_redundancy_per_function.py`).
+**Source.** `src/analysis/cluster_analysis_summary.py`; `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 
 Columns:
 - `Total seqs` = the number of isolates that carry this protein.
@@ -412,64 +409,35 @@ Columns:
 | 7 | M1  | 108,530 |  4,771 |  4.4% | 32,413 | 29.9% |
 | 8 | NS1 | 108,530 | 22,225 | 20.5% | 38,039 | 35.0% |
 
-(`unique_sequence_retention.png` plots the same data as grouped bars,
-one panel per alphabet.)
-
 **Notes.**
 
-- **`% unique aa` is always lower than `% unique nt`** in functions 7 of 8. Synonymous codons create distinct
-  CDS DNAs that collapse to one protein, so the unique-nt count is
-  always ≥ the unique-aa count for the same isolate population.
-  Magnitude varies: on M1 the unique-nt count is ~7× the unique-aa
-  count (synonymous variation accumulates more on the most conserved
-  protein, because aa changes are strongly purifying-selected); on
-  HA the ratio is closer to 1.6× (HA has substantial aa-level
-  variation per se).
+- **`% unique nt` is always higher than `% unique aa`** (all 8 functions).
+  Synonymous codons create distinct CDS DNAs that collapse to one
+  protein, so within a function the nt count is ≥ the aa count.
+  Magnitude varies: M1's nt/aa ratio is ~7× (32,413 /
+  4,771); HA's is ~1.6× (65,414 / 41,896).
 - **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
   sequences across 108,530 isolates (~95% redundancy in aa). M1 is the most
   aa-conserved Flu A protein.
-- **NS1 is the inflated-aa-uniqueness case.** NS1 (median 231 aa) is
-  shorter than M1 (median 253 aa) yet has *4.7×* the unique-aa-sequence
-  count (22,225 vs 4,771). Short conserved proteins should give FEWER
-  unique sequences, not more. The reason is **length variation**: NS1
-  is the only major with substantial per-sequence length spread (aa
-  range 201–239, ~20-aa variation, vs ≤2 aa for the others —
-  `sequence_length_summary.csv`). Two NS1 proteins differing by one
-  residue at the C-terminus hash to different `seq_hash` values
-  regardless of their interior similarity. So NS1's "unique aa count"
-  partly reflects length diversity at the threshold-1.0 read, not
-  residue diversity. Clustering at id < 1.0 collapses these
-  length-variants quickly (see §6.1).
-
-> **NA stalk-length variation — important caveat for reading later tables.**
-> NA's `% unique aa` (34.5%) and `Unique aa` (37,488) here are *pre-clustering*
-> dedup counts. In §6.1, NA's `n_clusters` at id100 drops sharply to ~18,753
-> — about half the unique-aa count. Flu NA has a transmembrane stalk that varies substantially
-> in length across HxNy subtypes and within subtypes (deletions/insertions
-> in the stalk region are common). Under the §3.2 coverage rule
-> (bidirectional ≥80%), an NA with a stalk deletion is still 100% identical
-> to a longer NA over the aligned region; the two cluster together at id100.
-> So NA's *cluster count* at id100 (and downstream thresholds) reflects
-> stalk-length collapse *in addition* to sequence-diversity collapse. The
-> better tightness/diversity metric for cross-function comparison is
-> `% unique aa` from this table, not `n_clusters` at id100 from §6.1.
+- **NS1 is an outlier on this column.** 4.7× M1's unique-aa count
+  (22,225 vs 4,771) despite being slightly shorter (median 231 vs
+  253 aa). The decomposition (mostly lower aa conservation, partly a
+  length-variation md5 artifact) is worked out in §6.2 using the
+  across-threshold ratio data, since the evidence requires §6.1's
+  numbers.
 
 ---
 
 ## 5. What an identity threshold concretely admits
 
-**Source.** `src/analysis/cluster_analysis_summary.py`. `mutations_tolerated_table.csv`
-contains values for `id###`.
+**Source.** `src/analysis/cluster_analysis_summary.py`; `mutations_tolerated_table.csv`, `sequence_length_summary.csv`
 
-Each value in columns `id###` is the maximum number of residue mismatches (aa or nt) admitted inside a
+Each value in columns `id###` is the maximum number of residue mismatches (aa or nt) admitted within a
 cluster at that threshold, computed as `L − ceil(L × t)`, where `L` sequence length and `t` is the threshold. The same
 threshold is therefore looser on long proteins and stricter on short
 ones. 
 
 `TODO`: Need to understand how these values are calculated. How does the spread of sequence lengths within a cluster affect these values?
-
-`sequence_length_summary.csv` contains sequence
-length values.
 
 **Flu A data (aa).** `id###` values are max mismatches per [function, cluster]:
 
@@ -643,7 +611,55 @@ easy-linclust the relationship is more complex:
   `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
   Cross-tab script: `src/analysis/aa_nt_cluster_crosstab.py`.
 
-### 6.2 Two collapse modes (one deferred cliff, one gradual)
+### 6.2 Worked example: NS1 vs M1 — real diversity vs length-variation artifact
+
+§4 noted that NS1 has 4.7× M1's unique-aa count at md5-dedup (22,225
+vs 4,771) despite being slightly shorter (median 231 vs 253 aa).
+Two compounding causes, decomposable using §6.1's per-threshold counts.
+
+**Cause 1 (dominant): NS1 is less aa-conserved than M1.** M1 is a
+structural matrix protein under tight constraint; NS1 hosts the
+interferon-antagonist effector domain and host-adaptation modules
+that tolerate more residue substitution. This is real biology.
+
+Evidence — the NS1/M1 cluster-count ratio **grows** as the threshold
+loosens (from §6.1's aa table):
+
+| Threshold | NS1 clusters | M1 clusters | NS1 / M1 ratio |
+|---:|---:|---:|---:|
+| id100 | 22,131 | 4,712 |  4.7× |
+| id099 | 13,508 | 1,764 |  7.7× |
+| id098 |  9,109 | 1,033 |  8.8× |
+| id095 |  3,458 |   129 | 26.8× |
+| id090 |    786 |    24 | 32.8× |
+
+If the id100 gap were just a length-variation artifact, the ratio
+would *shrink* at lower idXX — length-variants would collapse first,
+removing NS1's measurement-inflated portion. The opposite happens:
+the ratio grows by ~7× from id100 to id090. NS1 has substantially
+more genuine residue diversity than M1; M1 collapses faster because
+near-identical sequences are common in M1's tight conservation space.
+
+**Cause 2 (minor, but worth flagging): length variation inflates
+NS1's id100 count.** NS1's aa length spans 201–239 (≈20-aa spread,
+from `sequence_length_summary.csv`) vs M1's ≤2 aa spread. Md5-dedup
+treats any byte-difference as a new "unique sequence", so NS1's
+length-variants count separately at md5-dedup. Mmseqs's coverage
+rule (`-c 0.8 --cov-mode 0`) admits length-variants of similar
+length but still produces only ~94 fewer id100 clusters than the
+md5-dedup count (22,131 vs 22,225, a 0.4% collapse) — modest.
+Length-variants merge more fully at id < 1.0 where the residue
+threshold dominates.
+
+**Takeaway.** NS1's high unique-aa count at id100 is **mostly real
+residue diversity** (driven by lower conservation than M1) and
+**partly a length-variation artifact** (~0.4% of the count,
+evidenced by the small id100 vs md5-dedup gap). The §4 read of
+"NS1 anomaly" should be understood as "NS1 has more real biological
+diversity than M1, with a small measurement-artifact contribution
+on top".
+
+### 6.3 Two collapse modes (one deferred cliff, one gradual)
 
 Two patterns are visible in the §6.1 table:
 
@@ -676,7 +692,7 @@ Two patterns are visible in the §6.1 table:
   pooled by length variation at id100, so further sequence-level
   consolidation has less effect.
 
-### 6.3 Largest cluster as % of corpus
+### 6.4 Largest cluster as % of corpus
 
 Per-function "how much of the corpus does one cluster swallow"
 (derived as `largest_cluster / n_sequences × 100` from
@@ -715,7 +731,7 @@ gates 80/10/10 feasibility, and it can be much larger than the per-
 function cluster fraction because two functions' clusters get linked
 by shared isolates.
 
-### 6.4 Why this matters for routing
+### 6.5 Why this matters for routing
 
 The per-function collapse trajectory predicts the bipartite-CC
 feasibility ceiling documented in §9. Function-pairs whose components
@@ -915,7 +931,7 @@ zero. Reading the table by that frame:
 - **id100 (every cell):** feasible. Largest CC is at most 49.0%
   (HA/NA aa — note this is markedly larger than under the prior
   easy-cluster baseline (20.2%) because of NA's stalk-length absorption
-  on the aa side, see §4 footnote and §6.3). Routing still has room.
+  on the aa side, see §4 footnote and §6.4). Routing still has room.
 - **id099 (marginal on all four cells now):** HA/NA aa at 79.6% lands
   just under the ceiling — bin-packer achievable. PB2/PB1 aa at 81.0%
   is 1 pp over the ceiling — borderline feasible (substantially better
@@ -971,7 +987,7 @@ can't undo what the mega-CC dictates).
 **Interpretation: feasibility ceiling is now algorithm-controlled.**
 Under symmetric easy-linclust the §6 collapse trajectory is corpus-
 driven by construction (algorithm is constant across alphabets, see
-§6.4). The aa-vs-nt feasibility gap at id099 (aa near ceiling, nt
+§6.5). The aa-vs-nt feasibility gap at id099 (aa near ceiling, nt
 comfortably below) is now a clean comparison: it reflects the
 alphabet's underlying diversity structure plus the corpus's
 metadata-driven bipartite linking, not an algorithm × alphabet
