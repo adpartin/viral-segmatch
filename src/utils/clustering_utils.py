@@ -170,7 +170,7 @@ class MMseqsResult:
     log_path: Optional[Path] = None
 
 
-def run_mmseqs_easy_cluster(
+def run_mmseqs_easy_clust(
     fasta_path: Path,
     out_prefix: Path,
     tmp_dir: Path,

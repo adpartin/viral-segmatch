@@ -18,7 +18,7 @@ for why we no longer use easy-cluster on aa):
         `src/preprocess/extract_cds_dna.py`). `--dbtype 2` (nucleotide
         alphabet).
 
-The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_cluster`
+The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_clust`
 pins the decision-relevant mmseqs flags explicitly (--cluster-mode 0,
 --seq-id-mode 0, --similarity-type 2, -e 0.001, in addition to the
 identity / coverage / dbtype flags); see that wrapper's docstring for
@@ -74,7 +74,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.utils.clustering_utils import (  # noqa: E402
     export_function_cds_fasta,
     export_function_fasta,
-    run_mmseqs_easy_cluster,
+    run_mmseqs_easy_clust,
     parse_cluster_tsv,
     cluster_size_distribution,
 )
@@ -189,7 +189,7 @@ def cluster_one_function_one_threshold(
               f"({len(lookup):,} rows, {lookup['cluster_id'].nunique():,} clusters)")
     else:
         t0 = time.time()
-        result = run_mmseqs_easy_cluster(
+        result = run_mmseqs_easy_clust(
             fasta_path=fasta_path,
             out_prefix=out_prefix,
             tmp_dir=tmp_dir,

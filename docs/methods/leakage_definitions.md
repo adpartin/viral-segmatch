@@ -129,7 +129,7 @@ different leakage definitions.
 ### mmseqs argument semantics — what each flag actually does
 
 The cluster_disjoint path invokes mmseqs2 via
-`src/utils/clustering_utils.py::run_mmseqs_easy_cluster`. The default
+`src/utils/clustering_utils.py::run_mmseqs_easy_clust`. The default
 production flags are:
 
 ```
@@ -177,7 +177,7 @@ Mechanic by flag:
 
 ### easy-cluster vs easy-linclust
 
-`run_mmseqs_easy_cluster` takes an `algorithm` parameter:
+`run_mmseqs_easy_clust` takes an `algorithm` parameter:
 
 - **`cluster`** (default) — `mmseqs easy-cluster`, the sensitive
   cascaded path. Uses a k-mer prefilter, alignment, and reassignment.
