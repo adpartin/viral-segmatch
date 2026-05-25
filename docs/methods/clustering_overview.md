@@ -409,7 +409,7 @@ Columns:
 | 7 | M1  | 108,530 |  4,771 |  4.4% | 32,413 | 29.9% |
 | 8 | NS1 | 108,530 | 22,225 | 20.5% | 38,039 | 35.0% |
 
-**Notes.**
+**Takeaways.**
 
 - **`% unique nt` is always higher than `% unique aa`** (all 8 functions).
   Synonymous codons create distinct CDS DNAs that collapse to one
@@ -430,16 +430,21 @@ Columns:
 
 ## 5. What an identity threshold concretely admits
 
-**Source.** `src/analysis/cluster_analysis_summary.py`; `mutations_tolerated_table.csv`, `sequence_length_summary.csv`
+**Source.** `src/analysis/cluster_analysis_summary.py`;
+`results/flu/July_2025/runs/cluster_analysis/mutations_tolerated_table.csv`,
+`sequence_length_summary.csv`
 
-Each value in columns `id###` is the maximum number of residue mismatches (aa or nt) admitted within a
-cluster at that threshold, computed as `L − ceil(L × t)`, where `L` sequence length and `t` is the threshold. The same
-threshold is therefore looser on long proteins and stricter on short
-ones. 
+Columns:
+- `Median aa/nt len` = median sequence length `L` for the function
+  (aa, nt). Computed from
+  per-sequence lengths; the spread within a function is small on
+  Flu A (≤2 aa for 7/8 functions; NS1 is the length-varying
+  exception — see §4 notes).
+- `id###` = maximum residue mismatches admitted within a cluster at
+  threshold `t = ###/100`, computed as `L − ceil(L × t)`. In mmseqs,
+  threshold `t` is set by `--min-seq-id`.
 
-`TODO`: Need to understand how these values are calculated. How does the spread of sequence lengths within a cluster affect these values?
-
-**Flu A data (aa).** `id###` values are max mismatches per [function, cluster]:
+**Flu A data (aa).**
 
 | Segment | Function | Median aa len | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -452,7 +457,7 @@ ones.
 | 7 | M1  | 253 | 0 |  2 |  5 |  7 | 10 | 12 | 25 |  37 |  50 |
 | 8 | NS1 | 231 | 0 |  2 |  4 |  6 |  9 | 11 | 23 |  34 |  46 |
 
-**Flu A data (nt).** `id###` values are max mismatches per [function, cluster]:
+**Flu A data (nt).**
 
 | Segment | Function | Median nt len | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -465,35 +470,25 @@ ones.
 | 7 | M1  |   759 | 0 |  7 | 15 | 22 | 30 |  37 |  75 | 113 | 151 |
 | 8 | NS1 |   693 | 0 |  6 | 13 | 20 | 27 |  34 |  69 | 103 | 138 |
 
-Each table cell is `L − ceil(L × t)`, the maximum admitted residue
-mismatches inside a cluster at identity threshold `t` for the
-median-length sequence `L`. In mmseqs, threshold `t` is by arg `--min-seq-id`.
+**Takeaways.**
 
-Note the same threshold admits different numbers of mutations on a 760-aa PB2 protein vs a 252-aa M1 protein.
+- **Same threshold, different biological criterion per function.**
+  id095 on M1 admits **3× fewer absolute mismatches** than id095 on
+  PB2 (12 vs 38, from 253 vs 760 aa median lengths). This explains
+  why per-function cluster collapse rates in §6 differ between
+  functions at the same threshold: the threshold admits more
+  mutations on longer proteins, so more sequences fall into the
+  same cluster.
 
-**Interpretation.** "id095" is not one biological criterion — it's
-eight different ones (one per function/segment) when read this way.
-id095 on M1 is **3× stricter** than id095 on PB2 because M1 is roughly 3×
-shorter. This explains why per-function cluster collapse rates in §6
-differ between functions at the same threshold: the threshold itself
-admits more mutations on the longer proteins, so more sequences fall
-into the same cluster.
+**Future direction.**
 
-**A framing observation, not yet validated.** For thinking about
-*biological similarity*, the mutations-admitted number is sometimes
-argued to be more informative than the bare identity threshold —
-particularly when comparing across function pairs of different
-lengths (e.g., HA/NA's 470–567 aa range vs PB2/PB1's 758–760 aa
-range). This is a working hypothesis on our pipeline, not an
-established result. The operational consequence — picking per-function
-thresholds to enforce a uniform absolute mismatch budget rather than
-a uniform fractional identity — is tracked as an improvement direction
-in `docs/results/2026-05-21_bicc_pair_drop_audit.md` (direction #5).
-Open question we have not resolved: under what task framings
-(per-site divergence vs functional impact vs evolutionary distance)
-is fractional vs absolute the right unit? And does uniform-absolute
-really treat each residue equally given per-protein evolutionary-rate
-variation?
+- **Per-function thresholds via uniform mismatch budget.** For
+  comparing across function pairs of different lengths (e.g.,
+  HA/NA ~470–567 aa vs PB2/PB1 ~758–760 aa), an absolute mismatch
+  budget may be more informative than a fractional identity
+  threshold. Picking per-function thresholds to enforce a uniform
+  mismatch budget is tracked in
+  `docs/results/2026-05-21_bicc_pair_drop_audit.md` direction #5.
 
 ---
 
