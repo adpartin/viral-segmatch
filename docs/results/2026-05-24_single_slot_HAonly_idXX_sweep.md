@@ -146,11 +146,83 @@ Plots:
   F1 vs S2 pair MMD² (aa k=3), one line per model, annotated by
   idXX.
 
+### Negative-pair regime sanity check
+
+Sized + axis-mix comparison across the 6 datasets — confirms
+constructed-negatives are not silently shifting in a way that would
+contaminate the perf trajectory.
+
+Pair counts are identical across all 6 datasets (train 46,710 + 70,065
+neg / val 5,839 + 8,758 neg / test 5,839 + 8,758 neg — neg:pos = 1.50
+held exactly). The `axis_flag_summary` per-axis `same%` (positives +
+negatives, counted on `axis_flag_summary` from `dataset_stats.json`):
+
+| axis | test range across idXX (max − min) | train range |
+|---|---:|---:|
+| hn_subtype   | 2.89 pp | 1.51 pp |
+| host         | 4.90 pp | 2.29 pp |
+| year         | 0.38 pp | 0.20 pp |
+| geo_location | 0.51 pp | 0.17 pp |
+| passage      | 1.83 pp | 0.26 pp |
+
+Largest swing is `host` on test (53.46% same at id100 → 49.95% at id095).
+Negatives become slightly MORE cross-host as id↓ — which would make
+them *easier*, not harder, to discriminate from positives. F1 still
+drops, so the perf trajectory is not driven by negative-axis
+composition shift.
+
+### Negative-pair MMD trajectory
+
+The axis-composition sanity above only checks aggregate axis-state
+fractions. The per-sequence negative *distribution* in feature space
+can still shift because negatives are sampled from per-split
+positive pools (which themselves shift with id↓). Re-running the aa
+k=3 MMD sweep with `--label_filter 0` (negatives only):
+
+| idXX | HA pos | HA neg | NA pos | NA neg | Pair pos | Pair neg | Pair **both** |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 100 | 0.0019 | 0.0072 | 0.0023 | 0.0026 | 0.0021 | 0.0052 | **0.0033** |
+| 099 | 0.0194 | 0.0134 | 0.0058 | 0.0067 | 0.0161 | 0.0115 | **0.0165** |
+| 098 | 0.0304 | 0.0337 | 0.0156 | 0.0103 | 0.0295 | 0.0248 | **0.0241** |
+| 097 | 0.0280 | 0.0312 | 0.0115 | 0.0113 | 0.0261 | 0.0242 | **0.0209** |
+| 096 | 0.0483 | 0.0448 | 0.0301 | 0.0139 | 0.0456 | 0.0305 | **0.0358** |
+| 095 | 0.0630 | 0.0460 | 0.0299 | 0.0231 | 0.0588 | 0.0386 | **0.0490** |
+
+The **"Pair both"** column is the same pair-level S2 MMD but computed
+on the full pair set (positives + negatives jointly, neg:pos = 1.5).
+This is the closest single MMD summary to "what the model trains
+and tests on". p-values: id100 borderline (p = 0.024); id099–id095
+all at floor (p = 0.002).
+
+Both-labels pair MMD is approximately a count-weighted blend of the
+pos-only and neg-only pair MMDs at each threshold, with the id097
+dip preserved (0.0241 → 0.0209 → 0.0358) — the perf plateau aligns.
+
+Negative p-values are all significant at the perm floor (p ≤ 0.030)
+except id100 NA (p = 0.293). Both pos and neg show **monotone growth
+with id↓** in HA / NA / pair, in the same direction. Negative MMD is
+comparable in magnitude to positive MMD across the sweep, with two
+regime-dependent excursions:
+
+- **At id100, negatives shift MORE than positives** (HA neg 3.9× the
+  HA pos MMD; pair neg 2.5× the pair pos MMD). At id100 the routing
+  is essentially random (largest HA atom 0.7% of pairs), so positives
+  barely shift; the negative shift at id100 reflects per-split
+  regime-sampler stochasticity, not the intentional constraint.
+- **At id095, positives shift MORE than negatives** (HA pos 1.4× the
+  HA neg MMD; pair pos 1.5× the pair neg MMD). At id095 the
+  constraint is heavy and the positive HA shift dominates; negatives
+  shift partially because their partner pool tracks the positive
+  pool's shift, but partner-sampling regime constraints dampen the
+  full propagation.
+- **At id098 and id097, pos and neg are within ~10–15% of each other**
+  — the dominant shift regime.
+
 ### MMD ↔ perf relationship
 
-Pairing the F1 numbers above with the aa k=3 pair-MMD² from the
-sweep gives a nearly linear F1-vs-MMD relationship across the six
-thresholds, in all three models:
+Pairing the F1 numbers above with the aa k=3 pair-MMD² (positives
+only) from the sweep gives a nearly linear F1-vs-MMD relationship
+across the six thresholds, in all three models:
 
 - All three models trace approximately straight lines in F1-vs-MMD²
   space.
@@ -163,6 +235,26 @@ thresholds, in all three models:
   the pair S2 MMD did not grow either — and F1 did not drop. The
   three (HA, NA, pair) MMD signals are coherent with the perf signal
   on a per-cell basis, not just in aggregate.
+
+**Refined framing on what's driving the perf drop:** the negative MMD
+trajectory rules out an earlier hope that the perf drop would be
+"positive-driven". It is more accurate to call this a **joint
+positives + negatives shift**:
+
+- Both halves of the data the model sees shift across the sweep.
+- Positives shift via the intentional HA-cluster constraint (direct).
+- Negatives shift via the partner-pool inheritance (indirect — the
+  partner pool *is* the per-split positives, which shifted).
+- The model's perf drop reflects the joint shift. Pair-level MMD
+  (S2) — which mixes both slots' effects — is the closest MMD
+  summary to "what the model sees" and is what shows the cleanest
+  near-linear MMD↔F1 fit.
+
+The earlier "AUC-ROC drops less than F1 because negatives are
+easier" reasoning is partly right but needs adjustment: negatives
+are *axis-easier* at id095 (more cross-host) but *sequence-shifted*
+across the sweep, so the AUC-ROC vs F1 gap can't be cleanly
+attributed to one factor.
 
 Caveat on interpretability: cross-feature-space MMD² values are not
 directly comparable (different σ per feature space). The F1-vs-MMD
@@ -228,6 +320,16 @@ magnitudes.
   visible numerically: HA MMD ≥ NA MMD in every cell of the sweep.
 - The id097 non-monotonicity is a feature of the empirical data, not
   a wiring artifact (confirmed in both feature spaces independently).
+- Held-out test perf drops monotonically with id↓ in all three models
+  (MLP F1 4.6 pp, LGBM 5.9 pp, 1-NN 4.7 pp; AUC-ROC 1.9–3.0 pp; MCC
+  7.9–10.0 pp). F1-vs-MMD² scatter is nearly linear in all three.
+- The drop is a **joint positives + negatives shift**, not
+  positive-only: negative MMD also grows monotonically with id↓
+  (pos and neg within ~10–15% of each other at id098/id097; neg
+  exceeds pos at id100 sampling-noise regime; pos exceeds neg at
+  id095 heavy-constraint regime). Negative-axis composition is
+  stable across the sweep (≤4.9 pp variation per axis), so the
+  negative shift is sequence-level, not regime-level.
 
 ### What this does not establish
 
@@ -331,6 +433,26 @@ for THR in 100 099 098 097 096 095; do
       --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
       --sigma $SIGMA_S2 --n_permutations 500 \
       --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_NA_pair_kmer_aa_k3_test3.csv
+done
+
+# Optional: negative-only MMD sweep (sanity check that perf drop is not
+# negative-driven). Same loop, add --label_filter 0 and a _neg output suffix.
+# Use 'both' to MMD all pairs jointly.
+for THR in 100 099 098 097 096 095; do
+  DS=$(ls -d data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cluster_aa_id${THR}_HAonly_* | head -1)
+  LABEL="cluster_aa_id${THR}_HAonly"
+  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot a \
+      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
+      --sigma $SIGMA_S1 --n_permutations 500 --label_filter 0 \
+      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_kmer_aa_k3_neg.csv
+  python src/analysis/mmd_per_slot.py --dataset_dir $DS --slot b \
+      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
+      --sigma $SIGMA_S1 --n_permutations 500 --label_filter 0 \
+      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_NA_kmer_aa_k3_neg.csv
+  python src/analysis/mmd_per_pair.py --dataset_dir $DS \
+      --partition_mode dataset_labels --routing_label $LABEL --feature_space kmer_aa --kmer_k 3 \
+      --sigma $SIGMA_S2 --n_permutations 500 --label_filter 0 \
+      --out_csv results/flu/July_2025/runs/split_separation_mmd/phase2_perm_${LABEL}_HA_NA_pair_kmer_aa_k3_test3_neg.csv
 done
 
 # Train MLP + LGBM + 1-NN on each dataset, in parallel across 6 GPUs.

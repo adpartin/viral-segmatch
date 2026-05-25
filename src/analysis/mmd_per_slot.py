@@ -57,6 +57,7 @@ SLOT_NAME = {'a': 'HA', 'b': 'NA'}
 def load_unique_slot_entities(dataset_dir: Path, slot: str,
                                n_isolates: int, subsample_seed: int,
                                dedup_by: str = 'protein',
+                               label_filter=1,
                                ) -> pd.DataFrame:
     """Load positives, subsample isolates, dedup by protein or DNA on one slot.
 
@@ -88,7 +89,11 @@ def load_unique_slot_entities(dataset_dir: Path, slot: str,
         df['orig_split'] = split_name        # tag source CSV for downstream use
         frames.append(df)
     pos = pd.concat(frames, ignore_index=True)
-    pos = pos[pos['label'] == 1].reset_index(drop=True)
+    # label_filter: 0 → negatives only; 1 → positives only; None / 'both' → no filter.
+    if label_filter is not None and label_filter != 'both':
+        pos = pos[pos['label'] == int(label_filter)].reset_index(drop=True)
+    else:
+        pos = pos.reset_index(drop=True)
 
     # Fixed subsample seed → the entity set is reproducible across runs.
     isolates = pos['assembly_id_a'].drop_duplicates().sample(
@@ -377,6 +382,12 @@ def main():
     p.add_argument('--kmer_k',
                    type=int, default=3,
                    help='k for the k-mer cache. aa k=3 has vocab_size 8000.')
+    p.add_argument('--label_filter',
+                   type=str, default='1', choices=['0', '1', 'both'],
+                   help="'1' (default) = positives only; '0' = negatives only; "
+                        "'both' = no filter (all pairs the model trains/tests on). "
+                        "Use 0/both to ask whether the negative-pair distribution "
+                        "also shifts between train and test under the routing.")
     p.add_argument('--out_csv', required=True, type=Path)
     args = p.parse_args()
 
@@ -389,10 +400,11 @@ def main():
     # DNA-level (one entity per unique dna_hash).
     dedup_by = 'dna' if args.feature_space == 'kmer_nt' else 'protein'
 
-    print(f'Loading unique slot_{args.slot} ({slot_name}) entities (dedup_by={dedup_by}) ...')
+    print(f'Loading unique slot_{args.slot} ({slot_name}) entities '
+          f'(dedup_by={dedup_by}, label_filter={args.label_filter}) ...')
     entities = load_unique_slot_entities(
         args.dataset_dir, args.slot, args.n_isolates, args.subsample_seed,
-        dedup_by=dedup_by,
+        dedup_by=dedup_by, label_filter=args.label_filter,
     )
     n_ambig = int(entities['is_ambiguous'].sum())
     print(f'  {len(entities)} unique {slot_name} seq_hashes '
@@ -444,6 +456,7 @@ def main():
         row['routing_label'] = routing_label
         row['slot'] = args.slot
         row['feature_space'] = args.feature_space
+        row['label_filter'] = args.label_filter
         row['subsample_seed'] = args.subsample_seed
         row['n_entities'] = len(entities)
         row['n_isolates'] = args.n_isolates
@@ -451,6 +464,7 @@ def main():
 
     out_df = pd.DataFrame(rows)
     col_order = ['partition_mode', 'routing_label', 'slot', 'feature_space',
+                 'label_filter',
                  'split_seed', 'n_A', 'n_B', 'mmd2', 'p_value', 'n_extreme',
                  'n_permutations', 'n_ambiguous_dropped',
                  'subsample_seed', 'n_entities', 'n_isolates', 'sigma']

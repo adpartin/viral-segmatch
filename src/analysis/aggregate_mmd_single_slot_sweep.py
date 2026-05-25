@@ -63,18 +63,30 @@ def _feature_suffix(feature_space: str) -> str:
     raise ValueError(f"unknown feature_space: {feature_space}")
 
 
-def _load_one(results_dir: Path, idxx: int, role: str, feature_space: str
-              ) -> Optional[dict]:
-    """Load one phase2 MMD CSV. role in {'HA', 'NA', 'pair'}."""
+def _load_one(results_dir: Path, idxx: int, role: str, feature_space: str,
+              label_filter: str = 'pos') -> Optional[dict]:
+    """Load one phase2 MMD CSV. role in {'HA', 'NA', 'pair'}.
+    `label_filter` in {'pos' (default), 'neg', 'both'} selects which
+    label-filtered MMD file to load (file naming follows the suffix
+    convention: pos → no suffix, neg → '_neg', both → '_both').
+    """
     fs = _feature_suffix(feature_space)
-    if role == 'pair':
-        # S2 (pair) file naming: phase2_perm_<label>_HA_NA_pair_<fs>_test3.csv
-        fname = (f"phase2_perm_cluster_aa_id{idxx:03d}_HAonly_"
-                 f"HA_NA_pair_{fs}_test3.csv")
+    if label_filter == 'pos':
+        lf_suffix = ''
+    elif label_filter == 'neg':
+        lf_suffix = '_neg'
+    elif label_filter == 'both':
+        lf_suffix = '_both'
     else:
-        # S1 (slot) file naming: phase2_perm_<label>_<HA|NA>_<fs>.csv
+        raise ValueError(f"label_filter must be 'pos'|'neg'|'both', got {label_filter}")
+    if role == 'pair':
+        # S2 (pair) file naming: phase2_perm_<label>_HA_NA_pair_<fs>_test3[_{neg,both}].csv
         fname = (f"phase2_perm_cluster_aa_id{idxx:03d}_HAonly_"
-                 f"{role}_{fs}.csv")
+                 f"HA_NA_pair_{fs}_test3{lf_suffix}.csv")
+    else:
+        # S1 (slot) file naming: phase2_perm_<label>_<HA|NA>_<fs>[_{neg,both}].csv
+        fname = (f"phase2_perm_cluster_aa_id{idxx:03d}_HAonly_"
+                 f"{role}_{fs}{lf_suffix}.csv")
     path = results_dir / fname
     if not path.exists():
         return None
@@ -85,6 +97,7 @@ def _load_one(results_dir: Path, idxx: int, role: str, feature_space: str
         'idxx': idxx,
         'role': role,
         'feature_space': feature_space,
+        'label_filter': label_filter,
         'mmd2': float(row['mmd2']),
         'p_value': float(row['p_value']),
         'n_train': int(row['n_A']),
@@ -174,14 +187,19 @@ def aggregate_perf(models_dir: Path, models: list) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def aggregate(results_dir: Path, feature_spaces: list) -> pd.DataFrame:
+def aggregate(results_dir: Path, feature_spaces: list,
+              label_filters: tuple = ('pos', 'neg', 'both')) -> pd.DataFrame:
+    """Aggregate MMD across (feature_space × idXX × role × label_filter).
+    Missing files silently skipped — useful when only some label_filters
+    were run for a given feature space."""
     rows = []
     for fs in feature_spaces:
         for idxx in SWEEP_THRESHOLDS:
             for role in ('HA', 'NA', 'pair'):
-                r = _load_one(results_dir, idxx, role, fs)
-                if r is not None:
-                    rows.append(r)
+                for lf in label_filters:
+                    r = _load_one(results_dir, idxx, role, fs, label_filter=lf)
+                    if r is not None:
+                        rows.append(r)
     return pd.DataFrame(rows)
 
 
@@ -193,8 +211,12 @@ ROLE_STYLE = {
 }
 
 
-def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path) -> None:
-    """One subplot per feature space. x = idXX (high -> low), y = MMD²."""
+def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
+               label_filter: str = 'pos') -> None:
+    """One subplot per feature space. x = idXX (high -> low), y = MMD².
+    Plots only the rows matching `label_filter` (default 'pos' keeps backward
+    compat with the original positives-only sweep)."""
+    sweep_df = sweep_df[sweep_df['label_filter'] == label_filter]
     feature_spaces = sorted(sweep_df['feature_space'].unique())
     n = len(feature_spaces)
     fig, axes = plt.subplots(1, n, figsize=(6.5 * n, 5.0), sharey=False)
@@ -307,16 +329,21 @@ def plot_perf(perf_df: pd.DataFrame, out_path: Path,
 def plot_mmd_vs_perf(sweep_df: pd.DataFrame, perf_df: pd.DataFrame,
                       out_path: Path, mmd_role: str = 'pair',
                       mmd_feature: str = 'kmer_aa',
+                      mmd_label_filter: str = 'both',
                       metric: str = 'f1_score') -> None:
-    """Single panel: x = MMD² of one (role, feature), y = perf metric.
-    One marker per (model × idXX); idXX labeled by annotation."""
+    """Single panel: x = MMD² of one (role, feature, label_filter),
+    y = perf metric. One marker per (model × idXX); idXX labeled by
+    annotation. Default `mmd_label_filter='both'` matches what the
+    model actually trains on (pos + neg)."""
     if perf_df.empty or sweep_df.empty:
         print('plot_mmd_vs_perf: missing data, skipping.')
         return
     mmd_sub = sweep_df[(sweep_df['feature_space'] == mmd_feature)
-                       & (sweep_df['role'] == mmd_role)][['idxx', 'mmd2']]
+                       & (sweep_df['role'] == mmd_role)
+                       & (sweep_df['label_filter'] == mmd_label_filter)
+                       ][['idxx', 'mmd2']]
     if mmd_sub.empty:
-        print(f'plot_mmd_vs_perf: no MMD rows for ({mmd_feature}, {mmd_role}).')
+        print(f'plot_mmd_vs_perf: no MMD rows for ({mmd_feature}, {mmd_role}, {mmd_label_filter}).')
         return
     fig, ax = plt.subplots(figsize=(7.0, 5.0))
     merged = perf_df.merge(mmd_sub, on='idxx')
@@ -333,7 +360,8 @@ def plot_mmd_vs_perf(sweep_df: pd.DataFrame, perf_df: pd.DataFrame,
                         (r['mmd2'], r[metric]),
                         xytext=(5, 5), textcoords='offset points',
                         fontsize=8, alpha=0.7)
-    ax.set_xlabel(f'MMD²  ({mmd_feature} {mmd_role}; smaller → more train/test overlap)')
+    ax.set_xlabel(f'MMD²  ({mmd_feature} {mmd_role}, label={mmd_label_filter}; '
+                  f'smaller → more train/test overlap)')
     ax.set_ylabel(f'Test {metric}')
     ax.set_title(f'Test {metric} vs MMD² — does distribution shift predict perf drop?')
     ax.grid(True, alpha=0.3)
@@ -381,8 +409,9 @@ def main() -> None:
         refs_combined.to_csv(refs_csv, index=False)
         print(f"Wrote reference baselines CSV: {refs_csv}  ({len(refs_combined)} rows)")
 
+    # Backward-compat: the original "main" trajectory plot is positives-only.
     plot_path = args.out_dir / 'sweep_mmd_vs_idxx.png'
-    plot_sweep(sweep_df, refs_by_fs, plot_path)
+    plot_sweep(sweep_df, refs_by_fs, plot_path, label_filter='pos')
 
     # Perf rollup — silently skips any model whose dirs don't exist yet.
     perf_df = aggregate_perf(args.models_dir, args.models)
@@ -392,28 +421,36 @@ def main() -> None:
         print(f"Wrote perf CSV: {perf_csv}  ({len(perf_df)} rows)")
         plot_perf(perf_df, args.out_dir / 'sweep_perf_vs_idxx.png')
         # Pair MMD on kmer_aa is the natural x-axis (matches Test 3 + the
-        # model's feature space). Plot F1 against it.
-        plot_mmd_vs_perf(sweep_df, perf_df,
-                          args.out_dir / 'sweep_perf_vs_mmd_pair_kmer_aa.png',
-                          mmd_role='pair', mmd_feature='kmer_aa',
-                          metric='f1_score')
+        # model's feature space). Emit one F1-vs-MMD plot per label_filter
+        # that has rows; 'both' is the most defensible single summary.
+        for lf in ('pos', 'neg', 'both'):
+            n_rows = ((sweep_df['feature_space'] == 'kmer_aa')
+                      & (sweep_df['role'] == 'pair')
+                      & (sweep_df['label_filter'] == lf)).sum()
+            if n_rows == 0:
+                continue
+            plot_mmd_vs_perf(sweep_df, perf_df,
+                              args.out_dir / f'sweep_perf_vs_mmd_pair_kmer_aa_{lf}.png',
+                              mmd_role='pair', mmd_feature='kmer_aa',
+                              mmd_label_filter=lf, metric='f1_score')
     else:
         print('No perf rows aggregated (training likely still in progress).')
 
-    # Compact per-feature summary table to stdout.
+    # Compact per-feature summary table to stdout. One block per (feature_space,
+    # label_filter) since (idxx × role) can now be non-unique across label_filters.
     print()
     for fs in args.feature_spaces:
-        sub = sweep_df[sweep_df['feature_space'] == fs]
-        if sub.empty:
-            print(f"[{fs}] no rows.")
-            continue
-        pivot = sub.pivot(index='idxx', columns='role', values='mmd2').sort_index(ascending=False)
-        pivot_p = sub.pivot(index='idxx', columns='role', values='p_value').sort_index(ascending=False)
-        print(f"[{fs}] MMD² table:")
-        print(pivot.round(5).to_string())
-        print(f"[{fs}] p-value table:")
-        print(pivot_p.round(4).to_string())
-        print()
+        for lf in sorted(sweep_df['label_filter'].unique()):
+            sub = sweep_df[(sweep_df['feature_space'] == fs) & (sweep_df['label_filter'] == lf)]
+            if sub.empty:
+                continue
+            pivot = sub.pivot(index='idxx', columns='role', values='mmd2').sort_index(ascending=False)
+            pivot_p = sub.pivot(index='idxx', columns='role', values='p_value').sort_index(ascending=False)
+            print(f"[{fs} | label={lf}] MMD² table:")
+            print(pivot.round(5).to_string())
+            print(f"[{fs} | label={lf}] p-value table:")
+            print(pivot_p.round(4).to_string())
+            print()
 
 
 if __name__ == '__main__':

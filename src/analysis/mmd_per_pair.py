@@ -67,6 +67,7 @@ from src.analysis.mmd_per_slot import (
 
 def load_unique_pairs(dataset_dir: Path, n_isolates: int,
                        subsample_seed: int, dedup_by: str = 'protein',
+                       label_filter=1,
                        ) -> pd.DataFrame:
     """Load positives, subsample isolates, dedup by pair hash combination.
 
@@ -97,7 +98,11 @@ def load_unique_pairs(dataset_dir: Path, n_isolates: int,
         df['orig_split'] = split_name
         frames.append(df)
     pos = pd.concat(frames, ignore_index=True)
-    pos = pos[pos['label'] == 1].reset_index(drop=True)
+    # label_filter: 0 → negatives only; 1 → positives only; None / 'both' → no filter.
+    if label_filter is not None and label_filter != 'both':
+        pos = pos[pos['label'] == int(label_filter)].reset_index(drop=True)
+    else:
+        pos = pos.reset_index(drop=True)
 
     # Fixed subsample seed → the pair set is reproducible across runs.
     isolates = pos['assembly_id_a'].drop_duplicates().sample(
@@ -337,6 +342,12 @@ def main():
                         'feature_space=kmer_aa or kmer_nt).')
     p.add_argument('--kmer_k', type=int, default=3,
                    help='k for the k-mer cache. Defaults: aa k=3, nt k=6.')
+    p.add_argument('--label_filter',
+                   type=str, default='1', choices=['0', '1', 'both'],
+                   help="'1' (default) = positives only; '0' = negatives only; "
+                        "'both' = no filter (all pairs the model trains/tests on). "
+                        "Use 0/both to ask whether the negative-pair distribution "
+                        "also shifts between train and test under the routing.")
     p.add_argument('--out_csv', required=True, type=Path)
     args = p.parse_args()
 
@@ -347,9 +358,11 @@ def main():
     # for nt k-mer (nt features can differ between synonymous codons).
     dedup_by = 'dna' if args.feature_space == 'kmer_nt' else 'protein'
 
-    print(f'Loading unique (HA, NA) pairs (dedup_by={dedup_by}) ...')
+    print(f'Loading unique (HA, NA) pairs (dedup_by={dedup_by}, '
+          f'label_filter={args.label_filter}) ...')
     pairs = load_unique_pairs(args.dataset_dir, args.n_isolates,
-                               args.subsample_seed, dedup_by=dedup_by)
+                               args.subsample_seed, dedup_by=dedup_by,
+                               label_filter=args.label_filter)
     n_ambig = int(pairs['is_ambiguous'].sum())
     hash_label = '(seq_hash_a, seq_hash_b)' if dedup_by == 'protein' else '(dna_hash_a, dna_hash_b)'
     print(f'  {len(pairs)} unique {hash_label} pairs '
@@ -401,6 +414,7 @@ def main():
         row['feature_space'] = args.feature_space
         row['interaction'] = args.interaction
         row['slot_transform'] = args.slot_transform
+        row['label_filter'] = args.label_filter
         row['subsample_seed'] = args.subsample_seed
         row['n_pairs'] = len(pairs)
         row['n_isolates'] = args.n_isolates
@@ -408,7 +422,7 @@ def main():
 
     out_df = pd.DataFrame(rows)
     col_order = ['partition_mode', 'routing_label', 'slot', 'feature_space',
-                 'interaction', 'slot_transform',
+                 'interaction', 'slot_transform', 'label_filter',
                  'split_seed', 'n_A', 'n_B', 'mmd2', 'p_value', 'n_extreme',
                  'n_permutations', 'n_ambiguous_dropped',
                  'subsample_seed', 'n_pairs', 'n_isolates', 'sigma']
