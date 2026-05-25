@@ -1669,6 +1669,12 @@ if PAIR_BUILDER_VERSION == 'v2':
     CLUSTER_ID_THRESHOLD = None
     CLUSTER_ALPHABET = 'aa'
     CDS_FINAL_PATH = None
+    # single_slot is a cluster_disjoint-only sub-knob. None = bilateral (both
+    # slots' clusters disjoint, default); 'a' or 'b' = constrain only that
+    # slot's clusters, leaving the other slot unconstrained. Unlocks lower
+    # idXX thresholds when bilateral cliffs into a mega-component — see
+    # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.
+    SINGLE_SLOT = None
     if SPLIT_STRATEGY_CFG is not None:
         m = getattr(SPLIT_STRATEGY_CFG, 'mode', None)
         if m is not None:
@@ -1688,6 +1694,14 @@ if PAIR_BUILDER_VERSION == 'v2':
         cf = getattr(SPLIT_STRATEGY_CFG, 'cds_final_path', None)
         if cf is not None:
             CDS_FINAL_PATH = str(cf)
+        ss = getattr(SPLIT_STRATEGY_CFG, 'single_slot', None)
+        if ss is not None:
+            SINGLE_SLOT = str(ss)
+            if SINGLE_SLOT not in ('a', 'b'):
+                raise ValueError(
+                    f"dataset.split_strategy.single_slot must be 'a' or 'b' or null; "
+                    f"got {SINGLE_SLOT!r}"
+                )
     # Default CDS path: data/processed/<virus>/<version>/cds_final.parquet
     # (alongside the input protein_final).
     if CLUSTER_ALPHABET == 'nt' and CDS_FINAL_PATH is None:
@@ -1834,6 +1848,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             cluster_id_threshold=CLUSTER_ID_THRESHOLD,
             cluster_alphabet=CLUSTER_ALPHABET,
             cds_final_path=CDS_FINAL_PATH,
+            single_slot=SINGLE_SLOT,
             train_isolates_override=holdout_train_ids,
             val_isolates_override=holdout_val_ids,
             test_isolates_override=holdout_test_ids,

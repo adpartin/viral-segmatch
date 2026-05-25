@@ -1278,6 +1278,7 @@ def split_dataset_v2(
     cluster_id_threshold: Optional[float] = None,
     cluster_alphabet: str = 'aa',
     cds_final_path: Optional[str] = None,
+    single_slot: Optional[str] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1483,8 +1484,15 @@ def split_dataset_v2(
             pos_hash_col = 'cds_dna_hash'
         else:
             pos_hash_col = 'seq_hash'
+        if single_slot is not None and single_slot not in ('a', 'b'):
+            raise ValueError(
+                f"split_dataset_v2: single_slot must be None, 'a', or 'b'; got {single_slot!r}"
+            )
+        routing_label = ('bipartite CC + LPT-greedy bin-pack on cluster_ids'
+                         if single_slot is None
+                         else f'single-slot ({single_slot}) + LPT-greedy bin-pack on cluster_ids')
         print(f"\nsplit_dataset_v2: cluster_disjoint routing "
-              f"(bipartite CC + LPT-greedy bin-pack on cluster_ids; "
+              f"({routing_label}; "
               f"cluster_alphabet={cluster_alphabet}, "
               f"cluster_id_path={cluster_id_path}, "
               f"cluster_id_threshold={cluster_id_threshold})...", flush=True)
@@ -1496,6 +1504,7 @@ def split_dataset_v2(
             cluster_lookup_path=str(cluster_id_path),
             pos_hash_col=pos_hash_col,
             cluster_alphabet=cluster_alphabet,
+            single_slot=single_slot,
         )
         train_isolates = sorted(train_pos['assembly_id_a'].tolist())
         val_isolates = sorted(val_pos['assembly_id_a'].tolist())
@@ -1971,13 +1980,17 @@ def save_split_output_v2(
     # at the full-pairs level are diagnostic only — at thresholds < 1.0,
     # different proteins in the same cluster can land in different splits'
     # negatives via partner sampling.
+    # Under single-slot routing, only the constrained side is by-construction
+    # zero; the other side may legitimately have non-zero overlap. The check
+    # then runs only on the constrained side.
     cd_audit = duplicate_stats.get('cluster_disjoint_audit')
     if cd_audit is not None:
         with open(output_dir / 'cluster_disjoint_audit.json', 'w') as f:
             json.dump(cd_audit, f, indent=2, default=str)
         print(f"Saved cluster_disjoint_audit.json to: {output_dir}")
-        # Hard-fail on cluster_id overlap. Both positives-only and full-pairs scopes.
-        for side in ('a', 'b'):
+        single_slot = cd_audit.get('single_slot')
+        sides_to_check = (single_slot,) if single_slot is not None else ('a', 'b')
+        for side in sides_to_check:
             for pair_label, audit_key in (
                 ('positives-only', 'cluster_id_overlap'),
                 ('full-pairs',     f'cluster_id_overlap_full_pairs_{side}'),
@@ -1990,8 +2003,9 @@ def save_split_output_v2(
                 if bad:
                     raise RuntimeError(
                         f"cluster_disjoint routing audit FAILED ({pair_label}, "
-                        f"side={side}): non-zero cross-split cluster_id overlap {bad}. "
-                        f"This means a cluster spans splits despite "
+                        f"side={side}, single_slot={single_slot}): non-zero "
+                        f"cross-split cluster_id overlap {bad}. This means a "
+                        f"cluster spans splits despite "
                         f"split_strategy.mode=cluster_disjoint. Check the routing helper "
                         f"(src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df) "
                         f"and the negatives sampler (must source partners only from "

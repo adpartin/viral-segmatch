@@ -133,19 +133,30 @@ def cluster_disjoint_route_pos_df(
     cluster_lookup_path: Optional[str] = None,
     pos_hash_col: str = 'seq_hash',
     cluster_alphabet: str = 'aa',
+    single_slot: Optional[str] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Route `pos_df` rows into train/val/test such that no cluster spans splits.
 
-    Algorithm (mirrors `seq_disjoint_route_pos_df`, with cluster_ids replacing
-    seq_hashes as node ids):
+    Two modes:
 
-      1. Attach cluster_id_a / cluster_id_b to pos_df via seq_hash join.
-      2. Build the bipartite graph on (cluster_id_a, cluster_id_b).
-      3. Compute connected components — each is indivisible (sharing a single
-         cluster on either side forces both endpoints' pairs into the same
-         split).
-      4. LPT-greedy bin-pack components into {train, val, test} bins by target
-         ratios; ties broken in train > val > test order for determinism.
+    - Bilateral (default, `single_slot=None`): mirrors `seq_disjoint_route_pos_df`
+      with cluster_ids replacing seq_hashes as node ids:
+        1. Attach cluster_id_a / cluster_id_b to pos_df via seq_hash join.
+        2. Build the bipartite graph on (cluster_id_a, cluster_id_b).
+        3. Compute connected components — each is indivisible (sharing a single
+           cluster on either side forces both endpoints' pairs into the same
+           split).
+        4. LPT-greedy bin-pack components into {train, val, test} bins by target
+           ratios; ties broken in train > val > test order for determinism.
+
+    - Single-slot (`single_slot='a'` or `'b'`): constrain only ONE slot's
+      clusters to be disjoint; the other slot is unconstrained. Replaces step
+      2-3 above with "group by cluster_id_{single_slot} directly; each
+      cluster's rows are the indivisible atom". Step 4 (LPT-greedy bin-pack)
+      is unchanged. Useful when bilateral cluster_disjoint at a given
+      threshold cliffs into a single bipartite mega-component but single-slot
+      atoms remain small enough to bin-pack (see
+      `single_slot_cluster_disjoint_feasibility.py`).
 
     `seed` is reserved for future tie-break shuffling and is not consumed.
 
@@ -153,8 +164,15 @@ def cluster_disjoint_route_pos_df(
         (train_pos, val_pos, test_pos, audit) — DataFrames are row-disjoint
         partitions of the SUBSET of pos_df whose seq_hashes are covered by
         `cluster_lookup`. Rows with a missing-cluster join are dropped (counts
-        recorded in audit['attach_audit']).
+        recorded in audit['attach_audit']). The audit's
+        `cluster_id_overlap[constrained_side]` is by-construction zero; the
+        unconstrained side may have non-zero overlap by design under single-slot.
     """
+    if single_slot is not None and single_slot not in ('a', 'b'):
+        raise ValueError(
+            f"cluster_disjoint_route_pos_df: single_slot must be None, 'a', or 'b'; "
+            f"got {single_slot!r}"
+        )
     if not 0 < train_ratio < 1 or not 0 <= val_ratio < 1:
         raise ValueError(
             f"cluster_disjoint_route_pos_df: invalid ratios "
@@ -177,12 +195,35 @@ def cluster_disjoint_route_pos_df(
             "Check that cluster_lookup covers the seq_hashes in pos_df."
         )
 
-    component_id, cc_summary = bipartite_components(
-        pos_with_ids, col_a='cluster_id_a', col_b='cluster_id_b',
-    )
+    if single_slot is None:
+        component_id, cc_summary = bipartite_components(
+            pos_with_ids, col_a='cluster_id_a', col_b='cluster_id_b',
+        )
+    else:
+        # Single-slot: each cluster_id_{single_slot} is its own atom; the
+        # other side is unconstrained. component_id is just the constrained
+        # slot's cluster_id, and cc_summary reports atom-size stats in the
+        # same fields that the bilateral path emits (so downstream code that
+        # logs n_components / largest_component_pairs keeps working).
+        component_id = pos_with_ids[f'cluster_id_{single_slot}'].copy()
+        atom_sizes = component_id.value_counts().sort_values(ascending=False).values
+        cc_summary = {
+            'n_components':              int(len(atom_sizes)),
+            'largest_component_pairs':   int(atom_sizes[0]) if len(atom_sizes) else 0,
+            'second_component_pairs':    int(atom_sizes[1]) if len(atom_sizes) > 1 else 0,
+            'singleton_components':      int((atom_sizes == 1).sum()),
+            'single_slot':               single_slot,
+        }
 
     sizes = component_id.value_counts().sort_index()
-    sorted_comps = sorted(sizes.index, key=lambda c: (-int(sizes.loc[c]), int(c)))
+    # cluster IDs may be non-integer strings under nt clustering; fall back to a
+    # string key for the secondary sort when int() raises.
+    def _sort_key(c):
+        try:
+            return (-int(sizes.loc[c]), int(c))
+        except (ValueError, TypeError):
+            return (-int(sizes.loc[c]), str(c))
+    sorted_comps = sorted(sizes.index, key=_sort_key)
 
     n_pairs = int(len(pos_with_ids))
     targets = {
@@ -249,7 +290,10 @@ def cluster_disjoint_route_pos_df(
 
     audit = {
         'mode': 'cluster_disjoint',
-        'algorithm': 'bipartite_cc_lpt_greedy_on_cluster_ids',
+        'algorithm': ('bipartite_cc_lpt_greedy_on_cluster_ids'
+                      if single_slot is None
+                      else f'single_slot_{single_slot}_lpt_greedy_on_cluster_ids'),
+        'single_slot': single_slot,    # None (bilateral), 'a' (slot-a-only), 'b' (slot-b-only)
         'cluster_lookup_path': cluster_lookup_path,
         'cluster_id_threshold': cluster_id_threshold,
         'cluster_alphabet': cluster_alphabet,
@@ -264,9 +308,11 @@ def cluster_disjoint_route_pos_df(
         'max_target_deviation_pct': round(
             max(abs(achieved_pcts[k] - target_pcts[k]) for k in achieved_pcts), 4
         ),
-        'pairs_dropped_in_routing': 0,            # CC bin-packing never splits a component
+        'pairs_dropped_in_routing': 0,            # bin-packing never splits a component
         'pairs_dropped_in_cluster_join': attach_audit['n_input'] - attach_audit['n_kept'],
-        'cluster_id_overlap': cluster_overlaps,   # by-construction zero (sanity check)
+        # cluster_id_overlap: by-construction zero on the constrained slot(s).
+        # Bilateral: both sides zero. Single-slot: only the constrained side zero.
+        'cluster_id_overlap': cluster_overlaps,
         'seq_hash_overlap': hash_overlaps.get('seq', {}),
         'dna_hash_overlap': hash_overlaps.get('dna', {}),
     }

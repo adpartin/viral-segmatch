@@ -217,3 +217,9 @@ split_strategy:
   # cluster_id_path:      data/processed/flu/July_2025/clusters_aa/id099/combined_cluster.parquet
   # cluster_id_threshold: 0.99
   # cluster_alphabet:     aa   # 'aa' (default) | 'nt'
+  # single_slot:          null # null (default, bilateral: both slots' clusters disjoint)
+                              # | 'a' (constrain slot-a only; slot-b unconstrained)
+                              # | 'b' (constrain slot-b only; slot-a unconstrained).
+                              # Useful when bilateral cliffs at a given idXX but single-slot
+                              # atoms stay small enough to bin-pack. See pre-flight in
+                              # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.

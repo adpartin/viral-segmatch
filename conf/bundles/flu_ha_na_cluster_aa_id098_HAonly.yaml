@@ -1,0 +1,29 @@
+# STATUS: experimental -- HA/NA single-slot (HA-only) cluster_disjoint at aa idXX >= 0.98.
+# Inherits flu_ha_na. Overrides split_strategy to use single-slot
+# cluster_disjoint: only HA's aa clusters are forced disjoint between splits;
+# NA is unconstrained.
+#
+# Why this exists: bilateral cluster_disjoint on Flu A HA-NA cliffs at id098
+# (largest bipartite CC ~88% of pairs, fails 80/10/10). Single-slot HA-only
+# at id098 has largest atom ~8% — comfortably feasible.
+#
+# Pre-registered prediction (for MMD validation):
+#   - S1 MMD on HA (constrained slot)   -> grows vs random/seq_disjoint
+#   - S1 MMD on NA (unconstrained slot) -> stays near random
+#   - S2 MMD on pair                    -> partial growth
+#
+# See:
+#   docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md (pre-flight)
+#   src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df (single_slot mode)
+
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  split_strategy:
+    mode: cluster_disjoint
+    cluster_id_path: data/processed/flu/July_2025/clusters_aa/id098/combined_cluster.parquet
+    cluster_id_threshold: 0.98
+    cluster_alphabet: aa
+    single_slot: a       # constrain slot a (HA) only; slot b (NA) unconstrained
