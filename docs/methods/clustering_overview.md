@@ -214,32 +214,26 @@ to `--seq-id-mode N` (the identity denominator); the coverage mode is
 set by separate `--cov-mode` discussed in §3.2.
 
 ```
-Case 1: no gaps, one mismatch
+Case 1: length-variants — identity passes, coverage passes (cluster together)
 ─────────────────────────────────────────────
-Seq A:   M K T V R Q E L K L            (10 residues)
-Seq B:   M K T V R Q E L K Y            (10 residues)
-status:  = = = = = = = = = X            (= match, X mismatch)
+Seq A:   M K T V R Q E L K                     (9 residues; length-variant)
+Seq B:   M K T V R Q E L K L                   (10 residues; full)
+         = = = = = = = = = ─                   (= aligned, ─ unaligned in B)
 
-alignment_length  = 10  (columns in the alignment)
+alignment_length  =  9
 n_identical       =  9
-identity (mode 0) = 9 / 10 = 0.90 ← that's what mmseqs compares to --min-seq-id
+identity (mode 0) = 9 / 9 = 1.00      ✓ identity passes even at t = 1.0
 
-Case 2: one internal gap (different-length sequences)
-─────────────────────────────────────────────
-Seq A:   M K T - R Q E L K L            (residues:  9; alignment row: 10 cols)
-Seq B:   M K T V R Q E L K L            (residues: 10; alignment row: 10 cols)
-status:  = = = G = = = = = =            (G = gap)
+cov(A)  = 9 / 9  = 1.00               ✓
+cov(B)  = 9 / 10 = 0.90               ✓ (≥ 0.8)
 
-alignment_length  = 10  (every column counts: matches + mismatches + gaps)
-n_identical       =  9  (gap columns are not identical by definition)
-identity (mode 0) = 9 / 10 = 0.90
-identity (mode 1) = 9 /  9 = 1.00  ← over shorter sequence  (9 residues)
-identity (mode 2) = 9 / 10 = 0.90  ← over longer sequence  (10 residues)
+BOTH coverages ≥ 0.8 under --cov-mode 0, so this pair DOES cluster
+despite the sequences being different lengths. This is the empirical
+"NA stalk-deletion isoforms cluster with NA stalk-full" pattern at
+t = 1.0 (see §3.1; §6.3's NA id100 row pools 6.9% of the NA corpus
+into one cluster).
 
-We pin --seq-id-mode to 0 — see §3.2 for the coverage discussion that
-interacts with this choice.
-
-Case 3: fragment vs full protein — identity passes, coverage fails
+Case 2: fragment vs full protein — identity passes, coverage fails (does not cluster)
 ─────────────────────────────────────────────
 Seq A:   M K T V R Q E L K L                                     (10 residues; fragment)
 Seq B:   M K T V R Q E L K L Q W S P R M N K T L H A V S Q E S F (40 residues; full)
@@ -255,14 +249,39 @@ cov(B)  = 10 / 40 = 0.25                ✗ fails -c 0.8 (under --cov-mode 0)
 Under --cov-mode 0 BOTH sequences must have ≥80% of their residues
 inside the aligned region, so the pair does NOT cluster despite
 identity = 1.00.
+
+Case 3: no gaps, one mismatch
+─────────────────────────────────────────────
+Seq A:   M K T V R Q E L K L            (10 residues)
+Seq B:   M K T V R Q E L K Y            (10 residues)
+status:  = = = = = = = = = X            (= match, X mismatch)
+
+alignment_length  = 10  (columns in the alignment)
+n_identical       =  9
+identity (mode 0) = 9 / 10 = 0.90 ← that's what mmseqs compares to --min-seq-id
+
+Case 4: one internal gap (different-length sequences)
+─────────────────────────────────────────────
+Seq A:   M K T - R Q E L K L            (residues:  9; alignment row: 10 cols)
+Seq B:   M K T V R Q E L K L            (residues: 10; alignment row: 10 cols)
+status:  = = = G = = = = = =            (G = gap)
+
+alignment_length  = 10  (every column counts: matches + mismatches + gaps)
+n_identical       =  9  (gap columns are not identical by definition)
+identity (mode 0) = 9 / 10 = 0.90
+identity (mode 1) = 9 /  9 = 1.00  ← over shorter sequence  (9 residues)
+identity (mode 2) = 9 / 10 = 0.90  ← over longer sequence  (10 residues)
+
+We pin --seq-id-mode to 0 — see §3.2 for the coverage discussion that
+interacts with this choice.
 ```
 
-This is the second mechanism behind §3.1's "modulo coverage" caveat:
-the coverage gate stops fragment-vs-full matches from clustering at
-t = 1.0, but it still permits length-variants where ≤20% of each
-sequence is unaligned (e.g., NA stalk-deletion isoforms aligning to
-NA stalk-full proteins — see §4). See §3.2 for the full coverage
-discussion and `--cov-mode` alternatives.
+Cases 1 and 2 together demonstrate §3.1's "modulo coverage" caveat:
+the coverage gate stops fragment-vs-full matches (Case 2) from
+clustering at t = 1.0, but still permits length-variants (Case 1)
+where ≤20% of each sequence is unaligned (e.g., NA stalk-deletion
+isoforms aligning to NA stalk-full proteins — see §4). See §3.2 for
+the full coverage discussion and `--cov-mode` alternatives.
 
 Note that the same threshold is **biologically stricter on shorter proteins**
 (fewer absolute mutations admitted). See § 5 for a per-function table.
@@ -275,7 +294,7 @@ mmseqs2 provides two main methods for clustering:
 -  **`easy-linclust`** — runs the Linclust workflow, designed for near-linear-time clustering of very large sequence sets; much faster, but usually less sensitive than cascaded clustering.
 
 **Choice on Flu A: symmetric easy-linclust on both alphabets** (since
-2026-05-22). The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_cluster`
+2026-05-22). The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_clust`
 defaults to `algorithm='linclust'` and is what
 `seq_redundancy_per_function.py` invokes for both the aa and nt
 sweeps. Decision-relevant mmseqs2 flags are pinned explicitly on the
@@ -294,20 +313,21 @@ mmseqs <easy-cluster | easy-linclust>  <input.fasta>  <out_prefix>  <tmp_dir> \
 ```
 
 The pipeline wires these via
-`src/utils/clustering_utils.py::run_mmseqs_easy_cluster`. The four
-mechanics that actually drive behavior are below.
+`src/utils/clustering_utils.py::run_mmseqs_easy_clust`. The three knobs
+that actually drive behavior are below.
 
 ### 3.1 `--min-seq-id <t>` — identity threshold
 
 Range [0, 1]. Two sequences cluster iff their pairwise identity is
 ≥ t (and they pass the coverage rule below). Counted on residues
 (aa for protein, nt for DNA). At t = 1.0, only sequence pairs with
-100% identity *over the aligned region* cluster — the aligned region
-need not span the whole sequence. Under our `-c 0.8 --cov-mode 0`
-settings (§3.2), up to 20% of each sequence can lie outside the
-alignment, so length-variants (e.g., NA stalk-deletion isoforms) can
-still cluster at t = 1.0 even though the full strings differ. See
-§2.1 Case 3 example and §6.3's NA id100 row (6.9% of
+100% identity *over the aligned region* would cluster together — the
+aligned region doesn't have to span the whole sequence. Under our
+`-c 0.8 --cov-mode 0` settings (§3.2), up to 20% of each sequence can
+lie outside the alignment, so sequences that differ only in length
+(length-variants — e.g., NA stalk-deletion isoforms) can still
+cluster at t = 1.0 even though the sequences are not identical. See
+§2.1 Case 1 example and §6.3's NA id100 row (6.9% of
 the corpus pooled into one cluster) for the empirical evidence on
 Flu A.
 
@@ -355,31 +375,31 @@ both matrices return a small positive score for the X-vs-anything
 case, so an alignment with a handful of X residues can still pass the
 identity threshold.
 
-Stage 1 (`preprocess_flu.py`) scrubs proteins with high X-fraction
+Stage 1 (`preprocess_flu.py`) removes proteins with high X-fraction
 (`prepare_sequences_for_esm2`), so the aa side rarely encounters X.
 The nt side leaves IUPAC codes intact; mmseqs handles them via the
 nucleotide matrix.
 
 Note that `--alph-size` is set internally by mmseqs (aa: 21, nucl: 5).
 
-For the detailed routing-equivalence semantics (aa cluster_id100 ≈
-seq_disjoint hash_key=seq vs nt cluster_id100 ≠ seq_disjoint
-hash_key=dna), see `docs/methods/leakage_definitions.md`
-§ "Routing equivalence and mmseqs argument semantics". It walks
-through which mechanics are alphabet-agnostic and which are
-alphabet-specific.
-
 ---
 
-## 4. Per-function corpus redundancy (Flu A July 2025)
+## 4. Corpus redundancy (Flu A)
 
 Source: `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 (from `cluster_analysis_summary.py`, which reads
 `clusters_{aa,nt}/redundancy_stats.csv` written by
 `seq_redundancy_per_function.py`).
 
-Per-function unique-sequence counts at threshold = 1.00 (i.e., exact
-identity clustering — every cluster has all-identical members):
+Columns:
+- `Total seqs` = the number of isolates that carry this protein.
+- `Unique aa seqs` / `Unique nt seqs` = unique sequence count after
+  dedup on `prot_seq` / `cds_dna`. This is the FASTA
+  row count that mmseqs sees as input (it's the pre-clustering dedup).
+- `% unique aa` = `Unique aa seqs` / `Total seqs` (and the same for
+  `% unique nt`). High % means
+  more diverse population at the sequence level; low % means heavily
+  redundant population.
 
 | Segment | Function | Total seqs | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
 |---:|---|---:|---:|---:|---:|---:|
@@ -392,26 +412,12 @@ identity clustering — every cluster has all-identical members):
 | 7 | M1  | 108,530 |  4,771 |  4.4% | 32,413 | 29.9% |
 | 8 | NS1 | 108,530 | 22,225 | 20.5% | 38,039 | 35.0% |
 
-Column meanings:
-
-- `Input rows` = the number of isolates that carry this protein
-  (108,530 in this corpus on every function).
-- `Unique aa seqs` / `Unique nt seqs` = unique sequence count after
-  md5-dedup on `prot_seq` / `cds_dna` respectively. This is the FASTA
-  row count that mmseqs sees as input. It is *not* an mmseqs cluster
-  count — it's the pre-clustering dedup result and is algorithm-agnostic.
-- `% unique aa` / `% unique nt` = `Unique aa seqs` / `Input rows` (and
-  the same for nt). Read as the **diversity/uniqueness rate**: high % =
-  more diverse population at the sequence level, low % = heavily
-  redundant population.
-
 (`unique_sequence_retention.png` plots the same data as grouped bars,
 one panel per alphabet.)
 
-**Interpretation.** Two regularities and one anomaly:
+**Notes.**
 
-- **`% unique aa` is always lower than `% unique nt`** (column 5 <
-  column 7) on 7 of 8 functions. Synonymous codons create distinct
+- **`% unique aa` is always lower than `% unique nt`** in functions 7 of 8. Synonymous codons create distinct
   CDS DNAs that collapse to one protein, so the unique-nt count is
   always ≥ the unique-aa count for the same isolate population.
   Magnitude varies: on M1 the unique-nt count is ~7× the unique-aa
@@ -419,10 +425,9 @@ one panel per alphabet.)
   protein, because aa changes are strongly purifying-selected); on
   HA the ratio is closer to 1.6× (HA has substantial aa-level
   variation per se).
-- **M1 is the most-redundant aa case.** Only 4,771 distinct M1 aa
-  sequences across 108,530 isolates — 96% redundancy. M1 is the most
-  aa-conserved Flu A protein, consistent with literature on its role
-  in particle structure (high constraint, low aa drift).
+- **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
+  sequences across 108,530 isolates (~95% redundancy in aa). M1 is the most
+  aa-conserved Flu A protein.
 - **NS1 is the inflated-aa-uniqueness case.** NS1 (median 231 aa) is
   shorter than M1 (median 253 aa) yet has *4.7×* the unique-aa-sequence
   count (22,225 vs 4,771). Short conserved proteins should give FEWER
@@ -439,8 +444,7 @@ one panel per alphabet.)
 > **NA stalk-length variation — important caveat for reading later tables.**
 > NA's `% unique aa` (34.5%) and `Unique aa` (37,488) here are *pre-clustering*
 > dedup counts. In §6.1, NA's `n_clusters` at id100 drops sharply to ~18,753
-> — about half the unique-aa count. This is **not** an algorithm-specific
-> artifact: influenza NA has a transmembrane stalk that varies substantially
+> — about half the unique-aa count. Flu NA has a transmembrane stalk that varies substantially
 > in length across HxNy subtypes and within subtypes (deletions/insertions
 > in the stalk region are common). Under the §3.2 coverage rule
 > (bidirectional ≥80%), an NA with a stalk deletion is still 100% identical
@@ -567,18 +571,18 @@ Moved from section 3.2
 [TODO: Need to add "Total seqs"	"Unique aa seqs"]
 
 **`Unique aa seqs` vs `id100` — the coverage-driven gap.** `Unique aa
-seqs` is the post-md5-dedup count: every byte-distinct protein string
+seqs` is the post-md5-dedup count: every byte-distinct protein sequence
 is its own row. `id100` is the mmseqs cluster count at threshold = 1.0
 under `-c 0.8 --cov-mode 0`: pairs with 100% identity over the aligned
 region AND ≥80% mutual coverage cluster together — even if the full
-strings differ in length. On 7 of 8 functions the gap is ≤1.3% (e.g.,
+sequences differ in length. On 7 of 8 functions the gap is ≤1.3% (e.g.,
 HA 41,896 → 41,760 = 0.3%, M1 4,771 → 4,712 = 1.2%). **NA: 37,488 →
 18,753 = 50% reduction.** The mechanism is NA's stalk-length
 variation — stalk-deletion isoforms are 100% identical to stalk-full
 counterparts over the aligned region (head + membrane), and the
 deletion is small enough relative to NA's ~470 aa length that ≥80%
 coverage on each side passes. They cluster at id100 even though the
-strings differ in residue count. See §2.1 Case 3 for the schematic
+sequences differ in residue count. See §2.1 Case 1 for the schematic
 and the NA caveat block at the end of §4 for the full reading-guide
 note.
 
