@@ -27,12 +27,21 @@ Bake-off paused after Phase 0 (see
 `docs/plans/2026-05-19_datasail_bakeoff_plan.md`). These are the
 items worth revisiting before deciding to fully retire the bake-off.
 
-1. **Compute L(π) on bicc splits at id100, id099, id095** as a shared
-   yardstick metric for the paper. Reuse the existing
-   `src/analysis/datasail_bakeoff.py` wrapper with DataSAIL in
-   measurement-only mode (load our cluster IDs as the partition, ask
-   DataSAIL to compute the leakage score). Paper-worthy result.
-   (~30–60 min compute when revisited.)
+1. ~~**Compute L(π) on bicc splits at id100, id099, id095** as a shared
+   yardstick metric for the paper.~~ **DONE 2026-05-24** (negative
+   result). Tested via `eval_split` from the `datasail` env on three
+   1000-isolate-subsample routings (cluster_disjoint aa id099,
+   seq_disjoint, random). Under `similarity='mmseqs'` ratios differ
+   between routings/slots but don't form a clean "more leakage ↔
+   higher L(π)" pattern. Under `similarity='mmseqspp'` all six
+   (routing × slot) ratios collapse to ~0.34 — exactly the partition-
+   shape constant 1 − (0.8²+0.1²+0.1²) for 80/10/10. Diagnostic on
+   the similarity matrix shows bimodal/zero-inflated distribution, so
+   not a low-variance artifact. Full writeup:
+   `docs/results/2026-05-24_datasail_lpi_results.md`. MMD took over
+   as the working leakage/separation metric (see
+   `docs/results/2026-05-24_mmd_per_*_results.md` and the single-
+   slot sweep).
 2. (Tier C, low priority) **Resolve the 1-pair-silently-missing edge
    case** from `solver/overflow.py` pre-assignment. Reproducible
    across all 13 Phase 0 configs; same pair every time. Likely a
