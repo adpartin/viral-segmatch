@@ -91,7 +91,9 @@ dataset. Provenance is tracked via `training_info.json` saved in the training ou
 **Convention**: One bundle = one reproducible experiment. Bundle names encode the experiment:
 `flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na_5ks`, `flu_schema_raw_slot_norm_unit_diff_h3n2`.
 
-Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `dataset.split_strategy.{mode,hash_key}`, `dataset.metadata_holdout`, `training.slot_transform`, `training.interaction`. Sklearn-baseline knobs live under `baseline_<name>.*` at the bundle root (defaults inherited from `conf/baselines/default.yaml`).
+Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `dataset.split_strategy.{mode,hash_key,cluster_alphabet,single_slot}`, `dataset.metadata_holdout`, `training.slot_transform`, `training.interaction`. Sklearn-baseline knobs live under `baseline_<name>.*` at the bundle root (defaults inherited from `conf/baselines/default.yaml`).
+
+`split_strategy.single_slot` (added 2026-05-24): `null` (default, bilateral cluster_disjoint) | `'a'` (constrain slot-a clusters only, slot-b unconstrained) | `'b'` (constrain slot-b only). Only consumed under `mode: cluster_disjoint`. Unlocks idXX thresholds the bilateral path collapses on; the unconstrained slot may still shift via biological coupling (HA↔NA via subtype on Flu A HA-NA). See `docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md` and `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`.
 
 **Bundle organization** (see `conf/bundles/README.md` for full detail):
 - Each bundle has a `# STATUS: active|ablation|experimental|legacy|not maintained` header comment.
@@ -133,10 +135,14 @@ src/
     analyze_stage2_embeddings.py    # Embedding quality checks
     analyze_stage3_datasets.py      # Dataset balance/distribution
     seq_redundancy_per_function.py       # mmseqs2 per-function cluster sweep (aa easy-cluster, nt easy-linclust); emits redundancy_stats.csv, runtime.json, and redundancy_summary.md alongside the data (not in docs/)
-    cluster_disjoint_feasibility.py      # Bipartite-CC feasibility pre-flight (aa via --protein_final, nt via --cds_final)
+    cluster_disjoint_feasibility.py      # Bilateral bipartite-CC feasibility pre-flight (aa via --protein_final, nt via --cds_final)
+    single_slot_cluster_disjoint_feasibility.py  # Single-slot atom feasibility pre-flight (reuses bilateral's helpers); sweeps both slots × thresholds
     cluster_analysis_summary.py          # Post-hoc structural summary: 8x2 redundancy table, mutations-tolerated per threshold, cluster-collapse + bipartite-feasibility plots
     plot_aa_vs_nt_cluster_disjoint.py    # LGBM + 1-NN cluster-disjoint test-metric comparison across routings
     aggregate_cluster_disjoint_ratios.py # Ratio-sweep aggregator
+    mmd_per_slot.py                      # S1 per-slot MMD (RBF + permutation test) on PCA-50 ESM-2 / aa k-mer / nt k-mer
+    mmd_per_pair.py                      # S2 per-pair MMD on the production Test 3 interaction (slot_transform=unit_norm + interaction=unit_diff+prod)
+    aggregate_mmd_single_slot_sweep.py   # Sweep rollup + plots (MMD-vs-idXX, perf-vs-idXX, perf-vs-MMD)
   utils/
     config_hydra.py                 # Hydra config loader (primary)
     esm2_utils.py                   # ESM-2 tokenization, batch embedding
@@ -170,6 +176,7 @@ src/
 - **1-NN edges MLP on PB2/PB1 under seq_disjoint** (MCC 0.900 vs 0.887). Consistent with the conservation-effect interpretation: PB2/PB1 has fewer distinct proteins overall, so eval splits contain fewer truly novel proteins and lookup-style baselines have an easier time.
 - **Experiment B-nt feasibility ceiling = aa ceiling on Flu A (2026-05-15)**: nt CDS-level cluster_disjoint hits the same bipartite mega-component collapse as aa cluster_disjoint, at the same thresholds (only id100 and id099 are operable on the full corpus; id095 and below dump >98% of pairs into one component on both alphabets). The hope that nt's higher synonymous diversity would unlock lower-threshold splits did not pan out — the corpus's metadata structure dominates the alphabet choice. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
 - **1-NN cosine margin ≥ LGBM at every cluster_disjoint routing (2026-05-15)**: ran 1-NN + LGBM head-to-head on 8 cells (HA/NA × PB2/PB1 × {seq_disjoint, aa id099, nt id100, nt id099}). 1-NN matches LGBM at id100/seq_disjoint cells and OUTPERFORMS LGBM at id099 cells (+16 pp F1 on HA/NA aa id099, +7 pp on PB2/PB1 aa id099). Going-in hypothesis "1-NN drops more than LGBM under cluster_disjoint" did not survive. Read: cluster_disjoint weakens the near-neighbor signal *gradually* rather than eliminating it; 1-NN's prediction-by-nearest-pair stays well-calibrated under that weakening while LGBM's tree splits rely on signal that doesn't generalize across the cluster boundary. The "MLP vs 1-NN" leakage doctrine is informative as a residual-leakage gauge but does not by itself confirm that cluster_disjoint removed leakage. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md` § "1-NN cosine margin (leakage upper bound)".
+- **Single-slot HA-only cluster_disjoint sweep on HA-NA produces monotone MMD ↑ and monotone test perf ↓ across id100..id095 (2026-05-24)**: 6 datasets built under new `single_slot` routing mode, all feasible 80/10/10. S1 HA MMD grows monotonically with id↓ (ESM-2 22.6×, aa k=3 33.7×); S1 NA MMD also grows (~9-13×) with a non-monotone dip at id097; S2 pair MMD tracks HA closely. Models trained per dataset (MLP + LGBM + 1-NN cosine margin on aa k=3 + Test 3, single seed) show monotone F1 ↓ (MLP 0.963→0.917, LGBM 0.950→0.891, 1-NN 0.958→0.911). F1-vs-MMD² scatter is **nearly linear** across all three models — empirical support for the "gradual distribution shift ↔ gradual perf drop" causal story within this corpus. The id097 ≈ id098 F1 plateau aligns with the id097 NA-MMD dip (perf doesn't drop where MMD doesn't grow). Pre-registered "S1 NA stays near random" was FALSIFIED — biological coupling confirmed: HA-cluster boundary ≈ NA-subtype boundary on this corpus (Cramér's V = 0.90 at id098; 88% of HA clusters are ≥95% NA-subtype-pure). The single-slot relaxation does not decouple slots when they are biologically correlated at the isolate level. Not tested: multi-seed, ESM-2 training, NA-only direction (slot-symmetry check), PB2-PB1 (different biological coupling — polymerase complex, no subtype). See `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`.
 
 ---
 
@@ -202,6 +209,12 @@ Priority experiments for publication:
 ## What Is In Development (Not Yet Production)
 
 - `src/utils/dna_utils.py` — DNA sequence QC utilities
+- `dataset.split_strategy.single_slot` cluster_disjoint mode (added 2026-05-24):
+  exercised on Flu A HA-NA HA-only at id100..id095 (6 bundles, all built
+  successfully, MMD + MLP/LGBM/1-NN results landed). Untested directions:
+  NA-only, PB2-PB1, nt cluster_alphabet, multi-seed. Routing + audit code
+  in `src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df` and
+  `src/datasets/dataset_segment_pairs_v2.py::split_dataset_v2`.
 
 Note: unified Flu preprocessing (`preprocess_flu.py`), the temporal-holdout
 mechanism, and Experiment B-nt (nt-level cluster_disjoint) were previously
