@@ -38,6 +38,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
+# Activate the segmatch conda env if not already active. The python
+# invocations below need pandas / scipy / etc.; without an active env
+# they fail with ModuleNotFoundError. Source conda's init script
+# directly — sourcing ~/.bashrc is not enough on systems where conda
+# init lives in ~/.zshrc only.
+if [ -z "${CONDA_DEFAULT_ENV:-}" ] || [ "$CONDA_DEFAULT_ENV" != "segmatch" ]; then
+    for d in "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/miniforge3"; do
+        if [ -f "$d/etc/profile.d/conda.sh" ]; then
+            # shellcheck disable=SC1091
+            source "$d/etc/profile.d/conda.sh"
+            break
+        fi
+    done
+    conda activate segmatch
+fi
+
 THRESHOLDS=""
 DATASET_PATTERN=""
 ROUTING_LABEL_PATTERN=""
@@ -50,6 +66,8 @@ N_PERMUTATIONS="500"
 DATASET_ROOT="data/datasets/flu/July_2025/runs"
 OUT_DIR="results/flu/July_2025/runs/split_separation_mmd"
 OUT_SUFFIX=""
+N_ISOLATES=""       # empty → use python script default (1000)
+PCA_DIM=""          # empty → use python script default (50)
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -62,6 +80,8 @@ while [[ $# -gt 0 ]]; do
         --sigma_s2)               SIGMA_S2="$2"; shift 2 ;;
         --label_filter)           LABEL_FILTER="$2"; shift 2 ;;
         --n_permutations)         N_PERMUTATIONS="$2"; shift 2 ;;
+        --n_isolates)             N_ISOLATES="$2"; shift 2 ;;
+        --pca_dim)                PCA_DIM="$2"; shift 2 ;;
         --dataset_root)           DATASET_ROOT="$2"; shift 2 ;;
         --out_dir)                OUT_DIR="$2"; shift 2 ;;
         --out_suffix)             OUT_SUFFIX="$2"; shift 2 ;;
@@ -71,6 +91,11 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+# Build optional --n_isolates / --pca_dim args once (empty → omitted).
+EXTRA_ARGS=""
+[ -n "$N_ISOLATES" ] && EXTRA_ARGS="$EXTRA_ARGS --n_isolates $N_ISOLATES"
+[ -n "$PCA_DIM" ]    && EXTRA_ARGS="$EXTRA_ARGS --pca_dim $PCA_DIM"
 
 if [ -z "$THRESHOLDS" ] || [ -z "$DATASET_PATTERN" ] || \
    [ -z "$ROUTING_LABEL_PATTERN" ] || [ -z "$FEATURE_SPACE" ] || \
@@ -118,7 +143,7 @@ for THR in $THRESHOLDS; do
         --partition_mode dataset_labels --routing_label "$LABEL" \
         --feature_space "$FEATURE_SPACE" --kmer_k "$KMER_K" \
         --sigma "$SIGMA_S1" --n_permutations "$N_PERMUTATIONS" \
-        --label_filter "$LABEL_FILTER" \
+        --label_filter "$LABEL_FILTER" $EXTRA_ARGS \
         --out_csv "$OUT" 2>&1 | tail -2
 
     # S1 NA
@@ -129,7 +154,7 @@ for THR in $THRESHOLDS; do
         --partition_mode dataset_labels --routing_label "$LABEL" \
         --feature_space "$FEATURE_SPACE" --kmer_k "$KMER_K" \
         --sigma "$SIGMA_S1" --n_permutations "$N_PERMUTATIONS" \
-        --label_filter "$LABEL_FILTER" \
+        --label_filter "$LABEL_FILTER" $EXTRA_ARGS \
         --out_csv "$OUT" 2>&1 | tail -2
 
     # S2 pair (Test 3 interaction)
@@ -140,7 +165,7 @@ for THR in $THRESHOLDS; do
         --partition_mode dataset_labels --routing_label "$LABEL" \
         --feature_space "$FEATURE_SPACE" --kmer_k "$KMER_K" \
         --sigma "$SIGMA_S2" --n_permutations "$N_PERMUTATIONS" \
-        --label_filter "$LABEL_FILTER" \
+        --label_filter "$LABEL_FILTER" $EXTRA_ARGS \
         --out_csv "$OUT" 2>&1 | tail -2
 
     echo ""
