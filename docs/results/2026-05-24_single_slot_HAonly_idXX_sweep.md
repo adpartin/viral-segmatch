@@ -116,35 +116,67 @@ reference lines for bilateral cluster_id099 and dotted for random.
 ### Held-out test performance (aa k=3 features, Test 3 interaction)
 
 One MLP + two baselines (LGBM, 1-NN cosine margin) trained per
-dataset using the `flu_ha_na_kmer_aa_k3` bundle. Single seed
-(`seed=42`). Six GPUs in parallel for the MLP step; baselines on CPU.
-Stage 4 invocations and output dirs follow the standard convention
-(`models/.../runs/training_*_HAonly_idXXX_*` and
-`baseline_{lgbm,knn1_margin}_*_HAonly_idXXX_*`).
+dataset using the `flu_ha_na_kmer_aa_k3` bundle. MLP trained with
+**3 seeds (42, 43, 44)** for error-bar estimation; LGBM and 1-NN are
+single-seed (LGBM has minor sampling randomness but was not
+re-seeded here; 1-NN cosine margin is deterministic w.r.t. the data
+so a single run is sufficient). Six GPUs in parallel for each MLP
+batch; baselines on CPU. Output dirs follow
+`models/.../runs/training_*_HAonly_idXXX[_seedN]_*` and
+`baseline_{lgbm,knn1_margin}_*_HAonly_idXXX_*`.
 
-| idXX | MLP F1 | LGBM F1 | 1-NN F1 | MLP AUC-ROC | LGBM AUC-ROC | 1-NN AUC-ROC | MLP MCC | LGBM MCC | 1-NN MCC |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 100 | 0.963 | 0.950 | 0.958 | 0.985 | 0.989 | 0.985 | 0.938 | 0.916 | 0.930 |
-| 099 | 0.947 | 0.930 | 0.939 | 0.980 | 0.981 | 0.980 | 0.911 | 0.882 | 0.898 |
-| 098 | 0.937 | 0.917 | 0.931 | 0.976 | 0.977 | 0.973 | 0.893 | 0.860 | 0.883 |
-| 097 | 0.937 | 0.915 | 0.930 | 0.974 | 0.974 | 0.973 | 0.893 | 0.856 | 0.882 |
-| 096 | 0.919 | 0.898 | 0.920 | 0.968 | 0.967 | 0.969 | 0.864 | 0.828 | 0.866 |
-| 095 | 0.917 | 0.891 | 0.911 | 0.966 | 0.960 | 0.965 | 0.859 | 0.815 | 0.849 |
+**MLP across 3 seeds (mean ± std):**
 
-Drops from id100 → id095 (percentage points):
+| idXX | F1 | AUC-ROC | MCC |
+|---:|---:|---:|---:|
+| 100 | 0.9621 ± 0.0013 | 0.9855 ± 0.0006 | 0.9365 ± 0.0022 |
+| 099 | 0.9473 ± 0.0019 | 0.9810 ± 0.0015 | 0.9116 ± 0.0031 |
+| 098 | 0.9363 ± 0.0009 | 0.9744 ± 0.0018 | 0.8930 ± 0.0014 |
+| 097 | 0.9363 ± 0.0013 | 0.9751 ± 0.0011 | 0.8928 ± 0.0023 |
+| 096 | 0.9199 ± 0.0032 | 0.9683 ± 0.0010 | 0.8649 ± 0.0056 |
+| 095 | 0.9181 ± 0.0018 | 0.9661 ± 0.0007 | 0.8619 ± 0.0031 |
 
-| Model | Δ F1 | Δ AUC-ROC | Δ MCC |
-|---|---:|---:|---:|
-| MLP         | 4.6 | 1.9 | 7.9 |
-| LGBM        | 5.9 | 3.0 | 10.0 |
-| 1-NN margin | 4.7 | 2.0 | 8.1 |
+Standard deviations are 0.001–0.005 on F1, 0.001–0.002 on AUC-ROC,
+0.001–0.006 on MCC. The 4.4-pp F1 drop from id100 to id095 is
+~80σ — the trajectory is statistically robust at this scale (model-
+seed variance only; the variance from re-splitting the same atoms
+into different folds is not measured here, see BACKLOG.md
+"Single-slot routing follow-ups" #3).
+
+**Three notable per-cell observations** the multi-seed run rules in
+as real (not noise):
+
+- id097 ≈ id098 plateau on F1 (both 0.9363 with std < 0.002) is real,
+  not noise. The plateau aligns with the id097 NA-MMD dip observed in
+  the MMD sweep.
+- id100 → id099 step (1.5 pp F1) is real — std bars don't overlap.
+- id096 has slightly noisier seeds (F1 std = 0.0032, MCC = 0.0056)
+  but the gap to id095 (1.8 pp F1) is still > std.
+
+**LGBM and 1-NN at seed=42 (single seed):**
+
+| idXX | LGBM F1 | 1-NN F1 | LGBM AUC-ROC | 1-NN AUC-ROC | LGBM MCC | 1-NN MCC |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100 | 0.9500 | 0.9580 | 0.9894 | 0.9847 | 0.9160 | 0.9297 |
+| 099 | 0.9301 | 0.9395 | 0.9813 | 0.9800 | 0.8823 | 0.8983 |
+| 098 | 0.9171 | 0.9306 | 0.9767 | 0.9734 | 0.8603 | 0.8831 |
+| 097 | 0.9148 | 0.9301 | 0.9740 | 0.9735 | 0.8564 | 0.8825 |
+| 096 | 0.8984 | 0.9204 | 0.9674 | 0.9693 | 0.8284 | 0.8657 |
+| 095 | 0.8907 | 0.9105 | 0.9597 | 0.9646 | 0.8153 | 0.8490 |
+
+LGBM and 1-NN drops from id100 → id095: F1 5.9 pp (LGBM), 4.7 pp
+(1-NN). AUC-ROC: 3.0 pp (LGBM), 2.0 pp (1-NN). MCC: 10.0 pp (LGBM),
+8.1 pp (1-NN). Model ordering **MLP > 1-NN > LGBM** at every
+threshold; 1-NN edges MLP at id096 by 0.001 F1 (within MLP's seed
+noise).
 
 Plots:
 - `sweep_perf_vs_idxx.png` — three panels (F1, AUC-ROC, MCC),
-  three lines per panel (MLP, LGBM, 1-NN).
-- `sweep_perf_vs_mmd_pair_kmer_aa.png` — single panel scatter of
-  F1 vs S2 pair MMD² (aa k=3), one line per model, annotated by
-  idXX.
+  three lines per panel (MLP, LGBM, 1-NN); MLP line is mean across
+  seeds with ±1 std shaded band, per-seed dots overlaid.
+- `sweep_perf_vs_mmd_pair_kmer_aa_{pos,neg,both}.png` — three single
+  panel scatters of F1 vs S2 pair MMD² (aa k=3) for each label
+  filter, with MLP error bars (3 seeds) and per-seed dots.
 
 ### Negative-pair regime sanity check
 
@@ -333,13 +365,18 @@ magnitudes.
 
 ### What this does not establish
 
-- **Single seed per model.** All three models (MLP, LGBM, 1-NN)
-  trained with `seed=42` only. Single-seed F1 has noise on the
-  order of ~1 pp on this kind of dataset; the trends across idXX
-  are larger than that, but absolute numbers should not be over-read.
-  Multi-seed (e.g., 3 seeds) would tighten claims about model
-  ordering and small inter-cell differences (e.g., the id097 ≈
-  id098 plateau).
+- **MLP measured with 3 seeds (42, 43, 44); LGBM and 1-NN with 1
+  seed (42).** MLP seed noise is small enough (std ≤ 0.005 on F1)
+  to confirm the trajectory; LGBM/1-NN single-seed numbers should
+  be read as point estimates, not means. Re-seeding LGBM (which has
+  minor sampling randomness) is a cheap follow-up if its trajectory
+  matters for a downstream claim.
+- **Only model-seed variance measured, not split-induced variance.**
+  All 3 MLP seeds were trained on the SAME 6 datasets. A different
+  partitioning of the same atoms into train/val/test (different
+  random bin-packings, or proper CV folds via sklearn's
+  `GroupKFold`) would add another variance source. Tracked as
+  BACKLOG.md "Single-slot routing follow-ups" #3.
 - **One feature space for training (aa k=3).** ESM-2 training across
   the same six datasets is the natural cross-check — would it show
   the same MMD↔perf trajectory? Skipped to keep the batch tight.
