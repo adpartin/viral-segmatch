@@ -176,7 +176,64 @@ src/
 - **1-NN edges MLP on PB2/PB1 under seq_disjoint** (MCC 0.900 vs 0.887). Consistent with the conservation-effect interpretation: PB2/PB1 has fewer distinct proteins overall, so eval splits contain fewer truly novel proteins and lookup-style baselines have an easier time.
 - **Experiment B-nt feasibility ceiling = aa ceiling on Flu A (2026-05-15)**: nt CDS-level cluster_disjoint hits the same bipartite mega-component collapse as aa cluster_disjoint, at the same thresholds (only id100 and id099 are operable on the full corpus; id095 and below dump >98% of pairs into one component on both alphabets). The hope that nt's higher synonymous diversity would unlock lower-threshold splits did not pan out — the corpus's metadata structure dominates the alphabet choice. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
 - **1-NN cosine margin ≥ LGBM at every cluster_disjoint routing (2026-05-15)**: ran 1-NN + LGBM head-to-head on 8 cells (HA/NA × PB2/PB1 × {seq_disjoint, aa id099, nt id100, nt id099}). 1-NN matches LGBM at id100/seq_disjoint cells and OUTPERFORMS LGBM at id099 cells (+16 pp F1 on HA/NA aa id099, +7 pp on PB2/PB1 aa id099). Going-in hypothesis "1-NN drops more than LGBM under cluster_disjoint" did not survive. Read: cluster_disjoint weakens the near-neighbor signal *gradually* rather than eliminating it; 1-NN's prediction-by-nearest-pair stays well-calibrated under that weakening while LGBM's tree splits rely on signal that doesn't generalize across the cluster boundary. The "MLP vs 1-NN" leakage doctrine is informative as a residual-leakage gauge but does not by itself confirm that cluster_disjoint removed leakage. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md` § "1-NN cosine margin (leakage upper bound)".
-- **Single-slot HA-only cluster_disjoint sweep on HA-NA produces monotone MMD ↑ and monotone test perf ↓ across id100..id095 (2026-05-24)**: 6 datasets built under new `single_slot` routing mode, all feasible 80/10/10. S1 HA MMD grows monotonically with id↓ (ESM-2 22.6×, aa k=3 33.7×); S1 NA MMD also grows (~9-13×) with a non-monotone dip at id097; S2 pair MMD tracks HA closely. Models trained per dataset (MLP + LGBM + 1-NN cosine margin on aa k=3 + Test 3, single seed) show monotone F1 ↓ (MLP 0.963→0.917, LGBM 0.950→0.891, 1-NN 0.958→0.911). F1-vs-MMD² scatter is **nearly linear** across all three models — empirical support for the "gradual distribution shift ↔ gradual perf drop" causal story within this corpus. The id097 ≈ id098 F1 plateau aligns with the id097 NA-MMD dip (perf doesn't drop where MMD doesn't grow). Pre-registered "S1 NA stays near random" was FALSIFIED — biological coupling confirmed: HA-cluster boundary ≈ NA-subtype boundary on this corpus (Cramér's V = 0.90 at id098; 88% of HA clusters are ≥95% NA-subtype-pure). The single-slot relaxation does not decouple slots when they are biologically correlated at the isolate level. Not tested: multi-seed, ESM-2 training, NA-only direction (slot-symmetry check), PB2-PB1 (different biological coupling — polymerase complex, no subtype). See `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`.
+- **Single-slot HA-only cluster_disjoint sweep on HA-NA produces monotone MMD ↑ and monotone test perf ↓ across id100..id095 (2026-05-24, multi-seed 2026-05-25)**: 6 datasets built under new `single_slot` routing mode, all feasible 80/10/10. S1 HA MMD grows monotonically with id↓ (ESM-2 22.6×, aa k=3 33.7×); S1 NA MMD also grows (~9-13×) with a non-monotone dip at id097; S2 pair MMD tracks HA closely. Models trained per dataset (MLP + LGBM + 1-NN cosine margin on aa k=3 + Test 3); MLP trained with 3 seeds (42, 43, 44), F1 std ≤ 0.005 — 4.4 pp F1 drop is ~80σ. F1-vs-MMD² scatter is **nearly linear** across all three models. id097 ≈ id098 F1 plateau aligns with id097 NA-MMD dip (perf doesn't drop where MMD doesn't grow), confirmed real under multi-seed. Negative-pair MMD also shifts monotonically; perf drop is **joint pos+neg shift**, not positive-driven. Pre-registered "S1 NA stays near random" was FALSIFIED — biological coupling confirmed: HA-cluster boundary ≈ NA-subtype boundary (Cramér's V drops 0.98 → 0.82 across id100→id095; never below 0.5 on any axis). Not tested: ESM-2 training cross-check, NA-only direction (slot-symmetry check), PB2-PB1 (different biology, no subtype coupling), CV-fold variance. See `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`.
+
+---
+
+## Recent run outputs (May 2026) — explicit file paths
+
+Pointer index for the most recent results so a cold session can jump
+straight to the right writeup / plot / CSV / bundle. Plots and CSVs
+in `results/.../sweep_aggregate/` are gitignored (regenerable from the
+aggregator); writeups and bundles are committed.
+
+### Single-slot HA-only idXX sweep (the headline experiment, 2026-05-24 → 25)
+
+- **Writeup**: `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`
+  — full tables (MMD pos/neg/both × 2 feature spaces; perf mean±std
+  for MLP, single-seed for LGBM/1-NN), Cramér's V coupling
+  discussion, MMD↔perf relationship, caveats, end-to-end reproduce
+  commands (calls the wrapper scripts below).
+- **Plots** (under `results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate/`):
+  - `sweep_mmd_vs_idxx.png` — MMD trajectories (HA, NA, pair × ESM-2, aa k=3).
+  - `sweep_perf_vs_idxx.png` — Test F1 / AUC-ROC / MCC vs idXX (MLP mean±std band, per-seed dots, LGBM + 1-NN single seed).
+  - `sweep_perf_vs_mmd_pair_kmer_aa_{pos,neg,both}.png` — F1 vs S2 pair MMD² scatter, one per label_filter, annotated by idXX.
+  - `coupling/sweep_coupling_vs_idxx.png` — Cramér's V per axis (NA subtype, host, year-bin) vs idXX.
+  - `coupling/sweep_coupling_purity_bars.png` — % of pairs in ≥95%-pure HA clusters per axis.
+  - `coupling/sweep_coupling_heatmap_id098.png` — top-30 HA clusters × NA subtype.
+- **CSVs** (same dir):
+  - `sweep_combined.csv` — MMD long-format (idxx × role × feature_space × label_filter).
+  - `sweep_perf.csv` — perf long-format (idxx × model × seed).
+  - `sweep_perf_summary.csv` — perf wide-format (mean/std/min/max/count).
+  - `reference_baselines.csv` — random / seq_disjoint / cluster_id099 MMD baselines for cross-reference.
+  - `coupling/coupling_summary.csv` — Cramér's V + purity per (idxx, axis).
+- **Bundles** (committed in `conf/bundles/`):
+  - Six datasets: `flu_ha_na_cluster_aa_id{100,099,098,097,096,095}_HAonly.yaml`.
+  - Training: `flu_ha_na_kmer_aa_k3.yaml` (aa k=3 + Test 3).
+- **Run dirs**: 18 model dirs under `models/flu/July_2025/runs/training_flu_ha_na_kmer_aa_k3_HAonly_id{idxx}[_seedN]_<ts>/` plus matching `baseline_lgbm_*` and `baseline_knn1_margin_*` (12 baseline dirs, single-seed).
+
+### Feasibility pre-flight (2026-05-24, what motivated single-slot)
+
+- **Writeup**: `docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md` — bilateral vs single-slot, aa vs nt; tabular pre-flight at id100..id085.
+- **CSVs** (under `results/flu/July_2025/runs/cluster_disjoint_feasibility/`):
+  - Bilateral: `feasibility_ha_na_{aa,nt}.csv`.
+  - Single-slot: `single_slot_feasibility_ha_na_{aa,nt}.csv`.
+
+### MMD baselines (context for the sweep, 2026-05-24)
+
+- **S1 (per-slot)**: `docs/results/2026-05-24_mmd_per_slot_results.md` — random / seq_disjoint / bilateral cluster_id099 × HA / NA × ESM-2 / aa k=3 / nt k=6.
+- **S2 (per-pair, Test 3)**: `docs/results/2026-05-24_mmd_per_pair_results.md` — same 3 routings × 3 feature spaces on the pair representation.
+- Baseline phase-2 CSVs: `results/.../split_separation_mmd/phase2_perm_<routing>_<role>_<fs>[_test3].csv`.
+
+### DataSAIL L(π) (negative result, 2026-05-24)
+
+- **Writeup**: `docs/results/2026-05-24_datasail_lpi_results.md` — mmseqspp similarity collapses all routings to the partition-shape constant ~0.34; MMD took over as the working metric. See BACKLOG.md "DataSAIL follow-ups" #1 (marked DONE).
+
+### Wrapper scripts to rebuild any of the above
+
+- `scripts/stage4_sweep.sh` — Stage 4 across multiple datasets × seeds in parallel (bash-and-zsh portable). `--help` for full flag list.
+- `scripts/mmd_sweep.sh` — S1 HA + S1 NA + S2 pair MMD sweep across multiple datasets for one (feature_space × label_filter) configuration.
+- `python -m src.analysis.aggregate_mmd_single_slot_sweep` — produces every CSV + plot listed above (auto-detects available seeds, label_filters, feature spaces).
 
 ---
 
