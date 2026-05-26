@@ -157,6 +157,12 @@ echo "Logs:          $LOG_DIR"
 echo ""
 
 # ----- main loop -----
+# Baselines (stage4_baselines.sh) don't accept a master_seed override, so
+# they'd produce byte-identical output for every seed in $SEEDS. To avoid
+# the redundant baseline runs, only run them on the first seed. Captures
+# the first whitespace-delimited token of SEEDS (works for both bash and zsh).
+FIRST_SEED=$(echo "$SEEDS" | awk '{print $1}')
+
 for SEED in $SEEDS; do
     echo ""
     echo "########## seed=${SEED} batch ##########"
@@ -194,13 +200,15 @@ for SEED in $SEEDS; do
                 --output_dir "$OUT_MLP" \
                 --override "master_seed=${SEED}"
 
-            for B in $BASELINES_LIST; do
-                OUT_B="${MODELS_ROOT}/baseline_${B}_${OUTPUT_PREFIX#training_}_id${THR}${SEED_SEG}_${TS}"
-                bash "$SCRIPT_DIR/stage4_baselines.sh" "$BUNDLE" \
-                    --baseline "$B" \
-                    --dataset_dir "$DS" \
-                    --output_dir "$OUT_B"
-            done
+            if [ "$SEED" = "$FIRST_SEED" ]; then
+                for B in $BASELINES_LIST; do
+                    OUT_B="${MODELS_ROOT}/baseline_${B}_${OUTPUT_PREFIX#training_}_id${THR}_${TS}"
+                    bash "$SCRIPT_DIR/stage4_baselines.sh" "$BUNDLE" \
+                        --baseline "$B" \
+                        --dataset_dir "$DS" \
+                        --output_dir "$OUT_B"
+                done
+            fi
         ) > "$LOG" 2>&1 &
 
         GPU=$((GPU + 1))
