@@ -498,8 +498,7 @@ Columns:
 `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 (raw values for all subsections below). The threshold sweep covers
 {1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90,
-0.85, 0.80}. The id094..id091 range was added 2026-05-26 to resolve
-the id095 → id090 gap exposed by the single-slot sweep work. Plots:
+0.85, 0.80}. Plots:
 `cluster_counts_vs_threshold.png`, `bipartite_largest_pct_vs_threshold.png`.
 
 ### 6.1 Per-function n_clusters across thresholds
@@ -546,32 +545,29 @@ Columns:
   are under tight constraint; surface and length-varying proteins
   carry persistent diversity.
 - **The conserved-protein cliff has a center, not just a span.**
-  Adding the id094..id091 columns localizes the cliff: on PB2 aa the
-  biggest single-step drop is id093 → id092 (1,085 → 112, −90%);
-  PB1 aa drops most at id094 → id093 (930 → 238, −74%); PA aa loses
-  the most at id095 → id094 (8,002 → 487, −94%, the steepest 1-pp
-  drop in the whole table); M1 aa at id094 → id093 (269 → 237 is
-  flat, but the next step id093 → id092 is 237 → 31, −87%). The
-  cliff is not a single threshold step that applies to all
-  conserved functions — each polymerase subunit and matrix protein
-  has its own "tipping idXX" in the id095..id091 range.
+  Each polymerase subunit and matrix protein has its own "tipping
+  idXX" between id095 and id091: PB2 aa drops most at id093 → id092
+  (1,085 → 112, −90%); PB1 aa at id094 → id093 (930 → 238, −74%);
+  PA aa at id095 → id094 (8,002 → 487, −94% — the steepest 1-pp
+  drop in the table); M1 aa at id093 → id092 (237 → 31, −87%). No
+  single threshold step applies to all five conserved functions.
 - **NA is the most-gradual outlier** even within the surface-protein
-  group. NA aa's id095 → id090 drop is only 2,134 → 1,077 (−50%, much
-  smaller than HA's 7,578 → 910 = −88%). The fine-grained id094..id091
-  view confirms NA stays close to 1,000 clusters throughout. Stalk-
-  length variation already pools NA into ~7% of the corpus at id100
-  (see §6.4 NA note), so further sequence-level consolidation has less
-  to do.
+  group. NA aa stays close to 1,000 clusters across the entire
+  id095..id090 stretch — its id095 → id090 drop is only 2,134 →
+  1,077 (−50%, much smaller than HA's 7,578 → 910 = −88%).
+  Stalk-length variation already pools NA into ~7% of the corpus at
+  id100 (see §6.4 NA note), so further sequence-level consolidation
+  has less to do.
 - **Easy-linclust is approximately monotone, not exactly.** At the
-  1-pp grain the new id094..id091 data exposes small non-monotone
-  bumps: NP aa is 526 at id095, 149 at id094, then **706** at id093
-  before resuming the descent; NA aa goes 1,957 → 1,717 → 757 → **791**
-  → 1,077 across id094..id090; M1 aa goes 129 → **269** → **237** →
-  31 across id095..id092. Easy-linclust's single-pass seed selection
-  produces threshold-dependent cluster topology, so a tighter
-  threshold can occasionally yield more clusters when seeds change.
-  The coarse direction (id100 → id080) is always monotone-decreasing;
-  the 1-pp grain is not.
+  1-pp grain small non-monotone bumps appear: NP aa is 526 at id095,
+  149 at id094, then **706** at id093 before resuming the descent;
+  NA aa goes 1,957 → 1,717 → 757 → **791** → 1,077 across
+  id094..id090; M1 aa goes 129 → **269** → **237** → 31 across
+  id095..id092. Easy-linclust's single-pass seed selection produces
+  threshold-dependent cluster topology, so a tighter threshold can
+  occasionally yield more clusters when seeds change. The coarse
+  direction (id100 → id080) is always monotone-decreasing; the
+  1-pp grain is not.
 - **nt at id100 always exceeds aa at id100** (synonymous variants
   split into distinct nt singletons). The aa-vs-nt relationship
   inverts at id099 and id098 on most functions — see §6.3 worked
@@ -716,21 +712,18 @@ functions, bottom 3 are gradual.
 **Takeaways.**
 
 - **The mega-cluster forms one step at a time on conserved functions.**
-  The id094..id091 columns expose what happens between the
-  "still-small" id095 numbers and the "essentially-100%" id090
-  endpoint. PB2 aa: 15.6% (id095) → 15.9 → 38.3 → 64.4 → 77.6 → 95.9%
-  (id090) — five graded steps, not a single cliff. PB1 aa shows the
-  earliest growth (72% at id095 → 91% at id094 → 99% at id093). PA aa
-  takes the steepest single-pp jump (9.0% at id095 → 56.5% at id094).
-  M1 jumps from 57% to 84% in one step at id094 and reaches 99% by
-  id092.
-- **HA / NA / NS1 stay flat through the whole id094..id091 range.**
-  HA largest is 11.8% at id095 and only 22.8% at id090 — never
-  forms a mega-cluster. NA largest stays in the 13–18% band across
-  the entire id095..id090 stretch. NS1 climbs slowly to 21% at
-  id090. By the same threshold the conserved functions are
-  ≥96%. This is the same biology that §6.1 surfaced from the
-  cluster-count direction.
+  PB2 aa: 15.6% (id095) → 15.9 → 38.3 → 64.4 → 77.6 → 95.9% (id090)
+  — five graded steps between "still-small" and "essentially-100%",
+  not a single cliff. PB1 aa shows the earliest growth (72% at id095
+  → 91% at id094 → 99% at id093). PA aa takes the steepest single-pp
+  jump (9.0% at id095 → 56.5% at id094). M1 jumps from 57% to 84% in
+  one step at id094 and reaches 99% by id092.
+- **HA / NA / NS1 stay flat across id095..id090.** HA largest is
+  11.8% at id095 and only 22.8% at id090 — never forms a mega-
+  cluster. NA largest stays in the 13–18% band across the same
+  stretch. NS1 climbs slowly to 21% at id090. By the same threshold
+  the conserved functions are ≥96%. This is the same biology that
+  §6.1 surfaces from the cluster-count direction.
 - **Conserved-protein largest jumps localize differently than
   n_clusters drops.** PA's n_clusters drops most at id095 → id094
   (8,002 → 487), and its largest_pct jumps in the same step
@@ -958,15 +951,14 @@ zero. Reading the table by that frame:
   on the held-out splits). Every pair is routed; the dataset exists;
   it just isn't usable for evaluation. Largest CC ≥95% on every line
   of the table predicts the same pattern under the new clustering.
-- **The id094..id091 range adds no bilateral recovery.** The new
-  columns sit between the existing id095 and id090 cells and
-  monotonically (or near-monotonically) grow toward 100%. On aa
-  PB2/PB1 the largest CC hits 100.0% by id093 and stays there.
-  On nt HA/NA the largest CC fluctuates between 98.5% and 99.1%
-  across id094..id091 (a small non-monotone bump at id092: 98.7 vs
-  id093's 98.9 — inherited from the easy-linclust non-monotonicity
-  documented in §6.1). No threshold in id094..id091 unlocks bilateral
-  feasibility on any pair/alphabet cell.
+- **id094..id091 yields no bilateral recovery.** Across id094..id091
+  the largest CC creeps (near-)monotonically toward 100% on every
+  cell. On aa PB2/PB1 it hits 100.0% by id093 and stays there. On
+  nt HA/NA it fluctuates between 98.5% and 99.1%, with a small
+  non-monotone bump at id092 (98.7 vs id093's 98.9 — inherited from
+  the easy-linclust non-monotonicity §6.1 describes). No threshold
+  in this range unlocks bilateral feasibility on any pair/alphabet
+  cell.
 
 > **TODO! Observed train share on existing runs (2026-05-21 audit) —
 > these reflect prior easy-cluster artifacts.**
@@ -1067,14 +1059,13 @@ aa, top-2 atom sizes (% of deduped pairs) at each threshold:
   id094..id091). NA's stalk-length-driven flat cluster-size
   distribution keeps it routable that far down — the only Flu A
   direction with this property.
-- **Bilateral cliff vs single-slot cliff are decoupled.** Bilateral
+- **Bilateral and single-slot ceilings are decoupled.** Bilateral
   is broken from id098 down on every pair/alphabet. Single-slot
-  HA-only and PB2-only stay feasible through id094 — gaining four
-  extra thresholds. This is the structural reason the published
-  idXX sweeps (`docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`,
-  `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md`) use
-  single-slot routing and stop at id095 — id094 is the first
-  unexplored feasible cell; id093 is the cliff.
+  HA-only and PB2-only stay feasible through id094 — four thresholds
+  further than the bilateral ceiling allows. The full single-slot
+  range usable for HA-only / PB2-only is id100..id094; for NA-only
+  it extends to id085 with the id092 hole noted above; for PB1-only
+  it stops at id095.
 
 ---
 
