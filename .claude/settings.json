@@ -17,6 +17,7 @@
       "Bash(git diff*)",
       "Bash(git log*)",
       "Bash(git show*)",
+      "Bash(git add *)",
       "Bash(git branch*)",
       "Bash(git branch -a)",
       "Bash(git branch -v)",
@@ -26,11 +27,18 @@
       "Bash(head *)",
       "Bash(tail *)",
       "Bash(grep *)",
-      "Bash(find * -type *)",
+      "Bash(pgrep *)",
+      "Bash(which *)",
+      "Bash(echo *)",
+      "Bash(ps *)",
       "Bash(wc *)",
+      "Bash(find * -type *)",
       "Bash(mkdir *)",
       "Bash(python src/analysis/*)",
-      "Bash(bash scripts/stage*.sh *)"
+      "Bash(bash scripts/stage*.sh *)",
+      "Bash(bash scripts/*.sh *)",
+      "Bash(python -m *)",
+      "Bash(python -c *)"
     ]
   }
 }
