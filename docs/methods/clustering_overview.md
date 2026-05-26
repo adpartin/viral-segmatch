@@ -925,32 +925,26 @@ always 0), but train absorbs the mega-CC and val/test drift toward
 zero. Reading the table by that frame:
 
 - **id100 (every cell):** feasible. Largest CC is at most 49.0%
-  (HA/NA aa — note this is markedly larger than under the prior
-  easy-cluster baseline (20.2%) because of NA's stalk-length absorption
-  on the aa side, see §4 footnote and §6.4). Routing still has room.
-- **id099 (marginal on all four cells now):** HA/NA aa at 79.6% lands
-  just under the ceiling — bin-packer achievable. PB2/PB1 aa at 81.0%
-  is 1 pp over the ceiling — borderline feasible (substantially better
-  than the 87.1% reported here pre-2026-05-22 under easy-cluster). nt
-  cells (HA/NA = 69.3%, PB2/PB1 = 59.7%) are comfortably below the
-  ceiling. The cross-alphabet gap at id099 is now real (~10 pp) rather
-  than confounded by the easy-cluster vs easy-linclust algorithm
-  asymmetry. Aa is still tighter than nt here.
-- **id098 (above the ceiling on all four cells):** aa cells are 88.4%
-  (HA/NA) and 92.6% (PB2/PB1); nt cells are 91.0% and 93.9%. All four
-  cross the ceiling but margins are tighter than they were under
-  easy-cluster (HA/NA aa was 93.7%, PB2/PB1 aa was 98.0%). Not built
-  empirically yet under the new clustering — the §6.1 collapse
-  trajectory and the largest-CC % both predict an ~88-93% / 4-6% / 4-6%
-  split. Closer to feasibility than the prior easy-cluster numbers
-  suggested.
-- **id097 and below (broken everywhere — but builds still run):** at
-  HA/NA aa id095 (the one sub-ceiling threshold we did build, *under
-  easy-cluster*) the routing produced 98.48 / 0.76 / 0.76 — val and
-  test got 1,107 pairs each vs 14,597 intended (a 92% capacity loss
-  on the held-out splits). Every pair is routed; the dataset exists;
-  it just isn't usable for evaluation. Largest CC ≥95% on every line
-  of the table predicts the same pattern under the new clustering.
+  (HA/NA aa — NA's stalk-length absorption on the aa side already
+  pools ~7% of pairs into a single CC at id100, see §4 footnote
+  and §6.4). Routing has room.
+- **id099 (marginal on aa, comfortable on nt):** HA/NA aa at 79.6%
+  lands just under the ceiling — bin-packer achievable. PB2/PB1 aa
+  at 81.0% is 1 pp over the ceiling — borderline feasible. nt cells
+  (HA/NA = 69.4%, PB2/PB1 = 59.7%) sit comfortably below the
+  ceiling. Aa is tighter than nt by ~10 pp at id099 on both pairs.
+- **id098 (above the ceiling on all four cells):** aa cells are
+  88.4% (HA/NA) and 92.6% (PB2/PB1); nt cells are 91.0% and 93.9%.
+  All four cross the ceiling but margins are slim enough that id098
+  is closer to feasibility than the deeper thresholds — the §6.1
+  collapse trajectory and the largest-CC % both predict an
+  ~88-93% / 4-6% / 4-6% split.
+- **id097 and below (broken everywhere — but builds still run):**
+  On a HA/NA aa id095 build the routing produced 98.48 / 0.76 / 0.76
+  — val and test got 1,107 pairs each vs 14,597 intended (a 92%
+  capacity loss on the held-out splits). Every pair is routed; the
+  dataset exists; it just isn't usable for evaluation. Every cell
+  with largest CC ≥ 95% behaves the same way.
 - **id094..id091 yields no bilateral recovery.** Across id094..id091
   the largest CC creeps (near-)monotonically toward 100% on every
   cell. On aa PB2/PB1 it hits 100.0% by id093 and stays there. On
@@ -960,60 +954,28 @@ zero. Reading the table by that frame:
   in this range unlocks bilateral feasibility on any pair/alphabet
   cell.
 
-> **TODO! Observed train share on existing runs (2026-05-21 audit) —
-> these reflect prior easy-cluster artifacts.**
->
-> The cluster_disjoint datasets the table below summarizes were built
-> using the previous easy-cluster aa artifacts (pre-2026-05-22), not
-> the current symmetric easy-linclust artifacts. The largest CC %
-> values now in the §9 table above are from the new linclust
-> artifacts; the achieved train % below is from a different (older)
-> dataset chain. Rebuilding the cluster_disjoint datasets at id099
-> under linclust — and possibly id098 now that it's closer to
-> feasible — is required for an apples-to-apples observed-train-share
-> measurement.
->
-> | Segments | Schema pair | Alphabet | Threshold | Largest CC % | Achieved train % | Max ratio drift |
-> |---|---|---|---|---:|---:|---:|
-> | 4/6 | HA/NA   | aa | id099 | 80.0 (old) | 80.00 | 0.0007% |
-> | 4/6 | HA/NA   | nt | id099 | 69.3 | 80.00 | 0.0007% |
-> | 1/2 | PB2/PB1 | nt | id099 | 59.7 | 80.00 | 0.0011% |
-> | 1/2 | PB2/PB1 | aa | id099 | 87.1 (old) | 87.12 | 7.12 pp |
-> | 4/6 | HA/NA   | aa | id095 | 98.5 (old) | 98.48 | 18.48 pp |
+Largest-CC % is the algorithmic *input* (and the predictor of
+feasibility); achieved-train % in any built run is the realised
+*output*. When largest CC ≤ 80% the two diverge only at the 4th
+decimal. When largest CC > 80% achieved train % tracks largest CC %
+closely (the bin-packer can't undo what the mega-CC dictates).
 
-Read: the largest-CC % is the algorithmic *input* (and the predictor
-of feasibility); the achieved-train % is the realised *output* and
-the actually-actionable number for downstream consumers. When largest
-CC ≤ 80%, the two diverge only at the 4th decimal. When largest CC >
-80%, achieved train % tracks largest CC % closely (the bin-packer
-can't undo what the mega-CC dictates).
-
-**Interpretation: feasibility ceiling is now algorithm-controlled.**
-Under symmetric easy-linclust the §6 collapse trajectory is corpus-
-driven by construction (algorithm is constant across alphabets, see
-§6.1 Caveat). The aa-vs-nt feasibility gap at id099 (aa near ceiling, nt
-comfortably below) is now a clean comparison: it reflects the
-alphabet's underlying diversity structure plus the corpus's
-metadata-driven bipartite linking, not an algorithm × alphabet
-confound. The expectation going in was that nt clustering would
-unlock lower thresholds via synonymous diversity. It still doesn't
-unlock id098 or below — even at id098 nt is at 91-94% — because the
-*bipartite linking* between HA clusters and NA clusters is determined
-by which isolates carry which (HA, NA) combinations, and Flu A's
-small set of dominant HxNy subtypes × host × year cells links most
-pairs into one mega-component well above id098.
-
-The empirical confirmation under the prior easy-cluster clustering
-was in `docs/results/2026-05-15_cluster_disjoint_nt_results.md`:
-B-nt was limited to (id100, id099) on both alphabets. The new linclust
-numbers above suggest id098 should be reconsidered as a feasibility
-target — margins are tighter than the prior easy-cluster numbers
-implied.
+**Interpretation: feasibility ceiling is algorithm-controlled.** §6's
+collapse trajectory is corpus-driven by construction (easy-linclust
+is the algorithm on both alphabets, see §2.2 and §6.1). The aa-vs-nt
+feasibility gap at id099 reflects the alphabet's underlying diversity
+structure plus the corpus's metadata-driven bipartite linking, not an
+algorithm-alphabet confound. nt clustering does not unlock lower
+thresholds via synonymous diversity — even at id098 nt sits at
+91-94% — because the *bipartite linking* between HA clusters and NA
+clusters is determined by which isolates carry which (HA, NA)
+combinations, and Flu A's small set of dominant HxNy subtypes ×
+host × year cells links most pairs into one mega-component well
+above id098.
 
 See also: `docs/results/2026-05-21_bicc_pair_drop_audit.md` for the
 no-drop audit; `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
-for the algorithm-switch decision and the validation experiments it
-rests on.
+for the algorithm choice and its validation.
 
 ### 9.1 Single-slot cluster_disjoint extends the ceiling
 
