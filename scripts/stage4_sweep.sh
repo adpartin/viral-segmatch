@@ -45,6 +45,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
+# Activate the segmatch conda env if not already active. The python
+# invocations inside the per-(threshold, seed) subshells need the env;
+# without it they fail with `conda activate` errors or ModuleNotFoundError
+# when run non-interactively. Source conda's init script directly --
+# sourcing ~/.bashrc is not enough on systems where conda init lives in
+# ~/.zshrc only, and `bash -c` subshells don't inherit shell functions
+# unless conda.sh has been sourced in the parent shell.
+if [ -z "${CONDA_DEFAULT_ENV:-}" ] || [ "$CONDA_DEFAULT_ENV" != "segmatch" ]; then
+    for d in "$HOME/miniconda3" "$HOME/anaconda3" "$HOME/miniforge3"; do
+        if [ -f "$d/etc/profile.d/conda.sh" ]; then
+            # shellcheck disable=SC1091
+            source "$d/etc/profile.d/conda.sh"
+            break
+        fi
+    done
+    conda activate segmatch
+fi
+
 # ----- defaults -----
 BUNDLE=""
 THRESHOLDS=""
@@ -166,9 +184,10 @@ for SEED in $SEEDS; do
         echo "  id${THR} seed=${SEED} cuda:${GPU}  log=${LOG}"
 
         # Subshell: MLP on the assigned GPU, then baselines sequentially on CPU.
+        # The segmatch env is already activated at the top of this script;
+        # the subshell inherits CONDA_PREFIX/PATH so `python` resolves
+        # correctly inside stage4_train.sh / stage4_baselines.sh.
         (
-            source ~/.bashrc 2>/dev/null
-            conda activate segmatch
             bash "$SCRIPT_DIR/stage4_train.sh" "$BUNDLE" \
                 --cuda_name "cuda:${GPU}" \
                 --dataset_dir "$DS" \
