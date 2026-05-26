@@ -1,23 +1,41 @@
-"""Aggregate + plot the single-slot HA-only idXX-sweep MMD results.
+"""Aggregate + plot a single-slot idXX-sweep MMD results.
 
-Loads the 18 phase2 MMD CSVs produced by mmd_per_slot.py and mmd_per_pair.py
-across {id100, id099, id098, id097, id096, id095} × {S1 HA, S1 NA, S2 pair}
-for one feature space, and produces:
+Loads the phase2 MMD CSVs produced by mmd_per_slot.py and mmd_per_pair.py
+across {id100, id099, id098, id097, id096, id095} × {S1 slot-a, S1 slot-b,
+S2 pair} for one or more feature spaces, and produces:
 
   - A combined CSV with one row per (idXX, slot/pair) and the MMD² + p-value.
-  - A two-panel figure: MMD² vs idXX, with three lines per panel (HA, NA, pair).
-    One panel per feature space available. Significant cells (p <= 0.05) drawn
-    with filled markers, non-significant with open markers.
+  - A two-panel figure: MMD² vs idXX, with three lines per panel
+    (slot-a, slot-b, pair). One panel per feature space available.
+    Significant cells (p <= 0.05) drawn with filled markers,
+    non-significant with open markers.
 
-Optionally overlays the random / seq_disjoint / bilateral cluster_id099 baselines
-as horizontal reference lines for context (one set per feature space).
+Optionally overlays the random / seq_disjoint / bilateral cluster_id099
+baselines as horizontal reference lines for context. Reference-baseline
+files are HA-NA-specific (only built for the original sweep) and silently
+skipped when missing.
 
-Run:
+Parametrized for any single-slot sweep produced by mmd_sweep.sh +
+stage4_sweep.sh. The MMD output files always use literal `_HA_` / `_NA_`
+for slot-a / slot-b regardless of actual protein names (a contract with
+mmd_sweep.sh); the aggregator preserves that lookup convention and lets
+the user override the *display* names via --slot_a_display /
+--slot_b_display.
+
+Defaults reproduce the original HA-NA HA-only sweep behavior.
+
+Run (HA-NA HA-only, the default):
     python -m src.analysis.aggregate_mmd_single_slot_sweep \\
-        --results_dir results/flu/July_2025/runs/split_separation_mmd \\
-        --pair_label HA-NA \\
-        --feature_spaces esm2 kmer_aa \\
-        --out_dir results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate
+        --feature_spaces esm2 kmer_aa
+
+Run (PB2-PB1 PB2-only):
+    python -m src.analysis.aggregate_mmd_single_slot_sweep \\
+        --routing_direction PB2only \\
+        --training_bundle flu_pb2_pb1_kmer_aa_k3 \\
+        --slot_a_display PB2 --slot_b_display PB1 \\
+        --pair_display PB2-PB1 \\
+        --out_subdir pb2_pb1_PB2only \\
+        --feature_spaces kmer_aa
 """
 from __future__ import annotations
 
@@ -39,12 +57,19 @@ import matplotlib.pyplot as plt
 
 SWEEP_THRESHOLDS = [100, 99, 98, 97, 96, 95]   # high -> low (id↓ moves right on x-axis)
 
-# Each model has a different output-dir prefix under models/.../runs/.
-MODEL_DIR_PREFIX = {
-    'mlp':         'training_flu_ha_na_kmer_aa_k3_HAonly_id',
-    'lgbm':        'baseline_lgbm_flu_ha_na_kmer_aa_k3_HAonly_id',
-    'knn1_margin': 'baseline_knn1_margin_flu_ha_na_kmer_aa_k3_HAonly_id',
-}
+
+def make_model_dir_prefix(training_bundle: str, routing_direction: str) -> dict:
+    """Per-model output-dir prefix under models/.../runs/. Pattern matches
+    what stage4_sweep.sh writes: `training_<bundle>_<direction>_id<idxx>_...`
+    and `baseline_<name>_<bundle>_<direction>_id<idxx>_...`."""
+    base = f"{training_bundle}_{routing_direction}_id"
+    return {
+        'mlp':         f"training_{base}",
+        'lgbm':        f"baseline_lgbm_{base}",
+        'knn1_margin': f"baseline_knn1_margin_{base}",
+    }
+
+
 MODEL_STYLE = {
     'mlp':         {'color': '#1f77b4', 'marker': 'o', 'label': 'MLP'},
     'lgbm':        {'color': '#2ca02c', 'marker': 's', 'label': 'LGBM'},
@@ -64,8 +89,13 @@ def _feature_suffix(feature_space: str) -> str:
 
 
 def _load_one(results_dir: Path, idxx: int, role: str, feature_space: str,
+              routing_direction: str = 'HAonly',
               label_filter: str = 'pos') -> Optional[dict]:
-    """Load one phase2 MMD CSV. role in {'HA', 'NA', 'pair'}.
+    """Load one phase2 MMD CSV. role in {'HA', 'NA', 'pair'} (literal —
+    mmd_sweep.sh always writes slot-a as `_HA_` and slot-b as `_NA_`
+    regardless of actual protein).
+    `routing_direction` is the suffix on the routing label (e.g.,
+    'HAonly', 'PB2only'); it identifies which single-slot sweep this is.
     `label_filter` in {'pos' (default), 'neg', 'both'} selects which
     label-filtered MMD file to load (file naming follows the suffix
     convention: pos → no suffix, neg → '_neg', both → '_both').
@@ -81,11 +111,11 @@ def _load_one(results_dir: Path, idxx: int, role: str, feature_space: str,
         raise ValueError(f"label_filter must be 'pos'|'neg'|'both', got {label_filter}")
     if role == 'pair':
         # S2 (pair) file naming: phase2_perm_<label>_HA_NA_pair_<fs>_test3[_{neg,both}].csv
-        fname = (f"phase2_perm_cluster_aa_id{idxx:03d}_HAonly_"
+        fname = (f"phase2_perm_cluster_aa_id{idxx:03d}_{routing_direction}_"
                  f"HA_NA_pair_{fs}_test3{lf_suffix}.csv")
     else:
         # S1 (slot) file naming: phase2_perm_<label>_<HA|NA>_<fs>[_{neg,both}].csv
-        fname = (f"phase2_perm_cluster_aa_id{idxx:03d}_HAonly_"
+        fname = (f"phase2_perm_cluster_aa_id{idxx:03d}_{routing_direction}_"
                  f"{role}_{fs}{lf_suffix}.csv")
     path = results_dir / fname
     if not path.exists():
@@ -154,13 +184,13 @@ def _seed_from_dirname(name: str, default: int = 42) -> int:
     return int(m.group(1)) if m else default
 
 
-def _load_perf_for_idxx(models_dir: Path, idxx: int, model: str
-                          ) -> list:
+def _load_perf_for_idxx(models_dir: Path, idxx: int, model: str,
+                          model_dir_prefix: dict) -> list:
     """Return one dict per training run found for this (idxx, model) —
     one row per seed. A run is "found" iff its `post_hoc/metrics.csv`
     exists. Seed is parsed from the dir name (`_seedN_` segment, else 42).
     """
-    prefix = MODEL_DIR_PREFIX[model]
+    prefix = model_dir_prefix[model]
     candidates = sorted(models_dir.glob(f'{prefix}{idxx:03d}_*'),
                         key=lambda p: p.name)
     seen_seeds = {}
@@ -189,12 +219,13 @@ def _load_perf_for_idxx(models_dir: Path, idxx: int, model: str
     return list(seen_seeds.values())
 
 
-def aggregate_perf(models_dir: Path, models: list) -> pd.DataFrame:
+def aggregate_perf(models_dir: Path, models: list,
+                    model_dir_prefix: dict) -> pd.DataFrame:
     """Long-format perf table: one row per (idxx, model, seed)."""
     rows = []
     for idxx in SWEEP_THRESHOLDS:
         for model in models:
-            rows.extend(_load_perf_for_idxx(models_dir, idxx, model))
+            rows.extend(_load_perf_for_idxx(models_dir, idxx, model, model_dir_prefix))
     return pd.DataFrame(rows)
 
 
@@ -210,6 +241,7 @@ def aggregate_perf_summary(perf_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def aggregate(results_dir: Path, feature_spaces: list,
+              routing_direction: str = 'HAonly',
               label_filters: tuple = ('pos', 'neg', 'both')) -> pd.DataFrame:
     """Aggregate MMD across (feature_space × idXX × role × label_filter).
     Missing files silently skipped — useful when only some label_filters
@@ -219,21 +251,32 @@ def aggregate(results_dir: Path, feature_spaces: list,
         for idxx in SWEEP_THRESHOLDS:
             for role in ('HA', 'NA', 'pair'):
                 for lf in label_filters:
-                    r = _load_one(results_dir, idxx, role, fs, label_filter=lf)
+                    r = _load_one(results_dir, idxx, role, fs,
+                                  routing_direction=routing_direction,
+                                  label_filter=lf)
                     if r is not None:
                         rows.append(r)
     return pd.DataFrame(rows)
 
 
-# Visual conventions: HA=constrained=blue, NA=unconstrained=orange, pair=purple.
-ROLE_STYLE = {
-    'HA':   {'color': '#1f77b4', 'marker': 'o', 'label': 'S1 HA (constrained)'},
-    'NA':   {'color': '#ff7f0e', 'marker': 's', 'label': 'S1 NA (unconstrained)'},
-    'pair': {'color': '#9467bd', 'marker': '^', 'label': 'S2 pair (Test 3)'},
-}
+# Visual conventions: slot-a=constrained=blue, slot-b=unconstrained=orange, pair=purple.
+# The dict keys ('HA', 'NA', 'pair') match the literal role tokens in MMD
+# filenames; the label text is constructed from the user-supplied
+# slot_a_display / slot_b_display so plots show the correct protein names.
+def make_role_style(slot_a_display: str, slot_b_display: str) -> dict:
+    return {
+        'HA':   {'color': '#1f77b4', 'marker': 'o',
+                 'label': f'S1 {slot_a_display} (constrained)'},
+        'NA':   {'color': '#ff7f0e', 'marker': 's',
+                 'label': f'S1 {slot_b_display} (unconstrained)'},
+        'pair': {'color': '#9467bd', 'marker': '^',
+                 'label': 'S2 pair (Test 3)'},
+    }
 
 
 def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
+               role_style: dict,
+               routing_direction: str = 'HAonly',
                label_filter: str = 'pos') -> None:
     """One subplot per feature space. x = idXX (high -> low), y = MMD².
     Plots only the rows matching `label_filter` (default 'pos' keeps backward
@@ -253,7 +296,7 @@ def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
         idxx_sorted = sorted(sub['idxx'].unique(), reverse=True)
         x_positions = {idxx: i for i, idxx in enumerate(idxx_sorted)}
 
-        for role, style in ROLE_STYLE.items():
+        for role, style in role_style.items():
             role_df = sub[sub['role'] == role].sort_values('idxx', ascending=False)
             if role_df.empty:
                 continue
@@ -281,7 +324,7 @@ def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
                 ('cluster_disjoint_id099', '--', 0.45),
             ):
                 rsub = refs[refs['routing'] == routing]
-                for role, style in ROLE_STYLE.items():
+                for role, style in role_style.items():
                     rval = rsub[rsub['role'] == role]
                     if rval.empty:
                         continue
@@ -293,11 +336,11 @@ def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
         ax.set_xticklabels([f"id{v:03d}" for v in x_positions.keys()])
         ax.set_xlabel('Cluster identity threshold (constraint strength: lighter → heavier)')
         ax.set_ylabel('MMD²  (RBF, fixed σ per feature space)')
-        ax.set_title(f"Single-slot HA-only idXX sweep · {fs}")
+        ax.set_title(f"Single-slot {routing_direction} idXX sweep · {fs}")
         ax.grid(True, alpha=0.3)
         ax.legend(loc='upper left', fontsize=9, framealpha=0.9)
 
-    fig.suptitle('S1+S2 MMD vs cluster-identity threshold under aa cluster_disjoint single-slot HA-only routing\n'
+    fig.suptitle(f'S1+S2 MMD vs cluster-identity threshold under aa cluster_disjoint single-slot {routing_direction} routing\n'
                  '(dotted = random baseline · dashed = bilateral cluster_id099 · filled marker = p ≤ 0.05)',
                  fontsize=11)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
@@ -307,7 +350,8 @@ def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
 
 
 def plot_perf(perf_df: pd.DataFrame, out_path: Path,
-              metrics: list = ('f1_score', 'auc_roc', 'mcc')) -> None:
+              metrics: list = ('f1_score', 'auc_roc', 'mcc'),
+              routing_direction: str = 'HAonly') -> None:
     """Three subplots, one per metric. x = idXX (high -> low), y = metric.
     Mean across seeds plotted as the line; ± std as a shaded band; individual
     seed values as small open markers. Single-seed cells show as a point
@@ -352,8 +396,8 @@ def plot_perf(perf_df: pd.DataFrame, out_path: Path,
         ax.grid(True, alpha=0.3)
         ax.legend(loc='best', fontsize=9, framealpha=0.9)
 
-    fig.suptitle('Held-out test performance vs cluster-identity threshold\n'
-                 '(single-slot HA-only routing, aa k=3 features, Test 3 interaction; '
+    fig.suptitle(f'Held-out test performance vs cluster-identity threshold\n'
+                 f'(single-slot {routing_direction} routing, aa k=3 features, Test 3 interaction; '
                  'line=mean, band=±1 std, dots=per-seed)',
                  fontsize=11)
     fig.tight_layout(rect=[0, 0, 1, 0.91])
@@ -428,7 +472,13 @@ def main() -> None:
                     default=['esm2', 'kmer_aa'],
                     choices=['esm2', 'kmer_aa', 'kmer_nt'])
     ap.add_argument('--out_dir', type=Path,
-                    default=Path('results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate'))
+                    default=Path('results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate'),
+                    help='Base output directory. If --out_subdir is set, '
+                         'plots/CSVs land under <out_dir>/<out_subdir>/.')
+    ap.add_argument('--out_subdir', type=str, default=None,
+                    help='Optional sub-namespace under --out_dir, e.g. '
+                         '"pb2_pb1_PB2only" to keep PB2/PB1 plots from '
+                         'overwriting the HA-NA defaults.')
     ap.add_argument('--models_dir', type=Path,
                     default=Path('models/flu/July_2025/runs'),
                     help='Where MLP + baseline training output dirs live.')
@@ -436,11 +486,43 @@ def main() -> None:
                     default=['mlp', 'lgbm', 'knn1_margin'],
                     help='Which trained models to aggregate perf for. '
                          'Skips any whose dirs do not exist yet.')
+    # ----- experiment-identity flags (defaults reproduce HA-NA HA-only) -----
+    ap.add_argument('--routing_direction', type=str, default='HAonly',
+                    help='Suffix on the routing label (e.g., HAonly, '
+                         'PB2only). Must match the --routing_label_pattern '
+                         'used by mmd_sweep.sh.')
+    ap.add_argument('--training_bundle', type=str,
+                    default='flu_ha_na_kmer_aa_k3',
+                    help='Training bundle name. Used to construct model + '
+                         'baseline dir prefixes: '
+                         '`training_<bundle>_<direction>_id<idxx>_*` etc.')
+    ap.add_argument('--slot_a_display', type=str, default='HA',
+                    help='Display name for slot a (the constrained slot) '
+                         'in plot legends. MMD files always use literal '
+                         '"HA" regardless — this is plot-text only.')
+    ap.add_argument('--slot_b_display', type=str, default='NA',
+                    help='Display name for slot b (the unconstrained slot).')
+    ap.add_argument('--skip_reference_baselines', action='store_true',
+                    help='Skip loading + plotting random / seq_disjoint / '
+                         'bilateral cluster_id099 reference baselines. These '
+                         'were only built for HA-NA; for any other pair they '
+                         'live at the same results_dir but reflect HA-NA '
+                         'data, so loading them would put misleading context '
+                         'on a PB2/PB1 (etc.) plot. Set this flag for any '
+                         'non-HA-NA sweep until that pair has its own '
+                         'random/seq_disjoint baselines computed.')
     args = ap.parse_args()
 
+    if args.out_subdir:
+        args.out_dir = args.out_dir / args.out_subdir
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    sweep_df = aggregate(args.results_dir, args.feature_spaces)
+    model_dir_prefix = make_model_dir_prefix(args.training_bundle,
+                                              args.routing_direction)
+    role_style = make_role_style(args.slot_a_display, args.slot_b_display)
+
+    sweep_df = aggregate(args.results_dir, args.feature_spaces,
+                         routing_direction=args.routing_direction)
     print(f"Loaded {len(sweep_df)} sweep cells across {sweep_df['feature_space'].nunique()} "
           f"feature spaces and {sweep_df['idxx'].nunique()} thresholds.")
 
@@ -448,22 +530,32 @@ def main() -> None:
     sweep_df.to_csv(sweep_csv, index=False)
     print(f"Wrote combined sweep CSV: {sweep_csv}")
 
-    refs_by_fs = {fs: _load_reference_baselines(args.results_dir, fs)
-                  for fs in args.feature_spaces}
-    refs_combined = pd.concat([df for df in refs_by_fs.values() if not df.empty],
-                              ignore_index=True)
-    if not refs_combined.empty:
-        refs_csv = args.out_dir / 'reference_baselines.csv'
-        refs_combined.to_csv(refs_csv, index=False)
-        print(f"Wrote reference baselines CSV: {refs_csv}  ({len(refs_combined)} rows)")
+    if args.skip_reference_baselines:
+        refs_by_fs = {fs: pd.DataFrame() for fs in args.feature_spaces}
+        print("Reference baselines: SKIPPED (--skip_reference_baselines)")
+    else:
+        refs_by_fs = {fs: _load_reference_baselines(args.results_dir, fs)
+                      for fs in args.feature_spaces}
+        refs_combined = pd.concat([df for df in refs_by_fs.values() if not df.empty],
+                                  ignore_index=True)
+        if not refs_combined.empty:
+            refs_csv = args.out_dir / 'reference_baselines.csv'
+            refs_combined.to_csv(refs_csv, index=False)
+            print(f"Wrote reference baselines CSV: {refs_csv}  ({len(refs_combined)} rows)")
+            if args.routing_direction != 'HAonly':
+                print(f"  WARNING: --routing_direction={args.routing_direction} but reference "
+                      "baselines were loaded. These were built for HA-NA — they may not be "
+                      "the right context for this sweep. Use --skip_reference_baselines "
+                      "to suppress.")
 
     # Backward-compat: the original "main" trajectory plot is positives-only.
     plot_path = args.out_dir / 'sweep_mmd_vs_idxx.png'
-    plot_sweep(sweep_df, refs_by_fs, plot_path, label_filter='pos')
+    plot_sweep(sweep_df, refs_by_fs, plot_path, role_style=role_style,
+               routing_direction=args.routing_direction, label_filter='pos')
 
     # Perf rollup — long format (one row per idxx × model × seed) plus
     # a mean ± std summary across seeds.
-    perf_df = aggregate_perf(args.models_dir, args.models)
+    perf_df = aggregate_perf(args.models_dir, args.models, model_dir_prefix)
     if not perf_df.empty:
         perf_csv = args.out_dir / 'sweep_perf.csv'
         perf_df.to_csv(perf_csv, index=False)
@@ -474,7 +566,8 @@ def main() -> None:
         summary_csv = args.out_dir / 'sweep_perf_summary.csv'
         summary_df.to_csv(summary_csv, index=False)
         print(f"Wrote perf summary CSV: {summary_csv}  ({len(summary_df)} rows)")
-        plot_perf(perf_df, args.out_dir / 'sweep_perf_vs_idxx.png')
+        plot_perf(perf_df, args.out_dir / 'sweep_perf_vs_idxx.png',
+                  routing_direction=args.routing_direction)
         # Pair MMD on kmer_aa is the natural x-axis (matches Test 3 + the
         # model's feature space). Emit one F1-vs-MMD plot per label_filter
         # that has rows; 'both' is the most defensible single summary.
