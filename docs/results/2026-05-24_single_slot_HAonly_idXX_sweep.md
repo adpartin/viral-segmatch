@@ -108,7 +108,7 @@ NA stays well below bilateral cluster_id099's NA shift in most cells.
 
 ### Plot
 
-`results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate/sweep_mmd_vs_idxx.png`
+`results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate/ha_na_HAonly/sweep_mmd_vs_idxx.png`
 — two panels (ESM-2, aa k=3) with three lines per panel (HA blue,
 NA orange, pair purple), filled markers for p ≤ 0.05, dashed
 reference lines for bilateral cluster_id099 and dotted for random.
@@ -543,8 +543,11 @@ bash scripts/stage4_sweep.sh \
     --start_gpu 1
 
 # 7. Aggregate MMD + perf + plot (auto-detects available seeds, label
-#    filters, feature spaces).
+#    filters, feature spaces). --out_subdir lands outputs under
+#    sweep_aggregate/ha_na_HAonly/, matching the per-sweep namespacing
+#    used by other pairs (e.g. pb2_pb1_PB2only/).
 python -m src.analysis.aggregate_mmd_single_slot_sweep \
+    --out_subdir ha_na_HAonly \
     --feature_spaces esm2 kmer_aa
 ```
 

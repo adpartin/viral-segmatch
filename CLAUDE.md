@@ -196,7 +196,7 @@ aggregator); writeups and bundles are committed.
   for MLP, single-seed for LGBM/1-NN), Cramér's V coupling
   discussion, MMD↔perf relationship, caveats, end-to-end reproduce
   commands (calls the wrapper scripts below).
-- **Plots** (under `results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate/`):
+- **Plots** (under `results/flu/July_2025/runs/split_separation_mmd/sweep_aggregate/ha_na_HAonly/` — moved 2026-05-26 to match the per-sweep namespacing convention; PB2/PB1 outputs live alongside under `pb2_pb1_PB2only/`):
   - `sweep_mmd_vs_idxx.png` — MMD trajectories (HA, NA, pair × ESM-2, aa k=3).
   - `sweep_perf_vs_idxx.png` — Test F1 / AUC-ROC / MCC vs idXX (MLP mean±std band, per-seed dots, LGBM + 1-NN single seed).
   - `sweep_perf_vs_mmd_pair_kmer_aa_{pos,neg,both}.png` — F1 vs S2 pair MMD² scatter, one per label_filter, annotated by idXX.

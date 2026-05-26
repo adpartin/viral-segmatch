@@ -476,9 +476,13 @@ def main() -> None:
                     help='Base output directory. If --out_subdir is set, '
                          'plots/CSVs land under <out_dir>/<out_subdir>/.')
     ap.add_argument('--out_subdir', type=str, default=None,
-                    help='Optional sub-namespace under --out_dir, e.g. '
-                         '"pb2_pb1_PB2only" to keep PB2/PB1 plots from '
-                         'overwriting the HA-NA defaults.')
+                    help='Sub-namespace under --out_dir to keep per-sweep '
+                         'outputs separated. Convention since 2026-05-26: '
+                         'always pass this (e.g. "ha_na_HAonly", '
+                         '"pb2_pb1_PB2only"). If omitted, outputs land at '
+                         '--out_dir root, which is fine for one-off runs '
+                         'but will collide with the per-sweep dirs from '
+                         'past runs.')
     ap.add_argument('--models_dir', type=Path,
                     default=Path('models/flu/July_2025/runs'),
                     help='Where MLP + baseline training output dirs live.')
