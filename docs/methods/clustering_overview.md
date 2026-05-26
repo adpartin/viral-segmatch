@@ -497,7 +497,9 @@ Columns:
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 (raw values for all subsections below). The threshold sweep covers
-{1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.90, 0.85, 0.80}. Plots:
+{1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90,
+0.85, 0.80}. The id094..id091 range was added 2026-05-26 to resolve
+the id095 → id090 gap exposed by the single-slot sweep work. Plots:
 `cluster_counts_vs_threshold.png`, `bipartite_largest_pct_vs_threshold.png`.
 
 ### 6.1 Per-function n_clusters across thresholds
@@ -509,48 +511,67 @@ Columns:
 
 **Amino acids (aa).**
 
-| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 33,601 | 18,354 | 10,035 |  7,634 |  6,755 |  6,491 | **24** |  2 |   2 |
-| 2 | PB1 | 30,822 | 17,209 | 11,859 |  9,266 |  7,384 |  2,033 |  **6** |  2 |   1 |
-| 3 | PA  | 34,162 | 18,520 | 12,758 | 10,906 |  8,677 |  8,002 | **17** |  2 |   2 |
-| 4 | HA  | 41,760 | 22,679 | 14,934 | 11,459 |  8,940 |  7,578 |   910 |  407 | 176 |
-| 5 | NP  | 17,533 | 10,483 |  5,038 |  1,750 |    613 |    526 | **29** |  2 |   2 |
-| 6 | NA  | 18,753 |  9,369 |  6,909 |  4,707 |  3,107 |  2,134 | 1,077 |  127 |  73 |
-| 7 | M1  |  4,712 |  1,764 |  1,033 |  1,003 |    708 |    129 | **24** |  10 |  3 |
-| 8 | NS1 | 22,131 | 13,508 |  9,109 |  6,405 |  4,306 |  3,458 |   786 |  196 | 174 |
+| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 33,601 | 18,354 | 10,035 |  7,634 |  6,755 |  6,491 |  3,590 |  1,085 |   112 |    43 | **24** |  2 |   2 |
+| 2 | PB1 | 30,822 | 17,209 | 11,859 |  9,266 |  7,384 |  2,033 |    930 |    238 |    42 |    19 |  **6** |  2 |   1 |
+| 3 | PA  | 34,162 | 18,520 | 12,758 | 10,906 |  8,677 |  8,002 |    487 |     72 |    30 |    41 | **17** |  2 |   2 |
+| 4 | HA  | 41,760 | 22,679 | 14,934 | 11,459 |  8,940 |  7,578 |  2,368 |  1,580 |  1,230 |  1,108 |   910 |  407 | 176 |
+| 5 | NP  | 17,533 | 10,483 |  5,038 |  1,750 |    613 |    526 |    149 |    706 |     39 |    20 | **29** |  2 |   2 |
+| 6 | NA  | 18,753 |  9,369 |  6,909 |  4,707 |  3,107 |  2,134 |  1,957 |  1,717 |    757 |    791 | 1,077 |  127 |  73 |
+| 7 | M1  |  4,712 |  1,764 |  1,033 |  1,003 |    708 |    129 |    269 |    237 |     31 |    24 | **24** |  10 |  3 |
+| 8 | NS1 | 22,131 | 13,508 |  9,109 |  6,405 |  4,306 |  3,458 |  1,971 |  1,258 |    990 |    943 |   786 |  196 | 174 |
 
 **Nucleotides (nt).**
 
-| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 66,475 | 11,484 |  4,562 |  2,968 |  1,353 |    954 |    180 |  24 |   5 |
-| 2 | PB1 | 66,138 | 14,990 |  6,276 |  2,548 |  1,307 |    742 |    121 |  18 |  10 |
-| 3 | PA  | 64,406 | 11,184 |  4,356 |  2,214 |  1,071 |    719 |     47 |  13 |   3 |
-| 4 | HA  | 64,526 | 12,150 |  6,412 |  3,444 |  1,843 |  1,277 |    275 | 141 |  85 |
-| 5 | NP  | 52,097 | 11,627 |  4,754 |  2,559 |  1,427 |  1,182 |     66 |  12 |   3 |
-| 6 | NA  | 57,987 | 12,092 |  4,840 |  2,611 |  1,662 |  1,108 |    250 | 134 |  91 |
-| 7 | M1  | 31,974 | 10,227 |  4,239 |  1,420 |  1,101 |    619 |     48 |   5 |   2 |
-| 8 | NS1 | 37,458 | 12,012 |  4,133 |  1,988 |  1,245 |    800 |    196 |  91 |   8 |
+| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 66,475 | 11,484 |  4,562 |  2,968 |  1,353 |    954 |    552 |    398 |    316 |    509 |    180 |  24 |   5 |
+| 2 | PB1 | 66,138 | 14,990 |  6,276 |  2,548 |  1,307 |    742 |    472 |    346 |    242 |    179 |    121 |  18 |  10 |
+| 3 | PA  | 64,406 | 11,184 |  4,356 |  2,214 |  1,071 |    719 |    338 |    216 |    129 |     84 |     47 |  13 |   3 |
+| 4 | HA  | 64,526 | 12,150 |  6,412 |  3,444 |  1,843 |  1,277 |    903 |    595 |    472 |    403 |    275 | 141 |  85 |
+| 5 | NP  | 52,097 | 11,627 |  4,754 |  2,559 |  1,427 |  1,182 |    786 |    542 |    455 |    298 |     66 |  12 |   3 |
+| 6 | NA  | 57,987 | 12,092 |  4,840 |  2,611 |  1,662 |  1,108 |    905 |    599 |    441 |    419 |    250 | 134 |  91 |
+| 7 | M1  | 31,974 | 10,227 |  4,239 |  1,420 |  1,101 |    619 |    263 |    119 |    154 |     80 |     48 |   5 |   2 |
+| 8 | NS1 | 37,458 | 12,012 |  4,133 |  1,988 |  1,245 |    800 |    419 |    299 |    326 |    179 |    196 |  91 |   8 |
 
 **Takeaways.**
 
 - **Two collapse modes (deferred-cliff vs gradual).** Segments 1/2/3/5/7
-  retain moderate counts through id095, then drop sharply at id095→id090
-  (PB2: 6,491→24, −99.6%). Segments 4/6/8 decline smoothly across the whole
-  sweep and retain meaningful structure even at id080. The cliff vs
-  smooth split matches proteins' biology: polymerase and structural
-  proteins are under tight constraint; surface and length-varying
-  proteins carry persistent diversity.
-- **NA is the most-gradual outlier**, even within the surface-protein
-  group. NA's id095→id090 drop is only 2,134→1,077 (−50%, much smaller
-  than HA's 7,578→910 = −88%). Stalk-length variation already pools
-  NA into ~7% of the corpus at id100 (see §6.4 NA note), so further
-  sequence-level consolidation has less to do.
-- **No single-pp cliff across the observed region.** The steepest 1-pp drop on any function is
-  ~25% (PB2 at id098→id097: 10,035→7,634). The conserved-protein cliff
-  is at the 5-pp id095→id090 transition, not at any single threshold
-  step.
+  retain moderate counts through id095, then drop sharply across id094
+  → id091 (PB2 aa: 6,491 → 3,590 → 1,085 → 112 → 43 — five distinct
+  cliff steps). Segments 4/6/8 decline smoothly across the whole sweep
+  and retain meaningful structure even at id080. The cliff vs smooth
+  split matches proteins' biology: polymerase and structural proteins
+  are under tight constraint; surface and length-varying proteins
+  carry persistent diversity.
+- **The conserved-protein cliff has a center, not just a span.**
+  Adding the id094..id091 columns localizes the cliff: on PB2 aa the
+  biggest single-step drop is id093 → id092 (1,085 → 112, −90%);
+  PB1 aa drops most at id094 → id093 (930 → 238, −74%); PA aa loses
+  the most at id095 → id094 (8,002 → 487, −94%, the steepest 1-pp
+  drop in the whole table); M1 aa at id094 → id093 (269 → 237 is
+  flat, but the next step id093 → id092 is 237 → 31, −87%). The
+  cliff is not a single threshold step that applies to all
+  conserved functions — each polymerase subunit and matrix protein
+  has its own "tipping idXX" in the id095..id091 range.
+- **NA is the most-gradual outlier** even within the surface-protein
+  group. NA aa's id095 → id090 drop is only 2,134 → 1,077 (−50%, much
+  smaller than HA's 7,578 → 910 = −88%). The fine-grained id094..id091
+  view confirms NA stays close to 1,000 clusters throughout. Stalk-
+  length variation already pools NA into ~7% of the corpus at id100
+  (see §6.4 NA note), so further sequence-level consolidation has less
+  to do.
+- **Easy-linclust is approximately monotone, not exactly.** At the
+  1-pp grain the new id094..id091 data exposes small non-monotone
+  bumps: NP aa is 526 at id095, 149 at id094, then **706** at id093
+  before resuming the descent; NA aa goes 1,957 → 1,717 → 757 → **791**
+  → 1,077 across id094..id090; M1 aa goes 129 → **269** → **237** →
+  31 across id095..id092. Easy-linclust's single-pass seed selection
+  produces threshold-dependent cluster topology, so a tighter
+  threshold can occasionally yield more clusters when seeds change.
+  The coarse direction (id100 → id080) is always monotone-decreasing;
+  the 1-pp grain is not.
 - **nt at id100 always exceeds aa at id100** (synonymous variants
   split into distinct nt singletons). The aa-vs-nt relationship
   inverts at id099 and id098 on most functions — see §6.3 worked
@@ -678,27 +699,46 @@ Columns:
   single largest cluster at threshold `t = ###/100`. 100% means one
   cluster contains every sequence of that function.
 
-| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 0.0% | 12.7% | 12.6% | 13.7% | 15.6% | 15.6% |  95.9% | **100%** | **100%** |
-| 2 | PB1 | 0.1% | 12.9% | 12.0% | 18.5% | 25.9% | 72.4% | **100%** | **100%** | **100%** |
-| 3 | PA  | 0.0% |  7.3% |  8.9% |  8.9% |  9.0% |  9.0% |  98.1% | **100%** | **100%** |
-| 5 | NP  | 0.1% |  7.5% | 13.1% | 28.2% | 41.4% | 46.3% |  99.8% | **100%** | **100%** |
-| 7 | M1  | 0.2% | 10.8% | 17.8% | 23.1% | 41.7% | 56.7% |  99.2% |  99.5% |  99.9% |
-| 4 | HA  | 0.0% |  5.0% |  6.7% |  9.6% |  9.7% | 11.8% |  22.8% |  24.3% |  33.4% |
-| 6 | NA  | 6.9% |  8.7% |  8.9% |  8.8% | 13.2% | 13.2% |  17.9% |  32.4% |  37.7% |
-| 8 | NS1 | 0.0% |  3.9% |  4.8% |  9.4% | 11.7% | 16.3% |  21.1% |  29.5% |  52.4% |
+| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 0.0% | 12.7% | 12.6% | 13.7% | 15.6% | 15.6% | 15.9% | 38.3% | 64.4% | 77.6% |  95.9% | **100%** | **100%** |
+| 2 | PB1 | 0.1% | 12.9% | 12.0% | 18.5% | 25.9% | 72.4% | 90.9% | 98.9% | 99.8% | 99.9% | **100%** | **100%** | **100%** |
+| 3 | PA  | 0.0% |  7.3% |  8.9% |  8.9% |  9.0% |  9.0% | 56.5% | 65.3% | 75.3% | 96.3% |  98.1% | **100%** | **100%** |
+| 5 | NP  | 0.1% |  7.5% | 13.1% | 28.2% | 41.4% | 46.3% | 51.2% | 67.5% | 84.0% | 85.0% |  99.8% | **100%** | **100%** |
+| 7 | M1  | 0.2% | 10.8% | 17.8% | 23.1% | 41.7% | 56.7% | 84.1% | 93.3% | 99.1% | 99.2% |  99.2% |  99.5% |  99.9% |
+| 4 | HA  | 0.0% |  5.0% |  6.7% |  9.6% |  9.7% | 11.8% | 12.1% | 21.0% | 21.9% | 22.5% |  22.8% |  24.3% |  33.4% |
+| 6 | NA  | 6.9% |  8.7% |  8.9% |  8.8% | 13.2% | 13.2% | 17.9% | 14.0% | 18.0% | 17.7% |  17.9% |  32.4% |  37.7% |
+| 8 | NS1 | 0.0% |  3.9% |  4.8% |  9.4% | 11.7% | 16.3% | 19.0% | 19.3% | 19.3% | 19.5% |  21.1% |  29.5% |  52.4% |
 
 Rows are grouped by collapse mode from §6.1: top 5 are deferred-cliff
 functions, bottom 3 are gradual.
 
 **Takeaways.**
 
-- **Conserved-protein collapse is delayed.** PB2/PB1/PA/NP/M1 stay
-  below 25% through id095 (M1 is the highest at 57% at id095), then
-  jump to 96–100% at id090. By id090 the five conserved functions
-  have absorbed essentially the entire corpus into one cluster each;
-  HA/NA/NS1 remain ≤30%.
+- **The mega-cluster forms one step at a time on conserved functions.**
+  The id094..id091 columns expose what happens between the
+  "still-small" id095 numbers and the "essentially-100%" id090
+  endpoint. PB2 aa: 15.6% (id095) → 15.9 → 38.3 → 64.4 → 77.6 → 95.9%
+  (id090) — five graded steps, not a single cliff. PB1 aa shows the
+  earliest growth (72% at id095 → 91% at id094 → 99% at id093). PA aa
+  takes the steepest single-pp jump (9.0% at id095 → 56.5% at id094).
+  M1 jumps from 57% to 84% in one step at id094 and reaches 99% by
+  id092.
+- **HA / NA / NS1 stay flat through the whole id094..id091 range.**
+  HA largest is 11.8% at id095 and only 22.8% at id090 — never
+  forms a mega-cluster. NA largest stays in the 13–18% band across
+  the entire id095..id090 stretch. NS1 climbs slowly to 21% at
+  id090. By the same threshold the conserved functions are
+  ≥96%. This is the same biology that §6.1 surfaced from the
+  cluster-count direction.
+- **Conserved-protein largest jumps localize differently than
+  n_clusters drops.** PA's n_clusters drops most at id095 → id094
+  (8,002 → 487), and its largest_pct jumps in the same step
+  (9.0% → 56.5%) — coherent. But PB2's biggest n_clusters drop is
+  id093 → id092 (1,085 → 112), while its largest jumps most at id094
+  → id093 (15.9% → 38.3%) and id093 → id092 (38.3% → 64.4%). The
+  two signals (count and largest) track each other coarsely but
+  not at the 1-pp grain.
 - **NA's id100 anomaly: 6.9% already.** NA is the only function with
   a sub-id100 entry visibly above zero, because of the stalk-length
   collapse mechanism (§4 NA note). NA's id100 cluster pools ~7% of
@@ -878,12 +918,12 @@ Consolidated plot: `bipartite_largest_pct_vs_threshold.png` from
 
 Largest bipartite-component fraction (% of deduped pairs):
 
-| Segments | Schema pair | Alphabet | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
-|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 4/6 | HA/NA   | aa | 49.0 | 79.6 | 88.4 | 92.7 | 95.8 | 97.8 |  99.8 | 100.0 | 100.0 |
-| 4/6 | HA/NA   | nt |  1.5 | 69.3 | 91.0 | 95.7 | 97.8 | 98.2 |  99.1 |  99.6 | 100.0 |
-| 1/2 | PB2/PB1 | aa | 38.4 | 81.0 | 92.6 | 97.2 | 98.6 | 99.5 | 100.0 | 100.0 | 100.0 |
-| 1/2 | PB2/PB1 | nt |  2.9 | 59.7 | 93.9 | 97.2 | 98.2 | 99.1 |  99.5 | 100.0 | 100.0 |
+| Segments | Schema pair | Alphabet | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 4/6 | HA/NA   | aa | 49.0 | 79.6 | 88.4 | 92.7 | 95.8 | 97.8 | 98.7 | 99.0 | 99.0 | 99.0 |  99.8 | 100.0 | 100.0 |
+| 4/6 | HA/NA   | nt |  1.5 | 69.4 | 91.0 | 95.7 | 97.8 | 98.2 | 98.5 | 98.9 | 98.7 | 99.1 |  99.1 |  99.6 | 100.0 |
+| 1/2 | PB2/PB1 | aa | 38.4 | 81.0 | 92.6 | 97.2 | 98.6 | 99.5 | 99.8 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 |
+| 1/2 | PB2/PB1 | nt |  2.9 | 59.7 | 93.9 | 97.2 | 98.2 | 99.1 | 99.3 | 99.3 | 99.5 | 99.5 |  99.5 | 100.0 | 100.0 |
 
 A cell is structurally feasible for 80/10/10 if the largest CC is ≤80%
 (train can fit it cleanly). What "infeasible" means in practice: the
@@ -918,6 +958,15 @@ zero. Reading the table by that frame:
   on the held-out splits). Every pair is routed; the dataset exists;
   it just isn't usable for evaluation. Largest CC ≥95% on every line
   of the table predicts the same pattern under the new clustering.
+- **The id094..id091 range adds no bilateral recovery.** The new
+  columns sit between the existing id095 and id090 cells and
+  monotonically (or near-monotonically) grow toward 100%. On aa
+  PB2/PB1 the largest CC hits 100.0% by id093 and stays there.
+  On nt HA/NA the largest CC fluctuates between 98.5% and 99.1%
+  across id094..id091 (a small non-monotone bump at id092: 98.7 vs
+  id093's 98.9 — inherited from the easy-linclust non-monotonicity
+  documented in §6.1). No threshold in id094..id091 unlocks bilateral
+  feasibility on any pair/alphabet cell.
 
 > **TODO! Observed train share on existing runs (2026-05-21 audit) —
 > these reflect prior easy-cluster artifacts.**
@@ -973,6 +1022,59 @@ See also: `docs/results/2026-05-21_bicc_pair_drop_audit.md` for the
 no-drop audit; `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
 for the algorithm-switch decision and the validation experiments it
 rests on.
+
+### 9.1 Single-slot cluster_disjoint extends the ceiling
+
+The table above is for **bilateral** cluster_disjoint (both slots'
+clusters disjoint between splits). Single-slot routing (only one
+slot's clusters constrained — the relevant "atom" is per-cluster pair
+count on the constrained slot rather than the bipartite component;
+see §7.3) relaxes the constraint and pushes the feasibility ceiling
+below the bilateral one.
+
+**Source.** `src/analysis/single_slot_cluster_disjoint_feasibility.py`;
+CSVs at `results/.../cluster_disjoint_feasibility/single_slot_feasibility_<pair>_<alphabet>.csv`.
+The feasibility rule is **largest_atom ≤ 80% AND second_atom ≤ 20%**
+(the bin-packer needs train to absorb the biggest atom AND val/test
+to each fit a smaller one).
+
+aa, top-2 atom sizes (% of deduped pairs) at each threshold:
+
+| Pair | Constrained slot | id095 | id094 | id093 | id092 | id091 | id090 | id085 |
+|---|---|---|---|---|---|---|---|---|
+| HA/NA   | a (HA)  | 13.5 / 11.5 ✓ | 13.8 / 11.5 ✓ | 23.8 / 21.2 ✗ | 24.6 / 21.3 ✗ | 25.1 / 21.4 ✗ | 25.4 / 21.4 ✗ | 27.1 / 21.7 ✗ |
+| HA/NA   | b (NA)  | 15.5 / 12.2 ✓ | 21.1 / 12.3 ✓ | 18.4 / 11.2 ✓ | 22.4 / 21.2 ✗ | 22.5 / 12.6 ✓ | 22.7 / 11.2 ✓ | 34.0 / 18.8 ✓ |
+| PB2/PB1 | a (PB2) | 15.5 / 13.9 ✓ | 15.7 / 14.4 ✓ | 35.0 / 24.8 ✗ | 57.3 / 25.4 ✗ | 72.6 / 26.4 ✗ | 95.6 / 2.8 ✗ | 100 / 0 ✗ |
+| PB2/PB1 | b (PB1) | 78.4 / 4.7 ✓  | 93.1 / 0.8 ✗  | 99.2 / 0.0 ✗ | 99.9 / 0.0 ✗ | 100 / 0 ✗ | 100 / 0 ✗ | 100 / 0 ✗ |
+
+**Readings.**
+
+- **HA-only and PB2-only both cliff at id094 → id093.** Largest atom
+  jumps from ~14% to ~24% (HA) / 35% (PB2) and the second atom
+  crosses the 20% ceiling. Same threshold step on both pairs despite
+  very different cluster-count trajectories in §6.1 — the cliff
+  position is a property of the bin-packing rule applied to the
+  Flu A corpus's metadata structure, not specific to a single pair.
+- **PB1-only cliffs one step earlier (id095 → id094).** PB1 has
+  unusually few clusters at id095 (2,033) compared to PB2 (6,491),
+  so the largest atom is already at 78.4% at id095 (against the 80%
+  ceiling) and crosses it at id094.
+- **NA-only stays feasible through id085 with one id092 hole.**
+  Largest atom stays in the 15-34% band across the whole sweep;
+  second atom is below 13% except at id092 where it spikes to
+  21.2%. The id092 hole is inherited from NA's non-monotone cluster
+  count (§6.1: NA aa goes 1,957 → 1,717 → **757** → 791 across
+  id094..id091). NA's stalk-length-driven flat cluster-size
+  distribution keeps it routable that far down — the only Flu A
+  direction with this property.
+- **Bilateral cliff vs single-slot cliff are decoupled.** Bilateral
+  is broken from id098 down on every pair/alphabet. Single-slot
+  HA-only and PB2-only stay feasible through id094 — gaining four
+  extra thresholds. This is the structural reason the published
+  idXX sweeps (`docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`,
+  `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md`) use
+  single-slot routing and stop at id095 — id094 is the first
+  unexplored feasible cell; id093 is the cliff.
 
 ---
 
