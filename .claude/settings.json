@@ -4,6 +4,7 @@
     "deny": [
       "Bash(rm *)",
       "Bash(git rm *)",
+      "Bash(git commit -m *)",
       "Bash(git push --force*)",
       "Bash(git push -f *)",
       "Bash(git reset --hard *)",
