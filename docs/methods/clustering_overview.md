@@ -428,7 +428,7 @@ Columns:
 
 ---
 
-## 5. What an identity threshold concretely admits
+## 5. Maximum residue mismatches admitted per cluster
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `results/flu/July_2025/runs/cluster_analysis/mutations_tolerated_table.csv`,
@@ -503,12 +503,11 @@ Columns:
 ### 6.1 Per-function n_clusters across thresholds
 
 Columns:
-- `Segment` / `Function`: standard 8-protein labels.
 - `id###`: number of mmseqs clusters for that function at threshold
   `t = ###/100`. Lower threshold → more sequences cluster together →
   fewer clusters.
 
-**aa.**
+**Amino acids (aa).**
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -521,7 +520,7 @@ Columns:
 | 7 | M1  |  4,712 |  1,764 |  1,033 |  1,003 |    708 |    129 | **24** |  10 |  3 |
 | 8 | NS1 | 22,131 | 13,508 |  9,109 |  6,405 |  4,306 |  3,458 |   786 |  196 | 174 |
 
-**nt.**
+**Nucleotides (nt).**
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -536,11 +535,11 @@ Columns:
 
 **Takeaways.**
 
-- **Two collapse modes (deferred-cliff vs gradual).** PB2/PB1/PA/NP/M1
+- **Two collapse modes (deferred-cliff vs gradual).** Segments 1/2/3/5/7
   retain moderate counts through id095, then drop sharply at id095→id090
-  (PB2: 6,491→24, −99.6%). HA/NA/NS1 decline smoothly across the whole
+  (PB2: 6,491→24, −99.6%). Segments 4/6/8 decline smoothly across the whole
   sweep and retain meaningful structure even at id080. The cliff vs
-  smooth split matches each protein's biology: polymerase and structural
+  smooth split matches proteins' biology: polymerase and structural
   proteins are under tight constraint; surface and length-varying
   proteins carry persistent diversity.
 - **NA is the most-gradual outlier**, even within the surface-protein
@@ -548,7 +547,7 @@ Columns:
   than HA's 7,578→910 = −88%). Stalk-length variation already pools
   NA into ~7% of the corpus at id100 (see §6.4 NA note), so further
   sequence-level consolidation has less to do.
-- **No single-pp cliff.** The steepest 1-pp drop on any function is
+- **No single-pp cliff across the observed region.** The steepest 1-pp drop on any function is
   ~25% (PB2 at id098→id097: 10,035→7,634). The conserved-protein cliff
   is at the 5-pp id095→id090 transition, not at any single threshold
   step.
@@ -560,15 +559,6 @@ Columns:
   vs 37,488 md5-dedup unique aa sequences from §4 — about half. The
   stalk-length collapse mechanism (§4 NA note) groups stalk-deletion
   isoforms with stalk-full counterparts under the ≥80% coverage rule.
-
-**Caveat: algorithm switch (2026-05-22).** The numbers above use
-symmetric `easy-linclust` on both alphabets. Prior runs used
-`easy-cluster` on aa, which chained transitively-similar sequences
-much further: the same PB2 trajectory under `easy-cluster` had a
-1-pp cliff at id097→id096 (717→77 clusters) instead of the 5-pp
-id095→id090 cliff seen here. Cluster counts disagreed by 5×–500× on
-the same aa input at identical parameters. See §2.2 for the
-algorithm-choice rationale.
 
 ### 6.2 Worked example: NS1 vs M1 — real diversity vs length-variation artifact
 
