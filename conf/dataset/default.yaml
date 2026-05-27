@@ -223,3 +223,9 @@ split_strategy:
                               # Useful when bilateral cliffs at a given idXX but single-slot
                               # atoms stay small enough to bin-pack. See pre-flight in
                               # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.
+  # D3 per-fold feasibility check (applies to k-fold AND single-shot for
+  # consistent enforcement). See D3 of
+  # docs/plans/2026-05-27_kfold_variance_estimation_plan.md.
+  feasibility:
+    max_acceptable_drift_pp: 0.05  # max absolute pp deviation per bin from target (0-1 scale)
+    min_test_frac: 0.05            # test bin must be at least this fraction of total pairs

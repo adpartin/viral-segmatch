@@ -1,0 +1,13 @@
+# STATUS: experimental -- HA/NA HA-only cluster_disjoint at aa id095 with k=5 CV.
+# Smoke 1 from Phase 7 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md.
+# Inherits the non-CV HA-only bundle and adds n_folds=5. Expected outcome:
+# all 5 folds pass D3 (per-fold target ratios 0.7/0.1/0.2 at k=5;
+# HA-only id095 has max_atom_frac ~13.5% at production dedup, max_feasible_k
+# at default drift = 11, so k=5 is comfortably feasible).
+
+defaults:
+  - flu_ha_na_cluster_aa_id095_HAonly
+  - _self_
+
+dataset:
+  n_folds: 5

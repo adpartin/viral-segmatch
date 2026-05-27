@@ -1,0 +1,22 @@
+# STATUS: experimental -- PB2/PB1 PB1-only cluster_disjoint at aa id095 with k=5 CV.
+# Smoke 2 from Phase 7 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md.
+# This is the EXPECTED-REFUSE smoke: PB1-only at id095 has max_atom_frac ~0.784
+# (per §10.3 of docs/methods/clustering_overview.md) -> max_feasible_k = 1 at both
+# zero-drift and default drift_pp=0.05. Requesting n_folds=5 triggers D4's
+# pre-build refuse path with the structured menu.
+# PB2-only at the same threshold (max_atom_frac ~15.5%) WOULD build successfully
+# — wrong direction for this smoke. See PB2only_k5 bundle for the feasible PB2/PB1
+# k-fold case.
+
+defaults:
+  - flu_pb2_pb1
+  - _self_
+
+dataset:
+  n_folds: 5
+  split_strategy:
+    mode: cluster_disjoint
+    cluster_id_path: data/processed/flu/July_2025/clusters_aa/id095/combined_cluster.parquet
+    cluster_id_threshold: 0.95
+    cluster_alphabet: aa
+    single_slot: b       # constrain slot b (PB1) only; slot a (PB2) unconstrained
