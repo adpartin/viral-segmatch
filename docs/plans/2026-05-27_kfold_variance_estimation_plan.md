@@ -176,13 +176,19 @@ Two trigger points:
 ### D5. Existing-field rename + rescale
 
 Rename `max_target_deviation_pct` → `max_target_deviation_pp` in the
-audit JSON schema (`_split_helpers.py:320`) **and rescale from 0-100
-to 0-1 fractions in the same patch**. The current field computes
-`max(abs(achieved_pct - target_pct))` where both inputs are on a
-0-100 scale (`_split_helpers.py:300-301`); the new knobs
+cluster_disjoint audit JSON schema (`_split_helpers.py:320`) **and
+rescale from 0-100 to 0-1 fractions in the same patch**. The current
+field computes `max(abs(achieved_pct - target_pct))` where both inputs
+are on a 0-100 scale (`_split_helpers.py:300-301`); the new knobs
 (`max_acceptable_drift_pp`, `min_test_frac`) are on a 0-1 fraction
 scale. Keeping the current 0-100 scale while introducing 0-1 knobs
 would create silent unit mismatches.
+
+Same rename + rescale extended to the seq_disjoint audit's identical
+field at `_pair_helpers.py:735`. Both routing modes' audits use `_pp`
+on the 0-1 scale; cross-audit consistency means downstream consumers
+read the same field name and unit regardless of which routing produced
+the audit.
 
 Schema note for the rescaled field: `max_target_deviation_pp ∈ [0, 1]`
 where `0.05` means "achieved bin fraction deviated by up to 5

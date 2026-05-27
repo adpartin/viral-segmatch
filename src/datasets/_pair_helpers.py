@@ -145,7 +145,7 @@ def attach_cds_dna_hash_to_pos_df(
     pos_df: pd.DataFrame,
     cds_final_path: Path,
     schema_pair: Tuple[str, str],
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Add `cds_dna_hash_a` and `cds_dna_hash_b` columns to pos_df.
 
     Required by the nt-alphabet branch of cluster_disjoint routing
@@ -720,8 +720,13 @@ def seq_disjoint_route_pos_df(
         if family_overlaps:
             overlaps_by_family[family] = family_overlaps
 
+    # targets_pct / achieved_pct kept on 0-100 (backwards-compat).
+    # max_target_deviation_pct -> _pp + rescale to 0-1 per D5 of the k-fold
+    # plan, extended to seq_disjoint for cross-audit consistency.
     target_pcts = {k: 100.0 * v / n_pairs for k, v in targets.items()}
     achieved_pcts = {k: 100.0 * v / n_pairs for k, v in achieved.items()}
+    target_frac   = {k: v / n_pairs for k, v in targets.items()}
+    achieved_frac = {k: v / n_pairs for k, v in achieved.items()}
     audit = {
         'mode': 'seq_disjoint',
         'algorithm': 'bipartite_cc_lpt_greedy',
@@ -732,8 +737,8 @@ def seq_disjoint_route_pos_df(
         'targets_pct':   {k: round(v, 4) for k, v in target_pcts.items()},
         'achieved_pairs': achieved,
         'achieved_pct':   {k: round(v, 4) for k, v in achieved_pcts.items()},
-        'max_target_deviation_pct': round(
-            max(abs(achieved_pcts[k] - target_pcts[k]) for k in achieved_pcts), 4
+        'max_target_deviation_pp': round(
+            max(abs(achieved_frac[k] - target_frac[k]) for k in achieved_frac), 4
         ),
         'pairs_dropped': 0,  # CC-bin-packing never splits a component.
         # Primary guarantee (hard-fail in saver): overlaps_by_family[hash_key].
