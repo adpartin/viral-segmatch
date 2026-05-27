@@ -12,6 +12,19 @@ Per schema_pair × alphabet × threshold × slot:
   largest_atom_pct = (# pairs whose slot-X protein is in the largest
                       slot-X cluster at this threshold) / n_pairs
   feasible_8010    = (largest_atom_pct <= 80%) AND (second <= 20%)
+  max_feasible_k_strict           = floor(1 / max_atom_frac), capped
+                                    at n_atoms. Zero-drift necessary
+                                    condition for k-fold CV.
+  max_feasible_k_at_default_drift = floor(1 / (max_atom_frac - drift)),
+                                    capped at n_atoms, with
+                                    drift = DEFAULT_DRIFT_PP = 0.05.
+                                    Drift-aware necessary condition
+                                    at deployed defaults (per D2/D3 of
+                                    docs/plans/2026-05-27_kfold_variance_estimation_plan.md).
+
+Per-fold drift check at build time is authoritative; the two
+max_feasible_k columns bracket the common cases (drift_pp = 0 and
+drift_pp = 0.05 default).
 
 Reuses build_isolate_pairs + cluster_lookup loader from the bilateral
 script so the dedup, hashing, and cluster artifact paths match exactly.
@@ -48,6 +61,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.analysis.cluster_disjoint_feasibility import (
     build_isolate_pairs, FUNCTION_TO_SHORT, _threshold_label,
 )
+
+# Keep in sync with conf/dataset/default.yaml::split_strategy.feasibility.max_acceptable_drift_pp
+# (default value used by D3 of the k-fold variance plan).
+DEFAULT_DRIFT_PP = 0.05
 
 
 def _load_cluster_lookup(clusters_root: Path, threshold: float,
@@ -99,7 +116,10 @@ def feasibility_single_slot(isolate_pairs: pd.DataFrame,
             'threshold': threshold, 'slot': slot, 'n_pairs': 0,
             'n_clusters_constrained': 0, 'largest_atom_pct': 0.0,
             'second_atom_pct': 0.0, 'top5_atom_pct': [],
-            'singleton_atoms': 0, 'feasible_8010': False,
+            'singleton_atoms': 0,
+            'max_feasible_k_strict': 0,
+            'max_feasible_k_at_default_drift': 0,
+            'feasible_8010': False,
             'n_dropped_in_join': n_dropped,
         }
 
@@ -107,20 +127,39 @@ def feasibility_single_slot(isolate_pairs: pd.DataFrame,
     constrained_col = f'cluster_id_{slot}'
     atom_sizes = pairs.groupby(constrained_col).size().sort_values(ascending=False).values
     atom_pct = atom_sizes / n_pairs * 100.0
+    n_atoms = int(len(atom_sizes))
 
     largest_pct = float(atom_pct[0])
     second_pct = float(atom_pct[1]) if len(atom_pct) > 1 else 0.0
     feasible = (largest_pct <= 80.0) and (second_pct <= 20.0)
 
+    # max_feasible_k_{strict, at_default_drift}: see module docstring.
+    # When max_atom_frac <= drift, the test bin absorbs the largest atom at
+    # any k; the constraint is non-binding so cap at n_atoms (can't have
+    # more folds than atoms).
+    max_atom_frac = largest_pct / 100.0
+    if max_atom_frac > 0:
+        max_feasible_k_strict = min(int(np.floor(1.0 / max_atom_frac)), n_atoms)
+    else:
+        max_feasible_k_strict = n_atoms
+    if max_atom_frac > DEFAULT_DRIFT_PP:
+        max_feasible_k_at_default_drift = min(
+            int(np.floor(1.0 / (max_atom_frac - DEFAULT_DRIFT_PP))), n_atoms,
+        )
+    else:
+        max_feasible_k_at_default_drift = n_atoms
+
     return {
         'threshold': threshold,
         'slot': slot,
         'n_pairs': n_pairs,
-        'n_clusters_constrained': int(len(atom_sizes)),
+        'n_clusters_constrained': n_atoms,
         'largest_atom_pct': round(largest_pct, 2),
         'second_atom_pct': round(second_pct, 2),
         'top5_atom_pct': [round(float(p), 2) for p in atom_pct[:5]],
         'singleton_atoms': int((np.array(atom_sizes) == 1).sum()),
+        'max_feasible_k_strict': max_feasible_k_strict,
+        'max_feasible_k_at_default_drift': max_feasible_k_at_default_drift,
         'feasible_8010': bool(feasible),
         'n_dropped_in_join': n_dropped,
     }
@@ -177,16 +216,25 @@ def main() -> None:
                   f"n_clusters={row['n_clusters_constrained']:,}  "
                   f"largest={row['largest_atom_pct']:.2f}%  "
                   f"second={row['second_atom_pct']:.2f}%  "
+                  f"max_k_strict={row['max_feasible_k_strict']}  "
+                  f"max_k_at_default_drift={row['max_feasible_k_at_default_drift']}  "
                   f"top5={row['top5_atom_pct']}  -> {verdict}")
             rows.append(row)
         print()
 
     out_df = pd.DataFrame(rows)
     out_df.to_csv(args.out_csv, index=False)
+    print('Note: max_feasible_k columns are necessary conditions only — '
+          'per-fold drift check at build time is authoritative. '
+          f'max_feasible_k_at_default_drift uses drift_pp={DEFAULT_DRIFT_PP} '
+          '(D3 default). For non-default drift configs, re-derive from '
+          'max_atom_frac (= largest_atom_pct / 100).')
+    print()
     print('Summary:')
     cols = ['threshold', 'slot', 'n_pairs', 'n_clusters_constrained',
             'largest_atom_pct', 'second_atom_pct', 'top5_atom_pct',
-            'singleton_atoms', 'feasible_8010']
+            'singleton_atoms', 'max_feasible_k_strict',
+            'max_feasible_k_at_default_drift', 'feasible_8010']
     print(out_df[cols].to_string(index=False))
     print(f'\nWrote: {args.out_csv}')
 
