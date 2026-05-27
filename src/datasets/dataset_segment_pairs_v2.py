@@ -2122,6 +2122,34 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     print(f"\nAll {n_folds} folds passed D3 feasibility. "
           f"Proceeding with per-fold negative generation...")
 
+    # ----- Build cross-fold kfold_summary (Phase 4 of the k-fold plan) -----
+    # Constant across all folds since it summarizes the whole partition.
+    # Injected into each fold's duplicate_stats before yielding; the saver
+    # surfaces it in that fold's dataset_stats.json (mirrors the existing
+    # slot_leakage_summary pattern). composition_mode is reserved-null per
+    # OoS #7 forward-compat.
+    _first_audit = folds[0][3]
+    kfold_summary = {
+        'k':                              int(n_folds),
+        'max_feasible_k_strict':          int(_first_audit['max_feasible_k_strict']),
+        'max_feasible_k_at_build_drift':  int(_first_audit['max_feasible_k_at_build_drift']),
+        'build_drift_pp':                 float(max_acceptable_drift_pp),
+        'all_folds_pass':                 True,  # collect-all check above guarantees this
+        'single_slot':                    single_slot,
+        'cluster_alphabet':               cluster_alphabet,
+        'atom_ordering_key':              '(-size, cluster_id)',
+        'composition_mode':               None,
+        'per_fold': [
+            {
+                'fold_id':   int(audit['fold_id']),
+                'drift_pp':  float(audit['feasibility_check']['max_acceptable_drift_pp']['achieved']),
+                'test_frac': float(audit['feasibility_check']['min_test_frac']['achieved']),
+                'pass':      bool(audit['feasibility_check']['all_pass']),
+            }
+            for _, _, _, audit in folds
+        ],
+    }
+
     # ----- Per-fold: generate negatives via split_dataset_v2 with override -----
     for fold_id, (train_pos, val_pos, test_pos, fold_audit) in enumerate(folds):
         print(f"\n{'='*60}")
@@ -2168,6 +2196,9 @@ def generate_all_cluster_disjoint_cv_folds_v2(
                 'pos_dedup_stats':        pos_dedup_stats,
             },
         )
+        # Inject the cross-fold kfold_summary into this fold's duplicate_stats
+        # so the saver can surface it in this fold's dataset_stats.json.
+        dup_stats['kfold_summary'] = kfold_summary
         yield {
             'fold_id': fold_id,
             'train_pairs': train_pairs,
@@ -2406,6 +2437,15 @@ def save_split_output_v2(
                 )
             }}
             if 'cluster_disjoint_audit' in duplicate_stats else {}
+        ),
+        # Cross-fold kfold_summary headline (Phase 4 of the k-fold plan).
+        # Present only under cluster_disjoint k-fold mode (n_folds >= 2);
+        # injected by generate_all_cluster_disjoint_cv_folds_v2 into
+        # duplicate_stats. Mirrors slot_leakage_summary's conditional-include
+        # pattern. Schema documented in the plan's Phase 4 section.
+        **(
+            {'kfold_summary': duplicate_stats['kfold_summary']}
+            if 'kfold_summary' in duplicate_stats else {}
         ),
         'exposure_summary': _exposure_summary(exposure_tables),
         'axis_flag_summary': {

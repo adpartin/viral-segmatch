@@ -284,6 +284,24 @@ def _build_audit(
     else:
         algorithm = f'single_slot_{single_slot}_lpt_greedy_on_cluster_ids'
 
+    # max_feasible_k fields (Phase 4 of the k-fold plan): present in every
+    # audit dict so the kfold_summary can derive cross-fold guidance even
+    # from a single fold's audit. Strict + drift-aware bounds per D2.
+    largest_size = int(cc_summary['largest_component_pairs'])
+    max_atom_frac = largest_size / n_pairs if n_pairs > 0 else 0.0
+    n_atoms = int(cc_summary['n_components'])
+    if max_atom_frac > 0:
+        max_feasible_k_strict = min(int(np.floor(1.0 / max_atom_frac)), n_atoms)
+    else:
+        max_feasible_k_strict = n_atoms
+    if max_atom_frac > max_acceptable_drift_pp:
+        max_feasible_k_at_build_drift = min(
+            int(np.floor(1.0 / (max_atom_frac - max_acceptable_drift_pp))),
+            n_atoms,
+        )
+    else:
+        max_feasible_k_at_build_drift = n_atoms
+
     audit = {
         'mode': 'cluster_disjoint',
         'algorithm': algorithm,
@@ -301,6 +319,9 @@ def _build_audit(
         'achieved_pairs': achieved,
         'achieved_pct':   {k: round(v, 4) for k, v in achieved_pcts.items()},
         'max_target_deviation_pp': round(float(max_target_deviation_pp), 4),
+        'max_feasible_k_strict': int(max_feasible_k_strict),
+        'max_feasible_k_at_build_drift': int(max_feasible_k_at_build_drift),
+        'build_drift_pp': float(max_acceptable_drift_pp),
         'pairs_dropped_in_routing': 0,
         'pairs_dropped_in_cluster_join': attach_audit['n_input'] - attach_audit['n_kept'],
         # cluster_id_overlap: by-construction zero on the constrained slot(s).
