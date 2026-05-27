@@ -57,8 +57,9 @@ not the bundle-config defaults.
 key as the existing LPT path (`_split_helpers.py:233-238`). This makes
 the GroupKFold partition bit-reproducible across runs and architectures
 (sklearn `GroupKFold` preserves input order). The chosen key is
-recorded in the per-fold audit JSON as `atom_ordering_key` for
-unambiguous debugging.
+invariant across folds, so it's recorded once in the `kfold_summary`
+header of the audit JSON as `atom_ordering_key` for unambiguous
+debugging (not duplicated per fold).
 
 ### D2. Per-(configuration) `max_feasible_k`
 
@@ -304,7 +305,9 @@ pattern from yesterday's audit-symmetry work. Schema:
 ```json
 "kfold_summary": {
   "k": 5,
-  "max_feasible_k": 7,
+  "max_feasible_k_strict": 7,
+  "max_feasible_k_at_build_drift": 11,
+  "build_drift_pp": 0.05,
   "all_folds_pass": true,
   "single_slot": "a",
   "cluster_alphabet": "aa",
@@ -317,8 +320,16 @@ pattern from yesterday's audit-symmetry work. Schema:
 }
 ```
 
-Including `single_slot`, `cluster_alphabet`, and `atom_ordering_key`
-makes the headline block self-contained for cross-config disambiguation.
+Including `single_slot`, `cluster_alphabet`, `atom_ordering_key`, and
+the triple `max_feasible_k_strict` / `max_feasible_k_at_build_drift`
+/ `build_drift_pp` makes the headline block self-contained for
+cross-config disambiguation. The triple removes ambiguity about which
+`max_feasible_k` value D4 actually used as the gate:
+`max_feasible_k_at_build_drift` is the authoritative gate value at
+build time, `max_feasible_k_strict` matches Phase 1's strict-formula
+column for cross-reference with pre-flight tables, and
+`build_drift_pp` records the resolved `drift_pp` at build time (may
+differ from the config default if the user overrode it).
 
 `composition_mode` is **reserved for forward compatibility** with the
 OoS #7 composition lever (cluster_disjoint(slot a) + seq_disjoint(slot
