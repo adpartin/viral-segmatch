@@ -26,6 +26,8 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
+from sklearn.model_selection import GroupKFold
+
 from src.datasets._pair_helpers import bipartite_components
 
 
@@ -62,7 +64,7 @@ def attach_cluster_ids(
     pos_df: pd.DataFrame,
     cluster_lookup: pd.DataFrame,
     pos_hash_col: str = 'seq_hash',
-) -> tuple[pd.DataFrame, dict]:
+    ) -> tuple[pd.DataFrame, dict]:
     """Add `cluster_id_a` and `cluster_id_b` columns to pos_df via a join
     on the chosen hash column.
 
@@ -123,6 +125,196 @@ def attach_cluster_ids(
     return kept, audit
 
 
+def _lpt_bin_pack(
+    sizes: pd.Series,
+    targets: dict,
+    bin_order: list,
+) -> dict:
+    """LPT-greedy bin-packing: largest group to bin with biggest deficit.
+
+    Args:
+        sizes: pd.Series mapping group_id -> count.
+        targets: dict mapping bin_name -> target count (raw, not fraction).
+        bin_order: list of bin names defining tie-break order when two bins
+            have equal deficit. Python's `max` returns the first element of
+            a tied maximum, so this order is deterministic.
+
+    Returns:
+        dict mapping group_id -> bin_name.
+
+    Atom ordering is pinned to `(-size, cluster_id)` ascending — the same
+    key sklearn `GroupKFold` derives via `np.unique` (sorted) +
+    `np.argsort(-counts)`, so the LPT and GroupKFold paths agree on which
+    atom is "largest" (per D1 of
+    docs/plans/2026-05-27_kfold_variance_estimation_plan.md).
+    """
+    def _sort_key(c):
+        try:
+            return (-int(sizes.loc[c]), int(c))
+        except (ValueError, TypeError):
+            return (-int(sizes.loc[c]), str(c))
+    sorted_groups = sorted(sizes.index, key=_sort_key)
+
+    bin_count = {b: 0 for b in bin_order}
+    group_to_bin: dict = {}
+    for g in sorted_groups:
+        s = int(sizes.loc[g])
+        deficits = {b: targets[b] - bin_count[b] for b in bin_order}
+        winner = max(bin_order, key=lambda b: deficits[b])
+        group_to_bin[g] = winner
+        bin_count[winner] += s
+    return group_to_bin
+
+
+def _compute_d3_check(
+    achieved_frac: dict,
+    target_frac: dict,
+    max_acceptable_drift_pp: float,
+    min_test_frac: float,
+) -> dict:
+    """D3 two-knob feasibility check (per D3 of the k-fold plan).
+
+    Both inputs on 0-1 fraction scale. Does NOT raise on failure;
+    collect-all semantics — the dispatch caller (Phase 3 in
+    dataset_segment_pairs_v2.py) collects D3 outcomes across all folds
+    and raises with the D4 menu listing all failures.
+
+    Returns nested dict with per-knob pass/fail + achieved/threshold
+    values, plus `all_pass: bool` summary.
+    """
+    max_drift_pp = max(abs(achieved_frac[b] - target_frac[b]) for b in achieved_frac)
+    drift_pass = max_drift_pp <= max_acceptable_drift_pp
+    test_frac_pass = achieved_frac['test'] >= min_test_frac
+    return {
+        'max_acceptable_drift_pp': {
+            'pass': bool(drift_pass),
+            'achieved': round(float(max_drift_pp), 4),
+            'threshold': float(max_acceptable_drift_pp),
+        },
+        'min_test_frac': {
+            'pass': bool(test_frac_pass),
+            'achieved': round(float(achieved_frac['test']), 4),
+            'threshold': float(min_test_frac),
+        },
+        'all_pass': bool(drift_pass and test_frac_pass),
+    }
+
+
+def _build_audit(
+    *,
+    single_slot: Optional[str],
+    cluster_lookup_path: Optional[str],
+    cluster_id_threshold: Optional[float],
+    cluster_alphabet: str,
+    pos_hash_col: str,
+    seed: int,
+    n_folds: int,
+    fold_id: Optional[int],
+    attach_audit: dict,
+    cc_summary: dict,
+    train_pos: pd.DataFrame,
+    val_pos: pd.DataFrame,
+    test_pos: pd.DataFrame,
+    n_pairs: int,
+    targets: dict,
+    achieved: dict,
+    max_acceptable_drift_pp: float,
+    min_test_frac: float,
+) -> dict:
+    """Build the per-routing audit dict (single-shot OR per fold).
+
+    Shared between the single-shot and k-fold paths so the audit schema
+    is identical modulo the optional fold_id field.
+    """
+    def _set(df: pd.DataFrame, col: str) -> set:
+        return set(df[col].dropna()) if col in df.columns else set()
+
+    cluster_overlaps: dict = {}
+    for side in ('a', 'b'):
+        col = f'cluster_id_{side}'
+        sets = {sp: _set(d, col) for sp, d in
+                (('train', train_pos), ('val', val_pos), ('test', test_pos))}
+        cluster_overlaps[side] = {
+            'train_val':  len(sets['train'] & sets['val']),
+            'train_test': len(sets['train'] & sets['test']),
+            'val_test':   len(sets['val'] & sets['test']),
+        }
+
+    hash_overlaps: dict = {}
+    for family in ('seq', 'dna'):
+        family_overlaps: dict = {}
+        for side in ('a', 'b'):
+            col = f'{family}_hash_{side}'
+            if col not in train_pos.columns:
+                continue
+            sets = {sp: _set(d, col) for sp, d in
+                    (('train', train_pos), ('val', val_pos), ('test', test_pos))}
+            family_overlaps[side] = {
+                'train_val':  len(sets['train'] & sets['val']),
+                'train_test': len(sets['train'] & sets['test']),
+                'val_test':   len(sets['val'] & sets['test']),
+            }
+        if family_overlaps:
+            hash_overlaps[family] = family_overlaps
+
+    # targets_pct / achieved_pct stay on 0-100 (backwards-compat with the
+    # single-shot consumer in dataset_segment_pairs_v2.py:1512). D5 renames
+    # max_target_deviation_pct -> _pp AND rescales the deviation to 0-1
+    # (the new D3 knobs use 0-1; mixing scales would create silent unit
+    # mismatches with the new audit field).
+    target_pcts   = {k: 100.0 * v / n_pairs for k, v in targets.items()}
+    achieved_pcts = {k: 100.0 * v / n_pairs for k, v in achieved.items()}
+    target_frac   = {k: v / n_pairs for k, v in targets.items()}
+    achieved_frac = {k: v / n_pairs for k, v in achieved.items()}
+    max_target_deviation_pp = max(
+        abs(achieved_frac[k] - target_frac[k]) for k in achieved_frac
+    )
+
+    feasibility_check = _compute_d3_check(
+        achieved_frac=achieved_frac,
+        target_frac=target_frac,
+        max_acceptable_drift_pp=max_acceptable_drift_pp,
+        min_test_frac=min_test_frac,
+    )
+
+    if single_slot is None:
+        algorithm = 'bipartite_cc_lpt_greedy_on_cluster_ids'
+    elif n_folds > 1:
+        algorithm = f'single_slot_{single_slot}_groupkfold_lpt_greedy_on_cluster_ids'
+    else:
+        algorithm = f'single_slot_{single_slot}_lpt_greedy_on_cluster_ids'
+
+    audit = {
+        'mode': 'cluster_disjoint',
+        'algorithm': algorithm,
+        'single_slot': single_slot,
+        'cluster_lookup_path': cluster_lookup_path,
+        'cluster_id_threshold': cluster_id_threshold,
+        'cluster_alphabet': cluster_alphabet,
+        'pos_hash_col': pos_hash_col,
+        'seed': int(seed),
+        'n_folds': int(n_folds),
+        'attach_audit': attach_audit,
+        'cc_summary': cc_summary,
+        'targets_pairs': {k: int(round(v)) for k, v in targets.items()},
+        'targets_pct':   {k: round(v, 4) for k, v in target_pcts.items()},
+        'achieved_pairs': achieved,
+        'achieved_pct':   {k: round(v, 4) for k, v in achieved_pcts.items()},
+        'max_target_deviation_pp': round(float(max_target_deviation_pp), 4),
+        'pairs_dropped_in_routing': 0,
+        'pairs_dropped_in_cluster_join': attach_audit['n_input'] - attach_audit['n_kept'],
+        # cluster_id_overlap: by-construction zero on the constrained slot(s).
+        # Bilateral: both sides zero. Single-slot: only the constrained side zero.
+        'cluster_id_overlap': cluster_overlaps,
+        'seq_hash_overlap': hash_overlaps.get('seq', {}),
+        'dna_hash_overlap': hash_overlaps.get('dna', {}),
+        'feasibility_check': feasibility_check,
+    }
+    if fold_id is not None:
+        audit['fold_id'] = int(fold_id)
+    return audit
+
+
 def cluster_disjoint_route_pos_df(
     pos_df: pd.DataFrame,
     cluster_lookup: pd.DataFrame,
@@ -134,40 +326,59 @@ def cluster_disjoint_route_pos_df(
     pos_hash_col: str = 'seq_hash',
     cluster_alphabet: str = 'aa',
     single_slot: Optional[str] = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    n_folds: Optional[int] = None,
+    max_acceptable_drift_pp: float = 0.05,
+    min_test_frac: float = 0.05,
+    ) -> Union[
+        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict],
+        list[tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]],
+    ]:
     """Route `pos_df` rows into train/val/test such that no cluster spans splits.
 
-    Two modes:
+    Two routing modes (bilateral vs single-slot) × two output shapes
+    (single-shot vs k-fold). The (n_folds, single_slot) combinations:
 
-    - Bilateral (default, `single_slot=None`): mirrors `seq_disjoint_route_pos_df`
-      with cluster_ids replacing seq_hashes as node ids:
-        1. Attach cluster_id_a / cluster_id_b to pos_df via seq_hash join.
-        2. Build the bipartite graph on (cluster_id_a, cluster_id_b).
-        3. Compute connected components — each is indivisible (sharing a single
-           cluster on either side forces both endpoints' pairs into the same
-           split).
-        4. LPT-greedy bin-pack components into {train, val, test} bins by target
-           ratios; ties broken in train > val > test order for determinism.
+    | n_folds       | single_slot   | Path                                   |
+    |---------------|---------------|----------------------------------------|
+    | None or 1     | None          | Bilateral LPT-greedy single-shot       |
+    | None or 1     | 'a' or 'b'    | Single-slot LPT-greedy single-shot     |
+    | >= 2          | 'a' or 'b'    | Single-slot GroupKFold + per-fold LPT  |
+    | >= 2          | None          | NotImplementedError (OoS #5)           |
 
-    - Single-slot (`single_slot='a'` or `'b'`): constrain only ONE slot's
-      clusters to be disjoint; the other slot is unconstrained. Replaces step
-      2-3 above with "group by cluster_id_{single_slot} directly; each
-      cluster's rows are the indivisible atom". Step 4 (LPT-greedy bin-pack)
-      is unchanged. Useful when bilateral cluster_disjoint at a given
-      threshold cliffs into a single bipartite mega-component but single-slot
-      atoms remain small enough to bin-pack (see
-      `single_slot_cluster_disjoint_feasibility.py`).
+    Bilateral atoms = bipartite CCs on (cluster_id_a, cluster_id_b);
+    single-slot atoms = pair-sets of one slot's cluster. Both bin-pack via
+    LPT-greedy; the k-fold path uses sklearn `GroupKFold(n_splits=k)` for
+    test-fold selection, then LPT-greedy on the remaining k-1 atoms for
+    train/val.
 
-    `seed` is reserved for future tie-break shuffling and is not consumed.
+    D3 feasibility checks (max_acceptable_drift_pp, min_test_frac) apply
+    per fold (and to single-shot — D3 enforces consistent feasibility
+    regardless of how the dataset is built). Failures are recorded in
+    each fold's audit dict but DO NOT raise here — collect-all semantics
+    per D4; the dispatch caller raises with the D4 menu listing all
+    failing folds.
+
+    `seed` is recorded in the audit but not consumed: LPT-greedy is
+    deterministic given (atoms, ratios), GroupKFold is deterministic
+    given group encounter order, atom ordering is pinned per D1.
 
     Returns:
-        (train_pos, val_pos, test_pos, audit) — DataFrames are row-disjoint
-        partitions of the SUBSET of pos_df whose seq_hashes are covered by
-        `cluster_lookup`. Rows with a missing-cluster join are dropped (counts
-        recorded in audit['attach_audit']). The audit's
-        `cluster_id_overlap[constrained_side]` is by-construction zero; the
-        unconstrained side may have non-zero overlap by design under single-slot.
+        Single-shot (n_folds <= 1):
+            (train_pos, val_pos, test_pos, audit) — tuple of 3 DataFrames
+            + audit dict.
+        K-fold (n_folds >= 2):
+            list of length n_folds, each entry a (train_pos, val_pos,
+            test_pos, audit) tuple. audit['fold_id'] disambiguates.
+
+        DataFrames are row-disjoint partitions of the SUBSET of pos_df
+        whose seq_hashes are covered by `cluster_lookup`. Rows with a
+        missing-cluster join are dropped (counts recorded in
+        audit['attach_audit']). The audit's
+        `cluster_id_overlap[constrained_side]` is by-construction zero;
+        the unconstrained side may have non-zero overlap by design under
+        single-slot.
     """
+    # ----- Validation -----
     if single_slot is not None and single_slot not in ('a', 'b'):
         raise ValueError(
             f"cluster_disjoint_route_pos_df: single_slot must be None, 'a', or 'b'; "
@@ -184,39 +395,44 @@ def cluster_disjoint_route_pos_df(
             f"cluster_disjoint_route_pos_df: train+val ratios sum to >1 "
             f"({train_ratio} + {val_ratio})"
         )
+    if n_folds is not None:
+        if not isinstance(n_folds, int) or n_folds < 1:
+            raise ValueError(
+                f"cluster_disjoint_route_pos_df: n_folds must be a positive int "
+                f"or None; got {n_folds!r}"
+            )
+        if n_folds > 1 and single_slot is None:
+            raise NotImplementedError(
+                "cluster_disjoint_route_pos_df: n_folds > 1 with bilateral "
+                "cluster_disjoint (single_slot=None) is not currently supported. "
+                "See OoS #5 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md."
+            )
+    if not 0 <= max_acceptable_drift_pp < 1:
+        raise ValueError(
+            f"max_acceptable_drift_pp must be in [0, 1); got {max_acceptable_drift_pp}"
+        )
+    if not 0 <= min_test_frac < 1:
+        raise ValueError(
+            f"min_test_frac must be in [0, 1); got {min_test_frac}"
+        )
+    n_folds_effective = n_folds if n_folds is not None else 1
 
+    # ----- Attach cluster IDs (shared by single-shot and k-fold) -----
     pos_with_ids, attach_audit = attach_cluster_ids(
         pos_df, cluster_lookup, pos_hash_col=pos_hash_col,
     )
-
     if len(pos_with_ids) == 0:
         raise ValueError(
             "cluster_disjoint_route_pos_df: 0 rows survived the cluster join. "
             "Check that cluster_lookup covers the seq_hashes in pos_df."
         )
 
+    # ----- Build atom IDs per routing mode -----
     if single_slot is None:
         component_id, cc_summary = bipartite_components(
             pos_with_ids, col_a='cluster_id_a', col_b='cluster_id_b',
         )
     else:
-        # Single-slot: each cluster_id_{single_slot} is its own atom; the
-        # other side is unconstrained. component_id is just the constrained
-        # slot's cluster_id, and cc_summary reports atom-size stats in the
-        # same fields that the bilateral path emits (so downstream code that
-        # logs n_components / largest_component_pairs keeps working).
-        #
-        # Why LPT-greedy here and not sklearn?
-        # We could replace this single-slot path with sklearn's
-        # `GroupShuffleSplit(groups=cluster_id_{slot})` for a 1-shot split
-        # or `GroupKFold` for k-fold CV. LPT-greedy is preferred for the
-        # single-shot 80/10/10 case because it hits the target ratios
-        # exactly (it places the largest atom in the most-under-target bin
-        # by construction); GroupShuffleSplit is random and at idXX where
-        # the largest atom is a non-trivial fraction of pairs it can
-        # overshoot the test-bin target by ~80%. For CV / multi-fold work
-        # `GroupKFold(n_splits=k)` is the natural primitive — see
-        # BACKLOG.md § "Single-slot routing follow-ups" #3.
         component_id = pos_with_ids[f'cluster_id_{single_slot}'].copy()
         atom_sizes = component_id.value_counts().sort_values(ascending=False).values
         cc_summary = {
@@ -227,105 +443,154 @@ def cluster_disjoint_route_pos_df(
             'single_slot':               single_slot,
         }
 
-    sizes = component_id.value_counts().sort_index()
-    # cluster IDs may be non-integer strings under nt clustering; fall back to a
-    # string key for the secondary sort when int() raises.
-    def _sort_key(c):
-        try:
-            return (-int(sizes.loc[c]), int(c))
-        except (ValueError, TypeError):
-            return (-int(sizes.loc[c]), str(c))
-    sorted_comps = sorted(sizes.index, key=_sort_key)
-
     n_pairs = int(len(pos_with_ids))
-    targets = {
-        'train': train_ratio * n_pairs,
-        'val':   val_ratio * n_pairs,
-        'test':  test_ratio * n_pairs,
-    }
-    bin_count = {'train': 0, 'val': 0, 'test': 0}
-    comp_to_split: dict = {}
+    sizes = component_id.value_counts().sort_index()
 
-    for c in sorted_comps:
-        s = int(sizes.loc[c])
-        order = ['train', 'val', 'test']
-        deficits = {k: targets[k] - bin_count[k] for k in order}
-        winner = max(order, key=lambda k: deficits[k])
-        comp_to_split[c] = winner
-        bin_count[winner] += s
+    audit_kwargs_shared = dict(
+        single_slot=single_slot,
+        cluster_lookup_path=cluster_lookup_path,
+        cluster_id_threshold=cluster_id_threshold,
+        cluster_alphabet=cluster_alphabet,
+        pos_hash_col=pos_hash_col,
+        seed=seed,
+        attach_audit=attach_audit,
+        cc_summary=cc_summary,
+        n_pairs=n_pairs,
+        max_acceptable_drift_pp=max_acceptable_drift_pp,
+        min_test_frac=min_test_frac,
+    )
 
-    split_for_row = component_id.map(comp_to_split)
-
-    train_pos = pos_with_ids[split_for_row == 'train'].reset_index(drop=True)
-    val_pos   = pos_with_ids[split_for_row == 'val'].reset_index(drop=True)
-    test_pos  = pos_with_ids[split_for_row == 'test'].reset_index(drop=True)
-
-    achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
-
-    # By-construction cluster_id overlap is 0; the audit records it as a sanity check.
-    def _set(df: pd.DataFrame, col: str) -> set:
-        return set(df[col].dropna()) if col in df.columns else set()
-    cluster_overlaps: dict = {}
-    for side in ('a', 'b'):
-        col = f'cluster_id_{side}'
-        sets = {sp: _set(d, col) for sp, d in
-                (('train', train_pos), ('val', val_pos), ('test', test_pos))}
-        cluster_overlaps[side] = {
-            'train_val':  len(sets['train'] & sets['val']),
-            'train_test': len(sets['train'] & sets['test']),
-            'val_test':   len(sets['val'] & sets['test']),
+    # ============================================================
+    # Single-shot path (n_folds=None or n_folds=1)
+    # ============================================================
+    if n_folds_effective == 1:
+        targets = {
+            'train': train_ratio * n_pairs,
+            'val':   val_ratio * n_pairs,
+            'test':  test_ratio * n_pairs,
         }
+        comp_to_split = _lpt_bin_pack(
+            sizes=sizes,
+            targets=targets,
+            bin_order=['train', 'val', 'test'],
+        )
+        split_for_row = component_id.map(comp_to_split)
+        train_pos = pos_with_ids[split_for_row == 'train'].reset_index(drop=True)
+        val_pos   = pos_with_ids[split_for_row == 'val'].reset_index(drop=True)
+        test_pos  = pos_with_ids[split_for_row == 'test'].reset_index(drop=True)
+        achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
 
-    # Secondary diagnostic: seq_hash and dna_hash overlaps. Under cluster-disjoint
-    # routing at any threshold < 1.0, dna_hash and seq_hash overlap MAY be nonzero
-    # because different sequences can land in the same cluster — but cluster_id
-    # overlap is by construction 0.
-    hash_overlaps: dict = {}
-    for family in ('seq', 'dna'):
-        family_overlaps: dict = {}
-        for side in ('a', 'b'):
-            col = f'{family}_hash_{side}'
-            if col not in pos_with_ids.columns:
-                continue
-            sets = {sp: _set(d, col) for sp, d in
-                    (('train', train_pos), ('val', val_pos), ('test', test_pos))}
-            family_overlaps[side] = {
-                'train_val':  len(sets['train'] & sets['val']),
-                'train_test': len(sets['train'] & sets['test']),
-                'val_test':   len(sets['val'] & sets['test']),
-            }
-        if family_overlaps:
-            hash_overlaps[family] = family_overlaps
+        audit = _build_audit(
+            n_folds=1,
+            fold_id=None,
+            train_pos=train_pos, val_pos=val_pos, test_pos=test_pos,
+            targets=targets, achieved=achieved,
+            **audit_kwargs_shared,
+        )
+        return train_pos, val_pos, test_pos, audit
 
-    target_pcts   = {k: 100.0 * v / n_pairs for k, v in targets.items()}
-    achieved_pcts = {k: 100.0 * v / n_pairs for k, v in achieved.items()}
+    # ============================================================
+    # K-fold path (n_folds >= 2, single_slot in {'a', 'b'})
+    # ============================================================
+    n_atoms = int(sizes.size)
+    if n_folds_effective > n_atoms:
+        raise NotImplementedError(
+            f"cluster_disjoint_route_pos_df: requested n_folds={n_folds_effective} "
+            f"exceeds n_atoms={n_atoms} for this configuration. GroupKFold cannot "
+            f"produce more folds than atoms. See D4 of the k-fold plan."
+        )
 
-    audit = {
-        'mode': 'cluster_disjoint',
-        'algorithm': ('bipartite_cc_lpt_greedy_on_cluster_ids'
-                      if single_slot is None
-                      else f'single_slot_{single_slot}_lpt_greedy_on_cluster_ids'),
-        'single_slot': single_slot,    # None (bilateral), 'a' (slot-a-only), 'b' (slot-b-only)
-        'cluster_lookup_path': cluster_lookup_path,
-        'cluster_id_threshold': cluster_id_threshold,
-        'cluster_alphabet': cluster_alphabet,
-        'pos_hash_col': pos_hash_col,
-        'seed': int(seed),
-        'attach_audit': attach_audit,
-        'cc_summary': cc_summary,
-        'targets_pairs': {k: int(round(v)) for k, v in targets.items()},
-        'targets_pct':   {k: round(v, 4) for k, v in target_pcts.items()},
-        'achieved_pairs': achieved,
-        'achieved_pct':   {k: round(v, 4) for k, v in achieved_pcts.items()},
-        'max_target_deviation_pct': round(
-            max(abs(achieved_pcts[k] - target_pcts[k]) for k in achieved_pcts), 4
-        ),
-        'pairs_dropped_in_routing': 0,            # bin-packing never splits a component
-        'pairs_dropped_in_cluster_join': attach_audit['n_input'] - attach_audit['n_kept'],
-        # cluster_id_overlap: by-construction zero on the constrained slot(s).
-        # Bilateral: both sides zero. Single-slot: only the constrained side zero.
-        'cluster_id_overlap': cluster_overlaps,
-        'seq_hash_overlap': hash_overlaps.get('seq', {}),
-        'dna_hash_overlap': hash_overlaps.get('dna', {}),
+    # D4 pre-build trigger: n_folds <= max_feasible_k_at_build_drift.
+    # Evaluated at the build-time configured max_acceptable_drift_pp (not just
+    # the default — per D2 of the plan). Phase 1's pre-flight CSV publishes
+    # the same value for cross-reference.
+    largest_size = int(sizes.max())
+    max_atom_frac = largest_size / n_pairs
+    if max_atom_frac > max_acceptable_drift_pp:
+        max_feasible_k_at_build_drift = min(
+            int(np.floor(1.0 / (max_atom_frac - max_acceptable_drift_pp))),
+            n_atoms,
+        )
+    else:
+        max_feasible_k_at_build_drift = n_atoms  # non-binding
+    if n_folds_effective > max_feasible_k_at_build_drift:
+        raise NotImplementedError(
+            f"cluster_disjoint_route_pos_df: requested n_folds={n_folds_effective} "
+            f"exceeds max_feasible_k_at_build_drift={max_feasible_k_at_build_drift} "
+            f"(max_atom_frac={max_atom_frac:.4f}, drift_pp={max_acceptable_drift_pp}, "
+            f"single_slot={single_slot!r}, cluster_alphabet={cluster_alphabet!r}, "
+            f"cluster_id_threshold={cluster_id_threshold}, n_atoms={n_atoms}). "
+            f"D4 pre-build trigger per docs/plans/2026-05-27_kfold_variance_estimation_plan.md. "
+            f"Options: reduce n_folds to <= {max_feasible_k_at_build_drift}; relax to a "
+            f"looser cluster_id_threshold; or accept larger max_acceptable_drift_pp "
+            f"(loosens feasibility, noisier per-fold metrics)."
+        )
+
+    # Per-fold ideal target ratios (used for D3 drift check + audit):
+    # canonical 0.8/0.1/0.1 holds only at k=10; at k=5 the per-fold targets
+    # are 0.7/0.1/0.2 (train/val/test) per D1 of the plan.
+    target_test_frac  = 1.0 / n_folds_effective
+    target_val_frac   = val_ratio                # preserves global val fraction
+    target_train_frac = 1.0 - target_test_frac - target_val_frac
+    if target_train_frac <= 0:
+        raise ValueError(
+            f"cluster_disjoint_route_pos_df: at n_folds={n_folds_effective} and "
+            f"val_ratio={val_ratio}, train fraction = {target_train_frac:.4f} <= 0. "
+            f"Need val_ratio < (k-1)/k = {1 - 1.0/n_folds_effective:.4f}."
+        )
+    fold_targets = {
+        'train': target_train_frac * n_pairs,
+        'val':   target_val_frac * n_pairs,
+        'test':  target_test_frac * n_pairs,
     }
-    return train_pos, val_pos, test_pos, audit
+
+    # GroupKFold partition on the constrained slot's cluster_id. Atom ordering
+    # is pinned per D1: sklearn `GroupKFold` sorts groups by size desc then
+    # group_id asc internally (np.unique gives sorted group order, then
+    # np.argsort on counts is stable), matching the LPT (-size, cluster_id) key.
+    groups = pos_with_ids[f'cluster_id_{single_slot}'].values
+    kf = GroupKFold(n_splits=n_folds_effective)
+
+    folds_out: list = []
+    for fold_id, (train_val_idx, test_idx) in enumerate(
+        kf.split(pos_with_ids, groups=groups)
+    ):
+        test_pos = pos_with_ids.iloc[test_idx].reset_index(drop=True)
+        non_test = pos_with_ids.iloc[train_val_idx].reset_index(drop=True)
+        n_non_test = int(len(non_test))
+
+        # LPT-greedy on non-test atoms with 2 bins. Target val count =
+        # val_ratio * n_pairs (preserves global val fraction across folds,
+        # which equals val_frac * n_non_test where val_frac = val_ratio /
+        # (1 - 1/n_folds) — the existing CV math at
+        # dataset_segment_pairs_v2.py:1895). Target train absorbs the rest.
+        lpt_val_target = val_ratio * n_pairs
+        lpt_train_target = n_non_test - lpt_val_target
+        if lpt_val_target > n_non_test:
+            # Pathological: val target exceeds non-test pool. Cap to half-and-half
+            # and let the D3 check flag the drift.
+            lpt_val_target = n_non_test / 2.0
+            lpt_train_target = n_non_test - lpt_val_target
+
+        non_test_component_id = non_test[f'cluster_id_{single_slot}']
+        non_test_sizes = non_test_component_id.value_counts().sort_index()
+        comp_to_tv = _lpt_bin_pack(
+            sizes=non_test_sizes,
+            targets={'train': lpt_train_target, 'val': lpt_val_target},
+            bin_order=['train', 'val'],
+        )
+        tv_split_for_row = non_test_component_id.map(comp_to_tv)
+        train_pos = non_test[tv_split_for_row == 'train'].reset_index(drop=True)
+        val_pos   = non_test[tv_split_for_row == 'val'].reset_index(drop=True)
+        achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
+
+        audit = _build_audit(
+            n_folds=n_folds_effective,
+            fold_id=fold_id,
+            train_pos=train_pos, val_pos=val_pos, test_pos=test_pos,
+            targets=fold_targets, achieved=achieved,
+            **audit_kwargs_shared,
+        )
+        folds_out.append((train_pos, val_pos, test_pos, audit))
+
+    return folds_out
