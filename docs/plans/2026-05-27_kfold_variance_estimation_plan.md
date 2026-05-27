@@ -78,6 +78,14 @@ Worked example. HA-only id095 has `max_atom_frac = 0.135` (per
 `clustering_overview.md` §10.3). At zero-drift: `floor(1/0.135) = 7`.
 At default `drift_pp = 0.05`: `floor(1/0.085) = 11`.
 
+D4's pre-build gate evaluates this formula at the **build-time
+configured `drift_pp`** (not necessarily the default). Phase 1 emits
+both `max_feasible_k_strict` (zero-drift) and
+`max_feasible_k_at_default_drift` (drift-aware at the configured
+default) so feasibility tables remain pre-publishable for the
+deployed-defaults case, while runtime behavior follows the user's
+actual config.
+
 Necessary, not sufficient. Counterexample: 6 atoms of sizes
 `[0.20, 0.20, 0.20, 0.14, 0.13, 0.13]` (sum 1.00, max 0.20) satisfy
 `max_atom ≤ 1/k` for k=5, but LPT-greedy packs them as
@@ -185,18 +193,32 @@ internally consistent.
 
 ## Implementation phases
 
-### Phase 1: Feasibility pre-flight `max_feasible_k` column
+### Phase 1: Feasibility pre-flight `max_feasible_k` columns
 
 Extend `src/analysis/single_slot_cluster_disjoint_feasibility.py` to
-emit a `max_feasible_k` column in
+emit **two** columns in
 `single_slot_feasibility_{pair}_{alphabet}.csv` (under
-`results/{virus}/{data_version}/runs/cluster_disjoint_feasibility/`).
+`results/{virus}/{data_version}/runs/cluster_disjoint_feasibility/`):
 
-Calculation: `floor(1 / max_atom_frac)`. One sentence in the column
-header note: "Necessary condition only — per-fold drift check at build
-time is authoritative."
+- **`max_feasible_k_strict`** = `floor(1 / max_atom_frac)`. Zero-drift
+  formula. Matches deployed behavior when the user configures
+  `max_acceptable_drift_pp = 0`.
+- **`max_feasible_k_at_default_drift`** = `floor(1 / (max_atom_frac -
+  default_drift_pp))` where `default_drift_pp = 0.05` (the config
+  default from D3). Matches deployed behavior at default settings.
 
-No code changes outside this script. Estimated effort: ~30 lines.
+Column-header note: "Necessary condition only — per-fold drift check
+at build time is authoritative. D4's pre-build gate evaluates the
+drift-aware formula at the build-time configured `drift_pp`; the
+two columns bracket the common cases (`drift_pp = 0` and `drift_pp
+= 0.05`)."
+
+Why two columns and not one parameterized lookup: feasibility tables
+get pasted into result writeups for cross-config comparison; readers
+need to see the gate value without re-deriving it. The two-column
+form is also one-step-CSV-readable.
+
+No code changes outside this script. Estimated effort: ~40 lines.
 
 ### Phase 2: GroupKFold integration in `cluster_disjoint_route_pos_df`
 
@@ -230,9 +252,15 @@ Bilateral mode (single_slot=None) is **not** extended in this phase —
 out of scope (see § "Out of scope"). Calling `cluster_disjoint_route_pos_df`
 with `n_folds > 1` and `single_slot=None` raises NotImplementedError.
 
-Per-fold audit (D3 check) is applied inside the routing helper before
-returning each fold. A fold failing the check raises immediately with
-the D4 menu.
+Per-fold D3 evaluation uses **collect-all** semantics: the routing
+helper computes per-fold D3 metrics (`drift_pp`, `test_frac`) and
+includes them in each fold's audit dict but does **NOT** raise on
+individual fold failures. The dispatch caller in
+`dataset_segment_pairs_v2.py` (Phase 3) collects D3 outcomes across
+all folds, then either writes the dataset (if all pass) or raises
+with the D4 menu listing all failing folds and their values. Better
+debug UX than fail-fast at trivial cost (k ≤ ~10 fold routings before
+raising), matching D4's "runs all per-fold checks first" specification.
 
 ### Phase 3: V2 builder CV path for single-slot cluster_disjoint
 
@@ -354,24 +382,29 @@ Two configurations, three checks each:
 - Stage 4 sweep produces 5 × 3 seed runs, all completing.
 
 **Smoke 2: PB2-PB1 PB1-only aa id095 k=5 (expected: refuse)**
-- `max_feasible_k` from Phase 1 pre-flight reports max_feasible_k < 5
-  (PB2-PB1 PB1-only at id095 has max_atom_frac ≈ 0.784 per §10.3 of
-  `clustering_overview.md` → max_feasible_k = 1 at zero-drift, 2 at
-  default drift_pp = 0.05).
+- Phase 1 pre-flight reports `max_feasible_k_strict = 1` AND
+  `max_feasible_k_at_default_drift = 1` (PB2-PB1 PB1-only at id095
+  has max_atom_frac ≈ 0.784 per §10.3 of `clustering_overview.md`;
+  drift-aware `floor(1/(0.784 − 0.05)) = floor(1.362) = 1`, same as
+  zero-drift `floor(1/0.784) = floor(1.276) = 1`).
 - Stage 3 build raises with the D4 menu before any folds are written
   (pre-build trigger per D4).
 - Test that the error message text matches the D4 template.
 
-**Smoke 3: HA-NA HA-only aa id095 k=10 (boundary case)**
-- max_feasible_k for this configuration likely lies between 5 and 10
-  (HA-NA HA-only id095 has max_atom_frac ≈ 0.135 → max_feasible_k = 7).
-- Verify: k=7 builds with all folds passing; k=8 refuses.
+**Smoke 3: HA-NA HA-only aa id095 k=12 at default `drift_pp = 0.05` (expected: refuse)**
+- `max_feasible_k_at_default_drift` from Phase 1 pre-flight = 11
+  (HA-NA HA-only id095 has max_atom_frac ≈ 0.135 → drift-aware
+  `floor(1/(0.135 − 0.05)) = 11`); k=12 > 11 → pre-build refuse.
+- Stage 3 build raises with the D4 menu before any folds are written
+  (pre-build trigger per D4).
+- Exercises the drift-aware pre-build gate at deployed defaults.
+  Complementary to Smoke 2 (which fails on the strict formula too).
 
 ## Files affected
 
 | File | Change | Effort |
 |---|---|---|
-| `src/analysis/single_slot_cluster_disjoint_feasibility.py` | Add `max_feasible_k` column | ~30 lines |
+| `src/analysis/single_slot_cluster_disjoint_feasibility.py` | Add `max_feasible_k_strict` + `max_feasible_k_at_default_drift` columns | ~40 lines |
 | `src/datasets/_split_helpers.py` | Extend `cluster_disjoint_route_pos_df` for k-fold; rename `_pct` → `_pp` | ~60 lines |
 | `src/datasets/dataset_segment_pairs_v2.py` | Lift n_folds rejection for single-slot cluster_disjoint; dispatch k-fold path | ~80 lines |
 | `conf/dataset/default.yaml` | Add feasibility knobs | ~5 lines |
@@ -382,7 +415,7 @@ Two configurations, three checks each:
 | `docs/methods/leakage_definitions.md` | "Routing equivalence" subsection note for k-fold | ~10 lines |
 | `docs/methods/dataset_construction_v2_workflow.md` | Phase 6 audit list gains kfold_summary mention | ~5 lines |
 
-Total: ~250 LoC code, ~50 lines doc updates, plus tests.
+Total: ~260 LoC code, ~50 lines doc updates, plus tests.
 
 ## Explicitly out of scope
 
