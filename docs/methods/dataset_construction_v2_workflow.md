@@ -13,7 +13,7 @@ for the broader pipeline framing see
   sampling, `neg_to_pos_ratio: 2.0`, `seq_disjoint` routing with
   `hash_key: seq`).
 - **Run directory:** `data/datasets/flu/July_2025/runs/dataset_flu_ha_na_regimes_20260512_114205/`.
-- **Builder version:** `v2` (default since 2026-05-11).
+- **Builder version:** `v2`.
 - **HEAD commit at run time:** `45a2ed3` ("docs(results): drop stale
   aggregator outputs; add Tests 1-4 baselines-vs-MLP heatmaps", 2026-05-12
   ~11:42). Relevant earlier commits in scope: `a1b8301`
@@ -44,7 +44,7 @@ regime-aware overrides. The knobs that gate each phase below:
 | `dataset.train_ratio` / `val_ratio` | `0.8` / `0.1` (so test = 0.1) | Phase 3 |
 | `dataset.neg_to_pos_ratio` | `2.0` | Phase 4 + 5 |
 | `dataset.negative_sampling.regime_targets` | 8-regime mix (see Phase 5) | Phase 5 |
-| `master_seed` | `42` | all RNG-driven phases |
+| `master_seed` | `42` | negative sampling (routing is deterministic given atoms + ratios) |
 
 See [`../conf_guide.md`](../conf_guide.md) for the Hydra inheritance
 chain and per-knob semantics.
@@ -146,9 +146,9 @@ usually 1 × 1 = 1 pair per isolate (one HA, one NA).
 `pair_mode = schema_ordered`: slot A always carries the
 `schema_pair[0]` protein (HA), slot B always carries `schema_pair[1]`
 (NA). This removes input direction as a free variable for directed
-features like `unit_diff`. (Note: `unit_diff` as of 2026-05-12 is
-abs-based and symmetric, but the schema ordering is kept for
-consistency across bundles.)
+features like `unit_diff`. (Note: `unit_diff` is abs-based and
+symmetric, but the schema ordering is kept for consistency across
+bundles.)
 
 ### Step 2b — Dedup on `pair_key`
 
@@ -185,13 +185,12 @@ viewed as "co-occurrence":
 | `pairs_in_multiple_isolates` | 9,965 | `pair_keys` that appear in ≥2 isolates |
 | `max_isolates_per_pair` | 901 | the single most-replicated pair appears in 901 isolates |
 
-The max=901 reflects a single H3N2 HA/NA pair that's been deposited
-901 times — a strong conservation pocket. These dedup-collapsed
-duplicates also drive the **negative blocking** in Phase 4/5: a
-candidate negative `(seq_hash_a, seq_hash_b)` is rejected if that
-pair appears anywhere in `total_cooccur_pairs`, because if it
-co-occurs in any isolate, calling it "negative" anywhere else would
-be a contradictory label.
+The max=901 reflects a single HA/NA pair deposited 901 times — a
+conservation pocket. The dedup-collapsed pair set more broadly drives
+the **negative blocking** in Phase 4/5: a candidate negative
+`(seq_hash_a, seq_hash_b)` is rejected if that pair appears anywhere
+in `total_cooccur_pairs`, because if it co-occurs in any isolate,
+calling it "negative" anywhere else would be a contradictory label.
 
 ---
 
@@ -267,6 +266,18 @@ be on `dna_hash` and the seq-level overlap would be the diagnostic;
 that's the looser routing variant (synonymous-codon variants of the
 same protein may end up in different splits).
 
+### Other routings
+
+This walkthrough exercises `seq_disjoint` with `hash_key=seq`. Stage 3
+also supports `random` (plain shuffle-split, leakage-blind),
+`cluster_disjoint` bilateral (BiCC + LPT on mmseqs2 cluster ids), and
+`cluster_disjoint single_slot='a'|'b'` (per-cluster atoms on one slot
+only — unlocks idXX thresholds past the bilateral feasibility ceiling).
+See [`leakage_definitions.md`](leakage_definitions.md) § "Routing
+equivalence" for the side-by-side and
+[`clustering_overview.md`](clustering_overview.md) § 7 for the
+bin-packer algorithm shared across all cluster_disjoint variants.
+
 ---
 
 ## Phase 4 — Negative sampling: coverage phase
@@ -323,8 +334,8 @@ hits a real co-occurring pair.
 
 ## Phase 5 — Negative sampling: regime-aware fill phase
 
-Once coverage is satisfied, the sampler **tops up** to `num_negatives
-= round(neg_to_pos_ratio × |pos|)` while biasing toward the configured
+Once coverage is satisfied, the sampler **fills** to `num_negatives
+= round(neg_to_pos_ratio × |pos|)`, biasing toward the configured
 per-regime mix. This phase only runs when
 `negative_sampling.regime_targets` is set.
 
@@ -340,8 +351,7 @@ For each candidate `(isolate_i, isolate_j)`, classify by which of
 | `host_subtype_only` / `host_year_only` / `subtype_year_only` | exactly two axes match |
 | `host_subtype_year` | all three match (hardest) |
 
-(The legacy 9th `unknown_metadata_neg` regime was retired 2026-05-11;
-null on an axis now classifies as no-match.)
+(Null on an axis classifies as no-match.)
 
 ### `regime_targets` mix used in this bundle
 
@@ -374,8 +384,8 @@ asked for more negatives than the coverage phase produced. The per-
 regime achieved mix vs target is logged in
 `negative_regime_manifest.{csv,json}` (per split); shortfalls on the
 hardest `host_subtype_year` regime are common in val/test on full
-Flu-A because the per-cell isolate count in the dominant
-Human-H3N2-2024 cell isn't infinite.
+Flu-A because the per-cell isolate count in any dominant
+host × subtype × year cell is finite.
 
 `coverage_overrode_ratio = False` in every split means the coverage
 phase did not need to exceed `requested_negatives` to satisfy the
@@ -391,7 +401,12 @@ To the run directory `dataset_flu_ha_na_regimes_20260512_114205/`:
 
 - `train_pairs.{csv,parquet}`, `val_pairs.{csv,parquet}`, `test_pairs.{csv,parquet}` — the pair tables.
 - `dataset_stats.json` — the full stats snapshot referenced throughout this doc.
-- `seq_disjoint_audit.json` — the routing audit (Phase 3).
+- `seq_disjoint_audit.json` — the routing audit (Phase 3,
+  `seq_disjoint` mode only). Under `cluster_disjoint` mode the
+  routing audit lives in `cluster_disjoint_audit.json` and includes
+  `slot_a`/`slot_b` per-family (cluster_id / seq_hash / dna_hash)
+  leakage blocks (also surfaced as `slot_leakage_summary` in
+  `dataset_stats.json`).
 - `negative_regime_manifest.{csv,json}` — per-regime achieved counts per split (Phase 5).
 - `duplicate_stats.json` — internal rejection stats (Phase 2 + 4).
 - `sequence_exposure_{train,val,test}.csv` — per-`(slot, seq_hash)` exposure (`pos_only`/`neg_only`/`dual`).
@@ -420,10 +435,16 @@ To the run directory `dataset_flu_ha_na_regimes_20260512_114205/`:
 3. **`n_seqs_with_zero_negatives` per split** — must be 0 at the
    protein level. Raises with message at line 819 of
    `dataset_segment_pairs_v2.py` otherwise.
+4. **Cross-split `cluster_id` overlap on the constrained slot(s)**
+   (`cluster_disjoint` mode only) — must be 0 by construction.
+   Recorded in `cluster_disjoint_audit.json::cluster_id_overlap`;
+   bilateral mode checks both slots, single-slot mode checks the
+   constrained slot only. Raises if not
+   (`dataset_segment_pairs_v2.py:2020-2042`).
 
-All three audits passed cleanly in this run (the dataset_stats.json
-exists at all, which is itself proof since the save step runs after
-the audits).
+Audits 1–3 passed cleanly in this run (audit 4 does not apply under
+`seq_disjoint` routing). The fact that `dataset_stats.json` exists at
+all is itself proof since the save step runs after the audits.
 
 ### Final shapes
 
