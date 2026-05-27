@@ -24,9 +24,9 @@ this table and link from the plan.
 | # | Canonical name | Synonyms | Description | Assessed by | Addressed | Status |
 |---|---|---|---|---|---|---|
 | 1 | Same-pair **leakage** | pair-key leakage | Same `pair_key` in train and test. | v2 within-split + cross-split protein-pair dedup | ✅ within-split protein-pair dedup (v2 strict mode) + cross-split protein-pair dedup (`forbidden_pair_keys` threading) | ✅ Verified zero `pair_key` overlap across splits via v2 strict-mode assertion (enforced at construction time). |
-| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) within a split. | v2 coverage phase (per-`seq_hash` and per-`dna_hash` per slot) + protein-level safety raise; Plan Exp 1 split overlap stats; `coverage.<split>.n_seqs_with_zero_negatives` in `dataset_stats.json` (protein level); `rejection_stats.n_dna_uncovered` in run logs (DNA level) | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot, hard-raise on violation at `dataset_segment_pairs_v2.py:819`). ✅ DNA level (implemented 2026-05-08): coverage extended to per-`dna_hash` per slot, best-effort with logging. | Protein level: `n_seqs_with_zero_negatives = 0` on every dataset built (verified across recent HA/NA, PB2/PB1, and `*_regimes` builds in `data/datasets/flu/July_2025/runs/`). DNA level: `n_dna_uncovered = 0` on the same builds. |
-| 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Plan Exp 1 (split overlap stats); Plan Exp 4 (seq-disjoint split routing) | ✅ **IMPLEMENTED 2026-05-11** via `seq_disjoint` routing (`split_strategy.mode: seq_disjoint`). Default `hash_key: seq` (protein-level — strictly stronger than DNA-level) as of 2026-05-12. Cross-split overlap on the chosen hash family is 0 by construction with zero pair drops. See `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md`. `strict_dedup` deferred — `seq_disjoint` achieves the same test with no data loss. | ✅ Eliminated by construction in current production bundles (`flu_ha_na`, `flu_pb2_pb1` both now use `seq_disjoint` mode). Pre-implementation measurement (Plan Exp 1, HA/NA random splits): ~25% `seq_hash` overlap, ~10% `dna_hash` overlap on slot a. Post-implementation finding (Exp 4a, HA/NA `hash_key=dna`, 2026-05-11): MLP `host_subtype_year` TNR drops 0.872 → 0.834 vs random split. Tighter setting (PB2/PB1 `hash_key=seq`, 2026-05-12): 1-NN baseline edges MLP on aggregate MCC (0.900 vs 0.887) — consistent with conserved proteins offering fewer truly-novel eval examples. Full results: `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`. |
-| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Plan Exp 2 (1-NN baseline); Plan Exp 3 (cosine deciles); Plan Exp 4 (bounds exact-`seq_hash` / `dna_hash` case only); Plan Exp 5 (mmseqs2 cluster splits) | ✅ **Exp 2 implemented** as `knn1_margin` and `knn_vote` baselines. **Exp 3 implemented** as `src/analysis/exp3_cosine_deciles.py`. **Exp 4 (seq_disjoint)** bounds the exact-hash case. **Exp 5 (mmseqs2 cluster splits) implemented 2026-05-15** via `dataset.split_strategy.mode: cluster_disjoint` + `cluster_alphabet: aa\|nt`. See `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B (aa) and § B-nt (CDS DNA). | ⚠️ Aa cluster_id099 LGBM drops F1 −27 pp on HA/NA and −17 pp on PB2/PB1 vs seq_disjoint — confirms cluster leakage is real and large on the production seq_disjoint baseline. Nt cluster_disjoint hits the same feasibility ceiling as aa (only id100/id099 operable on Flu A — see § "Routing equivalence" below). 1-NN cosine margin >= LGBM at every cluster_disjoint routing (gap widest at aa id099, +16/+7 pp F1 on HA/NA / PB2/PB1): cluster_disjoint weakens the near-neighbor signal gradually, not absolutely. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`. |
+| 2 | Sequence-level label **imbalance** | slot label imbalance | A sequence appears only as positive (or only as negative) within a split. | v2 coverage phase (per-`seq_hash` and per-`dna_hash` per slot) + protein-level safety raise; Plan Exp 1 split overlap stats; `coverage.<split>.n_seqs_with_zero_negatives` in `dataset_stats.json` (protein level); `rejection_stats.n_dna_uncovered` in run logs (DNA level) | ✅ Protein level (v2 coverage phase enforces ≥1 neg per `seq_hash` per slot, hard-raise on violation at `dataset_segment_pairs_v2.py:819`). ✅ DNA level (implemented 2026-05-08): coverage extended to per-`dna_hash` per slot, best-effort with logging. | Protein level: `n_seqs_with_zero_negatives = 0` on every dataset audited (HA/NA, PB2/PB1, and `*_regimes` builds in `data/datasets/flu/July_2025/runs/`). DNA level: `n_dna_uncovered = 0` on the same builds. |
+| 3 | Sequence-level **leakage** | slot-level leakage | Same `seq_hash` / `dna_hash` appears in different pairs across splits. | Plan Exp 1 (split overlap stats); Plan Exp 4 (seq-disjoint split routing) | ✅ **IMPLEMENTED 2026-05-11** via `seq_disjoint` routing (`split_strategy.mode: seq_disjoint`). Default `hash_key: seq` (protein-level — strictly stronger than DNA-level) as of 2026-05-12. Cross-split overlap on the chosen hash family is 0 by construction with zero pair drops. See `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md`. `strict_dedup` deferred — `seq_disjoint` achieves the same test with no data loss. | ✅ Eliminated by construction in current production bundles (`flu_ha_na`, `flu_pb2_pb1` both now use `seq_disjoint` mode). Pre-implementation measurement (Plan Exp 1, HA/NA random splits): ~25% `seq_hash` overlap, ~10% `dna_hash` overlap on slot a. Post-implementation finding (Exp 4a, HA/NA `hash_key=dna`, 2026-05-11): MLP `host_subtype_year` TNR drops 0.872 → 0.834 vs random split. Tighter setting (PB2/PB1 `hash_key=seq`, 2026-05-12): 1-NN baseline edges MLP on aggregate MCC (0.900 vs 0.887) — consistent with conserved proteins offering fewer truly-novel eval examples. Full results: `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`. Single-slot `cluster_disjoint` (`split_strategy.single_slot='a'\|'b'`) eliminates overlap on the constrained slot only; unconstrained-slot overlap measured 3.4–7.5% on HA-NA NA, 5.2–7.2% on PB2-PB1 PB1 across id100..id095 (`slot_leakage_summary` in `dataset_stats.json`). |
+| 4 | Cluster leakage | near-neighbor leakage | Test pair's joint feature vector is cosine-near a training pair's, even if no exact hash match. | Plan Exp 2 (1-NN baseline); Plan Exp 3 (cosine deciles); Plan Exp 4 (bounds exact-`seq_hash` / `dna_hash` case only); Plan Exp 5 (mmseqs2 cluster splits) | ✅ **Exp 2 implemented** as `knn1_margin` and `knn_vote` baselines. **Exp 3 implemented** as `src/analysis/exp3_cosine_deciles.py`. **Exp 4 (seq_disjoint)** bounds the exact-hash case. **Exp 5 (mmseqs2 cluster splits) implemented 2026-05-15** via `dataset.split_strategy.mode: cluster_disjoint` + `cluster_alphabet: aa\|nt`. See `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B (aa) and § B-nt (CDS DNA). | ⚠️ Aa cluster_id099 LGBM drops F1 −27 pp on HA/NA and −17 pp on PB2/PB1 vs seq_disjoint — confirms cluster leakage is real and large on the production seq_disjoint baseline. Nt cluster_disjoint hits the same feasibility ceiling as aa (only id100/id099 operable on Flu A — see § "Routing equivalence" below). 1-NN cosine margin >= LGBM at every cluster_disjoint routing (gap widest at aa id099, +16/+7 pp F1 on HA/NA / PB2/PB1): cluster_disjoint weakens the near-neighbor signal gradually, not absolutely. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`. Single-slot `cluster_disjoint` (2026-05-24 HA-NA HA-only, 2026-05-26 PB2-PB1 PB2-only) extends the operable threshold range past the bilateral feasibility ceiling: HA-NA HA-only at id095 MLP F1 drops 4.6 pp (mean over 3 seeds) with monotone MMD growth (S1 HA aa k=3 pos-MMD 33.7×); PB2-PB1 PB2-only at id095 MLP F1 drops 2.5 pp — about half — consistent with weaker cluster-cluster coupling (Cramér's V 0.76→0.41 vs HA-NA 0.85→0.53). 1-NN > MLP on PB2-PB1 at every threshold flags residual leakage on the unconstrained slot. See `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md` and `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md`. |
 | 5 | Demographic shortcut leakage | metadata shortcut leakage | Model uses `same_host`, `same_subtype`, `same_year`, etc. as proxy for "same isolate." | Level 1 / Level 2 stratified eval; `analyze_negative_hardness` (match_count, match_pattern); Plan Exp 3 cosine deciles | ⚠️ Construction-time mitigation in v2: metadata-aware negative sampling under `dataset.negative_sampling.regime_targets` (**8 regimes** per `_negative_regime_sampling.REGIME_NAMES`: `none_match`, `host_only`, `subtype_only`, `year_only`, `host_subtype_only`, `host_year_only`, `subtype_year_only`, `host_subtype_year` — configurable mix). See `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md`. Other candidate mitigations (adversarial / gradient-reversal, IRM) tracked in `roadmap_v2.md` Task 12. | ❌ Confirmed present in legacy random-sampled datasets: 30–50× FP-rate climb on match_count (HA/NA mixed; both h=[10] and h=[200]). See `docs/results/2026-05-07_metadata_shortcut_negatives.md`. Re-test pending on regime-aware-built datasets. |
 
 Quick disambiguation:
@@ -59,10 +59,10 @@ k-mer features) are addressed at the **slot** level (per `dna_hash`),
 not at the pair level. Specifically:
 
 - Mode #2 fix at DNA level → per-slot per-`dna_hash` coverage in the
-  v2 negative-sampling phase (**implemented** 2026-05-08; coverage
-  phase iterates `(slot, dna_hash)` tuples, tracked internally as
+  v2 negative-sampling phase. The coverage phase iterates
+  `(slot, dna_hash)` tuples, tracked internally as
   `rejection_stats.n_dna_uncovered`; feasibility study at
-  `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md`).
+  `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md`.
 - Mode #3 measurement at DNA level → `dna_hash` rows of
   `split_overlap_stats.csv`. Note: even under `hash_key=seq` routing,
   the v2 saver computes both `seq_hash_overlap` and `dna_hash_overlap`
@@ -70,24 +70,28 @@ not at the pair level. Specifically:
 - Mode #3 mitigation at DNA level → `split_strategy.mode: seq_disjoint`
   with `hash_key: dna` (looser than the default `seq` — synonymous-
   mutation variants of the same protein may end up in different splits).
-  **Implemented** 2026-05-11.
 
 ---
 
 ## Routing equivalence and mmseqs argument semantics
 
-Four routing modes are implemented for mitigating modes #3 and #4; their
-overlap is non-obvious. This section is the reference.
+Routings span two algorithmic families for mitigating modes #3 and #4:
+**bilateral** (constrains both slots simultaneously) and **single-slot**
+(constrains one slot, leaves the other unconstrained). Within each
+family, the variants differ in which `key` each slot maps to. This
+section is the reference.
 
 ### What's the same across all routings
 
-All four modes partition pairs by **bipartite connected components**
-on a (slot_a_key, slot_b_key) graph and bin-pack components into
-train / val / test using **LPT-greedy** (longest-processing-time-first
-deficit-fill). The only thing that varies is which `key` each slot maps
-to.
+Bilateral routings partition pairs by **bipartite connected
+components** on a (slot_a_key, slot_b_key) graph; single-slot routings
+group pairs by the constrained slot's cluster id alone (each cluster's
+pair-set is one atom). Both families bin-pack atoms into train / val /
+test using **LPT-greedy** (longest-processing-time-first deficit-fill).
 
-### What's different across routings
+### Bilateral routings — key per slot
+
+The four bilateral routings differ in which key each slot maps to:
 
 | Mode + alphabet | Slot key per pair | Two pairs end up in the same component iff they share … | Stricter than |
 |---|---|---|---|
@@ -95,6 +99,19 @@ to.
 | `seq_disjoint` `hash_key=dna` | `dna_hash = md5(contig.dna)` exact | identical full contig (5′ UTR + CDS + intron + 3′ UTR) on a slot | seq_disjoint seq, on Flu A (more unique contigs than unique proteins) |
 | `cluster_disjoint` `cluster_alphabet=aa` | mmseqs2 aa cluster id at chosen identity threshold | aa-similar protein on a slot (definition of "similar" set by threshold + coverage) | seq_disjoint seq at threshold = 1.00 |
 | `cluster_disjoint` `cluster_alphabet=nt` | mmseqs2 nt cluster id at chosen identity threshold, keyed on `cds_dna_hash` | nt-similar CDS DNA on a slot (UTRs and introns excluded from the comparison) | seq_disjoint seq at threshold = 1.00, but **not** a subset of seq_disjoint dna |
+
+### Single-slot routings
+
+Activated by `dataset.split_strategy.single_slot ∈ {'a', 'b'}` on top
+of `mode: cluster_disjoint`. The constrained slot's clusters are
+disjoint across splits; the unconstrained slot retains sequence-level
+overlap (mode #3 row in the canonical table records measured values).
+Unlocks idXX thresholds past the bilateral feasibility ceiling on
+Flu A — bilateral `cluster_disjoint` is operable only at id100/id099
+because the corpus's bipartite mega-component collapses below; per-
+cluster atoms on a single slot remain small enough to bin-pack. See
+§ 10.3 of `clustering_overview.md` for the feasibility argument and
+worked HA/NA + PB2/PB1 examples.
 
 ### Equivalences and non-equivalences
 
@@ -105,7 +122,7 @@ coverage rule may merge a longer protein and a fragment that's
 covered at ≥80% by the shorter at 100% identity; an md5 hash would
 not. On Flu A the length variation within a function is tiny
 (std ≤ 2.8 aa per `gto_format_reference.md` §6.5), the X-fraction is
-scrubbed by Stage 1, so empirically the two produce essentially the
+removed by Stage 1, so empirically the two produce essentially the
 same partition. Aa id100 component count ≈ seq_disjoint seq component
 count.
 
@@ -179,16 +196,22 @@ Mechanic by flag:
 
 `run_mmseqs_easy_clust` takes an `algorithm` parameter:
 
-- **`cluster`** (default) — `mmseqs easy-cluster`, the sensitive
-  cascaded path. Uses a k-mer prefilter, alignment, and reassignment.
-  Best sensitivity at lower identity thresholds; slow on long
-  sequences (the prefilter dominates).
-- **`linclust`** — `mmseqs easy-linclust`, linear-time clustering.
-  Less sensitive but much faster on long sequences. For the nt CDS
-  sweep on the full Flu A corpus, linclust is ~8× faster than
-  easy-cluster and produces within-noise different cluster counts at
-  our thresholds. Used as the default for the nt redundancy sweep
-  (`data/processed/flu/July_2025/clusters_nt/redundancy_summary.md`).
+- **`linclust`** (default) — `mmseqs easy-linclust`, linear-time
+  clustering. Single-pass; less sensitive than easy-cluster but much
+  faster on long sequences (~8× faster than easy-cluster on the nt
+  CDS sweep). Production default on both alphabets (aa and nt);
+  cross-algorithm validation on aa shows within-noise cluster-count
+  differences vs easy-cluster at our thresholds (see
+  `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`).
+  Per-alphabet redundancy outputs live at
+  `data/processed/flu/July_2025/clusters_{aa,nt}/redundancy_summary.md`.
+- **`cluster`** — `mmseqs easy-cluster`, the sensitive cascaded path.
+  Uses a k-mer prefilter, alignment, and reassignment. Higher
+  sensitivity at lower identity thresholds; slow on long sequences
+  (the prefilter dominates). Retained as a `--algorithm cluster`
+  opt-in for sensitivity comparisons; not used in current production.
+  Legacy aa easy-cluster artifacts are preserved under
+  `data/processed/flu/July_2025/clusters_aa_easy_cluster_archive/`.
 
 ---
 
@@ -261,6 +284,20 @@ routing — read as "cluster_disjoint weakens the near-neighbor signal
 gradually rather than eliminating it." Full discussion in
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
 
+Single-slot `cluster_disjoint` (2026-05-24 HA-NA HA-only, 2026-05-26
+PB2-PB1 PB2-only) extends the operable threshold range across
+id100..id095. HA-NA HA-only: MLP F1 drops 4.6 pp at id095 (mean over
+3 seeds; std ≤ 0.005), monotone MMD growth on both pos and neg
+distributions (S1 HA aa k=3 pos-MMD 33.7×). PB2-PB1 PB2-only: MLP F1
+drops 2.5 pp at id095 — about half of HA-NA — consistent with the
+absent antigenic-subtype coupling channel (Cramér's V V(PB2×PB1)
+0.76→0.41 vs HA-NA 0.85→0.53). On PB2-PB1, 1-NN > MLP at every
+threshold flags residual leakage on the unconstrained slot,
+suggesting the "biology learning" criterion remains inconclusive
+there even under single-slot routing. See
+`docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md` and
+`docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md`.
+
 ---
 
 ## Relation to prior-art split taxonomies
@@ -332,7 +369,7 @@ absorbs internally — naming it explicitly is useful for our 8-major-
 pair sweeps. On first mention in writeups, cross-refer to DataSAIL's
 I2/S2 with parenthetical: e.g., "cluster_disjoint id095 (DataSAIL
 S2-equivalent at 95% identity threshold; algorithm: bipartite-CC
-LPT-greedy)". See `clustering_overview.md` § 4.4 for the naming
+LPT-greedy)". See `clustering_overview.md` § 10.1 for the naming
 chain (bipartite-CC LPT-greedy ≈ cluster_disjoint routing ≈
 BiCC-Split ≈ bicc).
 
