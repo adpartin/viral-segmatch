@@ -19,7 +19,7 @@ single pass catches direct k-mer matches only.
 
 Decision: switch to **symmetric easy-linclust** on both alphabets. This
 holds the algorithm constant across alphabets so the aa-vs-nt comparison
-in `clustering_overview.md` §6 and §9 cleanly reflects alphabet diversity
+in `clustering_overview.md` §6 and §10 cleanly reflects alphabet diversity
 rather than algorithm sensitivity confounded with it.
 
 Cost: existing aa cluster artifacts are stale (regenerated 2026-05-22 with
@@ -318,14 +318,16 @@ Data regenerated 2026-05-22:
    (HA at id099 is the cleanest test case).
 
 2. **Rebuild cluster_disjoint datasets under linclust artifacts.** The
-   five rows in `clustering_overview.md` §9's "Observed train share"
-   table reflect datasets built against prior easy-cluster aa cluster
-   parquets. The largest-CC % values in the §9 main table are now from
-   linclust artifacts; the achieved-train % below them is from a
-   different (older) dataset chain. Apples-to-apples observation
-   requires rebuilding the HA/NA aa id099 and PB2/PB1 aa id099 datasets
-   under the new clustering, and possibly id098 now that it's closer
-   to feasible.
+   cluster_disjoint datasets used for the 2026-05-21 "Observed train
+   share" audit were built against prior easy-cluster aa cluster
+   parquets. The largest-CC % values currently in
+   `clustering_overview.md` §10.2's main table are from linclust
+   artifacts; the audit's achieved-train % numbers (previously
+   tabulated in the same section, removed during the 2026-05-26
+   historical-cleanup pass) were from a different (older) dataset
+   chain. Apples-to-apples observation requires rebuilding the HA/NA
+   aa id099 and PB2/PB1 aa id099 datasets under the new clustering,
+   and possibly id098 now that it's closer to feasible.
 
 3. **Downstream LGBM / 1-NN / MLP results in
    `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.** Those

@@ -1761,40 +1761,72 @@ def split_dataset_v2(
                 }
         duplicate_stats['seq_disjoint_audit'] = seq_disjoint_audit
     if cluster_disjoint_audit is not None:
-        # Re-audit the FINAL DataFrames at the cluster-id level: by construction
-        # cluster_id_a and cluster_id_b overlap across splits should be zero
-        # (negatives are sampled from per-split positives, so they can't pull
-        # cluster_ids from outside their split's positive pool — same invariant
-        # as seq_disjoint). seq_hash / dna_hash overlaps MAY be non-zero at
-        # thresholds < 1.0 (different sequences in the same cluster can land
-        # in different splits' positives → their hashes can co-occur in
-        # negatives via partner sampling), so those are diagnostic only.
-        for side in ('a', 'b'):
-            col = f'cluster_id_{side}'
-            if col not in train_pairs.columns:
-                continue
-            t  = set(train_pairs[col].dropna())
-            v  = set(val_pairs[col].dropna())
-            te = set(test_pairs[col].dropna())
-            cluster_disjoint_audit[f'cluster_id_overlap_full_pairs_{side}'] = {
-                'train_val':  len(t & v),
-                'train_test': len(t & te),
-                'val_test':   len(v & te),
-            }
-        for family in ('seq', 'dna'):
+        # Re-audit the FINAL DataFrames at the cluster-id and sequence-hash level.
+        #
+        # By construction cluster_id_{a,b} overlap across splits should be zero
+        # on whichever slot(s) the routing constrains (negatives are sampled
+        # from per-split positives, so they can't pull cluster_ids from outside
+        # their split's positive pool — same invariant as seq_disjoint).
+        # seq_hash / dna_hash overlap MAY be non-zero at thresholds < 1.0 on
+        # the constrained side (different sequences in the same cluster can
+        # land in different splits' positives → their hashes can co-occur in
+        # negatives via partner sampling).
+        #
+        # For constrained-slot routing (single_slot='a' or 'b'), the
+        # UNCONSTRAINED side is not bound by either invariant: seq_hash leakage
+        # on the unconstrained side is the empirical residual leakage the
+        # routing leaves on the table (see clustering_overview.md §9.3).
+        #
+        # Fields are symmetric across slots a / b and across cluster_id /
+        # seq_hash / dna_hash. The routing-mode-specific interpretation lives
+        # in the prose docs, not in the field names.
+        for family in ('cluster_id', 'seq_hash', 'dna_hash'):
+            col_template = (
+                'cluster_id_{side}' if family == 'cluster_id'
+                else f"{family.replace('_hash', '')}_hash_{{side}}"
+            )
             for side in ('a', 'b'):
-                col = f'{family}_hash_{side}'
+                col = col_template.format(side=side)
                 if col not in train_pairs.columns:
                     continue
                 t  = set(train_pairs[col].dropna())
                 v  = set(val_pairs[col].dropna())
                 te = set(test_pairs[col].dropna())
-                cluster_disjoint_audit[f'{family}_hash_overlap_full_pairs_{side}'] = {
-                    'train_val':  len(t & v),
-                    'train_test': len(t & te),
-                    'val_test':   len(v & te),
+                union = t | v | te
+                n_unique = len(union)
+                if n_unique == 0:
+                    continue
+                # Count unique values appearing in 2+ splits.
+                in_multi = sum(
+                    1 for x in union
+                    if int(x in t) + int(x in v) + int(x in te) >= 2
+                )
+                cluster_disjoint_audit[f'{family}_leakage_{side}'] = {
+                    'n_unique':              n_unique,
+                    'n_in_multiple_splits':  in_multi,
+                    'pct_leakage':           round(100.0 * in_multi / n_unique, 2),
+                    'split_pair_overlap': {
+                        'train_val':  len(t & v),
+                        'train_test': len(t & te),
+                        'val_test':   len(v & te),
+                    },
                 }
         duplicate_stats['cluster_disjoint_audit'] = cluster_disjoint_audit
+        # One-line summary: cross-split leakage on each slot, for each hash family.
+        # In constrained-slot routing, the unconstrained side's seq_hash leakage
+        # is the residual lookup signal (see clustering_overview.md §9.3).
+        for side in ('a', 'b'):
+            parts = []
+            for family in ('cluster_id', 'seq_hash', 'dna_hash'):
+                key = f'{family}_leakage_{side}'
+                if key in cluster_disjoint_audit:
+                    blk = cluster_disjoint_audit[key]
+                    parts.append(
+                        f"{family} {blk['n_in_multiple_splits']:,}/{blk['n_unique']:,} "
+                        f"({blk['pct_leakage']:.1f}%)"
+                    )
+            if parts:
+                print(f"  slot_{side} cross-split leakage: " + "  |  ".join(parts))
     exposure_tables = {'train': train_exp, 'val': val_exp, 'test': test_exp}
     return train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables
 
@@ -2115,6 +2147,30 @@ def save_split_output_v2(
         **(
             {'metadata_holdout': duplicate_stats['metadata_holdout']}
             if 'metadata_holdout' in duplicate_stats else {}
+        ),
+        # Per-slot cross-split leakage headline. Present only under
+        # cluster_disjoint routing. Symmetric across slots a/b and across
+        # hash families (cluster_id / seq_hash / dna_hash). Full per-pair
+        # overlap counts live in cluster_disjoint_audit.json. See
+        # docs/methods/clustering_overview.md §9.3.
+        **(
+            {'slot_leakage_summary': {
+                f'slot_{side}': {
+                    family: {
+                        'pct_leakage':          duplicate_stats['cluster_disjoint_audit'][f'{family}_leakage_{side}']['pct_leakage'],
+                        'n_in_multiple_splits': duplicate_stats['cluster_disjoint_audit'][f'{family}_leakage_{side}']['n_in_multiple_splits'],
+                        'n_unique':             duplicate_stats['cluster_disjoint_audit'][f'{family}_leakage_{side}']['n_unique'],
+                    }
+                    for family in ('cluster_id', 'seq_hash', 'dna_hash')
+                    if f'{family}_leakage_{side}' in duplicate_stats['cluster_disjoint_audit']
+                }
+                for side in ('a', 'b')
+                if any(
+                    f'{family}_leakage_{side}' in duplicate_stats['cluster_disjoint_audit']
+                    for family in ('cluster_id', 'seq_hash', 'dna_hash')
+                )
+            }}
+            if 'cluster_disjoint_audit' in duplicate_stats else {}
         ),
         'exposure_summary': _exposure_summary(exposure_tables),
         'axis_flag_summary': {

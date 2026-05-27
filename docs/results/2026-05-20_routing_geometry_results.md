@@ -105,7 +105,7 @@ embedding-space region). Two reasons:
    pair: at id100 the largest bipartite CC is 20% of pairs, at id099
    it's 80%, and at id098 it collapses to 94% (one cluster contains
    most pairs, so 80/10/10 routing is no longer feasible — see
-   `docs/methods/clustering_overview.md` §9). At id099 most clusters
+   `docs/methods/clustering_overview.md` §10.2). At id099 most clusters
    are singletons or pairs, weakening the spatial-partition
    constraint.
 
@@ -180,4 +180,4 @@ future Stage 3 runs auto-emit the new plots.
 | Orchestrator wire-in | `src/analysis/visualize_dataset_stats.py` (`visualize_dataset_stats` function) |
 | Routing-comparison bundles | `conf/bundles/flu_ha_na_{random,seq_disjoint,cluster_id99}.yaml` |
 | Regime-aware run used for negatives plot | `dataset_flu_ha_na_regimes_ratio3_20260513_211559` |
-| Clustering feasibility reference | `docs/methods/clustering_overview.md` §9 (HA/NA aa id099 = 80% largest CC) |
+| Clustering feasibility reference | `docs/methods/clustering_overview.md` §10.2 (HA/NA aa id099 = 80% largest CC) |

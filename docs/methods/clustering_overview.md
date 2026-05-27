@@ -1,16 +1,22 @@
 # Clustering overview (aa and nt) for cluster_disjoint splits
 
-This reference covers: what protein (aa) and nucleotide (nt) sequence
-clustering does in this pipeline, what mmseqs2's parameters mean, and
-how a per-function clustering is used to generate train/val/test splits.
+**Purpose.** This doc explains how mmseqs2 clustering is used to
+construct train / val / test splits with **controlled, quantifiable
+separation between splits** — and what that separation does and doesn't
+guarantee. The treatment is **single-slot (constrained-slot)
+cluster_disjoint** throughout (the conceptual core lives in §9); the
+bilateral cluster_disjoint mode's feasibility on a real corpus lives in
+§10. mmseqs2 internals (§2–§3) are covered only to the extent they bear
+on the separation argument.
 
-For the *experimental findings* on Flu A see
+**Doc style conventions.** Data-table subsections follow the pattern
+**Source → Columns → Table → Takeaways → (Future direction)** where
+applicable. Dereep reasoning lives in "worked example" subsections; parent sections stay tight.
+
+For experimental findings on Flu A see
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (model training
-results) and two sequence redundancy autogen docs
-`data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (aa) and
-`data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` (nt). This
-doc explains the *machinery*; those docs report the *numbers we got*.
-
+results) and the two sequence-redundancy autogen docs at
+`data/processed/flu/July_2025/clusters_{aa,nt}/redundancy_summary.md`.
 For the routing-equivalence semantics across the four implemented modes
 (seq_disjoint hash_key={seq,dna}, cluster_disjoint
 cluster_alphabet={aa,nt}), see `docs/methods/leakage_definitions.md`
@@ -134,19 +140,21 @@ routing on pairs has additional mechanics:
 2. **Each positive pair carries a tuple of two cluster ids.** A
    positive pair `(HA_i, NA_i)` — both proteins from isolate i —
    becomes the cluster tuple `(cluster(HA_i), cluster(NA_i))`, e.g.,
-   `(HA_c1, NA_c5)`. Note that negative pairs are constructed within
-   each split *after* the routing decision; the bipartite graph that
-   drives routing is built from positives only.
-3. **Build a bipartite graph** with HA clusters on one side, NA
-   clusters on the other; an edge `HA_ck ─ NA_cm` exists iff some
-   pair has that combination.
-4. **Bipartite connected components** on this graph are the
-   indivisible routing units. All pairs in a CC must go to the same
-   split.
-5. **Bin-pack CCs into 80/10/10** via LPT-greedy.
+   `(HA_c1, NA_c5)`. Negative pairs are constructed within each
+   split *after* the routing decision; the structures that drive
+   routing are built from positives only.
+3. **Define the atom — the indivisible routing unit.** Two routing
+   modes are implemented (§7.1):
+   - **Constrained-slot** (`single_slot='a'` or `'b'`, conceptual
+     deep dive in §9): atom = one cluster's pair-set on the
+     constrained slot.
+   - **Bilateral** (`single_slot=null`, default; framework + Flu A
+     feasibility in §10): atom = a bipartite connected component on
+     the (slot A, slot B) cluster graph.
+4. **Bin-pack atoms into 80/10/10** via LPT-greedy (§7.2).
 
-§7 walks through this paired construction with a bipartite-graph
-ASCII diagram and the LPT-greedy routing details. The single-sequence
+§7 walks through the routing mechanism shared across modes (atoms,
+LPT-greedy, the four implemented routings). The single-sequence
 intuition above is the prerequisite for the paired version.
 
 The clustering itself happens once per (data version, alphabet (`aa`|`nt`), identity
@@ -536,48 +544,99 @@ Columns:
 
 **Takeaways.**
 
-- **Two collapse modes (deferred-cliff vs gradual).** Segments 1/2/3/5/7
+- **Cluster counts bound flexibility; threshold `t` bounds separation.**
+  More clusters at threshold `t` means more atoms available to the
+  routing's bin-packer (§7.2) — that's the **flexibility** lever. The
+  **separation strength** of the resulting splits is governed by `t`
+  itself, not the count — see §9.1 for the cross-cluster gap argument.
+- **Two trajectories (deferred-cliff vs gradual).** Segments 1/2/3/5/7
   retain moderate counts through id095, then drop sharply across id094
-  → id091 (PB2 aa: 6,491 → 3,590 → 1,085 → 112 → 43 — five distinct
-  cliff steps). Segments 4/6/8 decline smoothly across the whole sweep
-  and retain meaningful structure even at id080. The cliff vs smooth
-  split matches proteins' biology: polymerase and structural proteins
-  are under tight constraint; surface and length-varying proteins
-  carry persistent diversity.
-- **The conserved-protein cliff has a center, not just a span.**
+  → id091 (e.g., PB2 aa: 6,491 → 3,590 → 1,085 → 112 → 43 — five distinct
+  cliff steps). Segments 4/6/8 decline more smoothly across the whole sweep
+  and still hold 73 (NA), 174 (NS1), and 176 (HA) aa clusters at id080.
+- **The conserved-protein cliff has a center (not just a span).**
   Each polymerase subunit and matrix protein has its own "tipping
-  idXX" between id095 and id091: PB2 aa drops most at id093 → id092
+  idXX" between id095 and id091, but no
+  single threshold step applies to all five conserved functions. PB2 aa drops most at id093 → id092
   (1,085 → 112, −90%); PB1 aa at id094 → id093 (930 → 238, −74%);
   PA aa at id095 → id094 (8,002 → 487, −94% — the steepest 1-pp
-  drop in the table); M1 aa at id093 → id092 (237 → 31, −87%). No
-  single threshold step applies to all five conserved functions.
-- **NA is the most-gradual outlier** even within the surface-protein
-  group. NA aa stays close to 1,000 clusters across the entire
+  drop in the table); M1 aa at id093 → id092 (237 → 31, −87%).
+- **NA is the most-gradual outlier.** NA aa stays close to 1,000 clusters across the entire
   id095..id090 stretch — its id095 → id090 drop is only 2,134 →
   1,077 (−50%, much smaller than HA's 7,578 → 910 = −88%).
-  Stalk-length variation already pools NA into ~7% of the corpus at
-  id100 (see §6.4 NA note), so further sequence-level consolidation
-  has less to do.
-- **Easy-linclust is approximately monotone, not exactly.** At the
-  1-pp grain small non-monotone bumps appear: NP aa is 526 at id095,
-  149 at id094, then **706** at id093 before resuming the descent;
-  NA aa goes 1,957 → 1,717 → 757 → **791** → 1,077 across
-  id094..id090; M1 aa goes 129 → **269** → **237** → 31 across
-  id095..id092. Easy-linclust's single-pass seed selection produces
-  threshold-dependent cluster topology, so a tighter threshold can
-  occasionally yield more clusters when seeds change. The coarse
-  direction (id100 → id080) is always monotone-decreasing; the
-  1-pp grain is not.
+- **Easy-linclust is generally monotone, but not consistently.** At
+  1-pp threshold steps small non-monotone bumps appear:
+  NP aa goes 526 → **149** → 706;
+  NA aa goes 1,717 → **757** → **791** → 1,077;
+  M1 aa goes 129 → **269** → 237.
+  Easy-linclust single-pass seed selection produces threshold-dependent
+  cluster topology, so a tighter threshold can occasionally yield more
+  clusters when seeds change. The coarse direction (id100 → id080) is
+  always monotone-decreasing; the 1-pp resolution is not.
 - **nt at id100 always exceeds aa at id100** (synonymous variants
   split into distinct nt singletons). The aa-vs-nt relationship
   inverts at id099 and id098 on most functions — see §6.3 worked
-  example for the non-nesting mechanism.
-- **NA's id100 mismatch with §4.** NA has 18,753 aa clusters at id100
-  vs 37,488 md5-dedup unique aa sequences from §4 — about half. The
-  stalk-length collapse mechanism (§4 NA note) groups stalk-deletion
-  isoforms with stalk-full counterparts under the ≥80% coverage rule.
+  example.
 
-### 6.2 Worked example: NS1 vs M1 — real diversity vs length-variation artifact
+### 6.2 Worked example: aa vs nt non-nesting at id099
+
+**Source.** §6.1 n_clusters table (the observation); §5
+mutations_tolerated_table.csv (residue-tolerance asymmetry);
+`src/analysis/aa_nt_cluster_crosstab.py` +
+`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md` (cross-tab
+finding).
+
+§6.1's Takeaways note that nt has more clusters than aa at id100 on
+every function, but the relationship inverts at id099 and id098 on
+most functions. The inversion shapes how alphabet choice affects
+cluster_disjoint splits and is worth understanding.
+
+**The inversion (id099, from §6.1).** nt has *fewer* clusters than aa
+on five of eight functions:
+
+| Function | aa clusters | nt clusters | nt / aa ratio |
+|---|---:|---:|---:|
+| PB2 | 18,354 | 11,484 | 0.63 |
+| PB1 | 17,209 | 14,990 | 0.87 |
+| PA  | 18,520 | 11,184 | 0.60 |
+| HA  | 22,679 | 12,150 | 0.54 |
+| NP  | 10,483 | 11,627 | 1.11 |
+| NA  |  9,369 | 12,092 | 1.29 |
+| M1  |  1,764 | 10,227 | 5.80 |
+| NS1 | 13,508 | 12,012 | 0.89 |
+
+Five functions have ratio < 1 (nt has fewer clusters). M1 is the
+largest outlier in the other direction (5.8× nt excess); NP, NA, NS1
+sit near 1.
+
+**Empirical finding — aa and nt clusterings are not nested.**
+Cross-tab analysis of (aa cluster, nt cluster) co-membership on id099
+sequences (`src/analysis/aa_nt_cluster_crosstab.py`; results in
+`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`) shows: on
+every function, aa and nt cluster boundaries disagree in BOTH
+directions — each alphabet groups some sequences that the other
+separates. The net cluster count is the balance of those two
+opposing directions, and the balance varies per function.
+
+**Residue-tolerance asymmetry (id099, from §5).** id099 admits more
+residue mismatches per cluster on nt than on aa, because the threshold
+`t = 0.99` is computed against the sequence's own length and the CDS
+is roughly 3× the protein length. From §5's
+`mutations_tolerated_table.csv` at id099: PB2 admits 22 nt vs 7 aa
+mismatches; HA admits 17 vs 5; M1 admits 7 vs 2. This is the
+geometric consequence of how `--min-seq-id` is computed (§3.1).
+
+**Takeaways.**
+
+- The intuition "nt has more clusters than aa because of synonymous
+  codons" holds at id100 but does not generalize. At id099 and id098
+  most functions show the opposite direction.
+- aa and nt cluster boundaries disagree in both directions; net
+  cluster count is a per-function balance, not nested containment.
+- The deep-dive walkthrough (per-function decomposition) is in
+  `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
+
+### 6.3 Worked example: NS1 vs M1 — real diversity vs length-variation artifact
 
 §4 noted that NS1 has 4.7× M1's unique-aa count at md5-dedup (22,225
 vs 4,771) despite being slightly shorter (median 231 vs 253 aa).
@@ -625,75 +684,17 @@ evidenced by the small id100 vs md5-dedup gap). The §4 read of
 diversity than M1, with a small measurement-artifact contribution
 on top".
 
-### 6.3 Worked example: aa vs nt non-nesting at id099
-
-§6.1's Takeaways noted that nt has more clusters than aa at id100 on
-every function (synonymous variants are distinct nt singletons), but
-the relationship inverts at id099 and id098 on most functions. This
-section explains why.
-
-**The inversion.** At id099, nt has *fewer* clusters than aa on five
-of eight functions:
-
-| Function | aa clusters (id099) | nt clusters (id099) | nt / aa ratio |
-|---|---:|---:|---:|
-| PB2 | 18,354 | 11,484 | 0.63 |
-| PB1 | 17,209 | 14,990 | 0.87 |
-| PA  | 18,520 | 11,184 | 0.60 |
-| HA  | 22,679 | 12,150 | 0.54 |
-| NP  | 10,483 | 11,627 | 1.11 |
-| NA  |  9,369 | 12,092 | 1.29 |
-| M1  |  1,764 | 10,227 | 5.80 |
-| NS1 | 13,508 | 12,012 | 0.89 |
-
-Five functions have ratio < 1 (nt has fewer clusters). M1 is the
-strongest outlier in the other direction (5.8× nt excess).
-
-**Mechanism: aa and nt clusterings are NOT nested.** Cross-tab analysis
-(`src/analysis/aa_nt_cluster_crosstab.py`, 2026-05-22) found that on
-every function, aa and nt cluster boundaries at id099 disagree in BOTH
-directions — each alphabet groups some sequences that the other
-separates. Two opposing effects compete:
-
-- **Effect A (drives nt < aa):** id099 on nt tolerates ~3× more
-  residue changes than id099 on aa (e.g., 22 vs 7 on PB2 — see §5),
-  because the CDS is ~3× longer than the protein. This larger nt
-  cluster radius absorbs swarms of aa-distinct point variants into
-  a single nt cluster.
-- **Effect B (drives nt > aa):** synonymous-codon variation
-  fragments aa-identical CDS across multiple nt clusters. The same
-  protein encoded by several synonymous CDS variants can end up in
-  distinct nt clusters if those variants differ at enough nt positions
-  to fall outside each other's nt cluster radius.
-
-Net direction depends on the function's aa-vs-synonymous diversity
-balance:
-- **Effect A dominates** on PB2/PB1/PA/HA (longer proteins + more
-  aa diversity → more aa swarms for nt to absorb).
-- **Effect B dominates** on M1 (short + tightly aa-conserved → almost
-  all M1 diversity is synonymous, so nt sees many distinct codon
-  variants per aa cluster).
-
-**Takeaway.** The intuition "nt has more clusters than aa because of
-synonymous codons" holds at id100 but breaks below that. At id099 and
-id098 most functions show the opposite direction. Use this framing
-instead: aa and nt cluster boundaries diverge in BOTH directions
-simultaneously; net cluster count depends on which effect (A or B)
-dominates for each protein.
-
-Full numbers and per-function regime walkthrough:
-`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
-
 ### 6.4 Largest cluster as % of corpus
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `cluster_summary.csv` column: `largest_cluster / n_sequences × 100`.
 
-Columns:
-- `Segment` / `Function`: standard 8-protein labels.
-- `id###`: percentage of the function's sequences that fall into its
-  single largest cluster at threshold `t = ###/100`. 100% means one
-  cluster contains every sequence of that function.
+Layout:
+- **Columns** (`id###`): percentage of the function's sequences that fall
+  into its single largest cluster at threshold `t = ###/100`. 100% means
+  one cluster contains every sequence of that function.
+- **Rows**: grouped by trajectory from §6.1 — deferred-cliff functions
+  (PB2, PB1, PA, NP, M1) on top; gradual functions (HA, NA, NS1) on bottom.
 
 | Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -706,16 +707,13 @@ Columns:
 | 6 | NA  | 6.9% |  8.7% |  8.9% |  8.8% | 13.2% | 13.2% | 17.9% | 14.0% | 18.0% | 17.7% |  17.9% |  32.4% |  37.7% |
 | 8 | NS1 | 0.0% |  3.9% |  4.8% |  9.4% | 11.7% | 16.3% | 19.0% | 19.3% | 19.3% | 19.5% |  21.1% |  29.5% |  52.4% |
 
-Rows are grouped by collapse mode from §6.1: top 5 are deferred-cliff
-functions, bottom 3 are gradual.
-
 **Takeaways.**
 
 - **The mega-cluster forms one step at a time on conserved functions.**
   PB2 aa: 15.6% (id095) → 15.9 → 38.3 → 64.4 → 77.6 → 95.9% (id090)
   — five graded steps between "still-small" and "essentially-100%",
   not a single cliff. PB1 aa shows the earliest growth (72% at id095
-  → 91% at id094 → 99% at id093). PA aa takes the steepest single-pp
+  → 91% at id094 → 99% at id093). PA aa takes the steepest single pp
   jump (9.0% at id095 → 56.5% at id094). M1 jumps from 57% to 84% in
   one step at id094 and reaches 99% by id092.
 - **HA / NA / NS1 stay flat across id095..id090.** HA largest is
@@ -731,7 +729,7 @@ functions, bottom 3 are gradual.
   id093 → id092 (1,085 → 112), while its largest jumps most at id094
   → id093 (15.9% → 38.3%) and id093 → id092 (38.3% → 64.4%). The
   two signals (count and largest) track each other coarsely but
-  not at the 1-pp grain.
+  not at 1-pp threshold steps.
 - **NA's id100 anomaly: 6.9% already.** NA is the only function with
   a sub-id100 entry visibly above zero, because of the stalk-length
   collapse mechanism (§4 NA note). NA's id100 cluster pools ~7% of
@@ -739,7 +737,7 @@ functions, bottom 3 are gradual.
   sequence-similarity clustering takes effect.
 
 **Note.** This is the per-FUNCTION largest cluster fraction (one
-number per function per threshold). §9 reports the per-PAIR largest
+number per function per threshold). §10 reports the per-PAIR largest
 bipartite-COMPONENT fraction — a different metric used to characterize
 the bilateral cluster_disjoint routing's feasibility.
 
@@ -747,134 +745,124 @@ the bilateral cluster_disjoint routing's feasibility.
 
 ## 7. From a per-function clustering to a train/val/test partition
 
-### 7.1 Why per-function clusters aren't enough
+### 7.1 Two ways to convert per-function clusters into a pair partition
 
 mmseqs2 clusters sequences within one function (HA clusters, NA
-clusters, ...). But our prediction task is on *pairs* of two
-functions (slot A = HA, slot B = NA). What we actually need to
-partition is the set of (slot_A_cluster, slot_B_cluster) pairs.
+clusters, ...). But the prediction task is on *pairs* of two functions
+(slot A = HA, slot B = NA). What needs to be partitioned is the set
+of (slot_A_cluster, slot_B_cluster) pairs.
 
 A naive "ensure no slot A cluster appears in both train and test"
-already isn't right. An isolate carries both proteins, so two pairs
-that share *either* a slot A cluster *or* a slot B cluster are linked
-through that isolate. Pull on one pair and others come with it.
+isn't enough on its own. An isolate carries both proteins, so two
+pairs that share *either* a slot A cluster *or* a slot B cluster are
+linked through that isolate. Pull on one pair and others come with it.
 
-The right structure is the **bipartite component** on the (slot A,
-slot B) cluster graph:
+Two routing modes resolve this; both are implemented (§7.3) under
+`split_strategy.mode: cluster_disjoint`:
 
-```
-HA aa clusters (slot A)             NA aa clusters (slot B)
-   ┌─────────┐
-   │ HA_c1   │ ─── pair (isolate i) ───►   ┌─────────┐
-   └─────────┘                              │ NA_c5   │
-                                            └────┬────┘
-                                                 │
-                              pair (isolate j) ──┘    
-                                ┌─►   ┌─────────┐
-   ┌─────────┐                  │     │ NA_c9   │
-   │ HA_c2   │ ── pair (k) ─────┘     └─────────┘
-   └─────────┘
-   ┌─────────┐ ─── pair (m) ────────► ┌─────────┐
-   │ HA_c3   │                        │ NA_c7   │
-   └─────────┘                        └─────────┘
+- **Constrained-slot cluster_disjoint** (`single_slot: 'a'` or `'b'`).
+  Constrain ONE slot's clusters only. The atom is one cluster's
+  pair-set on the constrained slot; the unconstrained slot is left
+  free. What this enforces, what it doesn't, and the empirical
+  consequences on Flu A are the subject of §9.
+- **Bilateral cluster_disjoint** (`single_slot: null`, default).
+  Constrain BOTH slots' clusters. The atom is a bipartite connected
+  component on the (slot A, slot B) cluster graph (a CC can span
+  multiple clusters on each side, linked through shared isolate
+  pairs). The mechanism and empirical feasibility on Flu A are the
+  subject of §10.
 
-
-Connected components on this bipartite graph:
-   CC #1 = { HA_c1, NA_c5 }              ← pairs in CC #1 must split together
-   CC #2 = { HA_c2, NA_c9 }
-   CC #3 = { HA_c3, NA_c7 }
-```
-
-Pairs inside one CC must land in the same split — otherwise a cluster
-on one side would be in both train and test, defeating the purpose.
-The routing is a **bin-packing of indivisible CCs**.
-
-Concretely, the per-function collapse trajectory (§6.1) predicts the
-resulting bipartite-CC sizes. When either slot's clusters collapse
-into one mega-cluster — for example PB2 at id090 has only 24 clusters
-absorbing 99.6% of the corpus (§6.4) — the bipartite graph collapses
-into a single mega-component too, and the routing becomes structurally
-infeasible (no 80/10/10 split is possible).
+Both modes share the same bin-packer (§7.2) — they differ in what
+they treat as an atom.
 
 ### 7.2 80/10/10 by LPT-greedy
 
-The routing helper
+**Atom — the indivisible routing unit.** The router treats the corpus
+as a set of "atoms" that cannot be split across train / val / test.
+What an atom is depends on the routing mode:
+
+- **Constrained-slot cluster_disjoint** (`single_slot='a'` or `'b'`,
+  one slot's clusters disjoint): atom = **the pair-set of one cluster
+  on the constrained slot**. All pairs whose constrained-slot sequence
+  belongs to cluster K stay together; the unconstrained slot's
+  partition is whatever those pairs happen to bring along (see §9 for
+  the separation consequences). One atom per cluster on the constrained
+  slot.
+- **Bilateral cluster_disjoint** (both slots' clusters disjoint): atom
+  = a **bipartite connected component** on the (slot A, slot B) cluster
+  graph (§10). A CC can span multiple clusters on each slot, linked
+  through shared isolate pairs. One atom per CC.
+
+Whichever atom definition applies, the router
 (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
-sorts CCs by size descending and greedily assigns each CC to the
+sorts atoms by size descending and greedily assigns each to the
 split with the largest current deficit relative to its target:
 
 ```
 targets:      train = 80%   val = 10%   test = 10%
-biggest CC first → goes to the bin with the largest open quota →
-   typically train first, then val and test fill from medium-sized CCs.
+biggest atom first → goes to the bin with the largest open quota →
+   typically train first, then val and test fill from medium-sized atoms.
 ```
 
 This is the "longest-processing-time-first" (LPT) heuristic for
-bin packing. It's optimal up to the largest item: if the largest CC
-exceeds the largest bin's target, the routing is structurally
-infeasible at 80/10/10. The largest-CC fraction is therefore the
+bin packing. It's optimal up to the largest atom: if the largest
+atom exceeds the largest bin's target, the routing is structurally
+infeasible at 80/10/10. The largest-atom fraction is therefore the
 quantity to check before committing to a (pair, alphabet, threshold)
 configuration.
 
-**The router never drops pairs.** When the largest CC exceeds the
-80% train quota, LPT-greedy still places the whole CC in train —
-train just overflows its target. The router does not split CCs and
+LPT-greedy is closely related to sklearn's `GroupShuffleSplit` and
+`GroupKFold` — all three respect "atoms can't be split across splits"
+(sklearn calls atoms "groups"). The difference is in the assignment
+step: `GroupShuffleSplit` assigns atoms randomly, which can land a
+30%-of-corpus atom in train and miss the 80/10/10 target by a wide
+margin. LPT-greedy assigns atoms biggest-first to the most empty bin,
+matching the target ratios as closely as the largest-atom constraint
+allows.
+
+Unlike `GroupShuffleSplit(n_splits=N)`, which yields N independent
+random group-respecting shuffles for variance estimation, LPT-greedy
+as implemented here is fully deterministic given the atom set and
+target ratios — re-running with a different `master_seed` reproduces
+the same partition. Per-fold variance under cluster_disjoint is not
+available from the current single-shot implementation; the
+`GroupKFold`-based multi-fold path noted in BACKLOG.md "Single-slot
+routing follow-ups" #3 would unlock it.
+
+**The router never drops pairs.** When the largest atom exceeds the
+80% train quota, LPT-greedy still places the whole atom in train —
+train just overflows its target. The router does not split atoms and
 does not discard boundary pairs; "infeasible" in this doc means
 "the achieved 80/10/10 ratios drift", not "pairs are lost". The audit
 JSON's `pairs_dropped_in_routing` and `pairs_dropped_in_cluster_join`
-are always 0 in practice (verified 2026-05-21 across HA/NA aa id099,
-HA/NA aa id095, PB2/PB1 aa id099, HA/NA nt id099, PB2/PB1 nt id099 —
-see `docs/results/2026-05-21_bicc_pair_drop_audit.md`). The
-operational consequence is that at sub-feasibility thresholds, val
-and test starve: HA/NA aa id095 produces a 98.5 / 0.76 / 0.76 split
-rather than 80 / 10 / 10, even though every pair is routed somewhere.
+are always 0 in practice (verified across HA/NA aa id099, HA/NA aa
+id095, PB2/PB1 aa id099, HA/NA nt id099, PB2/PB1 nt id099 — see
+`docs/results/2026-05-21_bicc_pair_drop_audit.md`). The operational
+consequence is that at sub-feasibility thresholds, val and test
+starve: HA/NA aa id095 produces a 98.5 / 0.76 / 0.76 split rather
+than 80 / 10 / 10, even though every pair is routed somewhere.
 
 Which function pairs are splittable at which thresholds follows
 directly from §6.1's collapse trajectory: HA/NA (gradual on both
 slots) remains splittable longest; polymerase pairs (PB2/PB1, both
 deferred-cliff) cliff together at id090. The empirical feasibility
-ceiling for each (pair, alphabet, threshold) combination is in §9.
+ceiling for each (pair, alphabet, threshold) combination is in §10.
 
 ### 7.3 The four implemented routings — quick reference
 
-| mode + alphabet | slot key | two pairs share a CC iff … |
+| mode + alphabet | slot key | two pairs share an atom iff … |
 |---|---|---|
 | `seq_disjoint` `hash_key=seq` (default) | `seq_hash = md5(prot_seq)` exact | identical protein on a slot |
 | `seq_disjoint` `hash_key=dna` | `dna_hash = md5(contig.dna)` exact | identical full contig (UTR + CDS + intron + UTR) on a slot |
 | `cluster_disjoint` `cluster_alphabet=aa` | mmseqs2 aa cluster id at chosen threshold | aa-similar protein on a slot |
 | `cluster_disjoint` `cluster_alphabet=nt` | mmseqs2 nt cluster id at chosen threshold, keyed on `cds_dna_hash` | nt-similar CDS DNA on a slot (UTRs and introns excluded) |
 
-Deep dive on equivalences and non-equivalences:
+`cluster_disjoint` has the additional `single_slot` knob
+(§7.1) that selects between constrained-slot and bilateral atom
+definitions. Deep dive on equivalences and non-equivalences across
+the four (mode, alphabet) cells:
 `docs/methods/leakage_definitions.md` § "Routing equivalence and
 mmseqs argument semantics".
-
-### 7.4 Naming: bipartite-CC LPT-greedy ≈ cluster_disjoint routing ≈ BiCC-Split
-
-The routing algorithm goes by several names across docs, code, and
-writeups:
-- **bipartite-CC LPT-greedy** — the precise technical name (bipartite
-  connected components of (slot_A_cluster, slot_B_cluster), bin-packed
-  via Longest-Processing-Time first-fit decreasing into the requested
-  split fractions).
-- **cluster_disjoint routing** — the user-facing config name in
-  `dataset.split_strategy.mode: cluster_disjoint` and in
-  `seq_disjoint_route_pos_df` / `cluster_disjoint_route_pos_df`.
-- **BiCC-Split** — paper/prose shorthand ("Bipartite Connected-Component
-  Split"), abbreviated **BiCC** or **bicc** in inline references.
-
-These are the same algorithm. In committed docs, prefer **bipartite-CC
-LPT-greedy** on first mention with the abbreviation **bicc** for
-subsequent references. Reserve `cluster_disjoint` for code/config and
-`BiCC-Split` for manuscript prose where a memorable name is useful.
-
-The algorithm differs from DataSAIL's split heuristic (cluster + ILP)
-in two ways: (a) routing operates on bipartite-CCs as atomic units,
-never dropping pairs ("CC bin-packing never splits a component",
-`_split_helpers.py:267`), where DataSAIL's I2/S2 explicitly drop
-pairs that straddle folds; (b) bicc's LPT-greedy is a heuristic that
-hits the requested split fractions within ~0.01% on Flu A (memory.md
-"seq_disjoint scales to conserved proteins"), where DataSAIL solves
-an NP-hard ILP via a heuristic clustering pre-pass.
 
 ---
 
@@ -892,18 +880,366 @@ Stage 3 via `src/datasets/_split_helpers.py`):
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
 
 For consolidated structural analysis (the empirical tables and plots
-in §4 / §5 / §6 / §9), the post-hoc script is
+in §4 / §5 / §6 / §10), the post-hoc script is
 `src/analysis/cluster_analysis_summary.py`, which reads the
 redundancy + feasibility CSVs and emits plots under
 `results/flu/{version}/runs/cluster_analysis/`.
 
 ---
 
-## 9. Bipartite-component feasibility ceiling on Flu A
+## 9. Constrained-slot separation: what cluster_disjoint enforces
 
-The §7.2 question — "is the largest CC small enough for 80/10/10?" —
-answered per (schema pair, alphabet, threshold). Source: the four
-feasibility CSVs at
+### 9.1 The construction and bounds
+
+**Source.** §3.1 (`--min-seq-id` definition), §5 (per-function residue
+mismatch caps), and the mmseqs2 algorithmic construction.
+
+**Setup.** Under **constrained-slot cluster_disjoint** at identity
+threshold `t` on slot X (e.g., HA-only), the mmseqs clusters covering
+slot-X sequences are partitioned across train / val / test: every
+cluster lands in exactly one split. By construction, any train slot-X
+sequence and any test slot-X sequence live in **different clusters**.
+
+The unconstrained slot (slot Y) carries **no separation constraint at
+all** — not cluster_disjoint, not even seq_disjoint. The same physical
+slot-Y sequence can appear in train and test (and val) if it pairs
+with multiple slot-X sequences whose clusters land in different splits.
+Whether slot-Y sequences actually leak across splits depends on the
+corpus's biological coupling between the two slots: tight coupling
+(e.g., HA cluster ≈ NA subtype on Flu A HA-NA) drags slot-Y along with
+slot-X; weak coupling (e.g., PB2-PB1) leaves slot-Y free to leak.
+
+This is the group-respecting property that
+`sklearn.model_selection.GroupShuffleSplit` and `GroupKFold` also
+provide, with one extra feature: **mmseqs clustering at threshold `t`
+gives the groups a sequence-level meaning**. `GroupShuffleSplit` and
+`GroupKFold` treat group labels as opaque IDs; cluster_disjoint's
+groups carry the residue-identity tolerance baked into `t`. That
+promotion — from opaque ID to similarity-controlled tolerance — is the
+load-bearing claim of the approach. (The orthogonal question of how
+clusters are then assigned to splits — random vs LPT-greedy bin-packing
+— is covered in §7.2.)
+
+**Within-cluster ceiling (hard, by construction).** mmseqs at threshold
+`t` guarantees that every sequence in one cluster has identity ≥ `t`
+to the cluster representative **over the aligned region (≥80% mutual
+coverage, §3.2)**. For an aligned length `L_a` this caps within-cluster
+mismatches at approximately `(1 − t) × L_a` residues. Per-function
+caps at each threshold: §5.
+
+**Cross-cluster gap (soft, by construction).** mmseqs would have
+merged two sequences into one cluster if their identity were ≥ `t`.
+Therefore between any two sequences in different clusters, mismatch
+count is **typically greater than `(1 − t) × L_a` residues** over the
+aligned region — otherwise the clustering would have grouped them.
+Under constrained-slot cluster_disjoint at threshold `t`, this becomes
+the **typical lower bound on the residue gap between train and test
+on the constrained slot**:
+
+> train slot-X sequence vs test slot-X sequence: typically
+> > `(1 − t) × L_a` mismatches.
+
+Choosing `t` is choosing the residue-level difficulty of the
+generalization test. Lower `t` → wider tolerance → wider enforced gap
+→ the model is evaluated on sequences structurally more different from
+its training data.
+
+"Typically" — not "always". The bound is **soft**, not deterministic.
+§9.2 covers the failure modes; §9.3 covers the empirical leakage
+gauge.
+
+**Worked example — HA on Flu A** (aligned length ≈ 567 aa under the
+coverage rule; exact per-threshold caps in §5):
+
+| Threshold | Within-cluster max mismatches | Cross-cluster typical mismatches | What constrained-slot HA-only enforces between train and test |
+|---:|---:|---:|---|
+| id100 | 0 | 0 (byte-identical over aligned region) | Trivial separation — same sequences allowed in train and test |
+| id095 | ~28 | more than ~28 | Train/test HAs typically differ by 28+ residues |
+| id094 | ~34 | more than ~34 | Wider gap; cliff edge for HA-only feasibility (§10.3) |
+| id090 | ~57 | more than ~57 | Largest enforced gap, but HA-only routing degenerates here (§10.3) |
+
+Many of those 28–57 residues sit in functional regions of HA — the
+receptor-binding domain (residues ~117–265) and the major antigenic
+sites (Sa, Sb, Ca, Cb around residues ~140–225). The model has to
+generalize across that residue-level gap to score test pairs correctly.
+
+**Takeaways.**
+
+- `t` is the design knob that controls the train↔test residue gap on
+  the constrained slot. Choosing `t` is choosing the difficulty of the
+  generalization test.
+- Within-cluster identity is bounded **above** by mmseqs's
+  construction; cross-cluster gap is bounded **below** typically but
+  not strictly. The two bounds together yield the residue-gap
+  argument.
+- This is what cluster_disjoint buys over `GroupShuffleSplit` /
+  `GroupKFold`: the groups carry a controlled-similarity meaning, not
+  opaque labels.
+- The unconstrained slot enforces *nothing*. Whether it ends up
+  well-separated is a property of the corpus, not the routing.
+- The "typically" qualifier on the cross-cluster gap is non-trivial.
+  §9.2 covers how it can fail; §9.3 covers how much it actually fails
+  on Flu A.
+
+### 9.2 Limitations of cluster-based separation
+
+**Source.** Steinegger & Söding 2018 (Linclust paper, Nat. Commun.
+9:2542) for the algorithmic mechanism; §6.1 non-monotone observations
+for the topology mechanism; per-dataset `cluster_disjoint_audit.json`
+for the unconstrained-slot leakage numbers.
+
+The "typically more than `(1 − t) × L_a` mismatches" bound in §9.1 is
+soft. Three independent failure modes break it.
+
+**Failure mode 1 — approximate clustering near the boundary.**
+`easy-linclust` is a single-pass, hash-based algorithm rather than a
+global pairwise comparison. Each sequence is hashed into `m = 20`
+k-mers (default) and aligned only against the longest sequence in each
+k-mer group it lands in — not pairwise against all other members. Two
+sequences whose true identity exceeds `t` can fail to share any
+selected k-mer, or can land against different center sequences and
+pass alignment against neither. They end up in different clusters
+even though they should have merged. The Steinegger & Söding 2018
+paper reports a ~28% miss rate at 50% identity (Fig. 3c). At the
+operating thresholds in this doc (id095, id094, id090) the miss rate
+is smaller — the higher the identity, the more likely two
+near-identical sequences share at least one of their 20 selected
+k-mers — but nonzero. Practical consequence: some fraction of
+cross-cluster (train, test) pairs at threshold `t` have identity > `t`
+over the aligned region, eroding the typical gap.
+
+**Failure mode 2 — non-deterministic cluster topology across nearby
+thresholds.** The algorithm depends on which seeds are selected and
+which "longest sequence" each k-mer group anchors on, so small changes
+in `t` can shift cluster boundaries in non-monotone ways. §6.1
+documents this empirically: NP aa drops from 526 clusters at id095 to
+149 at id094 then rises to 706 at id093 before resuming the descent.
+The same sequence can land in cluster A at id094 and cluster B at
+id093 with different cluster co-members. Down-stream, the *identity*
+of which sequences a given cluster contains is sensitive to `t` near
+boundary regions, not just the cluster count.
+
+**Failure mode 3 — the unconstrained slot.** Constrained-slot
+cluster_disjoint enforces nothing on slot Y (§9.1). When biological
+coupling between slots X and Y is strong (HA cluster ≈ NA subtype on
+Flu A HA-NA, Cramér's V ≈ 0.85–0.98), the unconstrained slot follows
+the constrained slot's partition by proxy and the soft gap on slot X
+extends to slot Y as well. When coupling is weak (PB2 ↔ PB1 cluster
+coupling V ≈ 0.41–0.76 on Flu A), the unconstrained slot leaks freely
+— the same physical slot-Y sequence appears in train and test pairs
+because slot-Y partners of multiple slot-X clusters happen to coincide.
+
+The empirical residual leakage on the unconstrained slot is captured
+per-dataset in `cluster_disjoint_audit.json` (full per-split-pair
+breakdown) and surfaced at the top level of `dataset_stats.json` under
+`slot_leakage_summary`. For the published Flu A sweeps at the
+id095–id100 range, unique seq_hash leakage on the unconstrained slot
+is:
+
+| Routing | id100 | id099 | id098 | id097 | id096 | id095 |
+|---|---:|---:|---:|---:|---:|---:|
+| HA-NA HA-only (slot b = NA)     | 7.5% | 5.7% | 4.7% | 4.2% | 3.6% | 3.4% |
+| PB2-PB1 PB2-only (slot b = PB1) | 7.2% | 5.8% | 5.5% | 5.3% | 5.2% | 5.2% |
+
+Both pairs show the same shape: leakage drops as `t` drops, because
+looser clusters absorb more diverse partners and the same
+unconstrained-slot sequence becomes less likely to span multiple
+constrained-slot clusters. HA-NA's drop is steeper than PB2-PB1's
+(3.4% vs 5.2% floor at id095) — consistent with HA-NA's tighter
+HA↔NA coupling absorbing the unconstrained slot into the constrained
+slot's partition more cleanly. Detail on the coupling per pair:
+`docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md` § "Cramér's V
+coupling pre-check".
+
+**Takeaways.**
+
+- The cross-cluster gap is a **statistical tendency** of the algorithm,
+  not a guarantee. A small but nonzero fraction of (train, test) pairs
+  at threshold `t` have identity exceeding `t`.
+- Cluster topology at nearby `t` values is not stable. The mapping
+  "which sequences live in cluster K" changes across small `t` shifts,
+  separately from the cluster count.
+- The unconstrained slot can leak. On Flu A the seq_hash leakage on
+  the unconstrained side is 3.4–7.5% across the published sweep
+  ranges; the per-corpus number is in `slot_leakage_summary` of each
+  dataset's `dataset_stats.json`.
+- These three failure modes are independent — they compound rather
+  than cancel. The empirical residual leakage on a real corpus has to
+  be measured (§9.3), not derived.
+
+### 9.3 1-NN as the empirical leakage gauge
+
+**Source.** The 1-NN cosine margin baseline
+(`src/models/baselines/knn1_margin.py`) trained alongside the MLP on
+each cluster_disjoint dataset. Sweep numbers from
+`docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md` (HA-NA
+HA-only) and `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md`
+(PB2-PB1 PB2-only), both at aa k=3 features.
+
+The audit in §9.2 (Failure mode 3) gives the **direct** sequence-level
+leakage measurement: how many unconstrained-slot sequences appear
+across multiple splits. The 1-NN diagnostic in this subsection gives
+the **complementary** measurement: of the residual leakage that
+remains (border-similarity on the constrained slot plus
+unconstrained-slot leakage), how much can a lookup-style baseline
+exploit?
+
+**The logic.** A 1-nearest-neighbor classifier predicts each test
+pair's label from its closest training pair (cosine distance on the
+pair feature vector). Under constrained-slot cluster_disjoint at
+threshold `t`, every test pair has a "wider gap" to its nearest
+training pair than under seq_disjoint, *to the extent the cluster gap
+is hard*. If the gap is strict, 1-NN's prediction-by-nearest-pair
+degrades as `t` drops. If the gap is soft — i.e., the failure modes in
+§9.2 are active — 1-NN can still find close training neighbors and
+stay competitive.
+
+So **1-NN performance trajectory across `t` is the empirical upper
+bound on residual leakage**. A 1-NN F1 that drops sharply with `t`
+indicates the cluster gap is breaking lookup-style baselines. A 1-NN
+F1 that stays flat indicates residual border-similarity leakage that
+lookup can still exploit.
+
+**Empirical pattern on Flu A** (1-NN cosine margin F1, single seed):
+
+| Pair | Direction | id100 | id099 | id098 | id097 | id096 | id095 | Drop id100 → id095 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| HA-NA   | HA-only  | 0.958 | 0.940 | 0.931 | 0.930 | 0.920 | 0.911 | **-4.7 pp** |
+| PB2-PB1 | PB2-only | 0.929 | 0.895 | 0.921 | 0.900 | 0.913 | 0.907 | **-2.2 pp** |
+
+Two readings:
+
+- The drop is **real but small**. id100 → id095 spans
+  `(1 − t) × L_a` ≈ 0 → ~28 mismatch residues on HA, similar on PB2.
+  That's a non-trivial residue-level gap, and 1-NN loses only 2–5 pp
+  F1 across it. Border-similarity leakage persists at id095 on both
+  pairs.
+- The drop is **steeper on HA-NA than on PB2-PB1** (4.7 vs 2.2 pp).
+  Consistent with the §9.2 unconstrained-slot framing: HA-NA's tighter
+  HA↔NA coupling drags NA along with HA across the partition;
+  PB2-PB1's weaker coupling leaves PB1 free to leak, blunting 1-NN's
+  degradation.
+
+**1-NN vs MLP cross-comparison** is informative on its own:
+
+- HA-NA HA-only: MLP > 1-NN at every threshold (MLP id095 F1 = 0.918
+  vs 1-NN 0.911). The trained model edges out lookup — the cluster
+  gap is hard enough that learning beats memorization slightly.
+- PB2-PB1 PB2-only: **1-NN > MLP at every threshold** (1-NN id095 F1
+  = 0.907 vs MLP 0.897). Lookup wins — the trained model is not
+  extracting signal beyond what nearest-neighbor calibration
+  provides. Strong signal that residual leakage on PB2-PB1 is large
+  enough to make lookup a competitive ceiling.
+
+**Takeaways.**
+
+- The 1-NN trajectory is the load-bearing empirical diagnostic: it
+  converts the soft separation guarantee of §9.1 into a measurable
+  per-corpus, per-routing number, complementary to the direct
+  sequence-level audit in §9.2.
+- On Flu A, 1-NN stays competitive through id094 (the cliff) on both
+  pairs tested — cluster_disjoint at this corpus's feasibility range
+  does not break lookup-style baselines.
+- 1-NN beating MLP is a stronger leakage signal than 1-NN merely
+  staying competitive. PB2-PB1 PB2-only shows it; HA-NA HA-only does
+  not.
+- A model evaluation that wants 1-NN to fail (i.e., wants a
+  generalization test the cluster gap alone can't break) needs the
+  next lever — see §9.4.
+
+### 9.4 Forward pointer: differential lookup degradation via hard negatives
+
+A candidate next lever for breaking the residual lookup signal in
+§9.3 without changing the routing: re-weight the negative sampler
+toward harder regimes via `dataset.negative_sampling.regime_targets`.
+Pulling more negatives from `host_subtype_year` (metadata matches
+positives closely) creates training negatives that 1-NN will mis-rank
+against test positives. MLP and LGBM can in principle decorrelate
+from metadata-driven similarity; 1-NN cannot. Expected signal:
+**differential degradation** — 1-NN drops more than MLP / LGBM —
+directly demonstrating that lookup is being broken without breaking
+learning. Not yet measured.
+
+---
+
+## 10. Feasibility on Flu A
+
+§9 covers constrained-slot cluster_disjoint conceptually; this
+section covers the bilateral cluster_disjoint mode and its empirical
+feasibility on the Flu A corpus. The §7.2 question — "is the largest
+atom small enough for 80/10/10?" — answered per (schema pair,
+alphabet, threshold).
+
+### 10.1 The bipartite-CC framework (bilateral routing)
+
+Under bilateral cluster_disjoint, both slots' clusters are
+constrained. The atom is a **bipartite connected component** on the
+(slot A, slot B) cluster graph — built from positive pairs, with an
+edge `HA_ck — NA_cm` iff some pair has that combination:
+
+```
+HA aa clusters (slot A)             NA aa clusters (slot B)
+   ┌─────────┐
+   │ HA_c1   │ ─── pair (isolate i) ───►   ┌─────────┐
+   └─────────┘                              │ NA_c5   │
+                                            └────┬────┘
+                                                 │
+                              pair (isolate j) ──┘
+                                ┌─►   ┌─────────┐
+   ┌─────────┐                  │     │ NA_c9   │
+   │ HA_c2   │ ── pair (k) ─────┘     └─────────┘
+   └─────────┘
+   ┌─────────┐ ─── pair (m) ────────► ┌─────────┐
+   │ HA_c3   │                        │ NA_c7   │
+   └─────────┘                        └─────────┘
+
+
+Connected components on this bipartite graph:
+   CC #1 = { HA_c1, NA_c5 }              ← pairs in CC #1 must split together
+   CC #2 = { HA_c2, NA_c9 }
+   CC #3 = { HA_c3, NA_c7 }
+```
+
+All pairs inside one CC must land in the same split — otherwise a
+cluster on one side would appear in both train and test, defeating
+the routing's purpose. The per-function collapse trajectory (§6.1)
+predicts the resulting bipartite-CC sizes. When either slot's
+clusters collapse into one mega-cluster — for example PB2 aa at
+id090 has only 24 clusters absorbing 99.6% of the corpus (§6.4) —
+the bipartite graph collapses into a single mega-component, and
+the routing becomes structurally infeasible (no 80/10/10 split is
+possible).
+
+**Naming.** This routing goes by several names across docs, code, and
+writeups:
+- **bipartite-CC LPT-greedy** — the precise technical name
+  (bipartite connected components of `(slot_A_cluster, slot_B_cluster)`,
+  bin-packed via Longest-Processing-Time first-fit decreasing into the
+  requested split fractions).
+- **cluster_disjoint routing** — the user-facing config name
+  (`dataset.split_strategy.mode: cluster_disjoint` with the default
+  `single_slot: null`).
+- **BiCC-Split** — paper / prose shorthand for "Bipartite
+  Connected-Component Split", abbreviated **BiCC** or **bicc** in
+  inline references.
+
+These name the same algorithm. Committed docs prefer
+**bipartite-CC LPT-greedy** on first mention and **bicc** for
+subsequent references; `cluster_disjoint` is for code and config;
+`BiCC-Split` is for manuscript prose where a memorable name helps.
+
+The algorithm differs from DataSAIL's split heuristic (cluster + ILP)
+in two ways: (a) routing operates on bipartite-CCs as atomic units,
+never dropping pairs ("CC bin-packing never splits a component",
+`_split_helpers.py:267`), where DataSAIL's I2/S2 explicitly drop
+pairs that straddle folds; (b) bicc's LPT-greedy is a heuristic that
+hits the requested split fractions within ~0.01% on Flu A (memory.md
+"seq_disjoint scales to conserved proteins"), where DataSAIL solves
+an NP-hard ILP via a heuristic clustering pre-pass.
+
+### 10.2 Bilateral feasibility on Flu A
+
+Source: the four feasibility CSVs at
 `results/flu/{version}/runs/cluster_disjoint_feasibility/feasibility_<pair>_<alphabet>.csv`,
 generated by `src/analysis/cluster_disjoint_feasibility.py`.
 Consolidated plot: `bipartite_largest_pct_vs_threshold.png` from
@@ -977,7 +1313,7 @@ See also: `docs/results/2026-05-21_bicc_pair_drop_audit.md` for the
 no-drop audit; `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
 for the algorithm choice and its validation.
 
-### 9.1 Single-slot cluster_disjoint extends the ceiling
+### 10.3 Single-slot cluster_disjoint extends the ceiling
 
 The table above is for **bilateral** cluster_disjoint (both slots'
 clusters disjoint between splits). Single-slot routing (only one
@@ -1031,7 +1367,7 @@ aa, top-2 atom sizes (% of deduped pairs) at each threshold:
 
 ---
 
-## 10. Regenerating everything
+## 11. Regenerating everything
 
 The producer/consumer chain, end to end:
 
@@ -1087,12 +1423,12 @@ sequence_length_summary.csv               — per (function, alphabet)
 mutations_tolerated_table.csv             — concrete max-mismatches table
 unique_sequence_retention.png             — Plot A (§4)
 cluster_counts_vs_threshold.png           — Plot B (§6)
-bipartite_largest_pct_vs_threshold.png    — Plot C (§9)
+bipartite_largest_pct_vs_threshold.png    — Plot C (§10)
 ```
 
 ---
 
-## 11. See also
+## 12. See also
 
 - `docs/methods/leakage_definitions.md` § "Routing equivalence and
   mmseqs argument semantics" — formal routing semantics (aa

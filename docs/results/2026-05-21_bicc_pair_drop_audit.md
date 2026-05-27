@@ -209,6 +209,6 @@ Reordered by relevance now that the no-drop status is confirmed:
 - Per-segment cluster collapse: `docs/methods/clustering_overview.md`
   §8.1.
 - Feasibility ceiling table:
-  `docs/methods/clustering_overview.md` §9.
+  `docs/methods/clustering_overview.md` §10.2.
 - DataSAIL bake-off (paused): `feature/datasail-bakeoff` branch +
   `docs/plans/2026-05-19_datasail_bakeoff_plan.md`.

@@ -235,7 +235,7 @@ in their header (`conf/bundles/flu_pb2_pb1_cluster_nt_id*.yaml`).
   cluster_id099 LGBM/MLP results.
 - `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` — aa
   redundancy sweep; the parallel reference for the nt picture above.
-  (Feasibility table now lives in `docs/methods/clustering_overview.md` §9.)
+  (Feasibility table now lives in `docs/methods/clustering_overview.md` §10.2.)
 - `data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` —
   nt redundancy sweep (autogen by the per-function script).
 - `docs/methods/leakage_definitions.md` — leakage mode #4 (cluster
