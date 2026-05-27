@@ -1279,6 +1279,7 @@ def split_dataset_v2(
     cluster_alphabet: str = 'aa',
     cds_final_path: Optional[str] = None,
     single_slot: Optional[str] = None,
+    routed_pos_override: Optional[dict] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1398,7 +1399,33 @@ def split_dataset_v2(
     # docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
     seq_disjoint_audit: Optional[dict] = None
     cluster_disjoint_audit: Optional[dict] = None
-    if train_isolates_override is not None:
+    if routed_pos_override is not None:
+        # k-fold path: pre-routed positives provided by the generator
+        # (`generate_all_cluster_disjoint_cv_folds_v2`). Skip the routing
+        # dispatch entirely; use the override's train_pos / val_pos /
+        # test_pos / cluster_disjoint_audit / pos_dedup_stats. pos_df was
+        # built above (wasted work for the override case; acceptable cost
+        # ~few seconds per fold on Flu A — avoids restructuring the build
+        # block). See Phase 3 of
+        # docs/plans/2026-05-27_kfold_variance_estimation_plan.md.
+        if split_strategy_mode != 'cluster_disjoint':
+            raise ValueError(
+                f"split_dataset_v2: routed_pos_override requires "
+                f"split_strategy_mode='cluster_disjoint'; got {split_strategy_mode!r}."
+            )
+        train_pos = routed_pos_override['train_pos']
+        val_pos = routed_pos_override['val_pos']
+        test_pos = routed_pos_override['test_pos']
+        cluster_disjoint_audit = routed_pos_override['cluster_disjoint_audit']
+        pos_dedup_stats = routed_pos_override['pos_dedup_stats']
+        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
+        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
+        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
+        print(f"split_dataset_v2: using routed_pos_override (k-fold fold_id="
+              f"{routed_pos_override.get('fold_id', '?')}); "
+              f"train={len(train_pos):,} val={len(val_pos):,} test={len(test_pos):,}",
+              flush=True)
+    elif train_isolates_override is not None:
         if split_strategy_mode != 'random':
             raise NotImplementedError(
                 f"split_dataset_v2: split_strategy_mode={split_strategy_mode!r} is not "
@@ -1935,6 +1962,214 @@ def generate_all_cv_folds_v2(
         )
         yield {
             'fold_id': fold_i,
+            'train_pairs': train_pairs,
+            'val_pairs': val_pairs,
+            'test_pairs': test_pairs,
+            'duplicate_stats': dup_stats,
+            'exposure_tables': exposure_tables,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 4.8 generate_all_cluster_disjoint_cv_folds_v2 (Phase 3 of the k-fold plan)
+# ---------------------------------------------------------------------------
+def generate_all_cluster_disjoint_cv_folds_v2(
+    df: pd.DataFrame,
+    n_folds: int,
+    seed: int,
+    neg_to_pos_ratio: float,
+    val_ratio: float,
+    schema_pair: Tuple[str, str],
+    single_slot: str,
+    cluster_id_path: str,
+    cluster_id_threshold: Optional[float],
+    cluster_alphabet: str = 'aa',
+    cds_final_path: Optional[str] = None,
+    max_acceptable_drift_pp: float = 0.05,
+    min_test_frac: float = 0.05,
+    max_attempts_per_seq: int = 50,
+    max_attempts_multiplier: int = 100,
+    axes_for_flags: list = _DEFAULT_AXES,
+    axis_quotas: Optional[dict] = None,
+    sampling_axes: Optional[list] = None,
+    year_match: str = 'binned',
+    year_bin_edges: Optional[list] = None,
+    on_shortfall: str = 'redistribute',
+    regime_aware_coverage: bool = False,
+    ) -> Iterator[dict]:
+    """Generate k-fold splits for single-slot cluster_disjoint routing.
+
+    Differs from generate_all_cv_folds_v2 (random-mode CV):
+    1. Routes via cluster_disjoint_route_pos_df(n_folds=k) on the global
+       pos_df, NOT sklearn KFold on isolates. Atom ordering is pinned per
+       D1 of the k-fold plan; GroupKFold partition is bit-reproducible.
+    2. Per-fold negative sampling uses an independent forbidden_pair_keys
+       set inside each split_dataset_v2 call (within-fold threading
+       across the 3 splits; reset between folds for fold independence
+       per D3 of the plan).
+    3. Collect-all D3 evaluation: all folds routed first, then either
+       yield all folds (if all pass) or raise the D4 menu listing every
+       failing fold and its drift_pp / test_frac values.
+
+    Yields fold_data dicts matching generate_all_cv_folds_v2's shape:
+        {'fold_id', 'train_pairs', 'val_pairs', 'test_pairs',
+         'duplicate_stats', 'exposure_tables'}.
+
+    See `docs/plans/2026-05-27_kfold_variance_estimation_plan.md` Phase 3.
+    """
+    from src.datasets._split_helpers import (
+        cluster_disjoint_route_pos_df, load_cluster_lookup,
+    )
+    from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
+
+    # ----- Build co-occurrence set once -----
+    print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
+    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
+    print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
+
+    # ----- Build global pos_df once -----
+    print("\nBuilding global positive pairs (one call for all folds)...")
+    pos_df, pos_dedup_stats = create_positive_pairs_v2(df, schema_pair=schema_pair)
+    if len(pos_df) == 0:
+        raise ValueError(
+            f"No positive pairs generated from df. Verify schema_pair={schema_pair}."
+        )
+    if not pos_df['assembly_id_a'].is_unique:
+        raise ValueError(
+            "v2 strict mode: assembly_id_a not unique in pos_df. "
+            "Schema-ordered v2 requires exactly one pair per isolate."
+        )
+    print(f"   Global pos_df: {len(pos_df):,} unique pair_keys after dedup.")
+
+    # ----- Attach nt CDS-DNA hash if nt-alphabet routing -----
+    pos_hash_col = 'seq_hash'
+    if cluster_alphabet == 'nt':
+        if cds_final_path is None:
+            raise ValueError(
+                "cluster_alphabet='nt' requires cds_final_path "
+                "(cds_final.parquet path from Stage 1.5)."
+            )
+        pos_df = attach_cds_dna_hash_to_pos_df(
+            pos_df, Path(cds_final_path), schema_pair=schema_pair,
+        )
+        pos_hash_col = 'cds_dna_hash'
+
+    # ----- Load cluster lookup -----
+    print(f"\nLoading cluster lookup from {cluster_id_path}...")
+    cluster_lookup = load_cluster_lookup(cluster_id_path)
+
+    # ----- Route into k folds (single call to cluster_disjoint_route_pos_df) -----
+    print(f"\nRouting via cluster_disjoint_route_pos_df(n_folds={n_folds}, "
+          f"single_slot={single_slot!r}, max_acceptable_drift_pp="
+          f"{max_acceptable_drift_pp}, min_test_frac={min_test_frac})...")
+    folds = cluster_disjoint_route_pos_df(
+        pos_df, cluster_lookup,
+        train_ratio=0.8, val_ratio=val_ratio, seed=seed,
+        cluster_id_threshold=cluster_id_threshold,
+        cluster_lookup_path=str(cluster_id_path),
+        pos_hash_col=pos_hash_col,
+        cluster_alphabet=cluster_alphabet,
+        single_slot=single_slot,
+        n_folds=n_folds,
+        max_acceptable_drift_pp=max_acceptable_drift_pp,
+        min_test_frac=min_test_frac,
+    )
+
+    # ----- D4 collect-all check: raise with menu if any fold fails D3 -----
+    failing = []
+    for fold_id, (_, _, _, audit) in enumerate(folds):
+        fc = audit['feasibility_check']
+        if not fc['all_pass']:
+            failing.append(fold_id)
+    if failing:
+        msg = [
+            "cluster_disjoint k-fold D3 collect-all failure (no folds written).",
+            f"  Configuration: schema_pair={schema_pair}, "
+            f"alphabet={cluster_alphabet}, single_slot={single_slot!r}, "
+            f"threshold={cluster_id_threshold}, n_folds={n_folds}.",
+            f"  Failing folds: {failing}. Per-fold D3 status:",
+        ]
+        for fold_id, (_, _, _, audit) in enumerate(folds):
+            fc = audit['feasibility_check']
+            status = 'PASS' if fc['all_pass'] else 'FAIL'
+            drift = fc['max_acceptable_drift_pp']['achieved']
+            tf = fc['min_test_frac']['achieved']
+            reasons = []
+            if not fc['max_acceptable_drift_pp']['pass']:
+                reasons.append(
+                    f"drift_pp={drift:.4f} > {fc['max_acceptable_drift_pp']['threshold']}"
+                )
+            if not fc['min_test_frac']['pass']:
+                reasons.append(
+                    f"test_frac={tf:.4f} < {fc['min_test_frac']['threshold']}"
+                )
+            tag = '' if not reasons else '  <-- ' + ', '.join(reasons)
+            msg.append(
+                f"    fold {fold_id}: {status}  "
+                f"drift_pp={drift:.4f}, test_frac={tf:.4f}{tag}"
+            )
+        msg += [
+            "  Options (require explicit config change):",
+            f"    - reduce dataset.n_folds (try <= {n_folds - 1})",
+            "    - relax to a looser dataset.split_strategy.cluster_id_threshold",
+            "    - increase dataset.split_strategy.feasibility.max_acceptable_drift_pp",
+            "    - decrease dataset.split_strategy.feasibility.min_test_frac",
+            "      (last two loosen feasibility; produce noisier per-fold metrics)",
+            "  See D4 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md.",
+        ]
+        raise NotImplementedError('\n'.join(msg))
+
+    print(f"\nAll {n_folds} folds passed D3 feasibility. "
+          f"Proceeding with per-fold negative generation...")
+
+    # ----- Per-fold: generate negatives via split_dataset_v2 with override -----
+    for fold_id, (train_pos, val_pos, test_pos, fold_audit) in enumerate(folds):
+        print(f"\n{'='*60}")
+        print(f"CV (cluster_disjoint k={n_folds}): fold {fold_id + 1}/{n_folds}  "
+              f"(pos: train={len(train_pos):,} val={len(val_pos):,} test={len(test_pos):,})")
+        print(f"{'='*60}")
+
+        # Per-fold seed for negative sampling. Within each split_dataset_v2
+        # call, forbidden_pair_keys is threaded across train/val/test (mode #1
+        # intra-model leakage prevention). Across folds, the set is reset
+        # because each split_dataset_v2 call has its own `forbidden_so_far`.
+        fold_seed = seed + fold_id
+
+        train_pairs, val_pairs, test_pairs, dup_stats, exposure_tables = split_dataset_v2(
+            df=df,
+            schema_pair=schema_pair,
+            neg_to_pos_ratio=neg_to_pos_ratio,
+            train_ratio=0.8,
+            val_ratio=val_ratio,
+            seed=fold_seed,
+            max_attempts_per_seq=max_attempts_per_seq,
+            max_attempts_multiplier=max_attempts_multiplier,
+            axes_for_flags=axes_for_flags,
+            axis_quotas=axis_quotas,
+            sampling_axes=sampling_axes,
+            year_match=year_match,
+            year_bin_edges=year_bin_edges,
+            on_shortfall=on_shortfall,
+            regime_aware_coverage=regime_aware_coverage,
+            cooccur_pairs=cooccur_pairs,
+            cooccur_stats=cooccur_stats,
+            split_strategy_mode='cluster_disjoint',
+            cluster_id_path=cluster_id_path,
+            cluster_id_threshold=cluster_id_threshold,
+            cluster_alphabet=cluster_alphabet,
+            cds_final_path=cds_final_path,
+            single_slot=single_slot,
+            routed_pos_override={
+                'fold_id':                fold_id,
+                'train_pos':              train_pos,
+                'val_pos':                val_pos,
+                'test_pos':               test_pos,
+                'cluster_disjoint_audit': fold_audit,
+                'pos_dedup_stats':        pos_dedup_stats,
+            },
+        )
+        yield {
+            'fold_id': fold_id,
             'train_pairs': train_pairs,
             'val_pairs': val_pairs,
             'test_pairs': test_pairs,
@@ -2641,11 +2876,18 @@ def _validate_v2_config(config) -> None:
             f"'Out of scope' section."
         )
     if split_mode == 'cluster_disjoint' and n_folds is not None and int(n_folds) > 1:
-        raise NotImplementedError(
-            f"dataset.split_strategy.mode='cluster_disjoint' is not yet compatible with "
-            f"dataset.n_folds={n_folds} (CV mode). cluster_disjoint is single-split-only "
-            f"for now."
-        )
+        # k-fold for cluster_disjoint is supported ONLY when single_slot is set.
+        # Bilateral cluster_disjoint k-fold is out of scope (OoS #5 of the
+        # k-fold variance plan).
+        ss = OmegaConf.select(config, "dataset.split_strategy.single_slot")
+        if ss is None:
+            raise NotImplementedError(
+                f"dataset.split_strategy.mode='cluster_disjoint' with "
+                f"dataset.n_folds={n_folds} (CV mode) requires "
+                f"split_strategy.single_slot in {{'a','b'}}. Bilateral "
+                f"cluster_disjoint k-fold is not currently supported. See "
+                f"OoS #5 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md."
+            )
 
     # metadata_holdout: structural validation only (deeper validation happens
     # inside compute_metadata_holdout_isolates after df is loaded). Reject

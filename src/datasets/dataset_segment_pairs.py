@@ -1702,6 +1702,20 @@ if PAIR_BUILDER_VERSION == 'v2':
                     f"dataset.split_strategy.single_slot must be 'a' or 'b' or null; "
                     f"got {SINGLE_SLOT!r}"
                 )
+    # D3 feasibility knobs for k-fold cluster_disjoint (read from
+    # split_strategy.feasibility.*; defaults match D3 of the k-fold plan).
+    # See docs/plans/2026-05-27_kfold_variance_estimation_plan.md D3.
+    MAX_ACCEPTABLE_DRIFT_PP = 0.05
+    MIN_TEST_FRAC = 0.05
+    if SPLIT_STRATEGY_CFG is not None:
+        feas = getattr(SPLIT_STRATEGY_CFG, 'feasibility', None)
+        if feas is not None:
+            mdp = getattr(feas, 'max_acceptable_drift_pp', None)
+            if mdp is not None:
+                MAX_ACCEPTABLE_DRIFT_PP = float(mdp)
+            mtf = getattr(feas, 'min_test_frac', None)
+            if mtf is not None:
+                MIN_TEST_FRAC = float(mtf)
     # Default CDS path: data/processed/<virus>/<version>/cds_final.parquet
     # (alongside the input protein_final).
     if CLUSTER_ALPHABET == 'nt' and CDS_FINAL_PATH is None:
@@ -1729,6 +1743,7 @@ if PAIR_BUILDER_VERSION == 'v2':
     from src.datasets.dataset_segment_pairs_v2 import (
         split_dataset_v2,
         generate_all_cv_folds_v2,
+        generate_all_cluster_disjoint_cv_folds_v2,
         save_split_output_v2,
         compute_metadata_coverage,
         _validate_v2_config,
@@ -1769,24 +1784,66 @@ if PAIR_BUILDER_VERSION == 'v2':
             json.dump(cv_info, f, indent=2)
         print(f"Saved CV metadata to: {output_dir / 'cv_info.json'}")
 
-        # TODO. Explain this loop and how it allows us to write each fold to disk as soon
-        # as it's ready, reducing peak memory usage and making progress visible on disk.
-        for fold_data in generate_all_cv_folds_v2(
-            df=df,
-            n_folds=N_FOLDS,
-            seed=RANDOM_SEED,
-            neg_to_pos_ratio=NEG_TO_POS_RATIO,
-            val_ratio=VAL_RATIO,
-            schema_pair=schema_pair,
-            max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
-            axes_for_flags=AXES_FOR_FLAGS,
-            axis_quotas=AXIS_QUOTAS,
-            sampling_axes=SAMPLING_AXES,
-            year_match=YEAR_MATCH,
-            year_bin_edges=YEAR_BIN_EDGES,
-            on_shortfall=ON_SHORTFALL,
-            regime_aware_coverage=REGIME_AWARE_COVERAGE,
-        ):
+        # Dispatch the CV generator by split mode:
+        # - cluster_disjoint + single_slot: new k-fold generator from Phase 3
+        #   of the k-fold variance plan (GroupKFold-on-cluster_id +
+        #   collect-all D3 + D4 menu).
+        # - all other modes (random / seq_disjoint*): existing
+        #   isolate-KFold-on-random generator. (*seq_disjoint with N_FOLDS>1
+        #   is still rejected by _validate_v2_config at the moment.)
+        use_cluster_disjoint_kfold = (
+            SPLIT_STRATEGY_MODE == 'cluster_disjoint' and SINGLE_SLOT is not None
+        )
+        if use_cluster_disjoint_kfold:
+            print(f'v2 CV mode: routing via cluster_disjoint k-fold '
+                  f"(single_slot={SINGLE_SLOT!r}, alphabet={CLUSTER_ALPHABET!r}, "
+                  f'threshold={CLUSTER_ID_THRESHOLD}, '
+                  f'max_acceptable_drift_pp={MAX_ACCEPTABLE_DRIFT_PP}, '
+                  f'min_test_frac={MIN_TEST_FRAC})')
+            cv_gen = generate_all_cluster_disjoint_cv_folds_v2(
+                df=df,
+                n_folds=N_FOLDS,
+                seed=RANDOM_SEED,
+                neg_to_pos_ratio=NEG_TO_POS_RATIO,
+                val_ratio=VAL_RATIO,
+                schema_pair=schema_pair,
+                single_slot=SINGLE_SLOT,
+                cluster_id_path=CLUSTER_ID_PATH,
+                cluster_id_threshold=CLUSTER_ID_THRESHOLD,
+                cluster_alphabet=CLUSTER_ALPHABET,
+                cds_final_path=CDS_FINAL_PATH,
+                max_acceptable_drift_pp=MAX_ACCEPTABLE_DRIFT_PP,
+                min_test_frac=MIN_TEST_FRAC,
+                max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
+                axes_for_flags=AXES_FOR_FLAGS,
+                axis_quotas=AXIS_QUOTAS,
+                sampling_axes=SAMPLING_AXES,
+                year_match=YEAR_MATCH,
+                year_bin_edges=YEAR_BIN_EDGES,
+                on_shortfall=ON_SHORTFALL,
+                regime_aware_coverage=REGIME_AWARE_COVERAGE,
+            )
+        else:
+            cv_gen = generate_all_cv_folds_v2(
+                df=df,
+                n_folds=N_FOLDS,
+                seed=RANDOM_SEED,
+                neg_to_pos_ratio=NEG_TO_POS_RATIO,
+                val_ratio=VAL_RATIO,
+                schema_pair=schema_pair,
+                max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
+                axes_for_flags=AXES_FOR_FLAGS,
+                axis_quotas=AXIS_QUOTAS,
+                sampling_axes=SAMPLING_AXES,
+                year_match=YEAR_MATCH,
+                year_bin_edges=YEAR_BIN_EDGES,
+                on_shortfall=ON_SHORTFALL,
+                regime_aware_coverage=REGIME_AWARE_COVERAGE,
+            )
+
+        # Stream each fold to disk as it's produced (reduces peak memory; lets
+        # progress show up on disk while later folds are still computing).
+        for fold_data in cv_gen:
             fold_dir = output_dir / f"fold_{fold_data['fold_id']}"
             print(f"\nSaving fold {fold_data['fold_id'] + 1}/{N_FOLDS} to: {fold_dir}")
             save_split_output_v2(
