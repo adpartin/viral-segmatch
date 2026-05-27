@@ -187,27 +187,72 @@ for SEED in $SEEDS; do
         OUT_MLP="${MODELS_ROOT}/${OUTPUT_PREFIX}_id${THR}${SEED_SEG}_${TS}"
         LOG="${LOG_DIR}/${OUTPUT_PREFIX}_id${THR}${SEED_SEG}_${TS}.log"
 
-        echo "  id${THR} seed=${SEED} cuda:${GPU}  log=${LOG}"
+        # Auto-detect fold_*/ subdirs (Phase 6 of the k-fold variance
+        # plan). When present, the dataset dir is a k-fold parent and the
+        # inner subshell loops over folds sequentially within this
+        # (threshold, seed) GPU slot. When absent, the existing single-shot
+        # flow runs.
+        FOLD_IDS=""
+        for fd in "$DS"/fold_*; do
+            [ -d "$fd" ] || continue
+            fid=$(basename "$fd" | sed 's/^fold_//')
+            FOLD_IDS="$FOLD_IDS $fid"
+        done
+        FOLD_IDS=$(echo "$FOLD_IDS" | xargs)
+
+        if [ -n "$FOLD_IDS" ]; then
+            echo "  id${THR} seed=${SEED} cuda:${GPU}  folds=[${FOLD_IDS}]  log=${LOG}"
+        else
+            echo "  id${THR} seed=${SEED} cuda:${GPU}  log=${LOG}"
+        fi
 
         # Subshell: MLP on the assigned GPU, then baselines sequentially on CPU.
         # The segmatch env is already activated at the top of this script;
         # the subshell inherits CONDA_PREFIX/PATH so `python` resolves
         # correctly inside stage4_train.sh / stage4_baselines.sh.
+        #
+        # k-fold case: loop over folds sequentially within this slot; each
+        # fold gets its own output dir suffixed _fold${FOLD}. Baselines are
+        # run per-fold (one set per fold) when SEED == FIRST_SEED, since
+        # baselines don't take a seed override (so seed dimension is
+        # redundant for them, but fold dimension is not).
         (
-            bash "$SCRIPT_DIR/stage4_train.sh" "$BUNDLE" \
-                --cuda_name "cuda:${GPU}" \
-                --dataset_dir "$DS" \
-                --output_dir "$OUT_MLP" \
-                --override "master_seed=${SEED}"
+            if [ -n "$FOLD_IDS" ]; then
+                for FOLD in $FOLD_IDS; do
+                    FOLD_DS="$DS/fold_${FOLD}"
+                    OUT_MLP_FOLD="${OUT_MLP}_fold${FOLD}"
+                    bash "$SCRIPT_DIR/stage4_train.sh" "$BUNDLE" \
+                        --cuda_name "cuda:${GPU}" \
+                        --dataset_dir "$FOLD_DS" \
+                        --output_dir "$OUT_MLP_FOLD" \
+                        --override "master_seed=${SEED}"
 
-            if [ "$SEED" = "$FIRST_SEED" ]; then
-                for B in $BASELINES_LIST; do
-                    OUT_B="${MODELS_ROOT}/baseline_${B}_${OUTPUT_PREFIX#training_}_id${THR}_${TS}"
-                    bash "$SCRIPT_DIR/stage4_baselines.sh" "$BUNDLE" \
-                        --baseline "$B" \
-                        --dataset_dir "$DS" \
-                        --output_dir "$OUT_B"
+                    if [ "$SEED" = "$FIRST_SEED" ]; then
+                        for B in $BASELINES_LIST; do
+                            OUT_B_FOLD="${MODELS_ROOT}/baseline_${B}_${OUTPUT_PREFIX#training_}_id${THR}_fold${FOLD}_${TS}"
+                            bash "$SCRIPT_DIR/stage4_baselines.sh" "$BUNDLE" \
+                                --baseline "$B" \
+                                --dataset_dir "$FOLD_DS" \
+                                --output_dir "$OUT_B_FOLD"
+                        done
+                    fi
                 done
+            else
+                bash "$SCRIPT_DIR/stage4_train.sh" "$BUNDLE" \
+                    --cuda_name "cuda:${GPU}" \
+                    --dataset_dir "$DS" \
+                    --output_dir "$OUT_MLP" \
+                    --override "master_seed=${SEED}"
+
+                if [ "$SEED" = "$FIRST_SEED" ]; then
+                    for B in $BASELINES_LIST; do
+                        OUT_B="${MODELS_ROOT}/baseline_${B}_${OUTPUT_PREFIX#training_}_id${THR}_${TS}"
+                        bash "$SCRIPT_DIR/stage4_baselines.sh" "$BUNDLE" \
+                            --baseline "$B" \
+                            --dataset_dir "$DS" \
+                            --output_dir "$OUT_B"
+                    done
+                fi
             fi
         ) > "$LOG" 2>&1 &
 
