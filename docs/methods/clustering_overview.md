@@ -825,7 +825,7 @@ random group-respecting shuffles for variance estimation, LPT-greedy
 as implemented here is fully deterministic given the atom set and
 target ratios — re-running with a different `master_seed` reproduces
 the same partition. Per-fold variance under cluster_disjoint is not
-available from the current single-shot implementation; the
+available from the current holdout implementation; the
 `GroupKFold`-based multi-fold path noted in BACKLOG.md "Single-slot
 routing follow-ups" #3 would unlock it.
 

@@ -190,7 +190,7 @@ for SEED in $SEEDS; do
         # Auto-detect fold_*/ subdirs (Phase 6 of the k-fold variance
         # plan). When present, the dataset dir is a k-fold parent and the
         # inner subshell loops over folds sequentially within this
-        # (threshold, seed) GPU slot. When absent, the existing single-shot
+        # (threshold, seed) GPU slot. When absent, the existing holdout
         # flow runs.
         FOLD_IDS=""
         for fd in "$DS"/fold_*; do

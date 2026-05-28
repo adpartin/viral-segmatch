@@ -246,7 +246,7 @@ The plan is **implemented** when:
 
 | Risk | Symptom | Mitigation |
 |---|---|---|
-| Coverage runs much slower (per-regime budget × 8 regimes per cell) | Stage 3 wall-clock 5× higher | Profile in Phase 5; reduce `per_regime_budget` from 10 → 5; consider single-shot weighted sampling instead of strict priority |
+| Coverage runs much slower (per-regime budget × 8 regimes per cell) | Stage 3 wall-clock 5× higher | Profile in Phase 5; reduce `per_regime_budget` from 10 → 5; consider holdout weighted sampling instead of strict priority |
 | Last-resort fallback fires often (cells with no feasible non-`none_match` partners) | High `fell_back_to_uniform` count in stats | Could indicate too-narrow filter; expected behavior on extreme filters (e.g. single-host bundle). Logged not raised. |
 | Easy-regime TNR regresses (model never sees easy negatives during training) | Drop in `none_match` / `host_only` test TNR | Add `none_match_floor: 0.1` knob as a follow-up; coverage allocates at least 10% of placements to `none_match` regardless of priority. |
 | RNG determinism breaks (different results across runs with same seed) | Stage 3 stats vary run-to-run | Use the same `rng` instance and keep weighted_choice calls deterministic; covered by Phase 4 tests |

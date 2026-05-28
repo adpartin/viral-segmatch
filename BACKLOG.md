@@ -86,7 +86,7 @@ aa cluster_alphabet. These items extend that footprint.
 3. **CV-style fold support for cluster_disjoint single-slot.** Replace
    the current LPT-greedy bin-packing with sklearn's `GroupKFold`
    keyed on `cluster_id_{single_slot}` for the multi-fold path; keep
-   LPT-greedy for the single-shot 80/10/10 case where exact ratios
+   LPT-greedy for the holdout 80/10/10 case where exact ratios
    matter. ~50 lines + tests. Enables true CV (mean ± std across
    folds, both split + training stochasticity) on top of the existing
    model-seed variance.

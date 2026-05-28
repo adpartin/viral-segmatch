@@ -221,9 +221,9 @@ def _build_audit(
     max_acceptable_drift_pp: float,
     min_test_frac: float,
 ) -> dict:
-    """Build the per-routing audit dict (single-shot OR per fold).
+    """Build the per-routing audit dict (holdout OR per fold).
 
-    Shared between the single-shot and k-fold paths so the audit schema
+    Shared between the holdout and k-fold paths so the audit schema
     is identical modulo the optional fold_id field.
     """
     def _set(df: pd.DataFrame, col: str) -> set:
@@ -258,7 +258,7 @@ def _build_audit(
             hash_overlaps[family] = family_overlaps
 
     # targets_pct / achieved_pct stay on 0-100 (backwards-compat with the
-    # single-shot consumer in dataset_segment_pairs_v2.py:1512). D5 renames
+    # holdout consumer in dataset_segment_pairs_v2.py:1512). D5 renames
     # max_target_deviation_pct -> _pp AND rescales the deviation to 0-1
     # (the new D3 knobs use 0-1; mixing scales would create silent unit
     # mismatches with the new audit field).
@@ -357,12 +357,12 @@ def cluster_disjoint_route_pos_df(
     """Route `pos_df` rows into train/val/test such that no cluster spans splits.
 
     Two routing modes (bilateral vs single-slot) × two output shapes
-    (single-shot vs k-fold). The (n_folds, single_slot) combinations:
+    (holdout vs k-fold). The (n_folds, single_slot) combinations:
 
     | n_folds       | single_slot   | Path                                   |
     |---------------|---------------|----------------------------------------|
-    | None or 1     | None          | Bilateral LPT-greedy single-shot       |
-    | None or 1     | 'a' or 'b'    | Single-slot LPT-greedy single-shot     |
+    | None or 1     | None          | Bilateral LPT-greedy holdout       |
+    | None or 1     | 'a' or 'b'    | Single-slot LPT-greedy holdout     |
     | >= 2          | 'a' or 'b'    | Single-slot GroupKFold + per-fold LPT  |
     | >= 2          | None          | NotImplementedError (OoS #5)           |
 
@@ -373,7 +373,7 @@ def cluster_disjoint_route_pos_df(
     train/val.
 
     D3 feasibility checks (max_acceptable_drift_pp, min_test_frac) apply
-    per fold (and to single-shot — D3 enforces consistent feasibility
+    per fold (and to holdout — D3 enforces consistent feasibility
     regardless of how the dataset is built). Failures are recorded in
     each fold's audit dict but DO NOT raise here — collect-all semantics
     per D4; the dispatch caller raises with the D4 menu listing all
@@ -438,7 +438,7 @@ def cluster_disjoint_route_pos_df(
         )
     n_folds_effective = n_folds if n_folds is not None else 1
 
-    # ----- Attach cluster IDs (shared by single-shot and k-fold) -----
+    # ----- Attach cluster IDs (shared by holdout and k-fold) -----
     pos_with_ids, attach_audit = attach_cluster_ids(
         pos_df, cluster_lookup, pos_hash_col=pos_hash_col,
     )

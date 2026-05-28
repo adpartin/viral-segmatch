@@ -63,7 +63,7 @@ Why GroupKFold and not LPT-greedy-with-atom-shuffle:
 
 **Caveat (acknowledged, addressed by D3 below).** sklearn `GroupKFold`
 equalizes *group count* per fold, not *pair count*. With skewed atom
-sizes, per-fold pair counts drift more than the LPT-greedy single-shot
+sizes, per-fold pair counts drift more than the LPT-greedy holdout
 drift on the same configuration. This is exactly why per-fold
 feasibility checks (D3) are non-negotiable — aggregate checks miss it.
 
@@ -129,7 +129,7 @@ Every fold's bins (train, val, test) must independently satisfy:
   deviation from target on any bin (train, val, OR test).
 - **`min_test_frac`** (default `0.05`) — test bin ≥ 5% of total pairs.
 
-Both knobs apply to all k folds **and to the single-shot path
+Both knobs apply to all k folds **and to the holdout path
 (`n_folds=null` or `n_folds=1`)** — D3 enforces consistent
 feasibility regardless of how the dataset is built. If any fold
 fails either knob, the build raises with the informative menu (D4).
@@ -166,7 +166,7 @@ Configuration (pair=HA-NA, alphabet=aa, slot=a, threshold=id093)
       feasibility but produces noisier per-fold metrics)
 ```
 
-Why refuse over (a) silent single-shot fallback or (c) silent
+Why refuse over (a) silent holdout fallback or (c) silent
 auto-downshift to `k = max_feasible_k`:
 
 - **(a)** replaces fold variance with seed variance and labels them
@@ -272,7 +272,7 @@ triple. Dispatch by the `n_folds` value:
 
 `val_frac` is a new arg, defaulting to `val_ratio / (1 - 1/n_folds)`
 — matches the existing CV math in `generate_all_cv_folds_v2` at
-line 1895. The k-fold path guarantees `n_folds >= 2` (single-shot
+line 1895. The k-fold path guarantees `n_folds >= 2` (holdout
 dispatches to LPT before this math runs), so the divide-by-zero
 edge case at `n_folds = 1` doesn't fire.
 
@@ -319,7 +319,7 @@ Estimated effort: ~80 lines plus tests.
 
 `cluster_disjoint_audit.json` gains a `folds` array (one entry per
 fold) when k > 1. Each fold's entry mirrors the current
-single-shot audit schema but adds:
+holdout audit schema but adds:
 
 - `fold_id`: 0..k−1
 - `feasibility_check`: `{max_acceptable_drift_pp: {pass: bool, achieved: float, threshold: float}, min_test_frac: {pass: bool, achieved: float, threshold: float}}`
@@ -381,7 +381,7 @@ split_strategy:
 ```
 
 `n_folds` already exists at the dataset config level (line 91) and
-already supports `null` (single-shot) | int N. No new top-level knob
+already supports `null` (holdout) | int N. No new top-level knob
 needed.
 
 Two new bundles for smoke tests:
@@ -549,14 +549,14 @@ prose pre-results risks anchoring on the wrong frame.
   pair_key uniqueness across folds; per-fold feasibility check
   pass/fail logic.
 - **Integration tests** via Phase 7 smoke tests.
-- **Regression test**: single-shot path (`n_folds=1` or
+- **Regression test**: holdout path (`n_folds=1` or
   `n_folds=null`) produces bit-identical output to current master
   before the patch **for configs that pass the D3 feasibility checks**.
   Configs that previously succeeded but now violate D3 (e.g., HA-NA
   aa id095 at 98.5/0.76/0.76) will raise by-design under the new
   behavior — the regression test framework should mark those configs
   as expected-raise rather than expected-pass. This is the intentional
-  D3-applies-to-single-shot consequence.
+  D3-applies-to-holdout consequence.
 
 ## See also
 
