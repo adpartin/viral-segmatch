@@ -150,4 +150,4 @@ Plot: `results/flu/July_2025/runs/cluster_id99_racov_comparison.png`
 - `docs/plans/done/2026-05-14_regime_aware_coverage_plan.md` — plan being applied
 - `docs/results/2026-05-15_regime_aware_coverage_validation.md` — tight-bundle validation (Phase 5 of the plan)
 - `docs/results/2026-05-14_cluster_disjoint_id99_results.md` — original cluster_id99 FP problem; includes the ratio=3 ablation
-- `docs/methods/leakage_definitions.md` mode #5 — the demographic-shortcut leakage racov mitigates
+- `docs/methods/leakage.md` mode #5 — the demographic-shortcut leakage racov mitigates

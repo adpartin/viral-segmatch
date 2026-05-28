@@ -7,7 +7,7 @@
 ## Context
 
 Mode #3 (sequence-level leakage) of the 5-mode taxonomy
-(`docs/methods/leakage_definitions.md`) is the only mode where the v2
+(`docs/methods/leakage.md`) is the only mode where the v2
 builder is still complicit: the same `dna_hash` appears in different
 pairs across train/val/test (see Exp 1 of
 `docs/plans/2026-05-07_leakage_diagnostics_plan.md`, table at the top of

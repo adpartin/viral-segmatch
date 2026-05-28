@@ -135,6 +135,6 @@ All run directories under `data/datasets/flu/July_2025/runs/` and `models/flu/Ju
 
 - `docs/results/2026-05-13_experiment_matrix_results.md` — initial 4-cell × 2-model matrix at r=1.5 (now superseded by this 8-cell doc).
 - `docs/2026-05-13-in_depth.md` — the methods walkthrough this experiment matrix tests.
-- `docs/methods/leakage_definitions.md` — the leakage taxonomy this matrix sharpens (modes #3, #4, #5).
+- `docs/methods/leakage.md` — the leakage taxonomy this matrix sharpens (modes #3, #4, #5).
 - `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md` — regime-aware sampler design.
 - `docs/plans/2026-05-11_metadata_holdout_plan.md` — cross-population holdout design.

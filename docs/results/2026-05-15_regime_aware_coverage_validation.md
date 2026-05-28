@@ -171,5 +171,5 @@ Plan: `docs/plans/2026-05-14_regime_aware_coverage_plan.md` (status: IMPLEMENTED
 - `docs/results/2026-05-14_cluster_disjoint_id99_results.md` — the
   cluster_id99 FP question that motivated this implementation as a candidate
   fix.
-- `docs/methods/leakage_definitions.md` mode #5 — demographic-shortcut
+- `docs/methods/leakage.md` mode #5 — demographic-shortcut
   leakage that racov mitigates at construction time.

@@ -36,7 +36,7 @@ Before writing code: read v1 (`dataset_segment_pairs.py`) and the sibling utils 
 
 `pair_key = canonical(seq_hash_a, seq_hash_b)` enforces pair identity at the protein level. Because all DNA encodings of a given protein pair share one `pair_key`, this is **strictly stronger** than DNA-level pair identity for the purposes of cross-split dedup, within-split dedup, and negative blocking — any DNA-level violation implies the corresponding protein-level violation, which v2 already forbids. So v2 does not need a separate DNA-level pair key.
 
-DNA-level concerns (per-feature label imbalance for k-mer features, cluster leakage on near-neighbor DNAs) are addressed at the **slot** level (per `dna_hash`), not at the pair level. See `docs/methods/leakage_definitions.md` for the full taxonomy and `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md` for the apriori feasibility analysis that motivates the per-`dna_hash` coverage extension.
+DNA-level concerns (per-feature label imbalance for k-mer features, cluster leakage on near-neighbor DNAs) are addressed at the **slot** level (per `dna_hash`), not at the pair level. See `docs/methods/leakage.md` for the full taxonomy and `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md` for the apriori feasibility analysis that motivates the per-`dna_hash` coverage extension.
 
 v1 has the following gaps:
 - No guarantee that every sequence in positives also appears in at least one negative. Some sequences end up only in positives, which means evaluation can't distinguish "model learned the pairing" from "model memorized embeddings of frequently-seen sequences".

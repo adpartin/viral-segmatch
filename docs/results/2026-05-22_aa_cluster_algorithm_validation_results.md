@@ -6,7 +6,7 @@ Until 2026-05-22 our clustering sweep used **easy-cluster** on aa (sensitive
 3-round cascade with spaced k-mers) and **easy-linclust** on nt (linear-time
 single-pass with contiguous k-mers). The asymmetric choice was justified
 historically as a speed/sensitivity tradeoff appropriate per alphabet, with
-an unverified claim in `clustering_overview.md` §2.3 that the two algorithms
+an unverified claim in `clusters.md` §2.3 that the two algorithms
 "agreed within noise on overlapping cells at id ≥ 0.80".
 
 A validation experiment on 2026-05-21 found the two algorithms disagree by
@@ -19,7 +19,7 @@ single pass catches direct k-mer matches only.
 
 Decision: switch to **symmetric easy-linclust** on both alphabets. This
 holds the algorithm constant across alphabets so the aa-vs-nt comparison
-in `clustering_overview.md` §6 and §10 cleanly reflects alphabet diversity
+in `clusters.md` §6 and §10 cleanly reflects alphabet diversity
 rather than algorithm sensitivity confounded with it.
 
 Cost: existing aa cluster artifacts are stale (regenerated 2026-05-22 with
@@ -230,7 +230,7 @@ small but consistent.
 
 **Switch to symmetric easy-linclust on both alphabets.** Three reasons:
 
-1. **Removes the alphabet × algorithm confound.** `clustering_overview.md`
+1. **Removes the alphabet × algorithm confound.** `clusters.md`
    §6 / §9 makes per-function, per-threshold, per-alphabet comparisons
    that are paper-relevant. Under the asymmetric setup any cross-alphabet
    difference conflates alphabet diversity with algorithm sensitivity.
@@ -265,9 +265,9 @@ Branch: `feature/symmetric-easy-linclust` (2026-05-22).
 | Commit | Scope |
 |---|---|
 | `af049c9` | Plan doc — record Phase 0 + Phase 3 findings before implementation |
-| `09e0411` | `clustering_overview.md` — section reorder (§6→§4, §7→§5, §8→§6, §4→§7, §5→§8) + cross-reference renumbering |
+| `09e0411` | `clusters.md` — section reorder (§6→§4, §7→§5, §8→§6, §4→§7, §5→§8) + cross-reference renumbering |
 | `9d9578a` | `src/utils/clustering_utils.py` + `src/analysis/seq_redundancy_per_function.py` — default `algorithm` flipped to `linclust`; pinned mmseqs2 flags (`--cluster-mode 0`, `--seq-id-mode 0`, `--similarity-type 2`, `-e 0.001`, `--dbtype` made explicit) on the CLI for audit visibility |
-| `71eaa3a` | `clustering_overview.md` — content rewrite for linclust numbers (§2.3, §4 column rename, §6.1–§6.4, §9) + reversal of falsified claims |
+| `71eaa3a` | `clusters.md` — content rewrite for linclust numbers (§2.3, §4 column rename, §6.1–§6.4, §9) + reversal of falsified claims |
 
 Data regenerated 2026-05-22:
 
@@ -289,7 +289,7 @@ Data regenerated 2026-05-22:
 
 | Quantity | Before (asymmetric) | After (symmetric linclust) | Comment |
 |---|---|---|---|
-| `clustering_overview.md` §6.1, PB2 aa n_clusters at id096 | 77 | 6,755 | The "1 pp cliff" disappears; collapse moves to id095→id090 (5 pp gap). |
+| `clusters.md` §6.1, PB2 aa n_clusters at id096 | 77 | 6,755 | The "1 pp cliff" disappears; collapse moves to id095→id090 (5 pp gap). |
 | §6.1 PB2 aa id097→id096 1 pp transition | −89% (cliff) | −12% (gradual) | The cliff was an easy-cluster cascade artifact. |
 | §6.1 cliff location for conserved proteins | id097→id096 (1 pp) | id095→id090 (5 pp) | Conserved-protein collapse now spans a 5 pp identity gap. |
 | §6.3 PB2 aa largest_cluster % at id095 | 80.3% | 15.6% | Under linclust the largest cluster covers far less of the corpus until id090. |
@@ -312,7 +312,7 @@ Data regenerated 2026-05-22:
    candidate explanations (k-mer prefilter dynamics, codon-similarity
    geometry within a 22-nt-tolerant cluster) require a cross-tab
    analysis on the cluster parquets to test. See
-   `clustering_overview.md` §6.1 for the framing. **Action**: cross-tab
+   `clusters.md` §6.1 for the framing. **Action**: cross-tab
    analysis on `clusters_aa/idNN/<fn>_cluster.parquet` and
    `clusters_nt/idNN/<fn>_cluster.parquet` for one or two functions
    (HA at id099 is the cleanest test case).
@@ -321,7 +321,7 @@ Data regenerated 2026-05-22:
    cluster_disjoint datasets used for the 2026-05-21 "Observed train
    share" audit were built against prior easy-cluster aa cluster
    parquets. The largest-CC % values currently in
-   `clustering_overview.md` §10.2's main table are from linclust
+   `clusters.md` §10.2's main table are from linclust
    artifacts; the audit's achieved-train % numbers (previously
    tabulated in the same section, removed during the 2026-05-26
    historical-cleanup pass) were from a different (older) dataset
@@ -339,7 +339,7 @@ Data regenerated 2026-05-22:
 
 4. **The mmseqs cluster-time vs convertalis-time identity offset
    (Phase 3 gotcha).** Worth a brief one-paragraph addition to
-   `clustering_overview.md` §2.1 documenting that the post-hoc
+   `clusters.md` §2.1 documenting that the post-hoc
    `mmseqs search` + convertalis identity is not directly comparable
    to the threshold mmseqs uses during clustering. Currently noted
    here and in the plan doc but not in the methods reference.
@@ -350,7 +350,7 @@ Data regenerated 2026-05-22:
 
 - Plan doc: `docs/plans/done/2026-05-21_aa_cluster_algorithm_validation_plan.md`
 - BiCC audit (parent investigation): `docs/results/2026-05-21_bicc_pair_drop_audit.md`
-- Methods doc (the consumer of these results): `docs/methods/clustering_overview.md`
+- Methods doc (the consumer of these results): `docs/methods/clusters.md`
   — §2.3 (algorithm choice), §6 (collapse trajectory), §9 (feasibility ceiling)
 - Code: `src/utils/clustering_utils.py::run_mmseqs_easy_cluster` (the wrapper that
   pins the mmseqs2 flags and now defaults to linclust)

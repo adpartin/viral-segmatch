@@ -3,7 +3,7 @@
 **Status: PAUSED after Phase 0** (decision criterion 2 met: DataSAIL C2 drop rate >50% across all configs tested; see `docs/results/2026-05-20_datasail_phase0_results.md`)
 **Date:** 2026-05-19; Phase 0 results documented 2026-05-20.
 **Branch:** `feature/datasail-bakeoff`
-**Parent doc:** `docs/methods/leakage_definitions.md` § "Relation to prior-art split taxonomies"
+**Parent doc:** `docs/methods/leakage.md` § "Relation to prior-art split taxonomies"
 
 ## One-line framing
 
@@ -15,7 +15,7 @@ bicc in our cluster-leakage mitigation story.
 
 ## Context
 
-`docs/methods/leakage_definitions.md` § "Relation to prior-art split
+`docs/methods/leakage.md` § "Relation to prior-art split
 taxonomies" establishes that DataSAIL `S2` and segmatch
 `cluster_disjoint id<100` share *intent* (test pairs in P&M class C3
 with cluster-novel components on both slots) but differ in
@@ -211,8 +211,8 @@ After workflow (a) completes:
 
 ## See also
 
-- `docs/methods/leakage_definitions.md` § "Relation to prior-art split taxonomies"
-- `docs/methods/clustering_overview.md` § 4.4 (bicc naming)
+- `docs/methods/leakage.md` § "Relation to prior-art split taxonomies"
+- `docs/methods/clusters.md` § 4.4 (bicc naming)
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` (Experiment B = cluster_disjoint, predecessor)
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (bicc feasibility ceiling — likely also DataSAIL's ceiling on the same corpus)
 - DataSAIL paper: `refs/joeres2025_datasail.pdf` (Nat Commun 2025) + `refs/joeres2025_datasail_supp.pdf`

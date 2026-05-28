@@ -273,7 +273,7 @@ aggregator); writeups and bundles are committed.
 ## Roadmap (from 02/10/2026 meeting)
 
 Priority experiments for publication:
-1. **Cross-validation** (N splits, mean ± std metrics) — `dataset.n_folds` in production (single-dataset N-folds builder, per-fold D3 feasibility, Stage 4 auto-detect of `fold_*/`). See `docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md`.
+1. **Cross-validation** (N splits, mean ± std metrics) — `dataset.n_folds` in production (single-dataset N-folds builder, per-fold D3 feasibility, Stage 4 auto-detect of `fold_*/`). Canonical reference: `docs/methods/splits.md` § 2. Historical design log: `docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md`. Remaining work (seq_disjoint / bilateral / metadata_holdout k-fold; variance-source extensions): `docs/plans/2026-05-28_kfold_remaining.md`.
 2. **Large dataset** (full Flu A, ~100K isolates) — HPC required (Polaris)
 3. **Temporal holdout** (train 2021–2023, test 2024) — use `dataset.metadata_holdout` under v2 (year-axis is the degenerate case). The legacy `year_train`/`year_test` keys were retired 2026-05-11.
 4. **Genome features** (k-mers + XGBoost/LightGBM, then GenSLM) — unified `preprocess_flu.py` now in production (emits `genome_final.csv` alongside `protein_final.csv`)

@@ -170,7 +170,7 @@ drop_ambiguous_subtype: true
 #     unique sequence appears in at most one split. Mitigates leakage Mode #3
 #     (sequence-level leakage). See
 #     docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
-#     docs/methods/leakage_definitions.md.
+#     docs/methods/leakage.md.
 #   - 'cluster_disjoint' (Experiment B / B-nt): routes by bipartite-CC on
 #     mmseqs2 cluster ids instead of identity hashes; mitigates leakage Mode #4
 #     (cluster leakage — near-clone neighbors below identity but high
@@ -225,7 +225,7 @@ split_strategy:
                               # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.
   # D3 per-fold feasibility check (applies to k-fold AND holdout for
   # consistent enforcement). See D3 of
-  # docs/plans/2026-05-27_kfold_variance_estimation_plan.md.
+  # docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md.
   feasibility:
     max_acceptable_drift_pp: 0.05  # max absolute pp deviation per bin from target (0-1 scale)
     min_test_frac: 0.05            # test bin must be at least this fraction of total pairs

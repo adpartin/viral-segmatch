@@ -398,7 +398,7 @@ Two sub-questions:
    Synonymous-codon variants of the same protein could still diverge at
    the DNA level — for stricter DNA-level disjointness, set
    `hash_key=dna`. The full leakage taxonomy is in
-   `docs/methods/leakage_definitions.md` (mode #3 — sequence-level
+   `docs/methods/leakage.md` (mode #3 — sequence-level
    leakage). Audit script: `src/analysis/audit_split_leakage.py`.
 
 ### Why does the matrix have 868,240 rows?

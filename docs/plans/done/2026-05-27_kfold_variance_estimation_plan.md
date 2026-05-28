@@ -97,7 +97,7 @@ allowed up to `drift_pp`, the test bin can absorb up to
 `1/k + drift_pp`. Solving for k: `k ≤ 1/(max_atom - drift_pp)`.
 
 Worked example. HA-only id095 has `max_atom_frac = 0.135` (per
-`clustering_overview.md` §10.3). At zero-drift: `floor(1/0.135) = 7`.
+`splits.md` § 1.9.3). At zero-drift: `floor(1/0.135) = 7`.
 At default `drift_pp = 0.05`: `floor(1/0.085) = 11`.
 
 D4's pre-build gate evaluates this formula at the **build-time
@@ -390,7 +390,7 @@ Two new bundles for smoke tests:
   the existing id095 HAonly bundle with `dataset.n_folds: 5`.
 - `conf/bundles/flu_pb2_pb1_cluster_aa_id095_PB1only_k5.yaml` —
   intentionally infeasible (`max_feasible_k = 1` at PB2-PB1 PB1-only
-  id095 per §10.3 of `clustering_overview.md`; `max_atom_frac ≈
+  id095 per § 1.9.3 of `splits.md`; `max_atom_frac ≈
   0.784`). Verifies the D4 refuse path. (PB2-only at the same
   threshold has `max_atom_frac ≈ 0.155` and would build successfully —
   wrong direction for this smoke test.)
@@ -422,7 +422,7 @@ Two configurations, three checks each:
 **Smoke 2: PB2-PB1 PB1-only aa id095 k=5 (expected: refuse)**
 - Phase 1 pre-flight reports `max_feasible_k_strict = 1` AND
   `max_feasible_k_at_default_drift = 1` (PB2-PB1 PB1-only at id095
-  has max_atom_frac ≈ 0.784 per §10.3 of `clustering_overview.md`;
+  has max_atom_frac ≈ 0.784 per § 1.9.3 of `splits.md`;
   drift-aware `floor(1/(0.784 − 0.05)) = floor(1.362) = 1`, same as
   zero-drift `floor(1/0.784) = floor(1.276) = 1`).
 - Stage 3 build raises with the D4 menu before any folds are written
@@ -449,8 +449,8 @@ Two configurations, three checks each:
 | `conf/bundles/flu_ha_na_cluster_aa_id095_HAonly_k5.yaml` | New bundle | ~10 lines |
 | `conf/bundles/flu_pb2_pb1_cluster_aa_id095_PB1only_k5.yaml` | New bundle (refuse-case smoke) | ~10 lines |
 | `scripts/stage4_sweep.sh` | Probably no change; verify glob expansion | ~0–5 lines |
-| `docs/methods/clustering_overview.md` | §7.2 update with k-fold semantics | ~20 lines |
-| `docs/methods/leakage_definitions.md` | "Routing equivalence" subsection note for k-fold | ~10 lines |
+| `docs/methods/clusters.md` | §7.2 update with k-fold semantics | ~20 lines |
+| `docs/methods/leakage.md` | "Routing equivalence" subsection note for k-fold | ~10 lines |
 | `docs/methods/dataset_construction_v2_workflow.md` | Phase 6 audit list gains kfold_summary mention | ~5 lines |
 
 Total: ~260 LoC code, ~50 lines doc updates, plus tests.
@@ -480,8 +480,8 @@ Total: ~260 LoC code, ~50 lines doc updates, plus tests.
    Bilateral atoms (bipartite CCs) collapse to a mega-component at
    most thresholds below id099 on Flu A; k-fold feasibility is
    unattainable at the interesting thresholds. At id100 it's
-   technically feasible (max_feasible_k=5 on HA-NA per §10.2 of
-   `clustering_overview.md`) but redundant with seq_disjoint k-fold
+   technically feasible (max_feasible_k=5 on HA-NA per § 1.9.2 of
+   `splits.md`) but redundant with seq_disjoint k-fold
    (item 6). Design extends naturally — same GroupKFold + per-fold
    check pattern, atom = bipartite CC.
 6. **k-fold for seq_disjoint. Not currently supported.** A separate
@@ -560,10 +560,11 @@ prose pre-results risks anchoring on the wrong frame.
 
 ## See also
 
-- `docs/methods/clustering_overview.md` § 7.2 — LPT-greedy framing and
-  multi-shuffle distinction.
-- `docs/methods/leakage_definitions.md` § "Routing equivalence" — the
-  bilateral vs single-slot table.
+- `docs/methods/splits.md` § 1.3 — LPT-greedy framing (and § 2 for
+  the implemented k-fold path this plan describes).
+- `docs/methods/splits.md` § 1.5 — routing equivalence (the
+  bilateral vs single-slot table; was in leakage.md at the time of
+  this plan, moved to splits.md in the 2026-05-28 methods-doc refactor).
 - `BACKLOG.md` § "Single-slot routing follow-ups" #3 — the originally
   scoped GroupKFold work that this plan implements.
 - `data_split_design_prompt1.md`, `data_split_design_resp1.md`,

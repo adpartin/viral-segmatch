@@ -129,7 +129,7 @@ corpus property that limits our feasibility ceiling
 to id099 manifests as ~60% pair drops in DataSAIL C2.
 
 This is the **route-vs-drop tradeoff** from
-`docs/methods/leakage_definitions.md` § "Relation to prior-art split
+`docs/methods/leakage.md` § "Relation to prior-art split
 taxonomies", quantified empirically for the first time on our
 corpus.
 
@@ -217,8 +217,8 @@ In rough priority order:
 ## See also
 
 - `docs/plans/2026-05-19_datasail_bakeoff_plan.md` — parent plan
-- `docs/methods/leakage_definitions.md` § "Relation to prior-art split taxonomies"
-- `docs/methods/clustering_overview.md` § 4.4 (bicc naming)
+- `docs/methods/leakage.md` § "Relation to prior-art split taxonomies"
+- `docs/methods/clusters.md` § 4.4 (bicc naming)
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (bicc feasibility ceiling)
 - `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (corpus redundancy structure)
 - DataSAIL paper: `refs/joeres2025_datasail.pdf` and `refs/joeres2025_datasail_supp.pdf`

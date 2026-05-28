@@ -15,7 +15,7 @@ to chance.
 | **MLP − 1-NN gap** | +0.004 | +0.052 | — |
 
 The MLP − 1-NN gap is the "biology learning beyond memorization" signal
-(see `leakage_definitions.md` § "When we say 'the model learned
+(see `leakage.md` § "When we say 'the model learned
 biology'"). The going-in hypothesis was that the gap would widen at
 low idXX, where memorization shortcuts get harder.
 
@@ -108,7 +108,7 @@ on this corpus — across the regime where cluster_disjoint actually
 displaces trivial memorization (id094..id085), MLP tracks 1-NN
 within ~0.05 F1 and loses head-to-head at id094, id093, id092, and
 id085. The "model learned biology beyond memorization" criterion
-from `leakage_definitions.md` is not met here under aa k=3 + Test 3.
+from `leakage.md` is not met here under aa k=3 + Test 3.
 
 This is a real negative result for the MLP > 1-NN hypothesis on
 HA-NA HA-only single-slot. Possible reasons to investigate next:

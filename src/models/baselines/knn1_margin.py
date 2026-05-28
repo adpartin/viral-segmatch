@@ -1,7 +1,7 @@
 """1-nearest-neighbor baseline for pair classification (Plan Exp 2).
 
 Operational test of the "model learned biology" criterion in
-``docs/methods/leakage_definitions.md``: if the MLP's metrics on the
+``docs/methods/leakage.md``: if the MLP's metrics on the
 same dataset and the same features are not meaningfully better than a
 1-NN classifier (e.g., < 0.02 AUC gap), the MLP is doing soft
 near-neighbor lookup, not generalization. Plug-in baseline for the

@@ -193,7 +193,7 @@ time by guaranteeing a minimum population of hard negatives in every
 split (default mix has 30% `host_subtype_year`).
 
 **See also**: `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md`
-(full design); `docs/methods/leakage_definitions.md` (the 5-mode
+(full design); `docs/methods/leakage.md` (the 5-mode
 taxonomy this fits into).
 
 ---
@@ -211,7 +211,7 @@ taxonomy this fits into).
   `hash_key: seq` — positives are routed so no `seq_hash` appears in
   two splits. This is strictly stronger than isolate-disjoint and
   eliminates mode #3 sequence-level leakage by construction (see
-  `docs/methods/leakage_definitions.md`).
+  `docs/methods/leakage.md`).
 - Default ratio: 80 / 10 / 10 (`dataset.train_ratio` / `val_ratio`).
 - The same `pair_key` cannot appear in two splits (cross-split overlap
   is detected and would raise).
@@ -258,7 +258,7 @@ Negative composition by regime is in `negative_regime_manifest.csv`
 (per split). For metric reporting we don't reweight by regime; the
 analyzer instead reports per-regime TPR / TNR explicitly (§9).
 
-**See also**: `docs/methods/leakage_definitions.md` (modes #1 and #2);
+**See also**: `docs/methods/leakage.md` (modes #1 and #2);
 `split_overlap_stats.csv` in every Stage 3 output (per-split unique
 seq_hash / dna_hash counts and cross-split overlap).
 
@@ -317,7 +317,7 @@ the same `test_predicted.csv` schema. Each writes its own run dir
 under `models/flu/{ver}/runs/`.
 
 **See also**: `docs/methods/feature_normalization.md` (preprocessing
-defaults per model); `docs/methods/leakage_definitions.md` ("biology
+defaults per model); `docs/methods/leakage.md` ("biology
 learning" criterion: MLP needs to beat 1-NN by ≥0.02 AUC on
 sequence-disjoint splits to claim biology generalization).
 
@@ -384,7 +384,7 @@ count vectors). In that setup the MLP and the k-NN baseline see
 genuinely different per-slot preprocessing — worth flagging when
 comparing.
 
-**See also**: `docs/methods/leakage_definitions.md` ("biology
+**See also**: `docs/methods/leakage.md` ("biology
 learning" criterion); `docs/post_hoc_analysis_design.md` (Level 1 / 2
 methodology); `src/analysis/aggregate_baselines_vs_mlp.py` (the
 script).
@@ -394,7 +394,7 @@ script).
 ## 10. Leakage controls — quick map
 
 The project tracks 5 canonical leakage modes (full taxonomy in
-`docs/methods/leakage_definitions.md`):
+`docs/methods/leakage.md`):
 
 | # | Mode | Status in this pipeline |
 |---|---|---|
@@ -408,7 +408,7 @@ Note: full mitigation of mode #5 cannot be achieved by sampling alone
 (the model can still pick up the pattern in training); the heatmap is
 the test that says whether the mitigation worked.
 
-**See also**: `docs/methods/leakage_definitions.md` for definitions
+**See also**: `docs/methods/leakage.md` for definitions
 and the assessment plan.
 
 ---
@@ -422,7 +422,7 @@ For each topic, the deepest reference:
 | Stage 1 detail (GTO parsing) | `docs/methods/preprocess.md` |
 | Input GTO JSON schema (with corpus-wide statistics) | `docs/methods/gto_format_reference.md` |
 | K-mer feature pipeline | `docs/methods/kmer_features.md` |
-| Leakage taxonomy + biology-learning criterion | `docs/methods/leakage_definitions.md` |
+| Leakage taxonomy + biology-learning criterion | `docs/methods/leakage.md` |
 | Per-(model × feature) preprocessing matrix | `docs/methods/feature_normalization.md` |
 | Stage 3 builder design | `docs/plans/done/design_dataset_gen_v2.md` |
 | Metadata-aware regime sampler design | `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md` |

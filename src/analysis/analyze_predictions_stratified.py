@@ -65,7 +65,7 @@ writeups, not browsed in a viewer.
 
 Why these three stratifications
 -------------------------------
-The leakage taxonomy in ``docs/methods/leakage_definitions.md`` lists
+The leakage taxonomy in ``docs/methods/leakage.md`` lists
 five canonical modes. This script directly addresses three of them in
 post-hoc form (no re-training required):
 

@@ -524,12 +524,12 @@ hard invariants.
 6. Pair-CSV column additions (`neg_regime`, `metadata_match_count`).
 7. Config validation.
 8. End-to-end test on a small bundle.
-9. Documentation update (`docs/methods/leakage_definitions.md` mode #5 entry
+9. Documentation update (`docs/methods/leakage.md` mode #5 entry
    should reference this plan).
 
 ## See also
 
-- `docs/methods/leakage_definitions.md` — mode #5 demographic shortcut.
+- `docs/methods/leakage.md` — mode #5 demographic shortcut.
 - `docs/results/2026-05-07_metadata_shortcut_negatives.md` — the trigger result.
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — broader leakage taxonomy.
 - `docs/plans/done/2026-05-11_design_dataset_gen_v2.md` — v2 builder spec.

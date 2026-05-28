@@ -43,7 +43,7 @@ Outputs (under `<run_dir>/post_hoc/`):
 | `roc_curve.png` | ROC curve with AUC |
 | `precision_recall_curve.png` | PR curve with average precision |
 | `learning_curves.png` (MLP only) | Train/val loss + F1 + AUC per epoch |
-| `level1_neg_regimes.csv` / `.png` | Per-metadata-regime TPR/TNR (8 negative regimes — see leakage_definitions.md for the taxonomy) |
+| `level1_neg_regimes.csv` / `.png` | Per-metadata-regime TPR/TNR (8 negative regimes — see leakage.md for the taxonomy) |
 | `error_analysis_summary.csv` | FP / FN counts by stratum |
 | `fp_fn_analysis_*.png` | FP/FN distribution plots |
 
@@ -77,7 +77,7 @@ shows here must come from sequence content.
 - For the MLP to claim "biology learning," it needs to **beat 1-NN by
   ≥0.02 on AUC** on sequence-disjoint splits. If MLP ≈ 1-NN, the MLP
   is doing soft memorization with extra steps. See
-  [`../../docs/methods/leakage_definitions.md`](../../docs/methods/leakage_definitions.md)
+  [`../../docs/methods/leakage.md`](../../docs/methods/leakage.md)
   ("biology learning" criterion).
 - A model that scores ~1.0 on `none_match` but drops sharply on
   `host_subtype_year` is using metadata coincidence as a shortcut.
@@ -140,5 +140,5 @@ print(metrics.to_string())
 ## Related
 
 - [`../../docs/methods/pipeline_overview.md`](../../docs/methods/pipeline_overview.md) — pipeline architecture and §9 evaluation methodology
-- [`../../docs/methods/leakage_definitions.md`](../../docs/methods/leakage_definitions.md) — 5-mode taxonomy + "biology learning" criterion
+- [`../../docs/methods/leakage.md`](../../docs/methods/leakage.md) — 5-mode taxonomy + "biology learning" criterion
 - [`../../docs/post_hoc_analysis_design.md`](../../docs/post_hoc_analysis_design.md) — Level 1 / Level 2 stratified-eval design

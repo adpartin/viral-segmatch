@@ -27,7 +27,7 @@ reference docs).
 | K-mer feature pipeline (Stage 2b) | [`../docs/methods/kmer_features.md`](../docs/methods/kmer_features.md) |
 | GTO file schema (Stage 1 input) | [`../docs/methods/gto_format_reference.md`](../docs/methods/gto_format_reference.md) |
 | Stage-1 preprocessing details | [`../docs/methods/preprocess.md`](../docs/methods/preprocess.md) |
-| Leakage taxonomy + "biology learning" criterion | [`../docs/methods/leakage_definitions.md`](../docs/methods/leakage_definitions.md) |
+| Leakage taxonomy + "biology learning" criterion | [`../docs/methods/leakage.md`](../docs/methods/leakage.md) |
 | Per-(model × feature) preprocessing defaults | [`../docs/methods/feature_normalization.md`](../docs/methods/feature_normalization.md) |
 | Seed / reproducibility system | [`../docs/SEED_SYSTEM.md`](../docs/SEED_SYSTEM.md) |
 | Plans (active and completed) | [`../docs/plans/`](../docs/plans/) |

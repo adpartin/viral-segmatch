@@ -8,7 +8,7 @@ Companion to `docs/results/2026-05-08_dna_coverage_feasibility.md`,
 which documents the verdict. The feasibility verdict it produced
 motivated extending v2's coverage phase to iterate `(slot, dna_hash)`
 tuples (mode #2 leakage fix at DNA level — landed 2026-05-08; see
-`dataset_segment_pairs_v2.py` and `docs/methods/leakage_definitions.md`
+`dataset_segment_pairs_v2.py` and `docs/methods/leakage.md`
 mode #2). The script is preserved as a reproducibility hook for that
 result doc.
 

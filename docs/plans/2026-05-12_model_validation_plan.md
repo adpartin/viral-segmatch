@@ -233,7 +233,7 @@ ablation datasets cluttering `data/datasets/runs/`.
 ## Cross-references
 
 - `src/utils/learning_verification_utils.py` — Part A implementation.
-- `docs/methods/leakage_definitions.md` — broader leakage taxonomy;
+- `docs/methods/leakage.md` — broader leakage taxonomy;
   this plan's Part B targets mode #5 (demographic shortcut leakage)
   and mode #4 (cluster leakage) from a different angle than the
   existing post-hoc heatmap.

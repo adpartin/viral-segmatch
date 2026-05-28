@@ -49,7 +49,7 @@ rules out the lower-threshold sweep on the full Flu A corpus:
 
 The same bipartite mega-component collapse seen on aa clustering between
 id099 and id095 (`data/processed/flu/July_2025/clusters_aa/redundancy_summary.md`
-and `docs/methods/clustering_overview.md` §8) also dominates the nt picture. The mmseqs2 nucleotide alphabet adds more
+and `docs/methods/clusters.md` §8) also dominates the nt picture. The mmseqs2 nucleotide alphabet adds more
 within-cluster diversity per threshold, but Flu A's metadata structure
 (8 segments, ~16 dominant HxNy subtype × host × year cells) ties the
 slots together strongly enough that two clusters connect into one
@@ -187,7 +187,7 @@ b. **LGBM's hyperparameters are tuned for the seq_disjoint distribution.**
    This is the cheapest fix to test if we want to revisit.
 
 c. **The leakage-diagnostic doctrine should be read in both directions.**
-   The doctrine in `docs/methods/leakage_definitions.md` says "if a
+   The doctrine in `docs/methods/leakage.md` says "if a
    sophisticated model is not meaningfully better than 1-NN, it is
    doing soft near-neighbor lookup, not generalization." The corollary
    on this dataset: LGBM is doing near-neighbor lookup (id100 cells)
@@ -235,8 +235,8 @@ in their header (`conf/bundles/flu_pb2_pb1_cluster_nt_id*.yaml`).
   cluster_id099 LGBM/MLP results.
 - `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` — aa
   redundancy sweep; the parallel reference for the nt picture above.
-  (Feasibility table now lives in `docs/methods/clustering_overview.md` §10.2.)
+  (Feasibility table now lives in `docs/methods/clusters.md` §10.2.)
 - `data/processed/flu/July_2025/clusters_nt/redundancy_summary.md` —
   nt redundancy sweep (autogen by the per-function script).
-- `docs/methods/leakage_definitions.md` — leakage mode #4 (cluster
+- `docs/methods/leakage.md` — leakage mode #4 (cluster
   leakage) is what this experiment targets.

@@ -279,7 +279,7 @@ The plan is **implemented** when:
   enabled separately or together.
 - `docs/methods/dataset_construction_v2_workflow.md` §27 — current
   Phase 4 (coverage) + Phase 5 (fill) walkthrough.
-- `docs/methods/leakage_definitions.md` mode #5 — the demographic-shortcut
+- `docs/methods/leakage.md` mode #5 — the demographic-shortcut
   leakage this mechanism mitigates at construction time.
 - `src/datasets/_negative_regime_sampling.py` — home of the cell helpers and
   REGIME_NAMES.

@@ -144,7 +144,7 @@ Each LightGBM run dir carries `best_model.joblib`, `metrics_summary.json`, `test
 
 - **Single seed (42).** Per-cell differences within ~0.01–0.02 are within seed noise. Confirming the "regimes did not help" finding would need ≥3 seeds per cell.
 - **`host_subtype_year` shortfall** caps the regimes-sampler test. A version run at `neg_to_pos_ratio: 3.0` would give a fairer test of the mechanism.
-- **No 1-NN baseline in this matrix.** The biology-learning criterion (`leakage_definitions.md`) needs MLP vs 1-NN comparison — outside the scope of this run.
+- **No 1-NN baseline in this matrix.** The biology-learning criterion (`leakage.md`) needs MLP vs 1-NN comparison — outside the scope of this run.
 - **Cluster leakage (mode #4) not addressed.** All four bundles use `seq_disjoint` routing which bounds the *exact-hash* case; cluster-disjoint splits via mmseqs2 still pending.
 - The aggregator CSVs are in `/tmp/experiment_2026-05-13/` rather than `results/` because they're auxiliary; the canonical numeric source is the per-run `post_hoc/metrics.csv` and `post_hoc/level1_neg_regimes.csv` in each model directory.
 
@@ -152,6 +152,6 @@ Each LightGBM run dir carries `best_model.joblib`, `metrics_summary.json`, `test
 
 - `docs/2026-05-13-in_depth.md` §37 — the experiment matrix specification that this doc reports on.
 - `docs/methods/dataset_construction_v2_workflow.md` — phase-by-phase Stage 3 walkthrough.
-- `docs/methods/leakage_definitions.md` — the 5-mode taxonomy. Mode #5 is the one this matrix sharpens.
+- `docs/methods/leakage.md` — the 5-mode taxonomy. Mode #5 is the one this matrix sharpens.
 - `docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md` — companion mode #4 diagnostic.
 - `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md` — regime-aware sampler design.

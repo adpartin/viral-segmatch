@@ -22,9 +22,9 @@ work: `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`.
 Implementation commits on `feature/symmetric-easy-linclust`:
 
 - `af049c9` — record Phase 0 + Phase 3 findings in this plan
-- `09e0411` — `clustering_overview.md` section shuffle (reorder + cross-ref renumbering)
+- `09e0411` — `clusters.md` section shuffle (reorder + cross-ref renumbering)
 - `9d9578a` — wrapper defaults switched to linclust + pinned mmseqs2 flags
-- `71eaa3a` — `clustering_overview.md` content rewrite under linclust numbers
+- `71eaa3a` — `clusters.md` content rewrite under linclust numbers
 
 Data regenerated under linclust (clusters_aa, two aa feasibility CSVs,
 cluster_analysis_summary outputs). Prior aa easy-cluster artifacts
@@ -51,7 +51,7 @@ counts" relative to easy-cluster on this corpus. That claim was tested on aa for
 first time on 2026-05-21, and **the two algorithms disagree by 1–2 orders of magnitude at
 sub-id100 thresholds**. This calls three things into question:
 
-1. The aa-vs-nt comparison in `clustering_overview.md` §8 / §9 conflates algorithm
+1. The aa-vs-nt comparison in `clusters.md` §8 / §9 conflates algorithm
    sensitivity with alphabet diversity. The "collapse is corpus-driven, not
    algorithm-driven" framing may not survive.
 2. The §8.1 headline "PB2 717→77 collapse between id097→id096 (89% drop)" is
@@ -369,7 +369,7 @@ tie-breaker, not ground truth.
    stay valid; methods doc gains an asterisk.
 
 **Writeup.** Update this plan doc with findings, mark `Status: IMPLEMENTED`, move to
-`docs/plans/done/`. Update `clustering_overview.md` §8.4 + §2.3 to reflect whichever
+`docs/plans/done/`. Update `clusters.md` §8.4 + §2.3 to reflect whichever
 decision was made. Update `BACKLOG.md` if the decision spawns follow-up work.
 
 ---
@@ -457,7 +457,7 @@ Phase 5 — decide + writeup + (optionally) re-generate downstream artifacts.
 **Related docs:**
 - `docs/results/2026-05-21_bicc_pair_drop_audit.md` — the BiCC audit that exposed
   the asymmetric-algorithm question.
-- `docs/methods/clustering_overview.md` §2.3 (algorithm choice), §8 (cluster collapse),
+- `docs/methods/clusters.md` §2.3 (algorithm choice), §8 (cluster collapse),
   §9 (feasibility ceiling).
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` — the nt cluster_disjoint
   empirical results that downstream of this question (id099 datasets, LGBM / 1-NN runs).

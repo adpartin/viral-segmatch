@@ -1407,7 +1407,7 @@ def split_dataset_v2(
         # built above (wasted work for the override case; acceptable cost
         # ~few seconds per fold on Flu A — avoids restructuring the build
         # block). See Phase 3 of
-        # docs/plans/2026-05-27_kfold_variance_estimation_plan.md.
+        # docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md.
         if split_strategy_mode != 'cluster_disjoint':
             raise ValueError(
                 f"split_dataset_v2: routed_pos_override requires "
@@ -1802,7 +1802,7 @@ def split_dataset_v2(
         # For constrained-slot routing (single_slot='a' or 'b'), the
         # UNCONSTRAINED side is not bound by either invariant: seq_hash leakage
         # on the unconstrained side is the empirical residual leakage the
-        # routing leaves on the table (see clustering_overview.md §9.3).
+        # routing leaves on the table (see splits.md § 1.8).
         #
         # Fields are symmetric across slots a / b and across cluster_id /
         # seq_hash / dna_hash. The routing-mode-specific interpretation lives
@@ -1841,7 +1841,7 @@ def split_dataset_v2(
         duplicate_stats['cluster_disjoint_audit'] = cluster_disjoint_audit
         # One-line summary: cross-split leakage on each slot, for each hash family.
         # In constrained-slot routing, the unconstrained side's seq_hash leakage
-        # is the residual lookup signal (see clustering_overview.md §9.3).
+        # is the residual lookup signal (see splits.md § 1.8).
         for side in ('a', 'b'):
             parts = []
             for family in ('cluster_id', 'seq_hash', 'dna_hash'):
@@ -2015,7 +2015,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
         {'fold_id', 'train_pairs', 'val_pairs', 'test_pairs',
          'duplicate_stats', 'exposure_tables'}.
 
-    See `docs/plans/2026-05-27_kfold_variance_estimation_plan.md` Phase 3.
+    See `docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md` Phase 3.
     """
     from src.datasets._split_helpers import (
         cluster_disjoint_route_pos_df, load_cluster_lookup,
@@ -2115,7 +2115,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
             "    - increase dataset.split_strategy.feasibility.max_acceptable_drift_pp",
             "    - decrease dataset.split_strategy.feasibility.min_test_frac",
             "      (last two loosen feasibility; produce noisier per-fold metrics)",
-            "  See D4 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md.",
+            "  See D4 of docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md.",
         ]
         raise NotImplementedError('\n'.join(msg))
 
@@ -2418,7 +2418,7 @@ def save_split_output_v2(
         # cluster_disjoint routing. Symmetric across slots a/b and across
         # hash families (cluster_id / seq_hash / dna_hash). Full per-pair
         # overlap counts live in cluster_disjoint_audit.json. See
-        # docs/methods/clustering_overview.md §9.3.
+        # docs/methods/splits.md § 1.8.
         **(
             {'slot_leakage_summary': {
                 f'slot_{side}': {
@@ -2926,7 +2926,7 @@ def _validate_v2_config(config) -> None:
                 f"dataset.n_folds={n_folds} (CV mode) requires "
                 f"split_strategy.single_slot in {{'a','b'}}. Bilateral "
                 f"cluster_disjoint k-fold is not currently supported. See "
-                f"OoS #5 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md."
+                f"OoS #5 of docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md."
             )
 
     # metadata_holdout: structural validation only (deeper validation happens

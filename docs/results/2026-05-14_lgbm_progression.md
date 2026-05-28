@@ -141,5 +141,5 @@ Regime-aware sampling layered on top adds another +0.059 on `host_subtype_year` 
 
 - `docs/results/2026-05-13_full_8cell_matrix.md` — the full 8-cell matrix including holdout cells.
 - `docs/2026-05-13-in_depth.md` — methods walkthrough.
-- `docs/methods/leakage_definitions.md` — the leakage taxonomy this progression exercises (mode #5 demographic shortcut).
+- `docs/methods/leakage.md` — the leakage taxonomy this progression exercises (mode #5 demographic shortcut).
 - `docs/plans/2026-05-14_regime_aware_coverage_plan.md` — proposed next-step mechanism that extends regime targeting into the coverage phase.

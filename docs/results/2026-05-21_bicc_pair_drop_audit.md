@@ -129,7 +129,7 @@ Reordered by relevance now that the no-drop status is confirmed:
    changes per cluster, regardless of length.
 
    Concrete numbers for ε = 5 aa on Flu A medians (from
-   `clustering_overview.md` §7's length column):
+   `clusters.md` § 5's median-length column):
 
    | Function | L_f (aa) | t_f    | Equivalent idXX |
    |---|---:|---:|---|
@@ -192,7 +192,7 @@ Reordered by relevance now that the no-drop status is confirmed:
   PB2/PB1 aa. New `dataset.split_strategy.cluster_thresholds:
   {PB2: 0.97, PB1: 0.99}` knob; load two cluster parquets at the
   configured thresholds, run the bipartite-CC. ~1 day of work.
-- **Documentation honesty:** update `docs/methods/clustering_overview.md`
+- **Documentation honesty:** update `docs/methods/clusters.md`
   §9 to clarify "infeasibility" = ratio drift, not pair drops. Add the
   achieved-train-% column to the §9 table. ~30 min of work. (Edits
   listed but not applied yet — see CLAUDE.md plan-doc convention.)
@@ -206,9 +206,9 @@ Reordered by relevance now that the no-drop status is confirmed:
   `src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`
 - Audit JSON schema: `cluster_disjoint_audit.json` written by the
   Stage 3 saver.
-- Per-segment cluster collapse: `docs/methods/clustering_overview.md`
+- Per-segment cluster collapse: `docs/methods/clusters.md`
   §8.1.
 - Feasibility ceiling table:
-  `docs/methods/clustering_overview.md` §10.2.
+  `docs/methods/clusters.md` §10.2.
 - DataSAIL bake-off (paused): `feature/datasail-bakeoff` branch +
   `docs/plans/2026-05-19_datasail_bakeoff_plan.md`.

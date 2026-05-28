@@ -39,7 +39,7 @@ by 8–11 pp relative to seq_disjoint on the same corpus, same features,
 and same model.** The seq_disjoint baseline was using a substantial
 fraction of its measured accuracy on near-identical near-neighbors of
 training proteins that did not share a `seq_hash` (mode #4 cluster
-leakage from `docs/methods/leakage_definitions.md`).
+leakage from `docs/methods/leakage.md`).
 
 **MLP is more robust to the stricter routing than LGBM.** On both
 schema pairs the MLP gap is smaller by 4-10 pp F1:
@@ -142,7 +142,7 @@ each.
 - **Single seed (master_seed=42).** No CV / no seed variance.
 - **k-mer nt k=6 only.** Same conclusion may or may not hold on ESM-2 or
   k-mer aa features. 1-NN baseline not run at id099 yet (would test the
-  biology-learning criterion in `docs/methods/leakage_definitions.md`).
+  biology-learning criterion in `docs/methods/leakage.md`).
 - **PB2/PB1 id099 split is train-heavy** (87/6.4/6.4). The signal is
   reliable but val/test sizes are smaller than nominal 80/10/10 would give.
 - **mmseqs2 settings: `--min-seq-id <th> -c 0.8 --cov-mode 0`** (per
@@ -253,5 +253,5 @@ is the right next step: force the additional negatives to be hard ones
 - `docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md` — diagnostic
   that motivated this experiment (HA/NA had ~48% of test proteins with
   a ≥99.5% aa-identity near-neighbor in train under seq_disjoint)
-- `docs/methods/leakage_definitions.md` — mode #4 (cluster leakage)
+- `docs/methods/leakage.md` — mode #4 (cluster leakage)
   taxonomy

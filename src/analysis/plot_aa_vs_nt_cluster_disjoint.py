@@ -7,7 +7,7 @@ and each model in {LGBM, 1-NN cosine margin}, this script reads
 a grouped-bar PNG + a flat CSV summary.
 
 1-NN cosine margin is the operational leakage diagnostic described in
-`docs/methods/leakage_definitions.md` — its prediction is exactly the
+`docs/methods/leakage.md` — its prediction is exactly the
 label of the nearest train pair under cosine distance, so its accuracy
 is the upper bound on what near-neighbor lookup can achieve on the given
 dataset. The 1-NN-vs-LGBM gap at each routing therefore lower-bounds

@@ -546,7 +546,7 @@ plan's Exp 3 (which already needs cosine math):
   regime-aware coverage proposal; sequential with this plan (cluster
   routing at Phase 3, regime-aware coverage at Phase 4). Both can be
   enabled independently or together.
-- `docs/methods/leakage_definitions.md` — mode #4 (cluster leakage) is
+- `docs/methods/leakage.md` — mode #4 (cluster leakage) is
   what this plan addresses.
 - `docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md` — the
   empirical motivation: ~48% of test HA proteins have a train neighbor

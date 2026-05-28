@@ -31,7 +31,7 @@ experiments that does.
 Experiments 2 and 4 from the action list below directly test these.
 Experiments 1 and 3 are diagnostics; 5 is escalation. The taxonomy
 and the operational "biology learning" definition are now persisted
-in `docs/methods/leakage_definitions.md`. The conservation analysis
+in `docs/methods/leakage.md`. The conservation analysis
 sits in the **Background analyses** section as Anl 1 — it
 characterizes the biological setting but doesn't itself test a
 mode in the table.
@@ -53,7 +53,7 @@ happening. This definition is testable and motivates Experiments
 2 and 4.
 
 This definition is also persisted in
-`docs/methods/leakage_definitions.md` as the project-level
+`docs/methods/leakage.md` as the project-level
 source-of-truth.
 
 ---
@@ -377,7 +377,7 @@ load-bearing scientific test. Exp 5 is escalation. Anl 1 sits
 outside the experimental dependency chain — it's biology framing
 that informs interpretation but doesn't gate other work. The
 taxonomy + biology-learning definition are already landed in
-`docs/methods/leakage_definitions.md`.
+`docs/methods/leakage.md`.
 
 ## Out of scope
 

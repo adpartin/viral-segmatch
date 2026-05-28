@@ -131,5 +131,5 @@ This rule should also be noted in `conf/bundles/README.md` under "Adding a new b
 ## See also
 
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — the leakage taxonomy and the experiments that motivate DNA coverage
-- `docs/methods/leakage_definitions.md` — canonical mode definitions; mode #2 status will be updated when the v2 extension lands
+- `docs/methods/leakage.md` — canonical mode definitions; mode #2 status will be updated when the v2 extension lands
 - `docs/results/2026-05-07_dna_coverage_feasibility.md` — earlier single-bundle (HA/NA) feasibility check

@@ -241,7 +241,7 @@ PCA-50. nt k=6's n_entities is ~7% higher than the protein-level
 spaces because some proteins have multiple unique DNA encodings in
 the 1000-isolate subsample (consistent with the corpus-wide 1.56×
 ratio of unique HA CDS DNAs to unique HA proteins from
-`clustering_overview.md` §3.2).
+`clusters.md` §3.2).
 
 **Phase 2 (aa k=3, fixed σ = 29.3192, 500-permutation):**
 

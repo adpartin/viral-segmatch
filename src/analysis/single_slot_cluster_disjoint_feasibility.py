@@ -20,7 +20,7 @@ Per schema_pair × alphabet × threshold × slot:
                                     drift = DEFAULT_DRIFT_PP = 0.05.
                                     Drift-aware necessary condition
                                     at deployed defaults (per D2/D3 of
-                                    docs/plans/2026-05-27_kfold_variance_estimation_plan.md).
+                                    docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md).
 
 Per-fold drift check at build time is authoritative; the two
 max_feasible_k columns bracket the common cases (drift_pp = 0 and

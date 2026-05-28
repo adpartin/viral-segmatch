@@ -146,7 +146,7 @@ def _lpt_bin_pack(
     key sklearn `GroupKFold` derives via `np.unique` (sorted) +
     `np.argsort(-counts)`, so the LPT and GroupKFold paths agree on which
     atom is "largest" (per D1 of
-    docs/plans/2026-05-27_kfold_variance_estimation_plan.md).
+    docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md).
     """
     def _sort_key(c):
         try:
@@ -426,7 +426,7 @@ def cluster_disjoint_route_pos_df(
             raise NotImplementedError(
                 "cluster_disjoint_route_pos_df: n_folds > 1 with bilateral "
                 "cluster_disjoint (single_slot=None) is not currently supported. "
-                "See OoS #5 of docs/plans/2026-05-27_kfold_variance_estimation_plan.md."
+                "See OoS #5 of docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md."
             )
     if not 0 <= max_acceptable_drift_pp < 1:
         raise ValueError(
@@ -541,7 +541,7 @@ def cluster_disjoint_route_pos_df(
             f"(max_atom_frac={max_atom_frac:.4f}, drift_pp={max_acceptable_drift_pp}, "
             f"single_slot={single_slot!r}, cluster_alphabet={cluster_alphabet!r}, "
             f"cluster_id_threshold={cluster_id_threshold}, n_atoms={n_atoms}). "
-            f"D4 pre-build trigger per docs/plans/2026-05-27_kfold_variance_estimation_plan.md. "
+            f"D4 pre-build trigger per docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md. "
             f"Options: reduce n_folds to <= {max_feasible_k_at_build_drift}; relax to a "
             f"looser cluster_id_threshold; or accept larger max_acceptable_drift_pp "
             f"(loosens feasibility, noisier per-fold metrics)."

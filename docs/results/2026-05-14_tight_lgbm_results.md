@@ -104,5 +104,5 @@ Models:
   unfiltered corpus.
 - `conf/bundles/flu_ha_na_tight.yaml`, `conf/bundles/flu_pb2_pb1_tight.yaml`
   — the tight-bundle configs.
-- `docs/methods/leakage_definitions.md` — modes #4 (cluster) and #5
+- `docs/methods/leakage.md` — modes #4 (cluster) and #5
   (demographic shortcut) are the two leakage modes this experiment exercises.

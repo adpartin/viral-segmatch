@@ -1704,7 +1704,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 )
     # D3 feasibility knobs for k-fold cluster_disjoint (read from
     # split_strategy.feasibility.*; defaults match D3 of the k-fold plan).
-    # See docs/plans/2026-05-27_kfold_variance_estimation_plan.md D3.
+    # See docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md D3.
     MAX_ACCEPTABLE_DRIFT_PP = 0.05
     MIN_TEST_FRAC = 0.05
     if SPLIT_STRATEGY_CFG is not None:

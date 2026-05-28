@@ -185,7 +185,7 @@ concern either — total demand never exceeds 1% of total supply.
 
 - `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — leakage
   taxonomy (mode #2 currently flagged as protein-only).
-- `docs/methods/leakage_definitions.md` — canonical mode definitions.
+- `docs/methods/leakage.md` — canonical mode definitions.
 - `eda/dna_coverage_feasibility.py` — the script that produced these
   numbers.
 - `/tmp/dna_coverage_feasibility/per_seq.csv` and

@@ -113,4 +113,4 @@ leakage-blocker.
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
   Experiment B (aa-level cluster_disjoint, implemented 2026-05-15) and
   Experiment B-nt (nt-level cluster_disjoint, currently underway).
-- `docs/methods/leakage_definitions.md` § cluster leakage (mode #4).
+- `docs/methods/leakage.md` § cluster leakage (mode #4).

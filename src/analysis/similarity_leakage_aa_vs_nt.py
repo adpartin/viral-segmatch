@@ -30,13 +30,13 @@ Reads (per dataset_dir):
 Reports nearest-neighbor identity distribution per side x level. Useful
 to flag whether the aa representation enjoys more similarity-leakage
 than the dna representation (or vice versa), which is one of the five
-named leakage modes in docs/methods/leakage_definitions.md.
+named leakage modes in docs/methods/leakage.md.
 
 Cross-references
 ----------------
   - docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md
       The note that calls this script and records the headline result.
-  - docs/methods/leakage_definitions.md
+  - docs/methods/leakage.md
       The 5-mode leakage taxonomy. This script targets mode #4
       (cluster leakage), measured via nearest-neighbor identity rather
       than explicit clustering.

@@ -130,7 +130,7 @@ support from this project (current production bundles
 The 1-NN and MLP results are nearly indistinguishable on aggregate
 metrics under this setup — and on PB2/PB1 the 1-NN baseline narrowly
 edges the MLP on MCC (0.900 vs 0.887). See
-`docs/methods/leakage_definitions.md` for the role of the 1-NN result
+`docs/methods/leakage.md` for the role of the 1-NN result
 in the "biology learning" criterion and `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`
 for the earlier HA/NA Exp 4a numbers under the looser `hash_key=dna`
 routing.
@@ -338,7 +338,7 @@ extrapolation.
   2026-05-12; wired via `# @package bundles`).
 - `docs/methods/kmer_features.md` — full k-mer pipeline; "Why not
   normalize counts?" section discusses the length confound.
-- `docs/methods/leakage_definitions.md` — uses 1-NN as the leakage
+- `docs/methods/leakage.md` — uses 1-NN as the leakage
   anchor for the "biology learning" criterion.
 - `src/models/_pair_features.py` — the baseline-side feature loader;
   `_apply_slot_norm` (line 96, numpy LayerNorm) and `_apply_unit_norm`

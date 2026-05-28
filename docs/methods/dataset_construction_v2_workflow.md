@@ -95,7 +95,7 @@ parsed metadata CSV), that isolate's pairs are still constructable but
 the regime-aware sampler in Phase 5 will see null on the missing axes
 (and the existing 8-tuple mapping classifies null on an axis as
 no-match on that axis — see
-[`leakage_definitions.md`](leakage_definitions.md) mode #5).
+[`leakage.md`](leakage.md) mode #5).
 
 ---
 
@@ -273,10 +273,10 @@ also supports `random` (plain shuffle-split, leakage-blind),
 `cluster_disjoint` bilateral (BiCC + LPT on mmseqs2 cluster ids), and
 `cluster_disjoint single_slot='a'|'b'` (per-cluster atoms on one slot
 only — unlocks idXX thresholds past the bilateral feasibility ceiling).
-See [`leakage_definitions.md`](leakage_definitions.md) § "Routing
-equivalence" for the side-by-side and
-[`clustering_overview.md`](clustering_overview.md) § 7 for the
-bin-packer algorithm shared across all cluster_disjoint variants.
+See [`splits.md`](splits.md) § 1.5 for the routing-equivalence
+side-by-side and [`splits.md`](splits.md) § 1.2 / § 1.3 for the
+atom definition + LPT-greedy bin-packer shared across all
+cluster_disjoint variants.
 
 ---
 
@@ -295,7 +295,7 @@ Negative pairs are sampled across isolates with **three guarantees**:
 The **coverage phase** walks every `(slot, dna_hash)` target and
 finds at least one valid negative partner before the fill phase
 starts. This guarantees the protein-level imbalance fix (mode #2
-leakage; see [`leakage_definitions.md`](leakage_definitions.md)) and
+leakage; see [`leakage.md`](leakage.md)) and
 the DNA-level best-effort variant.
 
 ### Verified numbers
@@ -474,7 +474,7 @@ isolate identity).
   Phase 3 implementation plan.
 - [`../plans/done/2026-05-09_metadata_aware_negatives_plan.md`](../plans/done/2026-05-09_metadata_aware_negatives_plan.md) —
   Phase 5 design.
-- [`leakage_definitions.md`](leakage_definitions.md) — modes #2
+- [`leakage.md`](leakage.md) — modes #2
   (sequence-level label imbalance, Phase 4 fix), #3 (sequence-level
   leakage, Phase 3 fix), #5 (demographic shortcut, Phase 5
   mitigation).

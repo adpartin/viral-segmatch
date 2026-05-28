@@ -115,7 +115,7 @@ FP rate / confidence carry signal there. The plot renders one bar per regime
 
 **What to look for:** ascending TNR drop with increasing match count is
 direct evidence of metadata-shortcut leakage (mode #5 in
-`docs/methods/leakage_definitions.md`). The hardest regime
+`docs/methods/leakage.md`). The hardest regime
 `host_subtype_year` is where the model has no metadata cue at all and must
 discriminate on sequence content.
 

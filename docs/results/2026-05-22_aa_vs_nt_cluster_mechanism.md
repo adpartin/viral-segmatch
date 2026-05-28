@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-22
 **Status:** EXPLORATORY (one-pass cross-tab; resolves the open methodology question
-from `clustering_overview.md` §6.1 / `2026-05-22_aa_cluster_algorithm_validation_results.md`
+from `clusters.md` §6.1 / `2026-05-22_aa_cluster_algorithm_validation_results.md`
 § "Open questions").
 **Companion data:** `results/flu/July_2025/runs/cluster_aa_nt_crosstab/`
 **Analysis script:** `src/analysis/aa_nt_cluster_crosstab.py`

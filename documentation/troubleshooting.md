@@ -70,7 +70,7 @@ overlap on the active hash family (`hash_key=seq` by default, or
 The audit dict (`split_strategy_audit` in the run directory) reports
 both `seq_hash_overlap` and `dna_hash_overlap` regardless of which
 family is active, so you can see the diagnostic side too. See
-[`../docs/methods/leakage_definitions.md`](../docs/methods/leakage_definitions.md)
+[`../docs/methods/leakage.md`](../docs/methods/leakage.md)
 (mode #3) for the full taxonomy.
 
 ## Data setup issues
@@ -203,5 +203,5 @@ print_config_summary(config)
 
 - [`../docs/conf_guide.md`](../docs/conf_guide.md) — Hydra configuration system.
 - [`../docs/methods/pipeline_overview.md`](../docs/methods/pipeline_overview.md) — pipeline architecture.
-- [`../docs/methods/leakage_definitions.md`](../docs/methods/leakage_definitions.md) — leakage taxonomy.
+- [`../docs/methods/leakage.md`](../docs/methods/leakage.md) — leakage taxonomy.
 - [`quick-start.md`](quick-start.md) — first-time setup.

@@ -47,7 +47,7 @@ n_pairs after dedup on `(seq_hash_a, seq_hash_b)`:
 - aa: 58,826 unique protein pairs.
 - nt: 79,347 unique DNA pairs (higher because synonymous-codon
   variants are distinct at the nt level — consistent with
-  `clustering_overview.md` § 3.2 ratio ~1.5×).
+  `clusters.md` § 3.2 ratio ~1.5×).
 
 ## Results — bilateral
 

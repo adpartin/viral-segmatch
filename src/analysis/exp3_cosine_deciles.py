@@ -5,7 +5,7 @@ Exp 3 ("Stratified accuracy by nearest-train cosine"). Operates
 post-hoc on existing trained runs — does NOT rebuild splits or
 retrain. Cheap diagnostic that pairs naturally with Exp 2 (the 1-NN
 baseline) to characterise mode #4 (cluster leakage) in the leakage
-taxonomy at ``docs/methods/leakage_definitions.md``.
+taxonomy at ``docs/methods/leakage.md``.
 
 What it measures
 ----------------

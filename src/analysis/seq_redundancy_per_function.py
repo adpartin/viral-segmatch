@@ -307,7 +307,7 @@ def write_results_markdown(
     header_cols = ['Segment', 'function_short'] + data_cols
     # Iterate strict-to-loose (id100 first, id080 last) to mirror the
     # cluster-collapse-as-threshold-relaxes narrative used in
-    # docs/methods/clustering_overview.md §8.
+    # docs/methods/clusters.md §8.
     sort_index = {s: i for i, s in enumerate(SHORT_CANONICAL_ORDER)}
     for th, sub in stats_df.sort_values('threshold', ascending=False).groupby('threshold', sort=False):
         lines.append(f"### threshold = {th:.2f}")
@@ -389,7 +389,7 @@ def main() -> None:
                         'alphabets for cross-alphabet consistency). cluster=easy-cluster '
                         '(sensitive 3-round cascade; retained as an option but no '
                         'longer the default — the asymmetric easy-cluster/easy-linclust '
-                        'choice conflated algorithm with alphabet in clustering_overview.md '
+                        'choice conflated algorithm with alphabet in clusters.md '
                         '§8/§9; see docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md).')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
     p.add_argument('--results_md', default=None,

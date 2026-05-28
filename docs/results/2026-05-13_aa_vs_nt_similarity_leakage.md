@@ -137,7 +137,7 @@ if it shrinks or disappears, it was the similarity leakage. Plan:
 
 ## Related project entries
 
-- `docs/methods/leakage_definitions.md` — leakage mode #4 ("cluster
+- `docs/methods/leakage.md` — leakage mode #4 ("cluster
   leakage") is what this diagnostic targets; the current pipeline
   does not mitigate it.
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —

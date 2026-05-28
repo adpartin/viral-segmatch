@@ -4,7 +4,7 @@
 **Branch:** feature/sequence-disjoint-splits
 **Plan:** `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md`
 **Parent plan:** `docs/plans/2026-05-07_leakage_diagnostics_plan.md` (Exp 4)
-**Leakage mode addressed:** #3 sequence-level leakage (see `docs/methods/leakage_definitions.md`)
+**Leakage mode addressed:** #3 sequence-level leakage (see `docs/methods/leakage.md`)
 
 ---
 
@@ -89,7 +89,7 @@ not changed by routing a specific DNA into one split vs another.
 
 ### 2. MLP falls **below** 1-NN on host_subtype_year under seq_disjoint.
 
-`docs/methods/leakage_definitions.md` operationalizes "model learned
+`docs/methods/leakage.md` operationalizes "model learned
 biology" as MLP beating 1-NN by ≥ 0.02. On host_subtype_year:
 
 | Split | MLP | knn1_margin (1-NN) | gap |

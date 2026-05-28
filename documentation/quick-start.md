@@ -124,7 +124,7 @@ Verified 2026-05-12 from
 
 Note: on PB2/PB1, 1-NN edges MLP on MCC — consistent with the
 conservation hypothesis (fewer truly-novel test sequences). See
-[`../docs/methods/leakage_definitions.md`](../docs/methods/leakage_definitions.md)
+[`../docs/methods/leakage.md`](../docs/methods/leakage.md)
 for the "biology learning" criterion this comparison anchors.
 
 ## Output structure (full pipeline)
@@ -149,4 +149,4 @@ results/flu/July_2025/runs/
 - **Read the analysis outputs:** [`analysis/results-analysis.md`](analysis/results-analysis.md)
 - **Configure a new experiment bundle:** [`../docs/conf_guide.md`](../docs/conf_guide.md)
 - **Deep dive on the pipeline:** [`../docs/methods/pipeline_overview.md`](../docs/methods/pipeline_overview.md)
-- **Understand the leakage / "biology learning" framing:** [`../docs/methods/leakage_definitions.md`](../docs/methods/leakage_definitions.md)
+- **Understand the leakage / "biology learning" framing:** [`../docs/methods/leakage.md`](../docs/methods/leakage.md)
