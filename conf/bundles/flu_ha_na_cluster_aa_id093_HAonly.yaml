@@ -1,0 +1,19 @@
+# STATUS: experimental -- HA/NA HA-only cluster_disjoint at aa idXX = 0.93 (holdout).
+# Used to verify whether D3 (drift_pp + min_test_frac) passes for holdout
+# at id093 — the threshold where the LEGACY feasible_8010 heuristic fails
+# (second-atom 21.16% > 20%) but D3's max_feasible_k_at_default_drift=5
+# satisfies the necessary condition for k=1.
+# The sufficient check requires actual LPT bin-packing at build time.
+# See docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md D3/D4.
+
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  split_strategy:
+    mode: cluster_disjoint
+    cluster_id_path: data/processed/flu/July_2025/clusters_aa/id093/combined_cluster.parquet
+    cluster_id_threshold: .93
+    cluster_alphabet: aa
+    single_slot: a       # constrain slot a (HA) only; slot b (NA) unconstrained
