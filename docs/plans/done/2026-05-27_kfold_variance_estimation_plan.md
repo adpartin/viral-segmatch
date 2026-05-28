@@ -1,6 +1,27 @@
 # K-fold variance estimation for single-slot cluster_disjoint
 
-**Status: IN PROGRESS**
+**Status: IMPLEMENTED**
+
+Implementation landed across commits b208978..38aa0d1 on branch
+`feature/kfold-variance`. Both smoke tests passed end-to-end on
+2026-05-27:
+
+- **Smoke 1** (HA-NA HA-only aa id095 k=5, expected feasible):
+  Stage 3 built all 5 folds in 16:55. `kfold_summary` in each
+  fold's `dataset_stats.json` reports `max_feasible_k_strict=7`,
+  `max_feasible_k_at_build_drift=11`, `all_folds_pass=true`,
+  per-fold `drift_pp=0.0`, `test_frac=0.20`. Matches plan's D1
+  k-dependent ratios (0.7/0.1/0.2 at k=5).
+- **Smoke 2** (PB2-PB1 PB1-only aa id095 k=5, expected refuse):
+  D4 pre-build trigger fired with structured message
+  (`max_atom_frac=0.7867`, `max_feasible_k_at_build_drift=1`,
+  `n_atoms=2018`). No fold subdirs written.
+
+Smoke 3 (HA-NA HA-only k=12 at default drift) not executed — would
+add ~17 min of build time and verify the same drift-aware
+pre-build trigger path that Smoke 2 already exercised (just at the
+upper boundary instead of the lower). Pre-build trigger is
+deterministic per D4; verified by code-path reasoning.
 
 ## Motivation
 
