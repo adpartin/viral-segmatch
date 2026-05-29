@@ -38,8 +38,9 @@ Outputs (under --out_dir):
     sequence_length_summary.csv       — per (function, alphabet) length stats
     mutations_tolerated_table.csv     — per (function, alphabet, threshold) max mismatches
     seq_redundancy.png                — Plot A (2 grouped-bar panels)
-    seq_freq_dist_aa.png              — Plot D, aa  (per-protein corpus-frequency CCDF)
-    seq_freq_dist_nt_cds.png          — Plot D, nt  (CDS coding sequence)
+    seq_freq_hist_aa.png              — Plot D, aa  (per-protein corpus-frequency histograms, 2x4 grid)
+    seq_freq_hist_nt_cds.png          — Plot D, nt  (CDS coding sequence)
+    seq_freq_tier_summary.csv         — Plot D summary table (V5: tier counts per protein × alphabet)
     cluster_counts_vs_threshold.png   — Plot B (log-Y, 8 lines × 2 alphabets)
     bipartite_largest_pct_vs_threshold.png — Plot C (2 pairs × 2 alphabets, 80% line)
 """
@@ -276,60 +277,124 @@ def plot_seq_redundancy(length_stats: pd.DataFrame, red_aa: pd.DataFrame,
     plt.close(fig)
 
 
-def plot_seq_freq_dist(cds_final: Path, alphabet: str, out_png: Path) -> None:
-    """Plot D: per-protein CCDF of corpus frequency per unique seq_hash.
+_FREQ_BINS = [1, 2, 3, 4, 7, 11, 31, 101, 301, 1001, 3001, np.inf]
+_FREQ_BIN_LABELS = ['1', '2', '3', '4-6', '7-10', '11-30', '31-100',
+                    '101-300', '301-1k', '1k-3k', '3k+']
 
-    Each protein's unique sequences are not uniformly represented across
-    isolates — common circulating sequences appear in many isolates,
-    most rare sequences appear in one. This plot shows that distribution
-    as a complementary CCDF (fraction of unique sequences with frequency
-    >= f) on log-log axes; one curve per protein.
 
-    Both alphabets read from cds_final.parquet, which carries seq_hash
-    (md5 of prot_seq) and cds_dna_hash (md5 of cds_dna) side-by-side
-    with full per-isolate coverage of the 8 major proteins.
+def _freq_counts_per_protein(cds_final: Path, alphabet: str) -> dict:
+    """Returns {protein_short: np.ndarray of per-unique-seq corpus frequencies}.
 
-    Args:
-        cds_final: Path to cds_final.parquet (Stage 1.5 output).
-        alphabet: 'aa' (uses seq_hash) or 'nt_cds' (uses cds_dna_hash).
-        out_png: Output PNG path.
+    Source: cds_final.parquet, which carries seq_hash (md5 of prot_seq)
+    and cds_dna_hash (md5 of cds_dna) side-by-side with full per-isolate
+    coverage of the 8 major proteins.
     """
     if alphabet == 'aa':
         df = pd.read_parquet(cds_final, columns=['function', 'seq_hash'])
         hash_col = 'seq_hash'
-        suffix = 'prot_seq'
     elif alphabet == 'nt_cds':
         df = pd.read_parquet(cds_final, columns=['function', 'cds_dna_hash'])
         hash_col = 'cds_dna_hash'
-        suffix = 'cds_dna'
     else:
         raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
-
     df['function_short'] = df['function'].map(_FUNCTION_TO_SHORT)
     df = df.dropna(subset=['function_short'])
+    return {s: df.loc[df['function_short'] == s].groupby(hash_col).size().values
+            for s in _SHORT_ORDER
+            if (df['function_short'] == s).any()}
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for s in _SHORT_ORDER:
-        sub = df[df['function_short'] == s]
-        if len(sub) == 0:
+
+def plot_seq_freq_hist(cds_final: Path, alphabet: str, out_png: Path) -> None:
+    """Plot D: per-protein corpus-frequency histograms (2x4 grid, log-binned).
+
+    Each panel shows count of unique sequences in 9 log-spaced frequency
+    bins for one protein. Y-axis is log-scaled (singletons dwarf heavy
+    hitters in linear). Direct read: 'for PB2, N sequences appear in 1
+    isolate, M in 2-3, ... K in 1k-3k.'
+
+    Args:
+        cds_final: Path to cds_final.parquet.
+        alphabet: 'aa' (uses seq_hash) or 'nt_cds' (uses cds_dna_hash).
+        out_png: Output PNG path.
+    """
+    freqs_per = _freq_counts_per_protein(cds_final, alphabet)
+    suffix = 'prot_seq' if alphabet == 'aa' else 'cds_dna'
+
+    fig, axes = plt.subplots(2, 4, figsize=(13, 6), sharey=True)
+    xs = np.arange(len(_FREQ_BIN_LABELS))
+    for ax, s in zip(axes.flat, _SHORT_ORDER):
+        if s not in freqs_per:
+            ax.set_visible(False)
             continue
-        freqs = sub.groupby(hash_col).size().values
-        freqs_sorted = np.sort(freqs)[::-1]
-        n = len(freqs_sorted)
-        ccdf = np.arange(1, n + 1) / n
-        ax.loglog(freqs_sorted, ccdf, linestyle='-', linewidth=1.5,
-                  color=_FUNCTION_COLORS[s], label=s, alpha=0.85)
+        freqs = freqs_per[s]
+        counts, _ = np.histogram(freqs, bins=_FREQ_BINS)
+        ax.bar(xs, counts, color=_FUNCTION_COLORS[s],
+               edgecolor='black', linewidth=0.5)
+        ax.set_yscale('log')
+        ax.set_xticks(xs)
+        ax.set_xticklabels(_FREQ_BIN_LABELS, rotation=45, ha='right', fontsize=7)
+        ax.set_title(f'{s}  (n_uniq={len(freqs):,})', fontsize=10)
+        ax.grid(axis='y', linestyle=':', alpha=0.5)
+        ax.set_axisbelow(True)
+        for x, c in zip(xs, counts):
+            if c > 0:
+                ax.annotate(f'{int(c):,}', xy=(x, c), xytext=(0, 2),
+                            textcoords='offset points', ha='center',
+                            fontsize=6, color='#333')
 
-    ax.set_xlabel('corpus frequency f (# isolates per unique seq_hash)')
-    ax.set_ylabel('P(freq ≥ f) — fraction of unique sequences')
-    ax.set_title(f'Per-protein corpus frequency CCDF — {alphabet} ({suffix})',
-                 fontsize=11)
-    ax.grid(which='both', linestyle=':', alpha=0.5)
-    ax.legend(loc='upper right', fontsize=8, ncol=2, frameon=False)
+    for ax in axes[1, :]:
+        ax.set_xlabel('corpus frequency f (# isolates per unique seq)',
+                      fontsize=8)
+    for ax in axes[:, 0]:
+        ax.set_ylabel('count of unique sequences (log)', fontsize=8)
+
+    # Bump Y upper limit so the topmost bar's value annotation sits
+    # inside the axes (sharey=True propagates to all panels).
+    axes.flat[0].set_ylim(0.5, axes.flat[0].get_ylim()[1] * 2.5)
+
+    fig.suptitle(f'Per-protein corpus-frequency histograms — {alphabet} ({suffix})',
+                 fontsize=11, y=1.02)
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=180, bbox_inches='tight')
     plt.close(fig)
+
+
+def compute_seq_freq_tier_summary(cds_final: Path, out_csv: Path) -> pd.DataFrame:
+    """V5: per-protein x alphabet frequency-tier summary table.
+
+    Collapses the 9 plot bins into 5 tiers for compact comparison:
+    singletons (freq=1), 2-10, 11-100, 101-1k, 1k+. Also reports the
+    max single-sequence frequency and the % of isolate-occurrences
+    explained by the top-10 most common sequences.
+    """
+    rows = []
+    for alpha in ('aa', 'nt_cds'):
+        freqs_per = _freq_counts_per_protein(cds_final, alpha)
+        for s in _SHORT_ORDER:
+            if s not in freqs_per:
+                continue
+            freqs = freqs_per[s]
+            counts, _ = np.histogram(freqs, bins=_FREQ_BINS)
+            sorted_desc = np.sort(freqs)[::-1]
+            top10_sum = int(sorted_desc[:10].sum())
+            total = int(freqs.sum())
+            rows.append({
+                'alphabet': alpha,
+                'protein': s,
+                'n_uniq': int(len(freqs)),
+                'singletons': int(counts[0]),
+                '2-10': int(counts[1:5].sum()),
+                '11-100': int(counts[5:7].sum()),
+                '101-1k': int(counts[7:9].sum()),
+                '1k+': int(counts[9:11].sum()),
+                'max_freq': int(sorted_desc[0]),
+                'top10_pct_isolates': round(100.0 * top10_sum / total, 2),
+            })
+    df = pd.DataFrame(rows)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_csv, index=False)
+    return df
 
 
 def plot_cluster_counts_vs_threshold(red_aa: pd.DataFrame, red_nt: pd.DataFrame,
@@ -501,9 +566,13 @@ def main() -> None:
     print(f'wrote {out_dir / "seq_redundancy.png"}')
 
     for alpha in ('aa', 'nt_cds'):
-        out_png = out_dir / f'seq_freq_dist_{alpha}.png'
-        plot_seq_freq_dist(Path(args.cds_final), alpha, out_png)
+        out_png = out_dir / f'seq_freq_hist_{alpha}.png'
+        plot_seq_freq_hist(Path(args.cds_final), alpha, out_png)
         print(f'wrote {out_png}')
+
+    freq_tier_csv = out_dir / 'seq_freq_tier_summary.csv'
+    freq_tier_df = compute_seq_freq_tier_summary(Path(args.cds_final), freq_tier_csv)
+    print(f'wrote {freq_tier_csv} ({len(freq_tier_df):,} rows)')
 
     plot_cluster_counts_vs_threshold(
         red_aa, red_nt,

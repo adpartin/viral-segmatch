@@ -450,19 +450,59 @@ unique sequences are not uniformly represented across the 108,530
 isolates — distributions are heavy-tailed: a small fraction of
 sequences appear in many isolates (common circulating
 H1N1/H3N2/H5Nx backbones), while most unique sequences appear in
-just one or a few isolates. Per-protein CCDFs (`P(freq ≥ f)` on
-log-log axes, one curve per protein):
+just one or a few isolates. Per-protein histograms (11 log-spaced
+frequency bins, one panel per protein, log-Y to keep both
+singletons and heavy hitters visible):
 
-- `seq_freq_dist_aa.png` — aa (`prot_seq`)
-- `seq_freq_dist_nt_cds.png` — nt (`cds_dna`; CDS coding sequence
+- `seq_freq_hist_aa.png` — aa (`prot_seq`)
+- `seq_freq_hist_nt_cds.png` — nt (`cds_dna`; CDS coding sequence
   only — see §3.3 and the §4 column note. The `nt_cds` suffix
   anticipates a future `nt_ctg` variant on full-contig DNA.)
 
+**How to read a panel.** The y-axis is **count of unique sequences**;
+the x-axis is **how many isolates each of those sequences appears in**.
+Each bar reads as "N unique sequences each have a corpus frequency in
+this bin." Worked example, HA aa (4th panel of `seq_freq_hist_aa.png`):
+
+- Bin `1` (height 33,032) — 33,032 distinct HA aa sequences each
+  appear in exactly 1 isolate (singletons; each is unique to one
+  isolate).
+- Bin `2` — distinct HA aa sequences each appearing in exactly 2
+  isolates.
+- Bin `3` — distinct HA aa sequences each appearing in exactly 3
+  isolates.
+- Bin `4-6` — distinct HA aa sequences each appearing in 4, 5, or 6
+  isolates.
+- Bin `3k+` (height 0) — there are no HA aa sequences in 3,000+
+  isolates because HA's most common aa sequence appears in 1,702
+  isolates (the `max_freq` column of the tier table below). For
+  comparison, the most common M1 aa sequence appears in 28,306
+  isolates — a single amino-acid sequence carried by ~26 % of the
+  108,530 corpus.
+
+Common misreading to avoid: the bar height is *not* the number of
+isolates, and bin `2-3` does not mean "isolates 2 and 3 contain N
+sequences." Each isolate carries exactly one sequence per protein;
+the histogram counts how many of the **unique** sequences fall into
+each frequency tier.
+
+Companion tier table (collapsed to 5 bins for direct cross-protein
+comparison):
+
+- `seq_freq_tier_summary.csv` — columns: `alphabet`, `protein`,
+  `n_uniq`, `singletons`, `2-10`, `11-100`, `101-1k`, `1k+`,
+  `max_freq`, `top10_pct_isolates`. The `top10_pct_isolates`
+  column gives the percent of all isolate-occurrences explained by
+  the 10 most common sequences — a single-number head-concentration
+  metric. HA aa is the most distributed protein (top-10 covers
+  10.97 % of isolates); M1 aa is the most concentrated (top-10
+  covers 70.44 %).
+
 The structural setup matters because per-sequence frequency is a
 **per-sequence marginal statistic** that a pair-vector 1-NN
-comparator (`leakage.md` § "biology learning") cannot see — see
-the Limits caveat in `leakage.md` for what this means for the
-biology-learning criterion.
+comparator (`leakage.md` § "The 1-NN lookup gauge") cannot see —
+see the Limits caveat in `leakage.md` for what this means for the
+comparator's reach.
 
 ---
 
@@ -803,8 +843,9 @@ cluster_summary.csv                       — per (protein, alphabet, threshold)
 sequence_length_summary.csv               — per (protein, alphabet)
 mutations_tolerated_table.csv             — concrete max-mismatches table
 seq_redundancy.png                        — Plot A (§4)
-seq_freq_dist_aa.png                      — Plot D, aa (§4)
-seq_freq_dist_nt_cds.png                  — Plot D, nt CDS (§4)
+seq_freq_hist_aa.png                      — Plot D, aa (§4)
+seq_freq_hist_nt_cds.png                  — Plot D, nt CDS (§4)
+seq_freq_tier_summary.csv                 — Plot D companion tier table (§4)
 cluster_counts_vs_threshold.png           — Plot B (§6)
 bipartite_largest_pct_vs_threshold.png    — Plot C (`splits.md` § 1.9)
 ```
