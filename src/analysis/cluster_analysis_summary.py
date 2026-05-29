@@ -37,7 +37,9 @@ Outputs (under --out_dir):
     cluster_summary.csv               — per (function, alphabet, threshold) row
     sequence_length_summary.csv       — per (function, alphabet) length stats
     mutations_tolerated_table.csv     — per (function, alphabet, threshold) max mismatches
-    unique_sequence_retention.png     — Plot A (2 grouped-bar panels)
+    seq_redundancy.png                — Plot A (2 grouped-bar panels)
+    seq_freq_dist_aa.png              — Plot D, aa  (per-protein corpus-frequency CCDF)
+    seq_freq_dist_nt_cds.png          — Plot D, nt  (CDS coding sequence)
     cluster_counts_vs_threshold.png   — Plot B (log-Y, 8 lines × 2 alphabets)
     bipartite_largest_pct_vs_threshold.png — Plot C (2 pairs × 2 alphabets, 80% line)
 """
@@ -216,7 +218,7 @@ def build_mutations_tolerated(length_stats: pd.DataFrame, thresholds: list[float
 # Plotters
 # ----------------------------------------------------------------------
 
-def plot_unique_sequence_retention(length_stats: pd.DataFrame, red_aa: pd.DataFrame,
+def plot_seq_redundancy(length_stats: pd.DataFrame, red_aa: pd.DataFrame,
                                     red_nt: pd.DataFrame, out_png: Path) -> None:
     """Plot A: per-function n_unique vs n_input, one panel per alphabet."""
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), sharey=False)
@@ -268,6 +270,62 @@ def plot_unique_sequence_retention(length_stats: pd.DataFrame, red_aa: pd.DataFr
                  'grey = total seqs (1 per (isolate, protein)); '
                  'colored = uniq seqs after dedup.',
                  fontsize=10, y=1.02)
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=180, bbox_inches='tight')
+    plt.close(fig)
+
+
+def plot_seq_freq_dist(cds_final: Path, alphabet: str, out_png: Path) -> None:
+    """Plot D: per-protein CCDF of corpus frequency per unique seq_hash.
+
+    Each protein's unique sequences are not uniformly represented across
+    isolates — common circulating sequences appear in many isolates,
+    most rare sequences appear in one. This plot shows that distribution
+    as a complementary CCDF (fraction of unique sequences with frequency
+    >= f) on log-log axes; one curve per protein.
+
+    Both alphabets read from cds_final.parquet, which carries seq_hash
+    (md5 of prot_seq) and cds_dna_hash (md5 of cds_dna) side-by-side
+    with full per-isolate coverage of the 8 major proteins.
+
+    Args:
+        cds_final: Path to cds_final.parquet (Stage 1.5 output).
+        alphabet: 'aa' (uses seq_hash) or 'nt_cds' (uses cds_dna_hash).
+        out_png: Output PNG path.
+    """
+    if alphabet == 'aa':
+        df = pd.read_parquet(cds_final, columns=['function', 'seq_hash'])
+        hash_col = 'seq_hash'
+        suffix = 'prot_seq'
+    elif alphabet == 'nt_cds':
+        df = pd.read_parquet(cds_final, columns=['function', 'cds_dna_hash'])
+        hash_col = 'cds_dna_hash'
+        suffix = 'cds_dna'
+    else:
+        raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
+
+    df['function_short'] = df['function'].map(_FUNCTION_TO_SHORT)
+    df = df.dropna(subset=['function_short'])
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for s in _SHORT_ORDER:
+        sub = df[df['function_short'] == s]
+        if len(sub) == 0:
+            continue
+        freqs = sub.groupby(hash_col).size().values
+        freqs_sorted = np.sort(freqs)[::-1]
+        n = len(freqs_sorted)
+        ccdf = np.arange(1, n + 1) / n
+        ax.loglog(freqs_sorted, ccdf, linestyle='-', linewidth=1.5,
+                  color=_FUNCTION_COLORS[s], label=s, alpha=0.85)
+
+    ax.set_xlabel('corpus frequency f (# isolates per unique seq_hash)')
+    ax.set_ylabel('P(freq ≥ f) — fraction of unique sequences')
+    ax.set_title(f'Per-protein corpus frequency CCDF — {alphabet} ({suffix})',
+                 fontsize=11)
+    ax.grid(which='both', linestyle=':', alpha=0.5)
+    ax.legend(loc='upper right', fontsize=8, ncol=2, frameon=False)
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=180, bbox_inches='tight')
@@ -436,11 +494,16 @@ def main() -> None:
     print(f'wrote {mut_csv} ({len(mut_df):,} rows)')
 
     # ---- plots --------------------------------------------------------
-    plot_unique_sequence_retention(
+    plot_seq_redundancy(
         length_stats, red_aa, red_nt,
-        out_dir / 'unique_sequence_retention.png',
+        out_dir / 'seq_redundancy.png',
     )
-    print(f'wrote {out_dir / "unique_sequence_retention.png"}')
+    print(f'wrote {out_dir / "seq_redundancy.png"}')
+
+    for alpha in ('aa', 'nt_cds'):
+        out_png = out_dir / f'seq_freq_dist_{alpha}.png'
+        plot_seq_freq_dist(Path(args.cds_final), alpha, out_png)
+        print(f'wrote {out_png}')
 
     plot_cluster_counts_vs_threshold(
         red_aa, red_nt,

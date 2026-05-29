@@ -1,9 +1,7 @@
-# Leakage definitions and the "biology learning" criterion
+# Leakage definitions
 
 This is the persistent reference for the project's terminology around
-dataset / evaluation issues that may inflate test metrics, and for the
-operational definition of when we say the model has "learned biology"
-versus memorized near-neighbors.
+dataset / evaluation issues that may inflate test metrics.
 
 The active to-do list and experimental design live in
 `docs/plans/2026-05-07_leakage_diagnostics_plan.md`. **This file is the
@@ -73,29 +71,37 @@ not at the pair level. Specifically:
 
 ---
 
-## When we say "the model learned biology"
+## The 1-NN lookup gauge
 
-The model has learned biology-relevant signal **insofar as** its
-accuracy on tasks (a) and (b) below is meaningfully higher than a 1-NN
-lookup (k-NN with k=1) on the same splits and the same features:
+The 1-NN cosine-margin baseline (k-NN with k=1, on the pair
+interaction feature vector) is our **memorization / near-neighbor
+lookup floor**. If the MLP can be matched by a single-nearest-neighbor
+lookup in the same feature space on the same splits, it isn't doing
+anything beyond memorization of training pairs. If the MLP exceeds
+1-NN by a meaningful margin (initial bar: ΔAUC > 0.02), the MLP uses
+information beyond the nearest training neighbor.
 
-(a) **Generalization to novel sequences** — pairs whose individual
-sequences have cosine < 0.95 to all training sequences (or fall in a
-test cluster disjoint from any training cluster, per Plan Exp 5 with
-mmseqs2 at e.g. 95% identity).
+If MLP ≈ 1-NN, the model is doing nothing more than near-neighbor
+lookup. If MLP > 1-NN by Δ AUC, the MLP exceeds near-neighbor
+lookup by that margin — nothing weaker, nothing stronger.
 
-(b) **Generalization across populations** — pairs from a held-out
-demographic stratum (subtype, host, year) that does not appear in
-training.
+**Limits.** The MLP > 1-NN cosine-margin comparison tests whether the
+model exceeds **content-based near-neighbor lookup** in the pair
+interaction feature space — i.e., it controls for mode-4 cluster
+leakage as detectable by a pair-vector 1-NN. It does **NOT** control
+for shortcuts that operate on **per-sequence marginal statistics
+invisible to a 1-NN** — most concretely, per-sequence corpus
+frequency (Flu A protein sequences range from one to thousands of
+isolates each; a model can learn frequency-tier matching without a
+1-NN seeing it; see the per-protein frequency CCDFs in
+`clusters.md` § 4). **Conservative readout**: "MLP exceeds
+sequence-similarity lookup," not "MLP has learned biology." Stronger
+biological claims would require additional baselines probing
+per-sequence-marginal shortcuts.
 
-If MLP ≈ 1-NN on these splits, the model is doing nothing more than
-near-neighbor lookup. If MLP > 1-NN by a meaningful margin (initial
-bar: > 0.02 AUC), the MLP is learning a generalizable representation
-beyond what memorization captures.
-
-This definition deliberately avoids claiming "the model is mechanistic"
-or "the model captures co-evolution." Both are stronger claims that
-require interpretability work this project does not commit to.
+This gauge is deliberately narrow. It is a falsifiable comparison
+against a memorization baseline, not a claim about the model's
+representation, mechanism, or co-evolutionary reasoning.
 
 ---
 
@@ -110,8 +116,7 @@ in code and which routings they unlocked; the "Status" column records
 the current empirical reading. Performance trajectories per pair,
 alphabet, and routing live in `docs/results/`. The split-method
 mechanics — atoms, LPT-greedy, k-fold, feasibility — are in
-`splits.md`. The 1-NN comparator definition for the biology-learning
-criterion is in the section above.
+`splits.md`. The 1-NN comparator definition is in the section above.
 
 ---
 

@@ -443,6 +443,27 @@ Columns:
 - **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
   sequences (~95% redundancy in aa).
 
+**Per-sequence frequency distribution.** The table above reports
+per-protein **counts** of unique sequences, not the **shape** of
+their per-isolate frequency distribution. Within each protein the
+unique sequences are not uniformly represented across the 108,530
+isolates — distributions are heavy-tailed: a small fraction of
+sequences appear in many isolates (common circulating
+H1N1/H3N2/H5Nx backbones), while most unique sequences appear in
+just one or a few isolates. Per-protein CCDFs (`P(freq ≥ f)` on
+log-log axes, one curve per protein):
+
+- `seq_freq_dist_aa.png` — aa (`prot_seq`)
+- `seq_freq_dist_nt_cds.png` — nt (`cds_dna`; CDS coding sequence
+  only — see §3.3 and the §4 column note. The `nt_cds` suffix
+  anticipates a future `nt_ctg` variant on full-contig DNA.)
+
+The structural setup matters because per-sequence frequency is a
+**per-sequence marginal statistic** that a pair-vector 1-NN
+comparator (`leakage.md` § "biology learning") cannot see — see
+the Limits caveat in `leakage.md` for what this means for the
+biology-learning criterion.
+
 ---
 
 ## 5. Maximum residue mismatches admitted per cluster
@@ -781,7 +802,9 @@ Outputs land under
 cluster_summary.csv                       — per (protein, alphabet, threshold)
 sequence_length_summary.csv               — per (protein, alphabet)
 mutations_tolerated_table.csv             — concrete max-mismatches table
-unique_sequence_retention.png             — Plot A (§4)
+seq_redundancy.png                        — Plot A (§4)
+seq_freq_dist_aa.png                      — Plot D, aa (§4)
+seq_freq_dist_nt_cds.png                  — Plot D, nt CDS (§4)
 cluster_counts_vs_threshold.png           — Plot B (§6)
 bipartite_largest_pct_vs_threshold.png    — Plot C (`splits.md` § 1.9)
 ```
