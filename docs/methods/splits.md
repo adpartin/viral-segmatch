@@ -387,7 +387,7 @@ cluster on one side would appear in both train and test, defeating
 the routing's purpose. The per-function collapse trajectory (§ 6.1 of
 `clusters.md`) predicts the resulting bipartite-CC sizes. When either
 slot's clusters collapse into one mega-cluster — for example PB2 aa at
-id090 has only 24 clusters absorbing 99.6 % of the corpus (§ 6.4 of
+id090 has only 24 clusters absorbing 99.6 % of the corpus (§ 6.3 of
 `clusters.md`) — the bipartite graph collapses into a single
 mega-component, and the routing becomes structurally infeasible.
 

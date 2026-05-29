@@ -243,7 +243,7 @@ cov(B)  = 9 / 10 = 0.90               ✓ (≥ 0.8)
 BOTH coverages ≥ 0.8 under --cov-mode 0, so this pair DOES cluster
 despite the sequences being different lengths. This is the empirical
 "NA stalk-deletion isoforms cluster with NA stalk-full" pattern at
-t = 1.0 (see §3.1; §6.4's NA id100 row pools 6.9% of the NA corpus
+t = 1.0 (see §3.1; §6.3's NA id100 row pools 6.9% of the NA corpus
 into one cluster).
 
 Case 2: fragment vs full protein — identity passes, coverage fails (does not cluster)
@@ -340,7 +340,7 @@ aligned region doesn't have to span the whole sequence. Under our
 lie outside the alignment, so sequences that differ only in length
 (length-variants — e.g., NA stalk-deletion isoforms) can still
 cluster at t = 1.0 even though the sequences are not identical. See
-§2.1 Case 1 example and §6.4's NA id100 row (6.9% of
+§2.1 Case 1 example and §6.3's NA id100 row (6.9% of
 the corpus pooled into one cluster) for the empirical evidence on
 Flu A.
 
@@ -397,7 +397,7 @@ Note that `--alph-size` is set internally by mmseqs (aa: 21, nucl: 5).
 
 ---
 
-## 4. Corpus redundancy (Flu A)
+## 4. Corpus redundancy (exact duplicates)
 
 **Source.** `src/analysis/cluster_analysis_summary.py`; `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 
@@ -406,10 +406,10 @@ Columns:
 - `Unique aa seqs` / `Unique nt seqs` = unique sequence count after
   dedup on `prot_seq` / `cds_dna`. This is the FASTA
   row count that mmseqs sees as input (it's the pre-clustering dedup).
+  Verify directly with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt}/fasta/<PROTEIN>.fasta`
+  (e.g., HA aa → 41,896).
 - `% unique aa` = `Unique aa seqs` / `Total seqs` (and the same for
-  `% unique nt`). High % means
-  more diverse population at the sequence level; low % means heavily
-  redundant population.
+  `% unique nt`). High % means more unique sequences.
 
 | Segment | Function | Total seqs | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
 |---:|---|---:|---:|---:|---:|---:|
@@ -424,20 +424,13 @@ Columns:
 
 **Takeaways.**
 
-- **`% unique nt` is always higher than `% unique aa`** (all 8 functions).
+- **`% unique nt` is always higher than `% unique aa`** (across all 8 major proteins).
   Synonymous codons create distinct CDS DNAs that collapse to one
   protein, so within a function the nt count is ≥ the aa count.
   Magnitude varies: M1's nt/aa ratio is ~7× (32,413 /
   4,771); HA's is ~1.6× (65,414 / 41,896).
 - **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
-  sequences across 108,530 isolates (~95% redundancy in aa). M1 is the most
-  aa-conserved Flu A protein.
-- **NS1 is an outlier on this column.** 4.7× M1's unique-aa count
-  (22,225 vs 4,771) despite being slightly shorter (median 231 vs
-  253 aa). The decomposition (mostly lower aa conservation, partly a
-  length-variation md5 artifact) is worked out in §6.2 using the
-  across-threshold ratio data, since the evidence requires §6.1's
-  numbers.
+  sequences (~95% redundancy in aa).
 
 ---
 
@@ -581,7 +574,7 @@ Columns:
   always monotone-decreasing; the 1-pp resolution is not.
 - **nt at id100 always exceeds aa at id100** (synonymous variants
   split into distinct nt singletons). The aa-vs-nt relationship
-  inverts at id099 and id098 on most functions — see §6.3 worked
+  inverts at id099 and id098 on most functions — see §6.2 worked
   example.
 
 ### 6.2 Worked example: aa vs nt non-nesting at id099
@@ -642,18 +635,7 @@ geometric consequence of how `--min-seq-id` is computed (§3.1).
 - The deep-dive walkthrough (per-function decomposition) is in
   `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
 
-### 6.3 NS1 vs M1 — conservation, not length artifact
-
-§4's "NS1 anomaly" (NS1 has 4.7× M1's unique-aa count at md5-dedup
-despite being slightly shorter) is mostly explained by NS1's lower
-aa conservation, not by length variation: the NS1 / M1 cluster-count
-ratio grows from 4.7× at id100 to 32.8× at id090, the opposite
-direction of what a length-variation artifact would produce. M1's
-~0.4 % id100 → md5-dedup collapse confirms length variation
-contributes only marginally. Per-function decomposition and the full
-ratio trajectory: `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
-
-### 6.4 Largest cluster as % of corpus
+### 6.3 Largest cluster as % of corpus
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `cluster_summary.csv` column: `largest_cluster / n_sequences × 100`.
