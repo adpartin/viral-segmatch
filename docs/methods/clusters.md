@@ -2,7 +2,7 @@
 
 **Purpose.** This doc covers **mmseqs2 clustering mechanics** (the
 three operational knobs that define a clustering) and **Flu A corpus
-structure** (per-function redundancy, mismatch tolerance, cluster
+structure** (per-protein redundancy, mismatch tolerance, cluster
 collapse trajectories) — the prerequisites for understanding the
 cluster-disjoint split routings. Split-method semantics (atoms,
 LPT-greedy bin-packing, single-slot vs bilateral, k-fold, feasibility
@@ -16,6 +16,14 @@ Second in the methods chain: **`leakage.md` → `clusters.md` →
 **Source → Columns → Table → Takeaways → (Future direction)** where
 applicable. Deep reasoning lives in "worked example" subsections;
 parent sections stay tight.
+
+**Threshold notation.** `tXXX` denotes the mmseqs identity threshold
+(`--min-seq-id`) at `0.XXX` — e.g., `t095` ≡ `t = 0.95`. The same
+notation is used in `splits.md` and `leakage.md`. Cluster output
+directories and code identifiers retain the older `idXXX` form
+(`data/processed/.../clusters_aa/id095/`, `cluster_disjoint_id095`
+routing label) — those are operational artifacts, not renamed with
+the docs.
 
 For experimental findings on Flu A see
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (model
@@ -53,7 +61,7 @@ t is set by `--min-seq-id` (formal semantics in §3.1).
 below uses a single-sequence simplification of the splitting task to
 show *why* random splitting leaks and *how* clustering by radius
 mitigates it. The real `segmatch` task operates on *pairs* (two
-sequences per training example, one per function slot), which adds a
+sequences per training example, one per protein slot), which adds a
 second dimension — covered at the end of this section, with the full
 pair-level construction in `splits.md` § 1.
 
@@ -117,7 +125,7 @@ mode #4 by construction at the chosen radius t.
 
 - `t = 1.0` — pairs with 100% identity over the aligned region cluster
 together. Approximately equivalent to `seq_disjoint` on 7 of the 8 major
-functions, but looser on NA where more sequences of different lengths
+proteins, but looser on NA where more sequences of different lengths
 cluster via the coverage rule (check §3.2 for actual numbers).
 `seq_disjoint` itself splits on seq hash of the full sequence
 (`splits.md` § 1.4).
@@ -132,15 +140,15 @@ all pairs it can't fit into a 0.8 of train, and 80/10/10 routing
 becomes structurally impossible.
 
 **From single sequences to pairs.** The schematic above discusses
-clustering in the context of a single function (e.g., HA sequences
+clustering in the context of a single protein (e.g., HA sequences
 clustered into multiple cluster ids). The actual segmatch task includes
 two dimensions: each training example is a *pair* ([HA, NA], or [PB2, PB1],...),
 and the goal is to predict pair co-occurrence. Cluster-disjoint
 routing on pairs has additional mechanics:
 
-1. **Cluster per function, independently.** HA sequences get HA
+1. **Cluster per protein, independently.** HA sequences get HA
    cluster ids (`HA_c1`, `HA_c2`, …); NA sequences get NA cluster
-   ids (`NA_c1`, `NA_c2`, …). mmseqs never sees two functions at once.
+   ids (`NA_c1`, `NA_c2`, …). mmseqs never sees two proteins at once.
 2. **Each positive pair carries a tuple of two cluster ids.** A
    positive pair `(HA_i, NA_i)` — both proteins from isolate i —
    becomes the cluster tuple `(cluster(HA_i), cluster(NA_i))`, e.g.,
@@ -172,8 +180,8 @@ threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
 > Note that in §2, "pair" refers to
 > *two sequences being aligned by mmseqs2* (the O(N²) alignment problem
 > mmseqs2's k-mer prefilter solves), not the (HA, NA) co-occurring
-> pairs from §1. mmseqs2 operates per function (or segment) on single sequences;
-> the path from per-function clusters to training-pair routing is in
+> pairs from §1. mmseqs2 operates per protein (or segment) on single sequences;
+> the path from per-protein clusters to training-pair routing is in
 > `splits.md` § 1.
 
 ### 2.1 What sequenece "similarity" means
@@ -208,7 +216,7 @@ The match unit is **residues**: amino acids (aa) for proteins,
 nucleotides (nt) for DNA. Length is counted also in residues. As a
 first-order intuition, when the alignment spans both sequences
 end-to-end with no gaps (typical when comparing two sequences of
-similar length within a function), "id 0.95" on a 760-aa PB2 protein
+similar length within a protein), "id 0.95" on a 760-aa PB2 protein
 admits ~38 aa mismatches within a cluster (for empirical numbers
 see §5).
 
@@ -243,7 +251,7 @@ cov(B)  = 9 / 10 = 0.90               ✓ (≥ 0.8)
 BOTH coverages ≥ 0.8 under --cov-mode 0, so this pair DOES cluster
 despite the sequences being different lengths. This is the empirical
 "NA stalk-deletion isoforms cluster with NA stalk-full" pattern at
-t = 1.0 (see §3.1; §6.3's NA id100 row pools 6.9% of the NA corpus
+t = 1.0 (see §3.1; §6.3's NA t100 row pools 6.9% of the NA corpus
 into one cluster).
 
 Case 2: fragment vs full protein — identity passes, coverage fails (does not cluster)
@@ -297,7 +305,7 @@ isoforms aligning to NA stalk-full proteins — see §4). See §3.2 for
 the full coverage discussion and `--cov-mode` alternatives.
 
 Note that the same threshold is **biologically stricter on shorter proteins**
-(fewer absolute mutations admitted). See § 5 for a per-function table.
+(fewer absolute mutations admitted). See § 5 for a per-protein table.
 
 ### 2.2 easy-cluster vs easy-linclust
 
@@ -340,7 +348,7 @@ aligned region doesn't have to span the whole sequence. Under our
 lie outside the alignment, so sequences that differ only in length
 (length-variants — e.g., NA stalk-deletion isoforms) can still
 cluster at t = 1.0 even though the sequences are not identical. See
-§2.1 Case 1 example and §6.3's NA id100 row (6.9% of
+§2.1 Case 1 example and §6.3's NA t100 row (6.9% of
 the corpus pooled into one cluster) for the empirical evidence on
 Flu A.
 
@@ -370,7 +378,7 @@ the above fragment-vs-full cluster through. We use cov-mode 0
 because it's the conservative choice: every pair that clusters
 contains two sequences of comparable length. Sequence-length variation on Flu A
 major proteins is small (`gto_format_reference.md` §6.5: std ≤ 2.8 aa per
-function).
+protein).
 
 ### 3.3 `--dbtype` and the alphabet
 
@@ -411,7 +419,7 @@ Columns:
 - `% unique aa` = `Unique aa seqs` / `Total seqs` (and the same for
   `% unique nt`). High % means more unique sequences.
 
-| Segment | Function | Total seqs | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
+| Segment | Protein | Total seqs | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
 |---:|---|---:|---:|---:|---:|---:|
 | 1 | PB2 | 108,530 | 33,663 | 31.0% | 67,341 | 62.1% |
 | 2 | PB1 | 108,530 | 31,226 | 28.8% | 67,034 | 61.8% |
@@ -426,7 +434,7 @@ Columns:
 
 - **`% unique nt` is always higher than `% unique aa`** (across all 8 major proteins).
   Synonymous codons create distinct CDS DNAs that collapse to one
-  protein, so within a function the nt count is ≥ the aa count.
+  protein, so within a protein the nt count is ≥ the aa count.
   Magnitude varies: M1's nt/aa ratio is ~7× (32,413 /
   4,771); HA's is ~1.6× (65,414 / 41,896).
 - **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
@@ -441,10 +449,10 @@ Columns:
 `sequence_length_summary.csv`
 
 Columns:
-- `Median aa/nt len` = median sequence length `L` for the function
+- `Median aa/nt len` = median sequence length `L` for the protein
   (aa, nt). Computed from
-  per-sequence lengths; the spread within a function is small on
-  Flu A (≤2 aa for 7/8 functions; NS1 is the length-varying
+  per-sequence lengths; the spread within a protein is small on
+  Flu A (≤2 aa for 7/8 proteins; NS1 is the length-varying
   exception — see §4 notes).
 - `id###` = maximum residue mismatches admitted within a cluster at
   threshold `t = ###/100`, computed as `L − ceil(L × t)`. In mmseqs,
@@ -452,7 +460,7 @@ Columns:
 
 **Flu A data (aa).**
 
-| Segment | Function | Median aa len | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
+| Segment | Protein | Median aa len | t100 | t099 | t098 | t097 | t096 | t095 | t090 | t085 | t080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 760 | 0 |  7 | 15 | 22 | 30 | 38 | 76 | 114 | 152 |
 | 2 | PB1 | 758 | 0 |  7 | 15 | 22 | 30 | 37 | 75 | 113 | 151 |
@@ -465,7 +473,7 @@ Columns:
 
 **Flu A data (nt).**
 
-| Segment | Function | Median nt len | id100 | id099 | id098 | id097 | id096 | id095 | id090 | id085 | id080 |
+| Segment | Protein | Median nt len | t100 | t099 | t098 | t097 | t096 | t095 | t090 | t085 | t080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 2,280 | 0 | 22 | 45 | 68 | 91 | 114 | 228 | 342 | 456 |
 | 2 | PB1 | 2,274 | 0 | 22 | 45 | 68 | 90 | 113 | 227 | 341 | 454 |
@@ -478,21 +486,21 @@ Columns:
 
 **Takeaways.**
 
-- **Same threshold, different biological criterion per function.**
-  id095 on M1 admits **3× fewer absolute mismatches** than id095 on
+- **Same threshold, different biological criterion per protein.**
+  t095 on M1 admits **3× fewer absolute mismatches** than t095 on
   PB2 (12 vs 38, from 253 vs 760 aa median lengths). This explains
-  why per-function cluster collapse rates in §6 differ between
-  functions at the same threshold: the threshold admits more
+  why per-protein cluster collapse rates in §6 differ between
+  proteins at the same threshold: the threshold admits more
   mutations on longer proteins, so more sequences fall into the
   same cluster.
 
 **Future direction.**
 
-- **Per-function thresholds via uniform mismatch budget.** For
-  comparing across function pairs of different lengths (e.g.,
+- **Per-protein thresholds via uniform mismatch budget.** For
+  comparing across protein pairs of different lengths (e.g.,
   HA/NA ~470–567 aa vs PB2/PB1 ~758–760 aa), an absolute mismatch
   budget may be more informative than a fractional identity
-  threshold. Picking per-function thresholds to enforce a uniform
+  threshold. Picking per-protein thresholds to enforce a uniform
   mismatch budget is tracked in
   `docs/results/2026-05-21_bicc_pair_drop_audit.md` direction #5.
 
@@ -507,16 +515,16 @@ Columns:
 0.85, 0.80}. Plots:
 `cluster_counts_vs_threshold.png`, `bipartite_largest_pct_vs_threshold.png`.
 
-### 6.1 Per-function n_clusters across thresholds
+### 6.1 Per-protein n_clusters across thresholds
 
 Columns:
-- `id###`: number of mmseqs clusters for that function at threshold
+- `id###`: number of mmseqs clusters for that protein at threshold
   `t = ###/100`. Lower threshold → more sequences cluster together →
   fewer clusters.
 
 **Amino acids (aa).**
 
-| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+| Segment | Protein | t100 | t099 | t098 | t097 | t096 | t095 | t094 | t093 | t092 | t091 | t090 | t085 | t080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 33,601 | 18,354 | 10,035 |  7,634 |  6,755 |  6,491 |  3,590 |  1,085 |   112 |    43 | **24** |  2 |   2 |
 | 2 | PB1 | 30,822 | 17,209 | 11,859 |  9,266 |  7,384 |  2,033 |    930 |    238 |    42 |    19 |  **6** |  2 |   1 |
@@ -529,7 +537,7 @@ Columns:
 
 **Nucleotides (nt).**
 
-| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+| Segment | Protein | t100 | t099 | t098 | t097 | t096 | t095 | t094 | t093 | t092 | t091 | t090 | t085 | t080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 66,475 | 11,484 |  4,562 |  2,968 |  1,353 |    954 |    552 |    398 |    316 |    509 |    180 |  24 |   5 |
 | 2 | PB1 | 66,138 | 14,990 |  6,276 |  2,548 |  1,307 |    742 |    472 |    346 |    242 |    179 |    121 |  18 |  10 |
@@ -549,19 +557,19 @@ Columns:
   governed by `t` itself, not the count — see `splits.md` § 1.6 for
   the cross-cluster gap argument.
 - **Two trajectories (deferred-cliff vs gradual).** Segments 1/2/3/5/7
-  retain moderate counts through id095, then drop sharply across id094
-  → id091 (e.g., PB2 aa: 6,491 → 3,590 → 1,085 → 112 → 43 — five distinct
+  retain moderate counts through t095, then drop sharply across t094
+  → t091 (e.g., PB2 aa: 6,491 → 3,590 → 1,085 → 112 → 43 — five distinct
   cliff steps). Segments 4/6/8 decline more smoothly across the whole sweep
-  and still hold 73 (NA), 174 (NS1), and 176 (HA) aa clusters at id080.
+  and still hold 73 (NA), 174 (NS1), and 176 (HA) aa clusters at t080.
 - **The conserved-protein cliff has a center (not just a span).**
   Each polymerase subunit and matrix protein has its own "tipping
-  idXX" between id095 and id091, but no
-  single threshold step applies to all five conserved functions. PB2 aa drops most at id093 → id092
-  (1,085 → 112, −90%); PB1 aa at id094 → id093 (930 → 238, −74%);
-  PA aa at id095 → id094 (8,002 → 487, −94% — the steepest 1-pp
-  drop in the table); M1 aa at id093 → id092 (237 → 31, −87%).
+  idXX" between t095 and t091, but no
+  single threshold step applies to all five conserved proteins. PB2 aa drops most at t093 → t092
+  (1,085 → 112, −90%); PB1 aa at t094 → t093 (930 → 238, −74%);
+  PA aa at t095 → t094 (8,002 → 487, −94% — the steepest 1-pp
+  drop in the table); M1 aa at t093 → t092 (237 → 31, −87%).
 - **NA is the most-gradual outlier.** NA aa stays close to 1,000 clusters across the entire
-  id095..id090 stretch — its id095 → id090 drop is only 2,134 →
+  t095..t090 stretch — its t095 → t090 drop is only 2,134 →
   1,077 (−50%, much smaller than HA's 7,578 → 910 = −88%).
 - **Easy-linclust is generally monotone, but not consistently.** At
   1-pp threshold steps small non-monotone bumps appear:
@@ -570,14 +578,14 @@ Columns:
   M1 aa goes 129 → **269** → 237.
   Easy-linclust single-pass seed selection produces threshold-dependent
   cluster topology, so a tighter threshold can occasionally yield more
-  clusters when seeds change. The coarse direction (id100 → id080) is
+  clusters when seeds change. The coarse direction (t100 → t080) is
   always monotone-decreasing; the 1-pp resolution is not.
-- **nt at id100 always exceeds aa at id100** (synonymous variants
+- **nt at t100 always exceeds aa at t100** (synonymous variants
   split into distinct nt singletons). The aa-vs-nt relationship
-  inverts at id099 and id098 on most functions — see §6.2 worked
+  inverts at t099 and t098 on most proteins — see §6.2 worked
   example.
 
-### 6.2 Worked example: aa vs nt non-nesting at id099
+### 6.2 Worked example: aa vs nt non-nesting at t099
 
 **Source.** §6.1 n_clusters table (the observation); §5
 mutations_tolerated_table.csv (residue-tolerance asymmetry);
@@ -585,15 +593,15 @@ mutations_tolerated_table.csv (residue-tolerance asymmetry);
 `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md` (cross-tab
 finding).
 
-§6.1's Takeaways note that nt has more clusters than aa at id100 on
-every function, but the relationship inverts at id099 and id098 on
-most functions. The inversion shapes how alphabet choice affects
+§6.1's Takeaways note that nt has more clusters than aa at t100 on
+every protein, but the relationship inverts at t099 and t098 on
+most proteins. The inversion shapes how alphabet choice affects
 cluster_disjoint splits and is worth understanding.
 
-**The inversion (id099, from §6.1).** nt has *fewer* clusters than aa
-on five of eight functions:
+**The inversion (t099, from §6.1).** nt has *fewer* clusters than aa
+on five of eight proteins:
 
-| Function | aa clusters | nt clusters | nt / aa ratio |
+| Protein | aa clusters | nt clusters | nt / aa ratio |
 |---|---:|---:|---:|
 | PB2 | 18,354 | 11,484 | 0.63 |
 | PB1 | 17,209 | 14,990 | 0.87 |
@@ -604,35 +612,35 @@ on five of eight functions:
 | M1  |  1,764 | 10,227 | 5.80 |
 | NS1 | 13,508 | 12,012 | 0.89 |
 
-Five functions have ratio < 1 (nt has fewer clusters). M1 is the
+Five proteins have ratio < 1 (nt has fewer clusters). M1 is the
 largest outlier in the other direction (5.8× nt excess); NP, NA, NS1
 sit near 1.
 
 **Empirical finding — aa and nt clusterings are not nested.**
-Cross-tab analysis of (aa cluster, nt cluster) co-membership on id099
+Cross-tab analysis of (aa cluster, nt cluster) co-membership on t099
 sequences (`src/analysis/aa_nt_cluster_crosstab.py`; results in
 `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`) shows: on
-every function, aa and nt cluster boundaries disagree in BOTH
+every protein, aa and nt cluster boundaries disagree in BOTH
 directions — each alphabet groups some sequences that the other
 separates. The net cluster count is the balance of those two
-opposing directions, and the balance varies per function.
+opposing directions, and the balance varies per protein.
 
-**Residue-tolerance asymmetry (id099, from §5).** id099 admits more
+**Residue-tolerance asymmetry (t099, from §5).** t099 admits more
 residue mismatches per cluster on nt than on aa, because the threshold
 `t = 0.99` is computed against the sequence's own length and the CDS
 is roughly 3× the protein length. From §5's
-`mutations_tolerated_table.csv` at id099: PB2 admits 22 nt vs 7 aa
+`mutations_tolerated_table.csv` at t099: PB2 admits 22 nt vs 7 aa
 mismatches; HA admits 17 vs 5; M1 admits 7 vs 2. This is the
 geometric consequence of how `--min-seq-id` is computed (§3.1).
 
 **Takeaways.**
 
 - The intuition "nt has more clusters than aa because of synonymous
-  codons" holds at id100 but does not generalize. At id099 and id098
-  most functions show the opposite direction.
+  codons" holds at t100 but does not generalize. At t099 and t098
+  most proteins show the opposite direction.
 - aa and nt cluster boundaries disagree in both directions; net
-  cluster count is a per-function balance, not nested containment.
-- The deep-dive walkthrough (per-function decomposition) is in
+  cluster count is a per-protein balance, not nested containment.
+- The deep-dive walkthrough (per-protein decomposition) is in
   `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
 
 ### 6.3 Largest cluster as % of corpus
@@ -641,13 +649,13 @@ geometric consequence of how `--min-seq-id` is computed (§3.1).
 `cluster_summary.csv` column: `largest_cluster / n_sequences × 100`.
 
 Layout:
-- **Columns** (`id###`): percentage of the function's sequences that fall
+- **Columns** (`id###`): percentage of the protein's sequences that fall
   into its single largest cluster at threshold `t = ###/100`. 100% means
-  one cluster contains every sequence of that function.
-- **Rows**: grouped by trajectory from §6.1 — deferred-cliff functions
-  (PB2, PB1, PA, NP, M1) on top; gradual functions (HA, NA, NS1) on bottom.
+  one cluster contains every sequence of that protein.
+- **Rows**: grouped by trajectory from §6.1 — deferred-cliff proteins
+  (PB2, PB1, PA, NP, M1) on top; gradual proteins (HA, NA, NS1) on bottom.
 
-| Segment | Function | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+| Segment | Protein | t100 | t099 | t098 | t097 | t096 | t095 | t094 | t093 | t092 | t091 | t090 | t085 | t080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 0.0% | 12.7% | 12.6% | 13.7% | 15.6% | 15.6% | 15.9% | 38.3% | 64.4% | 77.6% |  95.9% | **100%** | **100%** |
 | 2 | PB1 | 0.1% | 12.9% | 12.0% | 18.5% | 25.9% | 72.4% | 90.9% | 98.9% | 99.8% | 99.9% | **100%** | **100%** | **100%** |
@@ -660,35 +668,35 @@ Layout:
 
 **Takeaways.**
 
-- **The mega-cluster forms one step at a time on conserved functions.**
-  PB2 aa: 15.6% (id095) → 15.9 → 38.3 → 64.4 → 77.6 → 95.9% (id090)
+- **The mega-cluster forms one step at a time on conserved proteins.**
+  PB2 aa: 15.6% (t095) → 15.9 → 38.3 → 64.4 → 77.6 → 95.9% (t090)
   — five graded steps between "still-small" and "essentially-100%",
-  not a single cliff. PB1 aa shows the earliest growth (72% at id095
-  → 91% at id094 → 99% at id093). PA aa takes the steepest single pp
-  jump (9.0% at id095 → 56.5% at id094). M1 jumps from 57% to 84% in
-  one step at id094 and reaches 99% by id092.
-- **HA / NA / NS1 stay flat across id095..id090.** HA largest is
-  11.8% at id095 and only 22.8% at id090 — never forms a mega-
+  not a single cliff. PB1 aa shows the earliest growth (72% at t095
+  → 91% at t094 → 99% at t093). PA aa takes the steepest single pp
+  jump (9.0% at t095 → 56.5% at t094). M1 jumps from 57% to 84% in
+  one step at t094 and reaches 99% by t092.
+- **HA / NA / NS1 stay flat across t095..t090.** HA largest is
+  11.8% at t095 and only 22.8% at t090 — never forms a mega-
   cluster. NA largest stays in the 13–18% band across the same
-  stretch. NS1 climbs slowly to 21% at id090. By the same threshold
-  the conserved functions are ≥96%. This is the same biology that
+  stretch. NS1 climbs slowly to 21% at t090. By the same threshold
+  the conserved proteins are ≥96%. This is the same biology that
   §6.1 surfaces from the cluster-count direction.
 - **Conserved-protein largest jumps localize differently than
-  n_clusters drops.** PA's n_clusters drops most at id095 → id094
+  n_clusters drops.** PA's n_clusters drops most at t095 → t094
   (8,002 → 487), and its largest_pct jumps in the same step
   (9.0% → 56.5%) — coherent. But PB2's biggest n_clusters drop is
-  id093 → id092 (1,085 → 112), while its largest jumps most at id094
-  → id093 (15.9% → 38.3%) and id093 → id092 (38.3% → 64.4%). The
+  t093 → t092 (1,085 → 112), while its largest jumps most at t094
+  → t093 (15.9% → 38.3%) and t093 → t092 (38.3% → 64.4%). The
   two signals (count and largest) track each other coarsely but
   not at 1-pp threshold steps.
-- **NA's id100 anomaly: 6.9% already.** NA is the only function with
-  a sub-id100 entry visibly above zero, because of the stalk-length
-  collapse mechanism (§4 NA note). NA's id100 cluster pools ~7% of
+- **NA's t100 anomaly: 6.9% already.** NA is the only protein with
+  a sub-t100 entry visibly above zero, because of the stalk-length
+  collapse mechanism (§4 NA note). NA's t100 cluster pools ~7% of
   the corpus through length-variant absorption before any
   sequence-similarity clustering takes effect.
 
 **Note.** This is the per-FUNCTION largest cluster fraction (one
-number per function per threshold). `splits.md` § 1.9 reports the
+number per protein per threshold). `splits.md` § 1.9 reports the
 per-PAIR largest bipartite-COMPONENT fraction — a different metric
 used to characterize the bilateral cluster_disjoint routing's
 feasibility.
@@ -704,7 +712,7 @@ Stage 3 via `src/datasets/_split_helpers.py`):
 | Step | Script | Reads | Writes |
 |---|---|---|---|
 | Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `genome_final.csv` | `cds_final.parquet` |
-| Cluster sweep | `src/analysis/seq_redundancy_per_function.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-function FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `runtime.json`, `redundancy_summary.md` |
+| Cluster sweep | `src/analysis/seq_redundancy_per_function.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `runtime.json`, `redundancy_summary.md` |
 | Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` | one cluster lookup + `protein_final` or `cds_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/feasibility_<pair>_<alphabet>.csv` |
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
 
@@ -724,7 +732,7 @@ The producer/consumer chain, end to end:
 # 1. (nt-only) Build cds_final.parquet — once per data version.
 python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 
-# 2. Per-function clustering sweep — once per (alphabet, data version).
+# 2. Per-protein clustering sweep — once per (alphabet, data version).
 #    Writes <out_root>/{fasta,id<NN>}/, redundancy_stats.csv, runtime.json,
 #    redundancy_summary.md (alongside the stats CSV; not under docs/).
 #    The merge-fix in seq_redundancy_per_function.py preserves prior
@@ -767,8 +775,8 @@ Outputs land under
 `results/flu/July_2025/runs/cluster_analysis/`:
 
 ```
-cluster_summary.csv                       — per (function, alphabet, threshold)
-sequence_length_summary.csv               — per (function, alphabet)
+cluster_summary.csv                       — per (protein, alphabet, threshold)
+sequence_length_summary.csv               — per (protein, alphabet)
 mutations_tolerated_table.csv             — concrete max-mismatches table
 unique_sequence_retention.png             — Plot A (§4)
 cluster_counts_vs_threshold.png           — Plot B (§6)

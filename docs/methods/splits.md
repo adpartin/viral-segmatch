@@ -103,7 +103,7 @@ achieved 80 / 10 / 10 ratios drift", not "pairs are lost". The audit
 JSON's `pairs_dropped` is always 0 in practice (verified across all
 production builds — see `docs/results/2026-05-21_bicc_pair_drop_audit.md`).
 Sub-feasibility consequence: val and test starve — e.g., HA/NA aa
-id095 bilateral produces a 98.5 / 0.76 / 0.76 split rather than
+t095 bilateral produces a 98.5 / 0.76 / 0.76 split rather than
 80 / 10 / 10, even though every pair is routed somewhere.
 
 ### 1.4 The four cluster / hash routings — quick reference
@@ -128,10 +128,10 @@ on Flu A. Both partition on the protein, both require exact match.
 Differences come from mmseqs internals only: the `-c 0.8 --cov-mode 0`
 coverage rule (§ 3.2 of `clusters.md`) may merge a longer protein and a
 fragment that's covered at ≥ 80 % by the shorter at 100 % identity; an
-md5 hash would not. On Flu A the length variation within a function is
+md5 hash would not. On Flu A the length variation within a protein is
 tiny (std ≤ 2.8 aa per `gto_format_reference.md` § 6.5), the X-fraction
 is removed by Stage 1, so empirically the two produce essentially the
-same partition. Aa id100 component count ≈ seq_disjoint seq component
+same partition. Aa t100 component count ≈ seq_disjoint seq component
 count.
 
 **`nt cluster_id100` ≠ `seq_disjoint hash_key=dna`** — they cluster
@@ -155,7 +155,7 @@ different leakage definitions.
 
 ### 1.6 Single-slot cluster_disjoint — what it enforces
 
-**Source.** § 3.1 (`--min-seq-id` definition), § 5 (per-function
+**Source.** § 3.1 (`--min-seq-id` definition), § 5 (per-protein
 residue mismatch caps) of `clusters.md`, and the mmseqs2 algorithmic
 construction.
 
@@ -189,7 +189,7 @@ load-bearing claim of the approach.
 to the cluster representative **over the aligned region (≥ 80 % mutual
 coverage, § 3.2 of `clusters.md`)**. For an aligned length `L_a` this
 caps within-cluster mismatches at approximately `(1 − t) × L_a`
-residues. Per-function caps at each threshold: § 5 of `clusters.md`.
+residues. Per-protein caps at each threshold: § 5 of `clusters.md`.
 
 **Cross-cluster gap (soft, by construction).** mmseqs would have
 merged two sequences into one cluster if their identity were ≥ `t`.
@@ -217,10 +217,10 @@ coverage rule; exact per-threshold caps in § 5 of `clusters.md`):
 
 | Threshold | Within-cluster max mismatches | Cross-cluster typical mismatches | What single-slot HA-only enforces between train and test |
 |---:|---:|---:|---|
-| id100 | 0 | 0 (byte-identical over aligned region) | Trivial separation — same sequences allowed in train and test |
-| id095 | ~28 | more than ~28 | Train / test HAs typically differ by 28+ residues |
-| id094 | ~34 | more than ~34 | Wider gap; cliff edge for HA-only bilateral feasibility (§ 1.9) |
-| id090 | ~57 | more than ~57 | Largest enforced gap, but HA-only bilateral routing degenerates here (§ 1.9) |
+| t100 | 0 | 0 (byte-identical over aligned region) | Trivial separation — same sequences allowed in train and test |
+| t095 | ~28 | more than ~28 | Train / test HAs typically differ by 28+ residues |
+| t094 | ~34 | more than ~34 | Wider gap; cliff edge for HA-only bilateral feasibility (§ 1.9) |
+| t090 | ~57 | more than ~57 | Largest enforced gap, but HA-only bilateral routing degenerates here (§ 1.9) |
 
 Many of those 28–57 residues sit in functional regions of HA — the
 receptor-binding domain (residues ~117–265) and the major antigenic
@@ -247,7 +247,7 @@ selected k-mer, or can land against different center sequences and
 pass alignment against neither. They end up in different clusters
 even though they should have merged. The Steinegger & Söding 2018
 paper reports a ~28 % miss rate at 50 % identity (Fig. 3c). At the
-operating thresholds in this doc (id095, id094, id090) the miss rate
+operating thresholds in this doc (t095, t094, t090) the miss rate
 is smaller — the higher the identity, the more likely two
 near-identical sequences share at least one of their 20 selected
 k-mers — but nonzero. Practical consequence: some fraction of
@@ -259,9 +259,9 @@ thresholds.** The algorithm depends on which seeds are selected and
 which "longest sequence" each k-mer group anchors on, so small changes
 in `t` can shift cluster boundaries in non-monotone ways. § 6.1 of
 `clusters.md` documents this empirically: NP aa drops from 526
-clusters at id095 to 149 at id094 then rises to 706 at id093 before
-resuming the descent. The same sequence can land in cluster A at id094
-and cluster B at id093 with different cluster co-members. Down-stream,
+clusters at t095 to 149 at t094 then rises to 706 at t093 before
+resuming the descent. The same sequence can land in cluster A at t094
+and cluster B at t093 with different cluster co-members. Down-stream,
 the *identity* of which sequences a given cluster contains is
 sensitive to `t` near boundary regions, not just the cluster count.
 
@@ -276,10 +276,10 @@ The empirical residual leakage on the unconstrained slot is captured
 per-dataset in `cluster_disjoint_audit.json` (full per-split-pair
 breakdown) and surfaced at the top level of `dataset_stats.json` under
 `slot_leakage_summary`. For the published Flu A sweeps at the
-id095–id100 range, unique seq_hash leakage on the unconstrained slot
+t095–t100 range, unique seq_hash leakage on the unconstrained slot
 is:
 
-| Routing | id100 | id099 | id098 | id097 | id096 | id095 |
+| Routing | t100 | t099 | t098 | t097 | t096 | t095 |
 |---|---:|---:|---:|---:|---:|---:|
 | HA-NA HA-only (slot b = NA)     | 7.5 % | 5.7 % | 4.7 % | 4.2 % | 3.6 % | 3.4 % |
 | PB2-PB1 PB2-only (slot b = PB1) | 7.2 % | 5.8 % | 5.5 % | 5.3 % | 5.2 % | 5.2 % |
@@ -288,7 +288,7 @@ Both pairs show the same shape: leakage drops as `t` drops, because
 looser clusters absorb more diverse partners and the same
 unconstrained-slot sequence becomes less likely to span multiple
 constrained-slot clusters. HA-NA's drop is steeper than PB2-PB1's
-(3.4 % vs 5.2 % floor at id095) — consistent with HA-NA's tighter
+(3.4 % vs 5.2 % floor at t095) — consistent with HA-NA's tighter
 HA ↔ NA coupling absorbing the unconstrained slot into the constrained
 slot's partition more cleanly. Detail on the coupling per pair:
 `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md` § "Cramér's V
@@ -340,7 +340,7 @@ Per-pair / per-threshold trajectories on Flu A are reported in
 `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`
 (HA-NA HA-only) and
 `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md` (PB2-PB1
-PB2-only), with the extended sweep down to id080 in
+PB2-only), with the extended sweep down to t080 in
 `docs/results/2026-05-28_HAonly_extended_idXX_sweep.md`.
 
 ### 1.9 Feasibility on Flu A
@@ -384,10 +384,10 @@ Connected components on this bipartite graph:
 
 All pairs inside one CC must land in the same split — otherwise a
 cluster on one side would appear in both train and test, defeating
-the routing's purpose. The per-function collapse trajectory (§ 6.1 of
+the routing's purpose. The per-protein collapse trajectory (§ 6.1 of
 `clusters.md`) predicts the resulting bipartite-CC sizes. When either
 slot's clusters collapse into one mega-cluster — for example PB2 aa at
-id090 has only 24 clusters absorbing 99.6 % of the corpus (§ 6.3 of
+t090 has only 24 clusters absorbing 99.6 % of the corpus (§ 6.3 of
 `clusters.md`) — the bipartite graph collapses into a single
 mega-component, and the routing becomes structurally infeasible.
 
@@ -426,7 +426,7 @@ Consolidated plot: `bipartite_largest_pct_vs_threshold.png` from
 
 Largest bipartite-component fraction (% of deduped pairs):
 
-| Segments | Schema pair | Alphabet | id100 | id099 | id098 | id097 | id096 | id095 | id094 | id093 | id092 | id091 | id090 | id085 | id080 |
+| Segments | Schema pair | Alphabet | t100 | t099 | t098 | t097 | t096 | t095 | t094 | t093 | t092 | t091 | t090 | t085 | t080 |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 4/6 | HA/NA   | aa | 49.0 | 79.6 | 88.4 | 92.7 | 95.8 | 97.8 | 98.7 | 99.0 | 99.0 | 99.0 |  99.8 | 100.0 | 100.0 |
 | 4/6 | HA/NA   | nt |  1.5 | 69.4 | 91.0 | 95.7 | 97.8 | 98.2 | 98.5 | 98.9 | 98.7 | 99.1 |  99.1 |  99.6 | 100.0 |
@@ -439,23 +439,23 @@ practice: the router still places every pair (see § 1.3 — `pairs_dropped`
 is always 0), but train absorbs the mega-CC and val / test drift
 toward zero. Reading the table by that frame:
 
-- **id100 (every cell):** feasible. Largest CC is at most 49.0 %
+- **t100 (every cell):** feasible. Largest CC is at most 49.0 %
   (HA/NA aa — NA's stalk-length absorption on the aa side already
-  pools ~ 7 % of pairs into a single CC at id100). Routing has room.
-- **id099 (marginal on aa, comfortable on nt):** HA/NA aa at 79.6 %
+  pools ~ 7 % of pairs into a single CC at t100). Routing has room.
+- **t099 (marginal on aa, comfortable on nt):** HA/NA aa at 79.6 %
   lands just under the ceiling. PB2/PB1 aa at 81.0 % is 1 pp over the
   ceiling — borderline feasible. nt cells (HA/NA = 69.4 %, PB2/PB1 =
   59.7 %) sit comfortably below the ceiling. Aa is tighter than nt by
-  ~ 10 pp at id099 on both pairs.
-- **id098 (above the ceiling on all four cells):** aa cells are
+  ~ 10 pp at t099 on both pairs.
+- **t098 (above the ceiling on all four cells):** aa cells are
   88.4 % (HA/NA) and 92.6 % (PB2/PB1); nt cells are 91.0 % and
   93.9 %. All four cross the ceiling but margins are slim enough that
-  id098 is closer to feasibility than the deeper thresholds.
-- **id097 and below:** broken on every cell — val / test get a small
-  fraction of the corpus (HA/NA aa id095 produces 98.48 / 0.76 / 0.76).
+  t098 is closer to feasibility than the deeper thresholds.
+- **t097 and below:** broken on every cell — val / test get a small
+  fraction of the corpus (HA/NA aa t095 produces 98.48 / 0.76 / 0.76).
   Every pair is routed; the dataset exists; it just isn't usable for
   evaluation.
-- **id094..id091 yields no bilateral recovery.** Largest CC creeps
+- **t094..t091 yields no bilateral recovery.** Largest CC creeps
   (near-)monotonically toward 100 % on every cell.
 
 Largest-CC % is the algorithmic *input* (and the predictor of
@@ -465,14 +465,14 @@ decimal. When largest CC > 80 %, achieved-train % tracks largest-CC %
 closely (the bin-packer can't undo what the mega-CC dictates).
 
 **Interpretation: feasibility ceiling is corpus-controlled.** The aa-
-vs-nt feasibility gap at id099 reflects the alphabet's underlying
+vs-nt feasibility gap at t099 reflects the alphabet's underlying
 diversity structure plus the corpus's metadata-driven bipartite linking,
 not an algorithm-alphabet confound. nt clustering does not unlock
-lower thresholds via synonymous diversity — even at id098 nt sits at
+lower thresholds via synonymous diversity — even at t098 nt sits at
 91–94 % — because the *bipartite linking* between HA clusters and NA
 clusters is determined by which isolates carry which (HA, NA)
 combinations, and Flu A's small set of dominant HxNy subtypes × host
-× year cells links most pairs into one mega-component well above id098.
+× year cells links most pairs into one mega-component well above t098.
 
 See also: `docs/results/2026-05-21_bicc_pair_drop_audit.md` for the
 no-drop audit; `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
@@ -498,7 +498,7 @@ val / test cleanly even when the top two atoms are larger).
 aa, top-2 atom sizes (% of deduped pairs) at each threshold (legacy
 heuristic verdict in parentheses):
 
-| Pair | Constrained slot | id095 | id094 | id093 | id092 | id091 | id090 | id085 |
+| Pair | Constrained slot | t095 | t094 | t093 | t092 | t091 | t090 | t085 |
 |---|---|---|---|---|---|---|---|---|
 | HA/NA   | a (HA)  | 13.5 / 11.5 (✓) | 13.8 / 11.5 (✓) | 23.8 / 21.2 (✗) | 24.6 / 21.3 (✗) | 25.1 / 21.4 (✗) | 25.4 / 21.4 (✗) | 27.1 / 21.7 (✗) |
 | HA/NA   | b (NA)  | 15.5 / 12.2 (✓) | 21.1 / 12.3 (✓) | 18.4 / 11.2 (✓) | 22.4 / 21.2 (✗) | 22.5 / 12.6 (✓) | 22.7 / 11.2 (✓) | 34.0 / 18.8 (✓) |
@@ -508,20 +508,20 @@ heuristic verdict in parentheses):
 **Readings.**
 
 - **Bilateral and single-slot ceilings are decoupled.** Bilateral is
-  broken from id098 down on every pair / alphabet. Single-slot HA-only
+  broken from t098 down on every pair / alphabet. Single-slot HA-only
   and PB2-only stay feasible well past that under D3 — empirically
-  down to id080 on HA-NA HA-only at perfect 80.00 / 10.00 / 10.00
+  down to t080 on HA-NA HA-only at perfect 80.00 / 10.00 / 10.00
   partition (see `docs/results/2026-05-28_HAonly_extended_idXX_sweep.md`).
-- **HA-only and PB2-only cliff together at id094 → id093 on the legacy
+- **HA-only and PB2-only cliff together at t094 → t093 on the legacy
   heuristic.** The largest atom jumps from ~ 14 % to ~ 24 % (HA) /
   35 % (PB2) and the second atom crosses the legacy 20 % ceiling.
-- **PB1-only cliffs one step earlier (id095 → id094).** PB1 has
-  unusually few clusters at id095 (2,033) compared to PB2 (6,491),
-  so the largest atom is already at 78.4 % at id095 and crosses 80 %
-  at id094.
-- **NA-only stays feasible through id085 with one id092 hole.**
+- **PB1-only cliffs one step earlier (t095 → t094).** PB1 has
+  unusually few clusters at t095 (2,033) compared to PB2 (6,491),
+  so the largest atom is already at 78.4 % at t095 and crosses 80 %
+  at t094.
+- **NA-only stays feasible through t085 with one t092 hole.**
   Largest atom stays in the 15–34 % band; second atom is below 13 %
-  except at id092 where it spikes to 21.2 %. The id092 hole is
+  except at t092 where it spikes to 21.2 %. The t092 hole is
   inherited from NA's non-monotone cluster count (§ 6.1 of
   `clusters.md`).
 
@@ -577,9 +577,9 @@ in `docs/plans/2026-05-28_kfold_remaining.md`:
   of pairs at HA-NA `hash_key=seq`), so k-fold feasibility is rarely
   the bottleneck.
 - **Bilateral `cluster_disjoint` k-fold.** Bipartite CC atoms collapse
-  to a mega-component at most thresholds below id099 on Flu A (§ 1.9.2);
+  to a mega-component at most thresholds below t099 on Flu A (§ 1.9.2);
   k-fold feasibility unattainable at the interesting thresholds. At
-  id100 technically feasible but redundant with seq_disjoint k-fold.
+  t100 technically feasible but redundant with seq_disjoint k-fold.
 - **`metadata_holdout` k-fold.** Orthogonal extension. Could be either
   GroupKFold-on-isolates within a filter pool, or per-axis-stratified
   KFold. Design unfinished.
@@ -601,7 +601,7 @@ menu listing the failing fold(s) and their measured values (D4 below).
 > in the k-fold path. There is no holdout exemption. This is the Phase 7
 > regression decision in the k-fold variance plan: holdout configs
 > that previously succeeded but now violate D3 (e.g., HA-NA aa
-> bilateral id095 at 98.5 / 0.76 / 0.76) raise by-design under the
+> bilateral t095 at 98.5 / 0.76 / 0.76) raise by-design under the
 > current behavior. The intent is one consistent feasibility gate
 > across both partition shapes — a config that's "feasible" should
 > mean the same thing whether you build it as holdout or as k-fold.
@@ -641,7 +641,7 @@ these as **necessary conditions** for k-fold feasibility; the
 authoritative gate is the per-fold drift check at build time
 (necessary AND sufficient).
 
-Worked example. HA-only id095 has `max_atom_frac = 0.135`. At
+Worked example. HA-only t095 has `max_atom_frac = 0.135`. At
 zero-drift: `floor(1 / 0.135) = 7`. At default `drift_pp = 0.05`:
 `floor(1 / 0.085) = 11`.
 
@@ -768,8 +768,8 @@ PPI motivation but does not use the C1/C2/C3 vocabulary.
 |---|---|---|---|
 | `split_strategy.mode=random` | R | C1-dominated (~ 99 % in CV) | Verified P&M main p2 |
 | `seq_disjoint, hash_key=seq` | I2 (2D, R=1) | C3 only | Equivalent in *intent*; differs in algorithm — bicc routes whole CCs atomically, DataSAIL drops straddling pairs |
-| `cluster_disjoint cluster_alphabet=aa id100` | ≈ I2 | C3 only | mmseqs2 id100 ≈ seq_disjoint hash_key=seq (§ 1.5) |
-| `cluster_disjoint id<100` (id099, id095, …) | S2 (2D, R=1) | C3 + cluster-novel | Same intent; algorithm differs (mmseqs2 cascade + bicc-route vs spectral + ILP + drop) |
+| `cluster_disjoint cluster_alphabet=aa id100` | ≈ I2 | C3 only | mmseqs2 t100 ≈ seq_disjoint hash_key=seq (§ 1.5) |
+| `cluster_disjoint id<100` (t099, t095, …) | S2 (2D, R=1) | C3 + cluster-novel | Same intent; algorithm differs (mmseqs2 cascade + bicc-route vs spectral + ILP + drop) |
 | `regime_aware_coverage` (8 regimes over host × hn_subtype × year) | C-stratification (informally) | (orthogonal to C-classes) | Same goal as DataSAIL's C constraint (preserve confounder distribution); different operational level (per-cell negative sampling vs per-fold class balance) |
 
 P&M's C1/C2/C3 and DataSAIL's R/I1/I2/S1/S2 are not synonyms: P&M
@@ -789,10 +789,10 @@ this corpus. The bicc LPT-greedy heuristic is the chosen alternative.
 segmatch retains `seq_disjoint`, `cluster_disjoint`, and the
 bipartite-CC routing terminology because: (a) the route-not-drop
 algorithmic property is distinguishing and worth a clear name; (b)
-the threshold sweep (id100, id099, id095, …) is a knob DataSAIL
+the threshold sweep (t100, t099, t095, …) is a knob DataSAIL
 absorbs internally — naming it explicitly is useful for the
 8-major-pair sweeps. On first mention in writeups, cross-refer to
-DataSAIL's I2 / S2 with parenthetical: e.g., "cluster_disjoint id095
+DataSAIL's I2 / S2 with parenthetical: e.g., "cluster_disjoint t095
 (DataSAIL S2-equivalent at 95 % identity threshold; algorithm:
 bipartite-CC LPT-greedy)". See § 1.9.1 above for the naming chain
 (bipartite-CC LPT-greedy ≈ cluster_disjoint routing ≈ BiCC-Split
