@@ -452,9 +452,9 @@ Columns:
 - `Median aa/nt len` = median sequence length `L` for the protein
   (aa, nt). Computed from
   per-sequence lengths; the spread within a protein is small on
-  Flu A (≤2 aa for 7/8 proteins; NS1 is the length-varying
-  exception — see §4 notes).
-- `id###` = maximum residue mismatches admitted within a cluster at
+  Flu A (≤2 aa for all major proteins except NS1, which is the
+  length-varying exception).
+- `t###` = maximum residue mismatches admitted within a cluster at
   threshold `t = ###/100`, computed as `L − ceil(L × t)`. In mmseqs,
   threshold `t` is set by `--min-seq-id`.
 
@@ -518,7 +518,7 @@ Columns:
 ### 6.1 Per-protein n_clusters across thresholds
 
 Columns:
-- `id###`: number of mmseqs clusters for that protein at threshold
+- `t###`: number of mmseqs clusters for that protein at threshold
   `t = ###/100`. Lower threshold → more sequences cluster together →
   fewer clusters.
 
@@ -649,7 +649,7 @@ geometric consequence of how `--min-seq-id` is computed (§3.1).
 `cluster_summary.csv` column: `largest_cluster / n_sequences × 100`.
 
 Layout:
-- **Columns** (`id###`): percentage of the protein's sequences that fall
+- **Columns** (`t###`): percentage of the protein's sequences that fall
   into its single largest cluster at threshold `t = ###/100`. 100% means
   one cluster contains every sequence of that protein.
 - **Rows**: grouped by trajectory from §6.1 — deferred-cliff proteins
