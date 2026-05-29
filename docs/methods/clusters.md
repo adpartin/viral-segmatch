@@ -443,20 +443,26 @@ Columns:
 - **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
   sequences (~95% redundancy in aa).
 
-**Per-sequence frequency distribution.** The table above reports
-per-protein **counts** of unique sequences, not the **shape** of
-their per-isolate frequency distribution. Within each protein the
-unique sequences are not uniformly represented across the 108,530
-isolates — distributions are heavy-tailed: a small fraction of
-sequences appear in many isolates (common circulating
-H1N1/H3N2/H5Nx backbones), while most unique sequences appear in
-just one or a few isolates. Per-protein histograms (11 log-spaced
-frequency bins, one panel per protein, log-Y to keep both
+**Per-sequence frequency distribution.** The §4 table above reports
+per-protein **counts** of unique sequences; it doesn't show the **shape**
+of their per-isolate frequency distribution. The purpose is to understand
+corpus structure beyond the unique sequence count. `% unique` collapses a
+lot of info into one number — two proteins with the same `% unique` can
+have very different shapes. For example, M1 aa (4.4 % unique) and HA aa
+(38.6 % unique) differ not only in redundancy level but also in *shape*:
+M1's redundancy comes from a few dominant sequences (top-10 cover 70.4 %
+of isolates), HA's from spread (top-10 cover 10.9 %). The histograms surface
+that shape per protein.
+
+Within each protein the unique sequences are not uniformly
+represented across the 108,530 isolates — distributions are heavy-tailed:
+a small fraction of sequences appear in many isolates, while most unique
+sequences appear in just one or a few isolates. Per-protein histograms
+(log-spaced frequency bins, one panel per protein, log-Y to keep both
 singletons and heavy hitters visible):
 
 - `seq_freq_hist_aa.png` — aa (`prot_seq`)
-- `seq_freq_hist_nt_cds.png` — nt (`cds_dna`; CDS coding sequence
-  only — see §3.3 and the §4 column note. The `nt_cds` suffix
+- `seq_freq_hist_nt_cds.png` — nt (`cds_dna`; The `nt_cds` suffix
   anticipates a future `nt_ctg` variant on full-contig DNA.)
 
 **How to read a panel.** The y-axis is **count of unique sequences**;
@@ -468,9 +474,9 @@ this bin." Worked example, HA aa (4th panel of `seq_freq_hist_aa.png`):
   appear in exactly 1 isolate (singletons; each is unique to one
   isolate).
 - Bin `2` — distinct HA aa sequences each appearing in exactly 2
-  isolates.
+  isolates (doubletons).
 - Bin `3` — distinct HA aa sequences each appearing in exactly 3
-  isolates.
+  isolates (tripletons).
 - Bin `4-6` — distinct HA aa sequences each appearing in 4, 5, or 6
   isolates.
 - Bin `3k+` (height 0) — there are no HA aa sequences in 3,000+
@@ -480,14 +486,7 @@ this bin." Worked example, HA aa (4th panel of `seq_freq_hist_aa.png`):
   isolates — a single amino-acid sequence carried by ~26 % of the
   108,530 corpus.
 
-Common misreading to avoid: the bar height is *not* the number of
-isolates, and bin `2-3` does not mean "isolates 2 and 3 contain N
-sequences." Each isolate carries exactly one sequence per protein;
-the histogram counts how many of the **unique** sequences fall into
-each frequency tier.
-
-Companion tier table (collapsed to 5 bins for direct cross-protein
-comparison):
+Companion tier table:
 
 - `seq_freq_tier_summary.csv` — columns: `alphabet`, `protein`,
   `n_uniq`, `singletons`, `2-10`, `11-100`, `101-1k`, `1k+`,
@@ -497,12 +496,6 @@ comparison):
   metric. HA aa is the most distributed protein (top-10 covers
   10.97 % of isolates); M1 aa is the most concentrated (top-10
   covers 70.44 %).
-
-The structural setup matters because per-sequence frequency is a
-**per-sequence marginal statistic** that a pair-vector 1-NN
-comparator (`leakage.md` § "The 1-NN lookup gauge") cannot see —
-see the Limits caveat in `leakage.md` for what this means for the
-comparator's reach.
 
 ---
 
