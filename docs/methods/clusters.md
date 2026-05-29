@@ -412,9 +412,12 @@ Note that `--alph-size` is set internally by mmseqs (aa: 21, nucl: 5).
 Columns:
 - `Total seqs` = the number of isolates that carry this protein.
 - `Unique aa seqs` / `Unique nt seqs` = unique sequence count after
-  dedup on `prot_seq` / `cds_dna`. This is the FASTA
-  row count that mmseqs sees as input (it's the pre-clustering dedup).
-  Verify directly with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt}/fasta/<PROTEIN>.fasta`
+  dedup on `prot_seq` / `cds_dna`. **`cds_dna` is the joined CDS
+  coding sequence only** — UTRs, introns, and intergenic DNA are
+  excluded (see `src/preprocess/extract_cds_dna.py`); the nt cluster
+  key is `cds_dna_hash = md5(cds_dna)`. This is the FASTA row count
+  that mmseqs sees as input (it's the pre-clustering dedup). Verify
+  directly with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt}/fasta/<PROTEIN>.fasta`
   (e.g., HA aa → 41,896).
 - `% unique aa` = `Unique aa seqs` / `Total seqs` (and the same for
   `% unique nt`). High % means more unique sequences.

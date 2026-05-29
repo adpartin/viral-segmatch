@@ -238,14 +238,15 @@ def plot_unique_sequence_retention(length_stats: pd.DataFrame, red_aa: pd.DataFr
             rows[s] = (n_input, n_unique)
 
         xs = np.arange(len(_SHORT_ORDER))
-        width = 0.4
+        width = 0.38
+        offset = 0.21
         in_vals = np.array([rows[s][0] for s in _SHORT_ORDER], dtype=float)
         un_vals = np.array([rows[s][1] for s in _SHORT_ORDER], dtype=float)
-        ax.bar(xs - width / 2, in_vals, width, color='#bdbdbd',
-               edgecolor='black', linewidth=0.5, label='input rows')
-        ax.bar(xs + width / 2, un_vals, width,
+        ax.bar(xs - offset, in_vals, width, color='#bdbdbd',
+               edgecolor='black', linewidth=0.5, label='total seqs')
+        ax.bar(xs + offset, un_vals, width,
                color=[_FUNCTION_COLORS[s] for s in _SHORT_ORDER],
-               edgecolor='black', linewidth=0.5, label='unique sequences')
+               edgecolor='black', linewidth=0.5, label='uniq seqs')
         ax.set_xticks(xs)
         ax.set_xticklabels(_SHORT_ORDER, fontsize=9)
         ax.set_title(f'Unique sequence retention — {label}', fontsize=11)
@@ -254,18 +255,18 @@ def plot_unique_sequence_retention(length_stats: pd.DataFrame, red_aa: pd.DataFr
         ax.set_axisbelow(True)
         for x, ui, un in zip(xs, in_vals, un_vals):
             if np.isfinite(ui):
-                ax.annotate(f'{int(ui):,}', xy=(x - width / 2, ui),
+                ax.annotate(f'{int(ui):,}', xy=(x - offset, ui),
                             xytext=(0, 2), textcoords='offset points',
                             ha='center', fontsize=7, color='#444')
             if np.isfinite(un):
-                ax.annotate(f'{int(un):,}', xy=(x + width / 2, un),
+                ax.annotate(f'{int(un):,}', xy=(x + offset, un),
                             xytext=(0, 2), textcoords='offset points',
                             ha='center', fontsize=7, color='#222')
-        ax.legend(loc='upper right', fontsize=8, frameon=False)
+        ax.legend(loc='center right', fontsize=8, frameon=False)
 
-    fig.suptitle('Per-function corpus redundancy (Flu A July 2025) — '
-                 'grey = input rows (1 per (isolate, function)); '
-                 'colored = unique sequences after dedup.',
+    fig.suptitle('Per-protein corpus redundancy (Flu A July 2025) — '
+                 'grey = total seqs (1 per (isolate, protein)); '
+                 'colored = uniq seqs after dedup.',
                  fontsize=10, y=1.02)
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
