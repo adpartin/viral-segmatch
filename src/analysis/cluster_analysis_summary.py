@@ -360,6 +360,67 @@ def plot_seq_freq_hist(cds_final: Path, alphabet: str, out_png: Path) -> None:
     plt.close(fig)
 
 
+def plot_seq_freq_isolate_pct(cds_final: Path, alphabet: str, out_png: Path) -> None:
+    """Plot D-alt: per-protein corpus coverage by frequency tier (2x4 grid).
+
+    Same 11 log-spaced frequency bins as plot_seq_freq_hist, but the
+    y-axis flips from "count of unique sequences in this bin" to
+    "% of all 108,530 isolates whose sequence falls in this bin."
+    Each panel sums to 100 %.
+
+    Direct biological read: 'X % of HA isolates carry a singleton
+    sequence; Y % carry a sequence in the 1k-3k tier; ...'
+
+    Args:
+        cds_final: Path to cds_final.parquet.
+        alphabet: 'aa' (uses seq_hash) or 'nt_cds' (uses cds_dna_hash).
+        out_png: Output PNG path.
+    """
+    freqs_per = _freq_counts_per_protein(cds_final, alphabet)
+    suffix = 'prot_seq' if alphabet == 'aa' else 'cds_dna'
+
+    fig, axes = plt.subplots(2, 4, figsize=(13, 6), sharey=True)
+    xs = np.arange(len(_FREQ_BIN_LABELS))
+    for ax, s in zip(axes.flat, _SHORT_ORDER):
+        if s not in freqs_per:
+            ax.set_visible(False)
+            continue
+        freqs = freqs_per[s]
+        total = freqs.sum()
+        pcts = np.zeros(len(_FREQ_BIN_LABELS))
+        for i in range(len(_FREQ_BIN_LABELS)):
+            in_bin = (freqs >= _FREQ_BINS[i]) & (freqs < _FREQ_BINS[i + 1])
+            pcts[i] = freqs[in_bin].sum() / total * 100
+
+        ax.bar(xs, pcts, color=_FUNCTION_COLORS[s],
+               edgecolor='black', linewidth=0.5)
+        ax.set_xticks(xs)
+        ax.set_xticklabels(_FREQ_BIN_LABELS, rotation=45, ha='right', fontsize=7)
+        ax.set_title(f'{s}  (n_uniq={len(freqs):,})', fontsize=10)
+        ax.grid(axis='y', linestyle=':', alpha=0.5)
+        ax.set_axisbelow(True)
+        for x, p in zip(xs, pcts):
+            if p > 0:
+                ax.annotate(f'{p:.1f}%', xy=(x, p), xytext=(0, 2),
+                            textcoords='offset points', ha='center',
+                            fontsize=6, color='#333')
+
+    for ax in axes[1, :]:
+        ax.set_xlabel('corpus frequency f (# isolates per unique seq)',
+                      fontsize=8)
+    for ax in axes[:, 0]:
+        ax.set_ylabel('% of isolates carrying a seq in this bin', fontsize=8)
+
+    axes.flat[0].set_ylim(0, axes.flat[0].get_ylim()[1] * 1.15)
+
+    fig.suptitle(f'Per-protein corpus coverage by frequency tier — {alphabet} ({suffix})',
+                 fontsize=11, y=1.02)
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=180, bbox_inches='tight')
+    plt.close(fig)
+
+
 def compute_seq_freq_tier_summary(cds_final: Path, out_csv: Path) -> pd.DataFrame:
     """V5: per-protein x alphabet frequency-tier summary table.
 
@@ -568,6 +629,11 @@ def main() -> None:
     for alpha in ('aa', 'nt_cds'):
         out_png = out_dir / f'seq_freq_hist_{alpha}.png'
         plot_seq_freq_hist(Path(args.cds_final), alpha, out_png)
+        print(f'wrote {out_png}')
+
+    for alpha in ('aa', 'nt_cds'):
+        out_png = out_dir / f'seq_freq_isolate_pct_{alpha}.png'
+        plot_seq_freq_isolate_pct(Path(args.cds_final), alpha, out_png)
         print(f'wrote {out_png}')
 
     freq_tier_csv = out_dir / 'seq_freq_tier_summary.csv'

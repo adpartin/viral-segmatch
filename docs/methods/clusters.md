@@ -1,15 +1,10 @@
 # Clustering mechanics and Flu A corpus structure
 
-**Purpose.** This doc covers **mmseqs2 clustering mechanics** (the
-three operational knobs that define a clustering) and **Flu A corpus
-structure** (per-protein redundancy, mismatch tolerance, cluster
-collapse trajectories) — the prerequisites for understanding the
-cluster-disjoint split routings. Split-method semantics (atoms,
-LPT-greedy bin-packing, single-slot vs bilateral, k-fold, feasibility
-ceilings) live in `splits.md`. Leakage vocabulary and the
-"biology learning" criterion live in `leakage.md`.
+**Purpose.** This doc covers mmseqs2 clustering and Flu A corpus
+structure — the prerequisites for understanding the
+cluster-disjoint split generation. Split methods live in `splits.md`. Leakage vocabulary live in `leakage.md`.
 
-Second in the methods chain: **`leakage.md` → `clusters.md` →
+The chain is: **`leakage.md` → `clusters.md` →
 `splits.md`**.
 
 **Doc style conventions.** Data-table subsections follow the pattern
@@ -27,7 +22,7 @@ the docs.
 
 For experimental findings on Flu A see
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (model
-training results) and the two sequence-redundancy autogen docs at
+training results) and the two sequence redundancy autogen docs at
 `data/processed/flu/July_2025/clusters_{aa,nt}/redundancy_summary.md`.
 For the routing-equivalence semantics across the four implemented
 modes (seq_disjoint hash_key={seq,dna}, cluster_disjoint
@@ -442,60 +437,75 @@ Columns:
   4,771); HA's is ~1.6× (65,414 / 41,896).
 - **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
   sequences (~95% redundancy in aa).
+- **Sequence diversity affects how fast clusters collapse in §6.** A protein
+  with few unique sequences and a few very common variants (like
+  M1: 4,771 uniques, top-10 cover 70 % of isolates) collapses into
+  fewer clusters faster than a protein with more uniques spread
+  across many low-frequency variants (like HA: 41,896 uniques,
+  top-10 cover 11 %) — even when the same threshold `t` admits
+  fewer mutations on M1 (because M1 is shorter). The other factor
+  driving collapse is the per-protein mutation budget determined by
+  sequence length (discussed is in §5 takeaways).
 
-**Per-sequence frequency distribution.** The §4 table above reports
-per-protein **counts** of unique sequences; it doesn't show the **shape**
-of their per-isolate frequency distribution. The purpose is to understand
-corpus structure beyond the unique sequence count. `% unique` collapses a
-lot of info into one number — two proteins with the same `% unique` can
-have very different shapes. For example, M1 aa (4.4 % unique) and HA aa
-(38.6 % unique) differ not only in redundancy level but also in *shape*:
-M1's redundancy comes from a few dominant sequences (top-10 cover 70.4 %
-of isolates), HA's from spread (top-10 cover 10.9 %). The histograms surface
-that shape per protein.
+**Per-sequence frequency distribution.** The table above reports
+per-protein **counts** of unique sequences; it doesn't show the
+**shape** of their per-isolate frequency distribution. The purpose
+is to understand corpus structure beyond the unique-sequence count.
+`% unique` collapses a lot of info into one number — two proteins
+with the same `% unique` can have very different shapes. For
+example, M1 aa (4.4 % unique) and HA aa (38.6 % unique) differ not
+only in redundancy level but also in *shape*: M1's redundancy comes
+from a few dominant sequences (top-10 cover 70.4 % of isolates),
+HA's from spread (top-10 cover 10.9 %). Within each protein, most
+unique sequences appear in just 1–10 isolates; a small number of
+common variants (e.g., circulating H3N2/H1N1 backbones) appear in
+hundreds or thousands.
 
-Within each protein the unique sequences are not uniformly
-represented across the 108,530 isolates — distributions are heavy-tailed:
-a small fraction of sequences appear in many isolates, while most unique
-sequences appear in just one or a few isolates. Per-protein histograms
-(log-spaced frequency bins, one panel per protein, log-Y to keep both
-singletons and heavy hitters visible):
+Outputs:
 
-- `seq_freq_hist_aa.png` — aa (`prot_seq`)
-- `seq_freq_hist_nt_cds.png` — nt (`cds_dna`; The `nt_cds` suffix
-  anticipates a future `nt_ctg` variant on full-contig DNA.)
+- `seq_freq_hist_aa.png` / `seq_freq_hist_nt_cds.png` — per-protein
+  histograms (one panel per protein, 11 log-spaced frequency bins,
+  log-Y so both common and rare sequences are visible). The
+  `nt_cds` suffix anticipates a future `nt_ctg` variant on
+  full-contig DNA.
+- `seq_freq_tier_summary.csv` — companion table, collapsed to 5
+  tiers (singletons, 2-10, 11-100, 101-1k, 1k+) plus `max_freq`
+  and `top10_pct_isolates` (the % of all isolates covered by the
+  10 most common sequences — a single number capturing how much
+  the most common variants dominate the corpus).
 
-**How to read a panel.** The y-axis is **count of unique sequences**;
+**How to read a plots.** The y-axis is **count of unique sequences**;
 the x-axis is **how many isolates each of those sequences appears in**.
-Each bar reads as "N unique sequences each have a corpus frequency in
-this bin." Worked example, HA aa (4th panel of `seq_freq_hist_aa.png`):
+Worked example, HA aa (4th panel of `seq_freq_hist_aa.png`):
 
 - Bin `1` (height 33,032) — 33,032 distinct HA aa sequences each
-  appear in exactly 1 isolate (singletons; each is unique to one
-  isolate).
-- Bin `2` — distinct HA aa sequences each appearing in exactly 2
+  appear in exactly 1 isolate (singletons).
+- Bin `2` — 4,417 distinct HA aa sequences each appears in exactly 2
   isolates (doubletons).
-- Bin `3` — distinct HA aa sequences each appearing in exactly 3
+- Bin `3` — 1,470 distinct HA aa sequences each appears in exactly 3
   isolates (tripletons).
-- Bin `4-6` — distinct HA aa sequences each appearing in 4, 5, or 6
+- Bin `4-6` — 1,533 distinct HA aa sequences each appears in 4, 5, or 6
   isolates.
-- Bin `3k+` (height 0) — there are no HA aa sequences in 3,000+
-  isolates because HA's most common aa sequence appears in 1,702
-  isolates (the `max_freq` column of the tier table below). For
-  comparison, the most common M1 aa sequence appears in 28,306
-  isolates — a single amino-acid sequence carried by ~26 % of the
-  108,530 corpus.
+- Bin `3k+` (height 0) — no HA aa sequences appear in 3,000+
+  isolates because HA's most common aa sequence appears in only
+  1,702 isolates (the `max_freq` column above). For comparison,
+  M1's panel has a `3k+` bar — the most common M1 aa sequence
+  appears in 28,306 isolates (~26 % of the corpus carries the same
+  M1 aa).
 
-Companion tier table:
+**Why it matters.**
 
-- `seq_freq_tier_summary.csv` — columns: `alphabet`, `protein`,
-  `n_uniq`, `singletons`, `2-10`, `11-100`, `101-1k`, `1k+`,
-  `max_freq`, `top10_pct_isolates`. The `top10_pct_isolates`
-  column gives the percent of all isolate-occurrences explained by
-  the 10 most common sequences — a single-number head-concentration
-  metric. HA aa is the most distributed protein (top-10 covers
-  10.97 % of isolates); M1 aa is the most concentrated (top-10
-  covers 70.44 %).
+- **Cluster collapse at §6.** Proteins whose top sequences dominate
+  the corpus collapse into fewer clusters faster as `t` drops (see
+  §4 takeaway "diversity affects how fast clusters collapse" above).
+- **Degree shortcut.** A model could learn to predict pair
+  co-occurrence by reading per-sequence frequency alone — common
+  variants pair with other common variants more often just by
+  being more common. The 1-NN baseline used to detect memorization
+  (`leakage.md` § "The 1-NN lookup gauge" → **Limits**) does NOT
+  measure this channel, so MLP > 1-NN does not rule it out.
+- **Not a direct view of split feasibility.** For "can we 80/10/10
+  at threshold t?" see §6.1, §6.3, and `splits.md` § 1.9.
 
 ---
 
@@ -506,50 +516,55 @@ Companion tier table:
 `sequence_length_summary.csv`
 
 Columns:
-- `Median aa/nt len` = median sequence length `L` for the protein
-  (aa, nt). Computed from
-  per-sequence lengths; the spread within a protein is small on
-  Flu A (≤2 aa for all major proteins except NS1, which is the
-  length-varying exception).
+- `Min`, `Median`, `Max aa/nt len` = sequence length stats per
+  protein from `sequence_length_summary.csv`. The Min column captures a left tail of
+  truncated variants; all proteins are left-skewed; NS1 widest has the length distribution.
 - `t###` = maximum residue mismatches admitted within a cluster at
-  threshold `t = ###/100`, computed as `L − ceil(L × t)`. In mmseqs,
-  threshold `t` is set by `--min-seq-id`.
+  threshold `t`, computed as `L − ceil(L × t)` using the **median**
+  length. Truncated variants (toward Min) admit fewer absolute
+  mismatches at the same `t`. In mmseqs, threshold `t` is set by
+  `--min-seq-id`.
 
-**Flu A data (aa).**
+**Amino acids (aa).**
 
-| Segment | Protein | Median aa len | t100 | t099 | t098 | t097 | t096 | t095 | t090 | t085 | t080 |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 760 | 0 |  7 | 15 | 22 | 30 | 38 | 76 | 114 | 152 |
-| 2 | PB1 | 758 | 0 |  7 | 15 | 22 | 30 | 37 | 75 | 113 | 151 |
-| 3 | PA  | 717 | 0 |  7 | 14 | 21 | 28 | 35 | 71 | 107 | 143 |
-| 4 | HA  | 567 | 0 |  5 | 11 | 17 | 22 | 28 | 56 |  85 | 113 |
-| 5 | NP  | 499 | 0 |  4 |  9 | 14 | 19 | 24 | 49 |  74 |  99 |
-| 6 | NA  | 470 | 0 |  4 |  9 | 14 | 18 | 23 | 47 |  70 |  94 |
-| 7 | M1  | 253 | 0 |  2 |  5 |  7 | 10 | 12 | 25 |  37 |  50 |
-| 8 | NS1 | 231 | 0 |  2 |  4 |  6 |  9 | 11 | 23 |  34 |  46 |
+| Segment | Protein | Min aa len | Median aa len | Max aa len | t100 | t099 | t098 | t097 | t096 | t095 | t090 | t085 | t080 |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 732 | 760 | 761 | 0 |  7 | 15 | 22 | 30 | 38 | 76 | 114 | 152 |
+| 2 | PB1 | 731 | 758 | 764 | 0 |  7 | 15 | 22 | 30 | 37 | 75 | 113 | 151 |
+| 3 | PA  | 691 | 717 | 721 | 0 |  7 | 14 | 21 | 28 | 35 | 71 | 107 | 143 |
+| 4 | HA  | 550 | 567 | 571 | 0 |  5 | 11 | 17 | 22 | 28 | 56 |  85 | 113 |
+| 5 | NP  | 472 | 499 | 500 | 0 |  4 |  9 | 14 | 19 | 24 | 49 |  74 |  99 |
+| 6 | NA  | 446 | 470 | 476 | 0 |  4 |  9 | 14 | 18 | 23 | 47 |  70 |  94 |
+| 7 | M1  | 241 | 253 | 254 | 0 |  2 |  5 |  7 | 10 | 12 | 25 |  37 |  50 |
+| 8 | NS1 | 201 | 231 | 239 | 0 |  2 |  4 |  6 |  9 | 11 | 23 |  34 |  46 |
 
-**Flu A data (nt).**
+**Nucleotides (nt).**
 
-| Segment | Protein | Median nt len | t100 | t099 | t098 | t097 | t096 | t095 | t090 | t085 | t080 |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 2,280 | 0 | 22 | 45 | 68 | 91 | 114 | 228 | 342 | 456 |
-| 2 | PB1 | 2,274 | 0 | 22 | 45 | 68 | 90 | 113 | 227 | 341 | 454 |
-| 3 | PA  | 2,151 | 0 | 21 | 43 | 64 | 86 | 107 | 215 | 322 | 430 |
-| 4 | HA  | 1,701 | 0 | 17 | 34 | 51 | 68 |  85 | 170 | 255 | 340 |
-| 5 | NP  | 1,497 | 0 | 14 | 29 | 44 | 59 |  74 | 149 | 224 | 299 |
-| 6 | NA  | 1,410 | 0 | 14 | 28 | 42 | 56 |  70 | 141 | 211 | 282 |
-| 7 | M1  |   759 | 0 |  7 | 15 | 22 | 30 |  37 |  75 | 113 | 151 |
-| 8 | NS1 |   693 | 0 |  6 | 13 | 20 | 27 |  34 |  69 | 103 | 138 |
+| Segment | Protein | Min nt len | Median nt len | Max nt len | t100 | t099 | t098 | t097 | t096 | t095 | t090 | t085 | t080 |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 2,196 | 2,280 | 2,283 | 0 | 22 | 45 | 68 | 91 | 114 | 228 | 342 | 456 |
+| 2 | PB1 | 2,193 | 2,274 | 2,292 | 0 | 22 | 45 | 68 | 90 | 113 | 227 | 341 | 454 |
+| 3 | PA  | 2,073 | 2,151 | 2,163 | 0 | 21 | 43 | 64 | 86 | 107 | 215 | 322 | 430 |
+| 4 | HA  | 1,650 | 1,701 | 1,713 | 0 | 17 | 34 | 51 | 68 |  85 | 170 | 255 | 340 |
+| 5 | NP  | 1,416 | 1,497 | 1,500 | 0 | 14 | 29 | 44 | 59 |  74 | 149 | 224 | 299 |
+| 6 | NA  | 1,338 | 1,410 | 1,428 | 0 | 14 | 28 | 42 | 56 |  70 | 141 | 211 | 282 |
+| 7 | M1  |   723 |   759 |   762 | 0 |  7 | 15 | 22 | 30 |  37 |  75 | 113 | 151 |
+| 8 | NS1 |   603 |   693 |   717 | 0 |  6 | 13 | 20 | 27 |  34 |  69 | 103 | 138 |
 
 **Takeaways.**
 
-- **Same threshold, different biological criterion per protein.**
+- **Same threshold, different absolute mismatch budgets per protein.**
   t095 on M1 admits **3× fewer absolute mismatches** than t095 on
-  PB2 (12 vs 38, from 253 vs 760 aa median lengths). This explains
-  why per-protein cluster collapse rates in §6 differ between
-  proteins at the same threshold: the threshold admits more
-  mutations on longer proteins, so more sequences fall into the
-  same cluster.
+  PB2 (12 vs 38, from 253 vs 760 aa median lengths) — because the
+  budget is `L − ceil(L × t)`, growing with the median length `L`.
+- **Length effect on cluster collapse.** At the same `t`, longer
+  proteins admit more absolute mismatches, allowing more diverse
+  sequences to merge into the same cluster (i.e., fewer clusters at
+  that `t`). This is **one factor** behind per-protein
+  cluster collapse rate differences in §6.
+- **Length and diversity interact.** Neither alone predicts the
+  per-protein cluster-collapse rate in §6. See §4 takeaways for the
+  diversity-effect sister bullet.
 
 **Future direction.**
 
@@ -567,16 +582,16 @@ Columns:
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
-(raw values for all subsections below). The threshold sweep covers
+(raw values for all subsections below). The sweep over threshold `t` covers
 {1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90,
 0.85, 0.80}. Plots:
 `cluster_counts_vs_threshold.png`, `bipartite_largest_pct_vs_threshold.png`.
 
-### 6.1 Per-protein n_clusters across thresholds
+### 6.1 Per-protein n_clusters across thresholds `t`
 
 Columns:
 - `t###`: number of mmseqs clusters for that protein at threshold
-  `t = ###/100`. Lower threshold → more sequences cluster together →
+  `t`. Lower threshold → more sequences cluster together →
   fewer clusters.
 
 **Amino acids (aa).**
