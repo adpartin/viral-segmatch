@@ -38,11 +38,13 @@ Outputs (under --out_dir):
     sequence_length_summary.csv       — per (function, alphabet) length stats
     mutations_tolerated_table.csv     — per (function, alphabet, threshold) max mismatches
     seq_redundancy.png                — Plot A (2 grouped-bar panels)
-    seq_freq_hist_aa.png              — Plot D, aa  (per-protein corpus-frequency histograms, 2x4 grid)
-    seq_freq_hist_nt_cds.png          — Plot D, nt  (CDS coding sequence)
-    seq_freq_tier_summary.csv         — Plot D summary table (V5: tier counts per protein × alphabet)
+    seq_freq_hist_{aa,nt_cds}.png     — Plot D (per-protein corpus-frequency histograms, 2x4 grid)
+    seq_freq_isolate_pct_{aa,nt_cds}.png — Plot D-alt (per-protein corpus coverage by tier; y = % isolates)
+    seq_freq_tier_summary.csv         — Plot D summary table (tier counts + Gini + n_eff per protein × alphabet)
     cluster_counts_vs_threshold.png   — Plot B (log-Y, 8 lines × 2 alphabets)
     bipartite_largest_pct_vs_threshold.png — Plot C (2 pairs × 2 alphabets, 80% line)
+    cluster_diversity_stats.csv       — per (alphabet, protein, threshold) Gini + n_eff on cluster-size distribution
+    gini_vs_threshold.png             — Plot E (Gini of cluster-size distribution vs t; cluster-collapse evenness)
 """
 from __future__ import annotations
 
@@ -282,6 +284,38 @@ _FREQ_BIN_LABELS = ['1', '2', '3', '4-6', '7-10', '11-30', '31-100',
                     '101-300', '301-1k', '1k-3k', '3k+']
 
 
+def _gini(values: np.ndarray) -> float:
+    """Gini coefficient on a non-negative array. 0 = perfect evenness, 1 = max inequality."""
+    if len(values) == 0:
+        return 0.0
+    v = np.sort(np.asarray(values, dtype=float))
+    n = len(v)
+    s = v.sum()
+    if s == 0:
+        return 0.0
+    return (2.0 * np.sum(np.arange(1, n + 1) * v)) / (n * s) - (n + 1) / n
+
+
+def _hill_q2(values: np.ndarray) -> float:
+    """Inverse Simpson (Hill q=2): effective category count = 1 / Σ p_i².
+
+    Acts as an effective-sample-size metric: a corpus of N tokens
+    spread evenly across S categories has hill_q2 = S; concentration
+    on a few categories pulls hill_q2 well below S.
+    """
+    v = np.asarray(values, dtype=float)
+    if len(v) == 0:
+        return 0.0
+    total = v.sum()
+    if total == 0:
+        return 0.0
+    p = v / total
+    s = (p * p).sum()
+    if s == 0:
+        return 0.0
+    return 1.0 / s
+
+
 def _freq_counts_per_protein(cds_final: Path, alphabet: str) -> dict:
     """Returns {protein_short: np.ndarray of per-unique-seq corpus frequencies}.
 
@@ -451,11 +485,105 @@ def compute_seq_freq_tier_summary(cds_final: Path, out_csv: Path) -> pd.DataFram
                 '1k+': int(counts[9:11].sum()),
                 'max_freq': int(sorted_desc[0]),
                 'top10_pct_isolates': round(100.0 * top10_sum / total, 2),
+                'n_eff_hill_q2': round(_hill_q2(freqs), 1),
+                'gini': round(_gini(freqs), 4),
             })
     df = pd.DataFrame(rows)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_csv, index=False)
     return df
+
+
+def compute_cluster_diversity_stats(
+    clusters_aa: Path, clusters_nt: Path, cds_final: Path, out_csv: Path,
+) -> pd.DataFrame:
+    """Compute Gini + n_eff on per-cluster isolate-count distribution per (alphabet, protein, threshold).
+
+    For each (alphabet, protein, threshold), load the cluster parquet,
+    join each unique sequence to its corpus copy count, sum per
+    cluster to get cluster size in *isolates*, and compute Gini and
+    Hill q2 on those cluster sizes.
+
+    At t=1.0 cluster size ≈ unique-seq copy number (level 0); as t
+    drops, clusters merge and sizes consolidate, raising Gini.
+    """
+    rows = []
+    for alphabet, clusters_root, cds_hash_col in [
+        ('aa', clusters_aa, 'seq_hash'),
+        ('nt_cds', clusters_nt, 'cds_dna_hash'),
+    ]:
+        cds = pd.read_parquet(cds_final, columns=['function', cds_hash_col])
+        cds['function_short'] = cds['function'].map(_FUNCTION_TO_SHORT)
+        cds = cds.dropna(subset=['function_short'])
+        copy_per = {s: cds.loc[cds['function_short'] == s, cds_hash_col].value_counts().to_dict()
+                    for s in _SHORT_ORDER
+                    if (cds['function_short'] == s).any()}
+        for t_dir in sorted(clusters_root.iterdir()):
+            if not t_dir.is_dir() or not t_dir.name.startswith('id'):
+                continue
+            try:
+                threshold = int(t_dir.name[2:]) / 100.0
+            except ValueError:
+                continue
+            for s in _SHORT_ORDER:
+                cluster_pq = t_dir / f'{s}_cluster.parquet'
+                if not cluster_pq.exists():
+                    continue
+                df = pd.read_parquet(cluster_pq, columns=['seq_hash', 'cluster_id'])
+                df['copy_count'] = df['seq_hash'].map(copy_per.get(s, {})).fillna(0).astype(int)
+                cluster_sizes = df.groupby('cluster_id')['copy_count'].sum().values
+                n_clusters = len(cluster_sizes)
+                rows.append({
+                    'alphabet': alphabet,
+                    'protein': s,
+                    'threshold': round(threshold, 2),
+                    'n_clusters': n_clusters,
+                    'total_isolates': int(cluster_sizes.sum()),
+                    'top1_cluster_isolates': int(cluster_sizes.max()) if n_clusters else 0,
+                    'top1_cluster_pct': round(100.0 * cluster_sizes.max() / cluster_sizes.sum(), 2) if n_clusters else 0.0,
+                    'n_eff_hill_q2': round(_hill_q2(cluster_sizes), 1),
+                    'gini': round(_gini(cluster_sizes), 4),
+                })
+    df = pd.DataFrame(rows).sort_values(
+        ['alphabet', 'protein', 'threshold'], ascending=[True, True, False]
+    ).reset_index(drop=True)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_csv, index=False)
+    return df
+
+
+def plot_gini_vs_threshold(cluster_div_df: pd.DataFrame, out_png: Path) -> None:
+    """Plot E: Gini of cluster-size (isolates per cluster) vs threshold, per protein × alphabet.
+
+    Two panels (aa, nt). Each curve is one protein. Higher Gini = more
+    concentration of isolates in few clusters. Reads as the evenness
+    trajectory of cluster-collapse (complement to §6.1 n_clusters and
+    §6.3 top-1 cluster % views).
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    for ax, (alpha, label) in zip(
+        axes, [('aa', 'aa (prot_seq)'), ('nt_cds', 'nt (cds_dna)')]
+    ):
+        sub_alpha = cluster_div_df[cluster_div_df['alphabet'] == alpha]
+        for s in _SHORT_ORDER:
+            sub = sub_alpha[sub_alpha['protein'] == s].sort_values('threshold', ascending=False)
+            if len(sub) == 0:
+                continue
+            ax.plot(sub['threshold'], sub['gini'], marker='o', linewidth=1.5,
+                    color=_FUNCTION_COLORS[s], label=s, alpha=0.85, markersize=4)
+        ax.invert_xaxis()
+        ax.set_xlabel('threshold t')
+        ax.set_title(f'Cluster-size Gini vs t — {label}', fontsize=11)
+        ax.grid(linestyle=':', alpha=0.5)
+        ax.set_ylim(0, 1.05)
+        ax.legend(loc='lower left', fontsize=8, ncol=2, frameon=False)
+    axes[0].set_ylabel('Gini of cluster-size (isolates per cluster)')
+    fig.suptitle('Cluster-collapse evenness: Gini of per-cluster isolate counts vs threshold',
+                 fontsize=11, y=1.02)
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=180, bbox_inches='tight')
+    plt.close(fig)
 
 
 def plot_cluster_counts_vs_threshold(red_aa: pd.DataFrame, red_nt: pd.DataFrame,
@@ -645,6 +773,17 @@ def main() -> None:
         out_dir / 'cluster_counts_vs_threshold.png',
     )
     print(f'wrote {out_dir / "cluster_counts_vs_threshold.png"}')
+
+    cluster_div_csv = out_dir / 'cluster_diversity_stats.csv'
+    cluster_div_df = compute_cluster_diversity_stats(
+        Path(args.clusters_aa), Path(args.clusters_nt),
+        Path(args.cds_final), cluster_div_csv,
+    )
+    print(f'wrote {cluster_div_csv} ({len(cluster_div_df):,} rows)')
+
+    gini_png = out_dir / 'gini_vs_threshold.png'
+    plot_gini_vs_threshold(cluster_div_df, gini_png)
+    print(f'wrote {gini_png}')
 
     plot_bipartite_largest_pct(
         feasibilities,

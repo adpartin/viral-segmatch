@@ -437,15 +437,20 @@ Columns:
   4,771); HA's is ~1.6× (65,414 / 41,896).
 - **M1 is the most redundant (and conserved).** Only 4,771 distinct M1 aa
   sequences (~95% redundancy in aa).
-- **Sequence diversity affects how fast clusters collapse in §6.** A protein
-  with few unique sequences and a few very common variants (like
-  M1: 4,771 uniques, top-10 cover 70 % of isolates) collapses into
-  fewer clusters faster than a protein with more uniques spread
-  across many low-frequency variants (like HA: 41,896 uniques,
-  top-10 cover 11 %) — even when the same threshold `t` admits
-  fewer mutations on M1 (because M1 is shorter). The other factor
-  driving collapse is the per-protein mutation budget determined by
-  sequence length (discussed is in §5 takeaways).
+- **Sequence diversity affects how fast clusters collapse in §6.**
+  A protein with low **effective diversity** (like M1, the conserved
+  internal matrix protein: nominally 4,771 unique aa sequences but
+  **n_eff ≈ 10** — the dominant variants absorb most isolates,
+  top-10 cover 70 % of isolates) reaches a small cluster count at
+  higher `t` than a protein with high effective diversity (like HA,
+  the surface antigen under antibody-driven positive selection:
+  41,896 uniques, **n_eff ≈ 531**, top-10 cover only 11 %) — even
+  when the same `t` admits fewer mutations on M1 (because M1 is
+  shorter). The other factor driving collapse is the per-protein
+  mutation budget determined by sequence length (discussed in §5
+  takeaways). (n_eff is the effective unique-sequence count from
+  inverse Simpson / Hill q2; nominal N vs n_eff is the standard ML
+  framing — see `seq_freq_tier_summary.csv` `n_eff_hill_q2` column.)
 
 **Per-sequence frequency distribution.** The table above reports
 per-protein **counts** of unique sequences; it doesn't show the
@@ -469,10 +474,16 @@ Outputs:
   `nt_cds` suffix anticipates a future `nt_ctg` variant on
   full-contig DNA.
 - `seq_freq_tier_summary.csv` — companion table, collapsed to 5
-  tiers (singletons, 2-10, 11-100, 101-1k, 1k+) plus `max_freq`
-  and `top10_pct_isolates` (the % of all isolates covered by the
-  10 most common sequences — a single number capturing how much
-  the most common variants dominate the corpus).
+  tiers (singletons, 2-10, 11-100, 101-1k, 1k+) plus four
+  single-number summaries: `max_freq` (top-1 isolate count per
+  sequence), `top10_pct_isolates` (% of isolates covered by the
+  top-10 most common sequences — head-concentration metric),
+  `n_eff_hill_q2` (inverse Simpson / Hill q2 — effective unique
+  count after accounting for redundancy; "nominal N vs n_eff"
+  framing: M1 aa nominal 4,771 → n_eff ≈ 10; HA aa nominal 41,896
+  → n_eff ≈ 531), and `gini` (standard inequality coefficient on
+  the per-sequence frequency array, 0 = perfect evenness, 1 = all
+  mass on one variant; M1 aa ≈ 0.94, HA aa ≈ 0.59).
 
 **How to read a plots.** The y-axis is **count of unique sequences**;
 the x-axis is **how many isolates each of those sequences appears in**.
@@ -496,8 +507,9 @@ Worked example, HA aa (4th panel of `seq_freq_hist_aa.png`):
 **Why it matters.**
 
 - **Cluster collapse at §6.** Proteins whose top sequences dominate
-  the corpus collapse into fewer clusters faster as `t` drops (see
-  §4 takeaway "diversity affects how fast clusters collapse" above).
+  the corpus collapse into fewer clusters at higher `t` (see §4
+  takeaway "sequence diversity affects how fast clusters collapse"
+  above; §6.4 quantifies this directly via Gini-vs-`t`).
 - **Degree shortcut.** A model could learn to predict pair
   co-occurrence by reading per-sequence frequency alone — common
   variants pair with other common variants more often just by
@@ -584,8 +596,9 @@ Columns:
 `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 (raw values for all subsections below). The sweep over threshold `t` covers
 {1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90,
-0.85, 0.80}. Plots:
-`cluster_counts_vs_threshold.png`, `bipartite_largest_pct_vs_threshold.png`.
+0.85, 0.80}. Plots: `cluster_counts_vs_threshold.png` (§6.1),
+`gini_vs_threshold.png` (§6.4), `bipartite_largest_pct_vs_threshold.png`
+(`splits.md` § 1.9). Companion CSV: `cluster_diversity_stats.csv`.
 
 ### 6.1 Per-protein n_clusters across thresholds `t`
 
@@ -715,15 +728,18 @@ geometric consequence of how `--min-seq-id` is computed (§3.1).
 - The deep-dive walkthrough (per-protein decomposition) is in
   `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
 
-### 6.3 Largest cluster as % of corpus
+### 6.3 Top-1 (largest) cluster as % of corpus
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `cluster_summary.csv` column: `largest_cluster / n_sequences × 100`.
+The terms **largest cluster** and **top-1 cluster** are
+interchangeable in this doc.
 
 Layout:
-- **Columns** (`t###`): percentage of the protein's sequences that fall
-  into its single largest cluster at threshold `t = ###/100`. 100% means
-  one cluster contains every sequence of that protein.
+- **Columns** (`t###`): percentage of the protein's sequences that
+  fall into its single top-1 (largest) cluster at threshold
+  `t = ###/100`. 100 % means one cluster contains every sequence
+  of that protein.
 - **Rows**: grouped by trajectory from §6.1 — deferred-cliff proteins
   (PB2, PB1, PA, NP, M1) on top; gradual proteins (HA, NA, NS1) on bottom.
 
@@ -767,11 +783,44 @@ Layout:
   the corpus through length-variant absorption before any
   sequence-similarity clustering takes effect.
 
-**Note.** This is the per-FUNCTION largest cluster fraction (one
+**Note.** This is the per-PROTEIN top-1 cluster fraction (one
 number per protein per threshold). `splits.md` § 1.9 reports the
-per-PAIR largest bipartite-COMPONENT fraction — a different metric
+per-PAIR top-1 bipartite-COMPONENT fraction — a different metric
 used to characterize the bilateral cluster_disjoint routing's
-feasibility.
+feasibility. The full per-cluster-size *distribution* (not just
+the top-1 share) is summarised by Gini in § 6.4.
+
+### 6.4 Cluster-collapse evenness (Gini)
+
+**Source.** `src/analysis/cluster_analysis_summary.py`;
+`cluster_diversity_stats.csv` (per alphabet × protein × threshold);
+plot at `gini_vs_threshold.png` (2 panels — aa, nt).
+
+§6.1 reports cluster counts; §6.3 reports the top-1 cluster's
+share of the corpus. Both are scalar summaries of the cluster-size
+distribution. The full distribution also has an **inequality**
+dimension — at a given `t`, are isolates spread evenly across
+clusters or concentrated in a few? Gini measures this: 0 = perfect
+evenness (every cluster the same size), 1 = max concentration (one
+cluster has everyone). Computed on per-cluster isolate counts
+(sum of copy counts of all unique sequences in the cluster).
+
+**Reading the plot.** All curves start at Gini > 0 at `t = 1.0`
+because per-sequence copy-number redundancy creates inequality
+even before clustering (level-0 floor, ≈ V5 `gini` column with
+slight divergence on NA from the coverage-rule merging at
+`t = 1.0`). Curves rise as `t` drops and clusters consolidate.
+PB1 reaches Gini ≈ 0.97 by `t094`; HA reaches the same level only
+by `t085`. Complementary axis to §6.1 (n_clusters) and §6.3 (top-1
+share) — all three views agree on protein ordering, but the Gini
+view captures the *whole distribution shape*, not just the top-1
+or the cluster count.
+
+`cluster_diversity_stats.csv` also carries `n_eff_hill_q2` per
+(alphabet, protein, threshold) — inverse Simpson (effective
+cluster count after accounting for inequality), the same metric
+applied to clusters that V5's `n_eff_hill_q2` applies to copy
+numbers (§4).
 
 ---
 
@@ -853,8 +902,12 @@ mutations_tolerated_table.csv             — concrete max-mismatches table
 seq_redundancy.png                        — Plot A (§4)
 seq_freq_hist_aa.png                      — Plot D, aa (§4)
 seq_freq_hist_nt_cds.png                  — Plot D, nt CDS (§4)
-seq_freq_tier_summary.csv                 — Plot D companion tier table (§4)
-cluster_counts_vs_threshold.png           — Plot B (§6)
+seq_freq_isolate_pct_aa.png               — Plot D-alt, aa (§4)
+seq_freq_isolate_pct_nt_cds.png           — Plot D-alt, nt CDS (§4)
+seq_freq_tier_summary.csv                 — Plot D companion tier table (§4); cols include Gini + n_eff (level 0)
+cluster_counts_vs_threshold.png           — Plot B (§6.1)
+cluster_diversity_stats.csv               — per (alphabet, protein, threshold); Gini + n_eff (level 1) (§6.4)
+gini_vs_threshold.png                     — Plot E (§6.4)
 bipartite_largest_pct_vs_threshold.png    — Plot C (`splits.md` § 1.9)
 ```
 
