@@ -37,10 +37,11 @@ the same flu isolate. A random train/val/test split can result
 in highly similar sequence pairs being distributed across train,
 validation, and test sets (the very similar pairs can be called
 *near-neighbors*). Thus, test pairs typically have a train neighbor
-that's extremely similar at the sequence level, and the model can
-exploit this similarity to make accurate predictions without learning any pair-co-occurrence biology. We
-define this as leakage mode #4 ("cluster leakage" / "near-neighbor
-leakage") in `docs/methods/leakage.md`.
+that's extremely similar at the sequence level. The model can exploit
+this train-test similarity to predict accurately without learning
+pair-co-occurrence biology. We define this as leakage mode #4
+("cluster leakage" / "near-neighbor leakage") in
+`docs/methods/leakage.md`.
 
 Clustering uses an alignment-identity threshold *t*. For each input
 sequence X (aa or nt), pairwise alignment with every candidate sequence Y
@@ -79,7 +80,7 @@ neighbor within a handful of aa edits, allowing for shortcut learning.
 **Step 2 — clustering at radius t collapses near-neighbors to one cluster id.**
 Sequences within identity threshold t of each other join the same
 cluster (transitive closure on the pairwise-alignment relation; see
-the operational definition above). At t = 0.99 on a 760-aa protein
+the operational definition above). At t099 on a 760-aa protein
 the radius admits up to 7 aa mismatches (§5).
 
 ```
@@ -87,7 +88,7 @@ the radius admits up to 7 aa mismatches (§5).
    │   ●  A1     │
    │      │      │  cluster C_γ   ← A1 and A2 now in the same
    │   ●  A2     │                  cluster (1-aa edit ≤ radius
-   └─────────────┘                  at t = 0.99)
+   └─────────────┘                  at t099)
 
    ┌─────────────┐
    │  ●  B1      │
@@ -118,15 +119,15 @@ mode #4 by construction at the chosen radius t.
 
 **The radius t controls the trade-off:**
 
-- `t = 1.0` — pairs with 100% identity over the aligned region cluster
+- `t100` — pairs with 100% identity over the aligned region cluster
 together. Approximately equivalent to `seq_disjoint` on 7 of the 8 major
 proteins, but looser on NA where more sequences of different lengths
 cluster via the coverage rule (check §3.2 for actual numbers).
 `seq_disjoint` itself splits on seq hash of the full sequence
 (`splits.md` § 1.4).
-- `t = 0.99` — Up to ~1% mismatches over the aligned region cluster
+- `t099` — Up to ~1% mismatches over the aligned region cluster
 together.
-- `t = 0.90` — Up to 10% mismatches over the aligned region cluster
+- `t090` — Up to 10% mismatches over the aligned region cluster
 together.
 
 A lower `t` removes more leakage but also merges more of the corpus
@@ -158,11 +159,6 @@ routing on pairs has additional mechanics:
      connected component on the (slot A, slot B) cluster graph.
 4. **Bin-pack atoms into 80 / 10 / 10** via LPT-greedy (`splits.md`
    § 1.3).
-
-`splits.md` walks through the routing mechanism shared across modes
-(atoms, LPT-greedy, the four implemented routings, single-slot vs
-bilateral separation, Flu A feasibility). The single-sequence
-intuition above is the prerequisite for the paired version.
 
 The clustering itself happens once per (data version, alphabet (`aa`|`nt`), identity
 threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
@@ -826,22 +822,19 @@ numbers (§4).
 
 ## 7. Pipeline integration
 
-Three scripts handle the producer/consumer chain, all under
-`src/analysis/` (the cluster artifacts they produce are inputs to
-Stage 3 via `src/datasets/_split_helpers.py`):
+Five scripts make up the chain. The first four are the
+producer/consumer path that feeds Stage 3 via
+`src/datasets/_split_helpers.py`; the fifth is a post-hoc
+structural-summary script that backs §§ 4–6 of this doc and
+§ 1.9 of `splits.md`.
 
 | Step | Script | Reads | Writes |
 |---|---|---|---|
 | Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `genome_final.csv` | `cds_final.parquet` |
-| Cluster sweep | `src/analysis/seq_redundancy_per_function.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `runtime.json`, `redundancy_summary.md` |
-| Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` | one cluster lookup + `protein_final` or `cds_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/feasibility_<pair>_<alphabet>.csv` |
+| Cluster sweep | `src/analysis/seq_redundancy_per_function.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
+| Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` (bilateral) and `src/analysis/single_slot_cluster_disjoint_feasibility.py` (single-slot) | one cluster lookup + `protein_final` or `cds_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/{feasibility,single_slot_feasibility}_<pair>_<alphabet>.csv` |
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
-
-For consolidated structural analysis (the empirical tables and plots
-in §§ 4–6 and in `splits.md` § 1.9), the post-hoc script is
-`src/analysis/cluster_analysis_summary.py`, which reads the
-redundancy + feasibility CSVs and emits plots under
-`results/flu/{version}/runs/cluster_analysis/`.
+| Post-hoc structural summary | `src/analysis/cluster_analysis_summary.py` | `redundancy_stats.csv`, per-threshold cluster parquets, `cds_final.parquet`, feasibility CSVs | tables + plots under `results/flu/{version}/runs/cluster_analysis/` (see § 8 outputs block) |
 
 ---
 
