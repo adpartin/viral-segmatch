@@ -398,31 +398,68 @@ Note that `--alph-size` is set internally by mmseqs (aa: 21, nucl: 5).
 
 ## 4. Corpus redundancy (exact duplicates)
 
-**Source.** `src/analysis/cluster_analysis_summary.py`; `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
+**Source.** `src/analysis/cluster_analysis_summary.py`;
+`results/flu/July_2025/runs/cluster_analysis/seq_freq_tier_summary.csv`
+(per (alphabet, protein) — full source for both tables below).
 
 Columns:
-- `Total seqs` = the number of isolates that carry this protein.
-- `Unique aa seqs` / `Unique nt seqs` = unique sequence count after
-  dedup on `prot_seq` / `cds_dna`. **`cds_dna` is the joined CDS
-  coding sequence only** — UTRs, introns, and intergenic DNA are
-  excluded (see `src/preprocess/extract_cds_dna.py`); the nt cluster
-  key is `cds_dna_hash = md5(cds_dna)`. This is the FASTA row count
-  that mmseqs sees as input (it's the pre-clustering dedup). Verify
-  directly with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt}/fasta/<PROTEIN>.fasta`
+- `Segment` — Flu A genomic segment number (1-8).
+- `Protein` — short protein name on that segment (PB2, PB1, PA, HA,
+  NP, NA, M1, NS1).
+- `N_seqs` — total records: number of isolates carrying this protein
+  (108,530 for the full Flu A corpus).
+- `N_unique` — unique sequences after md5 dedup on `prot_seq` (aa)
+  or `cds_dna` (nt). **`cds_dna` is the joined CDS coding sequence
+  only** — UTRs, introns, and intergenic DNA are excluded (see
+  `src/preprocess/extract_cds_dna.py`); the nt cluster key is
+  `cds_dna_hash = md5(cds_dna)`. This equals the FASTA row count
+  that mmseqs sees as input (pre-clustering dedup). Verify directly
+  with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt}/fasta/<PROTEIN>.fasta`
   (e.g., HA aa → 41,896).
-- `% unique aa` = `Unique aa seqs` / `Total seqs` (and the same for
-  `% unique nt`). High % means more unique sequences.
+- `N_unique frac` — `N_unique / N_seqs`. The "% unique" reported in
+  earlier versions of this doc, now as a fraction.
+- `Singleton_seq_frac` — fraction of unique sequences observed
+  exactly once in the corpus (= n_singletons / N_unique). Measures
+  the size of the *inventory* tail, not the share of records.
+- `Top1 frac` — fraction of records carried by the single most
+  abundant unique sequence.
+- `Top10 frac` — fraction of records carried by the 10 most
+  abundant unique sequences combined.
+- `Top100 frac` — same for the top 100.
+- `Shannon_eff_n` — Hill q=1 effective diversity = exp(H) where
+  H = -Σ pᵢ log pᵢ is the Shannon entropy computed over per-unique-
+  sequence relative abundances. Acts as an effective sample count
+  under Shannon weighting.
+- `Gini` — Gini coefficient on the per-unique-sequence frequency
+  array. 0 = perfect evenness (every unique sequence equally
+  represented), 1 = max concentration (one sequence carries all
+  records).
 
-| Segment | Protein | Total seqs | Unique aa seqs | % unique aa | Unique nt seqs | % unique nt |
-|---:|---|---:|---:|---:|---:|---:|
-| 1 | PB2 | 108,530 | 33,663 | 31.0% | 67,341 | 62.1% |
-| 2 | PB1 | 108,530 | 31,226 | 28.8% | 67,034 | 61.8% |
-| 3 | PA  | 108,530 | 34,217 | 31.5% | 65,242 | 60.1% |
-| 4 | HA  | 108,530 | 41,896 | 38.6% | 65,414 | 60.3% |
-| 5 | NP  | 108,530 | 17,684 | 16.3% | 52,800 | 48.6% |
-| 6 | NA  | 108,530 | 37,488 | 34.5% | 58,887 | 54.3% |
-| 7 | M1  | 108,530 |  4,771 |  4.4% | 32,413 | 29.9% |
-| 8 | NS1 | 108,530 | 22,225 | 20.5% | 38,039 | 35.0% |
+**Flu A data (aa).**
+
+| Segment | Protein | N_seqs | N_unique | N_unique frac | Singleton_seq_frac | Top1 frac | Top10 frac | Top100 frac | Shannon_eff_n | Gini |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 108,530 | 33,663 | 0.310 | 0.756 | 0.047 | 0.195 | 0.385 | 3,488.9 | 0.659 |
+| 2 | PB1 | 108,530 | 31,226 | 0.288 | 0.745 | 0.047 | 0.248 | 0.426 | 2,532.7 | 0.681 |
+| 3 | PA  | 108,530 | 34,217 | 0.315 | 0.752 | 0.047 | 0.204 | 0.377 | 3,620.0 | 0.652 |
+| 4 | HA  | 108,530 | 41,896 | 0.386 | 0.788 | 0.016 | 0.110 | 0.288 | 7,547.6 | 0.586 |
+| 5 | NP  | 108,530 | 17,684 | 0.163 | 0.695 | 0.086 | 0.376 | 0.595 |   621.0 | 0.806 |
+| 6 | NA  | 108,530 | 37,488 | 0.345 | 0.751 | 0.035 | 0.143 | 0.303 | 5,925.3 | 0.619 |
+| 7 | M1  | 108,530 |  4,771 | 0.044 | 0.618 | 0.261 | 0.704 | 0.875 |    46.3 | 0.937 |
+| 8 | NS1 | 108,530 | 22,225 | 0.205 | 0.692 | 0.052 | 0.268 | 0.497 | 1,378.7 | 0.758 |
+
+**Flu A data (nt_cds).**
+
+| Segment | Protein | N_seqs | N_unique | N_unique frac | Singleton_seq_frac | Top1 frac | Top10 frac | Top100 frac | Shannon_eff_n | Gini |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 108,530 | 67,341 | 0.620 | 0.830 | 0.008 | 0.037 | 0.094 | 35,673.8 | 0.355 |
+| 2 | PB1 | 108,530 | 67,034 | 0.618 | 0.830 | 0.016 | 0.046 | 0.101 | 33,977.6 | 0.358 |
+| 3 | PA  | 108,530 | 65,242 | 0.601 | 0.823 | 0.006 | 0.040 | 0.108 | 32,464.9 | 0.373 |
+| 4 | HA  | 108,530 | 65,414 | 0.603 | 0.830 | 0.008 | 0.045 | 0.111 | 31,819.8 | 0.373 |
+| 5 | NP  | 108,530 | 52,800 | 0.487 | 0.788 | 0.015 | 0.072 | 0.171 | 17,558.8 | 0.480 |
+| 6 | NA  | 108,530 | 58,887 | 0.543 | 0.808 | 0.015 | 0.057 | 0.136 | 23,862.6 | 0.428 |
+| 7 | M1  | 108,530 | 32,413 | 0.299 | 0.720 | 0.035 | 0.168 | 0.355 |  4,033.3 | 0.661 |
+| 8 | NS1 | 108,530 | 38,039 | 0.351 | 0.742 | 0.031 | 0.138 | 0.296 |  6,436.8 | 0.611 |
 
 **Takeaways.**
 

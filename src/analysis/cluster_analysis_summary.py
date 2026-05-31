@@ -296,6 +296,25 @@ def _gini(values: np.ndarray) -> float:
     return (2.0 * np.sum(np.arange(1, n + 1) * v)) / (n * s) - (n + 1) / n
 
 
+def _shannon_eff_n(values: np.ndarray) -> float:
+    """Hill q=1 effective diversity = exp(H) where H = -Σ pᵢ log pᵢ
+    is the Shannon entropy computed over per-unique-sequence relative
+    abundances. Equivalent to Hill q=1.
+    """
+    v = np.asarray(values, dtype=float)
+    if len(v) == 0:
+        return 0.0
+    total = v.sum()
+    if total == 0:
+        return 0.0
+    p = v / total
+    p = p[p > 0]
+    if len(p) == 0:
+        return 0.0
+    H = -np.sum(p * np.log(p))
+    return float(np.exp(H))
+
+
 def _hill_q2(values: np.ndarray) -> float:
     """Inverse Simpson (Hill q=2): effective category count = 1 / Σ p_i².
 
@@ -474,17 +493,23 @@ def compute_seq_freq_tier_summary(cds_final: Path, out_csv: Path) -> pd.DataFram
             sorted_desc = np.sort(freqs)[::-1]
             top10_sum = int(sorted_desc[:10].sum())
             total = int(freqs.sum())
+            top100_sum = int(sorted_desc[:100].sum())
             rows.append({
                 'alphabet': alpha,
                 'protein': s,
+                'n_seqs': int(total),
                 'n_uniq': int(len(freqs)),
+                'n_uniq_frac': round(len(freqs) / total, 4),
                 'singletons': int(counts[0]),
+                'singleton_frac': round(int(counts[0]) / len(freqs), 4),
                 '2-10': int(counts[1:5].sum()),
                 '11-100': int(counts[5:7].sum()),
                 '101-1k': int(counts[7:9].sum()),
                 '1k+': int(counts[9:11].sum()),
-                'max_freq': int(sorted_desc[0]),
-                'top10_pct_isolates': round(100.0 * top10_sum / total, 2),
+                'top1_frac': round(int(sorted_desc[0]) / total, 4),
+                'top10_frac': round(top10_sum / total, 4),
+                'top100_frac': round(top100_sum / total, 4),
+                'shannon_eff_n': round(_shannon_eff_n(freqs), 1),
                 'n_eff_hill_q2': round(_hill_q2(freqs), 1),
                 'gini': round(_gini(freqs), 4),
             })
