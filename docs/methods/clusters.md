@@ -543,14 +543,6 @@ Worked example, HA aa (4th panel of `seq_freq_hist_aa.png`):
   the corpus collapse into fewer clusters at higher `t` (see §4
   takeaway "sequence diversity affects how fast clusters collapse"
   above; §6.4 quantifies this directly via Gini-vs-`t`).
-- **Degree shortcut.** A model could learn to predict pair
-  co-occurrence by reading per-sequence frequency alone — common
-  variants pair with other common variants more often just by
-  being more common. The 1-NN baseline used to detect memorization
-  (`leakage.md` § "The 1-NN lookup gauge" → **Limits**) does NOT
-  measure this channel, so MLP > 1-NN does not rule it out.
-- **Not a direct view of split feasibility.** For "can we 80/10/10
-  at threshold t?" see §6.1, §6.3, and `splits.md` § 1.9.
 
 ---
 
@@ -769,22 +761,24 @@ The terms **largest cluster** and **top-1 cluster** are
 interchangeable in this doc.
 
 Layout:
-- **Columns** (`t###`): percentage of the protein's sequences that
-  fall into its single top-1 (largest) cluster at threshold
-  `t = ###/100`. 100 % means one cluster contains every sequence
+- **Columns** (`t###`): percentage of the protein's **unique sequences**
+  that fall into its single top-1 (largest) cluster at threshold
+  `t`. The denominator is `n_sequences` in
+  `cluster_summary.csv` — the unique protein-sequence count input
+  to mmseqs2 — **not** the total isolate-record count. Concretely for PB1 aa: the
+  denominator is 31,226 unique sequences, not 108,530 isolate
+  records. 100% means one cluster contains every unique sequence
   of that protein.
-- **Rows**: grouped by trajectory from §6.1 — deferred-cliff proteins
-  (PB2, PB1, PA, NP, M1) on top; gradual proteins (HA, NA, NS1) on bottom.
 
 | Segment | Protein | t100 | t099 | t098 | t097 | t096 | t095 | t094 | t093 | t092 | t091 | t090 | t085 | t080 |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 0.0% | 12.7% | 12.6% | 13.7% | 15.6% | 15.6% | 15.9% | 38.3% | 64.4% | 77.6% |  95.9% | **100%** | **100%** |
 | 2 | PB1 | 0.1% | 12.9% | 12.0% | 18.5% | 25.9% | 72.4% | 90.9% | 98.9% | 99.8% | 99.9% | **100%** | **100%** | **100%** |
 | 3 | PA  | 0.0% |  7.3% |  8.9% |  8.9% |  9.0% |  9.0% | 56.5% | 65.3% | 75.3% | 96.3% |  98.1% | **100%** | **100%** |
-| 5 | NP  | 0.1% |  7.5% | 13.1% | 28.2% | 41.4% | 46.3% | 51.2% | 67.5% | 84.0% | 85.0% |  99.8% | **100%** | **100%** |
-| 7 | M1  | 0.2% | 10.8% | 17.8% | 23.1% | 41.7% | 56.7% | 84.1% | 93.3% | 99.1% | 99.2% |  99.2% |  99.5% |  99.9% |
 | 4 | HA  | 0.0% |  5.0% |  6.7% |  9.6% |  9.7% | 11.8% | 12.1% | 21.0% | 21.9% | 22.5% |  22.8% |  24.3% |  33.4% |
+| 5 | NP  | 0.1% |  7.5% | 13.1% | 28.2% | 41.4% | 46.3% | 51.2% | 67.5% | 84.0% | 85.0% |  99.8% | **100%** | **100%** |
 | 6 | NA  | 6.9% |  8.7% |  8.9% |  8.8% | 13.2% | 13.2% | 17.9% | 14.0% | 18.0% | 17.7% |  17.9% |  32.4% |  37.7% |
+| 7 | M1  | 0.2% | 10.8% | 17.8% | 23.1% | 41.7% | 56.7% | 84.1% | 93.3% | 99.1% | 99.2% |  99.2% |  99.5% |  99.9% |
 | 8 | NS1 | 0.0% |  3.9% |  4.8% |  9.4% | 11.7% | 16.3% | 19.0% | 19.3% | 19.3% | 19.5% |  21.1% |  29.5% |  52.4% |
 
 **Takeaways.**
@@ -812,16 +806,22 @@ Layout:
   not at 1-pp threshold steps.
 - **NA's t100 anomaly: 6.9% already.** NA is the only protein with
   a sub-t100 entry visibly above zero, because of the stalk-length
-  collapse mechanism (§4 NA note). NA's t100 cluster pools ~7% of
-  the corpus through length-variant absorption before any
-  sequence-similarity clustering takes effect.
+  collapse mechanism (§4 NA note).
 
-**Note.** This is the per-PROTEIN top-1 cluster fraction (one
-number per protein per threshold). `splits.md` § 1.9 reports the
-per-PAIR top-1 bipartite-COMPONENT fraction — a different metric
-used to characterize the bilateral cluster_disjoint routing's
-feasibility. The full per-cluster-size *distribution* (not just
-the top-1 share) is summarised by Gini in § 6.4.
+**Note.** This is the per-PROTEIN top-1 cluster fraction on
+**unique-sequence count** (one number per protein per threshold).
+Related but distinct metrics elsewhere:
+- `splits.md` § 1.9 reports the per-PAIR top-1 bipartite-COMPONENT
+  fraction — drives bilateral cluster_disjoint feasibility.
+- `cluster_diversity_stats.csv` column `top1_cluster_pct` is the
+  records-weighted analogue of this table — same top-1 cluster,
+  but denominator counts **all isolate-records including
+  per-sequence dups** (108,530 for PB1, not 31,226 unique seqs).
+  § 6.4 summarises this records-weighted view via Gini. For PB1
+  aa at t095 the two metrics give 72.4 % (unique-weighted, this
+  table) vs 83.78 % (records-weighted, `cluster_diversity_stats`).
+The full per-cluster-size *distribution* (not just the top-1 share)
+is summarised by Gini in § 6.4.
 
 ### 6.4 Cluster-collapse evenness (Gini)
 
