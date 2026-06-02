@@ -1,8 +1,8 @@
 # Glossary
 
-Graph-theory and project-specific terminology used across the splits / clusters / leakage methods docs and across analysis code.
+Project-specific terminology (including graph theory). This is used across docs (e.g., `splits.md`, `clusters.md`, `leakage.md`) and analysis code.
 
-When introducing a graph property in code or docs, use the term from here; if it is not yet in the glossary, add it.
+When introducing a graph property in code or docs, use the term from here; if it is not yet in the glossary, suggest to add it.
 
 ---
 
@@ -34,9 +34,13 @@ When introducing a graph property in code or docs, use the term from here; if it
 
 - **Atom (project)** — The indivisible unit of a routing decision. Defined per routing mode: one pair (`random`), one unique sequence (`seq_disjoint`), one cluster (`cluster_disjoint single_slot`), or one bipartite CC (`cluster_disjoint` bilateral). Not a standard graph-theory term.
 
-- **Cluster-disjoint partition** — A partition of atoms across splits such that no atom appears in more than one split. The atom type (CC for 2-D, cluster for 1-D) determines the disjointness regime.
+- **Cluster-disjoint partition** — A partition of atoms across splits such that no atom appears in more than one split. The atom type (CC for 2-D, cluster for 1-D) determines the disjointness regime. Three variants exist in this project: single_slot cluster_disjoint (1D-CD), bilateral cluster_disjoint (2D-CD), and test-only cluster-disjoint (2D-CD-test) — defined below.
 
-- **Test-only cluster-disjoint** — A **2-D (bilateral)** cluster-disjoint partition where the cluster-disjoint constraint is enforced only between train and test (not val). Atom = bipartite CC. Val is sampled from train's CC scope (shares HA/NA clusters with train). Code/config key: `cluster_disjoint_test_only`. Tight abbreviation, tables only: `test-CD`.
+- **single_slot cluster_disjoint (1D-CD)** — A 1-D cluster-disjoint partition where the cluster-disjoint constraint is enforced on ONE slot's clusters; the other slot is unconstrained. Atom = one slot's cluster. Code/config keys: `split_strategy.mode=cluster_disjoint` + `split_strategy.single_slot='a'|'b'`. Shorthand: `1D-CD` (use `1D-CD-a` / `1D-CD-b` when slot disambiguation matters).
+
+- **bilateral cluster_disjoint (2D-CD)** — A 2-D cluster-disjoint partition where the cluster-disjoint constraint is enforced on BOTH slots; all three splits are pairwise cluster-disjoint. Atom = bipartite CC. Code/config key: `split_strategy.mode=cluster_disjoint` (default — no `single_slot` set). Shorthand: `2D-CD`.
+
+- **Test-only cluster-disjoint** — A **2-D (bilateral)** cluster-disjoint partition where the cluster-disjoint constraint is enforced only between train and test (not val). Atom = bipartite CC. Val is sampled from train's CC scope (shares HA/NA clusters with train). Code/config key: `cluster_disjoint_test_only`. Shorthand: `2D-CD-test`.
 
 ---
 
