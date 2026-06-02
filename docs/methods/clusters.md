@@ -615,17 +615,48 @@ Columns:
 
 ---
 
-## 6. Cluster collapse trajectory
+## 6. Cluster Analysis
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `results/flu/July_2025/runs/cluster_analysis/cluster_summary.csv`
 (raw values for all subsections below). The sweep over threshold `t` covers
-{1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90,
-0.85, 0.80}. Plots: `cluster_counts_vs_threshold.png` (§6.1),
+{1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90}.
+Plots: `cluster_counts_vs_threshold.png` (§6.1),
 `gini_vs_threshold.png` (§6.4), `bipartite_largest_pct_vs_threshold.png`
 (`splits.md` § 1.9). Companion CSV: `cluster_diversity_stats.csv`.
 
-### 6.1 Per-protein n_clusters across thresholds `t`
+### 6.0 Cluster weighting: three views of the same partition
+
+mmseqs operates on unique sequences only — FASTA deduped by `seq_hash`
+per `src/utils/clustering_utils.py::export_function_fasta`. The cluster
+parquet stores `{seq_hash → cluster_id}` for unique seqs; one row per
+`seq_hash`. Three downstream views of cluster size are used in this
+project, each appropriate for a different question.
+
+| View | What it measures | Used in |
+|---|---|---|
+| **Unique-weighted** (storage) | Cluster size = number of unique seq_hashes in the cluster | mmseqs output; §6.1, §6.2, §6.3; `cluster_summary.csv` |
+| **Records-weighted** | Cluster size = Σ copy_count over the cluster's seq_hashes | §6.4 Gini; `cluster_diversity_stats.csv top1_cluster_pct` |
+| **Pair-weighted** | Cluster size = number of canonical pairs (post-`pair_key` dedup) whose endpoint on the slot is in the cluster | **Splitter decisions** (`cluster_pair_weight_topk.csv`, `cluster_disjoint_feasibility.csv`, `bipartite_graph_properties graph_props.csv`). For pair universe / cluster pair definitions see `glossary.md`. |
+
+**Unique-weighted is the ground-truth storage.** The parquet stores
+`{seq_hash → cluster_id}` for unique seqs only; records-weighted and
+pair-weighted are derived downstream via join — against `copy_count`
+(records) or against the pair universe (pair). No information loss
+in either derivation.
+
+**Tradeoffs.**
+
+| View | Computational | Methodological |
+|---|---|---|
+| Unique-weighted | + Smallest mmseqs input (~38% of records on HA); fastest clustering. + Reproducible regardless of corpus composition. | + Cluster boundaries reflect sequence similarity only, not abundance. − Doesn't directly express corpus impact or splitter constraints; must be joined downstream. |
+| Records-weighted | (Derived — no extra compute beyond the join against `copy_count`.) | + Reflects per-isolate corpus impact of a cluster. − Overcounts for splitter decisions: high-copy seqs that pair with the same partner across isolates collapse to fewer canonical pairs after `pair_key` dedup. |
+| Pair-weighted | (Derived — one join per slot against the pair universe.) | + Matches what the splitter actually partitions (canonical pairs). + Single canonical view for all routing modes (1D-CD, 2D-CD, 2D-CD-test). − Not meaningful at the cluster-construction stage (clusters aren't pairs). |
+
+**Project convention: pair-weighted is canonical for splitter decisions.**
+Unique-weighted and records-weighted are exploratory diagnostics.
+
+### 6.1 Per-protein n_clusters across thresholds `t` (unique-weighted)
 
 Columns:
 - `t###`: number of mmseqs clusters for that protein at threshold
@@ -681,35 +712,21 @@ Columns:
 - **NA is the most-gradual outlier.** NA aa stays close to 1,000 clusters across the entire
   t095..t090 stretch — its t095 → t090 drop is only 2,134 →
   1,077 (−50%, much smaller than HA's 7,578 → 910 = −88%).
-- **Easy-linclust is generally monotone, but not consistently.** At
-  1-pp threshold steps small non-monotone bumps appear:
-  NP aa goes 526 → **149** → 706;
-  NA aa goes 1,717 → **757** → **791** → 1,077;
-  M1 aa goes 129 → **269** → 237.
-  Easy-linclust single-pass seed selection produces threshold-dependent
-  cluster topology, so a tighter threshold can occasionally yield more
-  clusters when seeds change. The coarse direction (t100 → t080) is
-  always monotone-decreasing; the 1-pp resolution is not.
+- **Easy-linclust is monotone-decreasing in the coarse direction (t100 → t090) but not at 1-pp steps.** Small non-monotone bumps appear (NP aa 526 → **149** → 706; NA aa 1,717 → **757** → **791** → 1,077; M1 aa 129 → **269** → 237) because single-pass seed selection produces threshold-dependent cluster topology.
 - **nt at t100 always exceeds aa at t100** (synonymous variants
   split into distinct nt singletons). The aa-vs-nt relationship
   inverts at t099 and t098 on most proteins — see §6.2 worked
   example.
 
-### 6.2 Worked example: aa vs nt non-nesting at t099
+### 6.2 Worked example: aa vs nt non-nesting at t099 (unique-weighted)
 
-**Source.** §6.1 n_clusters table (the observation); §5
-mutations_tolerated_table.csv (residue-tolerance asymmetry);
-`src/analysis/aa_nt_cluster_crosstab.py` +
-`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md` (cross-tab
-finding).
+**Source.** §6.1 (observation), §5 mutations_tolerated_table.csv
+(residue-tolerance asymmetry), `src/analysis/aa_nt_cluster_crosstab.py`
++ `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md` (cross-tab
+walkthrough).
 
-§6.1's Takeaways note that nt has more clusters than aa at t100 on
-every protein, but the relationship inverts at t099 and t098 on
-most proteins. The inversion shapes how alphabet choice affects
-cluster_disjoint splits and is worth understanding.
-
-**The inversion (t099, from §6.1).** nt has *fewer* clusters than aa
-on five of eight proteins:
+§6.1 noted that nt clusters outnumber aa at t100 but invert at t099
+and t098 on most proteins. The inversion at t099:
 
 | Protein | aa clusters | nt clusters | nt / aa ratio |
 |---|---:|---:|---:|
@@ -722,38 +739,26 @@ on five of eight proteins:
 | M1  |  1,764 | 10,227 | 5.80 |
 | NS1 | 13,508 | 12,012 | 0.89 |
 
-Five proteins have ratio < 1 (nt has fewer clusters). M1 is the
-largest outlier in the other direction (5.8× nt excess); NP, NA, NS1
-sit near 1.
+Five proteins have ratio < 1 (nt fewer at t099); M1 is the outlier in
+the other direction (5.8×); NP / NA / NS1 sit near 1.
 
-**Empirical finding — aa and nt clusterings are not nested.**
-Cross-tab analysis of (aa cluster, nt cluster) co-membership on t099
-sequences (`src/analysis/aa_nt_cluster_crosstab.py`; results in
-`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`) shows: on
-every protein, aa and nt cluster boundaries disagree in BOTH
-directions — each alphabet groups some sequences that the other
-separates. The net cluster count is the balance of those two
-opposing directions, and the balance varies per protein.
-
-**Residue-tolerance asymmetry (t099, from §5).** t099 admits more
-residue mismatches per cluster on nt than on aa, because the threshold
-`t = 0.99` is computed against the sequence's own length and the CDS
-is roughly 3× the protein length. From §5's
-`mutations_tolerated_table.csv` at t099: PB2 admits 22 nt vs 7 aa
-mismatches; HA admits 17 vs 5; M1 admits 7 vs 2. This is the
-geometric consequence of how `--min-seq-id` is computed (§3.1).
+**Mechanism.** Cross-tab co-membership (writeup link in Source) shows
+aa and nt cluster boundaries disagree in BOTH directions on every
+protein — neither alphabet's clustering is nested in the other; net
+count per protein is the balance of those opposing directions. At
+t099, nt also admits more absolute residue mismatches per cluster
+than aa (CDS ≈ 3× protein length → 3× the mismatch budget at the
+same fractional identity; see §5 mutations table).
 
 **Takeaways.**
 
-- The intuition "nt has more clusters than aa because of synonymous
-  codons" holds at t100 but does not generalize. At t099 and t098
-  most proteins show the opposite direction.
+- The "nt has more clusters than aa because of synonymous codons"
+  intuition holds at t100 but not below; t099 and t098 mostly invert.
 - aa and nt cluster boundaries disagree in both directions; net
   cluster count is a per-protein balance, not nested containment.
-- The deep-dive walkthrough (per-protein decomposition) is in
-  `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
+- Per-protein decomposition: `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
 
-### 6.3 Top-1 (largest) cluster as % of corpus
+### 6.3 Top-1 (largest) cluster as % of corpus (unique-weighted)
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `cluster_summary.csv` column: `largest_cluster / n_sequences × 100`.
@@ -796,34 +801,12 @@ Layout:
   stretch. NS1 climbs slowly to 21% at t090. By the same threshold
   the conserved proteins are ≥96%. This is the same biology that
   §6.1 surfaces from the cluster-count direction.
-- **Conserved-protein largest jumps localize differently than
-  n_clusters drops.** PA's n_clusters drops most at t095 → t094
-  (8,002 → 487), and its largest_pct jumps in the same step
-  (9.0% → 56.5%) — coherent. But PB2's biggest n_clusters drop is
-  t093 → t092 (1,085 → 112), while its largest jumps most at t094
-  → t093 (15.9% → 38.3%) and t093 → t092 (38.3% → 64.4%). The
-  two signals (count and largest) track each other coarsely but
-  not at 1-pp threshold steps.
 - **NA's t100 anomaly: 6.9% already.** NA is the only protein with
   a sub-t100 entry visibly above zero, because of the stalk-length
   collapse mechanism (§4 NA note).
 
-**Note.** This is the per-PROTEIN top-1 cluster fraction on
-**unique-sequence count** (one number per protein per threshold).
-Related but distinct metrics elsewhere:
-- `splits.md` § 1.9 reports the per-PAIR top-1 bipartite-COMPONENT
-  fraction — drives bilateral cluster_disjoint feasibility.
-- `cluster_diversity_stats.csv` column `top1_cluster_pct` is the
-  records-weighted analogue of this table — same top-1 cluster,
-  but denominator counts **all isolate-records including
-  per-sequence dups** (108,530 for PB1, not 31,226 unique seqs).
-  § 6.4 summarises this records-weighted view via Gini. For PB1
-  aa at t095 the two metrics give 72.4 % (unique-weighted, this
-  table) vs 83.78 % (records-weighted, `cluster_diversity_stats`).
-The full per-cluster-size *distribution* (not just the top-1 share)
-is summarised by Gini in § 6.4.
 
-### 6.4 Cluster-collapse evenness (Gini)
+### 6.4 Cluster-collapse evenness — Gini (records-weighted)
 
 **Source.** `src/analysis/cluster_analysis_summary.py`;
 `cluster_diversity_stats.csv` (per alphabet × protein × threshold);
@@ -838,16 +821,12 @@ evenness (every cluster the same size), 1 = max concentration (one
 cluster has everyone). Computed on per-cluster isolate counts
 (sum of copy counts of all unique sequences in the cluster).
 
-**Reading the plot.** All curves start at Gini > 0 at `t = 1.0`
-because per-sequence copy-number redundancy creates inequality
-even before clustering (level-0 floor, ≈ V5 `gini` column with
-slight divergence on NA from the coverage-rule merging at
-`t = 1.0`). Curves rise as `t` drops and clusters consolidate.
-PB1 reaches Gini ≈ 0.97 by `t094`; HA reaches the same level only
-by `t085`. Complementary axis to §6.1 (n_clusters) and §6.3 (top-1
-share) — all three views agree on protein ordering, but the Gini
-view captures the *whole distribution shape*, not just the top-1
-or the cluster count.
+Curves start at Gini > 0 at `t = 1.0` (per-sequence copy-number
+redundancy creates inequality before clustering — level-0 floor) and
+rise monotonically as `t` drops. Conserved proteins reach Gini ≈
+0.97 earliest (PB1 by `t094`); HA reaches the high range latest.
+Complementary to §6.1 (n_clusters) and §6.3 (top-1 share) — same
+protein ordering, distributional shape rather than scalar.
 
 `cluster_diversity_stats.csv` also carries `n_eff_hill_q2` per
 (alphabet, protein, threshold) — inverse Simpson (effective
