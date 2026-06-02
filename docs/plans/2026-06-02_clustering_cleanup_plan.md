@@ -1,6 +1,6 @@
 # Clustering utilities — cleanup and alphabet extension
 
-**Status: IN PROGRESS**
+**Status: IN PROGRESS** (Phase 1 IMPLEMENTED; Phases 2-3 pending gates)
 
 Three-phase plan for the cluster-export → mmseqs → parse → parquet
 pipeline (`src/utils/clustering_utils.py`, called from
@@ -18,11 +18,11 @@ independent cleanup items and seven plan-coupled items.
 
 ## Phases and commit boundaries
 
-| Phase | Scope | Gate | Commit boundary |
-|---|---|---|---|
-| **1. Cleanup** | API + naming cleanup; user TODOs | None | One commit on its own; ship anytime |
-| **2. Alphabet enum + column rename** | `nt → nt_cds`; cluster parquet column rename; nt_ctg enum value reserved | Pair_key plan § 6 adoption + § 7.1 rename bundling | Co-committed with pair_key migration in same PR; cluster parquets fully regenerated |
-| **3. nt_ctg operationalization** | Contig exporter; `clusters_nt_ctg/` dir; per-function contig filter | Pair_key plan § 7.2 (operationalize vs reserve) | Separate commit, only if § 7.2 says go |
+| Phase | Scope | Gate | Commit boundary | Status |
+|---|---|---|---|---|
+| **1. Cleanup** | API + naming cleanup; user TODOs | None | One commit on its own; ship anytime | **IMPLEMENTED 2026-06-02 (commit `27cc0d0` on `feature/clustering-cleanup-phase1`)** |
+| **2. Alphabet enum + column rename** | `nt → nt_cds`; cluster parquet column rename; nt_ctg enum value reserved | Pair_key plan § 6 adoption + § 7.1 rename bundling | Co-committed with pair_key migration in same PR; cluster parquets fully regenerated | Pending gates |
+| **3. nt_ctg operationalization** | Contig exporter; `clusters_nt_ctg/` dir; per-function contig filter | Pair_key plan § 7.2 (operationalize vs reserve) | Separate commit, only if § 7.2 says go | Pending gates |
 
 Each phase is independently testable (Phase 1 doesn't require Phase
 2; Phase 2 doesn't require Phase 3). Phases 2 and 3 are
@@ -32,6 +32,14 @@ conventions Phase 2 establishes.
 ---
 
 ## Phase 1 — Cleanup (no gate)
+
+**Status: IMPLEMENTED 2026-06-02** (commit `27cc0d0` on
+`feature/clustering-cleanup-phase1`).
+
+Implementation summary, deviations, and validation outcome are at the
+end of this section: [Phase 1 implementation notes](#phase-1-implementation-notes).
+Subsections 1.1-1.5 below are the original scoping content, retained
+as-is for the design record.
 
 ### 1.1 Collapse the two FASTA exporters (Q3)
 
@@ -124,6 +132,79 @@ One commit, descriptive title:
 
 Lands independently. No downstream artifacts need regeneration —
 all changes are upstream of the on-disk parquet schema.
+
+### Phase 1 implementation notes
+
+**Commit**: `27cc0d0` on branch `feature/clustering-cleanup-phase1`
+(`refactor(clustering): Phase 1 — unify exporters, alphabet-aware
+cleaning, config-driven constants`). 4 files changed, +295/-168.
+
+**What landed (§ 1.1-§ 1.5):**
+
+- § 1.1 unified exporter: implemented as scoped, with one design
+  variation — `_COLS_BY_ALPHABET` uses `'nt'` (not `'nt_cds'`) for
+  Phase 1; the `nt → nt_cds` rename moves to Phase 2 alongside the
+  bundle/dir flip. Module-level dispatch dict + caller pre-hash +
+  exporter recompute-and-assert safety net all in place.
+- § 1.2 `clean_for_mmseqs` → `clean_aa_for_mmseqs` + new
+  `clean_nt_for_mmseqs` no-op + `_clean_for_mmseqs` dispatcher.
+  Implemented as scoped.
+- § 1.3 `n_unique_sequences` → `n_uniq_seqs`; `n_with_x` and
+  `n_with_ambiguity` unified to alphabet-aware `n_with_ambiguity`.
+  Two callers updated.
+- § 1.4 Default `threads=16` (not 8 as plan-scoped — Alex bumped
+  during review for the shared-box use case). Aligned across CLI +
+  `cluster_one_function_one_threshold` + `run_mmseqs_easy_clust`.
+- § 1.5 Config-driven function lists: `FUNCTION_TO_SHORT` /
+  `SHORT_CANONICAL_ORDER` / `--functions` default sourced from
+  `conf/virus/flu.yaml` via new `load_function_metadata(virus_yaml)`
+  helper. Helper placed in `src/utils/config_hydra.py` (not
+  `clustering_utils.py` as initially scoped) — `config_hydra.py`
+  already hosts `get_function_short_name_map(config)`, the
+  bundle-based companion; both loaders now co-locate. Both call
+  sites (`seq_redundancy_per_function.py` and
+  `cluster_analysis_summary.py`) updated. `cluster_analysis_summary`
+  scopes its constants to the 8 majors (`selected_short_names`) to
+  preserve prior filter behavior; `seq_redundancy_per_function`
+  gets the full 20-protein vocabulary.
+
+**Deferred from § 1.5 (moved to Phase 2):**
+
+- `_threshold_label` `id` → `t` prefix change. Plan pre-flight
+  said "helper has one call site" — actual count is 12+ source
+  files reading the `idXXX` pattern directly
+  (`cluster_disjoint_feasibility`, `aa_nt_cluster_crosstab`,
+  `dataset_segment_pairs_v2`, `aggregate_mmd_single_slot_sweep`,
+  `bipartite_graph_properties`, `coupling_visualizations`,
+  `cluster_pair_weight_topk`, `cluster_pair_coupling_precheck`,
+  `plot_idxx_sweep_geometry`, …). Flipping just the helper would
+  break every reader. Phase 2 regenerates cluster parquets + flips
+  all readers in one shot. TODO comment retained at
+  `seq_redundancy_per_function.py:116`.
+
+**Deferred (separate micro-PR):**
+
+- Rename `seq_redundancy_per_function.py` → `build_mmseqs_clusters.py`
+  (per Alex's TODO at line 3). Script name is referenced in 6+ docs
+  + 3 plan files; cross-ref sweep is its own PR.
+
+**Validation outcome:**
+
+End-to-end byte-diff against pre-Phase-1 cluster parquets on 6
+(function, alphabet) cells × t099:
+
+| Cell | Unique seqs | Clusters | Match |
+|---|---:|---:|---|
+| aa M1 t099 | 4,771 | 1,764 | identical (hash set + every seq_hash → same cluster_rep) |
+| aa HA t099 | 41,896 | 22,679 | identical |
+| aa NA t099 | 37,488 | 9,369 | identical |
+| nt M1 t099 | 32,413 | 10,227 | identical |
+| nt HA t099 | 65,414 | 12,150 | identical |
+| nt NA t099 | 58,887 | 12,092 | identical |
+
+Phase 1 is end-to-end behavior-preserving: same FASTAs → same
+mmseqs runs → same parquet cluster assignments. Validation
+scripts at `/tmp/validate_phase1_*.py` (gitignored; reproducible).
 
 ---
 
