@@ -491,7 +491,7 @@ the bilateral one.
 CSVs at
 `results/.../cluster_disjoint_feasibility/single_slot_feasibility_<pair>_<alphabet>.csv`.
 The legacy feasibility heuristic — `largest_atom ≤ 80 % AND
-second_atom ≤ 20 %` — is conservative; the modern D3 check (§ 2.3)
+second_atom ≤ 20 %` — is conservative; the modern D3 check (§ 3.3)
 admits more configurations (the long tail of small clusters fills
 val / test cleanly even when the top two atoms are larger).
 
@@ -527,9 +527,157 @@ heuristic verdict in parentheses):
 
 ---
 
-## 2. K-fold cross-validation
+## 2. Cluster-disjoint splitting (pair-weighted only)
 
-### 2.1 The `n_folds` knob
+Project-specific reference for the three cluster-disjoint routing
+variants used by the splitter: `1D-CD`, `2D-CD`, `2D-CD-test`. All
+three are **pair-weighted** — the splitter partitions canonical pairs
+(post-`pair_key` dedup), never sequences or records. Background on
+the three cluster-weighting views (unique / records / pair) is in
+`clusters.md` § 6.0.
+
+### 2.1 Why pair-weighted: the splitter partitions pairs
+
+The dataset builder routes canonical pairs to train/val/test. The
+split-size targets (e.g., 80/10/10) are measured in pairs. The
+cluster's "weight" for routing decisions must therefore be measured
+in pairs:
+
+- **Unique-weighted** undercounts — a cluster with N unique seqs
+  can contribute many more than N pairs if its members have
+  multiple partners (the multi-partner long tail; see `glossary.md`
+  "Bipartite hub").
+- **Records-weighted** overcounts — high-copy sequences that pair
+  with the same partner across many isolates collapse to a single
+  canonical pair under `pair_key` dedup. Records-count ≠ pair-count
+  (Task 4 verification on memory.md: a HA seq with copy 1,702
+  contributes only 127 distinct pairs).
+- **Pair-weighted** is the right currency for the splitter's
+  bin-packing problem.
+
+This applies uniformly to all three routing variants below.
+
+### 2.2 Derivation from unique-weighted clusters storage
+
+The cluster parquet at
+`data/processed/flu/<version>/clusters_<alphabet>/id<XXX>/<protein>_cluster.parquet`
+stores `{seq_hash → cluster_id}` — one row per unique sequence (see
+`clusters.md` § 6.0). Pair-weighted views are derived downstream via
+a JOIN against the pair universe.
+
+Pseudocode:
+
+```python
+# Pair universe — one row per canonical pair after pair_key dedup.
+# Source: cooccurrence in cds_final for the schema pair, then
+# canonical_pair_key(seq_hash_a, seq_hash_b) dedup.
+universe = load_pair_universe(cds_final, schema_pair=('HA', 'NA'))
+
+# Cluster parquet per slot.
+cluster_a = pd.read_parquet('clusters_aa/id095/HA_cluster.parquet')
+cluster_b = pd.read_parquet('clusters_aa/id095/NA_cluster.parquet')
+
+# Attach cluster_ids to each pair row.
+df = (universe
+      .merge(cluster_a.rename(columns={'cluster_id': 'cluster_id_a'}),
+             left_on='seq_hash_a', right_on='seq_hash')
+      .merge(cluster_b.rename(columns={'cluster_id': 'cluster_id_b'}),
+             left_on='seq_hash_b', right_on='seq_hash'))
+
+# Each row now has (canonical pair, cluster_id_a, cluster_id_b).
+# This is the input to all three cluster-disjoint variants below.
+```
+
+Scripts performing this JOIN pattern:
+- `src/analysis/cluster_pair_weight_topk.py` — per-cluster
+  pair-weight ranking (single-slot view).
+- `src/analysis/cluster_disjoint_feasibility.py` — bipartite-CC
+  feasibility (pair-weighted; multigraph view).
+- `src/analysis/bipartite_graph_properties.py` — per-CC stats
+  including bridges and cut nodes on the simple-graph projection
+  (see `glossary.md` "Simple bipartite graph").
+- `src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df` —
+  the production splitter (Stage 3).
+
+**TODO — pair_key alphabet question (deferred, see BACKLOG
+"Methodology ideas" #3)**: the current convention is
+`pair_key = canonical_pair_key(seq_hash_a, seq_hash_b)` on PROTEIN
+hashes regardless of alphabet — so the pair universe is shared across
+aa, nt_cds, nt_ctg. An alphabet-specific pair_key (using
+`dna_hash_*` for nt_cds, `ctg_hash_*` for nt_ctg) would inflate the
+nt and nt_ctg universes by distinguishing synonymous-codon and
+intronic/UTR variants that currently collapse. Under the
+alphabet-specific convention, § 2.3–§ 2.5 below would operate on
+different-sized universes per alphabet. Decision is pending; this
+section assumes the current shared-universe convention.
+
+### 2.3 1-D cluster disjoint (`1D-CD`)
+
+**Atom**: one slot's cluster (see `glossary.md` "Atom").
+**Routing rule**: no cluster appears in more than one split FOR THE
+CONSTRAINED SLOT; the other slot is unconstrained.
+**Bin-packing**: LPT-greedy (§ 1.3) on per-cluster pair weights.
+
+Code/config:
+- `split_strategy.mode='cluster_disjoint'`
+- `split_strategy.single_slot='a'` (constrains slot A) or `'b'`
+  (constrains slot B).
+
+Use when `2D-CD` is infeasible (mega-CC too large for the chosen
+split target) and pairing sub-pattern coupling across slots is
+acceptable as residual leakage. See § 1.6 for the worked example
+on Flu A HA-NA.
+
+### 2.4 2-D cluster disjoint (`2D-CD`)
+
+**Atom**: one bipartite CC (see `glossary.md` "Connected component";
+the bipartite graph operated on is the co-occurrence graph —
+see `glossary.md`).
+**Routing rule**: no CC appears in more than one split —
+equivalently, no cluster on either slot in more than one split.
+**Bin-packing**: LPT-greedy (§ 1.3) on per-CC pair weights.
+
+Code/config:
+- `split_strategy.mode='cluster_disjoint'`
+- No `single_slot` knob set (default bilateral).
+
+Use as the default. Becomes infeasible when the largest bipartite CC
+(mega-CC) exceeds the train-budget fraction — see § 1.9 for the
+feasibility table on Flu A.
+
+### 2.5 Test-only cluster disjoint (`2D-CD-test`)
+
+**Atom**: one bipartite CC (same as `2D-CD`).
+**Routing rule**: cluster-disjoint constraint enforced ONLY between
+train and test; val is sampled from train's CC scope (val shares
+HA/NA clusters with train by construction — leaky val).
+**Test integrity**: preserved (test held out under cluster_disjoint).
+**Val variance via K random val subsets**: model-selection-noise
+estimate, NOT generalization variance. Honest reporting requires
+explicit labeling.
+
+Code/config:
+- `split_strategy.mode='cluster_disjoint_test_only'` (pending
+  implementation in `_split_helpers.py`, ~50-100 LOC).
+
+Use when `2D-CD` bilateral is infeasible AND held-out test integrity
+is the priority over val/train disjointness. Active exploration
+direction at time of writing (2026-06-02; see memory.md
+"Split-target policy" bullet).
+
+### 2.6 Atom definitions — quick reference
+
+| Variant | Atom | Per-atom weight | Routing constraint |
+|---|---|---|---|
+| `1D-CD` | One slot's cluster | Number of pairs whose endpoint on that slot is in the cluster | No cluster of the constrained slot in multiple splits |
+| `2D-CD` | One bipartite CC | Number of pairs in the CC | No cluster on either slot in multiple splits |
+| `2D-CD-test` | One bipartite CC | Number of pairs in the CC | Train ↔ test cluster-disjoint only; val unconstrained |
+
+---
+
+## 3. K-fold cross-validation
+
+### 3.1 The `n_folds` knob
 
 `dataset.n_folds` controls the dataset's partition shape:
 
@@ -543,7 +691,7 @@ Per-fold target ratios are k-dependent. The existing CV math at
 (1 − 1/n_folds)` and per-fold test target = `1/k`. Canonical
 0.8 / 0.1 / 0.1 holds only at k = 10; at k = 5 the effective per-fold
 ratios are 0.7 / 0.1 / 0.2 (train / val / test). D3 feasibility checks
-(§ 2.3) apply to these k-derived targets, not the bundle-config
+(§ 3.3) apply to these k-derived targets, not the bundle-config
 defaults.
 
 > **Behavioral note — `n_folds=1` ≡ `n_folds=null`.** Both dispatch to
@@ -555,7 +703,7 @@ defaults.
 > `_split_helpers.py:362-367` (cluster_disjoint) and
 > `dataset_segment_pairs_v2.py:2910-2960` (top-level mode + n_folds).
 
-### 2.2 Per-mode k-fold support
+### 3.2 Per-mode k-fold support
 
 Per current code dispatch (`dataset_segment_pairs_v2.py:2865-2960`):
 
@@ -584,7 +732,7 @@ in `docs/plans/2026-05-28_kfold_remaining.md`:
   GroupKFold-on-isolates within a filter pool, or per-axis-stratified
   KFold. Design unfinished.
 
-### 2.3 D3 two-knob feasibility check
+### 3.3 D3 two-knob feasibility check
 
 Every partition (holdout's three bins; k-fold's `k × 3` bins) must
 independently satisfy:
@@ -623,7 +771,7 @@ questions):
 All bins are checked symmetrically — val drift propagates to test
 metrics via early-stopping signal noise, so val gets no exemption.
 
-### 2.4 `max_feasible_k` and the D4 refuse menu
+### 3.4 `max_feasible_k` and the D4 refuse menu
 
 **Derivation.** Per-fold target = `1/k`; drift allowed up to
 `drift_pp`. The test bin can absorb up to `1/k + drift_pp`. Solving
@@ -679,7 +827,7 @@ The failure is **deterministic for a given (config, atom set)**
 because atom ordering is pinned per D1 of the k-fold plan; re-running
 with the same config produces the same pass / fail outcome.
 
-### 2.5 Per-fold audit schema
+### 3.5 Per-fold audit schema
 
 `cluster_disjoint_audit.json` gains a `folds` array (one entry per
 fold) when `k > 1`. Each fold's entry mirrors the holdout audit schema
@@ -723,7 +871,7 @@ OoS composition lever (`cluster_disjoint(slot a)` +
 later, the value extends to `'cluster_a_seq_b'` or `'cluster_b_seq_a'`
 without requiring a schema migration on existing audit JSONs.
 
-### 2.6 Stage 4 integration
+### 3.6 Stage 4 integration
 
 `scripts/stage4_sweep.sh` auto-detects `fold_*/` subdirs under the
 Stage 3 output directory and dispatches one training run per fold per
@@ -735,7 +883,7 @@ take a `master_seed` override).
 
 ---
 
-## 3. Relation to prior-art split strategies
+## 4. Relation to prior-art split strategies
 
 `leakage.md` § "Relation to prior-art split taxonomies" covers the
 **leakage-diagnostic** half — Park & Marcotte 2012's C1/C2/C3 test-pair
@@ -744,7 +892,7 @@ This section covers the **split-strategy** half: DataSAIL's algorithmic
 recipes, the segmatch ↔ DataSAIL ↔ P&M cross-reference, and the
 segmatch naming convention.
 
-### 3.1 DataSAIL R / I1 / I2 / S1 / S2 recipes
+### 4.1 DataSAIL R / I1 / I2 / S1 / S2 recipes
 
 DataSAIL (Joeres et al., Nat. Commun. 2025) proposes *split strategies*
 (algorithmic recipes):
@@ -762,7 +910,7 @@ L(π), with a class stratification constraint C (e.g., balance positives
 vs negatives in each fold). DataSAIL cites P&M as reference 8 in the
 PPI motivation but does not use the C1/C2/C3 vocabulary.
 
-### 3.2 segmatch ↔ DataSAIL ↔ P&M cross-reference
+### 4.2 segmatch ↔ DataSAIL ↔ P&M cross-reference
 
 | segmatch | DataSAIL | P&M (test composition produced) | Notes |
 |---|---|---|---|
@@ -784,7 +932,7 @@ DataSAIL's ILP path was tested on Flu A in
 routings to a partition-shape constant — not a viable primitive on
 this corpus. The bicc LPT-greedy heuristic is the chosen alternative.
 
-### 3.3 Naming convention in segmatch
+### 4.3 Naming convention in segmatch
 
 segmatch retains `seq_disjoint`, `cluster_disjoint`, and the
 bipartite-CC routing terminology because: (a) the route-not-drop
@@ -800,7 +948,7 @@ bipartite-CC LPT-greedy)". See § 1.9.1 above for the naming chain
 
 ---
 
-## 4. See also
+## 5. See also
 
 - `docs/methods/leakage.md` — leakage taxonomy and vocabulary
   (prerequisite for this doc).
@@ -810,4 +958,4 @@ bipartite-CC LPT-greedy)". See § 1.9.1 above for the naming chain
   historical design log for the k-fold path (D1–D5 + Phase 1–7
   implementation log).
 - `docs/plans/2026-05-28_kfold_remaining.md` — active plan for the
-  three "not built" cells in § 2.2 plus the OoS items.
+  three "not built" cells in § 3.2 plus the OoS items.

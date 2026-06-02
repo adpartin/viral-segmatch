@@ -174,4 +174,23 @@ results depend on. Three concrete follow-ups:
    4. After choices made, either fix the existing wiring or write
       a small dedicated analysis script — depending on how invasive
       the fix is.
+3. **Alphabet-specific pair_key (currently protein-only)**.
+   Current convention: `pair_key = canonical_pair_key(seq_hash_a,
+   seq_hash_b)` on PROTEIN hashes regardless of alphabet (aa,
+   nt_cds, nt_ctg). One shared pair universe per schema pair (HA-NA:
+   58,826 canonical pairs after dedup). Switching to
+   alphabet-specific pair_key would inflate the nt_cds universe
+   (synonymous-codon variants distinct) and nt_ctg further
+   (intronic/UTR variants distinct), with implications across:
+   v2 dataset builder dedup; cluster_disjoint routing (1D-CD,
+   2D-CD, 2D-CD-test); MMD pair-set construction; leakage audit;
+   existing trained-model interpretation; published experimental
+   numbers. Current convention is biased toward aa-feature training
+   (pair count matches what aa training sees) and against
+   nt-feature training (collapses synonymous variants that nt
+   training treats as distinct). Acknowledged inline in
+   `docs/methods/splits.md` § 2.2 as a deferred TODO. First action:
+   **draft a plan doc** scoping the change — surfaces needing
+   updates, expected universe-size deltas per (schema_pair,
+   alphabet), what gets re-validated.
 
