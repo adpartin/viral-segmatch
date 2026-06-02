@@ -4,7 +4,9 @@
 
 Three-phase plan for the cluster-export → mmseqs → parse → parquet
 pipeline (`src/utils/clustering_utils.py`, called from
-`src/analysis/seq_redundancy_per_function.py`).
+`src/analysis/build_mmseqs_clusters.py` —
+renamed from `seq_redundancy_per_function.py` post-Phase-1; see
+"Phase 1 implementation notes" below).
 
 Phase 1 is independent cleanup, lands now. Phases 2-3 extend the
 alphabet vocabulary and are gated on decisions in the pair_key
@@ -180,13 +182,19 @@ cleaning, config-driven constants`). 4 files changed, +295/-168.
   `plot_idxx_sweep_geometry`, …). Flipping just the helper would
   break every reader. Phase 2 regenerates cluster parquets + flips
   all readers in one shot. TODO comment retained at
-  `seq_redundancy_per_function.py:116`.
+  `build_mmseqs_clusters.py:119` (was
+  `seq_redundancy_per_function.py:116` pre-rename).
 
-**Deferred (separate micro-PR):**
+**Deferred (separate micro-PR) — DONE post-Phase-1:**
 
 - Rename `seq_redundancy_per_function.py` → `build_mmseqs_clusters.py`
-  (per Alex's TODO at line 3). Script name is referenced in 6+ docs
-  + 3 plan files; cross-ref sweep is its own PR.
+  (per Alex's TODO at line 3 of the old file). Landed on branch
+  `chore/rename-clustering-script`. Updated active references in
+  CLAUDE.md, `docs/methods/clusters.md`, `.claude/memory.md`,
+  `conf/dataset/default.yaml`, one bundle YAML, and code docstrings
+  in `cluster_disjoint_feasibility.py`, `cluster_analysis_summary.py`,
+  `_split_helpers.py`. Historical references in `docs/results/`,
+  `docs/plans/done/`, and prior plan docs left intact.
 
 **Validation outcome:**
 
@@ -395,8 +403,9 @@ Plus data commit if parquets are tracked.
   Current 3-tier resolution (arg → `$MMSEQS_BIN` → PATH) is
   correct; the fix for "I forget to set MMSEQS_BIN" is shell-rc
   level, not source.
-- **Renaming `seq_redundancy_per_function.py`**: separate
-  micro-PR (6+ docs reference the current name).
+- ~~**Renaming `seq_redundancy_per_function.py`**: separate
+  micro-PR (6+ docs reference the current name).~~ **DONE
+  post-Phase-1** — see "Phase 1 implementation notes" above.
 - **Replacing mmseqs entirely** (alternative clustering tools):
   not on this plan's radar.
 - **Generalizing to non-Flu corpora**: enum and dispatch stay
@@ -422,7 +431,7 @@ Plus data commit if parquets are tracked.
 - `docs/plans/2026-06-02_pair_key_alphabet_plan.md` — the
   alphabet-extension parent decision.
 - `src/utils/clustering_utils.py`,
-  `src/analysis/seq_redundancy_per_function.py` — the files
+  `src/analysis/build_mmseqs_clusters.py` — the files
   touched.
 - CLAUDE.md "Threshold notation" — the docs-only `idXXX → tXXX`
   adoption (2026-05-29) that Phase 2 finishes.

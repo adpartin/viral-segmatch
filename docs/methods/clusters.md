@@ -308,7 +308,7 @@ mmseqs2 provides two main methods for clustering:
 **Choice on Flu A: symmetric easy-linclust on both alphabets** (since
 2026-05-22). The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_clust`
 defaults to `algorithm='linclust'` and is what
-`seq_redundancy_per_function.py` invokes for both the aa and nt
+`build_mmseqs_clusters.py` invokes for both the aa and nt
 sweeps. Decision-relevant mmseqs2 flags are pinned explicitly on the
 CLI (see that wrapper's docstring for the full pinned set:
 `--cluster-mode 0`, `--seq-id-mode 0`, `--similarity-type 2`,
@@ -847,7 +847,7 @@ structural-summary script that backs §§ 4–6 of this doc and
 | Step | Script | Reads | Writes |
 |---|---|---|---|
 | Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `genome_final.csv` | `cds_final.parquet` |
-| Cluster sweep | `src/analysis/seq_redundancy_per_function.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
+| Cluster sweep | `src/analysis/build_mmseqs_clusters.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
 | Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` (bilateral) and `src/analysis/single_slot_cluster_disjoint_feasibility.py` (single-slot) | one cluster lookup + `protein_final` or `cds_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/{feasibility,single_slot_feasibility}_<pair>_<alphabet>.csv` |
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
 | Post-hoc structural summary | `src/analysis/cluster_analysis_summary.py` | `redundancy_stats.csv`, per-threshold cluster parquets, `cds_final.parquet`, feasibility CSVs | tables + plots under `results/flu/{version}/runs/cluster_analysis/` (see § 8 outputs block) |
@@ -865,7 +865,7 @@ python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 # 2. Per-protein clustering sweep — once per (alphabet, data version).
 #    Writes <out_root>/{fasta,id<NN>}/, redundancy_stats.csv, runtime.json,
 #    redundancy_summary.md (alongside the stats CSV; not under docs/).
-#    The merge-fix in seq_redundancy_per_function.py preserves prior
+#    The merge-fix in build_mmseqs_clusters.py preserves prior
 #    threshold rows on re-run, so subset reruns don't wipe the CSV.
 python -m src.analysis.seq_redundancy_per_function \
     --protein_final data/processed/flu/July_2025/protein_final.parquet \

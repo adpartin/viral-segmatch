@@ -1,6 +1,6 @@
 """Pre-flight feasibility check for cluster_disjoint routing.
 
-Per-function cluster sizes (`seq_redundancy_per_function.py`) are necessary
+Per-function cluster sizes (`build_mmseqs_clusters.py`) are necessary
 but NOT sufficient: cluster_disjoint routes pairs by the bipartite-component
 structure of (slot_a_cluster, slot_b_cluster). HA clusters and NA clusters
 connect through isolates that have proteins in both, so the **bipartite

@@ -378,10 +378,10 @@ incidents:
 
 **`MMSEQS_BIN` env var convention** (wired 2026-05-19): on Lambda, set
 `export MMSEQS_BIN=/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs` in
-your shell rc (or per-session before running `seq_redundancy_per_function.py`).
+your shell rc (or per-session before running `build_mmseqs_clusters.py`).
 `run_mmseqs_easy_cluster` in `src/utils/clustering_utils.py:172` resolves the
 binary in this order: explicit `mmseqs_bin=` kwarg -> `MMSEQS_BIN` env var
--> `'mmseqs'` on PATH. `seq_redundancy_per_function.py` exposes a
+-> `'mmseqs'` on PATH. `build_mmseqs_clusters.py` exposes a
 `--mmseqs_bin` CLI override. Hydra config was considered but skipped: the
 only mmseqs caller is an argparse script, and on Polaris `module load`
 puts mmseqs on PATH so the default works there.

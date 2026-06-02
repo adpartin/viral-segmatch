@@ -1,7 +1,7 @@
 """Consolidated clustering structural analysis (aa + nt, 8 major proteins).
 
 Reads the per-function (major protein) redundancy sweep outputs (from
-`seq_redundancy_per_function.py`) and bipartite-component
+`build_mmseqs_clusters.py`) and bipartite-component
 feasibility tables (from `cluster_disjoint_feasibility.py`) and emits
 a single set of plots + tables that articulate, for each of the 8 major
 Flu A protein functions at each mmseqs2 identity threshold:
@@ -96,7 +96,7 @@ _SCHEMA_PAIRS = [
 # ----------------------------------------------------------------------
 
 def load_redundancy_stats(clusters_root: Path, alphabet: str) -> pd.DataFrame:
-    """Load redundancy_stats.csv emitted by seq_redundancy_per_function.py.
+    """Load redundancy_stats.csv emitted by build_mmseqs_clusters.py.
 
     `keep_default_na=False` is critical: the `function_short` column
     contains the literal string `'NA'` (Neuraminidase), which pandas
@@ -104,7 +104,7 @@ def load_redundancy_stats(clusters_root: Path, alphabet: str) -> pd.DataFrame:
     """
     p = clusters_root / 'redundancy_stats.csv'
     if not p.exists():
-        raise FileNotFoundError(f'{p} not found — run seq_redundancy_per_function.py first.')
+        raise FileNotFoundError(f'{p} not found — run build_mmseqs_clusters.py first.')
     df = pd.read_csv(p, keep_default_na=False, na_values=[''])
     df = df[df['function_short'].isin(_SHORT_ORDER)].copy()
     df['alphabet'] = alphabet

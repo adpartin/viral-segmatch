@@ -1,6 +1,9 @@
-"""Pre-clustering redundancy assessment per protein function or segment.
+"""Per-function mmseqs2 cluster build + redundancy assessment.
 
-TODO: rename this script to build_mmseqs_clusters.py
+Builds the per-protein cluster artifacts (FASTA + per-threshold cluster
+parquets + `combined_cluster.parquet`) that downstream cluster-disjoint
+routing consumes, and emits a per-(function, threshold) redundancy
+summary for choosing a feasibility-supporting threshold.
 
 Step 1 of the cluster-disjoint splits plan
 (`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`):
@@ -42,14 +45,14 @@ Artifact layout:
 
 CLI:
     # aa redundancy sweep (easy-linclust is the default since 2026-05-22).
-    python -m src.analysis.seq_redundancy_per_function \\
+    python -m src.analysis.build_mmseqs_clusters \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_aa \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
 
     # nt redundancy sweep (same default).
-    python -m src.analysis.seq_redundancy_per_function \\
+    python -m src.analysis.build_mmseqs_clusters \\
         --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
         --out_root   data/processed/flu/July_2025/clusters_nt \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
@@ -269,7 +272,7 @@ def write_results_markdown(
     lines.append(f"**Input.** `{protein_final_path}`.")
     lines.append(f"**Alphabet.** {alphabet_label}.")
     lines.append(f"**Tool.** mmseqs2 `{subcmd} --min-seq-id <th> -c 0.8 --cov-mode 0{dbtype_flag}`.")
-    lines.append(f"**Script.** `src/analysis/seq_redundancy_per_function.py`.")
+    lines.append(f"**Script.** `src/analysis/build_mmseqs_clusters.py`.")
     lines.append("")
     lines.append("## Method")
     lines.append("")
