@@ -14,7 +14,11 @@ When introducing a graph property in code or docs, use the term from here; if it
 
 - **Bipartite graph** — A graph with node set V = A ⊔ B (disjoint union of two sides) and edges only between A and B (never within A or within B).
 
-- **Connected component (CC)** — A maximal subgraph in which every pair of nodes is path-connected. In our HA-NA bipartite graph: a set of HA clusters and NA clusters reachable from one another via alternating HA↔NA edges. The largest CC at t095 = the "bipartite mega-component".
+- **Bipartite multigraph** — A bipartite graph that allows parallel edges between the same two nodes (multiple distinct cooccurrences of the same node pair contribute parallel edges). In our project: the natural representation of the cluster-level co-occurrence graph — one edge per row in the pair universe; parallel edges arise when multiple distinct sequence pairs map to the same `(cluster_a, cluster_b)` tuple. Number of edges = pair-universe size.
+
+- **Simple bipartite graph** — A bipartite graph where at most one edge connects any pair of nodes (parallel edges collapsed). In our project: the simple projection of the bipartite multigraph. Number of edges = number of unique cluster pairs. **Convention**: connectivity properties (CCs, bridges, cut nodes) are IDENTICAL on the multigraph and its simple projection — we compute them on the simple projection. Size properties DIFFER: the multigraph counts pair-universe rows (pair-weighted view); the simple graph counts unique cluster pairs (cluster-pair-weighted view).
+
+- **Connected component (CC)** — A maximal subgraph in which every pair of nodes is path-connected. In our HA-NA bipartite graph: a set of HA clusters and NA clusters reachable from one another via alternating HA↔NA edges. The largest CC at t095 = the "bipartite mega-component". CC identity is the same whether computed on the multigraph or its simple projection.
 
 ## Connectivity properties
 
@@ -30,7 +34,11 @@ When introducing a graph property in code or docs, use the term from here; if it
 
 - **Cluster (project)** — A group of sequences on one side of the bipartite graph; output of `mmseqs easy-linclust` at identity threshold t (within-side similarity graph).
 
-- **Co-occurrence graph (project)** — The bipartite graph our splitter operates on. Nodes are clusters (per slot); edges are (HA_cluster, NA_cluster) tuples derived from the pair universe (post-`pair_key` dedup).
+- **Co-occurrence graph (project)** — The cluster-level bipartite graph our splitter operates on, for a given schema pair. Nodes = clusters (per slot). Edges = cooccurrences from the pair universe. Has both a multigraph view (one edge per pair-universe row, with parallel edges) and a simple view (one edge per cluster pair, parallel edges collapsed) — see Bipartite multigraph / Simple bipartite graph for the connectivity-vs-size convention.
+
+- **Pair universe (project)** — The set of unique canonical positive pairs for a schema pair, after `canonical_pair_key(seq_hash_a, seq_hash_b)` dedup, derived from raw isolate cooccurrence in `cds_final.parquet`. One row per unique canonical protein pair. For HA-NA: 58,826 pairs. This is the splitter's INPUT and the multigraph edge set of the co-occurrence graph (one multigraph edge per pair-universe row).
+
+- **Cluster pair (project)** — A unique `(cluster_a, cluster_b)` tuple after mapping each pair-universe row to its endpoints' clusters via the cluster parquet. One row per unique cluster-cluster cooccurrence. For HA-NA aa id095: 10,141 cluster pairs. This is the simple-graph edge set of the co-occurrence graph (one simple-graph edge per cluster pair).
 
 - **Atom (project)** — The indivisible unit of a routing decision. Defined per routing mode: one pair (`random`), one unique sequence (`seq_disjoint`), one cluster (`cluster_disjoint single_slot`), or one bipartite CC (`cluster_disjoint` bilateral). Not a standard graph-theory term.
 
