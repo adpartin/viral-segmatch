@@ -623,7 +623,7 @@ Columns:
 {1.00, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92, 0.91, 0.90}.
 Plots: `cluster_counts_vs_threshold.png` (§6.1),
 `gini_vs_threshold.png` (§6.4), `bipartite_largest_pct_vs_threshold.png`
-(`splits.md` § 1.9). Companion CSV: `cluster_diversity_stats.csv`.
+(`splits.md` § 1.8). Companion CSV: `cluster_diversity_stats.csv`.
 
 ### 6.0 Cluster weighting: three views of the same partition
 
@@ -695,7 +695,7 @@ Columns:
   More clusters at threshold `t` means more atoms available to the
   routing's bin-packer (`splits.md` § 1.3) — that's the **flexibility**
   lever. The **separation strength** of the resulting splits is
-  governed by `t` itself, not the count — see `splits.md` § 1.6 for
+  governed by `t` itself, not the count — see `splits.md` § 2.3 for
   the cross-cluster gap argument.
 - **Two trajectories (deferred-cliff vs gradual).** Segments 1/2/3/5/7
   retain moderate counts through t095, then drop sharply across t094
@@ -917,7 +917,7 @@ seq_freq_tier_summary.csv                 — Plot D companion tier table (§4);
 cluster_counts_vs_threshold.png           — Plot B (§6.1)
 cluster_diversity_stats.csv               — per (alphabet, protein, threshold); Gini + n_eff (level 1) (§6.4)
 gini_vs_threshold.png                     — Plot E (§6.4)
-bipartite_largest_pct_vs_threshold.png    — Plot C (`splits.md` § 1.9)
+bipartite_largest_pct_vs_threshold.png    — Plot C (`splits.md` § 1.8)
 ```
 
 ---

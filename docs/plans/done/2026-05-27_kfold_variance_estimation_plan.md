@@ -97,7 +97,7 @@ allowed up to `drift_pp`, the test bin can absorb up to
 `1/k + drift_pp`. Solving for k: `k ≤ 1/(max_atom - drift_pp)`.
 
 Worked example. HA-only id095 has `max_atom_frac = 0.135` (per
-`splits.md` § 1.9.3). At zero-drift: `floor(1/0.135) = 7`.
+`splits.md` § 1.8.3). At zero-drift: `floor(1/0.135) = 7`.
 At default `drift_pp = 0.05`: `floor(1/0.085) = 11`.
 
 D4's pre-build gate evaluates this formula at the **build-time

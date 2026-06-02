@@ -43,7 +43,7 @@ GroupKFold + per-fold check pattern as single-slot.
 
 Currently infeasible at the interesting thresholds on Flu A:
 bipartite CC atoms collapse to a mega-component at most thresholds
-below id099 (see `splits.md` § 1.9.2). At id100 technically feasible
+below id099 (see `splits.md` § 1.8.2). At id100 technically feasible
 (max_feasible_k = 5 on HA-NA per the feasibility CSV) but redundant
 with seq_disjoint k-fold (item 1) since id100 ≈ seq_disjoint hash_key=seq.
 
