@@ -36,6 +36,8 @@ When introducing a graph property in code or docs, use the term from here; if it
 
 - **Cluster-disjoint partition** — A partition of atoms across splits such that no atom appears in more than one split. The atom type (CC for 2-D, cluster for 1-D) determines the disjointness regime.
 
+- **Test-only cluster-disjoint** — A **2-D (bilateral)** cluster-disjoint partition where the cluster-disjoint constraint is enforced only between train and test (not val). Atom = bipartite CC. Val is sampled from train's CC scope (shares HA/NA clusters with train). Code/config key: `cluster_disjoint_test_only`. Tight abbreviation, tables only: `test-CD`.
+
 ---
 
 ## Notes (TODO: need to confirm)
