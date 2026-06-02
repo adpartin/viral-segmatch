@@ -63,19 +63,22 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
-# Function short → full name (matches conf/virus/flu.yaml::function_short_names).
+
+# Function full -> short alias, scoped to the 8 ML-relevant majors
+# (`selected_functions` in conf/virus/flu.yaml). Sourced from the YAML so
+# the constants stay in sync with the rest of the pipeline. The narrow
+# scope preserves the historical behavior of this analysis: load-time
+# `isin(_FUNCTION_TO_SHORT)` filters to only the majors; downstream
+# iteration uses _SHORT_ORDER (same set).
+_FLU_META = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml')
 _FUNCTION_TO_SHORT = {
-    'RNA-dependent RNA polymerase PB2 subunit': 'PB2',
-    'RNA-dependent RNA polymerase catalytic core PB1 subunit': 'PB1',
-    'RNA-dependent RNA polymerase PA subunit': 'PA',
-    'Hemagglutinin precursor': 'HA',
-    'Nucleocapsid protein': 'NP',
-    'Neuraminidase protein': 'NA',
-    'Matrix protein 1': 'M1',
-    'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor': 'NS1',
+    full: short
+    for full, short in _FLU_META.function_to_short.items()
+    if short in _FLU_META.selected_short_names
 }
-_SHORT_ORDER = ['PB2', 'PB1', 'PA', 'HA', 'NP', 'NA', 'M1', 'NS1']
+_SHORT_ORDER = list(_FLU_META.selected_short_names)
 _FUNCTION_COLORS = {
     'PB2': '#1f77b4', 'PB1': '#ff7f0e', 'PA':  '#2ca02c', 'HA':  '#d62728',
     'NP':  '#9467bd', 'NA':  '#8c564b', 'M1':  '#e377c2', 'NS1': '#7f7f7f',
@@ -521,7 +524,7 @@ def compute_seq_freq_tier_summary(cds_final: Path, out_csv: Path) -> pd.DataFram
 
 def compute_cluster_diversity_stats(
     clusters_aa: Path, clusters_nt: Path, cds_final: Path, out_csv: Path,
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Compute Gini + n_eff on per-cluster isolate-count distribution per (alphabet, protein, threshold).
 
     For each (alphabet, protein, threshold), load the cluster parquet,
@@ -727,7 +730,8 @@ def main() -> None:
                    help='Directory containing feasibility_<pair>_<alphabet>.csv files '
                         '(emitted by cluster_disjoint_feasibility.py since the '
                         '2026-05-20 docs/results migration).')
-    p.add_argument('--out_dir', default=str(PROJ / 'results/flu/July_2025/runs/cluster_analysis'),
+    p.add_argument('--out_dir',
+                   default=str(PROJ / 'results/flu/July_2025/runs/cluster_analysis'),
                    help='Output directory for tables + plots.')
     args = p.parse_args()
 

@@ -1,5 +1,7 @@
 """Pre-clustering redundancy assessment per protein function or segment.
 
+TODO: rename this script to build_mmseqs_clusters.py
+
 Step 1 of the cluster-disjoint splits plan
 (`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`):
 characterize the within-function sequence redundancy at several mmseqs2 identity
@@ -72,81 +74,80 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.clustering_utils import (  # noqa: E402
-    export_function_cds_fasta,
-    export_function_fasta,
-    run_mmseqs_easy_clust,
-    parse_cluster_tsv,
     cluster_size_distribution,
+    compute_seq_hash,
+    export_function_fasta,
+    parse_cluster_tsv,
+    run_mmseqs_easy_clust,
 )
+from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
 
-# Function-name → short alias (mirrors conf/virus/flu.yaml::function_short_names).
-# The 10 entries cover the 9 core Flu A proteins (PB2, PB1, PA, HA, NP, NA, M1,
-# M2, NEP — see `core_functions` in conf/virus/flu.yaml) + NS1 (an "auxiliary"
-# by the always-vs-sometimes-present dimension, but the primary gene product of
-# segment 8 and one of the 8 majors used by the ML pipeline). Additional
-# auxiliary functions (PB1-F2, PA-X, HA1, HA2, M42, NS3, ...) can be added by
-# extending --functions on the CLI.
-FUNCTION_TO_SHORT = {
-    'RNA-dependent RNA polymerase PB2 subunit': 'PB2',
-    'RNA-dependent RNA polymerase catalytic core PB1 subunit': 'PB1',
-    'RNA-dependent RNA polymerase PA subunit': 'PA',
-    'Hemagglutinin precursor': 'HA',
-    'Nucleocapsid protein': 'NP',
-    'Neuraminidase protein': 'NA',
-    'Matrix protein 1': 'M1',
-    'M2 ion channel': 'M2',
-    'Nuclear export protein': 'NEP',
-    'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor': 'NS1',
-}
-SHORT_TO_FUNCTION = {v: k for k, v in FUNCTION_TO_SHORT.items()}
+# Function-name <-> short alias and canonical orderings, loaded from
+# conf/virus/flu.yaml so the script stays in sync with the rest of the
+# pipeline. Covers every protein in `function_short_names` (currently 20:
+# 9 core + 11 aux). `--functions` defaults to the 8 ML-relevant majors
+# (`selected_functions`).
+_FLU_YAML = PROJECT_ROOT / 'conf' / 'virus' / 'flu.yaml'
+_FLU_META = load_function_metadata(_FLU_YAML)
+FUNCTION_TO_SHORT = _FLU_META.function_to_short
+SHORT_TO_FUNCTION = _FLU_META.short_to_function
+# Canonical row order within redundancy_summary.md tables: segment-ordered
+# (PB2 first), with each segment's primary product listed before its
+# alternative-reading-frame products. Sourced from `protein_order`.
+SHORT_CANONICAL_ORDER = _FLU_META.short_canonical_order
 
 # Flu A canonical segment id per short name. Segments 7 and 8 host two
 # proteins each (M1+M2 on 7, NS1+NEP on 8). Used by write_results_markdown
 # to add a Segment column to the per-threshold tables and to sort rows by
-# segment order (PB2 first, NEP last) instead of alphabetical.
+# segment order (PB2 first, NEP last) instead of alphabetical. Not in the
+# YAML in this form (the YAML's segment_mapping is full-name keyed); kept
+# inline here. Covers the 10 historically-relevant shorts; extra functions
+# (e.g., PB1-F2, HA1, HA2) get no segment column entry and fall through
+# to '' in the markdown.
 SHORT_TO_SEGMENT = {
     'PB2': 1, 'PB1': 2, 'PA': 3, 'HA': 4, 'NP': 5, 'NA': 6,
     'M1':  7, 'M2':  7, 'NS1': 8, 'NEP': 8,
 }
-# Canonical row order within the redundancy_summary.md tables: by segment id,
-# with the segment's primary (major) protein listed before its alternative
-# reading frame products. Matches conf/virus/flu.yaml::protein_order.
-SHORT_CANONICAL_ORDER = ['PB2', 'PB1', 'PA', 'HA', 'NP', 'NA',
-                         'M1', 'M2', 'NS1', 'NEP']
 
 
 def _threshold_label(threshold: float) -> str:
     """Format float threshold as a stable directory label, e.g. 0.95 -> 'id095'."""
+    # TODO: prefix with `f` rather than `id`
     pct = int(round(threshold * 100))
     return f"id{pct:03d}"
 
 
 def cluster_one_function_one_threshold(
-    prot_df: pd.DataFrame,
+    df: pd.DataFrame,
     short_name: str,
     threshold: float,
     out_root: Path,
-    threads: Optional[int] = None,
+    threads: Optional[int] = 16,
     force: bool = False,
     alphabet: str = 'aa',
     algorithm: str = 'linclust',
     mmseqs_bin: Optional[str] = None,
-) -> dict:
+    ) -> dict:
     """Run mmseqs at one threshold on the FASTA for one function.
 
     Caches the FASTA per function (re-used across thresholds).
     Caches the cluster parquet per (function, threshold); skip if present unless force=True.
 
     Args:
-        prot_df: input rows. For `alphabet='aa'` must contain `function` +
-            `prot_seq`; for `alphabet='nt'` must contain `function`,
-            `cds_dna`, `cds_dna_hash` (from `cds_final.parquet`).
-        alphabet: 'aa' (default) or 'nt'. Determines which exporter is used
-            and whether `--dbtype 2` is passed to mmseqs (the nucleotide
-            alphabet declaration). `--search-type 3` is NOT a valid flag on
+        df: input rows. For `alphabet='aa'` must contain `function`,
+            `prot_seq`, `seq_hash` (pre-hashed by caller via
+            `compute_seq_hash`; protein_final.parquet does not carry
+            seq_hash so callers must add it after load). For
+            `alphabet='nt'` must contain `function`, `cds_dna`,
+            `cds_dna_hash` (from `cds_final.parquet`).
+        alphabet: 'aa' (default) or 'nt'. Selects the unified exporter's
+            seq/hash column pair and triggers `--dbtype 2` (nt) for the
+            mmseqs invocation. `--search-type 3` is NOT a valid flag on
             easy-cluster/easy-linclust in mmseqs 18; the original plan
             referenced it, but the current code uses `--dbtype 2` instead.
+        threads: int for the number of threads; None defers to mmseqs
+            default (all cores).
 
     Returns the redundancy stats dict for this (function, threshold).
     """
@@ -167,16 +168,14 @@ def cluster_one_function_one_threshold(
     tmp_dir = threshold_dir / f"{short_name}_tmp"
     out_prefix = threshold_dir / f"{short_name}"
 
-    # FASTA export (cached across thresholds)
+    # FASTA export (cached across thresholds). The unified exporter
+    # handles both alphabets; only the print label changes.
     if not fasta_path.exists() or force:
-        if alphabet == 'aa':
-            export_stats = export_function_fasta(prot_df, full_name, fasta_path)
-            print(f"  [{short_name}] FASTA (aa): {export_stats['n_unique_sequences']:,} "
-                  f"unique seqs ({export_stats['n_with_x']:,} contain X)")
-        else:
-            export_stats = export_function_cds_fasta(prot_df, full_name, fasta_path)
-            print(f"  [{short_name}] FASTA (nt): {export_stats['n_unique_sequences']:,} "
-                  f"unique CDS ({export_stats['n_with_ambiguity']:,} contain non-ACGT)")
+        export_stats = export_function_fasta(df, full_name, alphabet, fasta_path)
+        unit = 'unique seqs' if alphabet == 'aa' else 'unique CDS'
+        ambig_label = 'contain X' if alphabet == 'aa' else 'contain non-ACGT'
+        print(f"  [{short_name}] FASTA ({alphabet}): {export_stats['n_uniq_seqs']:,} "
+              f"{unit} ({export_stats['n_with_ambiguity']:,} {ambig_label})")
     else:
         print(f"  [{short_name}] FASTA cached at {fasta_path.name}")
 
@@ -369,21 +368,31 @@ def main() -> None:
     src.add_argument('--cds_final',
                      help='nt-mode input: path to cds_final.parquet (built by '
                           'src/preprocess/extract_cds_dna.py). Implies --alphabet nt.')
-    p.add_argument('--alphabet', choices=['aa', 'nt'], default=None,
+    p.add_argument('--alphabet',
+                   choices=['aa', 'nt'], default=None,
                    help='Sequence alphabet (default: aa for --protein_final, nt for --cds_final).')
-    p.add_argument('--out_root', required=True,
+    p.add_argument('--out_root',
+                   required=True,
                    help='Output directory root (e.g. data/processed/flu/July_2025/clusters_aa or '
                         'clusters_nt).')
-    p.add_argument('--thresholds', nargs='+', type=float, required=True,
+    p.add_argument('--thresholds',
+                   nargs='+', type=float, required=True,
                    help='Identity thresholds (e.g. 1.00 0.99 0.95 0.90 0.80).')
-    p.add_argument('--functions', nargs='+', default=['HA', 'NA', 'PB2', 'PB1', 'PA', 'NP', 'M1', 'M2', 'NEP', 'NS1'],
-                   help='Function short names to cluster.')
-    p.add_argument('--threads', type=int, default=None, help='mmseqs --threads.')
-    p.add_argument('--mmseqs_bin', default=None,
+    p.add_argument('--functions',
+                   nargs='+', default=_FLU_META.selected_short_names,
+                   help=(f'Function short names to cluster. Default: the '
+                         f'{len(_FLU_META.selected_short_names)} ML-relevant majors from '
+                         f'conf/virus/flu.yaml::selected_functions '
+                         f'({" ".join(_FLU_META.selected_short_names)}).'))
+    p.add_argument('--threads', type=int, default=16,
+                   help='mmseqs --threads (default: 16, shared-machine-friendly).')
+    p.add_argument('--mmseqs_bin',
+                   default=None,
                    help='Path/name of the mmseqs binary. Default: $MMSEQS_BIN, then "mmseqs" on PATH. '
                         'On Lambda set MMSEQS_BIN=/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs '
                         'so the dedicated env is used without putting mmseqs on PATH.')
-    p.add_argument('--algorithm', choices=['cluster', 'linclust'], default='linclust',
+    p.add_argument('--algorithm',
+                   choices=['cluster', 'linclust'], default='linclust',
                    help='mmseqs subcommand. linclust=easy-linclust (default since '
                         '2026-05-22; linear time, single-pass — used on both '
                         'alphabets for cross-alphabet consistency). cluster=easy-cluster '
@@ -392,10 +401,12 @@ def main() -> None:
                         'choice conflated algorithm with alphabet in clusters.md '
                         '§8/§9; see docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md).')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
-    p.add_argument('--results_md', default=None,
+    p.add_argument('--results_md',
+                   default=None,
                    help='Path to results markdown. Default: <out_root>/redundancy_summary.md '
                         '(alongside the stats CSV; not under docs/).')
-    p.add_argument('--no_combined', action='store_true',
+    p.add_argument('--no_combined',
+                   action='store_true',
                    help='Skip writing combined_cluster.parquet per threshold.')
     args = p.parse_args()
 
@@ -420,6 +431,16 @@ def main() -> None:
     else:
         df = pd.read_parquet(in_path, columns=usecols)
     print(f"  Loaded {len(df):,} rows in {time.time()-t0:.1f}s")
+
+    # Pre-hash aa input. The unified exporter requires the hash column to
+    # be present (matches the nt path where cds_final.parquet carries
+    # cds_dna_hash). protein_final.parquet does NOT carry seq_hash, so we
+    # compute it here once and reuse across thresholds.
+    if args.alphabet == 'aa':
+        t_hash = time.time()
+        df['seq_hash'] = df['prot_seq'].map(compute_seq_hash)
+        print(f"  Hashed prot_seq -> seq_hash in {time.time()-t_hash:.1f}s "
+              f"({df['seq_hash'].nunique():,} unique)")
 
     out_root = Path(args.out_root)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -448,7 +469,7 @@ def main() -> None:
         print(f"\n=== threshold = {threshold:.2f} ===")
         for short in args.functions:
             stats = cluster_one_function_one_threshold(
-                prot_df=df,
+                df=df,
                 short_name=short,
                 threshold=threshold,
                 out_root=out_root,

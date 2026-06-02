@@ -1,13 +1,25 @@
-"""mmseqs2 clustering utilities for protein-sequence-similarity-aware splits.
+"""mmseqs2 clustering utilities for sequence-similarity-aware splits.
 
 Used by the cluster-disjoint routing experiment (Experiment B in
 `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`). Provides
 pure-Python helpers around the external `mmseqs` binary:
 
-- export per-function unique-sequence FASTAs (with light cleaning)
-- invoke `mmseqs easy-cluster`
-- parse `_cluster.tsv` into a (seq_hash, cluster_id) lookup
+- export per-function unique-sequence FASTAs (with alphabet-aware cleaning)
+- invoke `mmseqs easy-linclust` / `easy-cluster`
+- parse `_cluster.tsv` into a (hash, cluster_id) lookup
 - summarize cluster-size distributions for the redundancy assessment
+
+Function-metadata loading lives in `src/utils/config_hydra.py`
+(see `load_function_metadata` there).
+
+Alphabets:
+    'aa'  -> protein sequences from protein_final-style input
+                (columns: function, prot_seq, seq_hash)
+    'nt'  -> CDS DNA from cds_final-style input
+                (columns: function, cds_dna, cds_dna_hash)
+
+The Phase 2 alphabet-extension plan will rename 'nt' -> 'nt_cds' and
+add 'nt_ctg' (see `docs/plans/2026-06-02_clustering_cleanup_plan.md`).
 """
 from __future__ import annotations
 
@@ -22,12 +34,26 @@ from typing import Optional
 import pandas as pd
 
 
+# Dispatch table: alphabet -> {seq_col, hash_col} for the unified exporter.
+# Phase 2 will rename 'nt' -> 'nt_cds' and add 'nt_ctg'.
+_COLS_BY_ALPHABET = {
+    'aa': {'seq_col': 'prot_seq', 'hash_col': 'seq_hash'},
+    'nt': {'seq_col': 'cds_dna',  'hash_col': 'cds_dna_hash'},
+}
+
+
 def compute_seq_hash(prot_seq: str) -> str:
-    """md5 hex of the protein string (matches preprocess_flu.py)."""
+    """md5 hex of the protein string (matches preprocess_flu.py).
+
+    Caller-side helper for pre-hashing aa input before calling
+    `export_function_fasta(alphabet='aa', ...)`: the unified exporter
+    requires the hash column to be already present (matches the nt path
+    where Stage 1.5 writes `cds_dna_hash` into cds_final.parquet).
+    """
     return hashlib.md5(prot_seq.encode()).hexdigest()
 
 
-def clean_for_mmseqs(prot_seq: str) -> str:
+def clean_aa_for_mmseqs(prot_seq: str) -> str:
     """Strip trailing '*' (terminal stop). Leaves X residues intact (mmseqs handles them).
 
     Raises if the sequence contains an internal '*' (Stage 1 already filters these,
@@ -41,119 +67,134 @@ def clean_for_mmseqs(prot_seq: str) -> str:
     return stripped
 
 
+def clean_nt_for_mmseqs(dna_seq: str) -> str:
+    """Pass-through for nt: no `*` to strip; mmseqs accepts IUPAC codes natively.
+
+    Raises only on empty input. This is the right home for future
+    nt-specific cleaning (e.g., polyA / primer-trim normalization for
+    nt_ctg in Phase 3 — see memory.md "Considered but not yet pivoted:
+    contig-level (nt_ctg) clustering" §117).
+    """
+    if not isinstance(dna_seq, str) or len(dna_seq) == 0:
+        raise ValueError(f"dna_seq must be a non-empty string, got: {dna_seq!r}")
+    return dna_seq
+
+
+def _clean_for_mmseqs(seq: str, alphabet: str) -> str:
+    """Alphabet dispatcher for cleaning. Internal."""
+    if alphabet == 'aa':
+        return clean_aa_for_mmseqs(seq)
+    if alphabet == 'nt':
+        return clean_nt_for_mmseqs(seq)
+    raise ValueError(f"alphabet must be in {sorted(_COLS_BY_ALPHABET)}, got {alphabet!r}")
+
+
 def export_function_fasta(
-    prot_df: pd.DataFrame,
+    df: pd.DataFrame,
     function_name: str,
+    alphabet: str,
     out_path: Path,
-) -> dict:
-    """Export unique cleaned protein sequences for a single function to FASTA.
+    ) -> dict:
+    """Export unique cleaned sequences for one function to FASTA (alphabet-aware).
 
-    The FASTA header is the **raw-sequence** md5 hash (matching Stage 1
-    `preprocess_flu.py`, which hashes prot_seq INCLUDING the trailing '*').
-    The FASTA body is the **cleaned** sequence (trailing '*' stripped) so
-    mmseqs can parse it. The cluster lookup's `seq_hash` therefore joins
-    back to Stage 3's `seq_hash_a` / `seq_hash_b` columns without re-hashing.
+    The FASTA header is the precomputed hash (`seq_hash` for aa,
+    `cds_dna_hash` for nt) from the input DataFrame. The FASTA body is
+    the cleaned sequence: trailing `*` stripped for aa, pass-through
+    for nt. The cluster lookup's hash column therefore joins back to
+    Stage 3's pair-table hash columns without re-hashing.
 
-    Inputs:
-        prot_df: must contain columns 'function' and 'prot_seq'.
-        function_name: exact value to match in the 'function' column (full
-            descriptive name, not the short alias).
+    Caller responsibility: the input DataFrame must carry the
+    precomputed hash column corresponding to `alphabet` (per
+    `_COLS_BY_ALPHABET`). For `'nt'`, that's `cds_dna_hash` (written by
+    Stage 1.5 into `cds_final.parquet`). For `'aa'`, that's `seq_hash`
+    (which Stage 1 writes for cds_final but NOT for protein_final, so
+    aa callers reading protein_final must pre-hash via
+    `compute_seq_hash` before calling).
+
+    Safety net: at entry, recomputes the hash from the seq column and
+    asserts it matches the precomputed hash. Catches stale precomputed
+    hashes at one md5/row cost.
+
+    Args:
+        df: input DataFrame. Must contain 'function' plus the seq+hash
+            columns for `alphabet` (see `_COLS_BY_ALPHABET`).
+        function_name: exact value to match in the 'function' column.
+        alphabet: 'aa' or 'nt'. Phase 2 will rename 'nt' -> 'nt_cds'
+            and add 'nt_ctg'; see clustering_cleanup_plan.
         out_path: FASTA destination.
 
-    Returns a small stats dict.
+    Returns a stats dict: function, n_rows_input, n_uniq_seqs,
+    n_with_ambiguity, fasta_path.
     """
-    sub = prot_df[prot_df['function'] == function_name]
-    if len(sub) == 0:
-        raise ValueError(f"No rows match function={function_name!r}")
-    n_rows = len(sub)
+    if alphabet not in _COLS_BY_ALPHABET:
+        raise ValueError(f"alphabet must be in {sorted(_COLS_BY_ALPHABET)}, got {alphabet!r}")
+    seq_col = _COLS_BY_ALPHABET[alphabet]['seq_col']
+    hash_col = _COLS_BY_ALPHABET[alphabet]['hash_col']
 
-    raw = sub['prot_seq'].astype(str)
-    seq_hash = raw.map(compute_seq_hash)               # raw-sequence hash (matches Stage 1)
-    cleaned = raw.map(clean_for_mmseqs)                # stripped for mmseqs
-
-    seq_df = pd.DataFrame({'seq_hash': seq_hash.values, 'cleaned_seq': cleaned.values})
-    seq_df = seq_df.drop_duplicates(subset='seq_hash').reset_index(drop=True)
-
-    # Sanity: same seq_hash should map to the same cleaned_seq (since hash is on raw)
-    dup_check = (
-        seq_df.groupby('seq_hash')['cleaned_seq'].nunique()
-        if seq_df['seq_hash'].duplicated().any() else None
-    )
-    if dup_check is not None and (dup_check > 1).any():
-        bad = dup_check[dup_check > 1].head(3).index.tolist()
-        raise AssertionError(
-            f"Same seq_hash maps to multiple cleaned sequences (e.g. {bad}) — "
-            f"would break the FASTA<->lookup join."
-        )
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open('w') as f:
-        for _, row in seq_df.iterrows():
-            f.write(f">{row['seq_hash']}\n{row['cleaned_seq']}\n")
-
-    return {
-        'function': function_name,
-        'n_rows_input': int(n_rows),
-        'n_unique_sequences': int(len(seq_df)),
-        'n_with_x': int(seq_df['cleaned_seq'].str.contains('X', regex=False).sum()),
-        'fasta_path': str(out_path),
-    }
-
-
-def export_function_cds_fasta(
-    cds_df: pd.DataFrame,
-    function_name: str,
-    out_path: Path,
-) -> dict:
-    """Export unique CDS DNA sequences for one function to FASTA.
-
-    Nt counterpart of `export_function_fasta`. Takes a cds_final-style
-    DataFrame (must contain 'function', 'cds_dna', 'cds_dna_hash')
-    instead of the aa protein table, and writes one FASTA entry per
-    unique `cds_dna_hash` with the hash as the header. The body is the
-    raw CDS DNA — no `*`-stripping (DNA has no terminal-stop
-    representation) and no IUPAC scrubbing (mmseqs accepts ambiguity
-    codes natively in nt search-type 3).
-
-    Returns a stats dict mirroring `export_function_fasta`.
-    """
-    if 'cds_dna' not in cds_df.columns or 'cds_dna_hash' not in cds_df.columns:
+    required = {'function', seq_col, hash_col}
+    missing = required - set(df.columns)
+    if missing:
         raise ValueError(
-            "cds_df must contain 'cds_dna' and 'cds_dna_hash' columns "
-            "(build via src/preprocess/extract_cds_dna.py)"
+            f"export_function_fasta: df is missing required columns for "
+            f"alphabet={alphabet!r}: {sorted(missing)}. "
+            f"Pre-hash with compute_seq_hash() if needed."
         )
-    sub = cds_df[cds_df['function'] == function_name]
+
+    sub = df[df['function'] == function_name]
     if len(sub) == 0:
         raise ValueError(f"No rows match function={function_name!r}")
     n_rows = len(sub)
 
-    seq_df = (
-        sub[['cds_dna_hash', 'cds_dna']]
-        .drop_duplicates(subset='cds_dna_hash')
-        .reset_index(drop=True)
-    )
+    raw = sub[seq_col].astype(str)
+    precomputed = sub[hash_col].astype(str)
 
-    # Sanity: every cds_dna_hash should map to a single distinct cds_dna.
-    if seq_df['cds_dna_hash'].duplicated().any():
-        n_dup = int(seq_df['cds_dna_hash'].duplicated().sum())
+    # Safety net: recompute hash from seq and assert against precomputed.
+    # One md5/row; catches stale hashes that would silently produce wrong
+    # FASTA headers (the footgun the unified-exporter refactor was meant
+    # to close).
+    recomputed = raw.map(lambda s: hashlib.md5(s.encode()).hexdigest())
+    mismatch = (precomputed.values != recomputed.values)
+    if mismatch.any():
+        n_bad = int(mismatch.sum())
+        bad_idx = sub.index[mismatch][:3].tolist()
+        raise ValueError(
+            f"export_function_fasta: {n_bad} row(s) have stale {hash_col!r} "
+            f"(md5({seq_col}) disagrees with precomputed). "
+            f"Example indices: {bad_idx}"
+        )
+
+    cleaned = raw.map(lambda s: _clean_for_mmseqs(s, alphabet))
+    seq_df = pd.DataFrame({
+        hash_col: precomputed.values,
+        '_cleaned_seq': cleaned.values,
+    }).drop_duplicates(subset=hash_col).reset_index(drop=True)
+
+    # Cross-check: same hash -> same cleaned sequence (since the hash is on
+    # raw input and cleaning is deterministic). drop_duplicates kept the
+    # first occurrence; this asserts the dropped duplicates agreed.
+    if seq_df[hash_col].duplicated().any():
+        n_dup = int(seq_df[hash_col].duplicated().sum())
         raise AssertionError(
-            f"{n_dup} duplicate cds_dna_hash rows after drop_duplicates — "
-            f"hash<->dna mapping is inconsistent."
+            f"{n_dup} duplicate {hash_col} rows after drop_duplicates -- "
+            f"hash<->seq mapping is inconsistent."
         )
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open('w') as f:
         for _, row in seq_df.iterrows():
-            f.write(f">{row['cds_dna_hash']}\n{row['cds_dna']}\n")
+            f.write(f">{row[hash_col]}\n{row['_cleaned_seq']}\n")
 
+    # Ambiguity count per alphabet: aa counts X residues (mmseqs handles
+    # them natively but they're the salient ambiguity character); nt counts
+    # any non-ACGT character (IUPAC codes — mmseqs scores them natively).
+    ambig_pat = '[X]' if alphabet == 'aa' else '[^ACGTacgt]'
     return {
         'function': function_name,
         'n_rows_input': int(n_rows),
-        'n_unique_sequences': int(len(seq_df)),
+        'n_uniq_seqs': int(len(seq_df)),
         'n_with_ambiguity': int(
-            seq_df['cds_dna'].str.contains('[^ACGTacgt]', regex=True).sum()
+            seq_df['_cleaned_seq'].str.contains(ambig_pat, regex=True).sum()
         ),
         'fasta_path': str(out_path),
     }
@@ -177,13 +218,13 @@ def run_mmseqs_easy_clust(
     min_seq_id: float,
     coverage: float = 0.8,
     cov_mode: int = 0,
-    threads: Optional[int] = None,
+    threads: Optional[int] = 16,
     mmseqs_bin: Optional[str] = None,
     log_path: Optional[Path] = None,
     extra_args: Optional[list] = None,
     alphabet: str = 'aa',
     algorithm: str = 'linclust',
-) -> MMseqsResult:
+    ) -> MMseqsResult:
     """Run `mmseqs easy-linclust` (or `easy-cluster`) as a subprocess.
 
     Produces <out_prefix>_cluster.tsv among other outputs.
@@ -216,7 +257,9 @@ def run_mmseqs_easy_clust(
         min_seq_id: minimum sequence identity for clustering (0..1).
         coverage: -c argument (default 0.8).
         cov_mode: --cov-mode argument (default 0 = bidirectional).
-        threads: --threads argument; None lets mmseqs decide (uses all cores).
+        threads: --threads argument; default 16; Pass None to omit --threads
+            entirely and let mmseqs decide (uses all cores; rude on shared
+            boxes). Pass an explicit int for dedicated runs.
         mmseqs_bin: path or PATH-name of the mmseqs binary. If None (default),
             falls back to the `MMSEQS_BIN` env var, and then to `'mmseqs'`
             (lookup on PATH). Use this to point at an isolated mmseqs2 env
@@ -262,7 +305,12 @@ def run_mmseqs_easy_clust(
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    subcmd = 'easy-cluster' if algorithm == 'cluster' else 'easy-linclust'
+    if algorithm == 'cluster':
+        subcmd = 'easy-cluster'
+    elif algorithm == 'linclust':
+        subcmd = 'easy-linclust'
+    else:
+        raise ValueError(f"Invalid mmseqs algorithm name in our codebase: {algorithm!r}")
     # `--dbtype` is the only flag that differs between alphabets:
     #   --dbtype 1 = amino acid, --dbtype 2 = nucleotide.
     # We pin it explicitly (no --dbtype 0 auto-detect) so the alphabet is
@@ -332,7 +380,7 @@ def run_mmseqs_easy_clust(
 def parse_cluster_tsv(
     cluster_tsv: Path,
     cluster_id_prefix: Optional[str] = None,
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     """Parse `<prefix>_cluster.tsv` into a (seq_hash, cluster_id) DataFrame.
 
     mmseqs writes one row per (representative, member) pair, tab-separated.
