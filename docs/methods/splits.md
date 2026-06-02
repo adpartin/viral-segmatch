@@ -14,6 +14,16 @@ performance numbers (F1, MCC, AUC) for specific routings live in
 
 ---
 
+**Sections.**
+
+- **§ 1 Holdout (single split)** — Routing mechanics (atoms, LPT-greedy bin-packing), the four routing modes (seq_disjoint × {seq, dna}; cluster_disjoint × {bilateral, single_slot}), routing-equivalence notes, leakage gauges, and Flu A feasibility.
+- **§ 2 Cluster-disjoint splitting (pair-weighted)** — Canonical reference for the three cluster_disjoint variants (1D-CD, 2D-CD, 2D-CD-test): atom definitions, code/config, JOIN pattern from unique-weighted clusters storage to pair-weighted routing input, including the residue-gap detail and HA worked example.
+- **§ 3 K-fold cross-validation** — Extension of the routing in §§ 1-2 to K folds: `n_folds` knob, per-mode k-fold support, D3/D4 feasibility checks, audit schema, Stage 4 integration.
+- **§ 4 Relation to prior-art split strategies** — segmatch ↔ DataSAIL (R/I1/I2/S1/S2) ↔ Park & Marcotte (C1/C2/C3) cross-reference.
+- **§ 5 See also** — pointers to related docs.
+
+---
+
 ## 1. Holdout (single split)
 
 ### 1.1 The implemented routing modes
@@ -121,6 +131,18 @@ routings span two algorithmic families both routed by bipartite-CC
 LPT-greedy on the bilateral path and by per-cluster atom LPT-greedy on
 the single-slot path.
 
+**1-D vs 2-D asymmetry**: `cluster_disjoint` supports both 2-D
+(bilateral; `2D-CD`) and 1-D (single-slot; `1D-CD`) variants via the
+`single_slot` knob. `seq_disjoint` is currently **2-D only** — its
+routing function (`seq_disjoint_route_pos_df` in `_pair_helpers.py`)
+takes no `single_slot` parameter and always routes via bipartite-CC
+on the chosen hash family. A 1-D seq_disjoint variant would require
+a code extension.
+
+For the cluster_disjoint variant catalog (atom definitions,
+code/config, JOIN pattern from unique-weighted clusters storage to
+pair-weighted routing input), see § 2.
+
 ### 1.5 Routing equivalence and non-equivalences
 
 **`aa cluster_id100` ≈ `seq_disjoint hash_key=seq`** — almost identical
@@ -155,77 +177,12 @@ different leakage definitions.
 
 ### 1.6 Single-slot cluster_disjoint — what it enforces
 
-**Source.** § 3.1 (`--min-seq-id` definition), § 5 (per-protein
-residue mismatch caps) of `clusters.md`, and the mmseqs2 algorithmic
-construction.
-
-**Setup.** Under **single-slot cluster_disjoint** at identity threshold
-`t` on slot X (e.g., HA-only), the mmseqs clusters covering slot-X
-sequences are partitioned across train / val / test: every cluster
-lands in exactly one split. By construction, any train slot-X sequence
-and any test slot-X sequence live in **different clusters**.
-
-The unconstrained slot (slot Y) carries **no separation constraint at
-all** — not cluster_disjoint, not even seq_disjoint. The same physical
-slot-Y sequence can appear in train and test (and val) if it pairs
-with multiple slot-X sequences whose clusters land in different splits.
-Whether slot-Y sequences actually leak across splits depends on the
-corpus's biological coupling between the two slots: tight coupling
-(e.g., HA cluster ≈ NA subtype on Flu A HA-NA, Cramér's V ≈ 0.85–0.98)
-drags slot-Y along with slot-X; weak coupling (e.g., PB2-PB1 cluster
-coupling V ≈ 0.41–0.76 on Flu A) leaves slot-Y free to leak.
-
-This is the group-respecting property that
-`sklearn.model_selection.GroupShuffleSplit` and `GroupKFold` also
-provide, with one extra feature: **mmseqs clustering at threshold `t`
-gives the groups a sequence-level meaning**. `GroupShuffleSplit` and
-`GroupKFold` treat group labels as opaque IDs; cluster_disjoint's
-groups carry the residue-identity tolerance baked into `t`. That
-promotion — from opaque ID to similarity-controlled tolerance — is the
-load-bearing claim of the approach.
-
-**Within-cluster ceiling (hard, by construction).** mmseqs at threshold
-`t` guarantees that every sequence in one cluster has identity ≥ `t`
-to the cluster representative **over the aligned region (≥ 80 % mutual
-coverage, § 3.2 of `clusters.md`)**. For an aligned length `L_a` this
-caps within-cluster mismatches at approximately `(1 − t) × L_a`
-residues. Per-protein caps at each threshold: § 5 of `clusters.md`.
-
-**Cross-cluster gap (soft, by construction).** mmseqs would have
-merged two sequences into one cluster if their identity were ≥ `t`.
-Therefore between any two sequences in different clusters, mismatch
-count is **typically greater than `(1 − t) × L_a` residues** over the
-aligned region — otherwise the clustering would have grouped them.
-Under single-slot cluster_disjoint at threshold `t`, this becomes
-the **typical lower bound on the residue gap between train and test
-on the constrained slot**:
-
-> train slot-X sequence vs test slot-X sequence: typically
-> > `(1 − t) × L_a` mismatches.
-
-Choosing `t` is choosing the residue-level difficulty of the
-generalization test. Lower `t` → wider tolerance → wider enforced gap
-→ the model is evaluated on sequences structurally more different from
-its training data.
-
-"Typically" — not "always". The bound is **soft**, not deterministic.
-§ 1.7 covers the failure modes; § 1.8 covers the empirical leakage
-gauge.
-
-**Worked example — HA on Flu A** (aligned length ≈ 567 aa under the
-coverage rule; exact per-threshold caps in § 5 of `clusters.md`):
-
-| Threshold | Within-cluster max mismatches | Cross-cluster typical mismatches | What single-slot HA-only enforces between train and test |
-|---:|---:|---:|---|
-| t100 | 0 | 0 (byte-identical over aligned region) | Trivial separation — same sequences allowed in train and test |
-| t095 | ~28 | more than ~28 | Train / test HAs typically differ by 28+ residues |
-| t094 | ~34 | more than ~34 | Wider gap; cliff edge for HA-only bilateral feasibility (§ 1.9) |
-| t090 | ~57 | more than ~57 | Largest enforced gap, but HA-only bilateral routing degenerates here (§ 1.9) |
-
-Many of those 28–57 residues sit in functional regions of HA — the
-receptor-binding domain (residues ~117–265) and the major antigenic
-sites (Sa, Sb, Ca, Cb around residues ~140–225). The model has to
-generalize across that residue-level gap to score test pairs correctly.
+**Moved (2026-06-02).** This section's substantive content
+(within-cluster ceiling, cross-cluster gap math, and the HA worked
+example) is now in § 2.3 (1-D cluster disjoint), where it sits
+alongside the variant catalog (atom, code/config, when to use).
+This stub is retained to preserve the §1.x numbering and external
+cross-refs.
 
 ### 1.7 Limitations of cluster-based separation
 
@@ -623,10 +580,69 @@ Code/config:
 - `split_strategy.single_slot='a'` (constrains slot A) or `'b'`
   (constrains slot B).
 
-Use when `2D-CD` is infeasible (mega-CC too large for the chosen
-split target) and pairing sub-pattern coupling across slots is
-acceptable as residual leakage. See § 1.6 for the worked example
-on Flu A HA-NA.
+The unconstrained slot (slot Y) carries **no separation constraint
+at all** — not cluster_disjoint, not even seq_disjoint. The same
+physical slot-Y sequence can appear in train and test (and val) if
+it pairs with multiple slot-X sequences whose clusters land in
+different splits. Whether slot-Y sequences actually leak across
+splits depends on the corpus's biological coupling between the two
+slots: tight coupling (e.g., HA cluster ≈ NA subtype on Flu A
+HA-NA, Cramér's V ≈ 0.85–0.98) drags slot-Y along with slot-X;
+weak coupling (e.g., PB2-PB1 cluster coupling V ≈ 0.41–0.76 on
+Flu A) leaves slot-Y free to leak.
+
+This is the group-respecting property that
+`sklearn.model_selection.GroupShuffleSplit` and `GroupKFold` also
+provide, with one extra feature: **mmseqs clustering at threshold
+`t` gives the groups a sequence-level meaning**. `GroupShuffleSplit`
+and `GroupKFold` treat group labels as opaque IDs; 1D-CD's groups
+carry the residue-identity tolerance baked into `t`.
+
+**Within-cluster ceiling (hard, by construction).** mmseqs at
+threshold `t` guarantees that every sequence in one cluster has
+identity ≥ `t` to the cluster representative over the aligned region
+(≥ 80 % mutual coverage, § 3.2 of `clusters.md`). For an aligned
+length `L_a` this caps within-cluster mismatches at approximately
+`(1 − t) × L_a` residues. Per-protein caps at each threshold: § 5 of
+`clusters.md`.
+
+**Cross-cluster gap (soft, by construction).** mmseqs would have
+merged two sequences into one cluster if their identity were ≥ `t`.
+Therefore between any two sequences in different clusters, mismatch
+count is typically greater than `(1 − t) × L_a` residues over the
+aligned region — otherwise the clustering would have grouped them.
+Under 1D-CD at threshold `t`, this becomes the typical lower bound
+on the residue gap between train and test on the constrained slot:
+
+> train slot-X sequence vs test slot-X sequence: typically
+> > `(1 − t) × L_a` mismatches.
+
+Choosing `t` is choosing the residue-level difficulty of the
+generalization test. Lower `t` → wider tolerance → wider enforced
+gap → the model is evaluated on sequences structurally more
+different from its training data. "Typically" — not "always".
+The bound is **soft**, not deterministic. §§ 1.7–1.8 cover the
+failure modes and the empirical leakage gauge.
+
+**Worked example — HA on Flu A** (aligned length ≈ 567 aa under the
+coverage rule; exact per-threshold caps in § 5 of `clusters.md`):
+
+| Threshold | Within-cluster max mismatches | Cross-cluster typical mismatches | What 1D-CD HA-only enforces between train and test |
+|---:|---:|---:|---|
+| t100 | 0 | 0 (byte-identical over aligned region) | Trivial separation — same sequences allowed in train and test |
+| t095 | ~28 | more than ~28 | Train / test HAs typically differ by 28+ residues |
+| t094 | ~34 | more than ~34 | Wider gap; cliff edge for HA-only bilateral feasibility (§ 1.9) |
+| t090 | ~57 | more than ~57 | Largest enforced gap, but HA-only bilateral routing degenerates here (§ 1.9) |
+
+Many of those 28–57 residues sit in functional regions of HA — the
+receptor-binding domain (residues ~117–265) and the major antigenic
+sites (Sa, Sb, Ca, Cb around residues ~140–225). The model has to
+generalize across that residue-level gap to score test pairs
+correctly.
+
+Use 1D-CD when `2D-CD` is infeasible (mega-CC too large for the
+chosen split target) and pairing sub-pattern coupling across slots
+is acceptable as residual leakage.
 
 ### 2.4 2-D cluster disjoint (`2D-CD`)
 
@@ -672,6 +688,9 @@ direction at time of writing (2026-06-02; see memory.md
 | `1D-CD` | One slot's cluster | Number of pairs whose endpoint on that slot is in the cluster | No cluster of the constrained slot in multiple splits |
 | `2D-CD` | One bipartite CC | Number of pairs in the CC | No cluster on either slot in multiple splits |
 | `2D-CD-test` | One bipartite CC | Number of pairs in the CC | Train ↔ test cluster-disjoint only; val unconstrained |
+
+For an overview table covering all four routing modes (including the
+two `seq_disjoint` variants), see § 1.4.
 
 ---
 
