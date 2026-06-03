@@ -1,7 +1,7 @@
 # Phase 2 post-migration metrics (2026-06-03)
 
 Post-migration measurements for the Phase 2 pair_key alphabet migration
-(see `docs/plans/2026-06-02_phase2_pair_key_migration_plan.md`). All
+(see `docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md`). All
 tables compare the SAME bundle + SAME algorithm executed BEFORE the
 code change (pre-flight) vs AFTER (post-Phase-2).
 
@@ -378,7 +378,7 @@ before/after comparison is reportable for them.
 
 ## See also
 
-- `docs/plans/2026-06-02_phase2_pair_key_migration_plan.md` §§ 3.4, 4.4, 4.5
+- `docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md` §§ 3.4, 4.4, 4.5
 - `docs/plans/2026-06-02_pair_key_alphabet_plan.md` § 4 (universe-size
   prediction: +34.9 % HA-NA, +57.0 % PB2-PB1 — observed to the
   decimal in commit 5)

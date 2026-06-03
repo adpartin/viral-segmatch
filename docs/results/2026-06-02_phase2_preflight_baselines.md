@@ -1,7 +1,7 @@
 # Phase 2 pre-flight baselines (2026-06-02)
 
 Pre-migration anchors for the Phase 2 pair_key alphabet migration
-(see `docs/plans/2026-06-02_phase2_pair_key_migration_plan.md`).
+(see `docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md`).
 
 Captured 2026-06-02 against current (linclust) cluster artifacts.
 These are the regression-guard anchors for aa (must match
@@ -101,7 +101,7 @@ band (~0.005-0.01)" to **ε = 0**:
 
 ## See also
 
-- `docs/plans/2026-06-02_phase2_pair_key_migration_plan.md` §§ 2, 4
+- `docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md` §§ 2, 4
 - `docs/plans/2026-06-02_pair_key_alphabet_plan.md` § 4 (universe-
   size deltas: +34.9 % on HA-NA, +57.0 % on PB2-PB1)
 - `models/flu/July_2025/runs/` for the source run dirs (paths in
