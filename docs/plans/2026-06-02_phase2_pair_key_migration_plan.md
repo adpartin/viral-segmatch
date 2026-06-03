@@ -1,6 +1,6 @@
 # Phase 2 — pair_key alphabet migration + clustering enum cleanup
 
-**Status: IN PROGRESS** (pre-flight DONE; commits 1-2 of 7 DONE)
+**Status: IN PROGRESS** (pre-flight DONE; commits 1-3 of 7 DONE; HEAD runnable)
 
 Implementation plan for the bundled Phase 2 work, combining:
 
@@ -385,7 +385,7 @@ Seven commits on `feature/phase2-pair-key-migration`, in order:
 
 1. **DONE 2026-06-02 (commit `a3aeb53`)** — `refactor(clustering): alphabet enum {aa,nt_cds,nt_ctg}; parse_cluster_tsv writes alphabet-specific hash column; threshold label id -> t` — § 3.1 code only. 40 files: clustering_utils, _split_helpers, dataset_segment_pairs_v2, build_mmseqs_clusters, 9 reader files, 27 bundle YAMLs + conf/dataset/default.yaml. HEAD intentionally non-runnable until commit 3 regenerates cluster parquets at the new tXXX/ dirs.
 2. **DONE 2026-06-02 (commit `852a2c2`)** — `chore: rename idXXX bundle filenames to tXXX + targeted cross-ref sweep`. 40 files: 34 bundle renames + 6 cross-ref edits in active docs + CLAUDE.md "Threshold notation" rewrite. Sweep protects run-dir refs (`dataset_*_idXXX_*_<ts>`, `training_*_idXXX_*_<ts>`, `baseline_*_idXXX_*_<ts>`) from rewrite since those dirs physically exist on disk; 4 such refs preserved in `phase2_preflight_baselines.md`. HEAD still non-runnable (bundle `cluster_id_path` values point at `clusters_*/tXXX/` which don't exist on disk yet — commit 3 archives + regenerates).
-3. `data(clusters): archive old clusters_{aa,nt}; regenerate cluster_{aa,nt_cds}/tXXX/ parquets under new column convention` — § 3.2 data + archive rename. **Restores HEAD runnability.**
+3. **DONE 2026-06-02** — `data(clusters): archive old clusters_{aa,nt}; regenerate cluster_{aa,nt_cds}/tXXX/ parquets under new column convention`. Archive renames: `clusters_aa/` → `clusters_aa_archive_20260603/`, `clusters_nt/` → `clusters_nt_archive_20260603/`. Regen: 88 fresh cells per alphabet (11 thresholds × 8 functions), 64 threads, 11 min aa + 14 min nt_cds wall time. **Validation: 176/176 cells byte-identical cluster_rep mapping vs archived parquets** (`/tmp/validate_commit3_regen.py`; aa cell uses `seq_hash` column, nt_cds uses `cds_dna_hash`, content otherwise identical). Discovered + fixed in this commit: `run_mmseqs_easy_clust` validation still rejected 'nt_cds' (missed in commit 1's sweep — checked the dispatcher in `_clean_for_mmseqs` and `export_function_fasta` but not the mmseqs subprocess invoker). **HEAD now runnable**: bundle `cluster_id_path: clusters_*/t099/...` paths resolve. Data itself is gitignored; this commit lands the bugfix to `clustering_utils.py` + status updates.
 4. `feat(v2): alphabet-specific pair_key for nt_cds; aa unchanged` — the pair_key migration core. Updates v2 builder + helpers.
 5. `data(datasets): regenerate test bundles (HA-NA + PB2-PB1 bilateral t099, aa + nt_cds = 4 datasets) under new pair_key convention` — § 3.3 narrow.
 6. `data(models): retrain MLP + LGBM on test datasets; aa regression guard + nt_cds delta measurement` — § 3.4 + § 4.4/4.5 validation results.

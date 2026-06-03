@@ -308,8 +308,13 @@ def run_mmseqs_easy_clust(
             f"(e.g. /homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs) "
             f"or put 'mmseqs' on PATH."
         )
-    if alphabet not in {'aa', 'nt'}:
-        raise ValueError(f"alphabet must be 'aa' or 'nt', got {alphabet!r}")
+    if alphabet == 'nt_ctg':
+        raise NotImplementedError(
+            "alphabet='nt_ctg' is reserved for Phase 3 (contig-level "
+            "clustering); not yet operational."
+        )
+    if alphabet not in _ACTIVE_ALPHABETS:
+        raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
     if algorithm not in {'cluster', 'linclust'}:
         raise ValueError(
             f"algorithm must be 'cluster' or 'linclust', got {algorithm!r}"
