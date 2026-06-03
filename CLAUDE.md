@@ -177,11 +177,11 @@ src/
 > on nt_cds remains `nt_cds`. See `docs/plans/2026-06-02_pair_key_alphabet_plan.md`
 > and `docs/results/2026-06-03_phase2_postmigration_metrics.md`.
 
-- **`unit_diff` > `concat` on homogeneous data (ESM-2 only)**: ESM-2 `concat` fails on H3N2-only HA/NA (AUC=0.50); `unit_diff` succeeds (AUC=0.96). Direction of embedding difference carries genuine biological signal; magnitude is a shortcut.
+- **`unit_diff` > `concat` on homogeneous data (ESM-2 only)**: ESM-2 `concat` fails on H3N2-only HA/NA (AUC=0.50); `unit_diff` succeeds (AUC=0.96). Direction of embedding difference is more discriminative than magnitude on this task; magnitude is a shortcut.
 - **ESM-2 `concat` collapse is not H3N2-specific**: Task 11 all-pairs sweeps (Apr 2026) show PB1/PA collapses on BOTH the full unfiltered dataset (AUC=0.4971) and the H3N2-filtered dataset (AUC=0.4981) with ESM-2 concat. K-mer concat never collapses on any pair in any sweep. The subspace-offset failure is a property of ESM-2's protein-type geometry, not of a specific subtype.
 - **K-mer concat does NOT collapse on H3N2**: K-mer concat achieves AUC=0.985 on H3N2-only, proving the concat failure is specific to ESM-2's embedding geometry (subspace offset between protein types), not concatenation as an interaction.
 - **K-mer dominates ESM-2 on homogeneous data**: On H3N2-only, k-mer unit_diff AUC=0.988 vs ESM-2 unit_diff AUC=0.957. K-mer features are interaction-agnostic (unit_diff≈concat) because sparse frequency vectors don't have ESM-2's subspace offset problem.
-- **LayerNorm (`slot_norm`) is critical for homogeneous subsets**: Without it, raw HA/NA embeddings live in slightly different subspaces; `unit_diff` then picks up slot offset rather than biological signal.
+- **LayerNorm (`slot_norm`) is critical for homogeneous subsets**: Without it, raw HA/NA embeddings live in slightly different subspaces; `unit_diff` then picks up slot offset rather than the discriminative direction.
 - **Delayed learning on H3N2 + unit_diff**: Characteristic plateau-then-breakthrough (~epochs 10–32, seed-dependent). Increase `patience` to 40+ for H3N2-only runs.
 - **High FP rate on filtered datasets**: Likely due to subtype/host confounders in negative pairs. Hypothesis: model learns "same population" rather than "same isolate." Hard negatives or strict metadata filtering can test this.
 - **K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA**: AUC 0.982 vs 0.966–0.975. Both interactions work with k-mers.
