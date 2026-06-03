@@ -85,7 +85,7 @@ Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `s
 - Config loader: `src/utils/config_hydra.py`
 
 **Convention**: One bundle = one reproducible experiment. Bundle names encode the experiment:
-`flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na_5ks`, `flu_schema_raw_slot_norm_unit_diff_h3n2`.
+`flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na_5ks`, `flu_ha_na_regimes`.
 
 Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `dataset.split_strategy.{mode,hash_key,cluster_alphabet,single_slot}`, `dataset.metadata_holdout`, `training.slot_transform`, `training.interaction`. Sklearn-baseline knobs live under `baseline_<name>.*` at the bundle root (defaults inherited from `conf/baselines/default.yaml`).
 
@@ -95,7 +95,7 @@ Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_proc
 - Each bundle has a `# STATUS: active|ablation|experimental|legacy|not maintained` header.
 - Bundles form inheritance chains via Hydra `defaults`. Base bundles must stay flat; only leaf bundles can be moved to subdirs.
 - `conf/bundles/paper/` — reserved for publication experiments.
-- Three generations: Gen1 (`flu.yaml` base, no schema ordering), Gen2 (`flu_schema.yaml` base, none+concat), Gen3 (`flu_schema_raw_*`, current best: `slot_norm + unit_diff`).
+- Three generations: Gen1 (`flu.yaml` base, no schema ordering), Gen2 (`flu_schema.yaml` base, none+concat), Gen3 (`flu_schema_raw_*` base, retired 2026-05-12; its `slot_norm + unit_diff` config remains the reference ESM-2 result). Active leaves (`flu_ha_na`, `flu_pb2_pb1`) descend from `flu_28_major_protein_pairs_master`.
 
 ---
 
@@ -292,7 +292,7 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 - **Seed system**: Hierarchical — `master_seed` derives all process seeds. See `docs/SEED_SYSTEM.md`.
 - **Metrics**: `metrics.csv` carries F1 (binary + macro), precision, recall, AUC-ROC, AUC-PR, MCC, Brier, BCE loss. Early-stop options: `loss`, `f1`, `auc_roc`, `auc_pr`, `mcc`. Naming: snake_case identifiers are `auc_roc` / `auc_pr` (dict keys, CSV columns, variables, config values); display strings are `AUC-ROC` / `AUC-PR`. Sklearn names `roc_auc_score` / `average_precision_score` are external and left alone. Train targets neg:pos = `neg_to_pos_ratio` (default 1.0); val/test drift to ~1.07–1.20× neg-heavy because v2's coverage phase overshoots.
 - **Proteins**: `preprocess_flu.py` maps GTO replicon functions to standard protein names (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP).
-- **Threshold notation**: `tXXX` (zero-padded, e.g., `t095`) denotes the mmseqs identity threshold at `0.XXX`. Canonical across docs, plot labels, code, bundle YAML filenames, and `cluster_id_path` refs. **Asymmetry until Phase 2 commits 3–7 land**: on-disk cluster parquets still live at `clusters_*/idXXX/`; existing dataset and training run dirs retain pre-Phase-2 names.
+- **Threshold notation**: `tXXX` (zero-padded, e.g., `t095`) denotes the mmseqs identity threshold at `0.XXX`. Canonical across docs, plot labels, code, bundle YAML filenames, and `cluster_id_path` refs. **Asymmetry (Phase 2)**: on-disk cluster parquets now live at `clusters_*/tXXX/` (pre-Phase-2 `idXXX` + easy-cluster artifacts archived under `clusters_*_archive_*`); existing dataset and training run dirs retain their pre-Phase-2 `idXXX` names.
 - **Sequence hashes**: `seq_hash = md5(prot_seq)` (protein), `dna_hash = md5(dna_seq)` (nucleotide). In pair tables: `seq_hash_a`/`seq_hash_b`, `dna_hash_a`/`dna_hash_b`. `seq_hash` written by Stage 1; `dna_hash` added by `attach_dna_to_prot_df` in Stage 3. ESM-2 cache key uses `sha1(prot_seq)` — separate namespace, never joined back to `seq_hash`.
 - **Log messages**: No emojis. Use text prefixes: `ERROR:` (fatal), `WARNING:` (non-fatal), `Done.` (success).
 - **Leakage terminology**: use canonical names from `docs/plans/2026-05-07_leakage_diagnostics_plan.md`: same-pair leakage, sequence-level label imbalance, sequence-level leakage, cluster leakage, demographic shortcut leakage. New modes should be added to that table first.
@@ -300,7 +300,9 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 - **Reading CSVs with `function_short`**: any CSV containing a `function_short` column has the literal string `'NA'` (Neuraminidase) as a value. Default `pd.read_csv()` parses `'NA'` as NaN and **silently drops Neuraminidase rows**. Always read with `keep_default_na=False, na_values=['']`. Source pipeline CSVs use full function names (safe); derived CSVs using `function_short` are vulnerable (`redundancy_stats.csv`, `mutations_tolerated_table.csv`, `sequence_length_summary.csv`, `cluster_disjoint_feasibility_*.csv`).
 - **Bash tool calls**: prefer single-command invocations over compound chains (`&&`, `;`, `$(...)`, `bash -c '...'`) — the allow-list matcher only auto-approves statically-parseable commands. Use compound only when atomicity matters (`git add X && git commit ...`) or it's fundamentally one shell idiom.
 - **Documentation language**: prefer plain technical verbs (`removes`, `drops`, `reads`, `writes`, `joins`) over decorative alternatives (`scrubs`, `massages`, `munges`, `slurps`). Use the same word for the same thing throughout the repo.
+- **Terminology**: `docs/methods/glossary.md` is the canonical glossary (graph-theory + project-specific terms). Use its exact terms in code, docs, and analysis; when introducing a new term, add it there first (same discipline as **Leakage terminology** above). Don't coin a synonym for a term that already has a glossary entry.
 - **Docs describe current state, not history**. Method and reference docs (`docs/methods/`, `CLAUDE.md`, `.claude/memory.md`) read as a stable description of how things are now. Don't write "the new X column shows Y" or "since 2026-05-26 the sweep covers …". Historical framing belongs in `docs/results/` or `docs/plans/`.
 - **Claims match verified evidence — no more, no less**. Don't under-claim or over-claim; state the scope of verification ("checked PB2 and PB1; not confirmed on the other 6") rather than rounding to a universal claim.
+- **Verify before asserting; flag the unverified**. Claims about what *exists* (files, functions, flags, bundles), *current values*, or *what code does* must be checked against the source (Read / Grep / run) in the same turn before stating them — never from memory or inference. For anything not checked (design reasoning, recall, prediction), say so inline ("unverified", "likely", "would need to check X"). A bare factual claim with no evidence and no hedge is a bug — this is the behavioral trigger behind **Claims match verified evidence** above.
 - **Concrete numbers in takeaways when the magnitude IS the point**. "PB2 id093 → id092: 1,085 → 112 (−90%)" beats "PB2 drops sharply". Reserve qualitative descriptors for cases where SHAPE matters more than magnitude.
 - **Design symmetry: check before proposing**. Before naming a field, data structure, or API surface, list the dimensions it covers (slot a/b, routing modes, alphabets, splits) and verify the proposal is uniform across each. Names that fit the current example better than the alternatives bake in assumptions and have to be redesigned.

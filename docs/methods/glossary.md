@@ -2,7 +2,7 @@
 
 Project-specific terminology (including graph theory). This is used across docs (e.g., `splits.md`, `clusters.md`, `leakage.md`) and analysis code.
 
-When introducing a graph property in code or docs, use the term from here; if it is not yet in the glossary, suggest to add it.
+When introducing a technical or project-specific term (graph property, routing mode, split concept, metric, alphabet, etc.) in code or docs, use the term from here; if it is not yet in the glossary, add it (or suggest adding it).
 
 ---
 
