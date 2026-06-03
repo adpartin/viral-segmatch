@@ -73,15 +73,24 @@ Pair_key plan § 9 open questions, status:
 Pre-flight measurements to take BEFORE touching code (~30 min each):
 
 1. **Baseline performance** — re-run the existing aa and nt MLP +
-   LGBM on the test bundles selected in § 3.3 (HA-NA bilateral
-   cluster_id99 + PB2-PB1 bilateral cluster_id99), exact seeds +
+   LGBM on the test bundles selected in § 3.3, exact seeds +
    bundles, save the metrics CSVs. Cross-check against the matching
    pre-existing runs in `models/flu/July_2025/runs/` to confirm
-   reproducibility (small drift is OK; large drift means the
-   pre-existing runs are not a valid baseline and we use the fresh
-   re-runs instead). These are the pre-migration anchors for the
-   regression-guard comparison in § 4.4 (aa must match) and § 4.5
-   (nt expected delta).
+   reproducibility.
+
+   **DONE 2026-06-02**. Test bundle set was revised (Alex's call):
+   `flu_{ha_na,pb2_pb1}_cluster_nt_id099` (exercises cluster_disjoint
+   routing) + `flu_{ha_na,pb2_pb1}_regimes` (exercises pair-universe
+   dedup, no cluster routing). 8 baseline rows recorded in
+   `results/flu/July_2025/runs/phase2_preflight/baselines_manifest.csv`.
+
+   **Reproducibility verdict: ε = 0 on the full pipeline.** Stage 3
+   pair tables, MLP metrics, and LGBM metrics are all byte-identical
+   across independent re-runs (same seed + same data + same code).
+   No GPU nondeterminism observed on V100. The regression-guard
+   tolerance threshold in § 4.4 collapses from "≤ seed-variance band
+   (~0.005-0.01)" to "= 0"; any aa drift post-migration is a real
+   signal, not rerun noise.
 2. **Active dataset inventory**: snapshot `data/datasets/flu/July_2025/runs/`
    to a manifest CSV (bundle, alphabet, threshold, n_pairs, mtime).
    Used to confirm regen coverage in § 3.3 and to identify dirs that
@@ -305,10 +314,10 @@ For each (bundle, seed, algorithm) ∈ {aa bundles} × {seeds in use}
 × {MLP, LGBM}:
 
 - Compute |Δ metric| for F1, AUC-ROC, MCC.
-- Threshold: |Δ| ≤ ε where ε is the seed-variance band measured
-  from existing multi-seed runs (per memory.md, F1 std ≤ 0.005
-  on the single-slot HA-NA sweep — so ε ≈ 0.005-0.01).
-- **Any aa metric drift > ε is a Phase-2 bug**, not a methodology
+- Threshold: **ε = 0** (per § 2 pre-flight: end-to-end pipeline is
+  bit-exact across reruns; same seed + same data + same code yields
+  byte-identical metrics.csv).
+- **Any aa metric drift > 0 is a Phase-2 bug**, not a methodology
   change. Fix before proceeding.
 
 ### 4.5 Model retraining — nt_cds (positive expectation)
