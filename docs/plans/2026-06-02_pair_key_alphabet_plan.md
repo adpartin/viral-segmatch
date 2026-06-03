@@ -429,8 +429,6 @@ leave alone and update its pair_key construction too.
 4. **Intermediate audit-only column** (§ 6 cheap intermediate)
    — would that be useful as a stepping stone, or jump straight
    to full adoption if the deltas warrant it?
-5. Any **publication deadline** that constrains when this can
-   land? (Rebuild bandwidth is ~1-2 weeks of light load.)
 
 ---
 
