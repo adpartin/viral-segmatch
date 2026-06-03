@@ -1,10 +1,11 @@
-# STATUS: experimental -- PB2/PB1 cluster_disjoint id99 + regime_aware_coverage=true.
-# Inherits flu_pb2_pb1_cluster_id99 (full corpus, ratio=1.5, cluster_disjoint id99 —
-# train-heavy 87/6.4/6.4 due to the bipartite mega-component). Adds regime-aware
-# negative sampling with regime_aware_coverage flipped on.
+# STATUS: experimental -- HA/NA cluster_disjoint id99 + ratio=3 + regime_aware_coverage=true.
+# Inherits flu_ha_na_cluster_t099_r3 (full corpus, ratio=3.0, cluster_disjoint id99).
+# Tests whether the AUC-PR drop seen at r=3 without regime-aware coverage
+# (0.797 -> 0.728) reverses when the additional negatives are biased
+# toward hard regimes via the priority chain.
 
 defaults:
-  - flu_pb2_pb1_cluster_id99
+  - flu_ha_na_cluster_t099_r3
   - _self_
 
 dataset:

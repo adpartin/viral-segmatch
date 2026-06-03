@@ -83,7 +83,7 @@ def _latest_baseline_dir(runs_root: Path, model_prefix: str, bundle: str) -> Opt
     """Return the latest `baseline_<model_prefix>_<bundle>_<YYYYMMDD_HHMMSS>` dir.
 
     Bundle match is anchored — `bundle='flu_ha_na'` does NOT match
-    `flu_ha_na_cluster_id99`, etc.
+    `flu_ha_na_cluster_t099`, etc.
     """
     pattern = re.compile(
         rf'^baseline_{re.escape(model_prefix)}_{re.escape(bundle)}_(\d{{8}}_\d{{6}})$'

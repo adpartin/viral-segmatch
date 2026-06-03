@@ -12,8 +12,8 @@ nt_cds (expected shift; magnitude is the headline result).
 
 | Bundle | Feature space | Routing | Coverage role |
 |---|---|---|---|
-| `flu_ha_na_cluster_nt_id099` | k-mer nt k=6 | cluster_disjoint (nt) | cluster routing path |
-| `flu_pb2_pb1_cluster_nt_id099` | k-mer nt k=6 | cluster_disjoint (nt) | same, different biology |
+| `flu_ha_na_cluster_nt_t099` | k-mer nt k=6 | cluster_disjoint (nt) | cluster routing path |
+| `flu_pb2_pb1_cluster_nt_t099` | k-mer nt k=6 | cluster_disjoint (nt) | same, different biology |
 | `flu_ha_na_regimes` | k-mer nt k=6 | random + regime-aware negatives | pair-universe dedup path (no cluster routing) |
 | `flu_pb2_pb1_regimes` | k-mer nt k=6 | random + regime-aware negatives | same, different biology |
 
@@ -27,10 +27,10 @@ independent of cluster routing).
 
 | Bundle | Algorithm | Fresh? | F1 | AUC-ROC | AUC-PR | MCC | Run dir |
 |---|---|---|---:|---:|---:|---:|---|
-| flu_ha_na_cluster_nt_id099 | mlp | ✓ | 0.8745 | 0.9478 | 0.8982 | 0.7865 | `training_flu_ha_na_cluster_nt_id099_20260602_203518` |
-| flu_ha_na_cluster_nt_id099 | lgbm | 2026-05-15 | 0.8606 | 0.9483 | — | 0.7644 | `baseline_lgbm_flu_ha_na_cluster_nt_id099_20260515_115224` |
-| flu_pb2_pb1_cluster_nt_id099 | mlp | ✓ | 0.8927 | 0.9523 | 0.8979 | 0.8180 | `training_flu_pb2_pb1_cluster_nt_id099_20260602_203520` |
-| flu_pb2_pb1_cluster_nt_id099 | lgbm | 2026-05-15 | 0.8625 | 0.9509 | — | 0.7654 | `baseline_lgbm_flu_pb2_pb1_cluster_nt_id099_20260515_115232` |
+| flu_ha_na_cluster_nt_t099 | mlp | ✓ | 0.8745 | 0.9478 | 0.8982 | 0.7865 | `training_flu_ha_na_cluster_nt_id099_20260602_203518` |
+| flu_ha_na_cluster_nt_t099 | lgbm | 2026-05-15 | 0.8606 | 0.9483 | — | 0.7644 | `baseline_lgbm_flu_ha_na_cluster_nt_id099_20260515_115224` |
+| flu_pb2_pb1_cluster_nt_t099 | mlp | ✓ | 0.8927 | 0.9523 | 0.8979 | 0.8180 | `training_flu_pb2_pb1_cluster_nt_id099_20260602_203520` |
+| flu_pb2_pb1_cluster_nt_t099 | lgbm | 2026-05-15 | 0.8625 | 0.9509 | — | 0.7654 | `baseline_lgbm_flu_pb2_pb1_cluster_nt_id099_20260515_115232` |
 | flu_ha_na_regimes | mlp | ✓ | 0.9366 | 0.9785 | 0.9519 | 0.8935 | `training_flu_ha_na_regimes_20260602_204217` |
 | flu_ha_na_regimes | lgbm | ✓ | 0.9270 | 0.9831 | 0.9706 | 0.8774 | `baseline_lgbm_flu_ha_na_regimes_20260602_204220` |
 | flu_pb2_pb1_regimes | mlp | ✓ | 0.9401 | 0.9770 | 0.9468 | 0.8993 | `training_flu_pb2_pb1_regimes_20260602_204219` |

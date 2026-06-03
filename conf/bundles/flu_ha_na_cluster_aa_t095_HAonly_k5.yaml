@@ -6,7 +6,7 @@
 # at default drift = 11, so k=5 is comfortably feasible).
 
 defaults:
-  - flu_ha_na_cluster_aa_id095_HAonly
+  - flu_ha_na_cluster_aa_t095_HAonly
   - _self_
 
 dataset:

@@ -4,7 +4,7 @@
 # (mmseqs2 linclust --dbtype 2 --min-seq-id 1.00 -c 0.8).
 #
 # Experiment B-nt — the nt-level companion to the aa Experiment B
-# (`flu_ha_na_cluster_id99` and friends). DNA is more variable than aa
+# (`flu_ha_na_cluster_t099` and friends). DNA is more variable than aa
 # (synonymous codons), so the cluster identity threshold required to split
 # the bipartite mega-component is generally LOWER for nt than aa. id100
 # is the strict-identity nt baseline; if the feasibility check rules it

@@ -36,7 +36,7 @@ This is BACKLOG.md **Methodology #2**.
 conf/bundles/
   flu_ha_na_random.yaml            # NEW: split_strategy.mode=random
   flu_ha_na_seq_disjoint.yaml      # NEW: explicit alias (mode=seq_disjoint, hash_key=seq)
-  flu_ha_na_cluster_id99.yaml      # EXISTING: cluster_disjoint @ aa id 0.99 (kept; renaming to id099 would break ~14 cross-references to its existing dataset/model runs and the 4 bundles that inherit from it)
+  flu_ha_na_cluster_t099.yaml      # EXISTING: cluster_disjoint @ aa id 0.99 (kept; renaming to id099 would break ~14 cross-references to its existing dataset/model runs and the 4 bundles that inherit from it)
 
 src/utils/dim_reduction_utils.py
   compute_truncated_svd_reduction(...)  # NEW: SVD without centering, for k-mer features
@@ -123,7 +123,7 @@ section above for the rationale).
 - Two new bundle YAMLs created; reuse the existing third:
   - `conf/bundles/flu_ha_na_random.yaml` — NEW; sets `split_strategy.mode: random`.
   - `conf/bundles/flu_ha_na_seq_disjoint.yaml` — NEW; explicit alias (same routing as inherited from `flu_ha_na`).
-  - `conf/bundles/flu_ha_na_cluster_id99.yaml` — EXISTING; cluster_disjoint @ aa identity 0.99. Kept under its existing name to avoid breaking cross-references in 4 dependent bundles + 11 dataset/model run dirs + 3 docs.
+  - `conf/bundles/flu_ha_na_cluster_t099.yaml` — EXISTING; cluster_disjoint @ aa identity 0.99. Kept under its existing name to avoid breaking cross-references in 4 dependent bundles + 11 dataset/model run dirs + 3 docs.
 
 ### Phase 2: Plotting module
 

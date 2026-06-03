@@ -218,9 +218,9 @@ before bulk regen.**
 Test bundle set (4 bundles total):
 
 - HA-NA bilateral cluster_t099 aa (regenerated from existing
-  `flu_ha_na_cluster_id99.yaml` → `flu_ha_na_cluster_t099.yaml`)
+  `flu_ha_na_cluster_t099.yaml` → `flu_ha_na_cluster_t099.yaml`)
 - HA-NA bilateral cluster_t099 nt_cds (regenerated from existing
-  `flu_ha_na_cluster_nt_id099.yaml` → `flu_ha_na_cluster_nt_cds_t099.yaml`)
+  `flu_ha_na_cluster_nt_t099.yaml` → `flu_ha_na_cluster_nt_cds_t099.yaml`)
 - PB2-PB1 bilateral cluster_t099 aa (similar)
 - PB2-PB1 bilateral cluster_t099 nt_cds (similar)
 

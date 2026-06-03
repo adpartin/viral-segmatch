@@ -202,7 +202,7 @@ universe construction. Inventory of what would need regeneration:
 
 ### 5.1 Bundles (config files)
 - HA-NA cluster_aa: 6 × HAonly (id100..id095), 6 × NAonly (if built),
-  + 4 base bundles (`flu_ha_na.yaml`, `flu_ha_na_cluster_id99.yaml`,
+  + 4 base bundles (`flu_ha_na.yaml`, `flu_ha_na_cluster_t099.yaml`,
   `flu_ha_na_random.yaml`, `flu_ha_na_seq_disjoint.yaml`).
 - HA-NA cluster_nt: 2 (id100, id099).
 - PB2-PB1 cluster_aa: 6 × PB2only (id100..id095) + 2 base.

@@ -1,5 +1,5 @@
 # STATUS: experimental -- HA/NA cluster_disjoint routing at nt CDS identity >= 0.99.
-# Inherits flu_ha_na_cluster_nt_id100; lowers the nt clustering threshold to 0.99.
+# Inherits flu_ha_na_cluster_nt_t100; lowers the nt clustering threshold to 0.99.
 #
 # Feasibility (results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_ha_na_nt.csv):
 # n_components=5,710, largest_pct=69.3, second_pct=6.0. Marginal — largest
@@ -8,7 +8,7 @@
 # and are NOT feasible on the full Flu A corpus.
 
 defaults:
-  - flu_ha_na_cluster_nt_id100
+  - flu_ha_na_cluster_nt_t100
   - _self_
 
 dataset:

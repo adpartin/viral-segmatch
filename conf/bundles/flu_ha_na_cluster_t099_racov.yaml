@@ -1,5 +1,5 @@
 # STATUS: experimental -- HA/NA cluster_disjoint id99 + regime_aware_coverage=true.
-# Inherits flu_ha_na_cluster_id99 (full corpus, ratio=1.5, cluster_disjoint id99).
+# Inherits flu_ha_na_cluster_t099 (full corpus, ratio=1.5, cluster_disjoint id99).
 # Adds a negative_sampling block that (a) enables regime mode with
 # host_subtype_year=0.30 budget, and (b) flips regime_aware_coverage on.
 #
@@ -10,7 +10,7 @@
 # docs/results/2026-05-14_cluster_disjoint_id99_results.md.
 
 defaults:
-  - flu_ha_na_cluster_id99
+  - flu_ha_na_cluster_t099
   - _self_
 
 dataset:
