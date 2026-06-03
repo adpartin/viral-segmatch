@@ -1,6 +1,6 @@
 # Phase 2 — pair_key alphabet migration + clustering enum cleanup
 
-**Status: IN PROGRESS** (pre-flight DONE; commit 1 of 7 DONE)
+**Status: IN PROGRESS** (pre-flight DONE; commits 1-2 of 7 DONE)
 
 Implementation plan for the bundled Phase 2 work, combining:
 
@@ -384,7 +384,7 @@ used.
 Seven commits on `feature/phase2-pair-key-migration`, in order:
 
 1. **DONE 2026-06-02 (commit `a3aeb53`)** — `refactor(clustering): alphabet enum {aa,nt_cds,nt_ctg}; parse_cluster_tsv writes alphabet-specific hash column; threshold label id -> t` — § 3.1 code only. 40 files: clustering_utils, _split_helpers, dataset_segment_pairs_v2, build_mmseqs_clusters, 9 reader files, 27 bundle YAMLs + conf/dataset/default.yaml. HEAD intentionally non-runnable until commit 3 regenerates cluster parquets at the new tXXX/ dirs.
-2. `chore: rename idXXX bundles to tXXX + sweep cross-refs across CLAUDE.md, docs, aggregators` — bundle filename cascade.
+2. **DONE 2026-06-02 (commit `852a2c2`)** — `chore: rename idXXX bundle filenames to tXXX + targeted cross-ref sweep`. 40 files: 34 bundle renames + 6 cross-ref edits in active docs + CLAUDE.md "Threshold notation" rewrite. Sweep protects run-dir refs (`dataset_*_idXXX_*_<ts>`, `training_*_idXXX_*_<ts>`, `baseline_*_idXXX_*_<ts>`) from rewrite since those dirs physically exist on disk; 4 such refs preserved in `phase2_preflight_baselines.md`. HEAD still non-runnable (bundle `cluster_id_path` values point at `clusters_*/tXXX/` which don't exist on disk yet — commit 3 archives + regenerates).
 3. `data(clusters): archive old clusters_{aa,nt}; regenerate cluster_{aa,nt_cds}/tXXX/ parquets under new column convention` — § 3.2 data + archive rename. **Restores HEAD runnability.**
 4. `feat(v2): alphabet-specific pair_key for nt_cds; aa unchanged` — the pair_key migration core. Updates v2 builder + helpers.
 5. `data(datasets): regenerate test bundles (HA-NA + PB2-PB1 bilateral t099, aa + nt_cds = 4 datasets) under new pair_key convention` — § 3.3 narrow.
