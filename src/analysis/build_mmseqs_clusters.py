@@ -17,11 +17,13 @@ Supports two alphabets, both clustered with `mmseqs easy-linclust` since
 2026-05-22 (symmetric algorithm choice — see
 `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
 for why we no longer use easy-cluster on aa):
-  - aa: clusters `prot_seq` from `protein_final.parquet` (Stage 1 output).
-        `--dbtype 1` (amino acid alphabet).
-  - nt: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output from
-        `src/preprocess/extract_cds_dna.py`). `--dbtype 2` (nucleotide
-        alphabet).
+  - aa:     clusters `prot_seq` from `protein_final.parquet` (Stage 1 output).
+            `--dbtype 1` (amino acid alphabet).
+  - nt_cds: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output
+            from `src/preprocess/extract_cds_dna.py`). `--dbtype 2`
+            (nucleotide alphabet).
+  - nt_ctg: reserved for full-contig clustering (Phase 3 of clustering
+            cleanup plan); raises NotImplementedError today.
 
 The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_clust`
 pins the decision-relevant mmseqs flags explicitly (--cluster-mode 0,
@@ -34,14 +36,14 @@ helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
 consumes downstream.
 
 Typical out_root values:
-  data/processed/flu/{version}/clusters_aa  (aa; renamed from `clusters/` on 2026-05-15)
-  data/processed/flu/{version}/clusters_nt  (nt)
+  data/processed/flu/{version}/clusters_aa      (aa; renamed from `clusters/` on 2026-05-15)
+  data/processed/flu/{version}/clusters_nt_cds  (nt_cds; renamed from `clusters_nt/` in Phase 2)
 
 Artifact layout:
   <out_root>/
-    fasta/<short_name>.fasta            (one per function; reused across thresholds)
-    id<th>/<short_name>_cluster.parquet (one per (function, threshold))
-    id<th>/combined_cluster.parquet     (concatenation of per-function parquets)
+    fasta/<short_name>.fasta           (one per function; reused across thresholds)
+    t<NN>/<short_name>_cluster.parquet (one per (function, threshold))
+    t<NN>/combined_cluster.parquet     (concatenation of per-function parquets)
 
 CLI:
     # aa redundancy sweep (easy-linclust is the default since 2026-05-22).
@@ -51,10 +53,10 @@ CLI:
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
 
-    # nt redundancy sweep (same default).
+    # nt_cds redundancy sweep (same default).
     python -m src.analysis.build_mmseqs_clusters \\
         --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
-        --out_root   data/processed/flu/July_2025/clusters_nt \\
+        --out_root   data/processed/flu/July_2025/clusters_nt_cds \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
 
@@ -115,10 +117,14 @@ SHORT_TO_SEGMENT = {
 
 
 def _threshold_label(threshold: float) -> str:
-    """Format float threshold as a stable directory label, e.g. 0.95 -> 'id095'."""
-    # TODO: prefix with `f` rather than `id`
+    """Format float threshold as a stable directory label, e.g. 0.95 -> 't095'.
+
+    The `t<XXX>` prefix is the canonical user-facing form per
+    CLAUDE.md "Threshold notation" (docs-adopted 2026-05-29; code/dir
+    migration completed in Phase 2 of the clustering cleanup plan).
+    """
     pct = int(round(threshold * 100))
-    return f"id{pct:03d}"
+    return f"t{pct:03d}"
 
 
 def cluster_one_function_one_threshold(
@@ -142,11 +148,13 @@ def cluster_one_function_one_threshold(
             `prot_seq`, `seq_hash` (pre-hashed by caller via
             `compute_seq_hash`; protein_final.parquet does not carry
             seq_hash so callers must add it after load). For
-            `alphabet='nt'` must contain `function`, `cds_dna`,
+            `alphabet='nt_cds'` must contain `function`, `cds_dna`,
             `cds_dna_hash` (from `cds_final.parquet`).
-        alphabet: 'aa' (default) or 'nt'. Selects the unified exporter's
-            seq/hash column pair and triggers `--dbtype 2` (nt) for the
-            mmseqs invocation. `--search-type 3` is NOT a valid flag on
+        alphabet: 'aa' (default) or 'nt_cds'. Selects the unified
+            exporter's seq/hash column pair and triggers `--dbtype 2`
+            (nt) for the mmseqs invocation. `nt_ctg` is reserved
+            (Phase 3) and raises NotImplementedError.
+            `--search-type 3` is NOT a valid flag on
             easy-cluster/easy-linclust in mmseqs 18; the original plan
             referenced it, but the current code uses `--dbtype 2` instead.
         threads: int for the number of threads; None defers to mmseqs
@@ -154,8 +162,13 @@ def cluster_one_function_one_threshold(
 
     Returns the redundancy stats dict for this (function, threshold).
     """
-    if alphabet not in {'aa', 'nt'}:
-        raise ValueError(f"alphabet must be 'aa' or 'nt', got {alphabet!r}")
+    if alphabet == 'nt_ctg':
+        raise NotImplementedError(
+            "alphabet='nt_ctg' is reserved for Phase 3 (contig-level "
+            "clustering); not yet operational."
+        )
+    if alphabet not in {'aa', 'nt_cds'}:
+        raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
     if short_name not in SHORT_TO_FUNCTION:
         raise KeyError(f"Unknown short_name={short_name!r}. Known: {sorted(SHORT_TO_FUNCTION)}")
     full_name = SHORT_TO_FUNCTION[short_name]
@@ -206,7 +219,7 @@ def cluster_one_function_one_threshold(
         )
         elapsed_seconds = time.time() - t0
         cached = False
-        lookup = parse_cluster_tsv(result.cluster_tsv, cluster_id_prefix=short_name)
+        lookup = parse_cluster_tsv(result.cluster_tsv, alphabet=alphabet, cluster_id_prefix=short_name)
         lookup['function'] = full_name
         lookup['function_short'] = short_name
         lookup['threshold'] = float(threshold)
@@ -261,9 +274,9 @@ def write_results_markdown(
     out_md.parent.mkdir(parents=True, exist_ok=True)
 
     today = time.strftime('%Y-%m-%d')
-    alphabet_label = 'aa' if alphabet == 'aa' else 'nt (CDS DNA)'
+    alphabet_label = 'aa' if alphabet == 'aa' else 'nt_cds (CDS DNA)'
     subcmd = 'easy-cluster' if algorithm == 'cluster' else 'easy-linclust'
-    dbtype_flag = ' --dbtype 2' if alphabet == 'nt' else ''
+    dbtype_flag = ' --dbtype 2' if alphabet == 'nt_cds' else ''
 
     lines = []
     lines.append(f"# Per-function redundancy ({alphabet_label}) — mmseqs2 sweep")
@@ -369,15 +382,15 @@ def main() -> None:
     src.add_argument('--protein_final',
                      help='aa-mode input: path to protein_final.parquet (or .csv).')
     src.add_argument('--cds_final',
-                     help='nt-mode input: path to cds_final.parquet (built by '
-                          'src/preprocess/extract_cds_dna.py). Implies --alphabet nt.')
+                     help='nt_cds-mode input: path to cds_final.parquet (built by '
+                          'src/preprocess/extract_cds_dna.py). Implies --alphabet nt_cds.')
     p.add_argument('--alphabet',
-                   choices=['aa', 'nt'], default=None,
-                   help='Sequence alphabet (default: aa for --protein_final, nt for --cds_final).')
+                   choices=['aa', 'nt_cds'], default=None,
+                   help='Sequence alphabet (default: aa for --protein_final, nt_cds for --cds_final).')
     p.add_argument('--out_root',
                    required=True,
                    help='Output directory root (e.g. data/processed/flu/July_2025/clusters_aa or '
-                        'clusters_nt).')
+                        'clusters_nt_cds).')
     p.add_argument('--thresholds',
                    nargs='+', type=float, required=True,
                    help='Identity thresholds (e.g. 1.00 0.99 0.95 0.90 0.80).')
@@ -416,11 +429,11 @@ def main() -> None:
     if args.protein_final and not args.alphabet:
         args.alphabet = 'aa'
     if args.cds_final and not args.alphabet:
-        args.alphabet = 'nt'
-    if args.protein_final and args.alphabet == 'nt':
-        raise SystemExit("--protein_final is aa-only; use --cds_final for nt mode.")
+        args.alphabet = 'nt_cds'
+    if args.protein_final and args.alphabet == 'nt_cds':
+        raise SystemExit("--protein_final is aa-only; use --cds_final for nt_cds mode.")
     if args.cds_final and args.alphabet == 'aa':
-        raise SystemExit("--cds_final is nt-only; use --protein_final for aa mode.")
+        raise SystemExit("--cds_final is nt_cds-only; use --protein_final for aa mode.")
 
     in_path = Path(args.protein_final or args.cds_final)
     print(f"Loading {in_path}  (alphabet={args.alphabet}) ...")
@@ -436,7 +449,7 @@ def main() -> None:
     print(f"  Loaded {len(df):,} rows in {time.time()-t0:.1f}s")
 
     # Pre-hash aa input. The unified exporter requires the hash column to
-    # be present (matches the nt path where cds_final.parquet carries
+    # be present (matches the nt_cds path where cds_final.parquet carries
     # cds_dna_hash). protein_final.parquet does NOT carry seq_hash, so we
     # compute it here once and reuse across thresholds.
     if args.alphabet == 'aa':

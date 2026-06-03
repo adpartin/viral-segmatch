@@ -13,13 +13,12 @@ Function-metadata loading lives in `src/utils/config_hydra.py`
 (see `load_function_metadata` there).
 
 Alphabets:
-    'aa'  -> protein sequences from protein_final-style input
-                (columns: function, prot_seq, seq_hash)
-    'nt'  -> CDS DNA from cds_final-style input
-                (columns: function, cds_dna, cds_dna_hash)
-
-The Phase 2 alphabet-extension plan will rename 'nt' -> 'nt_cds' and
-add 'nt_ctg' (see `docs/plans/2026-06-02_clustering_cleanup_plan.md`).
+    'aa'     -> protein sequences from protein_final-style input
+                    (columns: function, prot_seq, seq_hash)
+    'nt_cds' -> CDS DNA from cds_final-style input
+                    (columns: function, cds_dna, cds_dna_hash)
+    'nt_ctg' -> reserved for full-contig DNA (Phase 3 of clustering
+                cleanup plan); raises NotImplementedError today.
 """
 from __future__ import annotations
 
@@ -34,12 +33,16 @@ from typing import Optional
 import pandas as pd
 
 
-# Dispatch table: alphabet -> {seq_col, hash_col} for the unified exporter.
-# Phase 2 will rename 'nt' -> 'nt_cds' and add 'nt_ctg'.
+# Dispatch table: alphabet -> {seq_col, hash_col} for the unified exporter
+# and parse_cluster_tsv output column dispatch.
+# nt_ctg is reserved (Phase 3); export_function_fasta + parse_cluster_tsv
+# raise NotImplementedError if invoked with it.
 _COLS_BY_ALPHABET = {
-    'aa': {'seq_col': 'prot_seq', 'hash_col': 'seq_hash'},
-    'nt': {'seq_col': 'cds_dna',  'hash_col': 'cds_dna_hash'},
+    'aa':     {'seq_col': 'prot_seq', 'hash_col': 'seq_hash'},
+    'nt_cds': {'seq_col': 'cds_dna',  'hash_col': 'cds_dna_hash'},
+    'nt_ctg': {'seq_col': 'dna_seq',  'hash_col': 'dna_hash'},
 }
+_ACTIVE_ALPHABETS = {'aa', 'nt_cds'}  # nt_ctg reserved (raises)
 
 
 def compute_seq_hash(prot_seq: str) -> str:
@@ -84,9 +87,14 @@ def _clean_for_mmseqs(seq: str, alphabet: str) -> str:
     """Alphabet dispatcher for cleaning. Internal."""
     if alphabet == 'aa':
         return clean_aa_for_mmseqs(seq)
-    if alphabet == 'nt':
+    if alphabet == 'nt_cds':
         return clean_nt_for_mmseqs(seq)
-    raise ValueError(f"alphabet must be in {sorted(_COLS_BY_ALPHABET)}, got {alphabet!r}")
+    if alphabet == 'nt_ctg':
+        raise NotImplementedError(
+            "nt_ctg is reserved for Phase 3 (contig-level clustering); "
+            "not yet operational. See docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
+        )
+    raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
 
 
 def export_function_fasta(
@@ -105,11 +113,11 @@ def export_function_fasta(
 
     Caller responsibility: the input DataFrame must carry the
     precomputed hash column corresponding to `alphabet` (per
-    `_COLS_BY_ALPHABET`). For `'nt'`, that's `cds_dna_hash` (written by
-    Stage 1.5 into `cds_final.parquet`). For `'aa'`, that's `seq_hash`
-    (which Stage 1 writes for cds_final but NOT for protein_final, so
-    aa callers reading protein_final must pre-hash via
-    `compute_seq_hash` before calling).
+    `_COLS_BY_ALPHABET`). For `'nt_cds'`, that's `cds_dna_hash`
+    (written by Stage 1.5 into `cds_final.parquet`). For `'aa'`,
+    that's `seq_hash` (which Stage 1 writes for cds_final but NOT
+    for protein_final, so aa callers reading protein_final must
+    pre-hash via `compute_seq_hash` before calling).
 
     Safety net: at entry, recomputes the hash from the seq column and
     asserts it matches the precomputed hash. Catches stale precomputed
@@ -119,15 +127,20 @@ def export_function_fasta(
         df: input DataFrame. Must contain 'function' plus the seq+hash
             columns for `alphabet` (see `_COLS_BY_ALPHABET`).
         function_name: exact value to match in the 'function' column.
-        alphabet: 'aa' or 'nt'. Phase 2 will rename 'nt' -> 'nt_cds'
-            and add 'nt_ctg'; see clustering_cleanup_plan.
+        alphabet: 'aa' or 'nt_cds'. The 'nt_ctg' value is reserved
+            (Phase 3) and raises NotImplementedError.
         out_path: FASTA destination.
 
     Returns a stats dict: function, n_rows_input, n_uniq_seqs,
     n_with_ambiguity, fasta_path.
     """
-    if alphabet not in _COLS_BY_ALPHABET:
-        raise ValueError(f"alphabet must be in {sorted(_COLS_BY_ALPHABET)}, got {alphabet!r}")
+    if alphabet == 'nt_ctg':
+        raise NotImplementedError(
+            "nt_ctg is reserved for Phase 3 (contig-level clustering); "
+            "not yet operational. See docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
+        )
+    if alphabet not in _ACTIVE_ALPHABETS:
+        raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
     seq_col = _COLS_BY_ALPHABET[alphabet]['seq_col']
     hash_col = _COLS_BY_ALPHABET[alphabet]['hash_col']
 
@@ -379,41 +392,59 @@ def run_mmseqs_easy_clust(
 
 def parse_cluster_tsv(
     cluster_tsv: Path,
+    alphabet: str,
     cluster_id_prefix: Optional[str] = None,
     ) -> pd.DataFrame:
-    """Parse `<prefix>_cluster.tsv` into a (seq_hash, cluster_id) DataFrame.
+    """Parse `<prefix>_cluster.tsv` into a (<hash>, cluster_id) DataFrame.
 
     mmseqs writes one row per (representative, member) pair, tab-separated.
     The representative is the cluster identifier; every member (including the
     representative itself) gets one row.
 
+    The output hash-column name is alphabet-specific (per
+    `_COLS_BY_ALPHABET`): `seq_hash` for aa, `cds_dna_hash` for nt_cds.
+    The downstream join key in `_split_helpers.attach_cluster_ids`
+    matches this directly (no rename step needed).
+
     Args:
         cluster_tsv: path to the *_cluster.tsv produced by easy-cluster.
+        alphabet: 'aa' or 'nt_cds'. Selects the output hash-column name.
+            nt_ctg is reserved (Phase 3) and raises NotImplementedError.
         cluster_id_prefix: if given, cluster_ids are formatted as
             f"{prefix}_{integer_index}" — useful when concatenating per-function
             results into one global lookup. Otherwise an integer cluster_id is
             assigned starting at 0 in order of first appearance.
 
     Returns a DataFrame with columns:
-        - seq_hash: member identifier (matches the FASTA we wrote)
+        - <hash_col>: member identifier (matches the FASTA we wrote);
+              `seq_hash` for aa, `cds_dna_hash` for nt_cds.
         - cluster_id: stable identifier (integer or "{prefix}_{int}")
-        - cluster_rep: representative seq_hash for that cluster
+        - cluster_rep: representative <hash> for that cluster
 
-    Asserts each seq_hash appears exactly once.
+    Asserts each member appears exactly once.
     """
+    if alphabet == 'nt_ctg':
+        raise NotImplementedError(
+            "nt_ctg is reserved for Phase 3 (contig-level clustering); "
+            "not yet operational. See docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
+        )
+    if alphabet not in _ACTIVE_ALPHABETS:
+        raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
+    hash_col = _COLS_BY_ALPHABET[alphabet]['hash_col']
+
     cluster_tsv = Path(cluster_tsv)
     df = pd.read_csv(
         cluster_tsv,
         sep='\t',
         header=None,
-        names=['cluster_rep', 'seq_hash'],
+        names=['cluster_rep', hash_col],
         dtype=str,
     )
 
-    if df['seq_hash'].duplicated().any():
-        n_dup = int(df['seq_hash'].duplicated().sum())
+    if df[hash_col].duplicated().any():
+        n_dup = int(df[hash_col].duplicated().sum())
         raise ValueError(
-            f"parse_cluster_tsv: {n_dup} duplicate seq_hash rows in {cluster_tsv}; "
+            f"parse_cluster_tsv: {n_dup} duplicate {hash_col} rows in {cluster_tsv}; "
             f"every member should appear exactly once."
         )
 
@@ -433,7 +464,7 @@ def parse_cluster_tsv(
     else:
         df['cluster_id'] = [f"{cluster_id_prefix}_{i}" for i in df['cluster_int']]
 
-    return df[['seq_hash', 'cluster_id', 'cluster_rep']].reset_index(drop=True)
+    return df[[hash_col, 'cluster_id', 'cluster_rep']].reset_index(drop=True)
 
 
 def cluster_size_distribution(cluster_lookup: pd.DataFrame) -> dict:

@@ -68,7 +68,7 @@ from src.analysis.cluster_pair_weight_topk import load_pair_universe
 
 
 # Default threshold range. Matches cluster_pair_weight_topk._DEFAULT_THRESHOLDS.
-_DEFAULT_THRESHOLDS = [f'id{i:03d}' for i in range(100, 89, -1)]
+_DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(100, 89, -1)]
 
 
 def load_cluster_map(clusters_root: Path, slot_protein: str, threshold_id: str) -> dict[str, str]:

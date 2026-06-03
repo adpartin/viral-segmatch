@@ -18,10 +18,10 @@
 # Prerequisites:
 #   1. data/processed/flu/July_2025/cds_final.parquet (Stage 1.5)
 #      python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
-#   2. data/processed/flu/July_2025/clusters_nt/id100/combined_cluster.parquet (Step 6)
+#   2. data/processed/flu/July_2025/clusters_nt_cds/t100/combined_cluster.parquet (Step 6)
 #      python -m src.analysis.build_mmseqs_clusters \
 #          --cds_final data/processed/flu/July_2025/cds_final.parquet \
-#          --out_root  data/processed/flu/July_2025/clusters_nt \
+#          --out_root  data/processed/flu/July_2025/clusters_nt_cds \
 #          --thresholds 1.00 0.99 0.95 0.90 0.85 0.80 \
 #          --functions HA NA PB2 PB1 --algorithm linclust --threads 8
 
@@ -32,6 +32,6 @@ defaults:
 dataset:
   split_strategy:
     mode: cluster_disjoint
-    cluster_alphabet: nt
-    cluster_id_path: data/processed/flu/July_2025/clusters_nt/id100/combined_cluster.parquet
+    cluster_alphabet: nt_cds
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds/t100/combined_cluster.parquet
     cluster_id_threshold: 1.00

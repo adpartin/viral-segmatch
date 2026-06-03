@@ -168,7 +168,7 @@ def _draw_panel(ax, coords: np.ndarray, pairs: pd.DataFrame, idxx: int,
                    label=f"{split} (n={len(cell):,})" if show_legend else None)
     ax.set_xlabel(xlab, fontsize=9)
     ax.set_ylabel(ylab, fontsize=9)
-    ax.set_title(f"id{idxx:03d}", fontsize=11, fontweight='bold')
+    ax.set_title(f"t{idxx:03d}", fontsize=11, fontweight='bold')
     ax.grid(True, alpha=0.25)
     ax.tick_params(labelsize=8)
 

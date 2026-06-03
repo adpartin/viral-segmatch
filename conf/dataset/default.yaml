@@ -190,15 +190,17 @@ drop_ambiguous_subtype: true
 #
 # cluster_disjoint-only parameters (required when mode=cluster_disjoint;
 # ignored otherwise):
-#   - cluster_id_path: path to a (seq_hash, cluster_id) parquet produced by
+#   - cluster_id_path: path to a (<hash>, cluster_id) parquet produced by
 #     `src/analysis/build_mmseqs_clusters.py`. Typically points at
-#     `data/processed/<virus>/<version>/clusters_aa/id<NN>/combined_cluster.parquet`
-#     for aa clustering, or `clusters_nt/id<NN>/combined_cluster.parquet`
-#     for nt (CDS DNA) clustering.
+#     `data/processed/<virus>/<version>/clusters_aa/t<NN>/combined_cluster.parquet`
+#     for aa clustering, or `clusters_nt_cds/t<NN>/combined_cluster.parquet`
+#     for nt_cds (CDS DNA) clustering. <hash> is `seq_hash` for aa,
+#     `cds_dna_hash` for nt_cds (alphabet-specific column convention
+#     since Phase 2 of the clustering cleanup plan).
 #   - cluster_id_threshold: float (0–1). Documentation-only; the actual
 #     threshold is whatever was used to build cluster_id_path. Recorded in
 #     the cluster_disjoint_audit so runs can be cross-referenced.
-#   - cluster_alphabet: 'aa' (default) or 'nt'. 'aa' joins on seq_hash
+#   - cluster_alphabet: 'aa' (default) or 'nt_cds'. 'aa' joins on seq_hash
 #     (md5 of prot_seq); 'nt' attaches cds_dna_hash to pos_df via
 #     `_pair_helpers.attach_cds_dna_hash_to_pos_df` and joins on that.
 #     'nt' requires `cds_final.parquet` to exist next to protein_final
@@ -214,7 +216,7 @@ split_strategy:
   mode: seq_disjoint  # 'random' | 'seq_disjoint' (default) | 'cluster_disjoint'
   hash_key: seq       # 'seq' (protein, default) | 'dna' (nucleotide)
   # cluster_disjoint-only knobs — set when mode=cluster_disjoint.
-  # cluster_id_path:      data/processed/flu/July_2025/clusters_aa/id099/combined_cluster.parquet
+  # cluster_id_path:      data/processed/flu/July_2025/clusters_aa/t099/combined_cluster.parquet
   # cluster_id_threshold: 0.99
   # cluster_alphabet:     aa   # 'aa' (default) | 'nt'
   # single_slot:          null # null (default, bilateral: both slots' clusters disjoint)

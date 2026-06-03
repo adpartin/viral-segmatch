@@ -24,6 +24,6 @@ defaults:
 dataset:
   split_strategy:
     mode: cluster_disjoint
-    cluster_alphabet: nt
-    cluster_id_path: data/processed/flu/July_2025/clusters_nt/id100/combined_cluster.parquet
+    cluster_alphabet: nt_cds
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds/t100/combined_cluster.parquet
     cluster_id_threshold: 1.00

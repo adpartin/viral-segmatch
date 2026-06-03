@@ -13,7 +13,7 @@ defaults:
 dataset:
   split_strategy:
     mode: cluster_disjoint
-    cluster_id_path: data/processed/flu/July_2025/clusters_aa/id093/combined_cluster.parquet
+    cluster_id_path: data/processed/flu/July_2025/clusters_aa/t093/combined_cluster.parquet
     cluster_id_threshold: .93
     cluster_alphabet: aa
     single_slot: a       # constrain slot a (HA) only; slot b (NA) unconstrained

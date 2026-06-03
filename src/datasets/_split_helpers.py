@@ -69,12 +69,14 @@ def attach_cluster_ids(
     on the chosen hash column.
 
     For aa cluster_disjoint (default): join `pos_df.seq_hash_{a,b}` against
-    `cluster_lookup.seq_hash`. For nt cluster_disjoint
-    (Experiment B-nt), pass `pos_hash_col='cds_dna_hash'`; the join then
-    consumes `pos_df.cds_dna_hash_{a,b}` (attached via
-    `attach_cds_dna_hash_to_pos_df`). In both cases the cluster_lookup
-    parquet itself keeps the legacy `seq_hash` column name — the values
-    inside are aa md5 for `clusters/` and CDS-DNA md5 for `clusters_nt/`.
+    `cluster_lookup.seq_hash`. For nt_cds cluster_disjoint, pass
+    `pos_hash_col='cds_dna_hash'`; the join then consumes
+    `pos_df.cds_dna_hash_{a,b}` (attached via
+    `attach_cds_dna_hash_to_pos_df`) and joins against
+    `cluster_lookup.cds_dna_hash`. Post Phase 2: `parse_cluster_tsv`
+    writes the alphabet-specific hash column name directly, so the
+    join column on the lookup side matches `pos_hash_col` exactly —
+    only a side-suffix rename (hash → hash_a / hash_b) is needed.
 
     Pairs whose pos-side hash is missing from the lookup are DROPPED.
 
@@ -91,19 +93,22 @@ def attach_cluster_ids(
             f"attach_cluster_ids: pos_df must contain {pos_col_a} and "
             f"{pos_col_b} columns (pos_hash_col={pos_hash_col!r})."
         )
-    if {'seq_hash', 'cluster_id'} - set(cluster_lookup.columns):
+    if {pos_hash_col, 'cluster_id'} - set(cluster_lookup.columns):
         raise ValueError(
-            "attach_cluster_ids: cluster_lookup must contain seq_hash and cluster_id columns."
+            f"attach_cluster_ids: cluster_lookup must contain {pos_hash_col!r} "
+            f"and cluster_id columns. If your lookup was produced by an older "
+            f"parse_cluster_tsv that wrote 'seq_hash' regardless of alphabet, "
+            f"regenerate it with the Phase 2 alphabet-specific column convention."
         )
 
-    lookup = cluster_lookup[['seq_hash', 'cluster_id']].drop_duplicates(subset='seq_hash')
+    lookup = cluster_lookup[[pos_hash_col, 'cluster_id']].drop_duplicates(subset=pos_hash_col)
 
     out = pos_df.merge(
-        lookup.rename(columns={'seq_hash': pos_col_a, 'cluster_id': 'cluster_id_a'}),
+        lookup.rename(columns={pos_hash_col: pos_col_a, 'cluster_id': 'cluster_id_a'}),
         on=pos_col_a, how='left',
     )
     out = out.merge(
-        lookup.rename(columns={'seq_hash': pos_col_b, 'cluster_id': 'cluster_id_b'}),
+        lookup.rename(columns={pos_hash_col: pos_col_b, 'cluster_id': 'cluster_id_b'}),
         on=pos_col_b, how='left',
     )
 

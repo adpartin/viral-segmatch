@@ -333,7 +333,7 @@ def plot_sweep(sweep_df: pd.DataFrame, refs_by_fs: dict, out_path: Path,
                                alpha=alpha, linewidth=1.0)
 
         ax.set_xticks(list(x_positions.values()))
-        ax.set_xticklabels([f"id{v:03d}" for v in x_positions.keys()])
+        ax.set_xticklabels([f"t{v:03d}" for v in x_positions.keys()])
         ax.set_xlabel('Cluster identity threshold (constraint strength: lighter → heavier)')
         ax.set_ylabel('MMD²  (RBF, fixed σ per feature space)')
         ax.set_title(f"Single-slot {routing_direction} idXX sweep · {fs}")
@@ -389,7 +389,7 @@ def plot_perf(perf_df: pd.DataFrame, out_path: Path,
                                facecolor='none', edgecolor=style['color'],
                                marker=style['marker'], s=30, alpha=0.5, linewidth=0.8)
         ax.set_xticks(list(x_positions.values()))
-        ax.set_xticklabels([f'id{v:03d}' for v in x_positions.keys()])
+        ax.set_xticklabels([f't{v:03d}' for v in x_positions.keys()])
         ax.set_xlabel('Cluster identity threshold (lighter constraint → heavier)')
         ax.set_ylabel(metric)
         ax.set_title(f'Test {metric} vs idXX')
@@ -448,7 +448,7 @@ def plot_mmd_vs_perf(sweep_df: pd.DataFrame, perf_df: pd.DataFrame,
                        facecolor='none', edgecolor=style['color'],
                        marker=style['marker'], s=20, alpha=0.4, linewidth=0.7)
         for _, r in agg.iterrows():
-            ax.annotate(f'id{int(r["idxx"]):03d}',
+            ax.annotate(f't{int(r["idxx"]):03d}',
                         (r['mmd2'], r['mean']),
                         xytext=(5, 5), textcoords='offset points',
                         fontsize=8, alpha=0.7)

@@ -145,7 +145,7 @@ def plot_v_vs_idxx(coupling_df: pd.DataFrame, out_path: Path) -> None:
     ax.axhline(0.0, color='gray', linestyle=':', alpha=0.5, label='independence')
     ax.axhline(1.0, color='gray', linestyle='--', alpha=0.3, label='perfect coupling')
     ax.set_xticks(list(x_positions.values()))
-    ax.set_xticklabels([f'id{v:03d}' for v in x_positions.keys()])
+    ax.set_xticklabels([f't{v:03d}' for v in x_positions.keys()])
     ax.set_xlabel('HA cluster threshold (lighter constraint → heavier)')
     ax.set_ylabel("Cramér's V (HA cluster ↔ metadata axis)")
     ax.set_title("HA cluster boundary ↔ metadata-axis coupling across the sweep\n"
@@ -173,7 +173,7 @@ def plot_purity_bars(coupling_df: pd.DataFrame, out_path: Path) -> None:
                width, color=style[axis_name], label=axis_name.replace('_', ' '),
                edgecolor='black', linewidth=0.5)
     ax.set_xticks(x)
-    ax.set_xticklabels([f'id{v:03d}' for v in idxx_sorted])
+    ax.set_xticklabels([f't{v:03d}' for v in idxx_sorted])
     ax.set_ylabel('% of pairs in HA clusters ≥95% pure for this axis')
     ax.set_xlabel('HA cluster threshold (lighter → heavier)')
     ax.set_title('Cluster-purity fraction per axis across the sweep\n'

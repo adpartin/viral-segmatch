@@ -16,5 +16,5 @@ defaults:
 
 dataset:
   split_strategy:
-    cluster_id_path: data/processed/flu/July_2025/clusters_nt/id099/combined_cluster.parquet
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds/t099/combined_cluster.parquet
     cluster_id_threshold: 0.99

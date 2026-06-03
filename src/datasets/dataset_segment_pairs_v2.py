@@ -1483,8 +1483,9 @@ def split_dataset_v2(
         # seq_hashes aren't covered by the cluster lookup are dropped.
         # See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
         # cluster_alphabet='aa' (default) clusters protein sequences;
-        # cluster_alphabet='nt' clusters CDS DNA — the latter joins on
+        # cluster_alphabet='nt_cds' clusters CDS DNA — the latter joins on
         # cds_dna_hash, so we attach it to pos_df here before routing.
+        # 'nt_ctg' is reserved for Phase 3 (raises NotImplementedError).
         from src.datasets._split_helpers import (
             cluster_disjoint_route_pos_df, load_cluster_lookup,
         )
@@ -1493,15 +1494,21 @@ def split_dataset_v2(
                 "split_dataset_v2: cluster_id_path is required when "
                 "split_strategy_mode='cluster_disjoint'."
             )
-        if cluster_alphabet not in {'aa', 'nt'}:
+        if cluster_alphabet == 'nt_ctg':
+            raise NotImplementedError(
+                "cluster_alphabet='nt_ctg' is reserved for Phase 3 (contig-"
+                "level clustering); not yet operational. See "
+                "docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
+            )
+        if cluster_alphabet not in {'aa', 'nt_cds'}:
             raise ValueError(
-                f"split_dataset_v2: cluster_alphabet must be 'aa' or 'nt', "
+                f"split_dataset_v2: cluster_alphabet must be 'aa' or 'nt_cds', "
                 f"got {cluster_alphabet!r}"
             )
-        if cluster_alphabet == 'nt':
+        if cluster_alphabet == 'nt_cds':
             if cds_final_path is None:
                 raise ValueError(
-                    "split_dataset_v2: cluster_alphabet='nt' requires "
+                    "split_dataset_v2: cluster_alphabet='nt_cds' requires "
                     "cds_final_path (the cds_final.parquet path)."
                 )
             from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
@@ -2041,12 +2048,12 @@ def generate_all_cluster_disjoint_cv_folds_v2(
         )
     print(f"   Global pos_df: {len(pos_df):,} unique pair_keys after dedup.")
 
-    # ----- Attach nt CDS-DNA hash if nt-alphabet routing -----
+    # ----- Attach nt_cds CDS-DNA hash if nt_cds-alphabet routing -----
     pos_hash_col = 'seq_hash'
-    if cluster_alphabet == 'nt':
+    if cluster_alphabet == 'nt_cds':
         if cds_final_path is None:
             raise ValueError(
-                "cluster_alphabet='nt' requires cds_final_path "
+                "cluster_alphabet='nt_cds' requires cds_final_path "
                 "(cds_final.parquet path from Stage 1.5)."
             )
         pos_df = attach_cds_dna_hash_to_pos_df(
@@ -2887,10 +2894,10 @@ def _validate_v2_config(config) -> None:
         if cluster_id_path is None:
             raise ValueError(
                 "dataset.split_strategy.mode='cluster_disjoint' requires "
-                "dataset.split_strategy.cluster_id_path to point at a (seq_hash, cluster_id) "
-                "parquet (typically data/processed/flu/<version>/clusters_aa/id<NN>/combined_cluster.parquet "
-                "or clusters_nt/id<NN>/combined_cluster.parquet). "
-                "See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
+                "dataset.split_strategy.cluster_id_path to point at a (<hash>, cluster_id) "
+                "parquet (typically data/processed/flu/<version>/clusters_aa/t<NN>/combined_cluster.parquet "
+                "or clusters_nt_cds/t<NN>/combined_cluster.parquet; <hash> is alphabet-specific "
+                "per Phase 2). See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
             )
         cluster_id_threshold = OmegaConf.select(config, "dataset.split_strategy.cluster_id_threshold")
         if cluster_id_threshold is not None:

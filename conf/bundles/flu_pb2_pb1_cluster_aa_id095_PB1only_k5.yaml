@@ -16,7 +16,7 @@ dataset:
   n_folds: 5
   split_strategy:
     mode: cluster_disjoint
-    cluster_id_path: data/processed/flu/July_2025/clusters_aa/id095/combined_cluster.parquet
+    cluster_id_path: data/processed/flu/July_2025/clusters_aa/t095/combined_cluster.parquet
     cluster_id_threshold: 0.95
     cluster_alphabet: aa
     single_slot: b       # constrain slot b (PB1) only; slot a (PB2) unconstrained

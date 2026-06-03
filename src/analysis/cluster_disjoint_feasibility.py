@@ -62,7 +62,7 @@ from src.datasets._pair_helpers import bipartite_components
 
 
 def _threshold_label(t: float) -> str:
-    return f"id{int(round(t * 100)):03d}"
+    return f"t{int(round(t * 100)):03d}"
 
 
 def build_isolate_pairs(

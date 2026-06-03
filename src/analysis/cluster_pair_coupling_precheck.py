@@ -190,7 +190,7 @@ def main() -> None:
         lookup = _load_cluster_lookup(args.clusters_root, t, schema_pair)
         row = coupling_one_threshold(df, isolate_pairs, subtype_map, lookup, t, schema_pair)
         rows.append(row)
-        print(f"id{int(round(t*100)):03d}  "
+        print(f"t{int(round(t*100)):03d}  "
               f"n_pairs={row['n_pairs']:,}  "
               f"clusters_a={row['n_clusters_a']:,} clusters_b={row['n_clusters_b']:,}  "
               f"subtypes={row['n_subtypes']}  |  "

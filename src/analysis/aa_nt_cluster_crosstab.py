@@ -1,7 +1,7 @@
 """Cross-tab aa vs nt cluster memberships at a fixed identity threshold.
 
-Joins aa-clustered isolates (`clusters_aa/idNN/<fn>_cluster.parquet`) with
-nt-clustered isolates (`clusters_nt/idNN/<fn>_cluster.parquet`) via
+Joins aa-clustered isolates (`clusters_aa/tNN/<fn>_cluster.parquet`) with
+nt_cds-clustered isolates (`clusters_nt_cds/tNN/<fn>_cluster.parquet`) via
 `cds_final.parquet` and reports, per function:
 
 - n_aa_clusters / n_nt_clusters / n_isolates
@@ -56,7 +56,7 @@ SHORT_ORDER = ['PB2', 'PB1', 'PA', 'HA', 'NP', 'NA', 'M1', 'NS1']
 
 
 def _threshold_label(threshold: float) -> str:
-    return f'id{int(round(threshold * 100)):03d}'
+    return f't{int(round(threshold * 100)):03d}'
 
 
 def load_joined(data_root: Path, function_short: str, threshold: float) -> pd.DataFrame:

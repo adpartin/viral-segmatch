@@ -96,7 +96,7 @@ _SCHEMA_PAIRS = [
 # t100..t90 because lower thresholds collapse to ≤ a handful of clusters
 # per protein for most pairs (see clusters.md § 6.1) and are uninteresting
 # for splitter-design diagnostics.
-_DEFAULT_THRESHOLDS = [f'id{i:03d}' for i in range(100, 89, -1)]
+_DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(100, 89, -1)]
 
 
 def load_pair_universe(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFrame:
