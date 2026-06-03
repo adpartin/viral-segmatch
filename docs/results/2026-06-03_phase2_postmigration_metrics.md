@@ -274,23 +274,45 @@ ACROSS train and val/test:
 | HA-NA | 17 | 0.03 % |
 | PB2-PB1 | 215 | 0.41 % |
 
-Mechanism: at nt id099, silent codon variants of the same protein
-can land in DIFFERENT nt clusters (when their nt identity is < 99 %
-despite encoding the same protein). When pair P1×P2 has DNA
-variants D1a-D1b in CC-α (routed to train) and D1a'-D1b' in CC-β
-(routed to test), the new DNA-level pair_key treats them as distinct,
-the cluster_disjoint routing doesn't catch them at the protein level,
-and train and test see different DNA encodings of the same biological
-pair. Pre's protein-level pair_key dedup prevented this by collapsing
-silent variants into a single representative pair.
+**Mechanism in concrete terms.** Consider two pairs `(h_0, n_0)` and
+`(h_1, n_1)` where `h_0` and `h_1` are close homologs — synonymous
+DNA variants that encode the SAME HA protein but differ at the nt
+level (multiple silent codon substitutions, enough to fall below the
+0.99 nt-identity threshold). At nt id099, mmseqs linclust assigns
+`h_0` and `h_1` to DIFFERENT nt clusters because their nt-level
+similarity is < 99 %, despite encoding the same protein. The two
+pairs therefore receive different bipartite atoms
+`(c_HA0, c_NA0)` and `(c_HA1, c_NAk)` — independently of whether
+`n_0` and `n_1` are themselves in the same NA cluster. LPT-greedy
+routes the two atoms separately, and one can end up in train while
+the other lands in val or test.
 
-Small magnitude (~0.03-0.41 % of the post universe), but it's a real
-new leakage mode opened by the migration. For k-mer nt features, the
-model's input vectors differ across silent variants, so this isn't
-"identical-input" leakage; it's "biologically-equivalent-pair
-leakage" (same protein-protein interaction, different DNA encoding).
-Whether to treat this as benign depends on what generalization the
-benchmark is meant to measure.
+The result: at the BIPARTITE atom level the routing is correct —
+the two pairs are disjoint by cluster — but the underlying PROTEIN
+pair (same HA protein × the same (or close) NA protein) appears in
+both train and test. The HA protein the model trained on is
+biologically the same one it's evaluated against, just with a
+slightly different DNA encoding. Pre-Phase-2's protein-level
+pair_key collapsed `(h_0, n_0)` and `(h_1, n_1)` into a single
+canonical pair before routing, so this mode couldn't occur.
+
+For the k-mer nt feature space (the bundle being tested), the model
+sees DIFFERENT input vectors across silent variants — so this isn't
+"identical-input" leakage in the strict sense. It's
+"biologically-equivalent-pair" leakage: same protein-protein
+interaction, different DNA encoding. Whether to treat it as benign
+depends on what generalization the benchmark claims:
+
+- **"Generalize to novel proteins"** → this is leakage, because the
+  HA protein has been seen during training.
+- **"Generalize to novel DNA encodings of known proteins"** → this
+  is the intended evaluation, not leakage.
+
+Small magnitude overall (~0.03-0.41 % of the post universe), but
+non-zero and unintended. Mitigation options if needed: (a) enforce
+protein-level dedup on top of CDS-level pair_key construction; or
+(b) re-route at the protein-cluster atom level even when pair_keys
+are nt-based.
 
 ### Verdict on the original three-candidate analysis
 
@@ -298,8 +320,34 @@ benchmark is meant to measure.
 |---|---|---|
 | #1 pair_key inflation | CONFIRMED, intentional | +34.9 % / +57.0 % pair universe, exactly as predicted (Finding 1) |
 | #2 clustering differences | NOT a cause | Cluster atoms preserved (cluster_id namespace renamed protein-hash → DNA-hash but same biological groups) |
-| #3 codebase bug | UNLIKELY | All effects explainable by #1 + downstream #4 mechanism |
+| #3 codebase bug | UNLIKELY | No smoking-gun signal turned up; observed effects are consistent with #1 + #4. Not the same as "ruled out" — the triangulation didn't independently verify negative-sampler dispatch, regime-aware sampling behavior, or any non-routing code path under the new pair_key. |
 | #4 routing shift downstream of #1 (new) | CONFIRMED | 20-22 % of common positive protein-pairs land in different splits pre/post (Finding 2); plus new DNA-variant leakage (Finding 3) |
+
+**What the triangulation does NOT establish:**
+
+- **#1 vs #4 magnitude split.** Both mechanisms operate
+  simultaneously on every row of the Section B deltas. The
+  triangulation confirms both are present but does not quantify
+  how many percentage points of F1 drop come from each. A clean
+  controlled comparison (fix the partition, vary only pair_key)
+  is required and is out of scope.
+- **Seed-variance under the new code path.** Pre-flight's ε = 0
+  reproducibility verdict was *same seed + same data + same code*
+  → byte-identical. The Section B post-Phase-2 runs are single-seed.
+  Same-data-different-seed variance under the inflated pair_key
+  has NOT been measured; some of the PB2-PB1 LGBM −13 pp F1 drop
+  could plausibly include seed-noise contribution beyond what
+  pre-flight's epsilon bound covers.
+- **Behavioral drift in non-routing code paths.** The migration
+  touched `_PAIR_COLUMNS` schema, negative-sampler dispatch, and
+  `load_cluster_lookup`. The triangulation verified routing-output
+  composition but did not independently test whether the
+  regime-aware negative sampler produces a different negative
+  distribution under nt_cds pair_key (the larger negative pool
+  could induce subtle sampling drift).
+
+So the headline framing is "consistent with #1 + #4, no codebase
+bug evidence" — NOT "fully explained by #1 + #4."
 
 ### Implication for the headline framing
 
@@ -341,10 +389,15 @@ before/after comparison is reportable for them.
    bits flowing out of Stage 4 are identical for the bundles tested.
 
 2. **No codebase bug evidence** (Section C). The Section B metric
-   drops are fully explained by intentional pair-key inflation
+   drops are CONSISTENT with intentional pair-key inflation
    (Finding 1) plus the LPT-greedy bin-packer producing a different
    CC-to-bin assignment under inflated per-CC pair counts (Finding 2).
-   No need to hunt for a regression bug in the migration code.
+   The triangulation did not find a smoking-gun bug signal but also
+   did not independently verify non-routing code paths or measure
+   the #1/#4 magnitude split or seed-variance under the new code
+   (see Section C "What the triangulation does NOT establish").
+   Read as "no evidence to hunt a regression bug," not "ruled out
+   bug + fully quantified mechanism."
 
 3. **Section B comparison is partly confounded** by the routing shift
    (Section C, Finding 2). The before vs after metric deltas
