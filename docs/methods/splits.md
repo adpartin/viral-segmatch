@@ -1,16 +1,16 @@
 # Split methods for viral-segmatch
 
 Third in the methods chain: **`leakage.md` → `clusters.md` → `splits.md`**.
-`leakage.md` defines the leakage modes and the "biology learning"
-criterion. `clusters.md` covers mmseqs2 clustering mechanics and
-Flu A corpus structure. **This doc covers everything about turning
+`leakage.md` defines the leakage modes and the 1-NN lookup gauge.
+`clusters.md` covers mmseqs2 clustering mechanics and Flu A corpus
+structure. **This doc covers everything about turning
 the corpus into train / val / test partitions** — routing modes,
 atoms, bin-packing, k-fold cross-validation, and the relation to
 prior-art split strategies.
 
-This doc carries **methods + structural numbers only**. Model-
-performance numbers (F1, MCC, AUC) for specific routings live in
-`docs/results/`; cross-refs are inline at each result-bearing claim.
+This doc carries **methods + structural numbers only**. Model-performance
+numbers (F1, MCC, AUC) for specific routings live in `docs/results/`;
+cross-refs are inline at each result-bearing claim.
 
 ---
 
@@ -26,25 +26,41 @@ performance numbers (F1, MCC, AUC) for specific routings live in
 
 ## 1. Holdout (single split)
 
-### 1.1 The implemented routing modes
+### 1.1 The routing modes
 
-| Mode | What it constrains | Atom | Algorithm |
-|---|---|---|---|
-| `random` | nothing | one isolate | random shuffle on isolates |
-| `seq_disjoint` `hash_key=seq` (default) | same protein cannot span splits | bipartite CC on `(seq_hash_a, seq_hash_b)` | bipartite-CC LPT-greedy |
-| `seq_disjoint` `hash_key=dna` | same full contig (UTR + CDS + intron + UTR) cannot span splits | bipartite CC on `(dna_hash_a, dna_hash_b)` | bipartite-CC LPT-greedy |
-| `cluster_disjoint` bilateral (`single_slot: null`, default for the mode) | similar proteins cannot span splits on EITHER slot | bipartite CC on `(cluster_id_a, cluster_id_b)` | bipartite-CC LPT-greedy |
-| `cluster_disjoint` single-slot (`single_slot: 'a'` or `'b'`) | similar proteins cannot span splits on the constrained slot only | per-cluster pair-set on the constrained slot | per-cluster atom LPT-greedy |
-| `metadata_holdout` | isolate filter on metadata axes (host / year / subtype / geo / passage) | filter-defined isolate partition fed through `random` dispatch | `compute_metadata_holdout_isolates` overrides train/val/test isolate sets |
+| # | Label | What it constrains | Atom | Algorithm | Implementation (config) | Status |
+|---|---|---|---|---|---|---|
+| 1 | `Random` | nothing | one isolate | random shuffle on isolates | `mode: random` | implemented |
+| 2 | `1D-SD` | different splits cannot share the same `seq_hash` (or `dna_hash`) on the constrained slot only | per-slot atom on `seq_hash` or `dna_hash` | per-slot atom LPT-greedy | `mode: seq_disjoint`, `single_slot: 'a'\|'b'`, `hash_key: seq\|dna` | **planned** |
+| 3 | `2D-SD` | different splits cannot share the same `seq_hash` (or `dna_hash`) on EITHER slot | bipartite CC on `(hash_a, hash_b)` | bipartite-CC LPT-greedy | `mode: seq_disjoint`, `hash_key: seq\|dna` | implemented |
+| 4 | `1D-CD` | different splits cannot share the same cluster on the constrained slot only | per-cluster atom on the constrained slot | per-cluster atom LPT-greedy | `mode: cluster_disjoint`, `single_slot: 'a'\|'b'`, `cluster_alphabet: aa\|nt_cds\|nt_ctg` | implemented (aa, nt_cds); nt_ctg planned |
+| 5 | `2D-CD` | different splits cannot share the same cluster on EITHER slot | bipartite CC on `(cluster_id_a, cluster_id_b)` | bipartite-CC LPT-greedy | `mode: cluster_disjoint`, `single_slot: null` (default), `cluster_alphabet: aa\|nt_cds\|nt_ctg` | implemented (aa, nt_cds); nt_ctg planned |
+| 6 | `2D-CD-test` | train and test cannot share the same cluster on EITHER slot; val is sampled from train's CC scope (leaky val) | bipartite CC on `(cluster_id_a, cluster_id_b)` for test partition; random subsample within train's CC scope for val | bipartite-CC LPT-greedy (test only) + random subsample (val) | not yet implemented | **planned** |
+| 7 | `Metadata holdout` | isolate filter on metadata axes (host / year / subtype / geo / passage) | filter-defined isolate partition | filter-override dispatch (no bin-packing) | `mode: metadata_holdout` | implemented |
 
 Notes:
-- `seq_disjoint` does NOT have a single-slot variant; `hash_key` selects
-  the hash family, not the constrained slot. Single-slot routing only
-  exists under `cluster_disjoint`.
-- `metadata_holdout` is mutually exclusive with the cluster_disjoint /
-  seq_disjoint dispatch — it provides the isolate partition; `random`
-  mode actually does the dispatch (enforced in
-  `dataset_segment_pairs_v2.py:2953`).
+- **Alphabet / hash axis** (rows 2-5):
+  - `seq_disjoint` (rows 2-3) operates on seq hash keys. Currently
+    supports `seq_hash` (protein hash; default) and `dna_hash` (full
+    contig hash including UTRs).
+  - `cluster_disjoint` (rows 4-5) operates on cluster atoms derived
+    under one of three alphabets: `cluster_alphabet ∈ {aa, nt_cds,
+    nt_ctg}`. `aa` = protein-level mmseqs2 clusters; `nt_cds` = CDS
+    DNA mmseqs2 clusters; `nt_ctg` = full-contig DNA clusters
+    (planned; would include UTR + introns).
+- For the LPT-greedy vs sklearn `GroupShuffleSplit` / `GroupKFold`
+  comparison see § 1.3 above (`GroupShuffleSplit` solves the same
+  atom-respecting splitting problem with a different assignment step).
+- `metadata_holdout` (row 7) is mutually exclusive with the
+  cluster_disjoint / seq_disjoint dispatch — it provides the isolate
+  partition; `random` mode actually does the downstream dispatch
+  (enforced in `dataset_segment_pairs_v2.py:2953`).
+- The `1D-SD` (row 2) and `2D-CD-test` (row 6) rows are identified
+  but not yet in code. For `1D-SD`, the existing `seq_disjoint` mode
+  is always bilateral (`single_slot` is read but consumed only by the
+  cluster_disjoint dispatch). For `2D-CD-test`, no `cluster_disjoint_test_only`
+  mode exists in `src/`; the framing comes from the conversation thread
+  2026-05-31..2026-06-01 (see `.claude/memory.md`).
 
 ### 1.2 Atoms — the indivisible routing unit
 
@@ -277,12 +293,12 @@ indicates the cluster gap is breaking lookup-style baselines. A 1-NN
 F1 that stays flat indicates residual border-similarity leakage that
 lookup can still exploit.
 
-**Cross-comparison with MLP** turns this into the "biology learning"
-criterion from `leakage.md` § "When we say 'the model learned biology'":
-MLP > 1-NN by a meaningful margin (initial bar: > 0.02 AUC) on a
-single-slot cluster_disjoint test set is evidence the MLP has
-generalizable representation beyond near-neighbor lookup. MLP ≈ 1-NN
-is evidence it is doing nothing more.
+**Cross-comparison with MLP** uses the 1-NN lookup gauge from
+`leakage.md` § "The 1-NN lookup gauge": MLP > 1-NN by a meaningful
+margin (initial bar: > 0.02 AUC) on a single-slot cluster_disjoint
+test set is evidence the MLP exceeds near-neighbor lookup in the
+pair interaction feature space. MLP ≈ 1-NN is evidence it is doing
+nothing more.
 
 Per-pair / per-threshold trajectories on Flu A are reported in
 `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`

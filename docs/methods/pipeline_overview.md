@@ -53,8 +53,8 @@ pairs for "do these belong together?" supports:
 
 The model is intentionally trained to discriminate at the **isolate**
 level (same vs different isolate), not at the population level (same
-vs different host/subtype/year). The line between "biology learning"
-and "metadata memorization" is the central evaluation question — see
+vs different host/subtype/year). Distinguishing genuine generalization
+from metadata memorization is the central evaluation question — see
 section 9.
 
 ---
@@ -348,7 +348,7 @@ from sequence content.
   HA/NA) means the test set is densely connected to train in feature
   space — even nearest-neighbor lookup gets it right most of the time.
   This is the **leakage signal**.
-- For the MLP to claim "biology learning," it should beat 1-NN's
+- For the MLP to exceed near-neighbor lookup, it should beat 1-NN's
   `host_subtype_year` TNR by ≥0.02. If MLP ≈ 1-NN, the MLP is doing
   soft memorization with extra steps.
 - Comparing across regimes: a model that scores ~1.0 on `none_match`

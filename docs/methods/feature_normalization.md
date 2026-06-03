@@ -130,10 +130,10 @@ support from this project (current production bundles
 The 1-NN and MLP results are nearly indistinguishable on aggregate
 metrics under this setup — and on PB2/PB1 the 1-NN baseline narrowly
 edges the MLP on MCC (0.900 vs 0.887). See
-`docs/methods/leakage.md` for the role of the 1-NN result
-in the "biology learning" criterion and `docs/results/2026-05-11_exp4a_seq_disjoint_results.md`
-for the earlier HA/NA Exp 4a numbers under the looser `hash_key=dna`
-routing.
+`docs/methods/leakage.md` § "The 1-NN lookup gauge" for the role of
+the 1-NN result as a near-neighbor-lookup floor, and
+`docs/results/2026-05-11_exp4a_seq_disjoint_results.md` for the
+earlier HA/NA Exp 4a numbers under the looser `hash_key=dna` routing.
 
 For ESM-2 features the picture changes — see ESM-2 section below.
 
@@ -338,8 +338,8 @@ extrapolation.
   2026-05-12; wired via `# @package bundles`).
 - `docs/methods/kmer_features.md` — full k-mer pipeline; "Why not
   normalize counts?" section discusses the length confound.
-- `docs/methods/leakage.md` — uses 1-NN as the leakage
-  anchor for the "biology learning" criterion.
+- `docs/methods/leakage.md` — uses 1-NN as the near-neighbor-lookup
+  floor for memorization-vs-generalization comparison.
 - `src/models/_pair_features.py` — the baseline-side feature loader;
   `_apply_slot_norm` (line 96, numpy LayerNorm) and `_apply_unit_norm`
   (line 113, L2 row-norm) live here. The k-mer slot_norm rejection

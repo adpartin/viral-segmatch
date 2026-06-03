@@ -74,7 +74,7 @@ to different splits.
 ```
 
 The model memorizes A1's neighborhood at training time and trivially
-predicts A2 at evaluation — without learning anything about the sequence biology. Test sequences typically have a train-side
+predicts A2 at evaluation. Test sequences typically have a train-side
 neighbor within a handful of aa edits, allowing for shortcut learning.
 
 **Step 2 — clustering at radius t collapses near-neighbors to one cluster id.**
