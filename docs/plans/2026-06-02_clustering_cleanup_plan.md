@@ -23,7 +23,7 @@ independent cleanup items and seven plan-coupled items.
 | Phase | Scope | Gate | Commit boundary | Status |
 |---|---|---|---|---|
 | **1. Cleanup** | API + naming cleanup; user TODOs | None | One commit on its own; ship anytime | **IMPLEMENTED 2026-06-02 (commit `27cc0d0` on `feature/clustering-cleanup-phase1`)** |
-| **2. Alphabet enum + column rename** | `nt → nt_cds`; cluster parquet column rename; nt_ctg enum value reserved | Pair_key plan § 6 adoption + § 7.1 rename bundling | Co-committed with pair_key migration in same PR; cluster parquets fully regenerated | Pending gates |
+| **2. Alphabet enum + column rename** | `nt → nt_cds`; cluster parquet column rename; nt_ctg enum value reserved | Pair_key plan § 6 adoption + § 7.1 rename bundling | Co-committed with pair_key migration in same PR; cluster parquets fully regenerated | **IN PROGRESS** — bundled into `feature/phase2-pair-key-migration` per `2026-06-02_phase2_pair_key_migration_plan.md`. Commit 1 of 7 landed at `a3aeb53` (alphabet enum + parse_cluster_tsv column + threshold label flip). |
 | **3. nt_ctg operationalization** | Contig exporter; `clusters_nt_ctg/` dir; per-function contig filter | Pair_key plan § 7.2 (operationalize vs reserve) | Separate commit, only if § 7.2 says go | Pending gates |
 
 Each phase is independently testable (Phase 1 doesn't require Phase

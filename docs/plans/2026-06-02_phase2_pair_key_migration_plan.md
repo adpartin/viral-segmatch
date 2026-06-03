@@ -1,6 +1,6 @@
 # Phase 2 — pair_key alphabet migration + clustering enum cleanup
 
-**Status: IN PROGRESS**
+**Status: IN PROGRESS** (pre-flight DONE; commit 1 of 7 DONE)
 
 Implementation plan for the bundled Phase 2 work, combining:
 
@@ -104,6 +104,9 @@ Pre-flight measurements to take BEFORE touching code (~30 min each):
 ## 3. Implementation sub-phases
 
 ### 3.1 Code changes (no data touched yet)
+
+**Status: DONE 2026-06-02 (commit `a3aeb53`).** 40 files changed
+(12 .py files, 27 bundle YAMLs, conf/dataset/default.yaml).
 
 **One PR commit, all schema-level changes:**
 
@@ -380,13 +383,15 @@ used.
 
 Seven commits on `feature/phase2-pair-key-migration`, in order:
 
-1. `refactor(clustering): alphabet enum {aa,nt_cds,nt_ctg}; parse_cluster_tsv writes alphabet-specific hash column; threshold label id -> t` — § 3.1 code only.
+1. **DONE 2026-06-02 (commit `a3aeb53`)** — `refactor(clustering): alphabet enum {aa,nt_cds,nt_ctg}; parse_cluster_tsv writes alphabet-specific hash column; threshold label id -> t` — § 3.1 code only. 40 files: clustering_utils, _split_helpers, dataset_segment_pairs_v2, build_mmseqs_clusters, 9 reader files, 27 bundle YAMLs + conf/dataset/default.yaml. HEAD intentionally non-runnable until commit 3 regenerates cluster parquets at the new tXXX/ dirs.
 2. `chore: rename idXXX bundles to tXXX + sweep cross-refs across CLAUDE.md, docs, aggregators` — bundle filename cascade.
-3. `data(clusters): archive old clusters_{aa,nt}; regenerate cluster_{aa,nt_cds}/tXXX/ parquets under new column convention` — § 3.2 data + archive rename.
+3. `data(clusters): archive old clusters_{aa,nt}; regenerate cluster_{aa,nt_cds}/tXXX/ parquets under new column convention` — § 3.2 data + archive rename. **Restores HEAD runnability.**
 4. `feat(v2): alphabet-specific pair_key for nt_cds; aa unchanged` — the pair_key migration core. Updates v2 builder + helpers.
 5. `data(datasets): regenerate test bundles (HA-NA + PB2-PB1 bilateral t099, aa + nt_cds = 4 datasets) under new pair_key convention` — § 3.3 narrow.
 6. `data(models): retrain MLP + LGBM on test datasets; aa regression guard + nt_cds delta measurement` — § 3.4 + § 4.4/4.5 validation results.
 7. `docs: Key Findings caveats (pair_key=protein) on past results + new nt_cds numbers from test bundles` — § 6.
+
+**Pre-flight (preceding the 7 commits)**: scoping at `f09d9a1`; baselines + ε=0 finding at `7c6a143`.
 
 If § 4 validation passes on the test set, a follow-up PR
 expands § 3.3 + § 3.4 to the full active-bundle set.
