@@ -32,30 +32,45 @@ from src.datasets._pair_helpers import bipartite_components
 
 
 def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
-    """Load a (seq_hash -> cluster_id) lookup from a parquet file.
+    """Load a (<hash> -> cluster_id) lookup from a parquet file.
 
     Accepts the per-(function, threshold) parquet emitted by
     `build_mmseqs_clusters.py` or the per-threshold `combined_cluster.parquet`.
-    Required columns: `seq_hash`, `cluster_id`. Optional: `function`, `function_short`,
-    `threshold`, `cluster_rep` — left intact if present.
+    The hash column name is alphabet-specific (Phase 2 of clustering
+    cleanup plan): `seq_hash` for aa, `cds_dna_hash` for nt_cds. Required
+    columns: exactly one of (`seq_hash`, `cds_dna_hash`) plus `cluster_id`.
+    Optional: `function`, `function_short`, `threshold`, `cluster_rep` —
+    left intact if present.
 
-    Returns the DataFrame as-is; the caller is responsible for joining to pos_df.
+    Returns the DataFrame as-is; the caller is responsible for joining
+    to pos_df on the matching hash column.
     """
     cluster_path = Path(cluster_path)
     if not cluster_path.exists():
         raise FileNotFoundError(f"cluster lookup not found: {cluster_path}")
     df = pd.read_parquet(cluster_path)
-    missing = {'seq_hash', 'cluster_id'} - set(df.columns)
-    if missing:
+    if 'cluster_id' not in df.columns:
         raise ValueError(
-            f"cluster lookup at {cluster_path} is missing required columns: "
-            f"{sorted(missing)}. Need at least seq_hash, cluster_id."
+            f"cluster lookup at {cluster_path} is missing 'cluster_id' column."
         )
-    if df['seq_hash'].duplicated().any():
-        n_dup = int(df['seq_hash'].duplicated().sum())
+    # Identify which alphabet's hash column is present.
+    hash_cols_present = [c for c in ('seq_hash', 'cds_dna_hash') if c in df.columns]
+    if not hash_cols_present:
         raise ValueError(
-            f"cluster lookup at {cluster_path} has {n_dup} duplicate seq_hash rows. "
-            f"Each protein hash must map to exactly one cluster_id."
+            f"cluster lookup at {cluster_path} is missing a hash column. "
+            f"Expected one of: seq_hash (aa), cds_dna_hash (nt_cds)."
+        )
+    if len(hash_cols_present) > 1:
+        raise ValueError(
+            f"cluster lookup at {cluster_path} has BOTH seq_hash and cds_dna_hash; "
+            f"expected exactly one (alphabet-specific per Phase 2)."
+        )
+    hash_col = hash_cols_present[0]
+    if df[hash_col].duplicated().any():
+        n_dup = int(df[hash_col].duplicated().sum())
+        raise ValueError(
+            f"cluster lookup at {cluster_path} has {n_dup} duplicate {hash_col} rows. "
+            f"Each hash must map to exactly one cluster_id."
         )
     return df
 

@@ -1669,6 +1669,13 @@ if PAIR_BUILDER_VERSION == 'v2':
     CLUSTER_ID_THRESHOLD = None
     CLUSTER_ALPHABET = 'aa'
     CDS_FINAL_PATH = None
+    # pair_key_alphabet (Phase 2 of clustering cleanup plan): which hash
+    # family the pair_key is built on (aa = seq_hash, nt_cds = cds_dna_hash).
+    # Default tied to cluster_alphabet for cluster_disjoint routings; 'aa'
+    # for random / seq_disjoint. Explicit override via
+    # `dataset.split_strategy.pair_key_alphabet` if a bundle needs a different
+    # mapping (e.g., random routing + nt_cds dedup).
+    PAIR_KEY_ALPHABET = 'aa'
     # single_slot is a cluster_disjoint-only sub-knob. None = bilateral (both
     # slots' clusters disjoint, default); 'a' or 'b' = constrain only that
     # slot's clusters, leaving the other slot unconstrained. Unlocks lower
@@ -1702,6 +1709,25 @@ if PAIR_BUILDER_VERSION == 'v2':
                     f"dataset.split_strategy.single_slot must be 'a' or 'b' or null; "
                     f"got {SINGLE_SLOT!r}"
                 )
+        # pair_key_alphabet: explicit override; default inferred from
+        # cluster_alphabet (or 'aa' if no cluster routing). Inference happens
+        # after the CLUSTER_ALPHABET block above has run.
+        pk = getattr(SPLIT_STRATEGY_CFG, 'pair_key_alphabet', None)
+        if pk is not None:
+            PAIR_KEY_ALPHABET = str(pk)
+            if PAIR_KEY_ALPHABET not in ('aa', 'nt_cds'):
+                raise ValueError(
+                    f"dataset.split_strategy.pair_key_alphabet must be 'aa' or "
+                    f"'nt_cds', got {PAIR_KEY_ALPHABET!r}"
+                )
+        else:
+            # Default inference: tie to cluster_alphabet for cluster_disjoint;
+            # 'aa' otherwise. Matches the Phase 2 test plan's 4-bundle set
+            # (cluster_nt_t099 -> nt_cds; cluster_t099 / regimes -> aa).
+            if SPLIT_STRATEGY_MODE == 'cluster_disjoint' and CLUSTER_ALPHABET == 'nt_cds':
+                PAIR_KEY_ALPHABET = 'nt_cds'
+            else:
+                PAIR_KEY_ALPHABET = 'aa'
     # D3 feasibility knobs for k-fold cluster_disjoint (read from
     # split_strategy.feasibility.*; defaults match D3 of the k-fold plan).
     # See docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md D3.
@@ -1718,7 +1744,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 MIN_TEST_FRAC = float(mtf)
     # Default CDS path: data/processed/<virus>/<version>/cds_final.parquet
     # (alongside the input protein_final).
-    if CLUSTER_ALPHABET == 'nt' and CDS_FINAL_PATH is None:
+    if CLUSTER_ALPHABET == 'nt_cds' and CDS_FINAL_PATH is None:
         CDS_FINAL_PATH = str(input_file.parent / 'cds_final.parquet')
     if NEG_SAMPLING_CFG is not None:
         from omegaconf import OmegaConf
@@ -1758,6 +1784,20 @@ if PAIR_BUILDER_VERSION == 'v2':
     # and seq_to_isolates, and keeps the QC artifact (metadata_coverage.json)
     # describing the same population that drives pair generation.
     df = df[df['function'].isin(schema_pair)].reset_index(drop=True)
+
+    # Pre-attach cds_dna_hash when pair_key_alphabet='nt_cds'. v2's
+    # create_positive_pairs_v2 + build_cooccurrence_set expect the column
+    # on df; pair_key is built on cds_dna_hash_{a,b} instead of seq_hash_{a,b}.
+    # Resolves cds_final path from CDS_FINAL_PATH (set above when
+    # cluster_alphabet='nt_cds') or from the input file's parent dir.
+    if PAIR_KEY_ALPHABET == 'nt_cds':
+        from src.datasets._pair_helpers import attach_cds_dna_hash_to_prot_df
+        cds_path = CDS_FINAL_PATH
+        if cds_path is None:
+            cds_path = str(input_file.parent / 'cds_final.parquet')
+        print(f'\nv2: pair_key_alphabet=nt_cds — attaching cds_dna_hash to df '
+              f'from {cds_path}')
+        df = attach_cds_dna_hash_to_prot_df(df, cds_path)
 
     # Per-run artifact: written once after df is finalized and before split /
     # CV branching. The launcher (run_cv_lambda.py) needs no changes -- the
@@ -1822,6 +1862,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 year_bin_edges=YEAR_BIN_EDGES,
                 on_shortfall=ON_SHORTFALL,
                 regime_aware_coverage=REGIME_AWARE_COVERAGE,
+                pair_key_alphabet=PAIR_KEY_ALPHABET,
             )
         else:
             cv_gen = generate_all_cv_folds_v2(
@@ -1839,6 +1880,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 year_bin_edges=YEAR_BIN_EDGES,
                 on_shortfall=ON_SHORTFALL,
                 regime_aware_coverage=REGIME_AWARE_COVERAGE,
+                pair_key_alphabet=PAIR_KEY_ALPHABET,
             )
 
         # Stream each fold to disk as it's produced (reduces peak memory; lets
@@ -1909,6 +1951,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             train_isolates_override=holdout_train_ids,
             val_isolates_override=holdout_val_ids,
             test_isolates_override=holdout_test_ids,
+            pair_key_alphabet=PAIR_KEY_ALPHABET,
         )
         print(f"stage3 v2: split_dataset_v2 (done in {time.time()-_t:.2f}s)", flush=True)
 

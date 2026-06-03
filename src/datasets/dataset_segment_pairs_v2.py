@@ -97,6 +97,11 @@ _PAIR_COLUMNS = [
     'func_a', 'func_b',
     'seq_hash_a', 'seq_hash_b',
     'dna_hash_a', 'dna_hash_b',
+    # cds_dna_hash columns populated only when pair_key_alphabet='nt_cds'
+    # (orchestrator pre-attaches cds_dna_hash from cds_final to prot_df,
+    # _side renames to *_{a,b}). Otherwise pd.NA. Pair CSVs always
+    # include these columns for schema stability.
+    'cds_dna_hash_a', 'cds_dna_hash_b',
     'label',
     # Populated only on negative pairs by the regime-aware sampler; pd.NA for
     # positives. Both columns are pd.NA for negatives built by the legacy
@@ -122,6 +127,7 @@ _REGIME_AWARE_COVERAGE_BUDGET = 10
 def create_positive_pairs_v2(
     df: pd.DataFrame,
     schema_pair: Tuple[str, str],
+    pair_key_alphabet: str = 'aa',
     # seed: int = 42,
     ) -> tuple[pd.DataFrame, dict]:
     """Generate within-isolate positive pairs in schema-ordered mode, then drop
@@ -139,9 +145,19 @@ def create_positive_pairs_v2(
 
     Args:
         df: Protein-level DataFrame already filtered to the relevant isolates.
+            For pair_key_alphabet='aa' must contain `seq_hash`. For
+            pair_key_alphabet='nt_cds' must additionally contain
+            `cds_dna_hash` (caller pre-attaches via merge against cds_final).
         schema_pair: (func_left, func_right). func_left occupies slot A in every
             output pair; func_right occupies slot B. Must satisfy
             func_left != func_right.
+        pair_key_alphabet: 'aa' (default; protein-level dedup via
+            seq_hash) or 'nt_cds' (CDS-DNA-level dedup via cds_dna_hash —
+            inflates the unique pair_key universe by +35-57 % on Flu A
+            HA-NA / PB2-PB1, per docs/plans/2026-06-02_pair_key_alphabet_plan.md
+            § 4). The pair_key column is constructed on the selected hash
+            family; same-protein-different-CDS pairs that collapse under
+            'aa' are distinct under 'nt_cds'.
 
     Returns:
         (pos_df, dedup_stats) where pos_df has the v1 positive-pair columns
@@ -169,9 +185,14 @@ def create_positive_pairs_v2(
     if missing:
         raise ValueError(f"create_positive_pairs_v2: df missing required columns: {missing}")
 
+    # Include cds_dna_hash in the per-side flow when present in df (orchestrator
+    # attaches it when pair_key_alphabet='nt_cds'; absent for aa flow).
+    has_cds = 'cds_dna_hash' in df.columns
+    side_cols = list(req_cols) + (['cds_dna_hash'] if has_cds else [])
+
     def _side(side_func: str, suffix: str) -> pd.DataFrame:
-        out = df.loc[df['function'] == side_func, req_cols].copy()
-        return out.rename(columns={
+        out = df.loc[df['function'] == side_func, side_cols].copy()
+        rename_map = {
             'brc_fea_id': f'brc_{suffix}',
             'genbank_ctg_id': f'ctg_{suffix}',
             'prot_seq': f'seq_{suffix}',
@@ -180,7 +201,10 @@ def create_positive_pairs_v2(
             'function': f'func_{suffix}',
             'seq_hash': f'seq_hash_{suffix}',
             'dna_hash': f'dna_hash_{suffix}',
-        })
+        }
+        if has_cds:
+            rename_map['cds_dna_hash'] = f'cds_dna_hash_{suffix}'
+        return out.rename(columns=rename_map)
 
     left = _side(func_left, 'a')
     right = _side(func_right, 'b')
@@ -202,10 +226,29 @@ def create_positive_pairs_v2(
     pos_df['assembly_id_b'] = pos_df['assembly_id']
     pos_df['label'] = 1
 
-    # Create canonical pair_key in a vectorized way: lexicographically sorted seq_hash pair joined by '__'.
+    # Create canonical pair_key in a vectorized way: lexicographically sorted
+    # hash pair joined by '__'. Hash family is alphabet-specific:
+    #   pair_key_alphabet='aa'     -> seq_hash_{a,b} (protein)
+    #   pair_key_alphabet='nt_cds' -> cds_dna_hash_{a,b} (CDS DNA)
     # Matches canonical_pair_key('a','b') = '__'.join(sorted([a,b])) in _pair_helpers.py.
-    h_a = pos_df['seq_hash_a'].astype(str).values
-    h_b = pos_df['seq_hash_b'].astype(str).values
+    if pair_key_alphabet == 'aa':
+        hash_col_a, hash_col_b = 'seq_hash_a', 'seq_hash_b'
+    elif pair_key_alphabet == 'nt_cds':
+        hash_col_a, hash_col_b = 'cds_dna_hash_a', 'cds_dna_hash_b'
+    else:
+        raise ValueError(
+            f"create_positive_pairs_v2: pair_key_alphabet must be 'aa' or "
+            f"'nt_cds', got {pair_key_alphabet!r}"
+        )
+    if hash_col_a not in pos_df.columns or hash_col_b not in pos_df.columns:
+        raise ValueError(
+            f"create_positive_pairs_v2: pos_df missing {hash_col_a!r}/{hash_col_b!r} "
+            f"for pair_key_alphabet={pair_key_alphabet!r}. For 'nt_cds', the "
+            f"caller must attach cds_dna_hash to df before calling (merge against "
+            f"cds_final on (assembly_id, function))."
+        )
+    h_a = pos_df[hash_col_a].astype(str).values
+    h_b = pos_df[hash_col_b].astype(str).values
     a_first = h_a <= h_b
     lo = np.where(a_first, h_a, h_b)
     hi = np.where(a_first, h_b, h_a)
@@ -285,6 +328,7 @@ def create_negative_pairs_v2(
     sampling_axes: Optional[list] = None,
     on_shortfall: str = 'redistribute',
     regime_aware_coverage: bool = False,
+    pair_key_alphabet: str = 'aa',
     ) -> tuple[pd.DataFrame, dict]:
     """Generate negative pairs with a coverage-first two-phase sampler.
 
@@ -362,6 +406,26 @@ def create_negative_pairs_v2(
         target/available/coverage_placed/fill_placed/achieved/shortfall_reason).
     """
     _validate_schema_pair(schema_pair, "create_negative_pairs_v2")
+    # Alphabet-specific pair_key construction (Phase 2 of clustering cleanup
+    # plan). aa uses seq_hash_{a,b}, nt_cds uses cds_dna_hash_{a,b}. Must
+    # match the alphabet of the cooccur_pairs and forbidden_pair_keys sets;
+    # a mismatch silently passes contradictory pairs.
+    if pair_key_alphabet == 'aa':
+        _PK_HASH_A, _PK_HASH_B = 'seq_hash_a', 'seq_hash_b'
+    elif pair_key_alphabet == 'nt_cds':
+        _PK_HASH_A, _PK_HASH_B = 'cds_dna_hash_a', 'cds_dna_hash_b'
+        if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
+            raise ValueError(
+                "create_negative_pairs_v2: pair_key_alphabet='nt_cds' requires "
+                "pos_df to have cds_dna_hash_a / cds_dna_hash_b columns. "
+                "Caller (orchestrator / split_dataset_v2) must attach cds_dna_hash "
+                "to prot_df via attach_cds_dna_hash_to_prot_df before pair construction."
+            )
+    else:
+        raise ValueError(
+            f"create_negative_pairs_v2: pair_key_alphabet must be 'aa' or "
+            f"'nt_cds', got {pair_key_alphabet!r}"
+        )
     regime_mode = (axis_quotas is not None) and (len(axis_quotas) > 0)
     if regime_mode:
         if isolate_to_cell is None or sampling_axes is None:
@@ -562,8 +626,12 @@ def create_negative_pairs_v2(
         )
 
     def _build_neg_pair(a_src, b_src, regime, mc) -> dict:
+        # cds_dna_hash columns may or may not be present on a_src/b_src
+        # (present iff orchestrator pre-attached, i.e. pair_key_alphabet='nt_cds').
+        cds_a = getattr(a_src, 'cds_dna_hash_a', pd.NA)
+        cds_b = getattr(b_src, 'cds_dna_hash_b', pd.NA)
         return {
-            'pair_key': canonical_pair_key(a_src.seq_hash_a, b_src.seq_hash_b),
+            'pair_key': canonical_pair_key(getattr(a_src, _PK_HASH_A), getattr(b_src, _PK_HASH_B)),
             'assembly_id_a': a_src.assembly_id_a,
             'assembly_id_b': b_src.assembly_id_a,
             'brc_a': a_src.brc_a, 'brc_b': b_src.brc_b,
@@ -574,6 +642,7 @@ def create_negative_pairs_v2(
             'func_a': a_src.func_a, 'func_b': b_src.func_b,
             'seq_hash_a': a_src.seq_hash_a, 'seq_hash_b': b_src.seq_hash_b,
             'dna_hash_a': a_src.dna_hash_a, 'dna_hash_b': b_src.dna_hash_b,
+            'cds_dna_hash_a': cds_a, 'cds_dna_hash_b': cds_b,
             'label': 0,
             'neg_regime': regime if regime is not None else pd.NA,
             'metadata_match_count': mc if mc is not None else pd.NA,
@@ -588,7 +657,8 @@ def create_negative_pairs_v2(
         if brc_pair_key in seen_pairs:
             rejection_stats['duplicate_brc'] += 1
             return False
-        seq_pair_key = canonical_pair_key(a_src.seq_hash_a, b_src.seq_hash_b)
+        # Pair key on the alphabet-dispatched hash family (see top of function).
+        seq_pair_key = canonical_pair_key(getattr(a_src, _PK_HASH_A), getattr(b_src, _PK_HASH_B))
         if seq_pair_key in cooccur_pairs:
             rejection_stats['blocked_cooccur'] += 1
             return False
@@ -1280,6 +1350,7 @@ def split_dataset_v2(
     cds_final_path: Optional[str] = None,
     single_slot: Optional[str] = None,
     routed_pos_override: Optional[dict] = None,
+    pair_key_alphabet: str = 'aa',
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1358,21 +1429,35 @@ def split_dataset_v2(
     # "<seq_hash>__<seq_hash>" with the two hashes sorted lexicographically.
     # One entry per sequence pair that appears together in at least one isolate.
     # Used to block candidate negatives that would actually be positives somewhere.
+    # Cooccur set must use the same alphabet as pair_key (mismatched alphabets
+    # would block / allow the wrong pairs as negatives). For pair_key_alphabet=
+    # 'nt_cds' the df must have cds_dna_hash attached (orchestrator's
+    # responsibility — see attach_cds_dna_hash_to_prot_df).
+    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'seq_hash'
     if cooccur_pairs is None:
-        print("\nsplit_dataset_v2: Build co-occurrence set (sequences that appear together in any isolate)...")
-        cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
-        print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
+        print(f"\nsplit_dataset_v2: Build co-occurrence set on {_cooccur_hash_col} "
+              f"(pair_key_alphabet={pair_key_alphabet!r})...")
+        cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
+        print(f"   Total co-occurring pairs: {cooccur_stats['total_cooccur_pairs']:,}")
         print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
         print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
     elif cooccur_stats is None:
         raise ValueError("cooccur_stats must be provided together with cooccur_pairs")
+    elif cooccur_stats.get('hash_col') != _cooccur_hash_col:
+        raise ValueError(
+            f"split_dataset_v2: pre-computed cooccur_stats hash_col="
+            f"{cooccur_stats.get('hash_col')!r} but pair_key_alphabet="
+            f"{pair_key_alphabet!r} requires {_cooccur_hash_col!r}."
+        )
 
     # Build the global positive pair dataframe once, deduped to one row per unique
     # pair_key with a deterministic representative assembly_id. The split is then
     # a partition of this table -- train/val/test are pair_key-disjoint by
     # construction, so no post-hoc cross-split overlap removal is needed.
     print("\nsplit_dataset_v2: Build global positive pairs (one call across full df)...", flush=True)
-    pos_df, pos_dedup_stats = create_positive_pairs_v2(df, schema_pair=schema_pair)
+    pos_df, pos_dedup_stats = create_positive_pairs_v2(
+        df, schema_pair=schema_pair, pair_key_alphabet=pair_key_alphabet,
+    )
     if len(pos_df) == 0:
         raise ValueError(
             f"No positive pairs generated from df. Verify schema_pair={schema_pair} "
@@ -1511,10 +1596,14 @@ def split_dataset_v2(
                     "split_dataset_v2: cluster_alphabet='nt_cds' requires "
                     "cds_final_path (the cds_final.parquet path)."
                 )
-            from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
-            pos_df = attach_cds_dna_hash_to_pos_df(
-                pos_df, cds_final_path, schema_pair=schema_pair,
-            )
+            # cds_dna_hash_{a,b} may already be on pos_df if the orchestrator
+            # pre-attached cds_dna_hash to df (pair_key_alphabet='nt_cds' path);
+            # skip the redundant attach in that case.
+            if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
+                from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
+                pos_df = attach_cds_dna_hash_to_pos_df(
+                    pos_df, cds_final_path, schema_pair=schema_pair,
+                )
             pos_hash_col = 'cds_dna_hash'
         else:
             pos_hash_col = 'seq_hash'
@@ -1602,6 +1691,7 @@ def split_dataset_v2(
         sampling_axes=resolved_sampling_axes,
         on_shortfall=on_shortfall,
         regime_aware_coverage=regime_aware_coverage,
+        pair_key_alphabet=pair_key_alphabet,
     )
     print(f"split_dataset_v2: train negatives created: "
           f"({len(train_neg):,} pairs, {train_reject_stats.get('total_attempts', 0):,} attempts; "
@@ -1623,6 +1713,7 @@ def split_dataset_v2(
         sampling_axes=resolved_sampling_axes,
         on_shortfall=on_shortfall,
         regime_aware_coverage=regime_aware_coverage,
+        pair_key_alphabet=pair_key_alphabet,
     )
     forbidden_so_far |= set(val_neg['pair_key'])
 
@@ -1640,6 +1731,7 @@ def split_dataset_v2(
         sampling_axes=resolved_sampling_axes,
         on_shortfall=on_shortfall,
         regime_aware_coverage=regime_aware_coverage,
+        pair_key_alphabet=pair_key_alphabet,
     )
 
     # Combine pos+neg per split, then attach axis flags, then compute exposure stats.
@@ -1903,6 +1995,7 @@ def generate_all_cv_folds_v2(
     year_bin_edges: Optional[list] = None,
     on_shortfall: str = 'redistribute',
     regime_aware_coverage: bool = False,
+    pair_key_alphabet: str = 'aa',
     ) -> Iterator[dict]:
     """Generate all N CV fold splits, yielding each as a dict containing
     fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats, and
@@ -1917,8 +2010,10 @@ def generate_all_cv_folds_v2(
     """
     from sklearn.model_selection import KFold
 
-    print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
-    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
+    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'seq_hash'
+    print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
+          f"(pair_key_alphabet={pair_key_alphabet!r})...")
+    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
     print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
     print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
     print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
@@ -1966,6 +2061,7 @@ def generate_all_cv_folds_v2(
             test_isolates_override=test_ids,
             cooccur_pairs=cooccur_pairs,
             cooccur_stats=cooccur_stats,
+            pair_key_alphabet=pair_key_alphabet,
         )
         yield {
             'fold_id': fold_i,
@@ -2003,6 +2099,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     year_bin_edges: Optional[list] = None,
     on_shortfall: str = 'redistribute',
     regime_aware_coverage: bool = False,
+    pair_key_alphabet: str = 'aa',
     ) -> Iterator[dict]:
     """Generate k-fold splits for single-slot cluster_disjoint routing.
 
@@ -2030,13 +2127,17 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
 
     # ----- Build co-occurrence set once -----
-    print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
-    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
+    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'seq_hash'
+    print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
+          f"(pair_key_alphabet={pair_key_alphabet!r})...")
+    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
     print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
 
     # ----- Build global pos_df once -----
     print("\nBuilding global positive pairs (one call for all folds)...")
-    pos_df, pos_dedup_stats = create_positive_pairs_v2(df, schema_pair=schema_pair)
+    pos_df, pos_dedup_stats = create_positive_pairs_v2(
+        df, schema_pair=schema_pair, pair_key_alphabet=pair_key_alphabet,
+    )
     if len(pos_df) == 0:
         raise ValueError(
             f"No positive pairs generated from df. Verify schema_pair={schema_pair}."
@@ -2056,9 +2157,12 @@ def generate_all_cluster_disjoint_cv_folds_v2(
                 "cluster_alphabet='nt_cds' requires cds_final_path "
                 "(cds_final.parquet path from Stage 1.5)."
             )
-        pos_df = attach_cds_dna_hash_to_pos_df(
-            pos_df, Path(cds_final_path), schema_pair=schema_pair,
-        )
+        # Skip redundant attach if orchestrator already pre-attached
+        # cds_dna_hash to df (pair_key_alphabet='nt_cds' path).
+        if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
+            pos_df = attach_cds_dna_hash_to_pos_df(
+                pos_df, Path(cds_final_path), schema_pair=schema_pair,
+            )
         pos_hash_col = 'cds_dna_hash'
 
     # ----- Load cluster lookup -----
@@ -2202,6 +2306,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
                 'cluster_disjoint_audit': fold_audit,
                 'pos_dedup_stats':        pos_dedup_stats,
             },
+            pair_key_alphabet=pair_key_alphabet,
         )
         # Inject the cross-fold kfold_summary into this fold's duplicate_stats
         # so the saver can surface it in this fold's dataset_stats.json.
@@ -2909,10 +3014,20 @@ def _validate_v2_config(config) -> None:
                     f"(or absent); got {cluster_id_threshold!r}."
                 )
         cluster_alphabet = OmegaConf.select(config, "dataset.split_strategy.cluster_alphabet")
-        if cluster_alphabet is not None and cluster_alphabet not in {'aa', 'nt'}:
+        if cluster_alphabet is not None and cluster_alphabet not in {'aa', 'nt_cds'}:
             raise ValueError(
-                f"dataset.split_strategy.cluster_alphabet must be 'aa' or 'nt' "
-                f"(or absent — defaults to 'aa'); got {cluster_alphabet!r}."
+                f"dataset.split_strategy.cluster_alphabet must be 'aa' or 'nt_cds' "
+                f"(or absent — defaults to 'aa'); got {cluster_alphabet!r}. "
+                f"Legacy 'nt' was renamed to 'nt_cds' in Phase 2 of the clustering "
+                f"cleanup plan."
+            )
+        # pair_key_alphabet config validation (Phase 2 of clustering cleanup plan)
+        pair_key_alphabet = OmegaConf.select(config, "dataset.split_strategy.pair_key_alphabet")
+        if pair_key_alphabet is not None and pair_key_alphabet not in {'aa', 'nt_cds'}:
+            raise ValueError(
+                f"dataset.split_strategy.pair_key_alphabet must be 'aa' or 'nt_cds' "
+                f"(or absent — defaults to cluster_alphabet for cluster_disjoint mode, "
+                f"else 'aa'); got {pair_key_alphabet!r}."
             )
     n_folds = OmegaConf.select(config, "dataset.n_folds")
     if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:

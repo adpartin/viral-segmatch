@@ -33,12 +33,22 @@ if str(_project_root) not in sys.path:
 from src.utils.path_utils import load_dataframe
 
 
-def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
-    """Create a canonical pair key from two sequence hashes.
+def canonical_pair_key(hash_a: str, hash_b: str) -> str:
+    """Create a canonical pair key from two hashes.
 
     Ensures consistent ordering so (a, b) and (b, a) produce the same key.
+
+    The hashes can be from any alphabet — `seq_hash` (protein) for the
+    aa pair_key family, `cds_dna_hash` for the nt_cds family. Callers
+    decide the alphabet; this function just joins the two inputs in
+    sorted order. Argument names preserve the historical `seq_hash`
+    naming because the bulk of callers still use protein hashes; under
+    pair_key_alphabet='nt_cds' (Phase 2 of clustering cleanup plan)
+    the inputs are `cds_dna_hash` values instead. See pair_key plan
+    docs/plans/2026-06-02_pair_key_alphabet_plan.md for the bias
+    direction and adoption rationale.
     """
-    return "__".join(sorted([seq_hash_a, seq_hash_b]))
+    return "__".join(sorted([hash_a, hash_b]))
 
 
 def _validate_schema_pair(schema_pair, fn_name: str) -> Tuple[str, str]:
@@ -139,6 +149,90 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
     print(f"  unique dna_hash:      {n_unique_dna:,} "
           f"({n_unique_dna / before * 100:.1f}% of protein rows -- many proteins share a contig)")
     return merged
+
+
+def attach_cds_dna_hash_to_prot_df(
+    prot_df: pd.DataFrame,
+    cds_final_path: Path,
+    ) -> pd.DataFrame:
+    """Add a `cds_dna_hash` column to a protein-level DataFrame.
+
+    Required by `pair_key_alphabet='nt_cds'` (Phase 2 of clustering
+    cleanup plan) — `create_positive_pairs_v2` constructs the pair_key
+    on `cds_dna_hash_{a,b}` rather than `seq_hash_{a,b}`, and
+    `build_cooccurrence_set` needs to key cooccur pairs on
+    `cds_dna_hash` to match. Orchestrator (Stage 3 entry point) calls
+    this once on the full prot_df before passing to `split_dataset_v2`
+    or the k-fold variants.
+
+    Lookup key: `(assembly_id, function)`. cds_final.parquet is unique
+    on this key for the 8 Flu A majors (Stage 1.5 invariant; see
+    `src/preprocess/extract_cds_dna.py`).
+
+    Args:
+        prot_df: must contain `assembly_id` + `function` columns
+            (standard prot_df shape from Stage 1 + DNA join).
+        cds_final_path: path to `cds_final.parquet`. Must contain
+            `assembly_id`, `function`, `cds_dna_hash`.
+
+    Returns a new DataFrame with `cds_dna_hash` added. Raises on
+    missing prot_df rows, fan-out, or unmatched (assembly_id, function)
+    pairs (Stage 3 strictness: no silent drops).
+    """
+    cds_final_path = Path(cds_final_path)
+    if not cds_final_path.exists():
+        raise FileNotFoundError(
+            f"attach_cds_dna_hash_to_prot_df: cds_final not found at "
+            f"{cds_final_path}. Build via "
+            f"`python src/preprocess/extract_cds_dna.py --config_bundle <bundle>`."
+        )
+    for col in ('assembly_id', 'function'):
+        if col not in prot_df.columns:
+            raise ValueError(
+                f"attach_cds_dna_hash_to_prot_df: prot_df missing '{col}' column"
+            )
+
+    cds_df = pd.read_parquet(
+        cds_final_path,
+        columns=['assembly_id', 'function', 'cds_dna_hash'],
+    )
+    cds_df['assembly_id'] = cds_df['assembly_id'].astype(str)
+
+    if cds_df.duplicated(['assembly_id', 'function']).any():
+        n_dup = int(cds_df.duplicated(['assembly_id', 'function']).sum())
+        raise AssertionError(
+            f"attach_cds_dna_hash_to_prot_df: cds_final has {n_dup} duplicate "
+            f"(assembly_id, function) rows — would fan out the join."
+        )
+
+    out = prot_df.copy()
+    out['assembly_id'] = out['assembly_id'].astype(str)
+    before = len(out)
+    out = out.merge(cds_df, on=['assembly_id', 'function'], how='left')
+    if len(out) != before:
+        raise RuntimeError(
+            f"attach_cds_dna_hash_to_prot_df: row count changed "
+            f"({before} -> {len(out)}); fan-out from non-unique join key."
+        )
+
+    missing = out['cds_dna_hash'].isna().sum()
+    if missing:
+        # Only the 8 selected_functions have CDS; rows for other functions
+        # (M2, NEP, PB1-F2, etc.) won't match. For the standard schema_pair
+        # flow these are filtered upstream, but if any unmatched rows remain
+        # we DROP them with a warning (a NaN cds_dna_hash would break
+        # downstream hashing).
+        missing_funcs = sorted(out.loc[out['cds_dna_hash'].isna(), 'function'].unique())
+        print(f"WARNING: attach_cds_dna_hash_to_prot_df: {missing:,} rows have "
+              f"no cds_dna_hash (functions: {missing_funcs}); dropping. "
+              f"These functions are not in selected_functions / not covered "
+              f"by cds_final.")
+        out = out.dropna(subset=['cds_dna_hash']).reset_index(drop=True)
+
+    print(f"attach_cds_dna_hash_to_prot_df: attached cds_dna_hash to "
+          f"{len(out):,} prot_df rows (unique cds_dna_hash="
+          f"{out['cds_dna_hash'].nunique():,}).")
+    return out
 
 
 def attach_cds_dna_hash_to_pos_df(
@@ -430,32 +524,50 @@ def compute_isolate_pair_counts(
     return isolate_pos_counts
 
 
-def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
-    """Build a set of all sequence pairs that co-occur in any isolate.
+def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'seq_hash') -> tuple[set, dict]:
+    """Build a set of all hash pairs that co-occur in any isolate.
 
     Two sequences "co-occur" if they appear together in the same isolate (same
     assembly_id). Used to prevent contradictory labels: if (A, B) co-occur in
     isolate X (positive), they cannot also be sampled as a negative.
 
+    Args:
+        df: row-per-(isolate, protein) DataFrame; must contain `assembly_id`
+            and the selected `hash_col`.
+        hash_col: which hash column to use as the cooccurrence key. Default
+            'seq_hash' (protein-level; aa pair_key family). Pass
+            'cds_dna_hash' for the nt_cds pair_key family. The choice must
+            match the alphabet of pair_keys used downstream (in
+            `create_positive_pairs_v2` and `create_negative_pairs_v2`);
+            mismatched cooccur and pair_key alphabets would silently allow
+            (or block) the wrong pairs as negatives.
+
     Returns:
         - cooccur_pairs: Set of canonical pair keys (`canonical_pair_key`
-          format) for all sequence pairs that co-occur in at least one isolate.
+          format) for all hash pairs that co-occur in at least one isolate.
         - cooccur_stats: dict with `total_cooccur_pairs`,
           `max_isolates_per_pair`, `pairs_in_multiple_isolates`,
-          `isolate_pair_counts` (full pair_key -> count mapping).
+          `isolate_pair_counts` (full pair_key -> count mapping), and
+          `hash_col` (the alphabet this set was built on).
     """
+    if hash_col not in df.columns:
+        raise ValueError(
+            f"build_cooccurrence_set: hash_col={hash_col!r} not in df.columns. "
+            f"For pair_key_alphabet='nt_cds' the caller must attach "
+            f"cds_dna_hash to df before calling."
+        )
     cooccur_pairs = set()
     isolate_pair_counts = {}
     for aid, grp in df.groupby('assembly_id'):
         if len(grp) < 2:
             continue
 
-        # Get unique protein sequence hashes for this isolate
-        seq_hashes = grp['seq_hash'].unique().tolist()
+        # Unique hashes for this isolate, alphabet selected by hash_col.
+        hashes = grp[hash_col].unique().tolist()
 
-        for i in range(len(seq_hashes)):
-            for j in range(i + 1, len(seq_hashes)):
-                seq_pair_key = canonical_pair_key(seq_hashes[i], seq_hashes[j])
+        for i in range(len(hashes)):
+            for j in range(i + 1, len(hashes)):
+                seq_pair_key = canonical_pair_key(hashes[i], hashes[j])
                 cooccur_pairs.add(seq_pair_key)
 
                 if seq_pair_key not in isolate_pair_counts:
@@ -471,6 +583,7 @@ def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
         'max_isolates_per_pair': max(isolate_pair_counts.values()) if isolate_pair_counts else 0,
         'pairs_in_multiple_isolates': sum(1 for c in isolate_pair_counts.values() if c > 1),
         'isolate_pair_counts': isolate_pair_counts,
+        'hash_col': hash_col,
     }
 
     return cooccur_pairs, cooccur_stats
