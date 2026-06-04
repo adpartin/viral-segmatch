@@ -28,7 +28,7 @@ if str(_project_root) not in sys.path:
 
 from sklearn.model_selection import GroupKFold
 
-from src.datasets._pair_helpers import bipartite_components, _lpt_bin_pack
+from src.datasets._pair_helpers import bipartite_components, _lpt_bin_pack, route_holdout
 
 
 def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
@@ -468,20 +468,11 @@ def cluster_disjoint_route_pos_df(
     # Single-shot path (n_folds=None or n_folds=1)
     # ============================================================
     if n_folds_effective == 1:
-        targets = {
-            'train': train_ratio * n_pairs,
-            'val':   val_ratio * n_pairs,
-            'test':  test_ratio * n_pairs,
-        }
-        comp_to_split = _lpt_bin_pack(
-            sizes=sizes,
-            targets=targets,
-            bin_order=['train', 'val', 'test'],
+        # Shared router (P2): same atom-pack + slice as seq_disjoint — only the
+        # atom definition (bipartite CC / single-slot cluster) differs.
+        train_pos, val_pos, test_pos, _atom_to_split, targets = route_holdout(
+            pos_with_ids, component_id, train_ratio, val_ratio,
         )
-        split_for_row = component_id.map(comp_to_split)
-        train_pos = pos_with_ids[split_for_row == 'train'].reset_index(drop=True)
-        val_pos   = pos_with_ids[split_for_row == 'val'].reset_index(drop=True)
-        test_pos  = pos_with_ids[split_for_row == 'test'].reset_index(drop=True)
         achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
 
         audit = _build_audit(
