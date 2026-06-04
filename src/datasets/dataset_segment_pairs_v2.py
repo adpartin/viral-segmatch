@@ -2,9 +2,9 @@
 within-split positive deduplication, exposure tracking, and metadata-axis
 annotations.
 
-This module is a parallel implementation to `dataset_segment_pairs.py` (v1).
-v1 stays callable; v2 is opt-in via `dataset.pair_builder_version: v2`. See
-`docs/plans/done/design_dataset_gen_v2.md` for the full design and decisions.
+Lives behind the `dataset_segment_pairs.py` CLI, which dispatches here for every build
+(v1 was retired 2026-06-03; `pair_builder_version` must be `v2`). See
+`docs/plans/done/2026-05-11_design_dataset_gen_v2.md` for the full design and decisions.
 
 Primary updates over v1
 -----------------------

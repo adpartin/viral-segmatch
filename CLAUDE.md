@@ -65,7 +65,7 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 | 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{version}/protein_final.csv` + `genome_final.csv` | Once |
 | 1.5. CDS extraction (opt) | `src/preprocess/extract_cds_dna.py` | `data/processed/flu/{version}/cds_final.parquet` | Once, for nt cluster_disjoint |
 | 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
-| 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → `dataset_segment_pairs_v2.py` (default builder since 2026-05-11) | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
+| 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → `dataset_segment_pairs_v2.py` (only builder; v1 retired 2026-06-03) | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
 | 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
 
 Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh` (MLP only), `scripts/stage4_baselines.sh` (one baseline per call), `scripts/stage4_full.sh` (MLP + every baseline in `bundle.baselines.enabled`), `scripts/stage4_sweep.sh` (Stage 4 across multiple datasets × seeds in parallel), `scripts/mmd_sweep.sh` (S1+S2 MMD across multiple datasets for one feature_space × label_filter). Stage 1.5 has no shell wrapper — invoked directly (`python src/preprocess/extract_cds_dna.py --config_bundle <virus_bundle>`).
