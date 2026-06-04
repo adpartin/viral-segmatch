@@ -1503,9 +1503,6 @@ def split_dataset_v2(
         test_pos = routed_pos_override['test_pos']
         cluster_disjoint_audit = routed_pos_override['cluster_disjoint_audit']
         pos_dedup_stats = routed_pos_override['pos_dedup_stats']
-        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
-        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
-        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
         print(f"split_dataset_v2: using routed_pos_override (k-fold fold_id="
               f"{routed_pos_override.get('fold_id', '?')}); "
               f"train={len(train_pos):,} val={len(val_pos):,} test={len(test_pos):,}",
@@ -1550,9 +1547,6 @@ def split_dataset_v2(
             pos_df, train_ratio=train_ratio, val_ratio=val_ratio, seed=seed,
             hash_key=split_strategy_hash_key,
         )
-        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
-        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
-        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
         ach = seq_disjoint_audit['achieved_pct']
         print(f"split_dataset_v2: seq_disjoint routing completed "
               f"(train={len(train_pos):,} pairs [{ach['train']:.2f}%], "
@@ -1629,9 +1623,6 @@ def split_dataset_v2(
             cluster_alphabet=cluster_alphabet,
             single_slot=single_slot,
         )
-        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
-        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
-        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
         ach = cluster_disjoint_audit['achieved_pct']
         att = cluster_disjoint_audit['attach_audit']
         print(f"split_dataset_v2: cluster_disjoint routing completed "
@@ -1654,14 +1645,9 @@ def split_dataset_v2(
         val_pos = val_pos.reset_index(drop=True)
         test_pos = test_pos.reset_index(drop=True)
 
-        # is_unique invariant => one row == one isolate, so .tolist() is the
-        # unique-isolate list directly (no .unique() needed).
-        train_isolates = sorted(train_pos['assembly_id_a'].tolist())
-        val_isolates = sorted(val_pos['assembly_id_a'].tolist())
-        test_isolates = sorted(test_pos['assembly_id_a'].tolist())
         print(f"split_dataset_v2: shuffle-split completed "
-              f"(train={len(train_isolates):,} pairs, "
-              f"val={len(val_isolates):,}, test={len(test_isolates):,})", flush=True)
+              f"(train={len(train_pos):,} pairs, "
+              f"val={len(val_pos):,}, test={len(test_pos):,})", flush=True)
     else:
         raise ValueError(
             f"split_dataset_v2: unknown split_strategy_mode={split_strategy_mode!r}; "
