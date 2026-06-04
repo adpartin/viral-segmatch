@@ -1,6 +1,10 @@
 # Dataset split refactor — design plan
 
-**Status: DRAFT — proposed for review; not yet approved. Implementation NOT in progress.**
+**Status: PARTIALLY IMPLEMENTED** (2026-06-03). P0 (regression harness + holdout goldens),
+P1 (shared LPT packer), P2 (route_holdout shared by seq + cluster; dead dispatch glue removed),
+and v1 retirement (P5) are done and bit-exact-verified (harness 8/8 at every step). **P3 (CV
+redesign) and P4 (PairKeySpec) are deferred — not pursued.** v1 retirement is split out as
+`docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md`.
 
 Scope: `src/datasets/` split generation (Stage 3 routing), measured against
 `docs/methods/splits.md` §1.1. Assessment 2026-06-03.
