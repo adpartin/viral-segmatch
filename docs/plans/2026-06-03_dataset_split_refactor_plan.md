@@ -151,6 +151,14 @@ is not usable as an anchor.
 run (`t099`, `nt_t099`, `t095_HAonly`) so one bundle yields both baselines; the code path is
 identical across thresholds, so this costs no coverage.
 
+**Anchor gate — PASSED 2026-06-03 (seq_disjoint-aa).** `flu_ha_na_regimes_ratio3`: the 05-13
+run vs its 06-03 rebuild have byte-identical split assignments via `harness extract`
+(pos `8acb8b8c`, full `49c9ac2d`, n_pos 58,388) — HEAD reproduces the 3-week-old full-corpus
+run bit-exact, positives and negatives. This exercises the full build machinery, so it
+confirms no latent HEAD drift on the main path before refactoring. The other paths have no
+strong anchor: old cluster runs are stale-by-design (invalid), valid cluster runs (06-02) are
+too recent to test drift, and metadata_holdout lost its anchor when its bundle was fixed.
+
 ## 4. Staged migration (each phase bit-exact-gated)
 
 - **P0 — harness + baselines.** Build datasets for the §3.1 set at current HEAD and snapshot
