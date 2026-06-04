@@ -28,7 +28,7 @@ if str(_project_root) not in sys.path:
 
 from sklearn.model_selection import GroupKFold
 
-from src.datasets._pair_helpers import bipartite_components
+from src.datasets._pair_helpers import bipartite_components, _lpt_bin_pack
 
 
 def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
@@ -145,45 +145,8 @@ def attach_cluster_ids(
     return kept, audit
 
 
-def _lpt_bin_pack(
-    sizes: pd.Series,
-    targets: dict,
-    bin_order: list,
-) -> dict:
-    """LPT-greedy bin-packing: largest group to bin with biggest deficit.
-
-    Args:
-        sizes: pd.Series mapping group_id -> count.
-        targets: dict mapping bin_name -> target count (raw, not fraction).
-        bin_order: list of bin names defining tie-break order when two bins
-            have equal deficit. Python's `max` returns the first element of
-            a tied maximum, so this order is deterministic.
-
-    Returns:
-        dict mapping group_id -> bin_name.
-
-    Atom ordering is pinned to `(-size, cluster_id)` ascending — the same
-    key sklearn `GroupKFold` derives via `np.unique` (sorted) +
-    `np.argsort(-counts)`, so the LPT and GroupKFold paths agree on which
-    atom is "largest" (per D1 of
-    docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md).
-    """
-    def _sort_key(c):
-        try:
-            return (-int(sizes.loc[c]), int(c))
-        except (ValueError, TypeError):
-            return (-int(sizes.loc[c]), str(c))
-    sorted_groups = sorted(sizes.index, key=_sort_key)
-
-    bin_count = {b: 0 for b in bin_order}
-    group_to_bin: dict = {}
-    for g in sorted_groups:
-        s = int(sizes.loc[g])
-        deficits = {b: targets[b] - bin_count[b] for b in bin_order}
-        winner = max(bin_order, key=lambda b: deficits[b])
-        group_to_bin[g] = winner
-        bin_count[winner] += s
-    return group_to_bin
+# _lpt_bin_pack lives in `_pair_helpers.py` (shared by seq_disjoint and
+# cluster_disjoint routing); imported at the top of this module.
 
 
 def _compute_d3_check(

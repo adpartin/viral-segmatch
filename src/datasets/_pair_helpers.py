@@ -713,6 +713,50 @@ def bipartite_components(
     return component_id, summary
 
 
+def _lpt_bin_pack(
+    sizes: pd.Series,
+    targets: dict,
+    bin_order: list,
+) -> dict:
+    """LPT-greedy bin-packing: largest group to bin with biggest deficit.
+
+    Args:
+        sizes: pd.Series mapping group_id -> count.
+        targets: dict mapping bin_name -> target count (raw, not fraction).
+        bin_order: list of bin names defining tie-break order when two bins
+            have equal deficit. Python's `max` returns the first element of
+            a tied maximum, so this order is deterministic.
+
+    Returns:
+        dict mapping group_id -> bin_name.
+
+    Atom ordering is pinned to `(-size, cluster_id)` ascending — the same
+    key sklearn `GroupKFold` derives via `np.unique` (sorted) +
+    `np.argsort(-counts)`, so the LPT and GroupKFold paths agree on which
+    atom is "largest" (per D1 of
+    docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md).
+
+    Shared by seq_disjoint_route_pos_df (this module) and the cluster_disjoint
+    router in _split_helpers.py.
+    """
+    def _sort_key(c):
+        try:
+            return (-int(sizes.loc[c]), int(c))
+        except (ValueError, TypeError):
+            return (-int(sizes.loc[c]), str(c))
+    sorted_groups = sorted(sizes.index, key=_sort_key)
+
+    bin_count = {b: 0 for b in bin_order}
+    group_to_bin: dict = {}
+    for g in sorted_groups:
+        s = int(sizes.loc[g])
+        deficits = {b: targets[b] - bin_count[b] for b in bin_order}
+        winner = max(bin_order, key=lambda b: deficits[b])
+        group_to_bin[g] = winner
+        bin_count[winner] += s
+    return group_to_bin
+
+
 def seq_disjoint_route_pos_df(
     pos_df: pd.DataFrame,
     train_ratio: float,
@@ -775,28 +819,17 @@ def seq_disjoint_route_pos_df(
 
     component_id, cc_summary = bipartite_components(pos_df, hash_key=hash_key)
 
-    # Per-component pair counts, sorted (size desc, comp-id asc).
+    # Per-component pair counts -> LPT-greedy bin-pack via the shared helper
+    # (P1 of the split refactor: bit-exact with the prior inline loop — same
+    # sizes, targets, sort key, and train>val>test tie-break order).
     sizes = component_id.value_counts().sort_index()  # comp-id asc
-    sorted_comps = sorted(sizes.index, key=lambda c: (-int(sizes.loc[c]), int(c)))
-
     n_pairs = int(len(pos_df))
     targets = {
         'train': train_ratio * n_pairs,
         'val':   val_ratio * n_pairs,
         'test':  test_ratio * n_pairs,
     }
-    bin_count = {'train': 0, 'val': 0, 'test': 0}
-    comp_to_split: dict = {}
-
-    for c in sorted_comps:
-        s = int(sizes.loc[c])
-        # Largest remaining-deficit bin wins. Ties broken in
-        # train > val > test order for determinism (max() is stable).
-        order = ['train', 'val', 'test']
-        deficits = {k: targets[k] - bin_count[k] for k in order}
-        winner = max(order, key=lambda k: deficits[k])
-        comp_to_split[c] = winner
-        bin_count[winner] += s
+    comp_to_split = _lpt_bin_pack(sizes, targets, ['train', 'val', 'test'])
 
     split_for_row = component_id.map(comp_to_split)
 
