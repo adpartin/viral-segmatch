@@ -1,0 +1,29 @@
+{
+  "name": "cluster_2d_aa",
+  "bundle": "flu_ha_na_cluster_t099",
+  "n_isolates": 2000,
+  "overrides": [],
+  "pos_digest": "6dea205bc7b89bad83ec8adaed84d8613c0f61b2f18bbaf9519bd213f1f44465",
+  "full_digest": "0175add7bb236ae0de34e2c1582bdb54a5b06cae72bf96834e9d24c3643af770",
+  "counts": {
+    "train": {
+      "total": 3450,
+      "pos": 1380
+    },
+    "val": {
+      "total": 432,
+      "pos": 173
+    },
+    "test": {
+      "total": 430,
+      "pos": 172
+    }
+  },
+  "n_pos": 1725,
+  "n_total": 4312,
+  "pos_split_pct": {
+    "train": 80.0,
+    "val": 10.029,
+    "test": 9.971
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "metadata_holdout",
+  "bundle": "flu_ha_na_holdout_year",
+  "n_isolates": 20000,
+  "overrides": [],
+  "pos_digest": "2c436496b2ec14d0f8f16b699f9a951f138442153fd9ebf56366353f23106da2",
+  "full_digest": "e1fe61b806badf6692f68d975fe8ddf2c5185b0c3b6adfe74cc22f42925cdc7f",
+  "counts": {
+    "train": {
+      "total": 5427,
+      "pos": 2171
+    },
+    "val": {
+      "total": 580,
+      "pos": 232
+    },
+    "test": {
+      "total": 6137,
+      "pos": 2527
+    }
+  },
+  "n_pos": 4930,
+  "n_total": 12144,
+  "pos_split_pct": {
+    "train": 44.037,
+    "val": 4.706,
+    "test": 51.258
+  }
+}

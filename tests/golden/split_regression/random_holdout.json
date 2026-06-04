@@ -1,0 +1,29 @@
+{
+  "name": "random_holdout",
+  "bundle": "flu_ha_na_random",
+  "n_isolates": 2000,
+  "overrides": [],
+  "pos_digest": "182f19abd2e35c0248f00a0bac7828b118cb7af684d8c2234a211a8a2ccb78cc",
+  "full_digest": "c459bf07fbf71f4da6291c58e59e3c16afaa8208cc006a176c19533a68ee405a",
+  "counts": {
+    "train": {
+      "total": 3447,
+      "pos": 1379
+    },
+    "val": {
+      "total": 432,
+      "pos": 173
+    },
+    "test": {
+      "total": 432,
+      "pos": 173
+    }
+  },
+  "n_pos": 1725,
+  "n_total": 4311,
+  "pos_split_pct": {
+    "train": 79.942,
+    "val": 10.029,
+    "test": 10.029
+  }
+}

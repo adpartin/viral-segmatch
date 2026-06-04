@@ -1,0 +1,29 @@
+{
+  "name": "seq_disjoint_seq_pb",
+  "bundle": "flu_pb2_pb1",
+  "n_isolates": 2000,
+  "overrides": [],
+  "pos_digest": "d813a075ce7e05f2eab5aec8f8577aeb65dbe75f89e01d2c3a3e96cf94ef40a1",
+  "full_digest": "e1406833f95334a5737eda381523a69b42bb4f5788658b9d98c8d015e4b1afaa",
+  "counts": {
+    "train": {
+      "total": 3120,
+      "pos": 1248
+    },
+    "val": {
+      "total": 390,
+      "pos": 156
+    },
+    "test": {
+      "total": 390,
+      "pos": 156
+    }
+  },
+  "n_pos": 1560,
+  "n_total": 3900,
+  "pos_split_pct": {
+    "train": 80.0,
+    "val": 10.0,
+    "test": 10.0
+  }
+}

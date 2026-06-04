@@ -1,0 +1,31 @@
+{
+  "name": "seq_disjoint_dna",
+  "bundle": "flu_ha_na",
+  "n_isolates": 2000,
+  "overrides": [
+    "dataset.split_strategy.hash_key=dna"
+  ],
+  "pos_digest": "b1520e184c66c7cb9f84d9b9bc20a2f1c241058fb34708d7afbe43e8712229ff",
+  "full_digest": "f4ee89b34412d6f68ce587136b7be881242418ffec1f3896ef96e435016248dc",
+  "counts": {
+    "train": {
+      "total": 3450,
+      "pos": 1380
+    },
+    "val": {
+      "total": 432,
+      "pos": 173
+    },
+    "test": {
+      "total": 430,
+      "pos": 172
+    }
+  },
+  "n_pos": 1725,
+  "n_total": 4312,
+  "pos_split_pct": {
+    "train": 80.0,
+    "val": 10.029,
+    "test": 9.971
+  }
+}

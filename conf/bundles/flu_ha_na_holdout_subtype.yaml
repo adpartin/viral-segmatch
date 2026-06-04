@@ -1,5 +1,5 @@
 # STATUS: experimental -- HA/NA with metadata_holdout in year-axis-only mode
-# (the year_train/year_test replacement). Inherits flu_ha_na_neg_regimes; only
+# (the year_train/year_test replacement). Inherits flu_ha_na_regimes; only
 # changes the split mechanism from random to a cross-population year holdout
 # (train 2021-2023, val carved from train, test 2024).
 #
@@ -10,10 +10,14 @@
 # inside each train/test filter dict. host/hn_subtype/geo_location/passage
 # accept scalar or list; year accepts scalar/list/year_range.
 defaults:
-  - flu_ha_na_neg_regimes
+  - flu_ha_na_regimes
   - _self_
 
 dataset:
+  # metadata_holdout supplies the train/val/test partition itself, so the routing
+  # must be random (it is mutually exclusive with the inherited seq_disjoint).
+  split_strategy:
+    mode: random
   metadata_holdout:
     train:
       hn_subtype: ["H3N2"] # "H3N2", "H1N1", "H5N1"

@@ -1,0 +1,29 @@
+{
+  "name": "cluster_1d_aa_slotA",
+  "bundle": "flu_ha_na_cluster_aa_t095_HAonly",
+  "n_isolates": 2000,
+  "overrides": [],
+  "pos_digest": "4df2fa117e0e2bcbc132f051d5852e37963b8eb0719ff948bff053c016cb0e15",
+  "full_digest": "fd47c3bfdb9f640394669cd359126b14e6ea9b15d5346648ffe94941f2f1b5e6",
+  "counts": {
+    "train": {
+      "total": 3450,
+      "pos": 1380
+    },
+    "val": {
+      "total": 432,
+      "pos": 173
+    },
+    "test": {
+      "total": 430,
+      "pos": 172
+    }
+  },
+  "n_pos": 1725,
+  "n_total": 4312,
+  "pos_split_pct": {
+    "train": 80.0,
+    "val": 10.029,
+    "test": 9.971
+  }
+}
