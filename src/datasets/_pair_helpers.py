@@ -757,6 +757,46 @@ def _lpt_bin_pack(
     return group_to_bin
 
 
+def route_holdout(
+    pos_df: pd.DataFrame,
+    atom_id: pd.Series,
+    train_ratio: float,
+    val_ratio: float,
+) -> tuple:
+    """Pack atoms into an 80/10/10-target holdout and return the row partition.
+
+    The shared 'router' core for every atom-based mode (seq_disjoint,
+    cluster_disjoint): given a per-row atom label, LPT-greedy bin-pack the atoms
+    by pair count, then slice `pos_df` into (train, val, test). The atom
+    definition (bipartite CC on hash / on cluster / single-slot cluster) is the
+    mode-specific part; this packing + slicing is identical across modes.
+
+    Args:
+        pos_df: positive-pair rows.
+        atom_id: Series aligned to pos_df.index -> atom label; rows sharing an
+            atom are indivisible (stay in one split).
+        train_ratio, val_ratio: split-size targets; test = 1 - train - val.
+
+    Returns:
+        (train_pos, val_pos, test_pos, atom_to_split, targets) -- three
+        row-disjoint DataFrames (index reset), the atom -> split-name dict, and
+        the per-split target pair counts (for the caller's audit reporting).
+    """
+    n_pairs = int(len(pos_df))
+    targets = {
+        'train': train_ratio * n_pairs,
+        'val':   val_ratio * n_pairs,
+        'test':  (1.0 - train_ratio - val_ratio) * n_pairs,
+    }
+    sizes = atom_id.value_counts().sort_index()
+    atom_to_split = _lpt_bin_pack(sizes, targets, ['train', 'val', 'test'])
+    split_for_row = atom_id.map(atom_to_split)
+    train_pos = pos_df[split_for_row == 'train'].reset_index(drop=True)
+    val_pos = pos_df[split_for_row == 'val'].reset_index(drop=True)
+    test_pos = pos_df[split_for_row == 'test'].reset_index(drop=True)
+    return train_pos, val_pos, test_pos, atom_to_split, targets
+
+
 def seq_disjoint_route_pos_df(
     pos_df: pd.DataFrame,
     train_ratio: float,
@@ -819,23 +859,13 @@ def seq_disjoint_route_pos_df(
 
     component_id, cc_summary = bipartite_components(pos_df, hash_key=hash_key)
 
-    # Per-component pair counts -> LPT-greedy bin-pack via the shared helper
-    # (P1 of the split refactor: bit-exact with the prior inline loop — same
-    # sizes, targets, sort key, and train>val>test tie-break order).
-    sizes = component_id.value_counts().sort_index()  # comp-id asc
+    # Atom = bipartite connected component; the shared router (P2) packs atoms
+    # LPT-greedy and slices pos_df. Only the atom definition is seq_disjoint-
+    # specific — seq_disjoint and cluster_disjoint share route_holdout.
     n_pairs = int(len(pos_df))
-    targets = {
-        'train': train_ratio * n_pairs,
-        'val':   val_ratio * n_pairs,
-        'test':  test_ratio * n_pairs,
-    }
-    comp_to_split = _lpt_bin_pack(sizes, targets, ['train', 'val', 'test'])
-
-    split_for_row = component_id.map(comp_to_split)
-
-    train_pos = pos_df[split_for_row == 'train'].reset_index(drop=True)
-    val_pos = pos_df[split_for_row == 'val'].reset_index(drop=True)
-    test_pos = pos_df[split_for_row == 'test'].reset_index(drop=True)
+    train_pos, val_pos, test_pos, _atom_to_split, targets = route_holdout(
+        pos_df, component_id, train_ratio, val_ratio,
+    )
 
     achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
 
