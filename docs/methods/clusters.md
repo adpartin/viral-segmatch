@@ -161,7 +161,7 @@ routing on pairs has additional mechanics:
    § 1.3).
 
 The clustering itself happens once per (data version, alphabet (`aa`|`nt`), identity
-threshold (`id99`|`id98`|...)). Stage 3 reads the cluster lookups when
+threshold (`t99`|`t98`|...)). Stage 3 reads the cluster lookups when
 `dataset.split_strategy.mode: cluster_disjoint` is set in the bundle.
 
 ---
@@ -704,7 +704,7 @@ Columns:
   and still hold 73 (NA), 174 (NS1), and 176 (HA) aa clusters at t080.
 - **The conserved-protein cliff has a center (not just a span).**
   Each polymerase subunit and matrix protein has its own "tipping
-  idXX" between t095 and t091, but no
+  tXX" between t095 and t091, but no
   single threshold step applies to all five conserved proteins. PB2 aa drops most at t093 → t092
   (1,085 → 112, −90%); PB1 aa at t094 → t093 (930 → 238, −74%);
   PA aa at t095 → t094 (8,002 → 487, −94% — the steepest 1-pp
@@ -867,18 +867,18 @@ python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 #    redundancy_summary.md (alongside the stats CSV; not under docs/).
 #    The merge-fix in build_mmseqs_clusters.py preserves prior
 #    threshold rows on re-run, so subset reruns don't wipe the CSV.
-python -m src.analysis.seq_redundancy_per_function \
+python -m src.analysis.build_mmseqs_clusters \
     --protein_final data/processed/flu/July_2025/protein_final.parquet \
     --out_root      data/processed/flu/July_2025/clusters_aa \
-    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.80 \
-    --threads 8
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 \
+    --threads 16
 
-python -m src.analysis.seq_redundancy_per_function \
+python -m src.analysis.build_mmseqs_clusters \
     --cds_final  data/processed/flu/July_2025/cds_final.parquet \
     --out_root   data/processed/flu/July_2025/clusters_nt \
-    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 \
     --algorithm  linclust \
-    --threads    8
+    --threads    16
 
 # 3. Bipartite-component feasibility per schema pair × alphabet.
 #    --out_csv defaults to
@@ -887,13 +887,13 @@ python -m src.analysis.cluster_disjoint_feasibility \
     --protein_final data/processed/flu/July_2025/protein_final.parquet \
     --clusters_root data/processed/flu/July_2025/clusters_aa \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
-    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.80
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90
 
 python -m src.analysis.cluster_disjoint_feasibility \
     --cds_final     data/processed/flu/July_2025/cds_final.parquet \
     --clusters_root data/processed/flu/July_2025/clusters_nt \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
-    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80
+    --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90
 
 # (repeat the two feasibility calls for PB2/PB1)
 
