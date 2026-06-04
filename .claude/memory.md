@@ -60,7 +60,7 @@ change and aren't derivable from code. This file does NOT duplicate:
   pair-universe inflation (+34.9% HA-NA, +57.0% PB2-PB1) plus routing shift — not a bug. The 2026-05-13
   regimes run reproduces bit-exactly under 2026-06-03 code. Metrics:
   `docs/results/2026-06-03_phase2_postmigration_metrics.md`.
-- **Cross-validation**: IMPLEMENTED, needs an end-to-end run. Canonical reference
+- **Cross-validation**: NOT validated end-to-end on v2 — code self-flags untested (`dataset_segment_pairs_v2.py:1521`); only complete CV run is a Feb-2026 v1-era artifact on a retired bundle. Folded into the split refactor as a redesign (`route_kfold` over atom_id, validated fresh — NOT a bit-exact-preserve target): see `docs/plans/2026-06-03_dataset_split_refactor_plan.md` §5. Canonical reference
   `docs/methods/splits.md` §2; remaining work `docs/plans/2026-05-28_kfold_remaining.md`. Output is
   nested `fold_k/` dirs under one Stage-3 run + `cv_summary.*`; launchers `scripts/run_cv_lambda.py`
   (subprocess.Popen per fold) and `scripts/run_cv_polaris.pbs` (PBS array). Full impl detail in

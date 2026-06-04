@@ -102,18 +102,23 @@ distinct routing path with one representative each:
 | cluster_disjoint bilateral aa | `flu_ha_na_cluster_t099.yaml` |
 | cluster_disjoint bilateral nt_cds | `flu_ha_na_cluster_nt_t099.yaml` |
 | cluster_disjoint single_slot=a aa | `flu_ha_na_cluster_aa_t095_HAonly.yaml` |
-| cluster_disjoint single_slot=b aa | `flu_pb2_pb1_cluster_aa_t095_PB1only_k5.yaml` (also CV) |
+| cluster_disjoint single_slot=b aa | *fresh-validate only — no holdout bundle (NA-only/PB1-only untested; only a `_k5` CV build exists)* |
 | cluster_disjoint single_slot CV | `flu_ha_na_cluster_aa_t095_HAonly_k5.yaml` |
 | metadata_holdout | `flu_ha_na_holdout_year.yaml` (+ `_host`, `_subtype`) |
 | pair_key_alphabet=nt_cds | via the `cluster_nt` bundles (default inference) |
 
-### 3.2 Candidate published set (NEEDS USER CONFIRMATION)
+*Fresh-validate rows (Track B, §4 P3) — NOT bit-exact baselines: random CV, single_slot CV,
+and single_slot=b (v2 CV never validated, §5; NA-only/PB1-only is an untested combination).
+The bit-exact guard covers only the holdout rows above.*
+
+### 3.2 Published set (CONFIRMED 2026-06-03)
 Bundles whose exact numbers appear in `paper_outline_v2` / `docs/results/` and must
 reproduce byte-identical: `flu_ha_na`, `flu_pb2_pb1`, `flu_{ha_na,pb2_pb1}_regimes`,
 `flu_{ha_na,pb2_pb1}_tight*`, the `cluster_aa_t*_{HAonly,PB2only}` single-slot sweep,
 `flu_{ha_na,pb2_pb1}_cluster_nt_t099/t100`, `flu_ha_na_kmer_aa_k3`,
-`flu_{ha_na,pb2_pb1}_human_h3n2_2024`. Confirm/prune — drives which goldens are
-mandatory vs nice-to-have.
+`flu_{ha_na,pb2_pb1}_human_h3n2_2024`. **Confirmed 2026-06-03 (user).** All are
+holdout-mode, so the bit-exact guard is holdout-only — CV is a redesign, not a preserve
+target (§5).
 
 ### 3.3 Two baselines per guard bundle
 Each guard bundle gets two independent baselines that test different things:
@@ -156,8 +161,12 @@ identical across thresholds, so this costs no coverage.
   independently shippable. Verify bit-exact.
 - **P2 — atom-provider interface.** Reimplement each mode as `assign_atoms` + shared
   `route_holdout`. Verify per bundle.
-- **P3 — unify CV.** Replace the two generators with `route_kfold` over atom_id.
-  ⚠ may not be bit-exact — see §5.
+- **P3 — CV redesign (separate track, fresh-validated, NOT bit-exact-gated).** v2 CV was never
+  validated (§5), so there is no golden to preserve. Build the unified `route_kfold` (GroupKFold
+  over `atom_id`) on the atom-provider, validate end-to-end (fold-size balance, per-fold leakage
+  audit, a completed Stage-4 aggregation), and retire `generate_all_cv_folds_v2` +
+  `generate_all_cluster_disjoint_cv_folds_v2`. The CV guard bundles (random-CV master, cluster
+  single-slot `_k5`) are validation inputs here, not bit-exact baselines.
 - **P4 — PairKeySpec.** Centralize the alphabet/param conditionals. Verify.
 - **P5 — relocate + retire.** One routing module (seq + cluster together); retire v1
   split machinery if unused.
@@ -167,11 +176,16 @@ P1 is shippable on its own. P0 must precede everything.
 
 ## 5. Open questions / risks
 
-- **CV unification may break bit-exactness.** Random-CV uses sklearn KFold; cluster-CV
-  uses LPT routing — different algorithms. A single GroupKFold path could change fold
-  composition. Decide per mode: preserve the existing algorithm exactly, or re-baseline
-  CV bundles deliberately (BACKLOG single-slot #3 already proposes GroupKFold for
-  cluster single-slot CV).
+- **CV is a redesign, not a bit-exact-preserve target — RESOLVED 2026-06-03.** v2 CV was
+  never validated end-to-end: `dataset_segment_pairs_v2.py:1521` says *"haven't tested the
+  CV with v2 yet"* (random path); cluster single-slot CV built fold datasets on 2026-05-27
+  (`*_k5_*/cv_info.json`) but none completed Stage-4 aggregation (no `cv_summary`); the only
+  complete CV artifact (`old_runs/...cv5_20260226...`) is a Feb-2026 v1-era run on the retired
+  `flu_schema_raw_*` bundle; Task 11's Polaris CV failed (0/336 folds). So there is **no
+  trustworthy v2 CV baseline to reproduce** — the bit-exact guard does not apply to CV. The
+  unified `route_kfold` (GroupKFold over `atom_id`) falls out of the atom-provider refactor and
+  is **validated fresh** (end-to-end run, fold-balance + leakage audit), retiring both untested
+  generators. See §4 P3.
 - **Not yet traced** (confirm before P2): metadata_holdout's exact dispatch (appears to
   flow through `mode: random` + isolate overrides — `splits.md:57`, and the holdout
   bundles set `mode: random`); the negative-sampler coupling (sampler runs per-split on
