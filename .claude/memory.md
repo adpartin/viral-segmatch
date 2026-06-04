@@ -46,6 +46,13 @@ change and aren't derivable from code. This file does NOT duplicate:
   finding stands, the bundle file no longer exists.
 
 ## Work In Flight
+- **Data-split refactor (TOP PRIORITY, 2026-06-03)**: `src/datasets/` splitting is patched-incremental
+  — duplicated LPT packers, two per-mode CV generators, routing split across `_pair_helpers`/`_split_helpers`,
+  non-uniform `single_slot`/alphabet wiring. Target: one atom-provider + one packer + one CV path mapping
+  1:1 to `splits.md` §1.1, atom boundary left pluggable for future CC-surgery (bridge/cut-node fragmentation).
+  Plan: `docs/plans/2026-06-03_dataset_split_refactor_plan.md` (DRAFT). Constraint: bit-exact on a
+  code-path-coverage bundle set (STATUS=active under-covers; cluster/single_slot/holdout/nt_cds paths are
+  experimental bundles).
 - **Phase 2 pair_key migration** (branch `feature/phase2-pair-key-migration`): plan DONE
   (`docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md`); commits 1–6 landed by 2026-06-03
   (commit 6 = post-migration metrics; the tXXX-rename spans commits 3–7 per CLAUDE.md). aa pipeline
