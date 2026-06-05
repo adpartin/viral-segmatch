@@ -1,6 +1,6 @@
 # 2D-CD drop-budget router (mega-CC edge min-cut) — implementation plan
 
-**Status: DRAFT** (design decisions locked 2026-06-04; not yet implemented — ready to start P0.)
+**Status: CORE IMPLEMENTED (P0–P3, 2026-06-04)** — cut module + router wiring (default-off, 8/8 bit-exact) + real build feasible + 9th regression golden. Remaining: §3.6 cut-quality validation, the balanced-routing option, Q4/Q5 relocate+rename, and P4 (train-and-score, a separate plan).
 
 **Date.** 2026-06-04.
 **Goal.** Add a routing path that makes **2D-CD** feasible below t099 by **cutting the mega-CC**: drop the minimum *straddling pairs* (edge min-cut) so the kept connected components bin-pack into 80/10/10. This operationalizes the verified result in `docs/results/2026-06-04_bigraph_megacc_structure_and_cutting.md`.
@@ -81,9 +81,9 @@ The bigraph carries no distance information (edges are co-occurrence, not simila
 ## 5. Phasing
 
 - **P0 ✓ (2026-06-04)** — spectral cut confirmed deterministic (identical partition; dropped=502 / 397 atoms on HA-NA t095, two seed=1 runs); baseline `harness check` **8/8 bit-exact**.
-- **P1** — `src/datasets/_megacc_cut.py` (ported from `bipartite_min_cut`); unit check: reproduces the HA-NA aa t095 ~0.9% spectral result on the production pos_df.
-- **P2** — wire the sub-knob into `cluster_disjoint_route_pos_df` (cut before LPT) + audit block; default-off bit-exact (`harness check` 8/8).
-- **P3 ✓ (2026-06-04, build)** — validated a real full-corpus HA-NA t095 build (`flu_ha_na_cluster_t095_dropbudget`): mega-CC **97.8% → feasible 80.9/11.4/7.7** by dropping **0.51%** (299 pairs, 7 spectral cuts); `drop_budget_cut` audit + 299 dropped pair_keys persisted. Remaining: capture the drop-budget golden (9th).
+- **P1 ✓ (2026-06-04)** — `src/datasets/_megacc_cut.py` (ported from `bipartite_min_cut`); unit check reproduced the HA-NA aa t095 result **exactly** (502 pairs / 397 atoms / 7 cuts), row-accounting + determinism confirmed.
+- **P2 ✓ (2026-06-04)** — wired the sub-knob `dataset_segment_pairs.py` → `split_dataset_v2` → `cluster_disjoint_route_pos_df` (cut before LPT) + `drop_budget_cut` audit; default-off **8/8 bit-exact**.
+- **P3 ✓ (2026-06-04)** — full-corpus HA-NA t095 build (`flu_ha_na_cluster_t095_dropbudget`): mega-CC **97.8% → feasible 80.9/11.4/7.7**, dropping **0.51%** (299 pairs, 7 spectral cuts); `drop_budget_cut` audit + 299 dropped pair_keys persisted. **Golden captured** (`drop_budget_2d_aa`, N=20000: 94.5% → feasible 83.3/8.3/8.3, 4 cuts; round-trips bit-exact) — the cut path is the 9th regression guard.
 - **Bundle** Q4 (relocate `build_mmseqs_clusters.py` → `src/preprocess`) and Q5 (rename `bipartite_*` → `bigraph_*`) into P1/P2 as the files move — one pass, no double churn.
 - **P4 (separate plan)** — the train-and-score experiment (b).
 

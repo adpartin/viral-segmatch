@@ -1,0 +1,29 @@
+{
+  "name": "drop_budget_2d_aa",
+  "bundle": "flu_ha_na_cluster_t095_dropbudget",
+  "n_isolates": 20000,
+  "overrides": [],
+  "pos_digest": "3f3ea0de59e029c1b9a5d94f7156f40a11613287670e222e782a8cda007e8a8c",
+  "full_digest": "dfe5222bfca434a009c0d7af3eec8cfdc2abb2d5be0748e9683934acc03d798c",
+  "counts": {
+    "train": {
+      "total": 28342,
+      "pos": 11337
+    },
+    "val": {
+      "total": 2832,
+      "pos": 1133
+    },
+    "test": {
+      "total": 2830,
+      "pos": 1132
+    }
+  },
+  "n_pos": 13602,
+  "n_total": 34004,
+  "pos_split_pct": {
+    "train": 83.348,
+    "val": 8.33,
+    "test": 8.322
+  }
+}

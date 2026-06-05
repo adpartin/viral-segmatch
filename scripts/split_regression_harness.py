@@ -43,6 +43,9 @@ GUARD_SET = [
     # metadata_holdout filters isolates by axis, so it needs enough corpus to fill
     # train/val/test pools; a 2k subsample can starve a split. Tune N if the build errors.
     {"name": "metadata_holdout",    "bundle": "flu_ha_na_holdout_year",           "n": 20000, "overrides": []},
+    # drop-budget 2D-CD: needs enough corpus to form the t095 mega-CC so the
+    # edge min-cut actually fires (n_cuts>0). Guards the cut path (router plan P3).
+    {"name": "drop_budget_2d_aa",   "bundle": "flu_ha_na_cluster_t095_dropbudget", "n": 20000, "overrides": []},
 ]
 
 
