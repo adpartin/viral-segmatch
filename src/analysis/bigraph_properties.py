@@ -73,6 +73,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.analysis.cluster_source import cluster_map_for_root
 
 
 # Default threshold range. Matches cluster_pair_weight_topk._DEFAULT_THRESHOLDS.
@@ -80,14 +81,13 @@ _DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(100, 89, -1)]
 
 
 def load_cluster_map(clusters_root: Path, slot_protein: str, threshold_id: str) -> dict[str, str]:
-    """Load {hash -> cluster_id} for one (slot_protein, threshold). Same shape
-    as cluster_pair_weight_topk.load_cluster_map. Empty dict if file missing.
+    """Load {hash -> cluster_id} for one (slot_protein, threshold).
+
+    Delegates to `cluster_source.cluster_map_for_root` (membership-backed with a
+    direct-parquet fallback; bit-identical, see scripts/verify_membership_swap.py).
+    Empty dict if neither source exists.
     """
-    cluster_pq = clusters_root / threshold_id / f'{slot_protein}_cluster.parquet'
-    if not cluster_pq.exists():
-        return {}
-    df = pd.read_parquet(cluster_pq, columns=['seq_hash', 'cluster_id'])
-    return dict(zip(df['seq_hash'].values, df['cluster_id'].values))
+    return cluster_map_for_root(clusters_root, slot_protein, threshold_id)
 
 
 def build_bipartite_multigraph(

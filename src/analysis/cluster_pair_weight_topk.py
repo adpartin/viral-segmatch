@@ -69,6 +69,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.datasets._pair_helpers import canonical_pair_key
+from src.analysis.cluster_source import cluster_map_for_root
 
 
 # Function full → short (matches conf/virus/flu.yaml::function_short_names).
@@ -138,20 +139,15 @@ def load_pair_universe(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFram
 
 
 def load_cluster_map(clusters_root: Path, slot_protein: str, threshold_id: str) -> dict[str, str]:
-    """Load {hash → cluster_id} for one (slot_protein, threshold).
+    """Load {hash -> cluster_id} for one (slot_protein, threshold).
 
-    The cluster parquet's `seq_hash` column holds protein hashes for aa
-    clusters and DNA hashes for nt clusters (column reused). Caller is
-    responsible for pairing this map with the right hash column on the
-    pair-universe side.
-
-    Returns an empty dict if the parquet does not exist.
+    Delegates to `cluster_source.cluster_map_for_root` — membership-backed when
+    `cluster_memb_{alphabet}.parquet` is present (one cached table read replaces
+    the per-(protein, threshold) parquet reads), else a direct parquet read with
+    the alphabet's correct key column. Bit-identical either way
+    (`scripts/verify_membership_swap.py`). Returns {} if neither source exists.
     """
-    cluster_pq = clusters_root / threshold_id / f'{slot_protein}_cluster.parquet'
-    if not cluster_pq.exists():
-        return {}
-    df = pd.read_parquet(cluster_pq, columns=['seq_hash', 'cluster_id'])
-    return dict(zip(df['seq_hash'].values, df['cluster_id'].values))
+    return cluster_map_for_root(clusters_root, slot_protein, threshold_id)
 
 
 def compute_top_k_cluster_weights(
