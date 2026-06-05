@@ -1,7 +1,7 @@
 """Are the bigraph's communities the antigenic subtypes? Annotate the min-cut.
 
 The spectral min-cut (`bigraph_min_cut.py`) fragments the HA-NA mega-CC into
-feasible atoms by dropping <1% of pairs — the hypothesis (cluster_graph_operations.md)
+feasible atoms by dropping <1% of pairs — the hypothesis (docs/results/2026-06-04_bigraph_megacc_structure_and_cutting.md)
 is that those atoms are the antigenic subtypes (H3N2, H1N1, ...) and the dropped
 pairs are the rare inter-subtype reassortants. This script tests that directly:
 
