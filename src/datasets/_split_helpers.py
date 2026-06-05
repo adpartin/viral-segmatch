@@ -333,6 +333,7 @@ def cluster_disjoint_route_pos_df(
     n_folds: Optional[int] = None,
     max_acceptable_drift_pp: float = 0.05,
     min_test_frac: float = 0.05,
+    drop_budget: Optional[dict] = None,
     ) -> Union[
         tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict],
         list[tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]],
@@ -447,6 +448,31 @@ def cluster_disjoint_route_pos_df(
             'single_slot':               single_slot,
         }
 
+    # ----- Drop-budget edge min-cut (P2): bilateral 2D-CD holdout only; default off -----
+    # Breaks the mega-CC by dropping straddling pairs so the kept CCs LPT-pack
+    # into the target ratios. No-op unless drop_budget['enabled']. See
+    # docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md and _megacc_cut.py.
+    cut_audit = None
+    if drop_budget is not None and drop_budget.get('enabled', False):
+        if single_slot is not None:
+            raise NotImplementedError(
+                f"split_strategy.drop_budget is only supported for bilateral 2D-CD "
+                f"(single_slot=None); got single_slot={single_slot!r}."
+            )
+        from src.datasets._megacc_cut import apply_drop_budget_cut
+        pos_with_ids, cut_audit = apply_drop_budget_cut(
+            pos_with_ids,
+            cut_method=drop_budget.get('cut_method', 'spectral'),
+            target_frac=drop_budget.get('target_frac', 0.80),
+            drift_pp=drop_budget.get('drift_pp', max_acceptable_drift_pp),
+            max_drop_frac=drop_budget.get('max_drop_frac', 0.20),
+            seed=drop_budget.get('seed', 1),
+        )
+        # Re-derive atoms on the post-cut (smaller) pair set.
+        component_id, cc_summary = bipartite_components(
+            pos_with_ids, col_a='cluster_id_a', col_b='cluster_id_b',
+        )
+
     n_pairs = int(len(pos_with_ids))
     sizes = component_id.value_counts().sort_index()
 
@@ -482,6 +508,8 @@ def cluster_disjoint_route_pos_df(
             targets=targets, achieved=achieved,
             **audit_kwargs_shared,
         )
+        if cut_audit is not None:
+            audit['drop_budget_cut'] = cut_audit
         return train_pos, val_pos, test_pos, audit
 
     # ============================================================

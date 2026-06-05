@@ -592,6 +592,17 @@ if PAIR_BUILDER_VERSION == 'v2':
                 PAIR_KEY_ALPHABET = 'nt_cds'
             else:
                 PAIR_KEY_ALPHABET = 'aa'
+    # drop_budget sub-knob (P2): mega-CC edge min-cut for bilateral 2D-CD.
+    # Absent or enabled=false -> no cut (existing behavior, byte-identical).
+    # Threaded split_dataset_v2 -> cluster_disjoint_route_pos_df -> _megacc_cut.
+    # See docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md.
+    DROP_BUDGET = None
+    if SPLIT_STRATEGY_CFG is not None:
+        _db = getattr(SPLIT_STRATEGY_CFG, 'drop_budget', None)
+        if _db is not None:
+            from omegaconf import OmegaConf
+            DROP_BUDGET = OmegaConf.to_container(_db, resolve=True)
+
     # D3 feasibility knobs for k-fold cluster_disjoint (read from
     # split_strategy.feasibility.*; defaults match D3 of the k-fold plan).
     # See docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md D3.
@@ -816,6 +827,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             val_isolates_override=holdout_val_ids,
             test_isolates_override=holdout_test_ids,
             pair_key_alphabet=PAIR_KEY_ALPHABET,
+            drop_budget=DROP_BUDGET,
         )
         print(f"stage3 v2: split_dataset_v2 (done in {time.time()-_t:.2f}s)", flush=True)
 

@@ -1351,6 +1351,7 @@ def split_dataset_v2(
     single_slot: Optional[str] = None,
     routed_pos_override: Optional[dict] = None,
     pair_key_alphabet: str = 'aa',
+    drop_budget: Optional[dict] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
     row-level shuffle on the deduped pos_df (safe under v2's strict
@@ -1622,6 +1623,7 @@ def split_dataset_v2(
             pos_hash_col=pos_hash_col,
             cluster_alphabet=cluster_alphabet,
             single_slot=single_slot,
+            drop_budget=drop_budget,
         )
         ach = cluster_disjoint_audit['achieved_pct']
         att = cluster_disjoint_audit['attach_audit']
