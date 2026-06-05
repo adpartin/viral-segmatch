@@ -108,6 +108,7 @@ src/
     extract_cds_dna.py              # Stage 1.5: protein_final + genome_final → cds_final.parquet
     flu_genomes_eda.py              # Generates flu_genomes_metadata_parsed.csv (run once)
     preprocess_bunya_protein.py     # Bunya (NOT maintained; reference-only)
+    build_mmseqs_clusters.py        # Stage 2.5: per-function mmseqs2 cluster sweep (easy-linclust, aa+nt); producer for cluster_disjoint routing
   embeddings/
     compute_esm2_embeddings.py      # Stage 2: sequences → ESM-2 HDF5 cache
     compute_kmer_features.py        # Stage 2b: DNA or protein → k-mer sparse matrix
@@ -116,6 +117,7 @@ src/
     dataset_segment_pairs_v2.py     # v2 builder (default; coverage-first + regime-aware)
     _pair_helpers.py                # Shared helpers (seq_disjoint routing, filters)
     _split_helpers.py               # cluster_disjoint routing (mmseqs2-based)
+    _megacc_cut.py                  # mega-CC edge min-cut (drop-budget 2D-CD; spectral/KL)
     _negative_regime_sampling.py    # 8-regime classifier + priority chain for racov
   models/
     train_pair_classifier.py        # Stage 4: MLP classifier training
@@ -125,7 +127,6 @@ src/
     aggregate_experiment_results.py # Cross-bundle summary tables
     visualize_cv_results.py         # CV visualization
     analyze_stage{1,2,3}_*.py       # Per-stage QC scripts
-    build_mmseqs_clusters.py        # mmseqs2 per-function cluster sweep (aa easy-cluster, nt easy-linclust)
     cluster_disjoint_feasibility.py # Bilateral bipartite-CC feasibility pre-flight
     single_slot_cluster_disjoint_feasibility.py  # Single-slot atom feasibility pre-flight
     cluster_analysis_summary.py     # Post-hoc structural summary

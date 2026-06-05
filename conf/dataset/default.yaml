@@ -191,7 +191,7 @@ drop_ambiguous_subtype: true
 # cluster_disjoint-only parameters (required when mode=cluster_disjoint;
 # ignored otherwise):
 #   - cluster_id_path: path to a (<hash>, cluster_id) parquet produced by
-#     `src/analysis/build_mmseqs_clusters.py`. Typically points at
+#     `src/preprocess/build_mmseqs_clusters.py`. Typically points at
 #     `data/processed/<virus>/<version>/clusters_aa/t<NN>/combined_cluster.parquet`
 #     for aa clustering, or `clusters_nt_cds/t<NN>/combined_cluster.parquet`
 #     for nt_cds (CDS DNA) clustering. <hash> is `seq_hash` for aa,

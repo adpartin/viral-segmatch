@@ -1,6 +1,6 @@
 """Balanced edge min-cut on the cluster-level bigraph: the efficient drop-budget.
 
-Companion to `bipartite_hub_peel.py`. The hub-peel removes whole hub *nodes*
+Companion to `bigraph_hub_peel.py`. The hub-peel removes whole hub *nodes*
 (whole clusters) and is dominated by their pair mass — a loose upper bound on
 the cost of recovering feasibility. This script runs the *edge-cut* operation
 instead: recursively bisect the largest connected component with a balanced
@@ -21,10 +21,10 @@ far tighter than node-peel. Determinism: KL is seeded; same (graph, seed) gives
 the same cut.
 
 CLI:
-    python -m src.analysis.bipartite_min_cut \\
+    python -m src.analysis.bigraph_min_cut \\
         [--schema_pair HA NA] [--alphabet aa] [--threshold t095] \\
         [--method kl] [--target_frac 0.80] [--drift_pp 0.05] \\
-        [--out_dir results/flu/July_2025/runs/bipartite_min_cut]
+        [--out_dir results/flu/July_2025/runs/bigraph_min_cut]
 
 Outputs (under --out_dir):
     min_cut_{slug}_{alphabet}_{threshold}_{method}.csv   per-cut log
@@ -44,7 +44,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.analysis.bipartite_graph_properties import (
+from src.analysis.bigraph_properties import (
     load_cluster_map,
     build_bipartite_multigraph,
 )
@@ -196,7 +196,7 @@ def main() -> None:
     p.add_argument('--seed', type=int, default=1)
     p.add_argument('--kl_max_iter', type=int, default=10)
     p.add_argument('--out_dir', type=Path,
-                   default=PROJ / 'results/flu/July_2025/runs/bipartite_min_cut')
+                   default=PROJ / 'results/flu/July_2025/runs/bigraph_min_cut')
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)

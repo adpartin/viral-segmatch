@@ -31,14 +31,14 @@ Terminology (see docs/methods/glossary.md):
   - λ(G) — edge connectivity; minimum size of an edge cut.
 
 CLI:
-    python -m src.analysis.bipartite_graph_properties \\
+    python -m src.analysis.bigraph_properties \\
         [--schema_pair HA NA] \\
         [--alphabets aa nt_cds] \\
         [--thresholds t100 t099 t098 t097 t096 t095 \\
                        t094 t093 t092 t091 t090] \\
         [--compute_lambda_largest] \\
         [--export_graphml] \\
-        [--out_dir results/flu/July_2025/runs/bipartite_graph_properties]
+        [--out_dir results/flu/July_2025/runs/bigraph_properties]
 
 Outputs (under --out_dir):
     graph_props.csv               long-form, columns:
@@ -349,7 +349,7 @@ def main() -> None:
                    help='Export the largest CC subgraph as GraphML for '
                         'visualization in Gephi / Cytoscape. Off by default.')
     p.add_argument('--out_dir', type=Path,
-                   default=PROJ / 'results/flu/July_2025/runs/bipartite_graph_properties')
+                   default=PROJ / 'results/flu/July_2025/runs/bigraph_properties')
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)

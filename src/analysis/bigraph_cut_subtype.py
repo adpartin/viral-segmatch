@@ -1,6 +1,6 @@
 """Are the bigraph's communities the antigenic subtypes? Annotate the min-cut.
 
-The spectral min-cut (`bipartite_min_cut.py`) fragments the HA-NA mega-CC into
+The spectral min-cut (`bigraph_min_cut.py`) fragments the HA-NA mega-CC into
 feasible atoms by dropping <1% of pairs — the hypothesis (cluster_graph_operations.md)
 is that those atoms are the antigenic subtypes (H3N2, H1N1, ...) and the dropped
 pairs are the rare inter-subtype reassortants. This script tests that directly:
@@ -18,10 +18,10 @@ big atoms are subtype-pure and the dropped pairs join different subtypes, the
 cheap cut is a cross-subtype split.
 
 CLI:
-    python -m src.analysis.bipartite_cut_subtype \\
+    python -m src.analysis.bigraph_cut_subtype \\
         [--schema_pair HA NA] [--alphabet aa] [--threshold t095] \\
         [--method spectral] [--top_atoms 8] \\
-        [--out_dir results/flu/July_2025/runs/bipartite_min_cut]
+        [--out_dir results/flu/July_2025/runs/bigraph_min_cut]
 """
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ if str(PROJ) not in sys.path:
 from src.datasets._pair_helpers import canonical_pair_key
 from src.utils.metadata_enrichment import load_flu_metadata
 from src.analysis.cluster_pair_weight_topk import load_pair_universe, _FUNCTION_TO_SHORT
-from src.analysis.bipartite_graph_properties import load_cluster_map, build_bipartite_multigraph
-from src.analysis.bipartite_min_cut import min_cut_recursive
+from src.analysis.bigraph_properties import load_cluster_map, build_bipartite_multigraph
+from src.analysis.bigraph_min_cut import min_cut_recursive
 
 
 def pair_key_to_subtype(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFrame:
@@ -88,7 +88,7 @@ def main() -> None:
     p.add_argument('--seed', type=int, default=1)
     p.add_argument('--top_atoms', type=int, default=8)
     p.add_argument('--out_dir', type=Path,
-                   default=PROJ / 'results/flu/July_2025/runs/bipartite_min_cut')
+                   default=PROJ / 'results/flu/July_2025/runs/bigraph_min_cut')
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)

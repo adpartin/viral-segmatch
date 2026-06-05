@@ -47,14 +47,14 @@ Artifact layout:
 
 CLI:
     # aa redundancy sweep (easy-linclust is the default since 2026-05-22).
-    python -m src.analysis.build_mmseqs_clusters \\
+    python -m src.preprocess.build_mmseqs_clusters \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_aa \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
 
     # nt_cds redundancy sweep (same default).
-    python -m src.analysis.build_mmseqs_clusters \\
+    python -m src.preprocess.build_mmseqs_clusters \\
         --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
         --out_root   data/processed/flu/July_2025/clusters_nt_cds \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
@@ -285,7 +285,7 @@ def write_results_markdown(
     lines.append(f"**Input.** `{protein_final_path}`.")
     lines.append(f"**Alphabet.** {alphabet_label}.")
     lines.append(f"**Tool.** mmseqs2 `{subcmd} --min-seq-id <th> -c 0.8 --cov-mode 0{dbtype_flag}`.")
-    lines.append(f"**Script.** `src/analysis/build_mmseqs_clusters.py`.")
+    lines.append(f"**Script.** `src/preprocess/build_mmseqs_clusters.py`.")
     lines.append("")
     lines.append("## Method")
     lines.append("")

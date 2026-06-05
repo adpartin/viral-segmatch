@@ -1,6 +1,6 @@
 """Mega-CC edge min-cut for the drop-budget 2D-CD router (operational home).
 
-The diagnostics in `src/analysis/bipartite_*.py` explored this cut on the
+The diagnostics in `src/analysis/bigraph_*.py` explored this cut on the
 analysis pair universe; this module is the operational version that runs inside
 the splitter. It operates directly on the production `pos_with_ids`'s
 `(cluster_id_a, cluster_id_b)` columns — no analysis-side `load_pair_universe`

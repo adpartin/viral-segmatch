@@ -34,7 +34,7 @@ For a schema pair, 2D-CD builds one **bigraph** (`glossary.md`): side A = slot-A
 
 ## 2. Structure of the mega-CC [V]
 
-Measured with `src/analysis/bipartite_graph_properties.py` (per-node degree, pair-mass, bridges, cut nodes; pair-mass = multigraph degree = pairs dropped if the node is removed).
+Measured with `src/analysis/bigraph_properties.py` (per-node degree, pair-mass, bridges, cut nodes; pair-mass = multigraph degree = pairs dropped if the node is removed).
 
 **HA-NA aa t095 — NA is the engine.** Largest CC = 57,526 pairs (97.8%), 8,710 nodes.
 
@@ -59,8 +59,8 @@ Measured with `src/analysis/bipartite_graph_properties.py` (per-node degree, pai
 Below t099, 2D-CD is infeasible (largest CC > train target). Recovering it requires dropping pairs (a **drop-budget**, DataSAIL-S2 style). We evaluated two families; feasibility is gated by the real LPT 80/10/10 check (drift ≤ 5 pp, `splits.md` §1.3/§3.3).
 
 **Methods.**
-- **Node-peel** (`bipartite_hub_peel.py`) — greedily remove the heaviest cluster (node), dropping all its pairs.
-- **Edge min-cut** (`bipartite_min_cut.py`) — recursively bisect the largest CC and drop only **straddling pairs**, via **KL (Kernighan–Lin, *not* Kullback–Leibler) balanced bisection** or **spectral (Fiedler) bisection** (networkx, in-env). METIS/KaHIP are the external balanced-min-cut tools for the same job. Recursive bisection to LPT-feasibility is an **upper bound** on the true minimum drop.
+- **Node-peel** (`bigraph_hub_peel.py`) — greedily remove the heaviest cluster (node), dropping all its pairs.
+- **Edge min-cut** (`bigraph_min_cut.py`) — recursively bisect the largest CC and drop only **straddling pairs**, via **KL (Kernighan–Lin, *not* Kullback–Leibler) balanced bisection** or **spectral (Fiedler) bisection** (networkx, in-env). METIS/KaHIP are the external balanced-min-cut tools for the same job. Recursive bisection to LPT-feasibility is an **upper bound** on the true minimum drop.
 
 **Cost to recover 80/10/10 (% of the pair universe dropped):**
 
@@ -74,7 +74,7 @@ Below t099, 2D-CD is infeasible (largest CC > train target). Recovering it requi
 
 **Findings.**
 - **Node-peel is a loose upper bound.** On HA-NA t095 it drops 81% — removing the single biggest hub (`NA_1880`, 15.5% of pairs) moves the largest-CC fraction only 97.8% → 97.4%, because the dense core is robust to node removal.
-- **The edge min-cut is the efficient lever**, and the balance constraint matters: spectral (unbalanced, finds sparse community boundaries) reaches feasibility on HA-NA t095 at **0.9%** (502 pairs, 7 cuts), ~10× better than KL's node-balanced 10.1% and ~90× better than node-peel. Cutting **7 pairs** alone splits a 21k-pair community off the mega — these are the *inter-community* bridges that `bipartite_graph_properties` had already counted (76% bridges).
+- **The edge min-cut is the efficient lever**, and the balance constraint matters: spectral (unbalanced, finds sparse community boundaries) reaches feasibility on HA-NA t095 at **0.9%** (502 pairs, 7 cuts), ~10× better than KL's node-balanced 10.1% and ~90× better than node-peel. Cutting **7 pairs** alone splits a 21k-pair community off the mega — these are the *inter-community* bridges that `bigraph_properties` had already counted (76% bridges).
 - **Cuttability is mechanism-dependent.** HA-NA's antigenic community structure cuts cheaply; PB2-PB1's single conserved-collapse mega-cluster does not (spectral still needs 23.5%, KL 60%) — there is no thin boundary to exploit when one node holds 79% of the pairs.
 
 This makes **2D-CD recoverable below t099 for community-structured pairs at a small, quantified data cost** — the operation the prior `splits.md` feasibility ceiling treated as simply "broken."
@@ -83,7 +83,7 @@ This makes **2D-CD recoverable below t099 for community-structured pairs at a sm
 
 ## 4. What the cut is, biologically
 
-Annotated with `bipartite_cut_subtype.py` (atom → `hn_subtype`) and `bipartite_reassortment_check.py` (isolate-level), on the HA-NA t095 spectral cut (drop 502 pairs, 397 atoms).
+Annotated with `bigraph_cut_subtype.py` (atom → `hn_subtype`) and `bigraph_reassort_check.py` (isolate-level), on the HA-NA t095 spectral cut (drop 502 pairs, 397 atoms).
 
 **[V] The atoms are subtype-organized — so the cheap cut is a cross-subtype split.**
 
@@ -128,20 +128,20 @@ Environment: `segmatch` conda env (pandas, networkx, scipy). Inputs on disk: `da
 
 ```bash
 # Structure: per-node degree, pair-mass, bridges, cut nodes, hub concentration
-python -m src.analysis.bipartite_graph_properties --schema_pair HA NA --alphabets aa \
-    --thresholds t100 t099 t095 --out_dir results/flu/July_2025/runs/bipartite_graph_properties/hub_confirm
+python -m src.analysis.bigraph_properties --schema_pair HA NA --alphabets aa \
+    --thresholds t100 t099 t095 --out_dir results/flu/July_2025/runs/bigraph_properties/hub_confirm
 
 # Node-peel (loose upper bound) and edge min-cut (efficient)
-python -m src.analysis.bipartite_hub_peel  --schema_pair HA NA --alphabet aa --threshold t095 --strategy cut_node
-python -m src.analysis.bipartite_min_cut   --schema_pair HA NA --alphabet aa --threshold t095 --method spectral
-python -m src.analysis.bipartite_min_cut   --schema_pair PB2 PB1 --alphabet aa --threshold t095 --method spectral
+python -m src.analysis.bigraph_hub_peel  --schema_pair HA NA --alphabet aa --threshold t095 --strategy cut_node
+python -m src.analysis.bigraph_min_cut   --schema_pair HA NA --alphabet aa --threshold t095 --method spectral
+python -m src.analysis.bigraph_min_cut   --schema_pair PB2 PB1 --alphabet aa --threshold t095 --method spectral
 
 # Biology: subtype composition of the cut + isolate-level reassortment proxy
-python -m src.analysis.bipartite_cut_subtype        --schema_pair HA NA --alphabet aa --threshold t095 --method spectral
-python -m src.analysis.bipartite_reassortment_check --schema_pair HA NA --alphabet aa --threshold t095 --method spectral
+python -m src.analysis.bigraph_cut_subtype        --schema_pair HA NA --alphabet aa --threshold t095 --method spectral
+python -m src.analysis.bigraph_reassort_check --schema_pair HA NA --alphabet aa --threshold t095 --method spectral
 ```
 
-Outputs under `results/flu/July_2025/runs/{bipartite_graph_properties,bipartite_hub_peel,bipartite_min_cut}/`.
+Outputs under `results/flu/July_2025/runs/{bigraph_properties,bigraph_hub_peel,bigraph_min_cut}/`.
 
 ## 8. See also
 

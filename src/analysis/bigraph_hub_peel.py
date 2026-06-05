@@ -4,12 +4,12 @@ Tests the foundation claim that the bipartite mega-CC is held together by a few
 high-pair-mass bipartite hubs that are also cut nodes (articulation points), so
 fragmenting it to recover an 80/10/10-feasible largest component costs data
 proportional to those hubs' pair mass — not the cheap peripheral bridges. The
-companion property script (`bipartite_graph_properties.py`) measures the static
+companion property script (`bigraph_properties.py`) measures the static
 structure (degrees, bridges, cut nodes); this script runs the dynamic surgery.
 
 Algorithm (greedy, deterministic). Build the bipartite multigraph for one
 (schema_pair, alphabet, threshold) from the pair universe (same construction as
-`bipartite_graph_properties.build_bipartite_multigraph`). Then repeat:
+`bigraph_properties.build_bipartite_multigraph`). Then repeat:
   1. find the largest CC (by pair count = multigraph edges);
   2. if its share of the *retained* pairs is <= target, stop;
   3. else remove the largest CC's heaviest node by pair_mass, restricted to cut
@@ -30,10 +30,10 @@ audit's "~18.5%" is relative to a larger dataset-build positive count, so
 compare shape/magnitude, not exact percentages.
 
 CLI:
-    python -m src.analysis.bipartite_hub_peel \\
+    python -m src.analysis.bigraph_hub_peel \\
         [--schema_pair HA NA] [--alphabet aa] [--threshold t095] \\
         [--target_frac 0.80] [--strategy cut_node] \\
-        [--out_dir results/flu/July_2025/runs/bipartite_hub_peel]
+        [--out_dir results/flu/July_2025/runs/bigraph_hub_peel]
 
 Outputs (under --out_dir):
     hub_peel_{slug}_{alphabet}_{threshold}_{strategy}.csv   per-step curve
@@ -57,7 +57,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.analysis.bipartite_graph_properties import (
+from src.analysis.bigraph_properties import (
     load_cluster_map,
     build_bipartite_multigraph,
 )
@@ -197,7 +197,7 @@ def main() -> None:
                         "any_node: remove the heaviest node regardless (contrast).")
     p.add_argument('--max_steps', type=int, default=100_000)
     p.add_argument('--out_dir', type=Path,
-                   default=PROJ / 'results/flu/July_2025/runs/bipartite_hub_peel')
+                   default=PROJ / 'results/flu/July_2025/runs/bigraph_hub_peel')
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)

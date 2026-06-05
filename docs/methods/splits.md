@@ -485,7 +485,7 @@ Scripts performing this JOIN pattern:
   pair-weight ranking (single-slot view).
 - `src/analysis/cluster_disjoint_feasibility.py` — bipartite-CC
   feasibility (pair-weighted; multigraph view).
-- `src/analysis/bipartite_graph_properties.py` — per-CC stats
+- `src/analysis/bigraph_properties.py` — per-CC stats
   including bridges and cut nodes on the simple-graph projection
   (see `glossary.md` "Simple bipartite graph").
 - `src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df` —

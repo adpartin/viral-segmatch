@@ -1,7 +1,7 @@
 """Isolate-level test: are the min-cut's dropped bridges biological reassortants?
 
-The spectral min-cut (`bipartite_min_cut.py`) fragments the HA-NA mega-CC into
-subtype-organized atoms by dropping <1% of pairs; `bipartite_cut_subtype.py`
+The spectral min-cut (`bigraph_min_cut.py`) fragments the HA-NA mega-CC into
+subtype-organized atoms by dropping <1% of pairs; `bigraph_cut_subtype.py`
 showed 92% of dropped pairs bridge atoms of *different* dominant subtype. This
 script confirms that at the ISOLATE level, without relying on atom labels:
 
@@ -15,7 +15,7 @@ script confirms that at the ISOLATE level, without relying on atom labels:
     KEPT pairs? If yes, the structural bottleneck = reassortment events.
 
 CLI:
-    python -m src.analysis.bipartite_reassortment_check \\
+    python -m src.analysis.bigraph_reassort_check \\
         [--schema_pair HA NA] [--alphabet aa] [--threshold t095] [--method spectral]
 """
 from __future__ import annotations
@@ -33,9 +33,9 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.analysis.bipartite_graph_properties import load_cluster_map, build_bipartite_multigraph
-from src.analysis.bipartite_min_cut import min_cut_recursive
-from src.analysis.bipartite_cut_subtype import pair_key_to_subtype
+from src.analysis.bigraph_properties import load_cluster_map, build_bipartite_multigraph
+from src.analysis.bigraph_min_cut import min_cut_recursive
+from src.analysis.bigraph_cut_subtype import pair_key_to_subtype
 
 _HN = re.compile(r'^H(\d+)N(\d+)$')
 
@@ -57,7 +57,7 @@ def main() -> None:
     p.add_argument('--method', default='spectral', choices=['kl', 'spectral'])
     p.add_argument('--seed', type=int, default=1)
     p.add_argument('--out_dir', type=Path,
-                   default=PROJ / 'results/flu/July_2025/runs/bipartite_min_cut')
+                   default=PROJ / 'results/flu/July_2025/runs/bigraph_min_cut')
     args = p.parse_args()
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     slot_a, slot_b = args.schema_pair

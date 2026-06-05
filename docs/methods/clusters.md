@@ -637,7 +637,7 @@ project, each appropriate for a different question.
 |---|---|---|
 | **Unique-weighted** (storage) | Cluster size = number of unique seq_hashes in the cluster | mmseqs output; §6.1, §6.2, §6.3; `cluster_summary.csv` |
 | **Records-weighted** | Cluster size = Σ copy_count over the cluster's seq_hashes | §6.4 Gini; `cluster_diversity_stats.csv top1_cluster_pct` |
-| **Pair-weighted** | Cluster size = number of canonical pairs (post-`pair_key` dedup) whose endpoint on the slot is in the cluster | **Splitter decisions** (`cluster_pair_weight_topk.csv`, `cluster_disjoint_feasibility.csv`, `bipartite_graph_properties graph_props.csv`). For pair universe / cluster pair definitions see `glossary.md`. |
+| **Pair-weighted** | Cluster size = number of canonical pairs (post-`pair_key` dedup) whose endpoint on the slot is in the cluster | **Splitter decisions** (`cluster_pair_weight_topk.csv`, `cluster_disjoint_feasibility.csv`, `bigraph_properties graph_props.csv`). For pair universe / cluster pair definitions see `glossary.md`. |
 
 **Unique-weighted is the ground-truth storage.** The parquet stores
 `{seq_hash → cluster_id}` for unique seqs only; records-weighted and
@@ -847,7 +847,7 @@ structural-summary script that backs §§ 4–6 of this doc and
 | Step | Script | Reads | Writes |
 |---|---|---|---|
 | Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `genome_final.csv` | `cds_final.parquet` |
-| Cluster sweep | `src/analysis/build_mmseqs_clusters.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
+| Cluster sweep | `src/preprocess/build_mmseqs_clusters.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
 | Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` (bilateral) and `src/analysis/single_slot_cluster_disjoint_feasibility.py` (single-slot) | one cluster lookup + `protein_final` or `cds_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/{feasibility,single_slot_feasibility}_<pair>_<alphabet>.csv` |
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
 | Post-hoc structural summary | `src/analysis/cluster_analysis_summary.py` | `redundancy_stats.csv`, per-threshold cluster parquets, `cds_final.parquet`, feasibility CSVs | tables + plots under `results/flu/{version}/runs/cluster_analysis/` (see § 8 outputs block) |
@@ -867,13 +867,13 @@ python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 #    redundancy_summary.md (alongside the stats CSV; not under docs/).
 #    The merge-fix in build_mmseqs_clusters.py preserves prior
 #    threshold rows on re-run, so subset reruns don't wipe the CSV.
-python -m src.analysis.build_mmseqs_clusters \
+python -m src.preprocess.build_mmseqs_clusters \
     --protein_final data/processed/flu/July_2025/protein_final.parquet \
     --out_root      data/processed/flu/July_2025/clusters_aa \
     --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 \
     --threads 16
 
-python -m src.analysis.build_mmseqs_clusters \
+python -m src.preprocess.build_mmseqs_clusters \
     --cds_final  data/processed/flu/July_2025/cds_final.parquet \
     --out_root   data/processed/flu/July_2025/clusters_nt \
     --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 \
