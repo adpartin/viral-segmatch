@@ -48,7 +48,7 @@ split_strategy:
 
 ### 3.2 The cut — port from `bipartite_min_cut`
 - Move the recursive-bisection cut into `src/datasets/_megacc_cut.py` (operational home), operating on the production pos_df's `(cluster_a, cluster_b)` edges. The standalone `bipartite_*` analysis scripts stay in `src/analysis` as diagnostics.
-- `cut_method`: **`spectral`** (default; cheapest — 0.9% on HA-NA t095) | `kl` | `none`. **Must be deterministic** — pin the seed and confirm run-to-run identity (P0).
+- `cut_method`: **`spectral`** (default; cheapest — 0.9% on HA-NA t095) | `kl` | `none`. **Must be deterministic** — pin the seed and confirm run-to-run identity (confirmed in P0: identical partition across two runs).
 - `max_drop_frac = 0.20` guard: if recovering feasibility would drop more than 20% (e.g. the conserved-collapse pairs need ≥24%), **refuse with an informative menu** (like the D4 refuse in `splits.md` §3.4) rather than silently shedding a fifth of the data.
 
 ### 3.3 Post-cut atom routing — **decided: LPT now, balanced later**
@@ -80,7 +80,7 @@ The bigraph carries no distance information (edges are co-occurrence, not simila
 
 ## 5. Phasing
 
-- **P0** — confirm cut determinism (run the spectral cut twice, diff the partition); baseline `harness check` (8/8).
+- **P0 ✓ (2026-06-04)** — spectral cut confirmed deterministic (identical partition; dropped=502 / 397 atoms on HA-NA t095, two seed=1 runs); baseline `harness check` **8/8 bit-exact**.
 - **P1** — `src/datasets/_megacc_cut.py` (ported from `bipartite_min_cut`); unit check: reproduces the HA-NA aa t095 ~0.9% spectral result on the production pos_df.
 - **P2** — wire the sub-knob into `cluster_disjoint_route_pos_df` (cut before LPT) + audit block; default-off bit-exact (`harness check` 8/8).
 - **P3** — add the drop-budget golden; validate a real HA-NA t095 build (feasible 80/10/10, audit correct, dropped pairs persisted).
@@ -90,7 +90,7 @@ The bigraph carries no distance information (edges are co-occurrence, not simila
 ## 6. Decisions (resolved 2026-06-04)
 
 1. **Config surface:** sub-knob (B) on the existing bilateral mode, **default off** (§3.1).
-2. **Default `cut_method`:** **spectral** (§3.2) — pending the P0 determinism confirm.
+2. **Default `cut_method`:** **spectral** (§3.2) — confirmed deterministic in P0 (identical partition across two seed=1 runs).
 3. **Post-cut routing:** **LPT** for v1; balanced multiway deferred (§3.3).
 4. **`max_drop_frac`:** **0.20**, refuse with a D4-style menu on exceed (§3.2).
 5. **Subtype-awareness:** **stay blind** — the cut is unsupervised; subtype is annotated only post-hoc.
