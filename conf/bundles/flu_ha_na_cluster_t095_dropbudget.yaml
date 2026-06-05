@@ -1,0 +1,20 @@
+# STATUS: experimental -- P3 validation of the drop-budget 2D-CD router.
+# Same bilateral cluster_disjoint config as flu_ha_na_cluster_t095 (whose
+# (cluster_id_a, cluster_id_b) bipartite graph collapses to one mega-CC over
+# ~98% of deduped pairs -> infeasible 98.5/0.8/0.8), but ENABLES the mega-CC
+# edge min-cut. The cut drops ~0.9% straddling pairs (spectral) to recover a
+# feasible ~80/10/10. See docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md.
+
+defaults:
+  - flu_ha_na_cluster_t095
+  - _self_
+
+dataset:
+  split_strategy:
+    drop_budget:
+      enabled: true
+      cut_method: spectral
+      target_frac: 0.80
+      drift_pp: 0.05
+      max_drop_frac: 0.20
+      seed: 1

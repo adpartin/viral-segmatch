@@ -83,7 +83,7 @@ The bigraph carries no distance information (edges are co-occurrence, not simila
 - **P0 ✓ (2026-06-04)** — spectral cut confirmed deterministic (identical partition; dropped=502 / 397 atoms on HA-NA t095, two seed=1 runs); baseline `harness check` **8/8 bit-exact**.
 - **P1** — `src/datasets/_megacc_cut.py` (ported from `bipartite_min_cut`); unit check: reproduces the HA-NA aa t095 ~0.9% spectral result on the production pos_df.
 - **P2** — wire the sub-knob into `cluster_disjoint_route_pos_df` (cut before LPT) + audit block; default-off bit-exact (`harness check` 8/8).
-- **P3** — add the drop-budget golden; validate a real HA-NA t095 build (feasible 80/10/10, audit correct, dropped pairs persisted).
+- **P3 ✓ (2026-06-04, build)** — validated a real full-corpus HA-NA t095 build (`flu_ha_na_cluster_t095_dropbudget`): mega-CC **97.8% → feasible 80.9/11.4/7.7** by dropping **0.51%** (299 pairs, 7 spectral cuts); `drop_budget_cut` audit + 299 dropped pair_keys persisted. Remaining: capture the drop-budget golden (9th).
 - **Bundle** Q4 (relocate `build_mmseqs_clusters.py` → `src/preprocess`) and Q5 (rename `bipartite_*` → `bigraph_*`) into P1/P2 as the files move — one pass, no double churn.
 - **P4 (separate plan)** — the train-and-score experiment (b).
 
