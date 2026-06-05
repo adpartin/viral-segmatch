@@ -1,6 +1,6 @@
 # 2D-CD drop-budget router (mega-CC edge min-cut) — implementation plan
 
-**Status: CORE IMPLEMENTED (P0–P3, 2026-06-04)** — cut module + router wiring (default-off, 8/8 bit-exact) + real build feasible + 9th regression golden. Remaining: §3.6 cut-quality validation, the balanced-routing option, Q4/Q5 relocate+rename, and P4 (train-and-score, a separate plan).
+**Status: CORE IMPLEMENTED (P0–P3) + Q4/Q5 reorg done.** Cut module + router wiring (default-off, 8/8 bit-exact), real build feasible, 9th regression golden; clusters builder → `src/preprocess` + `bigraph_*` renames merged to master (`0abe400`). **Remaining:** §3.6 cut-quality validation (the `mmseqs` rep-distance / floor-violation diagnostic), the balanced post-cut routing option, and **P4 (train-and-score / fixed-test sweep — a separate plan, not yet written)**.
 
 **Date.** 2026-06-04.
 **Goal.** Add a routing path that makes **2D-CD** feasible below t099 by **cutting the mega-CC**: drop the minimum *straddling pairs* (edge min-cut) so the kept connected components bin-pack into 80/10/10. This operationalizes the verified result in `docs/results/2026-06-04_bigraph_megacc_structure_and_cutting.md`.
@@ -65,6 +65,8 @@ The CC structure is currently ephemeral (built in `_split_helpers`, used for rou
 - Build the bigraph from the production `pos_df` (`create_positive_pairs_v2`), **not** `analysis.load_pair_universe`. This (a) fixes the nt_cds protein-dedup gap (the analysis loader always dedups on protein `seq_hash`), and (b) uses the actual filtered/scoped pairs — which differ from the 58,826-pair analysis universe — so feasibility is re-verified on the real set.
 
 ### 3.6 Validation — cut-quality diagnostic (tiered)
+
+**Why this is a *check*, not a fix for a violation.** The cut never changes cluster membership — it only severs *cross-slot* co-occurrence edges (HA↔NA), which is orthogonal to the *within-slot* sequence similarity the threshold guards. So after the cut, train and test still have **disjoint HA-cluster and NA-cluster sets** → train/test sequences remain in different `t`-clusters (`>(1−t)·L` apart); cluster-disjointness is fully preserved. The "reason the pieces were one CC" was co-occurrence, not similarity. The only residual: the cut picks its boundary by co-occurrence *sparsity*, not sequence distance, so it could land on clusters sitting just over the `t` line (the soft-floor / near-boundary case) — which is exactly what the diagnostic below measures.
 
 The bigraph carries no distance information (edges are co-occurrence, not similarity), so the cross-side sequence gap is a sequence-alignment operation — kept post-hoc, like 1-NN.
 
