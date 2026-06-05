@@ -10,7 +10,10 @@ where:
 
 Then computes per-CC structural properties used to inform splitter design:
   - Per-CC: node counts on each side, unique-edge count, pair count (with
-    multiplicity), n_bridges, n_cut_nodes (always — both O(V+E)).
+    multiplicity), n_bridges, n_cut_nodes (always — both O(V+E)), and
+    per-side hub-concentration scalars: top1/top5 pair-mass share, max
+    simple-degree, and pair-mass Gini (high Gini = a few bipartite hubs
+    carry the component).
   - Optional, opt-in: λ(G) (edge connectivity) and the actual minimum edge
     cut for the largest CC (expensive — O(V·E·poly); set
     --compute_lambda_largest with a time budget).
@@ -31,8 +34,8 @@ CLI:
     python -m src.analysis.bipartite_graph_properties \\
         [--schema_pair HA NA] \\
         [--alphabets aa nt_cds] \\
-        [--thresholds id100 id099 id098 id097 id096 id095 \\
-                       id094 id093 id092 id091 id090] \\
+        [--thresholds t100 t099 t098 t097 t096 t095 \\
+                       t094 t093 t092 t091 t090] \\
         [--compute_lambda_largest] \\
         [--export_graphml] \\
         [--out_dir results/flu/July_2025/runs/bipartite_graph_properties]
@@ -41,10 +44,15 @@ Outputs (under --out_dir):
     graph_props.csv               long-form, columns:
         schema_pair, alphabet, threshold, cc_id, n_nodes_a, n_nodes_b,
         n_unique_edges, n_pairs, n_bridges, n_cut_nodes, lambda,
-        is_largest
+        is_largest, top1_pairmass_frac_{a,b}, top5_pairmass_frac_{a,b},
+        max_simple_degree_{a,b}, pairmass_gini_{a,b}
     largest_cc/{slug}_{alphabet}_{threshold}/
+        node_degrees.csv          always — per-node simple_degree + pair_mass
+                                  (multigraph degree = incident pairs) +
+                                  is_cut_node, sorted by pair_mass
         bridges.csv               always — edge list of bridges
-        cut_nodes.csv             always — cut node list (side + cluster_id)
+        cut_nodes.csv             always — cut nodes with simple_degree +
+                                  pair_mass (the data dropped if removed)
         min_cut.csv               only if --compute_lambda_largest
         subgraph.graphml          only if --export_graphml
 """
@@ -129,6 +137,40 @@ def build_bipartite_multigraph(
     return G, n_unmapped
 
 
+def _gini(values) -> float:
+    """Gini coefficient of a non-negative sequence (0 = even, 1 = all mass on one).
+
+    Summarizes how concentrated a side's pair-mass is across its clusters:
+    a high Gini means a few bipartite hubs carry the component.
+    """
+    x = np.sort(np.asarray(list(values), dtype=float))
+    n = x.size
+    s = x.sum()
+    if n == 0 or s == 0:
+        return 0.0
+    idx = np.arange(1, n + 1)
+    return float((2.0 * np.sum(idx * x)) / (n * s) - (n + 1.0) / n)
+
+
+def _side_concentration(masses: list, simple_degrees: list, n_pairs: int, side: str) -> dict:
+    """Per-side hub-concentration scalars for one CC.
+
+    Each edge has exactly one endpoint per side, so a side's per-node
+    pair_mass sums to n_pairs; top-k pair_mass / n_pairs is the share of the
+    CC's pairs carried by that side's k heaviest clusters. `pair_mass` is the
+    multigraph degree (incident pairs = data dropped if the node is removed);
+    `simple_degree` is the count of distinct opposite-side partners.
+    """
+    m = np.sort(np.asarray(masses, dtype=float))[::-1]
+    denom = float(n_pairs) if n_pairs > 0 else 1.0
+    return {
+        f'top1_pairmass_frac_{side}': round(float(m[:1].sum()) / denom, 4) if m.size else 0.0,
+        f'top5_pairmass_frac_{side}': round(float(m[:5].sum()) / denom, 4) if m.size else 0.0,
+        f'max_simple_degree_{side}': int(max(simple_degrees)) if simple_degrees else 0,
+        f'pairmass_gini_{side}': round(_gini(masses), 4) if masses else 0.0,
+    }
+
+
 def per_cc_stats(
     G: nx.MultiGraph,
     compute_lambda_largest: bool = False,
@@ -163,8 +205,22 @@ def per_cc_stats(
         subg_multi = G.subgraph(cc_nodes)
         subg_simple = nx.Graph(subg_multi)
 
-        n_nodes_a = sum(1 for n in cc_nodes if n.startswith('a:'))
-        n_nodes_b = sum(1 for n in cc_nodes if n.startswith('b:'))
+        # Per-node pair_mass (multigraph degree = incident pairs) and
+        # simple_degree (distinct opposite-side partners), split by side.
+        masses_a, masses_b = [], []
+        sdeg_a, sdeg_b = [], []
+        for n in cc_nodes:
+            pm = subg_multi.degree(n)
+            sd = subg_simple.degree(n)
+            if n.startswith('a:'):
+                masses_a.append(pm)
+                sdeg_a.append(sd)
+            else:
+                masses_b.append(pm)
+                sdeg_b.append(sd)
+
+        n_nodes_a = len(masses_a)
+        n_nodes_b = len(masses_b)
         n_pairs = subg_multi.number_of_edges()
         n_unique_edges = subg_simple.number_of_edges()
 
@@ -183,7 +239,7 @@ def per_cc_stats(
                 print(f"  WARNING: edge_connectivity / minimum_edge_cut "
                       f"failed on largest CC ({type(e).__name__}: {e})")
 
-        rows.append({
+        row = {
             'cc_id': cc_id,
             'n_nodes_a': n_nodes_a,
             'n_nodes_b': n_nodes_b,
@@ -193,14 +249,32 @@ def per_cc_stats(
             'n_cut_nodes': len(cut_nodes),
             'lambda': lam,
             'is_largest': cc_id == largest_cc_id,
-        })
+        }
+        row.update(_side_concentration(masses_a, sdeg_a, n_pairs, 'a'))
+        row.update(_side_concentration(masses_b, sdeg_b, n_pairs, 'b'))
+        rows.append(row)
 
         if cc_id == largest_cc_id:
+            cut_set = set(cut_nodes)
+            node_rows = []
+            for n in cc_nodes:
+                side, cid = n.split(':', 1)
+                node_rows.append({
+                    'side': side,
+                    'cluster_id': cid,
+                    'simple_degree': int(subg_simple.degree(n)),
+                    'pair_mass': int(subg_multi.degree(n)),
+                    'is_cut_node': n in cut_set,
+                })
+            node_df = (pd.DataFrame(node_rows)
+                       .sort_values('pair_mass', ascending=False)
+                       .reset_index(drop=True))
             largest_artifacts = {
                 'cc_id': cc_id,
                 'subgraph_simple': subg_simple,
                 'bridges': bridges,
                 'cut_nodes': cut_nodes,
+                'node_degrees': node_df,
                 'min_cut': min_cut,
                 'lambda': lam,
             }
@@ -214,22 +288,27 @@ def write_largest_cc_artifacts(
     out_dir: Path,
     export_graphml: bool,
 ) -> None:
-    """Write bridges, cut nodes, (optionally) min_cut and graphml subgraph."""
+    """Write node degrees, bridges, cut nodes, (optionally) min_cut and graphml."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def _split(node_id: str) -> tuple[str, str]:
         side, cid = node_id.split(':', 1)
         return side, cid
 
+    # Per-node degree table (sorted by pair_mass) and the cut-node subset
+    # carrying its degree + pair_mass — the pair_mass column is the data
+    # that would be dropped if that hub were removed.
+    node_df = artifacts['node_degrees']
+    node_df.to_csv(out_dir / 'node_degrees.csv', index=False)
+    (node_df[node_df['is_cut_node']]
+        .drop(columns='is_cut_node')
+        .reset_index(drop=True)
+        .to_csv(out_dir / 'cut_nodes.csv', index=False))
+
     pd.DataFrame(
         [_split(u) + _split(v) for u, v in artifacts['bridges']],
         columns=['side_a', 'cluster_a', 'side_b', 'cluster_b'],
     ).to_csv(out_dir / 'bridges.csv', index=False)
-
-    pd.DataFrame(
-        [_split(n) for n in artifacts['cut_nodes']],
-        columns=['side', 'cluster_id'],
-    ).to_csv(out_dir / 'cut_nodes.csv', index=False)
 
     if artifacts['min_cut'] is not None:
         pd.DataFrame(
@@ -316,15 +395,34 @@ def main() -> None:
             long_frames.append(cc_df)
 
             largest_row = cc_df.iloc[0]
+            bridge_frac = (largest_row['n_bridges'] / largest_row['n_unique_edges']
+                           if largest_row['n_unique_edges'] else 0.0)
             print(f"  largest CC: {largest_row['n_nodes_a']} + {largest_row['n_nodes_b']} nodes, "
                   f"{largest_row['n_unique_edges']:,} unique edges, "
                   f"{largest_row['n_pairs']:,} pairs (with parallel), "
-                  f"{largest_row['n_bridges']} bridges, "
+                  f"{largest_row['n_bridges']} bridges ({bridge_frac:.0%}), "
                   f"{largest_row['n_cut_nodes']} cut nodes"
                   + (f", λ={largest_row['lambda']}" if pd.notna(largest_row['lambda']) else "")
                   + f"  ({time.time() - t0:.1f}s)")
+            print(f"    hub concentration  "
+                  f"{slot_a}: top1={largest_row['top1_pairmass_frac_a']:.1%} "
+                  f"top5={largest_row['top5_pairmass_frac_a']:.1%} "
+                  f"gini={largest_row['pairmass_gini_a']:.2f} "
+                  f"maxdeg={largest_row['max_simple_degree_a']}  |  "
+                  f"{slot_b}: top1={largest_row['top1_pairmass_frac_b']:.1%} "
+                  f"top5={largest_row['top5_pairmass_frac_b']:.1%} "
+                  f"gini={largest_row['pairmass_gini_b']:.2f} "
+                  f"maxdeg={largest_row['max_simple_degree_b']}")
 
             if largest_artifacts is not None:
+                nd = largest_artifacts['node_degrees']
+                for side, lbl in [('a', slot_a), ('b', slot_b)]:
+                    top = nd[nd['side'] == side].head(3)
+                    hub_str = ", ".join(
+                        f"{r.cluster_id}(deg {r.simple_degree}, {r.pair_mass:,}p)"
+                        for r in top.itertuples()
+                    )
+                    print(f"    top {lbl} hubs: {hub_str}")
                 largest_dir = (
                     out_dir / 'largest_cc'
                     / f'{schema_pair_slug}_{alphabet}_{threshold}'
