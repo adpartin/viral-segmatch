@@ -100,14 +100,19 @@ def pair_features(pairs: pd.DataFrame, ha: str, hb: str, hash_to_row: dict,
 def fit_score(model: str, x_tr, y_tr, x_te, y_te, seed: int) -> float:
     if model == 'lgbm':
         from lightgbm import LGBMClassifier
-        clf = LGBMClassifier(n_estimators=200, min_child_samples=5, random_state=seed,
-                             verbose=-1, n_jobs=-1)
+        # n_jobs=-1 is pathological on many-core boxes (317s vs 7s here); colsample
+        # subsampling is the speed lever on the 8000-dim k-mer features.
+        clf = LGBMClassifier(n_estimators=100, min_child_samples=5, colsample_bytree=0.3,
+                             random_state=seed, verbose=-1, n_jobs=16)
     elif model == 'knn1':
         from sklearn.neighbors import KNeighborsClassifier
         clf = KNeighborsClassifier(n_neighbors=1, metric='cosine')
     elif model == 'mlp':
         from sklearn.neural_network import MLPClassifier
-        clf = MLPClassifier(hidden_layer_sizes=(128,), max_iter=300, early_stopping=False,
+        # early-stop only when abundant; the 10% val set is too noisy at small N
+        # (tanked F1 at N~390), and MLP isn't the bottleneck after the LGBM fix.
+        clf = MLPClassifier(hidden_layer_sizes=(128,), max_iter=300,
+                            early_stopping=(len(x_tr) > 3000), n_iter_no_change=8,
                             alpha=1e-3, random_state=seed)
     else:
         raise ValueError(f"unknown model {model!r}")
@@ -121,19 +126,32 @@ def _labeled(pos: pd.DataFrame, neg: pd.DataFrame, ha: str, hb: str) -> pd.DataF
     return pd.concat([p, n], ignore_index=True)
 
 
-def run_slice(universe, slot_a, slot_b, alphabet, threshold, *, hash_to_row, matrix,
-              interaction, k_folds, models, seed):
-    """One (pair, alphabet, t): GroupKFold-by-CC -> per-model F1-macro mean/std."""
+def run_cv(pairs, slot_a, slot_b, alphabet, threshold, max_per_cc, n_ccs, cc_sizes, *,
+           hash_to_row, matrix, interaction, k_folds, models, seed):
+    """One (pair, alphabet, t, m): cap-m-per-CC sample -> GroupKFold-by-CC F1-macro.
+
+    `pairs` already carries cc_id (assigned once per t). `n_capped` = #CCs that hit
+    the cap (|CC| >= m); the rest contribute their full (<m) size.
+    """
     ha, hb = _HASH[alphabet]
-    pairs = assign_cc(universe, slot_a, slot_b, alphabet, threshold)
-    pos = sample_positives(pairs, max_per_cc=1, seed=seed)
+    pos = sample_positives(pairs, max_per_cc=max_per_cc, seed=seed)
     n_pos = len(pos)
+    n_capped = int((cc_sizes >= max_per_cc).sum())
     if n_pos < k_folds:
-        print(f"  [{slot_a}-{slot_b} {alphabet} {threshold}] only {n_pos} CCs < k_folds; skipping.")
         return None
 
+    # CV splitter: GroupKFold keeps whole CCs in one fold (cluster-disjoint). It is
+    # deterministic + unshuffled, so f1_std is the fold-to-fold spread of ONE partition
+    # (not repeated-CV variance); label balance comes from the per-fold 1:1 negatives
+    # (make_negatives), not the splitter.
+    # TODO(cv-variants): for seeded/repeated grouped CV, loop
+    #   StratifiedGroupKFold(shuffle=True, random_state=seed) over seeds (sklearn has no
+    #   RepeatedStratifiedGroupKFold; RepeatedStratifiedKFold is group-UNAWARE -> it would
+    #   split CCs across folds and leak). To keep a covariate (e.g. hn_subtype) balanced
+    #   across folds, pass it as `y` to StratifiedGroupKFold -- a deliberate stratification,
+    #   distinct from the 1:1 label balance which is already created per fold.
     gkf = GroupKFold(n_splits=k_folds)
-    per_model = {m: [] for m in models}
+    per_model = {mdl: [] for mdl in models}
     for train_idx, test_idx in gkf.split(pos, groups=pos['cc_id'].to_numpy()):
         tr_pos, te_pos = pos.iloc[train_idx], pos.iloc[test_idx]
         tr = _labeled(tr_pos, make_negatives(tr_pos, alphabet, seed), ha, hb)
@@ -142,47 +160,61 @@ def run_slice(universe, slot_a, slot_b, alphabet, threshold, *, hash_to_row, mat
         x_te, y_te = pair_features(te, ha, hb, hash_to_row, matrix, interaction)
         scaler = StandardScaler().fit(x_tr)  # fit on train only; fixes MLP on raw counts
         x_tr, x_te = scaler.transform(x_tr), scaler.transform(x_te)
-        for m in models:
-            per_model[m].append(fit_score(m, x_tr, y_tr, x_te, y_te, seed))
+        for mdl in models:
+            per_model[mdl].append(fit_score(mdl, x_tr, y_tr, x_te, y_te, seed))
 
     rows = []
-    for m in models:
-        s = np.array(per_model[m])
+    for mdl in models:
+        s = np.array(per_model[mdl])
         rows.append({'schema_pair': f'{slot_a}-{slot_b}', 'alphabet': alphabet,
-                     'threshold': threshold, 'model': m, 'n_pos': n_pos,
+                     'threshold': threshold, 'm': int(max_per_cc), 'model': mdl,
+                     'n_ccs': int(n_ccs), 'n_capped': n_capped, 'n_pos': n_pos,
                      'n_folds': len(s), 'f1_mean': round(float(s.mean()), 4),
                      'f1_std': round(float(s.std()), 4)})
-    print(f"  [{slot_a}-{slot_b} {alphabet} {threshold}] n_pos={n_pos}  "
-          + "  ".join(f"{m}={r['f1_mean']:.3f}+/-{r['f1_std']:.3f}" for m, r in zip(models, rows)))
+    print(f"  [{slot_a}-{slot_b} {alphabet} {threshold} m={max_per_cc}] "
+          f"N={n_pos} ({n_capped}/{n_ccs} CCs capped)  "
+          + "  ".join(f"{mdl}={r['f1_mean']:.3f}" for mdl, r in zip(models, rows)))
     return rows
 
 
-def plot_scorecurve(df_pair: pd.DataFrame, pair_label, alphabet, models, out_png):
-    sub = df_pair.sort_values('threshold')
-    ts = sorted(sub['threshold'].unique(), reverse=True)  # t100 left
+def plot_m_sweep(df_pair: pd.DataFrame, pair_label, alphabet, models, ms, out_png):
+    """2x2 grid: one F1-vs-t panel per model + an N-vs-t panel; m overlaid (viridis)."""
+    ts = sorted(df_pair['threshold'].unique(), reverse=True)  # t100 left
     x = np.arange(len(ts))
-    npos = [int(sub[sub['threshold'] == t]['n_pos'].iloc[0]) for t in ts]
+    cmap = plt.get_cmap('viridis')
+    colors = {mv: cmap(i / max(len(ms) - 1, 1)) for i, mv in enumerate(ms)}
 
-    fig, ax = plt.subplots(figsize=(8.5, 5.2))
-    for m in models:
-        mm = sub[sub['model'] == m].set_index('threshold')
-        y = [mm.loc[t, 'f1_mean'] for t in ts]
-        e = [mm.loc[t, 'f1_std'] for t in ts]
-        ax.errorbar(x, y, yerr=e, marker='o', capsize=3, linewidth=1.6,
-                    color=_MODEL_COLOR.get(m, None), label=m)
-    ax.set_xticks(x)
-    ax.set_xticklabels([f'{t}\n(N={n:,})' for t, n in zip(ts, npos)], fontsize=8)
-    ax.set_xlabel('cluster threshold t  (N = one-per-CC positives)', fontsize=10)
-    ax.set_ylabel('F1-macro (mean +/- std over folds)', fontsize=10)
-    ax.set_ylim(0.4, 1.02)
-    ax.axhline(0.5, linestyle=':', color='#888', linewidth=1, label='chance (0.5)')
-    ax.grid(linestyle=':', alpha=0.5)
-    ax.set_title(f'{pair_label} — {alphabet} — cluster-disjoint K-fold CV\n'
-                 f'one-per-CC positives, GroupKFold-by-CC, k-mer features', fontsize=11)
-    ax.legend(loc='lower left', fontsize=9, frameon=True)
+    fig, axes = plt.subplots(2, 2, figsize=(13.5, 9))
+    panels = list(models) + ['N']
+    for ax, panel in zip(axes.flat, panels):
+        for mv in ms:
+            s = df_pair[df_pair['m'] == mv]
+            if panel == 'N':
+                y = [int(s[s['threshold'] == t]['n_pos'].iloc[0]) for t in ts]
+                ax.plot(x, y, marker='o', color=colors[mv], label=f'm={mv}')
+            else:
+                mm = s[s['model'] == panel].set_index('threshold')
+                y = [mm.loc[t, 'f1_mean'] for t in ts]
+                e = [mm.loc[t, 'f1_std'] for t in ts]
+                ax.errorbar(x, y, yerr=e, marker='o', capsize=2, color=colors[mv], label=f'm={mv}')
+        ax.set_xticks(x)
+        ax.set_xticklabels(ts, fontsize=8)
+        ax.grid(linestyle=':', alpha=0.5)
+        ax.legend(fontsize=8, title='cap m/CC')
+        if panel == 'N':
+            ax.set_ylabel('N positives (log)')
+            ax.set_yscale('log')
+            ax.set_title('dataset size N vs t')
+        else:
+            ax.set_ylabel('F1-macro (mean +/- std)')
+            ax.set_ylim(0.4, 1.02)
+            ax.axhline(0.5, linestyle=':', color='#999', linewidth=1)
+            ax.set_title(f'{panel}')
+    fig.suptitle(f'{pair_label} — {alphabet} — m-sweep (cap m pairs/CC): '
+                 f'F1-macro and N vs cluster threshold t', fontsize=12, y=1.0)
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png, dpi=180, bbox_inches='tight')
+    fig.savefig(out_png, dpi=170, bbox_inches='tight')
     plt.close(fig)
 
 
@@ -197,6 +229,8 @@ def main() -> None:
     p.add_argument('--interaction', default='unit_diff', choices=['concat', 'unit_diff'])
     p.add_argument('--k_folds', type=int, default=5)
     p.add_argument('--models', nargs='+', default=['mlp', 'lgbm', 'knn1'])
+    p.add_argument('--max_per_cc', nargs='+', type=int, default=[1, 2, 5, 10],
+                   help='cap of pairs sampled per CC (m); swept and overlaid.')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--out_dir', type=Path,
                    default=PROJ / 'results/flu/July_2025/runs/cluster_disjoint_cv')
@@ -219,19 +253,24 @@ def main() -> None:
         print(f"=== {pair} ===")
         universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
         hash_to_row = build_hash_to_row(args.kmer_k, [s2f[slot_a], s2f[slot_b]])
+        ms = sorted(set(args.max_per_cc))
         for alphabet in args.alphabets:
             pair_rows: list[dict] = []
             for t in args.thresholds:
-                rows = run_slice(universe, slot_a, slot_b, alphabet, t,
-                                 hash_to_row=hash_to_row, matrix=matrix,
-                                 interaction=args.interaction, k_folds=args.k_folds,
-                                 models=args.models, seed=args.seed)
-                if rows:
-                    pair_rows.extend(rows)
+                pairs = assign_cc(universe, slot_a, slot_b, alphabet, t)  # CC structure: once per t
+                n_ccs = int(pairs['cc_id'].nunique())
+                cc_sizes = pairs.groupby('cc_id').size()
+                for mv in ms:
+                    rows = run_cv(pairs, slot_a, slot_b, alphabet, t, mv, n_ccs, cc_sizes,
+                                  hash_to_row=hash_to_row, matrix=matrix,
+                                  interaction=args.interaction, k_folds=args.k_folds,
+                                  models=args.models, seed=args.seed)
+                    if rows:
+                        pair_rows.extend(rows)
             if pair_rows:
                 df_pair = pd.DataFrame(pair_rows)
-                out_png = out_dir / f'scorecurve_{slot_a}_{slot_b}_{alphabet}.png'
-                plot_scorecurve(df_pair, pair, alphabet, args.models, out_png)
+                out_png = out_dir / f'msweep_{slot_a}_{slot_b}_{alphabet}.png'
+                plot_m_sweep(df_pair, pair, alphabet, args.models, ms, out_png)
                 print(f"  wrote {out_png}")
                 all_rows.extend(pair_rows)
 
