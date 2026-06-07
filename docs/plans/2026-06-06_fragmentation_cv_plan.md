@@ -1,6 +1,6 @@
 # Fragmentation for cluster-disjoint CV: cluster-pair sampling + atom-fragmented folds
 
-**Status: PROPOSED** (awaiting approval; flip to IN PROGRESS on go-ahead)
+**Status: IN PROGRESS** (implementation underway)
 
 Date: 2026-06-06
 Owner: cluster-disjoint CV harness (`src/analysis/cluster_disjoint_cv_experiment.py` + `src/analysis/_cv_sampling.py`)
@@ -141,7 +141,7 @@ Guard: `sample_unit='cluster_pair'` while a mega-CC exists and `strategy='natura
 
 1. **In-code assertion** (§4.2): no cluster in two atoms — runs every `cut` call.
 2. **Fold-level check** in `run_cv` (debug/assert mode): for each fold split, assert `set(train clusters) ∩ set(test clusters) == ∅` on **both** slots — the operational definition of 2D-CD. Cheap; gate behind a `--verify` flag so the full sweep isn't slowed.
-3. **Reconcile counts**: glossary cites 10,141 cluster pairs at HA-NA aa t095; the CV harness's earlier "N_cells" note said ~10,756. Confirm which (likely unmapped-endpoint handling or a stale figure) and use the measured value. Flag, don't paper over.
+3. **Reconcile counts** [RESOLVED 2026-06-07]: 10,756 = total cluster pairs (all CCs, the harness's measurement); 10,141 = cluster pairs inside the mega-CC only (`project_changelog.md` 2026-06-01). The glossary "Cluster pair" entry conflated the two — fixed to 10,756 total. Clusters are unchanged: natural largest-CC% measures 49.0/79.6/97.8 at t100/t099/t095, matching the glossary exactly.
 4. **Sanity vs the existing cut**: at the 80/10/10 target, `fragment_weighted` on HA-NA aa t095 must reproduce `bigraph_min_cut.py`'s 0.9% spectral drop (regression guard that the refactor preserved behavior).
 
 ---
