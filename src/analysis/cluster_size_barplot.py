@@ -29,7 +29,7 @@ CLI:
     python -m src.analysis.cluster_size_barplot \\
         [--clusters_aa     data/processed/flu/July_2025/clusters_aa] \\
         [--clusters_nt_cds data/processed/flu/July_2025/clusters_nt_cds] \\
-        [--out_dir         results/flu/July_2025/runs/cluster_size] \\
+        [--out_dir         results/flu/July_2025/runs/1D_cluster_sizes] \\
         [--top_n 20] \\
         [--proteins HA NA PB2 PB1] \\
         [--alphabets aa nt_cds] \\
@@ -171,7 +171,7 @@ def main() -> None:
                    default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'),
                    help='Root containing tXXX/{PROTEIN}_cluster.parquet for nt_cds.')
     p.add_argument('--out_dir',
-                   default=str(PROJ / 'results/flu/July_2025/runs/cluster_size'),
+                   default=str(PROJ / 'results/flu/July_2025/runs/1D_cluster_sizes'),
                    help='Output directory for plots/ and the long-form CSV.')
     p.add_argument('--top_n', type=int, default=20,
                    help='Number of largest clusters to draw per slice (default 20).')
@@ -207,7 +207,7 @@ def main() -> None:
                 sizes = cluster_sizes_unique(cluster_pq)
                 if len(sizes) == 0:
                     continue
-                out_png = plots_dir / f'barplot_{protein}_{alphabet}_{t}.png'
+                out_png = plots_dir / f'barplot_{protein.lower()}_{alphabet}_{t}.png'
                 plot_cluster_size_barplot(
                     sizes, protein=protein, alphabet=alphabet, threshold_id=t,
                     top_n=args.top_n, out_png=out_png,

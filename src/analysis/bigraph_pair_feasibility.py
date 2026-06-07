@@ -21,7 +21,7 @@ CLI:
         [--alphabets aa nt_cds] \\
         [--thresholds t100 t099 t098 t097 t096 t095] \\
         [--top_n 20] [--k_folds 5] \\
-        [--out_dir results/flu/July_2025/runs/bigraph_pair_feasibility]
+        [--out_dir results/flu/July_2025/runs/2D_cluster_sizes]
 
 Outputs (under --out_dir):
     barplot_{A}_{B}_{alphabet}_{tXXX}.png   one feasibility barplot per slice
@@ -107,7 +107,7 @@ def plot_feasibility_barplot(
                label=f'1/{k_folds} K-fold budget ({budget_pct:.0f}% of pairs)')
     ax.set_xticks(xs)
     ax.set_xticklabels([f'CC{i + 1}' for i in range(len(top))], rotation=0, fontsize=7)
-    ax.set_xlabel('connected component (rank, largest first)', fontsize=9)
+    ax.set_xlabel('connected component (rank-ordered, largest first)', fontsize=9)
     ax.set_ylabel('positive pairs in CC', fontsize=9)
     ax.set_ylim(0, top[0] * 1.18)
     ax.grid(axis='y', linestyle=':', alpha=0.5)
@@ -139,7 +139,7 @@ def main() -> None:
     p.add_argument('--k_folds', type=int, default=5,
                    help='K for the 1/K feasibility budget line (default 5).')
     p.add_argument('--out_dir', type=Path,
-                   default=PROJ / 'results/flu/July_2025/runs/bigraph_pair_feasibility')
+                   default=PROJ / 'results/flu/July_2025/runs/2D_cluster_sizes')
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -168,7 +168,7 @@ def main() -> None:
                 n_cells = len(set(G.edges()))
                 sizes, n_ccs = cc_pair_sizes(G)
 
-                slug = f'{slot_a}_{slot_b}'
+                slug = f'{slot_a.lower()}_{slot_b.lower()}'
                 out_png = plots_dir / f'barplot_{slug}_{alphabet}_{t}.png'
                 plot_feasibility_barplot(
                     sizes, pair_label=pair, alphabet=alphabet, threshold_id=t,

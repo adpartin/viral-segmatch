@@ -33,7 +33,7 @@ CLI:
     python -m src.analysis.bigraph_pair_2d \\
         [--schema_pair HA NA] [--alphabet aa] [--thresholds t095 t090] \\
         [--method spectral] [--drift_pp 0.05] [--top_atoms 8] \\
-        [--out_dir results/flu/July_2025/runs/bigraph_pair_2d]
+        [--out_dir results/flu/July_2025/runs/2D_cluster_maps]
 
 Outputs (under --out_dir):
     pair_2d_{slug}_{alphabet}_{tXXX}.png        two-panel cluster scatter
@@ -165,7 +165,7 @@ def _sizes(n_pairs):
 
 
 def plot_two_panel(u, cells, ranks, *, slot_a, slot_b, alphabet, threshold,
-                   top_atoms, dropped_frac, n_atoms, out_png, no_cut=False):
+                   top_atoms, dropped_frac, n_atoms, out_png, no_cut=False, legend='cc'):
     cmap = plt.get_cmap('tab10')
     atom_color = {a: cmap(i % 10) for i, a in enumerate(range(top_atoms))}
     kept = cells[cells['kept']].copy()
@@ -188,24 +188,34 @@ def plot_two_panel(u, cells, ranks, *, slot_a, slot_b, alphabet, threshold,
         ax.scatter(sx, sy, s=_sizes(strad['n_pairs']) + 6, marker='x',
                    c='#d62728', linewidths=0.9, alpha=0.9, label='straddling (cut)')
     _order = 'connected component' if no_cut else 'min-cut atom'
-    ax.set_xlabel(f'{slot_b} clusters — ordered by {_order}', fontsize=10)
-    ax.set_ylabel(f'{slot_a} clusters — ordered by {_order}', fontsize=10)
+    ax.set_xlabel(f'{slot_b} clusters — rank-ordered by {_order}', fontsize=10)
+    ax.set_ylabel(f'{slot_a} clusters — rank-ordered by {_order}', fontsize=10)
     ax.set_title(('Natural-CC order — pairs on the CC block-diagonal (no cut)'
                   if no_cut else
                   'Spectral-atom order — kept pairs on the atom block-diagonal;\n'
                   'red × = straddling pairs the cut drops'), fontsize=11)
+    atom_pairs = u.groupby('atom_a').size()
+    total = len(u)
+    if legend == 'cc':
+        def _atom_label(a):
+            n = int(atom_pairs.get(a, 0))
+            return f'CC {a + 1}: {n:,} ({100 * n / total:.1f}%)'
+        legend_title = 'top CCs (by pair count)'
+    else:
+        def _atom_label(a):
+            dom, pur = _atom_dominant_subtype(u, a)
+            return f'atom {a}: {dom} ({pur:.0%})'
+        legend_title = 'islands (by pair-mass)'
     legend_atoms = [
         Line2D([0], [0], marker='o', linestyle='', markersize=7,
-               markerfacecolor=atom_color[a], markeredgecolor='none',
-               label=f'atom {a}: {_atom_dominant_subtype(u, a)[0]} '
-                     f'({_atom_dominant_subtype(u, a)[1]:.0%})')
+               markerfacecolor=atom_color[a], markeredgecolor='none', label=_atom_label(a))
         for a in range(min(top_atoms, n_atoms))
     ]
     if len(strad):
         legend_atoms.append(Line2D([0], [0], marker='x', linestyle='', markersize=8,
                                    markeredgecolor='#d62728', label='straddling (cut)'))
     ax.legend(handles=legend_atoms, loc='lower right', fontsize=7.5,
-              frameon=True, framealpha=0.9, title='islands (by pair-mass)')
+              frameon=True, framealpha=0.9, title=legend_title)
 
     # ---- RIGHT: subtype-grouped order --------------------------------------
     ax = axes[1]
@@ -281,7 +291,7 @@ def plot_subtype_heatmap(u, *, slot_a, slot_b, alphabet, threshold,
 
 def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphabet,
                   threshold, method, drift_pp, seed, top_atoms, max_h, max_n, out_dir,
-                  no_cut=False, skip_heatmap=False):
+                  no_cut=False, skip_heatmap=False, legend='cc'):
     cmap_a = load_cluster_map(clusters_root, slot_a, threshold)
     cmap_b = load_cluster_map(clusters_root, slot_b, threshold)
     if not cmap_a or not cmap_b:
@@ -310,7 +320,7 @@ def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphab
     slug = f'{slot_a.lower()}_{slot_b.lower()}'
     plot_two_panel(u, cells, ranks, slot_a=slot_a, slot_b=slot_b, alphabet=alphabet,
                    threshold=threshold, top_atoms=top_atoms, dropped_frac=dropped_frac,
-                   n_atoms=n_atoms, no_cut=no_cut,
+                   n_atoms=n_atoms, no_cut=no_cut, legend=legend,
                    out_png=out_dir / f'pair_2d_{slug}_{alphabet}_{threshold}.png')
     if not skip_heatmap:
         plot_subtype_heatmap(u, slot_a=slot_a, slot_b=slot_b, alphabet=alphabet,
@@ -347,8 +357,10 @@ def main() -> None:
                    help='Pre-fragmentation view: order by natural CC, draw no straddling (red x) markers.')
     p.add_argument('--skip_heatmap', action='store_true',
                    help='Skip the subtype heatmap (t-invariant; one copy per pair suffices).')
+    p.add_argument('--legend', default='cc', choices=['cc', 'subtype'],
+                   help="Left-panel legend: 'cc' (top CCs by pair count + %) or 'subtype' (dominant hn_subtype + purity).")
     p.add_argument('--out_dir', type=Path,
-                   default=PROJ / 'results/flu/July_2025/runs/bigraph_pair_2d')
+                   default=PROJ / 'results/flu/July_2025/runs/2D_cluster_maps')
     args = p.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -366,7 +378,7 @@ def main() -> None:
                       alphabet=args.alphabet, threshold=threshold, method=args.method,
                       drift_pp=args.drift_pp, seed=args.seed, top_atoms=args.top_atoms,
                       max_h=args.max_h, max_n=args.max_n, out_dir=out_dir,
-                      no_cut=args.no_cut, skip_heatmap=args.skip_heatmap)
+                      no_cut=args.no_cut, skip_heatmap=args.skip_heatmap, legend=args.legend)
 
     print('\nDone.')
 
