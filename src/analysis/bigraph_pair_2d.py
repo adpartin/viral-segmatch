@@ -165,7 +165,7 @@ def _sizes(n_pairs):
 
 
 def plot_two_panel(u, cells, ranks, *, slot_a, slot_b, alphabet, threshold,
-                   top_atoms, dropped_frac, n_atoms, out_png):
+                   top_atoms, dropped_frac, n_atoms, out_png, no_cut=False):
     cmap = plt.get_cmap('tab10')
     atom_color = {a: cmap(i % 10) for i, a in enumerate(range(top_atoms))}
     kept = cells[cells['kept']].copy()
@@ -187,10 +187,13 @@ def plot_two_panel(u, cells, ranks, *, slot_a, slot_b, alphabet, threshold,
         sy = strad['node_a'].map(ranks['a_atom']).to_numpy()
         ax.scatter(sx, sy, s=_sizes(strad['n_pairs']) + 6, marker='x',
                    c='#d62728', linewidths=0.9, alpha=0.9, label='straddling (cut)')
-    ax.set_xlabel(f'{slot_b} clusters — ordered by min-cut atom', fontsize=10)
-    ax.set_ylabel(f'{slot_a} clusters — ordered by min-cut atom', fontsize=10)
-    ax.set_title('Spectral-atom order — kept pairs on the atom block-diagonal;\n'
-                 'red × = straddling pairs the cut drops', fontsize=11)
+    _order = 'connected component' if no_cut else 'min-cut atom'
+    ax.set_xlabel(f'{slot_b} clusters — ordered by {_order}', fontsize=10)
+    ax.set_ylabel(f'{slot_a} clusters — ordered by {_order}', fontsize=10)
+    ax.set_title(('Natural-CC order — pairs on the CC block-diagonal (no cut)'
+                  if no_cut else
+                  'Spectral-atom order — kept pairs on the atom block-diagonal;\n'
+                  'red × = straddling pairs the cut drops'), fontsize=11)
     legend_atoms = [
         Line2D([0], [0], marker='o', linestyle='', markersize=7,
                markerfacecolor=atom_color[a], markeredgecolor='none',
@@ -201,7 +204,7 @@ def plot_two_panel(u, cells, ranks, *, slot_a, slot_b, alphabet, threshold,
     if len(strad):
         legend_atoms.append(Line2D([0], [0], marker='x', linestyle='', markersize=8,
                                    markeredgecolor='#d62728', label='straddling (cut)'))
-    ax.legend(handles=legend_atoms, loc='upper right', fontsize=7.5,
+    ax.legend(handles=legend_atoms, loc='lower right', fontsize=7.5,
               frameon=True, framealpha=0.9, title='islands (by pair-mass)')
 
     # ---- RIGHT: subtype-grouped order --------------------------------------
@@ -225,15 +228,18 @@ def plot_two_panel(u, cells, ranks, *, slot_a, slot_b, alphabet, threshold,
     ax.set_yticklabels([lab for _, lab in ranks['a_bands'][1]], fontsize=7)
     ax.set_xlabel(f'{slot_b} clusters — grouped by modal N-subtype', fontsize=10)
     ax.set_ylabel(f'{slot_a} clusters — grouped by modal H-subtype', fontsize=10)
-    ax.set_title('Subtype-grouped order — islands = (Hx,Ny) blocks;\n'
-                 'red × straddling pairs sit off the dominant blocks', fontsize=11)
+    ax.set_title(('Subtype-grouped order — islands = (Hx,Ny) blocks (no cut)'
+                  if no_cut else
+                  'Subtype-grouped order — islands = (Hx,Ny) blocks;\n'
+                  'red × straddling pairs sit off the dominant blocks'), fontsize=11)
     ax.legend(loc='upper right', fontsize=8, frameon=True, framealpha=0.9)
 
+    cut_note = 'no cut (natural CCs)' if no_cut else f'cut drops {dropped_frac:.2%} (straddling)'
     fig.suptitle(
         f'{slot_a}-{slot_b} {alphabet} {threshold}: cluster bigraph as a 2D pair matrix  ·  '
-        f'{len(u):,} pairs, {len(cells):,} occupied cells, {n_atoms:,} atoms  ·  '
-        f'cut drops {dropped_frac:.2%} (straddling)',
-        fontsize=12, y=1.02)
+        f'{len(u):,} pairs, {len(cells):,} occupied cells, {n_atoms:,} atoms  ·  {cut_note}\n'
+        f'each point = one cluster-pair (occupied cell);  marker size ∝ # sequence-pairs',
+        fontsize=11, y=1.04)
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=170, bbox_inches='tight')
@@ -274,19 +280,26 @@ def plot_subtype_heatmap(u, *, slot_a, slot_b, alphabet, threshold,
 
 
 def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphabet,
-                  threshold, method, drift_pp, seed, top_atoms, max_h, max_n, out_dir):
+                  threshold, method, drift_pp, seed, top_atoms, max_h, max_n, out_dir,
+                  no_cut=False, skip_heatmap=False):
     cmap_a = load_cluster_map(clusters_root, slot_a, threshold)
     cmap_b = load_cluster_map(clusters_root, slot_b, threshold)
     if not cmap_a or not cmap_b:
         print(f'  [{alphabet} {threshold}] missing cluster parquet; skipping.')
         return
     G, n_unmapped = build_bipartite_multigraph(universe, cmap_a, cmap_b, alphabet)
-    df, H, dropped_edges = min_cut_recursive(
-        G, method=method, drift_pp=drift_pp, seed=seed, return_partition=True)
-    dropped_frac = float(df.iloc[-1]['dropped_frac'])
-
-    comps = sorted(nx.connected_components(H),
-                   key=lambda c: H.subgraph(c).size(weight='weight'), reverse=True)
+    if no_cut:
+        # Pre-fragmentation view: atoms = natural CCs. Every pair's two endpoints
+        # share its CC by definition, so nothing straddles -> no red x markers.
+        comps = sorted(nx.connected_components(G),
+                       key=lambda c: G.subgraph(c).number_of_edges(), reverse=True)
+        dropped_frac = 0.0
+    else:
+        df, H, dropped_edges = min_cut_recursive(
+            G, method=method, drift_pp=drift_pp, seed=seed, return_partition=True)
+        dropped_frac = float(df.iloc[-1]['dropped_frac'])
+        comps = sorted(nx.connected_components(H),
+                       key=lambda c: H.subgraph(c).size(weight='weight'), reverse=True)
     node_atom = {n: i for i, c in enumerate(comps) for n in c}
     n_atoms = len(comps)
 
@@ -297,16 +310,19 @@ def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphab
     slug = f'{slot_a.lower()}_{slot_b.lower()}'
     plot_two_panel(u, cells, ranks, slot_a=slot_a, slot_b=slot_b, alphabet=alphabet,
                    threshold=threshold, top_atoms=top_atoms, dropped_frac=dropped_frac,
-                   n_atoms=n_atoms, out_png=out_dir / f'pair_2d_{slug}_{alphabet}_{threshold}.png')
-    plot_subtype_heatmap(u, slot_a=slot_a, slot_b=slot_b, alphabet=alphabet,
-                         threshold=threshold, max_h=max_h, max_n=max_n,
-                         out_png=out_dir / f'subtype_heatmap_{slug}_{alphabet}_{threshold}.png')
+                   n_atoms=n_atoms, no_cut=no_cut,
+                   out_png=out_dir / f'pair_2d_{slug}_{alphabet}_{threshold}.png')
+    if not skip_heatmap:
+        plot_subtype_heatmap(u, slot_a=slot_a, slot_b=slot_b, alphabet=alphabet,
+                             threshold=threshold, max_h=max_h, max_n=max_n,
+                             out_png=out_dir / f'subtype_heatmap_{slug}_{alphabet}_{threshold}.png')
     cells_out = cells.copy()
     cells_out.to_csv(out_dir / f'cells_{slug}_{alphabet}_{threshold}.csv', index=False)
     n_strad = int((~cells['kept']).sum())
+    wrote = 'pair_2d + cells' if skip_heatmap else 'pair_2d + subtype_heatmap + cells'
     print(f'  [{alphabet} {threshold}] {len(u):,} pairs, {len(cells):,} cells, '
           f'{n_atoms:,} atoms, cut drops {dropped_frac:.2%} '
-          f'({n_strad:,} straddling cells); wrote pair_2d + subtype_heatmap + cells.')
+          f'({n_strad:,} straddling cells); wrote {wrote}.')
 
 
 def main() -> None:
@@ -327,6 +343,10 @@ def main() -> None:
     p.add_argument('--top_atoms', type=int, default=8)
     p.add_argument('--max_h', type=int, default=14, help='Max H-subtype rows in the heatmap.')
     p.add_argument('--max_n', type=int, default=11, help='Max N-subtype cols in the heatmap.')
+    p.add_argument('--no_cut', action='store_true',
+                   help='Pre-fragmentation view: order by natural CC, draw no straddling (red x) markers.')
+    p.add_argument('--skip_heatmap', action='store_true',
+                   help='Skip the subtype heatmap (t-invariant; one copy per pair suffices).')
     p.add_argument('--out_dir', type=Path,
                    default=PROJ / 'results/flu/July_2025/runs/bigraph_pair_2d')
     args = p.parse_args()
@@ -345,7 +365,8 @@ def main() -> None:
         run_threshold(universe, subtype_df, clusters_root, slot_a=slot_a, slot_b=slot_b,
                       alphabet=args.alphabet, threshold=threshold, method=args.method,
                       drift_pp=args.drift_pp, seed=args.seed, top_atoms=args.top_atoms,
-                      max_h=args.max_h, max_n=args.max_n, out_dir=out_dir)
+                      max_h=args.max_h, max_n=args.max_n, out_dir=out_dir,
+                      no_cut=args.no_cut, skip_heatmap=args.skip_heatmap)
 
     print('\nDone.')
 
