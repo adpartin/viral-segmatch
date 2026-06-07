@@ -72,7 +72,11 @@ def piece_pairs(H: nx.Graph, nodes) -> int:
     return int(H.subgraph(nodes).size(weight='weight'))
 
 
-def lpt_max_drift(sizes: list, targets: dict = _TARGETS, bin_order: list = _BIN_ORDER) -> float:
+def lpt_max_drift(
+    sizes: list,
+    targets: dict = _TARGETS,
+    bin_order: list = _BIN_ORDER
+    ) -> float:
     """Max |achieved - target| over bins for LPT-greedy on these atom sizes.
 
     Mirrors `_pair_helpers._lpt_bin_pack`: largest atom first, to the bin with
@@ -89,7 +93,23 @@ def lpt_max_drift(sizes: list, targets: dict = _TARGETS, bin_order: list = _BIN_
     return max(abs(filled[b] / total - targets[b]) for b in bin_order)
 
 
-def _bisect(H: nx.Graph, method: str, seed: int, max_iter: int) -> tuple[set, set, int]:
+def uniform_targets(k: int) -> dict:
+    """K equal bins summing to 1 — the K-fold-feasibility target for fragmentation.
+
+    Pass as `targets=` to fragment a CC until its atoms LPT-pack into K balanced
+    folds (largest atom roughly <= 1/k). Tighter than the 80/10/10 splitter
+    target: a single atom at 80% is LPT-feasible for 80/10/10 (it fills train),
+    but violates K equal bins.
+    """
+    return {f'f{i}': 1.0 / k for i in range(k)}
+
+
+def _bisect(
+    H: nx.Graph,
+    method: str,
+    seed: int,
+    max_iter: int
+    ) -> tuple[set, set, int]:
     """Balanced bisection of connected graph H; returns (A, B, crossing_weight)."""
     if method == 'kl':
         A, B = nx.algorithms.community.kernighan_lin_bisection(
@@ -109,32 +129,32 @@ def _bisect(H: nx.Graph, method: str, seed: int, max_iter: int) -> tuple[set, se
     return A, set(H.nodes()) - A, int(cross)
 
 
-def min_cut_recursive(
-    G: nx.MultiGraph,
+def fragment_weighted(
+    H: nx.Graph,
+    *,
+    targets: dict = _TARGETS,
     method: str = 'kl',
     target_frac: float = 0.80,
     drift_pp: float = 0.05,
     seed: int = 1,
     kl_max_iter: int = 10,
     max_cuts: int = 200,
-    return_partition: bool = False,
-):
-    """Recursively bisect the largest CC until the kept atoms are LPT-feasible.
+    ) -> tuple[pd.DataFrame, nx.Graph, list]:
+    """Recursively bisect the largest CC of weighted simple graph `H` until the
+    kept atoms LPT-pack into `targets` within `drift_pp`.
 
-    Each row is the state BEFORE a cut (or the final feasible state). Drops only
-    crossing edges (straddling pairs). `dropped_frac` is vs the full pair universe.
-
-    Returns the per-cut DataFrame. If `return_partition`, returns
-    `(df, H_kept, dropped_edges)` — the kept weighted simple graph whose
-    connected components are the final atoms, and the list of cut (u, v) edges.
+    MUTATES `H` (drops crossing edges). Returns `(per_cut_df, H_kept,
+    dropped_edges)`. `targets` selects the feasibility gate: `_TARGETS` (80/10/10)
+    for the splitter, `uniform_targets(k)` for K-fold CV; `bin_order` follows the
+    dict key order. Each row is the state BEFORE a cut (or the final feasible
+    state); `dropped_frac` is vs the graph's total pair mass (summed edge weight).
     """
-    H = weighted_simple(G)
+    bin_order = list(targets.keys())
     total_pairs = int(H.size(weight='weight'))
     dropped = 0
     dropped_edges: list[tuple] = []
     rows: list[dict] = []
     cut = 0
-    reached_le80 = False
 
     while True:
         comps = list(nx.connected_components(H))
@@ -142,7 +162,7 @@ def min_cut_recursive(
         retained = total_pairs - dropped
         largest = max(sizes)
         largest_frac = largest / retained if retained else 0.0
-        drift = lpt_max_drift(sizes)
+        drift = lpt_max_drift(sizes, targets=targets, bin_order=bin_order)
         feasible = drift <= drift_pp
 
         rows.append({
@@ -163,6 +183,11 @@ def min_cut_recursive(
 
         # Bisect the largest piece, drop its crossing edges.
         big = max(comps, key=lambda c: piece_pairs(H, c))
+        # A <=2-node largest atom is a single cluster pair; edge-cut cannot split
+        # it further (fiedler needs >=3 nodes), so the targets are unreachable —
+        # stop and let the final infeasible row report it (don't shred singletons).
+        if len(big) < 3:
+            break
         sub = H.subgraph(big)
         A, _, cross = _bisect(sub, method, seed, kl_max_iter)
         cross_edges = [(x, y) for x, y in sub.edges() if (x in A) != (y in A)]
@@ -171,7 +196,37 @@ def min_cut_recursive(
         dropped += cross
         cut += 1
 
-    df = pd.DataFrame(rows)
+    return pd.DataFrame(rows), H, dropped_edges
+
+
+def min_cut_recursive(
+    G: nx.MultiGraph,
+    method: str = 'kl',
+    target_frac: float = 0.80,
+    drift_pp: float = 0.05,
+    seed: int = 1,
+    kl_max_iter: int = 10,
+    max_cuts: int = 200,
+    return_partition: bool = False,
+    targets: dict | None = None,
+    ):
+    """Recursively bisect the largest CC until the kept atoms are LPT-feasible.
+
+    Thin wrapper over `fragment_weighted`: collapses the multigraph `G` to its
+    weighted simple projection, then fragments to `targets` (default `None` ->
+    80/10/10; pass `uniform_targets(k)` for K-fold CV). Each row is the state
+    BEFORE a cut (or the final feasible state); drops only crossing edges
+    (straddling pairs); `dropped_frac` is vs the full pair universe.
+
+    Returns the per-cut DataFrame. If `return_partition`, returns
+    `(df, H_kept, dropped_edges)` — the kept weighted simple graph whose
+    connected components are the final atoms, and the list of cut (u, v) edges.
+    """
+    H = weighted_simple(G)
+    df, H, dropped_edges = fragment_weighted(
+        H, targets=targets if targets is not None else _TARGETS,
+        method=method, target_frac=target_frac, drift_pp=drift_pp, seed=seed,
+        kl_max_iter=kl_max_iter, max_cuts=max_cuts)
     if return_partition:
         return df, H, dropped_edges
     return df
