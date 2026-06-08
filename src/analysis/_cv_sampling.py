@@ -42,12 +42,28 @@ if str(PROJ) not in sys.path:
 
 from src.analysis.bigraph_properties import load_cluster_map  # noqa: E402 (membership-backed)
 from src.analysis.bigraph_min_cut import fragment_weighted, uniform_targets  # noqa: E402
+from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
+from src.datasets._negative_regime_sampling import (  # noqa: E402
+    REGIME_NAMES, DEFAULT_AXES, DEFAULT_YEAR_BIN_EDGES,
+    build_isolate_cells, count_isolates_per_cell, count_available_per_regime,
+    build_cell_regime_partners, resolve_regime_targets)
+from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
 _ROOT = {'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa',
          'nt_cds': PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'}
 # hash columns on the pair universe (load_pair_universe) per alphabet.
 _HASH = {'aa': ('seq_hash_a', 'seq_hash_b'),
          'nt_cds': ('dna_hash_a', 'dna_hash_b')}
+# per-isolate membership table per alphabet (assembly_id, function, seq_hash,
+# host/hn_subtype/year, and a cluster column per tXXX) -- the protein-level
+# (aa) / CDS-level (nt) source for the fold->isolate bridge.
+_MEMB = {'aa': PROJ / 'data/processed/flu/July_2025/cluster_membership/cluster_memb_aa.parquet',
+         'nt_cds': PROJ / 'data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_cds.parquet'}
+# regime name -> metadata match count (0..3); the regime fully determines it.
+_REGIME_TO_MC = {'none_match': 0, 'host_only': 1, 'subtype_only': 1, 'year_only': 1,
+                 'host_subtype_only': 2, 'host_year_only': 2, 'subtype_year_only': 2,
+                 'host_subtype_year': 3}
+_SHORT_TO_FULL: dict | None = None  # lazy {short -> full function name} from flu.yaml
 
 
 def assign_atoms(
@@ -248,3 +264,165 @@ def make_negatives(
         na.append(a[i])
         nb.append(b[j])
     return pd.DataFrame({ha: na, hb: nb})
+
+
+def _short_to_full(short: str) -> str:
+    """Map a protein short name (e.g. 'HA') to its full function name, lazily."""
+    global _SHORT_TO_FULL
+    if _SHORT_TO_FULL is None:
+        _SHORT_TO_FULL = dict(load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml')
+                              .short_to_function)
+    return _SHORT_TO_FULL[short]
+
+
+def build_isolate_context(
+    u: pd.DataFrame,
+    universe: pd.DataFrame,
+    slot_a: str,
+    slot_b: str,
+    alphabet: str,
+    threshold: str,
+    *,
+    axes=DEFAULT_AXES,
+    year_match: str = 'binned',
+    year_bin_edges=DEFAULT_YEAR_BIN_EDGES,
+    ) -> tuple[pd.DataFrame, set]:
+    """Fold->isolate bridge: per-isolate table tagged with atom_id/cc_id + cell.
+
+    Regime negatives are an isolate-metadata property, but the CV runs on the
+    deduped pair universe. This reconstructs, for the SAME cluster structure
+    `assign_atoms` produced (read off `u`'s node->atom map), the isolates
+    available inside each CC for within-CC negative sampling.
+
+    Source is the per-isolate membership table (`_MEMB[alphabet]`): one row per
+    (isolate, function) with seq_hash, host/hn_subtype/year, and the tXXX cluster
+    — so no metadata join, cluster reload, or seq_hash recompute. NATURAL-strategy
+    only for now: under 'cut' an isolate whose positive edge straddled two atoms
+    would map its slot-a/slot-b clusters to different atoms; that case is dropped
+    here (atom taken from slot-a) and must be handled before running 'cut'.
+
+    Returns:
+        (iso, cooccur). `iso` has columns assembly_id, seq_hash_a, seq_hash_b,
+        cc_id, atom_id, cell (one row per isolate carrying both slots). `cooccur`
+        is the set of true canonical pair_keys (negatives must avoid it).
+    """
+    node_to_atom: dict = {}
+    node_to_cc: dict = {}
+    for col in ('node_a', 'node_b'):
+        node_to_atom.update(dict(zip(u[col], u['atom_id'])))
+        node_to_cc.update(dict(zip(u[col], u['cc_id'])))
+
+    memb = pd.read_parquet(
+        _MEMB[alphabet],
+        columns=['assembly_id', 'function', 'seq_hash', threshold, 'host', 'hn_subtype', 'year'])
+    fa, fb = _short_to_full(slot_a), _short_to_full(slot_b)
+    a = (memb[memb['function'] == fa]
+         [['assembly_id', 'seq_hash', threshold, 'host', 'hn_subtype', 'year']]
+         .rename(columns={'seq_hash': 'seq_hash_a', threshold: 'cluster_a'}))
+    b = (memb[memb['function'] == fb][['assembly_id', 'seq_hash', threshold]]
+         .rename(columns={'seq_hash': 'seq_hash_b', threshold: 'cluster_b'}))
+    iso = a.merge(b, on='assembly_id', how='inner')
+    iso['assembly_id'] = iso['assembly_id'].astype(str)
+
+    iso['node_a'] = 'a:' + iso['cluster_a'].astype(str)
+    iso['atom_id'] = iso['node_a'].map(node_to_atom)
+    iso['cc_id'] = iso['node_a'].map(node_to_cc)
+    iso = iso.dropna(subset=['atom_id']).copy()  # drop isolates whose cluster was dropped in u
+    iso['atom_id'] = iso['atom_id'].astype(int)
+    iso['cc_id'] = iso['cc_id'].astype(int)
+
+    cells = build_isolate_cells(
+        iso[['assembly_id', 'host', 'hn_subtype', 'year']].drop_duplicates('assembly_id'),
+        axes=axes, year_match=year_match, year_bin_edges=year_bin_edges)
+    iso['cell'] = iso['assembly_id'].map(cells)
+
+    cooccur = set(universe['pair_key'])
+    return (iso[['assembly_id', 'seq_hash_a', 'seq_hash_b', 'cc_id', 'atom_id', 'cell']]
+            .reset_index(drop=True), cooccur)
+
+
+def sample_regime_negatives(
+    cc_iso: pd.DataFrame,
+    regime_targets: dict,
+    budget: int,
+    cooccur: set,
+    *,
+    seed: int,
+    axes=DEFAULT_AXES,
+    ) -> pd.DataFrame:
+    """Within-CC, regime-targeted negatives from one CC's isolate pool (best-effort).
+
+    Pairs a self isolate's slot-a seq with a partner isolate's slot-b seq so that
+    the (self_cell, partner_cell) metadata match yields the target regime; rejects
+    true pairs (`cooccur`) and duplicates. Allocation: `resolve_regime_targets`
+    then redistribute any per-regime shortfall (a regime unavailable in this CC)
+    to regimes with spare availability, proportional to their target, up to
+    `budget`. Availability is the closed-form `count_available_per_regime` (an
+    upper bound — cooccur/dup rejections mean the achieved count can fall below
+    the allocation), so the returned frame may have fewer than `budget` rows; a
+    singleton / metadata-homogeneous CC returns few or none.
+
+    Returns columns [seq_hash_a, seq_hash_b, neg_regime, metadata_match_count].
+    """
+    cols = ['seq_hash_a', 'seq_hash_b', 'neg_regime', 'metadata_match_count']
+    isolate_to_cell = dict(zip(cc_iso['assembly_id'], cc_iso['cell']))
+    if len(isolate_to_cell) < 2 or budget <= 0:
+        return pd.DataFrame(columns=cols)
+
+    avail = count_available_per_regime(count_isolates_per_cell(isolate_to_cell), axes=axes)
+    desired = resolve_regime_targets(regime_targets, budget)
+    alloc = {r: min(desired.get(r, 0), avail.get(r, 0)) for r in REGIME_NAMES}
+
+    # Redistribute the deficit to regimes with spare availability (preserve the
+    # target shape as far as the CC's availability allows).
+    deficit = budget - sum(alloc.values())
+    while deficit > 0:
+        spare = {r: avail.get(r, 0) - alloc[r]
+                 for r in REGIME_NAMES if avail.get(r, 0) - alloc[r] > 0}
+        if not spare:
+            break
+        wsum = sum(regime_targets.get(r, 0.0) for r in spare) or float(len(spare))
+        added = 0
+        for r in spare:
+            share = (regime_targets.get(r, 0.0) or 1.0) / wsum
+            take = min(spare[r], max(1, int(round(deficit * share))), deficit - added)
+            alloc[r] += take
+            added += take
+            if added >= deficit:
+                break
+        if added == 0:
+            break
+        deficit -= added
+
+    # cell -> array of (assembly_id, seq_hash_a, seq_hash_b) for O(1) random draws.
+    cell_groups = {cell: g[['assembly_id', 'seq_hash_a', 'seq_hash_b']].to_numpy()
+                   for cell, g in cc_iso.groupby('cell')}
+    partners = build_cell_regime_partners(isolate_to_cell, axes=axes)
+
+    rng = np.random.RandomState(seed)
+    rows: list = []
+    seen: set = set()
+    for r in REGIME_NAMES:
+        need = alloc[r]
+        if need <= 0:
+            continue
+        cell_pairs = [(sc, pc) for sc, rmap in partners.items() for pc in rmap.get(r, [])]
+        if not cell_pairs:
+            continue
+        placed, attempts, max_attempts = 0, 0, need * 50 + 200
+        while placed < need and attempts < max_attempts:
+            attempts += 1
+            sc, pc = cell_pairs[rng.randint(len(cell_pairs))]
+            sg, pg = cell_groups[sc], cell_groups[pc]
+            x = sg[rng.randint(len(sg))]
+            y = pg[rng.randint(len(pg))]
+            if x[0] == y[0]:
+                continue  # same isolate (within-cell self-pair)
+            ha, nb = x[1], y[2]  # self slot-a seq, partner slot-b seq
+            pk = canonical_pair_key(ha, nb)
+            if pk in cooccur or pk in seen:
+                continue  # reject true pair / duplicate negative
+            seen.add(pk)
+            rows.append((ha, nb, r, _REGIME_TO_MC[r]))
+            placed += 1
+    return pd.DataFrame(rows, columns=cols)

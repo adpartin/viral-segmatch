@@ -48,7 +48,6 @@ import pandas as pd
 from scipy import sparse
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import f1_score, average_precision_score, matthews_corrcoef
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -59,88 +58,13 @@ if str(PROJ) not in sys.path:
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.analysis._cv_sampling import assign_atoms, sample_positives, make_negatives  # noqa: E402
-from src.utils.clustering_utils import compute_seq_hash  # noqa: E402
+from src.analysis._cv_features import (  # noqa: E402
+    build_hash_to_row, pair_features, fit_eval, _labeled, _HASH, _KMER_DIR)
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
-_KMER_DIR = PROJ / 'data/embeddings/flu/July_2025'
-_PROTEIN_FINAL = PROJ / 'data/processed/flu/July_2025/protein_final.parquet'
-_HASH = {'aa': ('seq_hash_a', 'seq_hash_b'), 'nt_cds': ('dna_hash_a', 'dna_hash_b')}
 _MODEL_COLOR = {'mlp': '#1f77b4', 'lgbm': '#2ca02c', 'knn1': '#d62728'}
 _METRICS = ('auc_pr', 'f1_macro', 'mcc')
 _METRIC_LABEL = {'auc_pr': 'AUC-PR', 'f1_macro': 'F1-macro', 'mcc': 'MCC'}
-
-
-def build_hash_to_row(kmer_k: int, functions_full: list[str]) -> dict:
-    """{seq_hash -> k-mer matrix row} for aa, via the (assembly_id, brc_fea_id) join."""
-    idx = pd.read_parquet(_KMER_DIR / f'kmer_features_aa_k{kmer_k}_index.parquet',
-                          columns=['assembly_id', 'brc_fea_id', 'function', 'row'])
-    idx = idx[idx['function'].isin(functions_full)].copy()
-    prot = pd.read_parquet(_PROTEIN_FINAL, columns=['assembly_id', 'brc_fea_id', 'prot_seq', 'function'])
-    prot = prot[prot['function'].isin(functions_full)].copy()
-    prot['seq_hash'] = prot['prot_seq'].map(compute_seq_hash)
-    for df in (idx, prot):
-        df['assembly_id'] = df['assembly_id'].astype(str)
-        df['brc_fea_id'] = df['brc_fea_id'].astype(str)
-    m = prot.merge(idx[['assembly_id', 'brc_fea_id', 'row']], on=['assembly_id', 'brc_fea_id'], how='inner')
-    return dict(zip(m['seq_hash'], m['row'].astype(int)))
-
-
-def _interaction(ea: np.ndarray, eb: np.ndarray, interaction: str) -> np.ndarray:
-    if interaction == 'concat':
-        return np.hstack([ea, eb])
-    if interaction == 'unit_diff':
-        d = np.abs(ea - eb)
-        return d / np.maximum(np.linalg.norm(d, axis=1, keepdims=True), 1e-8)
-    raise ValueError(f"interaction must be 'concat' or 'unit_diff'; got {interaction!r}")
-
-
-def pair_features(pairs: pd.DataFrame, ha: str, hb: str, hash_to_row: dict,
-                  matrix: sparse.csr_matrix, interaction: str):
-    """(X, y) for a labeled pair set; drops pairs missing a k-mer row."""
-    ra = pairs[ha].map(hash_to_row)
-    rb = pairs[hb].map(hash_to_row)
-    valid = ra.notna() & rb.notna()
-    ea = matrix[ra[valid].astype(int).to_numpy()].toarray().astype(np.float32)
-    eb = matrix[rb[valid].astype(int).to_numpy()].toarray().astype(np.float32)
-    return _interaction(ea, eb, interaction), pairs.loc[valid, 'label'].to_numpy()
-
-
-def fit_eval(model: str, x_tr, y_tr, x_te, y_te, seed: int) -> dict:
-    """Fit one model; return {auc_pr, f1_macro, mcc} on the test fold."""
-    if model == 'lgbm':
-        from lightgbm import LGBMClassifier
-        # n_jobs=-1 is pathological on many-core boxes (317s vs 7s here); colsample
-        # subsampling is the speed lever on the 8000-dim k-mer features.
-        clf = LGBMClassifier(n_estimators=100, min_child_samples=5, colsample_bytree=0.3,
-                             random_state=seed, verbose=-1, n_jobs=16)
-    elif model == 'knn1':
-        from sklearn.neighbors import KNeighborsClassifier
-        clf = KNeighborsClassifier(n_neighbors=1, metric='cosine')
-    elif model == 'mlp':
-        from sklearn.neural_network import MLPClassifier
-        # early-stop only when abundant; the 10% val set is too noisy at small N
-        # (tanked F1 at N~390), and MLP isn't the bottleneck after the LGBM fix.
-        clf = MLPClassifier(hidden_layer_sizes=(128,), max_iter=300,
-                            early_stopping=(len(x_tr) > 3000), n_iter_no_change=8,
-                            alpha=1e-3, random_state=seed)
-    else:
-        raise ValueError(f"unknown model {model!r}")
-    clf.fit(x_tr, y_tr)
-    pred = clf.predict(x_te)
-    # AUC-PR needs a positive-class score; knn1's predict_proba is hard 0/1 (degenerate
-    # AUC-PR but valid) -- drop knn1 from the cut/fixed-N path where AUC-PR matters.
-    proba = clf.predict_proba(x_te)[:, 1] if hasattr(clf, 'predict_proba') else pred.astype(float)
-    return {
-        'auc_pr': float(average_precision_score(y_te, proba)),
-        'f1_macro': float(f1_score(y_te, pred, average='macro')),
-        'mcc': float(matthews_corrcoef(y_te, pred)),
-    }
-
-
-def _labeled(pos: pd.DataFrame, neg: pd.DataFrame, ha: str, hb: str) -> pd.DataFrame:
-    p = pos[[ha, hb]].copy(); p['label'] = 1
-    n = neg[[ha, hb]].copy(); n['label'] = 0
-    return pd.concat([p, n], ignore_index=True)
 
 
 def _assert_fold_disjoint(tr_pos: pd.DataFrame, te_pos: pd.DataFrame) -> None:
