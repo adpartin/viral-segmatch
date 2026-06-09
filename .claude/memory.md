@@ -26,8 +26,6 @@ change and aren't derivable from code. This file does NOT duplicate:
   `split_strategy.mode=seq_disjoint`, `hash_key=seq` (protein-level, stricter), and the "Test 3"
   interaction (`slot_transform=unit_norm`, `interaction=unit_diff+prod`). Verified in
   `flu_ha_na.yaml` 2026-06-03.
-- **Regime-aware leaves**: `flu_ha_na_regimes`, `flu_pb2_pb1_regimes` — inherit the parent and add
-  `dataset.negative_sampling.regime_targets` (uniform 0.10×7 + 0.30 on `host_subtype_year`).
 - **Clustering**: symmetric mmseqs2 `easy-linclust` on BOTH alphabets (since 2026-05-22; replaced
   the asymmetric easy-cluster+linclust setup). Artifacts at `clusters_aa/tXXX/<func>_cluster.parquet`
   (col `seq_hash`) and `clusters_nt_cds/tXXX/<func>_cluster.parquet` (col `cds_dna_hash`); pre-Phase-2

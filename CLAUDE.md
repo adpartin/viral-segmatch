@@ -85,7 +85,7 @@ Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `scripts/stage2_esm2.sh`, `s
 - Config loader: `src/utils/config_hydra.py`
 
 **Convention**: One bundle = one reproducible experiment. Bundle names encode the experiment:
-`flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na_5ks`, `flu_ha_na_regimes`.
+`flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na`, `flu_ha_na_cluster_t099`.
 
 Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `dataset.split_strategy.{mode,hash_key,cluster_alphabet,single_slot}`, `dataset.metadata_holdout`, `training.slot_transform`, `training.interaction`. Sklearn-baseline knobs live under `baseline_<name>.*` at the bundle root (defaults inherited from `conf/baselines/default.yaml`).
 
