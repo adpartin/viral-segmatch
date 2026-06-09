@@ -246,7 +246,7 @@ def plot_two_panel(u, cells, ranks, *, slot_a, slot_b, alphabet, threshold,
 
     cut_note = 'no cut (natural CCs)' if no_cut else f'cut drops {dropped_frac:.2%} (straddling)'
     fig.suptitle(
-        f'{slot_a}-{slot_b} {alphabet} {threshold}: cluster bigraph as a 2D pair matrix  ·  '
+        f'{slot_a}-{slot_b} {alphabet} {threshold}: cluster-pair map  ·  '
         f'{len(u):,} pairs, {len(cells):,} occupied cells, {n_atoms:,} atoms  ·  {cut_note}\n'
         f'each point = one cluster-pair (occupied cell);  marker size ∝ # sequence-pairs',
         fontsize=11, y=1.04)
