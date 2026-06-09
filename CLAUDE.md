@@ -131,11 +131,9 @@ src/
     single_slot_cluster_disjoint_feasibility.py  # Single-slot atom feasibility pre-flight
     cluster_analysis_summary.py     # Post-hoc structural summary
     plot_aa_vs_nt_cluster_disjoint.py    # LGBM + 1-NN cluster-disjoint comparison
-    aggregate_cluster_disjoint_ratios.py # Ratio-sweep aggregator
     mmd_per_slot.py                 # S1 per-slot MMD (RBF + permutation test)
     mmd_per_pair.py                 # S2 per-pair MMD on production interaction
     aggregate_mmd_single_slot_sweep.py   # Sweep rollup + plots (parametrized for any pair/direction)
-    cluster_pair_coupling_precheck.py    # Cramér's V check, parametrized for any schema_pair
   utils/
     config_hydra.py                 # Hydra config loader (primary)
     esm2_utils.py                   # ESM-2 tokenization, batch embedding

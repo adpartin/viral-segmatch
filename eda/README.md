@@ -21,6 +21,19 @@ self-contained header docstring explaining purpose, status, and inputs.
 | `dna_coverage_feasibility.py` | DNA-level coverage feasibility analysis on one specific dataset build. Companion to `docs/results/2026-05-08_dna_coverage_feasibility.md`. The hard-coded `DATASET_DIR` constant is stale; update before re-running. |
 | `dna_coverage_feasibility_sweep.py` | Apriori cross-bundle feasibility sweep. Companion to `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md`. The hard-coded `BUNDLES` list includes retired bundles; trim before re-running. |
 
+### DataSAIL bake-off (Status: PAUSED after Phase 0 — DataSAIL rejected as a splitter; C2 drop rate >50% across all configs tested)
+
+Requires the dedicated `datasail` conda env (not the `segmatch` pipeline env). Findings are
+preserved in `docs/results/2026-05-20_datasail_phase0_results.md` and
+`docs/results/2026-05-24_datasail_lpi_results.md`; these scripts are the reproducibility hooks.
+
+| Script | Purpose |
+|---|---|
+| `datasail_bakeoff.py` | DataSAIL vs segmatch bicc bake-off (Phase 0 sanity wrapper). Reads positives from a Stage 3 dataset directory, optionally subsamples, runs both splitters, compares drop rates. |
+| `datasail_lpi_measure.py` | Measure DataSAIL's L(π) leakage metric on a given train/val/test partition. |
+| `datasail_lpi_diagnose_sim.py` | Diagnose DataSAIL's similarity-matrix distribution (why `similarity='mmseqspp'` L(π) runs behaved unexpectedly). |
+| `datasail_lpi_validate.py` | Synthetic validation tests for DataSAIL's `eval_split` / L(π). |
+
 ## Note on `flu_genomes_eda.py`
 
 This script lives in `src/preprocess/` (not here) because it generates
