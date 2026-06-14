@@ -40,6 +40,17 @@ import pandas as pd
 _COLS_BY_ALPHABET = {
     'aa':     {'seq_col': 'prot_seq', 'hash_col': 'seq_hash'},
     'nt_cds': {'seq_col': 'cds_dna',  'hash_col': 'cds_dna_hash'},
+    # NOTE (nt_ctg data caveat, unresolved 2026-06-08): contig DNA carries
+    # inconsistent flanking UTR. Verified on genome_final.parquet: per-row
+    # (contig_len - cds_len) spans 0..310 nt (median 36; ~25% of contigs have
+    # zero UTR, i.e. contig == CDS). So two biologically identical isolates can
+    # land in different contig clusters purely from how much flank the submitter
+    # included (assembly/submission artifact, not biology). Decision: keep
+    # nt_ctg as-is for now, do NOT pre-trim.
+    # TODO(nt_ctg): revisit contig UTR normalization before trusting nt_ctg
+    # cluster-disjoint results for publication. The 'dna_hash' name below is
+    # also provisional (collides with nt_cds's pair-universe dna_hash_a/b) —
+    # settle the hash-column convention when nt_ctg is operationalized.
     'nt_ctg': {'seq_col': 'dna_seq',  'hash_col': 'dna_hash'},
 }
 _ACTIVE_ALPHABETS = {'aa', 'nt_cds'}  # nt_ctg reserved (raises)
