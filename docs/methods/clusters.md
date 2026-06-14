@@ -416,8 +416,7 @@ Columns:
   that mmseqs sees as input (pre-clustering dedup). Verify directly
   with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt}/fasta/<PROTEIN>.fasta`
   (e.g., HA aa → 41,896).
-- `N_unique frac` — `N_unique / N_seqs`. The "% unique" reported in
-  earlier versions of this doc, now as a fraction.
+- `N_unique frac` — `N_unique / N_seqs`.
 - `Singleton_seq_frac` — fraction of unique sequences observed
   exactly once in the corpus (= n_singletons / N_unique). Measures
   the size of the *inventory* tail, not the share of records.
