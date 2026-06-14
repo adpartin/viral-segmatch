@@ -34,6 +34,15 @@ change and aren't derivable from code. This file does NOT duplicate:
 - **pair_key**: `split_strategy.pair_key_alphabet` — `aa` default (protein pair_key); `nt_cds` opt-in
   for nt_cds cluster_disjoint bundles, where silent codon variants become distinct positives (inflates
   the pair universe, opens DNA-variant leakage). Cite the alphabet in any post-2026-06-03 experiment.
+- **Two DNA notions, by purpose (history; not derivable from code)**: pipeline evolved prot_seq+ESM-2
+  → **contig**-DNA k-mers → prot_seq k-mers → mmseqs2 clustering (aa, then DNA). DNA *clustering* was
+  switched to **CDS** (`extract_cds_dna.py` → `cds_final`/`clusters_nt_cds`/`cds_dna_hash`) on the
+  assumption that clustering should be coding-only — never tested against contig clustering — while
+  k-mer *features* stayed **contig** (`dna_hash`=md5(`dna_seq`), `kmer_features_nt`). Hence the
+  `dna_hash`(contig)-vs-`cds_dna_hash`(CDS) duality. Recent `src/analysis` m-sweeps used aa + dna-CDS
+  only and, built without maintained naming, mislabeled CDS as `dna_hash_a/b`. CC-dataset plan
+  `docs/plans/2026-06-09_cc_dataset_cv_plan.md` ports those primitives into `src/datasets`, fixes the
+  mislabel, and adds nt_ctg (which will finally test the CDS-vs-contig clustering assumption).
 - **Routing modes**: `random`; `seq_disjoint` (hash_key seq|dna); `cluster_disjoint` (bilateral /
   `single_slot: a|b` / planned `cluster_disjoint_test_only`); `metadata_holdout`. `single_slot`
   exercised on HA-only and PB2-only; NA-only / PB1-only and nt single_slot untested.

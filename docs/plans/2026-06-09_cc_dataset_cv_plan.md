@@ -1,6 +1,13 @@
 # CC-based dataset generation + cross-validation (Tier 1)
 
-**Status: IN PROGRESS**
+**Status: IN PROGRESS** — Phase-1 **core IMPLEMENTED + verified + committed**
+(`09fb2c2`, 2026-06-10): the `_cv_sampling`→`_cc_helpers` move (§4.A; T1.1 atom
+equivalence + T1.2 byte-identical) and `dataset_pairs_cc.py` (§4.B; aa HA-NA t099 —
+schema, feature keys, cluster-disjoint + within-CC, pair_key/label all verified).
+**Remaining Phase 1:** Hydra/`--config_bundle` + §11 knobs (scaffold uses argparse);
+full `save_split_output_v2` reuse (parquet/audit/plots) vs. the slim CSV writer;
+front-end metadata enrich/filter (scaffold is unfiltered). Then **Phase 2** (nt_cds:
+`kmer_features_nt_cds` + the `dna_hash`→`cds_dna_hash` mislabel fix), **Phase 3** (nt_ctg).
 
 **Branch:** `feature/cc-dataset-cv` (off `master`; master already carries the Phase-2 nt_cds machinery).
 **Scope:** Tier 1 only. Tier 2 (the symmetric column rename) is a separate future migration — see §9.
