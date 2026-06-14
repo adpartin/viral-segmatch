@@ -1,6 +1,6 @@
 # Alphabet-specific pair_key — scoping plan
 
-**Status: IN PROGRESS** (scoping only; no implementation pending agreement on scope)
+**Status: SUPERSEDED / IMPLEMENTED** — this was the scoping note; executed by `docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md`. Moved to done/ on 2026-06-05.
 
 Source: BACKLOG.md "Methodology ideas — possible paper contributions" #3.
 Inline TODO: `docs/methods/splits.md` § 2.2.
