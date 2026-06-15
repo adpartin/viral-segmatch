@@ -91,6 +91,11 @@ subtype_selection:
 n_folds: null
 fold_id: null
 
+# 2D-CD builder (dataset_pairs_cc.py, split_strategy.mode=cluster_disjoint_cc) only:
+# repeated K-fold. Placeholder — only n_repeats=1 is wired; >1 raises. Reserved
+# output layout repeat_{r}/fold_{k}/.
+n_repeats: 1
+
 # v2-only: coverage-phase attempt cap. Each positive-pair seq gets up to this many tries
 # to find a valid negative partner before being logged as coverage_skipped.
 max_attempts_per_seq: 50
@@ -213,7 +218,7 @@ drop_ambiguous_subtype: true
 # data/processed/flu/July_2025/clusters_aa/redundancy_summary.md (aa) and
 # docs/results/2026-05-15_cluster_disjoint_nt_results.md (nt).
 split_strategy:
-  mode: seq_disjoint  # 'random' | 'seq_disjoint' (default) | 'cluster_disjoint'
+  mode: seq_disjoint  # 'random' | 'seq_disjoint' (default) | 'cluster_disjoint' | 'cluster_disjoint_cc' (2D-CD builder — run via dataset_pairs_cc.py, NOT the v2 CLI; rejected by _validate_v2_config)
   hash_key: seq       # 'seq' (protein, default) | 'dna' (nucleotide)
   # cluster_disjoint-only knobs — set when mode=cluster_disjoint.
   # cluster_id_path:      data/processed/flu/July_2025/clusters_aa/t099/combined_cluster.parquet
@@ -231,3 +236,9 @@ split_strategy:
   feasibility:
     max_acceptable_drift_pp: 0.05  # max absolute pp deviation per bin from target (0-1 scale)
     min_test_frac: 0.05            # test bin must be at least this fraction of total pairs
+  # 2D-CD builder (dataset_pairs_cc.py, mode=cluster_disjoint_cc) only:
+  drop_singleton_ccs: true  # drop singleton CCs — one unique seq pair, so no within-CC
+                            # negative is possible (implemented as n_neg==0). See glossary.
+  m_pos_per_cc: 1           # cap positives kept per CC. 1 (default) = each CC contributes one
+                            # positive -> uniform atoms, cleanest K-fold CV; int>1 keeps more per
+                            # large CC; null = no cap.

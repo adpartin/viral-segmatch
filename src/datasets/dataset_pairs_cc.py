@@ -14,16 +14,16 @@ cross-isolate negatives, this builder does what the CC analysis established:
 Output is drop-in Stage-4 datasets: `fold_k/{train,val,test}_pairs.csv` carrying
 the v2 `_PAIR_COLUMNS` schema, one dir per fold.
 
-Scaffold scope (aa, Phase 1): argparse CLI, no metadata filter, slim writer
-(CSV + a small dataset_stats.json — not the full v2 saver). Hydra/`--config_bundle`
-wiring, nt_cds/nt_ctg, regime negatives, and `n_repeats>1` are later phases.
-See `docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
+Phase-1 scope (aa): Hydra/`--config_bundle` driven, reuses v2's protein-level
+front-end (load/enrich/filter), within-CC random negatives, slim writer (CSV +
+a small dataset_stats.json — not the full v2 saver). nt_cds/nt_ctg, regime
+negatives, subtype balancing / max_isolates, full saver, and `n_repeats>1` are
+later phases. See `docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
 
 CLI:
     python src/datasets/dataset_pairs_cc.py \\
-        [--schema_pair HA NA] [--alphabet aa] [--threshold t099] \\
-        [--k_folds 5] [--n_repeats 1] [--m_pos 100] [--neg_to_pos_ratio 1.0] \\
-        [--val_ratio 0.1] [--drop_single_isolate_ccs] [--seed 0] --out_dir <dir>
+        --config_bundle flu_ha_na_cc --out_dir <dir> \\
+        [--override dataset.n_folds=5 ...] [--protein_final <path>]
 """
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from omegaconf import OmegaConf, ListConfig
 from sklearn.model_selection import GroupKFold
 
 PROJ = Path(__file__).resolve().parents[2]
@@ -44,15 +45,16 @@ if str(PROJ) not in sys.path:
 
 from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2, _PAIR_COLUMNS  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
-    attach_dna_to_prot_df, build_cooccurrence_set, bipartite_components)
+    attach_dna_to_prot_df, build_cooccurrence_set, bipartite_components,
+    drop_ambiguous_hn_subtype, filter_by_metadata)
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
-from src.utils.config_hydra import load_function_metadata  # noqa: E402
+from src.utils.config_hydra import (  # noqa: E402
+    get_virus_config_hydra, load_function_metadata, print_config_summary, save_config)
+from src.utils.metadata_enrichment import enrich_prot_data_with_metadata  # noqa: E402
+from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  # noqa: E402
 
-_PROC = PROJ / 'data/processed/flu/July_2025'
-_CLUSTERS = {'aa': _PROC / 'clusters_aa', 'nt_cds': _PROC / 'clusters_nt_cds',
-             'nt_ctg': _PROC / 'clusters_nt_ctg'}
 # pos-side hash used to join clusters AND as the cooccurrence/cluster key.
 # aa=protein, nt_cds=CDS, nt_ctg=contig — all md5 of the respective sequence.
 _POS_HASH = {'aa': 'seq_hash', 'nt_cds': 'cds_dna_hash', 'nt_ctg': 'dna_hash'}
@@ -65,17 +67,46 @@ _SIDE_RENAME = {'assembly_id': 'assembly_id', 'brc_fea_id': 'brc', 'genbank_ctg_
                 'function': 'func', 'seq_hash': 'seq_hash', 'dna_hash': 'dna_hash'}
 
 
-def load_frontend(protein_path: Path, schema_pair_full: tuple) -> pd.DataFrame:
-    """Protein-level frame narrowed to schema_pair, with seq_hash + dna columns.
+def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.DataFrame:
+    """v2's protein-level front-end, narrowed to schema_pair (calls v2's helpers).
 
-    Reuses the v2 front-end primitives (load + `attach_dna_to_prot_df`). No
-    metadata enrich/filter in the scaffold — unfiltered full corpus.
+    Mirrors the v2 CLI (`dataset_segment_pairs.py`): load -> attach_dna -> enrich
+    -> drop_ambiguous_subtype -> filter_by_metadata -> selected_functions/schema
+    narrow -> seq_hash. Calls the same helpers (no v2 refactor) so the population
+    matches v2 for the same bundle. subtype balancing and max_isolates sampling
+    are NOT yet wired here — if a bundle sets them they raise rather than silently
+    no-op (deferred Phase-1 scope).
     """
-    df = load_dataframe(protein_path)
+    ss = getattr(config.dataset, 'subtype_selection', None)
+    if ss is not None and str(getattr(ss, 'mode', 'natural')) == 'balanced':
+        raise NotImplementedError(
+            "dataset.subtype_selection.mode=balanced is not yet wired into the 2D-CD builder.")
+    if getattr(config.dataset, 'max_isolates_to_process', None):
+        raise NotImplementedError(
+            "dataset.max_isolates_to_process is not yet wired into the 2D-CD builder.")
+
+    df = load_dataframe(input_file)
+    df = attach_dna_to_prot_df(df, input_file)                 # dna_seq, dna_hash
+    df = enrich_prot_data_with_metadata(df, project_root=PROJ)  # host, year, hn_subtype, ...
+    if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
+        df, _ = drop_ambiguous_hn_subtype(df)
+
+    def _coerce(v):
+        return list(v) if isinstance(v, ListConfig) else v
+    df = filter_by_metadata(
+        df,
+        hn_subtype=_coerce(getattr(config.dataset, 'hn_subtype', None)),
+        host=_coerce(getattr(config.dataset, 'host', None)),
+        year=_coerce(getattr(config.dataset, 'year', None)),
+        year_range=_coerce(getattr(config.dataset, 'year_range', None)),
+        geo_location=_coerce(getattr(config.dataset, 'geo_location', None)),
+        passage=_coerce(getattr(config.dataset, 'passage', None)),
+    )
+
+    df = df[df['function'].isin(list(config.virus.selected_functions))].reset_index(drop=True)
     df = df[df['function'].isin(schema_pair_full)].reset_index(drop=True)
     if 'seq_hash' not in df.columns:
         df['seq_hash'] = df['prot_seq'].map(lambda s: hashlib.md5(str(s).encode()).hexdigest())
-    df = attach_dna_to_prot_df(df, protein_path)  # adds dna_seq, dna_hash
     return df
 
 
@@ -110,14 +141,14 @@ def _side_rep(df: pd.DataFrame, func: str, suffix: str) -> pd.DataFrame:
 
 def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
                         df: pd.DataFrame, schema_pair_full: tuple, *,
-                        neg_to_pos_ratio: float, drop_single_isolate_ccs: bool,
+                        neg_to_pos_ratio: float, drop_singleton_ccs: bool,
                         seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-CC within-CC random negatives, enriched to `_PAIR_COLUMNS`.
 
-    budget per CC = round(neg_to_pos_ratio * n_pos_in_cc). CCs with a single
-    isolate (no within-CC negative possible) are dropped when
-    `drop_single_isolate_ccs`. Returns (neg_pairs[_PAIR_COLUMNS + atom_id/cc_id],
-    cc_log).
+    budget per CC = round(neg_to_pos_ratio * n_pos_in_cc). Singleton /
+    negative-infeasible CCs (n_neg == 0 — one unique seq pair, so no within-CC
+    negative can be drawn) are dropped when `drop_singleton_ccs`. Returns
+    (neg_pairs[_PAIR_COLUMNS + atom_id/cc_id], cc_log).
     """
     fa, fb = schema_pair_full
     iso_by_cc = {cc: g for cc, g in iso.groupby('cc_id')}
@@ -130,17 +161,15 @@ def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
         n_iso = 0 if cc_iso is None else int(cc_iso['assembly_id'].nunique())
         budget = int(round(neg_to_pos_ratio * n_pos))
         row = {'cc_id': int(cc), 'n_pos': int(n_pos), 'n_isolates': n_iso, 'budget': budget}
-        if cc_iso is None or n_iso < 2 or budget <= 0:
-            row['n_neg'] = 0
-            row['dropped_single_isolate'] = bool(drop_single_isolate_ccs and n_iso < 2)
-            log_rows.append(row)
-            continue
-        neg = sample_random_within_cc_negatives(cc_iso, budget, cooccur, seed=seed + int(cc))
-        if len(neg):
-            neg = neg.assign(cc_id=int(cc), atom_id=cc_to_atom[cc])
-            raw.append(neg)
-        row['n_neg'] = int(len(neg))
-        row['dropped_single_isolate'] = False
+        neg = (sample_random_within_cc_negatives(cc_iso, budget, cooccur, seed=seed + int(cc))
+               if (cc_iso is not None and budget > 0) else None)
+        n_neg = 0 if neg is None else int(len(neg))
+        # Singleton / negative-infeasible CC: no within-CC negative could be drawn
+        # (one unique seq pair, or every recombination reconstructs a positive).
+        row['n_neg'] = n_neg
+        row['dropped_singleton'] = bool(drop_singleton_ccs and n_neg == 0)
+        if n_neg and not row['dropped_singleton']:
+            raw.append(neg.assign(cc_id=int(cc), atom_id=cc_to_atom[cc]))
         log_rows.append(row)
 
     cc_log = pd.DataFrame(log_rows)
@@ -199,36 +228,93 @@ def make_folds(full: pd.DataFrame, k_folds: int, val_ratio: float, seed: int):
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--protein_final', default=str(_PROC / 'protein_final.parquet'))
-    p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'], metavar=('A', 'B'))
-    p.add_argument('--alphabet', default='aa', choices=['aa'])  # nt_cds/nt_ctg: later phases
-    p.add_argument('--threshold', default='t099')
-    p.add_argument('--k_folds', type=int, default=5)
-    p.add_argument('--n_repeats', type=int, default=1)
-    p.add_argument('--m_pos', type=int, default=100, help='cap positives per CC (fold balance).')
-    p.add_argument('--neg_to_pos_ratio', type=float, default=1.0)
-    p.add_argument('--val_ratio', type=float, default=0.1)
-    p.add_argument('--drop_single_isolate_ccs', action='store_true', default=True)
-    p.add_argument('--keep_single_isolate_ccs', dest='drop_single_isolate_ccs', action='store_false')
-    p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--config_bundle', required=True,
+                   help='Hydra bundle; must set dataset.split_strategy.mode=cluster_disjoint_cc.')
+    p.add_argument('--override', nargs='+', default=None,
+                   help='Hydra-style dotlist overrides (e.g., dataset.n_folds=5).')
+    p.add_argument('--protein_final', default=None,
+                   help='Override protein_final path (default: alongside cluster_id_path).')
     p.add_argument('--out_dir', type=Path, required=True)
     args = p.parse_args()
-    if args.n_repeats != 1:
-        raise NotImplementedError("n_repeats>1 is a placeholder; only n_repeats=1 is wired.")
     t0 = time.time()
 
-    sa, sb = args.schema_pair
-    s2f = load_function_metadata(PROJ / 'conf/virus/flu.yaml').short_to_function
-    fa, fb = s2f[sa], s2f[sb]
+    config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
+    if args.override:
+        config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.override))
+    print_config_summary(config)
+    ds, ss = config.dataset, config.dataset.split_strategy
+
+    # --- this builder owns exactly one mode ---
+    mode = OmegaConf.select(config, 'dataset.split_strategy.mode')
+    if mode != 'cluster_disjoint_cc':
+        raise ValueError(
+            f"dataset_pairs_cc requires dataset.split_strategy.mode='cluster_disjoint_cc'; "
+            f"got {mode!r}. (Other modes are built by dataset_segment_pairs_v2.)")
+
+    # --- knobs (Phase 1: aa only; regime negatives + n_repeats>1 are placeholders) ---
+    alphabet = str(getattr(ss, 'cluster_alphabet', 'aa') or 'aa')
+    if alphabet != 'aa':
+        raise NotImplementedError(f"Phase 1 is aa-only; got cluster_alphabet={alphabet!r}.")
+    pair_key_alphabet = str(getattr(ss, 'pair_key_alphabet', 'aa') or 'aa')
+    if pair_key_alphabet != 'aa':
+        raise NotImplementedError(f"Phase 1 is aa pair_key only; got {pair_key_alphabet!r}.")
+    if getattr(ds, 'negative_sampling', None) is not None:
+        raise NotImplementedError(
+            "Regime-targeted within-CC negatives (dataset.negative_sampling) are a placeholder; "
+            "leave it null for random within-CC negatives in Phase 1.")
+    n_repeats = int(getattr(ds, 'n_repeats', 1) or 1)
+    if n_repeats != 1:
+        raise NotImplementedError("n_repeats>1 is a placeholder; only n_repeats=1 is wired.")
+
+    k_folds = getattr(ds, 'n_folds', None)
+    if not k_folds or int(k_folds) < 2:
+        raise ValueError(f"dataset.n_folds must be an int >= 2 for the 2D-CD CV builder; got {k_folds!r}.")
+    k_folds = int(k_folds)
+    neg_to_pos_ratio = float(ds.neg_to_pos_ratio)
+    val_ratio = float(ds.val_ratio)
+    drop_singleton_ccs = bool(getattr(ss, 'drop_singleton_ccs', True))
+    m_pos = getattr(ss, 'm_pos_per_cc', 1)
+    m_pos = None if m_pos is None else int(m_pos)
+    seed = resolve_process_seed(config, 'datasets')
+    if seed is None:
+        raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
+    set_deterministic_seeds(seed, cuda_deterministic=False)
+
+    cluster_id_path = getattr(ss, 'cluster_id_path', None)
+    if cluster_id_path is None:
+        raise ValueError("dataset.split_strategy.cluster_id_path must be set for cluster_disjoint_cc.")
+    cluster_id_path = Path(str(cluster_id_path))
+    if not cluster_id_path.is_absolute():
+        cluster_id_path = PROJ / cluster_id_path
+    threshold = cluster_id_path.parent.name  # the tXXX dir, e.g. 't099'
+
+    # --- schema pair: full names from the bundle, canonicalized to protein_order ---
+    meta = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml')
+    schema_raw = [str(x) for x in ds.schema_pair]
+    if len(schema_raw) != 2 or schema_raw[0] == schema_raw[1]:
+        raise ValueError(f"dataset.schema_pair must be two distinct functions; got {schema_raw!r}.")
+    order = list(config.virus.protein_order)
+    fa, fb = (schema_raw if order.index(schema_raw[0]) <= order.index(schema_raw[1])
+              else [schema_raw[1], schema_raw[0]])
+    sa, sb = meta.function_to_short[fa], meta.function_to_short[fb]
+
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"=== dataset_pairs_cc {sa}-{sb} {args.alphabet} {args.threshold} (k={args.k_folds}) ===")
+    save_config(config, str(out_dir / 'resolved_config.yaml'))
+    print(f"=== dataset_pairs_cc {sa}-{sb} {alphabet} {threshold} "
+          f"(k={k_folds}, ratio={neg_to_pos_ratio}, m_pos_per_cc={m_pos}, "
+          f"drop_singleton_ccs={drop_singleton_ccs}, seed={seed}) ===")
 
-    df = load_frontend(Path(args.protein_final), (fa, fb))
-    pos, _ = create_positive_pairs_v2(df, schema_pair=(fa, fb), pair_key_alphabet='aa')
-    cooccur, _ = build_cooccurrence_set(df, hash_col=_POS_HASH[args.alphabet])
-    lookup = load_cluster_lookup(_CLUSTERS[args.alphabet] / args.threshold / 'combined_cluster.parquet')
-    pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[args.alphabet])
+    input_file = (Path(args.protein_final) if args.protein_final
+                  else cluster_id_path.parents[2] / 'protein_final.parquet')
+
+    df = build_frontend(config, input_file, (fa, fb))
+    print(f"  front-end: {len(df):,} protein rows / {df['assembly_id'].nunique():,} isolates ({sa}+{sb})")
+
+    pos, _ = create_positive_pairs_v2(df, schema_pair=(fa, fb), pair_key_alphabet=pair_key_alphabet)
+    cooccur, _ = build_cooccurrence_set(df, hash_col=_POS_HASH[alphabet])
+    lookup = load_cluster_lookup(cluster_id_path)
+    pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[alphabet])
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
           f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
 
@@ -239,27 +325,36 @@ def main() -> None:
            **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['atom_id']))}
     c2c = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['cc_id'])),
            **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['cc_id']))}
-    iso = build_cc_isolate_pool(c2a, c2c, sa, sb, args.alphabet, args.threshold)
+    iso = build_cc_isolate_pool(c2a, c2c, sa, sb, alphabet, threshold)
+    # The membership pool is corpus-level; restrict it to the front-end-filtered
+    # population so within-CC negatives are drawn only from isolates present in df
+    # (otherwise a negative can reference a sequence the filters dropped, then get
+    # discarded at enrich -> positive-only atoms). Clusters stay corpus-level/stable;
+    # only the negative population follows the experiment's df.
+    n_pool0 = len(iso)
+    iso = iso[iso['assembly_id'].isin(set(df['assembly_id'].astype(str)))].reset_index(drop=True)
+    if len(iso) != n_pool0:
+        print(f"  negative pool restricted to df isolates: {n_pool0:,} -> {len(iso):,} pool rows")
 
-    if args.m_pos:
+    if m_pos:
         # Cap m_pos positives per CC: shuffle (seeded), rank within CC, keep first m.
         # Deterministic, keeps all columns, and dodges the groupby.apply grouping-column
         # deprecation. Same per-CC count as a per-group random sample.
-        rng = np.random.RandomState(args.seed)
+        rng = np.random.RandomState(seed)
         shuf = pos_ids.sample(frac=1, random_state=rng).reset_index(drop=True)
         shuf['_rank'] = shuf.groupby('cc_id').cumcount()
-        pos_ids = shuf[shuf['_rank'] < args.m_pos].drop(columns='_rank').reset_index(drop=True)
-        print(f"  capped positives per CC at m_pos={args.m_pos}: {len(pos_ids):,} kept")
+        pos_ids = shuf[shuf['_rank'] < m_pos].drop(columns='_rank').reset_index(drop=True)
+        print(f"  capped positives per CC at m_pos_per_cc={m_pos}: {len(pos_ids):,} kept")
 
     neg, cc_log = within_cc_negatives(
-        pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=args.neg_to_pos_ratio,
-        drop_single_isolate_ccs=args.drop_single_isolate_ccs, seed=args.seed)
-    n_dropped_cc = int(cc_log['dropped_single_isolate'].sum()) if len(cc_log) else 0
-    print(f"  negatives: {len(neg):,} (within-CC); {n_dropped_cc:,} single-isolate CCs dropped")
+        pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio,
+        drop_singleton_ccs=drop_singleton_ccs, seed=seed)
+    n_dropped_cc = int(cc_log['dropped_singleton'].sum()) if len(cc_log) else 0
+    print(f"  negatives: {len(neg):,} (within-CC); {n_dropped_cc:,} singleton CCs dropped")
 
-    # Drop positives belonging to dropped (single-isolate) CCs so every kept CC is balanceable.
-    if args.drop_single_isolate_ccs and n_dropped_cc:
-        dropped_ccs = set(cc_log.loc[cc_log['dropped_single_isolate'], 'cc_id'])
+    # Drop positives of dropped (singleton) CCs so every kept CC is class-balanceable.
+    if drop_singleton_ccs and n_dropped_cc:
+        dropped_ccs = set(cc_log.loc[cc_log['dropped_singleton'], 'cc_id'])
         pos_ids = pos_ids[~pos_ids['cc_id'].isin(dropped_ccs)].reset_index(drop=True)
 
     pos_full = pos_ids.copy()
@@ -270,15 +365,16 @@ def main() -> None:
     print(f"  full set: {len(full):,} pairs ({int((full.label == 1).sum()):,} pos / "
           f"{int((full.label == 0).sum()):,} neg) across {full['atom_id'].nunique():,} atoms")
 
-    cv_info = {'k_folds': args.k_folds, 'n_repeats': args.n_repeats, 'seed': args.seed,
-               'schema_pair': [sa, sb], 'alphabet': args.alphabet, 'threshold': args.threshold,
-               'm_pos': args.m_pos, 'neg_to_pos_ratio': args.neg_to_pos_ratio,
-               'drop_single_isolate_ccs': args.drop_single_isolate_ccs,
-               'fold_dirs': [f'fold_{k}' for k in range(args.k_folds)]}
+    cv_info = {'k_folds': k_folds, 'n_repeats': n_repeats, 'seed': seed,
+               'config_bundle': args.config_bundle, 'schema_pair': [sa, sb],
+               'alphabet': alphabet, 'threshold': threshold, 'cluster_id_path': str(cluster_id_path),
+               'm_pos_per_cc': m_pos, 'neg_to_pos_ratio': neg_to_pos_ratio,
+               'pair_key_alphabet': pair_key_alphabet, 'drop_singleton_ccs': drop_singleton_ccs,
+               'fold_dirs': [f'fold_{k}' for k in range(k_folds)]}
     (out_dir / 'cv_info.json').write_text(json.dumps(cv_info, indent=2))
     cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
 
-    folds = make_folds(full, args.k_folds, args.val_ratio, args.seed)
+    folds = make_folds(full, k_folds, val_ratio, seed)
     for k, (train, val, test) in enumerate(folds):
         fdir = out_dir / f'fold_{k}'
         fdir.mkdir(parents=True, exist_ok=True)

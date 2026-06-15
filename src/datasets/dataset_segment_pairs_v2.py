@@ -2849,6 +2849,17 @@ def _validate_v2_config(config) -> None:
             f"got {schema_list!r}."
         )
 
+    # cluster_disjoint_cc is the 2D-CD builder's mode (src/datasets/dataset_pairs_cc.py),
+    # not a v2 mode. Reject loudly so a CC bundle isn't silently misrouted through v2.
+    sd_mode = OmegaConf.select(config, "dataset.split_strategy.mode")
+    if sd_mode == 'cluster_disjoint_cc':
+        raise ValueError(
+            "dataset.split_strategy.mode='cluster_disjoint_cc' is the 2D-CD builder's mode "
+            "(src/datasets/dataset_pairs_cc.py), not a v2 mode. Run it with "
+            "`python src/datasets/dataset_pairs_cc.py --config_bundle <bundle>`, "
+            "not the v2 Stage-3 CLI."
+        )
+
     # Hard-coded values that must not contradict
     pair_mode = OmegaConf.select(config, "dataset.pair_mode")
     if pair_mode is not None and pair_mode != "schema_ordered":
