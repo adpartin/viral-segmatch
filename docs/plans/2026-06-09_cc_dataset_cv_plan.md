@@ -1,12 +1,18 @@
 # CC-based dataset generation + cross-validation (Tier 1)
 
-**Status: IN PROGRESS** — Phase-1 **core IMPLEMENTED + verified + committed**
-(`09fb2c2`, 2026-06-10): the `_cv_sampling`→`_cc_helpers` move (§4.A; T1.1 atom
-equivalence + T1.2 byte-identical) and `dataset_pairs_cc.py` (§4.B; aa HA-NA t099 —
-schema, feature keys, cluster-disjoint + within-CC, pair_key/label all verified).
-**Remaining Phase 1:** Hydra/`--config_bundle` + §11 knobs (scaffold uses argparse);
-full `save_split_output_v2` reuse (parquet/audit/plots) vs. the slim CSV writer;
-front-end metadata enrich/filter (scaffold is unfiltered). Then **Phase 2** (nt_cds:
+**Status: IN PROGRESS** — Phase-1 **(a) Hydra wiring + (c) front-end DONE + verified +
+committed** (`48a3e26`): `dataset_pairs_cc.py` is now a maintained, config-driven Stage-3
+builder — `--config_bundle` + §11 knobs (incl. `drop_singleton_ccs` with criterion
+`n_neg==0`, and `m_pos_per_cc` default 1), v2's front-end (enrich/filter) reused by calling
+its helpers, `cluster_disjoint_cc` rejected by `_validate_v2_config`, and
+`conf/bundles/flu_ha_na_cc.yaml`. The within-CC negative pool is restricted to the
+front-end-filtered `df`. Verified end-to-end on aa HA-NA t099: 928 pos / 928 neg across 928
+atoms, cluster-disjoint (0 seqhash/pair_key overlap within folds; each atom tested once);
+every kept atom balanced. (Earlier: the `_cv_sampling`→`_cc_helpers` move + builder core in
+`09fb2c2`, T1.1 atom-equivalence + T1.2 byte-identical.)
+**Remaining Phase 1:** (b) full `save_split_output_v2` reuse — **deferred** (slim CSV writer
+kept; revisit once a Stage-4 run shows the needed artifacts); the **§7 lock** (materialized
+folds reproduce the in-memory CV, `cluster_disjoint_regime_cv`). Then **Phase 2** (nt_cds:
 `kmer_features_nt_cds` + the `dna_hash`→`cds_dna_hash` mislabel fix), **Phase 3** (nt_ctg).
 
 **Branch:** `feature/cc-dataset-cv` (off `master`; master already carries the Phase-2 nt_cds machinery).
