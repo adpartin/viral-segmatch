@@ -16,10 +16,12 @@ front-end metadata enrich/filter (scaffold is unfiltered). Then **Phase 2** (nt_
 
 ## 1. Goal
 
-A new **maintained** Stage-3-style script `src/datasets/dataset_pairs_cc.py` that materializes
-**cluster-disjoint K-fold** train/val/test pair sets (one set per fold) usable by the **maintained
-Stage 4** (`train_pair_classifier.py`) + `analyze_stage4_train.py`. It must work for **aa /
-nt_cds / nt_ctg**. This graduates the CC approach out of the in-memory analysis harness
+A new **maintained** Stage-3-style script `src/datasets/dataset_pairs_cc.py` — the **2D-CD
+builder** — that materializes **bilateral cluster-disjoint (2D-CD)** train/val/test pair sets
+with **within-CC negatives**, usable by the **maintained Stage 4**
+(`train_pair_classifier.py`) + `analyze_stage4_train.py`. It emits either **2D-CD holdout**
+(one 80/10/10 set) or **2D-CD CV** (one set per fold), and must work for **aa / nt_cds /
+nt_ctg**. This graduates the CC approach out of the in-memory analysis harness
 (`src/analysis/_cv_*`) into the maintained pipeline.
 
 ## 2. Why a new script (not v2's cluster_disjoint mode)
@@ -114,6 +116,12 @@ Thin orchestrator — **reuse** unless marked NEW:
 Keep `_PAIR_COLUMNS` names verbatim (drop-in Stage-4 + consistent with every dataset). Route column names
 through the central `_PAIR_COLUMNS` constant so the future Tier-2 rename is a single-point change.
 
+**Method naming** (glossary-anchored): the builder is the **2D-CD builder**; the *method* is
+**2D-CD with within-CC negatives** (the within-CC negatives distinguish it from v2's existing
+2D-CD, which uses cross-isolate coverage negatives). "2D-CD CV" / "2D-CD holdout" name only the
+two output modes — never call the builder itself "2D-CD CV". New canonical terms `within-CC
+negative` and `singleton` live in `docs/methods/glossary.md`.
+
 ## 5. Alphabet readiness + what each needs
 
 | alphabet | split key | clusters | membership | k-mer features |
@@ -144,7 +152,21 @@ through the central `_PAIR_COLUMNS` constant so the future Tier-2 rename is a si
 
 - val carved from train, group-aware; output = `_PAIR_COLUMNS` in `fold_{k}/` dirs with canonical filenames.
 - negatives within-CC only; random now, regime = placeholder.
-- positive-only CCs: flag, default drop.
+- **Singleton CCs (negative-infeasible): flag, default drop.** A *singleton* is a CC with one
+  unique seq pair (one `pair_key` after Mode #1 dedup) — no within-CC negative can be drawn (see
+  glossary). Exact test is `n_neg == 0` (singletons **plus** the rare multi-pair CC where every
+  pair shares one slot's sequence, so every recombination reconstructs a positive). Knob:
+  `drop_singleton_ccs` (renamed from `drop_single_isolate_ccs`; the old single-isolate test was a
+  proxy that missed singletons formed by ≥2 isolates carrying identical sequences). **3-place
+  change**: config §11, the criterion+name in `dataset_pairs_cc.py` (`n_iso < 2` → `n_neg == 0`),
+  and this plan.
+- **Mode #2 (sequence-level label imbalance) is a control, not a defect.** Keeping singletons
+  leaves their two sequences only-positive (Mode #2 unmitigable for them); dropping them makes
+  Mode #2 *mitigable* — but the mitigation itself is per-sequence coverage (cf. v2's coverage
+  phase, `dataset_segment_pairs_v2.py:819`), still a future option. Leakage coverage of this
+  builder: #1 ✅ (pair_key dedup + cooccur block), #2 choice (above), #3 ✅ by construction (a
+  whole CC sits in one fold), #4 ✅ (the point), #5 placeholder (random within-CC → natural regime
+  mix; targeted regimes deferred).
 - `n_repeats`: placeholder.
 - CC primitives owned by `src/datasets/_cc_helpers.py`; analysis imports them back.
 - production hash names kept; analysis `dna_hash`→`cds_dna_hash` mislabel fixed.
@@ -152,9 +174,21 @@ through the central `_PAIR_COLUMNS` constant so the future Tier-2 rename is a si
 ## 9. Deferred / future
 
 - **Tier 2 symmetric rename** (planned, separate migration): `prot_seq`/`cds_dna_seq`/`ctg_dna_seq` +
-  matching `*_hash` (NOT `aa_*` — a *seq*/*hash* is molecule-level → `prot`/`dna` per the glossary).
-  Rewrites `protein_final`/`genome_final`/`cds_final` parquets + every run dir + all readers ⇒ a data
-  migration, all-or-nothing across the repo.
+  matching `*_hash` (NOT `aa_*` — a *seq*/*hash* is molecule-level → `prot`/`dna` per the glossary),
+  and the **file** renames `genome_final → ctg_dna_final`, `cds_final → cds_dna_final` (keep
+  `protein_final`) to mirror the columns and drop the "genome" misnomer (it's contigs).
+  - **Hash persistence is uneven today** (verified via parquet schema): only `cds_final.parquet`
+    persists hashes (`seq_hash` + `cds_dna_hash`); `protein_final.parquet` and `genome_final.parquet`
+    carry the sequence but no hash column — so `seq_hash` is recomputed by every reader and
+    `dna_hash` is computed at Stage 3 by `attach_dna_to_prot_df`. Tier-2 should **produce + persist
+    each hash at the stage that creates its sequence** (`seq_hash` in `protein_final` Stage 1,
+    `dna_hash` in `ctg_dna_final` Stage 1, `cds_dna_hash` in `cds_dna_final` Stage 1.5) and make
+    **Stage 3 a pure consumer (join)** — removing the on-the-fly `dna_hash` computation and the
+    scattered `seq_hash` recomputes. (Also fix CLAUDE.md's stale "seq_hash written by Stage 1".)
+  - Rewrites those parquets + every run dir + all readers ⇒ a data migration, all-or-nothing across
+    the repo. **Test bar = bit-exact / ε=0** (pure relabeling, content unchanged): run
+    `scripts/split_regression_harness.py` + rebuild representative datasets and confirm
+    byte-identical, like the Phase-2 pair_key migration.
 - Regime-targeted within-CC negatives (placeholder now).
 - Repeated K-fold (`n_repeats > 1`).
 
@@ -175,13 +209,42 @@ the whole front-end filter/sample block.
 
 **New:**
 - `dataset.n_repeats: 1` — placeholder (only `1` wired; `>1` raises).
-- `dataset.split_strategy.drop_single_isolate_ccs: true` — drop CCs with a single isolate (no
-  within-CC negative possible — the dominant degenerate case). **Not** bare `singleton`:
-  `_pair_helpers.bipartite_components` already reports `singleton_components` = single-*pair* CCs,
-  which can have ≥2 isolates and *do* yield negatives.
+- `dataset.split_strategy.drop_singleton_ccs: true` — drop **singleton** CCs (one unique seq pair
+  → no within-CC negative possible; see glossary + §8). Implemented as `n_neg == 0` (exact
+  negative-infeasibility: singletons + the rare all-pairs-share-a-slot CC). Renamed from
+  `drop_single_isolate_ccs` — the single-isolate test was a proxy that missed singletons formed by
+  ≥2 isolates with identical sequences. (Correction: an earlier draft of this plan claimed
+  `singleton_components` "yield negatives" — backwards; singletons are exactly the ones that don't.
+  The CCs that *do* yield negatives are single-*cluster*-pair CCs holding multiple seq pairs, which
+  are not singletons.)
 - `dataset.split_strategy.mode += cluster_disjoint_cc` — explicit CC-builder mode; the v2 validator
   rejects it, so a CC bundle can't be misrun through `dataset_segment_pairs_v2`.
 - `dataset.split_strategy.cluster_alphabet += nt_ctg` — code validates `{aa, nt_cds}` today; the
   comment at `conf/dataset/default.yaml:221` is also stale (`'nt'` → `'nt_cds'`), fix in the same edit.
 - `conf/kmer/default.yaml` `alphabet`: hard-rename `nt → nt_ctg`, add `nt_cds`; **regenerate** the
   k-mer caches (no alias). Any bundle/code referencing `kmer.alphabet: nt` moves to `nt_ctg`.
+
+## 12. Tests, bundle, next step
+
+**Tests / non-regression.** `dataset_pairs_cc.py` is additive (new file) — it can't regress v2.
+The only v2-touching change is adding the `mode=cluster_disjoint_cc` rejection to
+`_validate_v2_config`; when that lands, run `scripts/split_regression_harness.py` (bit-exact
+holdout goldens under `tests/golden/split_regression`, "8/8") + rebuild one existing bundle to
+confirm unchanged. The new builder itself is checked by the 4 invariants + the §7 in-memory
+reproduction (no golden exists for it yet — create one once the output schema is locked).
+`flu_ha_na_tight.yaml` is a metadata-filtered **research** bundle (seq_disjoint), **not** a
+regression bundle — don't use it for that.
+
+**CC bundle.** None exists yet (scaffold is argparse-only). Create `conf/bundles/flu_ha_na_cc.yaml`
+during the Hydra wiring, **deriving from `flu_ha_na_cluster_t099.yaml`** (inherits cluster path +
+threshold), setting `mode=cluster_disjoint_cc` + the §11 knobs. Not `flu_ha_na_tight` (wrong
+routing + heavy filters).
+
+**Next step (recommended).** Phase-1 (a)+(c): Hydra/`--config_bundle` + front-end + §11 knobs
+(one change — wiring brings the config-driven front-end). **Defer (b)** the full
+`save_split_output_v2` reuse (it needs `exposure_tables` + `duplicate_stats` the CC path doesn't
+produce, and runs audit hard-fails) — keep the slim writer until a real bundle shows what Stage 4
+/ `analyze_stage4_train` actually consume. **Fork to confirm before coding:** §7's lock is
+"materialized folds reproduce the in-memory CV"; the committed verification so far is
+invariant-level only. Decide whether the invariants suffice to lock, or close the §7 reproduction
+first (cheaper before the front-end filter changes the population).
