@@ -125,7 +125,9 @@ def plot_one(d: pd.DataFrame, *, pair: str, alphabet: str, out_png: Path) -> Non
     ax2.set_ylabel('largest-CC % of pairs', fontsize=9, color=_LINE_COLOR)
     ax2.tick_params(axis='y', labelcolor=_LINE_COLOR)
 
-    ax.set_title(f'CC count vs identity threshold  ·  {pair} ({alphabet})', fontsize=11)
+    ax.set_title(
+        f'CC count vs identity threshold  ·  {pair} ({alphabet})  ·  '
+        f'{int(d["n_pairs"].iloc[0]):,} unique pairs', fontsize=11)
     fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=180, bbox_inches='tight')

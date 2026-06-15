@@ -92,7 +92,6 @@ def plot_feasibility_barplot(
     largest_pct = sizes[0] / n_pairs * 100.0
     budget_pairs = n_pairs / k_folds
     budget_pct = 100.0 / k_folds
-    feasible = largest_pct <= budget_pct
 
     fig, ax = plt.subplots(figsize=(max(9.0, len(top) * 0.55), 5.8))
     xs = np.arange(len(top))
@@ -114,11 +113,10 @@ def plot_feasibility_barplot(
     ax.set_axisbelow(True)
     ax.legend(loc='upper right', fontsize=8, frameon=True, framealpha=0.9)
 
-    verdict = 'feasible' if feasible else 'cut needed'
     ax.set_title(
         f'{pair_label} — {alphabet} — {threshold_id} (id={_threshold_decimal(threshold_id):.2f})\n'
         f'top {len(top)} of {n_ccs:,} CCs  ·  {n_pairs:,} pairs  ·  '
-        f'largest CC {largest_pct:.1f}%  vs  {budget_pct:.0f}% K={k_folds} budget  ->  {verdict}',
+        f'largest CC {largest_pct:.1f}%',
         fontsize=10,
     )
     fig.tight_layout()
