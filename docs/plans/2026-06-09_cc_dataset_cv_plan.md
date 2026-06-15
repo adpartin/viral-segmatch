@@ -11,9 +11,11 @@ atoms, cluster-disjoint (0 seqhash/pair_key overlap within folds; each atom test
 every kept atom balanced. (Earlier: the `_cv_sampling`→`_cc_helpers` move + builder core in
 `09fb2c2`, T1.1 atom-equivalence + T1.2 byte-identical.)
 **Remaining Phase 1:** (b) full `save_split_output_v2` reuse — **deferred** (slim CSV writer
-kept; revisit once a Stage-4 run shows the needed artifacts); the **§7 lock** (materialized
-folds reproduce the in-memory CV, `cluster_disjoint_regime_cv`). Then **Phase 2** (nt_cds:
-`kmer_features_nt_cds` + the `dna_hash`→`cds_dna_hash` mislabel fix), **Phase 3** (nt_ctg).
+kept; revisit once a Stage-4 run shows the needed artifacts). The **§7 lock is CLOSED**: the
+builder structurally reproduces the in-memory CV (identical universe / `cooccur` / pools / atom
+partition; within-CC negatives differ only by label-dependent random seeding) — see §7 and
+`scripts/verify_cc_reproduction.py`. Then **Phase 2** (nt_cds: `kmer_features_nt_cds` + the
+`dna_hash`→`cds_dna_hash` mislabel fix), **Phase 3** (nt_ctg).
 
 **Branch:** `feature/cc-dataset-cv` (off `master`; master already carries the Phase-2 nt_cds machinery).
 **Scope:** Tier 1 only. Tier 2 (the symmetric column rename) is a separate future migration — see §9.
@@ -149,8 +151,13 @@ negative` and `singleton` live in `docs/methods/glossary.md`.
 
 ## 7. Phasing
 
-- **Phase 1 — aa (existing data, zero new compute).** §4.A move + §4.B script. **Validate** the materialized
-  5-fold reproduces the in-memory aa CV (`cluster_disjoint_regime_cv`). Locks architecture + schema + naming.
+- **Phase 1 — aa (existing data, zero new compute).** §4.A move + §4.B script. **Validated** (the §7
+  lock): on aligned inputs (unfiltered, t099, m_pos=1, ratio=1, random negs, seed=42) the materialized
+  dataset structurally reproduces the in-memory aa CV (`cluster_disjoint_regime_cv`) — identical positive
+  universe (58,826), `cooccur` set, isolate pools, and **atom partition** (4,125 CCs). Within-CC negatives
+  differ in identity only because the two atom-assignment implementations label CCs differently and the
+  sampler seeds on `seed+cc_id` (different valid random draws; counts match to ±1 CC) — not a faithfulness
+  gap. Reusable check: `scripts/verify_cc_reproduction.py`. Locks architecture + schema + naming.
 - **Phase 2 — nt_cds.** Build `kmer_features_nt_cds`; run `dataset_pairs_cc` for nt_cds; validate.
 - **Phase 3 — nt_ctg.** Contig exporter → `clusters_nt_ctg` + membership + `kmer_features_nt_ctg`; run; validate.
 
