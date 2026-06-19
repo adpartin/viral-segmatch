@@ -46,7 +46,7 @@ if str(PROJ) not in sys.path:
 from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2, _PAIR_COLUMNS  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
     attach_dna_to_prot_df, build_cooccurrence_set, bipartite_components,
-    drop_ambiguous_hn_subtype, filter_by_metadata)
+    drop_ambiguous_hn_subtype, filter_by_metadata, canonical_pair_key)
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
@@ -226,6 +226,92 @@ def make_folds(full: pd.DataFrame, k_folds: int, val_ratio: float, seed: int):
     return folds
 
 
+def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFrame,
+                          schema_pair_full: tuple, *, neg_to_pos_ratio: float,
+                          seed: int) -> pd.DataFrame:
+    """Cross-CC negatives for one fold-split (the `make_negatives` scheme).
+
+    Pairs a random positive's slot-a seq with another positive's slot-b seq,
+    BOTH drawn from THIS split's positives (usually different CCs), rejecting
+    true co-occurrences (`cooccur`) and duplicates. Both endpoints stay in-split,
+    so the fold remains cluster-disjoint; the cluster shortcut is NOT removed
+    (cf. within-CC negatives). Budget = round(ratio * n_split_pos). Enriched to
+    `_PAIR_COLUMNS` (mirrors `within_cc_negatives`).
+    """
+    fa, fb = schema_pair_full
+    a = split_pos['seq_hash_a'].astype(str).to_numpy()
+    b = split_pos['seq_hash_b'].astype(str).to_numpy()
+    budget = int(round(neg_to_pos_ratio * len(split_pos)))
+    if len(a) < 2 or budget <= 0:
+        return pd.DataFrame(columns=list(_PAIR_COLUMNS))
+    rng = np.random.RandomState(seed)
+    na, nb, seen = [], [], set()
+    placed, attempts, max_attempts = 0, 0, budget * 50 + 200
+    while placed < budget and attempts < max_attempts:
+        attempts += 1
+        ha, nbh = a[rng.randint(len(a))], b[rng.randint(len(b))]
+        pk = canonical_pair_key(ha, nbh)   # true pair (incl. a positive) -> rejected
+        if pk in cooccur or pk in seen:
+            continue
+        seen.add(pk)
+        na.append(ha)
+        nb.append(nbh)
+        placed += 1
+    if not na:
+        return pd.DataFrame(columns=list(_PAIR_COLUMNS))
+    out = pd.DataFrame({'seq_hash_a': na, 'seq_hash_b': nb})
+    ra, rb = _side_rep(df, fa, 'a'), _side_rep(df, fb, 'b')
+    out = out.merge(ra, on='seq_hash_a', how='left').merge(rb, on='seq_hash_b', how='left')
+    aa = out['seq_hash_a'].astype(str).to_numpy()
+    bb = out['seq_hash_b'].astype(str).to_numpy()
+    out['pair_key'] = np.where(aa <= bb, aa, bb) + '__' + np.where(aa <= bb, bb, aa)
+    out['label'] = 0
+    out['neg_regime'] = pd.NA
+    out['metadata_match_count'] = pd.NA
+    for c in ('cds_dna_hash_a', 'cds_dna_hash_b'):
+        if c not in out.columns:
+            out[c] = pd.NA
+    return out[list(_PAIR_COLUMNS)].reset_index(drop=True)
+
+
+def make_folds_within_fold(pos_full: pd.DataFrame, k_folds: int, val_ratio: float,
+                           seed: int, *, neg_to_pos_ratio: float, cooccur: set,
+                           df: pd.DataFrame, schema_pair_full: tuple):
+    """GroupKFold the POSITIVES by atom_id, then add cross-CC (within-fold)
+    negatives per split from that split's own positives. Negatives stay in-split,
+    so folds remain cluster-disjoint. Returns per fold (train, val, test) frames
+    in `_PAIR_COLUMNS`."""
+    gkf = GroupKFold(n_splits=k_folds, shuffle=True, random_state=seed)
+    groups = pos_full['atom_id'].to_numpy()
+    n_total = len(pos_full)
+    cols = list(_PAIR_COLUMNS)
+    folds = []
+    for fi, (tv_idx, te_idx) in enumerate(gkf.split(pos_full, groups=groups)):
+        te_pos = pos_full.iloc[te_idx]
+        tv = pos_full.iloc[tv_idx]
+        rng = np.random.RandomState(seed)
+        atoms = tv['atom_id'].drop_duplicates().to_numpy()
+        rng.shuffle(atoms)
+        sizes = tv.groupby('atom_id').size()
+        target = val_ratio * n_total
+        val_atoms, acc = set(), 0
+        for a in atoms:
+            if acc >= target:
+                break
+            val_atoms.add(a)
+            acc += int(sizes[a])
+        val_pos = tv[tv['atom_id'].isin(val_atoms)]
+        train_pos = tv[~tv['atom_id'].isin(val_atoms)]
+        out = []
+        for si, sp in enumerate([train_pos, val_pos, te_pos]):
+            negs = within_fold_negatives(sp, cooccur, df, schema_pair_full,
+                                         neg_to_pos_ratio=neg_to_pos_ratio,
+                                         seed=seed + fi * 100 + si)
+            out.append(pd.concat([sp[cols], negs[cols]], ignore_index=True).reset_index(drop=True))
+        folds.append(tuple(out))
+    return folds
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--config_bundle', required=True,
@@ -273,6 +359,10 @@ def main() -> None:
     neg_to_pos_ratio = float(ds.neg_to_pos_ratio)
     val_ratio = float(ds.val_ratio)
     drop_singleton_ccs = bool(getattr(ss, 'drop_singleton_ccs', True))
+    negative_scope = str(getattr(ss, 'negative_scope', 'within_cc') or 'within_cc')
+    if negative_scope not in ('within_cc', 'within_fold'):
+        raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc' or "
+                         f"'within_fold'; got {negative_scope!r}.")
     m_pos = getattr(ss, 'm_pos_per_cc', 1)
     m_pos = None if m_pos is None else int(m_pos)
     seed = resolve_process_seed(config, 'datasets')
@@ -318,23 +408,36 @@ def main() -> None:
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
           f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
 
-    # Atom maps + isolate pool from the FULL (uncapped) atom assignment, so the
-    # within-CC negative pool covers every cluster of each CC even when positives
-    # are capped below.
-    c2a = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['atom_id'])),
-           **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['atom_id']))}
-    c2c = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['cc_id'])),
-           **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['cc_id']))}
-    iso = build_cc_isolate_pool(c2a, c2c, sa, sb, alphabet, threshold)
-    # The membership pool is corpus-level; restrict it to the front-end-filtered
-    # population so within-CC negatives are drawn only from isolates present in df
-    # (otherwise a negative can reference a sequence the filters dropped, then get
-    # discarded at enrich -> positive-only atoms). Clusters stay corpus-level/stable;
-    # only the negative population follows the experiment's df.
-    n_pool0 = len(iso)
-    iso = iso[iso['assembly_id'].isin(set(df['assembly_id'].astype(str)))].reset_index(drop=True)
-    if len(iso) != n_pool0:
-        print(f"  negative pool restricted to df isolates: {n_pool0:,} -> {len(iso):,} pool rows")
+    # Singleton CCs (one unique pair_key), computed on the UNCAPPED positives so the
+    # m_pos cap doesn't make every CC look like a singleton.
+    # KNOWN INCONSISTENCY (TODO reconcile): `drop_singleton_ccs` drops DIFFERENT sets in the
+    # two branches -- within_cc drops `n_neg==0` (negative-infeasible: singletons PLUS CCs
+    # where every within-CC pairing reconstructs a positive), within_fold drops only the
+    # glossary singleton (1 pair_key). On aa HA-NA t099 they differ by 291 CCs (~7%):
+    # within_cc keeps 928, within_fold keeps 1,219. Reconcile to one definition (likely:
+    # rename knob to drop_negative_infeasible_ccs + use n_neg==0 in both). See the CC plan.
+    _pk_per_cc = pos_ids.groupby('cc_id')['pair_key'].nunique()
+    singleton_ccs = set(_pk_per_cc[_pk_per_cc == 1].index)
+
+    # Isolate pool: within_cc only (within_fold draws negatives from each split's
+    # own positives, no pool). Built from the FULL (uncapped) atom assignment so
+    # the pool covers every cluster of each CC even when positives are capped.
+    iso = None
+    if negative_scope == 'within_cc':
+        c2a = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['atom_id'])),
+               **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['atom_id']))}
+        c2c = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['cc_id'])),
+               **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['cc_id']))}
+        iso = build_cc_isolate_pool(c2a, c2c, sa, sb, alphabet, threshold)
+        # The membership pool is corpus-level; restrict it to the front-end-filtered
+        # population so within-CC negatives are drawn only from isolates present in df
+        # (otherwise a negative can reference a sequence the filters dropped, then get
+        # discarded at enrich -> positive-only atoms). Clusters stay corpus-level/stable;
+        # only the negative population follows the experiment's df.
+        n_pool0 = len(iso)
+        iso = iso[iso['assembly_id'].isin(set(df['assembly_id'].astype(str)))].reset_index(drop=True)
+        if len(iso) != n_pool0:
+            print(f"  negative pool restricted to df isolates: {n_pool0:,} -> {len(iso):,} pool rows")
 
     if m_pos:
         # Cap m_pos positives per CC: shuffle (seeded), rank within CC, keep first m.
@@ -346,35 +449,49 @@ def main() -> None:
         pos_ids = shuf[shuf['_rank'] < m_pos].drop(columns='_rank').reset_index(drop=True)
         print(f"  capped positives per CC at m_pos_per_cc={m_pos}: {len(pos_ids):,} kept")
 
-    neg, cc_log = within_cc_negatives(
-        pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio,
-        drop_singleton_ccs=drop_singleton_ccs, seed=seed)
-    n_dropped_cc = int(cc_log['dropped_singleton'].sum()) if len(cc_log) else 0
-    print(f"  negatives: {len(neg):,} (within-CC); {n_dropped_cc:,} singleton CCs dropped")
-
-    # Drop positives of dropped (singleton) CCs so every kept CC is class-balanceable.
-    if drop_singleton_ccs and n_dropped_cc:
-        dropped_ccs = set(cc_log.loc[cc_log['dropped_singleton'], 'cc_id'])
-        pos_ids = pos_ids[~pos_ids['cc_id'].isin(dropped_ccs)].reset_index(drop=True)
-
-    pos_full = pos_ids.copy()
-    pos_full['neg_regime'] = pd.NA
-    pos_full['metadata_match_count'] = pd.NA
-    keep = list(_PAIR_COLUMNS) + ['cc_id', 'atom_id']
-    full = pd.concat([pos_full[keep], neg[keep]], ignore_index=True)
-    print(f"  full set: {len(full):,} pairs ({int((full.label == 1).sum()):,} pos / "
-          f"{int((full.label == 0).sum()):,} neg) across {full['atom_id'].nunique():,} atoms")
+    if negative_scope == 'within_cc':
+        neg, cc_log = within_cc_negatives(
+            pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio,
+            drop_singleton_ccs=drop_singleton_ccs, seed=seed)
+        n_dropped_cc = int(cc_log['dropped_singleton'].sum()) if len(cc_log) else 0
+        print(f"  negatives: {len(neg):,} (within-CC); {n_dropped_cc:,} singleton CCs dropped")
+        # Drop positives of dropped (singleton) CCs so every kept CC is class-balanceable.
+        if drop_singleton_ccs and n_dropped_cc:
+            dropped_ccs = set(cc_log.loc[cc_log['dropped_singleton'], 'cc_id'])
+            pos_ids = pos_ids[~pos_ids['cc_id'].isin(dropped_ccs)].reset_index(drop=True)
+        pos_full = pos_ids.copy()
+        pos_full['neg_regime'] = pd.NA
+        pos_full['metadata_match_count'] = pd.NA
+        keep = list(_PAIR_COLUMNS) + ['cc_id', 'atom_id']
+        full = pd.concat([pos_full[keep], neg[keep]], ignore_index=True)
+        print(f"  full set: {len(full):,} pairs ({int((full.label == 1).sum()):,} pos / "
+              f"{int((full.label == 0).sum()):,} neg) across {full['atom_id'].nunique():,} atoms")
+        cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
+        folds = make_folds(full, k_folds, val_ratio, seed)
+    else:  # within_fold: split positives by atom, then add cross-CC negatives per split
+        if drop_singleton_ccs and singleton_ccs:
+            n0 = pos_ids['cc_id'].nunique()
+            pos_ids = pos_ids[~pos_ids['cc_id'].isin(singleton_ccs)].reset_index(drop=True)
+            print(f"  drop_singleton_ccs: dropped {len(singleton_ccs):,} singleton CCs "
+                  f"({n0:,} -> {pos_ids['cc_id'].nunique():,} CCs). within_fold CAN use them "
+                  f"(cross-CC negs); dropping is a parity knob with within_cc.")
+        pos_full = pos_ids.copy()
+        pos_full['neg_regime'] = pd.NA
+        pos_full['metadata_match_count'] = pd.NA
+        print(f"  positives: {len(pos_full):,} across {pos_full['atom_id'].nunique():,} atoms; "
+              f"within-fold (cross-CC) negatives generated per split")
+        folds = make_folds_within_fold(
+            pos_full, k_folds, val_ratio, seed, neg_to_pos_ratio=neg_to_pos_ratio,
+            cooccur=cooccur, df=df, schema_pair_full=(fa, fb))
 
     cv_info = {'k_folds': k_folds, 'n_repeats': n_repeats, 'seed': seed,
                'config_bundle': args.config_bundle, 'schema_pair': [sa, sb],
                'alphabet': alphabet, 'threshold': threshold, 'cluster_id_path': str(cluster_id_path),
                'm_pos_per_cc': m_pos, 'neg_to_pos_ratio': neg_to_pos_ratio,
-               'pair_key_alphabet': pair_key_alphabet, 'drop_singleton_ccs': drop_singleton_ccs,
+               'pair_key_alphabet': pair_key_alphabet, 'negative_scope': negative_scope,
+               'drop_singleton_ccs': drop_singleton_ccs,
                'fold_dirs': [f'fold_{k}' for k in range(k_folds)]}
     (out_dir / 'cv_info.json').write_text(json.dumps(cv_info, indent=2))
-    cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
-
-    folds = make_folds(full, k_folds, val_ratio, seed)
     for k, (train, val, test) in enumerate(folds):
         fdir = out_dir / f'fold_{k}'
         fdir.mkdir(parents=True, exist_ok=True)

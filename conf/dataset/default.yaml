@@ -237,8 +237,15 @@ split_strategy:
     max_acceptable_drift_pp: 0.05  # max absolute pp deviation per bin from target (0-1 scale)
     min_test_frac: 0.05            # test bin must be at least this fraction of total pairs
   # 2D-CD builder (dataset_pairs_cc.py, mode=cluster_disjoint_cc) only:
-  drop_singleton_ccs: true  # drop singleton CCs — one unique seq pair, so no within-CC
-                            # negative is possible (implemented as n_neg==0). See glossary.
+  negative_scope: within_cc # within_cc (default): slot-a & slot-b drawn from the SAME CC ->
+                            # removes the cluster shortcut (hard test; matches cluster_disjoint_regime_cv).
+                            # within_fold: slot-b shuffled across the fold-split's positives (cross-CC,
+                            # in-split) -> cluster shortcut available (easier; matches
+                            # cluster_disjoint_cv_experiment's make_negatives).
+  drop_singleton_ccs: true  # drop singleton CCs (one unique seq pair). within_cc: required (no
+                            # within-CC negative possible; implemented as n_neg==0). within_fold:
+                            # honored too but optional (it CAN give singletons cross-CC negatives;
+                            # dropping is a parity knob vs within_cc). See glossary.
   m_pos_per_cc: 1           # cap positives kept per CC. 1 (default) = each CC contributes one
                             # positive -> uniform atoms, cleanest K-fold CV; int>1 keeps more per
                             # large CC; null = no cap.
