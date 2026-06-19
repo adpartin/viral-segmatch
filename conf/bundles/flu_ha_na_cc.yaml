@@ -29,3 +29,14 @@ dataset:
     cluster_alphabet: aa
     m_pos_per_cc: 1             # one positive per CC -> uniform atoms, cleanest K-fold
     drop_singleton_ccs: true    # drop CCs with no within-CC negative (singletons)
+
+# Stage-4 features for the CC experiment: aa k=3 k-mers + raw-count unit_diff, to
+# match the in-memory CC analysis (cluster_disjoint_cv_experiment / regime_cv).
+# Overrides flu_ha_na's production nt k=6 / unit_norm + unit_diff+prod.
+kmer:
+  alphabet: aa
+  k: 3
+
+training:
+  interaction: "unit_diff"   # match the analysis (not the bundle's unit_diff+prod)
+  slot_transform: "none"     # analysis applies unit_diff to raw counts (no per-slot norm)
