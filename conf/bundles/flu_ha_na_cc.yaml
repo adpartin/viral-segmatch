@@ -6,7 +6,7 @@
 # Inherits flu_ha_na_cluster_t099 (aa cluster_disjoint at t099: cluster_id_path +
 # threshold). Switches the mode to cluster_disjoint_cc and sets the CC-builder knobs:
 # 5-fold CV, one positive per CC (m_pos_per_cc=1 -> uniform atoms), 1:1 within-CC
-# random negatives, drop singleton CCs.
+# random negatives, drop negative-infeasible CCs.
 #
 # Run:
 #   python src/datasets/dataset_pairs_cc.py --config_bundle flu_ha_na_cc \
@@ -28,7 +28,7 @@ dataset:
     # cluster_id_path + cluster_id_threshold inherited from flu_ha_na_cluster_t099 (aa t099)
     cluster_alphabet: aa
     m_pos_per_cc: 1             # one positive per CC -> uniform atoms, cleanest K-fold
-    drop_singleton_ccs: true    # drop CCs with no within-CC negative (singletons)
+    drop_negative_infeasible_ccs: true   # drop CCs with no drawable within-CC negative
 
 # Stage-4 features for the CC experiment: aa k=3 k-mers + raw-count unit_diff, to
 # match the in-memory CC analysis (cluster_disjoint_cv_experiment / regime_cv).

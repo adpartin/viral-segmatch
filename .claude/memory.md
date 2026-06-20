@@ -64,12 +64,16 @@ change and aren't derivable from code. This file does NOT duplicate:
   analysis CC harness (`src/analysis/_cv_*`) into a maintained Stage-3 builder — bilateral
   cluster-disjoint (2D-CD) holdout/K-fold + within-CC negatives, drop-in Stage-4
   `fold_k/{train,val,test}_pairs.csv`. Phase-1 core committed (`09fb2c2`): the
-  `_cv_sampling`→`_cc_helpers` move + the builder, verified on aa HA-NA t099. Remaining Phase 1:
-  Hydra/`--config_bundle` + knobs (incl. `drop_singleton_ccs`, criterion `n_neg==0`), front-end
-  filter, full-saver decision, and the §7 in-memory reproduction. Plan + all this-session decisions:
-  `docs/plans/2026-06-09_cc_dataset_cv_plan.md` (§8/§11 singleton fix, §9 Tier-2 file renames
-  `genome_final→ctg_dna_final`/`cds_final→cds_dna_final`, §12 tests/bundle/next-step). New glossary
-  terms: `singleton`, `within-CC negative`. NEVER commit `src/analysis/cluster_disjoint_ood_audit.py`.
+  `_cv_sampling`→`_cc_helpers` move + the builder, verified on aa HA-NA t099. Phase-1 (a) Hydra +
+  (c) front-end + §7 reproduction DONE; `negative_scope` knob (within_cc | within_fold) added. The
+  2026-06 `singleton` audit + reconciliation is DONE: knob renamed `drop_singleton_ccs` →
+  `drop_negative_infeasible_ccs`, predicate unified to a STRUCTURAL negative-infeasibility test
+  (`compute_negative_infeasible_ccs`) used in BOTH scopes — parity verified (within_cc & within_fold
+  both keep 928 on aa HA-NA t099; closed the old 291-CC gap). Remaining: (b) full-saver (deferred),
+  Phase 2 (nt_cds) / Phase 3 (nt_ctg). Plan: `docs/plans/2026-06-09_cc_dataset_cv_plan.md` (§9 Tier-2
+  renames `genome_final→ctg_dna_final`/`cds_final→cds_dna_final`, §12 tests/bundle). Glossary terms:
+  `singleton component`, `negative-infeasible CC`, `within-CC negative`. NEVER commit
+  `src/analysis/cluster_disjoint_ood_audit.py`.
 - **Phase 2 pair_key migration** (branch `feature/phase2-pair-key-migration`): plan DONE
   (`docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md`); commits 1–6 landed by 2026-06-03
   (commit 6 = post-migration metrics; the tXXX-rename spans commits 3–7 per CLAUDE.md). aa pipeline

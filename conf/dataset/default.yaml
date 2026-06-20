@@ -242,10 +242,11 @@ split_strategy:
                             # within_fold: slot-b shuffled across the fold-split's positives (cross-CC,
                             # in-split) -> cluster shortcut available (easier; matches
                             # cluster_disjoint_cv_experiment's make_negatives).
-  drop_singleton_ccs: true  # drop singleton CCs (one unique seq pair). within_cc: required (no
-                            # within-CC negative possible; implemented as n_neg==0). within_fold:
-                            # honored too but optional (it CAN give singletons cross-CC negatives;
-                            # dropping is a parity knob vs within_cc). See glossary.
+  drop_negative_infeasible_ccs: true  # drop CCs with no drawable within-CC negative (every slot-A x
+                            # slot-B recombination reconstructs a positive). Singleton CCs (one unique
+                            # seq pair) are the base case. Structural + seed-independent; applied
+                            # identically under both negative_scope values (parity). Renamed from
+                            # drop_singleton_ccs. See glossary ('Negative-infeasible CC').
   m_pos_per_cc: 1           # cap positives kept per CC. 1 (default) = each CC contributes one
                             # positive -> uniform atoms, cleanest K-fold CV; int>1 keeps more per
                             # large CC; null = no cap.

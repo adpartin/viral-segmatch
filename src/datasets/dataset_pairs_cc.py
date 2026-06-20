@@ -139,16 +139,46 @@ def _side_rep(df: pd.DataFrame, func: str, suffix: str) -> pd.DataFrame:
     return rep.rename(columns=ren)
 
 
+def compute_negative_infeasible_ccs(pos_ids: pd.DataFrame, cooccur: set,
+                                    hash_a_col: str = 'seq_hash_a',
+                                    hash_b_col: str = 'seq_hash_b') -> set:
+    """CCs from which no within-CC negative can be drawn — the drop set for
+    `drop_negative_infeasible_ccs`, computed structurally on the positives.
+
+    A CC is negative-infeasible iff every recombination of its distinct slot-A x
+    slot-B sequences is a co-occurrence (in `cooccur`): then every candidate
+    within-CC negative reconstructs a true pair. The singleton CC (one unique
+    pair_key -> one distinct-a x one distinct-b) is the base case; the superset
+    also holds dense CCs where every cross pairing co-occurs.
+
+    Seed-independent, and mirrors `sample_random_within_cc_negatives`' feasibility
+    exactly: any combo (a, b) not in `cooccur` is drawable from two *distinct*
+    isolates, because a same-isolate combo would itself be that isolate's positive
+    (hence in `cooccur`). Early-exits per CC on the first drawable negative, so
+    feasible CCs (incl. the mega-CC) cost O(1) in practice.
+    """
+    infeasible = set()
+    for cc, g in pos_ids.groupby('cc_id'):
+        a_vals = g[hash_a_col].astype(str).unique()
+        b_vals = g[hash_b_col].astype(str).unique()
+        feasible = any(canonical_pair_key(a, b) not in cooccur
+                       for a in a_vals for b in b_vals)
+        if not feasible:
+            infeasible.add(int(cc))
+    return infeasible
+
+
 def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
                         df: pd.DataFrame, schema_pair_full: tuple, *,
-                        neg_to_pos_ratio: float, drop_singleton_ccs: bool,
+                        neg_to_pos_ratio: float,
                         seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-CC within-CC random negatives, enriched to `_PAIR_COLUMNS`.
 
-    budget per CC = round(neg_to_pos_ratio * n_pos_in_cc). Singleton /
-    negative-infeasible CCs (n_neg == 0 — one unique seq pair, so no within-CC
-    negative can be drawn) are dropped when `drop_singleton_ccs`. Returns
-    (neg_pairs[_PAIR_COLUMNS + atom_id/cc_id], cc_log).
+    budget per CC = round(neg_to_pos_ratio * n_pos_in_cc). Negative-infeasible CCs
+    are expected to be dropped upstream (see `compute_negative_infeasible_ccs`)
+    when `drop_negative_infeasible_ccs`; any CC that still yields no negative just
+    contributes none here. Returns (neg_pairs[_PAIR_COLUMNS + atom_id/cc_id],
+    cc_log with columns cc_id, n_pos, n_isolates, budget, n_neg).
     """
     fa, fb = schema_pair_full
     iso_by_cc = {cc: g for cc, g in iso.groupby('cc_id')}
@@ -164,11 +194,8 @@ def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
         neg = (sample_random_within_cc_negatives(cc_iso, budget, cooccur, seed=seed + int(cc))
                if (cc_iso is not None and budget > 0) else None)
         n_neg = 0 if neg is None else int(len(neg))
-        # Singleton / negative-infeasible CC: no within-CC negative could be drawn
-        # (one unique seq pair, or every recombination reconstructs a positive).
         row['n_neg'] = n_neg
-        row['dropped_singleton'] = bool(drop_singleton_ccs and n_neg == 0)
-        if n_neg and not row['dropped_singleton']:
+        if n_neg:
             raw.append(neg.assign(cc_id=int(cc), atom_id=cc_to_atom[cc]))
         log_rows.append(row)
 
@@ -358,7 +385,14 @@ def main() -> None:
     k_folds = int(k_folds)
     neg_to_pos_ratio = float(ds.neg_to_pos_ratio)
     val_ratio = float(ds.val_ratio)
-    drop_singleton_ccs = bool(getattr(ss, 'drop_singleton_ccs', True))
+    # Renamed from drop_singleton_ccs (which conflated 'singleton' with the broader
+    # negative-infeasible set). Read the new key; fall back to the legacy one with a warning.
+    _legacy_drop = OmegaConf.select(config, 'dataset.split_strategy.drop_singleton_ccs')
+    if _legacy_drop is not None:
+        print("WARNING: dataset.split_strategy.drop_singleton_ccs was renamed to "
+              "drop_negative_infeasible_ccs; using the legacy key's value. Update the bundle.")
+    drop_negative_infeasible_ccs = bool(getattr(
+        ss, 'drop_negative_infeasible_ccs', _legacy_drop if _legacy_drop is not None else True))
     negative_scope = str(getattr(ss, 'negative_scope', 'within_cc') or 'within_cc')
     if negative_scope not in ('within_cc', 'within_fold'):
         raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc' or "
@@ -393,7 +427,7 @@ def main() -> None:
     save_config(config, str(out_dir / 'resolved_config.yaml'))
     print(f"=== dataset_pairs_cc {sa}-{sb} {alphabet} {threshold} "
           f"(k={k_folds}, ratio={neg_to_pos_ratio}, m_pos_per_cc={m_pos}, "
-          f"drop_singleton_ccs={drop_singleton_ccs}, seed={seed}) ===")
+          f"drop_negative_infeasible_ccs={drop_negative_infeasible_ccs}, seed={seed}) ===")
 
     input_file = (Path(args.protein_final) if args.protein_final
                   else cluster_id_path.parents[2] / 'protein_final.parquet')
@@ -408,16 +442,21 @@ def main() -> None:
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
           f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
 
-    # Singleton CCs (one unique pair_key), computed on the UNCAPPED positives so the
-    # m_pos cap doesn't make every CC look like a singleton.
-    # KNOWN INCONSISTENCY (TODO reconcile): `drop_singleton_ccs` drops DIFFERENT sets in the
-    # two branches -- within_cc drops `n_neg==0` (negative-infeasible: singletons PLUS CCs
-    # where every within-CC pairing reconstructs a positive), within_fold drops only the
-    # glossary singleton (1 pair_key). On aa HA-NA t099 they differ by 291 CCs (~7%):
-    # within_cc keeps 928, within_fold keeps 1,219. Reconcile to one definition (likely:
-    # rename knob to drop_negative_infeasible_ccs + use n_neg==0 in both). See the CC plan.
-    _pk_per_cc = pos_ids.groupby('cc_id')['pair_key'].nunique()
-    singleton_ccs = set(_pk_per_cc[_pk_per_cc == 1].index)
+    # Negative-infeasible CCs: no within-CC negative can be drawn (every distinct slot-A x
+    # slot-B recombination reconstructs a positive). Computed structurally on the UNCAPPED
+    # positives so the m_pos cap doesn't make a CC look infeasible. Singleton CCs (one unique
+    # pair_key) are the base case; the superset also covers dense CCs where every cross pairing
+    # co-occurs. One set, applied identically under both negative scopes (parity).
+    neg_infeasible_ccs = compute_negative_infeasible_ccs(pos_ids, cooccur)
+
+    # Unified drop (both scopes): remove negative-infeasible CCs up front so every kept CC is
+    # class-balanceable. When disabled, they survive as positives-only atoms (within_fold can
+    # still give them cross-CC negatives; within_cc leaves them with positives only).
+    if drop_negative_infeasible_ccs and neg_infeasible_ccs:
+        n0_cc = pos_ids['cc_id'].nunique()
+        pos_ids = pos_ids[~pos_ids['cc_id'].isin(neg_infeasible_ccs)].reset_index(drop=True)
+        print(f"  drop_negative_infeasible_ccs: dropped {len(neg_infeasible_ccs):,} CCs "
+              f"({n0_cc:,} -> {pos_ids['cc_id'].nunique():,} kept).")
 
     # Isolate pool: within_cc only (within_fold draws negatives from each split's
     # own positives, no pool). Built from the FULL (uncapped) atom assignment so
@@ -451,14 +490,18 @@ def main() -> None:
 
     if negative_scope == 'within_cc':
         neg, cc_log = within_cc_negatives(
-            pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio,
-            drop_singleton_ccs=drop_singleton_ccs, seed=seed)
-        n_dropped_cc = int(cc_log['dropped_singleton'].sum()) if len(cc_log) else 0
-        print(f"  negatives: {len(neg):,} (within-CC); {n_dropped_cc:,} singleton CCs dropped")
-        # Drop positives of dropped (singleton) CCs so every kept CC is class-balanceable.
-        if drop_singleton_ccs and n_dropped_cc:
-            dropped_ccs = set(cc_log.loc[cc_log['dropped_singleton'], 'cc_id'])
-            pos_ids = pos_ids[~pos_ids['cc_id'].isin(dropped_ccs)].reset_index(drop=True)
+            pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio, seed=seed)
+        # Defensive: with dropping enabled every kept CC is structurally feasible, so a CC with
+        # budget>0 yet 0 sampled negatives means the random sampler under-filled; drop its
+        # positives to keep folds balanced and warn. (With dropping disabled, 0-negative CCs are
+        # the intentionally-kept infeasible ones -> left as positives-only.)
+        if drop_negative_infeasible_ccs and len(cc_log):
+            undersampled = set(cc_log.loc[(cc_log['budget'] > 0) & (cc_log['n_neg'] == 0), 'cc_id'])
+            if undersampled:
+                print(f"WARNING: {len(undersampled):,} feasible CC(s) yielded 0 sampled negatives "
+                      f"(sampler under-filled); dropping their positives.")
+                pos_ids = pos_ids[~pos_ids['cc_id'].isin(undersampled)].reset_index(drop=True)
+        print(f"  negatives: {len(neg):,} (within-CC)")
         pos_full = pos_ids.copy()
         pos_full['neg_regime'] = pd.NA
         pos_full['metadata_match_count'] = pd.NA
@@ -469,12 +512,6 @@ def main() -> None:
         cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
         folds = make_folds(full, k_folds, val_ratio, seed)
     else:  # within_fold: split positives by atom, then add cross-CC negatives per split
-        if drop_singleton_ccs and singleton_ccs:
-            n0 = pos_ids['cc_id'].nunique()
-            pos_ids = pos_ids[~pos_ids['cc_id'].isin(singleton_ccs)].reset_index(drop=True)
-            print(f"  drop_singleton_ccs: dropped {len(singleton_ccs):,} singleton CCs "
-                  f"({n0:,} -> {pos_ids['cc_id'].nunique():,} CCs). within_fold CAN use them "
-                  f"(cross-CC negs); dropping is a parity knob with within_cc.")
         pos_full = pos_ids.copy()
         pos_full['neg_regime'] = pd.NA
         pos_full['metadata_match_count'] = pd.NA
@@ -489,7 +526,7 @@ def main() -> None:
                'alphabet': alphabet, 'threshold': threshold, 'cluster_id_path': str(cluster_id_path),
                'm_pos_per_cc': m_pos, 'neg_to_pos_ratio': neg_to_pos_ratio,
                'pair_key_alphabet': pair_key_alphabet, 'negative_scope': negative_scope,
-               'drop_singleton_ccs': drop_singleton_ccs,
+               'drop_negative_infeasible_ccs': drop_negative_infeasible_ccs,
                'fold_dirs': [f'fold_{k}' for k in range(k_folds)]}
     (out_dir / 'cv_info.json').write_text(json.dumps(cv_info, indent=2))
     for k, (train, val, test) in enumerate(folds):

@@ -2,8 +2,8 @@
 
 **Status: IN PROGRESS** — Phase-1 **(a) Hydra wiring + (c) front-end DONE + verified +
 committed** (`48a3e26`): `dataset_pairs_cc.py` is now a maintained, config-driven Stage-3
-builder — `--config_bundle` + §11 knobs (incl. `drop_singleton_ccs` with criterion
-`n_neg==0`, and `m_pos_per_cc` default 1), v2's front-end (enrich/filter) reused by calling
+builder — `--config_bundle` + §11 knobs (incl. `drop_negative_infeasible_ccs` — structural
+negative-infeasibility, and `m_pos_per_cc` default 1), v2's front-end (enrich/filter) reused by calling
 its helpers, `cluster_disjoint_cc` rejected by `_validate_v2_config`, and
 `conf/bundles/flu_ha_na_cc.yaml`. The within-CC negative pool is restricted to the
 front-end-filtered `df`. Verified end-to-end on aa HA-NA t099: 928 pos / 928 neg across 928
@@ -165,14 +165,17 @@ negative` and `singleton` live in `docs/methods/glossary.md`.
 
 - val carved from train, group-aware; output = `_PAIR_COLUMNS` in `fold_{k}/` dirs with canonical filenames.
 - negatives within-CC only; random now, regime = placeholder.
-- **Singleton CCs (negative-infeasible): flag, default drop.** A *singleton* is a CC with one
-  unique seq pair (one `pair_key` after Mode #1 dedup) — no within-CC negative can be drawn (see
-  glossary). Exact test is `n_neg == 0` (singletons **plus** the rare multi-pair CC where every
-  pair shares one slot's sequence, so every recombination reconstructs a positive). Knob:
-  `drop_singleton_ccs` (renamed from `drop_single_isolate_ccs`; the old single-isolate test was a
-  proxy that missed singletons formed by ≥2 isolates carrying identical sequences). **3-place
-  change**: config §11, the criterion+name in `dataset_pairs_cc.py` (`n_iso < 2` → `n_neg == 0`),
-  and this plan.
+- **Negative-infeasible CCs: flag, default drop.** A CC is *negative-infeasible* when no within-CC
+  negative can be drawn — every recombination of its distinct slot-A × slot-B sequences reconstructs
+  a positive. The **singleton** CC (one `pair_key` after Mode #1 dedup) is the base case; the superset
+  also covers dense CCs where every cross pairing co-occurs (e.g. all positives share one slot). Knob:
+  `drop_negative_infeasible_ccs` (default true), computed **structurally** and seed-independently
+  (`compute_negative_infeasible_ccs`, mirroring the within-CC sampler) and applied identically under
+  both `negative_scope` values, so within_cc and within_fold route the same CC universe. See glossary
+  (*Negative-infeasible CC*). (History: the knob was `drop_single_isolate_ccs` → `drop_singleton_ccs`
+  → `drop_negative_infeasible_ccs`; the 2026-06 audit found `drop_singleton_ccs` conflated *singleton*
+  = 1 pair_key with the broader negative-infeasible set, and that within_cc/within_fold used divergent
+  predicates — unified here on the structural test.)
 - **Mode #2 (sequence-level label imbalance) is a control, not a defect.** Keeping singletons
   leaves their two sequences only-positive (Mode #2 unmitigable for them); dropping them makes
   Mode #2 *mitigable* — but the mitigation itself is per-sequence coverage (cf. v2's coverage
@@ -222,14 +225,14 @@ the whole front-end filter/sample block.
 
 **New:**
 - `dataset.n_repeats: 1` — placeholder (only `1` wired; `>1` raises).
-- `dataset.split_strategy.drop_singleton_ccs: true` — drop **singleton** CCs (one unique seq pair
-  → no within-CC negative possible; see glossary + §8). Implemented as `n_neg == 0` (exact
-  negative-infeasibility: singletons + the rare all-pairs-share-a-slot CC). Renamed from
-  `drop_single_isolate_ccs` — the single-isolate test was a proxy that missed singletons formed by
-  ≥2 isolates with identical sequences. (Correction: an earlier draft of this plan claimed
-  `singleton_components` "yield negatives" — backwards; singletons are exactly the ones that don't.
-  The CCs that *do* yield negatives are single-*cluster*-pair CCs holding multiple seq pairs, which
-  are not singletons.)
+- `dataset.split_strategy.drop_negative_infeasible_ccs: true` — drop CCs with no drawable within-CC
+  negative (every slot-A × slot-B recombination reconstructs a positive; singleton CCs are the base
+  case). Computed structurally (`compute_negative_infeasible_ccs`), seed-independent, applied
+  identically under both `negative_scope` values — **parity: within_cc and within_fold both keep 928
+  on aa HA-NA t099** (within_fold previously kept 1,219; the 291-CC gap is closed). Renamed from
+  `drop_singleton_ccs` (the audit found that name conflated *singleton* = 1 pair_key with the broader
+  negative-infeasible set; see glossary *Negative-infeasible CC*). (Note: single-*cluster*-pair CCs
+  holding multiple seq pairs are not singletons and **do** yield negatives.)
 - `dataset.split_strategy.mode += cluster_disjoint_cc` — explicit CC-builder mode; the v2 validator
   rejects it, so a CC bundle can't be misrun through `dataset_segment_pairs_v2`.
 - `dataset.split_strategy.cluster_alphabet += nt_ctg` — code validates `{aa, nt_cds}` today; the

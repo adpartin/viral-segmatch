@@ -98,7 +98,7 @@ def builder_dataset(config, protein_final, fa, fb, slot_a, slot_b, threshold, *,
     else:
         pos_capped = pos_ids
     neg, _ = within_cc_negatives(pos_capped, iso, cooccur, df, (fa, fb),
-                                 neg_to_pos_ratio=ratio, drop_singleton_ccs=True, seed=seed)
+                                 neg_to_pos_ratio=ratio, seed=seed)
     return pos_ids, cooccur, neg
 
 
