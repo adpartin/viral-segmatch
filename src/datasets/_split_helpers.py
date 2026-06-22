@@ -8,7 +8,7 @@ generalizes it to mmseqs2-defined clusters at lower identity thresholds.
 
 Design parallels `seq_disjoint_route_pos_df`:
 - Build a bipartite graph on (slot_a, slot_b) but with node ids = cluster ids
-  (not seq_hashes). Every pair contributes one edge.
+  (not prot_hashes). Every pair contributes one edge.
 - Find connected components; each component is indivisible by construction.
 - LPT-greedy bin-pack components into train/val/test by target ratios.
 - Emit an audit dict mirroring `seq_disjoint_audit`'s schema.
@@ -29,6 +29,7 @@ if str(_project_root) not in sys.path:
 from sklearn.model_selection import GroupKFold
 
 from src.datasets._pair_helpers import bipartite_components, _lpt_bin_pack, route_holdout
+from src.utils import schema
 
 
 def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
@@ -36,9 +37,9 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
 
     Accepts the per-(function, threshold) parquet emitted by
     `build_mmseqs_clusters.py` or the per-threshold `combined_cluster.parquet`.
-    The hash column name is alphabet-specific (Phase 2 of clustering
-    cleanup plan): `seq_hash` for aa, `cds_dna_hash` for nt_cds. Required
-    columns: exactly one of (`seq_hash`, `cds_dna_hash`) plus `cluster_id`.
+    The hash column name is alphabet-specific (per the schema registry):
+    `prot_hash` for aa, `cds_dna_hash` for nt_cds, `ctg_dna_hash` for nt_ctg.
+    Required columns: exactly one of those plus `cluster_id`.
     Optional: `function`, `function_short`, `threshold`, `cluster_rep` —
     left intact if present.
 
@@ -53,17 +54,18 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
         raise ValueError(
             f"cluster lookup at {cluster_path} is missing 'cluster_id' column."
         )
-    # Identify which alphabet's hash column is present.
-    hash_cols_present = [c for c in ('seq_hash', 'cds_dna_hash') if c in df.columns]
+    # Identify which alphabet's hash column is present (per the schema registry).
+    accepted = tuple(s.hash_col for s in schema.SCHEMA.values())  # prot/cds_dna/ctg_dna
+    hash_cols_present = [c for c in accepted if c in df.columns]
     if not hash_cols_present:
         raise ValueError(
             f"cluster lookup at {cluster_path} is missing a hash column. "
-            f"Expected one of: seq_hash (aa), cds_dna_hash (nt_cds)."
+            f"Expected exactly one of: {accepted}."
         )
     if len(hash_cols_present) > 1:
         raise ValueError(
-            f"cluster lookup at {cluster_path} has BOTH seq_hash and cds_dna_hash; "
-            f"expected exactly one (alphabet-specific per Phase 2)."
+            f"cluster lookup at {cluster_path} has multiple hash columns "
+            f"{hash_cols_present}; expected exactly one (alphabet-specific)."
         )
     hash_col = hash_cols_present[0]
     if df[hash_col].duplicated().any():
@@ -78,13 +80,13 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
 def attach_cluster_ids(
     pos_df: pd.DataFrame,
     cluster_lookup: pd.DataFrame,
-    pos_hash_col: str = 'seq_hash',
+    pos_hash_col: str = 'prot_hash',
     ) -> tuple[pd.DataFrame, dict]:
     """Add `cluster_id_a` and `cluster_id_b` columns to pos_df via a join
     on the chosen hash column.
 
-    For aa cluster_disjoint (default): join `pos_df.seq_hash_{a,b}` against
-    `cluster_lookup.seq_hash`. For nt_cds cluster_disjoint, pass
+    For aa cluster_disjoint (default): join `pos_df.prot_hash_{a,b}` against
+    `cluster_lookup.prot_hash`. For nt_cds cluster_disjoint, pass
     `pos_hash_col='cds_dna_hash'`; the join then consumes
     `pos_df.cds_dna_hash_{a,b}` (attached via
     `attach_cds_dna_hash_to_pos_df`) and joins against
@@ -112,7 +114,7 @@ def attach_cluster_ids(
         raise ValueError(
             f"attach_cluster_ids: cluster_lookup must contain {pos_hash_col!r} "
             f"and cluster_id columns. If your lookup was produced by an older "
-            f"parse_cluster_tsv that wrote 'seq_hash' regardless of alphabet, "
+            f"parse_cluster_tsv that wrote 'prot_hash' regardless of alphabet, "
             f"regenerate it with the Phase 2 alphabet-specific column convention."
         )
 
@@ -224,10 +226,13 @@ def _build_audit(
         }
 
     hash_overlaps: dict = {}
-    for family in ('seq', 'dna'):
+    # 'seq'/'dna' are the two hash families (protein-level / nucleotide-level);
+    # cluster_disjoint reports both. Columns come from the schema registry.
+    for family, _alphabet in (('seq', 'aa'), ('dna', 'nt_ctg')):
+        _hcol = schema.hash_col(_alphabet)
         family_overlaps: dict = {}
         for side in ('a', 'b'):
-            col = f'{family}_hash_{side}'
+            col = f'{_hcol}_{side}'
             if col not in train_pos.columns:
                 continue
             sets = {sp: _set(d, col) for sp, d in
@@ -327,7 +332,7 @@ def cluster_disjoint_route_pos_df(
     seed: int,
     cluster_id_threshold: Optional[float] = None,
     cluster_lookup_path: Optional[str] = None,
-    pos_hash_col: str = 'seq_hash',
+    pos_hash_col: str = 'prot_hash',
     cluster_alphabet: str = 'aa',
     single_slot: Optional[str] = None,
     n_folds: Optional[int] = None,
@@ -376,7 +381,7 @@ def cluster_disjoint_route_pos_df(
             test_pos, audit) tuple. audit['fold_id'] disambiguates.
 
         DataFrames are row-disjoint partitions of the SUBSET of pos_df
-        whose seq_hashes are covered by `cluster_lookup`. Rows with a
+        whose prot_hashes are covered by `cluster_lookup`. Rows with a
         missing-cluster join are dropped (counts recorded in
         audit['attach_audit']). The audit's
         `cluster_id_overlap[constrained_side]` is by-construction zero;
@@ -429,7 +434,7 @@ def cluster_disjoint_route_pos_df(
     if len(pos_with_ids) == 0:
         raise ValueError(
             "cluster_disjoint_route_pos_df: 0 rows survived the cluster join. "
-            "Check that cluster_lookup covers the seq_hashes in pos_df."
+            "Check that cluster_lookup covers the prot_hashes in pos_df."
         )
 
     # ----- Build atom IDs per routing mode -----

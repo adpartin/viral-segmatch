@@ -50,6 +50,7 @@ from src.datasets._pair_helpers import (  # noqa: E402
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
+from src.utils import schema  # noqa: E402
 from src.utils.config_hydra import (  # noqa: E402
     get_virus_config_hydra, load_function_metadata, print_config_summary, save_config)
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata  # noqa: E402
@@ -57,14 +58,15 @@ from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  
 
 # pos-side hash used to join clusters AND as the cooccurrence/cluster key.
 # aa=protein, nt_cds=CDS, nt_ctg=contig — all md5 of the respective sequence.
-_POS_HASH = {'aa': 'seq_hash', 'nt_cds': 'cds_dna_hash', 'nt_ctg': 'dna_hash'}
+# Single source of truth: the schema registry.
+_POS_HASH = {a: s.hash_col for a, s in schema.SCHEMA.items()}
 
 # Per-protein source columns copied into each pair side (a/b) of _PAIR_COLUMNS.
-_SIDE_SRC = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq', 'dna_seq',
-             'canonical_segment', 'function', 'seq_hash', 'dna_hash']
+_SIDE_SRC = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq', 'ctg_dna_seq',
+             'canonical_segment', 'function', 'prot_hash', 'ctg_dna_hash']
 _SIDE_RENAME = {'assembly_id': 'assembly_id', 'brc_fea_id': 'brc', 'genbank_ctg_id': 'ctg',
-                'prot_seq': 'seq', 'dna_seq': 'dna_seq', 'canonical_segment': 'seg',
-                'function': 'func', 'seq_hash': 'seq_hash', 'dna_hash': 'dna_hash'}
+                'prot_seq': 'prot_seq', 'ctg_dna_seq': 'ctg_dna_seq', 'canonical_segment': 'seg',
+                'function': 'func', 'prot_hash': 'prot_hash', 'ctg_dna_hash': 'ctg_dna_hash'}
 
 
 def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.DataFrame:
@@ -72,7 +74,7 @@ def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.Data
 
     Mirrors the v2 CLI (`dataset_segment_pairs.py`): load -> attach_dna -> enrich
     -> drop_ambiguous_subtype -> filter_by_metadata -> selected_functions/schema
-    narrow -> seq_hash. Calls the same helpers (no v2 refactor) so the population
+    narrow -> prot_hash. Calls the same helpers (no v2 refactor) so the population
     matches v2 for the same bundle. subtype balancing and max_isolates sampling
     are NOT yet wired here — if a bundle sets them they raise rather than silently
     no-op (deferred Phase-1 scope).
@@ -86,7 +88,7 @@ def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.Data
             "dataset.max_isolates_to_process is not yet wired into the 2D-CD builder.")
 
     df = load_dataframe(input_file)
-    df = attach_dna_to_prot_df(df, input_file)                 # dna_seq, dna_hash
+    df = attach_dna_to_prot_df(df, input_file)                 # ctg_dna_seq, ctg_dna_hash
     df = enrich_prot_data_with_metadata(df, project_root=PROJ)  # host, year, hn_subtype, ...
     if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
         df, _ = drop_ambiguous_hn_subtype(df)
@@ -105,8 +107,8 @@ def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.Data
 
     df = df[df['function'].isin(list(config.virus.selected_functions))].reset_index(drop=True)
     df = df[df['function'].isin(schema_pair_full)].reset_index(drop=True)
-    if 'seq_hash' not in df.columns:
-        df['seq_hash'] = df['prot_seq'].map(lambda s: hashlib.md5(str(s).encode()).hexdigest())
+    if 'prot_hash' not in df.columns:
+        df['prot_hash'] = df['prot_seq'].map(lambda s: hashlib.md5(str(s).encode()).hexdigest())
     return df
 
 
@@ -127,12 +129,12 @@ def assign_atoms_prod(pos: pd.DataFrame, cluster_lookup: pd.DataFrame, pos_hash_
 
 
 def _side_rep(df: pd.DataFrame, func: str, suffix: str) -> pd.DataFrame:
-    """{one row per seq_hash} of per-side fields for `func`, renamed to *_<suffix>.
+    """{one row per prot_hash} of per-side fields for `func`, renamed to *_<suffix>.
 
-    First occurrence per seq_hash is the representative (matches v2's keep='first').
+    First occurrence per prot_hash is the representative (matches v2's keep='first').
     """
     cols = list(_SIDE_SRC) + (['cds_dna_hash'] if 'cds_dna_hash' in df.columns else [])
-    rep = df[df['function'] == func][cols].drop_duplicates('seq_hash', keep='first').copy()
+    rep = df[df['function'] == func][cols].drop_duplicates('prot_hash', keep='first').copy()
     ren = {k: f'{v}_{suffix}' for k, v in _SIDE_RENAME.items()}
     if 'cds_dna_hash' in df.columns:
         ren['cds_dna_hash'] = f'cds_dna_hash_{suffix}'
@@ -140,8 +142,8 @@ def _side_rep(df: pd.DataFrame, func: str, suffix: str) -> pd.DataFrame:
 
 
 def compute_negative_infeasible_ccs(pos_ids: pd.DataFrame, cooccur: set,
-                                    hash_a_col: str = 'seq_hash_a',
-                                    hash_b_col: str = 'seq_hash_b') -> set:
+                                    hash_a_col: str = 'prot_hash_a',
+                                    hash_b_col: str = 'prot_hash_b') -> set:
     """CCs from which no within-CC negative can be drawn — the drop set for
     `drop_negative_infeasible_ccs`, computed structurally on the positives.
 
@@ -205,16 +207,16 @@ def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
 
     neg_all = pd.concat(raw, ignore_index=True)  # hash_a, hash_b, neg_regime, metadata_match_count, cc_id, atom_id
     ra, rb = _side_rep(df, fa, 'a'), _side_rep(df, fb, 'b')
-    out = (neg_all.rename(columns={'hash_a': 'seq_hash_a', 'hash_b': 'seq_hash_b'})
-           .merge(ra, on='seq_hash_a', how='left')
-           .merge(rb, on='seq_hash_b', how='left'))
+    out = (neg_all.rename(columns={'hash_a': 'prot_hash_a', 'hash_b': 'prot_hash_b'})
+           .merge(ra, on='prot_hash_a', how='left')
+           .merge(rb, on='prot_hash_b', how='left'))
     miss = out[['assembly_id_a', 'assembly_id_b']].isna().any(axis=1)
     if miss.any():
         print(f"WARNING: dropping {int(miss.sum()):,} negatives whose sequence is "
               f"absent from the (filtered) protein frame.")
         out = out[~miss].reset_index(drop=True)
-    a = out['seq_hash_a'].astype(str).to_numpy()
-    b = out['seq_hash_b'].astype(str).to_numpy()
+    a = out['prot_hash_a'].astype(str).to_numpy()
+    b = out['prot_hash_b'].astype(str).to_numpy()
     out['pair_key'] = np.where(a <= b, a, b) + '__' + np.where(a <= b, b, a)
     out['label'] = 0
     for c in ('cds_dna_hash_a', 'cds_dna_hash_b'):
@@ -266,8 +268,8 @@ def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFram
     `_PAIR_COLUMNS` (mirrors `within_cc_negatives`).
     """
     fa, fb = schema_pair_full
-    a = split_pos['seq_hash_a'].astype(str).to_numpy()
-    b = split_pos['seq_hash_b'].astype(str).to_numpy()
+    a = split_pos['prot_hash_a'].astype(str).to_numpy()
+    b = split_pos['prot_hash_b'].astype(str).to_numpy()
     budget = int(round(neg_to_pos_ratio * len(split_pos)))
     if len(a) < 2 or budget <= 0:
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
@@ -286,11 +288,11 @@ def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFram
         placed += 1
     if not na:
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
-    out = pd.DataFrame({'seq_hash_a': na, 'seq_hash_b': nb})
+    out = pd.DataFrame({'prot_hash_a': na, 'prot_hash_b': nb})
     ra, rb = _side_rep(df, fa, 'a'), _side_rep(df, fb, 'b')
-    out = out.merge(ra, on='seq_hash_a', how='left').merge(rb, on='seq_hash_b', how='left')
-    aa = out['seq_hash_a'].astype(str).to_numpy()
-    bb = out['seq_hash_b'].astype(str).to_numpy()
+    out = out.merge(ra, on='prot_hash_a', how='left').merge(rb, on='prot_hash_b', how='left')
+    aa = out['prot_hash_a'].astype(str).to_numpy()
+    bb = out['prot_hash_b'].astype(str).to_numpy()
     out['pair_key'] = np.where(aa <= bb, aa, bb) + '__' + np.where(aa <= bb, bb, aa)
     out['label'] = 0
     out['neg_regime'] = pd.NA

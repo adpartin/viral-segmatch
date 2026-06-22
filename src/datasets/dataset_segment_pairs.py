@@ -24,13 +24,13 @@ Key columns:
 - prot_seq: protein sequence
 - function: protein function
 - brc_fea_id: unique feature ID
-- seq_hash: deterministic hash of prot_seq used for deduplication / pair keys
+- prot_hash: deterministic hash of prot_seq used for deduplication / pair keys
 
 Key Concepts
 ------------
 - pair_key:
-    A canonical, order-invariant key derived from (seq_hash_a, seq_hash_b)
-    (e.g., canonical_pair_key(seq_hash_a, seq_hash_b)).
+    A canonical, order-invariant key derived from (prot_hash_a, prot_hash_b)
+    (e.g., canonical_pair_key(prot_hash_a, prot_hash_b)).
     Used for:
       (1) deduplicating identical sequence pairs
       (2) preventing contradictory labeling (e.g., a pair that is both positive and negative)
@@ -48,7 +48,7 @@ Key Concepts
     However, the default model input can be directed (e.g., [emb_a, emb_b]).
     To prevent "direction -> label" shortcut learning, we can enforce a deterministic
     orientation rule for BOTH positives and negatives by swapping all *_a/*_b fields
-    when needed (e.g., order by (seq_hash, brc_fea_id) or a fallback).
+    when needed (e.g., order by (prot_hash, brc_fea_id) or a fallback).
     This does NOT change pair_key (pair_key is always order-invariant).
 
 Dataset Construction Steps
@@ -63,9 +63,9 @@ Dataset Construction Steps
    - Keep only pairs that satisfy required constraints (currently: different brc_fea_id
      AND different function; same-function pairs are not used as positives).
    - For each positive pair, compute:
-       pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)   (stored as column 'pair_key')
+       pair_key = canonical_pair_key(row_a.prot_hash, row_b.prot_hash)   (stored as column 'pair_key')
      and store paired fields:
-       assembly_id_a/b, brc_a/b, seq_a/b, seg_a/b, func_a/b, seq_hash_a/b, label=1
+       assembly_id_a/b, brc_a/b, prot_seq_a/b, seg_a/b, func_a/b, prot_hash_a/b, label=1
    - (Optional) Canonicalize stored orientation by swapping all *_a/*_b fields
      according to a deterministic rule that does NOT reference label, function, or segment.
 
@@ -80,7 +80,7 @@ Dataset Construction Steps
    - Reject a candidate negative if:
        a) its pair_key is in cooccur_pairs (would contradict observed co-occurrence),
        b) it duplicates a previously added negative by brc_id-pair (symmetric duplicate),
-       c) it duplicates a previously added negative by seq_hash-pair,
+       c) it duplicates a previously added negative by prot_hash-pair,
        d) it violates configured same-function constraints (optional ratio cap).
    - For accepted negatives, store the same paired fields as positives with label=0.
    - (Optional) Canonicalize stored orientation by the same deterministic rule used for positives.
@@ -100,7 +100,7 @@ Dataset Construction Steps
 
 Duplicate handling (blocked negatives):
 - Identical amino-acid sequences can occur in multiple genomes/isolates
-- A pair (seq_a, seq_b) can appear as positive (same isolate) AND negative (different isolates)
+- A pair (prot_seq_a, prot_seq_b) can appear as positive (same isolate) AND negative (different isolates)
 - This creates contradictory labels and potential data leakage
 - Solution: Block negative pairs where sequences co-occur in ANY isolate
 - Split by pair_key (not just isolate) to prevent same pair appearing in train and test
@@ -425,10 +425,10 @@ df = prot_df[mask].reset_index(drop=True)
 print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected functions.")
 
 # Add sequence hash for duplicate detection (used by canonical_pair_key, cooccur_pairs, etc.).
-# Stage 1 (preprocess_flu.py) already writes `seq_hash` to protein_final.csv; reuse it when
+# Stage 1 (preprocess_flu.py) already writes `prot_hash` to protein_final.csv; reuse it when
 # present so the hash algorithm lives in exactly one place.
-if 'seq_hash' not in df.columns:
-    df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
+if 'prot_hash' not in df.columns:
+    df['prot_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
 # Schema-pair parsing (shared by v1 and v2). PAIR_MODE validity check and
 # v1-only notes (canonicalize override, same-func controls) live in the v1
@@ -534,7 +534,7 @@ if PAIR_BUILDER_VERSION == 'v2':
     CLUSTER_ALPHABET = 'aa'
     CDS_FINAL_PATH = None
     # pair_key_alphabet (Phase 2 of clustering cleanup plan): which hash
-    # family the pair_key is built on (aa = seq_hash, nt_cds = cds_dna_hash).
+    # family the pair_key is built on (aa = prot_hash, nt_cds = cds_dna_hash).
     # Default tied to cluster_alphabet for cluster_disjoint routings; 'aa'
     # for random / seq_disjoint. Explicit override via
     # `dataset.split_strategy.pair_key_alphabet` if a bundle needs a different
@@ -662,7 +662,7 @@ if PAIR_BUILDER_VERSION == 'v2':
 
     # Pre-attach cds_dna_hash when pair_key_alphabet='nt_cds'. v2's
     # create_positive_pairs_v2 + build_cooccurrence_set expect the column
-    # on df; pair_key is built on cds_dna_hash_{a,b} instead of seq_hash_{a,b}.
+    # on df; pair_key is built on cds_dna_hash_{a,b} instead of prot_hash_{a,b}.
     # Resolves cds_final path from CDS_FINAL_PATH (set above when
     # cluster_alphabet='nt_cds') or from the input file's parent dir.
     if PAIR_KEY_ALPHABET == 'nt_cds':
