@@ -1,6 +1,6 @@
 # nt_cds / nt_ctg disambiguation + symmetric hash/sequence/file refactor
 
-**Status: IN PROGRESS** — Phase A1 (schema registry) underway; decisions locked (§11).
+**Status: IN PROGRESS (Phase A).** Done: A1 registry + `tests/test_schema.py`; A2 Stage-1/1.5 producer code + non-destructive data migration (run/verified); aa-cluster + `cluster_memb_aa` migrated (+`prot_hash`, additive); `_cc_helpers` maps repointed to the registry. Next: the v2 `_PAIR_COLUMNS` keystone rename — see **§A3 execution notes** (bottom). Decisions locked (§11).
 **Branch:** `feature/nt-cds-ctg-refactor` (based on `feature/cc-dataset-cv`).
 **Source:** the 2026-06-21 read-only pipeline audit (7-slice fan-out, Stage 1→4 + configs + analysis + docs). Load-bearing findings re-verified directly (see §5).
 
@@ -181,3 +181,20 @@ Most column references collapse to registry lookups once §3 lands; the manual s
 - **nt_ctg UTR normalization** — exp 2 runs artifact-included (option 2); normalization deferred until/unless the artifact proves to dominate.
 - **CC-builder (`dataset_pairs_cc`) nt experiments** — the experiments use the v2 holdout; Phase B only *ungates* nt in the CC builder, it does not run CC nt CV.
 - **Bunya** — not maintained.
+
+---
+
+## A3 execution notes (resume anchor)
+
+**Data already migrated** (additive, non-breaking; gitignored; originals + `.bak` intact): `protein_final` (+`prot_hash`), `ctg_dna_final` (was `genome_final`), `cds_dna_final` (was `cds_final`), all 11 `clusters_aa/t*/combined_cluster.parquet` + `cluster_memb_aa` (+`prot_hash`). nt_cds clusters/memb already carry `cds_dna_hash`. `scripts/migrate_to_nt_schema.py` = the Stage-1/1.5 record (cluster `+prot_hash` was an inline additive copy).
+
+**Code repoint done:** `_cc_helpers._MEMB{,_HASH}` → registry (tested). Remaining below.
+
+**Substring-safe rename rules (DO NOT blind global-replace):**
+- `seq_hash` → `prot_hash` — safe global (no superstring).
+- `dna_hash` → `ctg_dna_hash` **only** in Stage-3/pair-table/contig context, and **never** inside `cds_dna_hash` (which contains `dna_hash`). Use `(?<!cds_)dna_hash`.
+- analysis-universe `dna_hash` → **`cds_dna_hash`** (the mislabel: `cluster_pair_weight_topk.load_pair_universe` + the 3 `_HASH` copies) — opposite target from Stage 3.
+- `dna_seq` → `ctg_dna_seq`, never inside `cds_dna_seq`. Use `(?<!cds_)dna_seq`.
+- pair cols `seq_a`/`seq_b` → `prot_seq_a`/`prot_seq_b` — **not** substring-safe (`seq_a` ⊂ `ctg_dna_seq_a`); edit by context, *after* the `dna_seq` rename.
+
+**Order:** (1) **keystone** — v2 `_PAIR_COLUMNS = schema.build_pair_columns()` + rename all literals in `dataset_segment_pairs_v2`, `_pair_helpers`, `_split_helpers`, `dataset_pairs_cc` (unblocks `_POS_HASH`, `load_cluster_lookup`, and the family-key `f'{family}_hash_{side}'` templates). (2) routing maps → registry (`dataset_pairs_cc._POS_HASH`, `clustering_utils._COLS_BY_ALPHABET`, `kmer_utils`, `cluster_source`, the `build_mmseqs_clusters` producer + cluster-parquet `seq_hash`→`prot_hash`). (3) Stage 2 kmer `nt`→`nt_ctg` (rename the 6 `kmer_features_nt_*` files + the `{nt,aa}` vocab; add the nt_cds builder in Phase B). (4) Stage 4 vocab + 3 bugs (swap-test `alphabet=`, provenance, `_pair_features` docstring). (5) analysis mislabel + dual-`dna_hash` split + bare-`nt`. (6) configs (`conf/kmer/default`, `flu_ha_na`, `flu_pb2_pb1`). (7) docs (6 canonical). (8) **Gate-A regression** (aa byte-exact; nt_ctg identical-modulo-rename; baseline nt **t100** F1≈0.958). At cutover-end: drop the transitional `seq_hash`/`dna_seq` columns + archive `genome_final`/`cds_final`/`.bak` → `_pre_nt_refactor_archive_<date>/`.

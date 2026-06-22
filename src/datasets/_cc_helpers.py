@@ -46,18 +46,15 @@ from src.datasets._negative_regime_sampling import (  # noqa: E402
     build_isolate_cells, count_isolates_per_cell, count_available_per_regime,
     build_cell_regime_partners, resolve_regime_targets, classify_pair_regime)
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
+from src.utils.schema import SCHEMA as _SCHEMA  # noqa: E402
 
-# Per-isolate membership table per alphabet (cluster_memb_*). One row per
-# (isolate, function) with the per-slot sequence hash, host/hn_subtype/year, and
-# a cluster column per tXXX threshold.
-_MEMB = {
-    'aa':     PROJ / 'data/processed/flu/July_2025/cluster_membership/cluster_memb_aa.parquet',
-    'nt_cds': PROJ / 'data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_cds.parquet',
-    'nt_ctg': PROJ / 'data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_ctg.parquet',
-}
-# Alphabet-specific sequence-hash column in cluster_memb_* (all md5 of the
-# respective sequence). aa = protein, nt_cds = CDS DNA, nt_ctg = contig DNA.
-_MEMB_HASH = {'aa': 'seq_hash', 'nt_cds': 'cds_dna_hash', 'nt_ctg': 'dna_hash'}
+# Per-isolate membership table + hash column per alphabet, derived from the
+# canonical schema registry (src/utils/schema.py) -- the single source of truth.
+# cluster_memb_* has one row per (isolate, function) with the per-slot sequence
+# hash, host/hn_subtype/year, and a cluster column per tXXX threshold.
+_MEMB_DIR = PROJ / 'data/processed/flu/July_2025/cluster_membership'
+_MEMB = {a: _MEMB_DIR / f'{s.memb_basename}.parquet' for a, s in _SCHEMA.items()}
+_MEMB_HASH = {a: s.hash_col for a, s in _SCHEMA.items()}
 
 # Regime name -> metadata match count (0..3); the regime fully determines it.
 _REGIME_TO_MC = {'none_match': 0, 'host_only': 1, 'subtype_only': 1, 'year_only': 1,
