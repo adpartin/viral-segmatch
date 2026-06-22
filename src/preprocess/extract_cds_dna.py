@@ -88,10 +88,10 @@ _OUTPUT_COLUMNS = [
     'assembly_id',
     'genbank_ctg_id',
     'function',
-    'seq_hash',           # md5(prot_seq) — joins back to protein_final
+    'prot_hash',          # md5(prot_seq) — read from protein_final (produced at Stage 1)
     'prot_seq',           # for downstream identity-disjointness checks
-    'cds_dna',
-    'cds_dna_hash',       # md5(cds_dna) — Experiment B-nt cluster key
+    'cds_dna_seq',
+    'cds_dna_hash',       # md5(cds_dna_seq) — nt_cds cluster key
     'length',             # AA length (from Stage 1)
     'cds_length',         # nt length (== 3 * AA length for major CDSs)
 ]
@@ -135,7 +135,7 @@ def main():
                    nargs='+', default=None,
                    help='Override selected_functions (full function strings).')
     p.add_argument('--out_filename',
-                   default='cds_final.parquet',
+                   default='cds_dna_final.parquet',
                    help='Output filename (placed under '
                         'data/processed/<virus>/<version>/).')
     p.add_argument('--allow_validation_warnings',
@@ -157,7 +157,7 @@ def main():
 
     base = PROJ / 'data' / 'processed' / virus_name / data_version
     prot_csv = base / 'protein_final.csv'
-    gen_csv = base / 'genome_final.csv'
+    gen_csv = base / 'ctg_dna_final.csv'
     out_path = base / args.out_filename
     if not prot_csv.exists() or not gen_csv.exists():
         print(f'ERROR: missing Stage 1 outputs under {base}', file=sys.stderr)
@@ -169,13 +169,9 @@ def main():
         prot_csv,
         dtype={'assembly_id': str, 'genbank_ctg_id': str},
         usecols=['assembly_id', 'genbank_ctg_id', 'function',
-                 'prot_seq', 'location', 'length'],
+                 'prot_seq', 'prot_hash', 'location', 'length'],
     )
-    # protein_final.csv does not store seq_hash; compute it inline using
-    # the same formula Stage 3 uses (`md5(prot_seq)`).
-    prot['seq_hash'] = prot['prot_seq'].map(
-        lambda s: hashlib.md5(str(s).encode()).hexdigest()
-    )
+    # prot_hash is produced + persisted at Stage 1 (protein_final); read it, don't recompute.
     print(f'  protein_final rows: {len(prot):,}')
     print(f'\nFiltering to selected functions ...')
     prot = prot[prot['function'].isin(selected_functions)].reset_index(drop=True)
@@ -188,12 +184,12 @@ def main():
     gen = pd.read_csv(
         gen_csv,
         dtype={'assembly_id': str, 'genbank_ctg_id': str},
-        usecols=['assembly_id', 'genbank_ctg_id', 'dna_seq'],
+        usecols=['assembly_id', 'genbank_ctg_id', 'ctg_dna_seq'],
     )
-    print(f'  genome_final rows: {len(gen):,}')
+    print(f'  ctg_dna_final rows: {len(gen):,}')
     ctg_lookup: dict[tuple[str, str], str] = {
         (a, c): d for a, c, d in
-        zip(gen['assembly_id'], gen['genbank_ctg_id'], gen['dna_seq'])
+        zip(gen['assembly_id'], gen['genbank_ctg_id'], gen['ctg_dna_seq'])
     }
     del gen
     print(f'  contig lookup size: {len(ctg_lookup):,}')
@@ -289,9 +285,9 @@ def main():
 
     print(f'\nBuilding output frame ...')
     out = prot.iloc[keep_idx].copy().reset_index(drop=True)
-    out['cds_dna'] = cds_list
+    out['cds_dna_seq'] = cds_list
     out['cds_dna_hash'] = cds_hashes
-    out['cds_length'] = out['cds_dna'].apply(len)
+    out['cds_length'] = out['cds_dna_seq'].apply(len)
     out = out[_OUTPUT_COLUMNS]
     print(f'  output rows:  {len(out):,}')
     print(f'  output cols:  {list(out.columns)}')
