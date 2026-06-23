@@ -22,8 +22,12 @@ for why we no longer use easy-cluster on aa):
   - nt_cds: clusters `cds_dna_seq` from `cds_dna_final.parquet` (Stage 1.5 output
             from `src/preprocess/extract_cds_dna.py`). `--dbtype 2`
             (nucleotide alphabet).
-  - nt_ctg: reserved for full-contig clustering (Phase 3 of clustering
-            cleanup plan); raises NotImplementedError today.
+  - nt_ctg: clusters `ctg_dna_seq` from `ctg_dna_final.parquet` (Stage 1 output).
+            `--dbtype 2`. ctg_dna_final carries no `function`; pass
+            `--function_source` (default: the sibling `cds_dna_final.parquet`)
+            and the loader attaches it via a verified 1-1 join
+            (`clustering_utils.attach_function_to_contigs`). Carries the contig
+            UTR caveat (flanking-UTR length varies by submission; not pre-trimmed).
 
 The wrapper at `src/utils/clustering_utils.py::run_mmseqs_easy_clust`
 pins the decision-relevant mmseqs flags explicitly (--cluster-mode 0,
@@ -38,6 +42,7 @@ consumes downstream.
 Typical out_root values:
   data/processed/flu/{version}/clusters_aa      (aa; renamed from `clusters/` on 2026-05-15)
   data/processed/flu/{version}/clusters_nt_cds  (nt_cds; renamed from `clusters_nt/` in Phase 2)
+  data/processed/flu/{version}/clusters_nt_ctg  (nt_ctg; full-contig DNA)
 
 Artifact layout:
   <out_root>/
@@ -60,6 +65,14 @@ CLI:
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
 
+    # nt_ctg redundancy sweep (full-contig DNA). `function` is attached from the
+    # sibling cds_dna_final.parquet via a 1-1 join (override with --function_source).
+    python -m src.preprocess.build_mmseqs_clusters \\
+        --ctg_dna_final  data/processed/flu/July_2025/ctg_dna_final.parquet \\
+        --out_root   data/processed/flu/July_2025/clusters_nt_ctg \\
+        --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
+        --threads 8
+
     # The default is symmetric. Pass --algorithm cluster explicitly if you
     # want easy-cluster's 3-round cascade for a one-off comparison.
 """
@@ -79,6 +92,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.clustering_utils import (  # noqa: E402
+    attach_function_to_contigs,
     cluster_size_distribution,
     compute_prot_hash,
     export_function_fasta,
@@ -149,11 +163,13 @@ def cluster_one_function_one_threshold(
             `compute_prot_hash`; protein_final.parquet does not carry
             prot_hash so callers must add it after load). For
             `alphabet='nt_cds'` must contain `function`, `cds_dna_seq`,
-            `cds_dna_hash` (from `cds_dna_final.parquet`).
-        alphabet: 'aa' (default) or 'nt_cds'. Selects the unified
-            exporter's seq/hash column pair and triggers `--dbtype 2`
-            (nt) for the mmseqs invocation. `nt_ctg` is reserved
-            (Phase 3) and raises NotImplementedError.
+            `cds_dna_hash` (from `cds_dna_final.parquet`). For
+            `alphabet='nt_ctg'` must contain `function`, `ctg_dna_seq`,
+            `ctg_dna_hash` (from `ctg_dna_final.parquet` with `function`
+            attached via `attach_function_to_contigs`).
+        alphabet: 'aa' (default), 'nt_cds', or 'nt_ctg'. Selects the
+            unified exporter's seq/hash column pair and triggers `--dbtype 2`
+            (both nt molecules) for the mmseqs invocation.
             `--search-type 3` is NOT a valid flag on
             easy-cluster/easy-linclust in mmseqs 18; the original plan
             referenced it, but the current code uses `--dbtype 2` instead.
@@ -162,13 +178,8 @@ def cluster_one_function_one_threshold(
 
     Returns the redundancy stats dict for this (function, threshold).
     """
-    if alphabet == 'nt_ctg':
-        raise NotImplementedError(
-            "alphabet='nt_ctg' is reserved for Phase 3 (contig-level "
-            "clustering); not yet operational."
-        )
-    if alphabet not in {'aa', 'nt_cds'}:
-        raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
+    if alphabet not in {'aa', 'nt_cds', 'nt_ctg'}:
+        raise ValueError(f"alphabet must be 'aa', 'nt_cds', or 'nt_ctg', got {alphabet!r}")
     if short_name not in SHORT_TO_FUNCTION:
         raise KeyError(f"Unknown short_name={short_name!r}. Known: {sorted(SHORT_TO_FUNCTION)}")
     full_name = SHORT_TO_FUNCTION[short_name]
@@ -188,7 +199,8 @@ def cluster_one_function_one_threshold(
     # handles both alphabets; only the print label changes.
     if not fasta_path.exists() or force:
         export_stats = export_function_fasta(df, full_name, alphabet, fasta_path)
-        unit = 'unique seqs' if alphabet == 'aa' else 'unique CDS'
+        unit = {'aa': 'unique seqs', 'nt_cds': 'unique CDS',
+                'nt_ctg': 'unique contigs'}[alphabet]
         ambig_label = 'contain X' if alphabet == 'aa' else 'contain non-ACGT'
         print(f"  [{short_name}] FASTA ({alphabet}): {export_stats['n_uniq_seqs']:,} "
               f"{unit} ({export_stats['n_with_ambiguity']:,} {ambig_label})")
@@ -274,9 +286,10 @@ def write_results_markdown(
     out_md.parent.mkdir(parents=True, exist_ok=True)
 
     today = time.strftime('%Y-%m-%d')
-    alphabet_label = 'aa' if alphabet == 'aa' else 'nt_cds (CDS DNA)'
+    alphabet_label = {'aa': 'aa', 'nt_cds': 'nt_cds (CDS DNA)',
+                      'nt_ctg': 'nt_ctg (contig DNA)'}[alphabet]
     subcmd = 'easy-cluster' if algorithm == 'cluster' else 'easy-linclust'
-    dbtype_flag = ' --dbtype 2' if alphabet == 'nt_cds' else ''
+    dbtype_flag = '' if alphabet == 'aa' else ' --dbtype 2'
 
     lines = []
     lines.append(f"# Per-function redundancy ({alphabet_label}) — mmseqs2 sweep")
@@ -289,20 +302,20 @@ def write_results_markdown(
     lines.append("")
     lines.append("## Method")
     lines.append("")
+    sensitivity_note = (
+        'linclust (linear-time, less sensitive than easy-cluster) was '
+        'chosen for speed on the longer nt sequences. Cross-algorithm '
+        'equivalence on this corpus has not been independently verified.'
+        if algorithm == 'linclust' else
+        'easy-cluster (sensitive cascaded clustering) was used.'
+    )
     if alphabet == 'aa':
         lines.append(f"For each major protein function, dedup `prot_seq` "
                      f"on md5(`prot_seq.rstrip('*')`), export to FASTA, and cluster "
                      f"at multiple aa-identity thresholds with mmseqs2 `{subcmd}`. "
                      f"`X` residues are left in place (mmseqs handles them natively); "
                      f"internal `*` rows would be dropped but none exist in this corpus.")
-    else:
-        sensitivity_note = (
-            'linclust (linear-time, less sensitive than easy-cluster) was '
-            'chosen for speed on the longer nt sequences. Cross-algorithm '
-            'equivalence on this corpus has not been independently verified.'
-            if algorithm == 'linclust' else
-            'easy-cluster (sensitive cascaded clustering) was used.'
-        )
+    elif alphabet == 'nt_cds':
         lines.append(f"For each major protein function, dedup `cds_dna_seq` on "
                      f"`cds_dna_hash` (md5 of the CDS DNA), export to FASTA, and "
                      f"cluster at multiple nt-identity thresholds with mmseqs2 "
@@ -310,6 +323,18 @@ def write_results_markdown(
                      f"...) are left in place — mmseqs scores them natively. "
                      f"CDS is reconstructed by `src/preprocess/extract_cds_dna.py` "
                      f"from Stage 1 outputs (validated via translate-back). "
+                     f"{sensitivity_note}")
+    else:  # nt_ctg
+        lines.append(f"For each major protein function, dedup `ctg_dna_seq` on "
+                     f"`ctg_dna_hash` (md5 of the full contig DNA), export to FASTA, "
+                     f"and cluster at multiple nt-identity thresholds with mmseqs2 "
+                     f"`{subcmd} --dbtype 2`. Contigs are grouped by their major "
+                     f"function, attached via a 1-1 join from `cds_dna_final` on "
+                     f"`(assembly_id, genbank_ctg_id)`. IUPAC ambiguity codes are "
+                     f"left in place — mmseqs scores them natively. "
+                     f"CAVEAT: contig DNA carries inconsistent flanking UTR (a "
+                     f"submission artifact) and is NOT pre-trimmed, so nt_ctg "
+                     f"clustering is confounded by submission practice. "
                      f"{sensitivity_note}")
     lines.append("")
     lines.append("## Results — cluster-size distribution per (function, threshold)")
@@ -384,9 +409,18 @@ def main() -> None:
     src.add_argument('--cds_dna_final',
                      help='nt_cds-mode input: path to cds_dna_final.parquet (built by '
                           'src/preprocess/extract_cds_dna.py). Implies --alphabet nt_cds.')
+    src.add_argument('--ctg_dna_final',
+                     help='nt_ctg-mode input: path to ctg_dna_final.parquet (Stage 1 '
+                          'output). Implies --alphabet nt_ctg. `function` is attached '
+                          'via a 1-1 join from --function_source.')
+    p.add_argument('--function_source', default=None,
+                   help='nt_ctg only: path to a [assembly_id, genbank_ctg_id, function] '
+                        'source for the contig->function join. Default: the sibling '
+                        'cds_dna_final.parquet next to --ctg_dna_final.')
     p.add_argument('--alphabet',
-                   choices=['aa', 'nt_cds'], default=None,
-                   help='Sequence alphabet (default: aa for --protein_final, nt_cds for --cds_dna_final).')
+                   choices=['aa', 'nt_cds', 'nt_ctg'], default=None,
+                   help='Sequence alphabet (default: aa for --protein_final, nt_cds for '
+                        '--cds_dna_final, nt_ctg for --ctg_dna_final).')
     p.add_argument('--out_root',
                    required=True,
                    help='Output directory root (e.g. data/processed/flu/July_2025/clusters_aa or '
@@ -426,27 +460,50 @@ def main() -> None:
                    help='Skip writing combined_cluster.parquet per threshold.')
     args = p.parse_args()
 
-    if args.protein_final and not args.alphabet:
-        args.alphabet = 'aa'
-    if args.cds_dna_final and not args.alphabet:
-        args.alphabet = 'nt_cds'
-    if args.protein_final and args.alphabet == 'nt_cds':
-        raise SystemExit("--protein_final is aa-only; use --cds_dna_final for nt_cds mode.")
-    if args.cds_dna_final and args.alphabet == 'aa':
-        raise SystemExit("--cds_dna_final is nt_cds-only; use --protein_final for aa mode.")
+    # Resolve alphabet from the chosen source (the mutually-exclusive group
+    # guarantees exactly one source flag is set).
+    if args.protein_final:
+        args.alphabet = args.alphabet or 'aa'
+        if args.alphabet != 'aa':
+            raise SystemExit("--protein_final is aa-only; use --cds_dna_final / --ctg_dna_final.")
+    elif args.cds_dna_final:
+        args.alphabet = args.alphabet or 'nt_cds'
+        if args.alphabet != 'nt_cds':
+            raise SystemExit("--cds_dna_final is nt_cds-only; use --protein_final / --ctg_dna_final.")
+    else:  # args.ctg_dna_final
+        args.alphabet = args.alphabet or 'nt_ctg'
+        if args.alphabet != 'nt_ctg':
+            raise SystemExit("--ctg_dna_final is nt_ctg-only; use --protein_final / --cds_dna_final.")
 
-    in_path = Path(args.protein_final or args.cds_dna_final)
+    in_path = Path(args.protein_final or args.cds_dna_final or args.ctg_dna_final)
     print(f"Loading {in_path}  (alphabet={args.alphabet}) ...")
     t0 = time.time()
     if args.alphabet == 'aa':
         usecols = ['function', 'prot_seq']
-    else:
+    elif args.alphabet == 'nt_cds':
         usecols = ['function', 'cds_dna_seq', 'cds_dna_hash']
+    else:  # nt_ctg: ctg_dna_final has no `function`; join it from --function_source.
+        usecols = ['assembly_id', 'genbank_ctg_id', 'ctg_dna_seq', 'ctg_dna_hash']
     if in_path.suffix == '.csv':
         df = pd.read_csv(in_path, usecols=usecols)
     else:
         df = pd.read_parquet(in_path, columns=usecols)
     print(f"  Loaded {len(df):,} rows in {time.time()-t0:.1f}s")
+
+    # nt_ctg: attach `function` via a verified 1-1 join from the CDS source
+    # (default: the sibling cds_dna_final.parquet), then drop the join keys so
+    # the df matches the {function, seq, hash} shape the exporter expects.
+    if args.alphabet == 'nt_ctg':
+        fsrc = (Path(args.function_source) if args.function_source
+                else in_path.with_name('cds_dna_final.parquet'))
+        if not fsrc.exists():
+            raise SystemExit(
+                f"nt_ctg needs a --function_source for the contig->function join; "
+                f"default sibling not found: {fsrc}")
+        print(f"  Attaching `function` from {fsrc.name} "
+              f"(1-1 join on assembly_id, genbank_ctg_id) ...")
+        df = attach_function_to_contigs(df, fsrc)
+        df = df.drop(columns=['assembly_id', 'genbank_ctg_id'])
 
     # Pre-hash aa input. The unified exporter requires the hash column to
     # be present (matches the nt_cds path where cds_dna_final.parquet carries
