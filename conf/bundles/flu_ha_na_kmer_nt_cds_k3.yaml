@@ -1,0 +1,12 @@
+# STATUS: experimental -- nt_cds k-mer features (Phase B1).
+# Stage 2b builder bundle: produces kmer_features_nt_cds_k3 from cds_dna_final
+# (keyed on (assembly_id, brc_fea_id); CDS<->protein 1-1). Inherits flu_ha_na for
+# virus config + paths; overrides only the k-mer alphabet + k. The k-mer cache is
+# corpus-wide (all selected functions), not HA/NA-specific.
+defaults:
+  - flu_ha_na
+  - _self_
+
+kmer:
+  alphabet: nt_cds
+  k: 3
