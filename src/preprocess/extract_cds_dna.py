@@ -87,7 +87,9 @@ from src.utils.config_hydra import get_virus_config_hydra
 _OUTPUT_COLUMNS = [
     'assembly_id',
     'genbank_ctg_id',
+    'brc_fea_id',         # protein occurrence id (CDS<->protein 1-1) — nt_cds k-mer key
     'function',
+    'canonical_segment',  # segment label — carried for the nt_cds k-mer index / grouping
     'prot_hash',          # md5(prot_seq) — read from protein_final (produced at Stage 1)
     'prot_seq',           # for downstream identity-disjointness checks
     'cds_dna_seq',
@@ -167,9 +169,9 @@ def main():
     print(f'\nReading {prot_csv} ...')
     prot = pd.read_csv(
         prot_csv,
-        dtype={'assembly_id': str, 'genbank_ctg_id': str},
-        usecols=['assembly_id', 'genbank_ctg_id', 'function',
-                 'prot_seq', 'prot_hash', 'location', 'length'],
+        dtype={'assembly_id': str, 'genbank_ctg_id': str, 'brc_fea_id': str},
+        usecols=['assembly_id', 'genbank_ctg_id', 'brc_fea_id', 'function',
+                 'canonical_segment', 'prot_seq', 'prot_hash', 'location', 'length'],
     )
     # prot_hash is produced + persisted at Stage 1 (protein_final); read it, don't recompute.
     print(f'  protein_final rows: {len(prot):,}')
