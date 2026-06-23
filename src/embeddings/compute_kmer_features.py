@@ -4,7 +4,7 @@ Compute k-mer frequency features for biological sequences (Stage 2b).
 Dual-alphabet pipeline. The alphabet is driven by `kmer.alphabet` in the
 Hydra config (default `nt`):
 
-  nt: reads `genome_final.csv → dna_seq`, vocab `ACGT`,
+  nt: reads `ctg_dna_final.csv → ctg_dna_seq`, vocab `ACGT`,
       output `kmer_features_nt_k{k}.*`,
       parquet keys `(assembly_id, genbank_ctg_id)` per row (one row per contig).
   aa: reads `protein_final.csv → prot_seq`, vocab `ACDEFGHIKLMNPQRSTVWY`,
@@ -55,6 +55,7 @@ sys.path.append(str(project_root))
 from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
 from src.utils.path_utils import resolve_run_suffix, build_embeddings_paths, load_dataframe
+from src.utils import schema
 
 NT_ALPHABET = 'ACGT'
 AA_ALPHABET = 'ACDEFGHIKLMNPQRSTVWY'
@@ -206,7 +207,7 @@ parser.add_argument(
 )
 parser.add_argument(
     '--input_file', type=str, default=None,
-    help='Path to genome_final.csv. If not provided, derived from config.'
+    help='Path to ctg_dna_final.csv. If not provided, derived from config.'
 )
 parser.add_argument(
     '--output_dir', type=str, default=None,
@@ -231,24 +232,24 @@ from omegaconf import OmegaConf
 if OmegaConf.is_missing(config, 'kmer') or not hasattr(config, 'kmer') or config.get('kmer') is None:
     K = 6
     NORMALIZE = 'none'
-    ALPHABET_CHOICE = 'nt'
+    ALPHABET_CHOICE = 'nt_ctg'
 else:
     K = int(config.kmer.get('k', 6))
     NORMALIZE = str(config.kmer.get('normalize', 'none'))
-    ALPHABET_CHOICE = str(config.kmer.get('alphabet', 'nt')).lower()
+    ALPHABET_CHOICE = str(config.kmer.get('alphabet', 'nt_ctg')).lower()
 
-if ALPHABET_CHOICE == 'nt':
+if ALPHABET_CHOICE in ('nt_ctg', 'nt_cds'):
     VOCAB_ALPHABET = NT_ALPHABET
-    SEQ_COL = 'dna_seq'
-    OCCURRENCE_COL = 'genbank_ctg_id'
-    INPUT_BASENAME = 'genome_final.csv'
 elif ALPHABET_CHOICE == 'aa':
     VOCAB_ALPHABET = AA_ALPHABET
-    SEQ_COL = 'prot_seq'
-    OCCURRENCE_COL = 'brc_fea_id'
-    INPUT_BASENAME = 'protein_final.csv'
 else:
-    raise ValueError(f"kmer.alphabet must be 'nt' or 'aa'; got {ALPHABET_CHOICE!r}")
+    raise ValueError(
+        f"kmer.alphabet must be 'nt_ctg', 'nt_cds', or 'aa'; got {ALPHABET_CHOICE!r}")
+# Per-alphabet sequence column / occurrence key / input file from the registry.
+_kschema = schema.require(ALPHABET_CHOICE)
+SEQ_COL = _kschema.seq_col                # ctg_dna_seq | cds_dna_seq | prot_seq
+OCCURRENCE_COL = _kschema.occurrence_col  # genbank_ctg_id | brc_fea_id | brc_fea_id
+INPUT_BASENAME = f'{_kschema.file_basename}.csv'  # ctg_dna_final | cds_dna_final | protein_final
 
 VOCAB_SIZE = len(VOCAB_ALPHABET) ** K
 
@@ -270,7 +271,7 @@ canonical_paths = build_embeddings_paths(
     config=config,
 )
 
-# Input: protein_final.csv (for aa) or genome_final.csv (for nt) in the
+# Input: protein_final.csv (for aa) or ctg_dna_final.csv (for nt) in the
 # processed/ directory.
 if args.input_file:
     input_file = Path(args.input_file)

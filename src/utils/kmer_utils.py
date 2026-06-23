@@ -17,33 +17,27 @@ from pathlib import Path
 from typing import Dict, Tuple
 from scipy import sparse
 
+from src.utils import schema
+
 
 def _occurrence_col(alphabet: str) -> str:
-    if alphabet == 'nt':
-        return 'genbank_ctg_id'
-    if alphabet == 'aa':
-        return 'brc_fea_id'
-    raise ValueError(f"alphabet must be 'nt' or 'aa'; got {alphabet!r}")
+    """k-mer matrix INDEX key for this alphabet (per the schema registry)."""
+    return schema.require(alphabet).occurrence_col
 
 
 def _pair_side_col(alphabet: str, side: str) -> str:
     """Return the pair-table column for the occurrence key on one side."""
-    suffix = 'a' if side == 'a' else 'b'
-    if alphabet == 'nt':
-        return f'ctg_{suffix}'
-    if alphabet == 'aa':
-        return f'brc_{suffix}'
-    raise ValueError(f"alphabet must be 'nt' or 'aa'; got {alphabet!r}")
+    return schema.pair_occ_col(alphabet, side)
 
 
-def load_kmer_index(kmer_dir: Path, k: int, alphabet: str = 'nt'
+def load_kmer_index(kmer_dir: Path, k: int, alphabet: str = 'nt_ctg'
                     ) -> Dict[Tuple[str, str], int]:
     """Load (assembly_id, occurrence_id) -> row mapping from parquet.
 
     Args:
         kmer_dir: Directory containing the alphabet-tagged k-mer cache.
         k: k-mer size.
-        alphabet: 'nt' or 'aa'.
+        alphabet: 'nt_ctg' or 'aa'.
 
     Returns:
         dict mapping (assembly_id, occurrence_id) tuple -> row index.
@@ -57,7 +51,7 @@ def load_kmer_index(kmer_dir: Path, k: int, alphabet: str = 'nt'
     idx_df = pd.read_parquet(index_file)
     occ_col = _occurrence_col(alphabet)
 
-    if alphabet == 'nt':
+    if alphabet == 'nt_ctg':
         # Normalize genbank_ctg_id through float round-trip so keys match
         # pair CSVs. Stage 3 writes ctg columns as float, so "1564510.10"
         # becomes "1564510.1".
@@ -71,14 +65,14 @@ def load_kmer_index(kmer_dir: Path, k: int, alphabet: str = 'nt'
     return dict(zip(keys, idx_df['row']))
 
 
-def load_kmer_matrix(kmer_dir: Path, k: int, alphabet: str = 'nt'
+def load_kmer_matrix(kmer_dir: Path, k: int, alphabet: str = 'nt_ctg'
                      ) -> sparse.csr_matrix:
     """Load sparse k-mer feature matrix from .npz file.
 
     Args:
         kmer_dir: Directory containing the alphabet-tagged k-mer cache.
         k: k-mer size.
-        alphabet: 'nt' or 'aa'.
+        alphabet: 'nt_ctg' or 'aa'.
 
     Returns:
         scipy CSR matrix of shape (N_rows, len(alphabet)**k). For aa the
@@ -97,12 +91,12 @@ def get_kmer_pair_features(
     key_to_row: Dict[Tuple[str, str], int],
     interaction: str = 'concat',
     slot_transform: str = 'none',
-    alphabet: str = 'nt',
+    alphabet: str = 'nt_ctg',
     ) -> Tuple[np.ndarray, np.ndarray]:
     """Build pair feature matrix from k-mer features and pair CSV.
 
     Composite (assembly_id, occurrence_id) tuples drive the lookup. For
-    `alphabet='nt'` the occurrence column is `ctg_a/b`; for
+    `alphabet='nt_ctg'` the occurrence column is `ctg_a/b`; for
     `alphabet='aa'` it is `brc_a/b`.
 
     Args:
@@ -118,7 +112,7 @@ def get_kmer_pair_features(
             'unit_norm', each row of emb_a and emb_b is L2-normalized
             before the interaction (matches MLP
             `slot_transform='unit_norm'`).
-        alphabet: 'nt' or 'aa'.
+        alphabet: 'nt_ctg' or 'aa'.
 
     Returns:
         features: dense (N, D) float32 array.
