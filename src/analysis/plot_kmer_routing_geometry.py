@@ -41,6 +41,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
+from src.utils import schema
 from src.utils.dim_reduction_utils import (
     UMAP_AVAILABLE,
     compute_truncated_svd_reduction,
@@ -90,9 +91,9 @@ def plot_kmer_routing_geometry(
             (e.g. `{"Hemagglutinin precursor": "HA",
             "Neuraminidase protein": "NA"}`). Used for sequence-level
             subplot labels.
-        alphabet: 'nt' or 'aa'. If None, picked from a metadata JSON in
-            `kmer_dir` — fine when only one cache lives there; otherwise
-            pass explicitly to disambiguate.
+        alphabet: 'aa', 'nt_cds', or 'nt_ctg'. If None, picked from a
+            metadata JSON in `kmer_dir` — fine when only one cache lives
+            there; otherwise pass explicitly to disambiguate.
         k: k-mer size. If None, picked from metadata alongside alphabet.
         max_per_label_per_split: Pair-level sub-sampling cap.
         max_sequences_per_function: Sequence-level sub-sampling cap (per
@@ -606,7 +607,7 @@ def _resolve_k_and_alphabet(
     if len(metas) == 1:
         with open(metas[0]) as f:
             meta = json.load(f)
-        return int(meta["k"]), str(meta.get("alphabet", "nt"))
+        return int(meta["k"]), str(meta.get("alphabet", "nt_ctg"))
 
     raise ValueError(
         f"Multiple k-mer caches in {kmer_dir} "
@@ -615,20 +616,23 @@ def _resolve_k_and_alphabet(
 
 
 def _occ_col(alphabet: str, side: str) -> str:
-    """Pair-table column for the kmer-occurrence id on one side."""
-    suf = side.lower()
-    if alphabet == "nt":
-        return f"ctg_{suf}"
-    if alphabet == "aa":
-        return f"brc_{suf}"
-    raise ValueError(f"alphabet must be 'nt' or 'aa'; got {alphabet!r}")
+    """Pair-table column for the kmer-occurrence id on one side.
+
+    Delegates to the schema registry: aa / nt_cds -> `brc_{side}`,
+    nt_ctg -> `ctg_{side}` (matches `kmer_utils._pair_side_col`).
+    """
+    return schema.pair_occ_col(alphabet, side.lower())
 
 
 def _normalize_occurrence(series: pd.Series, alphabet: str) -> pd.Series:
-    """Match `load_kmer_index`'s float-round-trip normalization for nt."""
+    """Match `load_kmer_index`'s float-round-trip occurrence normalization.
+
+    Mirrors kmer_utils exactly: the round-trip self-guards on all-digit ids, so
+    it normalizes the numeric contig id (nt_ctg `genbank_ctg_id`, written float
+    by Stage 3) and is a no-op for the non-numeric `brc_fea_id` (aa / nt_cds).
+    `alphabet` is accepted for signature parity but no longer branches on.
+    """
     s = series.astype(str)
-    if alphabet != "nt":
-        return s
     return s.apply(
         lambda x: str(float(x)) if x.replace(".", "", 1).isdigit() else x
     )
