@@ -72,6 +72,41 @@ def test_unknown_alphabet():
     raise AssertionError("expected ValueError for unknown alphabet")
 
 
+def test_hash_col_ab_dual():
+    # The dual-dna_hash split, locked at the pair-column level: nt_cds is the CDS
+    # hash, nt_ctg is the contig hash. A regression that re-merges these silently
+    # corrupts either the analysis CV-universe (cds) or Stage-3 pair tables (ctg).
+    assert schema.hash_col_ab("aa") == ("prot_hash_a", "prot_hash_b")
+    assert schema.hash_col_ab("nt_cds") == ("cds_dna_hash_a", "cds_dna_hash_b")
+    assert schema.hash_col_ab("nt_ctg") == ("ctg_dna_hash_a", "ctg_dna_hash_b")
+
+
+def test_occurrence_cols_all():
+    # nt_cds keys on brc_fea_id (CDS<->protein 1-1), nt_ctg on the contig id.
+    assert schema.SCHEMA["aa"].occurrence_col == "brc_fea_id"
+    assert schema.SCHEMA["nt_cds"].occurrence_col == "brc_fea_id"
+    assert schema.SCHEMA["nt_ctg"].occurrence_col == "genbank_ctg_id"
+    assert schema.pair_occ_col("aa", "a") == "brc_a"
+    assert schema.pair_occ_col("nt_cds", "a") == "brc_a"
+    assert schema.pair_occ_col("nt_ctg", "a") == "ctg_a"
+
+
+def test_pair_column_consistency():
+    # Hazard #2 lock: every per-alphabet HASH column a consumer derives from the
+    # registry must exist in the pair table, else family-key loops read phantom
+    # columns and silently return empty. SEQ columns exist for aa + nt_ctg only --
+    # the CDS sequence is not materialized per-pair (only its hash is).
+    cols = set(schema.build_pair_columns())
+    for a in schema.ALPHABETS:
+        ha, hb = schema.hash_col_ab(a)
+        assert ha in cols and hb in cols, f"{a} hash cols absent from pair table"
+    for a in ("aa", "nt_ctg"):
+        sa, sb = schema.seq_col_ab(a)
+        assert sa in cols and sb in cols, f"{a} seq cols absent from pair table"
+    nca, ncb = schema.seq_col_ab("nt_cds")
+    assert nca not in cols and ncb not in cols, "nt_cds seq must NOT be materialized per-pair"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]
