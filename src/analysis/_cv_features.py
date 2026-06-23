@@ -24,7 +24,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.clustering_utils import compute_seq_hash  # noqa: E402
+from src.utils.clustering_utils import compute_prot_hash  # noqa: E402
 
 _KMER_DIR = PROJ / 'data/embeddings/flu/July_2025'
 _PROTEIN_FINAL = PROJ / 'data/processed/flu/July_2025/protein_final.parquet'
@@ -39,7 +39,7 @@ def build_hash_to_row(kmer_k: int, functions_full: list[str]) -> dict:
     idx = idx[idx['function'].isin(functions_full)].copy()
     prot = pd.read_parquet(_PROTEIN_FINAL, columns=['assembly_id', 'brc_fea_id', 'prot_seq', 'function'])
     prot = prot[prot['function'].isin(functions_full)].copy()
-    prot['prot_hash'] = prot['prot_seq'].map(compute_seq_hash)
+    prot['prot_hash'] = prot['prot_seq'].map(compute_prot_hash)
     for df in (idx, prot):
         df['assembly_id'] = df['assembly_id'].astype(str)
         df['brc_fea_id'] = df['brc_fea_id'].astype(str)

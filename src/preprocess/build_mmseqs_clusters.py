@@ -19,7 +19,7 @@ Supports two alphabets, both clustered with `mmseqs easy-linclust` since
 for why we no longer use easy-cluster on aa):
   - aa:     clusters `prot_seq` from `protein_final.parquet` (Stage 1 output).
             `--dbtype 1` (amino acid alphabet).
-  - nt_cds: clusters `cds_dna` from `cds_final.parquet` (Stage 1.5 output
+  - nt_cds: clusters `cds_dna_seq` from `cds_dna_final.parquet` (Stage 1.5 output
             from `src/preprocess/extract_cds_dna.py`). `--dbtype 2`
             (nucleotide alphabet).
   - nt_ctg: reserved for full-contig clustering (Phase 3 of clustering
@@ -55,7 +55,7 @@ CLI:
 
     # nt_cds redundancy sweep (same default).
     python -m src.preprocess.build_mmseqs_clusters \\
-        --cds_final  data/processed/flu/July_2025/cds_final.parquet \\
+        --cds_dna_final  data/processed/flu/July_2025/cds_dna_final.parquet \\
         --out_root   data/processed/flu/July_2025/clusters_nt_cds \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85 0.80 \\
         --threads 8
@@ -80,7 +80,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.utils.clustering_utils import (  # noqa: E402
     cluster_size_distribution,
-    compute_seq_hash,
+    compute_prot_hash,
     export_function_fasta,
     parse_cluster_tsv,
     run_mmseqs_easy_clust,
@@ -145,11 +145,11 @@ def cluster_one_function_one_threshold(
 
     Args:
         df: input rows. For `alphabet='aa'` must contain `function`,
-            `prot_seq`, `seq_hash` (pre-hashed by caller via
-            `compute_seq_hash`; protein_final.parquet does not carry
-            seq_hash so callers must add it after load). For
-            `alphabet='nt_cds'` must contain `function`, `cds_dna`,
-            `cds_dna_hash` (from `cds_final.parquet`).
+            `prot_seq`, `prot_hash` (pre-hashed by caller via
+            `compute_prot_hash`; protein_final.parquet does not carry
+            prot_hash so callers must add it after load). For
+            `alphabet='nt_cds'` must contain `function`, `cds_dna_seq`,
+            `cds_dna_hash` (from `cds_dna_final.parquet`).
         alphabet: 'aa' (default) or 'nt_cds'. Selects the unified
             exporter's seq/hash column pair and triggers `--dbtype 2`
             (nt) for the mmseqs invocation. `nt_ctg` is reserved
@@ -303,7 +303,7 @@ def write_results_markdown(
             if algorithm == 'linclust' else
             'easy-cluster (sensitive cascaded clustering) was used.'
         )
-        lines.append(f"For each major protein function, dedup `cds_dna` on "
+        lines.append(f"For each major protein function, dedup `cds_dna_seq` on "
                      f"`cds_dna_hash` (md5 of the CDS DNA), export to FASTA, and "
                      f"cluster at multiple nt-identity thresholds with mmseqs2 "
                      f"`{subcmd} --dbtype 2`. IUPAC ambiguity codes (N, R, Y, "
@@ -381,12 +381,12 @@ def main() -> None:
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument('--protein_final',
                      help='aa-mode input: path to protein_final.parquet (or .csv).')
-    src.add_argument('--cds_final',
-                     help='nt_cds-mode input: path to cds_final.parquet (built by '
+    src.add_argument('--cds_dna_final',
+                     help='nt_cds-mode input: path to cds_dna_final.parquet (built by '
                           'src/preprocess/extract_cds_dna.py). Implies --alphabet nt_cds.')
     p.add_argument('--alphabet',
                    choices=['aa', 'nt_cds'], default=None,
-                   help='Sequence alphabet (default: aa for --protein_final, nt_cds for --cds_final).')
+                   help='Sequence alphabet (default: aa for --protein_final, nt_cds for --cds_dna_final).')
     p.add_argument('--out_root',
                    required=True,
                    help='Output directory root (e.g. data/processed/flu/July_2025/clusters_aa or '
@@ -428,20 +428,20 @@ def main() -> None:
 
     if args.protein_final and not args.alphabet:
         args.alphabet = 'aa'
-    if args.cds_final and not args.alphabet:
+    if args.cds_dna_final and not args.alphabet:
         args.alphabet = 'nt_cds'
     if args.protein_final and args.alphabet == 'nt_cds':
-        raise SystemExit("--protein_final is aa-only; use --cds_final for nt_cds mode.")
-    if args.cds_final and args.alphabet == 'aa':
-        raise SystemExit("--cds_final is nt_cds-only; use --protein_final for aa mode.")
+        raise SystemExit("--protein_final is aa-only; use --cds_dna_final for nt_cds mode.")
+    if args.cds_dna_final and args.alphabet == 'aa':
+        raise SystemExit("--cds_dna_final is nt_cds-only; use --protein_final for aa mode.")
 
-    in_path = Path(args.protein_final or args.cds_final)
+    in_path = Path(args.protein_final or args.cds_dna_final)
     print(f"Loading {in_path}  (alphabet={args.alphabet}) ...")
     t0 = time.time()
     if args.alphabet == 'aa':
         usecols = ['function', 'prot_seq']
     else:
-        usecols = ['function', 'cds_dna', 'cds_dna_hash']
+        usecols = ['function', 'cds_dna_seq', 'cds_dna_hash']
     if in_path.suffix == '.csv':
         df = pd.read_csv(in_path, usecols=usecols)
     else:
@@ -449,14 +449,14 @@ def main() -> None:
     print(f"  Loaded {len(df):,} rows in {time.time()-t0:.1f}s")
 
     # Pre-hash aa input. The unified exporter requires the hash column to
-    # be present (matches the nt_cds path where cds_final.parquet carries
-    # cds_dna_hash). protein_final.parquet does NOT carry seq_hash, so we
+    # be present (matches the nt_cds path where cds_dna_final.parquet carries
+    # cds_dna_hash). protein_final.parquet does NOT carry prot_hash, so we
     # compute it here once and reuse across thresholds.
     if args.alphabet == 'aa':
         t_hash = time.time()
-        df['seq_hash'] = df['prot_seq'].map(compute_seq_hash)
-        print(f"  Hashed prot_seq -> seq_hash in {time.time()-t_hash:.1f}s "
-              f"({df['seq_hash'].nunique():,} unique)")
+        df['prot_hash'] = df['prot_seq'].map(compute_prot_hash)
+        print(f"  Hashed prot_seq -> prot_hash in {time.time()-t_hash:.1f}s "
+              f"({df['prot_hash'].nunique():,} unique)")
 
     out_root = Path(args.out_root)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -467,7 +467,7 @@ def main() -> None:
                          f"Known: {sorted(SHORT_TO_FUNCTION)}")
 
     # Skip functions absent from the input (e.g., M2/NEP are not in
-    # cds_final.parquet because the CDS extractor only covers the 8
+    # cds_dna_final.parquet because the CDS extractor only covers the 8
     # majors). Avoids aborting mid-sweep on the first missing function.
     present_functions = set(df['function'].unique())
     skipped = [f for f in args.functions

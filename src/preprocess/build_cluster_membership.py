@@ -14,11 +14,11 @@ currently scattered across `src/analysis/{cluster,bigraph}_*.py`.
 
 **Per-alphabet key — do not cross the streams.** Each alphabet keys on its OWN
 hash, matching the column its cluster parquets were built on:
-  - aa     : `seq_hash` = compute_seq_hash(prot_seq) = md5(prot_seq.rstrip('*')).
-             `protein_final` carries no hash, so it is computed here.
-  - nt_cds : `cds_dna_hash` = md5(cds_dna), already present in `cds_final`.
+  - aa     : `prot_hash` = compute_prot_hash(prot_seq) = md5(prot_seq). Stage 1
+             writes prot_hash to `protein_final`; recomputed here for parity.
+  - nt_cds : `cds_dna_hash` = md5(cds_dna), already present in `cds_dna_final`.
 The aa protein hash is NEVER used to join nt_cds clusters (and vice versa): the
-nt_cds cluster parquets key on `cds_dna_hash`, the aa ones on `seq_hash`.
+nt_cds cluster parquets key on `cds_dna_hash`, the aa ones on `prot_hash`.
 
 Metadata (`hn_subtype, host, year, geo_location_clean`) is joined per isolate from
 `load_flu_metadata`; `geo_location_clean` is the project's canonical downstream
@@ -30,7 +30,7 @@ CLI:
     # optional overrides: --source --clusters_root --virus_yaml --out
 
 Output columns (alphabet-specific key + length):
-    assembly_id, function, <seq_hash|cds_dna_hash>, <length|cds_length>,
+    assembly_id, function, <prot_hash|cds_dna_hash>, <length|cds_length>,
     hn_subtype, host, year, geo_location_clean,    # per isolate
     t100, t099, ..., t090                          # cluster_id per threshold
 """
@@ -47,7 +47,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.clustering_utils import compute_seq_hash  # noqa: E402
+from src.utils.clustering_utils import compute_prot_hash  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 from src.utils.metadata_enrichment import load_flu_metadata  # noqa: E402
 
@@ -56,19 +56,19 @@ _FILL_UNKNOWN = ['hn_subtype', 'host', 'geo_location_clean']  # categorical; yea
 
 # Per-alphabet wiring. `key_col` is the join key in BOTH the record table and the
 # cluster parquet; `compute_key_from` is the sequence column to hash when the
-# source lacks the key (aa: protein_final has no seq_hash), or None when the
-# source already carries it (nt_cds: cds_final has cds_dna_hash).
+# source (aa: recomputed from prot_seq, equals the stored prot_hash), or None
+# when the source already carries it (nt_cds: cds_dna_final has cds_dna_hash).
 _ALPHABET_CFG = {
     'aa': {
         'source': 'data/processed/flu/July_2025/protein_final.parquet',
         'clusters': 'data/processed/flu/July_2025/clusters_aa',
         'out': 'data/processed/flu/July_2025/cluster_membership/cluster_memb_aa.parquet',
-        'key_col': 'seq_hash',
+        'key_col': 'prot_hash',
         'length_col': 'length',
         'compute_key_from': 'prot_seq',
     },
     'nt_cds': {
-        'source': 'data/processed/flu/July_2025/cds_final.parquet',
+        'source': 'data/processed/flu/July_2025/cds_dna_final.parquet',
         'clusters': 'data/processed/flu/July_2025/clusters_nt_cds',
         'out': 'data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_cds.parquet',
         'key_col': 'cds_dna_hash',
@@ -112,7 +112,7 @@ def build_cluster_columns(source: Path, clusters_root: Path, virus_yaml: Path, *
         df = pd.read_csv(source, usecols=read_cols, keep_default_na=False, na_values=[''])
     df = df[df['function'].isin(majors_full)].copy()
     if compute_key_from:
-        df[key_col] = df[compute_key_from].map(compute_seq_hash)
+        df[key_col] = df[compute_key_from].map(compute_prot_hash)
         df = df.drop(columns=[compute_key_from])
     print(f"Loaded {len(df):,} major-protein records "
           f"({df[key_col].nunique():,} unique {key_col} across {df['function'].nunique()} proteins).")

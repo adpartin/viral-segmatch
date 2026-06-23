@@ -14,8 +14,8 @@ Function-metadata loading lives in `src/utils/config_hydra.py`
 
 Alphabets:
     'aa'     -> protein sequences from protein_final-style input
-                    (columns: function, prot_seq, seq_hash)
-    'nt_cds' -> CDS DNA from cds_final-style input
+                    (columns: function, prot_seq, prot_hash)
+    'nt_cds' -> CDS DNA from cds_dna_final-style input
                     (columns: function, cds_dna, cds_dna_hash)
     'nt_ctg' -> reserved for full-contig DNA (Phase 3 of clustering
                 cleanup plan); raises NotImplementedError today.
@@ -32,37 +32,34 @@ from typing import Optional
 
 import pandas as pd
 
+from src.utils import schema
 
-# Dispatch table: alphabet -> {seq_col, hash_col} for the unified exporter
-# and parse_cluster_tsv output column dispatch.
-# nt_ctg is reserved (Phase 3); export_function_fasta + parse_cluster_tsv
-# raise NotImplementedError if invoked with it.
-_COLS_BY_ALPHABET = {
-    'aa':     {'seq_col': 'prot_seq', 'hash_col': 'seq_hash'},
-    'nt_cds': {'seq_col': 'cds_dna',  'hash_col': 'cds_dna_hash'},
-    # NOTE (nt_ctg data caveat, unresolved 2026-06-08): contig DNA carries
-    # inconsistent flanking UTR. Verified on genome_final.parquet: per-row
-    # (contig_len - cds_len) spans 0..310 nt (median 36; ~25% of contigs have
-    # zero UTR, i.e. contig == CDS). So two biologically identical isolates can
-    # land in different contig clusters purely from how much flank the submitter
-    # included (assembly/submission artifact, not biology). Decision: keep
-    # nt_ctg as-is for now, do NOT pre-trim.
-    # TODO(nt_ctg): revisit contig UTR normalization before trusting nt_ctg
-    # cluster-disjoint results for publication. The 'dna_hash' name below is
-    # also provisional (collides with nt_cds's pair-universe dna_hash_a/b) —
-    # settle the hash-column convention when nt_ctg is operationalized.
-    'nt_ctg': {'seq_col': 'dna_seq',  'hash_col': 'dna_hash'},
-}
+
+# Dispatch table: alphabet -> {seq_col, hash_col}, derived from the schema
+# registry (single source of truth) for the unified exporter + parse_cluster_tsv
+# output column dispatch. nt_ctg is reserved (Phase 3); export_function_fasta +
+# parse_cluster_tsv raise NotImplementedError if invoked with it.
+#
+# nt_ctg data caveat (unresolved 2026-06-08): contig DNA carries inconsistent
+# flanking UTR. Verified on the contig source: per-row (contig_len - cds_len)
+# spans 0..310 nt (median 36; ~25% of contigs have zero UTR, i.e. contig == CDS).
+# So two biologically identical isolates can land in different contig clusters
+# purely from how much flank the submitter included (assembly/submission
+# artifact, not biology). Decision: keep nt_ctg as-is for now, do NOT pre-trim.
+# TODO(nt_ctg): revisit contig UTR normalization before trusting nt_ctg
+# cluster-disjoint results for publication.
+_COLS_BY_ALPHABET = {a: {'seq_col': s.seq_col, 'hash_col': s.hash_col}
+                     for a, s in schema.SCHEMA.items()}
 _ACTIVE_ALPHABETS = {'aa', 'nt_cds'}  # nt_ctg reserved (raises)
 
 
-def compute_seq_hash(prot_seq: str) -> str:
+def compute_prot_hash(prot_seq: str) -> str:
     """md5 hex of the protein string (matches preprocess_flu.py).
 
     Caller-side helper for pre-hashing aa input before calling
     `export_function_fasta(alphabet='aa', ...)`: the unified exporter
     requires the hash column to be already present (matches the nt path
-    where Stage 1.5 writes `cds_dna_hash` into cds_final.parquet).
+    where Stage 1.5 writes `cds_dna_hash` into cds_dna_final.parquet).
     """
     return hashlib.md5(prot_seq.encode()).hexdigest()
 
@@ -116,7 +113,7 @@ def export_function_fasta(
     ) -> dict:
     """Export unique cleaned sequences for one function to FASTA (alphabet-aware).
 
-    The FASTA header is the precomputed hash (`seq_hash` for aa,
+    The FASTA header is the precomputed hash (`prot_hash` for aa,
     `cds_dna_hash` for nt) from the input DataFrame. The FASTA body is
     the cleaned sequence: trailing `*` stripped for aa, pass-through
     for nt. The cluster lookup's hash column therefore joins back to
@@ -125,10 +122,10 @@ def export_function_fasta(
     Caller responsibility: the input DataFrame must carry the
     precomputed hash column corresponding to `alphabet` (per
     `_COLS_BY_ALPHABET`). For `'nt_cds'`, that's `cds_dna_hash`
-    (written by Stage 1.5 into `cds_final.parquet`). For `'aa'`,
-    that's `seq_hash` (which Stage 1 writes for cds_final but NOT
+    (written by Stage 1.5 into `cds_dna_final.parquet`). For `'aa'`,
+    that's `prot_hash` (which Stage 1 writes for cds_dna_final but NOT
     for protein_final, so aa callers reading protein_final must
-    pre-hash via `compute_seq_hash` before calling).
+    pre-hash via `compute_prot_hash` before calling).
 
     Safety net: at entry, recomputes the hash from the seq column and
     asserts it matches the precomputed hash. Catches stale precomputed
@@ -161,7 +158,7 @@ def export_function_fasta(
         raise ValueError(
             f"export_function_fasta: df is missing required columns for "
             f"alphabet={alphabet!r}: {sorted(missing)}. "
-            f"Pre-hash with compute_seq_hash() if needed."
+            f"Pre-hash with compute_prot_hash() if needed."
         )
 
     sub = df[df['function'] == function_name]
@@ -418,7 +415,7 @@ def parse_cluster_tsv(
     representative itself) gets one row.
 
     The output hash-column name is alphabet-specific (per
-    `_COLS_BY_ALPHABET`): `seq_hash` for aa, `cds_dna_hash` for nt_cds.
+    `_COLS_BY_ALPHABET`): `prot_hash` for aa, `cds_dna_hash` for nt_cds.
     The downstream join key in `_split_helpers.attach_cluster_ids`
     matches this directly (no rename step needed).
 
@@ -433,7 +430,7 @@ def parse_cluster_tsv(
 
     Returns a DataFrame with columns:
         - <hash_col>: member identifier (matches the FASTA we wrote);
-              `seq_hash` for aa, `cds_dna_hash` for nt_cds.
+              `prot_hash` for aa, `cds_dna_hash` for nt_cds.
         - cluster_id: stable identifier (integer or "{prefix}_{int}")
         - cluster_rep: representative <hash> for that cluster
 
