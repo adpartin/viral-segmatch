@@ -24,12 +24,17 @@ Stacked across all input sequences, this yields a sparse matrix of shape
 (`N_rows`, `len(alphabet)^k`) which is the feature cache for the pair
 classifier.
 
-Two alphabets are supported, selected via `kmer.alphabet`:
+The alphabet vocabulary is 3-way (`aa` / `nt_cds` / `nt_ctg`, the same
+enum used by the cluster sweep — see `src/utils/schema.py`, the single
+source of truth for per-alphabet columns and file basenames). Two are
+built on disk today; `nt_cds` k-mer features are a future Phase-B build.
+Selected via `kmer.alphabet`:
 
 | `kmer.alphabet` | Source | Vocabulary | Index keys (occurrence) |
 |---|---|---|---|
-| `nt` (default) | `genome_final.csv → dna_seq` (one row per contig) | `ACGT` | `(assembly_id, genbank_ctg_id)` |
+| `nt_ctg` (default) | `ctg_dna_final.csv → ctg_dna_seq` (one row per contig) | `ACGT` | `(assembly_id, genbank_ctg_id)` |
 | `aa` | `protein_final.csv → prot_seq` (one row per protein) | `ACDEFGHIKLMNPQRSTVWY` (canonical 20-AA) | `(assembly_id, brc_fea_id)` |
+| `nt_cds` (planned) | `cds_dna_final.parquet → cds_dna_seq` (one row per CDS) | `ACGT` | `(assembly_id, brc_fea_id)` |
 
 Pair features for classification are formed by looking up the two sides'
 k-mer vectors via the composite occurrence key and applying a fixed
@@ -39,7 +44,7 @@ interaction (`concat`, `diff`, `unit_diff`, `prod`, `unit_prod`, or a
 Practical ceiling for `aa`: k≈4 (160K cols) before the exhaustive `20^k`
 vocabulary becomes impractical to enumerate.
 
-### Cache layout: dedup-by-sequence (aa), per-occurrence (nt)
+### Cache layout: dedup-by-sequence (aa), per-occurrence (nt_ctg)
 
 The **aa cache** is sequence-deduplicated on write: the matrix stores
 one row per unique `prot_seq` (keyed internally by `md5(prot_seq)`),
@@ -48,11 +53,11 @@ and the parquet index allows N-to-1 mapping from
 the ESM-2 cache pattern and saves substantial space on flu where
 ~4.8× of proteins are sequence-redundant across isolates.
 
-The **nt cache** currently stores **one row per contig occurrence**
+The **nt_ctg cache** currently stores **one row per contig occurrence**
 (no dedup yet). Phase 6 of the cache-symmetry plan
 (`docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md`) is the
-follow-up migration that will dedup nt by `md5(dna_seq)` and gate the
-swap on a cross-cache equality test.
+follow-up migration that will dedup nt_ctg by `md5(ctg_dna_seq)` and
+gate the swap on a cross-cache equality test.
 
 The hash is never an external API; it's a write-time dedup primitive.
 Pair-time lookup goes through the composite occurrence key in the
@@ -62,12 +67,12 @@ parquet index.
 
 | Stage | Script | Input | Output | Level |
 |---|---|---|---|---|
-| 1 | `src/preprocess/preprocess_flu.py` | GTO JSON files (one per isolate) | `protein_final.csv` (one row per protein), `genome_final.csv` (one row per contig) | per occurrence |
-| 2b | `src/embeddings/compute_kmer_features.py` | nt: `genome_final.csv → dna_seq`; aa: `protein_final.csv → prot_seq` | `kmer_features_{alphabet}_k{k}.{npz,parquet,json}` (alphabet ∈ {nt, aa}) | nt: per contig; aa: per unique prot_seq |
-| 3 | `src/datasets/dataset_segment_pairs.py` | `protein_final.csv`, `genome_final.csv` | pair CSVs carrying `(assembly_id_{a,b}, ctg_{a,b}, brc_{a,b}, label, …)` | pair rows |
+| 1 | `src/preprocess/preprocess_flu.py` | GTO JSON files (one per isolate) | `protein_final.csv` (one row per protein), `ctg_dna_final.csv` (one row per contig) | per occurrence |
+| 2b | `src/embeddings/compute_kmer_features.py` | nt_ctg: `ctg_dna_final.csv → ctg_dna_seq`; aa: `protein_final.csv → prot_seq` | `kmer_features_{alphabet}_k{k}.{npz,parquet,json}` (alphabet ∈ {nt_ctg, aa}) | nt_ctg: per contig; aa: per unique prot_seq |
+| 3 | `src/datasets/dataset_segment_pairs.py` | `protein_final.csv`, `ctg_dna_final.csv` | pair CSVs carrying `(assembly_id_{a,b}, ctg_{a,b}, brc_{a,b}, label, …)` | pair rows |
 | 4 (train) | `src/models/train_pair_classifier.py` + `src/utils/kmer_utils.py::get_kmer_pair_features` | pair CSVs + k-mer npz + parquet index | MLP predictions | pair features |
 
-Filename pattern: `kmer_features_{nt|aa}_k{k}.npz`. The companion
+Filename pattern: `kmer_features_{nt_ctg|aa}_k{k}.npz`. The companion
 parquet/JSON sidecars share the same prefix.
 
 Storage for the production Flu-A July 2025 dataset (verified against
@@ -75,8 +80,8 @@ on-disk artifacts 2026-05-13):
 
 | Cache | Matrix rows | Vocabulary | Index rows (occurrences) | NPZ size |
 |---|---:|---:|---:|---:|
-| `kmer_features_nt_k6.npz` | 868,240 | 4,096 (4⁶) | 868,240 | 1.78 GB |
-| `kmer_features_nt_k3.npz` | 868,240 | 64 (4³) | 868,240 | 25 MB |
+| `kmer_features_nt_ctg_k6.npz` | 868,240 | 4,096 (4⁶) | 868,240 | 1.78 GB |
+| `kmer_features_nt_ctg_k3.npz` | 868,240 | 64 (4³) | 868,240 | 25 MB |
 | `kmer_features_aa_k3.npz` | 375,413 (unique `prot_seq`) | 8,000 (20³) | 1,793,563 | 71 MB |
 
 The aa cache is sequence-deduplicated: 1,793,563 protein-occurrence
@@ -135,8 +140,8 @@ slots is ~64 GB — infeasible even before the MLP.
 
 ### Bottom line
 
-- **nt up to k≈10** is reachable but the MLP first layer dominates GPU memory.
-- **nt k=6** is the current production setting; comfortable.
+- **nt up to k≈10** is reachable but the MLP first layer dominates GPU memory (the `4^k` vocab cardinality is shared by both nt alphabets, `nt_cds` and `nt_ctg`).
+- **nt_ctg k=6** is the current production setting; comfortable.
 - **aa up to k=4** is reachable with the current pipeline. k=3 is the bundle in use today.
 - **aa k≥5** is not feasible with the exhaustive-vocab approach. Going there would require either **observed-vocab** (enumerate only k-mers actually seen — bounded by ~`N_seqs × L` distinct, probably 1–10M at aa k=6) or **feature hashing** (hash each k-mer into a fixed-size index space, e.g. 2^18 = 256K columns). Neither is implemented; both would require redesign of `compute_kmer_features.py` and the loader. See
   `docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` for the
@@ -148,8 +153,8 @@ A Genome Typing Object (GTO) is a JSON document with two relevant arrays:
 `contigs[]` (one entry per genomic segment, with keys `id`, `replicon_type`,
 `dna`, `length`) and `features[]` (one entry per CDS, with
 `protein_translation`). For the k-mer pipeline only `contigs[]` is used.
-Stage 1 emits one row per contig to `genome_final.csv`, preserving
-`(assembly_id, genbank_ctg_id, canonical_segment, dna_seq)` plus summary
+Stage 1 emits one row per contig to `ctg_dna_final.csv`, preserving
+`(assembly_id, genbank_ctg_id, canonical_segment, ctg_dna_seq)` plus summary
 statistics (length, GC content, ambiguous-base counts).
 
 ## K-mer counting
@@ -290,7 +295,7 @@ see `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`.
 Three reasons, all the same pattern as Stage 2a (ESM-2 embeddings):
 
 - **Cost amortization.** K-mer enumeration over the full corpus
-  (868,240 contigs × 4,096 columns for nt k=6) is the kind of work you
+  (868,240 contigs × 4,096 columns for nt_ctg k=6) is the kind of work you
   want to do once and reuse across experiments. Stage 3 builds many
   per-bundle datasets against the same Stage 1 outputs; if k-mer
   computation lived inside Stage 3 it would re-run on every
@@ -343,7 +348,7 @@ ablation candidate.
 All windows containing any non-`ACGT` character are **skipped**, not
 imputed. For the full Flu-A July 2025 dataset this removes a negligible
 fraction of windows (flu reference genomes are mostly unambiguous; the
-`ambig_frac` column in `genome_final.csv` captures the per-segment rate
+`ambig_frac` column in `ctg_dna_final.csv` captures the per-segment rate
 and is near 0 for well-assembled sequences). A segment with pathological
 ambiguity would end up with a partial k-mer profile; the existing Stage 1
 QC (drops `genome_missing_seqs.csv`, `genome_poor_quality.csv`) filters
@@ -393,7 +398,7 @@ Two sub-questions:
    computed as a diagnostic — see `dataset_segment_pairs_v2.py:607`).
 2. *Can semantically-identical k-mer vectors end up in different splits
    via different `genbank_ctg_id` values?* Under `hash_key=seq`, two
-   isolates that share a protein sequence (same `seq_hash`) are routed
+   isolates that share a protein sequence (same `prot_hash`) are routed
    to the same split, so this is precluded at the protein level.
    Synonymous-codon variants of the same protein could still diverge at
    the DNA level — for stricter DNA-level disjointness, set
@@ -405,7 +410,7 @@ Two sub-questions:
 
 108,530 isolates × 8 segments = **868,240** exactly. Every assembly in
 the Flu-A July 2025 corpus has all 8 segments deposited (verified:
-108,530 / 108,530 = 100.00% have 8 contigs in `genome_final.parquet`),
+108,530 / 108,530 = 100.00% have 8 contigs in `ctg_dna_final.parquet`),
 and Stage 1 QC drops no rows on the genome side for this corpus. The
 matrix is keyed by segment, not by protein — multiple proteins can
 share one segment (M1/M2 on S7; NS1/NEP on S8; PA/PA-X on S3; and
@@ -421,7 +426,7 @@ select exactly one function per segment.
 > **(A)** Each input is a Genome Typing Object (GTO) — one JSON file per
 > influenza-A isolate, with a `contigs[]` array (one entry per genomic
 > segment) and a `features[]` array (one entry per CDS). Stage 1 extracts
-> both tracks. **(B)** The genome-side output, `genome_final.csv`, has one
+> both tracks. **(B)** The genome-side output, `ctg_dna_final.csv`, has one
 > row per `(assembly_id, segment)` pair with the raw DNA sequence and
 > length. Approximate segment lengths shown. **(C)** Stage 2b counts
 > overlapping 6-mers in every DNA sequence with a unit-stride window.

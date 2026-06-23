@@ -31,8 +31,8 @@ cross-refs are inline at each result-bearing claim.
 | # | Label | What it constrains | Atom | Algorithm | Implementation (config) | Status |
 |---|---|---|---|---|---|---|
 | 1 | `Random` | nothing | one isolate | random shuffle on isolates | `mode: random` | implemented |
-| 2 | `1D-SD` | different splits cannot share the same `seq_hash` (or `dna_hash`) on the constrained slot only | per-slot atom on `seq_hash` or `dna_hash` | per-slot atom LPT-greedy | `mode: seq_disjoint`, `single_slot: 'a'\|'b'`, `hash_key: seq\|dna` | **planned** |
-| 3 | `2D-SD` | different splits cannot share the same `seq_hash` (or `dna_hash`) on EITHER slot | bipartite CC on `(hash_a, hash_b)` | bipartite-CC LPT-greedy | `mode: seq_disjoint`, `hash_key: seq\|dna` | implemented |
+| 2 | `1D-SD` | different splits cannot share the same `prot_hash` (or `ctg_dna_hash`) on the constrained slot only | per-slot atom on `prot_hash` or `ctg_dna_hash` | per-slot atom LPT-greedy | `mode: seq_disjoint`, `single_slot: 'a'\|'b'`, `hash_key: seq\|dna` | **planned** |
+| 3 | `2D-SD` | different splits cannot share the same `prot_hash` (or `ctg_dna_hash`) on EITHER slot | bipartite CC on `(hash_a, hash_b)` | bipartite-CC LPT-greedy | `mode: seq_disjoint`, `hash_key: seq\|dna` | implemented |
 | 4 | `1D-CD` | different splits cannot share the same cluster on the constrained slot only | per-cluster atom on the constrained slot | per-cluster atom LPT-greedy | `mode: cluster_disjoint`, `single_slot: 'a'\|'b'`, `cluster_alphabet: aa\|nt_cds\|nt_ctg` | implemented (aa, nt_cds); nt_ctg planned |
 | 5 | `2D-CD` | different splits cannot share the same cluster on EITHER slot | bipartite CC on `(cluster_id_a, cluster_id_b)` | bipartite-CC LPT-greedy | `mode: cluster_disjoint`, `single_slot: null` (default), `cluster_alphabet: aa\|nt_cds\|nt_ctg` | implemented (aa, nt_cds); nt_ctg planned |
 | 6 | `2D-CD-test` | train and test cannot share the same cluster on EITHER slot; val is sampled from train's CC scope (leaky val) | bipartite CC on `(cluster_id_a, cluster_id_b)` for test partition; random subsample within train's CC scope for val | bipartite-CC LPT-greedy (test only) + random subsample (val) | not yet implemented | **planned** |
@@ -40,8 +40,9 @@ cross-refs are inline at each result-bearing claim.
 
 Notes:
 - **Alphabet / hash axis** (rows 2-5):
-  - `seq_disjoint` (rows 2-3) operates on seq hash keys. Currently
-    supports `seq_hash` (protein hash; default) and `dna_hash` (full
+  - `seq_disjoint` (rows 2-3) operates on seq hash keys. The
+    `hash_key` knob selects the hash family: `seq` (default) routes on
+    `prot_hash` (protein hash), `dna` routes on `ctg_dna_hash` (full
     contig hash including UTRs).
   - `cluster_disjoint` (rows 4-5) operates on cluster atoms derived
     under one of three alphabets: `cluster_alphabet ∈ {aa, nt_cds,
@@ -146,9 +147,9 @@ count.
 
 **`nt_cds cluster_t100` ≠ `seq_disjoint hash_key=dna`** — they cluster
 **different sequences**. `seq_disjoint hash_key=dna` keys on
-`dna_hash = md5(contig.dna)` — the full contig including 5' UTR + CDS
+`ctg_dna_hash = md5(contig.dna)` — the full contig including 5' UTR + CDS
 + intron + 3' UTR. `nt_cds cluster_t100` keys on
-`cds_dna_hash = md5(cds_dna)` — just the spliced CDS, UTRs and introns
+`cds_dna_hash = md5(cds_dna_seq)` — just the spliced CDS, UTRs and introns
 excluded. Concrete consequences:
 
 - Two isolates with **identical CDS but different UTRs** →
@@ -453,28 +454,29 @@ This applies uniformly to all three routing variants below.
 
 The cluster parquet at
 `data/processed/flu/<version>/clusters_<alphabet>/t<XXX>/<protein>_cluster.parquet`
-stores `{seq_hash → cluster_id}` — one row per unique sequence (see
-`clusters.md` § 6.0). Pair-weighted views are derived downstream via
-a JOIN against the pair universe.
+stores `{hash → cluster_id}` keyed by the per-alphabet sequence hash
+(`prot_hash` for aa, `cds_dna_hash` for nt_cds; see `src/utils/schema.py`)
+— one row per unique sequence (see `clusters.md` § 6.0). Pair-weighted
+views are derived downstream via a JOIN against the pair universe.
 
 Pseudocode:
 
 ```python
 # Pair universe — one row per canonical pair after pair_key dedup.
-# Source: cooccurrence in cds_final for the schema pair, then
-# canonical_pair_key(seq_hash_a, seq_hash_b) dedup.
-universe = load_pair_universe(cds_final, schema_pair=('HA', 'NA'))
+# Source: cooccurrence in cds_dna_final for the schema pair, then
+# canonical_pair_key(prot_hash_a, prot_hash_b) dedup (aa default).
+universe = load_pair_universe(cds_dna_final, schema_pair=('HA', 'NA'))
 
 # Cluster parquet per slot.
 cluster_a = pd.read_parquet('clusters_aa/t095/HA_cluster.parquet')
 cluster_b = pd.read_parquet('clusters_aa/t095/NA_cluster.parquet')
 
-# Attach cluster_ids to each pair row.
+# Attach cluster_ids to each pair row (aa clusters join on prot_hash).
 df = (universe
       .merge(cluster_a.rename(columns={'cluster_id': 'cluster_id_a'}),
-             left_on='seq_hash_a', right_on='seq_hash')
+             left_on='prot_hash_a', right_on='prot_hash')
       .merge(cluster_b.rename(columns={'cluster_id': 'cluster_id_b'}),
-             left_on='seq_hash_b', right_on='seq_hash'))
+             left_on='prot_hash_b', right_on='prot_hash'))
 
 # Each row now has (canonical pair, cluster_id_a, cluster_id_b).
 # This is the input to all three cluster-disjoint variants below.
@@ -497,7 +499,7 @@ alphabet-specific. Default inference: `cluster_disjoint` with
 `pair_key = canonical(cds_dna_hash_a, cds_dna_hash_b)`; every other
 routing (including `random`, all `seq_disjoint` variants, and
 `cluster_disjoint cluster_alphabet=aa`) uses
-`pair_key = canonical(seq_hash_a, seq_hash_b)` on PROTEIN hashes
+`pair_key = canonical(prot_hash_a, prot_hash_b)` on PROTEIN hashes
 (the legacy convention). Explicit override via
 `dataset.split_strategy.pair_key_alphabet ∈ {aa, nt_cds}`. `nt_ctg`
 is reserved in the enum but not yet implemented. Consequence: under

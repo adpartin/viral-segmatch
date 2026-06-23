@@ -28,21 +28,22 @@ change and aren't derivable from code. This file does NOT duplicate:
   `flu_ha_na.yaml` 2026-06-03.
 - **Clustering**: symmetric mmseqs2 `easy-linclust` on BOTH alphabets (since 2026-05-22; replaced
   the asymmetric easy-cluster+linclust setup). Artifacts at `clusters_aa/tXXX/<func>_cluster.parquet`
-  (col `seq_hash`) and `clusters_nt_cds/tXXX/<func>_cluster.parquet` (col `cds_dna_hash`); pre-Phase-2
+  (col `prot_hash`) and `clusters_nt_cds/tXXX/<func>_cluster.parquet` (col `cds_dna_hash`); pre-Phase-2
   easy-cluster + idXXX artifacts archived under `clusters_*_archive_*`. Binary via the dedicated
   `mmseqs2` env, resolved through `MMSEQS_BIN` env var / `--mmseqs_bin` / PATH.
 - **pair_key**: `split_strategy.pair_key_alphabet` — `aa` default (protein pair_key); `nt_cds` opt-in
   for nt_cds cluster_disjoint bundles, where silent codon variants become distinct positives (inflates
   the pair universe, opens DNA-variant leakage). Cite the alphabet in any post-2026-06-03 experiment.
-- **Two DNA notions, by purpose (history; not derivable from code)**: pipeline evolved prot_seq+ESM-2
-  → **contig**-DNA k-mers → prot_seq k-mers → mmseqs2 clustering (aa, then DNA). DNA *clustering* was
-  switched to **CDS** (`extract_cds_dna.py` → `cds_final`/`clusters_nt_cds`/`cds_dna_hash`) on the
-  assumption that clustering should be coding-only — never tested against contig clustering — while
-  k-mer *features* stayed **contig** (`dna_hash`=md5(`dna_seq`), `kmer_features_nt`). Hence the
-  `dna_hash`(contig)-vs-`cds_dna_hash`(CDS) duality. Recent `src/analysis` m-sweeps used aa + dna-CDS
-  only and, built without maintained naming, mislabeled CDS as `dna_hash_a/b`. CC-dataset plan
-  `docs/plans/2026-06-09_cc_dataset_cv_plan.md` ports those primitives into `src/datasets`, fixes the
-  mislabel, and adds nt_ctg (which will finally test the CDS-vs-contig clustering assumption).
+- **Two DNA notions, by purpose**: the pipeline distinguishes **contig** DNA (`ctg_dna_seq` /
+  `ctg_dna_hash` — the full submitted contig; k-mer *features* + nt_ctg clustering) from **CDS** DNA
+  (`cds_dna_seq` / `cds_dna_hash` — coding-only; nt_cds clustering). History (not derivable from code):
+  DNA *clustering* was switched to CDS (`extract_cds_dna.py`) on the assumption clustering should be
+  coding-only — never tested vs contig clustering — while k-mer *features* stayed contig; the analysis
+  CV-universe then mislabeled the CDS hash as `dna_hash_a/b`. The 2026-06 nt_cds/nt_ctg refactor
+  (`src/utils/schema.py` registry, branch `feature/nt-cds-ctg-refactor`) resolved all of this: explicit
+  `ctg_dna_hash` (contig) vs `cds_dna_hash` (CDS) names everywhere, the mislabel fixed at source
+  (`cluster_pair_weight_topk.load_pair_universe`), and `nt_ctg` added so the CDS-vs-contig clustering
+  assumption can finally be tested (Phase C experiments).
 - **Routing modes**: `random`; `seq_disjoint` (hash_key seq|dna); `cluster_disjoint` (bilateral /
   `single_slot: a|b` / planned `cluster_disjoint_test_only`); `metadata_holdout`. `single_slot`
   exercised on HA-only and PB2-only; NA-only / PB1-only and nt single_slot untested.
@@ -70,8 +71,9 @@ change and aren't derivable from code. This file does NOT duplicate:
   `drop_negative_infeasible_ccs`, predicate unified to a STRUCTURAL negative-infeasibility test
   (`compute_negative_infeasible_ccs`) used in BOTH scopes — parity verified (within_cc & within_fold
   both keep 928 on aa HA-NA t099; closed the old 291-CC gap). Remaining: (b) full-saver (deferred),
-  Phase 2 (nt_cds) / Phase 3 (nt_ctg). Plan: `docs/plans/2026-06-09_cc_dataset_cv_plan.md` (§9 Tier-2
-  renames `genome_final→ctg_dna_final`/`cds_final→cds_dna_final`, §12 tests/bundle). Glossary terms:
+  Phase 2 (nt_cds) / Phase 3 (nt_ctg). Plan: `docs/plans/2026-06-09_cc_dataset_cv_plan.md` (§12
+  tests/bundle); the §9 Tier-2 renames `genome_final→ctg_dna_final` / `cds_final→cds_dna_final` are
+  DONE (by the nt_cds/nt_ctg refactor, `docs/plans/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`). Glossary terms:
   `singleton component`, `negative-infeasible CC`, `within-CC negative`. NEVER commit
   `src/analysis/cluster_disjoint_ood_audit.py`.
 - **Phase 2 pair_key migration** (branch `feature/phase2-pair-key-migration`): plan DONE
