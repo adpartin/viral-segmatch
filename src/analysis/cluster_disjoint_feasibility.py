@@ -14,7 +14,7 @@ exceeds 80% of pairs, the partition is forced and 80/10/10 is unachievable.
 
 Supports both alphabets:
   - aa via `--protein_final`: hashes `prot_seq` with md5 to match Stage 1's
-    `seq_hash`, joins to aa cluster lookups under `<clusters_root>/id<NN>/`.
+    `prot_hash`, joins to aa cluster lookups under `<clusters_root>/id<NN>/`.
   - nt via `--cds_final`: uses `cds_dna_hash` from `cds_final.parquet`
     (Stage 1.5 output) as the slot key, joins to nt cluster lookups under
     `<clusters_root>/id<NN>/` (typically `clusters_nt/`).
@@ -72,22 +72,22 @@ def build_isolate_pairs(
 ) -> pd.DataFrame:
     """Return a DataFrame with one row per isolate that has BOTH proteins of schema_pair.
 
-    Columns: assembly_id, seq_hash_a, seq_hash_b (matching the v2 pair convention:
+    Columns: assembly_id, prot_hash_a, prot_hash_b (matching the v2 pair convention:
     slot a = func_left = schema_pair[0]; slot b = func_right = schema_pair[1]).
 
     Hash semantics depend on `alphabet`:
-        - 'aa' (default): `seq_hash` is `md5(prot_seq)` (matches Stage 1).
+        - 'aa' (default): `prot_hash` is `md5(prot_seq)` (matches Stage 1).
           Input df must contain 'function' + 'prot_seq'.
-        - 'nt': `seq_hash` is the CDS DNA hash (i.e. the column populated by
+        - 'nt': `prot_hash` is the CDS DNA hash (i.e. the column populated by
           `extract_cds_dna.py` as `cds_dna_hash`). Input df must contain
           'function' + 'cds_dna_hash'. The output column is still named
-          `seq_hash_*` so the cluster_lookup join (which is keyed on
-          `seq_hash`) works without modification.
+          `prot_hash_*` so the cluster_lookup join (which is keyed on
+          `prot_hash`) works without modification.
     """
     func_left, func_right = schema_pair
     sub = df[df['function'].isin([func_left, func_right])].copy()
     if alphabet == 'aa':
-        sub['seq_hash'] = sub['prot_seq'].astype(str).map(
+        sub['prot_hash'] = sub['prot_seq'].astype(str).map(
             lambda s: hashlib.md5(s.encode()).hexdigest()
         )
     elif alphabet == 'nt':
@@ -96,13 +96,13 @@ def build_isolate_pairs(
                 "alphabet='nt' requires 'cds_dna_hash' column "
                 "(build cds_final via src/preprocess/extract_cds_dna.py)"
             )
-        sub['seq_hash'] = sub['cds_dna_hash']
+        sub['prot_hash'] = sub['cds_dna_hash']
     else:
         raise ValueError(f"alphabet must be 'aa' or 'nt', got {alphabet!r}")
-    a = sub[sub['function'] == func_left][['assembly_id', 'seq_hash']].rename(
-        columns={'seq_hash': 'seq_hash_a'})
-    b = sub[sub['function'] == func_right][['assembly_id', 'seq_hash']].rename(
-        columns={'seq_hash': 'seq_hash_b'})
+    a = sub[sub['function'] == func_left][['assembly_id', 'prot_hash']].rename(
+        columns={'prot_hash': 'prot_hash_a'})
+    b = sub[sub['function'] == func_right][['assembly_id', 'prot_hash']].rename(
+        columns={'prot_hash': 'prot_hash_b'})
     a = a.drop_duplicates('assembly_id')
     b = b.drop_duplicates('assembly_id')
     merged = a.merge(b, on='assembly_id', how='inner')
@@ -116,7 +116,7 @@ def load_cluster_lookup_for_schema(
     function_to_short: dict,
 ) -> pd.DataFrame:
     """Load the per-function cluster parquets for the schema_pair's two functions
-    at the given threshold; return a single (seq_hash, cluster_id) lookup."""
+    at the given threshold; return a single (prot_hash, cluster_id) lookup."""
     threshold_dir = Path(clusters_root) / _threshold_label(threshold)
     func_left, func_right = schema_pair
     parts = []
@@ -128,7 +128,7 @@ def load_cluster_lookup_for_schema(
         if not p.exists():
             raise FileNotFoundError(f"Missing cluster parquet: {p}")
         parts.append(pd.read_parquet(p))
-    return pd.concat(parts, ignore_index=True)[['seq_hash', 'cluster_id']]
+    return pd.concat(parts, ignore_index=True)[['prot_hash', 'cluster_id']]
 
 
 def feasibility_for_threshold(
@@ -137,25 +137,25 @@ def feasibility_for_threshold(
     threshold: float,
 ) -> dict:
     """Compute bipartite-component stats on (cluster_id_a, cluster_id_b) AFTER
-    deduping on (seq_hash_a, seq_hash_b) — to match v2's actual routing input
+    deduping on (prot_hash_a, prot_hash_b) — to match v2's actual routing input
     (Stage 3 dedups pair_keys globally before split_dataset_v2 routes them)."""
     # Join cluster_ids onto both slots
-    lookup_a = cluster_lookup.rename(columns={'seq_hash': 'seq_hash_a',
+    lookup_a = cluster_lookup.rename(columns={'prot_hash': 'prot_hash_a',
                                               'cluster_id': 'cluster_id_a'})
-    lookup_b = cluster_lookup.rename(columns={'seq_hash': 'seq_hash_b',
+    lookup_b = cluster_lookup.rename(columns={'prot_hash': 'prot_hash_b',
                                               'cluster_id': 'cluster_id_b'})
-    pairs = isolate_pairs.merge(lookup_a, on='seq_hash_a', how='left')
-    pairs = pairs.merge(lookup_b, on='seq_hash_b', how='left')
+    pairs = isolate_pairs.merge(lookup_a, on='prot_hash_a', how='left')
+    pairs = pairs.merge(lookup_b, on='prot_hash_b', how='left')
     n_dropped = int(pairs['cluster_id_a'].isna().sum() + pairs['cluster_id_b'].isna().sum())
     pairs = pairs.dropna(subset=['cluster_id_a', 'cluster_id_b']).reset_index(drop=True)
 
-    # Dedup to one row per unique (seq_hash_a, seq_hash_b) — this matches
+    # Dedup to one row per unique (prot_hash_a, prot_hash_b) — this matches
     # the deduped pos_df that Stage 3 passes to the routing helper. Without
     # this dedup the analysis OVER-COUNTS the largest component because many
     # isolates can share the same protein pair (especially for conserved
     # functions like PB2/PB1).
     n_raw_pairs = len(pairs)
-    pairs = pairs.drop_duplicates(subset=['seq_hash_a', 'seq_hash_b']).reset_index(drop=True)
+    pairs = pairs.drop_duplicates(subset=['prot_hash_a', 'prot_hash_b']).reset_index(drop=True)
     n_pairs = len(pairs)
 
     if n_pairs == 0:
@@ -255,8 +255,8 @@ def main() -> None:
     print(f"\nschema_pair = {schema_pair}")
     isolate_pairs = build_isolate_pairs(df, schema_pair, alphabet=args.alphabet)
     print(f"  Isolates with both proteins: {len(isolate_pairs):,}")
-    print(f"  Unique seq_hash_a: {isolate_pairs['seq_hash_a'].nunique():,}")
-    print(f"  Unique seq_hash_b: {isolate_pairs['seq_hash_b'].nunique():,}")
+    print(f"  Unique prot_hash_a: {isolate_pairs['prot_hash_a'].nunique():,}")
+    print(f"  Unique prot_hash_b: {isolate_pairs['prot_hash_b'].nunique():,}")
 
     rows = []
     for threshold in args.thresholds:

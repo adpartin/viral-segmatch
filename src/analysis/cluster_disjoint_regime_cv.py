@@ -77,7 +77,7 @@ from src.models.baselines.lgbm import get_estimator, fit as lgbm_fit  # noqa: E4
 from src.datasets._negative_regime_sampling import REGIME_NAMES  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
-_HASH = {'aa': ('seq_hash_a', 'seq_hash_b'), 'nt_cds': ('dna_hash_a', 'dna_hash_b')}
+_HASH = {'aa': ('prot_hash_a', 'prot_hash_b'), 'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}
 _DEFAULT_REGIME_TARGETS = {
     'none_match': 0.05, 'host_only': 0.10, 'subtype_only': 0.10, 'year_only': 0.10,
     'host_subtype_only': 0.15, 'host_year_only': 0.15, 'subtype_year_only': 0.15,
@@ -137,7 +137,7 @@ def build_regime_dataset(universe, iso, cooccur, slot_a, slot_b, alphabet, thres
                          *, m_pos, m_neg, neg_to_pos_ratio, regime_targets, neg_strategy, seed):
     """Full labeled pos+neg set: cap-m positives per CC + within-CC regime negatives.
 
-    Returns (full_df, sampling_log). `full_df` columns: seq_hash_a, seq_hash_b,
+    Returns (full_df, sampling_log). `full_df` columns: prot_hash_a, prot_hash_b,
     label, atom_id, cc_id, neg_regime (pd.NA on positives). `sampling_log` carries
     per-CC achieved counts for the composition views.
     """
@@ -168,7 +168,7 @@ def build_regime_dataset(universe, iso, cooccur, slot_a, slot_b, alphabet, thres
             neg = sample_regime_negatives(cc_iso, regime_targets, budget, cooccur,
                                           seed=seed + int(cc))
         if len(neg):
-            neg = neg.rename(columns={'seq_hash_a': ha, 'seq_hash_b': hb})
+            neg = neg.rename(columns={'prot_hash_a': ha, 'prot_hash_b': hb})
             neg['cc_id'] = cc
             neg['atom_id'] = cc_to_atom[cc]
             neg['label'] = 0
@@ -327,8 +327,8 @@ def plot_pos_metadata(pos_full, iso, out_dir, slug, threshold):
     3-panel bar plot + a CSV. (Counts isolate rows, so a pair shared across many
     isolates contributes its metadata once per isolate.)
     """
-    iso2 = iso[['seq_hash_a', 'seq_hash_b', 'cell']].copy()
-    j = pos_full.merge(iso2, on=['seq_hash_a', 'seq_hash_b'], how='inner')
+    iso2 = iso[['prot_hash_a', 'prot_hash_b', 'cell']].copy()
+    j = pos_full.merge(iso2, on=['prot_hash_a', 'prot_hash_b'], how='inner')
     if j.empty:
         return
     cells = pd.DataFrame(j['cell'].tolist(), columns=['host', 'hn_subtype', 'year_bin'])

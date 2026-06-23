@@ -69,7 +69,7 @@ DEFAULT_DRIFT_PP = 0.05
 
 def _load_cluster_lookup(clusters_root: Path, threshold: float,
                           schema_pair: Tuple[str, str]) -> pd.DataFrame:
-    """Load combined seq_hash -> cluster_id for the two slot functions at threshold."""
+    """Load combined prot_hash -> cluster_id for the two slot functions at threshold."""
     label = _threshold_label(threshold)
     threshold_dir = clusters_root / label
     parts = []
@@ -81,7 +81,7 @@ def _load_cluster_lookup(clusters_root: Path, threshold: float,
         if not p.exists():
             raise FileNotFoundError(f"Missing cluster parquet: {p}")
         parts.append(pd.read_parquet(p))
-    return pd.concat(parts, ignore_index=True)[['seq_hash', 'cluster_id']]
+    return pd.concat(parts, ignore_index=True)[['prot_hash', 'cluster_id']]
 
 
 def feasibility_single_slot(isolate_pairs: pd.DataFrame,
@@ -99,16 +99,16 @@ def feasibility_single_slot(isolate_pairs: pd.DataFrame,
     other = 'b' if slot == 'a' else 'a'
 
     # Same dedup contract as the bilateral script: join cluster_ids onto both
-    # slots, dedup on (seq_hash_a, seq_hash_b) so we count what v2 actually routes.
-    lookup_a = cluster_lookup.rename(columns={'seq_hash': 'seq_hash_a',
+    # slots, dedup on (prot_hash_a, prot_hash_b) so we count what v2 actually routes.
+    lookup_a = cluster_lookup.rename(columns={'prot_hash': 'prot_hash_a',
                                               'cluster_id': 'cluster_id_a'})
-    lookup_b = cluster_lookup.rename(columns={'seq_hash': 'seq_hash_b',
+    lookup_b = cluster_lookup.rename(columns={'prot_hash': 'prot_hash_b',
                                               'cluster_id': 'cluster_id_b'})
-    pairs = isolate_pairs.merge(lookup_a, on='seq_hash_a', how='left')
-    pairs = pairs.merge(lookup_b, on='seq_hash_b', how='left')
+    pairs = isolate_pairs.merge(lookup_a, on='prot_hash_a', how='left')
+    pairs = pairs.merge(lookup_b, on='prot_hash_b', how='left')
     n_dropped = int(pairs['cluster_id_a'].isna().sum() + pairs['cluster_id_b'].isna().sum())
     pairs = pairs.dropna(subset=['cluster_id_a', 'cluster_id_b']).reset_index(drop=True)
-    pairs = pairs.drop_duplicates(subset=['seq_hash_a', 'seq_hash_b']).reset_index(drop=True)
+    pairs = pairs.drop_duplicates(subset=['prot_hash_a', 'prot_hash_b']).reset_index(drop=True)
     n_pairs = len(pairs)
 
     if n_pairs == 0:
@@ -200,8 +200,8 @@ def main() -> None:
     print(f'Schema pair: {args.schema_pair[0]!r} <-> {args.schema_pair[1]!r}  '
           f'({pair_label}, alphabet={alphabet})')
     print(f'Isolate pairs: {len(isolate_pairs):,}  '
-          f'(unique seq_hash_a={isolate_pairs["seq_hash_a"].nunique():,}, '
-          f'unique seq_hash_b={isolate_pairs["seq_hash_b"].nunique():,})')
+          f'(unique prot_hash_a={isolate_pairs["prot_hash_a"].nunique():,}, '
+          f'unique prot_hash_b={isolate_pairs["prot_hash_b"].nunique():,})')
     print()
 
     rows = []

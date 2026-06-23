@@ -21,7 +21,7 @@ unit), NOT per sequence. Each pair's metadata is the MODAL (hn_subtype, host,
 year) over the isolates in which that exact protein pair co-occurs
 (`pair_key_to_metadata`, generalizing `bigraph_cut_subtype.pair_key_to_subtype`
 from one field to three). This conditions on BOTH proteins, so it differs from a
-per-protein `seq_hash -> cluster_membership` lookup (one HA sequence pairs with
+per-protein `prot_hash -> cluster_membership` lookup (one HA sequence pairs with
 many NA subtypes); the per-pair modal is the right unit for a pair.
 
 The pair universe is t-invariant (the same pairs at every threshold; only the CC
@@ -115,12 +115,12 @@ def pair_key_to_metadata(cds_final: Path, slot_a: str, slot_b: str,
 
     Returns a DataFrame with columns: pair_key + one column per field.
     """
-    cds = pd.read_parquet(cds_final, columns=['assembly_id', 'function', 'seq_hash'])
+    cds = pd.read_parquet(cds_final, columns=['assembly_id', 'function', 'prot_hash'])
     cds['fs'] = cds['function'].map(_FUNCTION_TO_SHORT)
-    a = (cds[cds['fs'] == slot_a][['assembly_id', 'seq_hash']]
-         .rename(columns={'seq_hash': 'hash_a'}))
-    b = (cds[cds['fs'] == slot_b][['assembly_id', 'seq_hash']]
-         .rename(columns={'seq_hash': 'hash_b'}))
+    a = (cds[cds['fs'] == slot_a][['assembly_id', 'prot_hash']]
+         .rename(columns={'prot_hash': 'hash_a'}))
+    b = (cds[cds['fs'] == slot_b][['assembly_id', 'prot_hash']]
+         .rename(columns={'prot_hash': 'hash_b'}))
     iso = a.merge(b, on='assembly_id')
     iso['pair_key'] = [canonical_pair_key(x, y)
                        for x, y in zip(iso['hash_a'], iso['hash_b'])]
@@ -398,7 +398,7 @@ def main() -> None:
                 n_ccs = len(sizes)
 
                 # assign each universe pair its CC rank via its slot-a node
-                hash_a = 'seq_hash_a' if alphabet == 'aa' else 'dna_hash_a'
+                hash_a = 'prot_hash_a' if alphabet == 'aa' else 'cds_dna_hash_a'
                 u = u_meta.copy()
                 u['cc'] = ('a:' + u[hash_a].map(cmap_a).astype(str)).map(node_cc)
                 u = u.dropna(subset=['cc'])

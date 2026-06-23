@@ -79,8 +79,8 @@ def main() -> None:
 
     # Label each pair: kept (same atom) vs dropped (straddles), + isolate (H, N).
     u = universe.copy()
-    u['atom_a'] = ('a:' + u['seq_hash_a'].map(cmap_a).astype(str)).map(node_atom)
-    u['atom_b'] = ('b:' + u['seq_hash_b'].map(cmap_b).astype(str)).map(node_atom)
+    u['atom_a'] = ('a:' + u['prot_hash_a'].map(cmap_a).astype(str)).map(node_atom)
+    u['atom_b'] = ('b:' + u['prot_hash_b'].map(cmap_b).astype(str)).map(node_atom)
     u = u.dropna(subset=['atom_a', 'atom_b'])
     u['kept'] = u['atom_a'] == u['atom_b']
 

@@ -25,7 +25,7 @@ some train protein, or a test contig 1 nt away from some train contig.
 
 Reads (per dataset_dir):
   - {train,val,test}_pairs.csv with columns
-    seq_a, seq_b, dna_seq_a, dna_seq_b
+    prot_seq_a, prot_seq_b, ctg_dna_seq_a, ctg_dna_seq_b
 
 Reports nearest-neighbor identity distribution per side x level. Useful
 to flag whether the aa representation enjoys more similarity-leakage
@@ -162,19 +162,19 @@ def main():
     print(f'train pairs: {len(train):,}, test pairs: {len(test):,}')
 
     aa_a  = nearest_neighbor_identity(
-        train['seq_a'].tolist(), test['seq_a'].tolist(),
+        train['prot_seq_a'].tolist(), test['prot_seq_a'].tolist(),
         'slot_a aa (e.g. HA in HA/NA bundle)',
     )
     aa_b  = nearest_neighbor_identity(
-        train['seq_b'].tolist(), test['seq_b'].tolist(),
+        train['prot_seq_b'].tolist(), test['prot_seq_b'].tolist(),
         'slot_b aa (e.g. NA in HA/NA bundle)',
     )
     dna_a = nearest_neighbor_identity(
-        train['dna_seq_a'].tolist(), test['dna_seq_a'].tolist(),
+        train['ctg_dna_seq_a'].tolist(), test['ctg_dna_seq_a'].tolist(),
         'slot_a dna contig',
     )
     dna_b = nearest_neighbor_identity(
-        train['dna_seq_b'].tolist(), test['dna_seq_b'].tolist(),
+        train['ctg_dna_seq_b'].tolist(), test['ctg_dna_seq_b'].tolist(),
         'slot_b dna contig',
     )
 

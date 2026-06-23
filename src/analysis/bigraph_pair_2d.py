@@ -26,7 +26,7 @@ subtype-level heatmap (H-subtype × N-subtype pair counts) gives the coarse,
 immediately-readable version of the same islands.
 
 Both alphabets work: `load_cluster_map` is membership-backed (`cluster_source`),
-keying aa on `seq_hash` and nt_cds on `cds_dna_hash`, so `--alphabet nt_cds`
+keying aa on `prot_hash` and nt_cds on `cds_dna_hash`, so `--alphabet nt_cds`
 runs against `clusters_nt_cds`.
 
 CLI:
@@ -90,8 +90,8 @@ def build_pair_table(universe, cmap_a, cmap_b, alphabet, node_atom, subtype_df):
     (an on-block pair); False = a straddling/dropped pair. `h`/`n` are the modal
     H- and N-subtype carried by the pair's isolate(s).
     """
-    col_a = 'seq_hash_a' if alphabet == 'aa' else 'dna_hash_a'
-    col_b = 'seq_hash_b' if alphabet == 'aa' else 'dna_hash_b'
+    col_a = 'prot_hash_a' if alphabet == 'aa' else 'cds_dna_hash_a'
+    col_b = 'prot_hash_b' if alphabet == 'aa' else 'cds_dna_hash_b'
     u = universe.copy()
     u = u[u[col_a].isin(cmap_a) & u[col_b].isin(cmap_b)].copy()
     u['node_a'] = 'a:' + u[col_a].map(cmap_a).astype(str)

@@ -153,7 +153,7 @@ def plot_kmer_sequence_geometry(
 ) -> None:
     """Sequence-level k-mer geometry: PCA + UMAP, one subplot per function.
 
-    Each unique protein sequence (by `seq_hash`) appearing in any pair is
+    Each unique protein sequence (by `prot_hash`) appearing in any pair is
     rendered once. Color encodes which split(s) the sequence appears in;
     sequences that appear in more than one split get the leakage color.
 
@@ -724,7 +724,7 @@ def _lookup_kmer_rows(
 def _build_sequence_split_table(
     pairs: pd.DataFrame, key_to_row: dict, alphabet: str
 ) -> pd.DataFrame:
-    """Per unique `seq_hash`: function_short, kmer_row, frozenset(splits), color_key.
+    """Per unique `prot_hash`: function_short, kmer_row, frozenset(splits), color_key.
 
     Sequences whose (assembly_id, occurrence_id) does not match any
     k-mer row are dropped. The `splits` field is the union of splits
@@ -735,13 +735,13 @@ def _build_sequence_split_table(
     def _side(df: pd.DataFrame, side: str) -> pd.DataFrame:
         occ = occ_a if side == "a" else occ_b
         return df[
-            [f"assembly_id_{side}", occ, f"seq_hash_{side}",
+            [f"assembly_id_{side}", occ, f"prot_hash_{side}",
              f"function_short_{side}", "split"]
         ].rename(
             columns={
                 f"assembly_id_{side}": "assembly_id",
                 occ: "occ",
-                f"seq_hash_{side}": "seq_hash",
+                f"prot_hash_{side}": "prot_hash",
                 f"function_short_{side}": "function_short",
             }
         )
@@ -756,9 +756,9 @@ def _build_sequence_split_table(
     if long.empty:
         return long
 
-    # Collapse to one row per seq_hash: take first function_short / kmer_row
-    # (invariant for a given seq_hash by construction); union of splits.
-    agg = long.groupby("seq_hash", sort=False).agg(
+    # Collapse to one row per prot_hash: take first function_short / kmer_row
+    # (invariant for a given prot_hash by construction); union of splits.
+    agg = long.groupby("prot_hash", sort=False).agg(
         function_short=("function_short", "first"),
         kmer_row=("kmer_row", "first"),
         splits=("split", lambda s: frozenset(s.unique())),

@@ -108,7 +108,7 @@ def build_bipartite_multigraph(
             canonical protein pair.
         ha_cluster_map: {hash -> cluster_id} for slot-a (HA).
         na_cluster_map: {hash -> cluster_id} for slot-b (NA).
-        alphabet: 'aa' (uses seq_hash_{a,b}) or 'nt_cds' (uses dna_hash_{a,b}).
+        alphabet: 'aa' (uses prot_hash_{a,b}) or 'nt_cds' (uses cds_dna_hash_{a,b}).
 
     Returns:
         (G, n_unmapped). G is the multigraph; n_unmapped is the number of
@@ -116,9 +116,9 @@ def build_bipartite_multigraph(
         cluster assignment (should be 0 if clusters cover the corpus).
     """
     if alphabet == 'aa':
-        col_a, col_b = 'seq_hash_a', 'seq_hash_b'
+        col_a, col_b = 'prot_hash_a', 'prot_hash_b'
     elif alphabet == 'nt_cds':
-        col_a, col_b = 'dna_hash_a', 'dna_hash_b'
+        col_a, col_b = 'cds_dna_hash_a', 'cds_dna_hash_b'
     else:
         raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
 

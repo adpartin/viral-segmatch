@@ -22,7 +22,7 @@ The within-CC isolate-pool bridge (`build_isolate_context`) and the within-CC
 negative samplers (`sample_random_within_cc_negatives` / `sample_regime_negatives`)
 now LIVE in `src/datasets/_cc_helpers.py` so the maintained dataset builder can
 use them without `src/datasets` importing `src/analysis`. This module re-exposes
-them via thin compat wrappers that preserve the historical `seq_hash_a/b`
+them via thin compat wrappers that preserve the historical `prot_hash_a/b`
 interface the aa analysis harness expects; atom assignment stays here because it
 depends on `src/analysis` (load_cluster_map, fragment_weighted).
 """
@@ -45,7 +45,7 @@ from src.datasets._negative_regime_sampling import (  # noqa: E402
     DEFAULT_AXES, DEFAULT_YEAR_BIN_EDGES)
 # Within-CC isolate-pool bridge + samplers moved to src/datasets/_cc_helpers
 # (datasets must not import analysis; the home for primitives the dataset builder
-# also needs). Re-exposed below via compat wrappers that keep the seq_hash_a/b
+# also needs). Re-exposed below via compat wrappers that keep the prot_hash_a/b
 # interface the aa harness uses.
 from src.datasets._cc_helpers import (  # noqa: E402
     build_cc_isolate_pool as _cc_build_pool,
@@ -55,8 +55,8 @@ from src.datasets._cc_helpers import (  # noqa: E402
 _ROOT = {'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa',
          'nt_cds': PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'}
 # hash columns on the pair universe (load_pair_universe) per alphabet.
-_HASH = {'aa': ('seq_hash_a', 'seq_hash_b'),
-         'nt_cds': ('dna_hash_a', 'dna_hash_b')}
+_HASH = {'aa': ('prot_hash_a', 'prot_hash_b'),
+         'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}
 
 
 def assign_atoms(
@@ -261,7 +261,7 @@ def make_negatives(
 
 # ---------------------------------------------------------------------------
 # Compat wrappers over src/datasets/_cc_helpers. These preserve the historical
-# seq_hash_a/b column interface the aa analysis harness consumes; the generic
+# prot_hash_a/b column interface the aa analysis harness consumes; the generic
 # hash_a/hash_b naming + alphabet-specific membership hashes live in _cc_helpers.
 # ---------------------------------------------------------------------------
 def build_isolate_context(
@@ -280,7 +280,7 @@ def build_isolate_context(
 
     Builds the cluster->atom / cluster->cc maps from `u` (the `assign_atoms` output)
     and delegates the per-CC isolate pool to `_cc_helpers`, then renames the generic
-    `hash_a`/`hash_b` columns back to `seq_hash_a`/`seq_hash_b` so the aa harness
+    `hash_a`/`hash_b` columns back to `prot_hash_a`/`prot_hash_b` so the aa harness
     sees its historical interface. `cooccur` is the set of true canonical pair_keys.
     """
     c2a = {**dict(zip(u['cluster_a'].astype(str), u['atom_id'])),
@@ -289,7 +289,7 @@ def build_isolate_context(
            **dict(zip(u['cluster_b'].astype(str), u['cc_id']))}
     iso = _cc_build_pool(c2a, c2c, slot_a, slot_b, alphabet, threshold,
                          axes=axes, year_match=year_match, year_bin_edges=year_bin_edges)
-    iso = iso.rename(columns={'hash_a': 'seq_hash_a', 'hash_b': 'seq_hash_b'})
+    iso = iso.rename(columns={'hash_a': 'prot_hash_a', 'hash_b': 'prot_hash_b'})
     cooccur = set(universe['pair_key'])
     return iso, cooccur
 
@@ -297,20 +297,20 @@ def build_isolate_context(
 def sample_random_within_cc_negatives(cc_iso, budget, cooccur, *, seed, axes=DEFAULT_AXES):
     """Random within-CC negatives (compat wrapper over `_cc_helpers`).
 
-    seq_hash_a/b <-> hash_a/b rename around the moved sampler; byte-identical to the
+    prot_hash_a/b <-> hash_a/b rename around the moved sampler; byte-identical to the
     pre-move implementation (verified on aa t099).
     """
-    cc = cc_iso.rename(columns={'seq_hash_a': 'hash_a', 'seq_hash_b': 'hash_b'})
+    cc = cc_iso.rename(columns={'prot_hash_a': 'hash_a', 'prot_hash_b': 'hash_b'})
     out = _cc_sample_random(cc, budget, cooccur, seed=seed, axes=axes)
-    return out.rename(columns={'hash_a': 'seq_hash_a', 'hash_b': 'seq_hash_b'})
+    return out.rename(columns={'hash_a': 'prot_hash_a', 'hash_b': 'prot_hash_b'})
 
 
 def sample_regime_negatives(cc_iso, regime_targets, budget, cooccur, *, seed, axes=DEFAULT_AXES):
     """Within-CC regime-targeted negatives (compat wrapper over `_cc_helpers`).
 
-    seq_hash_a/b <-> hash_a/b rename around the moved sampler; byte-identical to the
+    prot_hash_a/b <-> hash_a/b rename around the moved sampler; byte-identical to the
     pre-move implementation (verified on aa t099).
     """
-    cc = cc_iso.rename(columns={'seq_hash_a': 'hash_a', 'seq_hash_b': 'hash_b'})
+    cc = cc_iso.rename(columns={'prot_hash_a': 'hash_a', 'prot_hash_b': 'hash_b'})
     out = _cc_sample_regime(cc, regime_targets, budget, cooccur, seed=seed, axes=axes)
-    return out.rename(columns={'hash_a': 'seq_hash_a', 'hash_b': 'seq_hash_b'})
+    return out.rename(columns={'hash_a': 'prot_hash_a', 'hash_b': 'prot_hash_b'})
