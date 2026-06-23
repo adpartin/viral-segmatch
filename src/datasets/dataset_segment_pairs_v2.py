@@ -1548,9 +1548,8 @@ def split_dataset_v2(
         # prot_hashes aren't covered by the cluster lookup are dropped.
         # See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
         # cluster_alphabet='aa' (default) clusters protein sequences;
-        # cluster_alphabet='nt_cds' clusters CDS DNA — the latter joins on
-        # cds_dna_hash, so we attach it to pos_df here before routing.
-        # 'nt_ctg' is reserved for Phase 3 (raises NotImplementedError).
+        # 'nt_cds' clusters CDS DNA (joins on cds_dna_hash); 'nt_ctg' clusters
+        # contig DNA (joins on ctg_dna_hash). The pos-side hash is attached below.
         from src.datasets._split_helpers import (
             cluster_disjoint_route_pos_df, load_cluster_lookup,
         )
@@ -1559,22 +1558,16 @@ def split_dataset_v2(
                 "split_dataset_v2: cluster_id_path is required when "
                 "split_strategy_mode='cluster_disjoint'."
             )
-        if cluster_alphabet == 'nt_ctg':
-            raise NotImplementedError(
-                "cluster_alphabet='nt_ctg' is reserved for Phase 3 (contig-"
-                "level clustering); not yet operational. See "
-                "docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
-            )
-        if cluster_alphabet not in {'aa', 'nt_cds'}:
+        if cluster_alphabet not in {'aa', 'nt_cds', 'nt_ctg'}:
             raise ValueError(
-                f"split_dataset_v2: cluster_alphabet must be 'aa' or 'nt_cds', "
-                f"got {cluster_alphabet!r}"
+                f"split_dataset_v2: cluster_alphabet must be 'aa', 'nt_cds', or "
+                f"'nt_ctg', got {cluster_alphabet!r}"
             )
         if cluster_alphabet == 'nt_cds':
             if cds_final_path is None:
                 raise ValueError(
                     "split_dataset_v2: cluster_alphabet='nt_cds' requires "
-                    "cds_final_path (the cds_final.parquet path)."
+                    "cds_final_path (the cds_dna_final.parquet path)."
                 )
             # cds_dna_hash_{a,b} may already be on pos_df if the orchestrator
             # pre-attached cds_dna_hash to df (pair_key_alphabet='nt_cds' path);
@@ -1584,9 +1577,10 @@ def split_dataset_v2(
                 pos_df = attach_cds_dna_hash_to_pos_df(
                     pos_df, cds_final_path, schema_pair=schema_pair,
                 )
-            pos_hash_col = 'cds_dna_hash'
-        else:
-            pos_hash_col = 'prot_hash'
+        # pos-side cluster-join hash from the registry: aa->prot_hash,
+        # nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash. nt_ctg's ctg_dna_hash_{a,b}
+        # are already populated on pos_df (only nt_cds needs the attach above).
+        pos_hash_col = schema.hash_col(cluster_alphabet)
         if single_slot is not None and single_slot not in ('a', 'b'):
             raise ValueError(
                 f"split_dataset_v2: single_slot must be None, 'a', or 'b'; got {single_slot!r}"
@@ -3007,12 +3001,10 @@ def _validate_v2_config(config) -> None:
                     f"(or absent); got {cluster_id_threshold!r}."
                 )
         cluster_alphabet = OmegaConf.select(config, "dataset.split_strategy.cluster_alphabet")
-        if cluster_alphabet is not None and cluster_alphabet not in {'aa', 'nt_cds'}:
+        if cluster_alphabet is not None and cluster_alphabet not in {'aa', 'nt_cds', 'nt_ctg'}:
             raise ValueError(
-                f"dataset.split_strategy.cluster_alphabet must be 'aa' or 'nt_cds' "
-                f"(or absent — defaults to 'aa'); got {cluster_alphabet!r}. "
-                f"Legacy 'nt' was renamed to 'nt_cds' in Phase 2 of the clustering "
-                f"cleanup plan."
+                f"dataset.split_strategy.cluster_alphabet must be 'aa', 'nt_cds', or "
+                f"'nt_ctg' (or absent — defaults to 'aa'); got {cluster_alphabet!r}."
             )
         # pair_key_alphabet config validation (Phase 2 of clustering cleanup plan)
         pair_key_alphabet = OmegaConf.select(config, "dataset.split_strategy.pair_key_alphabet")
