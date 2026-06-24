@@ -1,0 +1,17 @@
+# STATUS: experimental -- exp1 (Phase C): "clean CDS" -- nt_cds clusters (t100) +
+# nt_cds features. Inherits the C1 routing bundle (flu_ha_na_cluster_nt_cds_t100:
+# nt_cds clusters t100, nt_cds pair_key) and overrides ONLY the k-mer features to
+# nt_cds (CDS DNA, k6) instead of C1's inherited nt_ctg (contig).
+#
+# Same Stage-3 routing as C1 (identical cluster_alphabet/threshold/pair_key), so it
+# REUSES the C1 dataset -- run Stage 4 with --dataset_dir pointed at
+# data/datasets/.../runs/dataset_flu_ha_na_cluster_nt_cds_t100_c1 (Stage 3/4
+# decoupling). Isolates the FEATURE axis (nt_cds vs nt_ctg features) against C1,
+# with cluster routing + pair_key held fixed. C1 reference: LGBM 0.9569 / MLP 0.9649.
+defaults:
+  - flu_ha_na_cluster_nt_cds_t100
+  - _self_
+
+kmer:
+  alphabet: nt_cds
+  k: 6
