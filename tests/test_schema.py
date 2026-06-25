@@ -107,6 +107,19 @@ def test_pair_column_consistency():
     assert nca not in cols and ncb not in cols, "nt_cds seq must NOT be materialized per-pair"
 
 
+def test_cooccur_ternary_parity():
+    # Stage 3's `_cooccur_hash_col` was migrated from the binary ternary
+    #   'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'prot_hash'
+    # to schema.hash_col(pair_key_alphabet). Lock that the swap is VALUE-IDENTICAL
+    # for the two pre-existing alphabets (so the migration is ε=0 on aa/nt_cds),
+    # and that it now also resolves nt_ctg -> ctg_dna_hash (the new pair_key).
+    def retired_ternary(a):
+        return 'cds_dna_hash' if a == 'nt_cds' else 'prot_hash'
+    for a in ('aa', 'nt_cds'):
+        assert schema.hash_col(a) == retired_ternary(a), a
+    assert schema.hash_col('nt_ctg') == 'ctg_dna_hash'
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

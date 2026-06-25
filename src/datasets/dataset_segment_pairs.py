@@ -579,10 +579,10 @@ if PAIR_BUILDER_VERSION == 'v2':
         pk = getattr(SPLIT_STRATEGY_CFG, 'pair_key_alphabet', None)
         if pk is not None:
             PAIR_KEY_ALPHABET = str(pk)
-            if PAIR_KEY_ALPHABET not in ('aa', 'nt_cds'):
+            if PAIR_KEY_ALPHABET not in ('aa', 'nt_cds', 'nt_ctg'):
                 raise ValueError(
-                    f"dataset.split_strategy.pair_key_alphabet must be 'aa' or "
-                    f"'nt_cds', got {PAIR_KEY_ALPHABET!r}"
+                    f"dataset.split_strategy.pair_key_alphabet must be 'aa', 'nt_cds', "
+                    f"or 'nt_ctg', got {PAIR_KEY_ALPHABET!r}"
                 )
         else:
             # Default inference: tie to cluster_alphabet for cluster_disjoint;

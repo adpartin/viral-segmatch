@@ -215,15 +215,18 @@ def create_positive_pairs_v2(
     # hash pair joined by '__'. Hash family is alphabet-specific:
     #   pair_key_alphabet='aa'     -> prot_hash_{a,b} (protein)
     #   pair_key_alphabet='nt_cds' -> cds_dna_hash_{a,b} (CDS DNA)
+    #   pair_key_alphabet='nt_ctg' -> ctg_dna_hash_{a,b} (contig DNA)
     # Matches canonical_pair_key('a','b') = '__'.join(sorted([a,b])) in _pair_helpers.py.
     if pair_key_alphabet == 'aa':
         hash_col_a, hash_col_b = 'prot_hash_a', 'prot_hash_b'
     elif pair_key_alphabet == 'nt_cds':
         hash_col_a, hash_col_b = 'cds_dna_hash_a', 'cds_dna_hash_b'
+    elif pair_key_alphabet == 'nt_ctg':
+        hash_col_a, hash_col_b = 'ctg_dna_hash_a', 'ctg_dna_hash_b'
     else:
         raise ValueError(
-            f"create_positive_pairs_v2: pair_key_alphabet must be 'aa' or "
-            f"'nt_cds', got {pair_key_alphabet!r}"
+            f"create_positive_pairs_v2: pair_key_alphabet must be 'aa', 'nt_cds', "
+            f"or 'nt_ctg', got {pair_key_alphabet!r}"
         )
     if hash_col_a not in pos_df.columns or hash_col_b not in pos_df.columns:
         raise ValueError(
@@ -406,10 +409,18 @@ def create_negative_pairs_v2(
                 "Caller (orchestrator / split_dataset_v2) must attach cds_dna_hash "
                 "to prot_df via attach_cds_dna_hash_to_prot_df before pair construction."
             )
+    elif pair_key_alphabet == 'nt_ctg':
+        _PK_HASH_A, _PK_HASH_B = 'ctg_dna_hash_a', 'ctg_dna_hash_b'
+        if 'ctg_dna_hash_a' not in pos_df.columns or 'ctg_dna_hash_b' not in pos_df.columns:
+            raise ValueError(
+                "create_negative_pairs_v2: pair_key_alphabet='nt_ctg' requires "
+                "pos_df to have ctg_dna_hash_a / ctg_dna_hash_b columns "
+                "(attach_dna_to_prot_df populates these at Stage 3 load)."
+            )
     else:
         raise ValueError(
-            f"create_negative_pairs_v2: pair_key_alphabet must be 'aa' or "
-            f"'nt_cds', got {pair_key_alphabet!r}"
+            f"create_negative_pairs_v2: pair_key_alphabet must be 'aa', 'nt_cds', "
+            f"or 'nt_ctg', got {pair_key_alphabet!r}"
         )
     regime_mode = (axis_quotas is not None) and (len(axis_quotas) > 0)
     if regime_mode:
@@ -1419,7 +1430,7 @@ def split_dataset_v2(
     # would block / allow the wrong pairs as negatives). For pair_key_alphabet=
     # 'nt_cds' the df must have cds_dna_hash attached (orchestrator's
     # responsibility — see attach_cds_dna_hash_to_prot_df).
-    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'prot_hash'
+    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
     if cooccur_pairs is None:
         print(f"\nsplit_dataset_v2: Build co-occurrence set on {_cooccur_hash_col} "
               f"(pair_key_alphabet={pair_key_alphabet!r})...")
@@ -1982,7 +1993,7 @@ def generate_all_cv_folds_v2(
     """
     from sklearn.model_selection import KFold
 
-    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'prot_hash'
+    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
     print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
           f"(pair_key_alphabet={pair_key_alphabet!r})...")
     cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
@@ -2099,7 +2110,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
 
     # ----- Build co-occurrence set once -----
-    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'prot_hash'
+    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
     print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
           f"(pair_key_alphabet={pair_key_alphabet!r})...")
     cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
@@ -3008,9 +3019,9 @@ def _validate_v2_config(config) -> None:
             )
         # pair_key_alphabet config validation (Phase 2 of clustering cleanup plan)
         pair_key_alphabet = OmegaConf.select(config, "dataset.split_strategy.pair_key_alphabet")
-        if pair_key_alphabet is not None and pair_key_alphabet not in {'aa', 'nt_cds'}:
+        if pair_key_alphabet is not None and pair_key_alphabet not in {'aa', 'nt_cds', 'nt_ctg'}:
             raise ValueError(
-                f"dataset.split_strategy.pair_key_alphabet must be 'aa' or 'nt_cds' "
+                f"dataset.split_strategy.pair_key_alphabet must be 'aa', 'nt_cds', or 'nt_ctg' "
                 f"(or absent — defaults to cluster_alphabet for cluster_disjoint mode, "
                 f"else 'aa'); got {pair_key_alphabet!r}."
             )
