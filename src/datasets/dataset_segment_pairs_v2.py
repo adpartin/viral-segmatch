@@ -1580,10 +1580,22 @@ def split_dataset_v2(
                     "split_dataset_v2: cluster_alphabet='nt_cds' requires "
                     "cds_final_path (the cds_dna_final.parquet path)."
                 )
-            # cds_dna_hash_{a,b} may already be on pos_df if the orchestrator
-            # pre-attached cds_dna_hash to df (pair_key_alphabet='nt_cds' path);
-            # skip the redundant attach in that case.
-            if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
+            # cds_dna_hash_{a,b} are already populated if the orchestrator
+            # pre-attached cds_dna_hash to df (pair_key_alphabet='nt_cds' path).
+            # build_pair_columns always EMITS these columns, but they are empty
+            # (all-NaN) when pair_key != nt_cds -- so gate on POPULATED, not
+            # present: otherwise nt_cds clustering + a non-nt_cds pair_key (e.g.
+            # the historical protein-pair_key + nt_cds-cluster config) leaves them
+            # empty and the cluster join crashes on a float64-vs-string merge.
+            # Drop the empty placeholders and attach.
+            _populated = (
+                'cds_dna_hash_a' in pos_df.columns and 'cds_dna_hash_b' in pos_df.columns
+                and not pos_df['cds_dna_hash_a'].isna().all()
+                and not pos_df['cds_dna_hash_b'].isna().all()
+            )
+            if not _populated:
+                pos_df = pos_df.drop(columns=[c for c in ('cds_dna_hash_a', 'cds_dna_hash_b')
+                                              if c in pos_df.columns])
                 from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
                 pos_df = attach_cds_dna_hash_to_pos_df(
                     pos_df, cds_final_path, schema_pair=schema_pair,
@@ -2140,9 +2152,18 @@ def generate_all_cluster_disjoint_cv_folds_v2(
                 "cluster_alphabet='nt_cds' requires cds_final_path "
                 "(cds_final.parquet path from Stage 1.5)."
             )
-        # Skip redundant attach if orchestrator already pre-attached
-        # cds_dna_hash to df (pair_key_alphabet='nt_cds' path).
-        if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
+        # Gate on POPULATED, not present (see split_dataset_v2 above):
+        # build_pair_columns emits empty cds_dna_hash_{a,b} when pair_key != nt_cds,
+        # so attaching only on absence would leave them empty and crash the cluster
+        # join on a float64-vs-string merge. Drop the empty placeholders and attach.
+        _populated = (
+            'cds_dna_hash_a' in pos_df.columns and 'cds_dna_hash_b' in pos_df.columns
+            and not pos_df['cds_dna_hash_a'].isna().all()
+            and not pos_df['cds_dna_hash_b'].isna().all()
+        )
+        if not _populated:
+            pos_df = pos_df.drop(columns=[c for c in ('cds_dna_hash_a', 'cds_dna_hash_b')
+                                          if c in pos_df.columns])
             pos_df = attach_cds_dna_hash_to_pos_df(
                 pos_df, Path(cds_final_path), schema_pair=schema_pair,
             )
