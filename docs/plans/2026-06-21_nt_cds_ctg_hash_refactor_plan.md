@@ -206,8 +206,8 @@ The only hard plumbing coupling: the nt_cds cluster-join needs `cds_dna_hash` po
 
 Project goal: predict same-isolate co-occurrence, **molecule-agnostic** — any signal acceptable; not chasing protein-pair_key pseudoreplication purity. Therefore:
 
-- **Default:** `cluster == features == pair_key` (one molecule per experiment). A **config-load guard errors on any mismatch** → silent axis-inconsistency bugs become impossible.
-- **Override:** an explicit flag (working name `allow_axis_mismatch`, or an explicitly-set divergent axis) permits deliberate mixes (e.g. features≠pair_key). Mixes only on purpose, never by accident.
+- **Master knob `dataset.molecule: aa|nt_cds|nt_ctg`** (optional) — sets the default for all three axes (`cluster_alphabet`, `kmer.alphabet`, `pair_key_alphabet`). An explicit per-axis value overrides the master default. **pair_key is never auto-inferred from `cluster_alphabet`** — it comes from the master knob or an explicit setting (removes the old `:587–594` inference).
+- **Config-load guard:** the three axes must agree; **errors on any mismatch** unless `dataset.allow_alphabet_mismatch: true`. Silent axis-inconsistency bugs become impossible; mixes happen only on purpose.
 
 Subsumes the **(c)** decision: any mismatch (incl. the §13.4 crash) is rejected at config-load with a clear message by default; the deliberate-mix path goes through the override + a robust attach (populate the cluster-join hash from `cluster_alphabet` regardless of `pair_key`).
 
@@ -217,7 +217,7 @@ Subsumes the **(c)** decision: any mismatch (incl. the §13.4 crash) is rejected
 
 - **Cost: ~7 sites, 2 files, no new plumbing** — `ctg_dna_hash_{a,b}` are already materialized per-pair (`build_pair_columns` + unconditional `attach_dna_to_prot_df` at `:306`; exp2 confirmed populated). Sites: 2 construction `elif`s (`v2:219,398`), 2 validators (`orch:582`, `v2:3011`), 3 ternaries `→ schema.hash_col(pair_key_alphabet)` (`v2:1422,1985,2102`). Optional: pair_key inference (`:587–594`).
 - **Semantic caveat:** nt_ctg pair_key dedups on **contig** DNA → identical CDS + different UTR = distinct positives → **UTR-artifact inflation** (worse than nt_cds synonymous inflation). This is why it was originally excluded.
-- **Clean-use prerequisite:** run nt_ctg-all-3 EITHER (i) artifact-included as a caveated sensitivity check, OR (ii) after **UTR data cleaning** (identify/trim submission-artifact records) — the data-level form of the §12-deferred nt_ctg UTR normalization.
+- **Locked (2026-06-25): enable the code now, defer the nt_ctg-all-3 *run*.** The ~7-site capability ships so `molecule: nt_ctg` is expressible; the actual all-3 run waits for **UTR data cleaning** (identify/trim submission-artifact records — the data-level form of the §12-deferred UTR normalization). Rationale: exp2 already covers artifact-included nt_ctg; the all-3 run mainly adds UTR-inflated dedup, so it's run clean or not at all.
 
 ### 13.4 The folded-in bug (Phase-2 regression — blocks the historical Option-A config)
 
@@ -225,16 +225,16 @@ Subsumes the **(c)** decision: any mismatch (incl. the §13.4 crash) is rejected
 
 ### 13.5 Implementation order + regression
 
-- **(a) nt_ctg pair_key enablement** (7 sites + registry cleanup). Regression: re-run the 19 contract tests (lock `schema.hash_col` the ternary swap rides on) + **Stage-3 ε=0 on a matched nt_cds dataset (exp1)** — catch-all that surfaces any missed pair_key consumer. New contract tests: nt_ctg construction picks `ctg_dna_hash`; ternary==registry parity. **Models NOT re-run if ε=0** (same dataset → same metrics).
-- **(b) enforce-match guard + master knob.** Regression: config-load all bundles (matched pass; mismatch errors or overrides) + a guard contract test. **Required consumer update:** add the override flag to the C1 + exp2 bundles (deliberately mismatched) or they break.
+- **(a) nt_ctg pair_key enablement** (7 sites + registry cleanup) — ships the *capability*; the nt_ctg-all-3 *run* stays deferred (§13.3). Regression: re-run the 19 contract tests (lock `schema.hash_col` the ternary swap rides on) + **Stage-3 ε=0 on a matched nt_cds dataset (exp1)** — catch-all that surfaces any missed pair_key consumer. New contract tests: nt_ctg construction picks `ctg_dna_hash`; ternary==registry parity. **Models NOT re-run if ε=0** (same dataset → same metrics).
+- **(b) master knob (`dataset.molecule`) + enforce-match guard.** Regression: config-load all bundles (matched pass; mismatch errors unless `dataset.allow_alphabet_mismatch`) + a guard contract test. **Required consumer update:** add `allow_alphabet_mismatch: true` to the C1 + exp2 bundles (deliberately mismatched) or they break.
 - Order: (a) then (b).
 
-### 13.6 Open decisions (resolve before coding)
+### 13.6 Resolved decisions (2026-06-25)
 
-1. Master-knob shape: a single `dataset.molecule` that derives all three, vs explicit per-axis + guard only.
-2. Override flag name (`allow_axis_mismatch`?).
-3. nt_ctg-all-3: artifact-included sensitivity run vs gated behind UTR cleaning (§13.3).
-4. (If nt_ctg pair_key enabled) pair_key inference for nt_ctg clusters: auto → nt_ctg, or require explicit.
+1. **Setting mechanism: master knob `dataset.molecule` + config-load guard.** The knob defaults all three axes; explicit per-axis overrides it; the guard errors on any mismatch unless overridden.
+2. **Override flag: `dataset.allow_alphabet_mismatch`** (dataset-level — spans split_strategy + kmer).
+3. **nt_ctg pair_key: enable the code now; defer the nt_ctg-all-3 run** until UTR cleaning (§13.3).
+4. **pair_key inference for nt_ctg: none** — pair_key comes from `dataset.molecule` or an explicit value, never silently from `cluster_alphabet` (folded into decision 1; removes the `:587–594` inference).
 
 ### 13.7 CC builder (parked — post-v2 phase)
 
