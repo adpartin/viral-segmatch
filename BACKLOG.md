@@ -175,7 +175,13 @@ results depend on. Three concrete follow-ups:
       a small dedicated analysis script — depending on how invasive
       the fix is.
 3. **Alphabet-specific pair_key (currently protein-only)**.
-   Current convention: `pair_key = canonical_pair_key(seq_hash_a,
+   **DONE 2026-06-25** — implemented: `pair_key_alphabet ∈ {aa, nt_cds,
+   nt_ctg}` + the `dataset.molecule` axis-consistency knob landed via the
+   Phase-2 migration + the nt_cds/nt_ctg refactor
+   (`docs/plans/done/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`, §13);
+   universe-size deltas measured (+34.9% HA-NA nt_cds). Original scoping
+   note retained below for context.
+   Current convention (pre-2026-06-25): `pair_key = canonical_pair_key(seq_hash_a,
    seq_hash_b)` on PROTEIN hashes regardless of alphabet (aa,
    nt_cds, nt_ctg). One shared pair universe per schema pair (HA-NA:
    58,826 canonical pairs after dedup). Switching to
@@ -194,3 +200,25 @@ results depend on. Three concrete follow-ups:
    updates, expected universe-size deltas per (schema_pair,
    alphabet), what gets re-validated.
 
+
+---
+
+## nt_cds/nt_ctg refactor — remaining cleanups (post-close 2026-06-25)
+
+Non-blocking loose ends from the closed refactor
+(`docs/plans/done/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`).
+
+1. **`stage4_*.sh` wrappers call bare `python`** — not the segmatch env →
+   `ModuleNotFoundError: pandas`. Next action: point the wrappers at the env
+   python (abs path or `conda run -n segmatch`). (~10 min)
+2. **Orchestrator reads legacy `cds_final`** (`dataset_segment_pairs.py:623`
+   default) — works (has `cds_dna_hash`) but should be `cds_dna_final`. Next
+   action: repoint the default, then delete old `genome_final`/`cds_final`. (~10 min)
+3. **Post-v2 CC-builder convention pass** (`dataset_pairs_cc.py`) — bring to the
+   new seq/hash/cluster names + ungate the `:375` aa-only pair_key gate. Next
+   action: a dedicated pass after v2 stabilizes (user-parked). (needs design)
+4. **Minor doc/provenance**: `compute_kmer_features` docstring labels
+   (`nt:`→`nt_ctg:`) + `INPUT_BASENAME` `.csv`→ext-agnostic; `train_pair_baselines`
+   `kmer_alphabet` provenance threading. (~15 min total)
+5. **Deferred experiments**: UTR data-cleaning → clean nt_ctg-all-3 run; nt_ctg
+   feasibility below t099 via the `drop_budget` mega-CC cut. (needs design)
