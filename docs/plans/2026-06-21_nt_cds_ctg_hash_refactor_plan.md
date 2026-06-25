@@ -1,6 +1,6 @@
 # nt_cds / nt_ctg disambiguation + symmetric hash/sequence/file refactor
 
-**Status: Phase A + B + C COMPLETE** (refactor + nt_cds/nt_ctg enablement + the 3 experiments; documented loose ends remain, none blocking). Phase A: A1 registry + `tests/test_schema.py`; A2 Stage-1/1.5 producers + non-destructive data migration; the keystone (Stage-3 pair-table → `schema.build_pair_columns()`, all 5 builders) + the `bipartite_components` seq_disjoint fix; all consumers (Stage 4 vocab/bugs, 18 analysis/viz files incl. the `dna_hash` mislabel fix); routing maps → registry (`clustering_utils`/`build_mmseqs_clusters`/`build_cluster_membership`, `compute_seq_hash`→`compute_prot_hash`); k-mer `nt`→`nt_ctg` (builder/loader/Stage 4 + 6 renamed data files + configs). **Gate-A:** Stage-3 dataset ε=0 (byte-identical modulo rename) + Stage-4 `nt_ctg` k-mer training end-to-end verified. Phase-A commits: `38fac8e` keystone, `6f5e4cf` consumers, `181c576` routing maps, `591605a` k-mer. **Phase B done:** B3 v2 ungate (`8580623`); B1 `kmer_features_nt_cds_k3` (`ae55f79`+`dd62942`); B2 `clusters_nt_ctg` + `cluster_memb_nt_ctg` (`1c3423c`); plus the `plot_kmer_routing_geometry` nt_ctg viz cutover the B2 consumer-smoke surfaced (`4601e38`); B4 `cluster_disjoint_feasibility` registry cutover + measured feasibility (`ab916a8`; HA/NA operable at t100/t099 only on all three alphabets) + `clusters_aa` `seq_hash`→`prot_hash` migration; B1-k6 `kmer_features_nt_cds_k6` (`2e6f3c0`, 868,240×4096, ~1.008B nnz). **Phase B COMPLETE.** **Phase C:** the 3 experiments (incl. C1 baseline F1≈0.958). Loose ends: `compute_kmer_features` docstring labels; `train_pair_baselines` `kmer_alphabet` provenance. Decisions locked (§11).
+**Status: Phase A + B + C COMPLETE** (refactor + nt_cds/nt_ctg enablement + the 3 experiments; documented loose ends remain, none blocking). Phase A: A1 registry + `tests/test_schema.py`; A2 Stage-1/1.5 producers + non-destructive data migration; the keystone (Stage-3 pair-table → `schema.build_pair_columns()`, all 5 builders) + the `bipartite_components` seq_disjoint fix; all consumers (Stage 4 vocab/bugs, 18 analysis/viz files incl. the `dna_hash` mislabel fix); routing maps → registry (`clustering_utils`/`build_mmseqs_clusters`/`build_cluster_membership`, `compute_seq_hash`→`compute_prot_hash`); k-mer `nt`→`nt_ctg` (builder/loader/Stage 4 + 6 renamed data files + configs). **Gate-A:** Stage-3 dataset ε=0 (byte-identical modulo rename) + Stage-4 `nt_ctg` k-mer training end-to-end verified. Phase-A commits: `38fac8e` keystone, `6f5e4cf` consumers, `181c576` routing maps, `591605a` k-mer. **Phase B done:** B3 v2 ungate (`8580623`); B1 `kmer_features_nt_cds_k3` (`ae55f79`+`dd62942`); B2 `clusters_nt_ctg` + `cluster_memb_nt_ctg` (`1c3423c`); plus the `plot_kmer_routing_geometry` nt_ctg viz cutover the B2 consumer-smoke surfaced (`4601e38`); B4 `cluster_disjoint_feasibility` registry cutover + measured feasibility (`ab916a8`; HA/NA operable at t100/t099 only on all three alphabets) + `clusters_aa` `seq_hash`→`prot_hash` migration; B1-k6 `kmer_features_nt_cds_k6` (`2e6f3c0`, 868,240×4096, ~1.008B nnz). **Phase B COMPLETE.** **Phase C:** the 3 experiments (incl. C1 baseline F1≈0.958). Loose ends: `compute_kmer_features` docstring labels; `train_pair_baselines` `kmer_alphabet` provenance. Decisions locked (§11). **Follow-on design** (axis-consistency policy + nt_ctg pair_key) locked in §13 — implementation pending.
 **Branch:** `feature/nt-cds-ctg-refactor` (based on `feature/cc-dataset-cv`).
 **Source:** the 2026-06-21 read-only pipeline audit (7-slice fan-out, Stage 1→4 + configs + analysis + docs). Load-bearing findings re-verified directly (see §5).
 
@@ -183,6 +183,62 @@ Most column references collapse to registry lookups once §3 lands; the manual s
 - **nt_ctg UTR normalization** — exp 2 runs artifact-included (option 2); normalization deferred until/unless the artifact proves to dominate.
 - **CC-builder (`dataset_pairs_cc`) nt experiments** — the experiments use the v2 holdout; Phase B only *ungates* nt in the CC builder, it does not run CC nt CV.
 - **Bunya** — not maintained.
+
+---
+
+## 13. Axis-consistency policy + nt_ctg pair_key (design locked — implementation pending)
+
+Emerged from the Phase-C axis discussion (2026-06-25). **Design locked; no code written yet.** The A+B+C refactor above stands complete; this is the agreed follow-on.
+
+### 13.1 The three alphabet axes (roles verified in code)
+
+Three *independent* alphabet axes:
+
+| axis | role | mechanism (verified) | domain |
+|------|------|----------------------|--------|
+| `split_strategy.cluster_alphabet` | **leakage barrier** — which seq-similarity clustering defines the train/val/test partition | `pos_hash_col = schema.hash_col(cluster_alphabet)` → cluster join (`dataset_segment_pairs_v2.py:1583,1597`) | aa, nt_cds, nt_ctg |
+| `split_strategy.pair_key_alphabet` | **positive-pair identity** — dedup + no-same-pair-across-splits | `pair_key = '__'.join(sorted([hash_a,hash_b]))` (`v2:214–226`) | aa, nt_cds **(no nt_ctg today)** |
+| `kmer.alphabet` | **model input features** | k-mer cache selection | aa, nt_cds, nt_ctg |
+
+The only hard plumbing coupling: the nt_cds cluster-join needs `cds_dna_hash` populated per-slot (source of the §13.4 bug).
+
+### 13.2 Policy: enforce-match by default, deliberate override
+
+Project goal: predict same-isolate co-occurrence, **molecule-agnostic** — any signal acceptable; not chasing protein-pair_key pseudoreplication purity. Therefore:
+
+- **Default:** `cluster == features == pair_key` (one molecule per experiment). A **config-load guard errors on any mismatch** → silent axis-inconsistency bugs become impossible.
+- **Override:** an explicit flag (working name `allow_axis_mismatch`, or an explicitly-set divergent axis) permits deliberate mixes (e.g. features≠pair_key). Mixes only on purpose, never by accident.
+
+Subsumes the **(c)** decision: any mismatch (incl. the §13.4 crash) is rejected at config-load with a clear message by default; the deliberate-mix path goes through the override + a robust attach (populate the cluster-join hash from `cluster_alphabet` regardless of `pair_key`).
+
+### 13.3 nt_ctg as a pair_key (to make the policy uniform)
+
+`pair_key_alphabet` is `{aa, nt_cds}` today, so "all-3 = nt_ctg" is impossible — nt_ctg experiments are forced into the override. **Decision: enable `nt_ctg` as a pair_key value** so all three molecules are symmetric.
+
+- **Cost: ~7 sites, 2 files, no new plumbing** — `ctg_dna_hash_{a,b}` are already materialized per-pair (`build_pair_columns` + unconditional `attach_dna_to_prot_df` at `:306`; exp2 confirmed populated). Sites: 2 construction `elif`s (`v2:219,398`), 2 validators (`orch:582`, `v2:3011`), 3 ternaries `→ schema.hash_col(pair_key_alphabet)` (`v2:1422,1985,2102`). Optional: pair_key inference (`:587–594`).
+- **Semantic caveat:** nt_ctg pair_key dedups on **contig** DNA → identical CDS + different UTR = distinct positives → **UTR-artifact inflation** (worse than nt_cds synonymous inflation). This is why it was originally excluded.
+- **Clean-use prerequisite:** run nt_ctg-all-3 EITHER (i) artifact-included as a caveated sensitivity check, OR (ii) after **UTR data cleaning** (identify/trim submission-artifact records) — the data-level form of the §12-deferred nt_ctg UTR normalization.
+
+### 13.4 The folded-in bug (Phase-2 regression — blocks the historical Option-A config)
+
+`v2:1575` gates the cds_dna_hash attach on column *presence*, but `build_pair_columns` always emits empty `cds_dna_hash_{a,b}`; with `pair_key≠nt_cds` they stay float64-NaN → cluster join crashes on a float64-vs-string merge. Authored `577d19b5` (2026-06-02, Phase-2), **not** this refactor. Resolution under the policy: the guard rejects it by default (clear error); the override path uses a populate-not-skip attach (gate on *populated*, not *present*).
+
+### 13.5 Implementation order + regression
+
+- **(a) nt_ctg pair_key enablement** (7 sites + registry cleanup). Regression: re-run the 19 contract tests (lock `schema.hash_col` the ternary swap rides on) + **Stage-3 ε=0 on a matched nt_cds dataset (exp1)** — catch-all that surfaces any missed pair_key consumer. New contract tests: nt_ctg construction picks `ctg_dna_hash`; ternary==registry parity. **Models NOT re-run if ε=0** (same dataset → same metrics).
+- **(b) enforce-match guard + master knob.** Regression: config-load all bundles (matched pass; mismatch errors or overrides) + a guard contract test. **Required consumer update:** add the override flag to the C1 + exp2 bundles (deliberately mismatched) or they break.
+- Order: (a) then (b).
+
+### 13.6 Open decisions (resolve before coding)
+
+1. Master-knob shape: a single `dataset.molecule` that derives all three, vs explicit per-axis + guard only.
+2. Override flag name (`allow_axis_mismatch`?).
+3. nt_ctg-all-3: artifact-included sensitivity run vs gated behind UTR cleaning (§13.3).
+4. (If nt_ctg pair_key enabled) pair_key inference for nt_ctg clusters: auto → nt_ctg, or require explicit.
+
+### 13.7 CC builder (parked — post-v2 phase)
+
+After v2 + seq/hash naming close, a dedicated pass brings `dataset_pairs_cc.py` to the new seq/hash/cluster conventions (the `:375` aa-only pair_key gate + other sites). Out of scope here; tracked for the post-v2 phase.
 
 ---
 
