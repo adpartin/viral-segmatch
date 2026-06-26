@@ -49,24 +49,24 @@ from src.utils.config_hydra import get_virus_config_hydra, load_function_metadat
 
 
 def _canon_pairs(df: pd.DataFrame) -> set:
-    """Order-invariant set of (seq_hash_a, seq_hash_b) pairs."""
-    a = df['seq_hash_a'].astype(str).to_numpy()
-    b = df['seq_hash_b'].astype(str).to_numpy()
+    """Order-invariant set of (prot_hash_a, prot_hash_b) pairs."""
+    a = df['prot_hash_a'].astype(str).to_numpy()
+    b = df['prot_hash_b'].astype(str).to_numpy()
     return set(map(tuple, np.stack([np.minimum(a, b), np.maximum(a, b)], axis=1)))
 
 
 def _partition(df: pd.DataFrame) -> frozenset:
     """Label-independent CC partition: {frozenset(canonical pair keys) per cc_id}."""
-    a = df['seq_hash_a'].astype(str).to_numpy()
-    b = df['seq_hash_b'].astype(str).to_numpy()
+    a = df['prot_hash_a'].astype(str).to_numpy()
+    b = df['prot_hash_b'].astype(str).to_numpy()
     key = np.where(a <= b, a, b) + '|' + np.where(a <= b, b, a)
     tmp = pd.DataFrame({'key': key, 'cc': df['cc_id'].to_numpy()})
     return frozenset(frozenset(g['key']) for _, g in tmp.groupby('cc'))
 
 
-def analysis_dataset(cds_final, slot_a, slot_b, threshold, *, m_pos, ratio, seed):
+def analysis_dataset(cds_dna_final, slot_a, slot_b, threshold, *, m_pos, ratio, seed):
     """In-memory reference: universe -> atoms -> within-CC random negatives."""
-    universe = load_pair_universe(cds_final, slot_a, slot_b)
+    universe = load_pair_universe(cds_dna_final, slot_a, slot_b)
     u = assign_atoms(universe, slot_a, slot_b, 'aa', threshold, strategy='natural')
     iso, cooccur = build_isolate_context(u, universe, slot_a, slot_b, 'aa', threshold)
     full, _ = build_regime_dataset(
@@ -121,7 +121,7 @@ def main() -> int:
     print(f"=== verify_cc_reproduction {sa}-{sb} aa {args.threshold} "
           f"(m_pos={args.m_pos}, ratio={args.neg_to_pos_ratio}, seed={args.seed}) ===")
     u, cooccur_a, ana_full = analysis_dataset(
-        proc / 'cds_final.parquet', sa, sb, args.threshold,
+        proc / 'cds_dna_final.parquet', sa, sb, args.threshold,
         m_pos=args.m_pos, ratio=args.neg_to_pos_ratio, seed=args.seed)
     pos_ids, cooccur_b, neg = builder_dataset(
         config, proc / 'protein_final.parquet', fa, fb, sa, sb, args.threshold,
