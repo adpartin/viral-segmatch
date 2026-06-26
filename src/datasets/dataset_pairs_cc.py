@@ -128,13 +128,16 @@ def assign_atoms_prod(pos: pd.DataFrame, cluster_lookup: pd.DataFrame, pos_hash_
     return pos_ids, cc_summary
 
 
-def _side_rep(df: pd.DataFrame, func: str, suffix: str) -> pd.DataFrame:
-    """{one row per prot_hash} of per-side fields for `func`, renamed to *_<suffix>.
+def _side_rep(df: pd.DataFrame, func: str, suffix: str, key_col: str = 'prot_hash') -> pd.DataFrame:
+    """{one row per `key_col`} of per-side fields for `func`, renamed to *_<suffix>.
 
-    First occurrence per prot_hash is the representative (matches v2's keep='first').
+    `key_col` is the alphabet's per-slot hash column the negative enrichment joins
+    on (aa: prot_hash, nt_ctg: ctg_dna_hash, nt_cds: cds_dna_hash). First occurrence
+    per key is the representative (matches v2's keep='first'). Within one function a
+    DNA hash maps to exactly one protein, so the rep's other columns are unambiguous.
     """
     cols = list(_SIDE_SRC) + (['cds_dna_hash'] if 'cds_dna_hash' in df.columns else [])
-    rep = df[df['function'] == func][cols].drop_duplicates('prot_hash', keep='first').copy()
+    rep = df[df['function'] == func][cols].drop_duplicates(key_col, keep='first').copy()
     ren = {k: f'{v}_{suffix}' for k, v in _SIDE_RENAME.items()}
     if 'cds_dna_hash' in df.columns:
         ren['cds_dna_hash'] = f'cds_dna_hash_{suffix}'
@@ -172,8 +175,8 @@ def compute_negative_infeasible_ccs(pos_ids: pd.DataFrame, cooccur: set,
 
 def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
                         df: pd.DataFrame, schema_pair_full: tuple, *,
-                        neg_to_pos_ratio: float,
-                        seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+                        neg_to_pos_ratio: float, seed: int,
+                        hash_col: str = 'prot_hash') -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-CC within-CC random negatives, enriched to `_PAIR_COLUMNS`.
 
     budget per CC = round(neg_to_pos_ratio * n_pos_in_cc). Negative-infeasible CCs
@@ -206,17 +209,21 @@ def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
         return pd.DataFrame(columns=list(_PAIR_COLUMNS) + ['cc_id', 'atom_id']), cc_log
 
     neg_all = pd.concat(raw, ignore_index=True)  # hash_a, hash_b, neg_regime, metadata_match_count, cc_id, atom_id
-    ra, rb = _side_rep(df, fa, 'a'), _side_rep(df, fb, 'b')
-    out = (neg_all.rename(columns={'hash_a': 'prot_hash_a', 'hash_b': 'prot_hash_b'})
-           .merge(ra, on='prot_hash_a', how='left')
-           .merge(rb, on='prot_hash_b', how='left'))
+    # The sampler's hash_a/hash_b carry the alphabet's per-slot hash (aa: prot_hash,
+    # nt_ctg: ctg_dna_hash); key the enrichment merge AND pair_key on it so negatives
+    # match the positives' pair_key_alphabet (not a hardcoded protein pair_key).
+    ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'
+    ra, rb = _side_rep(df, fa, 'a', hash_col), _side_rep(df, fb, 'b', hash_col)
+    out = (neg_all.rename(columns={'hash_a': ha_col, 'hash_b': hb_col})
+           .merge(ra, on=ha_col, how='left')
+           .merge(rb, on=hb_col, how='left'))
     miss = out[['assembly_id_a', 'assembly_id_b']].isna().any(axis=1)
     if miss.any():
         print(f"WARNING: dropping {int(miss.sum()):,} negatives whose sequence is "
               f"absent from the (filtered) protein frame.")
         out = out[~miss].reset_index(drop=True)
-    a = out['prot_hash_a'].astype(str).to_numpy()
-    b = out['prot_hash_b'].astype(str).to_numpy()
+    a = out[ha_col].astype(str).to_numpy()
+    b = out[hb_col].astype(str).to_numpy()
     out['pair_key'] = np.where(a <= b, a, b) + '__' + np.where(a <= b, b, a)
     out['label'] = 0
     for c in ('cds_dna_hash_a', 'cds_dna_hash_b'):
@@ -257,7 +264,7 @@ def make_folds(full: pd.DataFrame, k_folds: int, val_ratio: float, seed: int):
 
 def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFrame,
                           schema_pair_full: tuple, *, neg_to_pos_ratio: float,
-                          seed: int) -> pd.DataFrame:
+                          seed: int, hash_col: str = 'prot_hash') -> pd.DataFrame:
     """Cross-CC negatives for one fold-split (the `make_negatives` scheme).
 
     Pairs a random positive's slot-a seq with another positive's slot-b seq,
@@ -268,8 +275,9 @@ def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFram
     `_PAIR_COLUMNS` (mirrors `within_cc_negatives`).
     """
     fa, fb = schema_pair_full
-    a = split_pos['prot_hash_a'].astype(str).to_numpy()
-    b = split_pos['prot_hash_b'].astype(str).to_numpy()
+    ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'  # alphabet's per-slot hash (aa: prot_hash)
+    a = split_pos[ha_col].astype(str).to_numpy()
+    b = split_pos[hb_col].astype(str).to_numpy()
     budget = int(round(neg_to_pos_ratio * len(split_pos)))
     if len(a) < 2 or budget <= 0:
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
@@ -288,11 +296,11 @@ def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFram
         placed += 1
     if not na:
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
-    out = pd.DataFrame({'prot_hash_a': na, 'prot_hash_b': nb})
-    ra, rb = _side_rep(df, fa, 'a'), _side_rep(df, fb, 'b')
-    out = out.merge(ra, on='prot_hash_a', how='left').merge(rb, on='prot_hash_b', how='left')
-    aa = out['prot_hash_a'].astype(str).to_numpy()
-    bb = out['prot_hash_b'].astype(str).to_numpy()
+    out = pd.DataFrame({ha_col: na, hb_col: nb})
+    ra, rb = _side_rep(df, fa, 'a', hash_col), _side_rep(df, fb, 'b', hash_col)
+    out = out.merge(ra, on=ha_col, how='left').merge(rb, on=hb_col, how='left')
+    aa = out[ha_col].astype(str).to_numpy()
+    bb = out[hb_col].astype(str).to_numpy()
     out['pair_key'] = np.where(aa <= bb, aa, bb) + '__' + np.where(aa <= bb, bb, aa)
     out['label'] = 0
     out['neg_regime'] = pd.NA
@@ -305,7 +313,8 @@ def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFram
 
 def make_folds_within_fold(pos_full: pd.DataFrame, k_folds: int, val_ratio: float,
                            seed: int, *, neg_to_pos_ratio: float, cooccur: set,
-                           df: pd.DataFrame, schema_pair_full: tuple):
+                           df: pd.DataFrame, schema_pair_full: tuple,
+                           hash_col: str = 'prot_hash'):
     """GroupKFold the POSITIVES by atom_id, then add cross-CC (within-fold)
     negatives per split from that split's own positives. Negatives stay in-split,
     so folds remain cluster-disjoint. Returns per fold (train, val, test) frames
@@ -335,7 +344,7 @@ def make_folds_within_fold(pos_full: pd.DataFrame, k_folds: int, val_ratio: floa
         for si, sp in enumerate([train_pos, val_pos, te_pos]):
             negs = within_fold_negatives(sp, cooccur, df, schema_pair_full,
                                          neg_to_pos_ratio=neg_to_pos_ratio,
-                                         seed=seed + fi * 100 + si)
+                                         seed=seed + fi * 100 + si, hash_col=hash_col)
             out.append(pd.concat([sp[cols], negs[cols]], ignore_index=True).reset_index(drop=True))
         folds.append(tuple(out))
     return folds
@@ -366,13 +375,26 @@ def main() -> None:
             f"dataset_pairs_cc requires dataset.split_strategy.mode='cluster_disjoint_cc'; "
             f"got {mode!r}. (Other modes are built by dataset_segment_pairs_v2.)")
 
-    # --- knobs (Phase 1: aa only; regime negatives + n_repeats>1 are placeholders) ---
+    # --- knobs (regime negatives + n_repeats>1 are placeholders) ---
+    # Enabled alphabets: aa + nt_ctg (contig DNA). nt_cds is still gated -- it needs
+    # the cds_dna_hash attach in build_frontend (cds source path + §13c populate-not-
+    # skip cluster join), not yet wired into this builder.
+    _ENABLED_ALPHABETS = ('aa', 'nt_ctg')
     alphabet = str(getattr(ss, 'cluster_alphabet', 'aa') or 'aa')
-    if alphabet != 'aa':
-        raise NotImplementedError(f"Phase 1 is aa-only; got cluster_alphabet={alphabet!r}.")
-    pair_key_alphabet = str(getattr(ss, 'pair_key_alphabet', 'aa') or 'aa')
-    if pair_key_alphabet != 'aa':
-        raise NotImplementedError(f"Phase 1 is aa pair_key only; got {pair_key_alphabet!r}.")
+    if alphabet not in _ENABLED_ALPHABETS:
+        raise NotImplementedError(
+            f"cluster_alphabet={alphabet!r} is not yet wired into the 2D-CD builder "
+            f"(enabled: {list(_ENABLED_ALPHABETS)}); nt_cds needs the cds_dna_hash attach.")
+    # The 2D-CD builder uses ONE molecule axis: cluster join, cooccurrence set, isolate
+    # pool, and positive/negative pair_key all key on `alphabet`'s hash. A separate
+    # pair_key_alphabet would split positives (keyed by pair_key_alphabet) from
+    # cooccur+negatives (keyed by the cluster alphabet); require them equal.
+    pair_key_alphabet = str(getattr(ss, 'pair_key_alphabet', alphabet) or alphabet)
+    if pair_key_alphabet != alphabet:
+        raise NotImplementedError(
+            f"the 2D-CD builder keys pairs by the cluster alphabet; got "
+            f"cluster_alphabet={alphabet!r} != pair_key_alphabet={pair_key_alphabet!r}. "
+            f"Set them equal (or leave pair_key_alphabet unset).")
     if getattr(ds, 'negative_sampling', None) is not None:
         raise NotImplementedError(
             "Regime-targeted within-CC negatives (dataset.negative_sampling) are a placeholder; "
@@ -449,7 +471,9 @@ def main() -> None:
     # positives so the m_pos cap doesn't make a CC look infeasible. Singleton CCs (one unique
     # pair_key) are the base case; the superset also covers dense CCs where every cross pairing
     # co-occurs. One set, applied identically under both negative scopes (parity).
-    neg_infeasible_ccs = compute_negative_infeasible_ccs(pos_ids, cooccur)
+    neg_infeasible_ccs = compute_negative_infeasible_ccs(
+        pos_ids, cooccur,
+        hash_a_col=f'{_POS_HASH[alphabet]}_a', hash_b_col=f'{_POS_HASH[alphabet]}_b')
 
     # Unified drop (both scopes): remove negative-infeasible CCs up front so every kept CC is
     # class-balanceable. When disabled, they survive as positives-only atoms (within_fold can
@@ -492,7 +516,8 @@ def main() -> None:
 
     if negative_scope == 'within_cc':
         neg, cc_log = within_cc_negatives(
-            pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio, seed=seed)
+            pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio, seed=seed,
+            hash_col=_POS_HASH[alphabet])
         # Defensive: with dropping enabled every kept CC is structurally feasible, so a CC with
         # budget>0 yet 0 sampled negatives means the random sampler under-filled; drop its
         # positives to keep folds balanced and warn. (With dropping disabled, 0-negative CCs are
@@ -521,7 +546,7 @@ def main() -> None:
               f"within-fold (cross-CC) negatives generated per split")
         folds = make_folds_within_fold(
             pos_full, k_folds, val_ratio, seed, neg_to_pos_ratio=neg_to_pos_ratio,
-            cooccur=cooccur, df=df, schema_pair_full=(fa, fb))
+            cooccur=cooccur, df=df, schema_pair_full=(fa, fb), hash_col=_POS_HASH[alphabet])
 
     cv_info = {'k_folds': k_folds, 'n_repeats': n_repeats, 'seed': seed,
                'config_bundle': args.config_bundle, 'schema_pair': [sa, sb],

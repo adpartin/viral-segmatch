@@ -14,8 +14,14 @@ every kept atom balanced. (Earlier: the `_cv_sampling`→`_cc_helpers` move + bu
 kept; revisit once a Stage-4 run shows the needed artifacts). The **§7 lock is CLOSED**: the
 builder structurally reproduces the in-memory CV (identical universe / `cooccur` / pools / atom
 partition; within-CC negatives differ only by label-dependent random seeding) — see §7 and
-`scripts/verify_cc_reproduction.py`. Then **Phase 2** (nt_cds: `kmer_features_nt_cds` + the
-`dna_hash`→`cds_dna_hash` mislabel fix), **Phase 3** (nt_ctg).
+`scripts/verify_cc_reproduction.py`. **Phase 3 (nt_ctg) builder DONE + verified**: the
+negative samplers are alphabet-aware (key pair_key + enrichment on `_POS_HASH[alphabet]`,
+not a hardcoded `prot_hash`), the gates allow `{aa, nt_ctg}` with `pair_key_alphabet ==
+cluster_alphabet` enforced, and `flu_ha_na_cc_nt_ctg` builds end-to-end (pair_key 100% on
+the contig axis, cluster-disjoint, balanced, both within_cc + within_fold). aa output is
+byte-identical pre/post. **Remaining: Phase 2** (nt_cds — needs the `cds_dna_hash` attach in
+`build_frontend`; still gated). Stage-4 k-mer features (`kmer_features_nt_cds/nt_ctg`) are a
+separate downstream item, not part of the builder.
 
 **Branch:** `feature/cc-dataset-cv` (off `master`; master already carries the Phase-2 nt_cds machinery).
 **Scope:** Tier 1 only. Tier 2 (the symmetric column rename) is a separate future migration — see §9.
