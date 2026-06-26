@@ -45,8 +45,8 @@ if str(PROJ) not in sys.path:
 
 from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2, _PAIR_COLUMNS  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
-    attach_dna_to_prot_df, build_cooccurrence_set, bipartite_components,
-    drop_ambiguous_hn_subtype, filter_by_metadata, canonical_pair_key)
+    attach_dna_to_prot_df, attach_cds_dna_hash_to_prot_df, build_cooccurrence_set,
+    bipartite_components, drop_ambiguous_hn_subtype, filter_by_metadata, canonical_pair_key)
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
@@ -69,7 +69,8 @@ _SIDE_RENAME = {'assembly_id': 'assembly_id', 'brc_fea_id': 'brc', 'genbank_ctg_
                 'function': 'func', 'prot_hash': 'prot_hash', 'ctg_dna_hash': 'ctg_dna_hash'}
 
 
-def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.DataFrame:
+def build_frontend(config, input_file: Path, schema_pair_full: tuple,
+                   cds_final_path: Path = None) -> pd.DataFrame:
     """v2's protein-level front-end, narrowed to schema_pair (calls v2's helpers).
 
     Mirrors the v2 CLI (`dataset_segment_pairs.py`): load -> attach_dna -> enrich
@@ -78,6 +79,12 @@ def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.Data
     matches v2 for the same bundle. subtype balancing and max_isolates sampling
     are NOT yet wired here — if a bundle sets them they raise rather than silently
     no-op (deferred Phase-1 scope).
+
+    `cds_final_path` (nt_cds only): when given, attach `cds_dna_hash` from that
+    cds_dna_final parquet (join on assembly_id+function) AFTER the schema narrow, so
+    `create_positive_pairs_v2(pair_key_alphabet='nt_cds')` finds it and the negatives'
+    `_side_rep` can key on it. Left None for aa/nt_ctg (their output cds_dna_hash_a/b
+    stay empty), which keeps those outputs byte-identical to the pre-nt_cds builder.
     """
     ss = getattr(config.dataset, 'subtype_selection', None)
     if ss is not None and str(getattr(ss, 'mode', 'natural')) == 'balanced':
@@ -109,6 +116,8 @@ def build_frontend(config, input_file: Path, schema_pair_full: tuple) -> pd.Data
     df = df[df['function'].isin(schema_pair_full)].reset_index(drop=True)
     if 'prot_hash' not in df.columns:
         df['prot_hash'] = df['prot_seq'].map(lambda s: hashlib.md5(str(s).encode()).hexdigest())
+    if cds_final_path is not None:
+        df = attach_cds_dna_hash_to_prot_df(df, cds_final_path)  # cds_dna_hash (nt_cds)
     return df
 
 
@@ -376,15 +385,17 @@ def main() -> None:
             f"got {mode!r}. (Other modes are built by dataset_segment_pairs_v2.)")
 
     # --- knobs (regime negatives + n_repeats>1 are placeholders) ---
-    # Enabled alphabets: aa + nt_ctg (contig DNA). nt_cds is still gated -- it needs
-    # the cds_dna_hash attach in build_frontend (cds source path + §13c populate-not-
-    # skip cluster join), not yet wired into this builder.
-    _ENABLED_ALPHABETS = ('aa', 'nt_ctg')
+    # All three molecule axes are wired: aa (protein), nt_cds (CDS DNA), nt_ctg
+    # (contig DNA). nt_cds attaches cds_dna_hash in build_frontend; because this
+    # builder enforces pair_key_alphabet == cluster_alphabet, the positives carry
+    # POPULATED cds_dna_hash_{a,b} so the cluster join never hits the §13c empty-
+    # column (float64-vs-string) crash.
+    _ENABLED_ALPHABETS = ('aa', 'nt_cds', 'nt_ctg')
     alphabet = str(getattr(ss, 'cluster_alphabet', 'aa') or 'aa')
     if alphabet not in _ENABLED_ALPHABETS:
         raise NotImplementedError(
-            f"cluster_alphabet={alphabet!r} is not yet wired into the 2D-CD builder "
-            f"(enabled: {list(_ENABLED_ALPHABETS)}); nt_cds needs the cds_dna_hash attach.")
+            f"cluster_alphabet={alphabet!r} is not a known molecule axis for the "
+            f"2D-CD builder (enabled: {list(_ENABLED_ALPHABETS)}).")
     # The 2D-CD builder uses ONE molecule axis: cluster join, cooccurrence set, isolate
     # pool, and positive/negative pair_key all key on `alphabet`'s hash. A separate
     # pair_key_alphabet would split positives (keyed by pair_key_alphabet) from
@@ -456,7 +467,16 @@ def main() -> None:
     input_file = (Path(args.protein_final) if args.protein_final
                   else cluster_id_path.parents[2] / 'protein_final.parquet')
 
-    df = build_frontend(config, input_file, (fa, fb))
+    # nt_cds needs cds_dna_hash attached to the front-end df. Source: the bundle's
+    # split_strategy.cds_final_path, else cds_dna_final.parquet beside protein_final.
+    cds_final_path = None
+    if alphabet == 'nt_cds':
+        _cds = OmegaConf.select(config, 'dataset.split_strategy.cds_final_path')
+        cds_final_path = Path(str(_cds)) if _cds else input_file.parent / 'cds_dna_final.parquet'
+        if not cds_final_path.is_absolute():
+            cds_final_path = PROJ / cds_final_path
+
+    df = build_frontend(config, input_file, (fa, fb), cds_final_path=cds_final_path)
     print(f"  front-end: {len(df):,} protein rows / {df['assembly_id'].nunique():,} isolates ({sa}+{sb})")
 
     pos, _ = create_positive_pairs_v2(df, schema_pair=(fa, fb), pair_key_alphabet=pair_key_alphabet)

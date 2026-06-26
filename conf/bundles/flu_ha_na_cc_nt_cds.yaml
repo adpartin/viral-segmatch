@@ -1,0 +1,31 @@
+# STATUS: experimental -- HA/NA 2D-CD cross-validation on the nt_cds (CDS DNA)
+# molecule axis. Same 2D-CD builder + knobs as flu_ha_na_cc, but clusters AND
+# pair_keys are CDS-DNA-level (cluster_alphabet=nt_cds): silent codon variants of
+# the same protein pair count as distinct positives, and cluster-disjointness is
+# enforced on CDS clusters. Built by src/datasets/dataset_pairs_cc.py (NOT the v2
+# Stage-3 CLI).
+#
+# Inherits flu_ha_na_cc (5-fold, m_pos_per_cc=1, 1:1 within-CC negatives, drop
+# negative-infeasible CCs); overrides the molecule axis to nt_cds and points
+# cluster_id_path at the nt_cds CDS clusters. pair_key_alphabet is left unset -> the
+# builder defaults it to the cluster alphabet (single molecule axis). cds_dna_hash is
+# attached from cds_dna_final.parquet (beside protein_final) unless
+# split_strategy.cds_final_path overrides it.
+#
+# Run:
+#   python src/datasets/dataset_pairs_cc.py --config_bundle flu_ha_na_cc_nt_cds \
+#       --out_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cc_nt_cds_<ts>
+#
+# See docs/plans/2026-06-09_cc_dataset_cv_plan.md.
+
+defaults:
+  - flu_ha_na_cc
+  - _self_
+
+dataset:
+  split_strategy:
+    cluster_alphabet: nt_cds
+    # nt_cds CDS-DNA clusters at t099 (sibling layout to clusters_aa); the builder
+    # derives the threshold ('t099') from this path's parent dir name.
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds/t099/combined_cluster.parquet
+    cluster_id_threshold: 0.99

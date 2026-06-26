@@ -14,13 +14,17 @@ every kept atom balanced. (Earlier: the `_cv_sampling`→`_cc_helpers` move + bu
 kept; revisit once a Stage-4 run shows the needed artifacts). The **§7 lock is CLOSED**: the
 builder structurally reproduces the in-memory CV (identical universe / `cooccur` / pools / atom
 partition; within-CC negatives differ only by label-dependent random seeding) — see §7 and
-`scripts/verify_cc_reproduction.py`. **Phase 3 (nt_ctg) builder DONE + verified**: the
-negative samplers are alphabet-aware (key pair_key + enrichment on `_POS_HASH[alphabet]`,
-not a hardcoded `prot_hash`), the gates allow `{aa, nt_ctg}` with `pair_key_alphabet ==
-cluster_alphabet` enforced, and `flu_ha_na_cc_nt_ctg` builds end-to-end (pair_key 100% on
-the contig axis, cluster-disjoint, balanced, both within_cc + within_fold). aa output is
-byte-identical pre/post. **Remaining: Phase 2** (nt_cds — needs the `cds_dna_hash` attach in
-`build_frontend`; still gated). Stage-4 k-mer features (`kmer_features_nt_cds/nt_ctg`) are a
+`scripts/verify_cc_reproduction.py`. **All three molecule axes (aa / nt_cds / nt_ctg)
+DONE + verified in the builder**: the negative samplers are alphabet-aware (key pair_key +
+enrichment on `_POS_HASH[alphabet]`, not a hardcoded `prot_hash`), the gates allow
+`{aa, nt_cds, nt_ctg}` with `pair_key_alphabet == cluster_alphabet` enforced (single
+molecule axis), and nt_cds attaches `cds_dna_hash` in `build_frontend` (from
+`cds_dna_final.parquet`; because pair_key == cluster alphabet the positives carry POPULATED
+cds_dna_hash_{a,b}, so the cluster join never hits the §13c empty-column crash). Bundles
+`flu_ha_na_cc` (aa), `flu_ha_na_cc_nt_cds`, `flu_ha_na_cc_nt_ctg` all build end-to-end:
+pair_key 100% on the configured axis (cds / contig), cluster-disjoint, balanced, each pair
+tested once, both within_cc + within_fold. aa + nt_ctg outputs byte-identical across the
+nt_cds change. **Remaining:** Stage-4 k-mer features (`kmer_features_nt_cds/nt_ctg`) — a
 separate downstream item, not part of the builder.
 
 **Branch:** `feature/cc-dataset-cv` (off `master`; master already carries the Phase-2 nt_cds machinery).
