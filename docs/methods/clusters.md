@@ -722,9 +722,8 @@ Columns:
 ### 6.2 Worked example: aa vs nt non-nesting at t099 (unique-weighted)
 
 **Source.** §6.1 (observation), §5 mutations_tolerated_table.csv
-(residue-tolerance asymmetry), `src/analysis/aa_nt_cluster_crosstab.py`
-+ `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md` (cross-tab
-walkthrough).
+(residue-tolerance asymmetry), and the cross-tab walkthrough in
+`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
 
 §6.1 noted that nt clusters outnumber aa at t100 but invert at t099
 and t098 on most proteins. The inversion at t099:
