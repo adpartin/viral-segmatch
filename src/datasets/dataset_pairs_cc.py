@@ -34,6 +34,7 @@ import hashlib
 import json
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -377,7 +378,29 @@ def make_folds_within_fold(
     return folds
 
 
-def main() -> None:
+@dataclass(frozen=True)
+class CCSpec:
+    """Resolved knobs for one CC build (produced by `_resolve_spec`)."""
+    config_bundle: str
+    alphabet: str
+    pair_key_alphabet: str
+    k_folds: int
+    n_repeats: int
+    neg_to_pos_ratio: float
+    val_ratio: float
+    negative_scope: str
+    drop_negative_infeasible_ccs: bool
+    m_pos: int | None
+    seed: int
+    cluster_id_path: Path
+    threshold: str
+    fa: str
+    fb: str
+    sa: str
+    sb: str
+
+
+def _parse_args():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--config_bundle', required=True,
                    help='Hydra bundle; must set dataset.split_strategy.mode=cluster_disjoint_cc.')
@@ -386,28 +409,37 @@ def main() -> None:
     p.add_argument('--protein_final', default=None,
                    help='Override protein_final path (default: alongside cluster_id_path).')
     p.add_argument('--out_dir', type=Path, required=True)
-    args = p.parse_args()
-    t0 = time.time()
+    return p.parse_args()
 
-    config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
-    if args.override:
-        config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.override))
-    print_config_summary(config)
+
+def _resolve_schema_pair(config, ds) -> tuple:
+    """(fa, fb, sa, sb): the two schema_pair functions canonicalized to protein_order + short names."""
+    meta = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml')
+    schema_raw = [str(x) for x in ds.schema_pair]
+    if len(schema_raw) != 2 or schema_raw[0] == schema_raw[1]:
+        raise ValueError(f"dataset.schema_pair must be two distinct functions; got {schema_raw!r}.")
+    order = list(config.virus.protein_order)
+    fa, fb = (schema_raw if order.index(schema_raw[0]) <= order.index(schema_raw[1])
+              else [schema_raw[1], schema_raw[0]])
+    sa, sb = meta.function_to_short[fa], meta.function_to_short[fb]
+    return fa, fb, sa, sb
+
+
+def _resolve_spec(args, config) -> CCSpec:
+    """Validate the bundle for cluster_disjoint_cc + resolve all build knobs into a CCSpec."""
     ds, ss = config.dataset, config.dataset.split_strategy
 
-    # --- this builder owns exactly one mode ---
+    # this builder owns exactly one mode
     mode = OmegaConf.select(config, 'dataset.split_strategy.mode')
     if mode != 'cluster_disjoint_cc':
         raise ValueError(
             f"dataset_pairs_cc requires dataset.split_strategy.mode='cluster_disjoint_cc'; "
             f"got {mode!r}. (Other modes are built by dataset_segment_pairs_v2.)")
 
-    # --- knobs (regime negatives + n_repeats>1 are placeholders) ---
-    # All three molecule axes are wired: aa (protein), nt_cds (CDS DNA), nt_ctg
-    # (contig DNA). nt_cds attaches cds_dna_hash in build_frontend; because this
-    # builder enforces pair_key_alphabet == cluster_alphabet, the positives carry
-    # POPULATED cds_dna_hash_{a,b} so the cluster join never hits the §13c empty-
-    # column (float64-vs-string) crash.
+    # All three molecule axes are wired: aa (protein), nt_cds (CDS DNA), nt_ctg (contig DNA).
+    # nt_cds attaches cds_dna_hash in build_frontend; because this builder enforces
+    # pair_key_alphabet == cluster_alphabet, the positives carry POPULATED cds_dna_hash_{a,b}
+    # so the cluster join never hits the §13c empty-column (float64-vs-string) crash.
     _ENABLED_ALPHABETS = ('aa', 'nt_cds', 'nt_ctg')
     alphabet = str(getattr(ss, 'cluster_alphabet', 'aa') or 'aa')
     if alphabet not in _ENABLED_ALPHABETS:
@@ -415,10 +447,9 @@ def main() -> None:
             f"cluster_alphabet={alphabet!r} is not a known molecule axis for the "
             f"2D-CD builder (enabled: {list(_ENABLED_ALPHABETS)}).")
 
-    # The 2D-CD builder uses ONE molecule axis: cluster join, cooccurrence set, isolate
-    # pool, and positive/negative pair_key all key on `alphabet`'s hash. A separate
-    # pair_key_alphabet would split positives (keyed by pair_key_alphabet) from
-    # cooccur+negatives (keyed by the cluster alphabet); require them equal.
+    # ONE molecule axis: cluster join, cooccurrence set, isolate pool, and positive/negative
+    # pair_key all key on `alphabet`'s hash. A separate pair_key_alphabet would split positives
+    # (keyed by pair_key_alphabet) from cooccur+negatives (keyed by cluster alphabet); require equal.
     pair_key_alphabet = str(getattr(ss, 'pair_key_alphabet', alphabet) or alphabet)
     if pair_key_alphabet != alphabet:
         raise NotImplementedError(
@@ -436,9 +467,7 @@ def main() -> None:
     k_folds = getattr(ds, 'n_folds', None)
     if not k_folds or int(k_folds) < 2:
         raise ValueError(f"dataset.n_folds must be an int >= 2 for the 2D-CD CV builder; got {k_folds!r}.")
-    k_folds = int(k_folds)
-    neg_to_pos_ratio = float(ds.neg_to_pos_ratio)
-    val_ratio = float(ds.val_ratio)
+
     # Renamed from drop_singleton_ccs (which conflated 'singleton' with the broader
     # negative-infeasible set). Read the new key; fall back to the legacy one with a warning.
     _legacy_drop = OmegaConf.select(config, 'dataset.split_strategy.drop_singleton_ccs')
@@ -447,16 +476,17 @@ def main() -> None:
               "drop_negative_infeasible_ccs; using the legacy key's value. Update the bundle.")
     drop_negative_infeasible_ccs = bool(getattr(
         ss, 'drop_negative_infeasible_ccs', _legacy_drop if _legacy_drop is not None else True))
+
     negative_scope = str(getattr(ss, 'negative_scope', 'within_cc') or 'within_cc')
     if negative_scope not in ('within_cc', 'within_fold'):
         raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc' or "
                          f"'within_fold'; got {negative_scope!r}.")
     m_pos = getattr(ss, 'm_pos_per_cc', 1)
     m_pos = None if m_pos is None else int(m_pos)
+
     seed = resolve_process_seed(config, 'datasets')
     if seed is None:
         raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
-    set_deterministic_seeds(seed, cuda_deterministic=False)
 
     cluster_id_path = getattr(ss, 'cluster_id_path', None)
     if cluster_id_path is None:
@@ -466,42 +496,38 @@ def main() -> None:
         cluster_id_path = PROJ / cluster_id_path
     threshold = cluster_id_path.parent.name  # the tXXX dir, e.g. 't099'
 
-    # --- schema pair: full names from the bundle, canonicalized to protein_order ---
-    meta = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml')
-    schema_raw = [str(x) for x in ds.schema_pair]
-    if len(schema_raw) != 2 or schema_raw[0] == schema_raw[1]:
-        raise ValueError(f"dataset.schema_pair must be two distinct functions; got {schema_raw!r}.")
-    order = list(config.virus.protein_order)
-    fa, fb = (schema_raw if order.index(schema_raw[0]) <= order.index(schema_raw[1])
-              else [schema_raw[1], schema_raw[0]])
-    sa, sb = meta.function_to_short[fa], meta.function_to_short[fb]
+    fa, fb, sa, sb = _resolve_schema_pair(config, ds)
+    return CCSpec(
+        config_bundle=args.config_bundle, alphabet=alphabet, pair_key_alphabet=pair_key_alphabet,
+        k_folds=int(k_folds), n_repeats=n_repeats, neg_to_pos_ratio=float(ds.neg_to_pos_ratio),
+        val_ratio=float(ds.val_ratio), negative_scope=negative_scope,
+        drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, seed=seed,
+        cluster_id_path=cluster_id_path, threshold=threshold, fa=fa, fb=fb, sa=sa, sb=sb)
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    save_config(config, str(out_dir / 'resolved_config.yaml'))
-    print(f"=== dataset_pairs_cc {sa}-{sb} {alphabet} {threshold} "
-          f"(k={k_folds}, ratio={neg_to_pos_ratio}, m_pos_per_cc={m_pos}, "
-          f"drop_negative_infeasible_ccs={drop_negative_infeasible_ccs}, seed={seed}) ===")
 
+def _build_positives(config, spec: CCSpec, args):
+    """Front-end -> positive pairs -> cooccurrence set -> CC atoms -> drop negative-infeasible CCs.
+
+    Returns (df, pos_ids, cooccur); pos_ids carries cluster_id_a/b + cc_id + atom_id.
+    """
     input_file = (Path(args.protein_final) if args.protein_final
-                  else cluster_id_path.parents[2] / 'protein_final.parquet')
-
+                  else spec.cluster_id_path.parents[2] / 'protein_final.parquet')
     # nt_cds needs cds_dna_hash attached to the front-end df. Source: the bundle's
     # split_strategy.cds_final_path, else cds_dna_final.parquet beside protein_final.
     cds_final_path = None
-    if alphabet == 'nt_cds':
+    if spec.alphabet == 'nt_cds':
         _cds = OmegaConf.select(config, 'dataset.split_strategy.cds_final_path')
         cds_final_path = Path(str(_cds)) if _cds else input_file.parent / 'cds_dna_final.parquet'
         if not cds_final_path.is_absolute():
             cds_final_path = PROJ / cds_final_path
 
-    df = build_frontend(config, input_file, (fa, fb), cds_final_path=cds_final_path)
-    print(f"  front-end: {len(df):,} protein rows / {df['assembly_id'].nunique():,} isolates ({sa}+{sb})")
+    df = build_frontend(config, input_file, (spec.fa, spec.fb), cds_final_path=cds_final_path)
+    print(f"  front-end: {len(df):,} protein rows / {df['assembly_id'].nunique():,} isolates ({spec.sa}+{spec.sb})")
 
-    pos, _ = create_positive_pairs_v2(df, schema_pair=(fa, fb), pair_key_alphabet=pair_key_alphabet)
-    cooccur, _ = build_cooccurrence_set(df, hash_col=_POS_HASH[alphabet])
-    lookup = load_cluster_lookup(cluster_id_path)
-    pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[alphabet])
+    pos, _ = create_positive_pairs_v2(df, schema_pair=(spec.fa, spec.fb), pair_key_alphabet=spec.pair_key_alphabet)
+    cooccur, _ = build_cooccurrence_set(df, hash_col=_POS_HASH[spec.alphabet])
+    lookup = load_cluster_lookup(spec.cluster_id_path)
+    pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[spec.alphabet])
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
           f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
 
@@ -512,56 +538,62 @@ def main() -> None:
     # co-occurs. One set, applied identically under both negative scopes (parity).
     neg_infeasible_ccs = compute_negative_infeasible_ccs(
         pos_ids, cooccur,
-        hash_a_col=f'{_POS_HASH[alphabet]}_a', hash_b_col=f'{_POS_HASH[alphabet]}_b')
-
+        hash_a_col=f'{_POS_HASH[spec.alphabet]}_a', hash_b_col=f'{_POS_HASH[spec.alphabet]}_b')
     # Unified drop (both scopes): remove negative-infeasible CCs up front so every kept CC is
     # class-balanceable. When disabled, they survive as positives-only atoms (within_fold can
     # still give them cross-CC negatives; within_cc leaves them with positives only).
-    if drop_negative_infeasible_ccs and neg_infeasible_ccs:
+    if spec.drop_negative_infeasible_ccs and neg_infeasible_ccs:
         n0_cc = pos_ids['cc_id'].nunique()
         pos_ids = pos_ids[~pos_ids['cc_id'].isin(neg_infeasible_ccs)].reset_index(drop=True)
         print(f"  drop_negative_infeasible_ccs: dropped {len(neg_infeasible_ccs):,} CCs "
               f"({n0_cc:,} -> {pos_ids['cc_id'].nunique():,} kept).")
+    return df, pos_ids, cooccur
 
-    # Isolate pool: within_cc only (within_fold draws negatives from each split's
-    # own positives, no pool). Built from the FULL (uncapped) atom assignment so
-    # the pool covers every cluster of each CC even when positives are capped.
+
+def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
+    """Negatives + GroupKFold folds for the configured negative_scope.
+
+    within_cc: build the uncapped isolate pool, cap positives per CC, draw within-CC negatives,
+    concat to one balanced set, then GroupKFold by atom (writes cc_sampling_log.csv).
+    within_fold: cap positives, GroupKFold by atom, add cross-CC negatives per split.
+    """
+    # Isolate pool: within_cc only (within_fold draws negatives from each split's own positives,
+    # no pool). Built from the FULL (uncapped) atom assignment so the pool covers every cluster
+    # of each CC even when positives are capped.
     iso = None
-    if negative_scope == 'within_cc':
+    if spec.negative_scope == 'within_cc':
         c2a = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['atom_id'])),
                **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['atom_id']))}
         c2c = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['cc_id'])),
                **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['cc_id']))}
-        iso = build_cc_isolate_pool(c2a, c2c, sa, sb, alphabet, threshold)
-        # The membership pool is corpus-level; restrict it to the front-end-filtered
-        # population so within-CC negatives are drawn only from isolates present in df
-        # (otherwise a negative can reference a sequence the filters dropped, then get
-        # discarded at enrich -> positive-only atoms). Clusters stay corpus-level/stable;
-        # only the negative population follows the experiment's df.
+        iso = build_cc_isolate_pool(c2a, c2c, spec.sa, spec.sb, spec.alphabet, spec.threshold)
+        # The membership pool is corpus-level; restrict it to the front-end-filtered population so
+        # within-CC negatives are drawn only from isolates present in df (otherwise a negative can
+        # reference a sequence the filters dropped, then get discarded at enrich -> positive-only
+        # atoms). Clusters stay corpus-level/stable; only the negative population follows df.
         n_pool0 = len(iso)
         iso = iso[iso['assembly_id'].isin(set(df['assembly_id'].astype(str)))].reset_index(drop=True)
         if len(iso) != n_pool0:
             print(f"  negative pool restricted to df isolates: {n_pool0:,} -> {len(iso):,} pool rows")
 
-    if m_pos:
-        # Cap m_pos positives per CC: shuffle (seeded), rank within CC, keep first m.
-        # Deterministic, keeps all columns, and dodges the groupby.apply grouping-column
-        # deprecation. Same per-CC count as a per-group random sample.
-        rng = np.random.RandomState(seed)
+    if spec.m_pos:
+        # Cap m_pos positives per CC: shuffle (seeded), rank within CC, keep first m. Deterministic,
+        # keeps all columns, and dodges the groupby.apply grouping-column deprecation.
+        rng = np.random.RandomState(spec.seed)
         shuf = pos_ids.sample(frac=1, random_state=rng).reset_index(drop=True)
         shuf['_rank'] = shuf.groupby('cc_id').cumcount()
-        pos_ids = shuf[shuf['_rank'] < m_pos].drop(columns='_rank').reset_index(drop=True)
-        print(f"  capped positives per CC at m_pos_per_cc={m_pos}: {len(pos_ids):,} kept")
+        pos_ids = shuf[shuf['_rank'] < spec.m_pos].drop(columns='_rank').reset_index(drop=True)
+        print(f"  capped positives per CC at m_pos_per_cc={spec.m_pos}: {len(pos_ids):,} kept")
 
-    if negative_scope == 'within_cc':
+    if spec.negative_scope == 'within_cc':
         neg, cc_log = within_cc_negatives(
-            pos_ids, iso, cooccur, df, (fa, fb), neg_to_pos_ratio=neg_to_pos_ratio, seed=seed,
-            hash_col=_POS_HASH[alphabet])
+            pos_ids, iso, cooccur, df, (spec.fa, spec.fb), neg_to_pos_ratio=spec.neg_to_pos_ratio,
+            seed=spec.seed, hash_col=_POS_HASH[spec.alphabet])
         # Defensive: with dropping enabled every kept CC is structurally feasible, so a CC with
-        # budget>0 yet 0 sampled negatives means the random sampler under-filled; drop its
-        # positives to keep folds balanced and warn. (With dropping disabled, 0-negative CCs are
-        # the intentionally-kept infeasible ones -> left as positives-only.)
-        if drop_negative_infeasible_ccs and len(cc_log):
+        # budget>0 yet 0 sampled negatives means the random sampler under-filled; drop its positives
+        # to keep folds balanced and warn. (With dropping disabled, 0-negative CCs are the
+        # intentionally-kept infeasible ones -> left as positives-only.)
+        if spec.drop_negative_infeasible_ccs and len(cc_log):
             undersampled = set(cc_log.loc[(cc_log['budget'] > 0) & (cc_log['n_neg'] == 0), 'cc_id'])
             if undersampled:
                 print(f"WARNING: {len(undersampled):,} feasible CC(s) yielded 0 sampled negatives "
@@ -576,25 +608,29 @@ def main() -> None:
         print(f"  full set: {len(full):,} pairs ({int((full.label == 1).sum()):,} pos / "
               f"{int((full.label == 0).sum()):,} neg) across {full['atom_id'].nunique():,} atoms")
         cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
-        folds = make_folds(full, k_folds, val_ratio, seed)
+        return make_folds(full, spec.k_folds, spec.val_ratio, spec.seed)
 
-    else:  # within_fold: split positives by atom, then add cross-CC negatives per split
-        pos_full = pos_ids.copy()
-        pos_full['neg_regime'] = pd.NA
-        pos_full['metadata_match_count'] = pd.NA
-        print(f"  positives: {len(pos_full):,} across {pos_full['atom_id'].nunique():,} atoms; "
-              f"within-fold (cross-CC) negatives generated per split")
-        folds = make_folds_within_fold(
-            pos_full, k_folds, val_ratio, seed, neg_to_pos_ratio=neg_to_pos_ratio,
-            cooccur=cooccur, df=df, schema_pair_full=(fa, fb), hash_col=_POS_HASH[alphabet])
+    # within_fold: split positives by atom, then add cross-CC negatives per split
+    pos_full = pos_ids.copy()
+    pos_full['neg_regime'] = pd.NA
+    pos_full['metadata_match_count'] = pd.NA
+    print(f"  positives: {len(pos_full):,} across {pos_full['atom_id'].nunique():,} atoms; "
+          f"within-fold (cross-CC) negatives generated per split")
+    return make_folds_within_fold(
+        pos_full, spec.k_folds, spec.val_ratio, spec.seed, neg_to_pos_ratio=spec.neg_to_pos_ratio,
+        cooccur=cooccur, df=df, schema_pair_full=(spec.fa, spec.fb), hash_col=_POS_HASH[spec.alphabet])
 
-    cv_info = {'k_folds': k_folds, 'n_repeats': n_repeats, 'seed': seed,
-               'config_bundle': args.config_bundle, 'schema_pair': [sa, sb],
-               'alphabet': alphabet, 'threshold': threshold, 'cluster_id_path': str(cluster_id_path),
-               'm_pos_per_cc': m_pos, 'neg_to_pos_ratio': neg_to_pos_ratio,
-               'pair_key_alphabet': pair_key_alphabet, 'negative_scope': negative_scope,
-               'drop_negative_infeasible_ccs': drop_negative_infeasible_ccs,
-               'fold_dirs': [f'fold_{k}' for k in range(k_folds)]}
+
+def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
+    """Write cv_info.json + per-fold {train,val,test}_pairs.csv + dataset_stats.json."""
+    cv_info = {'k_folds': spec.k_folds, 'n_repeats': spec.n_repeats, 'seed': spec.seed,
+               'config_bundle': spec.config_bundle, 'schema_pair': [spec.sa, spec.sb],
+               'alphabet': spec.alphabet, 'threshold': spec.threshold,
+               'cluster_id_path': str(spec.cluster_id_path),
+               'm_pos_per_cc': spec.m_pos, 'neg_to_pos_ratio': spec.neg_to_pos_ratio,
+               'pair_key_alphabet': spec.pair_key_alphabet, 'negative_scope': spec.negative_scope,
+               'drop_negative_infeasible_ccs': spec.drop_negative_infeasible_ccs,
+               'fold_dirs': [f'fold_{k}' for k in range(spec.k_folds)]}
     (out_dir / 'cv_info.json').write_text(json.dumps(cv_info, indent=2))
     for k, (train, val, test) in enumerate(folds):
         fdir = out_dir / f'fold_{k}'
@@ -608,6 +644,29 @@ def main() -> None:
         (fdir / 'dataset_stats.json').write_text(json.dumps(stats, indent=2))
         print(f"  fold_{k}: train={len(train):,} val={len(val):,} test={len(test):,}")
 
+
+def main() -> None:
+    args = _parse_args()
+    t0 = time.time()
+
+    config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
+    if args.override:
+        config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.override))
+    print_config_summary(config)
+
+    spec = _resolve_spec(args, config)
+    set_deterministic_seeds(spec.seed, cuda_deterministic=False)
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_config(config, str(out_dir / 'resolved_config.yaml'))
+    print(f"=== dataset_pairs_cc {spec.sa}-{spec.sb} {spec.alphabet} {spec.threshold} "
+          f"(k={spec.k_folds}, ratio={spec.neg_to_pos_ratio}, m_pos_per_cc={spec.m_pos}, "
+          f"drop_negative_infeasible_ccs={spec.drop_negative_infeasible_ccs}, seed={spec.seed}) ===")
+
+    df, pos_ids, cooccur = _build_positives(config, spec, args)
+    folds = _make_folds_for_scope(spec, df, pos_ids, cooccur, out_dir)
+    _write_output(out_dir, folds, spec)
     print(f"\nDone in {time.time() - t0:.0f}s -> {out_dir}")
 
 
