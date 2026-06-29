@@ -1,10 +1,11 @@
 """Stage 3 (CC builder): cluster-disjoint K-fold pair datasets.
 
 Maintained companion to `dataset_segment_pairs_v2.py` for the CC-based CV track.
-Where v2's `cluster_disjoint` mode does single-slot k-fold / bilateral holdout with
-cross-isolate negatives, this builder does what the CC analysis established:
+Where v2's `cluster_disjoint` does single-slot k-fold (a/b) or bilateral holdout
+(one 80/10/10) with cross-isolate negatives, this builder does what the CC analysis
+established:
 
-  - **bilateral connected-component GroupKFold** — atoms = bipartite CCs on
+  - **bilateral connected-component (CC) GroupKFold** — atoms = bipartite CCs on
     `(cluster_id_a, cluster_id_b)` (production `attach_cluster_ids` +
     `bipartite_components`); whole CCs stay in one fold.
   - **within-CC negatives** — every negative drawn from the same CC as its
@@ -14,11 +15,12 @@ cross-isolate negatives, this builder does what the CC analysis established:
 Output is drop-in Stage-4 datasets: `fold_k/{train,val,test}_pairs.csv` carrying
 the v2 `_PAIR_COLUMNS` schema, one dir per fold.
 
-Phase-1 scope (aa): Hydra/`--config_bundle` driven, reuses v2's protein-level
-front-end (load/enrich/filter), within-CC random negatives, slim writer (CSV +
-a small dataset_stats.json — not the full v2 saver). nt_cds/nt_ctg, regime
-negatives, subtype balancing / max_isolates, full saver, and `n_repeats>1` are
-later phases. See `docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
+Hydra/`--config_bundle` driven, reusing v2's protein-level front-end
+(load/enrich/filter). Supports aa / nt_cds / nt_ctg, within-CC and within-fold random
+negatives, and a slim writer (CSV + a small dataset_stats.json). Not wired (these
+raise rather than silently no-op): regime-targeted negatives, subtype balancing /
+max_isolates, the full v2 saver, and `n_repeats>1`. See
+`docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
 
 CLI:
     python src/datasets/dataset_pairs_cc.py \\
