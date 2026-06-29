@@ -188,6 +188,7 @@ The `docs/results/` directory holds the canonical writeups. Most-cited (2026-05/
 - `2026-05-24_mmd_per_{slot,pair}_results.md` — MMD baselines
 - `2026-05-15_cluster_disjoint_nt_results.md` — Experiment B-nt
 - `2026-06-03_phase2_postmigration_metrics.md` — pair_key migration impact
+- `2026-06-29_cc_within_cc_vs_within_fold.md` — 2D-CD within_cc vs within_fold (cluster shortcut ≈ 0.37 AUC)
 
 Per-sweep aggregator outputs (gitignored plots/CSVs) live under
 `results/{virus}/{data_version}/runs/<analysis_name>/sweep_aggregate/<pair_direction>/`.
