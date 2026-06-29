@@ -22,7 +22,7 @@ later phases. See `docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
 
 CLI:
     python src/datasets/dataset_pairs_cc.py \\
-        --config_bundle flu_ha_na_cc --out_dir <dir> \\
+        --config_bundle flu_ha_na_cc_aa --out_dir <dir> \\
         [--override dataset.n_folds=5 ...] [--protein_final <path>]
 """
 from __future__ import annotations

@@ -5,7 +5,7 @@ committed** (`48a3e26`): `dataset_pairs_cc.py` is now a maintained, config-drive
 builder — `--config_bundle` + §11 knobs (incl. `drop_negative_infeasible_ccs` — structural
 negative-infeasibility, and `m_pos_per_cc` default 1), v2's front-end (enrich/filter) reused by calling
 its helpers, `cluster_disjoint_cc` rejected by `_validate_v2_config`, and
-`conf/bundles/flu_ha_na_cc.yaml`. The within-CC negative pool is restricted to the
+`conf/bundles/flu_ha_na_cc_aa.yaml`. The within-CC negative pool is restricted to the
 front-end-filtered `df`. Verified end-to-end on aa HA-NA t099: 928 pos / 928 neg across 928
 atoms, cluster-disjoint (0 seqhash/pair_key overlap within folds; each atom tested once);
 every kept atom balanced. (Earlier: the `_cv_sampling`→`_cc_helpers` move + builder core in
@@ -21,7 +21,7 @@ enrichment on `_POS_HASH[alphabet]`, not a hardcoded `prot_hash`), the gates all
 molecule axis), and nt_cds attaches `cds_dna_hash` in `build_frontend` (from
 `cds_dna_final.parquet`; because pair_key == cluster alphabet the positives carry POPULATED
 cds_dna_hash_{a,b}, so the cluster join never hits the §13c empty-column crash). Bundles
-`flu_ha_na_cc` (aa), `flu_ha_na_cc_nt_cds`, `flu_ha_na_cc_nt_ctg` all build end-to-end:
+`flu_ha_na_cc_aa` (aa), `flu_ha_na_cc_nt_cds`, `flu_ha_na_cc_nt_ctg` all build end-to-end:
 pair_key 100% on the configured axis (cds / contig), cluster-disjoint, balanced, each pair
 tested once, both within_cc + within_fold. aa + nt_ctg outputs byte-identical across the
 nt_cds change. **Remaining:** Stage-4 k-mer features (`kmer_features_nt_cds/nt_ctg`) — a

@@ -18,7 +18,7 @@ PASS = identical universe + cooccur + atom partition. Exit 0 on PASS, 1 otherwis
 
 Usage:
     python scripts/verify_cc_reproduction.py \\
-        [--config_bundle flu_ha_na_cc] [--schema_pair HA NA] [--threshold t099] \\
+        [--config_bundle flu_ha_na_cc_aa] [--schema_pair HA NA] [--threshold t099] \\
         [--m_pos 1] [--neg_to_pos_ratio 1.0] [--seed 42]
 """
 from __future__ import annotations
@@ -104,7 +104,7 @@ def builder_dataset(config, protein_final, fa, fb, slot_a, slot_b, threshold, *,
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--config_bundle', default='flu_ha_na_cc')
+    p.add_argument('--config_bundle', default='flu_ha_na_cc_aa')
     p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'], metavar=('A', 'B'))
     p.add_argument('--threshold', default='t099')
     p.add_argument('--m_pos', type=int, default=1)

@@ -1,11 +1,11 @@
 # STATUS: experimental -- HA/NA 2D-CD cross-validation on the nt_cds (CDS DNA)
-# molecule axis. Same 2D-CD builder + knobs as flu_ha_na_cc, but clusters AND
+# molecule axis. Same 2D-CD builder + knobs as flu_ha_na_cc_aa, but clusters AND
 # pair_keys are CDS-DNA-level (cluster_alphabet=nt_cds): silent codon variants of
 # the same protein pair count as distinct positives, and cluster-disjointness is
 # enforced on CDS clusters. Built by src/datasets/dataset_pairs_cc.py (NOT the v2
 # Stage-3 CLI).
 #
-# Inherits flu_ha_na_cc (5-fold, m_pos_per_cc=1, 1:1 within-CC negatives, drop
+# Inherits flu_ha_na_cc_aa (5-fold, m_pos_per_cc=1, 1:1 within-CC negatives, drop
 # negative-infeasible CCs); overrides the molecule axis to nt_cds and points
 # cluster_id_path at the nt_cds CDS clusters. pair_key_alphabet is left unset -> the
 # builder defaults it to the cluster alphabet (single molecule axis). cds_dna_hash is
@@ -19,7 +19,7 @@
 # See docs/plans/2026-06-09_cc_dataset_cv_plan.md.
 
 defaults:
-  - flu_ha_na_cc
+  - flu_ha_na_cc_aa
   - _self_
 
 dataset:
