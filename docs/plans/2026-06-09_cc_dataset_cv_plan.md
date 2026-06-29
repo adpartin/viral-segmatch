@@ -10,8 +10,14 @@ front-end-filtered `df`. Verified end-to-end on aa HA-NA t099: 928 pos / 928 neg
 atoms, cluster-disjoint (0 seqhash/pair_key overlap within folds; each atom tested once);
 every kept atom balanced. (Earlier: the `_cv_sampling`→`_cc_helpers` move + builder core in
 `09fb2c2`, T1.1 atom-equivalence + T1.2 byte-identical.)
-**Remaining Phase 1:** (b) full `save_split_output_v2` reuse — **deferred** (slim CSV writer
-kept; revisit once a Stage-4 run shows the needed artifacts). The **§7 lock is CLOSED**: the
+**Phase 1 (b) RESOLVED:** the slim CSV writer is sufficient — a Stage-4 MLP run
+(`flu_ha_na_cc_aa`, within_cc, fold_0) consumes `fold_k/{train,val,test}_pairs.csv` end-to-end
+(load -> kmer join on `brc_a/b` at 100% coverage -> MLP train -> eval -> artifacts) with no
+`save_split_output_v2` reuse needed. (That fold sat at chance — AUC-ROC 0.498 — the honest
+within-CC difficulty, not a plumbing gap: a 5-fold LGBM is **also ~chance** on within_cc
+(AUC-ROC 0.507 ± 0.030), while within_fold — same positives, cross-CC negatives — reaches
+AUC-ROC 0.870. So the cluster shortcut is worth ~0.37 AUC, and aa k=3 kmers carry no learnable
+HA–NA specific-pairing signal under within_cc at t099.) The **§7 lock is CLOSED**: the
 builder structurally reproduces the in-memory CV (identical universe / `cooccur` / pools / atom
 partition; within-CC negatives differ only by label-dependent random seeding) — see §7 and
 `scripts/verify_cc_reproduction.py`. **All three molecule axes (aa / nt_cds / nt_ctg)
