@@ -40,11 +40,18 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
 from src.datasets._negative_regime_sampling import (  # noqa: E402
-    REGIME_NAMES, DEFAULT_AXES, DEFAULT_YEAR_BIN_EDGES,
-    build_isolate_cells, count_isolates_per_cell, count_available_per_regime,
-    build_cell_regime_partners, resolve_regime_targets, classify_pair_regime)
+    DEFAULT_AXES,
+    DEFAULT_YEAR_BIN_EDGES,
+    REGIME_NAMES,
+    build_cell_regime_partners,
+    build_isolate_cells,
+    classify_pair_regime,
+    count_available_per_regime,
+    count_isolates_per_cell,
+    resolve_regime_targets,
+)
+from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 from src.utils.schema import SCHEMA as _SCHEMA  # noqa: E402
 

@@ -28,7 +28,7 @@ if str(_project_root) not in sys.path:
 
 from sklearn.model_selection import GroupKFold
 
-from src.datasets._pair_helpers import bipartite_components, _lpt_bin_pack, route_holdout
+from src.datasets._pair_helpers import _lpt_bin_pack, bipartite_components, route_holdout
 from src.utils import schema
 
 

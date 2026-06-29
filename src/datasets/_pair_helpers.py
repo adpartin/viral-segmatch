@@ -30,8 +30,8 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
-from src.utils.path_utils import load_dataframe
 from src.utils import schema
+from src.utils.path_utils import load_dataframe
 
 
 def canonical_pair_key(hash_a: str, hash_b: str) -> str:
