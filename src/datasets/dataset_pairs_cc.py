@@ -1,4 +1,4 @@
-"""Stage 3 (CC builder): materialized cluster-disjoint K-fold pair datasets.
+"""Stage 3 (CC builder): cluster-disjoint K-fold pair datasets.
 
 Maintained companion to `dataset_segment_pairs_v2.py` for the CC-based CV track.
 Where v2's `cluster_disjoint` mode does single-slot k-fold / bilateral holdout with
@@ -46,13 +46,15 @@ if str(PROJ) not in sys.path:
 from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2, _PAIR_COLUMNS  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
     attach_dna_to_prot_df, attach_cds_dna_hash_to_prot_df, build_cooccurrence_set,
-    bipartite_components, drop_ambiguous_hn_subtype, filter_by_metadata, canonical_pair_key)
+    bipartite_components, drop_ambiguous_hn_subtype, filter_by_metadata, canonical_pair_key
+)
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
 from src.utils import schema  # noqa: E402
 from src.utils.config_hydra import (  # noqa: E402
-    get_virus_config_hydra, load_function_metadata, print_config_summary, save_config)
+    get_virus_config_hydra, load_function_metadata, print_config_summary, save_config
+)
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata  # noqa: E402
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  # noqa: E402
 
@@ -271,9 +273,14 @@ def make_folds(full: pd.DataFrame, k_folds: int, val_ratio: float, seed: int):
     return folds
 
 
-def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFrame,
-                          schema_pair_full: tuple, *, neg_to_pos_ratio: float,
-                          seed: int, hash_col: str = 'prot_hash') -> pd.DataFrame:
+def within_fold_negatives(
+    split_pos: pd.DataFrame,
+    cooccur: set,
+    df: pd.DataFrame,
+    schema_pair_full: tuple, *,
+    neg_to_pos_ratio: float,
+    seed: int,
+    hash_col: str = 'prot_hash') -> pd.DataFrame:
     """Cross-CC negatives for one fold-split (the `make_negatives` scheme).
 
     Pairs a random positive's slot-a seq with another positive's slot-b seq,
@@ -317,13 +324,20 @@ def within_fold_negatives(split_pos: pd.DataFrame, cooccur: set, df: pd.DataFram
     for c in ('cds_dna_hash_a', 'cds_dna_hash_b'):
         if c not in out.columns:
             out[c] = pd.NA
+
     return out[list(_PAIR_COLUMNS)].reset_index(drop=True)
 
 
-def make_folds_within_fold(pos_full: pd.DataFrame, k_folds: int, val_ratio: float,
-                           seed: int, *, neg_to_pos_ratio: float, cooccur: set,
-                           df: pd.DataFrame, schema_pair_full: tuple,
-                           hash_col: str = 'prot_hash'):
+def make_folds_within_fold(
+    pos_full: pd.DataFrame,
+    k_folds: int,
+    val_ratio: float,
+    seed: int, *,
+    neg_to_pos_ratio: float,
+    cooccur: set,
+    df: pd.DataFrame,
+    schema_pair_full: tuple,
+    hash_col: str = 'prot_hash'):
     """GroupKFold the POSITIVES by atom_id, then add cross-CC (within-fold)
     negatives per split from that split's own positives. Negatives stay in-split,
     so folds remain cluster-disjoint. Returns per fold (train, val, test) frames
@@ -333,6 +347,7 @@ def make_folds_within_fold(pos_full: pd.DataFrame, k_folds: int, val_ratio: floa
     n_total = len(pos_full)
     cols = list(_PAIR_COLUMNS)
     folds = []
+
     for fi, (tv_idx, te_idx) in enumerate(gkf.split(pos_full, groups=groups)):
         te_pos = pos_full.iloc[te_idx]
         tv = pos_full.iloc[tv_idx]
@@ -356,6 +371,7 @@ def make_folds_within_fold(pos_full: pd.DataFrame, k_folds: int, val_ratio: floa
                                          seed=seed + fi * 100 + si, hash_col=hash_col)
             out.append(pd.concat([sp[cols], negs[cols]], ignore_index=True).reset_index(drop=True))
         folds.append(tuple(out))
+
     return folds
 
 
@@ -396,6 +412,7 @@ def main() -> None:
         raise NotImplementedError(
             f"cluster_alphabet={alphabet!r} is not a known molecule axis for the "
             f"2D-CD builder (enabled: {list(_ENABLED_ALPHABETS)}).")
+
     # The 2D-CD builder uses ONE molecule axis: cluster join, cooccurrence set, isolate
     # pool, and positive/negative pair_key all key on `alphabet`'s hash. A separate
     # pair_key_alphabet would split positives (keyed by pair_key_alphabet) from
@@ -558,6 +575,7 @@ def main() -> None:
               f"{int((full.label == 0).sum()):,} neg) across {full['atom_id'].nunique():,} atoms")
         cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
         folds = make_folds(full, k_folds, val_ratio, seed)
+
     else:  # within_fold: split positives by atom, then add cross-CC negatives per split
         pos_full = pos_ids.copy()
         pos_full['neg_regime'] = pd.NA
