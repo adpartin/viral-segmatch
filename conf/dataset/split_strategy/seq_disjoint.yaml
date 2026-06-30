@@ -1,0 +1,8 @@
+# Split strategy: seq_disjoint (current default).
+#
+# Routes positive pairs by bipartite (side-A, side-B) connected components on the
+# chosen hash family so each unique sequence appears in at most one split.
+# Mitigates sequence-level leakage. See docs/methods/leakage.md and
+# docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
+mode: seq_disjoint
+hash_key: seq   # 'seq' (protein, default, stricter) | 'dna' (nucleotide, looser)

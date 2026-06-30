@@ -1,0 +1,19 @@
+# Split strategy: cluster_disjoint (Experiment B / B-nt).
+#
+# Routes positive pairs by bipartite-CC on mmseqs2 cluster ids instead of identity
+# hashes; mitigates cluster leakage (near-clone neighbors below identity but high
+# similarity). Run via the v2 Stage-3 CLI. cluster_id_path / cluster_id_threshold
+# are experiment-specific and set per bundle. See
+# docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+mode: cluster_disjoint
+hash_key: seq
+cluster_alphabet: aa        # 'aa' | 'nt_cds' | 'nt_ctg'
+cluster_id_path: null       # REQUIRED per bundle: mmseqs (<hash>, cluster_id) parquet
+cluster_id_threshold: null  # documentation-only; recorded in the cluster_disjoint audit
+cds_final_path: null        # nt_cds only; defaults to cds_dna_final.parquet beside protein_final
+single_slot: null           # null (bilateral, both slots disjoint) | 'a' | 'b'
+# D3 per-fold feasibility check (k-fold AND holdout). See
+# docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md D3.
+feasibility:
+  max_acceptable_drift_pp: 0.05  # max absolute pp deviation per bin from target (0-1 scale)
+  min_test_frac: 0.05            # test bin must be at least this fraction of total pairs

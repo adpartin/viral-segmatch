@@ -1,0 +1,14 @@
+# Split strategy: cluster_disjoint_cc (2D-CD CC builder, src/datasets/dataset_pairs_cc.py).
+#
+# Bilateral cluster-disjoint connected-component K-fold + within-CC negatives.
+# Inherits the shared cluster_disjoint knobs (cluster_alphabet, cluster_id_path,
+# feasibility, ...) and adds the CC-builder-only knobs below. NOT accepted by the
+# v2 Stage-3 CLI (_validate_v2_config rejects it). cluster_id_path is set per bundle.
+# See docs/plans/2026-06-09_cc_dataset_cv_plan.md.
+defaults:
+  - cluster_disjoint
+  - _self_
+mode: cluster_disjoint_cc
+negative_scope: within_cc          # within_cc (hard, removes cluster shortcut) | within_fold (easier)
+m_pos_per_cc: 1                    # positives kept per CC; 1 = uniform atoms, cleanest K-fold; null = no cap
+drop_negative_infeasible_ccs: true # drop CCs with no drawable within-CC negative
