@@ -68,7 +68,7 @@ dispatch) but determines what the v2 builder sees as input.
    `data/processed/flu/July_2025/genome_final.parquet` — one row per
    contig, 868,240 rows.
 3. **Attach DNA + `dna_hash` to protein rows.**
-   `_pair_helpers.attach_dna_to_prot_df` joins on
+   `_pair_helpers.attach_ctg_dna_to_prot_df` joins on
    `(assembly_id, genbank_ctg_id)` and computes
    `dna_hash = md5(dna_seq)` per protein row. (The protein-level
    `seq_hash = md5(prot_seq)` is already on `protein_final` from Stage 1.)

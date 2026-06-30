@@ -28,7 +28,7 @@ For each `*.gto` file in `data/raw/<run_dir>/`:
 5. Emit `protein_final.{csv,parquet}` and `genome_final.{csv,parquet}`.
 
 `(assembly_id, genbank_ctg_id)` is the join key Stage 3 uses to attach
-DNA to protein rows (`_pair_helpers.py::attach_dna_to_prot_df`).
+DNA to protein rows (`_pair_helpers.py::attach_ctg_dna_to_prot_df`).
 
 ---
 
@@ -116,7 +116,7 @@ The protein and genome tables are kept separate by design:
 - **Join on demand.** Stage 3 (`dataset_segment_pairs.py`) joins the
   two on `(assembly_id, genbank_ctg_id)` only when the downstream
   feature path actually needs both — see
-  `_pair_helpers.attach_dna_to_prot_df` and (for Experiment B-nt)
+  `_pair_helpers.attach_ctg_dna_to_prot_df` and (for Experiment B-nt)
   `_pair_helpers.attach_cds_dna_hash_to_pos_df`.
 
 ---
@@ -249,5 +249,5 @@ the schema in `conf/virus/flu.yaml`:
 - After ESM-2 prep, sequences that failed are filtered out via
   `notna()` on `esm2_ready_seq` (`preprocess_flu.py:1176`).
 - No row fan-out in the meta-cross-feature or meta-cross-contig merges
-  (`many_to_one` validation in `attach_dna_to_prot_df` later confirms
+  (`many_to_one` validation in `attach_ctg_dna_to_prot_df` later confirms
   this end-to-end).

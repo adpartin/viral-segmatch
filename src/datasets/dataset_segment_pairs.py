@@ -132,7 +132,7 @@ from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_d
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
 from src.datasets._pair_helpers import (
     canonical_pair_key,
-    attach_dna_to_prot_df,
+    attach_ctg_dna_to_prot_df,
     select_balanced_isolate_pool,
     orient_pair_by_schema,
     compute_isolate_pair_counts,
@@ -303,7 +303,7 @@ except Exception as e:
 # pair CSVs so we can run nucleotide-level leakage audits post-hoc without
 # re-running Stage 3).
 print('\nAttach DNA sequences to protein dataframe.')
-prot_df = attach_dna_to_prot_df(prot_df, input_file)
+prot_df = attach_ctg_dna_to_prot_df(prot_df, input_file)
 
 # Enrich the df with metadata (e.g., host, year, hn_subtype)
 print('\nEnrich dataframe with metadata.')

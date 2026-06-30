@@ -162,7 +162,7 @@ def create_positive_pairs_v2(
         return pd.DataFrame(columns=_PAIR_COLUMNS), empty_stats
 
     # All req_cols must be present; missing columns indicate an upstream
-    # regression (Stage 1 + attach_dna_to_prot_df should produce all nine).
+    # regression (Stage 1 + attach_ctg_dna_to_prot_df should produce all nine).
     # Padding with None would let k-mer / DNA features silently degrade.
     req_cols = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq',
                 'ctg_dna_seq', 'canonical_segment', 'function', 'prot_hash', 'ctg_dna_hash']
@@ -415,7 +415,7 @@ def create_negative_pairs_v2(
             raise ValueError(
                 "create_negative_pairs_v2: pair_key_alphabet='nt_ctg' requires "
                 "pos_df to have ctg_dna_hash_a / ctg_dna_hash_b columns "
-                "(attach_dna_to_prot_df populates these at Stage 3 load)."
+                "(attach_ctg_dna_to_prot_df populates these at Stage 3 load)."
             )
     else:
         raise ValueError(

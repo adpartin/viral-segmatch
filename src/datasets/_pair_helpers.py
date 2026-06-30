@@ -70,22 +70,24 @@ def _validate_schema_pair(schema_pair, fn_name: str) -> Tuple[str, str]:
     return func_left, func_right
 
 
-def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd.DataFrame:
+def attach_ctg_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd.DataFrame:
     """Attach nucleotide sequence (`ctg_dna_seq`) and md5 hash (`ctg_dna_hash`) to each
-    protein row via a join with `ctg_dna_final.*` in the same processed dir.
+    protein row via a join with `ctg_dna_final.*`.
 
-    Rationale: the existing pipeline dedups/checks leakage using `prot_hash` over
-    protein sequences -- the correct check for ESM-2 features, but not for nucleotide
-    based k-mer features (which are derived from DNA). Carrying DNA into the pair
-    CSVs makes post-hoc nucleotide-level leakage audits possible without
-    re-running Stage 3.
+    `ctg_dna_hash` keys the contig-DNA axis (nt_ctg) in schema.py
+    Two uses:
+        - cluster / pair_key axis when cluster_alphabet='nt_ctg' (2D-CD CC builder);
+          dedup + cluster-join key on the per-alphabet hash, not prot_hash alone.
+        - DNA carried into the pair CSVs for post-hoc nucleotide k-mer leakage audits
+          (no Stage-3 re-run).
+    Sibling: `attach_cds_dna_hash_to_prot_df` attaches `cds_dna_hash` (nt_cds)
 
     Join key: (assembly_id, genbank_ctg_id). Verified on the full Flu July 2025
     dataset: genome side is unique on this key, every protein row matches
     exactly one genome row, and canonical_segment agrees on both sides. Multiple
     proteins can share one DNA contig (M1/M2, NS1/NEP, PA/PA-X) -- that's
     semantically correct; those proteins do originate from the same nucleotide
-    sequence, and DNA-derived features (k-mers) would be identical for them.
+    sequence, and DNA-derived features (e.g., k-mers) would be identical for them.
 
     Fails loudly on: missing join columns, duplicate genome-side keys, row
     count drift post-merge, or any unmatched protein row.
@@ -97,17 +99,17 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
             f"prot_df is missing columns required for DNA join: {sorted(missing)}"
         )
 
-    genome_path = protein_input_path.parent / "ctg_dna_final"
+    ctg_path = protein_input_path.parent / "ctg_dna_final"
     print(f"\nAttach DNA sequences from ctg_dna_final (sibling of {protein_input_path.name}).")
-    genome_df = load_dataframe(genome_path)
+    ctg_df = load_dataframe(ctg_path)
 
-    genome_cols = ["assembly_id", "genbank_ctg_id", "ctg_dna_seq"]
-    miss_g = set(genome_cols) - set(genome_df.columns)
-    if miss_g:
-        raise ValueError(f"ctg_dna_final is missing required columns: {sorted(miss_g)}")
-    genome_small = genome_df[genome_cols].copy()
+    ctg_cols = ["assembly_id", "genbank_ctg_id", "ctg_dna_seq"]
+    miss_c = set(ctg_cols) - set(ctg_df.columns)
+    if miss_c:
+        raise ValueError(f"ctg_dna_final is missing required columns: {sorted(miss_c)}")
+    ctg_small = ctg_df[ctg_cols].copy()
 
-    dup = genome_small.duplicated(["assembly_id", "genbank_ctg_id"]).sum()
+    dup = ctg_small.duplicated(["assembly_id", "genbank_ctg_id"]).sum()
     if dup:
         raise ValueError(
             f"ctg_dna_final has {dup} duplicate (assembly_id, genbank_ctg_id) rows. "
@@ -116,7 +118,7 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
 
     before = len(prot_df)
     merged = prot_df.merge(
-        genome_small,
+        ctg_small,
         on=["assembly_id", "genbank_ctg_id"],
         how="left",
         validate="many_to_one", # each protein row matches at most one genome row
@@ -145,9 +147,9 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
     )
 
     n_unique_dna = merged["ctg_dna_hash"].nunique()
-    print(f"  genome_df: Total rows: {len(genome_small):,};  unique ctg_dna_seq: {genome_small['ctg_dna_seq'].nunique():,}")
+    print(f"  ctg_df: Total rows: {len(ctg_small):,};  unique ctg_dna_seq: {ctg_small['ctg_dna_seq'].nunique():,}")
     print(f"  protein rows merged (with genome data):  {before:,} (100.0% matched)")
-    print(f"  unique ctg_dna_hash:      {n_unique_dna:,} "
+    print(f"  unique ctg_dna_hash:  {n_unique_dna:,} "
           f"({n_unique_dna / before * 100:.1f}% of protein rows -- many proteins share a contig)")
     return merged
 

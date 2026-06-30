@@ -40,7 +40,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from omegaconf import ListConfig, OmegaConf
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold  # GroupKFold(shuffle=, random_state=) requires scikit-learn>=1.6
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
@@ -49,7 +49,7 @@ if str(PROJ) not in sys.path:
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
     attach_cds_dna_hash_to_prot_df,
-    attach_dna_to_prot_df,
+    attach_ctg_dna_to_prot_df,
     bipartite_components,
     build_cooccurrence_set,
     canonical_pair_key,
@@ -82,22 +82,30 @@ _SIDE_RENAME = {'assembly_id': 'assembly_id', 'brc_fea_id': 'brc', 'genbank_ctg_
                 'function': 'func', 'prot_hash': 'prot_hash', 'ctg_dna_hash': 'ctg_dna_hash'}
 
 
-def build_frontend(config, input_file: Path, schema_pair_full: tuple,
-                   cds_final_path: Path = None) -> pd.DataFrame:
-    """v2's protein-level front-end, narrowed to schema_pair (calls v2's helpers).
+def build_frontend(
+    config,
+    input_file: Path,  # protein_final.parquet
+    schema_pair_full: tuple,
+    cds_final_path: Path = None) -> pd.DataFrame:
+    """v2's protein-level front-end, narrowed to schema_pair (same helpers as v2,
+    so the population matches v2 for the same bundle).
 
-    Mirrors the v2 CLI (`dataset_segment_pairs.py`): load -> attach_dna -> enrich
-    -> drop_ambiguous_subtype -> filter_by_metadata -> selected_functions/schema
-    narrow -> prot_hash. Calls the same helpers (no v2 refactor) so the population
-    matches v2 for the same bundle. subtype balancing and max_isolates sampling
-    are NOT yet wired here — if a bundle sets them they raise rather than silently
-    no-op (deferred Phase-1 scope).
+    Pipeline (mirrors the v2 CLI `dataset_segment_pairs.py`):
+        load protein_final.parquet -> attach_dna (ctg_dna_seq/hash) -> enrich ->
+        drop_ambiguous_subtype (if enabled) -> filter_by_metadata ->
+        selected_functions/schema narrow -> prot_hash (if missing).
+    subtype balancing and max_isolates are NOT wired (if a bundle sets them raise error).
 
-    `cds_final_path` (nt_cds only): when given, attach `cds_dna_hash` from that
-    cds_dna_final parquet (join on assembly_id+function) AFTER the schema narrow, so
-    `create_positive_pairs_v2(pair_key_alphabet='nt_cds')` finds it and the negatives'
-    `_side_rep` can key on it. Left None for aa/nt_ctg (their output cds_dna_hash_a/b
-    stay empty), which keeps those outputs byte-identical to the pre-nt_cds builder.
+    `cds_final_path` (nt_cds only): attach `cds_dna_hash` from that cds_dna_final AFTER
+    the narrow, so create_positive_pairs_v2(pair_key_alphabet='nt_cds') can key on it.
+    None for aa/nt_ctg (cds_dna_hash_a/b stay empty).
+
+    protein_final is loaded for EVERY alphabet; per-slot hashes are attached here:
+        - prot_hash     -> always (computed if missing)         [aa key]      (protein)
+        - ctg_dna_hash  -> always, via attach_ctg_dna_to_prot_df    [nt_ctg key]  (contig DNA)
+        - cds_dna_hash  -> only when cds_final_path set         [nt_cds key]  (CDS DNA)
+    The cluster_alphabet (set by the caller) later selects which of these keys
+    pair_key / dedup / cluster-join.
     """
     subsel = getattr(config.dataset, 'subtype_selection', None)
     if subsel is not None and str(getattr(subsel, 'mode', 'natural')) == 'balanced':
@@ -107,9 +115,10 @@ def build_frontend(config, input_file: Path, schema_pair_full: tuple,
         raise NotImplementedError(
             "dataset.max_isolates_to_process is not yet wired into the 2D-CD builder.")
 
-    df = load_dataframe(input_file)
-    df = attach_dna_to_prot_df(df, input_file)                 # ctg_dna_seq, ctg_dna_hash
-    df = enrich_prot_data_with_metadata(df, project_root=PROJ)  # host, year, hn_subtype, ...
+    # Load protein_final.parquet and attach ctg_dna_{seq,hash} via ctg_dna_final.parquet
+    df = load_dataframe(input_file) # protein_final.parquet
+    df = attach_ctg_dna_to_prot_df(df, input_file) # attach ctg_dna_{seq,hash} to protein df
+    df = enrich_prot_data_with_metadata(df, project_root=PROJ) # host, year, hn_subtype, ...
     if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
         df, _ = drop_ambiguous_hn_subtype(df)
 
@@ -506,6 +515,14 @@ def _build_positives(config, spec: CCSpec, args):
 
     Returns (df, pos_ids, cooccur); pos_ids carries cluster_id_a/b + cc_id + atom_id.
     """
+    # protein_final is the source frame for ALL alphabets: it carries every per-slot hash
+    # (prot_hash; ctg_dna_hash always-attached; cds_dna_hash for nt_cds) and positives are built
+    # from its rows. The alphabet only selects which hash keys pair_key/dedup/cluster-join (so the
+    # unique-positive UNIVERSE is alphabet-defined: nt_cds/nt_ctg keep codon/contig variants that aa
+    # collapses) — it does NOT change the source file. We need the PATH here (build_frontend loads it;
+    # input_file.parent locates the sibling cds_dna_final.parquet), not a preloaded df.
+
+    # Path to protein_final.parquet
     input_file = (Path(args.protein_final) if args.protein_final
                   else spec.cluster_id_path.parents[2] / 'protein_final.parquet')
 
