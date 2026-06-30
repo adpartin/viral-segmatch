@@ -113,15 +113,12 @@ def create_positive_pairs_v2(
     df: pd.DataFrame,
     schema_pair: Tuple[str, str],
     pair_key_alphabet: str = 'aa',
-    # seed: int = 42,
     ) -> tuple[pd.DataFrame, dict]:
     """Generate within-isolate positive pairs in schema-ordered mode, then drop
     duplicate `pair_key` rows (within the input).
 
     Vectorized via merge-on-`assembly_id`. Slot A is `func_left`, slot B is
-    `func_right` by construction (no post-hoc orientation needed). The previous
-    Python double-loop implementation is recoverable from git history (see
-    branch v2-pos-global-split).
+    `func_right` by construction (no post-hoc orientation needed).
 
     v2 hard-codes pair_mode='schema_ordered', drop_within_split_pos_duplicates=True,
     canonicalize_pair_orientation_enabled=False. See dataset_segment_pairs.py (v1)
@@ -130,19 +127,19 @@ def create_positive_pairs_v2(
 
     Args:
         df: Protein-level DataFrame already filtered to the relevant isolates.
-            For pair_key_alphabet='aa' must contain `prot_hash`. For
-            pair_key_alphabet='nt_cds' must additionally contain
-            `cds_dna_hash` (caller pre-attaches via merge against cds_final).
+            Must contain all `req_cols` below (incl. `prot_hash` and
+            `ctg_dna_hash`) for every alphabet; pair_key_alphabet='nt_cds' also
+            needs `cds_dna_hash` (caller pre-attaches it against cds_dna_final).
         schema_pair: (func_left, func_right). func_left occupies slot A in every
             output pair; func_right occupies slot B. Must satisfy
             func_left != func_right.
-        pair_key_alphabet: 'aa' (default; protein-level dedup via
-            prot_hash) or 'nt_cds' (CDS-DNA-level dedup via cds_dna_hash —
-            inflates the unique pair_key universe by +35-57 % on Flu A
-            HA-NA / PB2-PB1, per docs/plans/2026-06-02_pair_key_alphabet_plan.md
-            § 4). The pair_key column is constructed on the selected hash
-            family; same-protein-different-CDS pairs that collapse under
-            'aa' are distinct under 'nt_cds'.
+        pair_key_alphabet: 'aa' (default; protein-level dedup via prot_hash),
+            'nt_cds' (CDS-DNA dedup via cds_dna_hash), or 'nt_ctg' (contig-DNA
+            dedup via ctg_dna_hash). The pair_key is built on the selected hash
+            family, so same-protein-different-DNA pairs that collapse under 'aa'
+            stay distinct under nt_cds/nt_ctg (nt_cds inflates the unique
+            pair_key universe by +35-57 % on Flu A HA-NA / PB2-PB1, per
+            docs/plans/2026-06-02_pair_key_alphabet_plan.md § 4).
 
     Returns:
         (pos_df, dedup_stats) where pos_df has the v1 positive-pair columns
@@ -170,8 +167,8 @@ def create_positive_pairs_v2(
     if missing:
         raise ValueError(f"create_positive_pairs_v2: df missing required columns: {missing}")
 
-    # Include cds_dna_hash in the per-side flow when present in df (orchestrator
-    # attaches it when pair_key_alphabet='nt_cds'; absent for aa flow).
+    # Include cds_dna_hash in the per-side flow when present in df (attached only
+    # when pair_key_alphabet='nt_cds'; absent for the aa / nt_ctg flows).
     has_cds = 'cds_dna_hash' in df.columns
     side_cols = list(req_cols) + (['cds_dna_hash'] if has_cds else [])
 
@@ -254,28 +251,20 @@ def create_positive_pairs_v2(
 
     pos_df = pos_df.reindex(columns=_PAIR_COLUMNS)
 
-    # TODO. Below we drop dups based on pair_key computed on protein seq hashes.
-    # We also want to understand the duplicate situation on the DNA side, as well
-    # as on the k-mer side.
+    # Dedup below is on `pair_key`, keyed on the per-alphabet hash (aa: prot_hash,
+    # nt_cds: cds_dna_hash, nt_ctg: ctg_dna_hash) — see the pair_key block above.
 
     # Within-input pair_key dedup. v2 hard-codes drop_within_split_pos_duplicates=True.
     # In the global-pos flow (split_dataset_v2), this runs once on the full pos_df and
     # gives every pair_key a single representative isolate.
     n_before = len(pos_df)
     # `keep='first'` is arbitrary on host: the surviving isolate per pair_key is
-    # whichever assembly_id comes first lexicographically. If we ever want to
-    # bias the representative toward common hosts (e.g., Human > Pig > Chicken
-    # > Duck > ... > unknown) without dropping diversity, the clean fix is:
-    # pre-sort `pos_df` by a host_priority column here, then keep='first' will
-    # pick the highest-priority host that carries each pair. The alternative
-    # ("Human-only experiment") is to filter with `dataset.host: ['Human']`
-    # in the bundle — that drops the other hosts entirely instead of just
-    # changing which isolate represents each pair. The two are orthogonal:
-    # the filter narrows the corpus and shrinks the regime taxonomy to the
-    # 4 host-match regimes; this priority knob preserves full diversity and
-    # only affects representative metadata. Not yet implemented because the
-    # downstream impact (regime classification uses the representative's cell)
-    # has not been measured.
+    # whichever comes first in pos_df row order — deterministic given df, but not
+    # sorted, so effectively arbitrary w.r.t. host. To bias the representative
+    # toward preferred hosts without dropping diversity, pre-sort pos_df by a
+    # host_priority column here so keep='first' picks it. Not yet implemented
+    # (downstream impact on regime classification unmeasured); the orthogonal
+    # alternative is a corpus filter `dataset.host: ['Human']` in the bundle.
     is_dup = pos_df.duplicated(subset=['pair_key'], keep='first')
     dup_rows = pos_df.loc[is_dup, ['assembly_id_a', 'assembly_id_b', 'pair_key']]
     duplicate_isolate_pairs = [
