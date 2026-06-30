@@ -530,13 +530,12 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'prot_hash') -> tup
     Args:
         df: row-per-(isolate, protein) DataFrame; must contain `assembly_id`
             and the selected `hash_col`.
-        hash_col: which hash column to use as the cooccurrence key. Default
-            'prot_hash' (protein-level; aa pair_key family). Pass
-            'cds_dna_hash' for the nt_cds pair_key family. The choice must
-            match the alphabet of pair_keys used downstream (in
-            `create_positive_pairs_v2` and `create_negative_pairs_v2`);
-            mismatched cooccur and pair_key alphabets would silently allow
-            (or block) the wrong pairs as negatives.
+        hash_col: which hash column to use as the cooccurrence key, one per
+            alphabet: 'prot_hash' (aa, default), 'cds_dna_hash' (nt_cds), or
+            'ctg_dna_hash' (nt_ctg). The choice must match the alphabet of
+            pair_keys used downstream (in `create_positive_pairs_v2` and
+            `create_negative_pairs_v2`); mismatched cooccur and pair_key
+            alphabets would silently allow (or block) the wrong pairs as negatives.
 
     Returns:
         - cooccur_pairs: Set of canonical pair keys (`canonical_pair_key`
@@ -549,17 +548,16 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'prot_hash') -> tup
     if hash_col not in df.columns:
         raise ValueError(
             f"build_cooccurrence_set: hash_col={hash_col!r} not in df.columns. "
-            f"For pair_key_alphabet='nt_cds' the caller must attach "
-            f"cds_dna_hash to df before calling."
+            f"The caller must attach the alphabet's hash to df before calling "
+            f"(e.g., cds_dna_hash for nt_cds)."
         )
     cooccur_pairs = set()
     isolate_pair_counts = {}
     for aid, grp in df.groupby('assembly_id'):
-        if len(grp) < 2:
-            continue
-
         # Unique hashes for this isolate, alphabet selected by hash_col.
         hashes = grp[hash_col].unique().tolist()
+        if len(hashes) < 2:
+            continue
 
         for i in range(len(hashes)):
             for j in range(i + 1, len(hashes)):
@@ -572,7 +570,7 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'prot_hash') -> tup
 
     # - max_isolates_per_pair is the maximum number of isolates that a specific sequence pair co-occurs in.
     # - pairs_in_multiple_isolates counts how many unique sequence pairs co-occur in more than one isolate.
-    # - pairs_in_multiple_isolates / total_cooccur_pairs is measure: out of all co-occurring unique sequence pairs
+    # - pairs_in_multiple_isolates / total_cooccur_pairs is a measure of: out of all co-occurring unique sequence pairs
     #   how many are (biologically) duplicated across multiple isolates
     cooccur_stats = {
         'total_cooccur_pairs': len(cooccur_pairs),
