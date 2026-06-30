@@ -158,29 +158,29 @@ def attach_cds_dna_hash_to_prot_df(
     prot_df: pd.DataFrame,
     cds_final_path: Path,
     ) -> pd.DataFrame:
-    """Add a `cds_dna_hash` column to a protein-level DataFrame.
+    """Add a `cds_dna_hash` column to a protein-level DataFrame, joined from
+    `cds_dna_final.parquet` on `(assembly_id, function)`.
 
-    Required by `pair_key_alphabet='nt_cds'` (Phase 2 of clustering
-    cleanup plan) — `create_positive_pairs_v2` constructs the pair_key
-    on `cds_dna_hash_{a,b}` rather than `prot_hash_{a,b}`, and
-    `build_cooccurrence_set` needs to key cooccur pairs on
-    `cds_dna_hash` to match. Orchestrator (Stage 3 entry point) calls
-    this once on the full prot_df before passing to `split_dataset_v2`
-    or the k-fold variants.
+    `cds_dna_hash` keys the CDS-DNA axis (nt_cds) in schema.py: when
+    cluster_alphabet/pair_key_alphabet='nt_cds', create_positive_pairs_v2 and
+    build_cooccurrence_set key pair_key / dedup / cluster-join on it (not prot_hash).
+    Sibling: `attach_ctg_dna_to_prot_df` attaches `ctg_dna_seq`/`ctg_dna_hash` (nt_ctg).
+    
+    Lookup key: (assembly_id, function); cds_dna_final is unique on it for the 8 Flu A
+    majors (Stage 1.5 invariant; see src/preprocess/extract_cds_dna.py).
+    
+    Unmatched rows are DROPPED with a warning — only selected_functions/majors have a
+    CDS, so other functions (M2, NEP, PB1-F2, ...) won't match (a NaN cds_dna_hash would
+    break downstream hashing). This is the opposite of the ctg sibling, which raises on
+    any unmatched row. For the standard schema_pair flow these are already filtered out.
 
-    Lookup key: `(assembly_id, function)`. cds_dna_final.parquet is unique
-    on this key for the 8 Flu A majors (Stage 1.5 invariant; see
-    `src/preprocess/extract_cds_dna.py`).
+    Fails loudly on: missing prot_df columns, a missing cds_final file, duplicate
+    cds_final keys, or join fan-out (row-count drift).
 
     Args:
-        prot_df: must contain `assembly_id` + `function` columns
-            (standard prot_df shape from Stage 1 + DNA join).
-        cds_final_path: path to `cds_dna_final.parquet`. Must contain
-            `assembly_id`, `function`, `cds_dna_hash`.
-
-    Returns a new DataFrame with `cds_dna_hash` added. Raises on
-    missing prot_df rows, fan-out, or unmatched (assembly_id, function)
-    pairs (Stage 3 strictness: no silent drops).
+      prot_df: must contain `assembly_id` + `function`.
+      cds_final_path: path to `cds_dna_final.parquet` (cols: assembly_id, function,
+          cds_dna_hash).
     """
     cds_final_path = Path(cds_final_path)
     if not cds_final_path.exists():
@@ -201,10 +201,10 @@ def attach_cds_dna_hash_to_prot_df(
     )
     cds_df['assembly_id'] = cds_df['assembly_id'].astype(str)
 
-    if cds_df.duplicated(['assembly_id', 'function']).any():
-        n_dup = int(cds_df.duplicated(['assembly_id', 'function']).sum())
+    dups = cds_df.duplicated(['assembly_id', 'function'])
+    if dups.any():
         raise AssertionError(
-            f"attach_cds_dna_hash_to_prot_df: cds_final has {n_dup} duplicate "
+            f"attach_cds_dna_hash_to_prot_df: cds_final has {int(dups.sum())} duplicate "
             f"(assembly_id, function) rows — would fan out the join."
         )
 
@@ -220,16 +220,9 @@ def attach_cds_dna_hash_to_prot_df(
 
     missing = out['cds_dna_hash'].isna().sum()
     if missing:
-        # Only the 8 selected_functions have CDS; rows for other functions
-        # (M2, NEP, PB1-F2, etc.) won't match. For the standard schema_pair
-        # flow these are filtered upstream, but if any unmatched rows remain
-        # we DROP them with a warning (a NaN cds_dna_hash would break
-        # downstream hashing).
         missing_funcs = sorted(out.loc[out['cds_dna_hash'].isna(), 'function'].unique())
         print(f"WARNING: attach_cds_dna_hash_to_prot_df: {missing:,} rows have "
-              f"no cds_dna_hash (functions: {missing_funcs}); dropping. "
-              f"These functions are not in selected_functions / not covered "
-              f"by cds_final.")
+              f"no cds_dna_hash (functions: {missing_funcs}); dropping.")
         out = out.dropna(subset=['cds_dna_hash']).reset_index(drop=True)
 
     print(f"attach_cds_dna_hash_to_prot_df: attached cds_dna_hash to "
