@@ -39,32 +39,40 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from omegaconf import OmegaConf, ListConfig
+from omegaconf import ListConfig, OmegaConf
 from sklearn.model_selection import GroupKFold
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2, _PAIR_COLUMNS  # noqa: E402
+from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
-    attach_dna_to_prot_df, attach_cds_dna_hash_to_prot_df, build_cooccurrence_set,
-    bipartite_components, drop_ambiguous_hn_subtype, filter_by_metadata, canonical_pair_key
+    attach_cds_dna_hash_to_prot_df,
+    attach_dna_to_prot_df,
+    bipartite_components,
+    build_cooccurrence_set,
+    canonical_pair_key,
+    drop_ambiguous_hn_subtype,
+    filter_by_metadata,
 )
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
-from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
-from src.utils.path_utils import load_dataframe  # noqa: E402
+from src.datasets.dataset_segment_pairs_v2 import _PAIR_COLUMNS, create_positive_pairs_v2  # noqa: E402
 from src.utils import schema  # noqa: E402
 from src.utils.config_hydra import (  # noqa: E402
-    get_virus_config_hydra, load_function_metadata, print_config_summary, save_config
+    get_virus_config_hydra,
+    load_function_metadata,
+    print_config_summary,
+    save_config,
 )
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata  # noqa: E402
+from src.utils.path_utils import load_dataframe  # noqa: E402
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  # noqa: E402
 
 # pos-side hash used to join clusters AND as the cooccurrence/cluster key.
 # aa=protein, nt_cds=CDS, nt_ctg=contig — all md5 of the respective sequence.
 # Single source of truth: the schema registry.
-_POS_HASH = {a: s.hash_col for a, s in schema.SCHEMA.items()}
+_POS_HASH = {a: s.hash_col for a, s in schema.SCHEMA.items()} # "a" for alphabet, "s" for schema
 
 # Per-protein source columns copied into each pair side (a/b) of _PAIR_COLUMNS.
 _SIDE_SRC = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq', 'ctg_dna_seq',
@@ -91,8 +99,8 @@ def build_frontend(config, input_file: Path, schema_pair_full: tuple,
     `_side_rep` can key on it. Left None for aa/nt_ctg (their output cds_dna_hash_a/b
     stay empty), which keeps those outputs byte-identical to the pre-nt_cds builder.
     """
-    ss = getattr(config.dataset, 'subtype_selection', None)
-    if ss is not None and str(getattr(ss, 'mode', 'natural')) == 'balanced':
+    subsel = getattr(config.dataset, 'subtype_selection', None)
+    if subsel is not None and str(getattr(subsel, 'mode', 'natural')) == 'balanced':
         raise NotImplementedError(
             "dataset.subtype_selection.mode=balanced is not yet wired into the 2D-CD builder.")
     if getattr(config.dataset, 'max_isolates_to_process', None):
@@ -247,6 +255,25 @@ def within_cc_negatives(pos_ids: pd.DataFrame, iso: pd.DataFrame, cooccur: set,
     return out[keep].reset_index(drop=True), cc_log
 
 
+def _carve_val_atoms(tv: pd.DataFrame, val_ratio: float, n_total: int, seed: int):
+    """Group-aware val carve: take whole atoms (seeded shuffle) until ~val_ratio of
+    the WHOLE set, so atoms never split across train/val. Returns (train, val)."""
+    rng = np.random.RandomState(seed)
+    atoms = tv['atom_id'].drop_duplicates().to_numpy()
+    rng.shuffle(atoms)
+    sizes = tv.groupby('atom_id').size()
+    target = val_ratio * n_total
+    val_atoms, acc = set(), 0
+    for a in atoms:
+        if acc >= target:
+            break
+        val_atoms.add(a)
+        acc += int(sizes[a])
+    val = tv[tv['atom_id'].isin(val_atoms)]
+    train = tv[~tv['atom_id'].isin(val_atoms)]
+    return train, val
+
+
 def make_folds(full: pd.DataFrame, k_folds: int, val_ratio: float, seed: int):
     """GroupKFold(by atom_id) -> per fold (train, val, test). val carved group-aware
     from the non-test atoms (whole atoms never split across train/val)."""
@@ -257,20 +284,7 @@ def make_folds(full: pd.DataFrame, k_folds: int, val_ratio: float, seed: int):
     for tv_idx, te_idx in gkf.split(full, groups=groups):
         test = full.iloc[te_idx]
         tv = full.iloc[tv_idx]
-        # group-aware val carve: take whole atoms until ~val_ratio of the WHOLE set.
-        rng = np.random.RandomState(seed)
-        atoms = tv['atom_id'].drop_duplicates().to_numpy()
-        rng.shuffle(atoms)
-        sizes = tv.groupby('atom_id').size()
-        target = val_ratio * n_total
-        val_atoms, acc = set(), 0
-        for a in atoms:
-            if acc >= target:
-                break
-            val_atoms.add(a)
-            acc += int(sizes[a])
-        val = tv[tv['atom_id'].isin(val_atoms)]
-        train = tv[~tv['atom_id'].isin(val_atoms)]
+        train, val = _carve_val_atoms(tv, val_ratio, n_total, seed)
         folds.append((train.reset_index(drop=True), val.reset_index(drop=True),
                       test.reset_index(drop=True)))
     return folds
@@ -354,19 +368,7 @@ def make_folds_within_fold(
     for fi, (tv_idx, te_idx) in enumerate(gkf.split(pos_full, groups=groups)):
         te_pos = pos_full.iloc[te_idx]
         tv = pos_full.iloc[tv_idx]
-        rng = np.random.RandomState(seed)
-        atoms = tv['atom_id'].drop_duplicates().to_numpy()
-        rng.shuffle(atoms)
-        sizes = tv.groupby('atom_id').size()
-        target = val_ratio * n_total
-        val_atoms, acc = set(), 0
-        for a in atoms:
-            if acc >= target:
-                break
-            val_atoms.add(a)
-            acc += int(sizes[a])
-        val_pos = tv[tv['atom_id'].isin(val_atoms)]
-        train_pos = tv[~tv['atom_id'].isin(val_atoms)]
+        train_pos, val_pos = _carve_val_atoms(tv, val_ratio, n_total, seed)
         out = []
         for si, sp in enumerate([train_pos, val_pos, te_pos]):
             negs = within_fold_negatives(sp, cooccur, df, schema_pair_full,
@@ -429,7 +431,7 @@ def _resolve_spec(args, config) -> CCSpec:
     """Validate the bundle for cluster_disjoint_cc + resolve all build knobs into a CCSpec."""
     ds, ss = config.dataset, config.dataset.split_strategy
 
-    # this builder owns exactly one mode
+    # this builder supports only the cluster_disjoint_cc mode
     mode = OmegaConf.select(config, 'dataset.split_strategy.mode')
     if mode != 'cluster_disjoint_cc':
         raise ValueError(
@@ -441,7 +443,15 @@ def _resolve_spec(args, config) -> CCSpec:
     # pair_key_alphabet == cluster_alphabet, the positives carry POPULATED cds_dna_hash_{a,b}
     # so the cluster join never hits the §13c empty-column (float64-vs-string) crash.
     _ENABLED_ALPHABETS = ('aa', 'nt_cds', 'nt_ctg')
-    alphabet = str(getattr(ss, 'cluster_alphabet', 'aa') or 'aa')
+    # No code-level default: the default ('aa') lives in conf
+    # (conf/dataset/split_strategy/cluster_disjoint.yaml). A missing key is a real
+    # misconfiguration -> fail loud rather than silently pick an axis.
+    alphabet = getattr(ss, 'cluster_alphabet', None)
+    if alphabet is None:
+        raise ValueError(
+            "dataset.split_strategy.cluster_alphabet must be set for cluster_disjoint_cc "
+            "(e.g. 'aa'); its default lives in conf/dataset/split_strategy/cluster_disjoint.yaml.")
+    alphabet = str(alphabet)
     if alphabet not in _ENABLED_ALPHABETS:
         raise NotImplementedError(
             f"cluster_alphabet={alphabet!r} is not a known molecule axis for the "
@@ -450,17 +460,23 @@ def _resolve_spec(args, config) -> CCSpec:
     # ONE molecule axis: cluster join, cooccurrence set, isolate pool, and positive/negative
     # pair_key all key on `alphabet`'s hash. A separate pair_key_alphabet would split positives
     # (keyed by pair_key_alphabet) from cooccur+negatives (keyed by cluster alphabet); require equal.
-    pair_key_alphabet = str(getattr(ss, 'pair_key_alphabet', alphabet) or alphabet)
-    if pair_key_alphabet != alphabet:
-        raise NotImplementedError(
-            f"the 2D-CD builder keys pairs by the cluster alphabet; got "
-            f"cluster_alphabet={alphabet!r} != pair_key_alphabet={pair_key_alphabet!r}. "
-            f"Set them equal (or leave pair_key_alphabet unset).")
+    # Single-axis builder: pair_key defaults to the cluster alphabet (inferred, not a
+    # buried constant). When set explicitly it must equal it.
+    pair_key_alphabet = getattr(ss, 'pair_key_alphabet', None)
+    if pair_key_alphabet is None:
+        pair_key_alphabet = alphabet
+    else:
+        pair_key_alphabet = str(pair_key_alphabet)
+        if pair_key_alphabet != alphabet:
+            raise NotImplementedError(
+                f"the 2D-CD builder keys pairs by the cluster alphabet; got "
+                f"cluster_alphabet={alphabet!r} != pair_key_alphabet={pair_key_alphabet!r}. "
+                f"Set them equal (or leave pair_key_alphabet unset).")
     if getattr(ds, 'negative_sampling', None) is not None:
         raise NotImplementedError(
             "Regime-targeted within-CC negatives (dataset.negative_sampling) are a placeholder; "
             "leave it null for random within-CC negatives in Phase 1.")
-    n_repeats = int(getattr(ds, 'n_repeats', 1) or 1)
+    n_repeats = int(getattr(ds, 'n_repeats', None) or 1)
     if n_repeats != 1:
         raise NotImplementedError("n_repeats>1 is a placeholder; only n_repeats=1 is wired.")
 
@@ -477,7 +493,7 @@ def _resolve_spec(args, config) -> CCSpec:
     drop_negative_infeasible_ccs = bool(getattr(
         ss, 'drop_negative_infeasible_ccs', _legacy_drop if _legacy_drop is not None else True))
 
-    negative_scope = str(getattr(ss, 'negative_scope', 'within_cc') or 'within_cc')
+    negative_scope = str(getattr(ss, 'negative_scope', None) or 'within_cc')
     if negative_scope not in ('within_cc', 'within_fold'):
         raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc' or "
                          f"'within_fold'; got {negative_scope!r}.")
