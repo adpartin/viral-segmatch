@@ -1,5 +1,5 @@
 # Dataset configuration for segment pairs
-# This config defines parameters for creating train/val/test splits and protein pairs
+# This config defines parameters for creating train/val/test splits and segment pairs
 
 # Split-strategy knobs are mode-scoped Hydra config groups under
 # conf/dataset/split_strategy/. The default selected here is seq_disjoint; bundles

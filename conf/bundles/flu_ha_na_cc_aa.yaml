@@ -1,18 +1,5 @@
-# STATUS: experimental -- HA/NA 2D-CD cross-validation (bilateral cluster-disjoint
-# connected-component K-fold + within-CC negatives). Built by the maintained 2D-CD
-# builder (src/datasets/dataset_pairs_cc.py), NOT the v2 Stage-3 CLI (which rejects
-# mode=cluster_disjoint_cc).
-#
-# Inherits flu_ha_na_cluster_t099 (aa cluster_disjoint at t099: cluster_id_path +
-# threshold). Switches the mode to cluster_disjoint_cc and sets the CC-builder knobs:
-# 5-fold CV, one positive per CC (m_pos_per_cc=1 -> uniform atoms), 1:1 within-CC
-# random negatives, drop negative-infeasible CCs.
-#
-# Run:
-#   python src/datasets/dataset_pairs_cc.py --config_bundle flu_ha_na_cc_aa \
-#       --out_dir data/datasets/flu/July_2025/runs/dataset_flu_ha_na_cc_aa_<ts>
-#
-# See docs/plans/2026-06-09_cc_dataset_cv_plan.md.
+# STATUS: experimental -- HA/NA 2D-CD cross-validation (bilateral cluster-disjoint CC).
+# Built by src/datasets/dataset_pairs_cc.py.
 
 defaults:
   - flu_ha_na_cluster_t099
@@ -24,19 +11,17 @@ dataset:
   val_ratio: 0.1
 
   split_strategy:
-    mode: cluster_disjoint_cc   # 2D-CD builder mode (rejected by _validate_v2_config)
-    # cluster_id_path + cluster_id_threshold inherited from flu_ha_na_cluster_t099 (aa t099)
+    mode: cluster_disjoint_cc
     cluster_alphabet: aa
-    m_pos_per_cc: 1             # one positive per CC -> uniform atoms, cleanest K-fold
-    drop_negative_infeasible_ccs: true   # drop CCs with no drawable within-CC negative
+    m_pos_per_cc: 1  # one positive per CC -> uniform atoms
+    drop_negative_infeasible_ccs: true
 
-# Stage-4 features for the CC experiment: aa k=3 k-mers + raw-count unit_diff, to
-# match the in-memory CC analysis (cluster_disjoint_cv_experiment / regime_cv).
-# Overrides flu_ha_na's production nt k=6 / unit_norm + unit_diff+prod.
+# Stage-4 features: aa k=3 k-mers + raw-count unit_diff, matching the in-memory CC
+# analysis (overrides flu_ha_na's production nt k=6 / unit_norm + unit_diff+prod).
 kmer:
   alphabet: aa
   k: 3
 
 training:
-  interaction: "unit_diff"   # match the analysis (not the bundle's unit_diff+prod)
-  slot_transform: "none"     # analysis applies unit_diff to raw counts (no per-slot norm)
+  interaction: "unit_diff"
+  slot_transform: "none"  # unit_diff on raw counts (no per-slot norm)

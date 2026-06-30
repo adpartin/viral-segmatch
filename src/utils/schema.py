@@ -2,29 +2,22 @@
 
 The pipeline represents each protein-coding segment three ways:
 
-  - ``aa``     — the protein   (``prot_seq``,    ``prot_hash``)
-  - ``nt_cds`` — the CDS DNA   (``cds_dna_seq``, ``cds_dna_hash``)
-  - ``nt_ctg`` — the contig DNA(``ctg_dna_seq``, ``ctg_dna_hash``)
+  - `aa`     — the protein    (`prot_seq`,    `prot_hash`)
+  - `nt_cds` — the CDS DNA    (`cds_dna_seq`, `cds_dna_hash`)
+  - `nt_ctg` — the contig DNA (`ctg_dna_seq`, `ctg_dna_hash`)
 
 Every module that needs a per-alphabet column name, file basename, cluster dir,
-membership table, or k-mer cache basename reads it from ``SCHEMA`` here, so the
-convention is defined in exactly one place (and changed in exactly one place).
-This replaces the ~6 drifted ``alphabet -> column`` maps that previously lived in
-``clustering_utils._COLS_BY_ALPHABET``, ``_cc_helpers._MEMB{,_HASH}``,
-``dataset_pairs_cc._POS_HASH``, the analysis ``_cv_*._HASH`` copies (×3),
-``cluster_source._KEY``, and ``kmer_utils._{occurrence,pair_side}_col`` — the
-drift between those copies was the source of the ``dna_hash`` mislabel (the
-analysis universe named the CDS hash ``dna_hash`` while production named it
-``cds_dna_hash``).
+membership table, or k-mer cache basename reads it from `SCHEMA` here, so the
+convention lives in exactly one place. Do NOT add local `alphabet -> column`
+maps elsewhere; extend this registry instead.
 
-Naming convention (glossary ``aa/nt vs protein/DNA``): the alphabet values
-(``aa``/``nt_cds``/``nt_ctg``) are alphabet/residue level — used for the enum,
-cluster dirs, and k-mer cache names. The molecule names
-(``prot``/``cds_dna``/``ctg_dna``) are molecule/sequence level — used for
-sequence columns, hashes, and file basenames. All three hashes are md5; the
-ESM-2 cache key is a separate ``sha1(prot_seq)`` namespace and is NOT modelled
-here. File *directories* (``data_version``/virus roots) live in ``conf/paths``;
-this module owns only the *names* (basenames + columns).
+Naming convention (glossary `aa/nt vs protein/DNA`): the alphabet values
+(`aa`/`nt_cds`/`nt_ctg`) are alphabet/residue level — used for the enum, cluster
+dirs, and k-mer cache names. The molecule names (`prot`/`cds_dna`/`ctg_dna`) are
+molecule/sequence level — used for sequence columns, hashes, and file basenames.
+All three hashes are md5; the ESM-2 cache key is a separate `sha1(prot_seq)`
+namespace and is NOT modelled here. File *directories* (`data_version`/virus
+roots) live in `conf/paths`; this module owns only the *names* (basenames + columns).
 """
 from __future__ import annotations
 
@@ -87,7 +80,7 @@ SCHEMA: dict[str, AlphabetSchema] = {
 
 
 def require(alphabet: str) -> AlphabetSchema:
-    """Return the schema for ``alphabet`` or raise with the accepted set."""
+    """Return the schema for `alphabet` or raise with the accepted set."""
     try:
         return SCHEMA[alphabet]
     except KeyError:
@@ -124,9 +117,9 @@ def build_pair_columns() -> list[str]:
     """The canonical pair-table schema (`_PAIR_COLUMNS`), built from the registry.
 
     Mirrors the historical column set exactly, under the new molecule-level names:
-    ``seq_a -> prot_seq_a``, ``dna_seq_a -> ctg_dna_seq_a``,
-    ``seq_hash_a -> prot_hash_a``, ``dna_hash_a -> ctg_dna_hash_a``;
-    ``cds_dna_hash_a`` unchanged. The pair table carries SEQ columns for aa +
+    `seq_a -> prot_seq_a`, `dna_seq_a -> ctg_dna_seq_a`,
+    `seq_hash_a -> prot_hash_a`, `dna_hash_a -> ctg_dna_hash_a`;
+    `cds_dna_hash_a` unchanged. The pair table carries SEQ columns for aa +
     nt_ctg only (the CDS sequence is not materialized per-pair — only its hash),
     and HASH columns for all three alphabets.
     """
