@@ -22,7 +22,7 @@ Cluster mapping varies per (alphabet, slot-protein, threshold):
 
 CLI:
     python -m src.analysis.cluster_pair_weight_topk \\
-        [--cds_final    data/processed/flu/July_2025/cds_final.parquet] \\
+        [--cds_final    data/processed/flu/July_2025/cds_dna_final.parquet] \\
         [--clusters_aa  data/processed/flu/July_2025/clusters_aa] \\
         [--clusters_nt  data/processed/flu/July_2025/clusters_nt] \\
         [--out_dir      results/flu/July_2025/runs/cluster_pair_weight] \\
@@ -268,8 +268,8 @@ _PLOT_SLUGS = ['ha_na']
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'),
-                   help='Stage 1.5 cds_final.parquet — provides prot_hash and cds_dna_hash per (isolate, function).')
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'),
+                   help='Stage 1.5 cds_dna_final.parquet — provides prot_hash and cds_dna_hash per (isolate, function).')
     p.add_argument('--clusters_aa',
                    default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
                    help='Root containing id{XXX}/{PROTEIN}_cluster.parquet for aa.')

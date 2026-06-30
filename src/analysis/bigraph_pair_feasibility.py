@@ -128,7 +128,7 @@ def plot_feasibility_barplot(
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'))
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
     p.add_argument('--schema_pairs', nargs='+', default=_DEFAULT_PAIRS,
                    help="Pairs as A-B (default: HA-NA PB2-PB1).")
     p.add_argument('--alphabets', nargs='+', default=_DEFAULT_ALPHABETS, choices=['aa', 'nt_cds'])

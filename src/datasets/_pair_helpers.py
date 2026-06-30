@@ -166,14 +166,14 @@ def attach_cds_dna_hash_to_prot_df(
     this once on the full prot_df before passing to `split_dataset_v2`
     or the k-fold variants.
 
-    Lookup key: `(assembly_id, function)`. cds_final.parquet is unique
+    Lookup key: `(assembly_id, function)`. cds_dna_final.parquet is unique
     on this key for the 8 Flu A majors (Stage 1.5 invariant; see
     `src/preprocess/extract_cds_dna.py`).
 
     Args:
         prot_df: must contain `assembly_id` + `function` columns
             (standard prot_df shape from Stage 1 + DNA join).
-        cds_final_path: path to `cds_final.parquet`. Must contain
+        cds_final_path: path to `cds_dna_final.parquet`. Must contain
             `assembly_id`, `function`, `cds_dna_hash`.
 
     Returns a new DataFrame with `cds_dna_hash` added. Raises on
@@ -245,14 +245,14 @@ def attach_cds_dna_hash_to_pos_df(
 
     Required by the nt-alphabet branch of cluster_disjoint routing
     (Experiment B-nt, see `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`).
-    The values come from `cds_final.parquet` (built by
+    The values come from `cds_dna_final.parquet` (built by
     `src/preprocess/extract_cds_dna.py`), keyed on
     `(assembly_id, function)` — unique by construction for the 8 majors.
 
     Args:
         pos_df: must contain `assembly_id` plus the prot_hash_a/b /
             ctg_dna_hash_a/b columns from `create_positive_pairs_v2`.
-        cds_final_path: path to `cds_final.parquet`. Must contain columns
+        cds_final_path: path to `cds_dna_final.parquet`. Must contain columns
             `assembly_id`, `function`, `cds_dna_hash`.
         schema_pair: `(func_left, func_right)` — slot A and slot B.
 

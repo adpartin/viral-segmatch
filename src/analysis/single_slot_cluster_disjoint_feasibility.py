@@ -39,7 +39,7 @@ CLI:
 
     # nt single-slot feasibility:
     python -m src.analysis.single_slot_cluster_disjoint_feasibility \\
-        --cds_final     data/processed/flu/July_2025/cds_final.parquet \\
+        --cds_final     data/processed/flu/July_2025/cds_dna_final.parquet \\
         --clusters_root data/processed/flu/July_2025/clusters_nt \\
         --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85
@@ -171,7 +171,7 @@ def main() -> None:
     src.add_argument('--protein_final', type=Path,
                      help='aa mode: protein_final.parquet from Stage 1.')
     src.add_argument('--cds_final', type=Path,
-                     help='nt mode: cds_final.parquet from Stage 1.5.')
+                     help='nt mode: cds_dna_final.parquet from Stage 1.5.')
     ap.add_argument('--clusters_root', required=True, type=Path,
                     help='Directory with idNN/<SHORT>_cluster.parquet artifacts.')
     ap.add_argument('--schema_pair', required=True, nargs=2, metavar=('FUNC_A', 'FUNC_B'),

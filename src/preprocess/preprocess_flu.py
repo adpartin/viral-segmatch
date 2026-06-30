@@ -3,7 +3,7 @@ Preprocess protein and genome data from GTO files for Flu A.
 
 Unified script that parses each GTO file once and extracts both:
 - Protein data -> protein_final.csv
-- Genome data  -> genome_final.csv
+- Genome data  -> ctg_dna_final.csv
 
 See docs/methods/preprocess.md for the current reference (output schemas,
 filter pipeline, QC step coverage, why two output files instead of one

@@ -289,7 +289,7 @@ def _run_fixed_n(universe, slot_a, slot_b, alphabet, pair, args, hash_to_row, ma
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--cds_final', default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'))
+    p.add_argument('--cds_final', default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
     p.add_argument('--schema_pairs', nargs='+', default=['HA-NA'])
     p.add_argument('--alphabets', nargs='+', default=['aa'], choices=['aa', 'nt_cds'])
     p.add_argument('--thresholds', nargs='+',

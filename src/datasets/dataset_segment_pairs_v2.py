@@ -2150,7 +2150,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
         if cds_final_path is None:
             raise ValueError(
                 "cluster_alphabet='nt_cds' requires cds_final_path "
-                "(cds_final.parquet path from Stage 1.5)."
+                "(cds_dna_final.parquet path from Stage 1.5)."
             )
         # Gate on POPULATED, not present (see split_dataset_v2 above):
         # build_pair_columns emits empty cds_dna_hash_{a,b} when pair_key != nt_cds,

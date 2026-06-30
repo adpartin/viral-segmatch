@@ -323,7 +323,7 @@ def write_largest_cc_artifacts(
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'))
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
     p.add_argument('--clusters_aa',
                    default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'))
     p.add_argument('--clusters_nt',

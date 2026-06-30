@@ -617,10 +617,10 @@ if PAIR_BUILDER_VERSION == 'v2':
             mtf = getattr(feas, 'min_test_frac', None)
             if mtf is not None:
                 MIN_TEST_FRAC = float(mtf)
-    # Default CDS path: data/processed/<virus>/<version>/cds_final.parquet
+    # Default CDS path: data/processed/<virus>/<version>/cds_dna_final.parquet
     # (alongside the input protein_final).
     if CLUSTER_ALPHABET == 'nt_cds' and CDS_FINAL_PATH is None:
-        CDS_FINAL_PATH = str(input_file.parent / 'cds_final.parquet')
+        CDS_FINAL_PATH = str(input_file.parent / 'cds_dna_final.parquet')
     if NEG_SAMPLING_CFG is not None:
         from omegaconf import OmegaConf
         rt = OmegaConf.to_container(NEG_SAMPLING_CFG.regime_targets, resolve=True)
@@ -669,7 +669,7 @@ if PAIR_BUILDER_VERSION == 'v2':
         from src.datasets._pair_helpers import attach_cds_dna_hash_to_prot_df
         cds_path = CDS_FINAL_PATH
         if cds_path is None:
-            cds_path = str(input_file.parent / 'cds_final.parquet')
+            cds_path = str(input_file.parent / 'cds_dna_final.parquet')
         print(f'\nv2: pair_key_alphabet=nt_cds — attaching cds_dna_hash to df '
               f'from {cds_path}')
         df = attach_cds_dna_hash_to_prot_df(df, cds_path)

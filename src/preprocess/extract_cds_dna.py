@@ -1,7 +1,7 @@
-"""Stage 1.5: emit `cds_final.parquet` from Stage 1 outputs.
+"""Stage 1.5: emit `cds_dna_final.parquet` from Stage 1 outputs.
 
 For every selected protein row in `protein_final.csv`, reconstruct the
-coding DNA from `genome_final.csv` using the `location` field (per
+coding DNA from `ctg_dna_final.csv` using the `location` field (per
 `docs/methods/gto_format_reference.md` § 9), hash it, and write a
 slim parquet with the columns Stage 3 / clustering will consume.
 
@@ -24,7 +24,7 @@ Usage:
         [--functions "PB2 subunit" "PB1 subunit"]  # override selection
 
 Outputs:
-    data/processed/<virus>/<data_version>/cds_final.parquet
+    data/processed/<virus>/<data_version>/cds_dna_final.parquet
 
     One row per (isolate, function): each row contains the coding sequence
     (`cds_dna`) of one selected protein along with its hash (`cds_dna_hash`,
@@ -32,7 +32,7 @@ Outputs:
     are NOT included — only the CDS. For spliced proteins (M2, NEP, M42,
     etc.) exons are joined in the order they appear in `location`. The
     full genome contig (not consumed downstream by clustering) lives
-    separately in `genome_final.csv` under the `dna_seq` column.
+    separately in `ctg_dna_final.csv` under the `dna_seq` column.
 
 TODO (over-specified `--config_bundle`):
     This script reads only three fields from the bundle config —
