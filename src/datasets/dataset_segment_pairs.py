@@ -527,18 +527,18 @@ if PAIR_BUILDER_VERSION == 'v2':
     # appropriate when training features are DNA-derived such as k-mer).
     SPLIT_STRATEGY_HASH_KEY = 'seq'
     # cluster_id_path and cluster_id_threshold only consumed when mode='cluster_disjoint'.
-    # cluster_alphabet picks aa vs nt clustering (default aa).
-    # cds_final_path is mandatory when cluster_alphabet='nt' (Experiment B-nt).
+    # cluster_alphabet picks the clustering alphabet: aa / nt_cds / nt_ctg (default aa).
+    # cds_final_path provides cds_dna_hash; needed when the nt_cds alphabet is used.
     CLUSTER_ID_PATH = None
     CLUSTER_ID_THRESHOLD = None
     CLUSTER_ALPHABET = 'aa'
     CDS_FINAL_PATH = None
-    # pair_key_alphabet (Phase 2 of clustering cleanup plan): which hash
-    # family the pair_key is built on (aa = prot_hash, nt_cds = cds_dna_hash).
-    # Default tied to cluster_alphabet for cluster_disjoint routings; 'aa'
-    # for random / seq_disjoint. Explicit override via
-    # `dataset.split_strategy.pair_key_alphabet` if a bundle needs a different
-    # mapping (e.g., random routing + nt_cds dedup).
+    # pair_key_alphabet: which hash family the pair_key is built on
+    # (aa = prot_hash, nt_cds = cds_dna_hash, nt_ctg = ctg_dna_hash).
+    # Default: 'nt_cds' when cluster_alphabet='nt_cds' under cluster_disjoint,
+    # else 'aa' (nt_ctg falls here too -> set pair_key_alphabet explicitly for it).
+    # Explicit override via `dataset.split_strategy.pair_key_alphabet`
+    # (e.g., random routing + nt_cds dedup).
     PAIR_KEY_ALPHABET = 'aa'
     # single_slot is a cluster_disjoint-only sub-knob. None = bilateral (both
     # slots' clusters disjoint, default); 'a' or 'b' = constrain only that
@@ -585,9 +585,8 @@ if PAIR_BUILDER_VERSION == 'v2':
                     f"or 'nt_ctg', got {PAIR_KEY_ALPHABET!r}"
                 )
         else:
-            # Default inference: tie to cluster_alphabet for cluster_disjoint;
-            # 'aa' otherwise. Matches the Phase 2 test plan's 4-bundle set
-            # (cluster_nt_t099 -> nt_cds; cluster_t099 / regimes -> aa).
+            # Default inference: 'nt_cds' for nt_cds cluster_disjoint, 'aa' otherwise
+            # (nt_ctg falls here too -> 'aa'; use an explicit pair_key_alphabet for nt_ctg).
             if SPLIT_STRATEGY_MODE == 'cluster_disjoint' and CLUSTER_ALPHABET == 'nt_cds':
                 PAIR_KEY_ALPHABET = 'nt_cds'
             else:
