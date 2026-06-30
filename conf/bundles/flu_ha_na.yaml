@@ -32,6 +32,25 @@ dataset:
     mode: seq_disjoint # 'random' | 'seq_disjoint' (default)
     hash_key: seq # 'seq' (protein, default) | 'dna' (nucleotide)
 
+  # negative_sampling:
+  #   axes: [host, hn_subtype, year]
+  #   year_match: binned
+  #   year_bin_edges:
+  #     - [-1.0e+30, 2015, "<=2015"]
+  #     - [2016, 2020, "2016-2020"]
+  #     - [2021,  1.0e+30, "2021+"]
+  #   regime_targets:
+  #     none_match:           0.05
+  #     host_only:            0.10
+  #     subtype_only:         0.10
+  #     year_only:            0.10
+  #     host_subtype_only:    0.15
+  #     host_year_only:       0.15
+  #     subtype_year_only:    0.15
+  #     host_subtype_year:    0.20
+  #   on_shortfall: redistribute
+  #   regime_aware_coverage: true
+
 kmer:
   k: 6
   alphabet: nt_ctg
