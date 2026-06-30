@@ -35,6 +35,36 @@ do **not** recover what aa 3-mers miss.
 
 ---
 
+## Follow-up: more data + richer interaction (m=100, `unit_diff + prod`)
+
+Robustness check on the headline. Raise the per-CC positive cap 1 → 100 (≈7× more positives)
+and use `interaction=unit_diff + prod` instead of `unit_diff`. Same within_cc negatives, same
+t099 clusters, 5-fold MLP.
+
+| Features | Folds | Test AUC-ROC | Test MCC | macro-F1 |
+|---|---|---|---|---|
+| aa k=3 | 5-fold | 0.509 ± 0.006 | 0.019 ± 0.016 | 0.402 ± 0.043 |
+| nt_cds k=6 | 5-fold | 0.506 ± 0.004 | 0.010 ± 0.012 | 0.409 ± 0.076 |
+
+**Still chance, both alphabets.** AUC-ROC ≈ 0.51, MCC ≈ 0.01–0.02. The F1-binary (~0.63–0.65)
+is recall-driven (recall ~0.86–0.91, precision ~0.50 ≈ base rate), not discrimination — and the
+nt_cds MLP collapses to predict-all-positive (recall 1.0, MCC 0.0) on 2/5 folds, the same one-class
+failure seen at m=1. Neither 7× more positives-per-CC nor the product interaction surfaces within-CC
+signal; m=100 only *tightens* the variance (std ~0.005 vs the m=1 LGBM's 0.030) — a more confident
+"chance," not more signal. Reinforces the headline: within_cc has no learnable specific-pairing
+signal for the k-mer family at t099, now across {aa k=3, nt_cds k=6} × {m=1, m=100} ×
+{unit_diff, unit_diff+prod}.
+
+Datasets (m=100): **aa** — 58,388 positives → 4,099 CCs → cap 100/CC → 7,018 pos + 6,943 neg =
+13,961 pairs / **928 atoms**; **nt_cds** — 78,764 positives → 5,708 CCs → cap 100/CC → 14,002 pos +
+13,939 neg = 27,941 pairs / **1,934 atoms**. Non-uniform atoms now, so fold sizes vary
+(aa test 2,162–3,282; nt_cds test 4,971–6,106).
+
+Reproduce: build with `--override dataset.split_strategy.m_pos_per_cc=100`; train with
+`--override 'training.interaction=unit_diff + prod'` (nt_cds adds `kmer.alphabet=nt_cds kmer.k=6`).
+
+---
+
 ## Configuration (for reproducibility)
 
 Shared (from `conf/bundles/flu_ha_na_cc_aa.yaml`, seed = 42, device = CPU):
