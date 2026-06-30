@@ -1,27 +1,15 @@
-# STATUS: experimental -- HA/NA 2D-CD cross-validation (bilateral cluster-disjoint CC).
+# STATUS: experimental -- HA/NA 2D-CD CV on aa.
 # Built by src/datasets/dataset_pairs_cc.py.
 
 defaults:
-  - flu_ha_na_cluster_t099
+  - flu_ha_na_cc
   - _self_
 
 dataset:
-  n_folds: 5              # K (cross-validation)
-  neg_to_pos_ratio: 1.0   # 1:1 within-CC negatives (overrides flu_ha_na's 1.5)
-  val_ratio: 0.1
-
   split_strategy:
-    mode: cluster_disjoint_cc
     cluster_alphabet: aa
-    m_pos_per_cc: 1  # one positive per CC -> uniform atoms
-    drop_negative_infeasible_ccs: true
+    cluster_id_path: data/processed/flu/July_2025/clusters_aa/t099/combined_cluster.parquet
 
-# Stage-4 features: aa k=3 k-mers + raw-count unit_diff, matching the in-memory CC
-# analysis (overrides flu_ha_na's production nt k=6 / unit_norm + unit_diff+prod).
 kmer:
   alphabet: aa
   k: 3
-
-training:
-  interaction: "unit_diff"
-  slot_transform: "none"  # unit_diff on raw counts (no per-slot norm)

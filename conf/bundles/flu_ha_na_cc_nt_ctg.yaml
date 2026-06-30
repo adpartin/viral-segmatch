@@ -26,4 +26,3 @@ dataset:
     # nt_ctg contig-DNA clusters at t099 (sibling layout to clusters_aa); the builder
     # derives the threshold ('t099') from this path's parent dir name.
     cluster_id_path: data/processed/flu/July_2025/clusters_nt_ctg/t099/combined_cluster.parquet
-    cluster_id_threshold: 0.99

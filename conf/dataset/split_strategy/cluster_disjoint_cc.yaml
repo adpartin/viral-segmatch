@@ -1,7 +1,8 @@
-# Split strategy: cluster_disjoint_cc — 2D-CD CC builder (src/datasets/dataset_pairs_cc.py).
-# Bilateral cluster-disjoint connected-component K-fold + within-CC negatives.
-# Inherits the cluster_disjoint knobs; adds the CC-only knobs below. NOT accepted
-# by the v2 Stage-3 CLI.
+# Split strategy: cluster_disjoint_cc
+# 2D-CD CC builder (src/datasets/dataset_pairs_cc.py).
+# Inherits the cluster_disjoint knobs; adds the CC-only knobs below.
+# NOT accepted by the v2 Stage-3 CLI.
+
 defaults:
   - cluster_disjoint
   - _self_

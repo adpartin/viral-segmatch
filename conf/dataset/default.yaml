@@ -11,6 +11,7 @@ defaults:
   - _self_
 
 # Pair builder version
+# Read only by src/datasets/dataset_segment_pairs_v2.py (v1/v2).
 # - v2 (default since 2026-05-11): schema-mode-only builder with coverage-first
 #       negative sampling, within-split positive dedup, per-sequence exposure
 #       tracking, metadata-axis annotations on every pair, and (opt-in) the

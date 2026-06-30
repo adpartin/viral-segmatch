@@ -1,44 +1,33 @@
-# STATUS: active -- HA/NA
-# Inherits Task 11 master (full dataset, 12-fold CV, k-mer k=6 slot_norm +
-# concat, 100 epochs).
+# STATUS: experimental -- HA/NA 2D-CD CV.
 
 defaults:
   - flu_28_major_protein_pairs_master
+  # - flu_ha_na
   - _self_
 
 dataset:
-  pair_builder_version: v2 # v1 | v2 (default)
+  # pair_builder_version: v2 # doesn't apply to cluster_disjoint_cc
   schema_pair:
     - "Hemagglutinin precursor"
     - "Neuraminidase protein"
-  subtype_selection:
-    # mode: balanced
-    # included_subtypes: ["H1N1", "H3N2", "H5N1"]
-    # target_count_per_subtype defaults to 'min' (downsample to smallest
-    # available count, which on the full July 2025 dataset will be H5N1).
-    # seed defaults to RANDOM_SEED (derived from master_seed=42).
-  n_folds: null   # single train/val/test split (override flu_28_major_protein_pairs_master's inherited CV=12)
 
-  neg_to_pos_ratio: 1.5  # overrides the default
-
-  # # No metadata filters
-  # host: null # control for host
-  # year: null # control for year
-  # hn_subtype: null # control for subtype
-  # geo_location: null
-  # passage: null
+  n_folds: 5              # K (cross-validation)
+  neg_to_pos_ratio: 1.0   # 1:1 within-CC negatives (overrides flu_ha_na's 1.5)
+  val_ratio: 0.1
 
   split_strategy:
-    mode: seq_disjoint # 'random' | 'seq_disjoint' (default)
-    hash_key: seq # 'seq' (protein, default) | 'dna' (nucleotide)
+    mode: cluster_disjoint_cc # 'random' | 'seq_disjoint' | 'cluster_disjoint' | 'cluster_disjoint_cc'
+    hash_key: null # 'seq' (protein, default) | 'dna' (nucleotide)
+    negative_scope: within_fold # within_cc (hard, removes cluster shortcut) | within_fold (easier)
+    m_pos_per_cc: 1  # one positive per CC -> uniform atoms
+    drop_negative_infeasible_ccs: true
 
-kmer:
-  k: 6
-  alphabet: nt_ctg
+# kmer:
+#   k: 6
+#   alphabet: nt_cds # 'aa' | 'nt_cds' | 'nt_ctg'
 
 training:
   epochs: 100
-  # epochs: 10
   patience: 20
   feature_source: kmer  # kmer | esm2
   # hidden_dims: [100] # bottleneck layer; default: [512, 256, 64]
@@ -69,7 +58,6 @@ training:
 # level under `baseline_<name>` (matches the existing pattern that each
 # baseline module reads from). See:
 #   src/models/baselines/{logistic,lgbm,knn1_margin,knn_vote}.py
-#   src/analysis/aggregate_baselines_vs_mlp.py
 baselines:
   # enabled: [logistic, lgbm, knn1_margin, knn_vote]
   # enabled: [lgbm, knn1_margin]

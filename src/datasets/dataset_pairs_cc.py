@@ -392,14 +392,14 @@ class CCSpec:
     val_ratio: float
     negative_scope: str
     drop_negative_infeasible_ccs: bool
-    m_pos: int | None
+    m_pos: int
     seed: int
     cluster_id_path: Path
     threshold: str
-    fa: str
-    fb: str
-    sa: str
-    sb: str
+    fa: str # full function name ('a' side of the pair)
+    fb: str # full function name ('b' side of the pair)
+    sa: str # short function name ('a' side of the pair)
+    sb: str # short function name ('b' side of the pair)
 
 
 def _parse_args():
@@ -428,86 +428,66 @@ def _resolve_schema_pair(config, ds) -> tuple:
 
 
 def _resolve_spec(args, config) -> CCSpec:
-    """Validate the bundle for cluster_disjoint_cc + resolve all build knobs into a CCSpec."""
+    """Validate the bundle for cluster_disjoint_cc + resolve all knobs into a CCSpec.
+    No code-level defaults: every knob must be set in conf/... — a missing/invalid key raises.
+    """
     ds, ss = config.dataset, config.dataset.split_strategy
 
     # this builder supports only the cluster_disjoint_cc mode
     mode = OmegaConf.select(config, 'dataset.split_strategy.mode')
     if mode != 'cluster_disjoint_cc':
         raise ValueError(
-            f"dataset_pairs_cc requires dataset.split_strategy.mode='cluster_disjoint_cc'; "
-            f"got {mode!r}. (Other modes are built by dataset_segment_pairs_v2.)")
+            f"dataset_pairs_cc requires dataset.split_strategy.mode='cluster_disjoint_cc'; got {mode!r}.")
 
-    # All three molecule axes are wired: aa (protein), nt_cds (CDS DNA), nt_ctg (contig DNA).
-    # nt_cds attaches cds_dna_hash in build_frontend; because this builder enforces
-    # pair_key_alphabet == cluster_alphabet, the positives carry POPULATED cds_dna_hash_{a,b}
-    # so the cluster join never hits the §13c empty-column (float64-vs-string) crash.
+    # nt_cds attaches cds_dna_hash in build_frontend, so positives carry populated
+    # cds_dna_hash_{a,b} for the cluster join (pair_key_alphabet == cluster_alphabet).
     _ENABLED_ALPHABETS = ('aa', 'nt_cds', 'nt_ctg')
-    # No code-level default: the default ('aa') lives in conf
-    # (conf/dataset/split_strategy/cluster_disjoint.yaml). A missing key is a real
-    # misconfiguration -> fail loud rather than silently pick an axis.
-    alphabet = getattr(ss, 'cluster_alphabet', None)
-    if alphabet is None:
-        raise ValueError(
-            "dataset.split_strategy.cluster_alphabet must be set for cluster_disjoint_cc "
-            "(e.g. 'aa'); its default lives in conf/dataset/split_strategy/cluster_disjoint.yaml.")
-    alphabet = str(alphabet)
+    if 'cluster_alphabet' not in ss:
+        raise ValueError("dataset.split_strategy.cluster_alphabet must be set for cluster_disjoint_cc.")
+    alphabet = str(ss.cluster_alphabet)
     if alphabet not in _ENABLED_ALPHABETS:
         raise NotImplementedError(
-            f"cluster_alphabet={alphabet!r} is not a known molecule axis for the "
-            f"2D-CD builder (enabled: {list(_ENABLED_ALPHABETS)}).")
+            f"cluster_alphabet={alphabet!r} is not a known molecule axis for the 2D-CD builder "
+            f"(allowed: {list(_ENABLED_ALPHABETS)}).")
 
-    # ONE molecule axis: cluster join, cooccurrence set, isolate pool, and positive/negative
-    # pair_key all key on `alphabet`'s hash. A separate pair_key_alphabet would split positives
-    # (keyed by pair_key_alphabet) from cooccur+negatives (keyed by cluster alphabet); require equal.
-    # Single-axis builder: pair_key defaults to the cluster alphabet (inferred, not a
-    # buried constant). When set explicitly it must equal it.
-    pair_key_alphabet = getattr(ss, 'pair_key_alphabet', None)
-    if pair_key_alphabet is None:
-        pair_key_alphabet = alphabet
-    else:
-        pair_key_alphabet = str(pair_key_alphabet)
-        if pair_key_alphabet != alphabet:
-            raise NotImplementedError(
-                f"the 2D-CD builder keys pairs by the cluster alphabet; got "
-                f"cluster_alphabet={alphabet!r} != pair_key_alphabet={pair_key_alphabet!r}. "
-                f"Set them equal (or leave pair_key_alphabet unset).")
+    # Single-axis builder: pair_key is always the cluster alphabet
+    pair_key_alphabet = alphabet
+
+    # Placeholder (regime-targeted negatives)
     if getattr(ds, 'negative_sampling', None) is not None:
         raise NotImplementedError(
-            "Regime-targeted within-CC negatives (dataset.negative_sampling) are a placeholder; "
-            "leave it null for random within-CC negatives in Phase 1.")
+            "It's a placeholder for regime-targeted within-CC negatives (dataset.negative_sampling)")
+
+    # Placeholder (repeated CV)
     n_repeats = int(getattr(ds, 'n_repeats', None) or 1)
     if n_repeats != 1:
-        raise NotImplementedError("n_repeats>1 is a placeholder; only n_repeats=1 is wired.")
+        raise NotImplementedError("It's a placeholder for repeated CV; currently n_repeats=1 is wired.")
 
-    k_folds = getattr(ds, 'n_folds', None)
+    k_folds = ds.n_folds   # the >= 2 check rejects a single holdout split
     if not k_folds or int(k_folds) < 2:
         raise ValueError(f"dataset.n_folds must be an int >= 2 for the 2D-CD CV builder; got {k_folds!r}.")
 
-    # Renamed from drop_singleton_ccs (which conflated 'singleton' with the broader
-    # negative-infeasible set). Read the new key; fall back to the legacy one with a warning.
-    _legacy_drop = OmegaConf.select(config, 'dataset.split_strategy.drop_singleton_ccs')
-    if _legacy_drop is not None:
-        print("WARNING: dataset.split_strategy.drop_singleton_ccs was renamed to "
-              "drop_negative_infeasible_ccs; using the legacy key's value. Update the bundle.")
-    drop_negative_infeasible_ccs = bool(getattr(
-        ss, 'drop_negative_infeasible_ccs', _legacy_drop if _legacy_drop is not None else True))
+    drop_negative_infeasible_ccs = ss.drop_negative_infeasible_ccs  # raises if absent
+    if not isinstance(drop_negative_infeasible_ccs, bool):
+        raise ValueError(f"dataset.split_strategy.drop_negative_infeasible_ccs must be a bool; "
+                         f"got {drop_negative_infeasible_ccs!r}.")
 
-    negative_scope = str(getattr(ss, 'negative_scope', None) or 'within_cc')
+    negative_scope = ss.negative_scope  # raises if absent
     if negative_scope not in ('within_cc', 'within_fold'):
         raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc' or "
                          f"'within_fold'; got {negative_scope!r}.")
-    m_pos = getattr(ss, 'm_pos_per_cc', 1)
-    m_pos = None if m_pos is None else int(m_pos)
+
+    m_pos = ss.m_pos_per_cc  # raises if absent
+    if not isinstance(m_pos, int) or m_pos < 1:
+        raise ValueError(f"dataset.split_strategy.m_pos_per_cc must be a positive int; got {m_pos!r}.")
 
     seed = resolve_process_seed(config, 'datasets')
     if seed is None:
         raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
 
-    cluster_id_path = getattr(ss, 'cluster_id_path', None)
-    if cluster_id_path is None:
+    if 'cluster_id_path' not in ss:
         raise ValueError("dataset.split_strategy.cluster_id_path must be set for cluster_disjoint_cc.")
-    cluster_id_path = Path(str(cluster_id_path))
+    cluster_id_path = Path(str(ss.cluster_id_path))
     if not cluster_id_path.is_absolute():
         cluster_id_path = PROJ / cluster_id_path
     threshold = cluster_id_path.parent.name  # the tXXX dir, e.g. 't099'
@@ -528,6 +508,7 @@ def _build_positives(config, spec: CCSpec, args):
     """
     input_file = (Path(args.protein_final) if args.protein_final
                   else spec.cluster_id_path.parents[2] / 'protein_final.parquet')
+
     # nt_cds needs cds_dna_hash attached to the front-end df. Source: the bundle's
     # split_strategy.cds_final_path, else cds_dna_final.parquet beside protein_final.
     cds_final_path = None
@@ -547,11 +528,8 @@ def _build_positives(config, spec: CCSpec, args):
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
           f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
 
-    # Negative-infeasible CCs: no within-CC negative can be drawn (every distinct slot-A x
-    # slot-B recombination reconstructs a positive). Computed structurally on the UNCAPPED
-    # positives so the m_pos cap doesn't make a CC look infeasible. Singleton CCs (one unique
-    # pair_key) are the base case; the superset also covers dense CCs where every cross pairing
-    # co-occurs. One set, applied identically under both negative scopes (parity).
+    # Computed on the UNCAPPED positives (before the m_pos cap) so capping can't make a CC
+    # look infeasible. See compute_negative_infeasible_ccs for the definition.
     neg_infeasible_ccs = compute_negative_infeasible_ccs(
         pos_ids, cooccur,
         hash_a_col=f'{_POS_HASH[spec.alphabet]}_a', hash_b_col=f'{_POS_HASH[spec.alphabet]}_b')

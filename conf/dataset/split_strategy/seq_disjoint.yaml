@@ -1,6 +1,6 @@
-# Split strategy: seq_disjoint (default). Routes positive pairs by bipartite
-# (side-A, side-B) connected components on the chosen hash family, so each unique
-# sequence appears in at most one split. Mitigates sequence-level leakage.
+# Split strategy: seq_disjoint
+# Keeps each unique sequence in one split only, keyed on EXACT-identity hashes
+# (vs cluster_disjoint, which groups by similarity). Mitigates sequence-level leakage.
 
 mode: seq_disjoint
 hash_key: seq   # seq_disjoint-only: 'seq' = protein hash (stricter) | 'dna' = contig DNA hash (looser)
