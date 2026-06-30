@@ -73,7 +73,7 @@ change and aren't derivable from code. This file does NOT duplicate:
   cluster-disjoint (2D-CD) holdout/K-fold + within-CC negatives, drop-in Stage-4
   `fold_k/{train,val,test}_pairs.csv`. Phase-1 core committed (`09fb2c2`): the
   `_cv_sampling`→`_cc_helpers` move + the builder, verified on aa HA-NA t099. Phase-1 (a) Hydra +
-  (c) front-end + §7 reproduction DONE; `negative_scope` knob (within_cc | within_fold) added. The
+  (c) front-end + §7 reproduction DONE; `negative_scope` knob (within_cc | within_fold) added. `m_pos_per_cc` caps positive ROWS kept per CC (default 1 → uniform-weight atoms); it does NOT change the atom count — atoms = bipartite CCs, fixed by the cluster threshold (see glossary 'Atom element'). The
   2026-06 `singleton` audit + reconciliation is DONE: knob renamed `drop_singleton_ccs` →
   `drop_negative_infeasible_ccs`, predicate unified to a STRUCTURAL negative-infeasibility test
   (`compute_negative_infeasible_ccs`) used in BOTH scopes — parity verified (within_cc & within_fold

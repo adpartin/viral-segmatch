@@ -19,7 +19,7 @@ dataset:
     mode: cluster_disjoint_cc # 'random' | 'seq_disjoint' | 'cluster_disjoint' | 'cluster_disjoint_cc'
     hash_key: null # 'seq' (protein, default) | 'dna' (nucleotide)
     negative_scope: within_fold # within_cc (hard, removes cluster shortcut) | within_fold (easier)
-    m_pos_per_cc: 1  # one positive per CC -> uniform atoms
+    m_pos_per_cc: 1  # cap positive ROWS per CC at 1 -> uniform-weight atoms (atom=CC; m doesn't change #atoms)
     drop_negative_infeasible_ccs: true
 
 # kmer:

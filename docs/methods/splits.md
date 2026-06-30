@@ -625,6 +625,12 @@ is the priority over val/train disjointness.
 | `2D-CD` | One bipartite CC | Number of pairs in the CC | No cluster on either slot in multiple splits |
 | `2D-CD-test` | One bipartite CC | Number of pairs in the CC | Train ↔ test cluster-disjoint only; val unconstrained |
 
+The "Per-atom weight" column is the *uncapped* weight. In the 2D-CD builder,
+`split_strategy.m_pos_per_cc` caps the positive **rows** kept per atom at `m`
+(default 1 = one row per atom, uniform-weight atoms; `null` = no cap). The cap
+changes rows-per-atom only — the number of atoms (CCs) is fixed by the cluster
+threshold. See `glossary.md` "`m_pos_per_cc`".
+
 For the full routing-mode catalog (including `Random`, `seq_disjoint`
 variants, and `Metadata holdout`), see § 1.1.
 
