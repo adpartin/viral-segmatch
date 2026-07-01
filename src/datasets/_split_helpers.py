@@ -38,7 +38,7 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
     Accepts the per-(function, threshold) parquet emitted by
     `build_mmseqs_clusters.py` or the per-threshold `combined_cluster.parquet`.
     The hash column name is alphabet-specific (per the schema registry):
-    `prot_hash` for aa, `cds_dna_hash` for nt_cds, `ctg_dna_hash` for nt_ctg.
+    `prot_hash` -- aa, `cds_dna_hash` -- nt_cds, `ctg_dna_hash` -- nt_ctg.
     Required columns: exactly one of those plus `cluster_id`.
     Optional: `function`, `function_short`, `threshold`, `cluster_rep` —
     left intact if present.
@@ -54,6 +54,7 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
         raise ValueError(
             f"cluster lookup at {cluster_path} is missing 'cluster_id' column."
         )
+
     # Identify which alphabet's hash column is present (per the schema registry).
     accepted = tuple(s.hash_col for s in schema.SCHEMA.values())  # prot/cds_dna/ctg_dna
     hash_cols_present = [c for c in accepted if c in df.columns]
@@ -62,11 +63,13 @@ def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
             f"cluster lookup at {cluster_path} is missing a hash column. "
             f"Expected exactly one of: {accepted}."
         )
+
     if len(hash_cols_present) > 1:
         raise ValueError(
             f"cluster lookup at {cluster_path} has multiple hash columns "
             f"{hash_cols_present}; expected exactly one (alphabet-specific)."
         )
+
     hash_col = hash_cols_present[0]
     if df[hash_col].duplicated().any():
         n_dup = int(df[hash_col].duplicated().sum())

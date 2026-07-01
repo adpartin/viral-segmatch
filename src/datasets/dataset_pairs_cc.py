@@ -5,7 +5,7 @@ Where v2's `cluster_disjoint` does single-slot k-fold (a/b) or bilateral holdout
 (one 80/10/10) with cross-isolate negatives, this builder does what the CC analysis
 established:
 
-  - **bilateral connected-component (CC) GroupKFold** — atoms = bipartite CCs on
+  - **2D connected-component (CC) GroupKFold** — atoms = bipartite CCs on
     `(cluster_id_a, cluster_id_b)` (production `attach_cluster_ids` +
     `bipartite_components`); whole CCs stay in one fold.
   - **within-CC negatives** — every negative drawn from the same CC as its
@@ -139,12 +139,12 @@ def build_frontend(
     if 'prot_hash' not in df.columns:
         df['prot_hash'] = df['prot_seq'].map(lambda s: hashlib.md5(str(s).encode()).hexdigest())
     if cds_final_path is not None:
-        df = attach_cds_dna_hash_to_prot_df(df, cds_final_path)  # cds_dna_hash (nt_cds)
+        df = attach_cds_dna_hash_to_prot_df(df, cds_final_path) # cds_dna_hash (nt_cds)
     return df
 
 
 def assign_atoms_prod(pos: pd.DataFrame, cluster_lookup: pd.DataFrame, pos_hash_col: str):
-    """Attach cluster ids + bilateral bipartite-CC atom_id/cc_id (production path).
+    """Attach cluster ids + 2D bipartite-CC atom_id/cc_id (production path).
 
     Atoms = natural connected components on (cluster_id_a, cluster_id_b). Returns
     (pos_with_ids, cc_summary). atom_id == cc_id (no fragmentation in Phase 1).
@@ -513,21 +513,21 @@ def _resolve_spec(args, config) -> CCSpec:
 def _build_positives(config, spec: CCSpec, args):
     """Front-end -> positive pairs -> cooccurrence set -> CC atoms -> drop negative-infeasible CCs.
 
+    Regardless of the specified alphabet, we first load protein_final (it carries prot_hash).
+    build_frontend ATTACHES the DNA hashes from sibling files: ctg_dna_hash from ctg_dna_final (always),
+    cds_dna_hash from cds_dna_final (only if nt_cds is set as alphabet).
+    The alphabet only picks which hash keys pair_key/dedup/cluster-join.
+    We pass the path to build_frontend(), not a preloaded df, because build_frontend() does the load and
+    input_file.parent locates cds_dna_final.
+
     Returns (df, pos_ids, cooccur); pos_ids carries cluster_id_a/b + cc_id + atom_id.
     """
-    # protein_final is the source frame for ALL alphabets: it carries every per-slot hash
-    # (prot_hash; ctg_dna_hash always-attached; cds_dna_hash for nt_cds) and positives are built
-    # from its rows. The alphabet only selects which hash keys pair_key/dedup/cluster-join (so the
-    # unique-positive UNIVERSE is alphabet-defined: nt_cds/nt_ctg keep codon/contig variants that aa
-    # collapses) — it does NOT change the source file. We need the PATH here (build_frontend loads it;
-    # input_file.parent locates the sibling cds_dna_final.parquet), not a preloaded df.
-
     # Path to protein_final.parquet
     input_file = (Path(args.protein_final) if args.protein_final
                   else spec.cluster_id_path.parents[2] / 'protein_final.parquet')
 
-    # nt_cds needs cds_dna_hash attached to the front-end df. Source: the bundle's
-    # split_strategy.cds_final_path, else cds_dna_final.parquet beside protein_final.
+    # nt_cds only: path to cds_dna_final.parquet, which build_frontend uses to attach cds_dna_hash.
+    # Default: beside protein_final. split_strategy.cds_final_path can override it (no bundle sets it today).
     cds_final_path = None
     if spec.alphabet == 'nt_cds':
         _cds = OmegaConf.select(config, 'dataset.split_strategy.cds_final_path')
@@ -550,6 +550,7 @@ def _build_positives(config, spec: CCSpec, args):
     neg_infeasible_ccs = compute_negative_infeasible_ccs(
         pos_ids, cooccur,
         hash_a_col=f'{_POS_HASH[spec.alphabet]}_a', hash_b_col=f'{_POS_HASH[spec.alphabet]}_b')
+
     # Unified drop (both scopes): remove negative-infeasible CCs up front so every kept CC is
     # class-balanceable. When disabled, they survive as positives-only atoms (within_fold can
     # still give them cross-CC negatives; within_cc leaves them with positives only).
