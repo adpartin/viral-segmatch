@@ -17,6 +17,8 @@ __pycache__/
 
 # CEPI
 _notes.txt
+# Personal scratch notes (untracked)
+/notes
 prompt*.txt
 prompt*.md
 # External reference papers + personal study notes — entire directory ignored
