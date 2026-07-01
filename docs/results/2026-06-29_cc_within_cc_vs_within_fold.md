@@ -63,6 +63,27 @@ Datasets (m=100): **aa** — 58,388 positives → 4,099 CCs → cap 100/CC → 7
 Reproduce: build with `--override dataset.split_strategy.m_pos_per_cc=100`; train with
 `--override 'training.interaction=unit_diff + prod'` (nt_cds adds `kmer.alphabet=nt_cds kmer.k=6`).
 
+### Interaction probe: is the symmetric `unit_diff`/`prod` fusion the bottleneck?
+
+`unit_diff` and `prod` are elementwise/symmetric — output dim *i* depends only on `(a_i, b_i)`,
+so the MLP can never form a cross term `a_i·b_j`. `concat` keeps `[a, b]` separate, so the first
+layer *can* learn arbitrary coupling — the direct test of whether late symmetric fusion was
+hiding a signal. It wasn't: `concat` (raw and `unit_norm`-conditioned) is also chance, both
+alphabets (5-fold MLP, same m=100 within_cc datasets).
+
+| Interaction (m=100, within_cc) | aa AUC-ROC | nt_cds AUC-ROC |
+|---|---|---|
+| `unit_diff + prod` | 0.509 ± 0.006 | 0.506 ± 0.004 |
+| `concat` (slot_transform none) | 0.502 ± 0.006 | 0.500 ± 0.003 |
+| `concat` + `unit_norm` | 0.504 ± 0.002 | 0.503 ± 0.004 |
+
+MCC ≈ 0 throughout (well-conditioned `concat` pins MCC to 0.000 and collapses to
+predict-all-positive, recall ≈ 1.0). **The fusion is ruled out** — giving the MLP the full pair
+to model coupling recovers nothing. That leaves the feature representation (the k-mer bag) and/or
+genuine exchangeability at t099 (99%-identity clusters). **ESM-2 features are the next
+discriminator** (richer per-slot protein semantics; ESM-2 + `diff/prod` would still inherit the
+elementwise limit, so ESM-2 is run with `slot_norm + unit_diff` per the Gen3 reference).
+
 ---
 
 ## Configuration (for reproducibility)
