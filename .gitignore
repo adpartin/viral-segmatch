@@ -37,4 +37,5 @@ esm2_t6_8M_UR50D-finetuned-localization/
 /logs/
 /models/
 /results/
+/reports/
 data_split_design_*
