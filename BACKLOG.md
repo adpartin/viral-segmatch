@@ -27,31 +27,16 @@ Bake-off paused after Phase 0 (see
 `docs/plans/2026-05-19_datasail_bakeoff_plan.md`). These are the
 items worth revisiting before deciding to fully retire the bake-off.
 
-1. ~~**Compute L(π) on bicc splits at id100, id099, id095** as a shared
-   yardstick metric for the paper.~~ **DONE 2026-05-24** (negative
-   result). Tested via `eval_split` from the `datasail` env on three
-   1000-isolate-subsample routings (cluster_disjoint aa id099,
-   seq_disjoint, random). Under `similarity='mmseqs'` ratios differ
-   between routings/slots but don't form a clean "more leakage ↔
-   higher L(π)" pattern. Under `similarity='mmseqspp'` all six
-   (routing × slot) ratios collapse to ~0.34 — exactly the partition-
-   shape constant 1 − (0.8²+0.1²+0.1²) for 80/10/10. Diagnostic on
-   the similarity matrix shows bimodal/zero-inflated distribution, so
-   not a low-variance artifact. Full writeup:
-   `docs/results/2026-05-24_datasail_lpi_results.md`. MMD took over
-   as the working leakage/separation metric (see
-   `docs/results/2026-05-24_mmd_per_*_results.md` and the single-
-   slot sweep).
-2. (Tier C, low priority) **Resolve the 1-pair-silently-missing edge
+1. (Tier C, low priority) **Resolve the 1-pair-silently-missing edge
    case** from `solver/overflow.py` pre-assignment. Reproducible
    across all 13 Phase 0 configs; same pair every time. Likely a
    small bug in DataSAIL's overflow handling.
-3. (Tier C, low priority) **C2 SCIP-returns-None failure** at
+2. (Tier C, low priority) **C2 SCIP-returns-None failure** at
    K=10, ε=0.05 — wrapper crashes with
    `'NoneType' object is not subscriptable`. Either fix the wrapper
    to handle the None return gracefully, or characterize when SCIP
    fails.
-4. (Tier C, low priority) **Why does I2's ILP have no objective
+3. (Tier C, low priority) **Why does I2's ILP have no objective
    function?** `src/solver/id_2d.py` calls `solve(1, constraints,
    ...)` — minimize the constant 1. This explains the unpredictable
    fold-size drift we observed but isn't documented in the paper.
@@ -174,31 +159,6 @@ results depend on. Three concrete follow-ups:
    4. After choices made, either fix the existing wiring or write
       a small dedicated analysis script — depending on how invasive
       the fix is.
-3. **Alphabet-specific pair_key (currently protein-only)**.
-   **DONE 2026-06-25** — implemented: `pair_key_alphabet ∈ {aa, nt_cds,
-   nt_ctg}` + the `dataset.molecule` axis-consistency knob landed via the
-   Phase-2 migration + the nt_cds/nt_ctg refactor
-   (`docs/plans/done/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`, §13);
-   universe-size deltas measured (+34.9% HA-NA nt_cds). Original scoping
-   note retained below for context.
-   Current convention (pre-2026-06-25): `pair_key = canonical_pair_key(seq_hash_a,
-   seq_hash_b)` on PROTEIN hashes regardless of alphabet (aa,
-   nt_cds, nt_ctg). One shared pair universe per schema pair (HA-NA:
-   58,826 canonical pairs after dedup). Switching to
-   alphabet-specific pair_key would inflate the nt_cds universe
-   (synonymous-codon variants distinct) and nt_ctg further
-   (intronic/UTR variants distinct), with implications across:
-   v2 dataset builder dedup; cluster_disjoint routing (1D-CD,
-   2D-CD, 2D-CD-test); MMD pair-set construction; leakage audit;
-   existing trained-model interpretation; published experimental
-   numbers. Current convention is biased toward aa-feature training
-   (pair count matches what aa training sees) and against
-   nt-feature training (collapses synonymous variants that nt
-   training treats as distinct). Acknowledged inline in
-   `docs/methods/splits.md` § 2.2 as a deferred TODO. First action:
-   **draft a plan doc** scoping the change — surfaces needing
-   updates, expected universe-size deltas per (schema_pair,
-   alphabet), what gets re-validated.
 
 
 ---
@@ -211,14 +171,26 @@ Non-blocking loose ends from the closed refactor
 1. **`stage4_*.sh` wrappers call bare `python`** — not the segmatch env →
    `ModuleNotFoundError: pandas`. Next action: point the wrappers at the env
    python (abs path or `conda run -n segmatch`). (~10 min)
-2. **Orchestrator reads legacy `cds_final`** (`dataset_segment_pairs.py:623`
-   default) — works (has `cds_dna_hash`) but should be `cds_dna_final`. Next
-   action: repoint the default, then delete old `genome_final`/`cds_final`. (~10 min)
-3. **Post-v2 CC-builder convention pass** (`dataset_pairs_cc.py`) — bring to the
-   new seq/hash/cluster names + ungate the `:375` aa-only pair_key gate. Next
-   action: a dedicated pass after v2 stabilizes (user-parked). (needs design)
-4. **Minor doc/provenance**: `compute_kmer_features` docstring labels
+2. **Minor doc/provenance**: `compute_kmer_features` docstring labels
    (`nt:`→`nt_ctg:`) + `INPUT_BASENAME` `.csv`→ext-agnostic; `train_pair_baselines`
    `kmer_alphabet` provenance threading. (~15 min total)
-5. **Deferred experiments**: UTR data-cleaning → clean nt_ctg-all-3 run; nt_ctg
+3. **Deferred experiments**: UTR data-cleaning → clean nt_ctg-all-3 run; nt_ctg
    feasibility below t099 via the `drop_budget` mega-CC cut. (needs design)
+
+---
+
+## CC dataset CV — deferred (post 2026-06-09 plan)
+
+Explicitly-parked future phases from `docs/plans/2026-06-09_cc_dataset_cv_plan.md`
+(Phases 1–3 implemented). Cut fragmentation is NOT here — it's tracked in
+`docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md` (core implemented; wiring
+the cut into the CC builder is the near-term remaining piece).
+
+1. **Regime-targeted within-CC negatives.** `dataset.negative_sampling` in the CC
+   builder is a placeholder that raises. Wire the 8-regime priority chain
+   (`_negative_regime_sampling.py`, as the v2 coverage sampler uses) into
+   `within_cc_negatives`. Next action: design note on how per-CC regime targets
+   interact with the `m_pos_per_cc` cap. (needs design)
+2. **Repeated CV (`n_repeats > 1`).** The CC builder wires `n_repeats=1` only
+   (>1 raises). Next action: loop GroupKFold with a per-repeat reseed, write
+   `fold_{r}_{k}` dirs, aggregate mean ± std across repeats × folds. (~1–2 h + test)
