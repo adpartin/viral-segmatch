@@ -17,6 +17,8 @@ __pycache__/
 
 # CEPI
 _notes.txt
+# Personal scratch notes (untracked)
+/notes
 prompt*.txt
 prompt*.md
 # External reference papers + personal study notes — entire directory ignored
@@ -35,4 +37,5 @@ esm2_t6_8M_UR50D-finetuned-localization/
 /logs/
 /models/
 /results/
+/reports/
 data_split_design_*

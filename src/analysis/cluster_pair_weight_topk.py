@@ -11,18 +11,18 @@ bin-packing (weighted balanced-cut, ILP-with-cluster-atoms, recursive
 bisection) is feasible.
 
 Pair universe (alphabet-independent): raw isolate co-occurrence positives
-per schema pair, deduped by `canonical_pair_key(seq_hash_a, seq_hash_b)` on
+per schema pair, deduped by `canonical_pair_key(prot_hash_a, prot_hash_b)` on
 protein hashes — same definition the v2 builder feeds into
 `cluster_disjoint_route_pos_df`. Edges = positives only (negatives are
 sampled within split after routing, so they do not constrain the splitter).
 
 Cluster mapping varies per (alphabet, slot-protein, threshold):
-  - aa     uses each pair's `seq_hash_{side}`  → aa cluster.
-  - nt_cds uses each pair's `dna_hash_{side}`  → nt cluster.
+  - aa     uses each pair's `prot_hash_{side}`  → aa cluster.
+  - nt_cds uses each pair's `cds_dna_hash_{side}`  → nt cluster.
 
 CLI:
     python -m src.analysis.cluster_pair_weight_topk \\
-        [--cds_final    data/processed/flu/July_2025/cds_final.parquet] \\
+        [--cds_final    data/processed/flu/July_2025/cds_dna_final.parquet] \\
         [--clusters_aa  data/processed/flu/July_2025/clusters_aa] \\
         [--clusters_nt  data/processed/flu/July_2025/clusters_nt] \\
         [--out_dir      results/flu/July_2025/runs/cluster_pair_weight] \\
@@ -106,36 +106,36 @@ def load_pair_universe(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFram
     Each row = one unique canonical protein pair appearing in at least one
     isolate (multi-occurrence within and across isolates collapsed).
 
-    Columns: pair_key, seq_hash_a, seq_hash_b, dna_hash_a, dna_hash_b.
-    The seq_hash_* values are protein hashes (md5 of prot_seq); the
-    dna_hash_* values are DNA hashes (md5 of cds_dna). Naming follows the
-    project convention: seq_hash = protein, dna_hash = DNA.
+    Columns: pair_key, prot_hash_a, prot_hash_b, cds_dna_hash_a, cds_dna_hash_b.
+    The prot_hash_* values are protein hashes (md5 of prot_seq); the
+    cds_dna_hash_* values are DNA hashes (md5 of cds_dna). Naming follows the
+    project convention: prot_hash = protein, cds_dna_hash = DNA.
     """
     df = pd.read_parquet(
         cds_final,
-        columns=['assembly_id', 'function', 'seq_hash', 'cds_dna_hash'],
+        columns=['assembly_id', 'function', 'prot_hash', 'cds_dna_hash'],
     )
     df['function_short'] = df['function'].map(_FUNCTION_TO_SHORT)
     df = df[df['function_short'].isin([slot_a, slot_b])].copy()
 
     a_df = (
-        df[df['function_short'] == slot_a][['assembly_id', 'seq_hash', 'cds_dna_hash']]
-        .rename(columns={'seq_hash': 'seq_hash_a', 'cds_dna_hash': 'dna_hash_a'})
+        df[df['function_short'] == slot_a][['assembly_id', 'prot_hash', 'cds_dna_hash']]
+        .rename(columns={'prot_hash': 'prot_hash_a', 'cds_dna_hash': 'cds_dna_hash_a'})
     )
     b_df = (
-        df[df['function_short'] == slot_b][['assembly_id', 'seq_hash', 'cds_dna_hash']]
-        .rename(columns={'seq_hash': 'seq_hash_b', 'cds_dna_hash': 'dna_hash_b'})
+        df[df['function_short'] == slot_b][['assembly_id', 'prot_hash', 'cds_dna_hash']]
+        .rename(columns={'prot_hash': 'prot_hash_b', 'cds_dna_hash': 'cds_dna_hash_b'})
     )
     pairs = a_df.merge(b_df, on='assembly_id', how='inner')
 
     pairs['pair_key'] = [
         canonical_pair_key(a, b)
-        for a, b in zip(pairs['seq_hash_a'], pairs['seq_hash_b'])
+        for a, b in zip(pairs['prot_hash_a'], pairs['prot_hash_b'])
     ]
     # Mode-1 leakage dedup: collapse rows so each unique canonical protein
     # pair appears once (within- and across-isolate duplicates removed).
     pairs = pairs.drop_duplicates(subset='pair_key', keep='first').reset_index(drop=True)
-    return pairs[['pair_key', 'seq_hash_a', 'seq_hash_b', 'dna_hash_a', 'dna_hash_b']]
+    return pairs[['pair_key', 'prot_hash_a', 'prot_hash_b', 'cds_dna_hash_a', 'cds_dna_hash_b']]
 
 
 def load_cluster_map(clusters_root: Path, slot_protein: str, threshold_id: str) -> dict[str, str]:
@@ -163,7 +163,7 @@ def compute_top_k_cluster_weights(
         pair_universe: From `load_pair_universe`.
         cluster_map:   From `load_cluster_map`.
         side:          'a' or 'b' — which slot of the pair the slot-protein occupies.
-        alphabet:      'aa' (uses seq_hash_{side}) or 'nt_cds' (uses dna_hash_{side}).
+        alphabet:      'aa' (uses prot_hash_{side}) or 'nt_cds' (uses cds_dna_hash_{side}).
         top_k:         Number of top rows to keep.
 
     Returns:
@@ -173,9 +173,9 @@ def compute_top_k_cluster_weights(
     if side not in ('a', 'b'):
         raise ValueError(f"side must be 'a' or 'b', got {side!r}")
     if alphabet == 'aa':
-        hash_col = f'seq_hash_{side}'
+        hash_col = f'prot_hash_{side}'
     elif alphabet == 'nt_cds':
-        hash_col = f'dna_hash_{side}'
+        hash_col = f'cds_dna_hash_{side}'
     else:
         raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
 
@@ -268,8 +268,8 @@ _PLOT_SLUGS = ['ha_na']
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'),
-                   help='Stage 1.5 cds_final.parquet — provides seq_hash and cds_dna_hash per (isolate, function).')
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'),
+                   help='Stage 1.5 cds_dna_final.parquet — provides prot_hash and cds_dna_hash per (isolate, function).')
     p.add_argument('--clusters_aa',
                    default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
                    help='Root containing id{XXX}/{PROTEIN}_cluster.parquet for aa.')

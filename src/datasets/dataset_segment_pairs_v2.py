@@ -82,39 +82,24 @@ from src.datasets._pair_helpers import (
     build_cooccurrence_set,
     get_metadata_distributions,
 )
+from src.utils import schema
 
 # Pair columns (kept identical to v1's positive/negative output) so downstream
 # code that reads pair CSVs continues to work. v2 may append extra columns
-# (axis flags); the core columns are unchanged.
-_PAIR_COLUMNS = [
-    'pair_key',
-    'assembly_id_a', 'assembly_id_b',
-    'brc_a', 'brc_b',
-    'ctg_a', 'ctg_b',
-    'seq_a', 'seq_b', # TODO. Consider renaming to `aa_seq_a`/`aa_seq_b` or `prot_seq_a`/`prot_seq_b`
-    'dna_seq_a', 'dna_seq_b',
-    'seg_a', 'seg_b',
-    'func_a', 'func_b',
-    'seq_hash_a', 'seq_hash_b',
-    'dna_hash_a', 'dna_hash_b',
-    # cds_dna_hash columns populated only when pair_key_alphabet='nt_cds'
-    # (orchestrator pre-attaches cds_dna_hash from cds_final to prot_df,
-    # _side renames to *_{a,b}). Otherwise pd.NA. Pair CSVs always
-    # include these columns for schema stability.
-    'cds_dna_hash_a', 'cds_dna_hash_b',
-    'label',
-    # Populated only on negative pairs by the regime-aware sampler; pd.NA for
-    # positives. Both columns are pd.NA for negatives built by the legacy
-    # regime-blind sampler too (when axis_quotas / isolate_to_cell are None).
-    'neg_regime',
-    'metadata_match_count',
-]
+# (axis flags); the core columns are unchanged. Built from the schema registry
+# (src/utils/schema.py) so the per-alphabet column names live in one place:
+# prot_seq/ctg_dna_seq (sequences), prot_hash/ctg_dna_hash/cds_dna_hash (hashes).
+# cds_dna_hash_{a,b} are populated only when pair_key_alphabet='nt_cds' (the
+# orchestrator pre-attaches cds_dna_hash to prot_df, _side renames to *_{a,b});
+# otherwise pd.NA. neg_regime / metadata_match_count are populated only on
+# regime-sampled negatives (pd.NA elsewhere).
+_PAIR_COLUMNS = schema.build_pair_columns()
 
 _DEFAULT_AXES = ("host", "year", "hn_subtype", "geo_location", "passage")
 
 # Regime-aware coverage: per-regime attempt budget before falling through to
 # the next regime in COVERAGE_PRIORITY_CHAIN. With 8 regimes total, the
-# worst case is 8 * 10 = 80 attempts per (slot, dna_hash); the last-resort
+# worst case is 8 * 10 = 80 attempts per (slot, ctg_dna_hash); the last-resort
 # uniform sampler adds another `max_attempts_per_seq` (default 50). In
 # practice acceptance comes long before any cap.
 # Plan: docs/plans/2026-05-14_regime_aware_coverage_plan.md (decision #6).
@@ -128,15 +113,12 @@ def create_positive_pairs_v2(
     df: pd.DataFrame,
     schema_pair: Tuple[str, str],
     pair_key_alphabet: str = 'aa',
-    # seed: int = 42,
     ) -> tuple[pd.DataFrame, dict]:
     """Generate within-isolate positive pairs in schema-ordered mode, then drop
     duplicate `pair_key` rows (within the input).
 
     Vectorized via merge-on-`assembly_id`. Slot A is `func_left`, slot B is
-    `func_right` by construction (no post-hoc orientation needed). The previous
-    Python double-loop implementation is recoverable from git history (see
-    branch v2-pos-global-split).
+    `func_right` by construction (no post-hoc orientation needed).
 
     v2 hard-codes pair_mode='schema_ordered', drop_within_split_pos_duplicates=True,
     canonicalize_pair_orientation_enabled=False. See dataset_segment_pairs.py (v1)
@@ -145,19 +127,19 @@ def create_positive_pairs_v2(
 
     Args:
         df: Protein-level DataFrame already filtered to the relevant isolates.
-            For pair_key_alphabet='aa' must contain `seq_hash`. For
-            pair_key_alphabet='nt_cds' must additionally contain
-            `cds_dna_hash` (caller pre-attaches via merge against cds_final).
+            Must contain all `req_cols` below (incl. `prot_hash` and
+            `ctg_dna_hash`) for every alphabet; pair_key_alphabet='nt_cds' also
+            needs `cds_dna_hash` (caller pre-attaches it against cds_dna_final).
         schema_pair: (func_left, func_right). func_left occupies slot A in every
             output pair; func_right occupies slot B. Must satisfy
             func_left != func_right.
-        pair_key_alphabet: 'aa' (default; protein-level dedup via
-            seq_hash) or 'nt_cds' (CDS-DNA-level dedup via cds_dna_hash —
-            inflates the unique pair_key universe by +35-57 % on Flu A
-            HA-NA / PB2-PB1, per docs/plans/2026-06-02_pair_key_alphabet_plan.md
-            § 4). The pair_key column is constructed on the selected hash
-            family; same-protein-different-CDS pairs that collapse under
-            'aa' are distinct under 'nt_cds'.
+        pair_key_alphabet: 'aa' (default; protein-level dedup via prot_hash),
+            'nt_cds' (CDS-DNA dedup via cds_dna_hash), or 'nt_ctg' (contig-DNA
+            dedup via ctg_dna_hash). The pair_key is built on the selected hash
+            family, so same-protein-different-DNA pairs that collapse under 'aa'
+            stay distinct under nt_cds/nt_ctg (nt_cds inflates the unique
+            pair_key universe by +35-57 % on Flu A HA-NA / PB2-PB1, per
+            docs/plans/2026-06-02_pair_key_alphabet_plan.md § 4).
 
     Returns:
         (pos_df, dedup_stats) where pos_df has the v1 positive-pair columns
@@ -177,16 +159,16 @@ def create_positive_pairs_v2(
         return pd.DataFrame(columns=_PAIR_COLUMNS), empty_stats
 
     # All req_cols must be present; missing columns indicate an upstream
-    # regression (Stage 1 + attach_dna_to_prot_df should produce all nine).
+    # regression (Stage 1 + attach_ctg_dna_to_prot_df should produce all nine).
     # Padding with None would let k-mer / DNA features silently degrade.
     req_cols = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq',
-                'dna_seq', 'canonical_segment', 'function', 'seq_hash', 'dna_hash']
+                'ctg_dna_seq', 'canonical_segment', 'function', 'prot_hash', 'ctg_dna_hash']
     missing = [c for c in req_cols if c not in df.columns]
     if missing:
         raise ValueError(f"create_positive_pairs_v2: df missing required columns: {missing}")
 
-    # Include cds_dna_hash in the per-side flow when present in df (orchestrator
-    # attaches it when pair_key_alphabet='nt_cds'; absent for aa flow).
+    # Include cds_dna_hash in the per-side flow when present in df (attached only
+    # when pair_key_alphabet='nt_cds'; absent for the aa / nt_ctg flows).
     has_cds = 'cds_dna_hash' in df.columns
     side_cols = list(req_cols) + (['cds_dna_hash'] if has_cds else [])
 
@@ -195,12 +177,12 @@ def create_positive_pairs_v2(
         rename_map = {
             'brc_fea_id': f'brc_{suffix}',
             'genbank_ctg_id': f'ctg_{suffix}',
-            'prot_seq': f'seq_{suffix}',
-            'dna_seq': f'dna_seq_{suffix}',
+            'prot_seq': f'prot_seq_{suffix}',
+            'ctg_dna_seq': f'ctg_dna_seq_{suffix}',
             'canonical_segment': f'seg_{suffix}',
             'function': f'func_{suffix}',
-            'seq_hash': f'seq_hash_{suffix}',
-            'dna_hash': f'dna_hash_{suffix}',
+            'prot_hash': f'prot_hash_{suffix}',
+            'ctg_dna_hash': f'ctg_dna_hash_{suffix}',
         }
         if has_cds:
             rename_map['cds_dna_hash'] = f'cds_dna_hash_{suffix}'
@@ -228,17 +210,20 @@ def create_positive_pairs_v2(
 
     # Create canonical pair_key in a vectorized way: lexicographically sorted
     # hash pair joined by '__'. Hash family is alphabet-specific:
-    #   pair_key_alphabet='aa'     -> seq_hash_{a,b} (protein)
+    #   pair_key_alphabet='aa'     -> prot_hash_{a,b} (protein)
     #   pair_key_alphabet='nt_cds' -> cds_dna_hash_{a,b} (CDS DNA)
+    #   pair_key_alphabet='nt_ctg' -> ctg_dna_hash_{a,b} (contig DNA)
     # Matches canonical_pair_key('a','b') = '__'.join(sorted([a,b])) in _pair_helpers.py.
     if pair_key_alphabet == 'aa':
-        hash_col_a, hash_col_b = 'seq_hash_a', 'seq_hash_b'
+        hash_col_a, hash_col_b = 'prot_hash_a', 'prot_hash_b'
     elif pair_key_alphabet == 'nt_cds':
         hash_col_a, hash_col_b = 'cds_dna_hash_a', 'cds_dna_hash_b'
+    elif pair_key_alphabet == 'nt_ctg':
+        hash_col_a, hash_col_b = 'ctg_dna_hash_a', 'ctg_dna_hash_b'
     else:
         raise ValueError(
-            f"create_positive_pairs_v2: pair_key_alphabet must be 'aa' or "
-            f"'nt_cds', got {pair_key_alphabet!r}"
+            f"create_positive_pairs_v2: pair_key_alphabet must be 'aa', 'nt_cds', "
+            f"or 'nt_ctg', got {pair_key_alphabet!r}"
         )
     if hash_col_a not in pos_df.columns or hash_col_b not in pos_df.columns:
         raise ValueError(
@@ -266,28 +251,20 @@ def create_positive_pairs_v2(
 
     pos_df = pos_df.reindex(columns=_PAIR_COLUMNS)
 
-    # TODO. Below we drop dups based on pair_key computed on protein seq hashes.
-    # We also want to understand the duplicate situation on the DNA side, as well
-    # as on the k-mer side.
+    # Dedup below is on `pair_key`, keyed on the per-alphabet hash (aa: prot_hash,
+    # nt_cds: cds_dna_hash, nt_ctg: ctg_dna_hash) — see the pair_key block above.
 
     # Within-input pair_key dedup. v2 hard-codes drop_within_split_pos_duplicates=True.
     # In the global-pos flow (split_dataset_v2), this runs once on the full pos_df and
     # gives every pair_key a single representative isolate.
     n_before = len(pos_df)
     # `keep='first'` is arbitrary on host: the surviving isolate per pair_key is
-    # whichever assembly_id comes first lexicographically. If we ever want to
-    # bias the representative toward common hosts (e.g., Human > Pig > Chicken
-    # > Duck > ... > unknown) without dropping diversity, the clean fix is:
-    # pre-sort `pos_df` by a host_priority column here, then keep='first' will
-    # pick the highest-priority host that carries each pair. The alternative
-    # ("Human-only experiment") is to filter with `dataset.host: ['Human']`
-    # in the bundle — that drops the other hosts entirely instead of just
-    # changing which isolate represents each pair. The two are orthogonal:
-    # the filter narrows the corpus and shrinks the regime taxonomy to the
-    # 4 host-match regimes; this priority knob preserves full diversity and
-    # only affects representative metadata. Not yet implemented because the
-    # downstream impact (regime classification uses the representative's cell)
-    # has not been measured.
+    # whichever comes first in pos_df row order — deterministic given df, but not
+    # sorted, so effectively arbitrary w.r.t. host. To bias the representative
+    # toward preferred hosts without dropping diversity, pre-sort pos_df by a
+    # host_priority column here so keep='first' picks it. Not yet implemented
+    # (downstream impact on regime classification unmeasured); the orthogonal
+    # alternative is a corpus filter `dataset.host: ['Human']` in the bundle.
     is_dup = pos_df.duplicated(subset=['pair_key'], keep='first')
     dup_rows = pos_df.loc[is_dup, ['assembly_id_a', 'assembly_id_b', 'pair_key']]
     duplicate_isolate_pairs = [
@@ -341,7 +318,7 @@ def create_negative_pairs_v2(
     is needed.
 
     Two phases:
-      1. Coverage phase: iterate every (slot, dna_hash) in `pos_df` (sorted)
+      1. Coverage phase: iterate every (slot, ctg_dna_hash) in `pos_df` (sorted)
          and try up to `max_attempts_per_seq` random partner isolates until
          at least one accepted negative covers that DNA. The DNA-level
          coverage is **best-effort**: per the apriori feasibility analysis
@@ -349,11 +326,11 @@ def create_negative_pairs_v2(
          DNA variants in tightly-filtered bundles cannot be covered when the
          dominant protein has more DNA encodings than the partner-protein
          universe can supply distinct neg pair_keys for. Uncovered DNAs are
-         logged in rejection_stats['dna_hashes_with_zero_negatives'] but do
-         NOT raise. The seq_hash-level guarantee (every seq_hash gets >=1
+         logged in rejection_stats['ctg_dna_hashes_with_zero_negatives'] but do
+         NOT raise. The prot_hash-level guarantee (every prot_hash gets >=1
          neg) is enforced as a hard raise at the end -- DNA-level coverage
-         subsumes seq_hash-level coverage in the typical case, so this raise
-         only fires if every DNA encoding a seq_hash failed.
+         subsumes prot_hash-level coverage in the typical case, so this raise
+         only fires if every DNA encoding a prot_hash failed.
       2. Fill phase: if coverage produced fewer than `num_negatives`, top up
          by sampling two distinct isolates and pairing the first's slot-A
          row with the second's slot-B row, until quota is met or the attempt
@@ -367,7 +344,7 @@ def create_negative_pairs_v2(
     Coverage floor (interaction with `num_negatives`): the minimum number of
     negatives this function will produce is
     `max(|unique_slot_A_dnas|, |unique_slot_B_dnas|)` over `pos_df` (DNA
-    level, not seq_hash level). If `num_negatives` falls below that, the
+    level, not prot_hash level). If `num_negatives` falls below that, the
     coverage phase produces ~floor pairs anyway and the fill phase becomes
     a no-op; `coverage_overrode_ratio` is set to True and a warning is
     logged.
@@ -388,7 +365,7 @@ def create_negative_pairs_v2(
 
     `regime_aware_coverage` (default False) — when True (and regime mode is
     active), the COVERAGE phase walks `COVERAGE_PRIORITY_CHAIN` and prefers
-    partners from the hardest feasible regime for each (slot, dna_hash).
+    partners from the hardest feasible regime for each (slot, ctg_dna_hash).
     The per-regime attempt budget is 10; if all 8 regimes are exhausted
     without acceptance, the existing uniform-random sampler runs as a last
     resort (mode #2 coverage guarantee). When False (the historical default),
@@ -401,17 +378,17 @@ def create_negative_pairs_v2(
         coverage_skipped, and v2 keys: requested_negatives,
         min_required_for_coverage, coverage_phase_pairs, fill_phase_pairs,
         achieved_negatives, coverage_overrode_ratio, seqs_with_zero_negatives,
-        dna_hashes_with_zero_negatives, n_dna_uncovered. In regime-aware
+        ctg_dna_hashes_with_zero_negatives, n_dna_uncovered. In regime-aware
         mode it also includes regime_manifest (per-regime
         target/available/coverage_placed/fill_placed/achieved/shortfall_reason).
     """
     _validate_schema_pair(schema_pair, "create_negative_pairs_v2")
     # Alphabet-specific pair_key construction (Phase 2 of clustering cleanup
-    # plan). aa uses seq_hash_{a,b}, nt_cds uses cds_dna_hash_{a,b}. Must
+    # plan). aa uses prot_hash_{a,b}, nt_cds uses cds_dna_hash_{a,b}. Must
     # match the alphabet of the cooccur_pairs and forbidden_pair_keys sets;
     # a mismatch silently passes contradictory pairs.
     if pair_key_alphabet == 'aa':
-        _PK_HASH_A, _PK_HASH_B = 'seq_hash_a', 'seq_hash_b'
+        _PK_HASH_A, _PK_HASH_B = 'prot_hash_a', 'prot_hash_b'
     elif pair_key_alphabet == 'nt_cds':
         _PK_HASH_A, _PK_HASH_B = 'cds_dna_hash_a', 'cds_dna_hash_b'
         if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
@@ -421,10 +398,18 @@ def create_negative_pairs_v2(
                 "Caller (orchestrator / split_dataset_v2) must attach cds_dna_hash "
                 "to prot_df via attach_cds_dna_hash_to_prot_df before pair construction."
             )
+    elif pair_key_alphabet == 'nt_ctg':
+        _PK_HASH_A, _PK_HASH_B = 'ctg_dna_hash_a', 'ctg_dna_hash_b'
+        if 'ctg_dna_hash_a' not in pos_df.columns or 'ctg_dna_hash_b' not in pos_df.columns:
+            raise ValueError(
+                "create_negative_pairs_v2: pair_key_alphabet='nt_ctg' requires "
+                "pos_df to have ctg_dna_hash_a / ctg_dna_hash_b columns "
+                "(attach_ctg_dna_to_prot_df populates these at Stage 3 load)."
+            )
     else:
         raise ValueError(
-            f"create_negative_pairs_v2: pair_key_alphabet must be 'aa' or "
-            f"'nt_cds', got {pair_key_alphabet!r}"
+            f"create_negative_pairs_v2: pair_key_alphabet must be 'aa', 'nt_cds', "
+            f"or 'nt_ctg', got {pair_key_alphabet!r}"
         )
     regime_mode = (axis_quotas is not None) and (len(axis_quotas) > 0)
     if regime_mode:
@@ -479,16 +464,16 @@ def create_negative_pairs_v2(
     t_setup = time.time()
     print(f"[diag] create_negative_pairs_v2: setup start (|pos_df|={len(pos_df):,})", flush=True)
 
-    # Coverage targets: seq_hashes appearing in slot A and slot B of pos_df.
-    # In schema mode each seq_hash has exactly one function, so
+    # Coverage targets: prot_hashes appearing in slot A and slot B of pos_df.
+    # In schema mode each prot_hash has exactly one function, so
     # target_seqs_left and target_seqs_right are disjoint.
-    target_seqs_left = set(pos_df['seq_hash_a'].tolist())
-    target_seqs_right = set(pos_df['seq_hash_b'].tolist())
+    target_seqs_left = set(pos_df['prot_hash_a'].tolist())
+    target_seqs_right = set(pos_df['prot_hash_b'].tolist())
     shared = target_seqs_left & target_seqs_right
     if shared:
         offenders = list(shared)[:5]
         raise ValueError(
-            f"create_negative_pairs_v2: {len(shared)} seq_hash(es) appear in both "
+            f"create_negative_pairs_v2: {len(shared)} prot_hash(es) appear in both "
             f"slot A and slot B (e.g., {offenders})."
         )
 
@@ -497,42 +482,42 @@ def create_negative_pairs_v2(
 
     # DNA-level coverage targets (option C from
     # docs/results/2026-05-08_dna_coverage_feasibility_sweep.md): per-slot
-    # unique dna_hash sets and per-(slot, dna) neg counts. The coverage
-    # phase iterates these instead of seq_hashes so that every DNA variant
+    # unique ctg_dna_hash sets and per-(slot, dna) neg counts. The coverage
+    # phase iterates these instead of prot_hashes so that every DNA variant
     # of every protein gets at least one negative counterexample where
     # feasible. Uncovered DNAs are logged, not raised (best-effort).
-    target_dnas_left = set(pos_df['dna_hash_a'].tolist())
-    target_dnas_right = set(pos_df['dna_hash_b'].tolist())
+    target_dnas_left = set(pos_df['ctg_dna_hash_a'].tolist())
+    target_dnas_right = set(pos_df['ctg_dna_hash_b'].tolist())
     neg_count_dna_a: dict = {d: 0 for d in target_dnas_left}
     neg_count_dna_b: dict = {d: 0 for d in target_dnas_right}
 
     # Single pass over pos_df builds:
     #   isolate_to_row     - aid -> the row for that isolate (it's 1:1)
-    #   seq_hash_to_row    - seq -> first row in which it appears (used as the
+    #   prot_hash_to_row    - seq -> first row in which it appears (used as the
     #                        "self" representative in the coverage phase) --> NOTE. What if a seq appears in multiple isolates? We could pick one at random, but that would add complexity and non-determinism. Instead we just take the first, which is deterministic but arbitrary. This means some isolates get favored as coverage partners over others; we can later analyze the distribution of coverage partners per isolate to see if this is a problem.
     #   dna_to_row_a       - dna -> first row in which it appears as slot-A.
     #   dna_to_row_b       - dna -> first row in which it appears as slot-B.
     #                        Used as the "self" representative in DNA-level
-    #                        coverage (analogous to seq_hash_to_row, but
-    #                        per-slot to give us a row whose slot-X dna_hash
+    #                        coverage (analogous to prot_hash_to_row, but
+    #                        per-slot to give us a row whose slot-X ctg_dna_hash
     #                        is the target DNA we want to cover).
     #   seq_to_isolates    - seq -> set of in-split isolates that contain it.
     #                        Used to exclude same-seq isolates when picking a
     #                        partner. Built from pos_df only.
     isolate_to_row: dict = {}
-    seq_hash_to_row: dict = {}
+    prot_hash_to_row: dict = {}
     dna_to_row_a: dict = {}
     dna_to_row_b: dict = {}
     seq_to_isolates: dict = {}
     for row in pos_df.itertuples(index=False):
         aid = row.assembly_id_a
         isolate_to_row[aid] = row
-        seq_hash_to_row.setdefault(row.seq_hash_a, row)
-        seq_hash_to_row.setdefault(row.seq_hash_b, row)
-        dna_to_row_a.setdefault(row.dna_hash_a, row)
-        dna_to_row_b.setdefault(row.dna_hash_b, row)
-        seq_to_isolates.setdefault(row.seq_hash_a, set()).add(aid)
-        seq_to_isolates.setdefault(row.seq_hash_b, set()).add(aid)
+        prot_hash_to_row.setdefault(row.prot_hash_a, row)
+        prot_hash_to_row.setdefault(row.prot_hash_b, row)
+        dna_to_row_a.setdefault(row.ctg_dna_hash_a, row)
+        dna_to_row_b.setdefault(row.ctg_dna_hash_b, row)
+        seq_to_isolates.setdefault(row.prot_hash_a, set()).add(aid)
+        seq_to_isolates.setdefault(row.prot_hash_b, set()).add(aid)
     isolate_ids_list = sorted(isolate_to_row.keys())
     cell_to_isolates: dict = {}
     cell_partner_map: dict = {}
@@ -554,14 +539,14 @@ def create_negative_pairs_v2(
             )
     print(f"[diag] create_negative_pairs_v2: setup done in "
           f"{time.time()-t_setup:.2f}s ({len(isolate_ids_list):,} isolates, "
-          f"{len(seq_to_isolates):,} unique seq_hashes; "
+          f"{len(seq_to_isolates):,} unique prot_hashes; "
           f"{len(target_dnas_left):,} slot-A DNAs, "
           f"{len(target_dnas_right):,} slot-B DNAs).", flush=True)
 
     # Coverage floor: max(|unique_slot_A_dnas|, |unique_slot_B_dnas|). Each
     # accepted negative contributes one A-DNA-coverage and one B-DNA-coverage
     # simultaneously, so the floor is governed by whichever side has more
-    # unique DNAs. This is strictly higher than the previous seq_hash floor
+    # unique DNAs. This is strictly higher than the previous prot_hash floor
     # by exactly the synonymous-codon redundancy of the dataset.
     min_required_for_coverage = max(len(target_dnas_left), len(target_dnas_right))
     requested_negatives = int(num_negatives)
@@ -636,12 +621,12 @@ def create_negative_pairs_v2(
             'assembly_id_b': b_src.assembly_id_a,
             'brc_a': a_src.brc_a, 'brc_b': b_src.brc_b,
             'ctg_a': a_src.ctg_a, 'ctg_b': b_src.ctg_b,
-            'seq_a': a_src.seq_a, 'seq_b': b_src.seq_b,
-            'dna_seq_a': a_src.dna_seq_a, 'dna_seq_b': b_src.dna_seq_b,
+            'prot_seq_a': a_src.prot_seq_a, 'prot_seq_b': b_src.prot_seq_b,
+            'ctg_dna_seq_a': a_src.ctg_dna_seq_a, 'ctg_dna_seq_b': b_src.ctg_dna_seq_b,
             'seg_a': a_src.seg_a, 'seg_b': b_src.seg_b,
             'func_a': a_src.func_a, 'func_b': b_src.func_b,
-            'seq_hash_a': a_src.seq_hash_a, 'seq_hash_b': b_src.seq_hash_b,
-            'dna_hash_a': a_src.dna_hash_a, 'dna_hash_b': b_src.dna_hash_b,
+            'prot_hash_a': a_src.prot_hash_a, 'prot_hash_b': b_src.prot_hash_b,
+            'ctg_dna_hash_a': a_src.ctg_dna_hash_a, 'ctg_dna_hash_b': b_src.ctg_dna_hash_b,
             'cds_dna_hash_a': cds_a, 'cds_dna_hash_b': cds_b,
             'label': 0,
             'neg_regime': regime if regime is not None else pd.NA,
@@ -672,20 +657,20 @@ def create_negative_pairs_v2(
         neg_pairs.append(_build_neg_pair(a_src, b_src, regime, mc))
         seen_pairs.add(brc_pair_key)
         seen_seq_pairs.add(seq_pair_key)
-        if a_src.seq_hash_a in neg_count_a:
-            neg_count_a[a_src.seq_hash_a] += 1
-        if b_src.seq_hash_b in neg_count_b:
-            neg_count_b[b_src.seq_hash_b] += 1
-        if a_src.dna_hash_a in neg_count_dna_a:
-            neg_count_dna_a[a_src.dna_hash_a] += 1
-        if b_src.dna_hash_b in neg_count_dna_b:
-            neg_count_dna_b[b_src.dna_hash_b] += 1
+        if a_src.prot_hash_a in neg_count_a:
+            neg_count_a[a_src.prot_hash_a] += 1
+        if b_src.prot_hash_b in neg_count_b:
+            neg_count_b[b_src.prot_hash_b] += 1
+        if a_src.ctg_dna_hash_a in neg_count_dna_a:
+            neg_count_dna_a[a_src.ctg_dna_hash_a] += 1
+        if b_src.ctg_dna_hash_b in neg_count_dna_b:
+            neg_count_dna_b[b_src.ctg_dna_hash_b] += 1
         if regime_mode and regime is not None:
             regime_counts[regime] = regime_counts.get(regime, 0) + 1
         return True
 
     # ---- Coverage phase --------------------------------------------------
-    # Iterate every (slot, dna_hash) target. Each accepted neg covers one
+    # Iterate every (slot, ctg_dna_hash) target. Each accepted neg covers one
     # slot-A DNA and one slot-B DNA simultaneously; iterating both slots
     # exposes any DNA that hasn't been covered by a side-effect of an
     # earlier iteration. The order is (slot a DNAs sorted) then (slot b
@@ -709,19 +694,19 @@ def create_negative_pairs_v2(
                 continue
             s_row = dna_to_row_a[d]
             s_in_left = True
-            self_seq = s_row.seq_hash_a
+            self_seq = s_row.prot_hash_a
         else:
             if neg_count_dna_b.get(d, 0) > 0:
                 continue
             s_row = dna_to_row_b[d]
             s_in_left = False
-            self_seq = s_row.seq_hash_b
+            self_seq = s_row.prot_hash_b
 
-        # Excluded partners: any isolate that shares the self-row's seq_hash.
+        # Excluded partners: any isolate that shares the self-row's prot_hash.
         # Same-seq cross-pairs degenerate (would build a near-pos in feature
-        # space). Exclusion is by seq_hash because that's the unit of
+        # space). Exclusion is by prot_hash because that's the unit of
         # cooccur and pair_key identity; DNA-level membership is implicit
-        # (every isolate with this DNA has this seq_hash).
+        # (every isolate with this DNA has this prot_hash).
         excluded = seq_to_isolates.get(self_seq, set())
         if len(excluded) >= len(isolate_ids_list):
             rejection_stats['coverage_skipped'].append((d, slot, 'no_other_isolate'))
@@ -1002,7 +987,7 @@ def create_negative_pairs_v2(
             'regime_targets': dict(axis_quotas),
         }
     # Cap full lists at 100 each for stats compactness; full audit lives in
-    # rejection_stats['coverage_skipped'] which records (dna_hash, slot, reason).
+    # rejection_stats['coverage_skipped'] which records (ctg_dna_hash, slot, reason).
     rejection_stats['dna_uncovered_a_sample'] = dna_uncovered_a[:100]
     rejection_stats['dna_uncovered_b_sample'] = dna_uncovered_b[:100]
 
@@ -1021,18 +1006,18 @@ def create_negative_pairs_v2(
             f"docs/results/2026-05-08_dna_coverage_feasibility_sweep.md."
         )
 
-    # Hard coverage check at the SEQ_HASH level: every seq_hash in pos_df
+    # Hard coverage check at the SEQ_HASH level: every prot_hash in pos_df
     # (slot A or slot B) must appear in at least one negative pair. The
     # DNA-level loop above will satisfy this in the typical case (covering
-    # any one DNA of a seq_hash also covers that seq_hash), so this raise
+    # any one DNA of a prot_hash also covers that prot_hash), so this raise
     # is a safety net for the rare case where every DNA encoding a single
-    # seq_hash failed.
+    # prot_hash failed.
     if seqs_with_zero_negatives:
         raise ValueError(
             f"create_negative_pairs_v2: protein-level coverage guarantee "
-            f"violated -- {len(seqs_with_zero_negatives)} seq_hash(es) have "
+            f"violated -- {len(seqs_with_zero_negatives)} prot_hash(es) have "
             f"zero negative pairs (first 5: {seqs_with_zero_negatives[:5]}). "
-            f"Every DNA encoding these seq_hashes failed; inspect "
+            f"Every DNA encoding these prot_hashes failed; inspect "
             f"rejection_stats['coverage_skipped']. This is rarer than DNA-level "
             f"misses; if it fires, the bundle is likely too tight to be usable."
         )
@@ -1041,15 +1026,15 @@ def create_negative_pairs_v2(
 
     """
     ipdb.set_trace(context=10)
-    a_counts = neg_df['seq_hash_a'].value_counts()  # Series: seq_hash → count
-    b_counts = neg_df['seq_hash_b'].value_counts()
+    a_counts = neg_df['prot_hash_a'].value_counts()  # Series: prot_hash → count
+    b_counts = neg_df['prot_hash_b'].value_counts()
 
     print(a_counts.describe())   # min/25%/50%/75%/max for slot A
     print(b_counts.describe())
     print(f"slot A: {(a_counts == 0).sum()} uncovered")  # should be 0 after our hard check
     print(f"slot B: {(b_counts == 0).sum()} uncovered")
 
-    # Tidy two-column report per seq_hash and slot:
+    # Tidy two-column report per prot_hash and slot:
     prev = pd.concat([
         a_counts.rename('n_as_slot_a'),
         b_counts.rename('n_as_slot_b'),
@@ -1058,8 +1043,8 @@ def create_negative_pairs_v2(
     prev.sort_values('total', ascending=False).head(20)  # most-used seqs
 
     # For coverage vs. positives sanity (every pos seq should be in the index):
-    pos_a = set(pos_df['seq_hash_a'])
-    pos_b = set(pos_df['seq_hash_b'])
+    pos_a = set(pos_df['prot_hash_a'])
+    pos_b = set(pos_df['prot_hash_b'])
     print('slot-A pos seqs missing from neg:', len(pos_a - set(a_counts.index)))
     print('slot-B pos seqs missing from neg:', len(pos_b - set(b_counts.index)))
     """
@@ -1067,18 +1052,18 @@ def create_negative_pairs_v2(
 
 
 def _build_seq_to_func(df: pd.DataFrame) -> dict:
-    """Build seq_hash -> function map. Hard error if any seq_hash maps to >1
+    """Build prot_hash -> function map. Hard error if any prot_hash maps to >1
     distinct function -- v2 slot semantics depend on this invariant."""
-    funcs_per_hash = df.groupby('seq_hash')['function'].nunique()
+    funcs_per_hash = df.groupby('prot_hash')['function'].nunique()
     bad = funcs_per_hash[funcs_per_hash > 1]
     if len(bad) > 0:
         offenders = bad.head(5).index.tolist()
         raise ValueError(
-            f"seq_hash maps to >1 distinct function for {len(bad)} hash(es): "
-            f"{offenders} (showing up to 5). v2 assumes seq_hash -> function is "
+            f"prot_hash maps to >1 distinct function for {len(bad)} hash(es): "
+            f"{offenders} (showing up to 5). v2 assumes prot_hash -> function is "
             f"many-to-one; this indicates a Stage 1 (preprocessing) data-quality bug."
         )
-    return df.groupby('seq_hash')['function'].first().to_dict()
+    return df.groupby('prot_hash')['function'].first().to_dict()
 
 
 # ---------------------------------------------------------------------------
@@ -1091,8 +1076,8 @@ def compute_exposure_stats(
     ) -> pd.DataFrame:
     """Per-sequence exposure table for one split.
 
-    Returns a DataFrame with one row per seq_hash that appears in pos_pairs OR
-    neg_pairs. Columns: seq_hash, function, assembly_ids (list), n_pos_slot_a,
+    Returns a DataFrame with one row per prot_hash that appears in pos_pairs OR
+    neg_pairs. Columns: prot_hash, function, assembly_ids (list), n_pos_slot_a,
     n_pos_slot_b, n_pos_total, n_neg_slot_a, n_neg_slot_b, n_neg_total,
     exposure (`dual` / `pos_only` / `neg_only`).
 
@@ -1101,26 +1086,26 @@ def compute_exposure_stats(
     """
     seq_to_func = _build_seq_to_func(df)
 
-    # seq_hash -> sorted list of assembly_ids that contain it (full data, not
+    # prot_hash -> sorted list of assembly_ids that contain it (full data, not
     # just this split -- biological duplicates outside the split are reported
     # for transparency). Sort once globally before groupby so each group's
     # list comes out sorted without a per-group lambda.
     seq_to_assemblies = (
-        df[['seq_hash', 'assembly_id']]
+        df[['prot_hash', 'assembly_id']]
           .drop_duplicates()
-          .sort_values(['seq_hash', 'assembly_id'])
-          .groupby('seq_hash')['assembly_id']
+          .sort_values(['prot_hash', 'assembly_id'])
+          .groupby('prot_hash')['assembly_id']
           .agg(list)
           .to_dict()
     )
 
     # Per-slot, per-label counts via value_counts (vectorized; no Python loop).
-    # Each Series is indexed by seq_hash; concat aligns on the union of keys.
+    # Each Series is indexed by prot_hash; concat aligns on the union of keys.
     def _slot_counts(pairs_df: pd.DataFrame, slot: str, label: str) -> pd.Series:
         name = f'n_{label}_slot_{slot}'
         if len(pairs_df) == 0:
             return pd.Series(dtype=int, name=name)
-        return pairs_df[f'seq_hash_{slot}'].value_counts().rename(name)
+        return pairs_df[f'prot_hash_{slot}'].value_counts().rename(name)
 
     counts = pd.concat(
         [
@@ -1133,7 +1118,7 @@ def compute_exposure_stats(
     ).fillna(0).astype(int)
 
     out_cols = [
-        'seq_hash', 'function', 'assembly_ids',
+        'prot_hash', 'function', 'assembly_ids',
         'n_pos_slot_a', 'n_pos_slot_b', 'n_pos_total',
         'n_neg_slot_a', 'n_neg_slot_b', 'n_neg_total',
         'exposure',
@@ -1141,7 +1126,7 @@ def compute_exposure_stats(
     if len(counts) == 0:
         return pd.DataFrame(columns=out_cols)
 
-    counts.index.name = 'seq_hash'
+    counts.index.name = 'prot_hash'
     counts['n_pos_total'] = counts['n_pos_slot_a'] + counts['n_pos_slot_b']
     counts['n_neg_total'] = counts['n_neg_slot_a'] + counts['n_neg_slot_b']
 
@@ -1152,7 +1137,7 @@ def compute_exposure_stats(
     exposure[has_pos & ~has_neg] = 'pos_only'
     counts['exposure'] = exposure
 
-    # Defensive: a seq_hash present in pairs but absent from df gets None /
+    # Defensive: a prot_hash present in pairs but absent from df gets None /
     # [] (matches the old code's `.get(s)` / `.get(s, [])` semantics). Under
     # v2 strict mode this can't happen, but preserve the contract.
     counts['function'] = [seq_to_func.get(s) for s in counts.index]
@@ -1177,7 +1162,7 @@ def compute_axis_flags(
     equal; False if both non-null and different; pd.NA if either is null.
     Two unknowns are not "same".
 
-    Lookup keys on `assembly_id`, not `seq_hash`. seq_hash collapses identical
+    Lookup keys on `assembly_id`, not `prot_hash`. prot_hash collapses identical
     amino-acid sequences across isolates with legitimately different metadata
     (cross-host transmission, conserved sequences across years, etc.), so
     keying on it can return a different isolate's value than the pair's actual
@@ -1245,10 +1230,10 @@ def compute_metadata_coverage(
         Counts every protein row. Reflects *isolate-level* coverage:
         a sequence shared across 100 isolates contributes 100 rows.
       - Per-sequence: n_unique_seqs / n_unique_seqs_null / pct_unique_null
-        n_unique_seqs_null counts seq_hashes for which NO isolate carries
+        n_unique_seqs_null counts prot_hashes for which NO isolate carries
         any non-null value -- it's the embedding-keyed-lookup floor (an
         embedding referenced by such a seq has no metadata anywhere). For
-        seq_hashes that span multiple isolates with different metadata
+        prot_hashes that span multiple isolates with different metadata
         (reassortment, multi-year persistence, etc.), per-sequence here
         does NOT mean "every isolate carrying this seq has this value";
         for that, look at pair-level <axis>_a / <axis>_b columns built by
@@ -1280,11 +1265,11 @@ def compute_metadata_coverage(
         n_rows_null = int(df[col].isna().sum())
         pct_null = (n_rows_null / n_rows_total * 100.0) if n_rows_total > 0 else 0.0
 
-        # n_unique_seqs_null = seq_hashes with NO non-null value across any
+        # n_unique_seqs_null = prot_hashes with NO non-null value across any
         # isolate. Drop nulls first so seqs whose first row happens to be null
         # but which have a valid value elsewhere are not undercounted.
-        n_unique_seqs = int(df['seq_hash'].nunique())
-        seqs_with_value = df.dropna(subset=[col])['seq_hash'].nunique()
+        n_unique_seqs = int(df['prot_hash'].nunique())
+        seqs_with_value = df.dropna(subset=[col])['prot_hash'].nunique()
         n_unique_seqs_null = n_unique_seqs - int(seqs_with_value)
         pct_unique_null = (n_unique_seqs_null / n_unique_seqs * 100.0) if n_unique_seqs > 0 else 0.0
 
@@ -1427,14 +1412,14 @@ def split_dataset_v2(
 
     # Build co-occurrence (or accept pre-computed for CV reuse).
     # cooccur_pairs: set of canonical pair-key strings, each of the form
-    # "<seq_hash>__<seq_hash>" with the two hashes sorted lexicographically.
+    # "<prot_hash>__<prot_hash>" with the two hashes sorted lexicographically.
     # One entry per sequence pair that appears together in at least one isolate.
     # Used to block candidate negatives that would actually be positives somewhere.
     # Cooccur set must use the same alphabet as pair_key (mismatched alphabets
     # would block / allow the wrong pairs as negatives). For pair_key_alphabet=
     # 'nt_cds' the df must have cds_dna_hash attached (orchestrator's
     # responsibility — see attach_cds_dna_hash_to_prot_df).
-    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'seq_hash'
+    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
     if cooccur_pairs is None:
         print(f"\nsplit_dataset_v2: Build co-occurrence set on {_cooccur_hash_col} "
               f"(pair_key_alphabet={pair_key_alphabet!r})...")
@@ -1533,8 +1518,8 @@ def split_dataset_v2(
         test_pos = pos_df[pos_df['assembly_id_a'].isin(set(test_isolates))].reset_index(drop=True)
     elif split_strategy_mode == 'seq_disjoint':
         # Bipartite-component routing: each connected component (on the
-        # hash family selected by split_strategy_hash_key — seq_hash by
-        # default for protein-level partitioning, or dna_hash for the
+        # hash family selected by split_strategy_hash_key — prot_hash by
+        # default for protein-level partitioning, or ctg_dna_hash for the
         # looser nucleotide-level partition) is indivisible; whole
         # components are LPT-greedy bin-packed into train/val/test. Drops
         # zero pairs by construction; cross-split hash overlap on the
@@ -1560,12 +1545,11 @@ def split_dataset_v2(
         # mmseqs2-cluster-disjoint routing: each connected component on the
         # bipartite (cluster_id_a, cluster_id_b) graph is indivisible. Routes
         # pairs into the split where BOTH sequences' clusters land; pairs whose
-        # seq_hashes aren't covered by the cluster lookup are dropped.
+        # prot_hashes aren't covered by the cluster lookup are dropped.
         # See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
         # cluster_alphabet='aa' (default) clusters protein sequences;
-        # cluster_alphabet='nt_cds' clusters CDS DNA — the latter joins on
-        # cds_dna_hash, so we attach it to pos_df here before routing.
-        # 'nt_ctg' is reserved for Phase 3 (raises NotImplementedError).
+        # 'nt_cds' clusters CDS DNA (joins on cds_dna_hash); 'nt_ctg' clusters
+        # contig DNA (joins on ctg_dna_hash). The pos-side hash is attached below.
         from src.datasets._split_helpers import (
             cluster_disjoint_route_pos_df, load_cluster_lookup,
         )
@@ -1574,34 +1558,41 @@ def split_dataset_v2(
                 "split_dataset_v2: cluster_id_path is required when "
                 "split_strategy_mode='cluster_disjoint'."
             )
-        if cluster_alphabet == 'nt_ctg':
-            raise NotImplementedError(
-                "cluster_alphabet='nt_ctg' is reserved for Phase 3 (contig-"
-                "level clustering); not yet operational. See "
-                "docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
-            )
-        if cluster_alphabet not in {'aa', 'nt_cds'}:
+        if cluster_alphabet not in {'aa', 'nt_cds', 'nt_ctg'}:
             raise ValueError(
-                f"split_dataset_v2: cluster_alphabet must be 'aa' or 'nt_cds', "
-                f"got {cluster_alphabet!r}"
+                f"split_dataset_v2: cluster_alphabet must be 'aa', 'nt_cds', or "
+                f"'nt_ctg', got {cluster_alphabet!r}"
             )
         if cluster_alphabet == 'nt_cds':
             if cds_final_path is None:
                 raise ValueError(
                     "split_dataset_v2: cluster_alphabet='nt_cds' requires "
-                    "cds_final_path (the cds_final.parquet path)."
+                    "cds_final_path (the cds_dna_final.parquet path)."
                 )
-            # cds_dna_hash_{a,b} may already be on pos_df if the orchestrator
-            # pre-attached cds_dna_hash to df (pair_key_alphabet='nt_cds' path);
-            # skip the redundant attach in that case.
-            if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
+            # cds_dna_hash_{a,b} are already populated if the orchestrator
+            # pre-attached cds_dna_hash to df (pair_key_alphabet='nt_cds' path).
+            # build_pair_columns always EMITS these columns, but they are empty
+            # (all-NaN) when pair_key != nt_cds -- so gate on POPULATED, not
+            # present: otherwise nt_cds clustering + a non-nt_cds pair_key (e.g.
+            # the historical protein-pair_key + nt_cds-cluster config) leaves them
+            # empty and the cluster join crashes on a float64-vs-string merge.
+            # Drop the empty placeholders and attach.
+            _populated = (
+                'cds_dna_hash_a' in pos_df.columns and 'cds_dna_hash_b' in pos_df.columns
+                and not pos_df['cds_dna_hash_a'].isna().all()
+                and not pos_df['cds_dna_hash_b'].isna().all()
+            )
+            if not _populated:
+                pos_df = pos_df.drop(columns=[c for c in ('cds_dna_hash_a', 'cds_dna_hash_b')
+                                              if c in pos_df.columns])
                 from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
                 pos_df = attach_cds_dna_hash_to_pos_df(
                     pos_df, cds_final_path, schema_pair=schema_pair,
                 )
-            pos_hash_col = 'cds_dna_hash'
-        else:
-            pos_hash_col = 'seq_hash'
+        # pos-side cluster-join hash from the registry: aa->prot_hash,
+        # nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash. nt_ctg's ctg_dna_hash_{a,b}
+        # are already populated on pos_df (only nt_cds needs the attach above).
+        pos_hash_col = schema.hash_col(cluster_alphabet)
         if single_slot is not None and single_slot not in ('a', 'b'):
             raise ValueError(
                 f"split_dataset_v2: single_slot must be None, 'a', or 'b'; got {single_slot!r}"
@@ -1751,14 +1742,14 @@ def split_dataset_v2(
     train_exp = compute_exposure_stats(train_pos, train_neg, df)
     val_exp = compute_exposure_stats(val_pos, val_neg, df)
     test_exp = compute_exposure_stats(test_pos, test_neg, df)
-    # jj = test_exp[['seq_hash', 'function', 'n_pos_total', 'n_neg_total', 'exposure']]
+    # jj = test_exp[['prot_hash', 'function', 'n_pos_total', 'n_neg_total', 'exposure']]
     # jj['n_pos_total'] - jj['n_neg_total']
 
     # Cross-split pair_key overlap check.
     # Under v2's strict regime (global pos dedup + cooccur_pairs blocking pos
     # vs neg + forbidden_pair_keys threading across split-level neg calls),
     # train/val/test pair_keys are disjoint by construction. Any overlap here
-    # is a serious leakage condition: identical (seq_a, seq_b) negatives in
+    # is a serious leakage condition: identical (prot_seq_a, prot_seq_b) negatives in
     # two splits give the model the same (features, label) example in both
     # training AND evaluation, silently inflating metrics. Treat as fatal.
     print("\nValidating pair_key partitioning...")
@@ -1779,7 +1770,7 @@ def split_dataset_v2(
             f"train-val={len(train_val_key_overlap)}, "
             f"train-test={len(train_test_key_overlap)}, "
             f"val-test={len(val_test_key_overlap)}. "
-            f"This means identical (seq_a, seq_b) negatives appear in two "
+            f"This means identical (prot_seq_a, prot_seq_b) negatives appear in two "
             f"splits, so the model would be evaluated on rows it trained on. "
             f"forbidden_pair_keys threading across the per-split "
             f"create_negative_pairs_v2 calls should make this impossible; "
@@ -1854,15 +1845,18 @@ def split_dataset_v2(
         # pool. Verifying here makes the audit JSON a regression check on
         # the whole pipeline, not just the routing step.
         #
-        # Both seq_hash and dna_hash counters are emitted regardless of the
+        # Both prot_hash and ctg_dna_hash counters are emitted regardless of the
         # chosen hash_key: the one matching hash_key is the by-construction
         # guarantee (hard-failed by the saver); the other is a diagnostic.
-        # Under hash_key='seq', dna_hash is also 0 (protein equality
-        # implies DNA grouping). Under hash_key='dna', seq_hash is usually
+        # Under hash_key='seq', ctg_dna_hash is also 0 (protein equality
+        # implies DNA grouping). Under hash_key='dna', prot_hash is usually
         # non-zero (synonymous variants land in different splits).
-        for family in ('seq', 'dna'):
+        # 'seq'/'dna' track the hash_key knob (the saver indexes this audit key by
+        # it); the column each reads comes from the schema registry.
+        for family, _alphabet in (('seq', 'aa'), ('dna', 'nt_ctg')):
+            _hcol = schema.hash_col(_alphabet)
             for side in ('a', 'b'):
-                col = f'{family}_hash_{side}'
+                col = f'{_hcol}_{side}'
                 if col not in train_pairs.columns:
                     continue
                 t = set(train_pairs[col].dropna())
@@ -1881,26 +1875,28 @@ def split_dataset_v2(
         # on whichever slot(s) the routing constrains (negatives are sampled
         # from per-split positives, so they can't pull cluster_ids from outside
         # their split's positive pool — same invariant as seq_disjoint).
-        # seq_hash / dna_hash overlap MAY be non-zero at thresholds < 1.0 on
+        # prot_hash / ctg_dna_hash overlap MAY be non-zero at thresholds < 1.0 on
         # the constrained side (different sequences in the same cluster can
         # land in different splits' positives → their hashes can co-occur in
         # negatives via partner sampling).
         #
         # For constrained-slot routing (single_slot='a' or 'b'), the
-        # UNCONSTRAINED side is not bound by either invariant: seq_hash leakage
+        # UNCONSTRAINED side is not bound by either invariant: prot_hash leakage
         # on the unconstrained side is the empirical residual leakage the
         # routing leaves on the table (see splits.md § 1.8).
         #
         # Fields are symmetric across slots a / b and across cluster_id /
-        # seq_hash / dna_hash. The routing-mode-specific interpretation lives
+        # prot_hash / ctg_dna_hash. The routing-mode-specific interpretation lives
         # in the prose docs, not in the field names.
+        # 'seq'/'dna' are the two hash families (protein / nucleotide), kept
+        # stable in the audit JSON; the column each reads comes from the registry.
+        _leak_col = {'cluster_id': 'cluster_id',
+                     'seq_hash': schema.hash_col('aa'),      # prot_hash
+                     'dna_hash': schema.hash_col('nt_ctg')}  # ctg_dna_hash
         for family in ('cluster_id', 'seq_hash', 'dna_hash'):
-            col_template = (
-                'cluster_id_{side}' if family == 'cluster_id'
-                else f"{family.replace('_hash', '')}_hash_{{side}}"
-            )
+            _base = _leak_col[family]
             for side in ('a', 'b'):
-                col = col_template.format(side=side)
+                col = f'{_base}_{side}'
                 if col not in train_pairs.columns:
                     continue
                 t  = set(train_pairs[col].dropna())
@@ -1927,7 +1923,7 @@ def split_dataset_v2(
                 }
         duplicate_stats['cluster_disjoint_audit'] = cluster_disjoint_audit
         # One-line summary: cross-split leakage on each slot, for each hash family.
-        # In constrained-slot routing, the unconstrained side's seq_hash leakage
+        # In constrained-slot routing, the unconstrained side's prot_hash leakage
         # is the residual lookup signal (see splits.md § 1.8).
         for side in ('a', 'b'):
             parts = []
@@ -1998,7 +1994,7 @@ def generate_all_cv_folds_v2(
     """
     from sklearn.model_selection import KFold
 
-    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'seq_hash'
+    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
     print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
           f"(pair_key_alphabet={pair_key_alphabet!r})...")
     cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
@@ -2115,7 +2111,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
 
     # ----- Build co-occurrence set once -----
-    _cooccur_hash_col = 'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'seq_hash'
+    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
     print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
           f"(pair_key_alphabet={pair_key_alphabet!r})...")
     cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
@@ -2138,16 +2134,25 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     print(f"   Global pos_df: {len(pos_df):,} unique pair_keys after dedup.")
 
     # ----- Attach nt_cds CDS-DNA hash if nt_cds-alphabet routing -----
-    pos_hash_col = 'seq_hash'
+    pos_hash_col = 'prot_hash'
     if cluster_alphabet == 'nt_cds':
         if cds_final_path is None:
             raise ValueError(
                 "cluster_alphabet='nt_cds' requires cds_final_path "
-                "(cds_final.parquet path from Stage 1.5)."
+                "(cds_dna_final.parquet path from Stage 1.5)."
             )
-        # Skip redundant attach if orchestrator already pre-attached
-        # cds_dna_hash to df (pair_key_alphabet='nt_cds' path).
-        if 'cds_dna_hash_a' not in pos_df.columns or 'cds_dna_hash_b' not in pos_df.columns:
+        # Gate on POPULATED, not present (see split_dataset_v2 above):
+        # build_pair_columns emits empty cds_dna_hash_{a,b} when pair_key != nt_cds,
+        # so attaching only on absence would leave them empty and crash the cluster
+        # join on a float64-vs-string merge. Drop the empty placeholders and attach.
+        _populated = (
+            'cds_dna_hash_a' in pos_df.columns and 'cds_dna_hash_b' in pos_df.columns
+            and not pos_df['cds_dna_hash_a'].isna().all()
+            and not pos_df['cds_dna_hash_b'].isna().all()
+        )
+        if not _populated:
+            pos_df = pos_df.drop(columns=[c for c in ('cds_dna_hash_a', 'cds_dna_hash_b')
+                                          if c in pos_df.columns])
             pos_df = attach_cds_dna_hash_to_pos_df(
                 pos_df, Path(cds_final_path), schema_pair=schema_pair,
             )
@@ -2369,12 +2374,12 @@ def save_split_output_v2(
     print(f"save_v2: pair parquets done in {time.time()-_t:.2f}s", flush=True)
 
     # Cross-split overlap stats (Exp 1 of the leakage diagnostics plan).
-    # Surfaces seq_hash / dna_hash overlap across splits that pair_key
+    # Surfaces prot_hash / ctg_dna_hash overlap across splits that pair_key
     # disjointness does not prevent.
     emit_split_overlap_stats(train_pairs, val_pairs, test_pairs, output_dir)
 
     # cluster_disjoint mode emits a routing audit. Hard-fail on cluster_id
-    # cross-split overlap (zero by construction). seq_hash / dna_hash overlaps
+    # cross-split overlap (zero by construction). prot_hash / ctg_dna_hash overlaps
     # at the full-pairs level are diagnostic only — at thresholds < 1.0,
     # different proteins in the same cluster can land in different splits'
     # negatives via partner sampling.
@@ -2516,7 +2521,7 @@ def save_split_output_v2(
         ),
         # Per-slot cross-split leakage headline. Present only under
         # cluster_disjoint routing. Symmetric across slots a/b and across
-        # hash families (cluster_id / seq_hash / dna_hash). Full per-pair
+        # hash families (cluster_id / prot_hash / ctg_dna_hash). Full per-pair
         # overlap counts live in cluster_disjoint_audit.json. See
         # docs/methods/splits.md § 1.8.
         **(
@@ -2673,7 +2678,7 @@ def emit_split_overlap_stats(
     other splits, plus percentages.
 
     Pair-key disjointness across splits is already enforced by v2 invariants;
-    this surfaces the *sequence-level* overlap (`seq_hash` and `dna_hash`)
+    this surfaces the *sequence-level* overlap (`prot_hash` and `ctg_dna_hash`)
     that pair-key disjointness does NOT prevent. A reader can answer "how
     many test sequences are also in train?" by reading one CSV instead of
     re-deriving it from train/val/test pair tables.
@@ -2681,7 +2686,8 @@ def emit_split_overlap_stats(
     Schema (one row per (split, label, seq_type, side)):
         split               : 'train' | 'val' | 'test'
         label               : 'pos' | 'neg'
-        seq_type            : 'seq_hash' | 'dna_hash'  (identifier tracked)
+        seq_type            : 'seq_hash' | 'dna_hash'  (hash family; reads the
+                              molecule-level prot_hash / ctg_dna_hash columns)
         side                : 'a' | 'b'
         n_pairs             : count of pairs in this (split, label) (repeats
                               4x per (split, label) -- denormalized for
@@ -2720,9 +2726,12 @@ def emit_split_overlap_stats(
     per_cell: dict = {}
 
     for split_name, pairs_df in splits.items():
-        for seq_type in ('seq_hash', 'dna_hash'):
+        # seq_type labels the hash family ('seq_hash'/'dna_hash', stable in the
+        # CSV); the column it reads is the molecule-level hash from the registry.
+        for seq_type, _alphabet in (('seq_hash', 'aa'), ('dna_hash', 'nt_ctg')):
+            _hcol = schema.hash_col(_alphabet)
             for side in ('a', 'b'):
-                col = f'{seq_type}_{side}'
+                col = f'{_hcol}_{side}'
                 if col not in pairs_df.columns:
                     continue
                 pooled[(split_name, seq_type, side)] = set(pairs_df[col].dropna())
@@ -2847,6 +2856,17 @@ def _validate_v2_config(config) -> None:
         raise ValueError(
             f"v2 requires dataset.schema_pair to contain two different functions; "
             f"got {schema_list!r}."
+        )
+
+    # cluster_disjoint_cc is the 2D-CD builder's mode (src/datasets/dataset_pairs_cc.py),
+    # not a v2 mode. Reject loudly so a CC bundle isn't silently misrouted through v2.
+    sd_mode = OmegaConf.select(config, "dataset.split_strategy.mode")
+    if sd_mode == 'cluster_disjoint_cc':
+        raise ValueError(
+            "dataset.split_strategy.mode='cluster_disjoint_cc' is the 2D-CD builder's mode "
+            "(src/datasets/dataset_pairs_cc.py), not a v2 mode. Run it with "
+            "`python src/datasets/dataset_pairs_cc.py --config_bundle <bundle>`, "
+            "not the v2 Stage-3 CLI."
         )
 
     # Hard-coded values that must not contradict
@@ -3002,18 +3022,16 @@ def _validate_v2_config(config) -> None:
                     f"(or absent); got {cluster_id_threshold!r}."
                 )
         cluster_alphabet = OmegaConf.select(config, "dataset.split_strategy.cluster_alphabet")
-        if cluster_alphabet is not None and cluster_alphabet not in {'aa', 'nt_cds'}:
+        if cluster_alphabet is not None and cluster_alphabet not in {'aa', 'nt_cds', 'nt_ctg'}:
             raise ValueError(
-                f"dataset.split_strategy.cluster_alphabet must be 'aa' or 'nt_cds' "
-                f"(or absent — defaults to 'aa'); got {cluster_alphabet!r}. "
-                f"Legacy 'nt' was renamed to 'nt_cds' in Phase 2 of the clustering "
-                f"cleanup plan."
+                f"dataset.split_strategy.cluster_alphabet must be 'aa', 'nt_cds', or "
+                f"'nt_ctg' (or absent — defaults to 'aa'); got {cluster_alphabet!r}."
             )
         # pair_key_alphabet config validation (Phase 2 of clustering cleanup plan)
         pair_key_alphabet = OmegaConf.select(config, "dataset.split_strategy.pair_key_alphabet")
-        if pair_key_alphabet is not None and pair_key_alphabet not in {'aa', 'nt_cds'}:
+        if pair_key_alphabet is not None and pair_key_alphabet not in {'aa', 'nt_cds', 'nt_ctg'}:
             raise ValueError(
-                f"dataset.split_strategy.pair_key_alphabet must be 'aa' or 'nt_cds' "
+                f"dataset.split_strategy.pair_key_alphabet must be 'aa', 'nt_cds', or 'nt_ctg' "
                 f"(or absent — defaults to cluster_alphabet for cluster_disjoint mode, "
                 f"else 'aa'); got {pair_key_alphabet!r}."
             )

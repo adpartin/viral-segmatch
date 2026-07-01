@@ -11,7 +11,7 @@ parquet reads scattered across `src/analysis/{cluster,bigraph}_*.py`.
 `load_cluster_map(clusters_root, protein, threshold)`: it infers the alphabet from
 `clusters_root`, returns the membership-backed map when the table is present (and
 `USE_MEMBERSHIP`), and otherwise falls back to reading the cluster parquet directly
-with the alphabet's CORRECT key column (`seq_hash` for aa, `cds_dna_hash` for
+with the alphabet's CORRECT key column (`prot_hash` for aa, `cds_dna_hash` for
 nt_cds). The legacy helpers hardcoded `seq_hash`, which is why their nt path failed
 on the live `clusters_nt_cds` layout; both the membership path and this fallback
 fix that.
@@ -40,13 +40,17 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
+from src.utils.schema import SCHEMA as _SCHEMA  # noqa: E402
 
 USE_MEMBERSHIP = os.environ.get('SEGMATCH_NO_MEMBERSHIP', '') != '1'
 
 _MEMB_DIR = PROJ / 'data/processed/flu/July_2025/cluster_membership'
 _MEMB_FILE = {'aa': _MEMB_DIR / 'cluster_memb_aa.parquet',
               'nt_cds': _MEMB_DIR / 'cluster_memb_nt_cds.parquet'}
-_KEY = {'aa': 'seq_hash', 'nt_cds': 'cds_dna_hash'}
+# Per-alphabet membership/cluster key column from the schema registry (single
+# source of truth). Was a hardcoded {'aa': 'seq_hash', ...} that drifted when the
+# aa hash column was renamed seq_hash -> prot_hash; the registry prevents recurrence.
+_KEY = {a: s.hash_col for a, s in _SCHEMA.items()}
 
 _memb_cache: dict[str, pd.DataFrame] = {}
 _short_to_full: Optional[dict] = None

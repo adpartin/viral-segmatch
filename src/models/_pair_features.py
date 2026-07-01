@@ -7,11 +7,12 @@ operate on plain matrices.
 
 Supported feature sources
 -------------------------
-- ``feature_source='kmer'``: k-mer concat features (slot_transform='none',
-  interaction='concat'). The k-mer path is intentionally narrow because
-  k-mer features are interaction-agnostic in practice (per project
-  findings: ``unit_diff ≈ concat`` on k-mer) and slot_norm doesn't
-  benefit non-negative count vectors.
+- ``feature_source='kmer'``: k-mer count features. Supports the full
+  ``interaction`` set (``{concat, diff, unit_diff, prod}`` + ``+``-combos),
+  same as the ESM-2 path; concat is the usual choice since k-mer features
+  are interaction-agnostic in practice (project finding: ``unit_diff ≈
+  concat``). slot_transform defaults to ``'none'`` (slot_norm doesn't
+  benefit non-negative count vectors).
 - ``feature_source='esm2'``: ESM-2 protein embeddings, with optional
   ``slot_transform`` (``'none'`` or ``'slot_norm'``) and any
   ``interaction`` from ``{concat, diff, unit_diff, prod}`` or
@@ -278,7 +279,7 @@ def load_pair_features_for_baselines(
     # k-mer specific (required when feature_source='kmer')
     kmer_dir: Optional[Path] = None,
     kmer_k: Optional[int] = None,
-    kmer_alphabet: str = 'nt',
+    kmer_alphabet: str = 'nt_ctg',
     # ESM-2 specific (required when feature_source='esm2')
     embeddings_file: Optional[Path] = None,
     # Interaction & slot transform (apply to either source where supported)
@@ -342,8 +343,8 @@ def load_pair_features_for_baselines(
             )
         if kmer_dir is None or kmer_k is None:
             raise ValueError("kmer_dir and kmer_k are required for feature_source='kmer'.")
-        if kmer_alphabet not in {'nt', 'aa'}:
-            raise ValueError(f"kmer_alphabet must be 'nt' or 'aa'; got {kmer_alphabet!r}")
+        if kmer_alphabet not in {'nt_ctg', 'nt_cds', 'aa'}:
+            raise ValueError(f"kmer_alphabet must be 'nt_ctg', 'nt_cds', or 'aa'; got {kmer_alphabet!r}")
         print(f"\nLoading k-mer pair features (alphabet={kmer_alphabet}, k={kmer_k}, "
               f"slot_transform={slot_transform!r}, interaction={interaction!r}) from {kmer_dir}")
         key_to_row = load_kmer_index(Path(kmer_dir), kmer_k, alphabet=kmer_alphabet)

@@ -30,6 +30,7 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
+from src.utils import schema
 from src.utils.path_utils import load_dataframe
 
 
@@ -38,10 +39,10 @@ def canonical_pair_key(hash_a: str, hash_b: str) -> str:
 
     Ensures consistent ordering so (a, b) and (b, a) produce the same key.
 
-    The hashes can be from any alphabet — `seq_hash` (protein) for the
+    The hashes can be from any alphabet — `prot_hash` (protein) for the
     aa pair_key family, `cds_dna_hash` for the nt_cds family. Callers
     decide the alphabet; this function just joins the two inputs in
-    sorted order. Argument names preserve the historical `seq_hash`
+    sorted order. Argument names preserve the historical `prot_hash`
     naming because the bulk of callers still use protein hashes; under
     pair_key_alphabet='nt_cds' (Phase 2 of clustering cleanup plan)
     the inputs are `cds_dna_hash` values instead. See pair_key plan
@@ -69,22 +70,24 @@ def _validate_schema_pair(schema_pair, fn_name: str) -> Tuple[str, str]:
     return func_left, func_right
 
 
-def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd.DataFrame:
-    """Attach nucleotide sequence (`dna_seq`) and md5 hash (`dna_hash`) to each
-    protein row via a join with `genome_final.*` in the same processed dir.
+def attach_ctg_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd.DataFrame:
+    """Attach nucleotide sequence (`ctg_dna_seq`) and md5 hash (`ctg_dna_hash`) to each
+    protein row via a join with `ctg_dna_final.*`.
 
-    Rationale: the existing pipeline dedups/checks leakage using `seq_hash` over
-    protein sequences -- the correct check for ESM-2 features, but not for nucleotide
-    based k-mer features (which are derived from DNA). Carrying DNA into the pair
-    CSVs makes post-hoc nucleotide-level leakage audits possible without
-    re-running Stage 3.
+    `ctg_dna_hash` keys the contig-DNA axis (nt_ctg) in schema.py
+    Two uses:
+        - cluster / pair_key axis when cluster_alphabet='nt_ctg' (2D-CD CC builder);
+          dedup + cluster-join key on the per-alphabet hash, not prot_hash alone.
+        - DNA carried into the pair CSVs for post-hoc nucleotide k-mer leakage audits
+          (no Stage-3 re-run).
+    Sibling: `attach_cds_dna_hash_to_prot_df` attaches `cds_dna_hash` (nt_cds)
 
     Join key: (assembly_id, genbank_ctg_id). Verified on the full Flu July 2025
     dataset: genome side is unique on this key, every protein row matches
     exactly one genome row, and canonical_segment agrees on both sides. Multiple
     proteins can share one DNA contig (M1/M2, NS1/NEP, PA/PA-X) -- that's
     semantically correct; those proteins do originate from the same nucleotide
-    sequence, and DNA-derived features (k-mers) would be identical for them.
+    sequence, and DNA-derived features (e.g., k-mers) would be identical for them.
 
     Fails loudly on: missing join columns, duplicate genome-side keys, row
     count drift post-merge, or any unmatched protein row.
@@ -96,26 +99,26 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
             f"prot_df is missing columns required for DNA join: {sorted(missing)}"
         )
 
-    genome_path = protein_input_path.parent / "genome_final"
-    print(f"\nAttach DNA sequences from genome_final (sibling of {protein_input_path.name}).")
-    genome_df = load_dataframe(genome_path)
+    ctg_path = protein_input_path.parent / "ctg_dna_final"
+    print(f"\nAttach DNA sequences from ctg_dna_final (sibling of {protein_input_path.name}).")
+    ctg_df = load_dataframe(ctg_path)
 
-    genome_cols = ["assembly_id", "genbank_ctg_id", "dna_seq"]
-    miss_g = set(genome_cols) - set(genome_df.columns)
-    if miss_g:
-        raise ValueError(f"genome_final is missing required columns: {sorted(miss_g)}")
-    genome_small = genome_df[genome_cols].copy()
+    ctg_cols = ["assembly_id", "genbank_ctg_id", "ctg_dna_seq"]
+    miss_c = set(ctg_cols) - set(ctg_df.columns)
+    if miss_c:
+        raise ValueError(f"ctg_dna_final is missing required columns: {sorted(miss_c)}")
+    ctg_small = ctg_df[ctg_cols].copy()
 
-    dup = genome_small.duplicated(["assembly_id", "genbank_ctg_id"]).sum()
+    dup = ctg_small.duplicated(["assembly_id", "genbank_ctg_id"]).sum()
     if dup:
         raise ValueError(
-            f"genome_final has {dup} duplicate (assembly_id, genbank_ctg_id) rows. "
+            f"ctg_dna_final has {dup} duplicate (assembly_id, genbank_ctg_id) rows. "
             "The DNA join would fan out protein rows; refusing to proceed."
         )
 
     before = len(prot_df)
     merged = prot_df.merge(
-        genome_small,
+        ctg_small,
         on=["assembly_id", "genbank_ctg_id"],
         how="left",
         validate="many_to_one", # each protein row matches at most one genome row
@@ -129,24 +132,24 @@ def attach_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -> pd
         )
 
     # Check for unmatched protein rows (missing DNA). This is a sanity check that the
-    # genome_final and protein_final came from the same preprocess_flu.py run; they
+    # ctg_dna_final and protein_final came from the same preprocess_flu.py run; they
     # should match perfectly on (assembly_id, genbank_ctg_id).
-    missing_dna = merged["dna_seq"].isna().sum()
+    missing_dna = merged["ctg_dna_seq"].isna().sum()
     if missing_dna:
         raise RuntimeError(
-            f"{missing_dna:,} protein rows have no matching dna_seq. "
-            "Check that protein_final and genome_final came from the same "
+            f"{missing_dna:,} protein rows have no matching ctg_dna_seq. "
+            "Check that protein_final and ctg_dna_final came from the same "
             "preprocess_flu.py run."
         )
 
-    merged["dna_hash"] = merged["dna_seq"].apply(
+    merged["ctg_dna_hash"] = merged["ctg_dna_seq"].apply(
         lambda s: hashlib.md5(str(s).encode()).hexdigest()
     )
 
-    n_unique_dna = merged["dna_hash"].nunique()
-    print(f"  genome_df: Total rows: {len(genome_small):,};  unique dna_seq: {genome_small['dna_seq'].nunique():,}")
+    n_unique_dna = merged["ctg_dna_hash"].nunique()
+    print(f"  ctg_df: Total rows: {len(ctg_small):,};  unique ctg_dna_seq: {ctg_small['ctg_dna_seq'].nunique():,}")
     print(f"  protein rows merged (with genome data):  {before:,} (100.0% matched)")
-    print(f"  unique dna_hash:      {n_unique_dna:,} "
+    print(f"  unique ctg_dna_hash:  {n_unique_dna:,} "
           f"({n_unique_dna / before * 100:.1f}% of protein rows -- many proteins share a contig)")
     return merged
 
@@ -155,29 +158,29 @@ def attach_cds_dna_hash_to_prot_df(
     prot_df: pd.DataFrame,
     cds_final_path: Path,
     ) -> pd.DataFrame:
-    """Add a `cds_dna_hash` column to a protein-level DataFrame.
+    """Add a `cds_dna_hash` column to a protein-level DataFrame, joined from
+    `cds_dna_final.parquet` on `(assembly_id, function)`.
 
-    Required by `pair_key_alphabet='nt_cds'` (Phase 2 of clustering
-    cleanup plan) — `create_positive_pairs_v2` constructs the pair_key
-    on `cds_dna_hash_{a,b}` rather than `seq_hash_{a,b}`, and
-    `build_cooccurrence_set` needs to key cooccur pairs on
-    `cds_dna_hash` to match. Orchestrator (Stage 3 entry point) calls
-    this once on the full prot_df before passing to `split_dataset_v2`
-    or the k-fold variants.
+    `cds_dna_hash` keys the CDS-DNA axis (nt_cds) in schema.py: when
+    cluster_alphabet/pair_key_alphabet='nt_cds', create_positive_pairs_v2 and
+    build_cooccurrence_set key pair_key / dedup / cluster-join on it (not prot_hash).
+    Sibling: `attach_ctg_dna_to_prot_df` attaches `ctg_dna_seq`/`ctg_dna_hash` (nt_ctg).
+    
+    Lookup key: (assembly_id, function); cds_dna_final is unique on it for the 8 Flu A
+    majors (Stage 1.5 invariant; see src/preprocess/extract_cds_dna.py).
+    
+    Unmatched rows are DROPPED with a warning — only selected_functions/majors have a
+    CDS, so other functions (M2, NEP, PB1-F2, ...) won't match (a NaN cds_dna_hash would
+    break downstream hashing). This is the opposite of the ctg sibling, which raises on
+    any unmatched row. For the standard schema_pair flow these are already filtered out.
 
-    Lookup key: `(assembly_id, function)`. cds_final.parquet is unique
-    on this key for the 8 Flu A majors (Stage 1.5 invariant; see
-    `src/preprocess/extract_cds_dna.py`).
+    Fails loudly on: missing prot_df columns, a missing cds_final file, duplicate
+    cds_final keys, or join fan-out (row-count drift).
 
     Args:
-        prot_df: must contain `assembly_id` + `function` columns
-            (standard prot_df shape from Stage 1 + DNA join).
-        cds_final_path: path to `cds_final.parquet`. Must contain
-            `assembly_id`, `function`, `cds_dna_hash`.
-
-    Returns a new DataFrame with `cds_dna_hash` added. Raises on
-    missing prot_df rows, fan-out, or unmatched (assembly_id, function)
-    pairs (Stage 3 strictness: no silent drops).
+      prot_df: must contain `assembly_id` + `function`.
+      cds_final_path: path to `cds_dna_final.parquet` (cols: assembly_id, function,
+          cds_dna_hash).
     """
     cds_final_path = Path(cds_final_path)
     if not cds_final_path.exists():
@@ -198,10 +201,10 @@ def attach_cds_dna_hash_to_prot_df(
     )
     cds_df['assembly_id'] = cds_df['assembly_id'].astype(str)
 
-    if cds_df.duplicated(['assembly_id', 'function']).any():
-        n_dup = int(cds_df.duplicated(['assembly_id', 'function']).sum())
+    dups = cds_df.duplicated(['assembly_id', 'function'])
+    if dups.any():
         raise AssertionError(
-            f"attach_cds_dna_hash_to_prot_df: cds_final has {n_dup} duplicate "
+            f"attach_cds_dna_hash_to_prot_df: cds_final has {int(dups.sum())} duplicate "
             f"(assembly_id, function) rows — would fan out the join."
         )
 
@@ -217,16 +220,9 @@ def attach_cds_dna_hash_to_prot_df(
 
     missing = out['cds_dna_hash'].isna().sum()
     if missing:
-        # Only the 8 selected_functions have CDS; rows for other functions
-        # (M2, NEP, PB1-F2, etc.) won't match. For the standard schema_pair
-        # flow these are filtered upstream, but if any unmatched rows remain
-        # we DROP them with a warning (a NaN cds_dna_hash would break
-        # downstream hashing).
         missing_funcs = sorted(out.loc[out['cds_dna_hash'].isna(), 'function'].unique())
         print(f"WARNING: attach_cds_dna_hash_to_prot_df: {missing:,} rows have "
-              f"no cds_dna_hash (functions: {missing_funcs}); dropping. "
-              f"These functions are not in selected_functions / not covered "
-              f"by cds_final.")
+              f"no cds_dna_hash (functions: {missing_funcs}); dropping.")
         out = out.dropna(subset=['cds_dna_hash']).reset_index(drop=True)
 
     print(f"attach_cds_dna_hash_to_prot_df: attached cds_dna_hash to "
@@ -244,14 +240,14 @@ def attach_cds_dna_hash_to_pos_df(
 
     Required by the nt-alphabet branch of cluster_disjoint routing
     (Experiment B-nt, see `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`).
-    The values come from `cds_final.parquet` (built by
+    The values come from `cds_dna_final.parquet` (built by
     `src/preprocess/extract_cds_dna.py`), keyed on
     `(assembly_id, function)` — unique by construction for the 8 majors.
 
     Args:
-        pos_df: must contain `assembly_id` plus the seq_hash_a/b /
-            dna_hash_a/b columns from `create_positive_pairs_v2`.
-        cds_final_path: path to `cds_final.parquet`. Must contain columns
+        pos_df: must contain `assembly_id` plus the prot_hash_a/b /
+            ctg_dna_hash_a/b columns from `create_positive_pairs_v2`.
+        cds_final_path: path to `cds_dna_final.parquet`. Must contain columns
             `assembly_id`, `function`, `cds_dna_hash`.
         schema_pair: `(func_left, func_right)` — slot A and slot B.
 
@@ -524,7 +520,7 @@ def compute_isolate_pair_counts(
     return isolate_pos_counts
 
 
-def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'seq_hash') -> tuple[set, dict]:
+def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'prot_hash') -> tuple[set, dict]:
     """Build a set of all hash pairs that co-occur in any isolate.
 
     Two sequences "co-occur" if they appear together in the same isolate (same
@@ -534,13 +530,12 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'seq_hash') -> tupl
     Args:
         df: row-per-(isolate, protein) DataFrame; must contain `assembly_id`
             and the selected `hash_col`.
-        hash_col: which hash column to use as the cooccurrence key. Default
-            'seq_hash' (protein-level; aa pair_key family). Pass
-            'cds_dna_hash' for the nt_cds pair_key family. The choice must
-            match the alphabet of pair_keys used downstream (in
-            `create_positive_pairs_v2` and `create_negative_pairs_v2`);
-            mismatched cooccur and pair_key alphabets would silently allow
-            (or block) the wrong pairs as negatives.
+        hash_col: which hash column to use as the cooccurrence key, one per
+            alphabet: 'prot_hash' (aa, default), 'cds_dna_hash' (nt_cds), or
+            'ctg_dna_hash' (nt_ctg). The choice must match the alphabet of
+            pair_keys used downstream (in `create_positive_pairs_v2` and
+            `create_negative_pairs_v2`); mismatched cooccur and pair_key
+            alphabets would silently allow (or block) the wrong pairs as negatives.
 
     Returns:
         - cooccur_pairs: Set of canonical pair keys (`canonical_pair_key`
@@ -553,17 +548,16 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'seq_hash') -> tupl
     if hash_col not in df.columns:
         raise ValueError(
             f"build_cooccurrence_set: hash_col={hash_col!r} not in df.columns. "
-            f"For pair_key_alphabet='nt_cds' the caller must attach "
-            f"cds_dna_hash to df before calling."
+            f"The caller must attach the alphabet's hash to df before calling "
+            f"(e.g., cds_dna_hash for nt_cds)."
         )
     cooccur_pairs = set()
     isolate_pair_counts = {}
     for aid, grp in df.groupby('assembly_id'):
-        if len(grp) < 2:
-            continue
-
         # Unique hashes for this isolate, alphabet selected by hash_col.
         hashes = grp[hash_col].unique().tolist()
+        if len(hashes) < 2:
+            continue
 
         for i in range(len(hashes)):
             for j in range(i + 1, len(hashes)):
@@ -576,7 +570,7 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'seq_hash') -> tupl
 
     # - max_isolates_per_pair is the maximum number of isolates that a specific sequence pair co-occurs in.
     # - pairs_in_multiple_isolates counts how many unique sequence pairs co-occur in more than one isolate.
-    # - pairs_in_multiple_isolates / total_cooccur_pairs is measure: out of all co-occurring unique sequence pairs
+    # - pairs_in_multiple_isolates / total_cooccur_pairs is a measure of: out of all co-occurring unique sequence pairs
     #   how many are (biologically) duplicated across multiple isolates
     cooccur_stats = {
         'total_cooccur_pairs': len(cooccur_pairs),
@@ -617,7 +611,7 @@ def bipartite_components(
     Two parameter styles, mutually exclusive:
 
     1. `hash_key` (legacy): selects a hash family — 'seq' (protein-level,
-       columns seq_hash_a / seq_hash_b — stricter) or 'dna' (nucleotide-
+       columns prot_hash_a / prot_hash_b — stricter) or 'dna' (nucleotide-
        level — looser; allows synonymous-mutation variants to land in
        different splits).
     2. `col_a` / `col_b` (explicit): pass arbitrary node-id column names.
@@ -650,8 +644,11 @@ def bipartite_components(
                 f"bipartite_components: hash_key must be 'seq' or 'dna'; "
                 f"got {hash_key!r}."
             )
-        col_a = f'{hash_key}_hash_a'
-        col_b = f'{hash_key}_hash_b'
+        # hash_key names the family ('seq'/'dna'); the column is the molecule-level
+        # hash from the schema registry (seq -> prot_hash, dna -> ctg_dna_hash).
+        _hk_col = {'seq': schema.hash_col('aa'), 'dna': schema.hash_col('nt_ctg')}
+        col_a = f'{_hk_col[hash_key]}_a'
+        col_b = f'{_hk_col[hash_key]}_b'
         node_key_label = hash_key
     if not {col_a, col_b}.issubset(pos_df.columns):
         raise ValueError(
@@ -811,12 +808,12 @@ def seq_disjoint_route_pos_df(
     built on the hash family selected by `hash_key`:
 
       - hash_key='seq' (default): protein-level partitioning via
-        seq_hash_a / seq_hash_b. The stricter choice — guarantees no
+        prot_hash_a / prot_hash_b. The stricter choice — guarantees no
         protein appears in two splits. The right key for ESM-2 features
         (a protein-level feature) and also a strict superset of the DNA
         guarantee since two synonymous-mutation DNAs share their protein.
-      - hash_key='dna': nucleotide-level partitioning via dna_hash_a /
-        dna_hash_b. Looser — synonymous-mutation variants of the same
+      - hash_key='dna': nucleotide-level partitioning via ctg_dna_hash_a /
+        ctg_dna_hash_b. Looser — synonymous-mutation variants of the same
         protein can land in different splits. Appropriate when the
         downstream feature is DNA-derived (k-mer) and you want maximum
         sample-level granularity.
@@ -829,8 +826,8 @@ def seq_disjoint_route_pos_df(
     in this implementation (the algorithm is fully deterministic without
     it).
 
-    The returned audit dict reports overlap counts for BOTH seq_hash and
-    dna_hash families regardless of `hash_key`, so the diagnostic value
+    The returned audit dict reports overlap counts for BOTH prot_hash and
+    ctg_dna_hash families regardless of `hash_key`, so the diagnostic value
     is preserved either way. The by-construction guarantee is on the
     `hash_key`-selected family; the other family is reported as a
     secondary diagnostic.
@@ -872,18 +869,21 @@ def seq_disjoint_route_pos_df(
     # Cross-split hash overlap. For the family selected by `hash_key` the
     # by-construction guarantee is that all six counters are 0; the
     # saver hard-fails if any are non-zero. The OTHER family is reported
-    # as a diagnostic — under hash_key='seq', dna_hash overlaps are
+    # as a diagnostic — under hash_key='seq', ctg_dna_hash overlaps are
     # always 0 too (protein equality implies DNA grouping). Under
-    # hash_key='dna', seq_hash overlaps are usually non-zero (synonymous
+    # hash_key='dna', prot_hash overlaps are usually non-zero (synonymous
     # mutations of the same protein land in different splits).
     def _set(df: pd.DataFrame, col: str) -> set:
         return set(df[col].dropna())
     overlaps_by_family: dict = {}
-    for family in ('seq', 'dna'):
-        col_template = f'{family}_hash_{{side}}'
+    # 'seq'/'dna' track the split_strategy.hash_key knob (NOT renamed); the
+    # column each reads is the molecule-level hash from the schema registry
+    # (aa -> prot_hash, nt_ctg -> ctg_dna_hash).
+    for family, _alphabet in (('seq', 'aa'), ('dna', 'nt_ctg')):
+        _hcol = schema.hash_col(_alphabet)
         family_overlaps: dict = {}
         for side in ('a', 'b'):
-            col = col_template.format(side=side)
+            col = f'{_hcol}_{side}'
             if col not in pos_df.columns:
                 continue
             sets = {sp: _set(d, col) for sp, d in
@@ -918,8 +918,8 @@ def seq_disjoint_route_pos_df(
         ),
         'pairs_dropped': 0,  # CC-bin-packing never splits a component.
         # Primary guarantee (hard-fail in saver): overlaps_by_family[hash_key].
-        # Other family is diagnostic. Both kept under the legacy
-        # `dna_hash_overlap` alias too so existing readers keep working.
+        # Other family is diagnostic. Audit-output keys stay 'seq'/'dna' (keyed
+        # by hash_key in the saver); only the columns they read are renamed.
         'seq_hash_overlap': overlaps_by_family.get('seq', {}),
         'dna_hash_overlap': overlaps_by_family.get('dna', {}),
     }

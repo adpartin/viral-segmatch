@@ -50,6 +50,54 @@ def load_hydra_config(
     return config
 
 
+def _resolve_molecule_alphabets(config: DictConfig) -> None:
+    """Opt-in axis consistency (plan §13). When `dataset.molecule` is set, derive
+    the three alphabet axes from it and enforce they agree; no-op otherwise.
+
+    - cluster_alphabet / pair_key_alphabet: molecule fills them WHERE ABSENT; an
+      explicit per-axis value wins (a deliberate override).
+    - kmer.alphabet (features): molecule is authoritative -- it is set to the
+      molecule whenever a `kmer` section exists. To diverge features from the
+      split axes, use a legacy bundle (no `dataset.molecule`) and set the three
+      axes explicitly.
+    - Guard: the effective axes must agree unless `dataset.allow_alphabet_mismatch`
+      is true (a deliberate mix).
+
+    Legacy bundles (no `dataset.molecule`) are untouched -- the orchestrator's
+    pair_key inference and the per-stage `kmer.alphabet` default still apply. The
+    guard is therefore OPT-IN: it protects molecule-based bundles without
+    reclassifying the existing fleet (which intentionally runs nt_ctg features +
+    aa pair_key under seq_disjoint). Mutates `config` in place.
+    """
+    mol = OmegaConf.select(config, 'dataset.molecule')
+    if mol is None:
+        return  # legacy mode: no derivation, no guard
+    mol = str(mol)
+    valid = ('aa', 'nt_cds', 'nt_ctg')
+    if mol not in valid:
+        raise ValueError(f"dataset.molecule must be one of {valid}, got {mol!r}")
+
+    effective = {}
+    for key in ('dataset.split_strategy.cluster_alphabet',
+                'dataset.split_strategy.pair_key_alphabet'):
+        explicit = OmegaConf.select(config, key)
+        eff = str(explicit) if explicit is not None else mol
+        effective[key.rsplit('.', 1)[-1]] = eff
+        OmegaConf.update(config, key, eff, force_add=True)
+    if OmegaConf.select(config, 'kmer') is not None:
+        OmegaConf.update(config, 'kmer.alphabet', mol, force_add=True)
+        effective['kmer.alphabet'] = mol
+
+    allow = bool(OmegaConf.select(config, 'dataset.allow_alphabet_mismatch') or False)
+    if len(set(effective.values())) > 1 and not allow:
+        details = ", ".join(f"{k}={v!r}" for k, v in effective.items())
+        raise ValueError(
+            f"dataset.molecule={mol!r} but the alphabet axes disagree ({details}). "
+            f"Match them to the molecule, drop the explicit per-axis override, or set "
+            f"dataset.allow_alphabet_mismatch: true for a deliberate mix."
+        )
+
+
 def get_virus_config_hydra(
     config_bundle: str,
     training_config: Optional[str] = None,
@@ -159,6 +207,10 @@ def get_virus_config_hydra(
 
     # breakpoint()
     # print(flattened.keys()) --> ['virus', 'paths', 'embeddings', 'training', 'master_seed', 'max_files_to_process', 'process_seeds', 'run_suffix', ...]
+
+    # Opt-in axis consistency: derive cluster/pair_key/kmer alphabets from
+    # `dataset.molecule` + enforce agreement (plan §13). No-op for legacy bundles.
+    _resolve_molecule_alphabets(flattened)
 
     return flattened
 

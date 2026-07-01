@@ -14,11 +14,14 @@ Function-metadata loading lives in `src/utils/config_hydra.py`
 
 Alphabets:
     'aa'     -> protein sequences from protein_final-style input
-                    (columns: function, prot_seq, seq_hash)
-    'nt_cds' -> CDS DNA from cds_final-style input
-                    (columns: function, cds_dna, cds_dna_hash)
-    'nt_ctg' -> reserved for full-contig DNA (Phase 3 of clustering
-                cleanup plan); raises NotImplementedError today.
+                    (columns: function, prot_seq, prot_hash)
+    'nt_cds' -> CDS DNA from cds_dna_final-style input
+                    (columns: function, cds_dna_seq, cds_dna_hash)
+    'nt_ctg' -> full-contig DNA from ctg_dna_final-style input
+                    (columns: function, ctg_dna_seq, ctg_dna_hash). ctg_dna_final
+                    carries no `function`; attach it via a verified 1-1 join from
+                    cds_dna_final (see attach_function_to_contigs). Subject to the
+                    contig UTR caveat noted on _COLS_BY_ALPHABET below.
 """
 from __future__ import annotations
 
@@ -32,26 +35,35 @@ from typing import Optional
 
 import pandas as pd
 
-
-# Dispatch table: alphabet -> {seq_col, hash_col} for the unified exporter
-# and parse_cluster_tsv output column dispatch.
-# nt_ctg is reserved (Phase 3); export_function_fasta + parse_cluster_tsv
-# raise NotImplementedError if invoked with it.
-_COLS_BY_ALPHABET = {
-    'aa':     {'seq_col': 'prot_seq', 'hash_col': 'seq_hash'},
-    'nt_cds': {'seq_col': 'cds_dna',  'hash_col': 'cds_dna_hash'},
-    'nt_ctg': {'seq_col': 'dna_seq',  'hash_col': 'dna_hash'},
-}
-_ACTIVE_ALPHABETS = {'aa', 'nt_cds'}  # nt_ctg reserved (raises)
+from src.utils import schema
 
 
-def compute_seq_hash(prot_seq: str) -> str:
+# Dispatch table: alphabet -> {seq_col, hash_col}, derived from the schema
+# registry (single source of truth) for the unified exporter + parse_cluster_tsv
+# output column dispatch. All three alphabets are active; nt_ctg requires the
+# `function` label to be attached first (ctg_dna_final carries none) via
+# attach_function_to_contigs.
+#
+# nt_ctg data caveat (unresolved 2026-06-08): contig DNA carries inconsistent
+# flanking UTR. Verified on the contig source: per-row (contig_len - cds_len)
+# spans 0..310 nt (median 36; ~25% of contigs have zero UTR, i.e. contig == CDS).
+# So two biologically identical isolates can land in different contig clusters
+# purely from how much flank the submitter included (assembly/submission
+# artifact, not biology). Decision: keep nt_ctg as-is for now, do NOT pre-trim.
+# TODO(nt_ctg): revisit contig UTR normalization before trusting nt_ctg
+# cluster-disjoint results for publication.
+_COLS_BY_ALPHABET = {a: {'seq_col': s.seq_col, 'hash_col': s.hash_col}
+                     for a, s in schema.SCHEMA.items()}
+_ACTIVE_ALPHABETS = {'aa', 'nt_cds', 'nt_ctg'}
+
+
+def compute_prot_hash(prot_seq: str) -> str:
     """md5 hex of the protein string (matches preprocess_flu.py).
 
     Caller-side helper for pre-hashing aa input before calling
     `export_function_fasta(alphabet='aa', ...)`: the unified exporter
     requires the hash column to be already present (matches the nt path
-    where Stage 1.5 writes `cds_dna_hash` into cds_final.parquet).
+    where Stage 1.5 writes `cds_dna_hash` into cds_dna_final.parquet).
     """
     return hashlib.md5(prot_seq.encode()).hexdigest()
 
@@ -73,10 +85,10 @@ def clean_aa_for_mmseqs(prot_seq: str) -> str:
 def clean_nt_for_mmseqs(dna_seq: str) -> str:
     """Pass-through for nt: no `*` to strip; mmseqs accepts IUPAC codes natively.
 
-    Raises only on empty input. This is the right home for future
-    nt-specific cleaning (e.g., polyA / primer-trim normalization for
-    nt_ctg in Phase 3 — see memory.md "Considered but not yet pivoted:
-    contig-level (nt_ctg) clustering" §117).
+    Raises only on empty input. This is the right home for any future
+    nt-specific cleaning (e.g., flanking-UTR normalization for nt_ctg --
+    deferred by decision; exp-2 runs contig DNA artifact-included, see the
+    UTR caveat on _COLS_BY_ALPHABET).
     """
     if not isinstance(dna_seq, str) or len(dna_seq) == 0:
         raise ValueError(f"dna_seq must be a non-empty string, got: {dna_seq!r}")
@@ -87,14 +99,77 @@ def _clean_for_mmseqs(seq: str, alphabet: str) -> str:
     """Alphabet dispatcher for cleaning. Internal."""
     if alphabet == 'aa':
         return clean_aa_for_mmseqs(seq)
-    if alphabet == 'nt_cds':
+    if alphabet in ('nt_cds', 'nt_ctg'):
+        # Both nt molecules are pass-through (no '*' to strip; mmseqs scores
+        # IUPAC codes natively). nt_ctg is NOT pre-trimmed for flanking UTR --
+        # see the UTR caveat on _COLS_BY_ALPHABET (exp-2 runs artifact-included
+        # by decision).
         return clean_nt_for_mmseqs(seq)
-    if alphabet == 'nt_ctg':
-        raise NotImplementedError(
-            "nt_ctg is reserved for Phase 3 (contig-level clustering); "
-            "not yet operational. See docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
-        )
     raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
+
+
+def attach_function_to_contigs(
+    ctg_df: pd.DataFrame,
+    function_source: Path,
+    *,
+    key: tuple = ('assembly_id', 'genbank_ctg_id'),
+    ) -> pd.DataFrame:
+    """Attach a `function` label to per-contig rows via a verified 1-1 join.
+
+    `ctg_dna_final` is per-contig and carries no `function` column (the
+    clustering/membership paths need one to group contigs by segment). We take it
+    from a CDS source (`function_source`, typically `cds_dna_final`) that is
+    one-row-per-major-CDS and therefore 1-1 with the major-segment contigs on
+    `key`. Verified on the July_2025 corpus: both tables are 868,240 rows with
+    identical, unique `(assembly_id, genbank_ctg_id)` keys, so every major-segment
+    contig maps to exactly one of the 8 selected majors.
+
+    Inner-joins `[*key, function]` onto `ctg_df` and asserts no contig maps to >1
+    function (the 1-1 guarantee -- a contig clustered under two functions would
+    corrupt the partition). Contigs with no matching function row (non-major
+    contigs, if any) are dropped and the count reported.
+
+    Args:
+        ctg_df: per-contig rows; must contain the `key` columns plus whatever
+            sequence/hash/length columns the caller needs.
+        function_source: path to `cds_dna_final` (or another `[*key, function]`
+            source), `.parquet` or `.csv`.
+        key: join key; `(assembly_id, genbank_ctg_id)` by default.
+
+    Returns `ctg_df` with a `function` column added (inner-joined).
+    """
+    key = list(key)
+    missing = set(key) - set(ctg_df.columns)
+    if missing:
+        raise ValueError(
+            f"attach_function_to_contigs: ctg_df missing key columns {sorted(missing)}")
+
+    fsrc = Path(function_source)
+    cols = key + ['function']
+    if fsrc.suffix == '.csv':
+        # keep_default_na guards the 'NA'-string trap (Neuraminidase); function
+        # uses full names here, but it is the safe default for any CSV read.
+        fn = pd.read_csv(fsrc, usecols=cols, keep_default_na=False, na_values=[''])
+    else:
+        fn = pd.read_parquet(fsrc, columns=cols)
+    if fn.duplicated(key).any():
+        n = int(fn.duplicated(key).sum())
+        raise ValueError(
+            f"attach_function_to_contigs: function_source has {n:,} duplicate "
+            f"{key} rows; expected one function per contig.")
+
+    n_in = len(ctg_df)
+    merged = ctg_df.merge(fn, on=key, how='inner')
+    if merged.duplicated(key).any():
+        n = int(merged.duplicated(key).sum())
+        raise AssertionError(
+            f"attach_function_to_contigs: {n:,} contig(s) map to >1 function "
+            f"after join -- not 1-1.")
+    n_dropped = n_in - len(merged)
+    if n_dropped:
+        print(f"  NOTE: {n_dropped:,} contig(s) had no matching function row "
+              f"(non-major; dropped).")
+    return merged
 
 
 def export_function_fasta(
@@ -105,19 +180,20 @@ def export_function_fasta(
     ) -> dict:
     """Export unique cleaned sequences for one function to FASTA (alphabet-aware).
 
-    The FASTA header is the precomputed hash (`seq_hash` for aa,
-    `cds_dna_hash` for nt) from the input DataFrame. The FASTA body is
-    the cleaned sequence: trailing `*` stripped for aa, pass-through
-    for nt. The cluster lookup's hash column therefore joins back to
-    Stage 3's pair-table hash columns without re-hashing.
+    The FASTA header is the precomputed per-alphabet hash from the input
+    DataFrame (`prot_hash` for aa, `cds_dna_hash` for nt_cds, `ctg_dna_hash`
+    for nt_ctg; see `_COLS_BY_ALPHABET`). The FASTA body is the cleaned
+    sequence: trailing `*` stripped for aa, pass-through for both nt molecules.
+    The cluster lookup's hash column therefore joins back to Stage 3's
+    pair-table hash columns without re-hashing.
 
     Caller responsibility: the input DataFrame must carry the
     precomputed hash column corresponding to `alphabet` (per
     `_COLS_BY_ALPHABET`). For `'nt_cds'`, that's `cds_dna_hash`
-    (written by Stage 1.5 into `cds_final.parquet`). For `'aa'`,
-    that's `seq_hash` (which Stage 1 writes for cds_final but NOT
+    (written by Stage 1.5 into `cds_dna_final.parquet`). For `'aa'`,
+    that's `prot_hash` (which Stage 1 writes for cds_dna_final but NOT
     for protein_final, so aa callers reading protein_final must
-    pre-hash via `compute_seq_hash` before calling).
+    pre-hash via `compute_prot_hash` before calling).
 
     Safety net: at entry, recomputes the hash from the seq column and
     asserts it matches the precomputed hash. Catches stale precomputed
@@ -125,20 +201,15 @@ def export_function_fasta(
 
     Args:
         df: input DataFrame. Must contain 'function' plus the seq+hash
-            columns for `alphabet` (see `_COLS_BY_ALPHABET`).
+            columns for `alphabet` (see `_COLS_BY_ALPHABET`). For nt_ctg the
+            `function` label is attached via `attach_function_to_contigs`.
         function_name: exact value to match in the 'function' column.
-        alphabet: 'aa' or 'nt_cds'. The 'nt_ctg' value is reserved
-            (Phase 3) and raises NotImplementedError.
+        alphabet: 'aa', 'nt_cds', or 'nt_ctg'.
         out_path: FASTA destination.
 
     Returns a stats dict: function, n_rows_input, n_uniq_seqs,
     n_with_ambiguity, fasta_path.
     """
-    if alphabet == 'nt_ctg':
-        raise NotImplementedError(
-            "nt_ctg is reserved for Phase 3 (contig-level clustering); "
-            "not yet operational. See docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
-        )
     if alphabet not in _ACTIVE_ALPHABETS:
         raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
     seq_col = _COLS_BY_ALPHABET[alphabet]['seq_col']
@@ -150,7 +221,7 @@ def export_function_fasta(
         raise ValueError(
             f"export_function_fasta: df is missing required columns for "
             f"alphabet={alphabet!r}: {sorted(missing)}. "
-            f"Pre-hash with compute_seq_hash() if needed."
+            f"Pre-hash with compute_prot_hash() if needed."
         )
 
     sub = df[df['function'] == function_name]
@@ -281,9 +352,9 @@ def run_mmseqs_easy_clust(
         extra_args: any additional flags to append. Caller-supplied flags
             appear AFTER the pinned set on the command line, so they can
             override (mmseqs2 takes the last value when a flag is repeated).
-        alphabet: 'aa' (default) or 'nt'. Selects `--dbtype 1` (aa) or
-            `--dbtype 2` (nt). Required for the Experiment B-nt CDS clustering
-            path (nt).
+        alphabet: 'aa' (default), 'nt_cds', or 'nt_ctg'. Selects `--dbtype 1`
+            (aa) or `--dbtype 2` (both nt molecules). Required for the
+            nt CDS / contig clustering paths.
         algorithm: 'linclust' (default, `easy-linclust` — linear-time, single-pass)
             or 'cluster' (`easy-cluster` — sensitive 3-round cascade). Both
             alphabets use linclust since 2026-05-22; see
@@ -307,11 +378,6 @@ def run_mmseqs_easy_clust(
             f"Set MMSEQS_BIN env var to the dedicated-env binary "
             f"(e.g. /homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs) "
             f"or put 'mmseqs' on PATH."
-        )
-    if alphabet == 'nt_ctg':
-        raise NotImplementedError(
-            "alphabet='nt_ctg' is reserved for Phase 3 (contig-level "
-            "clustering); not yet operational."
         )
     if alphabet not in _ACTIVE_ALPHABETS:
         raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
@@ -407,14 +473,13 @@ def parse_cluster_tsv(
     representative itself) gets one row.
 
     The output hash-column name is alphabet-specific (per
-    `_COLS_BY_ALPHABET`): `seq_hash` for aa, `cds_dna_hash` for nt_cds.
-    The downstream join key in `_split_helpers.attach_cluster_ids`
-    matches this directly (no rename step needed).
+    `_COLS_BY_ALPHABET`): `prot_hash` for aa, `cds_dna_hash` for nt_cds,
+    `ctg_dna_hash` for nt_ctg. The downstream join key in
+    `_split_helpers.attach_cluster_ids` matches this directly (no rename needed).
 
     Args:
         cluster_tsv: path to the *_cluster.tsv produced by easy-cluster.
-        alphabet: 'aa' or 'nt_cds'. Selects the output hash-column name.
-            nt_ctg is reserved (Phase 3) and raises NotImplementedError.
+        alphabet: 'aa', 'nt_cds', or 'nt_ctg'. Selects the output hash-column name.
         cluster_id_prefix: if given, cluster_ids are formatted as
             f"{prefix}_{integer_index}" — useful when concatenating per-function
             results into one global lookup. Otherwise an integer cluster_id is
@@ -422,17 +487,13 @@ def parse_cluster_tsv(
 
     Returns a DataFrame with columns:
         - <hash_col>: member identifier (matches the FASTA we wrote);
-              `seq_hash` for aa, `cds_dna_hash` for nt_cds.
+              `prot_hash` for aa, `cds_dna_hash` for nt_cds, `ctg_dna_hash`
+              for nt_ctg.
         - cluster_id: stable identifier (integer or "{prefix}_{int}")
         - cluster_rep: representative <hash> for that cluster
 
     Asserts each member appears exactly once.
     """
-    if alphabet == 'nt_ctg':
-        raise NotImplementedError(
-            "nt_ctg is reserved for Phase 3 (contig-level clustering); "
-            "not yet operational. See docs/plans/2026-06-02_clustering_cleanup_plan.md § 3."
-        )
     if alphabet not in _ACTIVE_ALPHABETS:
         raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
     hash_col = _COLS_BY_ALPHABET[alphabet]['hash_col']

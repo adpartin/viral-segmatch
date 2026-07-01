@@ -3,7 +3,7 @@ Preprocess protein and genome data from GTO files for Flu A.
 
 Unified script that parses each GTO file once and extracts both:
 - Protein data -> protein_final.csv
-- Genome data  -> genome_final.csv
+- Genome data  -> ctg_dna_final.csv
 
 See docs/methods/preprocess.md for the current reference (output schemas,
 filter pipeline, QC step coverage, why two output files instead of one
@@ -1221,6 +1221,9 @@ del prot_dups, dup_counts, problematic_seqs_df, ambig_df
 print(f"\n{'='*50}")
 print("Save final protein data.")
 print('='*50)
+import hashlib  # Tier-2: produce the protein hash at its source stage (Stage 1), then only read it.
+prot_df['prot_hash'] = prot_df[PROT_SEQ_COL_NAME].map(
+    lambda s: hashlib.md5(str(s).encode()).hexdigest())
 prot_df.to_csv(output_dir / 'protein_final.csv', sep=',', index=False)
 prot_df.to_parquet(output_dir / 'protein_final.parquet', index=False)
 print(f'prot_df final: {prot_df.shape}')
@@ -1258,10 +1261,18 @@ genome_df = handle_genome_duplicates(genome_df, output_dir)
 
 # Save final genome data
 print(f"\n{'='*50}")
-print("Save final genome data.")
+print("Save final contig-DNA data.")
 print('='*50)
-genome_df.to_csv(output_dir / 'genome_final.csv', sep=',', index=False)
-genome_df.to_parquet(output_dir / 'genome_final.parquet', index=False)
+import hashlib
+# Tier-2: write the molecule-level contig schema -- rename dna_seq -> ctg_dna_seq and produce
+# the contig-DNA hash at its source stage. File renamed genome_final -> ctg_dna_final.
+# (genome_df keeps its internal 'dna_seq' name; only the persisted output is renamed.)
+genome_out = genome_df.rename(columns={DNA_SEQ_COL_NAME: 'ctg_dna_seq'})
+genome_out['ctg_dna_hash'] = genome_out['ctg_dna_seq'].map(
+    lambda s: hashlib.md5(str(s).encode()).hexdigest())
+genome_out.to_csv(output_dir / 'ctg_dna_final.csv', sep=',', index=False)
+genome_out.to_parquet(output_dir / 'ctg_dna_final.parquet', index=False)
+del genome_out
 print(f'genome_df final: {genome_df.shape}')
 print(f"Unique genome sequences: {genome_df[DNA_SEQ_COL_NAME].nunique()}")
 print(f"Unique assemblies: {genome_df['assembly_id'].nunique()}")

@@ -5,7 +5,7 @@ tables produced by Stage 1. The recipe is documented in
 `docs/methods/gto_format_reference.md` § 9 and § 5 (`location` schema).
 
 Used by `src/preprocess/extract_cds_dna.py` (the Stage 1.5 driver that
-emits `cds_final.parquet`) and by `src/utils/clustering_utils.py` for the
+emits `cds_dna_final.parquet`) and by `src/utils/clustering_utils.py` for the
 nt-level cluster_disjoint follow-up (Experiment B-nt; see
 `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt).
 

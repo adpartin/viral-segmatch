@@ -24,27 +24,27 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.clustering_utils import compute_seq_hash  # noqa: E402
+from src.utils.clustering_utils import compute_prot_hash  # noqa: E402
 
 _KMER_DIR = PROJ / 'data/embeddings/flu/July_2025'
 _PROTEIN_FINAL = PROJ / 'data/processed/flu/July_2025/protein_final.parquet'
 # hash columns on the pair universe (load_pair_universe) per alphabet.
-_HASH = {'aa': ('seq_hash_a', 'seq_hash_b'), 'nt_cds': ('dna_hash_a', 'dna_hash_b')}
+_HASH = {'aa': ('prot_hash_a', 'prot_hash_b'), 'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}
 
 
 def build_hash_to_row(kmer_k: int, functions_full: list[str]) -> dict:
-    """{seq_hash -> k-mer matrix row} for aa, via the (assembly_id, brc_fea_id) join."""
+    """{prot_hash -> k-mer matrix row} for aa, via the (assembly_id, brc_fea_id) join."""
     idx = pd.read_parquet(_KMER_DIR / f'kmer_features_aa_k{kmer_k}_index.parquet',
                           columns=['assembly_id', 'brc_fea_id', 'function', 'row'])
     idx = idx[idx['function'].isin(functions_full)].copy()
     prot = pd.read_parquet(_PROTEIN_FINAL, columns=['assembly_id', 'brc_fea_id', 'prot_seq', 'function'])
     prot = prot[prot['function'].isin(functions_full)].copy()
-    prot['seq_hash'] = prot['prot_seq'].map(compute_seq_hash)
+    prot['prot_hash'] = prot['prot_seq'].map(compute_prot_hash)
     for df in (idx, prot):
         df['assembly_id'] = df['assembly_id'].astype(str)
         df['brc_fea_id'] = df['brc_fea_id'].astype(str)
     m = prot.merge(idx[['assembly_id', 'brc_fea_id', 'row']], on=['assembly_id', 'brc_fea_id'], how='inner')
-    return dict(zip(m['seq_hash'], m['row'].astype(int)))
+    return dict(zip(m['prot_hash'], m['row'].astype(int)))
 
 
 def _interaction(ea: np.ndarray, eb: np.ndarray, interaction: str) -> np.ndarray:

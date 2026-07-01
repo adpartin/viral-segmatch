@@ -9,8 +9,8 @@ inform the leakage-diagnostics plan
 (``docs/plans/2026-05-07_leakage_diagnostics_plan.md``):
 
 1. **Hash overlap with train** (mode #3 / mode #4 proxy).
-   Per test pair, count how many of its slots have a ``seq_hash`` /
-   ``dna_hash`` that also appears in the train split's same-slot
+   Per test pair, count how many of its slots have a ``prot_hash`` /
+   ``ctg_dna_hash`` that also appears in the train split's same-slot
    column. Strata: 0 (both slots disjoint from train), 1 (one slot
    shared), 2 (both slots shared). Computed separately for protein
    hashes and DNA hashes.
@@ -48,8 +48,8 @@ Inputs / outputs
 Input: ``--run_dir`` containing ``test_predicted.csv``,
 ``--dataset_dir`` containing ``train_pairs.csv``.
 The pred CSV must have columns: ``label``, ``pred_label``,
-``pred_prob``, ``seq_hash_a``, ``seq_hash_b``, ``dna_hash_a``,
-``dna_hash_b``, plus the ``same_*`` metadata columns for stratum 2.
+``pred_prob``, ``prot_hash_a``, ``prot_hash_b``, ``ctg_dna_hash_a``,
+``ctg_dna_hash_b``, plus the ``same_*`` metadata columns for stratum 2.
 These are emitted by both ``train_pair_classifier.py`` (MLP) and
 ``train_pair_baselines.py`` (sklearn baselines).
 
@@ -71,7 +71,7 @@ post-hoc form (no re-training required):
 
 | Mode | Stratification used |
 |------|---------------------|
-| #3 sequence-level leakage | hash overlap (seq_hash, dna_hash) |
+| #3 sequence-level leakage | hash overlap (prot_hash, ctg_dna_hash) |
 | #4 cluster leakage         | hash overlap (proxy: invariance across strata implies cluster-level memorization) |
 | #5 demographic shortcut    | match_count on negatives |
 
@@ -170,7 +170,7 @@ def stratify_by_hash_overlap(
     ----------
     test : pd.DataFrame
         Test predictions with ``label``, ``pred_label``, ``pred_prob``,
-        ``seq_hash_{a,b}``, ``dna_hash_{a,b}`` columns.
+        ``prot_hash_{a,b}``, ``ctg_dna_hash_{a,b}`` columns.
     train : pd.DataFrame
         Train pairs DataFrame from Stage 3, used only to build the
         per-slot hash-set memberships.
@@ -197,15 +197,15 @@ def stratify_by_hash_overlap(
     Note on protein vs DNA framing
     ------------------------------
     For k-mer-based models, the substantively-important hash is
-    ``dna_hash`` (k-mer features are derived from DNA, so two pairs
-    with the same ``dna_hash`` have byte-identical features). For
-    ESM-2-based models, ``seq_hash`` (protein) is the right framing.
+    ``ctg_dna_hash`` (k-mer features are derived from DNA, so two pairs
+    with the same ``ctg_dna_hash`` have byte-identical features). For
+    ESM-2-based models, ``prot_hash`` (protein) is the right framing.
     Both are computed here so the same script applies to both
     feature sources.
     """
     train_hashes = {
-        "seq_hash": (set(train.seq_hash_a), set(train.seq_hash_b)),
-        "dna_hash": (set(train.dna_hash_a), set(train.dna_hash_b)),
+        "prot_hash": (set(train.prot_hash_a), set(train.prot_hash_b)),
+        "ctg_dna_hash": (set(train.ctg_dna_hash_a), set(train.ctg_dna_hash_b)),
     }
 
     rows = []

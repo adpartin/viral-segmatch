@@ -12,7 +12,7 @@ Two partition modes:
   wiring sanity check — MMD^2 should be near zero on a random partition.
 
 - `dataset_labels`: use the dataset's own train / test labels. Each
-  unique (seq_hash_a, seq_hash_b) is assigned the split of its first
+  unique (prot_hash_a, prot_hash_b) is assigned the split of its first
   occurrence; pairs whose hash combination appears in multiple splits
   are flagged ambiguous and filtered out (only happens under random
   per-pair routing).
@@ -72,23 +72,23 @@ def load_unique_pairs(dataset_dir: Path, n_isolates: int,
     """Load positives, subsample isolates, dedup by pair hash combination.
 
     `dedup_by='protein'` (default): one row per unique
-    (seq_hash_a, seq_hash_b). Used for ESM-2 and aa k-mer.
-    `dedup_by='dna'`: one row per unique (dna_hash_a, dna_hash_b). Used
+    (prot_hash_a, prot_hash_b). Used for ESM-2 and aa k-mer.
+    `dedup_by='dna'`: one row per unique (ctg_dna_hash_a, ctg_dna_hash_b). Used
     for nt k-mer (the same protein pair may have multiple DNA encodings
     via synonymous codons, so DNA-level dedup gives slightly more pairs
     than protein-level).
 
     Returns a DataFrame with all lookup keys carried through:
-    [assembly_id_a, brc_a, ctg_a, seq_hash_a, dna_hash_a,
-     assembly_id_b, brc_b, ctg_b, seq_hash_b, dna_hash_b,
+    [assembly_id_a, brc_a, ctg_a, prot_hash_a, ctg_dna_hash_a,
+     assembly_id_b, brc_b, ctg_b, prot_hash_b, ctg_dna_hash_b,
      orig_split, is_ambiguous]. `is_ambiguous` flags pairs whose hash
     combination appears in multiple splits (only under random per-pair
     routing — entity-disjoint routings have zero by construction).
     """
     if dedup_by == 'protein':
-        hash_a_col, hash_b_col = 'seq_hash_a', 'seq_hash_b'
+        hash_a_col, hash_b_col = 'prot_hash_a', 'prot_hash_b'
     elif dedup_by == 'dna':
-        hash_a_col, hash_b_col = 'dna_hash_a', 'dna_hash_b'
+        hash_a_col, hash_b_col = 'ctg_dna_hash_a', 'ctg_dna_hash_b'
     else:
         raise ValueError(f"dedup_by must be 'protein' or 'dna', got {dedup_by}")
 
@@ -117,8 +117,8 @@ def load_unique_pairs(dataset_dir: Path, n_isolates: int,
     multi_split = (pos.groupby('_pair_key')['orig_split'].nunique())
     ambiguous = set(multi_split[multi_split > 1].index)
 
-    cols = ['assembly_id_a', 'brc_a', 'ctg_a', 'seq_hash_a', 'dna_hash_a',
-            'assembly_id_b', 'brc_b', 'ctg_b', 'seq_hash_b', 'dna_hash_b',
+    cols = ['assembly_id_a', 'brc_a', 'ctg_a', 'prot_hash_a', 'ctg_dna_hash_a',
+            'assembly_id_b', 'brc_b', 'ctg_b', 'prot_hash_b', 'ctg_dna_hash_b',
             'orig_split', '_pair_key']
     pairs = (pos
              .drop_duplicates(subset='_pair_key')
@@ -330,9 +330,9 @@ def main():
                    default='esm2',
                    choices=['esm2', 'kmer_aa', 'kmer_nt'],
                    help='esm2 / kmer_aa: protein-level (dedup by '
-                        '(seq_hash_a, seq_hash_b), lookup by brc). '
+                        '(prot_hash_a, prot_hash_b), lookup by brc). '
                         'kmer_nt: DNA-level (dedup by '
-                        '(dna_hash_a, dna_hash_b), lookup by ctg).')
+                        '(ctg_dna_hash_a, ctg_dna_hash_b), lookup by ctg).')
     p.add_argument('--embedding_path', type=Path,
                    default=Path('data/embeddings/flu/July_2025/master_esm2_embeddings.h5'),
                    help='Master ESM-2 HDF5 cache (used when feature_space=esm2).')
@@ -364,7 +364,7 @@ def main():
                                args.subsample_seed, dedup_by=dedup_by,
                                label_filter=args.label_filter)
     n_ambig = int(pairs['is_ambiguous'].sum())
-    hash_label = '(seq_hash_a, seq_hash_b)' if dedup_by == 'protein' else '(dna_hash_a, dna_hash_b)'
+    hash_label = '(prot_hash_a, prot_hash_b)' if dedup_by == 'protein' else '(ctg_dna_hash_a, ctg_dna_hash_b)'
     print(f'  {len(pairs)} unique {hash_label} pairs '
           f'(subsample_seed={args.subsample_seed}, n_isolates={args.n_isolates})')
     if n_ambig:

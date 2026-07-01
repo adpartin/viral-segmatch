@@ -55,7 +55,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, train_test_split
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -66,15 +66,18 @@ if str(PROJ) not in sys.path:
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.analysis._cv_sampling import (  # noqa: E402
-    assign_atoms, sample_positives, build_isolate_context, sample_regime_negatives)
-from src.analysis._cv_features import build_hash_to_row, _interaction, fit_predict, _KMER_DIR  # noqa: E402
+    assign_atoms, sample_positives, build_isolate_context,
+    sample_regime_negatives, sample_random_within_cc_negatives)
+from src.analysis._cv_features import build_hash_to_row, _interaction, _KMER_DIR  # noqa: E402
 from src.analysis.analyze_stage4_train import (  # noqa: E402
-    analyze_level1_neg_regimes, _LEVEL1_REGIME_ORDER, _resolve_neg_regime_column)
+    analyze_level1_neg_regimes, _LEVEL1_REGIME_ORDER, _resolve_neg_regime_column,
+    compute_basic_metrics, analyze_metrics_summary, plot_confusion_matrix)
 from src.analysis.visualize_dataset_stats import _render_split_composition_grouped  # noqa: E402
+from src.models.baselines.lgbm import get_estimator, fit as lgbm_fit  # noqa: E402
 from src.datasets._negative_regime_sampling import REGIME_NAMES  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
-_HASH = {'aa': ('seq_hash_a', 'seq_hash_b'), 'nt_cds': ('dna_hash_a', 'dna_hash_b')}
+_HASH = {'aa': ('prot_hash_a', 'prot_hash_b'), 'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}
 _DEFAULT_REGIME_TARGETS = {
     'none_match': 0.05, 'host_only': 0.10, 'subtype_only': 0.10, 'year_only': 0.10,
     'host_subtype_only': 0.15, 'host_year_only': 0.15, 'subtype_year_only': 0.15,
@@ -114,11 +117,27 @@ def _balance(df: pd.DataFrame, seed: int) -> pd.DataFrame:
     return pd.concat([pos_s, neg_s], ignore_index=True)
 
 
+def _fit_predict_prod_lgbm(x_tr, y_tr, x_te, seed):
+    """Production LGBM (conf/baselines/default.yaml `baseline_lgbm` params) with
+    val-driven early stopping. Reuses `src.models.baselines.lgbm.get_estimator/fit`;
+    `config=None` selects the baseline_lgbm defaults. A 15% stratified val split is
+    carved from train for early stopping (matches the production val-driven fit).
+    """
+    est = get_estimator(None, random_state=seed)
+    if len(np.unique(y_tr)) > 1 and len(y_tr) >= 30:
+        x_t, x_v, y_t, y_v = train_test_split(x_tr, y_tr, test_size=0.15,
+                                              random_state=seed, stratify=y_tr)
+        lgbm_fit(est, x_t, y_t, X_val=x_v, y_val=y_v, config=None)
+    else:
+        lgbm_fit(est, x_tr, y_tr, config=None)
+    return est.predict(x_te), est.predict_proba(x_te)[:, 1]
+
+
 def build_regime_dataset(universe, iso, cooccur, slot_a, slot_b, alphabet, threshold,
-                         *, m_pos, m_neg, neg_to_pos_ratio, regime_targets, seed):
+                         *, m_pos, m_neg, neg_to_pos_ratio, regime_targets, neg_strategy, seed):
     """Full labeled pos+neg set: cap-m positives per CC + within-CC regime negatives.
 
-    Returns (full_df, sampling_log). `full_df` columns: seq_hash_a, seq_hash_b,
+    Returns (full_df, sampling_log). `full_df` columns: prot_hash_a, prot_hash_b,
     label, atom_id, cc_id, neg_regime (pd.NA on positives). `sampling_log` carries
     per-CC achieved counts for the composition views.
     """
@@ -143,10 +162,13 @@ def build_regime_dataset(universe, iso, cooccur, slot_a, slot_b, alphabet, thres
         if cc_iso is None or budget <= 0:
             log_rows.append({'cc_id': cc, 'n_pos': int(n_pos), 'budget': budget, 'n_neg': 0})
             continue
-        neg = sample_regime_negatives(cc_iso, regime_targets, budget, cooccur,
-                                      seed=seed + int(cc))
+        if neg_strategy == 'random':
+            neg = sample_random_within_cc_negatives(cc_iso, budget, cooccur, seed=seed + int(cc))
+        else:
+            neg = sample_regime_negatives(cc_iso, regime_targets, budget, cooccur,
+                                          seed=seed + int(cc))
         if len(neg):
-            neg = neg.rename(columns={'seq_hash_a': ha, 'seq_hash_b': hb})
+            neg = neg.rename(columns={'prot_hash_a': ha, 'prot_hash_b': hb})
             neg['cc_id'] = cc
             neg['atom_id'] = cc_to_atom[cc]
             neg['label'] = 0
@@ -175,7 +197,7 @@ def oof_regime_breakdown(full, alphabet, *, hash_to_row, matrix, interaction,
             x_te, te_v = _features(te, ha, hb, hash_to_row, matrix, interaction)
             if len(tr_v) < 2 or te_v.empty or tr_v['label'].nunique() < 2:
                 continue
-            pred, prob = fit_predict('lgbm', x_tr, tr_v['label'].to_numpy(), x_te, seed)
+            pred, prob = _fit_predict_prod_lgbm(x_tr, tr_v['label'].to_numpy(), x_te, seed)
             te_v = te_v.assign(pred_label=pred, pred_prob=prob)
             oof.append(te_v[['label', 'pred_label', 'pred_prob', 'neg_regime']])
         oof_df = pd.concat(oof, ignore_index=True)
@@ -305,8 +327,8 @@ def plot_pos_metadata(pos_full, iso, out_dir, slug, threshold):
     3-panel bar plot + a CSV. (Counts isolate rows, so a pair shared across many
     isolates contributes its metadata once per isolate.)
     """
-    iso2 = iso[['seq_hash_a', 'seq_hash_b', 'cell']].copy()
-    j = pos_full.merge(iso2, on=['seq_hash_a', 'seq_hash_b'], how='inner')
+    iso2 = iso[['prot_hash_a', 'prot_hash_b', 'cell']].copy()
+    j = pos_full.merge(iso2, on=['prot_hash_a', 'prot_hash_b'], how='inner')
     if j.empty:
         return
     cells = pd.DataFrame(j['cell'].tolist(), columns=['host', 'hn_subtype', 'year_bin'])
@@ -336,9 +358,25 @@ def plot_pos_metadata(pos_full, iso, out_dir, slug, threshold):
     print(f'wrote {out_png} ({cells["hn_subtype"].nunique()} subtypes among sampled positives)')
 
 
+def plot_metrics_confusion_level1(oof, out_dir, slug, threshold):
+    """Overall metrics + confusion matrix + per-regime TPR/TNR, all via the
+    production producers in `analyze_stage4_train` (matches the post-hoc plots in a
+    `training_*` run): metrics_*.{png,csv}, confusion_matrix_*.png, and
+    level1_neg_regimes.{png,csv}. Computed on the pooled OOF predictions.
+    """
+    y_true = oof['label'].to_numpy()
+    y_pred = oof['pred_label'].to_numpy()
+    y_prob = oof['pred_prob'].to_numpy()
+    metrics = compute_basic_metrics(y_true, y_pred, y_prob)
+    pd.DataFrame([metrics]).to_csv(out_dir / f'metrics_{slug}_{threshold}.csv', index=False)
+    analyze_metrics_summary(metrics, out_dir, save_name=f'metrics_{slug}_{threshold}.png')
+    plot_confusion_matrix(y_true, y_pred, out_dir / f'confusion_matrix_{slug}_{threshold}.png')
+    analyze_level1_neg_regimes(oof, out_dir)  # production level1_neg_regimes.{png,csv}
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--cds_final', default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'))
+    p.add_argument('--cds_final', default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
     p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'], metavar=('A', 'B'))
     p.add_argument('--alphabet', default='aa', choices=['aa', 'nt_cds'])
     p.add_argument('--threshold', default='t095')
@@ -351,6 +389,9 @@ def main() -> None:
                         'per-fold training is rebalanced 1:1 so a high m_neg is fine.')
     p.add_argument('--neg_to_pos_ratio', type=float, default=1.0,
                    help='negatives per positive per CC when --m_neg is NOT set.')
+    p.add_argument('--neg_strategy', default='regime', choices=['regime', 'random'],
+                   help="within-CC negative sampler: 'regime' (target the 8-regime mix) or "
+                        "'random' (uniform within-CC mixing; regimes labeled post-hoc).")
     p.add_argument('--k_folds', type=int, default=5)
     p.add_argument('--n_repeats', type=int, default=3)
     p.add_argument('--kmer_k', type=int, default=3)
@@ -378,7 +419,7 @@ def main() -> None:
     full, sampling_log = build_regime_dataset(
         universe, iso, cooccur, slot_a, slot_b, args.alphabet, args.threshold,
         m_pos=args.m_pos, m_neg=args.m_neg, neg_to_pos_ratio=args.neg_to_pos_ratio,
-        regime_targets=_DEFAULT_REGIME_TARGETS, seed=args.seed)
+        regime_targets=_DEFAULT_REGIME_TARGETS, neg_strategy=args.neg_strategy, seed=args.seed)
     n_pos = int((full['label'] == 1).sum()); n_neg = int((full['label'] == 0).sum())
     print(f"  sampled {n_pos:,} pos + {n_neg:,} neg (achieved ratio {n_neg / max(n_pos, 1):.2f}); "
           f"{int((sampling_log['n_neg'] == 0).sum()):,} CCs with 0 negatives")
@@ -392,6 +433,7 @@ def main() -> None:
         interaction=args.interaction, k_folds=args.k_folds, n_repeats=args.n_repeats,
         seed=args.seed, out_dir=out_dir, slug=slug, threshold=args.threshold)
     plot_prob_distribution(oof_pooled, out_dir, slug, args.threshold)
+    plot_metrics_confusion_level1(oof_pooled, out_dir, slug, args.threshold)
     print("\nPer-regime TPR/TNR (mean ± std over repeats):")
     print(agg.round(3).to_string(index=False))
     print("\nDone.")

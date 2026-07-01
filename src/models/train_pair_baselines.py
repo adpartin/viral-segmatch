@@ -94,8 +94,8 @@ def _resolve_kmer_k(config) -> int:
 
 def _resolve_kmer_alphabet(config) -> str:
     if hasattr(config, 'kmer') and config.get('kmer') is not None:
-        return str(config.kmer.get('alphabet', 'nt')).lower()
-    return 'nt'
+        return str(config.kmer.get('alphabet', 'nt_ctg')).lower()
+    return 'nt_ctg'
 
 
 def _resolve_feature_scaling(config, baseline_module) -> str:

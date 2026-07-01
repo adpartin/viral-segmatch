@@ -21,19 +21,38 @@ change and aren't derivable from code. This file does NOT duplicate:
 ## Current Production State
 - **Builder**: v2 is the only builder (v1 retired 2026-06-03); the `dataset_segment_pairs.py` CLI
   dispatches to `dataset_segment_pairs_v2.py`. Stage 3/4 are decoupled — Stage 4 takes
-  `--dataset_dir` explicitly; provenance in `training_info.json`.
+  `--dataset_dir` explicitly; provenance in `training_info.json`. **The v1 CLI path is not
+  supported for new work** — e.g. its default `pair_key_alphabet` inference is intentionally
+  unfixed (`cluster_alphabet=nt_ctg` without an explicit `pair_key_alphabet` silently falls to `aa`).
 - **Active HA/NA + PB2/PB1 bundles** (`flu_ha_na.yaml`, `flu_pb2_pb1.yaml`) bake in
   `split_strategy.mode=seq_disjoint`, `hash_key=seq` (protein-level, stricter), and the "Test 3"
   interaction (`slot_transform=unit_norm`, `interaction=unit_diff+prod`). Verified in
   `flu_ha_na.yaml` 2026-06-03.
 - **Clustering**: symmetric mmseqs2 `easy-linclust` on BOTH alphabets (since 2026-05-22; replaced
   the asymmetric easy-cluster+linclust setup). Artifacts at `clusters_aa/tXXX/<func>_cluster.parquet`
-  (col `seq_hash`) and `clusters_nt_cds/tXXX/<func>_cluster.parquet` (col `cds_dna_hash`); pre-Phase-2
+  (col `prot_hash`) and `clusters_nt_cds/tXXX/<func>_cluster.parquet` (col `cds_dna_hash`); pre-Phase-2
   easy-cluster + idXXX artifacts archived under `clusters_*_archive_*`. Binary via the dedicated
   `mmseqs2` env, resolved through `MMSEQS_BIN` env var / `--mmseqs_bin` / PATH.
-- **pair_key**: `split_strategy.pair_key_alphabet` — `aa` default (protein pair_key); `nt_cds` opt-in
-  for nt_cds cluster_disjoint bundles, where silent codon variants become distinct positives (inflates
-  the pair universe, opens DNA-variant leakage). Cite the alphabet in any post-2026-06-03 experiment.
+- **pair_key + axis consistency**: `split_strategy.pair_key_alphabet` ∈ `{aa, nt_cds, nt_ctg}` (`aa`
+  default; `nt_ctg` added 2026-06-25). Non-`aa` pair_keys make finer variants distinct positives
+  (nt_cds: codon variants; nt_ctg: +UTR), inflating the universe / opening DNA-variant leakage — cite
+  the alphabet in any post-2026-06-03 experiment. **`dataset.molecule` master knob** (opt-in,
+  2026-06-25): set it to derive `cluster_alphabet` + `pair_key_alphabet` + `kmer.alphabet` from one
+  value with a config-load guard (`dataset.allow_alphabet_mismatch` to override a deliberate mix);
+  legacy bundles (no molecule) are untouched. See `config_hydra._resolve_molecule_alphabets`.
+- **Two DNA notions, by purpose**: the pipeline distinguishes **contig** DNA (`ctg_dna_seq` /
+  `ctg_dna_hash` — the full submitted contig; k-mer *features* + nt_ctg clustering) from **CDS** DNA
+  (`cds_dna_seq` / `cds_dna_hash` — coding-only; nt_cds clustering). History (not derivable from code):
+  DNA *clustering* was switched to CDS (`extract_cds_dna.py`) on the assumption clustering should be
+  coding-only — never tested vs contig clustering — while k-mer *features* stayed contig; the analysis
+  CV-universe then mislabeled the CDS hash as `dna_hash_a/b`. The 2026-06 nt_cds/nt_ctg refactor
+  (`src/utils/schema.py` registry, branch `feature/nt-cds-ctg-refactor`) resolved all of this and is
+  **IMPLEMENTED** (plan closed 2026-06-25, `docs/plans/done/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`):
+  explicit `ctg_dna_hash` (contig) vs `cds_dna_hash` (CDS) names everywhere, the mislabel fixed at source
+  (`cluster_pair_weight_topk.load_pair_universe`), `nt_ctg` enabled across clustering/features/pair_key,
+  + the §13 `dataset.molecule` axis-consistency knob. Phase C tested the CDS-vs-contig question on HA/NA
+  t100: the feature axis is ~flat (nt_cds≈nt_ctg, ~0.3 pp), all three configs ~0.95–0.97 (C1 0.957 /
+  exp1 0.953 / exp2 0.957 LGBM). New `clusters_nt_ctg` + `cluster_memb_nt_ctg` + `kmer_features_nt_cds_k{3,6}`.
 - **Routing modes**: `random`; `seq_disjoint` (hash_key seq|dna); `cluster_disjoint` (bilateral /
   `single_slot: a|b` / planned `cluster_disjoint_test_only`); `metadata_holdout`. `single_slot`
   exercised on HA-only and PB2-only; NA-only / PB1-only and nt single_slot untested.
@@ -51,6 +70,21 @@ change and aren't derivable from code. This file does NOT duplicate:
   Plan: `docs/plans/2026-06-03_dataset_split_refactor_plan.md` (DRAFT). Constraint: bit-exact on a
   code-path-coverage bundle set (STATUS=active under-covers; cluster/single_slot/holdout/nt_cds paths are
   experimental bundles).
+- **2D-CD builder (`dataset_pairs_cc.py`), branch `feature/cc-dataset-cv`**: graduates the in-memory
+  analysis CC harness (`src/analysis/_cv_*`) into a maintained Stage-3 builder — bilateral
+  cluster-disjoint (2D-CD) holdout/K-fold + within-CC negatives, drop-in Stage-4
+  `fold_k/{train,val,test}_pairs.csv`. Phase-1 core committed (`09fb2c2`): the
+  `_cv_sampling`→`_cc_helpers` move + the builder, verified on aa HA-NA t099. Phase-1 (a) Hydra +
+  (c) front-end + §7 reproduction DONE; `negative_scope` knob (within_cc | within_fold) added. `m_pos_per_cc` caps positive ROWS kept per CC (default 1 → uniform-weight atoms); it does NOT change the atom count — atoms = bipartite CCs, fixed by the cluster threshold (see glossary 'Atom element'). The
+  2026-06 `singleton` audit + reconciliation is DONE: knob renamed `drop_singleton_ccs` →
+  `drop_negative_infeasible_ccs`, predicate unified to a STRUCTURAL negative-infeasibility test
+  (`compute_negative_infeasible_ccs`) used in BOTH scopes — parity verified (within_cc & within_fold
+  both keep 928 on aa HA-NA t099; closed the old 291-CC gap). Remaining: (b) full-saver (deferred),
+  Phase 2 (nt_cds) / Phase 3 (nt_ctg). Plan: `docs/plans/2026-06-09_cc_dataset_cv_plan.md` (§12
+  tests/bundle); the §9 Tier-2 renames `genome_final→ctg_dna_final` / `cds_final→cds_dna_final` are
+  DONE (by the nt_cds/nt_ctg refactor, `docs/plans/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`). Glossary terms:
+  `singleton component`, `negative-infeasible CC`, `within-CC negative`. NEVER commit
+  `src/analysis/cluster_disjoint_ood_audit.py`.
 - **Phase 2 pair_key migration** (branch `feature/phase2-pair-key-migration`): plan DONE
   (`docs/plans/done/2026-06-02_phase2_pair_key_migration_plan.md`); commits 1–6 landed by 2026-06-03
   (commit 6 = post-migration metrics; the tXXX-rename spans commits 3–7 per CLAUDE.md). aa pipeline

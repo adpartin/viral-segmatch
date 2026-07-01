@@ -5,7 +5,7 @@ Output: docs/figures/kmer_method_overview.{png,pdf}
 
 Panels:
   A  Input: one GTO file = one isolate; contigs[] array with dna + replicon_type
-  B  Stage 1 output: genome_final.csv with one row per (assembly_id, segment)
+  B  Stage 1 output: ctg_dna_final.csv with one row per (assembly_id, segment)
   C  Stage 2b: sliding window of width k over each DNA sequence, counting 6-mers
   D  Stacked sparse k-mer matrix (N_segments x 4^k); annotate real numbers from
      the kmer_features_k6_metadata.json
@@ -98,7 +98,7 @@ def _panel_a_gto(ax):
 
 
 def _panel_b_segments(ax):
-    ax.set_title('B. Stage 1: genome_final.csv — one row per (assembly, segment)',
+    ax.set_title('B. Stage 1: ctg_dna_final.csv — one row per (assembly, segment)',
                  loc='left', fontsize=11, fontweight='bold')
     names = [s[0] for s in SEGMENT_INFO]
     lengths = [s[1] for s in SEGMENT_INFO]

@@ -27,9 +27,9 @@ different inputs and consumers:
 CLI:
     python -m src.analysis.cluster_analysis_summary \\
         [--clusters_aa  data/processed/flu/July_2025/clusters_aa] \\
-        [--clusters_nt  data/processed/flu/July_2025/clusters_nt] \\
+        [--clusters_nt  data/processed/flu/July_2025/clusters_nt_cds] \\
         [--protein_final data/processed/flu/July_2025/protein_final.csv] \\
-        [--cds_final     data/processed/flu/July_2025/cds_final.parquet] \\
+        [--cds_final     data/processed/flu/July_2025/cds_dna_final.parquet] \\
         [--feasibility_dir results/flu/July_2025/runs/cluster_disjoint_feasibility] \\
         [--out_dir         results/flu/July_2025/runs/cluster_analysis]
 
@@ -64,6 +64,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
+from src.utils import schema  # noqa: E402
 
 
 # Function full -> short alias, scoped to the 8 ML-relevant majors
@@ -79,6 +80,10 @@ _FUNCTION_TO_SHORT = {
     if short in _FLU_META.selected_short_names
 }
 _SHORT_ORDER = list(_FLU_META.selected_short_names)
+# Per-alphabet hash column from the schema registry (single source of truth):
+# aa -> prot_hash, nt_cds -> cds_dna_hash. Join key on BOTH cds_dna_final and the
+# cluster parquets (the values are identical md5s, so the join is name-agnostic too).
+_HASH = {a: schema.SCHEMA[a].hash_col for a in ('aa', 'nt_cds')}
 _FUNCTION_COLORS = {
     'PB2': '#1f77b4', 'PB1': '#ff7f0e', 'PA':  '#2ca02c', 'HA':  '#d62728',
     'NP':  '#9467bd', 'NA':  '#8c564b', 'M1':  '#e377c2', 'NS1': '#7f7f7f',
@@ -135,7 +140,7 @@ def compute_length_stats(protein_final: Path, cds_final: Path) -> pd.DataFrame:
     """Return per-(function, alphabet) sequence-length stats.
 
     Reads protein_final.csv for aa lengths (`length` column = AA count)
-    and cds_final.parquet for nt lengths (`cds_length` column = nt count
+    and cds_dna_final.parquet for nt lengths (`cds_length` column = nt count
     after splicing). Spliced rows that failed parse-time validation
     (BV-BRC sentinel `length=-1`) are absent from cds_final, which is
     fine — we want the lengths that the extractor actually produces.
@@ -341,18 +346,14 @@ def _hill_q2(values: np.ndarray) -> float:
 def _freq_counts_per_protein(cds_final: Path, alphabet: str) -> dict:
     """Returns {protein_short: np.ndarray of per-unique-seq corpus frequencies}.
 
-    Source: cds_final.parquet, which carries seq_hash (md5 of prot_seq)
+    Source: cds_dna_final.parquet, which carries prot_hash (md5 of prot_seq)
     and cds_dna_hash (md5 of cds_dna) side-by-side with full per-isolate
     coverage of the 8 major proteins.
     """
-    if alphabet == 'aa':
-        df = pd.read_parquet(cds_final, columns=['function', 'seq_hash'])
-        hash_col = 'seq_hash'
-    elif alphabet == 'nt_cds':
-        df = pd.read_parquet(cds_final, columns=['function', 'cds_dna_hash'])
-        hash_col = 'cds_dna_hash'
-    else:
+    if alphabet not in _HASH:
         raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
+    hash_col = _HASH[alphabet]
+    df = pd.read_parquet(cds_final, columns=['function', hash_col])
     df['function_short'] = df['function'].map(_FUNCTION_TO_SHORT)
     df = df.dropna(subset=['function_short'])
     return {s: df.loc[df['function_short'] == s].groupby(hash_col).size().values
@@ -369,8 +370,8 @@ def plot_seq_freq_hist(cds_final: Path, alphabet: str, out_png: Path) -> None:
     isolate, M in 2-3, ... K in 1k-3k.'
 
     Args:
-        cds_final: Path to cds_final.parquet.
-        alphabet: 'aa' (uses seq_hash) or 'nt_cds' (uses cds_dna_hash).
+        cds_final: Path to cds_dna_final.parquet.
+        alphabet: 'aa' (uses prot_hash) or 'nt_cds' (uses cds_dna_hash).
         out_png: Output PNG path.
     """
     freqs_per = _freq_counts_per_protein(cds_final, alphabet)
@@ -428,8 +429,8 @@ def plot_seq_freq_isolate_pct(cds_final: Path, alphabet: str, out_png: Path) -> 
     sequence; Y % carry a sequence in the 1k-3k tier; ...'
 
     Args:
-        cds_final: Path to cds_final.parquet.
-        alphabet: 'aa' (uses seq_hash) or 'nt_cds' (uses cds_dna_hash).
+        cds_final: Path to cds_dna_final.parquet.
+        alphabet: 'aa' (uses prot_hash) or 'nt_cds' (uses cds_dna_hash).
         out_png: Output PNG path.
     """
     freqs_per = _freq_counts_per_protein(cds_final, alphabet)
@@ -536,29 +537,29 @@ def compute_cluster_diversity_stats(
     drops, clusters merge and sizes consolidate, raising Gini.
     """
     rows = []
-    for alphabet, clusters_root, cds_hash_col in [
-        ('aa', clusters_aa, 'seq_hash'),
-        ('nt_cds', clusters_nt, 'cds_dna_hash'),
-    ]:
-        cds = pd.read_parquet(cds_final, columns=['function', cds_hash_col])
+    for alphabet, clusters_root in [('aa', clusters_aa), ('nt_cds', clusters_nt)]:
+        # Same registry hash col on both sides; values are identical md5s, so the cds
+        # copy-count map joins the cluster parquet's hash cleanly.
+        hash_col = _HASH[alphabet]
+        cds = pd.read_parquet(cds_final, columns=['function', hash_col])
         cds['function_short'] = cds['function'].map(_FUNCTION_TO_SHORT)
         cds = cds.dropna(subset=['function_short'])
-        copy_per = {s: cds.loc[cds['function_short'] == s, cds_hash_col].value_counts().to_dict()
+        copy_per = {s: cds.loc[cds['function_short'] == s, hash_col].value_counts().to_dict()
                     for s in _SHORT_ORDER
                     if (cds['function_short'] == s).any()}
         for t_dir in sorted(clusters_root.iterdir()):
-            if not t_dir.is_dir() or not t_dir.name.startswith('id'):
+            if not t_dir.is_dir() or not t_dir.name.startswith('t'):
                 continue
             try:
-                threshold = int(t_dir.name[2:]) / 100.0
+                threshold = int(t_dir.name[1:]) / 100.0
             except ValueError:
                 continue
             for s in _SHORT_ORDER:
                 cluster_pq = t_dir / f'{s}_cluster.parquet'
                 if not cluster_pq.exists():
                     continue
-                df = pd.read_parquet(cluster_pq, columns=['seq_hash', 'cluster_id'])
-                df['copy_count'] = df['seq_hash'].map(copy_per.get(s, {})).fillna(0).astype(int)
+                df = pd.read_parquet(cluster_pq, columns=[hash_col, 'cluster_id'])
+                df['copy_count'] = df[hash_col].map(copy_per.get(s, {})).fillna(0).astype(int)
                 cluster_sizes = df.groupby('cluster_id')['copy_count'].sum().values
                 n_clusters = len(cluster_sizes)
                 rows.append({
@@ -717,14 +718,15 @@ def main() -> None:
                    default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
                    help='Directory containing aa redundancy_stats.csv + per-(function, threshold) cluster parquets.')
     p.add_argument('--clusters_nt',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'),
-                   help='Directory containing nt redundancy_stats.csv + per-(function, threshold) cluster parquets.')
+                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'),
+                   help='Directory containing nt_cds redundancy_stats.csv + per-(function, threshold) cluster parquets.')
     p.add_argument('--protein_final',
                    default=str(PROJ / 'data/processed/flu/July_2025/protein_final.csv'),
                    help='Stage 1 protein_final.csv (or .parquet) — used for aa length stats.')
     p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'),
-                   help='Stage 1.5 cds_final.parquet — used for nt length stats.')
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'),
+                   help='Stage 1.5 cds_dna_final.parquet — nt length stats + per-sequence '
+                        'frequency/cluster-diversity (carries prot_hash + cds_dna_hash).')
     p.add_argument('--feasibility_dir',
                    default=str(PROJ / 'results/flu/July_2025/runs/cluster_disjoint_feasibility'),
                    help='Directory containing feasibility_<pair>_<alphabet>.csv files '

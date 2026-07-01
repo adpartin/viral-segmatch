@@ -23,10 +23,10 @@ the docs.
 For experimental findings on Flu A see
 `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (model
 training results) and the two sequence redundancy autogen docs at
-`data/processed/flu/July_2025/clusters_{aa,nt}/redundancy_summary.md`.
+`data/processed/flu/July_2025/clusters_{aa,nt_cds}/redundancy_summary.md`.
 For the routing-equivalence semantics across the four implemented
 modes (seq_disjoint hash_key={seq,dna}, cluster_disjoint
-cluster_alphabet={aa,nt}), see `splits.md` § 1.5.
+cluster_alphabet={aa,nt_cds}), see `splits.md` § 1.5.
 
 ---
 
@@ -409,15 +409,14 @@ Columns:
 - `N_seqs` — total records: number of isolates carrying this protein
   (108,530 for the full Flu A corpus).
 - `N_unique` — unique sequences after md5 dedup on `prot_seq` (aa)
-  or `cds_dna` (nt). **`cds_dna` is the joined CDS coding sequence
-  only** — UTRs, introns, and intergenic DNA are excluded (see
-  `src/preprocess/extract_cds_dna.py`); the nt cluster key is
-  `cds_dna_hash = md5(cds_dna)`. This equals the FASTA row count
+  or `cds_dna_seq` (nt_cds). **`cds_dna_seq` is the joined CDS coding
+  sequence only** — UTRs, introns, and intergenic DNA are excluded (see
+  `src/preprocess/extract_cds_dna.py`); the nt_cds cluster key is
+  `cds_dna_hash = md5(cds_dna_seq)`. This equals the FASTA row count
   that mmseqs sees as input (pre-clustering dedup). Verify directly
-  with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt}/fasta/<PROTEIN>.fasta`
+  with `grep -c '^>' data/processed/flu/July_2025/clusters_{aa,nt_cds}/fasta/<PROTEIN>.fasta`
   (e.g., HA aa → 41,896).
-- `N_unique frac` — `N_unique / N_seqs`. The "% unique" reported in
-  earlier versions of this doc, now as a fraction.
+- `N_unique frac` — `N_unique / N_seqs`.
 - `Singleton_seq_frac` — fraction of unique sequences observed
   exactly once in the corpus (= n_singletons / N_unique). Measures
   the size of the *inventory* tail, not the share of records.
@@ -627,20 +626,22 @@ Plots: `cluster_counts_vs_threshold.png` (§6.1),
 
 ### 6.0 Cluster weighting: three views of the same partition
 
-mmseqs operates on unique sequences only — FASTA deduped by `seq_hash`
-per `src/utils/clustering_utils.py::export_function_fasta`. The cluster
-parquet stores `{seq_hash → cluster_id}` for unique seqs; one row per
-`seq_hash`. Three downstream views of cluster size are used in this
+mmseqs operates on unique sequences only — FASTA deduped by the
+per-alphabet sequence hash (`prot_hash` for aa, `cds_dna_hash` for
+nt_cds; see `src/utils/schema.py`) per
+`src/utils/clustering_utils.py::export_function_fasta`. The cluster
+parquet stores `{hash → cluster_id}` for unique seqs; one row per
+hash. Three downstream views of cluster size are used in this
 project, each appropriate for a different question.
 
 | View | What it measures | Used in |
 |---|---|---|
-| **Unique-weighted** (storage) | Cluster size = number of unique seq_hashes in the cluster | mmseqs output; §6.1, §6.2, §6.3; `cluster_summary.csv` |
-| **Records-weighted** | Cluster size = Σ copy_count over the cluster's seq_hashes | §6.4 Gini; `cluster_diversity_stats.csv top1_cluster_pct` |
+| **Unique-weighted** (storage) | Cluster size = number of unique sequence hashes in the cluster | mmseqs output; §6.1, §6.2, §6.3; `cluster_summary.csv` |
+| **Records-weighted** | Cluster size = Σ copy_count over the cluster's sequence hashes | §6.4 Gini; `cluster_diversity_stats.csv top1_cluster_pct` |
 | **Pair-weighted** | Cluster size = number of canonical pairs (post-`pair_key` dedup) whose endpoint on the slot is in the cluster | **Splitter decisions** (`cluster_pair_weight_topk.csv`, `cluster_disjoint_feasibility.csv`, `bigraph_properties graph_props.csv`). For pair universe / cluster pair definitions see `glossary.md`. |
 
 **Unique-weighted is the ground-truth storage.** The parquet stores
-`{seq_hash → cluster_id}` for unique seqs only; records-weighted and
+`{hash → cluster_id}` for unique seqs only; records-weighted and
 pair-weighted are derived downstream via join — against `copy_count`
 (records) or against the pair universe (pair). No information loss
 in either derivation.
@@ -721,9 +722,8 @@ Columns:
 ### 6.2 Worked example: aa vs nt non-nesting at t099 (unique-weighted)
 
 **Source.** §6.1 (observation), §5 mutations_tolerated_table.csv
-(residue-tolerance asymmetry), `src/analysis/aa_nt_cluster_crosstab.py`
-+ `docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md` (cross-tab
-walkthrough).
+(residue-tolerance asymmetry), and the cross-tab walkthrough in
+`docs/results/2026-05-22_aa_vs_nt_cluster_mechanism.md`.
 
 §6.1 noted that nt clusters outnumber aa at t100 but invert at t099
 and t098 on most proteins. The inversion at t099:
@@ -846,11 +846,11 @@ structural-summary script that backs §§ 4–6 of this doc and
 
 | Step | Script | Reads | Writes |
 |---|---|---|---|
-| Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `genome_final.csv` | `cds_final.parquet` |
-| Cluster sweep | `src/preprocess/build_mmseqs_clusters.py` | `protein_final.parquet` (aa) or `cds_final.parquet` (nt) | `clusters_{aa,nt}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
-| Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` (bilateral) and `src/analysis/single_slot_cluster_disjoint_feasibility.py` (single-slot) | one cluster lookup + `protein_final` or `cds_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/{feasibility,single_slot_feasibility}_<pair>_<alphabet>.csv` |
+| Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `ctg_dna_final.csv` | `cds_dna_final.parquet` |
+| Cluster sweep | `src/preprocess/build_mmseqs_clusters.py` | `protein_final.parquet` (aa) or `cds_dna_final.parquet` (nt_cds) | `clusters_{aa,nt_cds}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
+| Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` (bilateral) and `src/analysis/single_slot_cluster_disjoint_feasibility.py` (single-slot) | one cluster lookup + `protein_final` or `cds_dna_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/{feasibility,single_slot_feasibility}_<pair>_<alphabet>.csv` |
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
-| Post-hoc structural summary | `src/analysis/cluster_analysis_summary.py` | `redundancy_stats.csv`, per-threshold cluster parquets, `cds_final.parquet`, feasibility CSVs | tables + plots under `results/flu/{version}/runs/cluster_analysis/` (see § 8 outputs block) |
+| Post-hoc structural summary | `src/analysis/cluster_analysis_summary.py` | `redundancy_stats.csv`, per-threshold cluster parquets, `cds_dna_final.parquet`, feasibility CSVs | tables + plots under `results/flu/{version}/runs/cluster_analysis/` (see § 8 outputs block) |
 
 ---
 
@@ -859,7 +859,7 @@ structural-summary script that backs §§ 4–6 of this doc and
 The producer/consumer chain, end to end:
 
 ```bash
-# 1. (nt-only) Build cds_final.parquet — once per data version.
+# 1. (nt-only) Build cds_dna_final.parquet — once per data version.
 python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 
 # 2. Per-protein clustering sweep — once per (alphabet, data version).
@@ -874,8 +874,8 @@ python -m src.preprocess.build_mmseqs_clusters \
     --threads 16
 
 python -m src.preprocess.build_mmseqs_clusters \
-    --cds_final  data/processed/flu/July_2025/cds_final.parquet \
-    --out_root   data/processed/flu/July_2025/clusters_nt \
+    --cds_dna_final data/processed/flu/July_2025/cds_dna_final.parquet \
+    --out_root      data/processed/flu/July_2025/clusters_nt_cds \
     --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 \
     --algorithm  linclust \
     --threads    16
@@ -889,9 +889,11 @@ python -m src.analysis.cluster_disjoint_feasibility \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
     --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90
 
+# (cluster_disjoint_feasibility keeps the legacy `--cds_final` flag name;
+#  point it at the renamed cds_dna_final.parquet.)
 python -m src.analysis.cluster_disjoint_feasibility \
-    --cds_final     data/processed/flu/July_2025/cds_final.parquet \
-    --clusters_root data/processed/flu/July_2025/clusters_nt \
+    --cds_final     data/processed/flu/July_2025/cds_dna_final.parquet \
+    --clusters_root data/processed/flu/July_2025/clusters_nt_cds \
     --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \
     --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90
 
@@ -930,7 +932,7 @@ bipartite_largest_pct_vs_threshold.png    — Plot C (`splits.md` § 1.8)
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` — the
   original plan that motivated this machinery.
 - `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (aa)
-  and `data/processed/flu/July_2025/clusters_nt/redundancy_summary.md`
-  (nt) — autogen per-threshold cluster-size tables for all 8 majors.
+  and `data/processed/flu/July_2025/clusters_nt_cds/redundancy_summary.md`
+  (nt_cds) — autogen per-threshold cluster-size tables for all 8 majors.
 - `results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_{ha_na,pb2_pb1}_{aa,nt}.csv`
   — raw bipartite-CC feasibility numbers per pair × alphabet × threshold.

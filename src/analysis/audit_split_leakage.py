@@ -6,8 +6,8 @@ Operates on the already-written pair CSVs (train_pairs.csv, val_pairs.csv,
 test_pairs.csv) in a single fold directory and reports a 6-bucket leakage
 table at two levels:
 
-  - protein    : feature key = canonical_pair_key(seq_hash_a, seq_hash_b)
-  - nucleotide : feature key = canonical_pair_key(dna_hash_a, dna_hash_b)
+  - protein    : feature key = canonical_pair_key(prot_hash_a, prot_hash_b)
+  - nucleotide : feature key = canonical_pair_key(ctg_dna_hash_a, ctg_dna_hash_b)
 
 The 6 buckets are (train_vs_val, train_vs_test, val_vs_test) x
 (label-match rows, label-conflict rows), evaluated from the perspective of
@@ -37,7 +37,7 @@ What this script adds on top of Stage 3's inline check
    needing to re-read the Stage 3 log.
 2. Sweepable across many runs / folds without re-running Stage 3.
 3. Nucleotide-level check. Stage 3 only dedups on protein pair_key. This
-   script also intersects (dna_hash_a, dna_hash_b) pair-keys across splits.
+   script also intersects (ctg_dna_hash_a, ctg_dna_hash_b) pair-keys across splits.
    For the current 28-pair Task 11 bundles (one function per segment,
    cross-segment pairs only), nucleotide pair-keys are structurally <=
    protein pair-keys -- so protein=0 implies nucleotide=0 for those pairs.
@@ -50,13 +50,13 @@ What this script adds on top of Stage 3's inline check
 Scope
 -----
 This is a RAW-SEQUENCE-IDENTITY audit. It answers "do identical
-(seq_hash or dna_hash) pair keys cross splits?". It does NOT detect
+(prot_hash or ctg_dna_hash) pair keys cross splits?". It does NOT detect
 feature-vector near-duplicates -- e.g., two DNA sequences that produce
-near-identical k-mer vectors while remaining distinct on dna_hash. A
+near-identical k-mer vectors while remaining distinct on ctg_dna_hash. A
 feature-vector similarity audit is a separate, heavier lift.
 
-Requires the pair CSVs to carry columns: seq_hash_a, seq_hash_b,
-dna_hash_a, dna_hash_b, label. The dna_hash columns are added by Stage 3
+Requires the pair CSVs to carry columns: prot_hash_a, prot_hash_b,
+ctg_dna_hash_a, ctg_dna_hash_b, label. The ctg_dna_hash columns are added by Stage 3
 as of the DNA-enrichment change in src/datasets/dataset_segment_pairs.py.
 """
 
@@ -75,8 +75,8 @@ def _canonical(a: str, b: str) -> str:
 
 def _add_feature_keys(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df['prot_key'] = [_canonical(a, b) for a, b in zip(df['seq_hash_a'], df['seq_hash_b'])]
-    df['dna_key'] = [_canonical(a, b) for a, b in zip(df['dna_hash_a'], df['dna_hash_b'])]
+    df['prot_key'] = [_canonical(a, b) for a, b in zip(df['prot_hash_a'], df['prot_hash_b'])]
+    df['dna_key'] = [_canonical(a, b) for a, b in zip(df['ctg_dna_hash_a'], df['ctg_dna_hash_b'])]
     return df
 
 
@@ -111,7 +111,7 @@ def audit(fold_dir: Path) -> dict:
     val = pd.read_csv(fold_dir / 'val_pairs.csv')
     test = pd.read_csv(fold_dir / 'test_pairs.csv')
 
-    required = ('seq_hash_a', 'seq_hash_b', 'dna_hash_a', 'dna_hash_b', 'label')
+    required = ('prot_hash_a', 'prot_hash_b', 'ctg_dna_hash_a', 'ctg_dna_hash_b', 'label')
     for name, df in (('train', train), ('val', val), ('test', test)):
         missing = [c for c in required if c not in df.columns]
         if missing:
@@ -143,7 +143,7 @@ def _print_report(r: dict) -> None:
           f"val={r['split_sizes']['val']:,}  test={r['split_sizes']['test']:,}\n")
 
     for level in ('protein', 'nucleotide'):
-        key_desc = 'seq_hash' if level == 'protein' else 'dna_hash'
+        key_desc = 'prot_hash' if level == 'protein' else 'ctg_dna_hash'
         print(f"[{level}] feature key = canonical_pair_key({key_desc}_a, {key_desc}_b)")
         header = (f"  {'bucket':<16} {'rows_B':>10} {'shared_keys':>12} "
                   f"{'match_rows':>12} {'conflict_rows':>14}")

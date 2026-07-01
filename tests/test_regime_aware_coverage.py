@@ -22,7 +22,7 @@ from src.datasets.dataset_segment_pairs_v2 import create_negative_pairs_v2
 
 def _toy_pos_row(aid: str, *, slot_a_seq: str, slot_b_seq: str) -> dict:
     """Build a minimal pos_df row. Each isolate has one (slot_a, slot_b) pair.
-    seq_hash_a/b and dna_hash_a/b use the seq labels directly (so the test
+    prot_hash_a/b and ctg_dna_hash_a/b use the seq labels directly (so the test
     operates on whatever 'sequence identifier' we choose), and the schema is
     HA (slot a) + NA (slot b). brc identifiers are derived per-isolate.
     """
@@ -31,12 +31,12 @@ def _toy_pos_row(aid: str, *, slot_a_seq: str, slot_b_seq: str) -> dict:
         'assembly_id_a': aid, 'assembly_id_b': aid,
         'brc_a': f'{aid}.brcA', 'brc_b': f'{aid}.brcB',
         'ctg_a': f'{aid}.ctgA', 'ctg_b': f'{aid}.ctgB',
-        'seq_a': slot_a_seq, 'seq_b': slot_b_seq,
-        'dna_seq_a': 'ACGT', 'dna_seq_b': 'TGCA',
+        'prot_seq_a': slot_a_seq, 'prot_seq_b': slot_b_seq,
+        'ctg_dna_seq_a': 'ACGT', 'ctg_dna_seq_b': 'TGCA',
         'seg_a': 'S4', 'seg_b': 'S6',
         'func_a': 'HA', 'func_b': 'NA',
-        'seq_hash_a': slot_a_seq, 'seq_hash_b': slot_b_seq,
-        'dna_hash_a': f'd_{slot_a_seq}', 'dna_hash_b': f'd_{slot_b_seq}',
+        'prot_hash_a': slot_a_seq, 'prot_hash_b': slot_b_seq,
+        'ctg_dna_hash_a': f'd_{slot_a_seq}', 'ctg_dna_hash_b': f'd_{slot_b_seq}',
         'label': 1,
     }
 
@@ -190,9 +190,9 @@ def test_integration_last_resort_uniform_fires_when_no_feasible_partner():
     """Construct a case where all feasible regimes are excluded by the same-seq
     exclusion rule, forcing the last-resort uniform sampler. Verify the counter
     fires (or at least the run still produces coverage)."""
-    # 3 isolates; isolate 'a' has a HA shared by 'b' (same seq_hash_a), so the
+    # 3 isolates; isolate 'a' has a HA shared by 'b' (same prot_hash_a), so the
     # only partner in 'a's row's HA-coverage iteration must come from a
-    # different seq_hash — the priority chain will try a's partner cells but
+    # different prot_hash — the priority chain will try a's partner cells but
     # if those are all rejected, falls through to uniform.
     isolates = [
         {'aid': 'a', 'slot_a_seq': 'HAx', 'slot_b_seq': 'NAa'},
@@ -221,14 +221,14 @@ def test_integration_last_resort_uniform_fires_when_no_feasible_partner():
     # back. With this small a graph the fallback may or may not fire, but the
     # counter must exist and be non-negative.
     assert ra['fell_back_to_uniform'] >= 0
-    # Either way: the seq_hash coverage invariant must hold (raises otherwise).
+    # Either way: the prot_hash coverage invariant must hold (raises otherwise).
     assert len(stats.get('seqs_with_zero_negatives', [])) == 0
     print(f"[OK] last-resort path: fell_back_to_uniform = {ra['fell_back_to_uniform']}, "
           f"seqs_with_zero_negatives = {len(stats.get('seqs_with_zero_negatives', []))}")
 
 
 def test_integration_coverage_invariant_holds_with_flag_true():
-    """End-to-end with regime_aware_coverage=True: every seq_hash in pos_df
+    """End-to-end with regime_aware_coverage=True: every prot_hash in pos_df
     must get ≥1 negative (the hard invariant that the sampler enforces)."""
     isolates = [
         {'aid': f'iso{i}', 'slot_a_seq': f'HA{i}', 'slot_b_seq': f'NA{i}'}
@@ -255,17 +255,17 @@ def test_integration_coverage_invariant_holds_with_flag_true():
     )
     ra = stats['coverage_regime_aware']
     assert ra['enabled'] is True
-    # Coverage invariant: every seq_hash on both slots has ≥1 negative.
+    # Coverage invariant: every prot_hash on both slots has ≥1 negative.
     for slot in ('a', 'b'):
-        seq_hashes_in_pos = set(pos[f'seq_hash_{slot}'])
-        seq_hashes_in_neg = set(neg[f'seq_hash_{slot}'])
+        prot_hashes_in_pos = set(pos[f'prot_hash_{slot}'])
+        prot_hashes_in_neg = set(neg[f'prot_hash_{slot}'])
         # neg may use this seq on either side because the partner slot
-        # contributes a seq_hash to the OPPOSITE column of the row.
-        # The hard invariant the sampler enforces is that every pos seq_hash
+        # contributes a prot_hash to the OPPOSITE column of the row.
+        # The hard invariant the sampler enforces is that every pos prot_hash
         # on slot X appears in at least one neg row's slot-X column.
-        missing = seq_hashes_in_pos - seq_hashes_in_neg
+        missing = prot_hashes_in_pos - prot_hashes_in_neg
         assert not missing, (
-            f"slot {slot}: {len(missing)} seq_hashes uncovered: {sorted(missing)[:5]}"
+            f"slot {slot}: {len(missing)} prot_hashes uncovered: {sorted(missing)[:5]}"
         )
     print(f"[OK] coverage invariant: {len(neg)} negs, every protein has ≥1 neg")
 

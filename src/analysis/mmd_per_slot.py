@@ -7,7 +7,7 @@ Two partition modes:
   wiring sanity check — MMD^2 should be near zero on a random partition.
 
 - `dataset_labels`: use the dataset's own train / test labels. Each
-  unique seq_hash is assigned the split of its first occurrence; entities
+  unique prot_hash is assigned the split of its first occurrence; entities
   appearing in pairs from multiple splits are flagged ambiguous and
   filtered out (only happens under random per-pair routing — entity-
   disjoint routings like seq_disjoint and cluster_disjoint have zero
@@ -61,25 +61,25 @@ def load_unique_slot_entities(dataset_dir: Path, slot: str,
                                ) -> pd.DataFrame:
     """Load positives, subsample isolates, dedup by protein or DNA on one slot.
 
-    `dedup_by='protein'` (default): one row per unique `seq_hash_{slot}`.
+    `dedup_by='protein'` (default): one row per unique `prot_hash_{slot}`.
     Used for ESM-2 and aa k-mer (both keyed by `brc_fea_id`, both
     protein-level).
-    `dedup_by='dna'`: one row per unique `dna_hash_{slot}`. Used for nt
+    `dedup_by='dna'`: one row per unique `ctg_dna_hash_{slot}`. Used for nt
     k-mer (keyed by `ctg_id`, DNA-level). The same protein may have
     multiple unique DNA encodings across isolates via synonymous codons,
     so DNA-level dedup gives slightly more entities than protein-level.
 
-    Returns a DataFrame [assembly_id, brc_fea_id, ctg_id, seq_hash,
-    dna_hash, orig_split, is_ambiguous] — one row per unique entity by
+    Returns a DataFrame [assembly_id, brc_fea_id, ctg_id, prot_hash,
+    ctg_dna_hash, orig_split, is_ambiguous] — one row per unique entity by
     the chosen dedup key. `is_ambiguous` flags entities whose pairs
     straddle multiple splits (only happens under random per-pair).
     """
     if dedup_by == 'protein':
-        dedup_src = f'seq_hash_{slot}'
-        dedup_renamed = 'seq_hash'
+        dedup_src = f'prot_hash_{slot}'
+        dedup_renamed = 'prot_hash'
     elif dedup_by == 'dna':
-        dedup_src = f'dna_hash_{slot}'
-        dedup_renamed = 'dna_hash'
+        dedup_src = f'ctg_dna_hash_{slot}'
+        dedup_renamed = 'ctg_dna_hash'
     else:
         raise ValueError(f"dedup_by must be 'protein' or 'dna', got {dedup_by}")
 
@@ -116,8 +116,8 @@ def load_unique_slot_entities(dataset_dir: Path, slot: str,
         f'assembly_id_{slot}': 'assembly_id',
         f'brc_{slot}': 'brc_fea_id',
         f'ctg_{slot}': 'ctg_id',
-        f'seq_hash_{slot}': 'seq_hash',
-        f'dna_hash_{slot}': 'dna_hash',
+        f'prot_hash_{slot}': 'prot_hash',
+        f'ctg_dna_hash_{slot}': 'ctg_dna_hash',
         'orig_split': 'orig_split',
     }
     entities = (pos
@@ -367,9 +367,9 @@ def main():
     p.add_argument('--feature_space',
                    default='esm2',
                    choices=['esm2', 'kmer_aa', 'kmer_nt'],
-                   help='esm2 / kmer_aa: protein-level (dedup by seq_hash, '
+                   help='esm2 / kmer_aa: protein-level (dedup by prot_hash, '
                         'lookup by brc_fea_id). kmer_nt: DNA-level (dedup by '
-                        'dna_hash, lookup by ctg_id).')
+                        'ctg_dna_hash, lookup by ctg_id).')
     p.add_argument('--embedding_path',
                    type=Path,
                    default=Path('data/embeddings/flu/July_2025/master_esm2_embeddings.h5'),
@@ -396,8 +396,8 @@ def main():
     routing_label = args.routing_label or args.dataset_dir.name
 
     # Each feature space has its natural dedup key. ESM-2 and aa k-mer
-    # are protein-level (one entity per unique seq_hash); nt k-mer is
-    # DNA-level (one entity per unique dna_hash).
+    # are protein-level (one entity per unique prot_hash); nt k-mer is
+    # DNA-level (one entity per unique ctg_dna_hash).
     dedup_by = 'dna' if args.feature_space == 'kmer_nt' else 'protein'
 
     print(f'Loading unique slot_{args.slot} ({slot_name}) entities '
@@ -407,7 +407,7 @@ def main():
         dedup_by=dedup_by, label_filter=args.label_filter,
     )
     n_ambig = int(entities['is_ambiguous'].sum())
-    print(f'  {len(entities)} unique {slot_name} seq_hashes '
+    print(f'  {len(entities)} unique {slot_name} prot_hashes '
           f'(subsample_seed={args.subsample_seed}, n_isolates={args.n_isolates})')
     if n_ambig:
         print(f'  {n_ambig} entities ambiguous (multi-split) — handling depends on mode')

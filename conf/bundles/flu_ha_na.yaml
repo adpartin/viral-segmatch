@@ -1,13 +1,6 @@
-# STATUS: active -- HA/NA balanced-big3 full-dataset sweep.
+# STATUS: active -- HA/NA
 # Inherits Task 11 master (full dataset, 12-fold CV, k-mer k=6 slot_norm +
-# concat, 100 epochs). Adds baked-in subtype balancing on {H1N1, H3N2, H5N1}
-# so `run_cv_lambda.py --config_bundle flu_ha_na` runs the balanced sweep
-# with no CLI overrides.
-#
-# Alternative invocation without baking into a bundle (equivalent run):
-#   python scripts/run_cv_lambda.py --config_bundle flu_ha_na \
-#       --override dataset.subtype_selection.mode=balanced \
-#                  'dataset.subtype_selection.included_subtypes=[H1N1,H3N2,H5N1]'
+# concat, 100 epochs).
 
 defaults:
   - flu_28_major_protein_pairs_master
@@ -24,9 +17,6 @@ dataset:
     # target_count_per_subtype defaults to 'min' (downsample to smallest
     # available count, which on the full July 2025 dataset will be H5N1).
     # seed defaults to RANDOM_SEED (derived from master_seed=42).
-  # max_isolates_to_process inherits null from master (full ~111K dataset).
-  # Must not be set here: mode=balanced + max_isolates_to_process errors out
-  # by design (see docs/plans/done/subtype_balancing_plan.md, error matrix).
   n_folds: null   # single train/val/test split (override flu_28_major_protein_pairs_master's inherited CV=12)
 
   neg_to_pos_ratio: 1.5  # overrides the default
@@ -42,9 +32,28 @@ dataset:
     mode: seq_disjoint # 'random' | 'seq_disjoint' (default)
     hash_key: seq # 'seq' (protein, default) | 'dna' (nucleotide)
 
+  # negative_sampling:
+  #   axes: [host, hn_subtype, year]
+  #   year_match: binned
+  #   year_bin_edges:
+  #     - [-1.0e+30, 2015, "<=2015"]
+  #     - [2016, 2020, "2016-2020"]
+  #     - [2021,  1.0e+30, "2021+"]
+  #   regime_targets:
+  #     none_match:           0.05
+  #     host_only:            0.10
+  #     subtype_only:         0.10
+  #     year_only:            0.10
+  #     host_subtype_only:    0.15
+  #     host_year_only:       0.15
+  #     subtype_year_only:    0.15
+  #     host_subtype_year:    0.20
+  #   on_shortfall: redistribute
+  #   regime_aware_coverage: true
+
 kmer:
   k: 6
-  alphabet: nt
+  alphabet: nt_ctg
 
 training:
   epochs: 100

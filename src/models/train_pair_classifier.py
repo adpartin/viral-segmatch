@@ -53,6 +53,7 @@ from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_training_paths, build_embeddings_paths
+from src.utils import schema
 from src.utils.torch_utils import determine_device, create_optimizer, create_lr_scheduler
 from src.utils.esm2_utils import load_esm2_embedding, get_esm2_embedding_dim, validate_embeddings_metadata
 from src.utils.learning_verification_utils import (
@@ -269,14 +270,10 @@ class KmerPairDataset(Dataset):
         pairs: pd.DataFrame,
         kmer_matrix,   # scipy sparse CSR
         key_to_row: dict,
-        alphabet: str = 'nt',
+        alphabet: str = 'nt_ctg',
         ) -> None:
-        if alphabet == 'nt':
-            occ_col_a, occ_col_b = 'ctg_a', 'ctg_b'
-        elif alphabet == 'aa':
-            occ_col_a, occ_col_b = 'brc_a', 'brc_b'
-        else:
-            raise ValueError(f"alphabet must be 'nt' or 'aa'; got {alphabet!r}")
+        occ_col_a = schema.pair_occ_col(alphabet, 'a')
+        occ_col_b = schema.pair_occ_col(alphabet, 'b')
 
         keys_a = list(zip(pairs['assembly_id_a'].astype(str),
                           pairs[occ_col_a].astype(str)))
@@ -1297,13 +1294,13 @@ if FEATURE_SOURCE == 'kmer':
     from omegaconf import OmegaConf
     if hasattr(config, 'kmer') and config.get('kmer') is not None:
         KMER_K = int(config.kmer.get('k', 6))
-        KMER_ALPHABET = str(config.kmer.get('alphabet', 'nt')).lower()
+        KMER_ALPHABET = str(config.kmer.get('alphabet', 'nt_ctg')).lower()
     else:
         KMER_K = 6
-        KMER_ALPHABET = 'nt'
-    if KMER_ALPHABET not in {'nt', 'aa'}:
-        raise ValueError(f"kmer.alphabet must be 'nt' or 'aa'; got {KMER_ALPHABET!r}")
-    _alpha_size = 4 if KMER_ALPHABET == 'nt' else 20
+        KMER_ALPHABET = 'nt_ctg'
+    if KMER_ALPHABET not in {'nt_ctg', 'nt_cds', 'aa'}:
+        raise ValueError(f"kmer.alphabet must be 'nt_ctg', 'nt_cds', or 'aa'; got {KMER_ALPHABET!r}")
+    _alpha_size = 4 if KMER_ALPHABET in ('nt_ctg', 'nt_cds') else 20
     EMBED_DIM = _alpha_size ** KMER_K
 
     # K-mer features live alongside ESM-2 embeddings
@@ -1319,7 +1316,8 @@ if FEATURE_SOURCE == 'kmer':
     print(f'Loaded k-mer matrix: {kmer_matrix.shape}')
 
     # Validate that pair CSVs have the alphabet-specific occurrence columns.
-    required_pair_cols = ['ctg_a', 'ctg_b'] if KMER_ALPHABET == 'nt' else ['brc_a', 'brc_b']
+    required_pair_cols = [schema.pair_occ_col(KMER_ALPHABET, 'a'),
+                          schema.pair_occ_col(KMER_ALPHABET, 'b')]
     for name, pdf in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
         for col in required_pair_cols:
             if col not in pdf.columns:
@@ -1566,7 +1564,8 @@ if EVAL_SWAPPED_TEST:
     print('\nSwap-test diagnostic: evaluate on swapped test inputs (B,A) using SAME checkpoint.')
     swapped_test_pairs = swap_pairs_df_columns(test_pairs)
     if FEATURE_SOURCE == 'kmer':
-        swapped_test_dataset = KmerPairDataset(swapped_test_pairs, kmer_matrix, kmer_key_to_row)
+        swapped_test_dataset = KmerPairDataset(swapped_test_pairs, kmer_matrix, kmer_key_to_row,
+                                               alphabet=KMER_ALPHABET)
     else:
         swapped_test_dataset = ESMPairDataset(swapped_test_pairs, embeddings_file)
     swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=INFER_BATCH_SIZE, shuffle=False,
@@ -1589,6 +1588,8 @@ training_info = {
     'dataset_dir': str(dataset_dir),
     'embeddings_file': str(embeddings_file),
     'feature_source': FEATURE_SOURCE,
+    'kmer_alphabet': KMER_ALPHABET if FEATURE_SOURCE == 'kmer' else None,
+    'kmer_k': KMER_K if FEATURE_SOURCE == 'kmer' else None,
     'feature_scaling': FEATURE_SCALING,
     'interaction': INTERACTION_SPEC,
     'slot_transform': SLOT_TRANSFORM,

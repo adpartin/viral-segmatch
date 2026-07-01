@@ -1,6 +1,6 @@
 """Phase 2 pair_key migration routing-triangulation check.
 
-For each protein-pair (canonical seq_hash_a/b pair) found in BOTH a
+For each protein-pair (canonical prot_hash_a/b pair) found in BOTH a
 pre-Phase-2 dataset and a post-Phase-2 dataset built from the same
 bundle config, check whether it lands in the same split (train/val/test).
 
@@ -47,7 +47,7 @@ def load_pairs(d: Path, split: str) -> pd.DataFrame:
 def protein_pair_key_series(df: pd.DataFrame) -> pd.Series:
     return pd.Series(
         [f"{min(a, b)}__{max(a, b)}"
-         for a, b in zip(df["seq_hash_a"], df["seq_hash_b"])],
+         for a, b in zip(df["prot_hash_a"], df["prot_hash_b"])],
         index=df.index,
     )
 

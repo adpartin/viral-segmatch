@@ -1,7 +1,7 @@
 """Regression test for Bug 2: compute_metadata_coverage per-seq null
 undercount.
 
-Synthetic case: a seq_hash with rows [None, "Human"] should NOT be counted
+Synthetic case: a prot_hash with rows [None, "Human"] should NOT be counted
 as null in the per-sequence view -- the protein has a known host (Human)
 in at least one isolate.
 
@@ -20,7 +20,7 @@ from src.datasets.dataset_segment_pairs_v2 import compute_metadata_coverage
 def test_per_seq_null_only_when_no_value_seen():
     df = pd.DataFrame({
         'assembly_id': ['ISO_A', 'ISO_B', 'ISO_C', 'ISO_D'],
-        'seq_hash':    ['s1',    's1',    's2',    's3'],
+        'prot_hash':    ['s1',    's1',    's2',    's3'],
         'host':        [None,    'Human', 'Human', None],
     })
     cov = compute_metadata_coverage(df, axes=['host'])
@@ -42,7 +42,7 @@ def test_pre_fix_undercount_case():
     # with the dropna-first fix, it should be counted as having a value.
     df = pd.DataFrame({
         'assembly_id': ['ISO_A', 'ISO_B'],
-        'seq_hash':    ['shared', 'shared'],
+        'prot_hash':    ['shared', 'shared'],
         'host':        [None, 'Human'],
     })
     cov = compute_metadata_coverage(df, axes=['host'])
@@ -54,7 +54,7 @@ def test_pre_fix_undercount_case():
 
 
 def test_axis_missing():
-    df = pd.DataFrame({'assembly_id': ['A'], 'seq_hash': ['s1']})
+    df = pd.DataFrame({'assembly_id': ['A'], 'prot_hash': ['s1']})
     cov = compute_metadata_coverage(df, axes=['host'])
     assert cov['host'] == {'present': False}
 
@@ -62,7 +62,7 @@ def test_axis_missing():
 def test_geo_location_clean_alias():
     df = pd.DataFrame({
         'assembly_id':        ['A'],
-        'seq_hash':           ['s1'],
+        'prot_hash':           ['s1'],
         'geo_location_clean': ['Wisconsin'],
     })
     cov = compute_metadata_coverage(df, axes=['geo_location'])

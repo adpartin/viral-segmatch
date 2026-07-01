@@ -45,12 +45,12 @@ from src.analysis.bigraph_min_cut import min_cut_recursive
 
 def pair_key_to_subtype(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFrame:
     """Modal hn_subtype per canonical pair_key, from isolate co-occurrence + metadata."""
-    cds = pd.read_parquet(cds_final, columns=['assembly_id', 'function', 'seq_hash'])
+    cds = pd.read_parquet(cds_final, columns=['assembly_id', 'function', 'prot_hash'])
     cds['fs'] = cds['function'].map(_FUNCTION_TO_SHORT)
-    a = (cds[cds['fs'] == slot_a][['assembly_id', 'seq_hash']]
-         .rename(columns={'seq_hash': 'hash_a'}))
-    b = (cds[cds['fs'] == slot_b][['assembly_id', 'seq_hash']]
-         .rename(columns={'seq_hash': 'hash_b'}))
+    a = (cds[cds['fs'] == slot_a][['assembly_id', 'prot_hash']]
+         .rename(columns={'prot_hash': 'hash_a'}))
+    b = (cds[cds['fs'] == slot_b][['assembly_id', 'prot_hash']]
+         .rename(columns={'prot_hash': 'hash_b'}))
     iso = a.merge(b, on='assembly_id')
     iso['pair_key'] = [canonical_pair_key(x, y)
                        for x, y in zip(iso['hash_a'], iso['hash_b'])]
@@ -75,7 +75,7 @@ def pair_key_to_subtype(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFra
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_final.parquet'))
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
     p.add_argument('--clusters_aa',
                    default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'))
     p.add_argument('--clusters_nt',
@@ -118,8 +118,8 @@ def main() -> None:
     node_atom = {n: i for i, c in enumerate(comps) for n in c}
 
     # Label every canonical pair: cluster endpoints -> nodes -> atoms; + subtype.
-    hash_col_a = 'seq_hash_a' if args.alphabet == 'aa' else 'dna_hash_a'
-    hash_col_b = 'seq_hash_b' if args.alphabet == 'aa' else 'dna_hash_b'
+    hash_col_a = 'prot_hash_a' if args.alphabet == 'aa' else 'cds_dna_hash_a'
+    hash_col_b = 'prot_hash_b' if args.alphabet == 'aa' else 'cds_dna_hash_b'
     u = universe.copy()
     u['node_a'] = 'a:' + u[hash_col_a].map(cmap_a).astype(str)
     u['node_b'] = 'b:' + u[hash_col_b].map(cmap_b).astype(str)

@@ -1,0 +1,36 @@
+# Ruff config for viral-segmatch.
+# Ruff-only pyproject (no [build-system]) so it does NOT affect packaging/imports.
+# Inert until you run ruff (directly, via pre-commit, or the Claude PostToolUse hook).
+
+[tool.ruff]
+target-version = "py39"        # segmatch env is Python 3.9
+line-length = 120              # at 100, ~500 existing lines tripped E501; 120 cuts most of that
+extend-exclude = ["notebooks", "examples", "eda", "data", "reports", "documentation"]
+
+[tool.ruff.lint]
+# A small, safe, auto-fixable set: import sorting + the clean pyflakes cleanups.
+#   I    = isort (import ordering)        F401 = unused-import (removed)
+#   F541 = f-string with no placeholder   F811 = redefined-while-unused
+# Size/complexity + opinionated families (PD/UP/NPY/F821 ...) intentionally left out.
+select = ["I", "F401", "F541", "F811"]
+
+# To also enforce correctness + smaller functions later, widen `select` and uncomment
+# the thresholds below:
+#   select = ["E", "F", "I", "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915"]
+#     E/F        = pycodestyle + pyflakes (style + undefined-name/unused catches)
+#     C901       = cyclomatic complexity        PLR0913 = too-many-arguments
+#     PLR0915    = too-many-statements          PLR0912 = too-many-branches
+# [tool.ruff.lint.mccabe]
+# max-complexity = 12
+# [tool.ruff.lint.pylint]
+# max-statements = 50   # PLR0915      max-branches = 12   # PLR0912
+# max-args = 8          # PLR0913      max-returns = 6     # PLR0911
+# [tool.ruff.lint.per-file-ignores]   # relax size gates for one-off code
+# "scripts/**"      = ["PLR0915", "PLR0912", "C901"]
+# "src/analysis/**" = ["PLR0915", "PLR0912", "C901"]
+# "tests/**"        = ["PLR0915"]
+
+[tool.ruff.format]
+# black-compatible reformat; runs only when you invoke `ruff format`. NOTE: this is separate
+# from `select` and reformats ALL code, not just imports — drop the ruff-format pre-commit
+# hook if you want strictly imports-only.

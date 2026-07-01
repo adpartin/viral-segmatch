@@ -1,0 +1,12 @@
+# Split strategy: cluster_disjoint_cc
+# 2D-CD CC builder (src/datasets/dataset_pairs_cc.py).
+# Inherits the cluster_disjoint knobs; adds the CC-only knobs below.
+# NOT accepted by the v2 Stage-3 CLI.
+
+defaults:
+  - cluster_disjoint
+  - _self_
+mode: cluster_disjoint_cc
+negative_scope: within_cc          # within_cc (hard, removes cluster shortcut) | within_fold (easier)
+m_pos_per_cc: 1                    # positive ROWS kept per CC (atom=CC; m does NOT change the atom count). 1 = uniform-weight atoms; null = no cap
+drop_negative_infeasible_ccs: true # drop CCs with no drawable within-CC negative

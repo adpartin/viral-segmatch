@@ -5,7 +5,8 @@
 from `clusters.md` §6.1 / `2026-05-22_aa_cluster_algorithm_validation_results.md`
 § "Open questions").
 **Companion data:** `results/flu/July_2025/runs/cluster_aa_nt_crosstab/`
-**Analysis script:** `src/analysis/aa_nt_cluster_crosstab.py`
+**Analysis script:** `src/analysis/aa_nt_cluster_crosstab.py` (removed — closed
+one-off; this writeup is the standing record of the finding).
 
 ---
 

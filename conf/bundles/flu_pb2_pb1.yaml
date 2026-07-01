@@ -44,7 +44,7 @@ dataset:
 
 kmer:
   k: 6
-  alphabet: nt
+  alphabet: nt_ctg
 
 training:
   epochs: 100

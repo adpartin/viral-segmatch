@@ -14,11 +14,14 @@ currently scattered across `src/analysis/{cluster,bigraph}_*.py`.
 
 **Per-alphabet key — do not cross the streams.** Each alphabet keys on its OWN
 hash, matching the column its cluster parquets were built on:
-  - aa     : `seq_hash` = compute_seq_hash(prot_seq) = md5(prot_seq.rstrip('*')).
-             `protein_final` carries no hash, so it is computed here.
-  - nt_cds : `cds_dna_hash` = md5(cds_dna), already present in `cds_final`.
-The aa protein hash is NEVER used to join nt_cds clusters (and vice versa): the
-nt_cds cluster parquets key on `cds_dna_hash`, the aa ones on `seq_hash`.
+  - aa     : `prot_hash` = compute_prot_hash(prot_seq) = md5(prot_seq). Stage 1
+             writes prot_hash to `protein_final`; recomputed here for parity.
+  - nt_cds : `cds_dna_hash` = md5(cds_dna_seq), already present in `cds_dna_final`.
+  - nt_ctg : `ctg_dna_hash` = md5(ctg_dna_seq), already present in `ctg_dna_final`.
+             ctg_dna_final carries no `function`; it is attached via a 1-1 join
+             from cds_dna_final (attach_function_to_contigs).
+The three hash spaces are never crossed: each alphabet's cluster parquets key on
+its own hash column, and membership joins on that same column.
 
 Metadata (`hn_subtype, host, year, geo_location_clean`) is joined per isolate from
 `load_flu_metadata`; `geo_location_clean` is the project's canonical downstream
@@ -27,10 +30,12 @@ location column (the one the `geo_location` holdout axis consumes).
 CLI:
     python -m src.preprocess.build_cluster_membership --alphabet aa
     python -m src.preprocess.build_cluster_membership --alphabet nt_cds
+    python -m src.preprocess.build_cluster_membership --alphabet nt_ctg
     # optional overrides: --source --clusters_root --virus_yaml --out
 
 Output columns (alphabet-specific key + length):
-    assembly_id, function, <seq_hash|cds_dna_hash>, <length|cds_length>,
+    assembly_id, function, <prot_hash|cds_dna_hash|ctg_dna_hash>,
+    <length|cds_length|length>,
     hn_subtype, host, year, geo_location_clean,    # per isolate
     t100, t099, ..., t090                          # cluster_id per threshold
 """
@@ -47,7 +52,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.clustering_utils import compute_seq_hash  # noqa: E402
+from src.utils.clustering_utils import attach_function_to_contigs, compute_prot_hash  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 from src.utils.metadata_enrichment import load_flu_metadata  # noqa: E402
 
@@ -56,24 +61,38 @@ _FILL_UNKNOWN = ['hn_subtype', 'host', 'geo_location_clean']  # categorical; yea
 
 # Per-alphabet wiring. `key_col` is the join key in BOTH the record table and the
 # cluster parquet; `compute_key_from` is the sequence column to hash when the
-# source lacks the key (aa: protein_final has no seq_hash), or None when the
-# source already carries it (nt_cds: cds_final has cds_dna_hash).
+# source (aa: recomputed from prot_seq, equals the stored prot_hash), or None
+# when the source already carries it (nt_cds/nt_ctg: the *_final tables already
+# carry the hash). `function_source` is None when the source carries `function`
+# natively (aa, nt_cds); for nt_ctg the contig table has none, so `function` is
+# attached via a 1-1 join from cds_dna_final (attach_function_to_contigs).
 _ALPHABET_CFG = {
     'aa': {
         'source': 'data/processed/flu/July_2025/protein_final.parquet',
         'clusters': 'data/processed/flu/July_2025/clusters_aa',
         'out': 'data/processed/flu/July_2025/cluster_membership/cluster_memb_aa.parquet',
-        'key_col': 'seq_hash',
+        'key_col': 'prot_hash',
         'length_col': 'length',
         'compute_key_from': 'prot_seq',
+        'function_source': None,
     },
     'nt_cds': {
-        'source': 'data/processed/flu/July_2025/cds_final.parquet',
+        'source': 'data/processed/flu/July_2025/cds_dna_final.parquet',
         'clusters': 'data/processed/flu/July_2025/clusters_nt_cds',
         'out': 'data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_cds.parquet',
         'key_col': 'cds_dna_hash',
         'length_col': 'cds_length',
         'compute_key_from': None,
+        'function_source': None,
+    },
+    'nt_ctg': {
+        'source': 'data/processed/flu/July_2025/ctg_dna_final.parquet',
+        'clusters': 'data/processed/flu/July_2025/clusters_nt_ctg',
+        'out': 'data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_ctg.parquet',
+        'key_col': 'ctg_dna_hash',
+        'length_col': 'length',
+        'compute_key_from': None,
+        'function_source': 'data/processed/flu/July_2025/cds_dna_final.parquet',
     },
 }
 
@@ -87,11 +106,14 @@ def _list_thresholds(clusters_root: Path) -> list[str]:
 
 def build_cluster_columns(source: Path, clusters_root: Path, virus_yaml: Path, *,
                           key_col: str, length_col: str,
-                          compute_key_from: Optional[str]) -> tuple[pd.DataFrame, list[str]]:
+                          compute_key_from: Optional[str],
+                          function_source: Optional[Path] = None) -> tuple[pd.DataFrame, list[str]]:
     """Per-major-record table with one cluster_id column per threshold.
 
     Joins each record's `key_col` (the alphabet's own hash) to the cluster
-    parquet keyed on the same column, so aa and nt_cds never share a hash space.
+    parquet keyed on the same column, so the three alphabets never share a hash
+    space. For nt_ctg, `function` is attached from `function_source` (the contig
+    table carries none) via a verified 1-1 join.
     """
     fmeta = load_function_metadata(virus_yaml)
     majors_short = list(fmeta.selected_short_names)
@@ -102,17 +124,25 @@ def build_cluster_columns(source: Path, clusters_root: Path, virus_yaml: Path, *
     if not thresholds:
         raise SystemExit(f"ERROR: no tXXX dirs under {clusters_root}")
 
-    read_cols = ['assembly_id', 'function', length_col]
-    read_cols += [compute_key_from] if compute_key_from else [key_col]
+    seq_or_key = [compute_key_from] if compute_key_from else [key_col]
+    if function_source is None:
+        read_cols = ['assembly_id', 'function', length_col] + seq_or_key
+    else:
+        # nt_ctg: source (ctg_dna_final) carries no `function`; read the join key
+        # instead and attach `function` from function_source below.
+        read_cols = ['assembly_id', 'genbank_ctg_id', length_col] + seq_or_key
     if source.suffix == '.parquet':
         df = pd.read_parquet(source, columns=read_cols)
     else:
         # keep_default_na guards the project-wide 'NA'-string trap (function uses
         # full names today, but it's the safe default for any CSV read here).
         df = pd.read_csv(source, usecols=read_cols, keep_default_na=False, na_values=[''])
+    if function_source is not None:
+        df = attach_function_to_contigs(df, Path(function_source))
+        df = df.drop(columns=['genbank_ctg_id'])
     df = df[df['function'].isin(majors_full)].copy()
     if compute_key_from:
-        df[key_col] = df[compute_key_from].map(compute_seq_hash)
+        df[key_col] = df[compute_key_from].map(compute_prot_hash)
         df = df.drop(columns=[compute_key_from])
     print(f"Loaded {len(df):,} major-protein records "
           f"({df[key_col].nunique():,} unique {key_col} across {df['function'].nunique()} proteins).")
@@ -169,12 +199,14 @@ def main() -> None:
     clusters_root = Path(args.clusters_root) if args.clusters_root else PROJ / cfg['clusters']
     out = Path(args.out) if args.out else PROJ / cfg['out']
     key_col, length_col = cfg['key_col'], cfg['length_col']
+    function_source = (PROJ / cfg['function_source']) if cfg.get('function_source') else None
 
     print(f"=== building cluster_membership [{args.alphabet}] "
           f"(key={key_col}) ===")
     table, thresholds = build_cluster_columns(
         source, clusters_root, Path(args.virus_yaml),
-        key_col=key_col, length_col=length_col, compute_key_from=cfg['compute_key_from'])
+        key_col=key_col, length_col=length_col, compute_key_from=cfg['compute_key_from'],
+        function_source=function_source)
     table, match_rate = attach_metadata(table)
 
     ordered = ['assembly_id', 'function', key_col, length_col] + _META_COLS + thresholds

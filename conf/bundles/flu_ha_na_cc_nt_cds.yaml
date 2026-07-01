@@ -1,0 +1,15 @@
+# STATUS: experimental -- HA/NA 2D-CD CV on nt_cds.
+# Built by src/datasets/dataset_pairs_cc.py.
+
+defaults:
+  - flu_ha_na_cc_aa
+  - _self_
+
+dataset:
+  split_strategy:
+    cluster_alphabet: nt_cds
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds/t099/combined_cluster.parquet
+
+kmer:
+  alphabet: nt_cds
+  k: 6
