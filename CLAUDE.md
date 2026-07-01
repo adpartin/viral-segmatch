@@ -284,6 +284,22 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 
 ---
 
+## Core Vocabulary
+
+Canonical definitions of the terms that cause the most confusion. Detail in
+`docs/methods/glossary.md`; keep the two in sync, and reuse these exact terms — don't coin synonyms.
+
+- **atom** — the indivisible routing unit. In 2D-CD (`cluster_disjoint_cc`) atom = one bipartite **CC** (one atom per CC; `atom_id == cc_id`). An atom is NOT a row.
+- **rows ≠ atoms** — a positive "pair"/row is one record; `m_pos_per_cc` caps rows-*per-atom*, NOT the atom count (the cluster threshold fixes the atom count). Reserve "atom"/"CC" for components and "pair"/"row" for records.
+- **CC / mega-CC** — connected component on the (slot-A cluster, slot-B cluster) bigraph; the mega-CC is the giant component that swallows most pairs at low `t`.
+- **pair_key_alphabet** — the positive-dedup key is built on the alphabet's hash (aa→`prot_hash`, nt_cds→`cds_dna_hash`, nt_ctg→`ctg_dna_hash`), so the positive **universe is alphabet-defined** (nt keeps codon/contig variants that aa collapses).
+- **front-end (df)** — the output of `build_frontend`: `protein_final` loaded + DNA hashes attached. The `protein_final` *file* natively carries only `prot_hash`; `ctg_dna_hash`/`cds_dna_hash` are attached *after* load from sibling files (`ctg_dna_final`/`cds_dna_final`).
+- **hash source-stages** — Stage 1 writes `prot_hash` + `ctg_dna_hash`; Stage 1.5 writes `cds_dna_hash`; Stage 3 reads them (no recompute).
+- **within_cc vs within_fold** — CC-builder negative scope: within_cc draws negatives inside each CC (removes the cluster shortcut; hard); within_fold draws cross-CC in-split (keeps it; easier).
+- **molecule ↔ alphabet** — aa↔prot / nt_cds↔cds_dna / nt_ctg↔ctg_dna (the `aa/nt vs protein/DNA` convention below is the full rule) — the single most-crossed pairing.
+
+---
+
 ## Conventions
 
 - **Experiment naming**: `{virus}_{proteins}_{n_isolates}[_{modifiers}]`.
@@ -304,7 +320,7 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 - **Terminology**: `docs/methods/glossary.md` is the canonical glossary (graph-theory + project-specific terms). Use its exact terms in code, docs, and analysis; when introducing a new term, add it there first (same discipline as **Leakage terminology** above). Don't coin a synonym for a term that already has a glossary entry.
 - **Docs describe current state, not history**. Method and reference docs (`docs/methods/`, `CLAUDE.md`, `.claude/memory.md`) read as a stable description of how things are now. Don't write "the new X column shows Y" or "since 2026-05-26 the sweep covers …". Historical framing belongs in `docs/results/` or `docs/plans/`.
 - **Claims match verified evidence — no more, no less**. Don't under-claim or over-claim; state the scope of verification ("checked PB2 and PB1; not confirmed on the other 6") rather than rounding to a universal claim.
-- **Verify before asserting; flag the unverified**. Claims about what *exists* (files, functions, flags, bundles), *current values*, or *what code does* must be checked against the source (Read / Grep / run) in the same turn before stating them — never from memory or inference. For anything not checked (design reasoning, recall, prediction), say so inline ("unverified", "likely", "would need to check X"). A bare factual claim with no evidence and no hedge is a bug — this is the behavioral trigger behind **Claims match verified evidence** above.
+- **Verify before asserting; flag the unverified**. Claims about what *exists* (files, functions, flags, bundles), *current values*, or *what code does* must be checked against the source (Read / Grep / run) in the same turn before stating them — never from memory or inference. For anything not checked (design reasoning, recall, prediction), say so inline ("unverified", "likely", "would need to check X"). A bare factual claim with no evidence and no hedge is a bug — this is the behavioral trigger behind **Claims match verified evidence** above. And surface confusion rather than narrating around it — say "I'm not sure" *before* you explain, not after you're corrected.
 - **Absence and universal claims need an exhaustive search, not a sample**. Before asserting that something *doesn't exist* / is *new* / *first* / *only*, or that *all* / *none* of a set share a property, grep the whole repo — a single-file or single-example check never supports a whole-repo claim. Scope the claim to exactly what was checked (`protein_final carries prot_hash` ≠ `it carries every split hash` — `ctg_dna_hash`/`cds_dna_hash` live in `ctg_dna_final`/`cds_dna_final`), and name the exception rather than just the rule (the three molecule hashes are md5; the ESM-2 cache key is `sha1`).
 - **Concrete numbers in takeaways when the magnitude IS the point**. "PB2 id093 → id092: 1,085 → 112 (−90%)" beats "PB2 drops sharply". Reserve qualitative descriptors for cases where SHAPE matters more than magnitude.
 - **Design symmetry: check before proposing**. Before naming a field, data structure, or API surface, list the dimensions it covers (slot a/b, routing modes, alphabets, splits) and verify the proposal is uniform across each. Names that fit the current example better than the alternatives bake in assumptions and have to be redesigned.
