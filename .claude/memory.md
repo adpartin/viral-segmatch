@@ -21,7 +21,9 @@ change and aren't derivable from code. This file does NOT duplicate:
 ## Current Production State
 - **Builder**: v2 is the only builder (v1 retired 2026-06-03); the `dataset_segment_pairs.py` CLI
   dispatches to `dataset_segment_pairs_v2.py`. Stage 3/4 are decoupled — Stage 4 takes
-  `--dataset_dir` explicitly; provenance in `training_info.json`.
+  `--dataset_dir` explicitly; provenance in `training_info.json`. **The v1 CLI path is not
+  supported for new work** — e.g. its default `pair_key_alphabet` inference is intentionally
+  unfixed (`cluster_alphabet=nt_ctg` without an explicit `pair_key_alphabet` silently falls to `aa`).
 - **Active HA/NA + PB2/PB1 bundles** (`flu_ha_na.yaml`, `flu_pb2_pb1.yaml`) bake in
   `split_strategy.mode=seq_disjoint`, `hash_key=seq` (protein-level, stricter), and the "Test 3"
   interaction (`slot_transform=unit_norm`, `interaction=unit_diff+prod`). Verified in
