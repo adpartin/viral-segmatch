@@ -513,7 +513,7 @@ def _resolve_spec(args, config) -> CCSpec:
 def _build_positives(config, spec: CCSpec, args):
     """Front-end -> positive pairs -> cooccurrence set -> CC atoms -> drop negative-infeasible CCs.
 
-    Regardless of the specified alphabet, we first load protein_final (it carries prot_hash).
+    Regardless of the specified alphabet (aa, nt_cds, nt_ctg), we load protein_final (it carries prot_hash).
     build_frontend ATTACHES the DNA hashes from sibling files: ctg_dna_hash from ctg_dna_final (always),
     cds_dna_hash from cds_dna_final (only if nt_cds is set as alphabet).
     The alphabet only picks which hash keys pair_key/dedup/cluster-join.
