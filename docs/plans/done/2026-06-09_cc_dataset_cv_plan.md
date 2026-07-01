@@ -1,6 +1,6 @@
 # CC-based dataset generation + cross-validation (Tier 1)
 
-**Status: IN PROGRESS** — Phase-1 **(a) Hydra wiring + (c) front-end DONE + verified +
+**Status: IMPLEMENTED** (2026-07-01) — Phase-1 **(a) Hydra wiring + (c) front-end DONE + verified +
 committed** (`48a3e26`): `dataset_pairs_cc.py` is now a maintained, config-driven Stage-3
 builder — `--config_bundle` + §11 knobs (incl. `drop_negative_infeasible_ccs` — structural
 negative-infeasibility, and `m_pos_per_cc` default 1), v2's front-end (enrich/filter) reused by calling
@@ -35,6 +35,12 @@ separate downstream item, not part of the builder.
 
 **Branch:** `feature/cc-dataset-cv` (off `master`; master already carries the Phase-2 nt_cds machinery).
 **Scope:** Tier 1 only. Tier 2 (the symmetric column rename) is a separate future migration — see §9.
+
+**Reconciled 2026-07-01 (pre-merge):** Phases 1–3 (the 2D-CD builder for aa / nt_cds / nt_ctg)
+are DONE + verified; the slim writer and §7 reproduction are closed. Deferred future work is out
+of this plan's scope and tracked elsewhere: **cut fragmentation** →
+`docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md`; **regime-targeted within-CC negatives**
++ **repeated CV (`n_repeats>1`)** → `BACKLOG.md` § "CC dataset CV — deferred".
 
 ---
 
