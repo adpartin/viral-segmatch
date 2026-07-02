@@ -413,6 +413,7 @@ class CCSpec:
     negative_scope: str
     drop_negative_infeasible_ccs: bool
     m_pos: int
+    max_atoms: int | None  # None = no cap; caps #atoms for size-controlled sweeps
     seed: int
     cluster_id_path: Path
     threshold: str
@@ -501,6 +502,12 @@ def _resolve_spec(args, config) -> CCSpec:
     if not isinstance(m_pos, int) or m_pos < 1:
         raise ValueError(f"dataset.split_strategy.m_pos_per_cc must be a positive int; got {m_pos!r}.")
 
+    # Optional atom-count cap for size-controlled sweeps (default null = no cap).
+    _max_atoms = OmegaConf.select(config, 'dataset.split_strategy.max_atoms')
+    max_atoms = int(_max_atoms) if _max_atoms is not None else None
+    if max_atoms is not None and max_atoms < 1:
+        raise ValueError(f"dataset.split_strategy.max_atoms must be a positive int or null; got {max_atoms!r}.")
+
     seed = resolve_process_seed(config, 'datasets')
     if seed is None:
         raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
@@ -517,8 +524,26 @@ def _resolve_spec(args, config) -> CCSpec:
         config_bundle=args.config_bundle, alphabet=alphabet, pair_key_alphabet=pair_key_alphabet,
         k_folds=int(k_folds), n_repeats=n_repeats, neg_to_pos_ratio=float(ds.neg_to_pos_ratio),
         val_ratio=float(ds.val_ratio), negative_scope=negative_scope,
-        drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, seed=seed,
+        drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, max_atoms=max_atoms, seed=seed,
         cluster_id_path=cluster_id_path, threshold=threshold, fa=fa, fb=fb, sa=sa, sb=sb)
+
+
+def _subsample_atoms(pos_ids: pd.DataFrame, max_atoms, seed: int) -> pd.DataFrame:
+    """Cap the atom count at `max_atoms` by keeping a seeded random subset of atom_ids
+    (all rows of each kept atom). No-op when max_atoms is None or already within budget.
+
+    Keys on atom_id (the final routing unit), NOT cc_id, so it stays correct once the
+    'cut' strategy fragments a CC into several atoms (atom_id becomes a sub-unit of
+    cc_id). See BACKLOG 'CC dataset CV' #3 / _megacc_cut.apply_drop_budget_cut.
+    """
+    if max_atoms is None:
+        return pos_ids
+    atoms = pos_ids['atom_id'].unique()
+    if len(atoms) <= max_atoms:
+        return pos_ids
+    rng = np.random.RandomState(seed)
+    keep = set(rng.choice(atoms, size=int(max_atoms), replace=False))
+    return pos_ids[pos_ids['atom_id'].isin(keep)].reset_index(drop=True)
 
 
 def _build_positives(config, spec: CCSpec, args):
@@ -570,6 +595,13 @@ def _build_positives(config, spec: CCSpec, args):
         pos_ids = pos_ids[~pos_ids['cc_id'].isin(neg_infeasible_ccs)].reset_index(drop=True)
         print(f"  drop_negative_infeasible_ccs: dropped {len(neg_infeasible_ccs):,} CCs "
               f"({n0_cc:,} -> {pos_ids['cc_id'].nunique():,} kept).")
+
+    # Optional size-control: cap #atoms AFTER the drop (so kept atoms stay feasible).
+    # No-op unless dataset.split_strategy.max_atoms is set. See _subsample_atoms.
+    if spec.max_atoms is not None:
+        n0_atoms = pos_ids['atom_id'].nunique()
+        pos_ids = _subsample_atoms(pos_ids, spec.max_atoms, spec.seed)
+        print(f"  max_atoms={spec.max_atoms}: atoms {n0_atoms:,} -> {pos_ids['atom_id'].nunique():,}")
     return df, pos_ids, cooccur
 
 
@@ -650,7 +682,7 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
                'config_bundle': spec.config_bundle, 'schema_pair': [spec.sa, spec.sb],
                'alphabet': spec.alphabet, 'threshold': spec.threshold,
                'cluster_id_path': str(spec.cluster_id_path),
-               'm_pos_per_cc': spec.m_pos, 'neg_to_pos_ratio': spec.neg_to_pos_ratio,
+               'm_pos_per_cc': spec.m_pos, 'max_atoms': spec.max_atoms, 'neg_to_pos_ratio': spec.neg_to_pos_ratio,
                'pair_key_alphabet': spec.pair_key_alphabet, 'negative_scope': spec.negative_scope,
                'drop_negative_infeasible_ccs': spec.drop_negative_infeasible_ccs,
                'fold_dirs': [f'fold_{k}' for k in range(spec.k_folds)]}
