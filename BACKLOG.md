@@ -182,9 +182,9 @@ Non-blocking loose ends from the closed refactor
 ## CC dataset CV — deferred (post 2026-06-09 plan)
 
 Explicitly-parked future phases from `docs/plans/2026-06-09_cc_dataset_cv_plan.md`
-(Phases 1–3 implemented). Cut fragmentation is NOT here — it's tracked in
-`docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md` (core implemented; wiring
-the cut into the CC builder is the near-term remaining piece).
+(Phases 1–3 implemented). The cut-fragmentation machinery lives in
+`docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md` (`_megacc_cut.py`, core
+implemented, holdout-wired); item 3 is the concrete CC-builder wiring.
 
 1. **Regime-targeted within-CC negatives.** `dataset.negative_sampling` in the CC
    builder is a placeholder that raises. Wire the 8-regime priority chain
@@ -194,3 +194,13 @@ the cut into the CC builder is the near-term remaining piece).
 2. **Repeated CV (`n_repeats > 1`).** The CC builder wires `n_repeats=1` only
    (>1 raises). Next action: loop GroupKFold with a per-repeat reseed, write
    `fold_{r}_{k}` dirs, aggregate mean ± std across repeats × folds. (~1–2 h + test)
+3. **Wire cut fragmentation into the CC builder.** Call
+   `_megacc_cut.apply_drop_budget_cut` in `assign_atoms_prod` (`dataset_pairs_cc.py`)
+   to split mega-CCs into sub-atoms before GroupKFold, so `atom_id` becomes a
+   sub-unit of `cc_id` (breaks `atom_id == cc_id`) and 2D-CD is feasible below t099.
+   `_megacc_cut.py` is done + validated but wired only into the holdout router
+   (`_split_helpers::route_holdout`) — this is the new `dataset_pairs_cc` integration
+   (the production twin; NOT analysis `_cv_sampling.assign_atoms(strategy='cut')`).
+   Add a `drop_budget`/`cut` knob (default off = natural behavior). Next action:
+   design how the cut composes with `m_pos_per_cc` and `drop_negative_infeasible_ccs`.
+   (needs design)

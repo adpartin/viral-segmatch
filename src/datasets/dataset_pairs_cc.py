@@ -144,14 +144,18 @@ def build_frontend(
 
 
 def assign_atoms_prod(pos: pd.DataFrame, cluster_lookup: pd.DataFrame, pos_hash_col: str):
-    """Attach cluster ids + 2D bipartite-CC atom_id/cc_id (production path).
+    """Attach cluster ids + 2D bipartite-CC atom_id/cc_id (production path; as opposed to
+    src/analysis/_cv_sampling.assign_atoms).
 
-    Atoms = natural connected components on (cluster_id_a, cluster_id_b). Returns
-    (pos_with_ids, cc_summary). atom_id == cc_id (no fragmentation in Phase 1).
+    Atoms = natural CCs on (cluster_id_a, cluster_id_b). Returns (pos_with_ids, cc_summary).
+    atom_id == cc_id —> one atom per whole CC (the "natural" strategy; the "cut" strategy that
+    fragments mega-CCs into sub-atoms is not wired into this builder yet).
+
+    NOTE: wiring the "cut" strategy here will call `_megacc_cut.apply_drop_budget_cut`
+    (see BACKLOG "CC dataset CV" #3).
     """
     pos_ids, attach_audit = attach_cluster_ids(pos, cluster_lookup, pos_hash_col=pos_hash_col)
-    component_id, cc_summary = bipartite_components(
-        pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
+    component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
     pos_ids = pos_ids.copy()
     pos_ids['cc_id'] = component_id.to_numpy()
     pos_ids['atom_id'] = pos_ids['cc_id']
@@ -175,9 +179,10 @@ def _side_rep(df: pd.DataFrame, func: str, suffix: str, key_col: str = 'prot_has
     return rep.rename(columns=ren)
 
 
-def compute_negative_infeasible_ccs(pos_ids: pd.DataFrame, cooccur: set,
-                                    hash_a_col: str = 'prot_hash_a',
-                                    hash_b_col: str = 'prot_hash_b') -> set:
+def compute_negative_infeasible_ccs(
+    pos_ids: pd.DataFrame, cooccur: set,
+    hash_a_col: str = 'prot_hash_a',
+    hash_b_col: str = 'prot_hash_b') -> set:
     """CCs from which no within-CC negative can be drawn — the drop set for
     `drop_negative_infeasible_ccs`, computed structurally on the positives.
 
@@ -307,31 +312,32 @@ def within_fold_negatives(
     neg_to_pos_ratio: float,
     seed: int,
     hash_col: str = 'prot_hash') -> pd.DataFrame:
-    """Cross-CC negatives for one fold-split (the `make_negatives` scheme).
+    """Within-fold negatives for one fold-split (the `make_negatives` scheme).
 
-    Pairs a random positive's slot-a seq with another positive's slot-b seq,
-    BOTH drawn from THIS split's positives (usually different CCs), rejecting
-    true co-occurrences (`cooccur`) and duplicates. Both endpoints stay in-split,
-    so the fold remains cluster-disjoint; the cluster shortcut is NOT removed
-    (cf. within-CC negatives). Budget = round(ratio * n_split_pos). Enriched to
-    `_PAIR_COLUMNS` (mirrors `within_cc_negatives`).
+    Pairs a random positive's slot-a seq with another positive's slot-b seq to create
+    a negative. BOTH seqs are drawn from THIS split's positives (usually different CCs),
+    rejecting true co-occurrences (observed positives) and negative duplicates. Both endpoints
+    stay in-split, so the fold remains cluster-disjoint; the cluster shortcut is NOT removed
+    (cf. within-CC negatives). Budget = round(ratio * n_split_pos). Enriched to `_PAIR_COLUMNS`
+    (mirrors `within_cc_negatives`).
     """
     fa, fb = schema_pair_full
     ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'  # alphabet's per-slot hash (aa: prot_hash)
     a = split_pos[ha_col].astype(str).to_numpy()
     b = split_pos[hb_col].astype(str).to_numpy()
-    budget = int(round(neg_to_pos_ratio * len(split_pos)))
+    budget = int(round(neg_to_pos_ratio * len(split_pos))) # num negatives to sample
     if len(a) < 2 or budget <= 0:
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
+
     rng = np.random.RandomState(seed)
-    na, nb, seen = [], [], set()
-    placed, attempts, max_attempts = 0, 0, budget * 50 + 200
+    na, nb, seen = [], [], set()  # neg slot-a, neg slot-b, seen neg pair_keys
+    placed, attempts, max_attempts = 0, 0, budget * 50 + 200 # reject-sampling ceiling: ~50 attempts + 200 floor for tiny budgets
     while placed < budget and attempts < max_attempts:
         attempts += 1
         ha, nbh = a[rng.randint(len(a))], b[rng.randint(len(b))]
-        pk = canonical_pair_key(ha, nbh)   # true pair (incl. a positive) -> rejected
+        pk = canonical_pair_key(ha, nbh) # canonical pair_key --> used to reject sampled negatives that match existing positives
         if pk in cooccur or pk in seen:
-            continue
+            continue  # reject sampled positives and negative duplicates
         seen.add(pk)
         na.append(ha)
         nb.append(nbh)
@@ -339,14 +345,19 @@ def within_fold_negatives(
     if not na:
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
     out = pd.DataFrame({ha_col: na, hb_col: nb})
-    ra, rb = _side_rep(df, fa, 'a', hash_col), _side_rep(df, fb, 'b', hash_col)
+
+    ra = _side_rep(df, fa, 'a', hash_col) # side-a lookup (one row per hash) to enrich the bare hash_a negatives
+    rb = _side_rep(df, fb, 'b', hash_col) # side-b lookup (one row per hash) to enrich the bare hash_b negatives
     out = out.merge(ra, on=ha_col, how='left').merge(rb, on=hb_col, how='left')
     aa = out[ha_col].astype(str).to_numpy()
     bb = out[hb_col].astype(str).to_numpy()
     out['pair_key'] = np.where(aa <= bb, aa, bb) + '__' + np.where(aa <= bb, bb, aa)
-    out['label'] = 0
-    out['neg_regime'] = pd.NA
-    out['metadata_match_count'] = pd.NA
+
+    out['label'] = 0  # neg label
+    out['neg_regime'] = pd.NA  # placeholder for regime-targeted negatives (not wired)
+    out['metadata_match_count'] = pd.NA  # TODO: a placeholder?
+
+    # Assign pd.NA to cds_dna_hash_a/b since ... [TODO]
     for c in ('cds_dna_hash_a', 'cds_dna_hash_b'):
         if c not in out.columns:
             out[c] = pd.NA
@@ -402,6 +413,7 @@ class CCSpec:
     negative_scope: str
     drop_negative_infeasible_ccs: bool
     m_pos: int
+    max_atoms: int | None  # None = no cap; caps #atoms for size-controlled sweeps
     seed: int
     cluster_id_path: Path
     threshold: str
@@ -490,6 +502,12 @@ def _resolve_spec(args, config) -> CCSpec:
     if not isinstance(m_pos, int) or m_pos < 1:
         raise ValueError(f"dataset.split_strategy.m_pos_per_cc must be a positive int; got {m_pos!r}.")
 
+    # Optional atom-count cap for size-controlled sweeps (default null = no cap).
+    _max_atoms = OmegaConf.select(config, 'dataset.split_strategy.max_atoms')
+    max_atoms = int(_max_atoms) if _max_atoms is not None else None
+    if max_atoms is not None and max_atoms < 1:
+        raise ValueError(f"dataset.split_strategy.max_atoms must be a positive int or null; got {max_atoms!r}.")
+
     seed = resolve_process_seed(config, 'datasets')
     if seed is None:
         raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
@@ -506,8 +524,26 @@ def _resolve_spec(args, config) -> CCSpec:
         config_bundle=args.config_bundle, alphabet=alphabet, pair_key_alphabet=pair_key_alphabet,
         k_folds=int(k_folds), n_repeats=n_repeats, neg_to_pos_ratio=float(ds.neg_to_pos_ratio),
         val_ratio=float(ds.val_ratio), negative_scope=negative_scope,
-        drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, seed=seed,
+        drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, max_atoms=max_atoms, seed=seed,
         cluster_id_path=cluster_id_path, threshold=threshold, fa=fa, fb=fb, sa=sa, sb=sb)
+
+
+def _subsample_atoms(pos_ids: pd.DataFrame, max_atoms, seed: int) -> pd.DataFrame:
+    """Cap the atom count at `max_atoms` by keeping a seeded random subset of atom_ids
+    (all rows of each kept atom). No-op when max_atoms is None or already within budget.
+
+    Keys on atom_id (the final routing unit), NOT cc_id, so it stays correct once the
+    'cut' strategy fragments a CC into several atoms (atom_id becomes a sub-unit of
+    cc_id). See BACKLOG 'CC dataset CV' #3 / _megacc_cut.apply_drop_budget_cut.
+    """
+    if max_atoms is None:
+        return pos_ids
+    atoms = pos_ids['atom_id'].unique()
+    if len(atoms) <= max_atoms:
+        return pos_ids
+    rng = np.random.RandomState(seed)
+    keep = set(rng.choice(atoms, size=int(max_atoms), replace=False))
+    return pos_ids[pos_ids['atom_id'].isin(keep)].reset_index(drop=True)
 
 
 def _build_positives(config, spec: CCSpec, args):
@@ -540,16 +576,16 @@ def _build_positives(config, spec: CCSpec, args):
 
     pos, _ = create_positive_pairs_v2(df, schema_pair=(spec.fa, spec.fb), pair_key_alphabet=spec.pair_key_alphabet)
     cooccur, _ = build_cooccurrence_set(df, hash_col=_POS_HASH[spec.alphabet])
-    lookup = load_cluster_lookup(spec.cluster_id_path)
+    lookup = load_cluster_lookup(spec.cluster_id_path) # load cluster_id_{a,b} lookup df
     pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[spec.alphabet])
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
           f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
 
     # Computed on the UNCAPPED positives (before the m_pos cap) so capping can't make a CC
     # look infeasible. See compute_negative_infeasible_ccs for the definition.
-    neg_infeasible_ccs = compute_negative_infeasible_ccs(
-        pos_ids, cooccur,
-        hash_a_col=f'{_POS_HASH[spec.alphabet]}_a', hash_b_col=f'{_POS_HASH[spec.alphabet]}_b')
+    neg_infeasible_ccs = compute_negative_infeasible_ccs(pos_ids, cooccur,
+        hash_a_col=f'{_POS_HASH[spec.alphabet]}_a', hash_b_col=f'{_POS_HASH[spec.alphabet]}_b'
+    )
 
     # Unified drop (both scopes): remove negative-infeasible CCs up front so every kept CC is
     # class-balanceable. When disabled, they survive as positives-only atoms (within_fold can
@@ -559,6 +595,13 @@ def _build_positives(config, spec: CCSpec, args):
         pos_ids = pos_ids[~pos_ids['cc_id'].isin(neg_infeasible_ccs)].reset_index(drop=True)
         print(f"  drop_negative_infeasible_ccs: dropped {len(neg_infeasible_ccs):,} CCs "
               f"({n0_cc:,} -> {pos_ids['cc_id'].nunique():,} kept).")
+
+    # Optional size-control: cap #atoms AFTER the drop (so kept atoms stay feasible).
+    # No-op unless dataset.split_strategy.max_atoms is set. See _subsample_atoms.
+    if spec.max_atoms is not None:
+        n0_atoms = pos_ids['atom_id'].nunique()
+        pos_ids = _subsample_atoms(pos_ids, spec.max_atoms, spec.seed)
+        print(f"  max_atoms={spec.max_atoms}: atoms {n0_atoms:,} -> {pos_ids['atom_id'].nunique():,}")
     return df, pos_ids, cooccur
 
 
@@ -566,7 +609,7 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
     """Negatives + GroupKFold folds for the configured negative_scope.
 
     within_cc: build the uncapped isolate pool, cap positives per CC, draw within-CC negatives,
-    concat to one balanced set, then GroupKFold by atom (writes cc_sampling_log.csv).
+        concat to one balanced set, then GroupKFold by atom (writes cc_sampling_log.csv).
     within_fold: cap positives, GroupKFold by atom, add cross-CC negatives per split.
     """
     # Isolate pool: within_cc only (within_fold draws negatives from each split's own positives,
@@ -593,8 +636,8 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
         # keeps all columns, and dodges the groupby.apply grouping-column deprecation.
         rng = np.random.RandomState(spec.seed)
         shuf = pos_ids.sample(frac=1, random_state=rng).reset_index(drop=True)
-        shuf['_rank'] = shuf.groupby('cc_id').cumcount()
-        pos_ids = shuf[shuf['_rank'] < spec.m_pos].drop(columns='_rank').reset_index(drop=True)
+        shuf['_rank'] = shuf.groupby('cc_id').cumcount() # 0-based rank within each CC after the seeded shuffle (random order) TODO: ??
+        pos_ids = shuf[shuf['_rank'] < spec.m_pos].drop(columns='_rank').reset_index(drop=True) # keep m_pos random positives per CC/atom (m=1 -> one row per atom) TODO: ??
         print(f"  capped positives per CC at m_pos_per_cc={spec.m_pos}: {len(pos_ids):,} kept")
 
     if spec.negative_scope == 'within_cc':
@@ -624,8 +667,8 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
 
     # within_fold: split positives by atom, then add cross-CC negatives per split
     pos_full = pos_ids.copy()
-    pos_full['neg_regime'] = pd.NA
-    pos_full['metadata_match_count'] = pd.NA
+    pos_full['neg_regime'] = pd.NA # negative-only field; NA on positive rows TODO: correct??
+    pos_full['metadata_match_count'] = pd.NA # negative-only fields; NA on positive rows TODO: correct??
     print(f"  positives: {len(pos_full):,} across {pos_full['atom_id'].nunique():,} atoms; "
           f"within-fold (cross-CC) negatives generated per split")
     return make_folds_within_fold(
@@ -639,7 +682,7 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
                'config_bundle': spec.config_bundle, 'schema_pair': [spec.sa, spec.sb],
                'alphabet': spec.alphabet, 'threshold': spec.threshold,
                'cluster_id_path': str(spec.cluster_id_path),
-               'm_pos_per_cc': spec.m_pos, 'neg_to_pos_ratio': spec.neg_to_pos_ratio,
+               'm_pos_per_cc': spec.m_pos, 'max_atoms': spec.max_atoms, 'neg_to_pos_ratio': spec.neg_to_pos_ratio,
                'pair_key_alphabet': spec.pair_key_alphabet, 'negative_scope': spec.negative_scope,
                'drop_negative_infeasible_ccs': spec.drop_negative_infeasible_ccs,
                'fold_dirs': [f'fold_{k}' for k in range(spec.k_folds)]}
