@@ -606,7 +606,7 @@ def bipartite_components(
     col_a: Optional[str] = None,
     col_b: Optional[str] = None,
     ) -> tuple[pd.Series, dict]:
-    """Connected components of the bipartite (side-A, side-B) hash graph.
+    """Connected components (CCs) of the bipartite (side-A, side-B) hash graph.
 
     Two parameter styles, mutually exclusive:
 
