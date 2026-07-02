@@ -1,6 +1,13 @@
 # CC within_fold threshold sweep (nt_cds) — slides
 
-**Status: IN PROGRESS**
+**Status: IMPLEMENTED**
+
+**Result (2026-07-02):** All steps done — drop0 sweep + aggregator + slide plots delivered; step 4
+(disentangling) implemented via an additive default-off `max_atoms` knob. **Finding — size, not
+threshold difficulty:** holding #atoms fixed, AUC is flat across t (cap690 ≈ 0.83 over t099–t097;
+cap218 ≈ 0.6 over t099–t095), so the naive drop0 decline (0.956→0.611) is a learning-curve effect
+in #atoms — motivates cut-fragmentation (BACKLOG #3). Write-up:
+`docs/results/2026-07-02_cc_within_fold_size_decoupling.md`.
 
 Branch: `feature/cc-within-fold-tsweep`. Goal: a 1–2 slide report of pair-classification
 performance vs cluster identity threshold under 2D cluster-disjoint 5-fold CV, with the
@@ -47,3 +54,7 @@ raises atoms per t but does not remove the confound.
 ## Out of scope
 
 Builder-logic changes; within_cc; aa runs. Cluster regeneration deferred (only if results warrant).
+
+**Reconcile (2026-07-02):** step 4 needed an atom-count cap, so the "no builder-logic changes"
+scope was relaxed to one **additive, default-off** knob — `max_atoms` (keyed on atom_id, composes
+with the future cut) + unit tests. Default is null, so existing behavior is unchanged (114 tests pass).
