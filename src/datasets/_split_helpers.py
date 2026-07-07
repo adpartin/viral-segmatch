@@ -33,7 +33,7 @@ from src.utils import schema
 
 
 def load_cluster_lookup(cluster_path: Union[str, Path]) -> pd.DataFrame:
-    """Load a (<hash> -> cluster_id) lookup from a parquet file and returns
+    """Loads a (<hash> -> cluster_id) lookup from a parquet file and returns
     the lookup dataframe as-is. Validates that the df has exactly one of the
     expected hash columns and a cluster_id column, and that the hash column
     is unique.

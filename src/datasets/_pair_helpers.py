@@ -714,7 +714,7 @@ def _lpt_bin_pack(
     sizes: pd.Series,
     targets: dict,
     bin_order: list,
-) -> dict:
+    ) -> dict:
     """LPT-greedy bin-packing: largest group to bin with biggest deficit.
 
     Args:
