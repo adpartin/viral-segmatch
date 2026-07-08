@@ -132,17 +132,18 @@ def test_build_cmd_default_is_backcompat():
 
 
 def test_build_cmd_ood_emits_connected_component_flags():
-    # The OOD recipe emits exactly the three opt-in flags: connected-component
-    # clustering (--cluster-mode 1), sensitive prefilter (-s), single-step.
+    # The OOD recipe emits the opt-in flags: connected-component (--cluster-mode 1),
+    # sensitive prefilter (-s), single-step, and a high --max-seqs.
     cmd = _build_mmseqs_clust_cmd(
         mmseqs_bin="mmseqs", subcmd="easy-cluster",
         fasta_path="f.fasta", out_prefix="out", tmp_dir="tmp", dbtype="1",
         min_seq_id=0.95, coverage=0.8, cov_mode=0, cluster_mode=1,
-        sensitivity=7.5, single_step_clustering=True,
+        sensitivity=7.5, single_step_clustering=True, max_seqs=100000,
     )
     assert cmd[cmd.index("--cluster-mode") + 1] == "1"
     assert cmd[cmd.index("-s") + 1] == "7.5"
     assert "--single-step-clustering" in cmd
+    assert cmd[cmd.index("--max-seqs") + 1] == "100000"
 
 
 if __name__ == "__main__":

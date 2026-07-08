@@ -148,6 +148,7 @@ def cluster_one_function_one_threshold(
     cluster_mode: int = 0,
     sensitivity: Optional[float] = None,
     single_step_clustering: bool = False,
+    max_seqs: Optional[int] = None,
     mmseqs_bin: Optional[str] = None,
     ) -> dict:
     """Run mmseqs at one threshold on the FASTA for one function.
@@ -228,6 +229,7 @@ def cluster_one_function_one_threshold(
             cluster_mode=cluster_mode,
             sensitivity=sensitivity,
             single_step_clustering=single_step_clustering,
+            max_seqs=max_seqs,
             mmseqs_bin=mmseqs_bin,
         )
         elapsed_seconds = time.time() - t0
@@ -461,8 +463,14 @@ def main() -> None:
                         'Requires --algorithm cluster.')
     p.add_argument('--single_step_clustering', action='store_true',
                    help='mmseqs --single-step-clustering (one non-cascaded pass). '
-                        'Requires --algorithm cluster. OOD recipe: --algorithm cluster '
-                        '--cluster_mode 1 --single_step_clustering --sensitivity 7.5.')
+                        'Requires --algorithm cluster.')
+    p.add_argument('--max_seqs', type=int, default=None,
+                   help='mmseqs --max-seqs (prefilter neighbors kept per sequence). '
+                        'REQUIRED high for the connected-component OOD guarantee: '
+                        'set >= the per-function unique-seq count (cluster default 20 '
+                        'truncates the graph on dense inputs and breaks it). OOD '
+                        'recipe: --algorithm cluster --cluster_mode 1 '
+                        '--single_step_clustering --sensitivity 7.5 --max_seqs 100000.')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
     p.add_argument('--results_md',
                    default=None,
@@ -573,6 +581,7 @@ def main() -> None:
                 cluster_mode=args.cluster_mode,
                 sensitivity=args.sensitivity,
                 single_step_clustering=args.single_step_clustering,
+                max_seqs=args.max_seqs,
                 mmseqs_bin=args.mmseqs_bin,
             )
             all_stats.append(stats)
@@ -628,6 +637,7 @@ def main() -> None:
         'cluster_mode': args.cluster_mode,
         'sensitivity': args.sensitivity,
         'single_step_clustering': args.single_step_clustering,
+        'max_seqs': args.max_seqs,
         'threads': args.threads,
         'functions': list(args.functions),
         'thresholds': [float(t) for t in args.thresholds],

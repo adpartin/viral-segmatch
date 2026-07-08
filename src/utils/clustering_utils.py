@@ -308,6 +308,7 @@ def _build_mmseqs_clust_cmd(
     cluster_mode: int,
     sensitivity: Optional[float] = None,
     single_step_clustering: bool = False,
+    max_seqs: Optional[int] = None,
     threads: Optional[int] = 16,
     extra_args: Optional[list] = None,
     ) -> list:
@@ -340,6 +341,8 @@ def _build_mmseqs_clust_cmd(
         cmd += ['-s', f'{sensitivity:g}']
     if single_step_clustering:
         cmd += ['--single-step-clustering', '1']
+    if max_seqs is not None:
+        cmd += ['--max-seqs', str(max_seqs)]
     if threads is not None:
         cmd += ['--threads', str(threads)]
     if extra_args:
@@ -365,6 +368,7 @@ def run_mmseqs_easy_clust(
     cluster_mode: int = 0,
     sensitivity: Optional[float] = None,
     single_step_clustering: bool = False,
+    max_seqs: Optional[int] = None,
     ) -> MMseqsResult:
     """Run `mmseqs easy-linclust` (or `easy-cluster`) as a subprocess.
 
@@ -424,6 +428,10 @@ def run_mmseqs_easy_clust(
         single_step_clustering: `--single-step-clustering` (default False = cascaded).
             True = one non-cascaded pass (clusters = connected components of a single
             alignment graph). `algorithm='cluster'` only.
+        max_seqs: `--max-seqs` (prefilter neighbors kept per sequence). For the
+            connected-component OOD guarantee it must be >= the sequence count so no
+            true >= t neighbor is truncated (mmseqs cluster's default of 20 is far too
+            low on dense inputs and silently fragments the graph).
     """
     fasta_path = Path(fasta_path)
     out_prefix = Path(out_prefix)
@@ -483,6 +491,7 @@ def run_mmseqs_easy_clust(
         cluster_mode=cluster_mode,
         sensitivity=sensitivity,
         single_step_clustering=single_step_clustering,
+        max_seqs=max_seqs,
         threads=threads,
         extra_args=extra_args,
     )

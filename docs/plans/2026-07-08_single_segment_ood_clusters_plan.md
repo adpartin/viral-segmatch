@@ -1,6 +1,8 @@
 # Single-segment OOD clusters (across-cluster separation)
 
-**Status: IN PROGRESS**
+**Status: IN PROGRESS** — code done (Steps 1–2, incl. `--max_seqs`); the across-cluster guarantee
+is **not yet verified** (the default `--max-seqs 20` fails it — see Findings; GPU re-verify pending
+on an H100).
 
 Date: 2026-07-08
 
@@ -39,13 +41,17 @@ Cluster each segment's sequences (per alphabet, per `t`) as **connected componen
 ```
 mmseqs easy-cluster <segment.fasta> <out> <tmp> \
   --min-seq-id t -c 0.8 --cov-mode 0 \
-  --cluster-mode 1 --single-step-clustering -s 7.5
+  --cluster-mode 1 --single-step-clustering -s 7.5 --max-seqs <N>
 ```
 
 - `--cluster-mode 1` — connected-component clustering (the across-different topology).
 - `--single-step-clustering` — clusters are components of one alignment graph (no cascade merge).
 - `-s 7.5` — most sensitive prefilter → near-complete graph (`linclust` has no `-s`; that is why we
   switch to `easy-cluster`).
+- **`--max-seqs <N>` — REQUIRED, set `≥` the per-function unique-seq count.** `mmseqs cluster`
+  defaults to `--max-seqs 20`, which truncates each sequence's neighbor list; on dense proteins that
+  drops true `≥ t` edges and fragments the connected components — the guarantee fails without it
+  (see Findings).
 - `-c 0.8 --cov-mode 0`, `--min-seq-id t` — unchanged from today.
 
 Then **verify** the guarantee with a full all-vs-all pass (see Verification).
@@ -63,9 +69,10 @@ both sequences `≥ 80%` covered. **Cluster** = connected component of the link 
 - **Within: not guaranteed.** Same-cluster sequences are only chain-connected; a within-cluster
   pair can be far below `t`.
 - **Bounds / where it leaks:**
-  1. **Completeness.** `-s 7.5` can miss a few `≥ t` pairs → rare false splits (two similar
-     sequences in different clusters). The verify pass measures this; for a hard guarantee re-run
-     with `--exhaustive-search` / needleall.
+  1. **Completeness (two ways the graph is truncated).** (a) `--max-seqs` caps neighbors per
+     sequence — the `cluster` default of 20 is far too low on dense inputs and drops true `≥ t`
+     edges; set it `≥ N`. (b) `-s 7.5` can still miss a few `≥ t` pairs. The verify pass measures
+     the residual; for a hard guarantee re-run with true-exhaustive alignment.
   2. **Coverage.** "Different cluster" includes "`≥ t` identical but `< 80%` covered" (a fragment
      or one shared domain). Set `-c` / `--cov-mode` to match your OOD notion.
   3. **Scope.** `t` is measured over aligned columns and is alphabet-specific (`t` on aa ≠ `t` on nt).
@@ -77,8 +84,9 @@ both sequences `≥ 80%` covered. **Cluster** = connected component of the link 
    (→ `--single-step-clustering`); thread into the command.
    Defaults reproduce today's set-cover/linclust bytes (back-compatible). Guard: `-s` /
    `--single-step-clustering` apply to `algorithm='cluster'` only.
-2. **[DONE]** **`build_mmseqs_clusters.py`** — add CLI `--cluster_mode`, `--sensitivity`, `--single_step_clustering`.
-   OOD recipe = `--algorithm cluster --cluster_mode 1 --single_step_clustering --sensitivity 7.5`.
+2. **[DONE]** **`build_mmseqs_clusters.py`** + **`run_mmseqs_easy_clust`** — add CLI/params
+   `--cluster_mode`, `--sensitivity`, `--single_step_clustering`, **`--max_seqs`**. OOD recipe =
+   `--algorithm cluster --cluster_mode 1 --single_step_clustering --sensitivity 7.5 --max_seqs <N>`.
 3. **Output namespace** — write OOD clusters to `clusters_{alphabet}_ood/tXXX/` (`_ood` not `_cc`,
    to avoid confusion with the bipartite mega-CC; keep the existing set-cover parquets alongside,
    do not replace). Bundles opt in by pointing `cluster_id_path` at the new dir.
@@ -91,18 +99,44 @@ both sequences `≥ 80%` covered. **Cluster** = connected component of the link 
      --out_root      data/processed/flu/July_2025/clusters_aa_ood \
      --thresholds 0.99 --functions HA \
      --algorithm cluster --cluster_mode 1 --single_step_clustering --sensitivity 7.5 \
+     --max_seqs 100000 \
      --mmseqs_bin /homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs
    ```
-5. **Verify** (below) on at least one (segment, alphabet, `t`) before wiring any bundle.
+5. **Verify** (`src/analysis/verify_ood_clusters.py`, below) on at least one (segment, alphabet,
+   `t`) before wiring any bundle. **[built; not yet run on a `--max_seqs`-fixed set]**
 
 ## Verification (certifies the guarantee)
 
-1. Exhaustive all-vs-all on the segment's sequences (`--exhaustive-search` or needleall) →
-   per-pair identity + coverage.
-2. Count cross-cluster pairs with `identity ≥ t` **and** `coverage ≥ 0.8`.
-   **Guarantee holds ⇔ count = 0.** (Exhaustive clusters → exactly 0; `-s 7.5` clusters → report
-   the residual; any `> 0` are the missed-edge false splits.)
-3. Report cluster-size distribution + largest-cluster fraction (feeds the fragmentation follow-up).
+Tool: `src/analysis/verify_ood_clusters.py` — all-vs-all (`mmseqs easy-search`) over the same FASTA
+under the clustering's own rule (`--min-seq-id t -c 0.8 --cov-mode 0 --seq-id-mode 0`), then count
+cross-cluster pairs. **Guarantee holds ⇔ count = 0.**
+
+1. Run all-vs-all with a **high `--max-seqs`** (`≥ N`) so no neighbor is truncated, at `-s 7.5`
+   (for high `t`, any sensitivity finds the near-identical pairs). Do **not** use
+   `--exhaustive-search` — in mmseqs 18 it is a slow profile-based iterative search, not a plain
+   all-vs-all.
+2. Every returned hit already meets `id ≥ t` and `cov ≥ 0.8`; any hit whose endpoints are in
+   different clusters is a violation. Report the count (+ cluster-size stats).
+3. **Compute:** all-vs-all is `~O(N²)` — CPU is fine for small/dense functions (~12 min for M1's
+   4,771 seqs) but impractical for HA (~42k). **GPU** (`--gpu 1`, adds `--createdb-mode 2`)
+   accelerates `easy-search`, but the conda build's kernels need Ampere+/Hopper: **V100 (cc 7.0)
+   fails** ("invalid device symbol"), **H100 works**. On CPU-only hardware, verify small functions
+   fully and sample the large ones.
+
+## Findings (2026-07-08)
+
+- **The default `--max-seqs 20` breaks the guarantee.** First smoke on M1 aa t099 (OOD recipe
+  *without* `--max-seqs`) gave 593 clusters, and `verify_ood_clusters.py` found cross-cluster pairs
+  at 99.2–99.6% identity with full coverage — real violations. Root cause: `mmseqs cluster` defaults
+  to `--max-seqs 20`; on dense/conserved M1 that truncates each sequence's neighbor list, so true
+  `≥ t` edges are never evaluated and `--cluster-mode 1` fragments the components. Re-clustering with
+  `--max-seqs 100000` merged 593 → 566, confirming dropped edges. Hence `--max-seqs ≥ N` is now part
+  of the recipe.
+- **NOT yet confirmed:** whether `--max-seqs ≥ N` reaches **0** violations (the 566 set is
+  unverified), or whether `-s 7.5` leaves a residual needing true-exhaustive. First task on the H100.
+- **`--exhaustive-search` is not a plain all-vs-all** in mmseqs 18 — it builds a profileDB and
+  iterates (>14 min on M1). Use `-s 7.5 --max-seqs <big>` instead.
+- **GPU:** the 8× V100 here (cc 7.0) can't run the conda GPU kernels; H100 (Hopper) can.
 
 ## Guardrails
 
