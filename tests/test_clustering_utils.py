@@ -18,6 +18,7 @@ from src.utils import schema  # noqa: E402
 from src.utils.clustering_utils import (  # noqa: E402
     _ACTIVE_ALPHABETS,
     _COLS_BY_ALPHABET,
+    _build_mmseqs_clust_cmd,
     _clean_for_mmseqs,
     attach_function_to_contigs,
     compute_prot_hash,
@@ -111,6 +112,37 @@ def test_attach_function_to_contigs_drops_unmatched():
         out = attach_function_to_contigs(ctg, fsrc)
     assert list(out["ctg_dna_hash"]) == ["h1"]
     assert list(out["function"]) == ["HA"]
+
+
+def test_build_cmd_default_is_backcompat():
+    # Guardrail: default args must reproduce the historical Set-Cover / linclust
+    # command byte-for-byte, so existing clusters_* parquets stay reproducible.
+    cmd = _build_mmseqs_clust_cmd(
+        mmseqs_bin="mmseqs", subcmd="easy-linclust",
+        fasta_path="f.fasta", out_prefix="out", tmp_dir="tmp", dbtype="1",
+        min_seq_id=0.95, coverage=0.8, cov_mode=0, cluster_mode=0,
+    )
+    assert cmd == [
+        "mmseqs", "easy-linclust", "f.fasta", "out", "tmp",
+        "--min-seq-id", "0.95", "-c", "0.8", "--cov-mode", "0", "--dbtype", "1",
+        "--cluster-mode", "0", "--seq-id-mode", "0", "--similarity-type", "2",
+        "-e", "0.001", "--threads", "16",
+    ]
+    assert "-s" not in cmd and "--single-step-clustering" not in cmd
+
+
+def test_build_cmd_ood_emits_connected_component_flags():
+    # The OOD recipe emits exactly the three opt-in flags: connected-component
+    # clustering (--cluster-mode 1), sensitive prefilter (-s), single-step.
+    cmd = _build_mmseqs_clust_cmd(
+        mmseqs_bin="mmseqs", subcmd="easy-cluster",
+        fasta_path="f.fasta", out_prefix="out", tmp_dir="tmp", dbtype="1",
+        min_seq_id=0.95, coverage=0.8, cov_mode=0, cluster_mode=1,
+        sensitivity=7.5, single_step_clustering=True,
+    )
+    assert cmd[cmd.index("--cluster-mode") + 1] == "1"
+    assert cmd[cmd.index("-s") + 1] == "7.5"
+    assert "--single-step-clustering" in cmd
 
 
 if __name__ == "__main__":

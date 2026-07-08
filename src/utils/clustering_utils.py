@@ -1,8 +1,7 @@
 """mmseqs2 clustering utilities for sequence-similarity-aware splits.
 
-Used by the cluster-disjoint routing experiment (Experiment B in
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`). Provides
-pure-Python helpers around the external `mmseqs` binary:
+Used by the cluster-disjoint routing pipeline. Provides pure-Python helpers
+around the external `mmseqs` binary:
 
 - export per-function unique-sequence FASTAs (with alphabet-aware cleaning)
 - invoke `mmseqs easy-linclust` / `easy-cluster`
@@ -44,7 +43,7 @@ from src.utils import schema
 # `function` label to be attached first (ctg_dna_final carries none) via
 # attach_function_to_contigs.
 #
-# nt_ctg data caveat (unresolved 2026-06-08): contig DNA carries inconsistent
+# nt_ctg data caveat (unresolved): contig DNA carries inconsistent
 # flanking UTR. Verified on the contig source: per-row (contig_len - cds_len)
 # spans 0..310 nt (median 36; ~25% of contigs have zero UTR, i.e. contig == CDS).
 # So two biologically identical isolates can land in different contig clusters
@@ -295,6 +294,61 @@ class MMseqsResult:
     log_path: Optional[Path] = None
 
 
+def _build_mmseqs_clust_cmd(
+    *,
+    mmseqs_bin: str,
+    subcmd: str,
+    fasta_path: Path,
+    out_prefix: Path,
+    tmp_dir: Path,
+    dbtype: str,
+    min_seq_id: float,
+    coverage: float,
+    cov_mode: int,
+    cluster_mode: int,
+    sensitivity: Optional[float] = None,
+    single_step_clustering: bool = False,
+    threads: Optional[int] = 16,
+    extra_args: Optional[list] = None,
+    ) -> list:
+    """Assemble the `mmseqs easy-cluster` / `easy-linclust` command line.
+
+    Pure (no I/O): the single source of truth for the emitted flags, so the
+    back-compat contract — default args reproduce the historical Set-Cover /
+    linclust command byte-for-byte — is unit-testable without invoking mmseqs.
+    `-s` and `--single-step-clustering` are emitted only when set, so the default
+    command is unchanged. See `run_mmseqs_easy_clust` for each flag's meaning.
+    """
+    cmd = [
+        mmseqs_bin, subcmd,
+        str(fasta_path),
+        str(out_prefix),
+        str(tmp_dir),
+        # Pinned set — see run_mmseqs_easy_clust docstring for rationale on each.
+        '--min-seq-id', f'{min_seq_id:g}',
+        '-c', f'{coverage:g}',
+        '--cov-mode', str(cov_mode),
+        '--dbtype', dbtype,
+        '--cluster-mode', str(cluster_mode),  # 0=Set-Cover; 1=connected-comp (OOD)
+        '--seq-id-mode', '0',      # matches / alignment_length (mmseqs2 default)
+        '--similarity-type', '2',  # sequence-identity scoring (mmseqs2 default)
+        '-e', '0.001',             # alignment e-value cutoff (mmseqs2 default)
+    ]
+    # OOD recipe (connected-component clustering): emitted only when set, so the
+    # default command stays byte-identical.
+    if sensitivity is not None:
+        cmd += ['-s', f'{sensitivity:g}']
+    if single_step_clustering:
+        cmd += ['--single-step-clustering', '1']
+    if threads is not None:
+        cmd += ['--threads', str(threads)]
+    if extra_args:
+        # Caller-supplied flags go LAST. mmseqs2 takes the last value on
+        # repetition, so extra_args can override anything in the pinned set.
+        cmd += list(extra_args)
+    return cmd
+
+
 def run_mmseqs_easy_clust(
     fasta_path: Path,
     out_prefix: Path,
@@ -308,6 +362,9 @@ def run_mmseqs_easy_clust(
     extra_args: Optional[list] = None,
     alphabet: str = 'aa',
     algorithm: str = 'linclust',
+    cluster_mode: int = 0,
+    sensitivity: Optional[float] = None,
+    single_step_clustering: bool = False,
     ) -> MMseqsResult:
     """Run `mmseqs easy-linclust` (or `easy-cluster`) as a subprocess.
 
@@ -320,8 +377,9 @@ def run_mmseqs_easy_clust(
     - `--min-seq-id <t>` — identity threshold (caller-supplied via `min_seq_id`).
     - `-c 0.8` / `--cov-mode 0` — bidirectional ≥80% coverage rule.
     - `--dbtype 1` (aa) or `--dbtype 2` (nt) — explicit alphabet, no auto-detect.
-    - `--cluster-mode 0` — Set-Cover greedy assignment (mmseqs2 default; pinned
-      because mode 2 = CDHIT-style and mode 1 = BLASTclust are valid alternatives).
+    - `--cluster-mode <cluster_mode>` — cluster assignment (default 0 = Set-Cover
+      greedy / star; 1 = connected-component, the OOD across-different topology;
+      2 = greedy-incremental / CD-HIT-style).
     - `--seq-id-mode 0` — identity = matches / alignment_length (mmseqs2 default;
       pinned because mode 1 = shorter, mode 2 = longer are valid alternatives,
       and they give materially different cluster radii on length-variant corpora).
@@ -357,11 +415,15 @@ def run_mmseqs_easy_clust(
             nt CDS / contig clustering paths.
         algorithm: 'linclust' (default, `easy-linclust` — linear-time, single-pass)
             or 'cluster' (`easy-cluster` — sensitive 3-round cascade). Both
-            alphabets use linclust since 2026-05-22; see
-            `docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
-            for the rationale (the asymmetric easy-cluster/easy-linclust choice
-            conflated algorithm sensitivity with alphabet diversity in §8/§9
-            of the methods doc; symmetric linclust gives a cleaner comparison).
+            alphabets use linclust.
+        cluster_mode: `--cluster-mode` (default 0 = Set-Cover / star). Set to 1 for
+            connected-component clustering — the topology behind the OOD
+            across-cluster guarantee.
+        sensitivity: `-s` prefilter sensitivity (None = mmseqs default; 7.5 = most
+            sensitive). `algorithm='cluster'` only.
+        single_step_clustering: `--single-step-clustering` (default False = cascaded).
+            True = one non-cascaded pass (clusters = connected components of a single
+            alignment graph). `algorithm='cluster'` only.
     """
     fasta_path = Path(fasta_path)
     out_prefix = Path(out_prefix)
@@ -385,6 +447,13 @@ def run_mmseqs_easy_clust(
         raise ValueError(
             f"algorithm must be 'cluster' or 'linclust', got {algorithm!r}"
         )
+    if cluster_mode not in {0, 1, 2}:
+        raise ValueError(f"cluster_mode must be 0, 1, or 2, got {cluster_mode!r}")
+    if algorithm != 'cluster' and (sensitivity is not None or single_step_clustering):
+        raise ValueError(
+            "sensitivity (-s) and single_step_clustering (--single-step-clustering) "
+            f"require algorithm='cluster'; got algorithm={algorithm!r}"
+        )
 
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -401,27 +470,22 @@ def run_mmseqs_easy_clust(
     # part of the audit trail. `--search-type 3` is a `search`-only flag
     # in mmseqs 18 and gets rejected on easy-cluster / easy-linclust.
     dbtype = '1' if alphabet == 'aa' else '2'
-    cmd = [
-        mmseqs_bin, subcmd,
-        str(fasta_path),
-        str(out_prefix),
-        str(tmp_dir),
-        # Pinned set — see docstring for rationale on each.
-        '--min-seq-id', f'{min_seq_id:g}',
-        '-c', f'{coverage:g}',
-        '--cov-mode', str(cov_mode),
-        '--dbtype', dbtype,
-        '--cluster-mode', '0',     # Set-Cover greedy (mmseqs2 default; explicit for audit)
-        '--seq-id-mode', '0',      # matches / alignment_length (mmseqs2 default)
-        '--similarity-type', '2',  # sequence-identity scoring (mmseqs2 default)
-        '-e', '0.001',             # alignment e-value cutoff (mmseqs2 default)
-    ]
-    if threads is not None:
-        cmd += ['--threads', str(threads)]
-    if extra_args:
-        # Caller-supplied flags go LAST. mmseqs2 takes the last value on
-        # repetition, so extra_args can override anything in the pinned set.
-        cmd += list(extra_args)
+    cmd = _build_mmseqs_clust_cmd(
+        mmseqs_bin=mmseqs_bin,
+        subcmd=subcmd,
+        fasta_path=fasta_path,
+        out_prefix=out_prefix,
+        tmp_dir=tmp_dir,
+        dbtype=dbtype,
+        min_seq_id=min_seq_id,
+        coverage=coverage,
+        cov_mode=cov_mode,
+        cluster_mode=cluster_mode,
+        sensitivity=sensitivity,
+        single_step_clustering=single_step_clustering,
+        threads=threads,
+        extra_args=extra_args,
+    )
 
     if log_path is not None:
         log_path = Path(log_path)

@@ -5,18 +5,14 @@ parquets + `combined_cluster.parquet`) that downstream cluster-disjoint
 routing consumes, and emits a per-(function, threshold) redundancy
 summary for choosing a feasibility-supporting threshold.
 
-Step 1 of the cluster-disjoint splits plan
-(`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`):
-characterize the within-function sequence redundancy at several mmseqs2 identity
+Characterizes the within-function sequence redundancy at several mmseqs2 identity
 thresholds. The cluster-size distribution per (function, threshold) decides which
 thresholds are feasible for cluster-disjoint routing (a threshold that collapses
 too much of a function into one giant cluster makes the partition trivial / forces
 unacceptable pair-drops).
 
-Supports two alphabets, both clustered with `mmseqs easy-linclust` since
-2026-05-22 (symmetric algorithm choice — see
-`docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md`
-for why we no longer use easy-cluster on aa):
+Supports three alphabets (aa, nt_cds, nt_ctg), all clustered with
+`mmseqs easy-linclust`:
   - aa:     clusters `prot_seq` from `protein_final.parquet` (Stage 1 output).
             `--dbtype 1` (amino acid alphabet).
   - nt_cds: clusters `cds_dna_seq` from `cds_dna_final.parquet` (Stage 1.5 output
@@ -40,8 +36,8 @@ helper (`src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df`)
 consumes downstream.
 
 Typical out_root values:
-  data/processed/flu/{version}/clusters_aa      (aa; renamed from `clusters/` on 2026-05-15)
-  data/processed/flu/{version}/clusters_nt_cds  (nt_cds; renamed from `clusters_nt/` in Phase 2)
+  data/processed/flu/{version}/clusters_aa      (aa)
+  data/processed/flu/{version}/clusters_nt_cds  (nt_cds)
   data/processed/flu/{version}/clusters_nt_ctg  (nt_ctg; full-contig DNA)
 
 Artifact layout:
@@ -51,7 +47,7 @@ Artifact layout:
     t<NN>/combined_cluster.parquet     (concatenation of per-function parquets)
 
 CLI:
-    # aa redundancy sweep (easy-linclust is the default since 2026-05-22).
+    # aa redundancy sweep (easy-linclust is the default).
     python -m src.preprocess.build_mmseqs_clusters \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_aa \\
@@ -134,8 +130,7 @@ def _threshold_label(threshold: float) -> str:
     """Format float threshold as a stable directory label, e.g. 0.95 -> 't095'.
 
     The `t<XXX>` prefix is the canonical user-facing form per
-    CLAUDE.md "Threshold notation" (docs-adopted 2026-05-29; code/dir
-    migration completed in Phase 2 of the clustering cleanup plan).
+    CLAUDE.md "Threshold notation".
     """
     pct = int(round(threshold * 100))
     return f"t{pct:03d}"
@@ -150,6 +145,9 @@ def cluster_one_function_one_threshold(
     force: bool = False,
     alphabet: str = 'aa',
     algorithm: str = 'linclust',
+    cluster_mode: int = 0,
+    sensitivity: Optional[float] = None,
+    single_step_clustering: bool = False,
     mmseqs_bin: Optional[str] = None,
     ) -> dict:
     """Run mmseqs at one threshold on the FASTA for one function.
@@ -227,6 +225,9 @@ def cluster_one_function_one_threshold(
             log_path=log_path,
             alphabet=alphabet,
             algorithm=algorithm,
+            cluster_mode=cluster_mode,
+            sensitivity=sensitivity,
+            single_step_clustering=single_step_clustering,
             mmseqs_bin=mmseqs_bin,
         )
         elapsed_seconds = time.time() - t0
@@ -280,6 +281,9 @@ def write_results_markdown(
     protein_final_path: str,
     alphabet: str = 'aa',
     algorithm: str = 'linclust',
+    cluster_mode: int = 0,
+    sensitivity: Optional[float] = None,
+    single_step_clustering: bool = False,
     ) -> None:
     """Write a human-readable markdown table per threshold."""
     out_md = Path(out_md)
@@ -290,6 +294,13 @@ def write_results_markdown(
                       'nt_ctg': 'nt_ctg (contig DNA)'}[alphabet]
     subcmd = 'easy-cluster' if algorithm == 'cluster' else 'easy-linclust'
     dbtype_flag = '' if alphabet == 'aa' else ' --dbtype 2'
+    clust_flags = ''
+    if cluster_mode != 0:
+        clust_flags += f' --cluster-mode {cluster_mode}'
+    if sensitivity is not None:
+        clust_flags += f' -s {sensitivity:g}'
+    if single_step_clustering:
+        clust_flags += ' --single-step-clustering'
 
     lines = []
     lines.append(f"# Per-function redundancy ({alphabet_label}) — mmseqs2 sweep")
@@ -297,7 +308,8 @@ def write_results_markdown(
     lines.append(f"**Date.** {today}.")
     lines.append(f"**Input.** `{protein_final_path}`.")
     lines.append(f"**Alphabet.** {alphabet_label}.")
-    lines.append(f"**Tool.** mmseqs2 `{subcmd} --min-seq-id <th> -c 0.8 --cov-mode 0{dbtype_flag}`.")
+    lines.append(f"**Tool.** mmseqs2 `{subcmd} --min-seq-id <th> -c 0.8 "
+                 f"--cov-mode 0{dbtype_flag}{clust_flags}`.")
     lines.append(f"**Script.** `src/preprocess/build_mmseqs_clusters.py`.")
     lines.append("")
     lines.append("## Method")
@@ -307,7 +319,7 @@ def write_results_markdown(
         'chosen for speed on the longer nt sequences. Cross-algorithm '
         'equivalence on this corpus has not been independently verified.'
         if algorithm == 'linclust' else
-        'easy-cluster (sensitive cascaded clustering) was used.'
+        'easy-cluster was used.'
     )
     if alphabet == 'aa':
         lines.append(f"For each major protein function, dedup `prot_seq` "
@@ -389,13 +401,6 @@ def write_results_markdown(
     lines.append("- `fraction_singletons`: clusters of size 1 / total clusters. "
                  "Higher = more sequences with no near-neighbor.")
     lines.append("")
-    lines.append("## Related")
-    lines.append("")
-    lines.append("- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` — "
-                 "parent plan (Experiment B).")
-    lines.append("- `docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md` — "
-                 "the diagnostic that motivated this sweep.")
-    lines.append("")
 
     out_md.write_text("\n".join(lines))
     print(f"Wrote results doc: {out_md}")
@@ -443,13 +448,21 @@ def main() -> None:
                         'so the dedicated env is used without putting mmseqs on PATH.')
     p.add_argument('--algorithm',
                    choices=['cluster', 'linclust'], default='linclust',
-                   help='mmseqs subcommand. linclust=easy-linclust (default since '
-                        '2026-05-22; linear time, single-pass — used on both '
-                        'alphabets for cross-alphabet consistency). cluster=easy-cluster '
-                        '(sensitive 3-round cascade; retained as an option but no '
-                        'longer the default — the asymmetric easy-cluster/easy-linclust '
-                        'choice conflated algorithm with alphabet in clusters.md '
-                        '§8/§9; see docs/results/2026-05-22_aa_cluster_algorithm_validation_results.md).')
+                   help='mmseqs subcommand. linclust=easy-linclust (default; '
+                        'linear time, single-pass — used on both alphabets for '
+                        'cross-alphabet consistency). cluster=easy-cluster '
+                        '(sensitive 3-round cascade).')
+    p.add_argument('--cluster_mode', type=int, choices=[0, 1, 2], default=0,
+                   help='mmseqs --cluster-mode: 0=Set-Cover/star (default), '
+                        '1=connected-component (OOD across-cluster separation), '
+                        '2=greedy-incremental.')
+    p.add_argument('--sensitivity', type=float, default=None,
+                   help='mmseqs -s prefilter sensitivity (7.5=most sensitive). '
+                        'Requires --algorithm cluster.')
+    p.add_argument('--single_step_clustering', action='store_true',
+                   help='mmseqs --single-step-clustering (one non-cascaded pass). '
+                        'Requires --algorithm cluster. OOD recipe: --algorithm cluster '
+                        '--cluster_mode 1 --single_step_clustering --sensitivity 7.5.')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
     p.add_argument('--results_md',
                    default=None,
@@ -459,6 +472,13 @@ def main() -> None:
                    action='store_true',
                    help='Skip writing combined_cluster.parquet per threshold.')
     args = p.parse_args()
+
+    if args.algorithm != 'cluster' and (
+            args.sensitivity is not None or args.single_step_clustering):
+        raise SystemExit(
+            "--sensitivity and --single_step_clustering require --algorithm cluster "
+            "(OOD recipe: --algorithm cluster --cluster_mode 1 "
+            "--single_step_clustering --sensitivity 7.5).")
 
     # Resolve alphabet from the chosen source (the mutually-exclusive group
     # guarantees exactly one source flag is set).
@@ -550,6 +570,9 @@ def main() -> None:
                 force=args.force,
                 alphabet=args.alphabet,
                 algorithm=args.algorithm,
+                cluster_mode=args.cluster_mode,
+                sensitivity=args.sensitivity,
+                single_step_clustering=args.single_step_clustering,
                 mmseqs_bin=args.mmseqs_bin,
             )
             all_stats.append(stats)
@@ -602,6 +625,9 @@ def main() -> None:
     rt = {
         'alphabet': args.alphabet,
         'algorithm': args.algorithm,
+        'cluster_mode': args.cluster_mode,
+        'sensitivity': args.sensitivity,
+        'single_step_clustering': args.single_step_clustering,
         'threads': args.threads,
         'functions': list(args.functions),
         'thresholds': [float(t) for t in args.thresholds],
@@ -643,7 +669,10 @@ def main() -> None:
     else:
         results_md = Path(args.results_md)
     write_results_markdown(results_md, stats_df, str(in_path),
-                           alphabet=args.alphabet, algorithm=args.algorithm)
+                           alphabet=args.alphabet, algorithm=args.algorithm,
+                           cluster_mode=args.cluster_mode,
+                           sensitivity=args.sensitivity,
+                           single_step_clustering=args.single_step_clustering)
 
 
 if __name__ == '__main__':
