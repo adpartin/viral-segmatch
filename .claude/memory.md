@@ -117,8 +117,11 @@ change and aren't derivable from code. This file does NOT duplicate:
   `clusters_{alphabet}_ood/tXXX/` (never overwrites the set-cover parquets); `runtime.json` is now
   **per-threshold** (in each `tXXX/`) with preserve-on-cache (a fully-cached re-run keeps the prior
   build record). Figures: `src/analysis/plot_clusters.py` — regenerable, reads artifacts only;
-  `--plots separation umap` → separation map (scatter, red violations) + ESM-2 UMAP (colored by
-  cluster) into `clusters_*_ood/figures/`. Verifier: `src/analysis/verify_ood_clusters.py`.
+  `--plots separation umap barplot` → separation map (scatter, red violations) + ESM-2 UMAP
+  (colored by cluster) + cluster-size barplot, into `clusters_*_ood/figures/`. The barplot fn lives
+  in `plot_clusters.py`, reused by the `cluster_size_barplot.py` sweep (shared primitives
+  `cluster_sizes_unique` / `threshold_decimal` / `get_protein_color` in clustering_utils / plot_config
+  — no dup). Verifier: `src/analysis/verify_ood_clusters.py`.
   **Validated: aa M1 t099 ONLY** (234/0); 8-major scale-out + nt rollout pending, plus the
   `results/1D_clusters_sizes` → `figures/` convention decision. Env: run with the NFS absolute
   binaries (`.../envs/segmatch/bin/python`, `MMSEQS_BIN=.../envs/mmseqs2/bin/mmseqs`) — `$HOME`

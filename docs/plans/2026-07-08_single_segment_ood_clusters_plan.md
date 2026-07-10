@@ -285,7 +285,9 @@ clusters, 0 violations). The 8-major run is `build_ood_clusters` with the defaul
 `17c9210`). A dedicated, regenerable script that READS the cluster parquet (+ the
 `t<NN>/<short>_hits.tsv` graph) and writes figures into
 `data/processed/.../clusters_<alphabet>_ood/figures/` **without recomputing clusters**; the
-production builders stay figure-free. `--plots {separation,umap}` selects figures.
+production builders stay figure-free. `--plots {separation,umap,barplot}` selects figures (barplot
+added by consolidating cluster_size_barplot.py's fn + shared primitives into plot_clusters.py /
+clustering_utils / plot_config -- no duplication; the sweep script reuses them).
 **DECISION STILL OPEN:** is `results/1D_clusters_sizes` (easy-linclust set-cover) a
 tracked/curated (paper) output, or regenerable → migrate under `clusters_aa/figures/`?
 (Leaning migrate, to unify the convention.)
