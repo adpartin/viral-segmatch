@@ -1,8 +1,10 @@
 # Single-segment OOD clusters (across-cluster separation)
 
-**Status: IN PROGRESS** — code done (Steps 1–2, incl. `--max_seqs`); the across-cluster guarantee
-is **not yet verified** (the default `--max-seqs 20` fails it — see Findings; GPU re-verify pending
-on an H100).
+**Status: IN PROGRESS** — the OOD builder (`build_ood_clusters.py`, search → union-find) is
+implemented, committed, and **verified** on aa M1 t099 (**234 clusters, 0 cross-cluster violations**);
+per-threshold `runtime.json` + preserve-on-cache landed; visualization (`plot_ood_clusters.py`:
+separation map + ESM-2 UMAP) done (Next steps 1–3). **Remaining:** the `results/1D_clusters_sizes`
+convention decision, the 8-major scale-out (held by choice), and the nt_cds/nt_ctg rollout.
 
 Date: 2026-07-08
 
@@ -156,7 +158,12 @@ fully deterministic/complete is that search; every other step is deterministic. 
 endpoints carry different `cluster_id`s is a violation of "across clusters: different"; **0 such
 pairs ⇔ guarantee holds.**
 
-## Figure — cluster separation, M1 (`clusters_aa_ood/figures/M1_separation_heatmap.png`)
+## Figure — cluster separation, M1 (explainer; two-panel `M1_separation_heatmap.png`)
+
+> **Production figure (2026-07-10):** the single-panel QC figure is now
+> `clusters_aa_ood/figures/M1_t099_separation.png` (via `src/analysis/plot_ood_clusters.py
+> --plots separation`). The two-panel union-find-vs-easy-cluster comparison described below
+> is explainer-only and no longer on disk (regenerable). See Next steps 2.
 
 **What it shows (plain terms).** A similarity matrix over M1's 4,771 unique aa sequences: a dot at
 row *i*, column *j* marks a pair that is **≥ 0.99 identical with ≥ 0.8 coverage** — exactly the pairs
@@ -226,7 +233,8 @@ Findings). The diagnostic script is pending productization (part of the search�
 
 ## Implementation (B) — `build_ood_clusters.py` (search → union-find)
 
-**Status:** approved 2026-07-09; not yet written. A **dedicated** builder — not a new `--algorithm`
+**Status: IMPLEMENTED** (2026-07-09/10; commits `e681e64` / `09d7709` / `e88fb03`, per-threshold
+`runtime.json` + preserve-on-cache). A **dedicated** builder — not a new `--algorithm`
 on `build_mmseqs_clusters.py`, which would bloat that script's `main`, its command-centric
 `write_results_markdown`, and its "redundancy-assessment" identity. The linclust default stays
 byte-exact (Guardrail #1). Reusable primitives already live in `clustering_utils.py`, so the
@@ -267,42 +275,40 @@ aa t099 → assert **234** clusters, run `verify_ood_clusters` → **0** violati
 glossary entries** for the OOD notion (single-segment similarity-graph connected component) before
 authoring B's docstrings, so "CC" here stays distinct from the bipartite mega-CC.
 
-## Next steps (2026-07-10) — visualization, then scale-out
+## Next steps (2026-07-10) — visualization DONE; scale-out pending
 
 **Do NOT re-run the full 8 majors yet.** Validated state: aa **M1 t099 only** (234
 clusters, 0 violations). The 8-major run is `build_ood_clusters` with the default
 `--functions` into `clusters_aa_ood/`; hold until the viz work below settles.
 
-**1. Cluster visualizations — a separate, regenerable analysis script; one location.**
-Figures are derived artifacts → keep them OUT of the production builder (single
-responsibility; `/code-review` flagged builder bloat). Plan: a dedicated
-`src/analysis/plot_ood_clusters.py` that READS the existing cluster parquet (+ the
-`t<NN>/<short>_hits.tsv` graph) and emits figures **without recomputing clusters** — so
-figs regenerate any time the clusters exist. Resolve the confusing `results/` vs
-`data/` split: co-locate machine-generated cluster figs with the data at
-`data/processed/clusters_<alphabet>_ood/figures/` (CLAUDE.md "machine outputs live with
-the data"; that tree is gitignored/regenerable); reserve `results/` for hand-curated
-paper figures. **DECISION NEEDED:** is `results/1D_clusters_sizes` a tracked/curated
-(paper) output or regenerable (move under `data/`)?
+**1. [DONE] Cluster visualizations — `src/analysis/plot_ood_clusters.py`** (commits `e88fb03`,
+`17c9210`). A dedicated, regenerable script that READS the cluster parquet (+ the
+`t<NN>/<short>_hits.tsv` graph) and writes figures into
+`data/processed/.../clusters_<alphabet>_ood/figures/` **without recomputing clusters**; the
+production builders stay figure-free. `--plots {separation,umap}` selects figures.
+**DECISION STILL OPEN:** is `results/1D_clusters_sizes` (easy-linclust set-cover) a
+tracked/curated (paper) output, or regenerable → migrate under `clusters_aa/figures/`?
+(Leaning migrate, to unify the convention.)
 
-**2. Separation heatmap = comparison fig, not production.** `M1_separation_heatmap.png`
-is a two-panel COMPARISON: left = union-find CCs (234, the correct OOD clusters,
-clean block-diagonal); right = mmseqs `easy-cluster --cluster-mode 1` (566, the broken
-attempt, off-diagonal violations). The **right panel is paper/explainer only.** For
-production QC, generate only the **left-style** panel (the actual cluster set's ≥t/cov
-similarity matrix ordered by cluster; off-diagonal points = violations, should be 0).
-Belongs in `src/analysis/`, not the builder. *(Note: it contrasts union-find vs
-easy-**cluster**, not easy-linclust.)*
+**2. [DONE] Separation map (production QC).** `plot_separation_map` →
+`figures/<short>_t<NN>_separation.png`: the cluster set's ≥t/cov similarity matrix ordered by
+cluster, drawn as a **scatter** (every hit shown — not a shrunk image that could hide a lone
+violation) with cross-cluster violations ringed in **red** and a faint identity diagonal.
+M1 t099 → 0 off-diagonal (separation holds). This is the single-panel "left-style" production
+figure; the old two-panel union-find-vs-easy-**cluster** comparison (`M1_separation_heatmap.png`)
+was explainer-only (no longer on disk; regenerable).
 
-**3. 2D/3D cluster-separation projection**, colored by `cluster_id`. Embedding options:
-(a) MDS/UMAP on the all-vs-all **sequence identity** — most faithful (same metric the
-clustering uses), but similarity is sparse (only ≥t pairs are hits, so needs a
-low-threshold search or a 1−identity distance with a cap); (b) UMAP on the **existing
-ESM-2 embeddings** — cheapest (no new compute), but ESM distance ≠ identity → a
-complementary view; (c) **k-mer** features → UMAP — closer to identity than ESM, new
-compute. Recommend starting with (b) ESM-2 or (a) identity-MDS; k-mers optional. All
-projections are QUALITATIVE (distances distorted) — the block-diagonal heatmap stays
-the rigorous view.
+**3. [DONE] ESM-2 UMAP colored by cluster.** `plot_cluster_umap` →
+`figures/<short>_t<NN>_umap.png`: 2-D UMAP of the **existing** ESM-2 embeddings (no new compute),
+joined via `prot_hash → protein_final.esm2_ready_seq → sha1::model_sig → row`. M1 t099:
+4,771/4,771 embedded; mid-size clusters form coherent blobs, while the mega-cluster M1_0 (2,013)
+spreads across ESM-2 space — the single-linkage-chaining signature at t=0.99 (graph-connected ≠
+embedding-compact). Qualitative companion; the block-diagonal separation map stays the rigorous
+view. MDS / identity-metric / k-mer projections (options a, c) remain optional follow-ups.
+
+**Remaining scale-out.** After the `results/1D_clusters_sizes` decision: run the 8 majors into
+`clusters_aa_ood/` (then nt_cds / nt_ctg), and wire a bundle's `cluster_id_path` at the OOD
+combined parquet for an OOD split.
 
 ## Out of scope (follow-ups)
 

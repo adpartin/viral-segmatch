@@ -105,16 +105,25 @@ change and aren't derivable from code. This file does NOT duplicate:
   28 children + Polaris launchers); Phase 3 failed on Polaris (training data-loading bound, post-mortem
   + phase log in `docs/project_changelog.md`). Resume by swapping the master bundle's
   `dataset.negative_sampling` block to the regime-aware one.
-- **Single-segment OOD clustering** (branch `feature/single-segment-ood-clusters`, 2026-07-08): the
+- **Single-segment OOD clustering** (branch `feature/single-segment-ood-clusters`, 2026-07-08..10): the
   "across clusters: different" guarantee requires clusters that are **connected components of the ≥t/cov
   all-vs-all graph**. mmseqs `easy-cluster --cluster-mode 1` does NOT deliver this — it fragments the
   components (M1 aa t099: 566 clusters WITH 3,797 cross-cluster ≥0.99 pairs). Correct method:
   `easy-search` all-vs-all → threshold → **union-find** (M1: 234 clusters, 0 violations, proven complete
   — `-s 7.5` == exhaustive `--prefilter-mode 2` on M1). Notes: `--exhaustive-search` is profile-iterative,
-  NOT all-vs-all; `--prefilter-mode 2` (nofilter) is the provable-complete search. NOT yet in code —
-  `build_mmseqs_clusters.py` still does easy-cluster/linclust; to be productized as an opt-in
-  search→union-find builder that writes `clusters_{alphabet}_ood/` (NOT the default; linclust stays
-  default). Plan + figure: `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md`.
+  NOT all-vs-all; `--prefilter-mode 2` (nofilter) is the provable-complete search. **IMPLEMENTED**:
+  `src/preprocess/build_ood_clusters.py` (opt-in search→union-find; backend + shared helpers in
+  `clustering_utils.py`; the linclust `build_mmseqs_clusters.py` stays the default). Writes
+  `clusters_{alphabet}_ood/tXXX/` (never overwrites the set-cover parquets); `runtime.json` is now
+  **per-threshold** (in each `tXXX/`) with preserve-on-cache (a fully-cached re-run keeps the prior
+  build record). Figures: `src/analysis/plot_ood_clusters.py` — regenerable, reads artifacts only;
+  `--plots separation umap` → separation map (scatter, red violations) + ESM-2 UMAP (colored by
+  cluster) into `clusters_*_ood/figures/`. Verifier: `src/analysis/verify_ood_clusters.py`.
+  **Validated: aa M1 t099 ONLY** (234/0); 8-major scale-out + nt rollout pending, plus the
+  `results/1D_clusters_sizes` → `figures/` convention decision. Env: run with the NFS absolute
+  binaries (`.../envs/segmatch/bin/python`, `MMSEQS_BIN=.../envs/mmseqs2/bin/mmseqs`) — `$HOME`
+  has no miniconda, so bare `conda activate` fails on lambda13. Plan:
+  `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md`.
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered, triaged — the single source of truth). Big-picture experiments:
