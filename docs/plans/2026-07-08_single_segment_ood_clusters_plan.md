@@ -123,6 +123,62 @@ cross-cluster pairs. **Guarantee holds ⇔ count = 0.**
    fails** ("invalid device symbol"), **H100 works**. On CPU-only hardware, verify small functions
    fully and sample the large ones.
 
+## Pipeline — generation vs verification (union-find approach)
+
+The M1 diagnostic (2026-07-08) showed `easy-cluster --cluster-mode 1` does **not** return
+connected components of the ≥t/cov graph (566 clusters, 3,797 cross-cluster violations), whereas
+connected components computed by **union-find over the same `easy-search` all-vs-all graph** give
+234 clusters with **0** violations (tool-verified). The two pipelines below share one step — the
+all-vs-all `easy-search` (**G2 = V2**) — which is why union-find clusters verify to 0 **by
+construction**. Step **G3 (union-find) is not yet in the codebase** (this is the productization
+follow-up).
+
+**Cluster generation** (produces `{hash → cluster_id}`):
+
+| Step | In → Out | mmseqs? | union-find? | Deterministic? |
+|---|---|---|---|---|
+| **G1** dedup | protein_final (M1: 108,530 rows) → FASTA of **4,771** unique seqs (header=`prot_hash`) | no (pandas+md5) | no | **yes** |
+| **G2** all-vs-all search | FASTA → **466,874** directed hits (id≥t & cov≥0.8) = graph edges | **yes** (`easy-search`; prefilter GPU + align CPU) | no | search **empirically yes** (466,874 on 4/4 runs), not proven; **completeness: heuristic** k-mer prefilter — provable completeness needs `--prefilter-mode 2` (nofilter), *not* `-s` or `--exhaustive-search` |
+| **G3** connected components | edges + 4,771 nodes → `{hash→cluster_id}`, **234** clusters | no (Python) | **yes** | **yes** (partition order-invariant) |
+| **G4** write parquet | mapping → `M1_cluster.parquet` | no | no | **yes** |
+
+**Verification** (checks any cluster parquet; `verify_ood_clusters.py`):
+
+| Step | In → Out | mmseqs? | union-find? | Deterministic? |
+|---|---|---|---|---|
+| **V1** load | parquet → `{hash→cluster_id}` + nodes | no | no | **yes** |
+| **V2** all-vs-all search | same FASTA → **466,874** hits | **yes** (`easy-search`) | no | same as G2 |
+| **V3** count cross-cluster hits | hits + mapping → violation count (**0 = holds**) | no | no | **yes** |
+
+All-vs-all appears in **both** pipelines (G2 = V2, one `easy-search`). The only step that is not
+fully deterministic/complete is that search; every other step is deterministic. Verification logic:
+`easy-search` returns only pairs already meeting id≥t & cov≥0.8, so any returned pair whose two
+endpoints carry different `cluster_id`s is a violation of "across clusters: different"; **0 such
+pairs ⇔ guarantee holds.**
+
+## Figure — cluster separation, M1 (`clusters_aa_ood/figures/M1_separation_heatmap.png`)
+
+**What it shows (plain terms).** A similarity matrix over M1's 4,771 unique aa sequences: a dot at
+row *i*, column *j* marks a pair that is **≥ 0.99 identical with ≥ 0.8 coverage** — exactly the pairs
+the guarantee constrains. Rows and columns are ordered so each cluster's sequences are contiguous, so
+a cluster appears as a square **block on the diagonal**. Both panels plot the *same* dots; only the
+cluster labeling (hence the ordering) differs.
+
+- **Left — union-find connected components (234 clusters):** every dot lies inside a diagonal block,
+  **nothing off-diagonal**. No two sequences in *different* clusters are ≥ t identical → the guarantee
+  holds. The block-diagonal *is* the visual form of "0 cross-cluster pairs."
+- **Right — `easy-cluster --cluster-mode 1` (566 clusters):** the same similarity, but **3,797 orange
+  dots fall off the diagonal blocks** — pairs of ≥ 0.99-identical sequences split across different
+  clusters (the guarantee fails). The largest true component is visibly shattered into strips.
+
+**How it was generated.** Exhaustive mmseqs `easy-search` all-vs-all over the M1 FASTA
+(`--min-seq-id 0.99 -c 0.8 --cov-mode 0 --prefilter-mode 2`) yields the edges; each edge is drawn blue
+if its endpoints share a cluster, orange if not (`-s 7.5` gives the identical edge set on M1 — see
+Findings). The diagnostic script is pending productization (part of the search→union-find builder, B).
+
+**Conclusion.** The union-find clusters are separable by eye *and* provably (0 off-diagonal); the
+`easy-cluster` clusters are not. Qualitative companion to the numeric verify (234 → 0 vs 566 → 3,797).
+
 ## Findings (2026-07-08)
 
 - **The default `--max-seqs 20` breaks the guarantee.** First smoke on M1 aa t099 (OOD recipe
@@ -132,8 +188,18 @@ cross-cluster pairs. **Guarantee holds ⇔ count = 0.**
   `≥ t` edges are never evaluated and `--cluster-mode 1` fragments the components. Re-clustering with
   `--max-seqs 100000` merged 593 → 566, confirming dropped edges. Hence `--max-seqs ≥ N` is now part
   of the recipe.
-- **NOT yet confirmed:** whether `--max-seqs ≥ N` reaches **0** violations (the 566 set is
-  unverified), or whether `-s 7.5` leaves a residual needing true-exhaustive. First task on the H100.
+- **CONFIRMED (2026-07-08/09, H100): `--max-seqs 100000` does NOT reach 0** — the 566-cluster set has
+  **3,797** cross-cluster ≥0.99/full-cov pairs (GPU verify). Root cause is not `--max-seqs`: `easy-cluster
+  --cluster-mode 1` **fragments** the ≥t/cov components (566 clusters vs **234** true connected components;
+  the largest true component of 2,013 seqs is split into 150 easy-cluster clusters). **Fix: build clusters
+  as connected components of the `easy-search` all-vs-all graph via union-find** → M1 = 234 clusters, **0**
+  violations (tool-verified). So the OOD builder must be search→union-find, not `easy-cluster`.
+- **COMPLETENESS proven on M1:** `-s 7.5` and exhaustive `--prefilter-mode 2` return the **identical**
+  edge set (233,885 undirected edges; 0 missed, 0 extra), so the 234 clusters are **provably** OOD, not
+  just self-consistent. `--prefilter-mode 2` (nofilter) is the provable-complete search — *not* `-s`
+  (heuristic, no guarantee) and *not* `--exhaustive-search` (profile-iterative; see below). Cost: M1
+  exhaustive all-vs-all ≈ 1.5 min at 32 threads; HA (~42k, longer seqs) is far costlier — for HA, rely on
+  `-s 7.5` (empirically complete at high *t*) and spot-check completeness on a sample.
 - **`--exhaustive-search` is not a plain all-vs-all** in mmseqs 18 — it builds a profileDB and
   iterates (>14 min on M1). Use `-s 7.5 --max-seqs <big>` instead.
 - **GPU:** the 8× V100 here (cc 7.0) can't run the conda GPU kernels; H100 (Hopper) can.
@@ -146,8 +212,11 @@ cross-cluster pairs. **Guarantee holds ⇔ count = 0.**
 2. **Test coverage.** `tests/test_clustering_utils.py` did not cover the wrapper; add
    builder tests (default command byte-exact; OOD emits exactly `--cluster-mode 1`, `-s`,
    `--single-step-clustering`).
-3. **Ruff-clean.** Run `ruff check` on edited files. (`.claude/hooks/ruff_check.sh` is a
-   PostToolUse ruff hook but is currently unwired.)
+3. **Ruff-clean.** Run `ruff check` on edited files. `.claude/hooks/ruff_check.sh` is now a
+   **wired** PostToolUse hook (2026-07-09; matcher `Edit|Write|MultiEdit`) — parses its JSON via
+   `python3` (no `jq` dep) and resolves `ruff` via `$RUFF_BIN` → PATH → `python -m ruff` → the NFS
+   `segmatch` env; silent no-op if none found. Verified live 2026-07-09 (a `Write` of an
+   unused-import `.py` was blocked with ruff `F401`; a clean `.py` passed silently).
 4. **Commits explicit-only; on `master`.** Do not commit without instruction; branch first.
    Keep this change separate from the two pre-staged docstring edits (`_pair_helpers.py`,
    `_split_helpers.py`).
@@ -155,11 +224,54 @@ cross-cluster pairs. **Guarantee holds ⇔ count = 0.**
    `--single-step-clustering` are `cluster`-only (guarded in the wrapper); write to
    `clusters_{alphabet}_ood/`, never overwrite the set-cover parquets.
 
+## Implementation (B) — `build_ood_clusters.py` (search → union-find)
+
+**Status:** approved 2026-07-09; not yet written. A **dedicated** builder — not a new `--algorithm`
+on `build_mmseqs_clusters.py`, which would bloat that script's `main`, its command-centric
+`write_results_markdown`, and its "redundancy-assessment" identity. The linclust default stays
+byte-exact (Guardrail #1). Reusable primitives already live in `clustering_utils.py`, so the
+dedicated builder reuses them with no duplication.
+
+**New in `src/utils/clustering_utils.py`** (siblings to `run_mmseqs_easy_clust` / `parse_cluster_tsv`):
+- `load_sequence_frame(...)` — the input-load / alphabet-resolve / hash / function-skip logic
+  factored out of `build_mmseqs_clusters.main` (491–566); **both** scripts call it (shared, DRY).
+  `build_mmseqs_clusters.py` switches to it under a byte-identical-output regression check.
+- `_build_mmseqs_search_cmd(...)` — pure, byte-exact-testable builder for `easy-search`
+  (`--min-seq-id t -c 0.8 --cov-mode 0 --seq-id-mode 0 -e 0.001 --format-output
+  query,target,fident,qcov,tcov`; `-s` *or* `--prefilter-mode 2`; `--max-seqs`; `--gpu` →
+  `--createdb-mode 2`; `--dbtype 2` for nt; `--threads`).
+- `run_mmseqs_search(...)` — runs it; returns the hits-TSV path.
+- `connected_components_from_hits(hits_tsv, nodes, prefix)` — union-find over the **full node set**
+  (isolated seqs → singletons) → `{hash → cluster_id}` with a **canonical deterministic label**
+  (component rank by size desc, min-hash tiebreak) so IDs are stable across runs.
+
+**`build_ood_clusters.py`** — per (function, threshold): `export_function_fasta` → `run_mmseqs_search`
+→ `connected_components_from_hits` → write the standard parquet
+(`hash, cluster_id, function, function_short, threshold, alphabet`) → `cluster_size_distribution` →
+**assert 0 cross-cluster hits** (a free self-check; clusters are CCs of that graph). Then combined
+parquet + stats CSV + runtime.json. **Supports all three alphabets and any `t`**; first run is aa /
+t099 only.
+
+**Also:** relabel `build_mmseqs_clusters.py`'s `--cluster_mode 1` / `--max_seqs` help (458–459,
+467–473, 484–489) from "OOD" to "not OOD; use `build_ood_clusters.py`" (doc-only; command path
+unchanged).
+
+**Tests.** Unit: `_build_mmseqs_search_cmd` byte-exact (default / `--prefilter-mode 2` / `--gpu` /
+nt); `connected_components_from_hits` on a synthetic graph (known CCs, singletons, both edge
+directions, deterministic labels); `load_sequence_frame` parity. **Oracle (primary gate):** build M1
+aa t099 → assert **234** clusters, run `verify_ood_clusters` → **0** violations. A single
+`/code-review` pass is the secondary gate (not a writer↔critic loop).
+
+**Terminology (verify-terminology gate).** The glossary's `Cluster` (`glossary.md:54`) is pinned to
+`easy-linclust` output and `Connected component` (`glossary.md:25`) is bigraph-specific; **add
+glossary entries** for the OOD notion (single-segment similarity-graph connected component) before
+authoring B's docstrings, so "CC" here stays distinct from the bipartite mega-CC.
+
 ## Out of scope (follow-ups)
 
-- **Fragmenting the single-segment mega-CC.** Connected components on a drift continuum (influenza
-  HA) collapse into one giant cluster; splitting it means **dropping bridging sequences** — the
-  single-segment analog of the bipartite cut costs *nodes* (sequences), not *edges* (pairs).
-  Separate plan.
+- **Fragmenting the single-segment mega-cluster.** On a drift continuum (influenza HA) a protein's
+  sequences collapse into one giant **mega-cluster**; splitting it means **dropping bridging
+  sequences** — a **node/vertex cut** costing *nodes* (sequences), vs the bipartite mega-CC's **edge
+  min-cut** (*pairs*). Separate plan (distinct from `mega-CC`; see `glossary.md` *Mega-cluster*).
 - **Within-cluster tightness** (complete-linkage / pruning). Not needed for OOD.
 - **nt_cds / nt_ctg rollout** beyond the first validated segment.
