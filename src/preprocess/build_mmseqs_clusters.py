@@ -76,27 +76,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-import sys
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.clustering_utils import (  # noqa: E402
-    attach_function_to_contigs,
+    aggregate_combined_lookup,
     cluster_size_distribution,
-    compute_prot_hash,
     export_function_fasta,
+    filter_present_functions,
+    load_sequence_frame,
     parse_cluster_tsv,
     run_mmseqs_easy_clust,
+    threshold_label,
 )
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
-
 
 # Function-name <-> short alias and canonical orderings, loaded from
 # conf/virus/flu.yaml so the script stays in sync with the rest of the
@@ -124,16 +125,6 @@ SHORT_TO_SEGMENT = {
     'PB2': 1, 'PB1': 2, 'PA': 3, 'HA': 4, 'NP': 5, 'NA': 6,
     'M1':  7, 'M2':  7, 'NS1': 8, 'NEP': 8,
 }
-
-
-def _threshold_label(threshold: float) -> str:
-    """Format float threshold as a stable directory label, e.g. 0.95 -> 't095'.
-
-    The `t<XXX>` prefix is the canonical user-facing form per
-    CLAUDE.md "Threshold notation".
-    """
-    pct = int(round(threshold * 100))
-    return f"t{pct:03d}"
 
 
 def cluster_one_function_one_threshold(
@@ -187,7 +178,7 @@ def cluster_one_function_one_threshold(
     fasta_dir = out_root / 'fasta'
     fasta_path = fasta_dir / f"{short_name}.fasta"
 
-    threshold_dir = out_root / _threshold_label(threshold)
+    threshold_dir = out_root / threshold_label(threshold)
     threshold_dir.mkdir(parents=True, exist_ok=True)
     cluster_parquet = threshold_dir / f"{short_name}_cluster.parquet"
     log_path = threshold_dir / f"{short_name}_mmseqs.log"
@@ -259,24 +250,6 @@ def cluster_one_function_one_threshold(
     return dist
 
 
-def aggregate_combined_lookup(out_root: Path, threshold: float, function_shorts: list) -> Path:
-    """Concatenate per-function cluster parquets at one threshold into a single parquet.
-
-    Output: out_root/<threshold_label>/combined_cluster.parquet
-    """
-    threshold_dir = Path(out_root) / _threshold_label(threshold)
-    parts = []
-    for short in function_shorts:
-        p = threshold_dir / f"{short}_cluster.parquet"
-        if not p.exists():
-            raise FileNotFoundError(f"missing per-function parquet: {p}")
-        parts.append(pd.read_parquet(p))
-    combined = pd.concat(parts, ignore_index=True)
-    combined_path = threshold_dir / 'combined_cluster.parquet'
-    combined.to_parquet(combined_path, index=False)
-    return combined_path
-
-
 def write_results_markdown(
     out_md: Path,
     stats_df: pd.DataFrame,
@@ -312,7 +285,7 @@ def write_results_markdown(
     lines.append(f"**Alphabet.** {alphabet_label}.")
     lines.append(f"**Tool.** mmseqs2 `{subcmd} --min-seq-id <th> -c 0.8 "
                  f"--cov-mode 0{dbtype_flag}{clust_flags}`.")
-    lines.append(f"**Script.** `src/preprocess/build_mmseqs_clusters.py`.")
+    lines.append("**Script.** `src/preprocess/build_mmseqs_clusters.py`.")
     lines.append("")
     lines.append("## Method")
     lines.append("")
@@ -456,8 +429,8 @@ def main() -> None:
                         '(sensitive 3-round cascade).')
     p.add_argument('--cluster_mode', type=int, choices=[0, 1, 2], default=0,
                    help='mmseqs --cluster-mode: 0=Set-Cover/star (default), '
-                        '1=connected-component (OOD across-cluster separation), '
-                        '2=greedy-incremental.')
+                        '1=connected-component (does NOT guarantee OOD across-cluster '
+                        'separation -- use build_ood_clusters.py), 2=greedy-incremental.')
     p.add_argument('--sensitivity', type=float, default=None,
                    help='mmseqs -s prefilter sensitivity (7.5=most sensitive). '
                         'Requires --algorithm cluster.')
@@ -466,11 +439,8 @@ def main() -> None:
                         'Requires --algorithm cluster.')
     p.add_argument('--max_seqs', type=int, default=None,
                    help='mmseqs --max-seqs (prefilter neighbors kept per sequence). '
-                        'REQUIRED high for the connected-component OOD guarantee: '
-                        'set >= the per-function unique-seq count (cluster default 20 '
-                        'truncates the graph on dense inputs and breaks it). OOD '
-                        'recipe: --algorithm cluster --cluster_mode 1 '
-                        '--single_step_clustering --sensitivity 7.5 --max_seqs 100000.')
+                        'For OOD across-cluster clusters use build_ood_clusters.py '
+                        '(connected components of the all-vs-all graph), not this path.')
     p.add_argument('--force', action='store_true', help='Recompute even if cached.')
     p.add_argument('--results_md',
                    default=None,
@@ -484,86 +454,28 @@ def main() -> None:
     if args.algorithm != 'cluster' and (
             args.sensitivity is not None or args.single_step_clustering):
         raise SystemExit(
-            "--sensitivity and --single_step_clustering require --algorithm cluster "
-            "(OOD recipe: --algorithm cluster --cluster_mode 1 "
-            "--single_step_clustering --sensitivity 7.5).")
+            "--sensitivity and --single_step_clustering require --algorithm cluster.")
 
-    # Resolve alphabet from the chosen source (the mutually-exclusive group
-    # guarantees exactly one source flag is set).
-    if args.protein_final:
-        args.alphabet = args.alphabet or 'aa'
-        if args.alphabet != 'aa':
-            raise SystemExit("--protein_final is aa-only; use --cds_dna_final / --ctg_dna_final.")
-    elif args.cds_dna_final:
-        args.alphabet = args.alphabet or 'nt_cds'
-        if args.alphabet != 'nt_cds':
-            raise SystemExit("--cds_dna_final is nt_cds-only; use --protein_final / --ctg_dna_final.")
-    else:  # args.ctg_dna_final
-        args.alphabet = args.alphabet or 'nt_ctg'
-        if args.alphabet != 'nt_ctg':
-            raise SystemExit("--ctg_dna_final is nt_ctg-only; use --protein_final / --cds_dna_final.")
-
+    # Load the per-function sequence frame + resolve the alphabet (shared with
+    # build_ood_clusters.py so both cluster the identical input universe).
     in_path = Path(args.protein_final or args.cds_dna_final or args.ctg_dna_final)
-    print(f"Loading {in_path}  (alphabet={args.alphabet}) ...")
-    t0 = time.time()
-    if args.alphabet == 'aa':
-        usecols = ['function', 'prot_seq']
-    elif args.alphabet == 'nt_cds':
-        usecols = ['function', 'cds_dna_seq', 'cds_dna_hash']
-    else:  # nt_ctg: ctg_dna_final has no `function`; join it from --function_source.
-        usecols = ['assembly_id', 'genbank_ctg_id', 'ctg_dna_seq', 'ctg_dna_hash']
-    if in_path.suffix == '.csv':
-        df = pd.read_csv(in_path, usecols=usecols)
-    else:
-        df = pd.read_parquet(in_path, columns=usecols)
-    print(f"  Loaded {len(df):,} rows in {time.time()-t0:.1f}s")
-
-    # nt_ctg: attach `function` via a verified 1-1 join from the CDS source
-    # (default: the sibling cds_dna_final.parquet), then drop the join keys so
-    # the df matches the {function, seq, hash} shape the exporter expects.
-    if args.alphabet == 'nt_ctg':
-        fsrc = (Path(args.function_source) if args.function_source
-                else in_path.with_name('cds_dna_final.parquet'))
-        if not fsrc.exists():
-            raise SystemExit(
-                f"nt_ctg needs a --function_source for the contig->function join; "
-                f"default sibling not found: {fsrc}")
-        print(f"  Attaching `function` from {fsrc.name} "
-              f"(1-1 join on assembly_id, genbank_ctg_id) ...")
-        df = attach_function_to_contigs(df, fsrc)
-        df = df.drop(columns=['assembly_id', 'genbank_ctg_id'])
-
-    # Pre-hash aa input. The unified exporter requires the hash column to
-    # be present (matches the nt_cds path where cds_dna_final.parquet carries
-    # cds_dna_hash). protein_final.parquet does NOT carry prot_hash, so we
-    # compute it here once and reuse across thresholds.
-    if args.alphabet == 'aa':
-        t_hash = time.time()
-        df['prot_hash'] = df['prot_seq'].map(compute_prot_hash)
-        print(f"  Hashed prot_seq -> prot_hash in {time.time()-t_hash:.1f}s "
-              f"({df['prot_hash'].nunique():,} unique)")
+    df, args.alphabet = load_sequence_frame(
+        protein_final=args.protein_final, cds_dna_final=args.cds_dna_final,
+        ctg_dna_final=args.ctg_dna_final, alphabet=args.alphabet,
+        function_source=args.function_source,
+    )
 
     out_root = Path(args.out_root)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    unknown = [f for f in args.functions if f not in SHORT_TO_FUNCTION]
-    if unknown:
-        raise SystemExit(f"Unknown function short names: {unknown}. "
-                         f"Known: {sorted(SHORT_TO_FUNCTION)}")
-
-    # Skip functions absent from the input (e.g., M2/NEP are not in
-    # cds_dna_final.parquet because the CDS extractor only covers the 8
-    # majors). Avoids aborting mid-sweep on the first missing function.
-    present_functions = set(df['function'].unique())
-    skipped = [f for f in args.functions
-               if SHORT_TO_FUNCTION[f] not in present_functions]
+    # Split requested functions into present / skipped (skip those absent from
+    # this input, e.g. M2/NEP in cds_dna_final; abort only if none remain).
+    args.functions, skipped = filter_present_functions(df, args.functions, SHORT_TO_FUNCTION)
     if skipped:
-        print(f"  NOTE: skipping {len(skipped)} function(s) with no rows in "
-              f"this input: {skipped}")
-        args.functions = [f for f in args.functions if f not in skipped]
-        if not args.functions:
-            raise SystemExit("No functions to process after skipping. "
-                             "Check the input file's `function` column.")
+        print(f"  NOTE: skipping {len(skipped)} function(s) with no rows in this input: {skipped}")
+    if not args.functions:
+        raise SystemExit("No functions to process after skipping. "
+                         "Check the input file's `function` column.")
 
     all_stats = []
     for threshold in args.thresholds:

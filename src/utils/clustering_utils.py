@@ -36,7 +36,6 @@ import pandas as pd
 
 from src.utils import schema
 
-
 # Dispatch table: alphabet -> {seq_col, hash_col}, derived from the schema
 # registry (single source of truth) for the unified exporter + parse_cluster_tsv
 # output column dispatch. All three alphabets are active; nt_ctg requires the
@@ -636,3 +635,367 @@ def cluster_size_distribution(cluster_lookup: pd.DataFrame) -> dict:
         'p99_cluster_size': int(np.percentile(sizes, 99)),
         'fraction_singletons': float(n_singletons / len(sizes)),
     }
+
+
+def threshold_label(threshold: float) -> str:
+    """Format an identity threshold as a stable dir label, e.g. 0.95 -> 't095'.
+
+    The `t<XXX>` prefix is the canonical user-facing form (CLAUDE.md
+    "Threshold notation"). Shared by both cluster builders.
+    """
+    return f"t{int(round(threshold * 100)):03d}"
+
+
+def load_sequence_frame(
+    *,
+    protein_final: Optional[str] = None,
+    cds_dna_final: Optional[str] = None,
+    ctg_dna_final: Optional[str] = None,
+    alphabet: Optional[str] = None,
+    function_source: Optional[str] = None,
+    ) -> tuple:
+    """Load the per-function sequence frame for clustering; resolve alphabet from the source.
+
+    Exactly one of `protein_final` / `cds_dna_final` / `ctg_dna_final` must be
+    given; the alphabet follows from it (aa / nt_cds / nt_ctg). Returns
+    `(df, alphabet)` where `df` carries `function` plus the alphabet's seq+hash
+    columns. aa input (`protein_final`) does not carry `prot_hash`, so it is
+    computed here; nt inputs already carry their hash. For nt_ctg the `function`
+    label is attached from `function_source` (default: the sibling
+    `cds_dna_final.parquet`) via a verified 1-1 join.
+
+    Shared by `build_mmseqs_clusters.py` (set-cover) and `build_ood_clusters.py`
+    (connected-component) so both cluster the identical input universe.
+    """
+    sources = {'aa': protein_final, 'nt_cds': cds_dna_final, 'nt_ctg': ctg_dna_final}
+    given = {a: p for a, p in sources.items() if p}
+    if len(given) != 1:
+        raise ValueError(
+            "load_sequence_frame: pass exactly one of protein_final / cds_dna_final "
+            f"/ ctg_dna_final; got {sorted(given)}")
+    src_alphabet, in_path = next(iter(given.items()))
+    alphabet = alphabet or src_alphabet
+    if alphabet != src_alphabet:
+        raise ValueError(
+            f"{src_alphabet} source implies alphabet={src_alphabet!r}, not {alphabet!r}")
+
+    in_path = Path(in_path)
+    # Seq/hash column names come from the schema registry (single source of truth).
+    # aa loads only the seq (prot_hash is computed below); nt inputs carry their hash.
+    cols = _COLS_BY_ALPHABET[alphabet]
+    if alphabet == 'aa':
+        usecols = ['function', cols['seq_col']]
+    elif alphabet == 'nt_cds':
+        usecols = ['function', cols['seq_col'], cols['hash_col']]
+    else:  # nt_ctg: ctg_dna_final has no `function`; attach it from function_source below.
+        usecols = ['assembly_id', 'genbank_ctg_id', cols['seq_col'], cols['hash_col']]
+    print(f"Loading {in_path} (alphabet={alphabet}) ...")
+    if in_path.suffix == '.csv':
+        df = pd.read_csv(in_path, usecols=usecols)
+    else:
+        df = pd.read_parquet(in_path, columns=usecols)
+    print(f"  Loaded {len(df):,} rows")
+
+    # nt_ctg: attach `function` (ctg_dna_final carries none) via a 1-1 join, then
+    # drop the join keys so the df matches the {function, seq, hash} exporter shape.
+    if alphabet == 'nt_ctg':
+        fsrc = (Path(function_source) if function_source
+                else in_path.with_name('cds_dna_final.parquet'))
+        if not fsrc.exists():
+            raise FileNotFoundError(
+                f"nt_ctg needs a function_source for the contig->function join; "
+                f"default sibling not found: {fsrc}")
+        print(f"  Attaching `function` from {fsrc.name} (1-1 join) ...")
+        df = attach_function_to_contigs(df, fsrc)
+        df = df.drop(columns=['assembly_id', 'genbank_ctg_id'])
+
+    # aa: protein_final has no prot_hash; compute it once (reused across thresholds).
+    if alphabet == 'aa':
+        # protein_final has no prot_hash; compute it once (md5), reused across thresholds.
+        hc, sc = cols['hash_col'], cols['seq_col']
+        df[hc] = df[sc].map(compute_prot_hash)
+        print(f"  Hashed {sc} -> {hc} ({df[hc].nunique():,} unique)")
+    return df, alphabet
+
+
+def filter_present_functions(df: pd.DataFrame, short_names: list, short_to_function: dict) -> tuple:
+    """Split requested function short-names into (present, skipped) for this input.
+
+    Raises on any unknown short-name. `skipped` = requested functions whose full
+    name has no rows in `df['function']` (e.g. M2/NEP are absent from
+    cds_dna_final). Lets a sweep skip them instead of aborting mid-run.
+    """
+    unknown = [f for f in short_names if f not in short_to_function]
+    if unknown:
+        raise ValueError(
+            f"Unknown function short names: {unknown}. Known: {sorted(short_to_function)}")
+    present_full = set(df['function'].unique())
+    present = [f for f in short_names if short_to_function[f] in present_full]
+    skipped = [f for f in short_names if f not in present]
+    return present, skipped
+
+
+def read_fasta_hashes(fasta_path: Path) -> list:
+    """Return the record headers (= sequence hashes) of a FASTA, in file order.
+
+    `export_function_fasta` writes one record per unique sequence with the hash
+    as the header, so this is the exact node set for connected-component
+    clustering — including sequences with no `>= t` neighbour, which must stay
+    singletons.
+    """
+    hashes = []
+    with Path(fasta_path).open() as f:
+        for line in f:
+            if line.startswith('>'):
+                hashes.append(line[1:].strip())
+    return hashes
+
+
+def _build_mmseqs_search_cmd(
+    *,
+    mmseqs_bin: str,
+    fasta_path: Path,
+    out_tsv: Path,
+    tmp_dir: Path,
+    dbtype: str,
+    min_seq_id: float,
+    coverage: float,
+    cov_mode: int,
+    seq_id_mode: int = 0,
+    evalue: float = 0.001,
+    format_output: str = 'query,target,fident,qcov,tcov',
+    sensitivity: Optional[float] = None,
+    prefilter_mode: Optional[int] = None,
+    max_seqs: Optional[int] = None,
+    gpu: int = 0,
+    threads: Optional[int] = 16,
+    extra_args: Optional[list] = None,
+    ) -> list:
+    """Assemble the `mmseqs easy-search` all-vs-all command (FASTA vs itself).
+
+    Pure (no I/O): the single source of truth for the emitted flags, so the OOD
+    search rule is unit-testable. The identity/coverage rule (`--min-seq-id`,
+    `-c`, `--cov-mode`, `--seq-id-mode`, `-e`) mirrors
+    `src/analysis/verify_ood_clusters.py`, so a cluster set built from these hits
+    verifies against the same graph. Completeness knob: `prefilter_mode=2`
+    (nofilter) gives a provably-complete all-vs-all; otherwise `sensitivity`
+    (`-s`) uses the fast heuristic prefilter (empirically complete at high `t`).
+    Every returned hit already meets `identity >= min_seq_id` and
+    `coverage >= coverage`, i.e. it is an edge of the `>= t`/cov graph.
+    """
+    cmd = [
+        mmseqs_bin, 'easy-search',
+        str(fasta_path), str(fasta_path), str(out_tsv), str(tmp_dir),
+        '--min-seq-id', f'{min_seq_id:g}',
+        '-c', f'{coverage:g}',
+        '--cov-mode', str(cov_mode),
+        '--dbtype', dbtype,
+        '--seq-id-mode', str(seq_id_mode),
+        '-e', f'{evalue:g}',
+        '--format-output', format_output,
+    ]
+    # prefilter-mode 2 (nofilter/exhaustive) takes precedence over -s, so exactly
+    # one prefilter setting reaches the command line.
+    if prefilter_mode is not None:
+        cmd += ['--prefilter-mode', str(prefilter_mode)]
+    elif sensitivity is not None:
+        cmd += ['-s', f'{sensitivity:g}']
+    if max_seqs is not None:
+        cmd += ['--max-seqs', str(max_seqs)]
+    if gpu:
+        cmd += ['--gpu', str(gpu), '--createdb-mode', '2']  # GPU-compatible db
+    if threads is not None:
+        cmd += ['--threads', str(threads)]
+    if extra_args:
+        cmd += list(extra_args)
+    return cmd
+
+
+def run_mmseqs_search(
+    fasta_path: Path,
+    out_tsv: Path,
+    tmp_dir: Path,
+    min_seq_id: float,
+    *,
+    coverage: float = 0.8,
+    cov_mode: int = 0,
+    seq_id_mode: int = 0,
+    alphabet: str = 'aa',
+    sensitivity: Optional[float] = 7.5,
+    prefilter_mode: Optional[int] = None,
+    max_seqs: Optional[int] = None,
+    gpu: int = 0,
+    threads: Optional[int] = 16,
+    mmseqs_bin: Optional[str] = None,
+    log_path: Optional[Path] = None,
+    extra_args: Optional[list] = None,
+    ) -> Path:
+    """Run `mmseqs easy-search` (FASTA vs itself); return the hits-TSV path.
+
+    The hits are the edges of the `>= t`/cov similarity graph (the search filters
+    guarantee every hit meets the rule). See `_build_mmseqs_search_cmd` for the
+    rule and the sensitivity / prefilter-mode completeness knobs.
+    """
+    fasta_path, out_tsv, tmp_dir = Path(fasta_path), Path(out_tsv), Path(tmp_dir)
+    if mmseqs_bin is None:
+        mmseqs_bin = os.environ.get('MMSEQS_BIN', 'mmseqs')
+    if not fasta_path.exists():
+        raise FileNotFoundError(f"FASTA not found: {fasta_path}")
+    if shutil.which(mmseqs_bin) is None:
+        raise RuntimeError(
+            f"mmseqs binary not found: {mmseqs_bin!r}. Set MMSEQS_BIN or put "
+            f"'mmseqs' on PATH.")
+    if alphabet not in _ACTIVE_ALPHABETS:
+        raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
+
+    out_tsv.parent.mkdir(parents=True, exist_ok=True)
+    # Start from a clean tmp: easy-search can skip-and-reuse intermediate DBs left in
+    # tmp, so a stale one would silently run against old sequences on a re-run.
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    dbtype = '1' if alphabet == 'aa' else '2'
+    cmd = _build_mmseqs_search_cmd(
+        mmseqs_bin=mmseqs_bin, fasta_path=fasta_path, out_tsv=out_tsv, tmp_dir=tmp_dir,
+        dbtype=dbtype, min_seq_id=min_seq_id, coverage=coverage, cov_mode=cov_mode,
+        seq_id_mode=seq_id_mode, sensitivity=sensitivity, prefilter_mode=prefilter_mode,
+        max_seqs=max_seqs, gpu=gpu, threads=threads, extra_args=extra_args,
+    )
+
+    if log_path is not None:
+        log_path = Path(log_path)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open('w') as f:
+            f.write(f"# CMD: {' '.join(cmd)}\n")
+            f.flush()
+            proc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, text=True)
+    else:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+
+    if proc.returncode != 0:
+        tail = ''
+        if log_path is not None and log_path.exists():
+            tail = log_path.read_text()[-2000:]
+        elif hasattr(proc, 'stdout'):
+            tail = (proc.stdout or '')[-2000:] + (proc.stderr or '')[-2000:]
+        raise RuntimeError(
+            f"mmseqs easy-search failed (returncode={proc.returncode}).\n"
+            f"CMD: {' '.join(cmd)}\nTail:\n{tail}")
+    if not out_tsv.exists():
+        raise FileNotFoundError(f"mmseqs reported success but hits TSV is missing: {out_tsv}")
+    return out_tsv
+
+
+def connected_components_from_hits(
+    hits_tsv: Path,
+    nodes: list,
+    *,
+    alphabet: str,
+    cluster_id_prefix: str,
+    ) -> pd.DataFrame:
+    """Cluster = connected component of the similarity graph, via union-find.
+
+    Nodes are all unique sequence hashes (`nodes`, from the FASTA); edges are the
+    hits in `hits_tsv` (each already meets the `>= t`/cov rule). Sequences with no
+    edge stay singletons. Labels are canonical and deterministic: components are
+    ranked by size (desc), ties by smallest member hash, so re-runs on the same
+    graph give identical `cluster_id`s regardless of union order.
+
+    NOTE: this is a connected component of the single-segment SIMILARITY graph
+    (nodes = sequences) -- a *cluster* / *mega-cluster*, NOT the bipartite CC /
+    mega-CC of 2D-CD routing (see docs/methods/glossary.md).
+
+    Returns a DataFrame `[<hash_col>, cluster_id, cluster_rep]` -- the same shape
+    as `parse_cluster_tsv`, so downstream code is unchanged.
+    """
+    if alphabet not in _ACTIVE_ALPHABETS:
+        raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
+    hash_col = _COLS_BY_ALPHABET[alphabet]['hash_col']
+
+    nodes = list(nodes)
+    parent = {n: n for n in nodes}
+    if len(parent) != len(nodes):
+        raise ValueError("connected_components_from_hits: duplicate node hashes in the FASTA")
+
+    def find(x):
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:  # path compression: point every node on the path at root
+            parent[x], x = root, parent[x]
+        return root
+
+    hits = read_hits_tsv(hits_tsv, usecols=['query', 'target'])
+    for q, t in zip(hits['query'], hits['target']):
+        if q == t:
+            continue
+        if q not in parent or t not in parent:
+            raise ValueError(
+                "connected_components_from_hits: a hit references a hash absent from "
+                "the FASTA node set -- hits TSV and FASTA are not from the same build.")
+        rq, rt = find(q), find(t)
+        if rq != rt:
+            parent[rq] = rt
+
+    members = {}
+    for n in nodes:
+        members.setdefault(find(n), []).append(n)
+    ordered = sorted(members.values(), key=lambda m: (-len(m), min(m)))
+
+    recs = []
+    for idx, member_hashes in enumerate(ordered):
+        cluster_id = f"{cluster_id_prefix}_{idx}"
+        rep = min(member_hashes)
+        recs.extend((h, cluster_id, rep) for h in member_hashes)
+    return pd.DataFrame(recs, columns=[hash_col, 'cluster_id', 'cluster_rep'])
+
+
+def read_hits_tsv(hits_tsv: Path, usecols: Optional[list] = None) -> pd.DataFrame:
+    """Read an `easy-search` hits TSV -- the single owner of its column schema.
+
+    The column order is produced only by `_build_mmseqs_search_cmd`'s
+    `--format-output`; parsing it in one place keeps every reader in step if that
+    ever changes. `usecols` selects a subset (default: all five columns).
+    """
+    names = ['query', 'target', 'fident', 'qcov', 'tcov']
+    return pd.read_csv(hits_tsv, sep='\t', header=None, names=names,
+                       usecols=usecols or names, dtype=str)
+
+
+def aggregate_combined_lookup(out_root: Path, threshold: float, function_shorts: list) -> Path:
+    """Concatenate the per-function cluster parquets at one threshold into one file.
+
+    Shared by both cluster builders. Raises FileNotFoundError naming the first
+    missing per-function parquet (clearer than an opaque read error).
+    """
+    tdir = Path(out_root) / threshold_label(threshold)
+    parts = []
+    for short in function_shorts:
+        p = tdir / f"{short}_cluster.parquet"
+        if not p.exists():
+            raise FileNotFoundError(f"missing per-function parquet: {p}")
+        parts.append(pd.read_parquet(p))
+    combined_path = tdir / 'combined_cluster.parquet'
+    pd.concat(parts, ignore_index=True).to_parquet(combined_path, index=False)
+    return combined_path
+
+
+def write_or_merge_stats_csv(out_root: Path, all_stats: list, filename: str) -> Path:
+    """Write per-(function, threshold) stats, merging with any prior CSV.
+
+    A re-run at a subset of thresholds keeps the earlier rows; re-running the same
+    (function_short, threshold) overwrites just those. `keep_default_na=False` guards
+    the function_short='NA' (Neuraminidase) read trap (CLAUDE.md convention).
+    """
+    new = pd.DataFrame(all_stats)
+    stats_csv = Path(out_root) / filename
+    if stats_csv.exists():
+        prior = pd.read_csv(stats_csv, keep_default_na=False, na_values=[''])
+        if set(prior.columns) == set(new.columns):
+            key = ['function_short', 'threshold']
+            now = set(map(tuple, new[key].itertuples(index=False, name=None)))
+            keep = [tuple(r) not in now for r in prior[key].itertuples(index=False, name=None)]
+            new = pd.concat([prior[keep], new], ignore_index=True)
+    new = new.sort_values(['threshold', 'function_short'], ascending=[False, True])
+    new.to_csv(stats_csv, index=False)
+    return stats_csv

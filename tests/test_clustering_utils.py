@@ -19,9 +19,11 @@ from src.utils.clustering_utils import (  # noqa: E402
     _ACTIVE_ALPHABETS,
     _COLS_BY_ALPHABET,
     _build_mmseqs_clust_cmd,
+    _build_mmseqs_search_cmd,
     _clean_for_mmseqs,
     attach_function_to_contigs,
     compute_prot_hash,
+    connected_components_from_hits,
 )
 
 
@@ -144,6 +146,55 @@ def test_build_cmd_ood_emits_connected_component_flags():
     assert cmd[cmd.index("-s") + 1] == "7.5"
     assert "--single-step-clustering" in cmd
     assert cmd[cmd.index("--max-seqs") + 1] == "100000"
+
+
+def test_build_search_cmd_default_is_s75():
+    # Default OOD all-vs-all search: -s 7.5 prefilter, with the SAME id/cov rule the
+    # verifier uses so a cluster set built from these hits verifies against one graph.
+    cmd = _build_mmseqs_search_cmd(
+        mmseqs_bin="mmseqs", fasta_path="f.fasta", out_tsv="h.tsv", tmp_dir="tmp",
+        dbtype="1", min_seq_id=0.99, coverage=0.8, cov_mode=0, sensitivity=7.5,
+    )
+    assert cmd == [
+        "mmseqs", "easy-search", "f.fasta", "f.fasta", "h.tsv", "tmp",
+        "--min-seq-id", "0.99", "-c", "0.8", "--cov-mode", "0", "--dbtype", "1",
+        "--seq-id-mode", "0", "-e", "0.001",
+        "--format-output", "query,target,fident,qcov,tcov",
+        "-s", "7.5", "--threads", "16",
+    ]
+
+
+def test_build_search_cmd_exhaustive_uses_prefilter_mode_2():
+    # --exhaustive -> --prefilter-mode 2 (nofilter, provably complete); it wins over -s.
+    # Also checks nt dbtype, --max-seqs, and the GPU flags.
+    cmd = _build_mmseqs_search_cmd(
+        mmseqs_bin="mmseqs", fasta_path="f.fasta", out_tsv="h.tsv", tmp_dir="tmp",
+        dbtype="2", min_seq_id=0.95, coverage=0.8, cov_mode=0,
+        sensitivity=7.5, prefilter_mode=2, max_seqs=100000, gpu=1,
+    )
+    assert cmd[cmd.index("--prefilter-mode") + 1] == "2"
+    assert "-s" not in cmd
+    assert cmd[cmd.index("--dbtype") + 1] == "2"
+    assert cmd[cmd.index("--max-seqs") + 1] == "100000"
+    assert cmd[cmd.index("--gpu") + 1] == "1" and "--createdb-mode" in cmd
+
+
+def test_connected_components_from_hits_union_find():
+    # Graph: a-b, b-c (component {a,b,c}); d-e ({d,e}); f isolated (singleton). The
+    # hit TSV is directed (both a-b and b-a) with the 5 verifier columns.
+    rows = "a\tb\t1\t1\t1\nb\ta\t1\t1\t1\nb\tc\t1\t1\t1\nd\te\t1\t1\t1\n"
+    with tempfile.TemporaryDirectory() as d:
+        tsv = Path(d) / "hits.tsv"
+        tsv.write_text(rows)
+        out = connected_components_from_hits(
+            tsv, ["a", "b", "c", "d", "e", "f"], alphabet="aa", cluster_id_prefix="X")
+    hash_col = _COLS_BY_ALPHABET["aa"]["hash_col"]
+    cid = dict(zip(out[hash_col], out["cluster_id"]))
+    assert cid["a"] == cid["b"] == cid["c"]           # same component -> same id
+    assert cid["d"] == cid["e"]
+    assert len({cid["a"], cid["d"], cid["f"]}) == 3   # 3 distinct components
+    assert cid["a"] == "X_0"                           # canonical: biggest is _0
+    assert len(out) == 6 and out[hash_col].is_unique   # every node once, incl. singleton f
 
 
 if __name__ == "__main__":

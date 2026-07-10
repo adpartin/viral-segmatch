@@ -30,6 +30,9 @@ select = ["I", "F401", "F541", "F811"]
 # "src/analysis/**" = ["PLR0915", "PLR0912", "C901"]
 # "tests/**"        = ["PLR0915"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["src"]   # this repo's package -> its own import group (else `from src...` folds into third-party and trips I001)
+
 [tool.ruff.format]
 # black-compatible reformat; runs only when you invoke `ruff format`. NOTE: this is separate
 # from `select` and reformats ALL code, not just imports — drop the ruff-format pre-commit
