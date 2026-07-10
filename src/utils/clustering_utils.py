@@ -1007,15 +1007,26 @@ def write_or_merge_stats_csv(out_root: Path, all_stats: list, filename: str) -> 
     return stats_csv
 
 
-def write_runtime_json(out_root: Path, config: dict, all_stats: list) -> Path:
-    """Write runtime.json: the run config + a per-(function, threshold) timing rollup.
+def write_runtime_json(out_dir: Path, config: dict, all_stats: list) -> Path:
+    """Write `runtime.json` into `out_dir`: the run config + a per-run timing rollup.
 
-    `config` is the builder's parameters (search/cluster knobs, functions, thresholds) --
-    a one-file record of what a cluster set was built with. The timing summary is derived
-    from `all_stats` (fresh runs only; cached rows have elapsed_seconds=None).
+    Both cluster builders call this once per threshold, so `out_dir` is that
+    threshold's `t<NN>` dir and `runtime.json` lands next to that threshold's cluster
+    parquets -- a self-contained record of how that threshold was built (search /
+    cluster knobs, functions, threshold). The timing summary is derived from
+    `all_stats` (fresh runs only; cached rows have elapsed_seconds=None).
+
+    Preserve-on-cache: if every run was a cache hit (nothing recomputed) and a
+    runtime.json already exists, the existing file is kept rather than overwritten.
+    That prior file holds the real build timing plus the args the threshold was
+    actually built with; a purely-cached re-run would otherwise clobber it with zero
+    timing and the re-run's (possibly different) args.
     """
     fresh = [float(r['elapsed_seconds']) for r in all_stats
              if not r['cached'] and r['elapsed_seconds'] is not None]
+    runtime_json = Path(out_dir) / 'runtime.json'
+    if not fresh and runtime_json.exists():
+        return runtime_json  # nothing recomputed: keep the existing build record
     rt = dict(config)
     rt.update({
         'n_runs_total': len(all_stats),
@@ -1028,6 +1039,5 @@ def write_runtime_json(out_root: Path, config: dict, all_stats: list) -> Path:
             'function_short', 'threshold', 'alphabet', 'n_sequences',
             'n_clusters', 'elapsed_seconds', 'cached')} for r in all_stats],
     })
-    runtime_json = Path(out_root) / 'runtime.json'
     runtime_json.write_text(json.dumps(rt, indent=2))
     return runtime_json

@@ -847,7 +847,7 @@ structural-summary script that backs §§ 4–6 of this doc and
 | Step | Script | Reads | Writes |
 |---|---|---|---|
 | Build CDS (nt only) | `src/preprocess/extract_cds_dna.py` (Stage 1.5) | `protein_final.csv` + `ctg_dna_final.csv` | `cds_dna_final.parquet` |
-| Cluster sweep | `src/preprocess/build_mmseqs_clusters.py` | `protein_final.parquet` (aa) or `cds_dna_final.parquet` (nt_cds) | `clusters_{aa,nt_cds}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/runtime.json`, `redundancy_summary.md` |
+| Cluster sweep | `src/preprocess/build_mmseqs_clusters.py` | `protein_final.parquet` (aa) or `cds_dna_final.parquet` (nt_cds) | `clusters_{aa,nt_cds}/`: per-protein FASTAs, per-threshold cluster parquets, `combined_cluster.parquet`, `redundancy_stats.csv`, `<out_root>/t<NN>/runtime.json`, `redundancy_summary.md` |
 | Feasibility pre-flight | `src/analysis/cluster_disjoint_feasibility.py` (bilateral) and `src/analysis/single_slot_cluster_disjoint_feasibility.py` (single-slot) | one cluster lookup + `protein_final` or `cds_dna_final` | `results/flu/{version}/runs/cluster_disjoint_feasibility/{feasibility,single_slot_feasibility}_<pair>_<alphabet>.csv` |
 | Stage 3 consumes | `src/datasets/dataset_segment_pairs_v2.py` (when `split_strategy.mode: cluster_disjoint`) | `combined_cluster.parquet` for the chosen (alphabet, threshold) | `dataset_*/cluster_disjoint_audit.json` |
 | Post-hoc structural summary | `src/analysis/cluster_analysis_summary.py` | `redundancy_stats.csv`, per-threshold cluster parquets, `cds_dna_final.parquet`, feasibility CSVs | tables + plots under `results/flu/{version}/runs/cluster_analysis/` (see § 8 outputs block) |
@@ -863,7 +863,7 @@ The producer/consumer chain, end to end:
 python src/preprocess/extract_cds_dna.py --config_bundle flu_ha_na
 
 # 2. Per-protein clustering sweep — once per (alphabet, data version).
-#    Writes <out_root>/{fasta,id<NN>}/, redundancy_stats.csv, runtime.json,
+#    Writes <out_root>/{fasta,t<NN>}/, redundancy_stats.csv, t<NN>/runtime.json,
 #    redundancy_summary.md (alongside the stats CSV; not under docs/).
 #    The merge-fix in build_mmseqs_clusters.py preserves prior
 #    threshold rows on re-run, so subset reruns don't wipe the CSV.

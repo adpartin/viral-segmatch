@@ -220,6 +220,7 @@ def main() -> None:
     all_stats = []
     for threshold in args.thresholds:
         print(f"\n=== threshold = {threshold:.2f} ===")
+        threshold_stats = []
         for short in functions:
             stats = cluster_one_function_one_threshold(
                 df, short, threshold, out_root, alphabet=alphabet,
@@ -227,24 +228,27 @@ def main() -> None:
                 max_seqs=args.max_seqs, coverage=args.coverage, gpu=args.gpu,
                 threads=args.threads, mmseqs_bin=args.mmseqs_bin, force=args.force
             )
-            all_stats.append(stats)
+            threshold_stats.append(stats)
+        all_stats.extend(threshold_stats)
         if not args.no_combined:
             print(f"  combined parquet -> {aggregate_combined_lookup(out_root, threshold, functions)}")
+        # Per-threshold provenance: the search config (it sets the graph's
+        # completeness) + a per-function timing rollup, written into this t<NN> dir
+        # next to its cluster parquets -- not one file at out_root, which the next
+        # threshold's run would overwrite.
+        runtime_json = write_runtime_json(out_root / threshold_label(threshold), {
+            'alphabet': alphabet, 'method': 'easy-search + union-find',
+            'sensitivity': args.sensitivity, 'prefilter_mode': prefilter_mode,
+            'exhaustive': args.exhaustive, 'max_seqs': args.max_seqs,
+            'coverage': args.coverage, 'gpu': args.gpu, 'threads': args.threads,
+            'functions': list(functions), 'threshold': float(threshold),
+        }, threshold_stats)
+        print(f"  Runtime JSON: {runtime_json}")  # written fresh; preserved on a purely-cached re-run
 
     # Per-(function, threshold) cluster-size stats, merged with any prior CSV so a
     # subset-threshold re-run doesn't drop earlier rows.
     stats_csv = write_or_merge_stats_csv(out_root, all_stats, 'cluster_stats.csv')
     print(f"\nWrote stats CSV: {stats_csv}")
-
-    # Record the search config (it sets the graph's completeness) + a timing rollup.
-    runtime_json = write_runtime_json(out_root, {
-        'alphabet': alphabet, 'method': 'easy-search + union-find',
-        'sensitivity': args.sensitivity, 'prefilter_mode': prefilter_mode,
-        'exhaustive': args.exhaustive, 'max_seqs': args.max_seqs,
-        'coverage': args.coverage, 'gpu': args.gpu, 'threads': args.threads,
-        'functions': list(functions), 'thresholds': [float(t) for t in args.thresholds],
-    }, all_stats)
-    print(f"Wrote runtime JSON: {runtime_json}")
 
 
 if __name__ == '__main__':

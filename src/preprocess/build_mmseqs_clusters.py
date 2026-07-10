@@ -480,6 +480,7 @@ def main() -> None:
     all_stats = []
     for threshold in args.thresholds:
         print(f"\n=== threshold = {threshold:.2f} ===")
+        threshold_stats = []
         for short in args.functions:
             stats = cluster_one_function_one_threshold(
                 df=df,
@@ -496,11 +497,24 @@ def main() -> None:
                 max_seqs=args.max_seqs,
                 mmseqs_bin=args.mmseqs_bin,
             )
-            all_stats.append(stats)
+            threshold_stats.append(stats)
+        all_stats.extend(threshold_stats)
 
         if not args.no_combined:
             cpath = aggregate_combined_lookup(out_root, threshold, args.functions)
             print(f"  combined parquet -> {cpath}")
+
+        # Per-threshold provenance: run config + per-function timing rollup, written
+        # into this t<NN> dir next to its cluster parquets -- not one file at out_root,
+        # which the next threshold's run would overwrite.
+        runtime_json = write_runtime_json(out_root / threshold_label(threshold), {
+            'alphabet': args.alphabet, 'algorithm': args.algorithm,
+            'cluster_mode': args.cluster_mode, 'sensitivity': args.sensitivity,
+            'single_step_clustering': args.single_step_clustering,
+            'max_seqs': args.max_seqs, 'threads': args.threads,
+            'functions': list(args.functions), 'threshold': float(threshold),
+        }, threshold_stats)
+        print(f"  Runtime JSON: {runtime_json}")  # written fresh; preserved on a purely-cached re-run
 
     # Save the per-(function, threshold) stats CSV.
     # Append/merge with any prior CSV so re-running with a subset of
@@ -536,16 +550,7 @@ def main() -> None:
     stats_df.to_csv(stats_csv, index=False)
     print(f"Wrote stats CSV: {stats_csv}")
 
-    # runtime.json: the run config + a per-(function, threshold) timing rollup.
-    runtime_json = write_runtime_json(out_root, {
-        'alphabet': args.alphabet, 'algorithm': args.algorithm,
-        'cluster_mode': args.cluster_mode, 'sensitivity': args.sensitivity,
-        'single_step_clustering': args.single_step_clustering,
-        'max_seqs': args.max_seqs, 'threads': args.threads,
-        'functions': list(args.functions),
-        'thresholds': [float(t) for t in args.thresholds],
-    }, all_stats)
-    print(f"Wrote runtime JSON: {runtime_json}")
+    # (runtime.json is written per-threshold inside the loop above, into each t<NN> dir.)
 
     # Markdown report. Defaults to <out_root>/redundancy_summary.md so
     # the auto-generated markdown lives next to the stats CSV and the
