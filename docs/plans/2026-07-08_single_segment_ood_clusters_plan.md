@@ -2,7 +2,7 @@
 
 **Status: IN PROGRESS** — the OOD builder (`build_ood_clusters.py`, search → union-find) is
 implemented, committed, and **verified** on aa M1 t099 (**234 clusters, 0 cross-cluster violations**);
-per-threshold `runtime.json` + preserve-on-cache landed; visualization (`plot_ood_clusters.py`:
+per-threshold `runtime.json` + preserve-on-cache landed; visualization (`plot_clusters.py`:
 separation map + ESM-2 UMAP) done (Next steps 1–3). **Remaining:** the `results/1D_clusters_sizes`
 convention decision, the 8-major scale-out (held by choice), and the nt_cds/nt_ctg rollout.
 
@@ -161,7 +161,7 @@ pairs ⇔ guarantee holds.**
 ## Figure — cluster separation, M1 (explainer; two-panel `M1_separation_heatmap.png`)
 
 > **Production figure (2026-07-10):** the single-panel QC figure is now
-> `clusters_aa_ood/figures/M1_t099_separation.png` (via `src/analysis/plot_ood_clusters.py
+> `clusters_aa_ood/figures/M1_t099_separation.png` (via `src/analysis/plot_clusters.py
 > --plots separation`). The two-panel union-find-vs-easy-cluster comparison described below
 > is explainer-only and no longer on disk (regenerable). See Next steps 2.
 
@@ -281,7 +281,7 @@ authoring B's docstrings, so "CC" here stays distinct from the bipartite mega-CC
 clusters, 0 violations). The 8-major run is `build_ood_clusters` with the default
 `--functions` into `clusters_aa_ood/`; hold until the viz work below settles.
 
-**1. [DONE] Cluster visualizations — `src/analysis/plot_ood_clusters.py`** (commits `e88fb03`,
+**1. [DONE] Cluster visualizations — `src/analysis/plot_clusters.py`** (commits `e88fb03`,
 `17c9210`). A dedicated, regenerable script that READS the cluster parquet (+ the
 `t<NN>/<short>_hits.tsv` graph) and writes figures into
 `data/processed/.../clusters_<alphabet>_ood/figures/` **without recomputing clusters**; the

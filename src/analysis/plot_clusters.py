@@ -1,11 +1,12 @@
-"""Regenerable QC figures for OOD cluster sets (reads existing artifacts; recomputes nothing).
+"""Regenerable figures for a cluster set (reads existing artifacts; recomputes nothing).
 
-Reads the cluster parquet + easy-search hits TSV that `build_ood_clusters.py`
-wrote, and renders per-function figures into `<clusters_root>/figures/`. It never
-re-clusters: delete a PNG and re-run to regenerate it. Kept separate from the
-builder so the production builder stays figure-free.
+Reads a cluster set's `t<NN>/<short>_cluster.parquet` and renders per-function
+figures into `<clusters_root>/figures/`. It never re-clusters: delete a PNG and
+re-run to regenerate it. Kept separate from the cluster builders so they stay
+figure-free. `--clusters_root` can point at any cluster set (OOD `clusters_*_ood/`
+or set-cover `clusters_*/`); which figures apply depends on what that set carries.
 
-Figures (`--plots`):
+Figures (`--plots`), and which cluster sets they apply to:
   separation  -- the cluster set's `>= t`/cov similarity matrix, sequences ordered
     by cluster (largest first). Each dot is one `>= t`/cov hit, colored by % identity.
     Within-cluster hits fill the block-diagonal blocks; any dot OFF the block diagonal
@@ -13,22 +14,23 @@ Figures (`--plots`):
     connected component of this hit graph). Drawn as a scatter (not a shrunk image) with
     violations ringed in red, so a lone violation can never be hidden. The visual
     companion to src/analysis/verify_ood_clusters.py, which certifies the same 0.
+    Needs the all-vs-all `<short>_hits.tsv` -> OOD sets only (build_ood_clusters).
   umap        -- 2-D UMAP of the ESM-2 embeddings of the cluster sequences, colored by
     cluster. Qualitative check that same-cluster sequences group together in ESM-2 space.
-    aa only (ESM-2 is a protein model). Uses the existing master embedding cache -- no
-    embeddings are computed here.
+    Uses the existing master embedding cache (no embeddings computed) -> aa sets only
+    (ESM-2 is a protein model).
 
 Cluster / mega-cluster here = single-segment SIMILARITY-graph component (nodes =
 sequences), NOT the bipartite CC / mega-CC of 2D-CD routing (docs/methods/glossary.md).
 
 CLI:
     # separation map (default)
-    python -m src.analysis.plot_ood_clusters \\
+    python -m src.analysis.plot_clusters \\
         --clusters_root data/processed/flu/July_2025/clusters_aa_ood \\
         --threshold 0.99 --functions M1
 
     # add the ESM-2 UMAP (aa only)
-    python -m src.analysis.plot_ood_clusters \\
+    python -m src.analysis.plot_clusters \\
         --clusters_root data/processed/flu/July_2025/clusters_aa_ood \\
         --threshold 0.99 --functions M1 --plots separation umap \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\

@@ -116,7 +116,7 @@ change and aren't derivable from code. This file does NOT duplicate:
   `clustering_utils.py`; the linclust `build_mmseqs_clusters.py` stays the default). Writes
   `clusters_{alphabet}_ood/tXXX/` (never overwrites the set-cover parquets); `runtime.json` is now
   **per-threshold** (in each `tXXX/`) with preserve-on-cache (a fully-cached re-run keeps the prior
-  build record). Figures: `src/analysis/plot_ood_clusters.py` — regenerable, reads artifacts only;
+  build record). Figures: `src/analysis/plot_clusters.py` — regenerable, reads artifacts only;
   `--plots separation umap` → separation map (scatter, red violations) + ESM-2 UMAP (colored by
   cluster) into `clusters_*_ood/figures/`. Verifier: `src/analysis/verify_ood_clusters.py`.
   **Validated: aa M1 t099 ONLY** (234/0); 8-major scale-out + nt rollout pending, plus the
