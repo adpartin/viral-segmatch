@@ -5,23 +5,34 @@ wrote, and renders per-function figures into `<clusters_root>/figures/`. It neve
 re-clusters: delete a PNG and re-run to regenerate it. Kept separate from the
 builder so the production builder stays figure-free.
 
-Figures:
-  separation map -- the cluster set's `>= t`/cov similarity matrix, with sequences
-    ordered by cluster (largest first). Each dot is one `>= t`/cov hit, colored by
-    % identity. Within-cluster hits fill the block-diagonal blocks; any dot OFF the
-    block diagonal is a cross-cluster link (a separation violation -- expected 0,
-    since a cluster IS a connected component of this hit graph). Drawn as a scatter
-    (not a shrunk image) with violations ringed in red, so a lone violation can
-    never be hidden -- see the rendering note in `plot_separation_map`. The visual
+Figures (`--plots`):
+  separation  -- the cluster set's `>= t`/cov similarity matrix, sequences ordered
+    by cluster (largest first). Each dot is one `>= t`/cov hit, colored by % identity.
+    Within-cluster hits fill the block-diagonal blocks; any dot OFF the block diagonal
+    is a cross-cluster link (a separation violation -- expected 0, since a cluster IS a
+    connected component of this hit graph). Drawn as a scatter (not a shrunk image) with
+    violations ringed in red, so a lone violation can never be hidden. The visual
     companion to src/analysis/verify_ood_clusters.py, which certifies the same 0.
+  umap        -- 2-D UMAP of the ESM-2 embeddings of the cluster sequences, colored by
+    cluster. Qualitative check that same-cluster sequences group together in ESM-2 space.
+    aa only (ESM-2 is a protein model). Uses the existing master embedding cache -- no
+    embeddings are computed here.
 
 Cluster / mega-cluster here = single-segment SIMILARITY-graph component (nodes =
 sequences), NOT the bipartite CC / mega-CC of 2D-CD routing (docs/methods/glossary.md).
 
 CLI:
+    # separation map (default)
     python -m src.analysis.plot_ood_clusters \\
         --clusters_root data/processed/flu/July_2025/clusters_aa_ood \\
         --threshold 0.99 --functions M1
+
+    # add the ESM-2 UMAP (aa only)
+    python -m src.analysis.plot_ood_clusters \\
+        --clusters_root data/processed/flu/July_2025/clusters_aa_ood \\
+        --threshold 0.99 --functions M1 --plots separation umap \\
+        --protein_final data/processed/flu/July_2025/protein_final.parquet \\
+        --embeddings    data/embeddings/flu/July_2025/master_esm2_embeddings.h5
 """
 from __future__ import annotations
 
@@ -117,12 +128,11 @@ def plot_separation_map(
     ax.scatter(range(n), range(n), s=1, c='lightgray', marker='s',
                linewidths=0, rasterized=True, zorder=0)
     # Within-cluster hits, colored by % identity -- these fill the block-diagonal blocks.
-    mappable = None
     if within.any():
-        mappable = ax.scatter(ti[within], qi[within], c=fid[within], cmap='viridis',
-                              vmin=float(threshold), vmax=1.0, s=2, marker='s',
-                              linewidths=0, rasterized=True, zorder=1)
-        fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.04, label='sequence identity (fident)')
+        sc = ax.scatter(ti[within], qi[within], c=fid[within], cmap='viridis',
+                        vmin=float(threshold), vmax=1.0, s=2, marker='s',
+                        linewidths=0, rasterized=True, zorder=1)
+        fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04, label='sequence identity (fident)')
     # Cross-cluster hits = violations: drawn last, ringed in red so they can't be missed.
     if n_cross:
         ax.scatter(ti[cross], qi[cross], s=20, facecolors='none', edgecolors='red',
@@ -147,6 +157,154 @@ def plot_separation_map(
     return fig_path, {'n_seqs': n, 'n_clusters': n_clusters, 'n_cross': n_cross}
 
 
+def _esm2_model_sig(attrs: dict) -> str:
+    """Rebuild the ESM-2 cache-key signature from the master file's attrs.
+
+    Mirrors `get_model_sig()` in src/utils/esm2_utils.py, but rebuilt from the h5
+    attrs so this plotting script does not import torch/transformers (esm2_utils does).
+    The master cache key for a sequence is `sha1(esm2_ready_seq)::<this sig>`.
+    """
+    return (f"{attrs['model_name']}|{attrs['pooling']}|{attrs['layer']}"
+            f"|{int(attrs['max_length']) - 2}|{attrs['precision']}")
+
+
+def _load_cluster_embeddings(
+    clusters: pd.DataFrame,
+    hash_col: str,
+    full_name: str,
+    *,
+    protein_final: Path,
+    embeddings_h5: Path,
+    embeddings_index: Path,
+    ) -> tuple:
+    """Return `(X, cint, n_missing)`: one ESM-2 embedding per cluster sequence + its cluster rank.
+
+    Joins cluster nodes (`prot_hash` -> cluster_id) to ESM-2 embeddings through the
+    EXACT string Stage 2 embedded: `protein_final.esm2_ready_seq`, whose master-cache
+    key is `sha1(esm2_ready_seq)::<model_sig>`. aa only (ESM-2 is a protein model).
+    """
+    import hashlib
+
+    import h5py  # lazy: only the UMAP path needs HDF5 (matches the codebase pattern)
+
+    if hash_col != 'prot_hash':
+        raise ValueError(f"UMAP projection is aa-only (needs prot_hash + ESM-2); got {hash_col!r}")
+
+    # prot_hash -> the exact embedded string (esm2_ready_seq), from protein_final.
+    pf = pd.read_parquet(protein_final, columns=['function', 'prot_hash', 'esm2_ready_seq'])
+    pf = pf[pf['function'] == full_name].drop_duplicates('prot_hash')
+    seq_of = dict(zip(pf['prot_hash'], pf['esm2_ready_seq']))
+
+    # Each node's cache key = sha1(its embedded string) :: model_sig.
+    with h5py.File(embeddings_h5, 'r') as f:
+        sig = _esm2_model_sig({k: f.attrs[k] for k in f.attrs})
+    nodes = clusters[[hash_col, '_cint']].copy()
+    nodes['seq'] = nodes[hash_col].map(seq_of)
+    nodes['cache_key'] = nodes['seq'].map(
+        lambda s: f"{hashlib.sha1(s.encode()).hexdigest()}::{sig}" if isinstance(s, str) else None)
+
+    # Map cache_key -> row in the master embedding matrix (keep only our keys).
+    my_keys = set(nodes['cache_key'].dropna())
+    index = pd.read_parquet(embeddings_index, columns=['cache_key', 'row'])
+    index = index[index['cache_key'].isin(my_keys)].drop_duplicates('cache_key')
+    key2row = dict(zip(index['cache_key'], index['row']))
+    nodes['row'] = nodes['cache_key'].map(key2row)
+
+    have = nodes.dropna(subset=['row'])
+    n_missing = len(nodes) - len(have)
+    if have.empty:
+        raise ValueError("no cluster sequence had an ESM-2 embedding -- check the embeddings file/index.")
+
+    # Load only the rows we need (h5py fancy-indexing wants sorted-unique indices).
+    rows = have['row'].astype(int).to_numpy()
+    uniq, inv = np.unique(rows, return_inverse=True)
+    with h5py.File(embeddings_h5, 'r') as f:
+        emb_uniq = f['emb'][uniq.tolist()]        # (n_uniq, 1280) fp16
+    X = emb_uniq[inv].astype(np.float32)          # (n_nodes, 1280), one row per cluster seq
+    cint = have['_cint'].astype(int).to_numpy()
+    return X, cint, n_missing
+
+
+def plot_cluster_umap(
+    clusters_root: Path,
+    threshold: float,
+    short_name: str,
+    out_dir: Path,
+    *,
+    protein_final: Path,
+    embeddings_h5: Path,
+    embeddings_index: Path,
+    top_n: int = 12,
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    metric: str = 'cosine',
+    seed: int = 42,
+    dpi: int = 200,
+    ) -> tuple:
+    """UMAP of the ESM-2 embeddings of one function's cluster sequences, colored by cluster.
+
+    Qualitative companion to the separation map: sequences that cluster together at
+    threshold `t` should land near each other in ESM-2 space. The `top_n` largest
+    clusters get distinct colors (+ a legend); the rest are gray. aa only.
+
+    Returns `(fig_path, stats)` where stats = {n_plotted, n_missing, n_clusters}.
+    """
+    import umap  # lazy: heavy import (numba), only needed for this figure
+
+    clusters_root = Path(clusters_root)
+    tlabel = threshold_label(threshold)
+    parquet = clusters_root / tlabel / f"{short_name}_cluster.parquet"
+    if not parquet.exists():
+        raise FileNotFoundError(f"missing OOD artifact (build it first): {parquet}")
+    clusters = pd.read_parquet(parquet)
+    alphabet = str(clusters['alphabet'].iloc[0])
+    hash_col = schema.SCHEMA[alphabet].hash_col
+    full_name = str(clusters['function'].iloc[0])
+    clusters = clusters.assign(_cint=clusters['cluster_id'].map(_cluster_int))
+    n_total = len(clusters)
+    n_clusters = int(clusters['_cint'].nunique())
+
+    X, cint, n_missing = _load_cluster_embeddings(
+        clusters, hash_col, full_name, protein_final=protein_final,
+        embeddings_h5=embeddings_h5, embeddings_index=embeddings_index)
+    n_plotted = len(cint)
+
+    # 1280-dim ESM-2 -> 2-D. random_state fixes the layout (and makes UMAP single-threaded).
+    xy = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, metric=metric,
+                   random_state=seed).fit_transform(X)
+
+    # Color the top_n largest clusters distinctly (cluster rank 0 = largest); rest gray.
+    sizes = pd.Series(cint).value_counts()  # cluster rank -> n plotted
+    top = list(sizes.sort_values(ascending=False).index[:top_n])
+    palette = plt.get_cmap('tab20')
+    color_of = {c: palette(i % 20) for i, c in enumerate(top)}
+
+    fig, ax = plt.subplots(figsize=(9, 8))
+    other = ~np.isin(cint, top)
+    if other.any():
+        ax.scatter(xy[other, 0], xy[other, 1], s=6, c='lightgray',
+                   linewidths=0, rasterized=True, label=f'other ({int(other.sum())})')
+    for c in top:
+        m = cint == c
+        ax.scatter(xy[m, 0], xy[m, 1], s=12, color=color_of[c],
+                   linewidths=0, rasterized=True, label=f'{short_name}_{c} (n={int(m.sum())})')
+    ax.legend(loc='best', fontsize=7, framealpha=0.9,
+              title=f'top {len(top)} of {n_clusters:,} clusters')
+    missing_note = f" ({n_missing:,} without embedding)" if n_missing else ""
+    ax.set_title(f"{short_name} {alphabet} {tlabel} -- ESM-2 UMAP, colored by cluster\n"
+                 f"{n_plotted:,} of {n_total:,} seqs embedded{missing_note}; "
+                 f"metric={metric}, n_neighbors={n_neighbors}, min_dist={min_dist}, seed={seed}")
+    ax.set_xlabel('UMAP-1')
+    ax.set_ylabel('UMAP-2')
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fig_path = out_dir / f"{short_name}_{tlabel}_umap.png"
+    fig.savefig(fig_path, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+    return fig_path, {'n_plotted': n_plotted, 'n_missing': n_missing, 'n_clusters': n_clusters}
+
+
 def _available_functions(tdir: Path) -> list:
     """Function short-names with a cluster parquet in this t<NN> dir (excludes combined)."""
     shorts = []
@@ -166,8 +324,22 @@ def main() -> None:
     p.add_argument('--threshold', type=float, required=True, help='identity threshold, e.g. 0.99')
     p.add_argument('--functions', nargs='+',
                    help='function short names (default: all present in the t<NN> dir)')
+    p.add_argument('--plots', nargs='+', default=['separation'], choices=['separation', 'umap'],
+                   help='which figures to make')
     p.add_argument('--out_subdir', default='figures', help='figure dir under --clusters_root')
     p.add_argument('--dpi', type=int, default=200, help='figure DPI')
+
+    # UMAP-only (aa): the exact embedded string comes from protein_final.esm2_ready_seq,
+    # and the vectors from the master ESM-2 cache (no embeddings are computed here).
+    p.add_argument('--protein_final', help='UMAP: protein_final.parquet (source of esm2_ready_seq)')
+    p.add_argument('--embeddings', help='UMAP: master ESM-2 HDF5 (emb + emb_keys)')
+    p.add_argument('--embeddings_index',
+                   help='UMAP: ESM-2 index parquet (default: --embeddings with .parquet suffix)')
+    p.add_argument('--top_n', type=int, default=12, help='UMAP: color the N largest clusters')
+    p.add_argument('--n_neighbors', type=int, default=15, help='UMAP n_neighbors')
+    p.add_argument('--min_dist', type=float, default=0.1, help='UMAP min_dist')
+    p.add_argument('--metric', default='cosine', help='UMAP metric (cosine suits ESM-2 embeddings)')
+    p.add_argument('--seed', type=int, default=42, help='UMAP random_state (fixes the layout)')
     args = p.parse_args()
 
     clusters_root = Path(args.clusters_root)
@@ -179,11 +351,25 @@ def main() -> None:
         raise SystemExit(f"no *_cluster.parquet found in {tdir}")
     out_dir = clusters_root / args.out_subdir
 
+    emb_index = None
+    if 'umap' in args.plots:
+        if not (args.protein_final and args.embeddings):
+            raise SystemExit("--plots umap requires --protein_final and --embeddings")
+        emb_index = args.embeddings_index or str(Path(args.embeddings).with_suffix('.parquet'))
+
     for short in functions:
-        fig_path, s = plot_separation_map(
-            clusters_root, args.threshold, short, out_dir, dpi=args.dpi)
-        print(f"  [{short}] {s['n_clusters']:,} clusters, {s['n_seqs']:,} seqs, "
-              f"{s['n_cross']:,} cross-cluster hits -> {fig_path}")
+        if 'separation' in args.plots:
+            fig_path, s = plot_separation_map(clusters_root, args.threshold, short, out_dir, dpi=args.dpi)
+            print(f"  [{short}] separation: {s['n_clusters']:,} clusters, {s['n_seqs']:,} seqs, "
+                  f"{s['n_cross']:,} cross-cluster hits -> {fig_path}")
+        if 'umap' in args.plots:
+            fig_path, s = plot_cluster_umap(
+                clusters_root, args.threshold, short, out_dir,
+                protein_final=args.protein_final, embeddings_h5=args.embeddings,
+                embeddings_index=emb_index, top_n=args.top_n, n_neighbors=args.n_neighbors,
+                min_dist=args.min_dist, metric=args.metric, seed=args.seed, dpi=args.dpi)
+            print(f"  [{short}] umap: {s['n_plotted']:,} of {s['n_plotted'] + s['n_missing']:,} "
+                  f"seqs embedded -> {fig_path}")
 
 
 if __name__ == '__main__':
