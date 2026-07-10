@@ -57,10 +57,11 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import matplotlib
+import networkx as nx
 import numpy as np
 import pandas as pd
-import networkx as nx
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
@@ -69,12 +70,15 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
-from src.utils.metadata_enrichment import load_flu_metadata  # noqa: E402
-from src.analysis.cluster_pair_weight_topk import (  # noqa: E402
-    load_pair_universe, load_cluster_map, _FUNCTION_TO_SHORT,
-)
 from src.analysis.bigraph_properties import build_bipartite_multigraph  # noqa: E402
+from src.analysis.cluster_pair_weight_topk import (  # noqa: E402
+    _FUNCTION_TO_SHORT,
+    load_cluster_map,
+    load_pair_universe,
+)
+from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
+from src.utils.clustering_utils import threshold_decimal  # noqa: E402
+from src.utils.metadata_enrichment import load_flu_metadata  # noqa: E402
 
 _DEFAULT_PAIRS = ['HA-NA', 'PB2-PB1']
 _DEFAULT_ALPHABETS = ['aa']
@@ -95,10 +99,6 @@ _FIELD_SEQUENTIAL = {'hn_subtype': False, 'host': False, 'year': True}
 
 _OTHER, _UNK = 'other', 'unknown'
 _OTHER_COLOR, _UNK_COLOR = '#bdbdbd', '#e8e8e8'
-
-
-def _threshold_decimal(threshold_id: str) -> float:
-    return int(threshold_id[1:]) / 100.0
 
 
 def pair_key_to_metadata(cds_final: Path, slot_a: str, slot_b: str,
@@ -298,7 +298,7 @@ def plot_metadata_composition(
         'each group = 3 bars (subtype · host · year), same height = CC pair count, stacked by modal value'
     )
     ax.set_title(
-        f'{pair_label} — {alphabet} — {threshold_id} (id={_threshold_decimal(threshold_id):.2f})  ·  '
+        f'{pair_label} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})  ·  '
         f'per-CC metadata composition\n'
         f'top {n} of {n_ccs:,} CCs  ·  {n_pairs:,} pairs  ·  {mode_note}',
         fontsize=10,

@@ -36,10 +36,11 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import matplotlib
+import networkx as nx
 import numpy as np
 import pandas as pd
-import networkx as nx
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -47,18 +48,15 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.analysis.bigraph_properties import build_bipartite_multigraph, load_cluster_map  # noqa: E402
 from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
-from src.analysis.bigraph_properties import load_cluster_map, build_bipartite_multigraph  # noqa: E402
+from src.utils.clustering_utils import threshold_decimal  # noqa: E402
 
 _DEFAULT_PAIRS = ['HA-NA', 'PB2-PB1']
 _DEFAULT_ALPHABETS = ['aa', 'nt_cds']
 _DEFAULT_THRESHOLDS = ['t100', 't099', 't098', 't097', 't096', 't095']
 _ROOT = {'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa',
          'nt_cds': PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'}
-
-
-def _threshold_decimal(threshold_id: str) -> float:
-    return int(threshold_id[1:]) / 100.0
 
 
 def cc_pair_sizes(G: nx.MultiGraph) -> tuple[list[int], int]:
@@ -114,7 +112,7 @@ def plot_feasibility_barplot(
     ax.legend(loc='upper right', fontsize=8, frameon=True, framealpha=0.9)
 
     ax.set_title(
-        f'{pair_label} — {alphabet} — {threshold_id} (id={_threshold_decimal(threshold_id):.2f})\n'
+        f'{pair_label} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})\n'
         f'top {len(top)} of {n_ccs:,} CCs  ·  {n_pairs:,} pairs  ·  '
         f'largest CC {largest_pct:.1f}%',
         fontsize=10,
