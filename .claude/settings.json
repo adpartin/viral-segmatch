@@ -41,5 +41,15 @@
       "Bash(python -m *)",
       "Bash(python -c *)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_check.sh\"" }
+        ]
+      }
+    ]
   }
 }
