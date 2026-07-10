@@ -19,6 +19,9 @@ Figures (`--plots`), and which cluster sets they apply to:
     cluster. Qualitative check that same-cluster sequences group together in ESM-2 space.
     Uses the existing master embedding cache (no embeddings computed) -> aa sets only
     (ESM-2 is a protein model).
+  barplot     -- top-N unique-weighted cluster-size barplot (bars = the largest
+    clusters; height = unique-sequence count, labeled with its % of the slot). Needs
+    only the cluster parquet -> any cluster set / alphabet.
 
 Cluster / mega-cluster here = single-segment SIMILARITY-graph component (nodes =
 sequences), NOT the bipartite CC / mega-CC of 2D-CD routing (docs/methods/glossary.md).
@@ -54,7 +57,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils import schema  # noqa: E402
-from src.utils.clustering_utils import read_hits_tsv, threshold_label  # noqa: E402
+from src.utils.clustering_utils import (  # noqa: E402
+    cluster_sizes_unique,
+    read_hits_tsv,
+    threshold_decimal,
+    threshold_label,
+)
+from src.utils.plot_config import get_protein_color  # noqa: E402
 
 
 def _cluster_int(cluster_id: str) -> int:
@@ -307,6 +316,70 @@ def plot_cluster_umap(
     return fig_path, {'n_plotted': n_plotted, 'n_missing': n_missing, 'n_clusters': n_clusters}
 
 
+def plot_cluster_size_barplot(
+    sizes: pd.Series,
+    *,
+    protein: str,
+    alphabet: str,
+    threshold_id: str,
+    top_n: int,
+    out_png: Path,
+    ) -> None:
+    """Top-N unique-weighted cluster-size barplot for one slot.
+
+    Each bar is one cluster (largest first); height = unique-sequence count, labeled
+    with the raw count and its % of the slot's total unique sequences. Also reused by
+    the multi-slice sweep in src/analysis/cluster_size_barplot.py.
+
+    Args:
+        sizes: cluster_id -> unique-seq count, descending (from cluster_sizes_unique).
+        protein: short name (e.g. 'HA') -- sets the bar color (via get_protein_color).
+        alphabet: 'aa' / 'nt_cds' / 'nt_ctg' -- title/label only.
+        threshold_id: 'tXXX' -- title/label only.
+        top_n: number of largest clusters to draw.
+        out_png: output PNG path.
+    """
+    n_unique = int(sizes.sum())
+    n_clusters = int(len(sizes))
+    top = sizes.head(top_n)
+    pcts = top.values / n_unique * 100.0
+    top_cov = float(pcts.sum())
+
+    fig, ax = plt.subplots(figsize=(max(9.0, len(top) * 0.55), 5.6))
+    xs = np.arange(len(top))
+    ax.bar(xs, top.values, color=get_protein_color(protein), edgecolor='black', linewidth=0.5)
+    for x, c, p in zip(xs, top.values, pcts):
+        ax.annotate(f'{int(c):,}\n{p:.1f}%', xy=(x, c), xytext=(0, 2),
+                    textcoords='offset points', ha='center', va='bottom',
+                    fontsize=7, color='#222')
+    ax.set_xticks(xs)
+    ax.set_xticklabels(top.index, rotation=45, ha='right', fontsize=7)
+    ax.set_xlabel('cluster_id (rank-ordered, largest first)', fontsize=9)
+    ax.set_ylabel('unique sequences in cluster', fontsize=9)
+    ax.set_ylim(0, top.values.max() * 1.18)  # headroom for the count+% labels
+    ax.grid(axis='y', linestyle=':', alpha=0.5)
+    ax.set_axisbelow(True)
+    ax.set_title(
+        f'{protein} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})\n'
+        f'top {len(top)} of {n_clusters:,} clusters  ·  '
+        f'total unique seqs: {n_unique:,}  ·  '
+        f'top {len(top)} cover {top_cov:.1f}% of unique',
+        fontsize=10)
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=180, bbox_inches='tight')
+    plt.close(fig)
+
+
+def _alphabet_from_root(clusters_root: Path) -> str:
+    """Infer the alphabet from a cluster-set root name (`clusters_<alphabet>[_ood]`)."""
+    name = Path(clusters_root).name
+    for a in ('nt_ctg', 'nt_cds', 'aa'):
+        if a in name:
+            return a
+    return '?'
+
+
 def _available_functions(tdir: Path) -> list:
     """Function short-names with a cluster parquet in this t<NN> dir (excludes combined)."""
     shorts = []
@@ -326,7 +399,7 @@ def main() -> None:
     p.add_argument('--threshold', type=float, required=True, help='identity threshold, e.g. 0.99')
     p.add_argument('--functions', nargs='+',
                    help='function short names (default: all present in the t<NN> dir)')
-    p.add_argument('--plots', nargs='+', default=['separation'], choices=['separation', 'umap'],
+    p.add_argument('--plots', nargs='+', default=['separation'], choices=['separation', 'umap', 'barplot'],
                    help='which figures to make')
     p.add_argument('--out_subdir', default='figures', help='figure dir under --clusters_root')
     p.add_argument('--dpi', type=int, default=200, help='figure DPI')
@@ -337,7 +410,8 @@ def main() -> None:
     p.add_argument('--embeddings', help='UMAP: master ESM-2 HDF5 (emb + emb_keys)')
     p.add_argument('--embeddings_index',
                    help='UMAP: ESM-2 index parquet (default: --embeddings with .parquet suffix)')
-    p.add_argument('--top_n', type=int, default=12, help='UMAP: color the N largest clusters')
+    p.add_argument('--top_n', type=int, default=12,
+                   help='umap/barplot: the N largest clusters to color / draw as bars')
     p.add_argument('--n_neighbors', type=int, default=15, help='UMAP n_neighbors')
     p.add_argument('--min_dist', type=float, default=0.1, help='UMAP min_dist')
     p.add_argument('--metric', default='cosine', help='UMAP metric (cosine suits ESM-2 embeddings)')
@@ -372,6 +446,17 @@ def main() -> None:
                 min_dist=args.min_dist, metric=args.metric, seed=args.seed, dpi=args.dpi)
             print(f"  [{short}] umap: {s['n_plotted']:,} of {s['n_plotted'] + s['n_missing']:,} "
                   f"seqs embedded -> {fig_path}")
+        if 'barplot' in args.plots:
+            parquet = tdir / f"{short}_cluster.parquet"
+            if not parquet.exists():
+                raise FileNotFoundError(f"missing cluster parquet: {parquet}")
+            sizes = cluster_sizes_unique(parquet)
+            fig_path = out_dir / f"{short}_{tdir.name}_barplot.png"
+            plot_cluster_size_barplot(
+                sizes, protein=short, alphabet=_alphabet_from_root(clusters_root),
+                threshold_id=tdir.name, top_n=args.top_n, out_png=fig_path)
+            print(f"  [{short}] barplot: top {min(args.top_n, len(sizes))} of "
+                  f"{len(sizes):,} clusters -> {fig_path}")
 
 
 if __name__ == '__main__':

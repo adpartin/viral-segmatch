@@ -33,19 +33,20 @@ import math
 import sys
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+
+matplotlib.use('Agg')  # headless backend; must be set before importing pyplot
+import matplotlib.pyplot as plt  # noqa: E402
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_size_barplot import (  # noqa: E402
-    cluster_sizes_unique, _SHORT_ORDER, _FUNCTION_COLORS,
-)
+from src.analysis.cluster_size_barplot import _SHORT_ORDER  # noqa: E402
+from src.utils.clustering_utils import cluster_sizes_unique  # noqa: E402
+from src.utils.plot_config import get_protein_color  # noqa: E402
 
 _DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(99, 89, -1)]  # t099..t090
 _ROOT = {'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa',
@@ -89,7 +90,7 @@ def main() -> None:
     for i, prot in enumerate(proteins):
         ax = axes[i // ncol][i % ncol]
         ys = [counts[prot].get(t, 0) for t in thresholds]
-        color = _FUNCTION_COLORS.get(prot, '#4c72b0')
+        color = get_protein_color(prot)
         ax.bar(x, ys, color=color, edgecolor='black', linewidth=0.4, width=0.7, zorder=2)
         ax.set_yscale('log')
         ymax = max([y for y in ys if y > 0] + [1])

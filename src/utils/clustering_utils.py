@@ -638,6 +638,17 @@ def cluster_size_distribution(cluster_lookup: pd.DataFrame) -> dict:
     }
 
 
+def cluster_sizes_unique(cluster_pq: Path) -> pd.Series:
+    """Unique-weighted cluster sizes for one cluster parquet (any alphabet / builder).
+
+    Reads only `cluster_id` (each parquet row is one unique sequence), so
+    `value_counts()` counts unique sequences per cluster regardless of the hash
+    column's name. Returned descending (largest cluster first). Works on both the
+    set-cover and the OOD cluster parquets.
+    """
+    return pd.read_parquet(Path(cluster_pq), columns=['cluster_id'])['cluster_id'].value_counts()
+
+
 def threshold_label(threshold: float) -> str:
     """Format an identity threshold as a stable dir label, e.g. 0.95 -> 't095'.
 
@@ -645,6 +656,11 @@ def threshold_label(threshold: float) -> str:
     "Threshold notation"). Shared by both cluster builders.
     """
     return f"t{int(round(threshold * 100)):03d}"
+
+
+def threshold_decimal(threshold_id: str) -> float:
+    """Inverse of `threshold_label`: 't095' -> 0.95 (the tXXX dir label -> identity)."""
+    return int(str(threshold_id)[1:]) / 100.0
 
 
 def load_sequence_frame(

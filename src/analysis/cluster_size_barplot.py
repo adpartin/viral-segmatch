@@ -1,25 +1,27 @@
-"""Per-slot cluster-size barplot (UNIQUE-WEIGHTED view) for one (protein, alphabet, t).
+"""Per-slot cluster-size barplot sweep (UNIQUE-WEIGHTED view) over (protein, alphabet, t).
 
-For a given (protein, alphabet, threshold), rank the protein's mmseqs clusters
-by the number of *unique sequences* they hold and draw the top-N as a barplot.
-Each bar is one cluster; bar height = unique-sequence count; the bar label shows
-the raw count and its % of the slot's total unique sequences. The title carries
-the protein, alphabet, threshold, and total unique sequences.
+For each (protein, alphabet, threshold), rank the protein's mmseqs clusters by the
+number of *unique sequences* they hold and draw the top-N as a barplot. Each bar is
+one cluster; bar height = unique-sequence count; the bar label shows the raw count and
+its % of the slot's total unique sequences. The title carries the protein, alphabet,
+threshold, and total unique sequences.
 
-This is the **unique-weighted** cluster view of `docs/methods/clusters.md` §6.0 —
+This is the **unique-weighted** cluster view of `docs/methods/clusters.md` §6.0 --
 the slot's intrinsic sequence-space structure, before any pairing or isolate
 weighting. It shows the "possibilities and limitations" of a slot: a few giant
 clusters + a long singleton tail means whole-cluster routing has little freedom.
 
 It is the sibling of the other two §6.0 weightings, kept as separate scripts:
   - records-weighted (isolates/cluster): `cluster_analysis_summary.py`
-    (`compute_cluster_diversity_stats` — Gini / n_eff / top-1 %, stats only).
+    (`compute_cluster_diversity_stats` -- Gini / n_eff / top-1 %, stats only).
   - pair-weighted (positive pairs/cluster): `cluster_pair_weight_topk.py`
     (top-K + concentration curves; the constraint the splitter actually sees).
-This script is the missing per-cluster *barplot* of the unique-weighted head;
-`cluster_analysis_summary.py`'s `redundancy_stats.csv` already carries the
-*summary stats* of the same distribution (largest_cluster, p90/p99/median,
-fraction_singletons) but draws no per-cluster bars.
+
+The barplot figure (`plot_cluster_size_barplot`) and the unique-size reader
+(`cluster_sizes_unique`) live in `src/analysis/plot_clusters.py` and
+`src/utils/clustering_utils.py` respectively; this script is the multi-slice sweep
+driver over them (+ the long-form CSV). For a single cluster set into the
+`figures/` convention, use `plot_clusters.py --plots barplot` instead.
 
 Reads the live Phase-2 cluster layout: `clusters_{aa,nt_cds}/tXXX/<PROT>_cluster.parquet`
 (each row = one unique sequence; `cluster_id.value_counts()` is the unique-weighted
@@ -47,7 +49,7 @@ Outputs (under --out_dir):
                                                     n_clusters_total
 
 The `protein` column contains the literal string 'NA' (Neuraminidase), so read
-this CSV with `keep_default_na=False, na_values=['']` — a default `read_csv`
+this CSV with `keep_default_na=False, na_values=['']` -- a default `read_csv`
 parses 'NA' as NaN and silently drops every Neuraminidase row (CLAUDE.md
 Conventions, "Reading CSVs with function_short").
 """
@@ -57,32 +59,21 @@ import argparse
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.analysis.plot_clusters import plot_cluster_size_barplot  # noqa: E402
+from src.utils.clustering_utils import cluster_sizes_unique  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
 # 8 ML-relevant majors, sourced from conf/virus/flu.yaml so the default protein
 # set stays in sync with the rest of the pipeline.
 _SHORT_ORDER = list(load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml').selected_short_names)
-_FUNCTION_COLORS = {
-    'PB2': '#1f77b4', 'PB1': '#ff7f0e', 'PA':  '#2ca02c', 'HA':  '#d62728',
-    'NP':  '#9467bd', 'NA':  '#8c564b', 'M1':  '#e377c2', 'NS1': '#7f7f7f',
-}
 # alphabet key -> default cluster-root attr name (set in argparse).
 _ALPHABETS = ('aa', 'nt_cds')
-
-
-def _threshold_decimal(threshold_id: str) -> float:
-    """'t095' -> 0.95. Threshold dirs are zero-padded tXXX (CLAUDE.md notation)."""
-    return int(threshold_id[1:]) / 100.0
 
 
 def _list_thresholds(root: Path) -> list[str]:
@@ -92,74 +83,6 @@ def _list_thresholds(root: Path) -> list[str]:
     names = [d.name for d in root.iterdir()
              if d.is_dir() and d.name.startswith('t') and d.name[1:].isdigit()]
     return sorted(names, reverse=True)  # t100 first
-
-
-def cluster_sizes_unique(cluster_pq: Path) -> pd.Series:
-    """Unique-weighted cluster sizes for one (protein, alphabet, t) parquet.
-
-    Each parquet row is one unique sequence — keyed by `seq_hash` (protein hash)
-    for aa clusters and `cds_dna_hash` (DNA hash) for nt_cds clusters — so
-    `cluster_id.value_counts()` counts unique sequences per cluster regardless of
-    the key column's name. Only `cluster_id` is read, so this is alphabet-
-    agnostic. Returned descending (largest cluster first).
-    """
-    df = pd.read_parquet(cluster_pq, columns=['cluster_id'])
-    return df['cluster_id'].value_counts()
-
-
-def plot_cluster_size_barplot(
-    sizes: pd.Series,
-    *,
-    protein: str,
-    alphabet: str,
-    threshold_id: str,
-    top_n: int,
-    out_png: Path,
-) -> None:
-    """Top-N unique-weighted cluster-size barplot for one slot.
-
-    Args:
-        sizes: cluster_id -> unique-seq count, descending (from cluster_sizes_unique).
-        protein: short name (e.g. 'HA') — sets bar color and title.
-        alphabet: 'aa' or 'nt_cds' — title/label only.
-        threshold_id: 'tXXX' — title/label only.
-        top_n: number of largest clusters to draw.
-        out_png: output PNG path.
-    """
-    n_unique = int(sizes.sum())
-    n_clusters = int(len(sizes))
-    top = sizes.head(top_n)
-    pcts = top.values / n_unique * 100.0
-    top_cov = float(pcts.sum())
-    color = _FUNCTION_COLORS.get(protein, '#1f77b4')
-
-    fig, ax = plt.subplots(figsize=(max(9.0, len(top) * 0.55), 5.6))
-    xs = np.arange(len(top))
-    ax.bar(xs, top.values, color=color, edgecolor='black', linewidth=0.5)
-    for x, c, p in zip(xs, top.values, pcts):
-        ax.annotate(f'{int(c):,}\n{p:.1f}%', xy=(x, c), xytext=(0, 2),
-                    textcoords='offset points', ha='center', va='bottom',
-                    fontsize=7, color='#222')
-
-    ax.set_xticks(xs)
-    ax.set_xticklabels(top.index, rotation=45, ha='right', fontsize=7)
-    ax.set_xlabel('cluster_id (rank-ordered, largest first)', fontsize=9)
-    ax.set_ylabel('unique sequences in cluster', fontsize=9)
-    ax.set_ylim(0, top.values.max() * 1.18)  # headroom for the count+% labels
-    ax.grid(axis='y', linestyle=':', alpha=0.5)
-    ax.set_axisbelow(True)
-
-    ax.set_title(
-        f'{protein} — {alphabet} — {threshold_id} (id={_threshold_decimal(threshold_id):.2f})\n'
-        f'top {len(top)} of {n_clusters:,} clusters  ·  '
-        f'total unique seqs: {n_unique:,}  ·  '
-        f'top {len(top)} cover {top_cov:.1f}% of unique',
-        fontsize=10,
-    )
-    fig.tight_layout()
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png, dpi=180, bbox_inches='tight')
-    plt.close(fig)
 
 
 def main() -> None:
