@@ -779,6 +779,7 @@ def _build_mmseqs_search_cmd(
     coverage: float,
     cov_mode: int,
     seq_id_mode: int = 0,
+    search_type: Optional[int] = None,
     evalue: float = 0.001,
     format_output: str = 'query,target,fident,qcov,tcov',
     sensitivity: Optional[float] = None,
@@ -811,6 +812,10 @@ def _build_mmseqs_search_cmd(
         '-e', f'{evalue:g}',
         '--format-output', format_output,
     ]
+    # Nucleotide easy-search needs --search-type (protein is unambiguous, so aa passes
+    # search_type=None and omits it); nt callers pass 3 (nucleotide).
+    if search_type is not None:
+        cmd += ['--search-type', str(search_type)]
     # prefilter-mode 2 (nofilter/exhaustive) takes precedence over -s, so exactly
     # one prefilter setting reaches the command line.
     if prefilter_mode is not None:
@@ -877,10 +882,13 @@ def run_mmseqs_search(
     # prefilter). `threads` parallelizes the CPU work: the gapped alignment (usually the
     # bottleneck) and the prefilter when it runs on CPU.
     dbtype = '1' if alphabet == 'aa' else '2'
+    # Nucleotide easy-search needs --search-type 3; aa (protein) is unambiguous (None).
+    search_type = 3 if alphabet in ('nt_cds', 'nt_ctg') else None
     cmd = _build_mmseqs_search_cmd(
         mmseqs_bin=mmseqs_bin, fasta_path=fasta_path, out_tsv=out_tsv, tmp_dir=tmp_dir,
         dbtype=dbtype, min_seq_id=min_seq_id, coverage=coverage, cov_mode=cov_mode,
-        seq_id_mode=seq_id_mode, sensitivity=sensitivity, prefilter_mode=prefilter_mode,
+        seq_id_mode=seq_id_mode, search_type=search_type, sensitivity=sensitivity,
+        prefilter_mode=prefilter_mode,
         max_seqs=max_seqs, gpu=gpu, threads=threads, extra_args=extra_args,
     )
 

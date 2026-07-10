@@ -179,6 +179,20 @@ def test_build_search_cmd_exhaustive_uses_prefilter_mode_2():
     assert cmd[cmd.index("--gpu") + 1] == "1" and "--createdb-mode" in cmd
 
 
+def test_build_search_cmd_nt_emits_search_type_3():
+    # Nucleotide easy-search needs --search-type 3 (aa omits it; protein is unambiguous).
+    aa = _build_mmseqs_search_cmd(
+        mmseqs_bin="mmseqs", fasta_path="f", out_tsv="h", tmp_dir="t",
+        dbtype="1", min_seq_id=0.99, coverage=0.8, cov_mode=0, sensitivity=7.5,
+    )
+    assert "--search-type" not in aa
+    nt = _build_mmseqs_search_cmd(
+        mmseqs_bin="mmseqs", fasta_path="f", out_tsv="h", tmp_dir="t",
+        dbtype="2", min_seq_id=0.99, coverage=0.8, cov_mode=0, sensitivity=7.5, search_type=3,
+    )
+    assert nt[nt.index("--search-type") + 1] == "3"
+
+
 def test_connected_components_from_hits_union_find():
     # Graph: a-b, b-c (component {a,b,c}); d-e ({d,e}); f isolated (singleton). The
     # hit TSV is directed (both a-b and b-a) with the 5 verifier columns.
