@@ -267,6 +267,43 @@ aa t099 → assert **234** clusters, run `verify_ood_clusters` → **0** violati
 glossary entries** for the OOD notion (single-segment similarity-graph connected component) before
 authoring B's docstrings, so "CC" here stays distinct from the bipartite mega-CC.
 
+## Next steps (2026-07-10) — visualization, then scale-out
+
+**Do NOT re-run the full 8 majors yet.** Validated state: aa **M1 t099 only** (234
+clusters, 0 violations). The 8-major run is `build_ood_clusters` with the default
+`--functions` into `clusters_aa_ood/`; hold until the viz work below settles.
+
+**1. Cluster visualizations — a separate, regenerable analysis script; one location.**
+Figures are derived artifacts → keep them OUT of the production builder (single
+responsibility; `/code-review` flagged builder bloat). Plan: a dedicated
+`src/analysis/plot_ood_clusters.py` that READS the existing cluster parquet (+ the
+`t<NN>/<short>_hits.tsv` graph) and emits figures **without recomputing clusters** — so
+figs regenerate any time the clusters exist. Resolve the confusing `results/` vs
+`data/` split: co-locate machine-generated cluster figs with the data at
+`data/processed/clusters_<alphabet>_ood/figures/` (CLAUDE.md "machine outputs live with
+the data"; that tree is gitignored/regenerable); reserve `results/` for hand-curated
+paper figures. **DECISION NEEDED:** is `results/1D_clusters_sizes` a tracked/curated
+(paper) output or regenerable (move under `data/`)?
+
+**2. Separation heatmap = comparison fig, not production.** `M1_separation_heatmap.png`
+is a two-panel COMPARISON: left = union-find CCs (234, the correct OOD clusters,
+clean block-diagonal); right = mmseqs `easy-cluster --cluster-mode 1` (566, the broken
+attempt, off-diagonal violations). The **right panel is paper/explainer only.** For
+production QC, generate only the **left-style** panel (the actual cluster set's ≥t/cov
+similarity matrix ordered by cluster; off-diagonal points = violations, should be 0).
+Belongs in `src/analysis/`, not the builder. *(Note: it contrasts union-find vs
+easy-**cluster**, not easy-linclust.)*
+
+**3. 2D/3D cluster-separation projection**, colored by `cluster_id`. Embedding options:
+(a) MDS/UMAP on the all-vs-all **sequence identity** — most faithful (same metric the
+clustering uses), but similarity is sparse (only ≥t pairs are hits, so needs a
+low-threshold search or a 1−identity distance with a cap); (b) UMAP on the **existing
+ESM-2 embeddings** — cheapest (no new compute), but ESM distance ≠ identity → a
+complementary view; (c) **k-mer** features → UMAP — closer to identity than ESM, new
+compute. Recommend starting with (b) ESM-2 or (a) identity-MDS; k-mers optional. All
+projections are QUALITATIVE (distances distorted) — the block-diagonal heatmap stays
+the rigorous view.
+
 ## Out of scope (follow-ups)
 
 - **Fragmenting the single-segment mega-cluster.** On a drift continuum (influenza HA) a protein's
