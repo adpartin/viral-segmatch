@@ -25,6 +25,7 @@ Alphabets:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -854,6 +855,11 @@ def run_mmseqs_search(
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
+    # Perf: easy-search = createdb -> prefilter (k-mer) -> gapped align -> convertalis.
+    # `gpu` offloads the PREFILTER to an Ampere+/Hopper GPU -- so it speeds the default
+    # `-s` (non-exhaustive) path; ~no effect under prefilter_mode=2 (nofilter = no
+    # prefilter). `threads` parallelizes the CPU work: the gapped alignment (usually the
+    # bottleneck) and the prefilter when it runs on CPU.
     dbtype = '1' if alphabet == 'aa' else '2'
     cmd = _build_mmseqs_search_cmd(
         mmseqs_bin=mmseqs_bin, fasta_path=fasta_path, out_tsv=out_tsv, tmp_dir=tmp_dir,
@@ -999,3 +1005,29 @@ def write_or_merge_stats_csv(out_root: Path, all_stats: list, filename: str) -> 
     new = new.sort_values(['threshold', 'function_short'], ascending=[False, True])
     new.to_csv(stats_csv, index=False)
     return stats_csv
+
+
+def write_runtime_json(out_root: Path, config: dict, all_stats: list) -> Path:
+    """Write runtime.json: the run config + a per-(function, threshold) timing rollup.
+
+    `config` is the builder's parameters (search/cluster knobs, functions, thresholds) --
+    a one-file record of what a cluster set was built with. The timing summary is derived
+    from `all_stats` (fresh runs only; cached rows have elapsed_seconds=None).
+    """
+    fresh = [float(r['elapsed_seconds']) for r in all_stats
+             if not r['cached'] and r['elapsed_seconds'] is not None]
+    rt = dict(config)
+    rt.update({
+        'n_runs_total': len(all_stats),
+        'n_cached': sum(1 for r in all_stats if r['cached']),
+        'n_fresh': len(fresh),
+        'fresh_elapsed_seconds_total': sum(fresh),
+        'fresh_elapsed_seconds_median': float(pd.Series(fresh).median()) if fresh else None,
+        'fresh_elapsed_seconds_max': max(fresh) if fresh else None,
+        'per_run': [{k: r.get(k) for k in (
+            'function_short', 'threshold', 'alphabet', 'n_sequences',
+            'n_clusters', 'elapsed_seconds', 'cached')} for r in all_stats],
+    })
+    runtime_json = Path(out_root) / 'runtime.json'
+    runtime_json.write_text(json.dumps(rt, indent=2))
+    return runtime_json

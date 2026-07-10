@@ -1,21 +1,28 @@
-"""Per-function OOD sequence clustering: connected components of the >=t/cov graph.
+"""Per-function OOD sequence clustering: connected components of the similarity graph (>= t identity, >= -c coverage).
 
-Builds per-(function, threshold) clusters that GUARANTEE "across clusters:
-different" -- any two sequences in different clusters are < t identical (or
-< 0.8 covered). A cluster is a connected component of the per-function
-SIMILARITY graph (nodes = unique sequences; an edge = an mmseqs all-vs-all hit
-with identity >= t and coverage >= 0.8), computed by union-find.
+Builds per-(function, threshold) clusters with the across-cluster separation
+guarantee ("across clusters: different"): no two sequences in different clusters
+are close enough to link -- i.e. no cross-cluster pair is both >= t identical
+(mmseqs `--min-seq-id`) AND at >= `-c` coverage (mmseqs `-c`, default 0.8, under
+`--cov-mode 0` = both sequences covered; set here via `--coverage`). Equivalently,
+every cross-cluster pair is < t identical OR below `-c` coverage. A cluster is a
+connected component of the per-function SIMILARITY graph (nodes = unique
+sequences; an edge = an mmseqs `easy-search` all-vs-all hit meeting that link
+rule), computed by union-find.
 
-This is the input a cluster-disjoint (OOD) split needs: routing whole clusters
-to one fold leaves no test sequence >= t identical to any train sequence.
+This is the input a cluster-disjoint (OOD) split needs: putting whole clusters
+on one fold then guarantees no test sequence links to any train sequence
+(>= t identical at >= `-c` coverage) -- an out-of-distribution split by sequence
+similarity.
 
 Component here = single-segment SIMILARITY-graph connected component (a *cluster*
 / *mega-cluster*), NOT the bipartite CC / mega-CC of 2D-CD routing (see
 docs/methods/glossary.md).
 
-Contrast with build_mmseqs_clusters.py (set-cover / linclust, the default): that
-path does NOT give the guarantee -- mmseqs easy-cluster fragments the graph. See
-docs/plans/2026-07-08_single_segment_ood_clusters_plan.md.
+Method: mmseqs `easy-search` (all-vs-all) -> threshold -> union-find. Contrast with
+build_mmseqs_clusters.py, which clusters with `easy-cluster` / `easy-linclust`
+(set-cover, the default): that path does NOT give the guarantee -- easy-cluster
+fragments the graph. See docs/plans/2026-07-08_single_segment_ood_clusters_plan.md.
 
 Output layout mirrors build_mmseqs_clusters.py, under a separate `_ood` root:
   <out_root>/                (e.g. data/processed/flu/July_2025/clusters_aa_ood)
@@ -57,6 +64,7 @@ from src.utils.clustering_utils import (  # noqa: E402
     run_mmseqs_search,
     threshold_label,
     write_or_merge_stats_csv,
+    write_runtime_json,
 )
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
@@ -119,7 +127,8 @@ def cluster_one_function_one_threshold(
             fasta_path, hits_tsv, tmp_dir, float(threshold),
             coverage=coverage, alphabet=alphabet, sensitivity=sensitivity,
             prefilter_mode=prefilter_mode, max_seqs=eff_max_seqs, gpu=gpu,
-            threads=threads, mmseqs_bin=mmseqs_bin, log_path=log_path)
+            threads=threads, mmseqs_bin=mmseqs_bin, log_path=log_path
+        )
         # Clusters ARE the connected components of this hit graph, so no hit crosses a
         # cluster boundary by construction; verify_ood_clusters.py certifies the
         # guarantee end-to-end against an independent search.
@@ -146,40 +155,44 @@ def cluster_one_function_one_threshold(
 
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Per-function OOD clustering (connected components of the >=t/cov graph).")
+        description="Per-function OOD clustering (connected components of the >=t/cov graph).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)  # --help shows each default
+
+    # Input -- exactly one source (mutually exclusive); the alphabet follows from it.
     src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument('--protein_final', help='aa input: protein_final.parquet (or .csv).')
-    src.add_argument('--cds_dna_final', help='nt_cds input: cds_dna_final.parquet.')
-    src.add_argument('--ctg_dna_final', help='nt_ctg input: ctg_dna_final.parquet.')
-    p.add_argument('--function_source', default=None,
-                   help='nt_ctg only: [assembly_id, genbank_ctg_id, function] source for '
-                        'the contig->function join (default: sibling cds_dna_final.parquet).')
-    p.add_argument('--out_root', required=True,
-                   help='Output root, e.g. data/processed/flu/July_2025/clusters_aa_ood.')
+    src.add_argument('--protein_final', help='aa input:     protein_final.parquet (or .csv)')
+    src.add_argument('--cds_dna_final', help='nt_cds input: cds_dna_final.parquet')
+    src.add_argument('--ctg_dna_final', help='nt_ctg input: ctg_dna_final.parquet')
+    p.add_argument('--function_source',
+                   help='nt_ctg only: [assembly_id, genbank_ctg_id, function] source for the '
+                        'contig->function join (default: sibling cds_dna_final.parquet)')
+
+    # What to build.
+    p.add_argument('--out_root', required=True, help='output root, e.g. .../clusters_aa_ood')
     p.add_argument('--thresholds', nargs='+', type=float, required=True,
-                   help='Identity thresholds, e.g. 0.99 0.98 0.95.')
+                   help='identity thresholds, e.g. 0.99 0.98 0.95')
     p.add_argument('--functions', nargs='+', default=_FLU_META.selected_short_names,
-                   help=f'Function short names (default: the {len(_FLU_META.selected_short_names)} '
-                        f'ML-relevant majors: {" ".join(_FLU_META.selected_short_names)}).')
+                   help='function short names to cluster')
+
+    # Search rule + completeness (see the module docstring).
     p.add_argument('--sensitivity', type=float, default=7.5,
-                   help='mmseqs -s prefilter sensitivity (7.5=most sensitive; default). '
-                        'Ignored when --exhaustive is set.')
+                   help='mmseqs -s prefilter sensitivity (7.5=most sensitive); ignored with --exhaustive')
     p.add_argument('--exhaustive', action='store_true',
-                   help='Use --prefilter-mode 2 (nofilter) for a provably-complete all-vs-all '
-                        'instead of the -s prefilter. Slower; use for a hard completeness check.')
+                   help='use --prefilter-mode 2 (nofilter) for a provably-complete all-vs-all (slower)')
     p.add_argument('--max_seqs', type=int, default=100000,
-                   help='mmseqs --max-seqs (neighbors kept per query; keep >= the per-function '
-                        'unique-seq count so no >=t edge is truncated). Default 100000.')
-    p.add_argument('--coverage', type=float, default=0.8, help='mmseqs -c coverage (default 0.8).')
+                   help='mmseqs --max-seqs (neighbours per query); auto-raised to >= the unique-seq count')
+    p.add_argument('--coverage', type=float, default=0.8, help='mmseqs -c coverage')
+
+    # Runtime. --gpu (opt-in; default off) accelerates the mmseqs prefilter -- i.e. the
+    # default -s path, not --exhaustive (no prefilter). --threads parallelizes the CPU
+    # alignment (the bottleneck); the union-find that builds clusters is single-threaded.
     p.add_argument('--gpu', type=int, default=0,
-                   help='Use GPU (CUDA) for the search prefilter: 1=on (needs Ampere+/Hopper). '
-                        'Pick the device with CUDA_VISIBLE_DEVICES.')
-    p.add_argument('--threads', type=int, default=16, help='mmseqs --threads (default 16).')
-    p.add_argument('--mmseqs_bin', default=None,
-                   help='mmseqs binary path/name. Default: $MMSEQS_BIN, then "mmseqs" on PATH.')
-    p.add_argument('--force', action='store_true', help='Recompute even if cached.')
-    p.add_argument('--no_combined', action='store_true',
-                   help='Skip writing combined_cluster.parquet per threshold.')
+                   help='GPU for the prefilter: 1=on (Ampere+/Hopper; pick with CUDA_VISIBLE_DEVICES)')
+    p.add_argument('--threads', type=int, default=16, help='mmseqs --threads')
+    p.add_argument('--mmseqs_bin', help='mmseqs binary (default: $MMSEQS_BIN, then "mmseqs" on PATH)')
+    p.add_argument('--force', action='store_true', help='recompute even if cached')
+    p.add_argument('--no_combined', action='store_true', help='skip combined_cluster.parquet per threshold')
+
     args = p.parse_args()
 
     # Reject thresholds that collapse to the same tXXX directory label (percent
@@ -208,11 +221,13 @@ def main() -> None:
     for threshold in args.thresholds:
         print(f"\n=== threshold = {threshold:.2f} ===")
         for short in functions:
-            all_stats.append(cluster_one_function_one_threshold(
+            stats = cluster_one_function_one_threshold(
                 df, short, threshold, out_root, alphabet=alphabet,
                 sensitivity=args.sensitivity, prefilter_mode=prefilter_mode,
                 max_seqs=args.max_seqs, coverage=args.coverage, gpu=args.gpu,
-                threads=args.threads, mmseqs_bin=args.mmseqs_bin, force=args.force))
+                threads=args.threads, mmseqs_bin=args.mmseqs_bin, force=args.force
+            )
+            all_stats.append(stats)
         if not args.no_combined:
             print(f"  combined parquet -> {aggregate_combined_lookup(out_root, threshold, functions)}")
 
@@ -220,6 +235,16 @@ def main() -> None:
     # subset-threshold re-run doesn't drop earlier rows.
     stats_csv = write_or_merge_stats_csv(out_root, all_stats, 'cluster_stats.csv')
     print(f"\nWrote stats CSV: {stats_csv}")
+
+    # Record the search config (it sets the graph's completeness) + a timing rollup.
+    runtime_json = write_runtime_json(out_root, {
+        'alphabet': alphabet, 'method': 'easy-search + union-find',
+        'sensitivity': args.sensitivity, 'prefilter_mode': prefilter_mode,
+        'exhaustive': args.exhaustive, 'max_seqs': args.max_seqs,
+        'coverage': args.coverage, 'gpu': args.gpu, 'threads': args.threads,
+        'functions': list(functions), 'thresholds': [float(t) for t in args.thresholds],
+    }, all_stats)
+    print(f"Wrote runtime JSON: {runtime_json}")
 
 
 if __name__ == '__main__':

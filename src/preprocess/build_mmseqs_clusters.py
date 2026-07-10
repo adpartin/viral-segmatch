@@ -75,7 +75,6 @@ CLI:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -96,6 +95,7 @@ from src.utils.clustering_utils import (  # noqa: E402
     parse_cluster_tsv,
     run_mmseqs_easy_clust,
     threshold_label,
+    write_runtime_json,
 )
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
@@ -536,50 +536,16 @@ def main() -> None:
     stats_df.to_csv(stats_csv, index=False)
     print(f"Wrote stats CSV: {stats_csv}")
 
-    # Save a runtime.json — per-(function, threshold) wall time + a small
-    # rollup. Cached rows have elapsed_seconds = None and contribute to
-    # n_cached. Lets future readers verify aa-vs-nt timing trade-offs from
-    # data instead of recollection (and informs easy-cluster vs easy-linclust
-    # choices on new corpora).
-    fresh = [r for r in all_stats if not r['cached'] and r['elapsed_seconds'] is not None]
-    fresh_secs = [float(r['elapsed_seconds']) for r in fresh]
-    rt = {
-        'alphabet': args.alphabet,
-        'algorithm': args.algorithm,
-        'cluster_mode': args.cluster_mode,
-        'sensitivity': args.sensitivity,
+    # runtime.json: the run config + a per-(function, threshold) timing rollup.
+    runtime_json = write_runtime_json(out_root, {
+        'alphabet': args.alphabet, 'algorithm': args.algorithm,
+        'cluster_mode': args.cluster_mode, 'sensitivity': args.sensitivity,
         'single_step_clustering': args.single_step_clustering,
-        'max_seqs': args.max_seqs,
-        'threads': args.threads,
+        'max_seqs': args.max_seqs, 'threads': args.threads,
         'functions': list(args.functions),
         'thresholds': [float(t) for t in args.thresholds],
-        'n_runs_total': len(all_stats),
-        'n_cached': sum(1 for r in all_stats if r['cached']),
-        'n_fresh': len(fresh),
-        'fresh_elapsed_seconds_total': sum(fresh_secs),
-        'fresh_elapsed_seconds_min': min(fresh_secs) if fresh_secs else None,
-        'fresh_elapsed_seconds_median': float(pd.Series(fresh_secs).median()) if fresh_secs else None,
-        'fresh_elapsed_seconds_max': max(fresh_secs) if fresh_secs else None,
-        'per_run': [
-            {
-                'function_short': r['function_short'],
-                'threshold': r['threshold'],
-                'alphabet': r['alphabet'],
-                'algorithm': r['algorithm'],
-                'n_sequences': r['n_sequences'],
-                'n_clusters': r['n_clusters'],
-                'elapsed_seconds': r['elapsed_seconds'],
-                'cached': r['cached'],
-            }
-            for r in all_stats
-        ],
-    }
-    runtime_json = out_root / 'runtime.json'
-    with runtime_json.open('w') as f:
-        json.dump(rt, f, indent=2)
-    print(f"Wrote runtime JSON: {runtime_json} "
-          f"(n_fresh={rt['n_fresh']}, n_cached={rt['n_cached']}, "
-          f"total fresh = {rt['fresh_elapsed_seconds_total']:.1f}s)")
+    }, all_stats)
+    print(f"Wrote runtime JSON: {runtime_json}")
 
     # Markdown report. Defaults to <out_root>/redundancy_summary.md so
     # the auto-generated markdown lives next to the stats CSV and the
