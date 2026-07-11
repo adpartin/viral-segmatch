@@ -61,6 +61,7 @@ from src.utils.clustering_utils import (  # noqa: E402
     filter_present_functions,
     load_sequence_frame,
     read_fasta_hashes,
+    read_hits_tsv,
     run_mmseqs_search,
     threshold_label,
     write_or_merge_stats_csv,
@@ -88,6 +89,7 @@ def cluster_one_function_one_threshold(
     threads: int,
     mmseqs_bin: str | None,
     force: bool,
+    delete_hits: bool,
     ) -> dict:
     """Build OOD clusters for one (function, threshold): FASTA -> all-vs-all -> union-find CCs.
 
@@ -101,6 +103,7 @@ def cluster_one_function_one_threshold(
     tdir.mkdir(parents=True, exist_ok=True)
     cluster_parquet = tdir / f"{short_name}_cluster.parquet"
     hits_tsv = tdir / f"{short_name}_hits.tsv"
+    hits_parquet = tdir / f"{short_name}_hits.parquet"
     tmp_dir = tdir / f"{short_name}_tmp"
     log_path = tdir / f"{short_name}_mmseqs.log"
 
@@ -142,6 +145,19 @@ def cluster_one_function_one_threshold(
         elapsed, cached = time.time() - t0, False
         print(f"  [{short_name} @ {threshold:.2f}] {len(lookup):,} seqs -> "
               f"{lookup['cluster_id'].nunique():,} clusters in {elapsed:.1f}s")
+
+    # Hits persistence. Union-find (above) and the separation figure are the hits' only
+    # consumers, and the raw mmseqs TSV is transiently huge (10s-100s of GB on big/nt
+    # sets), so we never keep the TSV. Default: re-store it as a compact parquet
+    # (query/target/fident) -- the separation figure reads it and it regenerates without
+    # a re-search. --delete_hits keeps neither (only the cluster parquet remains).
+    if delete_hits:
+        for path in (hits_tsv, hits_parquet):
+            if path.exists():
+                path.unlink()
+    elif hits_tsv.exists():
+        read_hits_tsv(hits_tsv, usecols=['query', 'target', 'fident']).to_parquet(hits_parquet, index=False)
+        hits_tsv.unlink()
 
     dist = cluster_size_distribution(lookup[['cluster_id']])
     dist.update({
@@ -192,6 +208,9 @@ def main() -> None:
     p.add_argument('--mmseqs_bin', help='mmseqs binary (default: $MMSEQS_BIN, then "mmseqs" on PATH)')
     p.add_argument('--force', action='store_true', help='recompute even if cached')
     p.add_argument('--no_combined', action='store_true', help='skip combined_cluster.parquet per threshold')
+    p.add_argument('--delete_hits', action='store_true',
+                   help='delete each hits TSV after its cluster parquet is written (saves disk on '
+                        'big/nt functions; the separation figure then needs a re-search to regenerate)')
 
     args = p.parse_args()
 
@@ -226,7 +245,8 @@ def main() -> None:
                 df, short, threshold, out_root, alphabet=alphabet,
                 sensitivity=args.sensitivity, prefilter_mode=prefilter_mode,
                 max_seqs=args.max_seqs, coverage=args.coverage, gpu=args.gpu,
-                threads=args.threads, mmseqs_bin=args.mmseqs_bin, force=args.force
+                threads=args.threads, mmseqs_bin=args.mmseqs_bin, force=args.force,
+                delete_hits=args.delete_hits,
             )
             threshold_stats.append(stats)
         all_stats.extend(threshold_stats)

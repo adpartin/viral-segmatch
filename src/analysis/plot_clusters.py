@@ -81,8 +81,8 @@ def plot_separation_map(
     ) -> tuple:
     """Render one function's `>= t`/cov similarity matrix, sequences ordered by cluster.
 
-    Reads `t<NN>/<short>_cluster.parquet` (hash -> cluster_id) and
-    `t<NN>/<short>_hits.tsv` (the `>= t`/cov edges). Lays sequences out by cluster
+    Reads `t<NN>/<short>_cluster.parquet` (hash -> cluster_id) and the `>= t`/cov edges
+    from `t<NN>/<short>_hits.parquet` (or `.tsv`). Lays sequences out by cluster
     (largest first) and draws each hit at (row, col) colored by % identity.
     Off-block-diagonal dots are cross-cluster links; there should be none.
 
@@ -92,10 +92,10 @@ def plot_separation_map(
     tlabel = threshold_label(threshold)
     tdir = clusters_root / tlabel
     parquet = tdir / f"{short_name}_cluster.parquet"
+    if not parquet.exists():
+        raise FileNotFoundError(f"missing OOD artifact (build it first): {parquet}")
+    hits_parquet = tdir / f"{short_name}_hits.parquet"
     hits_tsv = tdir / f"{short_name}_hits.tsv"
-    for path in (parquet, hits_tsv):
-        if not path.exists():
-            raise FileNotFoundError(f"missing OOD artifact (build it first): {path}")
 
     clusters = pd.read_parquet(parquet)
     alphabet = str(clusters['alphabet'].iloc[0])
@@ -112,7 +112,14 @@ def plot_separation_map(
 
     # Edges: every hit already meets the `>= t`/cov rule. Map endpoints to grid
     # positions, drop any unmapped row and the trivial self-identity diagonal.
-    hits = read_hits_tsv(hits_tsv, usecols=['query', 'target', 'fident'])
+    if hits_parquet.exists():
+        hits = pd.read_parquet(hits_parquet, columns=['query', 'target', 'fident'])
+    elif hits_tsv.exists():
+        hits = read_hits_tsv(hits_tsv, usecols=['query', 'target', 'fident'])
+    else:
+        raise FileNotFoundError(
+            f"no hits for the separation map ({hits_parquet.name} / {hits_tsv.name}); "
+            f"rebuild without --delete_hits")
     qi = hits['query'].map(pos).to_numpy()
     ti = hits['target'].map(pos).to_numpy()
     fid = hits['fident'].astype(float).to_numpy()
