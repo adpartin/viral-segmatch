@@ -222,8 +222,10 @@ def main() -> None:
                          "use distinct thresholds (percent granularity).")
 
     df, alphabet = load_sequence_frame(
-        protein_final=args.protein_final, cds_dna_final=args.cds_dna_final,
-        ctg_dna_final=args.ctg_dna_final, alphabet=None,
+        protein_final=args.protein_final,
+        cds_dna_final=args.cds_dna_final,
+        ctg_dna_final=args.ctg_dna_final,
+        alphabet=None,
         function_source=args.function_source,
     )
     out_root = Path(args.out_root)
