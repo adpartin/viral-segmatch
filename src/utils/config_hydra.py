@@ -7,13 +7,13 @@ virus configurations and training parameters.
 """
 
 import warnings
+from pathlib import Path
+from pprint import pprint
+from types import SimpleNamespace
+from typing import Optional
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Optional
-from pprint import pprint
 
 # =============================================================================
 # HYDRA CONFIGURATION LOADING
@@ -250,21 +250,21 @@ def print_config_summary(config: DictConfig):
 
     # Embeddings section
     if hasattr(config, 'embeddings') and config.embeddings:
-        print(f"Embeddings:")
+        print("Embeddings:")
         pprint(config.embeddings)
     else:
         print("Embeddings: Not configured")
 
     # Dataset section
     if hasattr(config, 'dataset') and config.dataset:
-        print(f"Dataset:")
+        print("Dataset:")
         pprint(config.dataset)
     else:
         print("Dataset: Not configured")
 
     # Training section
     if hasattr(config, 'training') and config.training:
-        print(f"Training:")
+        print("Training:")
         pprint(config.training)
     else:
         print("Training: Not configured")
