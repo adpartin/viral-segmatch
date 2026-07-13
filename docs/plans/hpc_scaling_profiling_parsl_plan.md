@@ -478,6 +478,19 @@ replacing the PENDING line.
 
 ## Phase 3 — Port the launcher to Parsl (tooling, ~2-3 days)
 
+**Progress (2026-07-14):** parsl 2026.07.06 installed in the venv; `scripts/run_allpairs_parsl.py`
+written (v1). Each fold is a `bash_app` over the unchanged training entrypoint; `HighThroughputExecutor`
+(`available_accelerators=4` -> one GPU/worker, auto `CUDA_VISIBLE_DEVICES`) + `PBSProProvider` +
+`MpiExecLauncher(--depth=64)` + NUMA-aware `cpu_affinity` (the same binding the mpiexec launcher was
+missing) + `retries=2`. The config constructs cleanly against the installed version (kwargs verified).
+**Next:** validate on 2 pairs / 2 nodes vs the mpiexec numbers (expect ~5 s/epoch, ~8-9 min/fold):
+```bash
+python3 scripts/run_allpairs_parsl.py --pairs flu_28p_ha_na flu_28p_pb2_pb1 \
+  --nodes 2 --queue debug --epochs 20 --tag parslval \
+  --dataset_manifest models/flu/July_2025/allpairs_prod_val_unfilt_20260413_151649/dataset_manifest.json
+```
+
+
 **Purpose:** replace the bespoke bash + hand-rolled `wait_any` GPU pool with **Parsl**
 (ALCF-native many-task engine), for failure isolation, retries, and a documented workflow.
 Validate it reproduces the `mpiexec` numbers before trusting it. Ray is a later extension.
