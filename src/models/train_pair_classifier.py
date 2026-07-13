@@ -529,7 +529,8 @@ def train_model(
     lr_scheduler=None,
     eval_train_metrics=False,
     train_eval_loader=None,
-    use_amp=False
+    use_amp=False,
+    profile_steps=0
     ) -> tuple[str, float]:
     """
     Train the MLP classifier with early stopping based on a configurable metric.
@@ -651,6 +652,49 @@ def train_model(
     # del _diag_loader_pinned, _diag_loader_unpinned
     # print()
     # --- End Level 2 diagnostic ---
+
+    # --- torch.profiler (opt-in via --profile_steps N) -------------------------
+    # Profiles the REAL training step for N batches, exports a trace, then exits.
+    # For this host-bound MLP the trace shows the GPU-idle gaps between kernels, the
+    # H2D copies, and DataLoader time -- i.e. WHERE the epoch time goes. ncu is not
+    # used here: it profiles inside individual kernels and is blind to the
+    # between-kernel host stall that dominates this workload. See docs/plans/
+    # hpc_scaling_profiling_parsl_plan.md, Phase 1.
+    if profile_steps and profile_steps > 0:
+        import torch.profiler as tp
+        trace_dir = os.path.join(output_dir, 'profile')
+        os.makedirs(trace_dir, exist_ok=True)
+        print(f'PROFILING: capturing {profile_steps} training steps -> {trace_dir}')
+        model.train()
+        _sched = tp.schedule(wait=1, warmup=2, active=profile_steps, repeat=1)
+        with tp.profile(
+            activities=[tp.ProfilerActivity.CPU, tp.ProfilerActivity.CUDA],
+            schedule=_sched,
+            on_trace_ready=tp.tensorboard_trace_handler(trace_dir),
+            record_shapes=True, profile_memory=True, with_stack=False,
+        ) as _prof:
+            _n_needed = 1 + 2 + profile_steps
+            for _i, (batch_x, batch_y) in enumerate(train_loader):
+                is_pair = isinstance(batch_x, (tuple, list)) and len(batch_x) == 2
+                if is_pair:
+                    batch_a, batch_b = batch_x
+                    batch_a, batch_b = batch_a.to(device), batch_b.to(device)
+                else:
+                    batch_x = batch_x.to(device)
+                batch_y = batch_y.to(device)
+                optimizer.zero_grad()
+                with torch.amp.autocast('cuda', enabled=use_amp):
+                    preds = model(batch_a, batch_b).squeeze(-1) if is_pair else model(batch_x).squeeze(-1)
+                    loss = criterion(preds, batch_y)
+                loss.backward()
+                optimizer.step()
+                _prof.step()
+                if _i + 1 >= _n_needed:
+                    break
+        print(_prof.key_averages().table(sort_by='cuda_time_total', row_limit=15))
+        print(f'PROFILING: trace in {trace_dir} -- view with '
+              f'`tensorboard --logdir {trace_dir}` or load the .json in chrome://tracing')
+        raise SystemExit(0)
 
     for epoch in range(epochs):
         epoch_start = time.time()
@@ -1062,6 +1106,12 @@ parser.add_argument(
     help='Skip the post-hoc analysis (analyze_stage4_train.py) that normally runs '
          'after training completes. Useful for fast debugging iterations.'
 )
+parser.add_argument(
+    '--profile_steps',
+    type=int, default=0,
+    help='If >0, capture this many training steps with torch.profiler, write a trace '
+         'to <output_dir>/profile/, print the op table, and exit (diagnostic only).'
+)
 args = parser.parse_args()
 
 # Load config
@@ -1416,7 +1466,8 @@ best_model_path, optimal_threshold = train_model(
     lr_scheduler=lr_scheduler,
     eval_train_metrics=EVAL_TRAIN_METRICS,
     train_eval_loader=train_eval_loader,
-    use_amp=USE_AMP
+    use_amp=USE_AMP,
+    profile_steps=args.profile_steps
 )
 
 # Evaluate

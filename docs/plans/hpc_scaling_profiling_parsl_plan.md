@@ -7,11 +7,11 @@ Take the existing 28-protein-pair CV sweep on Polaris and turn it into (a) a set
 the standard GPU/HPC metrics and vocabulary, and (c) a **Parsl port** of the launcher.
 The scientific results are already produced by the working `mpiexec` launcher; nothing
 here changes the science. This is about measurement rigor, understanding, and a
-resume-grade artifact.
+interview-grade artifact.
 
 ## Goals (why this plan exists)
 
-1. **Defensible numbers.** Every scaling/perf number that could go on a resume or into an
+1. **Defensible numbers.** Every scaling/perf number that could go into an
    interview must be re-derivable from artifacts that still exist on disk, with the
    measured-vs-projected boundary stated explicitly.
 2. **Knowledge.** Learn the standard terminology and how to *read* the metrics
@@ -163,7 +163,7 @@ re-derivable from live artifacts, and produce the efficiency decomposition.
    nodes.
 4. **Re-derive `S` and `E`** from measured `t(N)` and the step-1-anchored `t(1)`, reporting
    both "training-phase efficiency" and "end-to-end efficiency" separately.
-5. **Fix resume wording.** State k-mer (drop the "(it was actually k-mer)" parenthetical);
+5. **Fix the wording.** State k-mer (drop the "(it was actually k-mer)" parenthetical);
    always pair any speedup with "(throughput; serial baseline anchored by one measured fold,
    remainder projected)."
 
@@ -218,7 +218,7 @@ sit **idle**.
 - Training-only allocation: 112 GPUs × 2.27 h ≈ 254 GPU-h → **training-phase efficiency ≈ 94%**
   (balanced load, near-perfect within-node packing, no communication).
 - End-to-end allocation: 112 GPUs × 3.5 h ≈ 392 GPU-h → **end-to-end GPU utilization ≈ 61%**,
-  matching the resume's ~62%.
+  matching the reported ~62%.
 - **The entire ~38% gap is the GPU-idle CPU dataset-generation preamble** — not load imbalance
   (~2%), not communication (none), not scheduling.
 
@@ -368,12 +368,68 @@ Fixed launcher, all 28 pairs / 28 nodes, reusing the April datasets. **28/28 pai
 non-issue. Includes the two pairs that failed in April → the first complete, fast, saved unfiltered
 k-mer baseline. Metrics match April (AUC 0.99x), so the fix changed only speed.
 
+### Reproduce & CAR
+
+**Reproduce the k-mer baseline (verified 2026-07-13):**
+```bash
+qsub logs/sweep/full_sweep_kmer.pbs
+```
+Fixed launcher, all 28 pairs / 28 nodes, reusing the April datasets via `DATASET_MANIFEST`
+(`allpairs_prod_val_unfilt_20260413_151649/dataset_manifest.json`). On disk: `protein_final.csv`,
+`kmer_features_k6.npz` (+ `master_esm2_embeddings.h5` for the ESM-2 variant); 28/28 datasets with
+12 folds. Output: `allpairs_prod_<ts>/` (28-pair summary, heatmaps, `pbs_job.log`) + 336 per-fold
+model dirs (`best_model.pt`). Last run: 28/28, 336/336 folds, 29m32s, 8.4 min/fold.
+
+**CAR (segmatch 28-pair sweep — HPC debugging):**
+- **Challenge:** a 28-protein-pair × 12-fold CV sweep (336 GPU training jobs) ran ~5× slower on
+  Polaris than a single-GPU baseline predicted (25 s vs 5 s/epoch) — ~44 min/fold, 3.5 h/sweep.
+- **Action:** profiled with `nvidia-smi dmon` → workload is host-bound (GPU util ~39%, not compute-
+  or memory-bound); a 1→2→4→8-node scaling test showed a step-function 5× at the 2-node (mpiexec)
+  boundary and *flat* thereafter — ruling out cluster-scale contention and falsifying my first
+  hypothesis (fold packing); a 3-way mpiexec CPU-binding A/B isolated the cause: default binding
+  pinned each node's rank and its 4 host-bound folds to a core subset.
+- **Result:** one-line launcher fix (`mpiexec --depth=64 --cpu-bind depth`), validated end-to-end —
+  42.7 → 8.4 min/fold (5.1×), 336/336 folds, metrics unchanged, provenance saved. Reframed the
+  team's "62% efficiency" number: the loss was a missing CPU-affinity flag, not fundamental
+  inefficiency.
+
 ---
 
 ## Phase 1 — Profiling (learn to read the metrics, ~1 day)
 
 **Purpose:** learn the standard GPU-profiling tools and vocabulary, and resolve whether the
 "compute-dominated" epoch is real GPU compute or memory/CPU-bound.
+
+**Status:** the host-bound verdict is already established (GPU ~39% util — Phase 0b/0c). Remaining
+deliverable: a `torch.profiler` **trace** that shows it visually (GPU-idle gaps, H2D copies,
+DataLoader time) + a short tool-choice note.
+
+**Integrated:** `train_pair_classifier.py` now has an opt-in `--profile_steps N` flag (profiles N
+real training steps, writes a trace to `<run>/profile/`, prints the op table, then exits). Run one
+fold on a `debug` node:
+```bash
+source scripts/polaris_env.sh
+CUDA_VISIBLE_DEVICES=0 python3 src/models/train_pair_classifier.py \
+  --config_bundle flu_28p_ha_na --cuda_name cuda:0 \
+  --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_28p_ha_na_val_unfilt_20260413_151650/fold_0 \
+  --profile_steps 20 --run_output_subdir phase1_profile
+```
+
+**Why `torch.profiler`, not `ncu` (state this in the write-up):** `ncu` profiles *inside* individual
+kernels and is blind to the between-kernel host stall (DataLoader + H2D + launch gaps) that dominates
+this host-bound epoch; its per-kernel counters describe the tiny GEMMs that are not the bottleneck.
+`torch.profiler` (low-overhead, whole-timeline) shows where the epoch time actually goes. `ncu` is
+reserved for the compute-bound GenSLM case (where it profiles the GEMM/tensor-core efficiency that is
+the bottleneck).
+
+**Result (2026-07-14, `phase1_profile`, 20 steps).** GPU **idle 82%** of the profiled window (busy
+18% = kernels 18.4 ms + H2D 4.0 ms over a 126 ms window) — the host-bound signature at the trace
+level. The dominant CPU cost is **batch collation**: `aten::stack` (21.5 ms) + `aten::cat` (17.4 ms)
+assembling the 4096-dim k-mer vectors into batches, then `aten::to`/`copy_` (~23 ms) for the H2D
+copy; the MLP GEMMs (`addmm`/`mm`) are only ~16 ms. Fix direction is collation/transfer (GPU-side
+collate, or indexing one contiguous tensor), not the GPU math. Makes the `ncu` point concrete: it
+could only see the 18% (kernels); the 82% that dominates is invisible to it. (Absolute times are
+profiler-inflated; the ratios are the signal.) Trace: `phase1_profile/profile/*.pt.trace.json`.
 
 **Do:**
 1. **GPU utilization timeline.** During the solo fold, sample `nvidia-smi dmon -s um`
@@ -420,7 +476,7 @@ replacing the PENDING line.
 
 ---
 
-## Phase 3 — Port the launcher to Parsl (tooling / resume, ~2-3 days)
+## Phase 3 — Port the launcher to Parsl (tooling, ~2-3 days)
 
 **Purpose:** replace the bespoke bash + hand-rolled `wait_any` GPU pool with **Parsl**
 (ALCF-native many-task engine), for failure isolation, retries, and a documented workflow.
