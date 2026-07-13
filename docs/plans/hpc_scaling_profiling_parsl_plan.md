@@ -7,12 +7,12 @@ Take the existing 28-protein-pair CV sweep on Polaris and turn it into (a) a set
 the standard GPU/HPC metrics and vocabulary, and (c) a **Parsl port** of the launcher.
 The scientific results are already produced by the working `mpiexec` launcher; nothing
 here changes the science. This is about measurement rigor, understanding, and a
-interview-grade artifact.
+reproducible, documented artifact.
 
 ## Goals (why this plan exists)
 
-1. **Defensible numbers.** Every scaling/perf number that could go into an
-   interview must be re-derivable from artifacts that still exist on disk, with the
+1. **Defensible numbers.** Every scaling/perf number we report must be re-derivable
+   from artifacts that still exist on disk, with the
    measured-vs-projected boundary stated explicitly.
 2. **Knowledge.** Learn the standard terminology and how to *read* the metrics
    (utilization, occupancy, arithmetic intensity, roofline, speedup, parallel efficiency,
@@ -115,7 +115,7 @@ The 336 folds are **independent, single-GPU tasks**. So:
      different per-fold time → the whole job waits for the slowest node (the `MAX` metric).
   4. **Idle tail** — nodes that finish early sit idle; billing is whole-node.
 
-**This decomposition is the interview story** and it is exactly what Phase 0 measures.
+**This decomposition is the scaling story** and it is exactly what Phase 0 measures.
 Saying "62% end-to-end efficiency, but training-phase GPU packing is near-ideal; the loss
 is a serial dataset-gen preamble plus cross-node load imbalance" is far stronger — and more
 honest — than a bare "62% parallel efficiency."
@@ -489,6 +489,14 @@ python3 scripts/run_allpairs_parsl.py --pairs flu_28p_ha_na flu_28p_pb2_pb1 \
   --nodes 2 --queue debug --epochs 20 --tag parslval \
   --dataset_manifest models/flu/July_2025/allpairs_prod_val_unfilt_20260413_151649/dataset_manifest.json
 ```
+
+**Validated (2026-07-14).** Ran end-to-end: **24/24 folds, per-epoch 5.3 s** (range 5.2-5.4), ~9
+min/fold at 100 ep — matching the mpiexec 5.0 s / 8.5 min. So Parsl's NUMA-aware `cpu_affinity`
+delivers the same speed as the hand-tuned `--depth=64` *and* avoids the default-binding trap: the
+"Parsl would have prevented the bug" thesis, confirmed. PBS submission, worker startup under the venv,
+GPU packing, and retries all worked. The first attempt exposed two v1 bugs, both fixed: (1) missing
+`-l filesystems=home:eagle` (Polaris rejects the job without it), and (2) a module global (`PROJECT`)
+referenced inside the `bash_app` — apps must be self-contained, so pass values as arguments.
 
 
 **Purpose:** replace the bespoke bash + hand-rolled `wait_any` GPU pool with **Parsl**

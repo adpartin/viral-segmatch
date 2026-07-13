@@ -69,6 +69,7 @@ def make_config(nodes_per_block, account, queue, walltime, run_dir):
                 init_blocks=1, min_blocks=1, max_blocks=1,
                 cpus_per_node=64,
                 select_options="ngpus=4",
+                scheduler_options="#PBS -l filesystems=home:eagle",  # Polaris requires this
                 launcher=MpiExecLauncher(bind_cmd="--cpu-bind",
                                          overrides="--depth=64 --ppn 1"),
                 worker_init=WORKER_INIT,
@@ -78,12 +79,13 @@ def make_config(nodes_per_block, account, queue, walltime, run_dir):
 
 
 @bash_app
-def train_fold(pair_bundle, fold, dataset_dir, run_subdir, epochs=None,
+def train_fold(pair_bundle, fold, dataset_dir, run_subdir, project, epochs=None,
                stdout=None, stderr=None):
-    """One fold = one training process. Parsl picks the node+GPU; cuda:0 is the assigned GPU."""
+    """One fold = one training process. Parsl picks the node+GPU; cuda:0 is the assigned GPU.
+    `project` is passed in (not a module global) so the app is self-contained on the worker."""
     epoch_ovr = f"--override training.epochs={epochs}" if epochs else ""
     return (
-        f"cd {PROJECT} && "
+        f"cd {project} && "
         f"python3 src/models/train_pair_classifier.py "
         f"--config_bundle {pair_bundle} --cuda_name cuda:0 "
         f"--dataset_dir {dataset_dir}/fold_{fold} "
@@ -122,7 +124,7 @@ def main():
         ds = manifest[pair]
         for fold in range(args.n_folds):
             sub = f"{pair}_{args.tag}_fold{fold}"
-            fut = train_fold(pair, fold, ds, sub, epochs=args.epochs,
+            fut = train_fold(pair, fold, ds, sub, str(PROJECT), epochs=args.epochs,
                              stdout=str(log_dir / f"{sub}.out"),
                              stderr=str(log_dir / f"{sub}.err"))
             futures.append((pair, fold, fut))
