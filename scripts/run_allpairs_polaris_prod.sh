@@ -386,7 +386,7 @@ for i in "${!BUNDLES[@]}"; do
         if [ "$NODE" = "localhost" ]; then
             echo "  [dry-run] bash -c \"$CV_CMD\""
         else
-            echo "  [dry-run] mpiexec --hostfile $HOSTFILE_DIR/node_$i -n 1 --ppn 1 bash -c \"$CV_CMD\""
+            echo "  [dry-run] mpiexec --hostfile $HOSTFILE_DIR/node_$i -n 1 --ppn 1 --depth=64 --cpu-bind depth bash -c \"$CV_CMD\""
         fi
         continue
     fi
@@ -397,8 +397,12 @@ for i in "${!BUNDLES[@]}"; do
     else
         # Batch mode: use mpiexec to dispatch to the allocated compute node.
         # Each pair gets 1 rank on 1 node; run_cv_lambda.py manages the 4 GPUs internally.
+        # --depth=64 --cpu-bind depth hands the rank all 64 hardware threads. Without it,
+        # mpiexec's default binding pins the rank + its 4 folds to a small core subset and the
+        # host-bound training runs ~5x slower (25s vs 5s/epoch). Confirmed by a 2-node A/B test;
+        # see docs/plans/hpc_scaling_profiling_parsl_plan.md Phase 0c.
         mpiexec --hostfile "$HOSTFILE_DIR/node_$i" \
-            -n 1 --ppn 1 \
+            -n 1 --ppn 1 --depth=64 --cpu-bind depth \
             bash -c "$CV_CMD" > "$PAIR_LOG" 2>&1 &
     fi
 
