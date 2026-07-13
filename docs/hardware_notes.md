@@ -1,275 +1,244 @@
 # Hardware / Software Interaction Notes
 
-Purpose: capture the *why* behind code choices in this project that are driven by
-hardware behavior (GPUs, CPU caches, OS/driver semantics). Aimed at ML engineers /
-data scientists who want to understand how a small training script can go from
-5 s/epoch to 540 s/epoch when moved from a single-GPU workstation to a multi-GPU
-HPC node, and what to look for.
+Purpose: record the hardware-driven reasons behind code choices in this project — GPU driver
+behavior, CPU caches, filesystem, and shared-node effects. Audience: ML engineers who need to
+know why a small training script can slow from a few seconds per epoch on a workstation to
+hundreds of seconds per epoch on a multi-GPU HPC node, and what to check.
 
-Topics tagged `[Extra]` are **not** currently exercised by a bug we hit, but are
-essential background for anyone maintaining a PyTorch training loop on HPC.
+Machine: **Polaris** — 4x NVIDIA A100 40 GB per node, AMD EPYC "Milan" 32-core CPU, 512 GB host
+RAM, HPE Slingshot interconnect, PBS Pro scheduler, **Eagle** Lustre project filesystem (ALCF).
+Terms below are defined in the Glossary and match the vendor docs in Sources.
+
+Sections tagged `[Extra]` are background, not tied to a specific bug we hit.
+
+---
+
+## Glossary (confirmed terms)
+
+- **Pinned (page-locked, non-pageable) host memory** — CPU memory locked in place so the OS cannot
+  swap or move it. Allocated by CUDA `cudaHostAlloc`. Required for asynchronous host-to-device
+  copies; from ordinary pageable memory an "async" copy silently runs synchronously. [NVIDIA]
+- **DMA (Direct Memory Access)** — a copy engine moves data over PCIe without using the compute
+  engine, so a copy can overlap with compute — but only from pinned memory. [NVIDIA]
+- **H2D / D2H** — host-to-device / device-to-host memory copy.
+- **`pin_memory` (PyTorch DataLoader)** — pins each fetched batch, in a background thread, for
+  faster H2D transfer; costs pinned host RAM. [PyTorch]
+- **GPU memory growth (TensorFlow)** — TF maps nearly all GPU memory on startup by default;
+  `TF_FORCE_GPU_ALLOW_GROWTH=true` makes it grow on demand instead. [TensorFlow]
+- **Ensemble packing** — running several independent training processes on one node (here 4, one
+  per A100). They share CPU RAM, L3 cache, PCIe, and the CUDA driver.
+- **Load balancing / load imbalance** — spreading work evenly across parallel workers so none
+  becomes the bottleneck. Imbalance is measured by `MAX = max work / mean work` (1.0 = perfect).
+  [HPC-Wiki]
+- **Makespan** — for a set of independent tasks, the time from the start of the first to the finish
+  of the last. Minimizing it is the goal when packing many tasks onto limited workers.
+- **`num_workers` (DataLoader)** — number of worker processes that prefetch batches; 0 means the
+  main process loads data.
+- **SM utilization / occupancy** — how busy and how full the GPU's compute units are; low
+  utilization at high wall-time means the GPU is starved, not compute-bound.
+- **CUDA async execution** — GPU kernels return control to Python before finishing; honest GPU
+  timing needs `torch.cuda.synchronize()` or CUDA events. [NVIDIA]
 
 ---
 
 ## 1. `pin_memory` and `cudaHostAlloc` serialization
 
-**Code**: `conf/bundles/flu_28_major_protein_pairs_master.yaml` → `training.pin_memory: false`
+**Code:** `conf/bundles/flu_28_major_protein_pairs_master.yaml` → `training.pin_memory: false`.
 
-**What it does**: `pin_memory=True` tells the DataLoader's `pin_memory_thread` to
-copy every batch into CUDA page-locked (pinned) host memory via `cudaHostAlloc`,
-which enables faster async H→D DMA transfers.
+`pin_memory=True` makes the DataLoader copy every batch into pinned host memory via
+`cudaHostAlloc`, which enables fast asynchronous H2D transfers. On one GPU this gave ~18% speedup.
+On Polaris with 4 training processes per node it caused a **~322x slowdown** in data loading
+(1.6 s → 515 s per epoch).
 
-**Why we disabled it**: On a single GPU (Lambda), this gave ~18% speedup. On
-Polaris with 4 concurrent training processes on the same node (one per GPU), it
-caused a **~300x slowdown in data loading** (1.6 s → 515 s per epoch).
+Cause: pinning memory takes a driver-level operation that serializes across processes on the node.
+With 4 processes pinning every batch, they spend almost all their time waiting on the driver
+instead of feeding the GPU. The effect is invisible with one process and worsens sharply with
+concurrency. (The slowdown is measured; driver-level serialization of `cudaHostAlloc` is the
+diagnosis consistent with the evidence below.)
 
-**Root cause**: `cudaHostAlloc` takes a driver-level lock that is **serialized
-across processes on the same node**. With 4 workers each trying to pin every
-batch, they spend nearly all their time waiting on the driver lock instead of
-feeding the GPU. The effect is invisible with 1 process and grows superlinearly
-with concurrency.
+Evidence (Exp A/B/C, full dataset, 4 epochs):
 
-**Evidence** (Exp A/B/C, full dataset, 4 epochs):
+| Exp | Folds | `pin_memory` | Data load/epoch | Total/epoch |
+|-----|-------|--------------|-----------------|-------------|
+| A | 1 | false | 1.6 s | 4.6 s |
+| B | 2 | false | 1.6 s | 5.0 s |
+| C | 4 | false | 1.7 s | 5.1 s |
+| — | 4 | true | 515 s | 540 s |
+| Phase 3 (production) | 4 × 28 nodes × 100 epochs | false | 3.0 s (median) | 25.0 s (median) |
 
-| Exp | Folds | `pin_memory` | Data loading/epoch | Total/epoch |
-|-----|-------|--------------|--------------------|-------------|
-| A   | 1     | false        | 1.6 s              | 4.6 s       |
-| B   | 2     | false        | 1.6 s              | 5.0 s       |
-| C   | 4     | false        | 1.7 s              | 5.1 s       |
-| —   | 4     | true         | 515 s              | 540 s       |
-| **Phase 3 (production)** | **4 × 28 nodes × 100 epochs** | **false** | **3.0 s (median)** | **25.0 s (median)** |
+The Phase 3 row is the median over 334 folds × ~100 epochs (~33,400 epochs).
 
-The Phase 3 row is the median across **334 completed folds × ~100 epochs** (~33,400 epoch
-observations). Mean `data_time` 3.01 s, max 5.45 s. Confirms the Exp A/B/C extrapolation
-holds at production scale and over many hours of runtime.
-
-**Takeaway**: pinned memory is a per-process optimization that assumes the GPU is
-the bottleneck and the driver is uncontended. Neither holds when you ensemble-pack
-multiple training processes on one node. Always benchmark at the *concurrency
-level you will actually run at*.
+**Takeaway:** pinned memory assumes the GPU is the bottleneck and the driver is uncontended.
+Neither holds under ensemble packing. Benchmark at the concurrency you will actually run.
+(See also §9: pinned memory is a finite host resource.)
 
 ---
 
 ## 2. `num_workers=0`
 
-**Code**: `src/models/train_pair_classifier.py` → `NUM_WORKERS = 0` (hard-coded)
+**Code:** `src/models/train_pair_classifier.py` → `NUM_WORKERS = 0` (hard-coded). Two reasons.
 
-Two independent reasons:
+**(a) Performance.** `num_workers>0` forks worker processes that pickle batches through a queue to
+the main process. That pays off only when `__getitem__` does real work (disk I/O, decode,
+augmentation) that can overlap GPU compute. Our dataset is a numpy matrix already in RAM;
+`__getitem__` is one array index. The queue and pickling cost exceeds the indexing cost, so
+`num_workers=2` measured ~87% slower on Lambda (`speed_up.md`).
 
-**(a) Performance — IPC overhead dominates for in-memory data**
+**(b) Correctness.** `KmerPairDataset.__getitem__` uses `torch.from_numpy(...)`, which shares the
+numpy buffer (zero copy). Forked workers inherit those pages copy-on-write, which has caused
+segfaults in PyTorch. If you ever need `num_workers>0`, switch to `torch.tensor(...)` (which
+copies) first.
 
-`num_workers>0` forks worker processes that pickle tensors through a queue to the
-main process. That overhead is only worth paying when `__getitem__` does real
-work (disk I/O, decode, augmentation) that can overlap with GPU compute. Our
-dataset is already a numpy matrix in RAM; `__getitem__` is one indexing op. The
-IPC cost exceeds the indexing cost, so `num_workers>0` measured ~87% slower on
-Lambda (see `speed_up.md`).
-
-**(b) Correctness — `torch.from_numpy` + forked workers is unsafe**
-
-`KmerPairDataset.__getitem__` uses `torch.from_numpy(...)` for zero-copy tensor
-construction. This shares the underlying numpy buffer. Forked worker processes
-inherit the parent's pages copy-on-write; depending on access patterns this has
-caused segfaults / corruption in PyTorch. If you ever need `num_workers>0`,
-first switch to `torch.tensor(...)` (which copies).
-
-**Takeaway**: `num_workers=0` is optimal *for this workload* because there is no
-latency to hide. The common advice "set it to the number of CPU cores" is
-assuming a disk-bound image pipeline, not an in-memory numerical one.
+**Takeaway:** `num_workers=0` is right for in-memory data — there is no I/O latency to hide. The
+"set it to the CPU count" rule assumes a disk-bound image pipeline.
 
 ---
 
 ## 3. TensorFlow GPU pre-allocation via transitive import
 
-**Code**: top of `src/models/train_pair_classifier.py` sets
-`TF_FORCE_GPU_ALLOW_GROWTH=true` and `TF_CPP_MIN_LOG_LEVEL=3` before any import.
+**Code:** top of `src/models/train_pair_classifier.py` sets `TF_FORCE_GPU_ALLOW_GROWTH=true` and
+`TF_CPP_MIN_LOG_LEVEL=3` before any import.
 
-**What happened**: On Polaris, fold 2 OOMed at `model.to(device)` even though the
-model was tiny and the GPU was nominally free. The Polaris system conda env has
-TensorFlow installed. HuggingFace `transformers` (imported via `esm2_utils`)
-does a feature check `is_tf_available()` on import, which triggers TF to
-initialize — and TF's default is to **eagerly allocate all GPU memory** on the
-first visible device. Our PyTorch process then finds <1 GB free and OOMs.
+On Polaris, one fold OOMed at `model.to(device)` even though the model is tiny. Cause: the Polaris
+base environment has TensorFlow installed. HuggingFace `transformers` (pulled in by `esm2_utils`)
+calls `is_tf_available()` on import, which loads TF, and TF maps nearly all GPU memory on startup
+by default. PyTorch then finds <1 GB free and OOMs.
 
-**Fix**: set the env vars *before* any import that can transitively load TF.
-`TF_FORCE_GPU_ALLOW_GROWTH=true` makes TF's allocator grow on demand instead of
-grabbing everything.
+Fix: set the env vars before any import that can load TF. `TF_FORCE_GPU_ALLOW_GROWTH=true` makes TF
+grow memory on demand. We also log `torch.cuda.mem_get_info()` just before `model.to(device)` so an
+OOM here is distinguishable from a genuinely too-large model.
 
-**Diagnostic**: we also log `torch.cuda.mem_get_info()` immediately before
-`model.to(device)` so an OOM here is distinguishable from an OOM caused by an
-actually too-large model or by another user sharing the node.
-
-**Takeaway**: a library you never explicitly imported can still take your GPU.
-On shared HPC environments, assume any ML framework installed in the base env
-may get pulled in through a compatibility check. Always set growth / visibility
-env vars before imports.
+**Takeaway:** on shared HPC environments, a framework you never imported can still take the GPU. Set
+memory-growth and visibility env vars before imports.
 
 ---
 
-## 4. L3 cache vs. working-set size (why Phase 1 worked and Phase 3 didn't)
+## 4. L3 cache vs working-set size
 
-**Phase 1 (5K isolates)**: per-fold k-mer matrix ≈ 50 MB. Fits inside the CPU L3
-cache of an EPYC node (tens to hundreds of MB). Random access during shuffled
-DataLoader iteration is nearly free because every read is an L3 hit. The
-`pin_memory` overhead existed but was tiny relative to anything else, so nothing
-looked wrong.
+**Phase 1 (5K isolates):** the per-fold k-mer matrix is ~50 MB and fits in the CPU L3 cache, so
+shuffled random access is nearly free (L3 hits) and any per-batch overhead is hidden.
 
-**Phase 3 (111K isolates, full dataset)**: per-fold matrix ≈ 3.5 GB; 4 folds ×
-3.5 GB = 14 GB of working set under random access. This spills L3 into DRAM for
-every batch, and crucially it **magnifies any per-batch overhead** (like
-`cudaHostAlloc`) because the batch cost is no longer dominated by compute.
+**Phase 3 (full dataset, ~111K isolates):** the per-fold matrix is ~3.5 GB; 4 folds is ~14 GB under
+random access. This spills L3 to DRAM on every batch and magnifies any per-batch overhead (like
+`cudaHostAlloc`), because the batch cost is no longer dominated by compute.
 
-**Takeaway**: performance results from small-data prototypes do not extrapolate.
-When scaling dataset size, you cross cache-hierarchy thresholds (L1 → L2 → L3 →
-DRAM → NVMe) and both latency *and* contention characteristics change
-discontinuously. Always re-profile at production scale.
+**Takeaway:** small-data prototypes do not predict production. Growing the dataset crosses
+cache-hierarchy thresholds (L1 → L2 → L3 → DRAM), and both latency and contention change sharply.
+Re-profile at production scale.
 
 ---
 
-## 5. Level 1 / Level 2 profiling methodology
+## 5. Level 1 / Level 2 profiling
 
-**Level 1 — per-epoch wall-clock breakdown** (always on):
-`train_pair_classifier.py` writes `data_time`, `compute_time`, `eval_time`, and
-`epoch_time` to `training_history.csv`. This is enough to localize *which phase*
-of an epoch is slow (loading vs forward/backward vs evaluation).
+**Level 1 (always on):** `train_pair_classifier.py` writes `data_time`, `compute_time`,
+`eval_time`, and `epoch_time` to `training_history.csv`. Enough to localize which phase of an epoch
+is slow (loading vs forward/backward vs evaluation).
 
-**Level 2 — micro-benchmark first 10 batches** (diagnostic, commented out):
-A 20-line block in `src/models/train_pair_classifier.py` (search for
-`Level 2 diagnostic`, currently around line 630) that builds two DataLoaders — one
-with `pin_memory=True`, one with `False` — and times 10 batches each, printing
-ms/batch. This is what let us isolate `pin_memory` as the culprit. Uncomment the
-block to re-enable; it adds ~5 s to fold startup.
+**Level 2 (diagnostic, commented out):** a block near line 630 builds two DataLoaders
+(`pin_memory=True` vs `False`) and times 10 batches each. This isolated the `pin_memory` bug.
+Uncomment to re-enable (~5 s added to fold startup).
 
-**Takeaway**: keep lightweight profiling permanently on (Level 1) so you can
-notice regressions; keep heavier diagnostics (Level 2) parked in comments so
-they can be flipped on in minutes when something looks off.
+**Takeaway:** keep light profiling always on to catch regressions; park heavier diagnostics in
+comments to flip on in minutes.
 
 ---
 
-## 6. `[Extra]` CUDA async dispatch and why wall-clock timing lies
+## 6. `[Extra]` CUDA async execution and why naive timing lies
 
-PyTorch CUDA ops are **asynchronous**: `loss.backward()` returns before the GPU
-has actually finished. Naïvely timing `t0 = time.time(); forward(); backward();
-print(time.time() - t0)` measures the *launch* time, not the *compute* time.
+CUDA kernels are asynchronous: `loss.backward()` returns before the GPU finishes. Timing with
+`time.time()` around forward/backward measures launch time, not compute time.
 
-To get honest compute timings you need `torch.cuda.synchronize()` before
-`t0` and before the final `time.time()`. Alternatively, use
-`torch.cuda.Event(enable_timing=True)` with `record()` + `elapsed_time()` which
-times GPU-side directly.
-
-Implication for this project: our Level 1 timings are honest only because the
-DataLoader step and the epoch boundary both implicitly synchronize (the loader
-waits for the previous batch to be consumed, and metric computation reads
-tensors back to CPU). If you ever move metrics to GPU-side, add explicit
-`synchronize()` before timing reads.
+For honest GPU timing, call `torch.cuda.synchronize()` before reading the clock, or use
+`torch.cuda.Event(enable_timing=True)`. Our Level 1 timings are honest only because the DataLoader
+step and metric read-back implicitly synchronize. If you move metrics to GPU-side, add an explicit
+`synchronize()` before the timing read.
 
 ---
 
-## 7. `[Extra]` DataLoader shuffling and RNG determinism across processes
+## 7. `[Extra]` DataLoader shuffling and per-process RNG
 
-When launching N folds as separate processes, each process needs a **different**
-shuffle order but the same seed chain should be reproducible. PyTorch's
-`DataLoader(shuffle=True)` uses a per-epoch generator; if two processes share
-the same master seed *and* the same fold index logic, they will traverse data
-identically and you lose the statistical independence CV is supposed to give.
-
-Mitigation: derive per-fold seeds from `master_seed + fold_id` and pass to both
-numpy and torch generators (see `src/utils/seed_utils.py`). Log the effective
-seeds in the run dir so any suspicious result can be reproduced.
+When N folds run as separate processes, each needs a different shuffle order but a reproducible
+seed. If two processes share the master seed and fold logic, they traverse data identically and
+lose the independence CV needs. Fix: derive per-fold seeds as `master_seed + fold_id` for both
+numpy and torch, and log them (`src/utils/seed_utils.py`).
 
 ---
 
-## 8. `[Extra]` `CUDA_VISIBLE_DEVICES` and logical-vs-physical device IDs
+## 8. `[Extra]` `CUDA_VISIBLE_DEVICES` and logical vs physical device IDs
 
-When you launch child processes with `CUDA_VISIBLE_DEVICES=2 python train.py`,
-inside the child **`cuda:0` is physical GPU 2**. The child cannot see GPUs 0, 1,
-or 3 at all. This is why our `determine_device()` helper returns `cuda:0`
-unconditionally for GPU mode: the remapping already happened at the env-var
-level.
-
-Common footgun: code that hard-codes `cuda:2` or `torch.cuda.set_device(2)`
-inside the child will crash with "invalid device ordinal" because from its point
-of view there is only one device.
+With `CUDA_VISIBLE_DEVICES=2 python train.py`, inside the child process `cuda:0` is physical GPU 2,
+and GPUs 0/1/3 are invisible. This is why `determine_device()` returns `cuda:0` for GPU mode — the
+remapping already happened at the env-var level. Hard-coding `cuda:2` or `set_device(2)` in the
+child crashes with "invalid device ordinal".
 
 ---
 
-## 9. `[Extra]` Pinned memory is a finite, global resource
+## 9. `[Extra]` Pinned memory is a finite host resource
 
-Pinned memory on Linux is allocated from kernel-locked pages (`mlock`-class).
-The kernel has a hard limit (`RLIMIT_MEMLOCK`) and the total across all
-processes on the node is a fixed budget — typically a few GB. If you enable
-`pin_memory=True` in many concurrent DataLoaders on a fat node, you can exhaust
-the pool and get cryptic `cudaErrorMemoryAllocation` errors that look like GPU
-OOM but are actually host OOM.
-
-This is a second, independent reason (beyond cudaHostAlloc serialization) to be
-cautious with `pin_memory` under ensemble-packed training.
+Pinned memory comes from kernel-locked pages, capped by `RLIMIT_MEMLOCK`, and the total across all
+node processes is a fixed budget (a few GB). Many concurrent `pin_memory=True` DataLoaders can
+exhaust it and raise `cudaErrorMemoryAllocation`, which looks like GPU OOM but is host OOM. A second
+reason, beyond the §1 driver serialization, to avoid `pin_memory` under ensemble packing.
 
 ---
 
-## 10. `[Extra]` AMP / Tensor Cores: when mixed precision is *not* a win
+## 10. `[Extra]` AMP / Tensor Cores: when mixed precision is not a win
 
-`use_amp: false` in our bundles is not an oversight. AMP / `torch.autocast` only
-helps when:
-1. The model is large enough that the FP16/BF16 matmul throughput gain exceeds
-   the autocast bookkeeping overhead, AND
-2. Your GPU has Tensor Cores (Volta+), AND
-3. Shapes are multiples of 8 (or 16 on Ampere+) so Tensor Cores actually fire.
-
-Our MLP is tiny (~few MB of weights) and batch dimensions aren't aligned. We
-measured AMP as neutral-to-slightly-slower. For large transformer training AMP
-is almost always a win; for small MLPs it often isn't. Profile before assuming.
+`use_amp: false` is deliberate. AMP (`torch.autocast`) helps only when the model is large enough
+that FP16/BF16 matmul throughput beats the autocast overhead, the GPU has Tensor Cores, and matrix
+shapes are multiples of 8 (16 on Ampere). Our MLP is tiny and its shapes are not aligned, so AMP
+measured neutral-to-slower. For large transformers AMP is almost always a win. Details in
+`speed_up.md` §4.
 
 ---
 
 ## 11. `[Extra]` Ensemble packing vs PBS job arrays
 
-Two ways to run N folds on M GPUs on Polaris:
+Two ways to run N folds on M GPUs:
 
-- **PBS job array**: N separate PBS jobs, each requesting 1 GPU. Simplest
-  isolation, but scheduler overhead and queue wait apply N times.
-- **Ensemble packing**: 1 PBS job requesting 1 node with 4 GPUs, launching 4
-  `python` processes from a bash script with different `CUDA_VISIBLE_DEVICES`.
-  One queue wait, but processes share CPU RAM, L3 cache, PCIe, and the CUDA
-  driver — which is exactly how the `pin_memory` bug hid.
+- **PBS job array:** N separate 1-GPU jobs. Simple isolation, but scheduler overhead and queue wait
+  apply N times.
+- **Ensemble packing:** one job on one 4-GPU node launching 4 processes with different
+  `CUDA_VISIBLE_DEVICES`. One queue wait, but processes share CPU RAM, L3, PCIe, and the CUDA driver
+  — which is how the `pin_memory` bug hid.
 
-We use ensemble packing for Task 11 CV because it minimizes queue time and the
-12-fold × 28-pair work fits cleanly on 4-GPU nodes. The lesson from the
-`pin_memory` incident is: ensemble packing couples processes in subtle ways, so
-profile under the actual packing you will deploy.
+We use ensemble packing for Task 11 CV: it minimizes queue time, and 12 folds pack cleanly on
+4-GPU nodes. Lesson from the `pin_memory` incident: packing couples processes in subtle ways, so
+profile under the packing you will deploy.
 
 ---
 
 ## 12. `[Extra]` Lustre vs node-local /tmp vs NVMe
 
-Polaris uses Eagle Lustre as the project filesystem (`/lus/eagle/projects/...`). Lustre
-is optimized for **large sequential I/O** by many clients in parallel — exactly what HDF5
-embedding caches and CSV datasets look like. It is *not* optimized for many small files
-(directory metadata operations are slow), and it has variable per-client throughput
-depending on overall cluster load.
+Polaris uses Eagle Lustre for project storage. Lustre is fast for large sequential reads by many
+clients (HDF5 caches, CSVs), but slow for many small files (metadata operations) and varies with
+cluster load.
 
-For our workload Lustre is fine: each fold loads one 3.5 GB k-mer matrix once at startup,
-then serves batches from RAM. We never re-read from disk during training. If you ever
-move to a workload that re-reads many small files per epoch (e.g., on-the-fly tokenization
-of millions of FASTA records), consider:
+For us Lustre is fine: each fold reads one 3.5 GB k-mer matrix once, then serves batches from RAM.
+If you move to a workload that re-reads many small files per epoch (e.g., on-the-fly tokenization):
 
-- **Stage to node-local `/tmp`** at job start (one large `cp` from Lustre, then read from
-  /tmp during training). Polaris compute nodes have local NVMe.
-- **Pack into HDF5 / Zarr / WebDataset** so the access pattern is one large sequential
-  stream rather than many small random reads.
-- **Avoid `os.listdir()` / `glob.glob()` loops over large dirs** during training — these
-  hit Lustre metadata servers and can stall every fold simultaneously.
+- **Stage to node-local `/tmp`** (NVMe) at job start with one large copy, then read from /tmp.
+- **Pack into HDF5 / Zarr / WebDataset** for one sequential stream instead of many small reads.
+- **Avoid `glob` / `listdir`** over large dirs during training — these hit Lustre metadata servers
+  and can stall every fold at once.
 
-The general rule: Lustre rewards **few large reads**, punishes **many small ones**. Match
-your data layout to that.
+Rule: Lustre rewards few large reads, punishes many small ones.
 
 ---
 
+## Sources
+
+- NVIDIA — pinned/page-locked memory and async transfers: "How to Optimize Data Transfers in CUDA
+  C/C++" (https://developer.nvidia.com/blog/how-optimize-data-transfers-cuda-cc/) and the CUDA C++
+  Programming Guide.
+- PyTorch — `pin_memory` / DataLoader:
+  https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html
+- TensorFlow — GPU memory growth / `TF_FORCE_GPU_ALLOW_GROWTH`:
+  https://www.tensorflow.org/guide/gpu
+- ALCF — Polaris machine overview and running jobs: https://docs.alcf.anl.gov/polaris/
+
 ## See also
-- `speed_up.md` — original Lambda single-fold benchmark numbers (batch size,
-  eval_train_metrics, etc.). Predates the Polaris concurrency findings.
+
+- `speed_up.md` — training speed-ups (batch size, `eval_train_metrics`, etc.) and Polaris §8.
 - `polaris_plan.md` — Task 11 Polaris execution plan (phases, queues).
-- Inline comments in `src/models/train_pair_classifier.py` (NUM_WORKERS,
-  TF env vars, GPU memory diagnostic).
-- Inline comment in `conf/bundles/flu_28_major_protein_pairs_master.yaml`
-  (`pin_memory: false`).
+- `docs/plans/hpc_scaling_profiling_parsl_plan.md` — scaling/profiling/Parsl plan and its Glossary.
