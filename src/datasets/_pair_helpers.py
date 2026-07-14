@@ -650,6 +650,7 @@ def bipartite_components(
         col_a = f'{_hk_col[hash_key]}_a'
         col_b = f'{_hk_col[hash_key]}_b'
         node_key_label = hash_key
+
     if not {col_a, col_b}.issubset(pos_df.columns):
         raise ValueError(
             f"bipartite_components: pos_df must contain {col_a} and {col_b} "
