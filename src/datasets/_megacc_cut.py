@@ -21,11 +21,8 @@ have the analysis diagnostics import this module.
 """
 from __future__ import annotations
 
-from typing import Optional
-
-import numpy as np
-import pandas as pd
 import networkx as nx
+import pandas as pd
 
 # LPT 80/10/10 targets — must match the production bin-packer's intent
 # (`_pair_helpers._lpt_bin_pack`); the feasibility gate mirrors splits.md §3.3.
@@ -91,19 +88,42 @@ def apply_drop_budget_cut(
     seed: int = 1,
     max_cuts: int = 1000,
 ) -> tuple[pd.DataFrame, dict]:
-    """Edge-min-cut the mega-CC; drop straddling pairs to reach LPT feasibility.
+    """Shrink the 2D mega-CC with the fewest dropped pairs, so whole CCs fit an 80/10/10 split.
 
-    Builds the pair-weighted simple bigraph from `pos_with_ids`'s cluster-id
-    columns (nodes `a:<cluster_id_a>` / `b:<cluster_id_b>`, edge weight = number
-    of pairs on that cluster-pair), then recursively bisects the largest
-    component until the kept components LPT-bin-pack into the targets within
-    `drift_pp`.
+    2D-CD routes whole bipartite connected components (CCs) to one fold, so a single giant
+    CC (the mega-CC) makes an 80/10/10 split impossible. This splits it by repeated edge
+    min-cut: build the pair-weighted bigraph (one node per cluster, `a:`/`b:`-prefixed by
+    slot; edge weight = number of pairs on that (cluster_a, cluster_b) combination), then
+    repeatedly bisect the largest CC (`cut_method`) and drop the pairs whose cluster-pair
+    straddles the two halves, until the kept CC sizes pack into the 80/10/10 targets within
+    `drift_pp` -- judged by an LPT (Longest-Processing-Time: largest CC first into the
+    emptiest bin) greedy bin-pack. Single-segment clusters (the nodes) are never split; the
+    cut drops the cross-half pairs, so the cost is counted in pairs.
 
-    Returns `(kept_pos, cut_audit)` — `kept_pos` is `pos_with_ids` minus the
-    dropped (straddling) rows; the caller recomputes `component_id` on it.
-    `cut_audit` carries the per-cut accounting + the dropped pair_keys.
+    Args:
+        pos_with_ids: positive-pair rows with `col_a`/`col_b` cluster ids (+ `pair_key_col`);
+            the pairs being routed (its index identifies each pair).
+        col_a / col_b: slot-a / slot-b cluster-id column names.
+        pair_key_col: per-pair key column; dropped keys are recorded in the audit.
+        cut_method: how to bisect the largest CC -- `'spectral'` (Fiedler vector),
+            `'kl'` (Kernighan-Lin), or `'none'` (no cut; return `pos_with_ids` unchanged).
+        target_frac: nominal train fraction (0.80); audit-only -- the LPT bin targets are
+            the module `_TARGETS` (80/10/10).
+        drift_pp: stop once the LPT pack's worst-bin deviation from target is <= this
+            (a fraction; 0.05 = 5 percentage points).
+        max_drop_frac: cap on the dropped-pair fraction; exceeding it raises
+            `DropBudgetExceeded` instead of dropping more.
+        seed: RNG seed for the seeded spectral / KL bisection.
+        max_cuts: safety cap on the number of bisection iterations.
 
-    Raises `DropBudgetExceeded` (with a menu) if recovery needs > `max_drop_frac`.
+    Returns:
+        `(kept_pos, cut_audit)`: `kept_pos` is `pos_with_ids` minus the dropped straddling
+        rows (the caller recomputes `component_id` on it); `cut_audit` holds the per-cut
+        accounting + the dropped pair_keys.
+
+    Raises:
+        DropBudgetExceeded: if reaching 80/10/10 feasibility would need dropping more than
+            `max_drop_frac` of pairs (the message lists the config knobs to relax).
     """
     n_total = int(len(pos_with_ids))
     if cut_method == 'none':
