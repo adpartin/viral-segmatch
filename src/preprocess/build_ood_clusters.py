@@ -43,6 +43,7 @@ The `-s 7.5` prefilter is empirically complete at high `t`; pass `--exhaustive`
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -90,6 +91,7 @@ def cluster_one_function_one_threshold(
     mmseqs_bin: str | None,
     force: bool,
     delete_hits: bool,
+    scratch_dir: str | None = None,
     ) -> dict:
     """Build OOD clusters for one (function, threshold): FASTA -> all-vs-all -> union-find CCs.
 
@@ -102,10 +104,14 @@ def cluster_one_function_one_threshold(
     tdir = out_root / threshold_label(threshold)
     tdir.mkdir(parents=True, exist_ok=True)
     cluster_parquet = tdir / f"{short_name}_cluster.parquet"
-    hits_tsv = tdir / f"{short_name}_hits.tsv"
     hits_parquet = tdir / f"{short_name}_hits.parquet"
-    tmp_dir = tdir / f"{short_name}_tmp"
     log_path = tdir / f"{short_name}_mmseqs.log"
+    # Transient (raw hits TSV + mmseqs tmp) can spill 10s-100s of GB; a local
+    # --scratch_dir routes them off a full NFS. Final parquet/log stay on NFS (tdir).
+    scr = (Path(scratch_dir) / f"{threshold_label(threshold)}_{short_name}") if scratch_dir else tdir
+    scr.mkdir(parents=True, exist_ok=True)
+    hits_tsv = scr / f"{short_name}_hits.tsv"
+    tmp_dir = scr / f"{short_name}_tmp"
 
     # FASTA of unique sequences (cached across thresholds).
     if not fasta_path.exists() or force:
@@ -158,6 +164,8 @@ def cluster_one_function_one_threshold(
     elif hits_tsv.exists():
         read_hits_tsv(hits_tsv, usecols=['query', 'target', 'fident']).to_parquet(hits_parquet, index=False)
         hits_tsv.unlink()
+    if scratch_dir:
+        shutil.rmtree(scr, ignore_errors=True)  # drop the local scratch (mmseqs tmp + leftovers)
 
     dist = cluster_size_distribution(lookup[['cluster_id']])
     dist.update({
@@ -211,6 +219,9 @@ def main() -> None:
     p.add_argument('--delete_hits', action='store_true',
                    help='delete each hits TSV after its cluster parquet is written (saves disk on '
                         'big/nt functions; the separation figure then needs a re-search to regenerate)')
+    p.add_argument('--scratch_dir',
+                   help='local dir for the transient hits TSV + mmseqs tmp (spares a full NFS); '
+                        'the cluster parquet still goes to --out_root')
 
     args = p.parse_args()
 
@@ -248,7 +259,7 @@ def main() -> None:
                 sensitivity=args.sensitivity, prefilter_mode=prefilter_mode,
                 max_seqs=args.max_seqs, coverage=args.coverage, gpu=args.gpu,
                 threads=args.threads, mmseqs_bin=args.mmseqs_bin, force=args.force,
-                delete_hits=args.delete_hits,
+                delete_hits=args.delete_hits, scratch_dir=args.scratch_dir,
             )
             threshold_stats.append(stats)
         all_stats.extend(threshold_stats)
