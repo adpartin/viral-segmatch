@@ -498,6 +498,10 @@ GPU packing, and retries all worked. The first attempt exposed two v1 bugs, both
 `-l filesystems=home:eagle` (Polaris rejects the job without it), and (2) a module global (`PROJECT`)
 referenced inside the `bash_app` — apps must be self-contained, so pass values as arguments.
 
+**Full 28-pair run (2026-07-14).** 336/336 folds across 28 pairs, 0 incomplete, per-epoch 5.3 s
+(range 5.1-5.6). The fix and the Parsl port both hold at full 28-node scale, matching the mpiexec
+28-pair baseline (`allpairs_prod_20260713_171445`, 29m32s). **Phase 3 complete.**
+
 
 **Purpose:** replace the bespoke bash + hand-rolled `wait_any` GPU pool with **Parsl**
 (ALCF-native many-task engine), for failure isolation, retries, and a documented workflow.
