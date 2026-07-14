@@ -309,7 +309,11 @@ Done: **M1, HA, NA** for **aa + nt_cds** at **t099 + t095** (Results); viz
    into `clusters_aa_ood/` + `clusters_nt_cds_ood/`, same shape as M1/HA/NA (nt_cds skips any segment
    absent from `cds_dna_final`). `nt_ctg` after.
 3. **Wire a bundle** — point a bundle's `cluster_id_path` at an OOD `combined_cluster.parquet`;
-   confirm the router places whole clusters on one fold.
+   confirm the router places whole clusters on one fold. **`within_fold` works as-is** (no membership
+   needed). **`within_cc` does not yet**: `_cc_helpers.build_cc_isolate_pool` reads the set-cover
+   `cluster_memb_{alph}` (via `schema.memb_basename`, no override), so OOD atoms find no isolate pool
+   -- it now *raises* on the empty pool (guard added) rather than emitting silent-wrong negatives. To
+   enable within_cc + OOD, thread the `cluster_memb_{alph}_ood` path into it.
 
 **UMAP note:** raw 1280-d ESM-2 → UMAP, **no PCA pre-reduction — kept by choice**: at 37–65k points it
 runs in minutes and full-dim keeps all ESM-2 signal (PCA→~50-d would trade faithfulness for speed we

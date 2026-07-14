@@ -60,6 +60,9 @@ from src.utils.schema import SCHEMA as _SCHEMA  # noqa: E402
 # cluster_memb_* has one row per (isolate, function) with the per-slot sequence
 # hash, host/hn_subtype/year, and a cluster column per tXXX threshold.
 _MEMB_DIR = PROJ / 'data/processed/flu/July_2025/cluster_membership'
+# TODO(ood): _MEMB resolves the set-cover membership only (schema.memb_basename). A within_cc run on
+# an _ood cluster set needs the matching cluster_memb_*_ood -- unwired, so build_cc_isolate_pool
+# raises on the resulting empty pool (below). Thread a membership_path to enable within_cc + _ood.
 _MEMB = {a: _MEMB_DIR / f'{s.memb_basename}.parquet' for a, s in _SCHEMA.items()}
 _MEMB_HASH = {a: s.hash_col for a, s in _SCHEMA.items()}
 
@@ -135,6 +138,14 @@ def build_cc_isolate_pool(
     iso['atom_id'] = iso['cluster_a'].astype(str).map(cluster_to_atom)
     iso['cc_id'] = iso['cluster_a'].astype(str).map(cluster_to_cc)
     iso = iso.dropna(subset=['atom_id']).copy()  # drop isolates whose cluster left the universe
+    if iso.empty:
+        raise NotImplementedError(
+            f"within-CC isolate pool is empty for {slot_a}-{slot_b} {alphabet} {threshold}: the "
+            f"membership {_MEMB[alphabet].name} carries no cluster_id matching the routed atoms. "
+            "This is the signature of cluster_id_path using a different clustering than the "
+            "membership (e.g. an _ood cluster set): the _ood membership is not wired into "
+            "build_cc_isolate_pool yet, so within_cc + _ood is unsupported. Thread a membership_path "
+            "(see docs/plans/2026-07-08_single_segment_ood_clusters_plan.md).")
     iso['atom_id'] = iso['atom_id'].astype(int)
     iso['cc_id'] = iso['cc_id'].astype(int)
 
