@@ -297,6 +297,11 @@ every cell). Full stats in each `clusters_{aa,nt_cds}_ood/cluster_stats.csv` + `
   not exposed by `verify_ood_clusters.py`. Revisit with a `--prefilter-mode 2` sample if HA/NA ever
   need certification.
 
+**Downstream finding (2026-07-14).** A within_fold OOD threshold/size sweep (nt_cds HA–NA) finds 2D-CD
+test AUC tracks **#atoms, not the OOD threshold** — flat across t099/t098/t097 at a fixed 387 atoms;
+the naive decline is the mega-CC-collapse sample-size effect, not threshold hardness. Writeup:
+`docs/results/2026-07-14_cc_ood_threshold_size_decoupling.md`.
+
 ## Next steps — remaining scale-out
 
 Done: **M1, HA, NA** for **aa + nt_cds** at **t099 + t095** (Results); viz
