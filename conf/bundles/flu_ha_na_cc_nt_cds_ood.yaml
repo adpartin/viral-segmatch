@@ -1,0 +1,18 @@
+# STATUS: experimental -- HA/NA 2D-CD CV on nt_cds OOD (connected-component) clusters.
+# Built by src/datasets/dataset_pairs_cc.py. Same as flu_ha_na_cc_nt_cds, but:
+#   - cluster_id_path -> the OOD combined_cluster.parquet (across-cluster separation
+#     guarantee), NOT the set-cover clusters_nt_cds. Sweep t099/t095 by overriding
+#     cluster_id_path (threshold is read off the tXXX parent dir).
+#   - drop_negative_infeasible_ccs: false -- correct for within_fold (that drop only
+#     affects within_cc) and matches the prior cc_within_fold size-decoupling experiment;
+#     keeping it true would remove atoms and confound the #atoms size axis.
+# cluster_alphabet nt_cds + kmer nt_cds k=6 are inherited from flu_ha_na_cc_nt_cds.
+
+defaults:
+  - flu_ha_na_cc_nt_cds
+  - _self_
+
+dataset:
+  split_strategy:
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds_ood/t099/combined_cluster.parquet
+    drop_negative_infeasible_ccs: false
