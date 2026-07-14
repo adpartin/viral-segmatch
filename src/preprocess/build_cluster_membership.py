@@ -1,10 +1,10 @@
 """Per-record cluster-membership table (records-weighted master substrate).
 
-For every major-protein record, record its mmseqs `cluster_id` at each identity
+For every major protein record, record its mmseqs `cluster_id` at each identity
 threshold (t100..t090) alongside isolate metadata. One row per (isolate, protein)
 record — records-weighted, no dedup. This is the shared substrate for both axes
 the biology splits on:
-  - leakage  — cluster-disjoint partitions (a cluster's sequences go wholly to
+  - leakage  — cluster-disjoint partitions (a cluster's sequences go entirely to
                one split); read a record's `tXXX` cluster_id to partition.
   - redundancy — cluster-pair dedup/balance (each (H-cluster, N-cluster) cell
                contributes one/capped example); join two slots on `assembly_id`
@@ -12,7 +12,7 @@ the biology splits on:
 It also centralizes the per-(protein, threshold) `load_cluster_map` calls
 currently scattered across `src/analysis/{cluster,bigraph}_*.py`.
 
-**Per-alphabet key — do not cross the streams.** Each alphabet keys on its OWN
+Per-alphabet key — do not cross the streams. Each alphabet keys on its OWN
 hash, matching the column its cluster parquets were built on:
   - aa     : `prot_hash` = compute_prot_hash(prot_seq) = md5(prot_seq). Stage 1
              writes prot_hash to `protein_final`; recomputed here for parity.
@@ -104,21 +104,43 @@ def _list_thresholds(clusters_root: Path) -> list[str]:
     return sorted(names, reverse=True)
 
 
-def build_cluster_columns(source: Path, clusters_root: Path, virus_yaml: Path, *,
-                          key_col: str, length_col: str,
-                          compute_key_from: Optional[str],
-                          function_source: Optional[Path] = None) -> tuple[pd.DataFrame, list[str]]:
+def build_cluster_columns(
+    source: Path,
+    clusters_root: Path,
+    virus_yaml: Path, *,
+    key_col: str, length_col: str,
+    compute_key_from: Optional[str],
+    function_source: Optional[Path] = None
+    ) -> tuple[pd.DataFrame, list[str]]:
     """Per-major-record table with one cluster_id column per threshold.
 
     Joins each record's `key_col` (the alphabet's own hash) to the cluster
     parquet keyed on the same column, so the three alphabets never share a hash
     space. For nt_ctg, `function` is attached from `function_source` (the contig
     table carries none) via a verified 1-1 join.
+
+    Args:
+        source: record table to load (`protein_final` / `cds_dna_final` /
+            `ctg_dna_final`); one row per (isolate, protein) record.
+        clusters_root: root holding `tXXX/{short}_cluster.parquet` (set-cover
+            `clusters_{alph}/` or OOD `clusters_{alph}_ood/`); each `tXXX` under
+            it becomes one cluster_id column.
+        virus_yaml: virus config (`flu.yaml`) -- source of the major short/full
+            protein names.
+        key_col: the alphabet's hash column (`prot_hash` / `cds_dna_hash` /
+            `ctg_dna_hash`); the join key in both `source` and each cluster parquet.
+        length_col: sequence-length column carried through (`length` / `cds_length`).
+        compute_key_from: sequence column to hash into `key_col` when `source`
+            lacks it (aa: `prot_seq`); `None` when `source` already carries it
+            (nt_cds / nt_ctg).
+        function_source: parquet to attach `function` from when `source` carries
+            none (nt_ctg -> `cds_dna_final`, verified 1-1 join); `None` when
+            `source` has `function` natively (aa, nt_cds).
     """
     fmeta = load_function_metadata(virus_yaml)
-    majors_short = list(fmeta.selected_short_names)
-    full_of = fmeta.short_to_function
-    majors_full = [full_of[s] for s in majors_short]
+    majors_short = list(fmeta.selected_short_names)  # the 8 major proteins in short names
+    full_of = fmeta.short_to_function  # short -> full name mapping
+    majors_full = [full_of[s] for s in majors_short]  # the 8 major proteins in full names
 
     thresholds = _list_thresholds(clusters_root)
     if not thresholds:
@@ -131,16 +153,19 @@ def build_cluster_columns(source: Path, clusters_root: Path, virus_yaml: Path, *
         # nt_ctg: source (ctg_dna_final) carries no `function`; read the join key
         # instead and attach `function` from function_source below.
         read_cols = ['assembly_id', 'genbank_ctg_id', length_col] + seq_or_key
+
     if source.suffix == '.parquet':
         df = pd.read_parquet(source, columns=read_cols)
     else:
         # keep_default_na guards the project-wide 'NA'-string trap (function uses
         # full names today, but it's the safe default for any CSV read here).
         df = pd.read_csv(source, usecols=read_cols, keep_default_na=False, na_values=[''])
+
     if function_source is not None:
         df = attach_function_to_contigs(df, Path(function_source))
         df = df.drop(columns=['genbank_ctg_id'])
     df = df[df['function'].isin(majors_full)].copy()
+
     if compute_key_from:
         df[key_col] = df[compute_key_from].map(compute_prot_hash)
         df = df.drop(columns=[compute_key_from])
@@ -201,12 +226,13 @@ def main() -> None:
     key_col, length_col = cfg['key_col'], cfg['length_col']
     function_source = (PROJ / cfg['function_source']) if cfg.get('function_source') else None
 
-    print(f"=== building cluster_membership [{args.alphabet}] "
-          f"(key={key_col}) ===")
+    print(f"=== building cluster_membership [{args.alphabet}] (key={key_col}) ===")
     table, thresholds = build_cluster_columns(
         source, clusters_root, Path(args.virus_yaml),
-        key_col=key_col, length_col=length_col, compute_key_from=cfg['compute_key_from'],
-        function_source=function_source)
+        key_col=key_col, length_col=length_col,
+        compute_key_from=cfg['compute_key_from'],
+        function_source=function_source
+    )
     table, match_rate = attach_metadata(table)
 
     ordered = ['assembly_id', 'function', key_col, length_col] + _META_COLS + thresholds
@@ -215,7 +241,7 @@ def main() -> None:
     n_t_nan = int(table[thresholds].isna().any(axis=1).sum())
     print(f"\nmetadata match-rate: {match_rate:.4%} of records found in flu metadata")
     if n_t_nan:
-        print(f"WARNING: {n_t_nan:,} records have an unmapped cluster at >=1 threshold.")
+        print(f"WARNING: {n_t_nan:,} records are unmapped (no cluster_id) at >=1 threshold.")
     else:
         print("All records mapped at every threshold.")
 
