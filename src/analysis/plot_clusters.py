@@ -64,6 +64,7 @@ from src.utils.clustering_utils import (  # noqa: E402
     threshold_label,
 )
 from src.utils.plot_config import get_protein_color  # noqa: E402
+from src.utils.plot_utils import size_barplot  # noqa: E402
 
 
 def _cluster_int(cluster_id: str) -> int:
@@ -334,48 +335,34 @@ def plot_cluster_size_barplot(
     ) -> None:
     """Top-N unique-weighted cluster-size barplot for one slot.
 
-    Each bar is one cluster (largest first); height = unique-sequence count, labeled
-    with the raw count and its % of the slot's total unique sequences. Also reused by
-    the multi-slice sweep in src/analysis/cluster_size_barplot.py.
+    Thin wrapper over `src.utils.plot_utils.size_barplot`: each bar is one cluster
+    (largest first), height = unique-sequence count, labeled with the raw count and
+    its % of the slot's total unique sequences. Also reused by the multi-slice sweep
+    in src/analysis/cluster_size_barplot.py.
 
     Args:
         sizes: cluster_id -> unique-seq count, descending (from cluster_sizes_unique).
         protein: short name (e.g. 'HA') -- sets the bar color (via get_protein_color).
-        alphabet: 'aa' / 'nt_cds' / 'nt_ctg' -- title/label only.
-        threshold_id: 'tXXX' -- title/label only.
+        alphabet: 'aa' / 'nt_cds' / 'nt_ctg' -- title only.
+        threshold_id: 'tXXX' -- title only.
         top_n: number of largest clusters to draw.
         out_png: output PNG path.
     """
     n_unique = int(sizes.sum())
     n_clusters = int(len(sizes))
     top = sizes.head(top_n)
-    pcts = top.values / n_unique * 100.0
-    top_cov = float(pcts.sum())
-
-    fig, ax = plt.subplots(figsize=(max(9.0, len(top) * 0.55), 5.6))
-    xs = np.arange(len(top))
-    ax.bar(xs, top.values, color=get_protein_color(protein), edgecolor='black', linewidth=0.5)
-    for x, c, p in zip(xs, top.values, pcts):
-        ax.annotate(f'{int(c):,}\n{p:.1f}%', xy=(x, c), xytext=(0, 2),
-                    textcoords='offset points', ha='center', va='bottom',
-                    fontsize=7, color='#222')
-    ax.set_xticks(xs)
-    ax.set_xticklabels(top.index, rotation=45, ha='right', fontsize=7)
-    ax.set_xlabel('cluster_id (rank-ordered, largest first)', fontsize=9)
-    ax.set_ylabel('unique sequences in cluster', fontsize=9)
-    ax.set_ylim(0, top.values.max() * 1.18)  # headroom for the count+% labels
-    ax.grid(axis='y', linestyle=':', alpha=0.5)
-    ax.set_axisbelow(True)
-    ax.set_title(
+    top_cov = float(top.sum()) / n_unique * 100.0 if n_unique else 0.0
+    title = (
         f'{protein} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})\n'
         f'top {len(top)} of {n_clusters:,} clusters  ·  '
         f'total unique seqs: {n_unique:,}  ·  '
-        f'top {len(top)} cover {top_cov:.1f}% of unique',
-        fontsize=10)
-    fig.tight_layout()
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png, dpi=180, bbox_inches='tight')
-    plt.close(fig)
+        f'top {len(top)} cover {top_cov:.1f}% of unique')
+    size_barplot(
+        sizes, top_n=top_n, out_png=out_png, title=title,
+        xlabel='cluster_id (rank-ordered, largest first)',
+        ylabel='unique sequences in cluster',
+        xticklabels=list(top.index),
+        bar_color=get_protein_color(protein))
 
 
 def _alphabet_from_root(clusters_root: Path) -> str:

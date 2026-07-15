@@ -2,10 +2,12 @@
 Shared plotting utilities for viral-segmatch project.
 """
 
-import matplotlib.pyplot as plt
-import pandas as pd
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 from .plot_config import SEGMENT_COLORS, SEGMENT_ORDER, apply_default_style
 
@@ -138,3 +140,65 @@ def plot_sequence_length_distribution(
         plt.close()
     
     return fig
+
+
+def size_barplot(
+    sizes: Union[pd.Series, Sequence[int]],
+    *,
+    top_n: int,
+    out_png: Union[str, Path],
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    xticklabels: Optional[Sequence] = None,
+    bar_color: str = '#4c72b0',
+    dpi: int = 180,
+    ) -> None:
+    """Top-N ranked-size barplot shared by the 1D cluster and 2D CC size figures.
+
+    Draws the `top_n` largest values as bars (rank-ordered, largest first), each
+    labeled with its raw count and its % of the total (summed over ALL `sizes`, not
+    just the drawn top-N). The caller supplies the text that distinguishes the two
+    views: `title`, `xlabel`, `ylabel`, `xticklabels`.
+
+    Args:
+        sizes: bar heights in DESCENDING order (Series or sequence); the full set
+            sets the % denominator and the total, only the first `top_n` are drawn.
+        top_n: number of leading values to draw.
+        out_png: output PNG path (parent dirs created).
+        title: figure title (caller-composed).
+        xlabel: x-axis label.
+        ylabel: y-axis label.
+        xticklabels: labels for the drawn bars (default: the Series index).
+        bar_color: single bar fill color.
+        dpi: raster resolution.
+    """
+    if not isinstance(sizes, pd.Series):
+        sizes = pd.Series(list(sizes))
+    total = float(sizes.sum())
+    top = sizes.head(top_n)
+    heights = top.to_numpy()
+    pcts = heights / total * 100.0 if total else np.zeros(len(heights))
+    labels = list(xticklabels) if xticklabels is not None else list(top.index)
+    labels = [str(x) for x in labels[:len(top)]]
+
+    fig, ax = plt.subplots(figsize=(max(9.0, len(top) * 0.55), 5.6))
+    xs = np.arange(len(top))
+    ax.bar(xs, heights, color=bar_color, edgecolor='black', linewidth=0.5)
+    for x, c, p in zip(xs, heights, pcts):
+        ax.annotate(f'{int(c):,}\n{p:.1f}%', xy=(x, c), xytext=(0, 2),
+                    textcoords='offset points', ha='center', va='bottom',
+                    fontsize=7, color='#222')
+    ax.set_xticks(xs)
+    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
+    ax.set_xlabel(xlabel, fontsize=9)
+    ax.set_ylabel(ylabel, fontsize=9)
+    ax.set_ylim(0, heights.max() * 1.18 if len(heights) else 1.0)
+    ax.grid(axis='y', linestyle=':', alpha=0.5)
+    ax.set_axisbelow(True)
+    ax.set_title(title, fontsize=10)
+    fig.tight_layout()
+    out_png = Path(out_png)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)

@@ -700,6 +700,21 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
         print(f"  fold_{k}: train={len(train):,} val={len(val):,} test={len(test):,}")
 
 
+def _write_cc_pair_sizes(out_dir: Path, pos_ids: pd.DataFrame) -> None:
+    """Emit cc_pair_sizes.csv: positive pairs per bipartite CC (atom), descending.
+
+    One row per CC (cc_id, n_pairs), counted on the uncapped positive universe
+    (before m_pos_per_cc capping), so it is the true 2D-CD atom pair-mass the
+    splitter routes. src/analysis/plot_cc_sizes.py reads this for the 2D CC-size
+    barplot (the operational 2D analog of the 1D cluster-size distribution).
+    """
+    cc = (pos_ids.groupby('cc_id').size()
+          .sort_values(ascending=False)
+          .rename('n_pairs').reset_index())
+    cc.to_csv(out_dir / 'cc_pair_sizes.csv', index=False)
+    print(f"  wrote cc_pair_sizes.csv ({len(cc):,} CCs, {int(cc['n_pairs'].sum()):,} pairs)")
+
+
 def main() -> None:
     args = _parse_args()
     t0 = time.time()
@@ -720,6 +735,7 @@ def main() -> None:
           f"drop_negative_infeasible_ccs={spec.drop_negative_infeasible_ccs}, seed={spec.seed}) ===")
 
     df, pos_ids, cooccur = _build_positives(config, spec, args)
+    _write_cc_pair_sizes(out_dir, pos_ids)
     folds = _make_folds_for_scope(spec, df, pos_ids, cooccur, out_dir)
     _write_output(out_dir, folds, spec)
     print(f"\nDone in {time.time() - t0:.0f}s -> {out_dir}")
