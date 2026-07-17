@@ -1,6 +1,6 @@
 # Fragmentation for cluster-disjoint CV: cluster-pair sampling + atom-fragmented folds
 
-**Status: IN PROGRESS** (implementation underway)
+**Status: SUPERSEDED (2026-07-17)** — by `docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md`. The OOD / production line (nt_cds, `dataset_pairs_cc`) replaces this analysis-harness (aa + set-cover) approach; kept for its edge-cut design + K-uniform (§D3) reasoning, reused by the new plan.
 
 Date: 2026-06-06
 Owner: cluster-disjoint CV harness (`src/analysis/cluster_disjoint_cv_experiment.py` + `src/analysis/_cv_sampling.py`)
