@@ -72,12 +72,13 @@ floor needs **single-side node-cut** (out of scope; future plan).
   0.9% vs 10.1% at aa t095) but is unbalanced; fold balance is handled by the K-uniform LPT step,
   not the cut. (METIS/KaHIP held in reserve if the measured drop-% is unacceptable *and* the cap
   isn't binding.)
-- **D3. Reuse `apply_drop_budget_cut`** for the production wiring (P2). For the P1 single-cut
-  validation, call the `_bisect`+drop-crossing-edges primitive directly in a small standalone —
-  the 80/10/10 (or K-uniform) target is just the loop's stopping rule, not intrinsic to the cut,
-  so don't fight the budget loop to force "one cut".
-- **D4. Docs:** `glossary.md` *Edge weight* — **DONE** (commit 9784692). `_megacc_cut` /
-  bigraph-builder docstrings for the same clarifications — still owed (task 4).
+- **D3. One shared cut core (Phase R).** Extract the primitive out of `apply_drop_budget_cut` so
+  the single cut (P1, via `fragment_once`), the budget loop (production), and the K-uniform build
+  (P2) all call it — the 80/10/10 (or K-uniform) target is just the loop's stopping rule, not
+  intrinsic to the cut. Supersedes the earlier "small standalone" P1 approach (P1's
+  `p1_single_cut.py` is repointed at `fragment_once` once R lands).
+- **D4. Docs:** `glossary.md` *Edge weight* — **DONE** (commit 9784692). `_megacc_cut`
+  docstrings for the same clarifications land on the Phase-R functions (task 4, absorbed into R).
 
 ## 5. Phases
 
@@ -98,6 +99,24 @@ and inspect:
   `>= t` hits (expected by construction; the value is catching a bug where a cluster spans both
   fragments).
 
+**Phase R — modular fragmentation primitive (behavior-preserving; prerequisite to P2).** Extract
+the reusable edge-min-cut core out of `apply_drop_budget_cut` so the P1 single cut, P2's K-uniform
+build, and the analysis `bigraph_*` twins share one implementation instead of three. New in
+`_megacc_cut.py`:
+- `build_pair_bigraph(pos_with_ids, *, col_a, col_b) -> (H, edge_rows)` — the pair-weighted simple
+  bigraph + the edge→row-index map (lifts the current inline L140-149);
+- `fragment_largest_cc(H, *, method, seed) -> CutStep` — one edge min-cut of the largest CC
+  (`_bisect` + its straddling edges), no graph mutation (lifts L182-190);
+- `edges_to_row_index(cross_edges, edge_rows) -> list[int]` — straddling edges → dropped pair rows
+  (lifts L193);
+- `fragment_once(pos_with_ids, ...) -> (kept_pos, dropped_pos, step)` — single-cut convenience for
+  P1/P0.
+
+`apply_drop_budget_cut` is rewritten to call these — **signature and return unchanged**, so the
+`_split_helpers` bilateral-holdout caller (L459-477) is untouched. Absorbs task 4 (the *edge
+weight* docstrings land on the new functions). **Deferred to P2:** the pluggable stop rule
+(`fragment_until(stop_fn=...)`, K-uniform `1/K`) — R keeps the existing 80/10/10 loop verbatim.
+
 **P2 — wire edge-cut into `dataset_pairs_cc`** (closes its L154 TODO). Mirror `_split_helpers`:
 after atom assignment, if `drop_budget.enabled`, call `apply_drop_budget_cut` (K-uniform target,
 `cut_method`) → re-derive atoms via `bipartite_components` → GroupKFold. Add the knobs to the OOD
@@ -114,16 +133,24 @@ regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dro
 
 - Cluster-disjoint invariant: no cluster spans two fragments/atoms (assert in the cut path).
 - P1's `verify_ood_clusters` cross-fragment check = 0.
-- Regression: at the 80/10/10 target, reproduce the known 0.9% spectral drop on aa t095 (guards
-  the reused cut core).
+- **Phase R (no drift):** `tests/test_megacc_cut.py` guards the reused cut core -- synthetic
+  property tests for the primitives + two OOD integration checks on the production
+  `clusters_nt_cds_ood`: `apply_drop_budget_cut` reproduces the pre-refactor t099 digest
+  (`tests/golden/megacc_cut/ood_nt_cds_t099.json`) and `fragment_once` reproduces the P1 t095
+  numbers. (The retired aa `drop_budget_2d_aa` harness guard + its deleted bundle are gone; the
+  glossary keeps the aa t095 0.9%-spectral figure as the reference.)
 
 ## 7. Open questions / risks
 
 - **Q1. K-uniform drop-% (blocks the ceiling).** Unknown, `> 0.9%`. Sets the recoverable-atom
   ceiling and the cut-bias size. Measure in P0/P1 before committing to an atom target.
-- **Q2. Does the cap bind at t095?** If the largest node's pair mass `> 1/K`, edge-cut cannot
-  reach K folds at t095 → the experiment is floor-limited there, and node-cut (future) is needed
-  to go further. P0 answers this.
+- **Q2. Does the cap bind at t095? YES (measured 2026-07-19).** The largest single-side cluster's
+  pair mass is the edge-cut floor: NA_0 = 37.1%, HA_0 = 33.7% of all pairs at t095 (t099: 29.9% /
+  29.1%). Since every K-fold bin (`1/K = 20%` at K=5) `< 37.1%`, edge-cut alone cannot reach it --
+  `apply_drop_budget_cut` even raises `DropBudgetExceeded` for the looser 80/10/10 (37.6% dropped
+  after 34 cuts, largest CC floored ~51%). So t095 is floor-limited; going further needs single-side
+  (mega-cluster) node-cut (future, out of scope). Corroborated by the HA/NA t095 cluster-size
+  barplots (HA_0 31.9% + HA_1 25.6%; NA_0 35.1% + NA_1 22.0% of unique sequences).
 - **Q3. Cut-bias direction.** Dropped straddling pairs are the cross-subtype reassortant bridges
   (aa `2026-06-04` finding); the atoms get more subtype-pure. Report `dropped_frac` so it is
   legible — it is a feature (cleaner atoms) as much as a confound.
@@ -137,7 +164,10 @@ regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dro
 1. Move `2026-06-06_fragmentation_cv_plan.md` → `done/` with a superseded-by note.
 2. **P0** — largest-node pair-mass vs `1/K` table (OOD nt_cds HA-NA, per `t`).
 3. **P1** — standalone single-cut + the 5 inspections; **stop and review before P2**.
-4. `_megacc_cut` / bigraph-builder docstrings for *edge weight* (glossary already done).
+4. **Phase R DONE (2026-07-19)** — extracted `build_pair_bigraph` / `fragment_largest_cc` /
+   `edges_to_row_index` / `fragment_once` in `_megacc_cut.py` (+ full docstring rewrite); rewrote
+   `apply_drop_budget_cut` over them, behavior-preserving. Verified by `tests/test_megacc_cut.py`
+   (bit-exact OOD t099 digest + P1 t095 reproduction). Glossary: added *LPT bin-pack*, *drop-budget*.
 5. **P2** — wire `apply_drop_budget_cut` into `dataset_pairs_cc`; OOD-bundle knobs; rebuild t097/t095.
 6. **P4** — score-vs-`t` at t095 and below (gated on P1). **Do not launch the full sweep without
    explicit confirmation** (standing instruction).
