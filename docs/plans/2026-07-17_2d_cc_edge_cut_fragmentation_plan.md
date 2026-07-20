@@ -65,18 +65,22 @@ floor needs **single-side node-cut** (out of scope; future plan).
 
 ## 4. Design decisions
 
-- **D1. Cut target = K-uniform `1/K`** (tighter than 80/10/10; a single 80%-mass atom is
-  LPT-feasible for 80/10/10 but not K equal folds). The K-uniform drop-% is unknown and `> 0.9%`
-  (the 80/10/10 figure) — measure it (Q1).
+- **D1. Route by atom COUNT (routing-B: GroupKFold + `m_pos_per_cc`), not pair mass.** The CV
+  builder gives every atom `m` pairs regardless of its size, so the pair-mass floor (Q2) never
+  binds — what matters is the NUMBER of atoms, which we grow by fragmenting. `apply_drop_budget_cut`
+  is routing-A (pair-mass LPT for a *holdout*, floor-limited at t095) and is NOT used by P2; it
+  stays the holdout tool at lower priority. Layers: **L1** `fragment_largest_cc` (cut a CC, have)
+  → **L2** a count-based stop (`fragment_until`: target #atoms / N cuts) → **L3** the existing
+  routers (`make_folds` GroupKFold+`m_pos` for CV; `route_holdout` LPT for a holdout). The stop
+  rule is decoupled from the router, except the feasibility stop, which is holdout-specific.
 - **D2. Cut method = spectral (default)**, expose `kl`. Spectral drops fewer pairs (glossary:
-  0.9% vs 10.1% at aa t095) but is unbalanced; fold balance is handled by the K-uniform LPT step,
-  not the cut. (METIS/KaHIP held in reserve if the measured drop-% is unacceptable *and* the cap
-  isn't binding.)
+  0.9% vs 10.1% at aa t095) but is unbalanced; for routing-B, fold balance is by atom count in
+  GroupKFold, not the cut. (METIS/KaHIP held in reserve if the measured drop-% is unacceptable.)
 - **D3. One shared cut core (Phase R).** Extract the primitive out of `apply_drop_budget_cut` so
-  the single cut (P1, via `fragment_once`), the budget loop (production), and the K-uniform build
-  (P2) all call it — the 80/10/10 (or K-uniform) target is just the loop's stopping rule, not
-  intrinsic to the cut. Supersedes the earlier "small standalone" P1 approach (P1's
-  `p1_single_cut.py` is repointed at `fragment_once` once R lands).
+  the single cut (P1, via `fragment_once`), the routing-A budget loop (holdout), and P2's routing-B
+  count fragmentation all call it — the stop rule (feasibility / #atoms / N cuts) is the loop's
+  business, not intrinsic to the cut. Supersedes the earlier "small standalone" P1 approach (P1's
+  `p1_single_cut.py` is repointed at `fragment_once`).
 - **D4. Docs:** `glossary.md` *Edge weight* — **DONE** (commit 9784692). `_megacc_cut`
   docstrings for the same clarifications land on the Phase-R functions (task 4, absorbed into R).
 
@@ -100,8 +104,8 @@ and inspect:
   fragments).
 
 **Phase R — modular fragmentation primitive (behavior-preserving; prerequisite to P2).** Extract
-the reusable edge-min-cut core out of `apply_drop_budget_cut` so the P1 single cut, P2's K-uniform
-build, and the analysis `bigraph_*` twins share one implementation instead of three. New in
+the reusable edge-min-cut core out of `apply_drop_budget_cut` so the P1 single cut, P2's routing-B
+count fragmentation, and the analysis `bigraph_*` twins share one implementation instead of three. New in
 `_megacc_cut.py`:
 - `build_pair_bigraph(pos_with_ids, *, col_a, col_b) -> (H, edge_rows)` — the pair-weighted simple
   bigraph + the edge→row-index map (lifts the current inline L140-149);
@@ -114,18 +118,22 @@ build, and the analysis `bigraph_*` twins share one implementation instead of th
 
 `apply_drop_budget_cut` is rewritten to call these — **signature and return unchanged**, so the
 `_split_helpers` bilateral-holdout caller (L459-477) is untouched. Absorbs task 4 (the *edge
-weight* docstrings land on the new functions). **Deferred to P2:** the pluggable stop rule
-(`fragment_until(stop_fn=...)`, K-uniform `1/K`) — R keeps the existing 80/10/10 loop verbatim.
+weight* docstrings land on the new functions). **Deferred to P2:** a count-based stop rule
+(`fragment_until(stop_fn=...)`, target #atoms) — R keeps the existing 80/10/10 loop verbatim.
 
-**P2 — wire edge-cut into `dataset_pairs_cc`** (closes its L154 TODO). Mirror `_split_helpers`:
-after atom assignment, if `drop_budget.enabled`, call `apply_drop_budget_cut` (K-uniform target,
-`cut_method`) → re-derive atoms via `bipartite_components` → GroupKFold. Add the knobs to the OOD
-bundle. Rebuild OOD nt_cds HA-NA t097/t095 with the cut → atoms recovered + AUC.
+**P2 — atom-count fragmentation into `dataset_pairs_cc` (routing-B; closes its L154 TODO).** Grow
+the atom count by fragmenting the mega-CC, then use the existing folds machinery unchanged. In
+`assign_atoms_prod`: after the natural CCs, if fragmentation is enabled, loop `fragment_largest_cc`
+to a target #atoms (L2 count stop) → drop the straddling pairs → re-derive atoms via
+`bipartite_components` → `make_folds` (GroupKFold + `m_pos`). Does NOT call `apply_drop_budget_cut`
+(routing-A). Add the knobs to the OOD bundle; fix the L154 note (it still points at
+`apply_drop_budget_cut`). Rebuild OOD nt_cds HA-NA at t095 and below → recover atoms toward the
+t097 count (~387; natural t095 = 108, and `max_atoms` only subsamples down) → AUC.
 
 **P4 — score-vs-`t` experiment (gated on P1).** With atoms recovered to an adequate count at low
 `t` (t095 and below), vary `t` → does the flat "size, not threshold" curve hold in the most-OOD
 regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dropped_frac
-(K-uniform drop cost), AUC / F1.
+(fragmentation drop cost), AUC / F1.
 
 *(No P3 — node-cut out of scope.)*
 
@@ -142,15 +150,18 @@ regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dro
 
 ## 7. Open questions / risks
 
-- **Q1. K-uniform drop-% (blocks the ceiling).** Unknown, `> 0.9%`. Sets the recoverable-atom
-  ceiling and the cut-bias size. Measure in P0/P1 before committing to an atom target.
+- **Q1. Drop-% to reach the target #atoms (routing-B).** Unknown, `> 0.9%`. The straddling pairs
+  dropped while fragmenting to N atoms — sets the recoverable-atom ceiling and the cut-bias size.
+  Measure in P0/P1 before committing to an atom target.
 - **Q2. Does the cap bind at t095? YES (measured 2026-07-19).** The largest single-side cluster's
   pair mass is the edge-cut floor: NA_0 = 37.1%, HA_0 = 33.7% of all pairs at t095 (t099: 29.9% /
   29.1%). Since every K-fold bin (`1/K = 20%` at K=5) `< 37.1%`, edge-cut alone cannot reach it --
   `apply_drop_budget_cut` even raises `DropBudgetExceeded` for the looser 80/10/10 (37.6% dropped
-  after 34 cuts, largest CC floored ~51%). So t095 is floor-limited; going further needs single-side
-  (mega-cluster) node-cut (future, out of scope). Corroborated by the HA/NA t095 cluster-size
-  barplots (HA_0 31.9% + HA_1 25.6%; NA_0 35.1% + NA_1 22.0% of unique sequences).
+  after 34 cuts, largest CC floored ~51%). This limits **routing-A** (pair-mass holdout) — not our
+  route: **routing-B** (GroupKFold + `m_pos`, D1) sidesteps the floor (the dense core just stays one
+  atom; we grow the count by fragmenting the rest), so node-cut is not needed for the CV line.
+  Corroborated by the HA/NA t095 cluster-size barplots (HA_0 31.9% + HA_1 25.6%; NA_0 35.1% +
+  NA_1 22.0% of unique sequences).
 - **Q3. Cut-bias direction.** Dropped straddling pairs are the cross-subtype reassortant bridges
   (aa `2026-06-04` finding); the atoms get more subtype-pure. Report `dropped_frac` so it is
   legible — it is a feature (cleaner atoms) as much as a confound.
@@ -168,6 +179,8 @@ regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dro
    `edges_to_row_index` / `fragment_once` in `_megacc_cut.py` (+ full docstring rewrite); rewrote
    `apply_drop_budget_cut` over them, behavior-preserving. Verified by `tests/test_megacc_cut.py`
    (bit-exact OOD t099 digest + P1 t095 reproduction). Glossary: added *LPT bin-pack*, *drop-budget*.
-5. **P2** — wire `apply_drop_budget_cut` into `dataset_pairs_cc`; OOD-bundle knobs; rebuild t097/t095.
+5. **P2 (routing-B)** — atom-count fragmentation in `dataset_pairs_cc.assign_atoms_prod` (L2 count
+   stop → `bipartite_components` → GroupKFold+`m_pos`); OOD-bundle knobs; fix the L154 note; rebuild
+   t095↓ toward ~387 atoms. Not `apply_drop_budget_cut` (routing-A).
 6. **P4** — score-vs-`t` at t095 and below (gated on P1). **Do not launch the full sweep without
    explicit confirmation** (standing instruction).
