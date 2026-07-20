@@ -15,9 +15,9 @@ dropping more than `max_drop_frac`. Plug-in point: `_split_helpers`
 `cluster_disjoint_route_pos_df` (the bilateral 2D-CD holdout path). See
 docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md.
 
-The reusable pieces -- `build_pair_bigraph`, `fragment_largest_cc`,
-`edges_to_row_index`, and `fragment_once` (a single cut, for P0/P1) -- are the
-parts `apply_drop_budget_cut`'s budget loop is built from.
+`apply_drop_budget_cut`'s budget loop is built from `build_pair_bigraph`,
+`fragment_largest_cc`, and `edges_to_row_index`; `fragment_once` wraps those same
+three into a single standalone cut (it is not used by the budget loop).
 
 Dependency note: src/datasets must not import src/analysis (analysis depends on
 datasets), so the bisection core is duplicated here; a later cleanup can have the
@@ -106,8 +106,11 @@ def _bisect(H: nx.Graph, method: str, seed: int, kl_max_iter: int = 10) -> set:
 def _largest_cc(H: nx.Graph):
     """The node set of the connected component carrying the most pairs
     (greatest total edge weight)."""
-    return max(nx.connected_components(H),
-               key=lambda c: H.subgraph(c).size(weight='weight'))
+    components = list(nx.connected_components(H))  # each CC is a set of nodes (clusters)
+    # a CC's size = total edge weight inside it = the number of positive pairs it carries
+    cc_pairs = [H.subgraph(c).size(weight='weight') for c in components]
+    best = max(range(len(components)), key=lambda i: cc_pairs[i])  # index of the CC with the most pairs
+    return components[best]
 
 
 class CutStep(NamedTuple):
@@ -151,7 +154,8 @@ def build_pair_bigraph(
         edge_rows.setdefault((u, v), []).append(i)
     H = nx.Graph()
     for (u, v), rows in edge_rows.items():
-        H.add_edge(u, v, weight=len(rows))
+        edge_weight = len(rows)  # positive pairs on this (u, v) cluster pair; the edge min-cut weights by it
+        H.add_edge(u, v, weight=edge_weight)
     return H, edge_rows
 
 
@@ -204,10 +208,11 @@ def fragment_once(
 ) -> tuple[pd.DataFrame, pd.DataFrame, CutStep]:
     """Bisect the mega-CC once (no budget loop) and drop that cut's straddling pairs.
 
-    Single-cut helper for P0/P1: build the bigraph, cut the largest connected
-    component once, and drop its straddling pairs. The two fragments are
-    `step.part_a` and (`step.cc_nodes - step.part_a`); each may itself be several
-    connected components after the cut, and pairs outside the mega-CC are untouched.
+    A single standalone cut -- not used by `apply_drop_budget_cut`. Builds the
+    bigraph, cuts the largest connected component once, and drops its straddling
+    pairs. The two fragments are `step.part_a` and (`step.cc_nodes - step.part_a`);
+    each may itself be several connected components after the cut, and pairs outside
+    the mega-CC are untouched.
 
     Args:
         pos_with_ids: positive-pair rows with `col_a`/`col_b` cluster ids.
@@ -287,7 +292,7 @@ def apply_drop_budget_cut(
 
     while True:
         comps = list(nx.connected_components(H))
-        sizes = [int(H.subgraph(c).size(weight='weight')) for c in comps]
+        sizes = [int(H.subgraph(c).size(weight='weight')) for c in comps] # CC pair count
         retained = n_total - dropped
         largest = max(sizes) if sizes else 0
         drift = _lpt_max_drift(sizes)
