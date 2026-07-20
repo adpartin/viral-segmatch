@@ -68,7 +68,7 @@ def test_build_pair_bigraph_edge_rows_partition_rows():
 # --- fragment_largest_cc -----------------------------------------------------
 def test_fragment_largest_cc_finds_bridge():
     H, _ = build_pair_bigraph(_two_blobs())
-    step = fragment_largest_cc(H, method='spectral', seed=1)
+    step = fragment_largest_cc(H, cut_method='spectral', seed=1)
     assert step.dropped_pairs == 1 and len(step.cross_edges) == 1   # the weight-1 bridge
     assert frozenset(step.cross_edges[0]) == {'a:H2', 'b:N3'}
     part_b = step.cc_nodes - step.part_a

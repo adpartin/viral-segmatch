@@ -72,7 +72,7 @@ def _lpt_max_drift(sizes, targets=_TARGETS, bin_order=_BIN_ORDER) -> float:
     return max(abs(filled[b] / total - targets[b]) for b in bin_order)
 
 
-def _bisect(H: nx.Graph, method: str, seed: int, kl_max_iter: int = 10) -> set:
+def _bisect(H: nx.Graph, cut_method: str, seed: int, kl_max_iter: int = 10) -> set:
     """Bisect a connected simple bigraph into two node sets; return one side.
 
     'spectral' splits on the sign of the Fiedler vector (sparse, unbalanced);
@@ -81,7 +81,7 @@ def _bisect(H: nx.Graph, method: str, seed: int, kl_max_iter: int = 10) -> set:
     Args:
         H: a connected simple bigraph -- in our use, one CC of the pair bigraph
             (edge `weight` = number of pairs).
-        method: 'spectral' or 'kl'.
+        cut_method: 'spectral' or 'kl'.
         seed: RNG seed for the seeded bisection.
         kl_max_iter: Kernighan-Lin refinement passes (KL only).
 
@@ -92,7 +92,7 @@ def _bisect(H: nx.Graph, method: str, seed: int, kl_max_iter: int = 10) -> set:
     if len(nodes) <= 2:
         return {nodes[0]}
 
-    if method == 'spectral':
+    if cut_method == 'spectral':
         fv = nx.fiedler_vector(H, weight='weight', seed=seed)
         A = {n for n, v in zip(nodes, fv) if v < 0}
         if not A or len(A) == len(nodes):  # degenerate -> median split
@@ -100,13 +100,13 @@ def _bisect(H: nx.Graph, method: str, seed: int, kl_max_iter: int = 10) -> set:
             A = {nodes[i] for i in order[:len(nodes) // 2]}
         return A
 
-    if method == 'kl':
+    if cut_method == 'kl':
         A, _ = nx.algorithms.community.kernighan_lin_bisection(
             H, weight='weight', max_iter=kl_max_iter, seed=seed
         )
         return set(A)
 
-    raise ValueError(f"cut_method must be 'spectral', 'kl', or 'none'; got {method!r}")
+    raise ValueError(f"cut_method must be 'spectral' or 'kl'; got {cut_method!r}")
 
 
 def _largest_cc(H: nx.Graph):
@@ -160,12 +160,12 @@ def build_pair_bigraph(
         edge_rows.setdefault((u, v), []).append(i)
     H = nx.Graph()
     for (u, v), rows in edge_rows.items():
-        edge_weight = len(rows)  # positive pairs on this (u, v) cluster pair; the edge min-cut weights by it
+        edge_weight = len(rows) # positive pairs on this (u, v) cluster pair; the edge min-cut weights by it
         H.add_edge(u, v, weight=edge_weight)
     return H, edge_rows
 
 
-def fragment_largest_cc(H: nx.Graph, *, method: str = 'spectral', seed: int = 1) -> CutStep:
+def fragment_largest_cc(H: nx.Graph, *, cut_method: str = 'spectral', seed: int = 1) -> CutStep:
     """One edge min-cut of `H`'s largest connected component (the one with the most pairs).
 
     `_bisect` assigns the component's clusters to two sides; the cluster pairs that
@@ -175,7 +175,7 @@ def fragment_largest_cc(H: nx.Graph, *, method: str = 'spectral', seed: int = 1)
 
     Args:
         H: the pair-weighted simple bigraph from `build_pair_bigraph`.
-        method: bisection heuristic -- 'spectral' or 'kl'.
+        cut_method: bisection heuristic -- 'spectral' or 'kl'.
         seed: RNG seed for the seeded bisection.
 
     Returns:
@@ -184,7 +184,7 @@ def fragment_largest_cc(H: nx.Graph, *, method: str = 'spectral', seed: int = 1)
     """
     big = _largest_cc(H)
     sub = H.subgraph(big)
-    part_a = _bisect(sub, method, seed)
+    part_a = _bisect(sub, cut_method, seed)
     cross = [(u, v) for u, v in sub.edges() if (u in part_a) != (v in part_a)]
     dropped = sum(sub[u][v]['weight'] for u, v in cross)
     return CutStep(frozenset(big), frozenset(part_a), cross, int(dropped))
@@ -235,7 +235,7 @@ def fragment_once(
         just those straddling pairs, and the `CutStep`.
     """
     H, edge_rows = build_pair_bigraph(pos_with_ids, col_a=col_a, col_b=col_b)
-    step = fragment_largest_cc(H, method=cut_method, seed=seed)
+    step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
     drop_idx = edges_to_row_index(step.cross_edges, edge_rows)
     return pos_with_ids.drop(index=drop_idx), pos_with_ids.loc[drop_idx], step
 
@@ -326,7 +326,7 @@ def apply_drop_budget_cut(
                 f"  - raise split_strategy.drop_budget.max_drop_frac to accept the loss,\n"
                 f"  - or use single_slot 1D-CD for this pair (no pairs dropped)."
             )
-        step = fragment_largest_cc(H, method=cut_method, seed=seed)
+        step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
         cross_edges.extend(step.cross_edges)
         dropped += step.dropped_pairs
         # drop the crossing edges -> the largest CC splits into >=2 CCs (the 2 bisection
