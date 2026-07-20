@@ -39,18 +39,22 @@ below), recover atoms to an adequate count and ask whether difficulty finally ri
 
 ## 2. Mechanism (grounded)
 
-`apply_drop_budget_cut` (`src/datasets/_megacc_cut.py`; proven in `_split_helpers.py:459-477`):
-- builds the pair-weighted **simple bigraph** (nodes = single-segment clusters, slot-prefixed
-  `a:`/`b:`; **edge weight** = #positive pairs on the cluster-pair, `weight=len(rows)` L149);
-- repeatedly **`_bisect`** (spectral Fiedler / KL) the largest CC → a node partition A/not-A
-  (L56-75), then the caller **drops the crossing edges** (`H.remove_edges_from(cross)` L190) →
-  the CC splits into two (sometimes more) CCs;
-- until the kept CC sizes LPT-pack the target ratios within `drift_pp`, else raises
-  `DropBudgetExceeded` past `max_drop_frac`.
-- **`_bisect` = partition only; the caller's edge-drop realizes the cut.** Dropping an edge drops
-  the positive-pair **rows** on that cluster pair (`kept_pos = pos_with_ids.drop(index=drop_idx)`
-  L194); clusters and their sequences persist (a dropped pair's sequences may live in other kept
-  pairs) — the cost is counted in **pairs**.
+The cut primitives (Phase R, `src/datasets/_megacc_cut.py`):
+- `build_pair_bigraph` builds the pair-weighted **simple bigraph** (nodes = single-segment
+  clusters, slot-prefixed `a:`/`b:`; **edge weight** = #positive pairs on the cluster-pair,
+  `weight=len(rows)`);
+- `fragment_largest_cc` does one edge min-cut of the largest CC: **`_bisect`** (spectral Fiedler /
+  KL) partitions its nodes into two sides, and the crossing cluster pairs are the cut; removing
+  them splits the CC into two (sometimes more) CCs. **`_bisect` = partition only; dropping the
+  crossing edges realizes the cut.**
+- `edges_to_row_index` maps the crossing edges back to the dropped positive-pair **rows**
+  (`kept_pos = pos_with_ids.drop(index=drop_idx)`); clusters and their sequences persist (a dropped
+  pair's sequences may live in other kept pairs) — the cost is counted in **pairs**.
+
+`apply_drop_budget_cut` (routing-A) loops `fragment_largest_cc` until the kept CCs LPT-pack the
+80/10/10 ratios within `drift_pp`, else raises `DropBudgetExceeded` past `max_drop_frac`; wired
+into `_split_helpers.cluster_disjoint_route_pos_df:459-477` (bilateral holdout). Routing-B (P2)
+loops the same primitive with a count-based stop (D1).
 
 **Hard cap:** `_bisect` partitions **nodes**, so it can never split a single cluster. The largest
 atom cannot drop below the **largest node's pair mass** — the *edge-cut floor*. Going below that
@@ -91,8 +95,8 @@ floor needs **single-side node-cut** (out of scope; future plan).
 and how many atoms edge-cut *alone* recovers before the floor. Decides whether the cap binds (→
 future node-cut) and the achievable atom count. Reuse `cc_pair_sizes.csv` + a `_bisect` dry-run.
 
-**P1 — single-cut validation (standalone; START HERE; gates P4).** Bisect the OOD mega-CC **once**
-and inspect:
+**P1 — single-cut validation DONE (2026-07-17; gated P4).** Bisected the OOD nt_cds mega-CC **once**
+(t095, spectral): 77,731-pair mega-CC → 25,179 / 52,538, 14 straddling pairs dropped. Inspected:
 - the two fragments + the dropped set;
 - size of each fragment (clusters + pairs);
 - per-slot (HA / NA) drop accounting — dropped straddling pairs and the sequences they touch on
@@ -103,18 +107,17 @@ and inspect:
   `>= t` hits (expected by construction; the value is catching a bug where a cluster spans both
   fragments).
 
-**Phase R — modular fragmentation primitive (behavior-preserving; prerequisite to P2).** Extract
-the reusable edge-min-cut core out of `apply_drop_budget_cut` so the P1 single cut, P2's routing-B
-count fragmentation, and the analysis `bigraph_*` twins share one implementation instead of three. New in
+**Phase R DONE (2026-07-19) — modular fragmentation primitive (behavior-preserving).** Extracted
+the reusable edge-min-cut core from `apply_drop_budget_cut` so the P1 single cut, P2's routing-B
+count fragmentation, and the analysis `bigraph_*` twins share one implementation. In
 `_megacc_cut.py`:
 - `build_pair_bigraph(pos_with_ids, *, col_a, col_b) -> (H, edge_rows)` — the pair-weighted simple
-  bigraph + the edge→row-index map (lifts the current inline L140-149);
-- `fragment_largest_cc(H, *, method, seed) -> CutStep` — one edge min-cut of the largest CC
-  (`_bisect` + its straddling edges), no graph mutation (lifts L182-190);
-- `edges_to_row_index(cross_edges, edge_rows) -> list[int]` — straddling edges → dropped pair rows
-  (lifts L193);
-- `fragment_once(pos_with_ids, ...) -> (kept_pos, dropped_pos, step)` — single-cut convenience for
-  P1/P0.
+  bigraph + the edge→row-index map;
+- `fragment_largest_cc(H, *, cut_method, seed) -> CutStep` — one edge min-cut of the largest CC
+  (`_bisect` + its straddling edges), no graph mutation;
+- `edges_to_row_index(cross_edges, edge_rows) -> list[int]` — straddling edges → dropped pair rows;
+- `fragment_once(pos_with_ids, ...) -> (kept_pos, dropped_pos, step)` — single standalone cut
+  (P0/P1); not used by the budget loop.
 
 `apply_drop_budget_cut` is rewritten to call these — **signature and return unchanged**, so the
 `_split_helpers` bilateral-holdout caller (L459-477) is untouched. Absorbs task 4 (the *edge
@@ -172,9 +175,10 @@ regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dro
 
 ## 8. Task list
 
-1. Move `2026-06-06_fragmentation_cv_plan.md` → `done/` with a superseded-by note.
+1. **DONE** — `2026-06-06_fragmentation_cv_plan.md` moved to `done/` (superseded-by note added).
 2. **P0** — largest-node pair-mass vs `1/K` table (OOD nt_cds HA-NA, per `t`).
-3. **P1** — standalone single-cut + the 5 inspections; **stop and review before P2**.
+3. **P1 DONE (2026-07-17)** — single-cut + the 5 inspections; reviewed. Avian-vs-mammalian split,
+   14 dropped bridges (Duck/Dog/Mink/Turkey hosts), cross-fragment OOD holds by construction.
 4. **Phase R DONE (2026-07-19)** — extracted `build_pair_bigraph` / `fragment_largest_cc` /
    `edges_to_row_index` / `fragment_once` in `_megacc_cut.py` (+ full docstring rewrite); rewrote
    `apply_drop_budget_cut` over them, behavior-preserving. Verified by `tests/test_megacc_cut.py`
