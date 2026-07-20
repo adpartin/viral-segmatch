@@ -1,0 +1,12 @@
+name: mmseqs2
+# Dedicated CLI-only env for the mmseqs2 binary. Kept out of `segmatch` because
+# bioconda pulls a libhdf5 build that breaks segmatch's h5py (see environment.yml).
+#   Build:  conda env create -f environment_mmseqs2.yml
+#   Use:    the pipeline resolves the binary via MMSEQS_BIN (fallback: `mmseqs` on
+#           PATH), e.g. MMSEQS_BIN=<conda-base>/envs/mmseqs2/bin/mmseqs
+#   GPU:    `--gpu 1` needs Ampere+/Hopper (works on H100, fails on V100).
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - mmseqs2=18.8cc5c

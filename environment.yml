@@ -9,8 +9,8 @@ name: segmatch
 #   - mmseqs2 (bioconda; pulls a different libhdf5 build than conda-forge,
 #     which breaks the precompiled h5py wheel in this env)
 #     -> use the `mmseqs2` env; point clustering_utils.py at its binary
-#   - other bioconda CLI tools previously installed into cepi but unused by
-#     pipeline code: blast, cd-hit, diamond, foldseek, mash, tmalign,
+#   - other bioconda CLI tools unused by pipeline code: blast, cd-hit,
+#     diamond, foldseek, mash, tmalign,
 #     entrez-direct, rpsbproc, ncbi-vdb (+ perl runtime they pull in)
 #     -> install on-demand in dedicated envs if needed
 #
