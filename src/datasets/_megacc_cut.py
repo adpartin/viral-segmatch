@@ -1,5 +1,9 @@
 """Mega-CC edge min-cut for the drop-budget 2D-CD router (operational home).
 
+This module is edge-cut: shrink a mega-CC by dropping straddling pairs (cost in
+pairs). The counterpart node-cut -- splitting an oversized single-side cluster
+by dropping sequences -- is a separate, future concern, not handled here.
+
 The `src/analysis/bigraph_*.py` diagnostics explored this cut on the analysis
 pair universe; this module is the operational version the splitter calls. It
 works directly on the production `pos_with_ids` `(cluster_id_a, cluster_id_b)`
@@ -75,7 +79,8 @@ def _bisect(H: nx.Graph, method: str, seed: int, kl_max_iter: int = 10) -> set:
     'kl' uses Kernighan-Lin (node-balanced). Both are seeded.
 
     Args:
-        H: a connected simple bigraph (edge `weight` = number of pairs).
+        H: a connected simple bigraph -- in our use, one CC of the pair bigraph
+            (edge `weight` = number of pairs).
         method: 'spectral' or 'kl'.
         seed: RNG seed for the seeded bisection.
         kl_max_iter: Kernighan-Lin refinement passes (KL only).
@@ -97,7 +102,8 @@ def _bisect(H: nx.Graph, method: str, seed: int, kl_max_iter: int = 10) -> set:
 
     if method == 'kl':
         A, _ = nx.algorithms.community.kernighan_lin_bisection(
-            H, weight='weight', max_iter=kl_max_iter, seed=seed)
+            H, weight='weight', max_iter=kl_max_iter, seed=seed
+        )
         return set(A)
 
     raise ValueError(f"cut_method must be 'spectral', 'kl', or 'none'; got {method!r}")
@@ -195,8 +201,12 @@ def edges_to_row_index(cross_edges, edge_rows: dict) -> list:
     Returns:
         The row indices to drop.
     """
-    return [i for u, v in cross_edges
-            for i in edge_rows[(u, v) if u.startswith('a:') else (v, u)]]
+    drop_idx = []
+    for u, v in cross_edges:
+        # edge_rows is keyed (a:, b:); a crossing edge may arrive as (b:, a:), so canonicalize
+        key = (u, v) if u.startswith('a:') else (v, u)
+        drop_idx.extend(edge_rows[key])  # every pos_with_ids row on this cluster pair
+    return drop_idx
 
 
 def fragment_once(
@@ -319,6 +329,9 @@ def apply_drop_budget_cut(
         step = fragment_largest_cc(H, method=cut_method, seed=seed)
         cross_edges.extend(step.cross_edges)
         dropped += step.dropped_pairs
+        # drop the crossing edges -> the largest CC splits into >=2 CCs (the 2 bisection
+        # sides; a side splits further if its internal links ran through the other side).
+        # The next loop's connected_components picks up the new pieces.
         H.remove_edges_from(step.cross_edges)
         cut += 1
 
