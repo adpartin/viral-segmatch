@@ -608,7 +608,9 @@ def _build_positives(config, spec: CCSpec, args):
     We pass the path to build_frontend(), not a preloaded df, because build_frontend() does the load and
     input_file.parent locates cds_dna_final.
 
-    Returns (df, pos_ids, cooccur); pos_ids carries cluster_id_a/b + cc_id + atom_id.
+    Returns (df, pos_ids, cooccur, cc_sizes); pos_ids carries cluster_id_a/b + cc_id + atom_id
+    (+ natural_cc_id under edge-cut). cc_sizes is the pre/post-cut CC-size dict for the barplots
+    (None without a cut).
     """
     # Path to protein_final.parquet
     input_file = (Path(args.protein_final) if args.protein_final

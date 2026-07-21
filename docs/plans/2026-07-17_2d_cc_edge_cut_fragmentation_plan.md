@@ -75,8 +75,6 @@ of scope).
   count fragmentation all call it — the stop rule (feasibility / #atoms / N cuts) is the loop's
   business, not intrinsic to the cut. Supersedes the earlier "small standalone" P1 approach (P1's
   `p1_single_cut.py` is repointed at `fragment_once`).
-- **D4. Docs:** `glossary.md` *Edge weight* — **DONE** (commit 9784692). `_megacc_cut`
-  docstrings for the same clarifications land on the Phase-R functions (task 4, absorbed into R).
 
 ## 5. Phases
 
@@ -86,33 +84,19 @@ and how many atoms edge-cut *alone* recovers before the floor. Decides whether t
 future node-cut) and the achievable atom count. Reuse `cc_pair_sizes.csv` + a `_bisect` dry-run.
 
 **P1 — single-cut validation DONE (2026-07-17; gated P4).** Bisected the OOD nt_cds mega-CC **once**
-(t095, spectral): 77,731-pair mega-CC → 25,179 / 52,538, 14 straddling pairs dropped. Inspected:
-- the two fragments + the dropped set;
-- size of each fragment (clusters + pairs);
-- per-slot (HA / NA) drop accounting — dropped straddling pairs and the sequences they touch on
-  each side;
-- **UMAP** of the two fragments (ESM-2, colored by fragment) — do they separate? (does the nt_cds
-  OOD cut align with antigenic subtypes as the aa cut did — `2026-06-04`?);
-- **OOD-verify** across the two fragments (`verify_ood_clusters.py` check fn) → 0 cross-fragment
-  `>= t` hits (expected by construction; the value is catching a bug where a cluster spans both
-  fragments).
+(t095, spectral): 77,731-pair mega-CC → 25,179 / 52,538, 14 straddling pairs dropped. Finding (from
+the fragments, per-slot HA/NA drop accounting, ESM-2 UMAP, and `verify_ood_clusters`): an **avian vs
+mammalian** split with the 14 dropped bridges on Duck/Dog/Mink/Turkey host co-occurrences, and
+cross-fragment OOD holds by construction (0 `>= t` hits).
 
-**Phase R DONE (2026-07-19) — modular fragmentation primitive (behavior-preserving).** Extracted
-the reusable edge-min-cut core from `apply_drop_budget_cut` so the P1 single cut, P2's routing-B
-count fragmentation, and the analysis `bigraph_*` twins share one implementation. In
-`_megacc_cut.py`:
-- `build_pair_bigraph(pos_with_ids, *, col_a, col_b) -> (H, edge_rows)` — the pair-weighted simple
-  bigraph + the edge→row-index map;
-- `fragment_largest_cc(H, *, cut_method, seed) -> CutStep` — one edge min-cut of the largest CC
-  (`_bisect` + its straddling edges), no graph mutation;
-- `edges_to_row_index(cross_edges, edge_rows) -> list[int]` — straddling edges → dropped pair rows;
-- `fragment_once(pos_with_ids, ...) -> (kept_pos, dropped_pos, step)` — single standalone cut
-  (P0/P1); not used by the budget loop.
-
-`apply_drop_budget_cut` is rewritten to call these — **signature and return unchanged**, so the
-`_split_helpers` bilateral-holdout caller (L459-477) is untouched. Absorbs task 4 (the *edge
-weight* docstrings land on the new functions). **Deferred to P2:** a count-based stop rule
-(`fragment_until(stop_fn=...)`, target #atoms) — R keeps the existing 80/10/10 loop verbatim.
+**Phase R DONE (2026-07-19) — modular fragmentation primitive (behavior-preserving).** Extracted the
+reusable edge-min-cut core from `apply_drop_budget_cut` into `_megacc_cut.py` — `build_pair_bigraph`,
+`fragment_largest_cc`, `edges_to_row_index`, and the standalone `fragment_once` (P0/P1; signatures in
+their docstrings) — so the P1 single cut, P2's routing-B count fragmentation, and the analysis
+`bigraph_*` twins share one implementation. `apply_drop_budget_cut` was rewritten over them with
+**signature and return unchanged** (the `_split_helpers` bilateral-holdout caller at L459-477 is
+untouched); absorbs task 4's *edge weight* docstrings. **Deferred to P2:** the count-based stop
+(`fragment_until`) — R kept the existing 80/10/10 loop verbatim.
 
 **P2 DONE (2026-07-20; commit `f0e9ce9`) -- atom-count fragmentation wired into `dataset_pairs_cc`
 (routing-B; closed the L154 TODO; validated on OOD t095: 108 -> 124 atoms @ 1.8%, cluster-disjoint,
