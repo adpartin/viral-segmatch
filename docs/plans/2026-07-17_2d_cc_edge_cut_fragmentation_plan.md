@@ -108,7 +108,7 @@ to a target #atoms (L2 count stop) → drop the straddling pairs → re-derive a
 (routing-A). Add the knobs to the OOD bundle; fix the L154 note (it still points at
 `apply_drop_budget_cut`). Rebuild OOD nt_cds HA-NA at t095 and below → recover atoms toward the
 t097 count. **Reality (measured): edge-cut is floor-limited** -- t095 goes 108 -> ~124 within a 2%
-drop budget (`pairs_dropped` ~1.8%), NOT the t097 ~387 (that needs node-cut, Q2). So the P4/P5
+drop budget (`pairs_dropped` ~1.8%), NOT the t097 ~387 (that needs node-cut, Q2). So the P4
 comparison holds `t` at a **common ~120 atoms** (fragment t095 up; `max_atoms` caps higher-`t` down).
 
 **P2 design decisions (settled 2026-07-20):**
@@ -130,26 +130,55 @@ adequate count at low
 regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dropped_frac
 (fragmentation drop cost), AUC / F1.
 
-**P5 -- "harder because of the split?" contrast at matched size (simpler, more direct than P4).**
-Fix `t`, hold the total dataset size constant, vary only the split.
-- **Exp 1 (size knob).** Fragment CCs at `t` to a chosen **N** atoms (`edge_cut.target_atoms` +
-  `max_atoms`). With `m_pos_per_cc=1`: N atoms == N positives, and total dataset =
-  N x (1 + `neg_to_pos_ratio`) pairs (pos + neg, train+val+test).
-- **Exp 2 (OOD-fold vs random-fold, matched size).** Build the OOD 2D-CD folds (cluster-disjoint,
-  edge-cut fragmented) at size N; then a **random-fold baseline** = concat that run's
-  `{train,val,test}_pairs.csv`, reshuffle (stratified by label, matched fold sizes), re-split into
-  new `{train,val,test}_pairs.csv`. Same rows -> identical total & per-fold size by construction;
-  random assignment -> clusters mixed. A small post-hoc generator on the CSVs, NOT the CC builder
-  (which has diverged from `dataset_segment_pairs_*` and can't emit a random split). Train both; if
-  OOD is harder at matched size, the gap is the *split*, not data scarcity. Repeated k-fold
-  (cut-seed x fold-seed) for a CI on the gap (feeds Q5).
-  - **Verify the baseline is mixed:** assert clusters DO overlap train/test on both slots (the
-    inverse of `_assert_fold_disjoint`). The fold CSVs carry only `_PAIR_COLUMNS` (no `cluster_id`),
-    so this join-backs hash->cluster via `load_cluster_lookup` + the CSVs' per-slot hash columns
-    (adding `cluster_id` to the fold CSVs would change the Stage-4 input schema -- avoid).
-- **Optional 3rd arm -- isolate OOD-ness from disjointness.** Cluster-disjoint folds on **set-cover**
-  clusters (`clusters_nt_cds`) at the same N: gap(OOD-disjoint vs set-cover-disjoint) attributes the
-  penalty to OOD specifically; gap(disjoint vs random) is the disjointness penalty.
+**P5 -- is the OOD split itself hard? OOD vs non-OOD dataset at matched size (primary; simpler than
+P4).** Build two datasets from the **same** positive pairs -- an **OOD** one (train/val/test
+cluster-disjoint) and a **non-OOD** one (train/test share clusters) -- train both, read the gap. Same
+pairs and same size, so the gap is the split's effect (the OOD penalty), not size (2026-07-14 covered
+size).
+
+Why not the earlier "reshuffle the fold CSVs" idea: at `m_pos_per_cc=1` each cluster sits in exactly
+one positive pair (atom = one bipartite CC, which owns its clusters), so **any** split of those
+positives is already cluster-disjoint -- reshuffling gives a second OOD dataset, and the only
+cross-split mixing would be via relocated negatives (a confound). A real non-OOD dataset needs
+clusters to recur across positives, which `m_pos=1` forbids.
+
+Construction -- one pool, two splits:
+- **Pool.** Edge-cut fragment the mega-CC at `t` into N atoms and keep **all** pairs per fragment
+  (`m_pos_per_cc` well above 1, not 1 -- recurrence is the point). Only the fragmentation straddlers
+  are dropped, from both datasets. (Small CCs are ~1% of pairs at low `t`; exclude them at higher `t`,
+  where they would sit in one fold and dilute the non-OOD split.)
+- **OOD dataset.** Route whole fragments to folds -- the existing GroupKFold-by-`atom_id` path
+  (`make_folds_within_fold`). No cluster spans folds.
+- **non-OOD dataset.** Split the same pairs at the **pair** level (random K-fold, ignoring fragment
+  boundaries). A dominant cluster (NA_0, HA_0) is in many pairs within its fragment, so a pair-level
+  split scatters those pairs across folds and the cluster lands in more than one fold -- train/test
+  now overlap.
+- **Negatives.** `within_fold` negatives per split for **both** datasets -- same procedure, so the
+  split is the only difference. within_fold is *required* for the OOD dataset (a cross-split negative
+  would put a test cluster in train); it is **not required** for the non-OOD dataset, and is used
+  there only to build both datasets the same way.
+
+Notes:
+- **Not every pair overlaps -- fine.** Many pairs inside the mega-CC share no cluster, so the non-OOD
+  dataset is *mostly* in-distribution (what a real random split looks like); the overlap comes from
+  the dominant clusters.
+- **`t` sets a trade.** Lower `t` -> larger, denser mega-CC -> richer pool and more recurrence, but
+  the edge-cut floor (NA_0 ~37% at t095) caps N and leaves one ~37% fragment that cannot be split --
+  it lands whole in one fold and unbalances the OOD folds. Higher `t` -> thinner pool, more even
+  atoms. Pick `t` from the per-`t` mega-CC fractions (to measure).
+- **Fold balance.** OOD folds are uneven (whole fragments of different sizes), non-OOD folds even;
+  stratify or subsample if it matters.
+- **Verify.** OOD: no cluster spans folds on either slot (`_assert_fold_disjoint`); non-OOD: clusters
+  do span folds (its inverse). Fold CSVs carry no `cluster_id`, so join hash->cluster with
+  `load_cluster_lookup` on the per-slot hash columns; do not add `cluster_id` to the CSVs (Stage-4
+  schema).
+- **Repeats.** Over cut-seed x fold-seed for a confidence interval on the gap (Q5).
+- **Optional 3rd arm.** Cluster-disjoint folds on **set-cover** clusters (`clusters_nt_cds`) at the
+  same N separates the OOD penalty from the plain disjointness penalty.
+
+New vs reuse: the non-OOD **pair-level random split** is new (a small builder over the pool + the
+existing `within_fold` negatives, not a CSV reshuffle); the OOD dataset, edge-cut, `within_fold`, and
+`_assert_fold_disjoint` already exist.
 
 *(No P3 — node-cut out of scope.)*
 
@@ -205,6 +234,7 @@ Fix `t`, hold the total dataset size constant, vary only the split.
    `cc_pair_sizes*.csv` + `tests/test_dataset_pairs_cc_cut.py`. Not `apply_drop_budget_cut` (routing-A).
 6. **P4** — (OPTIONAL, superseded as primary by P5) score-vs-`t` at t095 and below. **Do not launch the full sweep without
    explicit confirmation** (standing instruction).
-7. **P5** -- OOD-fold vs reshuffled-random contrast at matched size (+ optional set-cover 3rd arm);
-   build the reshuffle-baseline generator (post-hoc on the fold CSVs); verify clusters are mixed.
-   Gated with P4.
+7. **P5** -- OOD vs non-OOD dataset at matched size, same pool (mega-CC fragmented, `m_pos` raised to
+   keep all pairs): OOD = whole-fragment folds; non-OOD = pair-level random split; `within_fold`
+   negatives for both; verify clusters do/don't span folds (hash->cluster join-back). New: the
+   pair-level random split builder. Optional set-cover 3rd arm. Gated with P4.
