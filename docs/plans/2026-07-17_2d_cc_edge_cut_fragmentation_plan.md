@@ -153,25 +153,40 @@ Construction -- one pool, two splits:
   boundaries). A dominant cluster (NA_0, HA_0) is in many pairs within its fragment, so a pair-level
   split scatters those pairs across folds and the cluster lands in more than one fold -- train/test
   now overlap.
-- **Negatives.** `within_fold` negatives per split for **both** datasets -- same procedure, so the
-  split is the only difference. within_fold is *required* for the OOD dataset (a cross-split negative
-  would put a test cluster in train); it is **not required** for the non-OOD dataset, and is used
-  there only to build both datasets the same way.
+- **Negatives.** `within_fold` synthesizes negatives per split, per arm, from that split's own
+  positives -- there is no shared negative pool. Same procedure and ratio, so the split stays the only
+  manipulated variable; the negatives differ only as a consequence (OOD arm: unseen-cluster negatives;
+  non-OOD arm: seen-cluster negatives). within_fold is *required* for the OOD dataset (a cross-split
+  negative would put a test cluster in train) and **not required** for the non-OOD dataset -- used
+  there only to keep the two builds identical. Both arms draw negative endpoints from the same
+  positive sequences (pool `P`), so the non-OOD arm adds no new sequence; per-split counts match
+  (`round(r x n_split_pos)`) while content differs by independent sampling (a sequence can appear in a
+  non-OOD negative yet in no OOD negative -- harmless).
 
 Notes:
-- **Not every pair overlaps -- fine.** Many pairs inside the mega-CC share no cluster, so the non-OOD
-  dataset is *mostly* in-distribution (what a real random split looks like); the overlap comes from
-  the dominant clusters.
+- **The non-OOD dataset is a mixture (mostly in-distribution, not uniformly).** A test pair is "seen"
+  if one of its clusters is also in train. The dominant clusters (NA_0, HA_0) recur across many pairs
+  and are almost always in train, so most test pairs are seen; but a test pair whose two clusters are
+  both rare can have neither in train -- that pair is individually OOD. So the non-OOD arm is *mostly*
+  in-distribution with a tail of OOD pairs (what a real random split looks like), while the OOD arm has
+  *every* test pair OOD by construction; the measured gap is between those two.
 - **`t` sets a trade.** Lower `t` -> larger, denser mega-CC -> richer pool and more recurrence, but
   the edge-cut floor (NA_0 ~37% at t095) caps N and leaves one ~37% fragment that cannot be split --
   it lands whole in one fold and unbalances the OOD folds. Higher `t` -> thinner pool, more even
   atoms. Pick `t` from the per-`t` mega-CC fractions (to measure).
-- **Fold balance.** OOD folds are uneven (whole fragments of different sizes), non-OOD folds even;
-  stratify or subsample if it matters.
+- **Matched size (OOD is the constraint; non-OOD matches it).** Both arms use the same pool `P`, so
+  the total is equal by construction -- the non-OOD arm is free only in *which fold* a pair goes to,
+  never in *how many* pairs. Build the OOD arm first (GroupKFold the atoms), read its per-fold
+  (train, val, test) positive counts -- uneven, since the ~37% atom lands whole in one fold -- then
+  build the non-OOD arm to hit those exact counts (random pair assignment reaches any target);
+  negatives follow from the shared ratio. Aggregate test size matches automatically (each pair is
+  tested once); per-fold matching is what keeps each fold's OOD and non-OOD models on equal train
+  sizes. If that ~37% test fold muddies the OOD metric, cap pairs per atom (`m_pos`) so the largest
+  atom is <= ~1/K and let the non-OOD arm match the smaller size.
 - **Verify.** OOD: no cluster spans folds on either slot (`_assert_fold_disjoint`); non-OOD: clusters
   do span folds (its inverse). Fold CSVs carry no `cluster_id`, so join hash->cluster with
   `load_cluster_lookup` on the per-slot hash columns; do not add `cluster_id` to the CSVs (Stage-4
-  schema).
+  schema). Plus plots of the train/test cluster overlap (OOD vs non-OOD) -- to design later.
 - **Repeats.** Over cut-seed x fold-seed for a confidence interval on the gap (Q5).
 - **Optional 3rd arm.** Cluster-disjoint folds on **set-cover** clusters (`clusters_nt_cds`) at the
   same N separates the OOD penalty from the plain disjointness penalty.
