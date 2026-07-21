@@ -124,7 +124,9 @@ count fragmentation, and the analysis `bigraph_*` twins share one implementation
 weight* docstrings land on the new functions). **Deferred to P2:** a count-based stop rule
 (`fragment_until(stop_fn=...)`, target #atoms) — R keeps the existing 80/10/10 loop verbatim.
 
-**P2 — atom-count fragmentation into `dataset_pairs_cc` (routing-B; closes its L154 TODO).** Grow
+**P2 DONE (2026-07-20; commit `f0e9ce9`) -- atom-count fragmentation wired into `dataset_pairs_cc`
+(routing-B; closed the L154 TODO; validated on OOD t095: 108 -> 124 atoms @ 1.8%, cluster-disjoint,
++ a full 5-fold build; `tests/test_dataset_pairs_cc_cut.py`).** Grow
 the atom count by fragmenting the mega-CC, then use the existing folds machinery unchanged. In
 `assign_atoms_prod`: after the natural CCs, if fragmentation is enabled, loop `fragment_largest_cc`
 to a target #atoms (L2 count stop) → drop the straddling pairs → re-derive atoms via
@@ -166,7 +168,9 @@ Fix `t`, hold the total dataset size constant, vary only the split.
   OOD is harder at matched size, the gap is the *split*, not data scarcity. Repeated k-fold
   (cut-seed x fold-seed) for a CI on the gap (feeds Q5).
   - **Verify the baseline is mixed:** assert clusters DO overlap train/test on both slots (the
-    inverse of `_assert_fold_disjoint`).
+    inverse of `_assert_fold_disjoint`). The fold CSVs carry only `_PAIR_COLUMNS` (no `cluster_id`),
+    so this join-backs hash->cluster via `load_cluster_lookup` + the CSVs' per-slot hash columns
+    (adding `cluster_id` to the fold CSVs would change the Stage-4 input schema -- avoid).
 - **Optional 3rd arm -- isolate OOD-ness from disjointness.** Cluster-disjoint folds on **set-cover**
   clusters (`clusters_nt_cds`) at the same N: gap(OOD-disjoint vs set-cover-disjoint) attributes the
   penalty to OOD specifically; gap(disjoint vs random) is the disjointness penalty.
@@ -186,9 +190,10 @@ Fix `t`, hold the total dataset size constant, vary only the split.
 
 ## 7. Open questions / risks
 
-- **Q1. Drop-% to reach the target #atoms (routing-B).** Unknown, `> 0.9%`. The straddling pairs
-  dropped while fragmenting to N atoms — sets the recoverable-atom ceiling and the cut-bias size.
-  Measure in P0/P1 before committing to an atom target.
+- **Q1. Drop-% to reach the target #atoms (routing-B) -- ANSWERED (2026-07-20).** OOD nt_cds t095
+  spectral: 108 -> 124 atoms costs ~1.8% (1,394 straddling pairs); the cheap knee is ~125 @ ~2%,
+  past which the floor makes further atoms prohibitive (~130 @ 38%). This is the recoverable-atom
+  ceiling and the cut-bias size.
 - **Q2. Does the cap bind at t095? YES (measured 2026-07-19).** The largest single-side cluster's
   pair mass is the edge-cut floor: NA_0 = 37.1%, HA_0 = 33.7% of all pairs at t095 (t099: 29.9% /
   29.1%). Since every K-fold bin (`1/K = 20%` at K=5) `< 37.1%`, edge-cut alone cannot reach it --
@@ -209,7 +214,8 @@ Fix `t`, hold the total dataset size constant, vary only the split.
 ## 8. Task list
 
 1. **DONE** — `2026-06-06_fragmentation_cv_plan.md` moved to `done/` (superseded-by note added).
-2. **P0** — largest-node pair-mass vs `1/K` table (OOD nt_cds HA-NA, per `t`).
+2. **P0 — largely answered (Q1/Q2):** the floor binds at t095 (NA_0 37.1% > 1/K) and edge-cut
+   recovers ~124 atoms @ 1.8%; a full per-`t` floor table is optional.
 3. **P1 DONE (2026-07-17)** — single-cut + the 5 inspections; reviewed. Avian-vs-mammalian split,
    14 dropped bridges (Duck/Dog/Mink/Turkey hosts), cross-fragment OOD holds by construction.
 4. **Phase R DONE (2026-07-19)** — extracted `build_pair_bigraph` / `fragment_largest_cc` /
@@ -218,7 +224,9 @@ Fix `t`, hold the total dataset size constant, vary only the split.
    (bit-exact OOD t099 digest + P1 t095 reproduction). Glossary: added *LPT bin-pack*, *drop-budget*.
 5. **P2 (routing-B)** — atom-count fragmentation in `dataset_pairs_cc.assign_atoms_prod` (L2 count
    stop → `bipartite_components` → GroupKFold+`m_pos`); OOD-bundle knobs; fix the L154 note; rebuild
-   t095↓ toward ~387 atoms. Not `apply_drop_budget_cut` (routing-A).
+   t095 to ~124 (floor-limited @ 1.8%; not the t097 ~387). **DONE 2026-07-20, commit `f0e9ce9`** --
+   `split_strategy.edge_cut` config + bundle `flu_ha_na_cc_nt_cds_ood_edge_cut` + before/after
+   `cc_pair_sizes*.csv` + `tests/test_dataset_pairs_cc_cut.py`. Not `apply_drop_budget_cut` (routing-A).
 6. **P4** — score-vs-`t` at t095 and below (gated on P1). **Do not launch the full sweep without
    explicit confirmation** (standing instruction).
 7. **P5** -- OOD-fold vs reshuffled-random contrast at matched size (+ optional set-cover 3rd arm);
