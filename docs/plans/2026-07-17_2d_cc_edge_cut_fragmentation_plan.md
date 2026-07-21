@@ -131,12 +131,45 @@ to a target #atoms (L2 count stop) → drop the straddling pairs → re-derive a
 `bipartite_components` → `make_folds` (GroupKFold + `m_pos`). Does NOT call `apply_drop_budget_cut`
 (routing-A). Add the knobs to the OOD bundle; fix the L154 note (it still points at
 `apply_drop_budget_cut`). Rebuild OOD nt_cds HA-NA at t095 and below → recover atoms toward the
-t097 count (~387; natural t095 = 108, and `max_atoms` only subsamples down) → AUC.
+t097 count. **Reality (measured): edge-cut is floor-limited** -- t095 goes 108 -> ~124 within a 2%
+drop budget (`pairs_dropped` ~1.8%), NOT the t097 ~387 (that needs node-cut, Q2). So the P4/P5
+comparison holds `t` at a **common ~120 atoms** (fragment t095 up; `max_atoms` caps higher-`t` down).
+
+**P2 design decisions (settled 2026-07-20):**
+- `cc_id = atom_id =` the post-cut fragment (overwrite both -- negatives + `m_pos` group per
+  fragment). Keep the pre-cut CC on `pos_ids['natural_cc_id']` (analysis-only; excluded from the
+  fold CSVs by the `_PAIR_COLUMNS` re-select at `_write_output`).
+- Config `split_strategy.edge_cut: {enabled, cut_method, target_atoms, max_drop_frac}` -- an optional
+  block (via `OmegaConf.select`, existing bundles untouched); `edge_cut`, not `cut`, to disambiguate
+  from a future `node_cut`. Composes with `max_atoms` (grow to target, then cap down for a common N).
+- Before/after artifacts via `_write_cc_pair_sizes`: `cc_pair_sizes.csv` (natural, pre-cut) +
+  `cc_pair_sizes_post_edge_cut.csv` (fragmented, post-cut); `plot_cc_sizes.py` overlays them.
+- Verify with `src/analysis/cluster_disjoint_cv_experiment._assert_fold_disjoint` (no shared cluster
+  across folds on either slot) -- reuse, don't reinvent.
 
 **P4 — score-vs-`t` experiment (gated on P1).** With atoms recovered to an adequate count at low
 `t` (t095 and below), vary `t` → does the flat "size, not threshold" curve hold in the most-OOD
 regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dropped_frac
 (fragmentation drop cost), AUC / F1.
+
+**P5 -- "harder because of the split?" contrast at matched size (simpler, more direct than P4).**
+Fix `t`, hold the total dataset size constant, vary only the split.
+- **Exp 1 (size knob).** Fragment CCs at `t` to a chosen **N** atoms (`edge_cut.target_atoms` +
+  `max_atoms`). With `m_pos_per_cc=1`: N atoms == N positives, and total dataset =
+  N x (1 + `neg_to_pos_ratio`) pairs (pos + neg, train+val+test).
+- **Exp 2 (OOD-fold vs random-fold, matched size).** Build the OOD 2D-CD folds (cluster-disjoint,
+  edge-cut fragmented) at size N; then a **random-fold baseline** = concat that run's
+  `{train,val,test}_pairs.csv`, reshuffle (stratified by label, matched fold sizes), re-split into
+  new `{train,val,test}_pairs.csv`. Same rows -> identical total & per-fold size by construction;
+  random assignment -> clusters mixed. A small post-hoc generator on the CSVs, NOT the CC builder
+  (which has diverged from `dataset_segment_pairs_*` and can't emit a random split). Train both; if
+  OOD is harder at matched size, the gap is the *split*, not data scarcity. Repeated k-fold
+  (cut-seed x fold-seed) for a CI on the gap (feeds Q5).
+  - **Verify the baseline is mixed:** assert clusters DO overlap train/test on both slots (the
+    inverse of `_assert_fold_disjoint`).
+- **Optional 3rd arm -- isolate OOD-ness from disjointness.** Cluster-disjoint folds on **set-cover**
+  clusters (`clusters_nt_cds`) at the same N: gap(OOD-disjoint vs set-cover-disjoint) attributes the
+  penalty to OOD specifically; gap(disjoint vs random) is the disjointness penalty.
 
 *(No P3 — node-cut out of scope.)*
 
@@ -188,3 +221,6 @@ regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dro
    t095↓ toward ~387 atoms. Not `apply_drop_budget_cut` (routing-A).
 6. **P4** — score-vs-`t` at t095 and below (gated on P1). **Do not launch the full sweep without
    explicit confirmation** (standing instruction).
+7. **P5** -- OOD-fold vs reshuffled-random contrast at matched size (+ optional set-cover 3rd arm);
+   build the reshuffle-baseline generator (post-hoc on the fold CSVs); verify clusters are mixed.
+   Gated with P4.
