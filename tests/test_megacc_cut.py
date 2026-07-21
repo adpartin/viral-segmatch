@@ -1,7 +1,7 @@
 """Tests for the modular edge-min-cut primitives in `src/datasets/_megacc_cut.py`
 (`build_pair_bigraph` / `fragment_largest_cc` / `edges_to_row_index` /
-`fragment_once`) and the behavior-preserving `apply_drop_budget_cut` refactor
-(Phase R of docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md).
+`fragment_once` / `fragment_until`) and the behavior-preserving `apply_drop_budget_cut`
+refactor (Phase R of docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md).
 
 Fast synthetic tests run everywhere. The OOD tests reproduce the P1 / pre-refactor
 numbers on the production OOD nt_cds clusters and SKIP when that data is absent.
@@ -24,9 +24,12 @@ from src.datasets._megacc_cut import (
     edges_to_row_index,
     fragment_largest_cc,
     fragment_once,
+    fragment_until,
+    stop_at_n_atoms,
 )
 
 GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t099.json'
+FRAG_GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t095_fragment_until.json'
 OOD_CLUSTERS = PROJ / 'data' / 'processed' / 'flu' / 'July_2025' / 'clusters_nt_cds_ood'
 
 # Synthetic fixture: two K(2,2) blobs joined by ONE bridge edge. The bridge is the
@@ -69,7 +72,7 @@ def test_build_pair_bigraph_edge_rows_partition_rows():
 def test_fragment_largest_cc_finds_bridge():
     H, _ = build_pair_bigraph(_two_blobs())
     step = fragment_largest_cc(H, cut_method='spectral', seed=1)
-    assert step.dropped_pairs == 1 and len(step.cross_edges) == 1   # the weight-1 bridge
+    assert step.pairs_dropped == 1 and len(step.cross_edges) == 1   # the weight-1 bridge
     assert frozenset(step.cross_edges[0]) == {'a:H2', 'b:N3'}
     part_b = step.cc_nodes - step.part_a
     assert step.part_a and part_b                                   # both sides non-empty
@@ -98,7 +101,7 @@ def test_fragment_once_splits_off_the_bridge():
     kept, dropped, step = fragment_once(pos, seed=1)
     assert len(dropped) == 1 and len(kept) == len(pos) - 1
     assert (dropped['cluster_id_a'].iloc[0], dropped['cluster_id_b'].iloc[0]) == ('H2', 'N3')
-    assert step.dropped_pairs == 1
+    assert step.pairs_dropped == 1
 
 
 def test_fragment_once_deterministic():
@@ -106,6 +109,50 @@ def test_fragment_once_deterministic():
     a = fragment_once(pos, seed=1)[2]
     b = fragment_once(pos, seed=1)[2]
     assert a.part_a == b.part_a and a.cross_edges == b.cross_edges
+
+
+# --- fragment_until / stop_at_n_atoms / _live_atom_count ---------------------
+def test_live_atom_count_excludes_stranded_nodes():
+    import networkx as nx
+
+    from src.datasets._megacc_cut import _live_atom_count
+    H = nx.Graph()
+    H.add_edge('a:1', 'b:1')                        # a real 2-node atom (>= 1 kept edge)
+    H.add_node('a:9')                               # a stranded node (0 edges)
+    assert nx.number_connected_components(H) == 2   # raw count includes the stranded node
+    assert _live_atom_count(H) == 1                 # atom count excludes it (== bipartite_components)
+
+
+def test_fragment_until_reaches_target_atoms():
+    pos = _two_blobs()                              # one CC of 8 nodes; bridge is the min-cut
+    kept, dropped, audit = fragment_until(pos, stop_fn=stop_at_n_atoms(2), seed=1)
+    assert audit['stopped_reason'] == 'stop_fn'
+    assert audit['n_cuts'] == 1 and audit['n_atoms'] == 2
+    assert len(dropped) == 1 and len(kept) == len(pos) - 1
+    assert (dropped['cluster_id_a'].iloc[0], dropped['cluster_id_b'].iloc[0]) == ('H2', 'N3')
+
+
+def test_fragment_until_already_satisfied_does_zero_cuts():
+    pos = _two_blobs()                              # already one CC -> a target of 1 needs no cut
+    kept, dropped, audit = fragment_until(pos, stop_fn=stop_at_n_atoms(1), seed=1)
+    assert audit['stopped_reason'] == 'stop_fn' and audit['n_cuts'] == 0
+    assert audit['n_atoms'] == 1 and len(dropped) == 0 and len(kept) == len(pos)
+
+
+def test_fragment_until_drop_budget_caps():
+    pos = _two_blobs()                              # 10 rows; only the weight-1 bridge is a cheap cut
+    kept, dropped, audit = fragment_until(
+        pos, stop_fn=stop_at_n_atoms(5), max_drop_frac=0.25, seed=1)   # target unreachable in budget
+    assert audit['stopped_reason'] == 'max_drop_frac'  # a 2nd cut (into a dense blob) blows the budget
+    assert audit['dropped_frac'] <= 0.25
+    assert audit['n_atoms'] == 2 and len(dropped) == 1 and len(kept) == len(pos) - 1
+
+
+def test_fragment_until_deterministic():
+    pos = _two_blobs()
+    a = fragment_until(pos, stop_fn=stop_at_n_atoms(2), seed=1)[1]
+    b = fragment_until(pos, stop_fn=stop_at_n_atoms(2), seed=1)[1]
+    assert list(a.index) == list(b.index)
 
 
 # --- apply_drop_budget_cut (synthetic no-cut path) ---------------------------
@@ -145,7 +192,7 @@ def test_fragment_once_ood_nt_cds_t095_reproduces_p1():
     pos = _build_ood_pos_ids('t095')
     kept, dropped, step = fragment_once(pos, cut_method='spectral', seed=1)
     part_b = len(step.cc_nodes) - len(step.part_a)
-    assert step.dropped_pairs == 14 and len(step.cross_edges) == 8
+    assert step.pairs_dropped == 14 and len(step.cross_edges) == 8
     assert len(step.cc_nodes) == 440 and {len(step.part_a), part_b} == {297, 143}
     assert len(dropped) == 14 and len(kept) == 78750
 
@@ -168,6 +215,44 @@ def test_apply_drop_budget_cut_ood_nt_cds_t099_golden():
     assert audit['n_atoms_after'] == g['n_atoms_after']
     assert _sha(sorted(kept['pair_key'].astype(str))) == g['kept_pairkeys_sha256']
     assert _sha(sorted(audit['dropped_pair_keys'])) == g['dropped_pairkeys_sha256']
+
+
+def test_fragment_until_ood_nt_cds_t095_golden():
+    """Routing-B operating point on OOD nt_cds t095: fragmenting the mega-CC within a 2% drop
+    budget grows the atom count from 108 to ~124 at the cheap knee before the edge-cut floor; a
+    reachable atom target instead stops via stop_fn.
+
+    Asserts construction-guaranteed + structural invariants, not a bit-exact digest.
+    build_pair_bigraph pins a canonical node+edge order, so the cut is row-order-/PYTHONHASHSEED-
+    independent (the dropped set is bit-identical across clean processes), but the threaded
+    eigensolver keeps a residual FP wobble (n_cuts 15 vs 16, and rarely the exact dropped set
+    under in-suite BLAS warmup). Atom count and drop-budget are the stable contract. See plan Q5."""
+    if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
+        print('SKIP test_fragment_until_ood_nt_cds_t095_golden: OOD clusters absent')
+        return
+    from src.datasets._pair_helpers import bipartite_components
+    g = json.loads(FRAG_GOLDEN.read_text())
+    pos = _build_ood_pos_ids('t095')
+    _c0, summ0 = bipartite_components(pos, col_a='cluster_id_a', col_b='cluster_id_b')
+    assert summ0['n_components'] == g['natural_atoms']           # 108 natural atoms (union-find, exact)
+
+    # budget-bound: an unreachable target -> the 2% drop budget is the stop
+    kept, dropped, audit = fragment_until(
+        pos, cut_method='spectral', seed=1, stop_fn=stop_at_n_atoms(10_000), max_drop_frac=0.02)
+    assert audit['stopped_reason'] == g['stopped_reason'] == 'max_drop_frac'
+    assert audit['dropped_frac'] <= g['max_drop_frac']          # guaranteed by the budget guard
+    assert len(kept) + len(dropped) == len(pos)                 # a partition of pos
+    lo, hi = g['n_atoms_range']
+    assert g['natural_atoms'] < audit['n_atoms'] and lo <= audit['n_atoms'] <= hi   # grew to ~124
+    # the atom count fragment_until reports is exactly what the builder (bipartite_components) sees
+    _c1, summ1 = bipartite_components(kept, col_a='cluster_id_a', col_b='cluster_id_b')
+    assert audit['n_atoms'] == summ1['n_components']
+
+    # target-bound: a reachable atom target stops via stop_fn (reaching 115 costs << the budget)
+    _k2, _d2, audit2 = fragment_until(
+        pos, cut_method='spectral', seed=1, stop_fn=stop_at_n_atoms(115), max_drop_frac=0.05)
+    assert audit2['stopped_reason'] == 'stop_fn' and audit2['n_atoms'] >= 115
+    assert audit2['dropped_frac'] < 0.02
 
 
 if __name__ == '__main__':

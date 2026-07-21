@@ -1,0 +1,11 @@
+{
+  "_note": "fragment_until on OOD nt_cds t095. build_pair_bigraph pins a canonical node+edge order, so the cut is row-order-/PYTHONHASHSEED-independent -- the dropped set is bit-identical across clean processes (kept_sha 9de9d9.., 11 samples). A residual threaded-eigensolver FP wobble remains (n_cuts 15 vs 16, and rarely the exact dropped set under in-suite BLAS-thread warmup), so this test asserts only construction-guaranteed + structural invariants, not a bit-exact digest. Reference: atom count ~124, drop ~1.8%. See plan Q5.",
+  "threshold": "t095",
+  "cut_method": "spectral",
+  "seed": 1,
+  "max_drop_frac": 0.02,
+  "natural_atoms": 108,
+  "n_atoms_nominal": 124,
+  "n_atoms_range": [109, 130],
+  "stopped_reason": "max_drop_frac"
+}

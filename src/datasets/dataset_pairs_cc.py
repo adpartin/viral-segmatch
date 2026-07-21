@@ -151,8 +151,10 @@ def assign_atoms_prod(pos: pd.DataFrame, cluster_lookup: pd.DataFrame, pos_hash_
     atom_id == cc_id —> one atom per whole CC (the "natural" strategy; the "cut" strategy that
     fragments mega-CCs into sub-atoms is not wired into this builder yet).
 
-    NOTE: wiring the "cut" strategy here will call `_megacc_cut.apply_drop_budget_cut`
-    (see BACKLOG "CC dataset CV" #3).
+    NOTE: wiring the "cut" strategy here (P2) will call `_megacc_cut.fragment_until` -- the
+    routing-B count-stop cut that grows the atom count within a drop budget (NOT routing-A's
+    `apply_drop_budget_cut`, which recovers an 80/10/10 holdout). See
+    docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md.
     """
     pos_ids, attach_audit = attach_cluster_ids(pos, cluster_lookup, pos_hash_col=pos_hash_col)
     component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
@@ -636,8 +638,8 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
         # keeps all columns, and dodges the groupby.apply grouping-column deprecation.
         rng = np.random.RandomState(spec.seed)
         shuf = pos_ids.sample(frac=1, random_state=rng).reset_index(drop=True)
-        shuf['_rank'] = shuf.groupby('cc_id').cumcount() # 0-based rank within each CC after the seeded shuffle (random order) TODO: ??
-        pos_ids = shuf[shuf['_rank'] < spec.m_pos].drop(columns='_rank').reset_index(drop=True) # keep m_pos random positives per CC/atom (m=1 -> one row per atom) TODO: ??
+        shuf['_rank'] = shuf.groupby('cc_id').cumcount()  # 0-based rank within each CC, in the shuffled (random) order
+        pos_ids = shuf[shuf['_rank'] < spec.m_pos].drop(columns='_rank').reset_index(drop=True)  # keep m_pos random positives per CC/atom (m=1 -> one row per atom)
         print(f"  capped positives per CC at m_pos_per_cc={spec.m_pos}: {len(pos_ids):,} kept")
 
     if spec.negative_scope == 'within_cc':
@@ -667,8 +669,8 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
 
     # within_fold: split positives by atom, then add cross-CC negatives per split
     pos_full = pos_ids.copy()
-    pos_full['neg_regime'] = pd.NA # negative-only field; NA on positive rows TODO: correct??
-    pos_full['metadata_match_count'] = pd.NA # negative-only fields; NA on positive rows TODO: correct??
+    pos_full['neg_regime'] = pd.NA            # negative-only field (which negative regime); NA on positive rows
+    pos_full['metadata_match_count'] = pd.NA  # negative-only field (pos<->neg metadata overlap); NA on positive rows
     print(f"  positives: {len(pos_full):,} across {pos_full['atom_id'].nunique():,} atoms; "
           f"within-fold (cross-CC) negatives generated per split")
     return make_folds_within_fold(
@@ -708,9 +710,9 @@ def _write_cc_pair_sizes(out_dir: Path, pos_ids: pd.DataFrame) -> None:
     splitter routes. src/analysis/plot_cc_sizes.py reads this for the 2D CC-size
     barplot (the operational 2D analog of the 1D cluster-size distribution).
     """
-    cc = (pos_ids.groupby('cc_id').size()
-          .sort_values(ascending=False)
-          .rename('n_pairs').reset_index())
+    pairs_per_cc = pos_ids.groupby('cc_id').size()             # positive pairs in each CC (Series: cc_id -> count)
+    pairs_per_cc = pairs_per_cc.sort_values(ascending=False)   # largest CC first (for the descending barplot)
+    cc = pairs_per_cc.rename('n_pairs').reset_index()          # -> DataFrame with columns (cc_id, n_pairs)
     cc.to_csv(out_dir / 'cc_pair_sizes.csv', index=False)
     print(f"  wrote cc_pair_sizes.csv ({len(cc):,} CCs, {int(cc['n_pairs'].sum()):,} pairs)")
 
