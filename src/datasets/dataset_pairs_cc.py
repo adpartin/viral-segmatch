@@ -47,6 +47,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
+from src.datasets._megacc_cut import fragment_until, stop_at_n_atoms  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
     attach_cds_dna_hash_to_prot_df,
     attach_ctg_dna_to_prot_df,
@@ -143,23 +144,57 @@ def build_frontend(
     return df
 
 
-def assign_atoms_prod(pos: pd.DataFrame, cluster_lookup: pd.DataFrame, pos_hash_col: str):
-    """Attach cluster ids + 2D bipartite-CC atom_id/cc_id (production path; as opposed to
-    src/analysis/_cv_sampling.assign_atoms).
+def assign_atoms_prod(
+    pos: pd.DataFrame,
+    cluster_lookup:
+    pd.DataFrame,
+    pos_hash_col: str, *,
+    edge_cut: dict | None = None):
+    """Attach cluster ids + the 2D routing atom (`cc_id`/`atom_id`) to the positive pairs
+    (production path, vs the analysis-side `_cv_sampling.assign_atoms`).
 
-    Atoms = natural CCs on (cluster_id_a, cluster_id_b). Returns (pos_with_ids, cc_summary).
-    atom_id == cc_id —> one atom per whole CC (the "natural" strategy; the "cut" strategy that
-    fragments mega-CCs into sub-atoms is not wired into this builder yet).
+    Atom = one bipartite CC on (cluster_id_a, cluster_id_b), so `atom_id == cc_id`. Two modes:
+    - natural (`edge_cut` None/disabled): one atom per whole CC.
+    - edge-cut (routing-B): `_megacc_cut.fragment_until` bisects the mega-CC, dropping straddling
+      pairs to grow the atom count within a drop budget. `cc_id`/`atom_id` become the post-cut
+      fragment; the pre-cut CC is kept on `natural_cc_id` (analysis-only -- the fold CSVs re-select
+      `_PAIR_COLUMNS`, which drops it). NOT routing-A's `apply_drop_budget_cut`.
 
-    NOTE: wiring the "cut" strategy here (P2) will call `_megacc_cut.fragment_until` -- the
-    routing-B count-stop cut that grows the atom count within a drop budget (NOT routing-A's
-    `apply_drop_budget_cut`, which recovers an 80/10/10 holdout). See
-    docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md.
+    `edge_cut` (when enabled): `{cut_method, target_atoms, max_drop_frac, seed}`. Returns
+    `(pos_with_ids, cc_summary)`; the edge-cut run adds `cc_summary['edge_cut']` (the cut audit).
+    See docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md.
     """
     pos_ids, attach_audit = attach_cluster_ids(pos, cluster_lookup, pos_hash_col=pos_hash_col)
-    component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
     pos_ids = pos_ids.copy()
+
+    # Natural bipartite-CC atoms on (cluster_id_a, cluster_id_b).
+    component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
     pos_ids['cc_id'] = component_id.to_numpy()
+
+    if edge_cut and edge_cut.get('enabled'):
+        # Grow the atom count: bisect the mega-CC and drop straddling pairs within a drop budget.
+        # cc_id/atom_id become the post-cut fragment; natural_cc_id keeps the pre-cut CC (analysis).
+        pos_ids['natural_cc_id'] = pos_ids['cc_id']
+        natural_cc_sizes = pos_ids.groupby('natural_cc_id').size()   # pre-cut natural CC sizes (ALL pairs)
+        kept_pos, _dropped_pos, cut_audit = fragment_until(
+            pos_ids, col_a='cluster_id_a', col_b='cluster_id_b',
+            cut_method=edge_cut['cut_method'], seed=edge_cut['seed'],
+            stop_fn=stop_at_n_atoms(edge_cut['target_atoms']), max_drop_frac=edge_cut['max_drop_frac']
+        )
+        pos_ids = kept_pos.reset_index(drop=True)
+        # Re-derive atoms on the fragmented (kept) pairs -- each fragment is a bipartite CC == atom.
+        component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
+        pos_ids['cc_id'] = component_id.to_numpy()
+        cc_summary['edge_cut'] = {k: cut_audit[k] for k in
+                                  ('n_cuts', 'n_atoms', 'pairs_dropped', 'dropped_frac', 'stopped_reason')}
+        # Faithful before/after for the 2D CC-size barplots: natural CCs on ALL pre-cut pairs vs
+        # fragments on the kept pairs (the dropped straddling pairs show up as the difference).
+        cc_summary['cc_sizes'] = {'cc_pair_sizes.csv': natural_cc_sizes,
+                                  'cc_pair_sizes_post_edge_cut.csv': pos_ids.groupby('cc_id').size()}
+        print(f"  edge_cut ({edge_cut['cut_method']}, target {edge_cut['target_atoms']} atoms): dropped "
+              f"{cut_audit['pairs_dropped']:,} straddling pairs ({cut_audit['dropped_frac']:.1%}); "
+              f"atoms -> {cut_audit['n_atoms']:,} [{cut_audit['stopped_reason']}]")
+
     pos_ids['atom_id'] = pos_ids['cc_id']
     cc_summary['n_dropped_cluster_join'] = attach_audit['n_input'] - attach_audit['n_kept']
     return pos_ids, cc_summary
@@ -416,6 +451,7 @@ class CCSpec:
     drop_negative_infeasible_ccs: bool
     m_pos: int
     max_atoms: int | None  # None = no cap; caps #atoms for size-controlled sweeps
+    edge_cut: dict | None  # None = disabled; else {cut_method, target_atoms, max_drop_frac, seed} for fragment_until
     seed: int
     cluster_id_path: Path
     threshold: str
@@ -514,6 +550,20 @@ def _resolve_spec(args, config) -> CCSpec:
     if seed is None:
         raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
 
+    # Optional edge-cut fragmentation (routing-B): grow the atom count by bisecting the mega-CC.
+    # Default off (existing bundles unaffected). See _megacc_cut.fragment_until.
+    edge_cut = None
+    if bool(OmegaConf.select(config, 'dataset.split_strategy.edge_cut.enabled', default=False)):
+        ec_target = OmegaConf.select(config, 'dataset.split_strategy.edge_cut.target_atoms')
+        if ec_target is None or int(ec_target) < 1:
+            raise ValueError("edge_cut.enabled=true requires split_strategy.edge_cut.target_atoms (positive int).")
+        ec_method = str(OmegaConf.select(config, 'dataset.split_strategy.edge_cut.cut_method') or 'spectral')
+        if ec_method not in ('spectral', 'kl'):
+            raise ValueError(f"split_strategy.edge_cut.cut_method must be 'spectral' or 'kl'; got {ec_method!r}.")
+        ec_maxdrop = OmegaConf.select(config, 'dataset.split_strategy.edge_cut.max_drop_frac')
+        edge_cut = {'enabled': True, 'cut_method': ec_method, 'target_atoms': int(ec_target),
+                    'max_drop_frac': float(ec_maxdrop) if ec_maxdrop is not None else 1.0, 'seed': seed}
+
     if 'cluster_id_path' not in ss:
         raise ValueError("dataset.split_strategy.cluster_id_path must be set for cluster_disjoint_cc.")
     cluster_id_path = Path(str(ss.cluster_id_path))
@@ -526,7 +576,8 @@ def _resolve_spec(args, config) -> CCSpec:
         config_bundle=args.config_bundle, alphabet=alphabet, pair_key_alphabet=pair_key_alphabet,
         k_folds=int(k_folds), n_repeats=n_repeats, neg_to_pos_ratio=float(ds.neg_to_pos_ratio),
         val_ratio=float(ds.val_ratio), negative_scope=negative_scope,
-        drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, max_atoms=max_atoms, seed=seed,
+        drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, max_atoms=max_atoms,
+        edge_cut=edge_cut, seed=seed,
         cluster_id_path=cluster_id_path, threshold=threshold, fa=fa, fb=fb, sa=sa, sb=sb)
 
 
@@ -534,9 +585,8 @@ def _subsample_atoms(pos_ids: pd.DataFrame, max_atoms, seed: int) -> pd.DataFram
     """Cap the atom count at `max_atoms` by keeping a seeded random subset of atom_ids
     (all rows of each kept atom). No-op when max_atoms is None or already within budget.
 
-    Keys on atom_id (the final routing unit), NOT cc_id, so it stays correct once the
-    'cut' strategy fragments a CC into several atoms (atom_id becomes a sub-unit of
-    cc_id). See BACKLOG 'CC dataset CV' #3 / _megacc_cut.apply_drop_budget_cut.
+    Keys on atom_id (the final routing unit), which after edge-cut fragmentation equals the
+    post-cut fragment's cc_id (see assign_atoms_prod / _megacc_cut.fragment_until).
     """
     if max_atoms is None:
         return pos_ids
@@ -579,7 +629,7 @@ def _build_positives(config, spec: CCSpec, args):
     pos, _ = create_positive_pairs_v2(df, schema_pair=(spec.fa, spec.fb), pair_key_alphabet=spec.pair_key_alphabet)
     cooccur, _ = build_cooccurrence_set(df, hash_col=_POS_HASH[spec.alphabet])
     lookup = load_cluster_lookup(spec.cluster_id_path) # load cluster_id_{a,b} lookup df
-    pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[spec.alphabet])
+    pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[spec.alphabet], edge_cut=spec.edge_cut)
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
           f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
 
@@ -604,7 +654,7 @@ def _build_positives(config, spec: CCSpec, args):
         n0_atoms = pos_ids['atom_id'].nunique()
         pos_ids = _subsample_atoms(pos_ids, spec.max_atoms, spec.seed)
         print(f"  max_atoms={spec.max_atoms}: atoms {n0_atoms:,} -> {pos_ids['atom_id'].nunique():,}")
-    return df, pos_ids, cooccur
+    return df, pos_ids, cooccur, cc_summary.get('cc_sizes')  # cc_sizes: pre/post-cut CC-size Series, or None
 
 
 def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
@@ -684,7 +734,8 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
                'config_bundle': spec.config_bundle, 'schema_pair': [spec.sa, spec.sb],
                'alphabet': spec.alphabet, 'threshold': spec.threshold,
                'cluster_id_path': str(spec.cluster_id_path),
-               'm_pos_per_cc': spec.m_pos, 'max_atoms': spec.max_atoms, 'neg_to_pos_ratio': spec.neg_to_pos_ratio,
+               'm_pos_per_cc': spec.m_pos, 'max_atoms': spec.max_atoms, 'edge_cut': spec.edge_cut,
+               'neg_to_pos_ratio': spec.neg_to_pos_ratio,
                'pair_key_alphabet': spec.pair_key_alphabet, 'negative_scope': spec.negative_scope,
                'drop_negative_infeasible_ccs': spec.drop_negative_infeasible_ccs,
                'fold_dirs': [f'fold_{k}' for k in range(spec.k_folds)]}
@@ -702,19 +753,26 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
         print(f"  fold_{k}: train={len(train):,} val={len(val):,} test={len(test):,}")
 
 
-def _write_cc_pair_sizes(out_dir: Path, pos_ids: pd.DataFrame) -> None:
-    """Emit cc_pair_sizes.csv: positive pairs per bipartite CC (atom), descending.
+def _write_cc_sizes(out_dir: Path, sizes: pd.Series, filename: str) -> None:
+    """Write `filename` (cc_id, n_pairs) from a per-unit size Series, largest first.
+    Header is always (cc_id, n_pairs) so src/analysis/plot_cc_sizes.py reads either file."""
+    cc = sizes.sort_values(ascending=False).rename('n_pairs')
+    cc.index.name = 'cc_id'
+    cc = cc.reset_index()
+    cc.to_csv(out_dir / filename, index=False)
+    print(f"  wrote {filename} ({len(cc):,} units, {int(cc['n_pairs'].sum()):,} pairs)")
 
-    One row per CC (cc_id, n_pairs), counted on the uncapped positive universe
-    (before m_pos_per_cc capping), so it is the true 2D-CD atom pair-mass the
-    splitter routes. src/analysis/plot_cc_sizes.py reads this for the 2D CC-size
-    barplot (the operational 2D analog of the 1D cluster-size distribution).
-    """
-    pairs_per_cc = pos_ids.groupby('cc_id').size()             # positive pairs in each CC (Series: cc_id -> count)
-    pairs_per_cc = pairs_per_cc.sort_values(ascending=False)   # largest CC first (for the descending barplot)
-    cc = pairs_per_cc.rename('n_pairs').reset_index()          # -> DataFrame with columns (cc_id, n_pairs)
-    cc.to_csv(out_dir / 'cc_pair_sizes.csv', index=False)
-    print(f"  wrote cc_pair_sizes.csv ({len(cc):,} CCs, {int(cc['n_pairs'].sum()):,} pairs)")
+
+def _write_cc_pair_sizes(out_dir: Path, pos_ids: pd.DataFrame, cc_sizes: dict | None = None) -> None:
+    """Emit the 2D CC-size barplot input(s). Edge-cut runs pass `cc_sizes` = {filename: size_series}
+    with the pre-cut natural sizes (cc_pair_sizes.csv, ALL pairs) and the post-cut fragment sizes
+    (cc_pair_sizes_post_edge_cut.csv) -- the faithful before/after over the full fragmentation
+    universe. Without a cut, one file grouped on the final atoms. plot_cc_sizes.py reads them."""
+    if cc_sizes:
+        for filename, sizes in cc_sizes.items():
+            _write_cc_sizes(out_dir, sizes, filename)
+    else:
+        _write_cc_sizes(out_dir, pos_ids.groupby('cc_id').size(), 'cc_pair_sizes.csv')
 
 
 def main() -> None:
@@ -736,8 +794,8 @@ def main() -> None:
           f"(k={spec.k_folds}, ratio={spec.neg_to_pos_ratio}, m_pos_per_cc={spec.m_pos}, "
           f"drop_negative_infeasible_ccs={spec.drop_negative_infeasible_ccs}, seed={spec.seed}) ===")
 
-    df, pos_ids, cooccur = _build_positives(config, spec, args)
-    _write_cc_pair_sizes(out_dir, pos_ids)
+    df, pos_ids, cooccur, cc_sizes = _build_positives(config, spec, args)
+    _write_cc_pair_sizes(out_dir, pos_ids, cc_sizes)
     folds = _make_folds_for_scope(spec, df, pos_ids, cooccur, out_dir)
     _write_output(out_dir, folds, spec)
     print(f"\nDone in {time.time() - t0:.0f}s -> {out_dir}")

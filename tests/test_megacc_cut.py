@@ -179,7 +179,7 @@ def _build_ood_pos_ids(threshold):
     cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(
         [f'dataset.split_strategy.cluster_id_path={cpath}']))
     args = SimpleNamespace(config_bundle=bundle, protein_final=None, override=None, out_dir=None)
-    _df, pos_ids, _cooccur = _build_positives(cfg, _resolve_spec(args, cfg), args)
+    _df, pos_ids, _cooccur, _cc_sizes = _build_positives(cfg, _resolve_spec(args, cfg), args)
     return pos_ids
 
 
