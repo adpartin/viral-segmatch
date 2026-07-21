@@ -39,26 +39,16 @@ below), recover atoms to an adequate count and ask whether difficulty finally ri
 
 ## 2. Mechanism (grounded)
 
-The cut primitives (Phase R, `src/datasets/_megacc_cut.py`):
-- `build_pair_bigraph` builds the pair-weighted **simple bigraph** (nodes = single-segment
-  clusters, slot-prefixed `a:`/`b:`; **edge weight** = #positive pairs on the cluster-pair,
-  `weight=len(rows)`);
-- `fragment_largest_cc` does one edge min-cut of the largest CC: **`_bisect`** (spectral Fiedler /
-  KL) partitions its nodes into two sides, and the crossing cluster pairs are the cut; removing
-  them splits the CC into two (sometimes more) CCs. **`_bisect` = partition only; dropping the
-  crossing edges realizes the cut.**
-- `edges_to_row_index` maps the crossing edges back to the dropped positive-pair **rows**
-  (`kept_pos = pos_with_ids.drop(index=drop_idx)`); clusters and their sequences persist (a dropped
-  pair's sequences may live in other kept pairs) — the cost is counted in **pairs**.
+Cut primitives in `src/datasets/_megacc_cut.py` (Phase R; see their docstrings): `build_pair_bigraph`
+(pair-weighted simple bigraph, `weight` = #pairs on a cluster-pair) then `fragment_largest_cc` (one
+edge min-cut of the largest CC via `_bisect`, spectral Fiedler / KL -- partition only; dropping the
+crossing edges realizes the cut) then `edges_to_row_index` (crossing edges to dropped pair rows).
+Two loops over the primitive: `apply_drop_budget_cut` (routing-A, holdout 80/10/10 feasibility stop,
+wired at `_split_helpers.cluster_disjoint_route_pos_df`) and `fragment_until` (routing-B, count stop; P2).
 
-`apply_drop_budget_cut` (routing-A) loops `fragment_largest_cc` until the kept CCs LPT-pack the
-80/10/10 ratios within `drift_pp`, else raises `DropBudgetExceeded` past `max_drop_frac`; wired
-into `_split_helpers.cluster_disjoint_route_pos_df:459-477` (bilateral holdout). Routing-B (P2)
-loops the same primitive with a count-based stop (D1).
-
-**Hard cap:** `_bisect` partitions **nodes**, so it can never split a single cluster. The largest
-atom cannot drop below the **largest node's pair mass** — the *edge-cut floor*. Going below that
-floor needs **single-side node-cut** (out of scope; future plan).
+**Hard cap:** `_bisect` partitions NODES, so it never splits a single cluster -- the largest atom
+cannot drop below the largest node's pair mass (the *edge-cut floor*; going below needs node-cut, out
+of scope).
 
 ## 3. Scope
 
@@ -149,7 +139,9 @@ comparison holds `t` at a **common ~120 atoms** (fragment t095 up; `max_atoms` c
 - Verify with `src/analysis/cluster_disjoint_cv_experiment._assert_fold_disjoint` (no shared cluster
   across folds on either slot) -- reuse, don't reinvent.
 
-**P4 — score-vs-`t` experiment (gated on P1).** With atoms recovered to an adequate count at low
+**P4 (OPTIONAL) — score-vs-`t` experiment.** P5 (the matched-size contrast) is the more direct
+primary test; run the full `t`-sweep only if the P5 result motivates it. With atoms recovered to an
+adequate count at low
 `t` (t095 and below), vary `t` → does the flat "size, not threshold" curve hold in the most-OOD
 regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dropped_frac
 (fragmentation drop cost), AUC / F1.
@@ -227,7 +219,7 @@ Fix `t`, hold the total dataset size constant, vary only the split.
    t095 to ~124 (floor-limited @ 1.8%; not the t097 ~387). **DONE 2026-07-20, commit `f0e9ce9`** --
    `split_strategy.edge_cut` config + bundle `flu_ha_na_cc_nt_cds_ood_edge_cut` + before/after
    `cc_pair_sizes*.csv` + `tests/test_dataset_pairs_cc_cut.py`. Not `apply_drop_budget_cut` (routing-A).
-6. **P4** — score-vs-`t` at t095 and below (gated on P1). **Do not launch the full sweep without
+6. **P4** — (OPTIONAL, superseded as primary by P5) score-vs-`t` at t095 and below. **Do not launch the full sweep without
    explicit confirmation** (standing instruction).
 7. **P5** -- OOD-fold vs reshuffled-random contrast at matched size (+ optional set-cover 3rd arm);
    build the reshuffle-baseline generator (post-hoc on the fold CSVs); verify clusters are mixed.

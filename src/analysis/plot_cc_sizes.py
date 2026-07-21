@@ -78,23 +78,26 @@ def plot_cc_size_barplot(
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--run_dir', type=Path, required=True,
-                   help='dataset run dir containing cc_pair_sizes.csv')
+                   help='dataset run dir containing the cc-size CSV')
+    p.add_argument('--csv', default='cc_pair_sizes.csv',
+                   help='cc-size CSV name in run_dir (default cc_pair_sizes.csv; use '
+                        'cc_pair_sizes_post_edge_cut.csv for the post-cut fragments)')
     p.add_argument('--pair_label', required=True, help='slot pair, e.g. HA-NA (title only)')
     p.add_argument('--alphabet', required=True, help='aa / nt_cds / nt_ctg (title only)')
     p.add_argument('--threshold_id', required=True, help='tXXX (title only)')
     p.add_argument('--top_n', type=int, default=20, help='largest CCs to draw (default 20)')
     p.add_argument('--out_png', type=Path, default=None,
-                   help='default: <run_dir>/figures/cc_pair_sizes_barplot.png')
+                   help='default: <run_dir>/figures/<csv-stem>_barplot.png')
     args = p.parse_args()
 
-    csv = args.run_dir / 'cc_pair_sizes.csv'
+    csv = args.run_dir / args.csv
     if not csv.exists():
         raise SystemExit(f"missing {csv} (rebuild the dataset to emit it)")
-    out_png = args.out_png or (args.run_dir / 'figures' / 'cc_pair_sizes_barplot.png')
+    out_png = args.out_png or (args.run_dir / 'figures' / f'{csv.stem}_barplot.png')
     stats = plot_cc_size_barplot(
         csv, pair_label=args.pair_label, alphabet=args.alphabet,
         threshold_id=args.threshold_id, top_n=args.top_n, out_png=out_png)
-    print(f"  {args.pair_label} {args.alphabet} {args.threshold_id}: "
+    print(f"  {args.pair_label} {args.alphabet} {args.threshold_id} [{args.csv}]: "
           f"{stats['n_ccs']:,} CCs, {stats['n_pairs']:,} pairs, "
           f"largest {stats['largest_pct']:.1f}% -> {out_png}")
 
