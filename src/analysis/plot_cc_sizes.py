@@ -74,7 +74,7 @@ def plot_cc_size_barplot(
         title += f'\n{note}'
     size_barplot(
         sizes, top_n=top_n, out_png=out_png, title=title,
-        xlabel='connected component (sorted by size)',
+        xlabel='connected component (sorted by size; not true CC ids)',
         ylabel='positive pairs in CC',
         xticklabels=[f'CC{i + 1}' for i in range(len(top))])
     return {'n_ccs': n_ccs, 'n_pairs': n_pairs, 'largest_pct': largest_pct}

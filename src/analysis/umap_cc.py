@@ -49,10 +49,12 @@ FINAL = {
     'nt_cds': PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet',
     'nt_ctg': PROJ / 'data/processed/flu/July_2025/ctg_dna_final.parquet',
 }
-# Bold, distinct categorical colors for the CC UMAPs (led by magenta/purple/brown; avoids
-# tab20's pale blue/orange and the dark-gray reserved for 'Others').
-_BOLD_PALETTE = ['#d01c8b', '#5e3c99', '#8c510a', '#018571', '#b2182b', '#1b7837',
-                 '#762a83', '#c51b7d', '#35978f', '#9970ab', '#40004b', '#00441b']
+# Categorical colors for the CC UMAPs -- seaborn 'muted' palette (distinct from the dark-gray
+# reserved for 'Others').
+_COLOR_PALETTE = ['#4878d0', '#ee854a', '#6acc64', '#d65f5f', '#956cb4',
+                  '#8c613c', '#dc7ec0', '#797979', '#d5bb67', '#82c6e2']
+# UMAP / SVD reduction params -- fixed here so cached coords stay consistent with the layout.
+_UMAP_NEIGHBORS, _UMAP_MIN_DIST, _SVD_DIM = 15, 0.1, 50
 
 
 def cluster_vectors(hashes, alphabet: str, *, kmer_k: int = 6, svd_dim: int = 50, seed: int = 42):
@@ -92,13 +94,47 @@ def _side_sequences(pw: pd.DataFrame, uni: pd.DataFrame, slot: str, alphabet: st
     return side.rename(columns={hcol: 'seq_hash', ccol: 'cluster_id'})
 
 
+def _umap_coords(hashes, alphabet, *, kmer_k, seed, metric, cache_dir):
+    """`(xy 2-D, keep-mask)` for `hashes`, cached to disk (skips the k-mer load + SVD + UMAP on a
+    hit). The cache key fingerprints everything that fixes the layout -- the hashes, the reduction
+    params, and the k-mer matrix mtime -- so a data or param change misses and recomputes; only
+    cosmetic changes (color / legend / title) reuse the coords. Delete `_umap_coords/` to rebuild.
+    """
+    import hashlib
+
+    from src.utils.dim_reduction_utils import compute_umap_reduction
+    key = None
+    if cache_dir is not None:
+        npz = KMER_DIR / f'kmer_features_{alphabet}_k{kmer_k}.npz'
+        mtime = int(npz.stat().st_mtime) if npz.exists() else 0
+        sig = f'{alphabet}|{kmer_k}|{seed}|{metric}|{_UMAP_NEIGHBORS}|{_UMAP_MIN_DIST}|{_SVD_DIM}|{mtime}'
+        digest = hashlib.md5(('|'.join(map(str, hashes)) + '||' + sig).encode()).hexdigest()[:16]
+        key = Path(cache_dir) / f'coords_{digest}.npz'
+        if key.exists():
+            d = np.load(key)
+            return d['xy'], d['keep']
+    x, keep = cluster_vectors(hashes, alphabet, kmer_k=kmer_k, svd_dim=_SVD_DIM, seed=seed)
+    xy = compute_umap_reduction(x, n_components=2, n_neighbors=_UMAP_NEIGHBORS,
+                                min_dist=_UMAP_MIN_DIST, metric=metric, random_state=seed)[0]
+    if key is not None:
+        key.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(key, xy=xy, keep=keep)
+    return xy, keep
+
+
 def _kmer_umap(hashes, categories, alphabet, out_png, title, *, kmer_k, min_share, cap,
                metric, seed, legend_title, category_labeler=None):
-    """Shared tail: hashes -> k-mer vectors -> umap_scatter (dropping unresolved hashes)."""
-    x, keep = cluster_vectors(list(hashes), alphabet, kmer_k=kmer_k, seed=seed)
+    """Shared tail: hashes -> cached 2-D UMAP coords -> umap_scatter (dropping unresolved hashes).
+    Default legend label is '<cat>, <share>%, n=<sequences>'."""
+    out_png = Path(out_png)
+    xy, keep = _umap_coords(list(hashes), alphabet, kmer_k=kmer_k, seed=seed, metric=metric,
+                            cache_dir=out_png.parent / '_umap_coords')
     cats = np.asarray(categories)[keep]
-    return umap_scatter(x, cats, out_png=out_png, title=title, min_share=min_share, cap=cap,
-                        palette=_BOLD_PALETTE, metric=metric, seed=seed, legend_title=legend_title,
+    if category_labeler is None:
+        def category_labeler(c, n, sh):
+            return f'{c}, {sh:.0%}, n={n:,}'
+    return umap_scatter(xy, cats, out_png=out_png, title=title, min_share=min_share, cap=cap,
+                        palette=_COLOR_PALETTE, metric=metric, seed=seed, legend_title=legend_title,
                         category_labeler=category_labeler)
 
 
@@ -139,7 +175,7 @@ def _plot_cc_sides(pw, uni, pair, out_dir, tag, tlabel, *, alphabet, kmer_k, min
             rank = {cc: f'{sname}_frag{i + 1}' for i, cc in enumerate(cc_ids)}
             cats = side['cc_id'].map(rank).to_numpy()
             legend = 'fragment (edge-cut CC)'
-            ms, cp, labeler = 0.0, len(cc_ids), (lambda c, n, sh: f'{c} {sh:.0%}')
+            ms, cp, labeler = 0.0, len(cc_ids), None  # None -> _kmer_umap's '<cat>, <share>%, n=' label
             desc = f'{len(cc_ids)} fragments {list(cc_ids)}'
         out_png = Path(out_dir) / f'{tag}_{sname}_{pair}_{alphabet}_kmer_umap.png'
         title = (f'{pair} {tag} -- {sname}-side -- {alphabet} -- {tlabel} -- {kmer_k}-mer UMAP\n'
@@ -164,14 +200,16 @@ def plot_megacc_sides(cc_dir, universe, out_dir, pair, *, alphabet='nt_cds', kme
 
 
 def plot_fragment_sides(frag_dir, universe, out_dir, pair, *, alphabet='nt_cds', kmer_k=6,
-                        n_frags=2, metric='euclidean', seed=42):
-    """4c: each side of the top-`n_frags` fragments (edge-cut CCs), colored by fragment."""
+                        n_frags=2, min_cc_frac=0.0, metric='euclidean', seed=42):
+    """4c: each side of the top fragments (edge-cut CCs), colored by fragment. Keeps the largest
+    fragments carrying >= `min_cc_frac` of the fragmented pairs, capped at `n_frags`."""
     pw = pd.read_parquet(Path(frag_dir) / 'pairs_with_cc.parquet')
     uni = pd.read_parquet(universe)
-    top = pw.groupby('cc_id').size().sort_values(ascending=False).head(n_frags).index.tolist()
+    sizes = pw.groupby('cc_id').size().sort_values(ascending=False)
+    top = sizes[sizes >= min_cc_frac * int(sizes.sum())].head(n_frags).index.tolist()
     return _plot_cc_sides(pw[pw['cc_id'].isin(top)], uni, pair, out_dir, 'fragments',
                           f'{Path(frag_dir).parent.name} fragmented', alphabet=alphabet,
-                          kmer_k=kmer_k, min_share=0.0, cap=n_frags, metric=metric, seed=seed,
+                          kmer_k=kmer_k, min_share=0.0, cap=len(top), metric=metric, seed=seed,
                           color_by='fragment', cc_ids=top)
 
 
@@ -194,6 +232,8 @@ def main() -> None:
     p.add_argument('--universe', type=Path, help='pair_universe pairs.parquet')
     p.add_argument('--pair', help='slot pair, e.g. HA-NA')
     p.add_argument('--n_frags', type=int, default=2, help='fragment mode: how many top fragments to color')
+    p.add_argument('--min_cc_frac', type=float, default=0.0,
+                   help='fragment mode: keep only fragments with >= this share of pairs (default 0.0)')
     args = p.parse_args()
 
     if args.mode == 'single_side':
@@ -209,7 +249,8 @@ def main() -> None:
     else:
         out_dir = args.out_dir or (args.cc_dir / 'figures')
         plot_fragment_sides(args.cc_dir, args.universe, out_dir, args.pair, alphabet=args.alphabet,
-                            kmer_k=args.kmer_k, n_frags=args.n_frags, metric=args.metric, seed=args.seed)
+                            kmer_k=args.kmer_k, n_frags=args.n_frags, min_cc_frac=args.min_cc_frac,
+                            metric=args.metric, seed=args.seed)
 
 
 if __name__ == '__main__':
