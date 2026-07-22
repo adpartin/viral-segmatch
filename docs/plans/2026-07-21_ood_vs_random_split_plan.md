@@ -2,6 +2,26 @@
 
 **Status: IN PROGRESS**
 
+**Revision 2026-07-22 -- supersedes the K-fold framing in the sections below.** After building the
+CC-structure pre-step (`build_cc_structure.py`) and measuring HA-NA nt_cds:
+- **EDA-first, empirical.** Run the pre-step per (alphabet, `t`, schema-pair) FIRST to see the real
+  CC sizes/structure (`cc_sizes`, `cc_summary`, `cc_cluster_composition`); it drives the design. The
+  builder still builds its own datasets. Each pair/`t` is a different reality, so the eval structure
+  and sizes are decided by hand (EDA -> a few builds -> trainings) before automating -- not a fixed K.
+- **Feasible K from the floor.** `cc_summary.floor_frac` (the largest single-cluster pair mass) caps
+  balanced K = floor(total/floor). HA-NA nt_cds: NA_0 floor 29.9% (t099) -> 37.1% (t095) -> max K 2-3,
+  so 5-fold is infeasible there. **Measured for HA-NA nt_cds only; re-measure per (pair, alphabet, `t`).**
+- **Design: fragment + hold out a whole CC.** Edge-cut the mega-CC into CCs (fragments); keep only CCs
+  **large enough** (a percent-of-pool cutoff, TBD); drop the rare tail. Hold out one whole CC as the
+  OOD (2D-CD) test; the **non-OOD** baseline is the same CCs' pairs split at the pair level (random).
+  Shared test set, matched size, repeat over seeds for a CI.
+- **Structure note (HA-NA nt_cds, measured):** one mega-CC at every `t` (85.7% -> 98.7% of pairs) + a
+  tiny tail; the mega-CC has no single dominant cluster (top ~35%); the high-degree hub clusters
+  (glossary: *bipartite hub*) NA_0/HA_1 separate out only after fragmentation. Not tested on other pairs.
+- **Reuse (unchanged):** `m_pos=null`, per-arm `within_fold` negatives, the four split-colored UMAP
+  figures, the hash->cluster overlap verifier; CC-size + per-CC cluster-composition plots already
+  exist (pre-step: `plot_cc_sizes.py`, `plot_cc_composition.py`).
+
 Date: 2026-07-21
 
 Scope: build **two datasets from the same positive pairs** at **matched size** -- an **OOD** one
