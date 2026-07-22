@@ -7,13 +7,13 @@ its own positives; only the analysis side reads this cache.)
 
 Reuses the Stage-3 positive path (`build_frontend` + `create_positive_pairs_v2`), so the
 universe matches `dataset_pairs_cc` for the same bundle + filters (nt_cds-correct; NOT the
-analysis `load_pair_universe`). The universe cache is fingerprinted on the resolved front-end
-filters + source-file mtimes (`pairs.meta.json`), so a changed population/bundle is never
-silently reused -- a mismatch triggers a rebuild.
+analysis `load_pair_universe`). The universe cache is keyed on the resolved front-end filters +
+source-file mtimes (`pairs.meta.json`), so a changed population/bundle is never silently reused --
+a mismatch triggers a rebuild.
 
 Artifacts (under data/processed/{virus}/{data_version}/):
     pair_universe_{alphabet}/{pair}/pairs.parquet          # t-invariant, cluster-independent
-    pair_universe_{alphabet}/{pair}/pairs.meta.json        # cache fingerprint (filters + mtimes)
+    pair_universe_{alphabet}/{pair}/pairs.meta.json        # cache key (filters + mtimes)
     cc_{source}/{pair}/tXXX/pairs_with_cc.parquet          # pair_key + cluster_id_a/b + cc_id (slim; join universe for the rest)
     cc_{source}/{pair}/tXXX/cc_sizes.csv                   # cc_id, n_pairs
     cc_{source}/{pair}/tXXX/cc_cluster_composition.csv     # cc_id, slot, cluster_id, n_pairs, pct_of_cc
@@ -53,20 +53,21 @@ from src.utils.config_hydra import get_virus_config_hydra  # noqa: E402
 # (the full frame is ~144 MB/threshold, so we don't duplicate it 4x).
 _PAIRS_WITH_CC_COLS = ['pair_key', 'cluster_id_a', 'cluster_id_b', 'cc_id']
 
-# Front-end filters the pair universe depends on (from config.dataset); part of the cache fingerprint.
+# Front-end filters the pair universe depends on (from config.dataset); part of the cache key.
 _FILTER_KEYS = ('hn_subtype', 'host', 'year', 'year_range', 'geo_location', 'passage',
                 'drop_ambiguous_subtype', 'max_isolates_to_process')
 
 
-def _universe_fingerprint(
+def _universe_cache_key(
     config,
     alphabet: str,
     pair: str,
     input_file: Path,
     cds_final_path: Path | None) -> dict:
     """Everything the pair universe depends on: alphabet, schema-pair, the resolved front-end
-    filters, and the source-file mtimes. A cached universe is reused only when this matches, so
-    a changed population/bundle is never silently loaded."""
+    filters, and the source-file mtimes (`pair` is the 'HA-NA' path label, not the schema_pair
+    tuple). A cached universe is reused only when this matches, so a changed population/bundle is
+    never silently loaded."""
     ds = config.dataset
 
     def _val(key):
@@ -93,7 +94,7 @@ def build_pair_universe(
     input_file: Path,
     cds_final_path: Path | None) -> pd.DataFrame:
     """The t-invariant positive universe via the Stage-3 front-end (so it matches the builder)."""
-    df = build_frontend(config, input_file, (fa, fb), cds_final_path=cds_final_path)
+    df = build_frontend(config, input_file, schema_pair_full=(fa, fb), cds_final_path=cds_final_path)
     pos, _ = create_positive_pairs_v2(df, schema_pair=(fa, fb), pair_key_alphabet=alphabet)
     return pos
 
@@ -112,6 +113,7 @@ def cc_cluster_composition(pos_ids: pd.DataFrame) -> pd.DataFrame:
             for cid, n in g[col].value_counts().items():
                 rows.append({'cc_id': int(cc), 'slot': slot, 'cluster_id': str(cid),
                              'n_pairs': int(n), 'pct_of_cc': round(100.0 * n / ncc, 3)})
+
     return pd.DataFrame(rows, columns=['cc_id', 'slot', 'cluster_id', 'n_pairs', 'pct_of_cc'])
 
 
@@ -168,23 +170,23 @@ def main() -> None:
 
     print(f'=== build_cc_structure {pair} {alphabet} (source={source}) ===')
 
-    # 1. pair universe (t-invariant) -- built once, cached with a fingerprint.
+    # 1. pair universe (t-invariant) -- built once, cached under a cache key.
     uni_dir = processed_base / f'pair_universe_{alphabet}' / pair
     uni_dir.mkdir(parents=True, exist_ok=True)
     uni_file = uni_dir / 'pairs.parquet'
     meta_file = uni_dir / 'pairs.meta.json'
-    fp = _universe_fingerprint(config, alphabet, pair, input_file, cds_final_path)
+    cache_key = _universe_cache_key(config, alphabet, pair, input_file, cds_final_path)
     cache_ok = (uni_file.exists() and meta_file.exists()
-                and json.loads(meta_file.read_text()) == fp and not args.rebuild)
+                and json.loads(meta_file.read_text()) == cache_key and not args.rebuild)
     if cache_ok:
         pos = pd.read_parquet(uni_file)
-        print(f'pair universe (cached, fingerprint match): {len(pos):,} pairs -> {uni_file}')
+        print(f'pair universe (cached, cache key match): {len(pos):,} pairs -> {uni_file}')
     else:
         if uni_file.exists() and not args.rebuild:
-            print('WARNING: universe cache fingerprint mismatch (filters/source changed); rebuilding.')
+            print('WARNING: universe cache key mismatch (filters/source changed); rebuilding.')
         pos = build_pair_universe(config, fa, fb, alphabet, input_file, cds_final_path)
         pos.to_parquet(uni_file, index=False)
-        meta_file.write_text(json.dumps(fp, indent=2))
+        meta_file.write_text(json.dumps(cache_key, indent=2))
         print(f'pair universe: {len(pos):,} pairs -> {uni_file}')
     n_universe = int(len(pos))
 
