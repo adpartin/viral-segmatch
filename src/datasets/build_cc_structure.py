@@ -26,7 +26,7 @@ another t. Join pairs_with_cc across thresholds on pair_key, never on cc_id.
 CLI:
     python src/datasets/build_cc_structure.py \\
         --config_bundle flu_ha_na_cc_nt_cds_ood_edge_cut \\
-        --thresholds t099 t098 t097 t095 [--protein_final PATH] [--rebuild]
+        --thresholds t099 t098 t097 t095 [--rebuild]
 """
 from __future__ import annotations
 
@@ -58,8 +58,12 @@ _FILTER_KEYS = ('hn_subtype', 'host', 'year', 'year_range', 'geo_location', 'pas
                 'drop_ambiguous_subtype', 'max_isolates_to_process')
 
 
-def _universe_fingerprint(config, alphabet: str, pair: str, input_file: Path,
-                          cds_final_path: Path | None) -> dict:
+def _universe_fingerprint(
+    config,
+    alphabet: str,
+    pair: str,
+    input_file: Path,
+    cds_final_path: Path | None) -> dict:
     """Everything the pair universe depends on: alphabet, schema-pair, the resolved front-end
     filters, and the source-file mtimes. A cached universe is reused only when this matches, so
     a changed population/bundle is never silently loaded."""
@@ -81,8 +85,13 @@ def _universe_fingerprint(config, alphabet: str, pair: str, input_file: Path,
     }
 
 
-def build_pair_universe(config, fa: str, fb: str, alphabet: str,
-                        input_file: Path, cds_final_path: Path | None) -> pd.DataFrame:
+def build_pair_universe(
+    config,
+    fa: str,
+    fb: str,
+    alphabet: str,
+    input_file: Path,
+    cds_final_path: Path | None) -> pd.DataFrame:
     """The t-invariant positive universe via the Stage-3 front-end (so it matches the builder)."""
     df = build_frontend(config, input_file, (fa, fb), cds_final_path=cds_final_path)
     pos, _ = create_positive_pairs_v2(df, schema_pair=(fa, fb), pair_key_alphabet=alphabet)
@@ -135,13 +144,12 @@ def main() -> None:
     p.add_argument('--config_bundle', required=True,
                    help='Hydra bundle (must set dataset.split_strategy.cluster_alphabet + cluster_id_path).')
     p.add_argument('--thresholds', nargs='+', required=True, help='e.g. t099 t098 t097 t095')
-    p.add_argument('--protein_final', default=None,
-                   help='override protein_final path (default: alongside cluster_id_path, matching the builder).')
     p.add_argument('--rebuild', action='store_true', help='rebuild the pair universe even if the cache matches.')
     args = p.parse_args()
 
     config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
-    ds, ss = config.dataset, config.dataset.split_strategy
+    ds = config.dataset
+    ss = config.dataset.split_strategy
     alphabet = str(ss.cluster_alphabet)
     hash_col = _POS_HASH[alphabet]
     fa, fb, sa, sb = _resolve_schema_pair(config, ds)
@@ -155,9 +163,7 @@ def main() -> None:
     source = clusters_root.name.removeprefix('clusters_')  # e.g. nt_cds_ood
     cluster_file = cluster_id_path.name                    # e.g. combined_cluster.parquet
 
-    input_file = Path(args.protein_final) if args.protein_final else processed_base / 'protein_final.parquet'
-    if not input_file.is_absolute():
-        input_file = PROJ / input_file
+    input_file = processed_base / 'protein_final.parquet'  # one version, alongside the clusters
     cds_final_path = processed_base / 'cds_dna_final.parquet' if alphabet == 'nt_cds' else None
 
     print(f'=== build_cc_structure {pair} {alphabet} (source={source}) ===')
@@ -207,6 +213,7 @@ def main() -> None:
         cc_cluster_composition(pos_ids).to_csv(out / 'cc_cluster_composition.csv', index=False)
         summ = cc_summary(pos_ids, t, sa, sb, n_universe, n_dropped)
         (out / 'cc_summary.json').write_text(json.dumps(summ, indent=2))
+
         drop_note = f' (dropped {n_dropped:,} on cluster join)' if n_dropped else ''
         print(f'  {t}: {summ["n_ccs"]:,} CCs; largest {100*summ["largest_cc_frac"]:.1f}%; '
               f'floor {summ["largest_cluster_b"]["cluster_id"]}={100*summ["largest_cluster_b"]["frac"]:.1f}% / '
