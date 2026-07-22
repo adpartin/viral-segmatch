@@ -8,6 +8,7 @@ from typing import Optional, Sequence, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import PercentFormatter
 
 from .plot_config import SEGMENT_COLORS, SEGMENT_ORDER, apply_default_style
 
@@ -217,12 +218,20 @@ def stacked_composition_barplot(
     ylabel: str,
     top_k: int = 4,
     item_labels: Optional[Sequence] = None,
+    normalize: bool = False,
+    label_min_frac: float = 0.06,
     dpi: int = 180,
     ) -> None:
     """One bar per item (in `item_order`), stacked by that item's top-`top_k` categories +
-    an 'other' block, colored by within-bar rank. Exposes concentration: a hub-dominated
-    item is one tall solid block; a diffuse item is a short top block over a large gray
-    'other'. Each bar is annotated with its dominant category and that category's % of the bar.
+    a gray 'Others' block, colored by within-bar rank -- so a color marks rank, not a fixed
+    category (each bar's blue is *that* item's largest category). Exposes concentration: a
+    hub-dominated item is one solid block, a spread item is many thin segments.
+
+    With `normalize=True` every bar is scaled to 1.0 so items of very different total size stay
+    comparable (needed when one mega-CC dwarfs the tail); the y-axis then reads as share-of-item.
+    Each top-`top_k` segment at least `label_min_frac` of its bar is labeled in place with its
+    category id (white on the colored blocks, dark on the gray 'Others'); the dominant category's
+    share of the bar is annotated above it.
 
     `comp` is long-form (`item_col`, `category_col`, `value_col`); it is filtered per item and
     sorted by `value_col` desc. Generic -- shared by the CC cluster-composition figures and
@@ -233,28 +242,40 @@ def stacked_composition_barplot(
     xs = np.arange(len(item_order))
     for x, item in zip(xs, item_order):
         g = comp[comp[item_col] == item].sort_values(value_col, ascending=False)
-        vals = g[value_col].to_numpy()
+        vals = g[value_col].to_numpy(dtype=float)
         cats = g[category_col].astype(str).tolist()
         total = float(vals.sum())
         if total <= 0:
             continue
         bottom = 0.0
         for r in range(min(top_k, len(vals))):
-            ax.bar(x, vals[r], bottom=bottom, color=palette(r % 10),
-                   edgecolor='white', linewidth=0.4)
-            bottom += float(vals[r])
-        other = float(vals[top_k:].sum()) if len(vals) > top_k else 0.0
-        if other > 0:
-            ax.bar(x, other, bottom=bottom, color='#d9d9d9', edgecolor='white', linewidth=0.4)
-        ax.annotate(f'{cats[0]}\n{100.0 * vals[0] / total:.0f}%', xy=(x, total),
-                    xytext=(0, 2), textcoords='offset points', ha='center', va='bottom',
-                    fontsize=6.5, color='#222')
+            frac = vals[r] / total
+            h = frac if normalize else vals[r]
+            ax.bar(x, h, bottom=bottom, color=palette(r % 10), edgecolor='white', linewidth=0.4)
+            if frac >= label_min_frac:
+                ax.text(x, bottom + h / 2.0, cats[r], ha='center', va='center',
+                        fontsize=6, color='white')
+            bottom += h
+        other_raw = float(vals[top_k:].sum()) if len(vals) > top_k else 0.0
+        if other_raw > 0:
+            other_frac = other_raw / total
+            other_h = other_frac if normalize else other_raw
+            ax.bar(x, other_h, bottom=bottom, color='#d9d9d9', edgecolor='white', linewidth=0.4)
+            if other_frac >= label_min_frac:
+                ax.text(x, bottom + other_h / 2.0, 'Others', ha='center', va='center',
+                        fontsize=6, color='#222')
+            bottom += other_h
+        ax.annotate(f'{100.0 * vals[0] / total:.0f}%', xy=(x, bottom), xytext=(0, 2),
+                    textcoords='offset points', ha='center', va='bottom', fontsize=6.5, color='#222')
     labels = list(item_labels) if item_labels is not None else list(item_order)
     labels = [str(v) for v in labels]
     ax.set_xticks(xs)
     ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
     ax.set_xlabel(xlabel, fontsize=9)
     ax.set_ylabel(ylabel, fontsize=9)
+    if normalize:
+        ax.set_ylim(0, 1.10)
+        ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
     ax.grid(axis='y', linestyle=':', alpha=0.5)
     ax.set_axisbelow(True)
     ax.set_title(title, fontsize=10)
@@ -263,3 +284,112 @@ def stacked_composition_barplot(
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
+
+
+def select_categories_with_others(
+    labels: Sequence,
+    *,
+    min_share: float = 0.01,
+    cap: int = 12,
+    palette: str = 'tab20',
+    ) -> dict:
+    """Split per-point categories into 'colored distinctly' vs a single 'Others'.
+
+    A category is colored distinctly if its share of `labels` is >= `min_share`, keeping at
+    most `cap` of them (largest first); every other point folds into 'Others'. Colors are
+    assigned by size rank from `palette`. One shared definition of the 'top categories +
+    gray Others' rule, so `umap_scatter` (and any other categorical scatter) agree.
+
+    Returns a dict:
+      'selected': list of (category, color_rgba, count, share), largest first (len <= cap);
+      'is_selected': bool ndarray aligned to `labels` (True where a point's category is
+                     colored distinctly);
+      'others_count' / 'others_share': the folded remainder.
+    """
+    labels = np.asarray(labels)
+    n = int(len(labels))
+    total = float(n) if n else 1.0
+    vc = pd.Series(labels).value_counts()  # largest first
+    chosen = [c for c in vc.index if vc[c] / total >= min_share][:cap]
+    cmap = plt.get_cmap(palette)
+    selected = [(c, cmap(i % cmap.N), int(vc[c]), int(vc[c]) / total)
+                for i, c in enumerate(chosen)]
+    is_selected = np.isin(labels, chosen)
+    others_count = n - int(is_selected.sum())
+    return {
+        'selected': selected,
+        'is_selected': is_selected,
+        'others_count': others_count,
+        'others_share': others_count / total,
+    }
+
+
+def umap_scatter(
+    X,
+    categories: Sequence,
+    *,
+    out_png: Union[str, Path],
+    title: str,
+    min_share: float = 0.01,
+    cap: int = 12,
+    metric: str = 'cosine',
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    seed: int = 42,
+    others_color: str = '#4d4d4d',
+    point_size: float = 12.0,
+    other_size: float = 6.0,
+    legend_title: Optional[str] = None,
+    category_labeler=None,
+    others_labeler=None,
+    title_fontsize: int = 10,
+    dpi: int = 200,
+    ) -> dict:
+    """Generic 2-D category scatter shared by the ESM-2 cluster UMAP and the CC / k-mer UMAPs.
+
+    Reduces `X` (N, D) to 2-D with UMAP unless it is already 2-D (D == 2, used as coordinates),
+    colors the categories with share >= `min_share` (<= `cap`, largest first) each distinctly,
+    folds the rest into one dark-gray 'Others', adds a legend ('<cat> <share>%', overridable via
+    `category_labeler(cat, count, share)` / `others_labeler(count, share)`) and title, and
+    saves. `categories` is the length-N per-point label (cluster_id, fragment, ...). The
+    representation-specific step (ESM-2 vs k-mer, any pre-SVD/PCA) is the caller's; this function
+    is representation-agnostic. Extracted from `plot_clusters.plot_cluster_umap`.
+
+    Returns {'n_points', 'n_categories', 'n_selected', 'others_share'}.
+    """
+    from .dim_reduction_utils import compute_umap_reduction  # lazy: pulls in umap/numba
+
+    X = np.asarray(X)
+    categories = np.asarray(categories)
+    xy = X if (X.ndim == 2 and X.shape[1] == 2) else compute_umap_reduction(
+        X, n_components=2, n_neighbors=n_neighbors, min_dist=min_dist,
+        metric=metric, random_state=seed)[0]
+
+    sel = select_categories_with_others(categories, min_share=min_share, cap=cap)
+
+    def _cat_label(cat, cnt, share):
+        return f'{cat} {share:.0%}'
+
+    def _oth_label(cnt, share):
+        return f'Others {share:.0%} (n={cnt:,})'
+
+    cat_label = category_labeler or _cat_label
+    oth_label = others_labeler or _oth_label
+
+    fig, ax = plt.subplots(figsize=(9, 8))
+    other = ~sel['is_selected']
+    if other.any():
+        ax.scatter(xy[other, 0], xy[other, 1], s=other_size, c=others_color, linewidths=0,
+                   rasterized=True, label=oth_label(sel['others_count'], sel['others_share']))
+    for cat, color, cnt, share in sel['selected']:
+        m = categories == cat
+        ax.scatter(xy[m, 0], xy[m, 1], s=point_size, color=color, linewidths=0,
+                   rasterized=True, label=cat_label(cat, cnt, share))
+    ax.legend(loc='best', fontsize=7, framealpha=0.9, title=legend_title)
+    ax.set_xlabel('UMAP-1')
+    ax.set_ylabel('UMAP-2')
+    ax.set_title(title, fontsize=title_fontsize)
+    savefig(out_png, dpi=dpi)
+    return {'n_points': int(len(categories)),
+            'n_categories': int(pd.Series(categories).nunique()),
+            'n_selected': len(sel['selected']), 'others_share': sel['others_share']}

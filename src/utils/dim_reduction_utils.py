@@ -26,8 +26,9 @@ Both routines support a `return_model=True` flag to expose the fitted
 sklearn estimator for downstream inspection (e.g. explained variance).
 """
 
-import numpy as np
 from typing import Optional, Tuple
+
+import numpy as np
 from sklearn.decomposition import PCA, TruncatedSVD
 
 try:
@@ -119,6 +120,7 @@ def compute_umap_reduction(
     n_neighbors: int = 15,
     min_dist: float = 0.1,
     random_state: int = 42,
+    metric: str = 'euclidean',
     return_model: bool = False
     ) -> Tuple[np.ndarray, Optional[object]]:
     """Compute UMAP reduction for embeddings.
@@ -129,6 +131,7 @@ def compute_umap_reduction(
         n_neighbors: UMAP parameter (default: 15)
         min_dist: UMAP parameter (default: 0.1)
         random_state: Random seed (default: 42)
+        metric: UMAP distance metric (default: 'euclidean'; use 'cosine' for ESM-2)
         return_model: If True, return fitted UMAP model
     
     Returns:
@@ -150,6 +153,7 @@ def compute_umap_reduction(
         n_components=n_components,
         n_neighbors=n_neighbors,
         min_dist=min_dist,
+        metric=metric,
         random_state=random_state
     )
     reduced_embeddings = umap_reducer.fit_transform(embeddings)

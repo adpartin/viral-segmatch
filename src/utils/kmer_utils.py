@@ -11,10 +11,11 @@ scipy .npz + parquet index. Supports both alphabets:
 See docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
 """
 
-import numpy as np
-import pandas as pd
 from pathlib import Path
 from typing import Dict, Tuple
+
+import numpy as np
+import pandas as pd
 from scipy import sparse
 
 from src.utils import schema
@@ -83,6 +84,48 @@ def load_kmer_matrix(kmer_dir: Path, k: int, alphabet: str = 'nt_ctg'
     if not npz_file.exists():
         raise FileNotFoundError(f"K-mer features not found: {npz_file}")
     return sparse.load_npz(npz_file)
+
+
+def build_hash_to_kmer_row(
+    kmer_dir: Path, k: int, alphabet: str, final_path: Path, functions=None) -> Dict[str, int]:
+    """Map each canonical sequence-hash to its row in the k-mer matrix training consumes.
+
+    Bridges the sequence-hash world (cluster / pair tables) to the occurrence-keyed matrix:
+    reuses `load_kmer_index` for the `(assembly_id, occurrence_id) -> row` map training uses
+    (so any id normalization is applied here too), then joins the alphabet's `*_final` table --
+    which carries both the occurrence key and the sequence-hash -- to re-key that row by the hash.
+    Alphabet-agnostic via the schema registry: (`hash_col`, `occurrence_col`) are
+    (`prot_hash`, `brc_fea_id`) for aa, (`cds_dna_hash`, `brc_fea_id`) for nt_cds, and
+    (`ctg_dna_hash`, `genbank_ctg_id`) for nt_ctg. Sequences that share a hash share a row
+    (identical k-mer vector), so keeping one representative per hash is exact.
+
+    Args:
+        kmer_dir: directory holding `kmer_features_{alphabet}_k{k}.*`.
+        k: k-mer size.
+        alphabet: 'aa' | 'nt_cds' | 'nt_ctg'.
+        final_path: the alphabet's `*_final` parquet (assembly_id + occurrence_col + hash_col).
+        functions: optional canonical-function allow-list; restricts the returned hashes.
+
+    Returns:
+        {sequence_hash -> matrix row}.
+    """
+    sch = schema.require(alphabet)
+    occ, hcol = sch.occurrence_col, sch.hash_col
+    key_to_row = load_kmer_index(kmer_dir, k, alphabet=alphabet)
+    cols = ['assembly_id', occ, hcol] + (['function'] if functions is not None else [])
+    fin = pd.read_parquet(final_path, columns=cols)
+    if functions is not None:
+        fin = fin[fin['function'].isin(functions)]
+    fin = fin.drop_duplicates(hcol)
+    occ_id = fin[occ].astype(str)
+    if alphabet == 'nt_ctg':  # match load_kmer_index's genbank_ctg_id float round-trip
+        occ_id = occ_id.apply(lambda x: str(float(x)) if x.replace('.', '', 1).isdigit() else x)
+    out: Dict[str, int] = {}
+    for h, a, o in zip(fin[hcol], fin['assembly_id'].astype(str), occ_id):
+        row = key_to_row.get((a, o))
+        if row is not None:
+            out[h] = int(row)
+    return out
 
 
 def get_kmer_pair_features(

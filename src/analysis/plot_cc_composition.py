@@ -37,6 +37,7 @@ def main() -> None:
     p.add_argument('--alphabet', required=True, help='aa / nt_cds / nt_ctg (title only)')
     p.add_argument('--threshold_id', required=True, help='tXXX (title only)')
     p.add_argument('--top_n', type=int, default=15, help='number of largest CCs to draw (default 15)')
+    p.add_argument('--note', default='', help='optional extra title line (e.g. "fragmented (1.6% dropped)")')
     args = p.parse_args()
 
     comp = pd.read_csv(args.cc_dir / 'cc_cluster_composition.csv', keep_default_na=False, na_values=[''])
@@ -45,18 +46,19 @@ def main() -> None:
     summ = json.loads((args.cc_dir / 'cc_summary.json').read_text())
     sa, sb = summ['slot_a'], summ['slot_b']  # robust to hyphenated short names (PB1-F2, PA-X)
 
+    note_line = f'\n{args.note}' if args.note else ''
     for slot, sname in (('a', sa), ('b', sb)):
         cs = comp[comp['slot'] == slot]
         out = (args.cc_dir / 'figures' /
                f'cc_cluster_composition_{sname}_{args.pair}_{args.alphabet}_{args.threshold_id}.png')
+        title = (f'{args.pair} -- {args.alphabet} -- {args.threshold_id} -- {sname}-side cluster '
+                 f'composition per CC\ntop {len(top_ccs)} CCs, each normalized to 100%; segments = '
+                 f'top clusters + gray Others (in-bar = cluster id, above = dominant cluster %){note_line}')
         stacked_composition_barplot(
             cs, item_col='cc_id', category_col='cluster_id', value_col='n_pairs',
-            item_order=top_ccs, out_png=out,
-            title=(f'{args.pair} -- {args.alphabet} -- {args.threshold_id} -- {sname}-side cluster '
-                   f'composition per CC\ntop {len(top_ccs)} CCs; stacked by top clusters + other '
-                   f'(label = dominant cluster, % of CC)'),
+            item_order=top_ccs, out_png=out, normalize=True, title=title,
             xlabel='connected component (cc_id, rank-ordered largest first)',
-            ylabel='positive pairs in CC')
+            ylabel='share of CC')
         print(f'  wrote {out}')
 
 

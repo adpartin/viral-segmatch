@@ -64,7 +64,7 @@ from src.utils.clustering_utils import (  # noqa: E402
     threshold_label,
 )
 from src.utils.plot_config import get_protein_color  # noqa: E402
-from src.utils.plot_utils import size_barplot  # noqa: E402
+from src.utils.plot_utils import size_barplot, umap_scatter  # noqa: E402
 
 
 def _cluster_int(cluster_id: str) -> int:
@@ -268,13 +268,12 @@ def plot_cluster_umap(
 
     Returns `(fig_path, stats)` where stats = {n_plotted, n_missing, n_clusters}.
     """
-    import umap  # lazy: heavy import (numba), only needed for this figure
-
     clusters_root = Path(clusters_root)
     tlabel = threshold_label(threshold)
     parquet = clusters_root / tlabel / f"{short_name}_cluster.parquet"
     if not parquet.exists():
         raise FileNotFoundError(f"missing OOD artifact (build it first): {parquet}")
+
     clusters = pd.read_parquet(parquet)
     alphabet = str(clusters['alphabet'].iloc[0])
     hash_col = schema.SCHEMA[alphabet].hash_col
@@ -285,42 +284,27 @@ def plot_cluster_umap(
 
     X, cint, n_missing = _load_cluster_embeddings(
         clusters, hash_col, full_name, protein_final=protein_final,
-        embeddings_h5=embeddings_h5, embeddings_index=embeddings_index)
+        embeddings_h5=embeddings_h5, embeddings_index=embeddings_index
+    )
     n_plotted = len(cint)
+    n_plotted_clusters = int(pd.Series(cint).nunique())  # distinct clusters actually drawn
 
-    # 1280-dim ESM-2 -> 2-D. random_state fixes the layout (and makes UMAP single-threaded).
-    xy = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, metric=metric,
-                   random_state=seed).fit_transform(X)
-
-    # Color the top_n largest clusters distinctly (cluster rank 0 = largest); rest gray.
-    sizes = pd.Series(cint).value_counts()  # cluster rank -> n plotted
-    top = list(sizes.sort_values(ascending=False).index[:top_n])
-    palette = plt.get_cmap('tab20')
-    color_of = {c: palette(i % 20) for i, c in enumerate(top)}
-
-    fig, ax = plt.subplots(figsize=(9, 8))
-    other = ~np.isin(cint, top)
-    if other.any():
-        ax.scatter(xy[other, 0], xy[other, 1], s=6, c='lightgray',
-                   linewidths=0, rasterized=True, label=f'other ({int(other.sum())})')
-    for c in top:
-        m = cint == c
-        ax.scatter(xy[m, 0], xy[m, 1], s=12, color=color_of[c],
-                   linewidths=0, rasterized=True, label=f'{short_name}_{c} (n={int(m.sum())})')
-    ax.legend(loc='best', fontsize=7, framealpha=0.9,
-              title=f'top {len(top)} of {n_clusters:,} clusters')
+    # Draw via the shared scatter: the top_n largest clusters distinctly (min_share=0 -> pure
+    # top-N, cluster rank 0 = largest), the rest light-gray 'other'. The 1280-dim ESM-2 -> 2-D
+    # UMAP (cosine, seeded so the layout is fixed) runs inside umap_scatter. title_fontsize=None
+    # keeps the original default title size (umap_scatter otherwise uses 10 for the CC plots).
     missing_note = f" ({n_missing:,} without embedding)" if n_missing else ""
-    ax.set_title(f"{short_name} {alphabet} {tlabel} -- ESM-2 UMAP, colored by cluster\n"
-                 f"{n_plotted:,} of {n_total:,} seqs embedded{missing_note}; "
-                 f"metric={metric}, n_neighbors={n_neighbors}, min_dist={min_dist}, seed={seed}")
-    ax.set_xlabel('UMAP-1')
-    ax.set_ylabel('UMAP-2')
-
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    fig_path = out_dir / f"{short_name}_{tlabel}_umap.png"
-    fig.savefig(fig_path, dpi=dpi, bbox_inches='tight')
-    plt.close(fig)
+    title = (f"{short_name} {alphabet} {tlabel} -- ESM-2 UMAP, colored by cluster\n"
+             f"{n_plotted:,} of {n_total:,} seqs embedded{missing_note}; "
+             f"metric={metric}, n_neighbors={n_neighbors}, min_dist={min_dist}, seed={seed}")
+    fig_path = Path(out_dir) / f"{short_name}_{tlabel}_umap.png"
+    umap_scatter(
+        X, cint, out_png=fig_path, title=title,
+        min_share=0.0, cap=top_n, metric=metric, n_neighbors=n_neighbors, min_dist=min_dist,
+        seed=seed, others_color='lightgray', point_size=12, other_size=6,
+        legend_title=f'top {min(top_n, n_plotted_clusters):,} of {n_clusters:,} clusters',
+        category_labeler=lambda c, n, sh: f'{short_name}_{c} (n={n})',
+        others_labeler=lambda n, sh: f'other ({n})', title_fontsize=None, dpi=dpi)
     return fig_path, {'n_plotted': n_plotted, 'n_missing': n_missing, 'n_clusters': n_clusters}
 
 

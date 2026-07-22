@@ -43,6 +43,7 @@ def plot_cc_size_barplot(
     threshold_id: str,
     top_n: int,
     out_png: Path,
+    note: str = '',
     ) -> dict:
     """Top-N CC-size barplot (positive pairs per CC) from a run's cc_pair_sizes.csv.
 
@@ -53,6 +54,8 @@ def plot_cc_size_barplot(
         threshold_id: 'tXXX' -- title only.
         top_n: number of largest CCs to draw.
         out_png: output PNG path.
+        note: optional extra title line appended below the title (default '') -- e.g. to mark a
+            fragmented (edge-cut) CC-size plot apart from the natural one.
 
     Returns:
         {'n_ccs', 'n_pairs', 'largest_pct'}.
@@ -67,6 +70,8 @@ def plot_cc_size_barplot(
         f'{pair_label} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})\n'
         f'top {len(top)} of {n_ccs:,} CCs  ·  {n_pairs:,} positive pairs  ·  '
         f'largest CC {largest_pct:.1f}%')
+    if note:
+        title += f'\n{note}'
     size_barplot(
         sizes, top_n=top_n, out_png=out_png, title=title,
         xlabel='connected component (rank-ordered, largest first)',
@@ -86,6 +91,7 @@ def main() -> None:
     p.add_argument('--alphabet', required=True, help='aa / nt_cds / nt_ctg (title only)')
     p.add_argument('--threshold_id', required=True, help='tXXX (title only)')
     p.add_argument('--top_n', type=int, default=20, help='largest CCs to draw (default 20)')
+    p.add_argument('--note', default='', help='optional extra title line (e.g. "fragmented: 30 cuts, 1.6% dropped")')
     p.add_argument('--out_png', type=Path, default=None,
                    help='default: <run_dir>/figures/<csv-stem>_barplot.png')
     args = p.parse_args()
@@ -96,7 +102,7 @@ def main() -> None:
     out_png = args.out_png or (args.run_dir / 'figures' / f'{csv.stem}_barplot.png')
     stats = plot_cc_size_barplot(
         csv, pair_label=args.pair_label, alphabet=args.alphabet,
-        threshold_id=args.threshold_id, top_n=args.top_n, out_png=out_png)
+        threshold_id=args.threshold_id, top_n=args.top_n, out_png=out_png, note=args.note)
     print(f"  {args.pair_label} {args.alphabet} {args.threshold_id} [{args.csv}]: "
           f"{stats['n_ccs']:,} CCs, {stats['n_pairs']:,} pairs, "
           f"largest {stats['largest_pct']:.1f}% -> {out_png}")

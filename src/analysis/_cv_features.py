@@ -18,13 +18,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from sklearn.metrics import f1_score, average_precision_score, matthews_corrcoef
+from sklearn.metrics import average_precision_score, f1_score, matthews_corrcoef
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.clustering_utils import compute_prot_hash  # noqa: E402
+from src.utils.kmer_utils import build_hash_to_kmer_row  # noqa: E402
 
 _KMER_DIR = PROJ / 'data/embeddings/flu/July_2025'
 _PROTEIN_FINAL = PROJ / 'data/processed/flu/July_2025/protein_final.parquet'
@@ -33,18 +33,9 @@ _HASH = {'aa': ('prot_hash_a', 'prot_hash_b'), 'nt_cds': ('cds_dna_hash_a', 'cds
 
 
 def build_hash_to_row(kmer_k: int, functions_full: list[str]) -> dict:
-    """{prot_hash -> k-mer matrix row} for aa, via the (assembly_id, brc_fea_id) join."""
-    idx = pd.read_parquet(_KMER_DIR / f'kmer_features_aa_k{kmer_k}_index.parquet',
-                          columns=['assembly_id', 'brc_fea_id', 'function', 'row'])
-    idx = idx[idx['function'].isin(functions_full)].copy()
-    prot = pd.read_parquet(_PROTEIN_FINAL, columns=['assembly_id', 'brc_fea_id', 'prot_seq', 'function'])
-    prot = prot[prot['function'].isin(functions_full)].copy()
-    prot['prot_hash'] = prot['prot_seq'].map(compute_prot_hash)
-    for df in (idx, prot):
-        df['assembly_id'] = df['assembly_id'].astype(str)
-        df['brc_fea_id'] = df['brc_fea_id'].astype(str)
-    m = prot.merge(idx[['assembly_id', 'brc_fea_id', 'row']], on=['assembly_id', 'brc_fea_id'], how='inner')
-    return dict(zip(m['prot_hash'], m['row'].astype(int)))
+    """{prot_hash -> k-mer matrix row} for aa; thin wrapper over the shared, alphabet-agnostic
+    `kmer_utils.build_hash_to_kmer_row` (verified to reproduce the prior inline aa join exactly)."""
+    return build_hash_to_kmer_row(_KMER_DIR, kmer_k, 'aa', _PROTEIN_FINAL, functions=functions_full)
 
 
 def _interaction(ea: np.ndarray, eb: np.ndarray, interaction: str) -> np.ndarray:

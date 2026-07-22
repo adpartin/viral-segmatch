@@ -18,6 +18,7 @@ Artifacts (under data/processed/{virus}/{data_version}/):
     cc_{source}/{pair}/tXXX/cc_sizes.csv                   # cc_id, n_pairs
     cc_{source}/{pair}/tXXX/cc_cluster_composition.csv     # cc_id, slot, cluster_id, n_pairs, pct_of_cc
     cc_{source}/{pair}/tXXX/cc_summary.json                # n_ccs, largest CC, floor, max_balanced_k (fracs vs the universe size)
+    cc_{source}/{pair}/tXXX/fragmented/                    # optional (--fragment): the 4 files on the edge-cut mega-CC + fragment_audit.json
 where {source} = the cluster dir name minus the 'clusters_' prefix (e.g. nt_cds_ood).
 
 Note: cc_id is a per-threshold ordinal -- cc_id=k at one t is NOT the same component at
@@ -26,7 +27,7 @@ another t. Join pairs_with_cc across thresholds on pair_key, never on cc_id.
 CLI:
     python src/datasets/build_cc_structure.py \\
         --config_bundle flu_ha_na_cc_nt_cds_ood_edge_cut \\
-        --thresholds t099 t098 t097 t095 [--rebuild]
+        --thresholds t099 t098 t097 t095 [--rebuild] [--fragment --max_drop_frac 0.10]
 """
 from __future__ import annotations
 
@@ -43,6 +44,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.datasets._megacc_cut import fragment_until, stop_at_n_atoms  # noqa: E402
 from src.datasets._pair_helpers import bipartite_components  # noqa: E402
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
 from src.datasets.dataset_pairs_cc import _POS_HASH, _resolve_schema_pair, build_frontend  # noqa: E402
@@ -141,12 +143,64 @@ def cc_summary(pos_ids: pd.DataFrame, threshold: str, sa: str, sb: str,
     }
 
 
+def _write_cc_artifacts(pos_ids: pd.DataFrame, out_dir: Path, t: str, sa: str, sb: str,
+                        n_universe: int, n_dropped: int) -> dict:
+    """Persist the four CC artifacts for a pos frame carrying cluster_id_a/b + cc_id, and return
+    its summary. Shared by the natural per-t structure and the fragmented (`--fragment`) one, so
+    both write the identical file set (only the cc_id assignment differs)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pos_ids[_PAIRS_WITH_CC_COLS].to_parquet(out_dir / 'pairs_with_cc.parquet', index=False)
+    sizes = pos_ids.groupby('cc_id').size().sort_values(ascending=False).rename('n_pairs')
+    sizes.index.name = 'cc_id'
+    sizes.reset_index().to_csv(out_dir / 'cc_sizes.csv', index=False)
+    cc_cluster_composition(pos_ids).to_csv(out_dir / 'cc_cluster_composition.csv', index=False)
+    summ = cc_summary(pos_ids, t, sa, sb, n_universe, n_dropped)
+    (out_dir / 'cc_summary.json').write_text(json.dumps(summ, indent=2))
+    return summ
+
+
+def _build_fragmented(pos_ids: pd.DataFrame, out_dir: Path, t: str, sa: str, sb: str,
+                      n_universe: int, *, cut_method: str, seed: int,
+                      target_atoms: int | None, max_drop_frac: float) -> None:
+    """Edge-cut the mega-CC (`fragment_until`), re-derive CCs on the kept pairs, and persist the
+    fragmented artifacts + a `fragment_audit.json`. This is where hub-core fragments (a fragment
+    that is ~97% one cluster) emerge; the natural mega-CC is spread. With `target_atoms=None` the
+    count stop is left unreachable so `max_drop_frac` (the drop budget) is the binding stop."""
+    n_before = int(len(pos_ids))
+    target = target_atoms if target_atoms else n_before + 1  # unreachable -> max_drop_frac binds
+    kept, _dropped, audit = fragment_until(
+        pos_ids.reset_index(drop=True), col_a='cluster_id_a', col_b='cluster_id_b',
+        cut_method=cut_method, seed=seed, stop_fn=stop_at_n_atoms(target), max_drop_frac=max_drop_frac)
+    kept = kept.reset_index(drop=True)
+    component_id, _summ = bipartite_components(kept, col_a='cluster_id_a', col_b='cluster_id_b')
+    kept['cc_id'] = component_id.to_numpy()
+
+    summ = _write_cc_artifacts(kept, out_dir, t, sa, sb, n_universe, n_universe - int(len(kept)))
+    audit_out = {'params': {'cut_method': cut_method, 'seed': seed,
+                            'target_atoms': target_atoms, 'max_drop_frac': max_drop_frac},
+                 'n_pairs_before': n_before, 'n_pairs_kept': int(len(kept)), **audit}
+    (out_dir / 'fragment_audit.json').write_text(json.dumps(audit_out, indent=2))
+    print(f'  {t}/fragmented: {audit["n_cuts"]} cuts, dropped {audit["pairs_dropped"]:,} '
+          f'({100 * audit["dropped_frac"]:.1f}%), stop={audit["stopped_reason"]}; '
+          f'{summ["n_ccs"]:,} CCs; largest {100 * summ["largest_cc_frac"]:.1f}%; '
+          f'floor {summ["largest_cluster_b"]["cluster_id"]}={100 * summ["largest_cluster_b"]["frac"]:.1f}%; '
+          f'maxK={summ["max_balanced_k"]} -> {out_dir}')
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--config_bundle', required=True,
                    help='Hydra bundle (must set dataset.split_strategy.cluster_alphabet + cluster_id_path).')
     p.add_argument('--thresholds', nargs='+', required=True, help='e.g. t099 t098 t097 t095')
     p.add_argument('--rebuild', action='store_true', help='rebuild the pair universe even if the cache matches.')
+    p.add_argument('--fragment', action='store_true',
+                   help='also emit fragmented CC artifacts (edge-cut the mega-CC) under tXXX/fragmented/.')
+    p.add_argument('--max_drop_frac', type=float, default=0.10,
+                   help='fragment: drop-budget cap on straddling pairs (default 0.10); the primary EDA knob.')
+    p.add_argument('--target_atoms', type=int, default=None,
+                   help='fragment: stop once this many atoms exist (default: unreachable, so max_drop_frac binds).')
+    p.add_argument('--cut_method', default='spectral', help="fragment: 'spectral' or 'kl' (default spectral).")
+    p.add_argument('--frag_seed', type=int, default=1, help='fragment: bisection RNG seed (default 1).')
     args = p.parse_args()
 
     config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
@@ -207,20 +261,17 @@ def main() -> None:
         pos_ids['cc_id'] = component_id.to_numpy()
 
         out = processed_base / f'cc_{source}' / pair / t
-        out.mkdir(parents=True, exist_ok=True)
-        pos_ids[_PAIRS_WITH_CC_COLS].to_parquet(out / 'pairs_with_cc.parquet', index=False)
-        sizes = (pos_ids.groupby('cc_id').size().sort_values(ascending=False).rename('n_pairs'))
-        sizes.index.name = 'cc_id'
-        sizes.reset_index().to_csv(out / 'cc_sizes.csv', index=False)
-        cc_cluster_composition(pos_ids).to_csv(out / 'cc_cluster_composition.csv', index=False)
-        summ = cc_summary(pos_ids, t, sa, sb, n_universe, n_dropped)
-        (out / 'cc_summary.json').write_text(json.dumps(summ, indent=2))
-
+        summ = _write_cc_artifacts(pos_ids, out, t, sa, sb, n_universe, n_dropped)
         drop_note = f' (dropped {n_dropped:,} on cluster join)' if n_dropped else ''
         print(f'  {t}: {summ["n_ccs"]:,} CCs; largest {100*summ["largest_cc_frac"]:.1f}%; '
               f'floor {summ["largest_cluster_b"]["cluster_id"]}={100*summ["largest_cluster_b"]["frac"]:.1f}% / '
               f'{summ["largest_cluster_a"]["cluster_id"]}={100*summ["largest_cluster_a"]["frac"]:.1f}%; '
               f'maxK={summ["max_balanced_k"]}{drop_note} -> {out}')
+
+        if args.fragment:
+            _build_fragmented(pos_ids, out / 'fragmented', t, sa, sb, n_universe,
+                              cut_method=args.cut_method, seed=args.frag_seed,
+                              target_atoms=args.target_atoms, max_drop_frac=args.max_drop_frac)
 
 
 if __name__ == '__main__':
