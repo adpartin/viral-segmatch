@@ -291,7 +291,7 @@ def select_categories_with_others(
     *,
     min_share: float = 0.01,
     cap: int = 12,
-    palette: str = 'tab20',
+    palette='tab20',
     ) -> dict:
     """Split per-point categories into 'colored distinctly' vs a single 'Others'.
 
@@ -311,8 +311,12 @@ def select_categories_with_others(
     total = float(n) if n else 1.0
     vc = pd.Series(labels).value_counts()  # largest first
     chosen = [c for c in vc.index if vc[c] / total >= min_share][:cap]
-    cmap = plt.get_cmap(palette)
-    selected = [(c, cmap(i % cmap.N), int(vc[c]), int(vc[c]) / total)
+    if isinstance(palette, str):
+        cmap = plt.get_cmap(palette)
+        colors = [cmap(i % cmap.N) for i in range(max(1, len(chosen)))]
+    else:
+        colors = list(palette)  # explicit list of color specs
+    selected = [(c, colors[i % len(colors)], int(vc[c]), int(vc[c]) / total)
                 for i, c in enumerate(chosen)]
     is_selected = np.isin(labels, chosen)
     others_count = n - int(is_selected.sum())
@@ -332,6 +336,7 @@ def umap_scatter(
     title: str,
     min_share: float = 0.01,
     cap: int = 12,
+    palette='tab20',
     metric: str = 'cosine',
     n_neighbors: int = 15,
     min_dist: float = 0.1,
@@ -365,7 +370,7 @@ def umap_scatter(
         X, n_components=2, n_neighbors=n_neighbors, min_dist=min_dist,
         metric=metric, random_state=seed)[0]
 
-    sel = select_categories_with_others(categories, min_share=min_share, cap=cap)
+    sel = select_categories_with_others(categories, min_share=min_share, cap=cap, palette=palette)
 
     def _cat_label(cat, cnt, share):
         return f'{cat} {share:.0%}'

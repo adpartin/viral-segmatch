@@ -49,6 +49,10 @@ FINAL = {
     'nt_cds': PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet',
     'nt_ctg': PROJ / 'data/processed/flu/July_2025/ctg_dna_final.parquet',
 }
+# Bold, distinct categorical colors for the CC UMAPs (led by magenta/purple/brown; avoids
+# tab20's pale blue/orange and the dark-gray reserved for 'Others').
+_BOLD_PALETTE = ['#d01c8b', '#5e3c99', '#8c510a', '#018571', '#b2182b', '#1b7837',
+                 '#762a83', '#c51b7d', '#35978f', '#9970ab', '#40004b', '#00441b']
 
 
 def cluster_vectors(hashes, alphabet: str, *, kmer_k: int = 6, svd_dim: int = 50, seed: int = 42):
@@ -94,7 +98,7 @@ def _kmer_umap(hashes, categories, alphabet, out_png, title, *, kmer_k, min_shar
     x, keep = cluster_vectors(list(hashes), alphabet, kmer_k=kmer_k, seed=seed)
     cats = np.asarray(categories)[keep]
     return umap_scatter(x, cats, out_png=out_png, title=title, min_share=min_share, cap=cap,
-                        metric=metric, seed=seed, legend_title=legend_title,
+                        palette=_BOLD_PALETTE, metric=metric, seed=seed, legend_title=legend_title,
                         category_labeler=category_labeler)
 
 
@@ -107,7 +111,7 @@ def plot_single_side_clusters(clusters_root, threshold, short_name, out_dir, *, 
     hcol = schema.SCHEMA[alphabet].hash_col
     out_png = Path(out_dir) / f'{short_name}_{tl}_{alphabet}_kmer_umap.png'
     n_clusters = int(clusters['cluster_id'].nunique())
-    title = (f'{short_name} -- {alphabet} -- {tl} -- {kmer_k}-mer UMAP, colored by cluster\n'
+    title = (f'{short_name} -- {alphabet} -- {tl} -- {kmer_k}-mer UMAP\n'
              f'{len(clusters):,} sequences; {n_clusters:,} clusters (>= {min_share:.0%} colored)')
     stats = _kmer_umap(clusters[hcol].tolist(), clusters['cluster_id'].to_numpy(), alphabet, out_png,
                        title, kmer_k=kmer_k, min_share=min_share, cap=cap, metric=metric, seed=seed,
@@ -138,8 +142,8 @@ def _plot_cc_sides(pw, uni, pair, out_dir, tag, tlabel, *, alphabet, kmer_k, min
             ms, cp, labeler = 0.0, len(cc_ids), (lambda c, n, sh: f'{c} {sh:.0%}')
             desc = f'{len(cc_ids)} fragments {list(cc_ids)}'
         out_png = Path(out_dir) / f'{tag}_{sname}_{pair}_{alphabet}_kmer_umap.png'
-        title = (f'{pair} {tag} -- {sname}-side -- {alphabet} -- {tlabel} -- {kmer_k}-mer UMAP, '
-                 f'colored by {color_by}\n{len(side):,} sequences; {desc}')
+        title = (f'{pair} {tag} -- {sname}-side -- {alphabet} -- {tlabel} -- {kmer_k}-mer UMAP\n'
+                 f'{len(side):,} sequences; {desc}')
         stats = _kmer_umap(side['seq_hash'].tolist(), cats, alphabet, out_png, title, kmer_k=kmer_k,
                            min_share=ms, cap=cp, metric=metric, seed=seed, legend_title=legend,
                            category_labeler=labeler)
