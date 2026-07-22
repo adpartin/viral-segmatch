@@ -41,7 +41,8 @@ changes). So build the positives **once per (alphabet, schema-pair)** -- the exp
 the positive pairs with `cds_dna_hash_a/b` + `prot_hash_a/b` + `assembly_id_a/b` + `func_a/b`.
 
 3.2 **Per (alphabet, schema-pair, cluster-source, `t`):**
-- `pairs_with_cc.parquet` -- positives + `cluster_id_a/b` + `cc_id` (the CC assignment).
+- `pairs_with_cc.parquet` -- `pair_key` + `cluster_id_a/b` + `cc_id` (the per-`t` assignment, slim;
+  join the universe on `pair_key` for the rest).
 - `cc_sizes.csv` -- `cc_id, n_pairs` (feeds `plot_cc_sizes.py`).
 - `cc_cluster_composition.csv` -- long-form `cc_id, slot, cluster_id, n_pairs, pct_of_cc` (the
   hub-dominance record: shows "NA_0 = 97% of this CC").
@@ -65,8 +66,9 @@ data/processed/flu/July_2025/
       cc_cluster_composition_NA_{pair}_{alphabet}_tXXX.png
 ```
 `{alphabet}`=nt_cds, `{pair}`=HA-NA. `pair_universe_*` has no `t`/cluster-source (it depends on
-neither); `cc_*_ood` is per cluster-source + `t`. `pairs_with_cc.parquet` may be slimmed to
-`(pair_key, cluster_id_a/b, cc_id)` keyed to the universe if size matters.
+neither); `cc_*_ood` is per cluster-source + `t`. `pairs_with_cc.parquet` is slim --
+`(pair_key, cluster_id_a/b, cc_id)`, keyed to the universe by `pair_key` (the full frame is
+~144 MB/threshold; slim is ~5 MB).
 
 ## 5. Reuse vs new (verified against source)
 
@@ -137,4 +139,6 @@ set-cover later).
 
 8.3 **First build**: HA-NA nt_cds at the four `t`; other alphabets/pairs on demand.
 
-8.4 **`pairs_with_cc` columns**: store the full joined frame; add columns as needed.
+8.4 **`pairs_with_cc` columns**: slim -- `(pair_key, cluster_id_a/b, cc_id)`, keyed to the universe
+by `pair_key` (the full frame is ~144 MB/threshold vs ~5 MB slim; measured 2026-07-21). Add per-`t`
+columns as needed.
