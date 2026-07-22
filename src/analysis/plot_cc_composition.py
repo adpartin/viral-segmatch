@@ -16,6 +16,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -38,10 +39,11 @@ def main() -> None:
     p.add_argument('--top_n', type=int, default=15, help='number of largest CCs to draw (default 15)')
     args = p.parse_args()
 
-    comp = pd.read_csv(args.cc_dir / 'cc_cluster_composition.csv')
-    sizes = pd.read_csv(args.cc_dir / 'cc_sizes.csv')
+    comp = pd.read_csv(args.cc_dir / 'cc_cluster_composition.csv', keep_default_na=False, na_values=[''])
+    sizes = pd.read_csv(args.cc_dir / 'cc_sizes.csv', keep_default_na=False, na_values=[''])
     top_ccs = sizes.sort_values('n_pairs', ascending=False).head(args.top_n)['cc_id'].tolist()
-    sa, sb = args.pair.split('-')
+    summ = json.loads((args.cc_dir / 'cc_summary.json').read_text())
+    sa, sb = summ['slot_a'], summ['slot_b']  # robust to hyphenated short names (PB1-F2, PA-X)
 
     for slot, sname in (('a', sa), ('b', sb)):
         cs = comp[comp['slot'] == slot]
