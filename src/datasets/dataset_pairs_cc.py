@@ -179,7 +179,8 @@ def assign_atoms_prod(
         kept_pos, _dropped_pos, cut_audit = fragment_until(
             pos_ids, col_a='cluster_id_a', col_b='cluster_id_b',
             cut_method=edge_cut['cut_method'], seed=edge_cut['seed'],
-            stop_fn=stop_at_n_atoms(edge_cut['target_atoms']), max_drop_frac=edge_cut['max_drop_frac']
+            stop_fn=stop_at_n_atoms(edge_cut['target_atoms']),
+            max_drop_frac=edge_cut['max_drop_frac']
         )
         pos_ids = kept_pos.reset_index(drop=True)
         # Re-derive atoms on the fragmented (kept) pairs -- each fragment is a bipartite CC == atom.
