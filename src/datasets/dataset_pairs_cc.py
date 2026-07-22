@@ -423,15 +423,17 @@ def make_folds_within_fold(
     folds = []
 
     for fi, (tv_idx, te_idx) in enumerate(gkf.split(pos_full, groups=groups)):
-        te_pos = pos_full.iloc[te_idx]
+        test_pos = pos_full.iloc[te_idx]
         tv = pos_full.iloc[tv_idx]
         train_pos, val_pos = _carve_val_atoms(tv, val_ratio, n_total, seed)
         out = []
-        for si, sp in enumerate([train_pos, val_pos, te_pos]):
-            negs = within_fold_negatives(sp, cooccur, df, schema_pair_full,
-                                         neg_to_pos_ratio=neg_to_pos_ratio,
-                                         seed=seed + fi * 100 + si, hash_col=hash_col)
-            out.append(pd.concat([sp[cols], negs[cols]], ignore_index=True).reset_index(drop=True))
+        for si, split_pos in enumerate([train_pos, val_pos, test_pos]):
+            neg = within_fold_negatives(
+                split_pos, cooccur, df, schema_pair_full,
+                neg_to_pos_ratio=neg_to_pos_ratio,
+                seed=seed + fi * 100 + si, hash_col=hash_col
+            )
+            out.append(pd.concat([split_pos[cols], neg[cols]], ignore_index=True).reset_index(drop=True))
         folds.append(tuple(out))
 
     return folds
@@ -449,7 +451,7 @@ class CCSpec:
     val_ratio: float
     negative_scope: str
     drop_negative_infeasible_ccs: bool
-    m_pos: int
+    m_pos: int | None  # None = no cap (keep all pairs per CC); else cap rows-per-CC
     max_atoms: int | None  # None = no cap; caps #atoms for size-controlled sweeps
     edge_cut: dict | None  # None = disabled; else {cut_method, target_atoms, max_drop_frac, seed} for fragment_until
     seed: int
@@ -536,9 +538,9 @@ def _resolve_spec(args, config) -> CCSpec:
         raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc' or "
                          f"'within_fold'; got {negative_scope!r}.")
 
-    m_pos = ss.m_pos_per_cc  # raises if absent
-    if not isinstance(m_pos, int) or m_pos < 1:
-        raise ValueError(f"dataset.split_strategy.m_pos_per_cc must be a positive int; got {m_pos!r}.")
+    m_pos = ss.m_pos_per_cc  # raises if absent (a positive int, or null = no cap = keep all pairs per CC)
+    if m_pos is not None and (not isinstance(m_pos, int) or m_pos < 1):
+        raise ValueError(f"dataset.split_strategy.m_pos_per_cc must be a positive int or null; got {m_pos!r}.")
 
     # Optional atom-count cap for size-controlled sweeps (default null = no cap).
     _max_atoms = OmegaConf.select(config, 'dataset.split_strategy.max_atoms')
