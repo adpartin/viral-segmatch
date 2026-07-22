@@ -202,3 +202,64 @@ def size_barplot(
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
+
+
+def stacked_composition_barplot(
+    comp: pd.DataFrame,
+    *,
+    item_col: str,
+    category_col: str,
+    value_col: str,
+    item_order: Sequence,
+    out_png: Union[str, Path],
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    top_k: int = 4,
+    item_labels: Optional[Sequence] = None,
+    dpi: int = 180,
+    ) -> None:
+    """One bar per item (in `item_order`), stacked by that item's top-`top_k` categories +
+    an 'other' block, colored by within-bar rank. Exposes concentration: a hub-dominated
+    item is one tall solid block; a diffuse item is a short top block over a large gray
+    'other'. Each bar is annotated with its dominant category and that category's % of the bar.
+
+    `comp` is long-form (`item_col`, `category_col`, `value_col`); it is filtered per item and
+    sorted by `value_col` desc. Generic -- shared by the CC cluster-composition figures and
+    (later) the per-CC metadata figures; nothing here is alphabet- or field-specific.
+    """
+    palette = plt.get_cmap('tab10')
+    fig, ax = plt.subplots(figsize=(max(9.0, len(item_order) * 0.6), 5.8))
+    xs = np.arange(len(item_order))
+    for x, item in zip(xs, item_order):
+        g = comp[comp[item_col] == item].sort_values(value_col, ascending=False)
+        vals = g[value_col].to_numpy()
+        cats = g[category_col].astype(str).tolist()
+        total = float(vals.sum())
+        if total <= 0:
+            continue
+        bottom = 0.0
+        for r in range(min(top_k, len(vals))):
+            ax.bar(x, vals[r], bottom=bottom, color=palette(r % 10),
+                   edgecolor='white', linewidth=0.4)
+            bottom += float(vals[r])
+        other = float(vals[top_k:].sum()) if len(vals) > top_k else 0.0
+        if other > 0:
+            ax.bar(x, other, bottom=bottom, color='#d9d9d9', edgecolor='white', linewidth=0.4)
+        ax.annotate(f'{cats[0]}\n{100.0 * vals[0] / total:.0f}%', xy=(x, total),
+                    xytext=(0, 2), textcoords='offset points', ha='center', va='bottom',
+                    fontsize=6.5, color='#222')
+    labels = list(item_labels) if item_labels is not None else list(item_order)
+    labels = [str(v) for v in labels]
+    ax.set_xticks(xs)
+    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
+    ax.set_xlabel(xlabel, fontsize=9)
+    ax.set_ylabel(ylabel, fontsize=9)
+    ax.grid(axis='y', linestyle=':', alpha=0.5)
+    ax.set_axisbelow(True)
+    ax.set_title(title, fontsize=10)
+    fig.tight_layout()
+    out_png = Path(out_png)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
