@@ -132,7 +132,7 @@ def _kmer_umap(hashes, categories, alphabet, out_png, title, *, kmer_k, min_shar
     cats = np.asarray(categories)[keep]
     if category_labeler is None:
         def category_labeler(c, n, sh):
-            return f'{c}, {sh:.0%}, n={n:,}'
+            return f'{c}, {sh:.1%}, n={n:,}'
     return umap_scatter(xy, cats, out_png=out_png, title=title, min_share=min_share, cap=cap,
                         palette=_COLOR_PALETTE, metric=metric, seed=seed, legend_title=legend_title,
                         category_labeler=category_labeler)
@@ -148,7 +148,7 @@ def plot_single_side_clusters(clusters_root, threshold, short_name, out_dir, *, 
     out_png = Path(out_dir) / f'{short_name}_{tl}_{alphabet}_kmer_umap.png'
     n_clusters = int(clusters['cluster_id'].nunique())
     title = (f'{short_name} -- {alphabet} -- {tl} -- {kmer_k}-mer UMAP\n'
-             f'{len(clusters):,} sequences; {n_clusters:,} clusters (>= {min_share:.0%} colored)')
+             f'{len(clusters):,} sequences; {n_clusters:,} clusters')
     stats = _kmer_umap(clusters[hcol].tolist(), clusters['cluster_id'].to_numpy(), alphabet, out_png,
                        title, kmer_k=kmer_k, min_share=min_share, cap=cap, metric=metric, seed=seed,
                        legend_title=f'clusters >= {min_share:.0%}')

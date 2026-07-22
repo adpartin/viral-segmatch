@@ -376,7 +376,7 @@ def umap_scatter(
         return f'{cat} {share:.0%}'
 
     def _oth_label(cnt, share):
-        return f'Others {share:.0%} (n={cnt:,})'
+        return f'Others {share:.1%} (n={cnt:,})'
 
     cat_label = category_labeler or _cat_label
     oth_label = others_labeler or _oth_label
