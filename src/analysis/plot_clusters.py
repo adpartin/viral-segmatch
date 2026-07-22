@@ -343,7 +343,7 @@ def plot_cluster_size_barplot(
         f'top {len(top)} cover {top_cov:.1f}% of unique')
     size_barplot(
         sizes, top_n=top_n, out_png=out_png, title=title,
-        xlabel='cluster_id (rank-ordered, largest first)',
+        xlabel='cluster_id (sorted by size; true cluster ids)',
         ylabel='unique sequences in cluster',
         xticklabels=list(top.index),
         bar_color=get_protein_color(protein))
