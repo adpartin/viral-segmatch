@@ -563,9 +563,9 @@ def _resolve_spec(args, config) -> CCSpec:
         ec_method = str(OmegaConf.select(config, 'dataset.split_strategy.edge_cut.cut_method') or 'spectral')
         if ec_method not in ('spectral', 'kl'):
             raise ValueError(f"split_strategy.edge_cut.cut_method must be 'spectral' or 'kl'; got {ec_method!r}.")
-        ec_maxdrop = OmegaConf.select(config, 'dataset.split_strategy.edge_cut.max_drop_frac')
+        ec_max_drop_frac = OmegaConf.select(config, 'dataset.split_strategy.edge_cut.max_drop_frac')
         edge_cut = {'enabled': True, 'cut_method': ec_method, 'target_atoms': int(ec_target),
-                    'max_drop_frac': float(ec_maxdrop) if ec_maxdrop is not None else 1.0, 'seed': seed}
+                    'max_drop_frac': float(ec_max_drop_frac) if ec_max_drop_frac is not None else 1.0, 'seed': seed}
 
     if 'cluster_id_path' not in ss:
         raise ValueError("dataset.split_strategy.cluster_id_path must be set for cluster_disjoint_cc.")

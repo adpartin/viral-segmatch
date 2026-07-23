@@ -127,6 +127,23 @@ change and aren't derivable from code. This file does NOT duplicate:
   binaries (`.../envs/segmatch/bin/python`, `MMSEQS_BIN=.../envs/mmseqs2/bin/mmseqs`) — `$HOME`
   has no miniconda, so bare `conda activate` fails on lambda13. Plan:
   `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md`.
+- **CC-structure EDA + CC/cluster plotting** (branch `feature/2d-cc-edge-cut-fragmentation`, 2026-07-22,
+  commits `a286980`..`bb81240`): Stage-2.5 pre-step `src/datasets/build_cc_structure.py` persists the
+  t-invariant positive **pair universe** (`pair_universe_{alphabet}/{pair}/`) + per-t **CC artifacts**
+  (`cc_{source}/{pair}/tXXX/`: pairs_with_cc, cc_sizes, cc_cluster_composition, cc_summary; `--fragment`
+  emits edge-cut fragmented artifacts under `tXXX/fragmented/` via `_megacc_cut.fragment_until`).
+  **CC k-mer UMAPs**: `src/analysis/umap_cc.py` (modes single_side / megacc / fragment) LOADS the training
+  k-mer matrix (`kmer_utils.load_kmer_matrix` + new alphabet-agnostic `build_hash_to_kmer_row` bridge via
+  `*_final`), SVD→UMAP, with a **coord cache** at `<figures>/_umap_coords/*.npz` (recolor/relabel = cache
+  hit, ~33×). Shared primitives now in `plot_utils.py`: `umap_scatter` + `select_categories_with_others`
+  (EXTRACTED from `plot_clusters.plot_cluster_umap`, now a thin wrapper — aa ESM-2 output preserved),
+  `stacked_composition_barplot`, `size_barplot`. Barplots: `plot_cc_sizes.py` (pairs/CC, `top_n=12`,
+  filename `cc_sizes_<pair>_<tXXX>_barplot.png`) + `plot_clusters.py --plots barplot` (unique-seqs/cluster,
+  protein color, `top_n=12`). `_cv_features.build_hash_to_row` now delegates to `build_hash_to_kmer_row`
+  (verified byte-identical for aa). Generated HA/NA nt_cds_ood t099+t095. **NEXT (post-compact): scoped
+  code cleanup** — retire stale / merge redundant / unify naming ONLY for functions created or modified
+  since `build_cc_structure.py` this session (git-derive the exact set; do NOT touch the rest of the
+  codebase), critic-verified, one small reversible change at a time.
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered, triaged — the single source of truth). Big-picture experiments:

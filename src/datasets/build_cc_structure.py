@@ -170,7 +170,10 @@ def _build_fragmented(pos_ids: pd.DataFrame, out_dir: Path, t: str, sa: str, sb:
     target = target_atoms if target_atoms else n_before + 1  # unreachable -> max_drop_frac binds
     kept, _dropped, audit = fragment_until(
         pos_ids.reset_index(drop=True), col_a='cluster_id_a', col_b='cluster_id_b',
-        cut_method=cut_method, seed=seed, stop_fn=stop_at_n_atoms(target), max_drop_frac=max_drop_frac)
+        cut_method=cut_method, seed=seed,
+        stop_fn=stop_at_n_atoms(target),
+        max_drop_frac=max_drop_frac
+    )
     kept = kept.reset_index(drop=True)
     component_id, _summ = bipartite_components(kept, col_a='cluster_id_a', col_b='cluster_id_b')
     kept['cc_id'] = component_id.to_numpy()
@@ -269,9 +272,12 @@ def main() -> None:
               f'maxK={summ["max_balanced_k"]}{drop_note} -> {out}')
 
         if args.fragment:
-            _build_fragmented(pos_ids, out / 'fragmented', t, sa, sb, n_universe,
-                              cut_method=args.cut_method, seed=args.frag_seed,
-                              target_atoms=args.target_atoms, max_drop_frac=args.max_drop_frac)
+            _build_fragmented(
+                pos_ids, out / 'fragmented', t, sa, sb, n_universe,
+                cut_method=args.cut_method, seed=args.frag_seed,
+                target_atoms=args.target_atoms,
+                max_drop_frac=args.max_drop_frac
+            )
 
 
 if __name__ == '__main__':
