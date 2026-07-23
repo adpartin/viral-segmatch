@@ -340,7 +340,7 @@ def plot_cluster_size_barplot(
         f'{protein} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})\n'
         f'top {len(top)} of {n_clusters:,} clusters  ·  '
         f'total unique seqs: {n_unique:,}  ·  '
-        f'top {len(top)} cover {top_cov:.1f}% of unique')
+        f'top {len(top)} cover {top_cov:.1f}% of unique seqs')
     size_barplot(
         sizes, top_n=top_n, out_png=out_png, title=title,
         xlabel='cluster_id (sorted by size; true cluster ids)',

@@ -31,8 +31,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.clustering_utils import threshold_decimal  # noqa: E402
-from src.utils.plot_utils import size_barplot  # noqa: E402
+from src.utils.plot_utils import barplot_title, size_barplot  # noqa: E402
 
 
 def plot_cc_size_barplot(
@@ -66,12 +65,10 @@ def plot_cc_size_barplot(
     n_pairs = int(sizes.sum())
     largest_pct = float(sizes.iloc[0]) / n_pairs * 100.0 if n_pairs else 0.0
     top = sizes.head(top_n)
-    title = (
-        f'{pair_label} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})\n'
-        f'top {len(top)} of {n_ccs:,} CCs  ·  {n_pairs:,} positive pairs  ·  '
-        f'largest CC {largest_pct:.1f}%')
-    if note:
-        title += f'\n{note}'
+    title = barplot_title(
+        pair_label, alphabet, threshold_id,
+        f'top {len(top)} of {n_ccs:,} CCs  ·  {n_pairs:,} positive pairs  ·  largest CC {largest_pct:.1f}%',
+        note=note)
     size_barplot(
         sizes, top_n=top_n, out_png=out_png, title=title,
         xlabel='connected component (sorted by size; not true CC ids)',

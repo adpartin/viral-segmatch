@@ -143,6 +143,34 @@ def plot_sequence_length_distribution(
     return fig
 
 
+def barplot_title(
+    label: str,
+    alphabet: str,
+    threshold_id: str,
+    line2: str,
+    *,
+    descriptor: str = '',
+    note: str = '',
+    ) -> str:
+    """Two-line title for any mmseqs identity-threshold-keyed plot -- not CC-specific.
+
+    `label` is whatever the plot is about: a single protein ('HA') for 1D cluster plots or a slot
+    pair ('HA-NA') for 2D CC plots. The head is the canonical `{label} — {alphabet} — {tXXX}
+    (id=0.XX)` (id via `threshold_decimal`), optionally suffixed ` — {descriptor}`; `line2` is the
+    caller's stats line (e.g. 'top 12 of 3,350 CCs  ·  ...') and an optional `note` becomes a third
+    line. Callers: the CC-size and CC-composition barplots; the same convention fits the 1D
+    cluster-size barplot (`plot_clusters`), a candidate to adopt it.
+    """
+    from .clustering_utils import threshold_decimal
+    head = f'{label} — {alphabet} — {threshold_id} (id={threshold_decimal(threshold_id):.2f})'
+    if descriptor:
+        head += f' — {descriptor}'
+    title = f'{head}\n{line2}'
+    if note:
+        title += f'\n{note}'
+    return title
+
+
 def size_barplot(
     sizes: Union[pd.Series, Sequence[int]],
     *,
@@ -230,8 +258,7 @@ def stacked_composition_barplot(
     With `normalize=True` every bar is scaled to 1.0 so items of very different total size stay
     comparable (needed when one mega-CC dwarfs the tail); the y-axis then reads as share-of-item.
     Each top-`top_k` segment at least `label_min_frac` of its bar is labeled in place with its
-    category id (white on the colored blocks, dark on the gray 'Others'); the dominant category's
-    share of the bar is annotated above it.
+    category id and within-bar share (white on the colored blocks, dark on the gray 'Others').
 
     `comp` is long-form (`item_col`, `category_col`, `value_col`); it is filtered per item and
     sorted by `value_col` desc. Generic -- shared by the CC cluster-composition figures and
@@ -253,7 +280,7 @@ def stacked_composition_barplot(
             h = frac if normalize else vals[r]
             ax.bar(x, h, bottom=bottom, color=palette(r % 10), edgecolor='white', linewidth=0.4)
             if frac >= label_min_frac:
-                ax.text(x, bottom + h / 2.0, cats[r], ha='center', va='center',
+                ax.text(x, bottom + h / 2.0, f'{cats[r]}\n{frac:.0%}', ha='center', va='center',
                         fontsize=6, color='white')
             bottom += h
         other_raw = float(vals[top_k:].sum()) if len(vals) > top_k else 0.0
@@ -262,11 +289,9 @@ def stacked_composition_barplot(
             other_h = other_frac if normalize else other_raw
             ax.bar(x, other_h, bottom=bottom, color='#d9d9d9', edgecolor='white', linewidth=0.4)
             if other_frac >= label_min_frac:
-                ax.text(x, bottom + other_h / 2.0, 'Others', ha='center', va='center',
+                ax.text(x, bottom + other_h / 2.0, f'Others\n{other_frac:.0%}', ha='center', va='center',
                         fontsize=6, color='#222')
             bottom += other_h
-        ax.annotate(f'{100.0 * vals[0] / total:.0f}%', xy=(x, bottom), xytext=(0, 2),
-                    textcoords='offset points', ha='center', va='bottom', fontsize=6.5, color='#222')
     labels = list(item_labels) if item_labels is not None else list(item_order)
     labels = [str(v) for v in labels]
     ax.set_xticks(xs)
