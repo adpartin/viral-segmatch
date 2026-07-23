@@ -90,16 +90,18 @@ def main() -> None:
     p.add_argument('--pair_label', required=True, help='slot pair, e.g. HA-NA (title only)')
     p.add_argument('--alphabet', required=True, help='aa / nt_cds / nt_ctg (title only)')
     p.add_argument('--threshold_id', required=True, help='tXXX (title only)')
-    p.add_argument('--top_n', type=int, default=20, help='largest CCs to draw (default 20)')
+    p.add_argument('--top_n', type=int, default=12, help='largest CCs to draw (default 12)')
     p.add_argument('--note', default='', help='optional extra title line (e.g. "fragmented: 30 cuts, 1.6% dropped")')
     p.add_argument('--out_png', type=Path, default=None,
-                   help='default: <run_dir>/figures/<csv-stem>_barplot.png')
+                   help='default: <run_dir>/figures/<csv-stem>_<pair>_<tXXX>_barplot.png')
     args = p.parse_args()
 
     csv = args.run_dir / args.csv
     if not csv.exists():
         raise SystemExit(f"missing {csv} (rebuild the dataset to emit it)")
-    out_png = args.out_png or (args.run_dir / 'figures' / f'{csv.stem}_barplot.png')
+    out_png = args.out_png or (
+        args.run_dir / 'figures'
+        / f'{csv.stem}_{args.pair_label.replace("-", "_")}_{args.threshold_id}_barplot.png')
     stats = plot_cc_size_barplot(
         csv, pair_label=args.pair_label, alphabet=args.alphabet,
         threshold_id=args.threshold_id, top_n=args.top_n, out_png=out_png, note=args.note)
