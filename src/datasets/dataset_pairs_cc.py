@@ -342,6 +342,56 @@ def make_folds(full: pd.DataFrame, k_folds: int, val_ratio: float, seed: int):
     return folds
 
 
+def _carve_val_pairs(pairs: pd.DataFrame, val_ratio: float, seed: int):
+    """Pair-level val carve: a seeded random `val_ratio` fraction of ROWS becomes val, the rest train
+    (atoms may straddle train/val -- val is in-distribution here; only the test fold is held out). The
+    row-level twin of `_carve_val_atoms`. Returns (train, val)."""
+    shuf = pairs.sample(frac=1, random_state=np.random.RandomState(seed))
+    n_val = int(round(val_ratio * len(shuf)))
+    val, train = shuf.iloc[:n_val], shuf.iloc[n_val:]
+    return train.reset_index(drop=True), val.reset_index(drop=True)
+
+
+def pick_largest_atoms(full: pd.DataFrame, n: int) -> list:
+    """The `n` atom_ids carrying the most POSITIVE pairs (a CC's size is its positive pair mass, so the
+    per-CC-proportional negatives are excluded). `full` is the post-fragmentation pos+neg pool
+    (atom_id == post-edge-cut cc_id). Largest first."""
+    return full[full['label'] == 1].groupby('atom_id').size().nlargest(n).index.tolist()
+
+
+def make_folds_leave_cc_out(full: pd.DataFrame, test_cc_ids, val_ratio: float, seed: int):
+    """Leave-one-CC-out folds: each atom in `test_cc_ids` is the sole test fold once; train = every
+    other pair in `full` (the other test CCs + whatever tail `full` carries); val = a pair-level
+    `val_ratio` carve of train. One fold per test CC (k = len(test_cc_ids)). Returns per fold
+    (train, val, test)."""
+    folds = []
+    for i, cc in enumerate(test_cc_ids):
+        test = full[full['atom_id'] == cc]
+        train, val = _carve_val_pairs(full[full['atom_id'] != cc], val_ratio, seed + i)
+        folds.append((train, val, test.reset_index(drop=True)))
+    return folds
+
+
+def make_folds_random(main_cc_pairs: pd.DataFrame, tail_cc_pairs: pd.DataFrame,
+                      val_ratio: float, seed: int, *, per_fold_sizes):
+    """Size-matched random baseline: shuffle `main_cc_pairs` (the test-CC pairs) once and cut it into
+    consecutive test folds of `per_fold_sizes` (each pair tested once, matching the OOD arm's per-fold
+    test sizes); `tail_cc_pairs` is appended to every train; val = pair-level carve of train. Reuses
+    the SAME rows as the OOD arm -- only the partition differs. Returns per fold (train, val, test)."""
+    shuf = main_cc_pairs.sample(frac=1, random_state=np.random.RandomState(seed)).reset_index(drop=True)
+    if sum(per_fold_sizes) != len(shuf):
+        raise ValueError(f"per_fold_sizes (sum {sum(per_fold_sizes)}) must sum to "
+                         f"len(main_cc_pairs)={len(shuf)}; got {list(per_fold_sizes)}.")
+    folds, start = [], 0
+    for i, sz in enumerate(per_fold_sizes):
+        test = shuf.iloc[start:start + sz]
+        rest = pd.concat([shuf.iloc[:start], shuf.iloc[start + sz:]], ignore_index=True)
+        train, val = _carve_val_pairs(pd.concat([rest, tail_cc_pairs], ignore_index=True), val_ratio, seed + i)
+        folds.append((train, val, test.reset_index(drop=True)))
+        start += sz
+    return folds
+
+
 def within_fold_negatives(
     split_pos: pd.DataFrame,
     cooccur: set,
@@ -416,7 +466,8 @@ def make_folds_within_fold(
     """GroupKFold the POSITIVES by atom_id, then add cross-CC (within-fold)
     negatives per split from that split's own positives. Negatives stay in-split,
     so folds remain cluster-disjoint. Returns per fold (train, val, test) frames
-    in `_PAIR_COLUMNS`."""
+    in `_PAIR_COLUMNS`.
+    """
     gkf = GroupKFold(n_splits=k_folds, shuffle=True, random_state=seed)
     groups = pos_full['atom_id'].to_numpy()
     n_total = len(pos_full)
@@ -462,6 +513,10 @@ class CCSpec:
     fb: str # full function name ('b' side of the pair)
     sa: str # short function name ('a' side of the pair)
     sb: str # short function name ('b' side of the pair)
+    membership_path: Path | None  # within_cc isolate-pool membership override (None = _MEMB set-cover)
+    fold_assignment: str  # 'groupkfold' (default) | 'leave_cc_out' (each of the k largest CCs = one test fold)
+    tail_ccs_to_train: bool  # leave_cc_out: keep the non-test (tail) CCs in train (both arms)
+    paired_random: bool  # leave_cc_out: also emit a size-matched random arm reusing the same `full`
 
 
 def _parse_args():
@@ -574,6 +629,26 @@ def _resolve_spec(args, config) -> CCSpec:
         cluster_id_path = PROJ / cluster_id_path
     threshold = cluster_id_path.parent.name  # the tXXX dir, e.g. 't099'
 
+    # OOD-vs-random paired-CV knobs (all default to the existing single-arm groupkfold behavior).
+    _memb = OmegaConf.select(config, 'dataset.split_strategy.membership_path')
+    membership_path = None
+    if _memb is not None:
+        membership_path = Path(str(_memb))
+        if not membership_path.is_absolute():
+            membership_path = PROJ / membership_path
+    fold_assignment = str(OmegaConf.select(
+        config, 'dataset.split_strategy.fold_assignment', default='groupkfold'))
+    if fold_assignment not in ('groupkfold', 'leave_cc_out'):
+        raise ValueError("dataset.split_strategy.fold_assignment must be 'groupkfold' or "
+                         f"'leave_cc_out'; got {fold_assignment!r}.")
+    tail_ccs_to_train = bool(OmegaConf.select(
+        config, 'dataset.split_strategy.tail_ccs_to_train', default=True))
+    paired_random = bool(OmegaConf.select(
+        config, 'dataset.split_strategy.paired_random', default=False))
+    if fold_assignment == 'leave_cc_out' and negative_scope != 'within_cc':
+        raise ValueError("fold_assignment='leave_cc_out' requires negative_scope='within_cc' (the "
+                         f"reusable within-CC negative pool); got negative_scope={negative_scope!r}.")
+
     fa, fb, sa, sb = _resolve_schema_pair(config, ds)
     return CCSpec(
         config_bundle=args.config_bundle, alphabet=alphabet, pair_key_alphabet=pair_key_alphabet,
@@ -581,7 +656,9 @@ def _resolve_spec(args, config) -> CCSpec:
         val_ratio=float(ds.val_ratio), negative_scope=negative_scope,
         drop_negative_infeasible_ccs=drop_negative_infeasible_ccs, m_pos=m_pos, max_atoms=max_atoms,
         edge_cut=edge_cut, seed=seed,
-        cluster_id_path=cluster_id_path, threshold=threshold, fa=fa, fb=fb, sa=sa, sb=sb)
+        cluster_id_path=cluster_id_path, threshold=threshold, fa=fa, fb=fb, sa=sa, sb=sb,
+        membership_path=membership_path, fold_assignment=fold_assignment,
+        tail_ccs_to_train=tail_ccs_to_train, paired_random=paired_random)
 
 
 def _subsample_atoms(pos_ids: pd.DataFrame, max_atoms, seed: int) -> pd.DataFrame:
@@ -659,15 +736,40 @@ def _build_positives(config, spec: CCSpec, args):
         n0_atoms = pos_ids['atom_id'].nunique()
         pos_ids = _subsample_atoms(pos_ids, spec.max_atoms, spec.seed)
         print(f"  max_atoms={spec.max_atoms}: atoms {n0_atoms:,} -> {pos_ids['atom_id'].nunique():,}")
+
     return df, pos_ids, cooccur, cc_summary.get('cc_sizes')  # cc_sizes: pre/post-cut CC-size Series, or None
 
 
-def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
-    """Negatives + GroupKFold folds for the configured negative_scope.
+def _partition_full(full: pd.DataFrame, spec: CCSpec) -> dict:
+    """Partition the fixed pos+neg `full` into fold arms. `groupkfold` -> one arm (GroupKFold by atom).
+    `leave_cc_out` -> the OOD arm (each of the k largest CCs is one test fold; tail CCs stay in train
+    unless `tail_ccs_to_train=false`) plus, if `paired_random`, a size-matched random arm that reuses
+    the SAME rows. Returns {arm_name: [(train, val, test), ...]} ('' = single unnamed arm)."""
+    if spec.fold_assignment == 'groupkfold':
+        return {'': make_folds(full, spec.k_folds, spec.val_ratio, spec.seed)}
+    # leave_cc_out: the k largest CCs rotate as the sole test fold.
+    test_cc_ids = pick_largest_atoms(full, spec.k_folds)
+    is_main = full['atom_id'].isin(test_cc_ids)
+    main, tail = full[is_main], full[~is_main]
+    ood_full = full if spec.tail_ccs_to_train else main
+    print(f"  leave_cc_out: {len(test_cc_ids)} test CCs {test_cc_ids} | {len(main):,} main + "
+          f"{len(tail):,} tail pairs | tail_ccs_to_train={spec.tail_ccs_to_train}")
+    arms = {'ood': make_folds_leave_cc_out(ood_full, test_cc_ids, spec.val_ratio, spec.seed)}
+    if spec.paired_random:
+        tail_pairs = tail if spec.tail_ccs_to_train else full.iloc[0:0]
+        per_fold_sizes = [len(test) for _, _, test in arms['ood']]
+        arms['random'] = make_folds_random(main, tail_pairs, spec.val_ratio, spec.seed,
+                                            per_fold_sizes=per_fold_sizes)
+    return arms
 
-    within_cc: build the uncapped isolate pool, cap positives per CC, draw within-CC negatives,
-        concat to one balanced set, then GroupKFold by atom (writes cc_sampling_log.csv).
-    within_fold: cap positives, GroupKFold by atom, add cross-CC negatives per split.
+
+def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path) -> dict:
+    """Negatives for the configured negative_scope, then partition into fold arms (`_partition_full`).
+
+    within_cc: build the uncapped isolate pool, cap positives per CC, draw within-CC negatives, concat
+        to one fixed `full` (writes cc_sampling_log.csv), then partition (groupkfold or leave_cc_out).
+    within_fold: cap positives, GroupKFold by atom, add cross-CC negatives per split (single arm).
+    Returns {arm_name: [(train, val, test), ...]}.
     """
     # Isolate pool: within_cc only (within_fold draws negatives from each split's own positives,
     # no pool). Built from the FULL (uncapped) atom assignment so the pool covers every cluster
@@ -678,7 +780,8 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
                **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['atom_id']))}
         c2c = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['cc_id'])),
                **dict(zip(pos_ids['cluster_id_b'].astype(str), pos_ids['cc_id']))}
-        iso = build_cc_isolate_pool(c2a, c2c, spec.sa, spec.sb, spec.alphabet, spec.threshold)
+        iso = build_cc_isolate_pool(c2a, c2c, spec.sa, spec.sb, spec.alphabet, spec.threshold,
+                                    membership_path=spec.membership_path)
         # The membership pool is corpus-level; restrict it to the front-end-filtered population so
         # within-CC negatives are drawn only from isolates present in df (otherwise a negative can
         # reference a sequence the filters dropped, then get discarded at enrich -> positive-only
@@ -720,7 +823,7 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
         print(f"  full set: {len(full):,} pairs ({int((full.label == 1).sum()):,} pos / "
               f"{int((full.label == 0).sum()):,} neg) across {full['atom_id'].nunique():,} atoms")
         cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
-        return make_folds(full, spec.k_folds, spec.val_ratio, spec.seed)
+        return _partition_full(full, spec)
 
     # within_fold: split positives by atom, then add cross-CC negatives per split
     pos_full = pos_ids.copy()
@@ -728,13 +831,15 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path):
     pos_full['metadata_match_count'] = pd.NA  # negative-only field (pos<->neg metadata overlap); NA on positive rows
     print(f"  positives: {len(pos_full):,} across {pos_full['atom_id'].nunique():,} atoms; "
           f"within-fold (cross-CC) negatives generated per split")
-    return make_folds_within_fold(
+
+    return {'': make_folds_within_fold(
         pos_full, spec.k_folds, spec.val_ratio, spec.seed, neg_to_pos_ratio=spec.neg_to_pos_ratio,
-        cooccur=cooccur, df=df, schema_pair_full=(spec.fa, spec.fb), hash_col=_POS_HASH[spec.alphabet])
+        cooccur=cooccur, df=df, schema_pair_full=(spec.fa, spec.fb), hash_col=_POS_HASH[spec.alphabet])}
 
 
 def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
     """Write cv_info.json + per-fold {train,val,test}_pairs.csv + dataset_stats.json."""
+    out_dir.mkdir(parents=True, exist_ok=True)  # arm subdir (out_dir/{ood,random}) may not exist yet
     cv_info = {'k_folds': spec.k_folds, 'n_repeats': spec.n_repeats, 'seed': spec.seed,
                'config_bundle': spec.config_bundle, 'schema_pair': [spec.sa, spec.sb],
                'alphabet': spec.alphabet, 'threshold': spec.threshold,
@@ -743,6 +848,7 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
                'neg_to_pos_ratio': spec.neg_to_pos_ratio,
                'pair_key_alphabet': spec.pair_key_alphabet, 'negative_scope': spec.negative_scope,
                'drop_negative_infeasible_ccs': spec.drop_negative_infeasible_ccs,
+               'fold_assignment': spec.fold_assignment,
                'fold_dirs': [f'fold_{k}' for k in range(spec.k_folds)]}
     (out_dir / 'cv_info.json').write_text(json.dumps(cv_info, indent=2))
     for k, (train, val, test) in enumerate(folds):
@@ -801,8 +907,12 @@ def main() -> None:
 
     df, pos_ids, cooccur, cc_sizes = _build_positives(config, spec, args)
     _write_cc_pair_sizes(out_dir, pos_ids, cc_sizes)
-    folds = _make_folds_for_scope(spec, df, pos_ids, cooccur, out_dir)
-    _write_output(out_dir, folds, spec)
+    arms = _make_folds_for_scope(spec, df, pos_ids, cooccur, out_dir)
+    for arm, folds in arms.items():
+        arm_dir = out_dir / arm if arm else out_dir
+        if arm:
+            print(f"--- arm: {arm} -> {arm_dir} ---")
+        _write_output(arm_dir, folds, spec)
     print(f"\nDone in {time.time() - t0:.0f}s -> {out_dir}")
 
 

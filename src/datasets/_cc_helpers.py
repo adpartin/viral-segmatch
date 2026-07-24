@@ -60,9 +60,9 @@ from src.utils.schema import SCHEMA as _SCHEMA  # noqa: E402
 # cluster_memb_* has one row per (isolate, function) with the per-slot sequence
 # hash, host/hn_subtype/year, and a cluster column per tXXX threshold.
 _MEMB_DIR = PROJ / 'data/processed/flu/July_2025/cluster_membership'
-# TODO(ood): _MEMB resolves the set-cover membership only (schema.memb_basename). A within_cc run on
-# an _ood cluster set needs the matching cluster_memb_*_ood -- unwired, so build_cc_isolate_pool
-# raises on the resulting empty pool (below). Thread a membership_path to enable within_cc + _ood.
+# _MEMB resolves the DEFAULT set-cover membership (schema.memb_basename). A within_cc run on an _ood
+# cluster set needs the matching cluster_memb_*_ood -- pass build_cc_isolate_pool(membership_path=...)
+# (CCSpec.membership_path) to override; otherwise the empty-pool NotImplementedError (below) fires.
 _MEMB = {a: _MEMB_DIR / f'{s.memb_basename}.parquet' for a, s in _SCHEMA.items()}
 _MEMB_HASH = {a: s.hash_col for a, s in _SCHEMA.items()}
 
@@ -92,6 +92,7 @@ def build_cc_isolate_pool(
     alphabet: str,
     threshold: str,
     *,
+    membership_path=None,
     axes=DEFAULT_AXES,
     year_match: str = 'binned',
     year_bin_edges=DEFAULT_YEAR_BIN_EDGES,
@@ -112,6 +113,8 @@ def build_cc_isolate_pool(
         slot_a / slot_b: protein short names (e.g. 'HA', 'NA').
         alphabet: 'aa' | 'nt_cds' | 'nt_ctg' — selects `_MEMB` + `_MEMB_HASH`.
         threshold: tXXX cluster column in the membership table (e.g. 't099').
+        membership_path: override the default `_MEMB[alphabet]` set-cover membership; REQUIRED for
+            `_ood` cluster sets (their ids only match `cluster_memb_*_ood`, not the set-cover table).
 
     Returns:
         iso[assembly_id, hash_a, hash_b, cc_id, atom_id, cell] — one row per
@@ -121,8 +124,11 @@ def build_cc_isolate_pool(
     if alphabet not in _MEMB:
         raise ValueError(f"alphabet must be in {sorted(_MEMB)}; got {alphabet!r}")
     hash_col = _MEMB_HASH[alphabet]
+    # membership_path overrides the default set-cover table -- REQUIRED for _ood cluster sets, whose
+    # cluster ids only match the sibling cluster_memb_*_ood membership (see CCSpec.membership_path).
+    memb_path = Path(membership_path) if membership_path is not None else _MEMB[alphabet]
     memb = pd.read_parquet(
-        _MEMB[alphabet],
+        memb_path,
         columns=['assembly_id', 'function', hash_col, threshold, 'host', 'hn_subtype', 'year'])
     fa, fb = _short_to_full(slot_a), _short_to_full(slot_b)
     a = (memb[memb['function'] == fa]
@@ -133,19 +139,25 @@ def build_cc_isolate_pool(
     iso = a.merge(b, on='assembly_id', how='inner')
     iso['assembly_id'] = iso['assembly_id'].astype(str)
 
-    # Cluster-disjointness guarantees an isolate's slot-a and slot-b clusters land
-    # in the same atom, so the slot-a cluster alone determines atom_id / cc_id.
+    # Cluster-disjointness maps an isolate's slot-a and slot-b clusters to the SAME atom -- except after
+    # edge-cut, which drops straddling pairs and can split an isolate's two clusters into different atoms.
     iso['atom_id'] = iso['cluster_a'].astype(str).map(cluster_to_atom)
+    iso['atom_b'] = iso['cluster_b'].astype(str).map(cluster_to_atom)
     iso['cc_id'] = iso['cluster_a'].astype(str).map(cluster_to_cc)
-    iso = iso.dropna(subset=['atom_id']).copy()  # drop isolates whose cluster left the universe
+    iso = iso.dropna(subset=['atom_id']).copy()  # drop isolates whose slot-a cluster left the universe
+    # Drop edge-cut straddlers (slot-a/slot-b clusters in different atoms) so each atom's pool holds only
+    # isolates with BOTH sequences in that atom; else a within-CC negative leaks a sequence across atoms.
+    straddle = iso['atom_b'].notna() & (iso['atom_id'] != iso['atom_b'])
+    if int(straddle.sum()):
+        print(f"  within-CC pool: dropped {int(straddle.sum()):,} edge-cut straddler isolate(s)")
+    iso = iso[~straddle].drop(columns='atom_b').copy()
     if iso.empty:
         raise NotImplementedError(
             f"within-CC isolate pool is empty for {slot_a}-{slot_b} {alphabet} {threshold}: the "
-            f"membership {_MEMB[alphabet].name} carries no cluster_id matching the routed atoms. "
-            "This is the signature of cluster_id_path using a different clustering than the "
-            "membership (e.g. an _ood cluster set): the _ood membership is not wired into "
-            "build_cc_isolate_pool yet, so within_cc + _ood is unsupported. Thread a membership_path "
-            "(see docs/plans/2026-07-08_single_segment_ood_clusters_plan.md).")
+            f"membership {memb_path.name} carries no cluster_id matching the routed atoms. This means "
+            "the membership clusters a different set than cluster_id_path (e.g. cluster_id_path is an "
+            "_ood set but membership_path is unset/points at the set-cover table). Set "
+            "split_strategy.membership_path to the matching cluster_memb_*_ood parquet.")
     iso['atom_id'] = iso['atom_id'].astype(int)
     iso['cc_id'] = iso['cc_id'].astype(int)
 
