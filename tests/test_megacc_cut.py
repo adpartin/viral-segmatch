@@ -219,14 +219,12 @@ def test_apply_drop_budget_cut_ood_nt_cds_t099_golden():
 
 def test_fragment_until_ood_nt_cds_t095_golden():
     """Routing-B operating point on OOD nt_cds t095: fragmenting the mega-CC within a 2% drop
-    budget grows the atom count from 108 to ~124 at the cheap knee before the edge-cut floor; a
-    reachable atom target instead stops via stop_fn.
+    budget grows the atom count from 108 to exactly 124 at the cheap knee before the edge-cut
+    floor; a reachable atom target (115) instead stops via stop_fn.
 
-    Asserts construction-guaranteed + structural invariants, not a bit-exact digest.
-    build_pair_bigraph pins a canonical node+edge order, so the cut is row-order-/PYTHONHASHSEED-
-    independent (the dropped set is bit-identical across clean processes), but the threaded
-    eigensolver keeps a residual FP wobble (n_cuts 15 vs 16, and rarely the exact dropped set
-    under in-suite BLAS warmup). Atom count and drop-budget are the stable contract. See plan Q5."""
+    The spectral cut is a DIRECT dense eigensolve on a canonical node-order Laplacian
+    (`_megacc_cut._bisect`), so it is bit-deterministic across processes -- this asserts the EXACT
+    cut (n_cuts / pairs_dropped / n_atoms), not a range. See plan Q5."""
     if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
         print('SKIP test_fragment_until_ood_nt_cds_t095_golden: OOD clusters absent')
         return
@@ -236,23 +234,29 @@ def test_fragment_until_ood_nt_cds_t095_golden():
     _c0, summ0 = bipartite_components(pos, col_a='cluster_id_a', col_b='cluster_id_b')
     assert summ0['n_components'] == g['natural_atoms']           # 108 natural atoms (union-find, exact)
 
-    # budget-bound: an unreachable target -> the 2% drop budget is the stop
+    # budget-bound: an unreachable target -> the 2% drop budget is the stop (exact deterministic cut)
+    gb = g['budget_bound']
     kept, dropped, audit = fragment_until(
-        pos, cut_method='spectral', seed=1, stop_fn=stop_at_n_atoms(10_000), max_drop_frac=0.02)
-    assert audit['stopped_reason'] == g['stopped_reason'] == 'max_drop_frac'
-    assert audit['dropped_frac'] <= g['max_drop_frac']          # guaranteed by the budget guard
+        pos, cut_method='spectral', seed=1,
+        stop_fn=stop_at_n_atoms(gb['target_atoms']), max_drop_frac=gb['max_drop_frac'])
+    assert audit['stopped_reason'] == gb['stopped_reason'] == 'max_drop_frac'
+    assert audit['n_cuts'] == gb['n_cuts']                      # exact (deterministic dense eigensolve)
+    assert audit['pairs_dropped'] == gb['pairs_dropped']
+    assert audit['n_atoms'] == gb['n_atoms'] and gb['n_atoms'] > g['natural_atoms']   # grew to 124
+    assert audit['dropped_frac'] <= gb['max_drop_frac']         # within budget (guaranteed by the guard)
     assert len(kept) + len(dropped) == len(pos)                 # a partition of pos
-    lo, hi = g['n_atoms_range']
-    assert g['natural_atoms'] < audit['n_atoms'] and lo <= audit['n_atoms'] <= hi   # grew to ~124
     # the atom count fragment_until reports is exactly what the builder (bipartite_components) sees
     _c1, summ1 = bipartite_components(kept, col_a='cluster_id_a', col_b='cluster_id_b')
     assert audit['n_atoms'] == summ1['n_components']
 
     # target-bound: a reachable atom target stops via stop_fn (reaching 115 costs << the budget)
+    tb = g['target_bound']
     _k2, _d2, audit2 = fragment_until(
-        pos, cut_method='spectral', seed=1, stop_fn=stop_at_n_atoms(115), max_drop_frac=0.05)
-    assert audit2['stopped_reason'] == 'stop_fn' and audit2['n_atoms'] >= 115
-    assert audit2['dropped_frac'] < 0.02
+        pos, cut_method='spectral', seed=1,
+        stop_fn=stop_at_n_atoms(tb['target_atoms']), max_drop_frac=tb['max_drop_frac'])
+    assert audit2['stopped_reason'] == tb['stopped_reason'] == 'stop_fn'
+    assert audit2['n_atoms'] == tb['n_atoms'] and audit2['n_cuts'] == tb['n_cuts']
+    assert audit2['pairs_dropped'] == tb['pairs_dropped']
 
 
 if __name__ == '__main__':

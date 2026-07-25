@@ -75,9 +75,9 @@ def test_edge_cut_disabled_is_natural():
 
 
 def test_edge_cut_grows_atoms_and_stays_cluster_disjoint():
-    """edge_cut target 124: grow 108 -> ~124 atoms within a 2% drop budget, cluster-disjoint,
-    with natural_cc_id retained. n_atoms is the stop target (stable); the exact dropped set isn't
-    bit-locked (spectral eigensolver FP) -- so only construction/structural invariants here."""
+    """edge_cut target 124: grow 108 -> exactly 124 atoms within a 2% drop budget, cluster-disjoint,
+    with natural_cc_id retained. The spectral cut is a deterministic dense eigensolve
+    (`_megacc_cut._bisect`), so atom count / n_cuts / pairs_dropped are bit-stable -- asserted exactly."""
     if _ood_absent():
         print('SKIP test_edge_cut_grows_atoms: OOD clusters absent')
         return
@@ -85,8 +85,9 @@ def test_edge_cut_grows_atoms_and_stays_cluster_disjoint():
     ec = {'enabled': True, 'cut_method': 'spectral', 'target_atoms': 124, 'max_drop_frac': 0.02, 'seed': 42}
     cut, summ = assign_atoms_prod(pos, lookup, hcol, edge_cut=ec)
     audit = summ['edge_cut']
-    assert 124 <= cut['atom_id'].nunique() <= 128               # hit the target (may overshoot by a cut)
+    assert cut['atom_id'].nunique() == 124                      # reached the target exactly (deterministic)
     assert cut['atom_id'].nunique() == audit['n_atoms']         # audit matches the routed atoms
+    assert audit['n_cuts'] == 16 and audit['pairs_dropped'] == 1394   # exact deterministic cut
     assert (cut['atom_id'] == cut['cc_id']).all()               # atom == cc (fragment)
     assert cut['natural_cc_id'].nunique() == 108                # pre-cut CCs retained for analysis
     assert _max_atoms_per_cluster(cut) == 1                     # cluster-disjoint after fragmentation

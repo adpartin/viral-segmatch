@@ -1,11 +1,24 @@
 {
-  "_note": "fragment_until on OOD nt_cds t095. build_pair_bigraph pins a canonical node+edge order, so the cut is row-order-/PYTHONHASHSEED-independent -- the dropped set is bit-identical across clean processes (kept_sha 9de9d9.., 11 samples). A residual threaded-eigensolver FP wobble remains (n_cuts 15 vs 16, and rarely the exact dropped set under in-suite BLAS-thread warmup), so this test asserts only construction-guaranteed + structural invariants, not a bit-exact digest. Reference: atom count ~124, drop ~1.8%. See plan Q5.",
+  "_note": "fragment_until on OOD nt_cds t095. The spectral cut uses a DIRECT dense eigensolve on a canonical (sorted) node-order Laplacian (_megacc_cut._bisect), so it is bit-deterministic across processes -- these are EXACT expected values, not a range. (Before, nx.fiedler_vector's iterative tracemin_pcg wobbled across processes.) See docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md Q5.",
   "threshold": "t095",
   "cut_method": "spectral",
   "seed": 1,
-  "max_drop_frac": 0.02,
   "natural_atoms": 108,
-  "n_atoms_nominal": 124,
-  "n_atoms_range": [109, 130],
-  "stopped_reason": "max_drop_frac"
+  "budget_bound": {
+    "target_atoms": 10000,
+    "max_drop_frac": 0.02,
+    "n_atoms": 124,
+    "n_cuts": 16,
+    "pairs_dropped": 1394,
+    "dropped_frac": 0.017698,
+    "stopped_reason": "max_drop_frac"
+  },
+  "target_bound": {
+    "target_atoms": 115,
+    "max_drop_frac": 0.05,
+    "n_atoms": 115,
+    "n_cuts": 7,
+    "pairs_dropped": 69,
+    "stopped_reason": "stop_fn"
+  }
 }

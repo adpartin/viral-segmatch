@@ -37,6 +37,7 @@ from typing import NamedTuple
 
 import networkx as nx
 import pandas as pd
+import scipy.linalg
 
 # LPT 80/10/10 targets — must match the production bin-packer's intent
 # (`_pair_helpers._lpt_bin_pack`); the feasibility gate mirrors splits.md §3.3.
@@ -79,29 +80,55 @@ def _lpt_max_drift(sizes, targets=_TARGETS, bin_order=_BIN_ORDER) -> float:
 def _bisect(H: nx.Graph, cut_method: str, seed: int, kl_max_iter: int = 10) -> set:
     """Bisect a connected simple bigraph into two node sets; return one side.
 
-    'spectral' splits on the sign of the Fiedler vector (sparse, unbalanced);
-    'kl' uses Kernighan-Lin (node-balanced). Both are seeded.
+    'spectral' splits on the sign of the Fiedler vector (the eigenvector of the graph
+    Laplacian's second-smallest eigenvalue); 'kl' uses Kernighan-Lin (node-balanced).
+
+    Spectral determinism & cost:
+        The Fiedler vector is obtained by a DIRECT dense eigensolve -- `nx.laplacian_matrix`
+        on a canonical (sorted) node order, then `scipy.linalg.eigh` -- NOT by
+        `nx.fiedler_vector`. networkx's default `tracemin_pcg` is an ITERATIVE solver that
+        assembles its Laplacian in H's PYTHONHASHSEED-randomized node-iteration order, so its
+        result is bit-reproducible WITHIN a process (hash seed fixed for the process) but varies
+        ACROSS processes; empirically that made this fragmentation land on 123 vs 124 atoms with a
+        different dropped set run-to-run. A dense eigensolve on a sorted-node Laplacian is
+        byte-identical across processes (validated here) and at this scale also ~50x faster
+        (measured: a full t095 `fragment_until` ~10.6s -> ~0.2s; the 440-node mega-CC solve
+        ~3667ms -> ~15ms). Cost is the dense eigensolver's O(n^3) time / O(n^2) memory in the CC
+        node count n -- a standard result, not benchmarked across sizes here; n (clusters per CC,
+        <=440 at t095) is small, so it is negligible. `subset_by_index=[1, 1]` requests only the
+        Fiedler eigenpair.
 
     Args:
         H: a connected simple bigraph -- in our use, one CC of the pair bigraph
             (edge `weight` = number of pairs).
         cut_method: 'spectral' or 'kl'.
-        seed: RNG seed for the seeded bisection.
+        seed: RNG seed for the seeded KL bisection. Unused by 'spectral', which is now
+            deterministic (the direct eigensolve takes no seed).
         kl_max_iter: Kernighan-Lin refinement passes (KL only).
 
     Returns:
         One side of the bisection as a set of nodes (the other side is the rest).
     """
-    nodes = list(H.nodes())
+    nodes = sorted(H.nodes())              # canonical order -> the eigensolve is process-reproducible
     if len(nodes) <= 2:
         return {nodes[0]}
 
     if cut_method == 'spectral':
-        fv = nx.fiedler_vector(H, weight='weight', seed=seed)
+        # fv = nx.fiedler_vector(H, weight='weight', seed=seed)   # replaced: nondeterministic across
+        #   processes (iterative tracemin_pcg over hash-randomized node order) -- see docstring.
+        # Laplacian in canonical node order; `.toarray()` is the dense n x n matrix (O(n^2) memory).
+        L = nx.laplacian_matrix(H, nodelist=nodes, weight='weight').toarray().astype(float)
+        # Direct symmetric eigensolve for the 2nd-smallest eigenpair only (index 1) = the Fiedler pair.
+        _eigvals, eigvecs = scipy.linalg.eigh(L, subset_by_index=[1, 1])
+        fv = eigvecs[:, 0]                 # the Fiedler vector, one column aligned to `nodes`
+        # One side of the cut = the clusters on the Fiedler vector's negative lobe (the cut is
+        # sign-invariant: the negative side and its complement drop the same straddling edges).
         A = {n for n, v in zip(nodes, fv) if v < 0}
-        if not A or len(A) == len(nodes):  # degenerate -> median split
-            order = sorted(range(len(nodes)), key=lambda i: fv[i])
-            A = {nodes[i] for i in order[:len(nodes) // 2]}
+        # Degenerate guard: if the sign split put every node on one side (A empty or all of `nodes`),
+        # fall back to a balanced split at the median Fiedler value.
+        if not A or len(A) == len(nodes):
+            order = sorted(range(len(nodes)), key=lambda i: fv[i])   # node indices by ascending fv
+            A = {nodes[i] for i in order[:len(nodes) // 2]}          # take the lower half
         return A
 
     if cut_method == 'kl':
