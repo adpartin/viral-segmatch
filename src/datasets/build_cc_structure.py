@@ -5,11 +5,12 @@ layers each threshold's cluster/CC assignment on top, persisting reusable artifa
 analysis no longer re-runs the front-end. (The Stage-3 builder `dataset_pairs_cc` still builds
 its own positives; only the analysis side reads this cache.)
 
-Reuses the Stage-3 positive path (`build_frontend` + `create_positive_pairs_v2`), so the
-universe matches `dataset_pairs_cc` for the same bundle + filters (nt_cds-correct; NOT the
-analysis `load_pair_universe`). The universe cache is keyed on the resolved front-end filters +
-source-file mtimes (`pairs.meta.json`), so a changed population/bundle is never silently reused --
-a mismatch triggers a rebuild.
+Reuses the Stage-3 positive path (`build_frontend` + `create_positive_pairs_v2`) AND the Stage-3
+atom derivation (`assign_atoms_prod` -- attach_cluster_ids + bipartite_components + optional
+edge-cut fragmentation), so the CC structure matches `dataset_pairs_cc` for the same bundle by
+construction (one source of truth; no duplicate CC/fragmentation logic to drift). The universe
+cache is keyed on the resolved front-end filters + source-file mtimes (`pairs.meta.json`), so a
+changed population/bundle is never silently reused -- a mismatch triggers a rebuild.
 
 Artifacts (under data/processed/{virus}/{data_version}/):
     pair_universe_{alphabet}/{pair}/pairs.parquet          # t-invariant, cluster-independent
@@ -44,10 +45,13 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.datasets._megacc_cut import fragment_until, stop_at_n_atoms  # noqa: E402
-from src.datasets._pair_helpers import bipartite_components  # noqa: E402
-from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
-from src.datasets.dataset_pairs_cc import _POS_HASH, _resolve_schema_pair, build_frontend  # noqa: E402
+from src.datasets._split_helpers import load_cluster_lookup  # noqa: E402
+from src.datasets.dataset_pairs_cc import (  # noqa: E402
+    _POS_HASH,
+    _resolve_schema_pair,
+    assign_atoms_prod,
+    build_frontend,
+)
 from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2  # noqa: E402
 from src.utils.config_hydra import get_virus_config_hydra  # noqa: E402
 
@@ -159,26 +163,23 @@ def _write_cc_artifacts(pos_ids: pd.DataFrame, out_dir: Path, t: str, sa: str, s
     return summ
 
 
-def _build_fragmented(pos_ids: pd.DataFrame, out_dir: Path, t: str, sa: str, sb: str,
-                      n_universe: int, *, cut_method: str, seed: int,
-                      target_atoms: int | None, max_drop_frac: float) -> None:
-    """Edge-cut the mega-CC (`fragment_until`), re-derive CCs on the kept pairs, and persist the
-    fragmented artifacts + a `fragment_audit.json`. This is where hub-core fragments (a fragment
-    that is ~97% one cluster) emerge; the natural mega-CC is spread. With `target_atoms=None` the
-    count stop is left unreachable so `max_drop_frac` (the drop budget) is the binding stop."""
-    n_before = int(len(pos_ids))
+def _build_fragmented(pos: pd.DataFrame, lookup: pd.DataFrame, hash_col: str, out_dir: Path,
+                      t: str, sa: str, sb: str, n_universe: int, n_before: int, *,
+                      cut_method: str, seed: int, target_atoms: int | None,
+                      max_drop_frac: float) -> None:
+    """Edge-cut the mega-CC via the SHARED `assign_atoms_prod` (edge_cut mode == the same
+    `fragment_until` path Stage-3 uses), then persist the fragmented artifacts + a
+    `fragment_audit.json`. `n_before` is the natural (pre-cut) joined pair count: it sets the
+    unreachable target when `target_atoms` is None (so `max_drop_frac` binds) and the audit's
+    `n_pairs_before`. This is where hub-core fragments (a fragment ~97% one cluster) emerge; the
+    natural mega-CC is spread."""
     target = target_atoms if target_atoms else n_before + 1  # unreachable -> max_drop_frac binds
-    kept, _dropped, audit = fragment_until(
-        pos_ids.reset_index(drop=True), col_a='cluster_id_a', col_b='cluster_id_b',
-        cut_method=cut_method, seed=seed,
-        stop_fn=stop_at_n_atoms(target),
-        max_drop_frac=max_drop_frac
-    )
-    kept = kept.reset_index(drop=True)
-    component_id, _summ = bipartite_components(kept, col_a='cluster_id_a', col_b='cluster_id_b')
-    kept['cc_id'] = component_id.to_numpy()
+    edge_cut = {'enabled': True, 'cut_method': cut_method, 'target_atoms': target,
+                'max_drop_frac': max_drop_frac, 'seed': seed}
+    kept, cc_sum = assign_atoms_prod(pos, lookup, hash_col, edge_cut=edge_cut)
 
     summ = _write_cc_artifacts(kept, out_dir, t, sa, sb, n_universe, n_universe - int(len(kept)))
+    audit = cc_sum['edge_cut']  # full fragment_until audit
     audit_out = {'params': {'cut_method': cut_method, 'seed': seed,
                             'target_atoms': target_atoms, 'max_drop_frac': max_drop_frac},
                  'n_pairs_before': n_before, 'n_pairs_kept': int(len(kept)), **audit}
@@ -254,14 +255,13 @@ def main() -> None:
             print(f'  {t}: MISSING {cp}; skipping.')
             continue
         lookup = load_cluster_lookup(cp)
-        pos_ids, attach_audit = attach_cluster_ids(pos, lookup, pos_hash_col=hash_col)
-        n_dropped = attach_audit['n_input'] - attach_audit['n_kept']
+        # Natural CCs via the SHARED production atom derivation (single source of truth;
+        # attach_cluster_ids + bipartite_components live inside dataset_pairs_cc.assign_atoms_prod).
+        pos_ids, cc_sum = assign_atoms_prod(pos, lookup, hash_col, edge_cut=None)
+        n_dropped = cc_sum['n_dropped_cluster_join']
         if len(pos_ids) == 0:
             print(f'  {t}: 0 pairs after cluster join (lookup covers none of the universe); skipping.')
             continue
-        component_id, _summ = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
-        pos_ids = pos_ids.copy()
-        pos_ids['cc_id'] = component_id.to_numpy()
 
         out = processed_base / f'cc_{source}' / pair / t
         summ = _write_cc_artifacts(pos_ids, out, t, sa, sb, n_universe, n_dropped)
@@ -273,11 +273,9 @@ def main() -> None:
 
         if args.fragment:
             _build_fragmented(
-                pos_ids, out / 'fragmented', t, sa, sb, n_universe,
+                pos, lookup, hash_col, out / 'fragmented', t, sa, sb, n_universe, len(pos_ids),
                 cut_method=args.cut_method, seed=args.frag_seed,
-                target_atoms=args.target_atoms,
-                max_drop_frac=args.max_drop_frac
-            )
+                target_atoms=args.target_atoms, max_drop_frac=args.max_drop_frac)
 
 
 if __name__ == '__main__':

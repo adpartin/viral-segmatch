@@ -127,23 +127,37 @@ change and aren't derivable from code. This file does NOT duplicate:
   binaries (`.../envs/segmatch/bin/python`, `MMSEQS_BIN=.../envs/mmseqs2/bin/mmseqs`) — `$HOME`
   has no miniconda, so bare `conda activate` fails on lambda13. Plan:
   `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md`.
-- **CC-structure EDA + CC/cluster plotting** (branch `feature/2d-cc-edge-cut-fragmentation`, 2026-07-22,
-  commits `a286980`..`bb81240`): Stage-2.5 pre-step `src/datasets/build_cc_structure.py` persists the
-  t-invariant positive **pair universe** (`pair_universe_{alphabet}/{pair}/`) + per-t **CC artifacts**
-  (`cc_{source}/{pair}/tXXX/`: pairs_with_cc, cc_sizes, cc_cluster_composition, cc_summary; `--fragment`
-  emits edge-cut fragmented artifacts under `tXXX/fragmented/` via `_megacc_cut.fragment_until`).
-  **CC k-mer UMAPs**: `src/analysis/umap_cc.py` (modes single_side / megacc / fragment) LOADS the training
-  k-mer matrix (`kmer_utils.load_kmer_matrix` + new alphabet-agnostic `build_hash_to_kmer_row` bridge via
-  `*_final`), SVD→UMAP, with a **coord cache** at `<figures>/_umap_coords/*.npz` (recolor/relabel = cache
-  hit, ~33×). Shared primitives now in `plot_utils.py`: `umap_scatter` + `select_categories_with_others`
-  (EXTRACTED from `plot_clusters.plot_cluster_umap`, now a thin wrapper — aa ESM-2 output preserved),
-  `stacked_composition_barplot`, `size_barplot`. Barplots: `plot_cc_sizes.py` (pairs/CC, `top_n=12`,
-  filename `cc_sizes_<pair>_<tXXX>_barplot.png`) + `plot_clusters.py --plots barplot` (unique-seqs/cluster,
-  protein color, `top_n=12`). `_cv_features.build_hash_to_row` now delegates to `build_hash_to_kmer_row`
-  (verified byte-identical for aa). Generated HA/NA nt_cds_ood t099+t095. **NEXT (post-compact): scoped
-  code cleanup** — retire stale / merge redundant / unify naming ONLY for functions created or modified
-  since `build_cc_structure.py` this session (git-derive the exact set; do NOT touch the rest of the
-  codebase), critic-verified, one small reversible change at a time.
+- **CC EDA → OOD-vs-random CV builder** (merged to master 2026-07-24; now on `feature/ood-vs-random-cv`,
+  through `5b58ea1`). Stage-2.5 EDA `build_cc_structure.py` persists the t-invariant **pair universe** +
+  per-t **CC artifacts** (`cc_{source}/{pair}/tXXX/`: pairs_with_cc, cc_sizes, cc_cluster_composition,
+  cc_summary; `--fragment` → `tXXX/fragmented/` via `_megacc_cut.fragment_until`). Stage-3
+  `dataset_pairs_cc.py` gained the **OOD-vs-random paired build** (bundle
+  `flu_ha_na_cc_nt_cds_ood_ood_vs_random`, t095): leave-one-CC-out (the 3 largest fragmented CCs = 3 test
+  folds; `make_folds_leave_cc_out`) vs a size-matched **random** arm (`make_folds_random`), both partitioning
+  ONE fixed **within_cc** negative pool reused across arms → `out_dir/{ood,random}/fold_k/`. Verified: OOD
+  0 test↔train seq-overlap, random in-distribution, identical pool+negatives, matched sizes. within_cc now
+  runs on `_ood` clusters (`build_cc_isolate_pool(membership_path=…)`, drops edge-cut straddlers). Plotting:
+  new `plot_cc_metadata.py` (per-CC subtype/host/year via durable `_pair_helpers.pair_key_to_metadata`) +
+  standardized `plot_cc_{sizes,composition,metadata}` (above-bar total+%, headroom ylim, horizontal CC#,
+  99%-cap) through `plot_utils.{size_barplot,stacked_composition_barplot,barplot_title}`. HA_0×NA_0 hub =
+  **H3N2**, HA_1×NA_1 = **H1N1**, the multi-cluster tangle = avian mix (subtype computed via the join —
+  never call a 95%-nt cluster a "lineage").
+- **STANDING DIRECTIVE — lean, reusable, consistently-named functions.** For every new plot/helper:
+  deep-search the codebase for a reusable primitive FIRST; reuse `plot_utils` / `_pair_helpers` / `schema`;
+  match variable names across scripts (prefer the production names); don't split by slot when the data is
+  per-pair (metadata is per-pair, not per-side). This is how `bigraph_*` plotting is being retired — replaced
+  by lean `plot_cc_*` callers over shared primitives; the `bigraph_*` scripts stay in place (deletion is a
+  separate long-term sweep, plan §7.6).
+- **TECH DEBT — `build_cc_structure.py` duplicates `dataset_pairs_cc.py`'s atom logic** (user flagged
+  2026-07-24). The CC-derivation + fragmentation (attach_cluster_ids → bipartite_components → fragment_until
+  → re-derive CCs) is coded twice: `dataset_pairs_cc.assign_atoms_prod` (production single source) vs inline
+  in `build_cc_structure.main` + `_build_fragmented` — divergence risk. **De-dup: have build_cc_structure
+  call `assign_atoms_prod`** (edge_cut=None natural, edge_cut dict fragmented), keeping it as the thin
+  EDA-artifact writer (its floor/maxK `cc_summary` + `cc_cluster_composition` on top). Do NOT delete it — the
+  `plot_cc_*` figures consume its artifacts. (Front-end/positives are already shared via `build_frontend`.)
+- **NEXT: generate the OOD/non-OOD datasets** (`--config_bundle flu_ha_na_cc_nt_cds_ood_ood_vs_random
+  --out_dir …/runs/dataset_cc_nt_cds_ood_ood_vs_random_t095`) → **Stage-4 training GATED** (no launch without
+  explicit OK). Stale `data/datasets/` runs cleared by the user 2026-07-24.
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered, triaged — the single source of truth). Big-picture experiments:

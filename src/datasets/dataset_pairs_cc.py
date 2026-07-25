@@ -186,8 +186,7 @@ def assign_atoms_prod(
         # Re-derive atoms on the fragmented (kept) pairs -- each fragment is a bipartite CC == atom.
         component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
         pos_ids['cc_id'] = component_id.to_numpy()
-        cc_summary['edge_cut'] = {k: cut_audit[k] for k in
-                                  ('n_cuts', 'n_atoms', 'pairs_dropped', 'dropped_frac', 'stopped_reason')}
+        cc_summary['edge_cut'] = cut_audit  # full fragment_until audit (cut_method/seed/max_drop_frac/per_cut)
         # Faithful before/after for the 2D CC-size barplots: natural CCs on ALL pre-cut pairs vs
         # fragments on the kept pairs (the dropped straddling pairs show up as the difference).
         cc_summary['cc_sizes'] = {'cc_pair_sizes.csv': natural_cc_sizes,
