@@ -36,18 +36,19 @@ import sys
 import time
 from pathlib import Path
 
-import pandas as pd
 import networkx as nx
+import pandas as pd
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
 from src.analysis.bigraph_properties import (
-    load_cluster_map,
     build_bipartite_multigraph,
+    load_cluster_map,
 )
+from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.datasets._megacc_cut import _bisect as _prod_bisect
 
 _TARGETS = {'train': 0.80, 'val': 0.10, 'test': 0.10}
 _BIN_ORDER = ['train', 'val', 'test']
@@ -110,20 +111,15 @@ def _bisect(
     seed: int,
     max_iter: int
     ) -> tuple[set, set, int]:
-    """Balanced bisection of connected graph H; returns (A, B, crossing_weight)."""
-    if method == 'kl':
-        A, B = nx.algorithms.community.kernighan_lin_bisection(
-            H, weight='weight', max_iter=max_iter, seed=seed)
-        A = set(A)
-    elif method == 'spectral':
-        fv = nx.fiedler_vector(H, weight='weight', seed=seed)
-        nodes = list(H.nodes())
-        A = {n for n, v in zip(nodes, fv) if v < 0}
-        if not A or len(A) == len(nodes):  # degenerate: fall back to median split
-            order = sorted(range(len(nodes)), key=lambda i: fv[i])
-            A = {nodes[i] for i in order[:len(nodes) // 2]}
-    else:
-        raise ValueError(f"method must be 'kl' or 'spectral', got {method!r}")
+    """Balanced bisection of connected graph H; returns (A, B, crossing_weight).
+
+    Delegates the side assignment to the production cut core `_megacc_cut._bisect`
+    (deterministic dense-eigh 'spectral' / seeded 'kl'), so this analysis copy shares one
+    source of truth and inherits its cross-process bit-determinism (`method` -> `cut_method`,
+    `max_iter` -> `kl_max_iter`). The analysis->datasets import is the allowed direction;
+    these bigraph_* diagnostics are slated for retirement, so the coupling is a temporary bridge.
+    """
+    A = _prod_bisect(H, method, seed, max_iter)
     cross = sum(d['weight'] for x, y, d in H.edges(data=True)
                 if (x in A) != (y in A))
     return A, set(H.nodes()) - A, int(cross)
@@ -299,9 +295,9 @@ def main() -> None:
               f"dropped {r['pairs_dropped']:,} ({r['dropped_frac']:.1%}); "
               f"{int(r['n_pieces'])} atoms, max drift {r['lpt_max_drift']:.1%}")
     else:
-        print(f"  LPT 80/10/10 NOT reached within max_cuts.")
+        print("  LPT 80/10/10 NOT reached within max_cuts.")
 
-    print(f"\n  per-cut log:")
+    print("\n  per-cut log:")
     for r in df.itertuples():
         tag = 'FEASIBLE' if r.lpt_feasible else ('<=target' if r.largest_le_target else '')
         print(f"    cut {r.cut:>2}: dropped {r.pairs_dropped:>7,} ({r.dropped_frac:>5.1%})  "

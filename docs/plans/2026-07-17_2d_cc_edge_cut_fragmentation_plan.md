@@ -169,8 +169,6 @@ matched-size run, an overlap verifier, and the UMAP / per-CC-metadata plots), so
   legible — it is a feature (cleaner atoms) as much as a confound.
 - **Q4. nt_cds OOD subtype alignment.** "Atoms ≈ antigenic subtypes" was found on **aa +
   set-cover**; P1's UMAP checks whether it holds for **nt_cds OOD**.
-- **Q5. Seed dependence.** Spectral/KL are seeded; the fragmentation (hence the folds) depends on
-  the cut seed. Note it; repeated-CV-over-cut-seeds is a later variance study.
 
 ## 8. Task list
 

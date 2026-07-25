@@ -224,7 +224,7 @@ def test_fragment_until_ood_nt_cds_t095_golden():
 
     The spectral cut is a DIRECT dense eigensolve on a canonical node-order Laplacian
     (`_megacc_cut._bisect`), so it is bit-deterministic across processes -- this asserts the EXACT
-    cut (n_cuts / pairs_dropped / n_atoms), not a range. See plan Q5."""
+    cut (n_cuts / pairs_dropped / n_atoms), not a range."""
     if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
         print('SKIP test_fragment_until_ood_nt_cds_t095_golden: OOD clusters absent')
         return
