@@ -583,6 +583,45 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'prot_hash') -> tup
     return cooccur_pairs, cooccur_stats
 
 
+def pair_key_to_metadata(final_path: Path, func_a: str, func_b: str, *,
+                         hash_col: str = 'prot_hash',
+                         fields=('hn_subtype', 'host', 'year')) -> pd.DataFrame:
+    """Modal isolate metadata per canonical pair_key -- alphabet-agnostic.
+
+    Generalizes the aa-only `bigraph_pair_metadata.pair_key_to_metadata` /
+    `bigraph_cut_subtype.pair_key_to_subtype`: keys pairs on `hash_col` (prot_hash for aa,
+    cds_dna_hash for nt_cds) read from the matching *_final parquet, builds the isolate-level
+    co-occurrence of `func_a` and `func_b` (full function names), joins isolate metadata
+    (`load_flu_metadata`), and reduces each pair to the MODAL value of every requested field
+    (deterministic tie-break: count desc, label asc). Missing -> 'unknown'; `year` is stringified
+    so it stacks like the categorical fields. Returns `pair_key` + one column per field.
+    """
+    from src.utils.metadata_enrichment import load_flu_metadata
+    cds = pd.read_parquet(final_path, columns=['assembly_id', 'function', hash_col])
+    a = cds[cds['function'] == func_a][['assembly_id', hash_col]].rename(columns={hash_col: 'hash_a'})
+    b = cds[cds['function'] == func_b][['assembly_id', hash_col]].rename(columns={hash_col: 'hash_b'})
+    iso = a.merge(b, on='assembly_id')
+    iso['pair_key'] = [canonical_pair_key(x, y) for x, y in zip(iso['hash_a'], iso['hash_b'])]
+
+    meta = load_flu_metadata()[['assembly_id', *fields]].copy()
+    meta['assembly_id'] = meta['assembly_id'].astype(str)
+    iso['assembly_id'] = iso['assembly_id'].astype(str)
+    iso = iso.merge(meta, on='assembly_id', how='left')
+    for f in fields:
+        if f == 'year':
+            iso[f] = iso[f].apply(lambda v: 'unknown' if pd.isna(v) else str(int(v)))
+        else:
+            iso[f] = iso[f].fillna('unknown').astype(str)
+
+    out = pd.DataFrame({'pair_key': sorted(iso['pair_key'].unique())}).set_index('pair_key')
+    for f in fields:  # modal category per pair_key, deterministic tie-break (count desc, label asc)
+        g = (iso.groupby(['pair_key', f]).size().reset_index(name='n')
+             .sort_values(['pair_key', 'n', f], ascending=[True, False, True])
+             .drop_duplicates('pair_key', keep='first').set_index('pair_key')[f])
+        out[f] = g
+    return out.reset_index()
+
+
 def get_metadata_distributions(df: pd.DataFrame, isolate_set: set) -> dict:
     """Return metadata value-count dicts for a set of isolates."""
     if len(isolate_set) == 0:

@@ -181,6 +181,7 @@ def size_barplot(
     ylabel: str,
     xticklabels: Optional[Sequence] = None,
     bar_color: str = '#4c72b0',
+    rotation: int = 45,
     dpi: int = 180,
     ) -> None:
     """Top-N ranked-size barplot shared by the 1D cluster and 2D CC size figures.
@@ -219,7 +220,7 @@ def size_barplot(
                     textcoords='offset points', ha='center', va='bottom',
                     fontsize=7, color='#222')
     ax.set_xticks(xs)
-    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
+    ax.set_xticklabels(labels, rotation=rotation, ha='right' if rotation else 'center', fontsize=7)
     ax.set_xlabel(xlabel, fontsize=9)
     ax.set_ylabel(ylabel, fontsize=9)
     ax.set_ylim(0, heights.max() * 1.18 if len(heights) else 1.0)
@@ -231,6 +232,12 @@ def size_barplot(
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
+
+
+def _share_pct(frac: float) -> int:
+    """Integer percent for a within-bar share; a share < 1.0 never rounds up to 100 (caps at 99),
+    so a near-pure bar reads 99% rather than a misleading 100%."""
+    return 100 if frac >= 1.0 else min(99, round(frac * 100))
 
 
 def stacked_composition_barplot(
@@ -248,6 +255,7 @@ def stacked_composition_barplot(
     item_labels: Optional[Sequence] = None,
     normalize: bool = False,
     label_min_frac: float = 0.06,
+    rotation: int = 45,
     dpi: int = 180,
     ) -> None:
     """One bar per item (in `item_order`), stacked by that item's top-`top_k` categories +
@@ -258,15 +266,19 @@ def stacked_composition_barplot(
     With `normalize=True` every bar is scaled to 1.0 so items of very different total size stay
     comparable (needed when one mega-CC dwarfs the tail); the y-axis then reads as share-of-item.
     Each top-`top_k` segment at least `label_min_frac` of its bar is labeled in place with its
-    category id and within-bar share (white on the colored blocks, dark on the gray 'Others').
+    category id and within-bar share (white on the colored blocks, dark on the gray 'Others'; a share
+    < 1.0 never rounds up to 100%). The bar's total + its share of the full set is annotated above it
+    (matching `size_barplot`); the y-axis is scaled to the tallest bar with headroom for that label.
 
     `comp` is long-form (`item_col`, `category_col`, `value_col`); it is filtered per item and
     sorted by `value_col` desc. Generic -- shared by the CC cluster-composition figures and
     (later) the per-CC metadata figures; nothing here is alphabet- or field-specific.
     """
     palette = plt.get_cmap('tab10')
+    grand_total = float(comp[value_col].sum())  # denominator for the above-bar % (over ALL items)
     fig, ax = plt.subplots(figsize=(max(9.0, len(item_order) * 0.6), 5.8))
     xs = np.arange(len(item_order))
+    max_total = 0.0
     for x, item in zip(xs, item_order):
         g = comp[comp[item_col] == item].sort_values(value_col, ascending=False)
         vals = g[value_col].to_numpy(dtype=float)
@@ -274,14 +286,15 @@ def stacked_composition_barplot(
         total = float(vals.sum())
         if total <= 0:
             continue
+        max_total = max(max_total, total)
         bottom = 0.0
         for r in range(min(top_k, len(vals))):
             frac = vals[r] / total
             h = frac if normalize else vals[r]
             ax.bar(x, h, bottom=bottom, color=palette(r % 10), edgecolor='white', linewidth=0.4)
             if frac >= label_min_frac:
-                ax.text(x, bottom + h / 2.0, f'{cats[r]}\n{frac:.0%}', ha='center', va='center',
-                        fontsize=6, color='white')
+                ax.text(x, bottom + h / 2.0, f'{cats[r]}\n{_share_pct(frac)}%', ha='center',
+                        va='center', fontsize=6, color='white')
             bottom += h
         other_raw = float(vals[top_k:].sum()) if len(vals) > top_k else 0.0
         if other_raw > 0:
@@ -289,18 +302,24 @@ def stacked_composition_barplot(
             other_h = other_frac if normalize else other_raw
             ax.bar(x, other_h, bottom=bottom, color='#d9d9d9', edgecolor='white', linewidth=0.4)
             if other_frac >= label_min_frac:
-                ax.text(x, bottom + other_h / 2.0, f'Others\n{other_frac:.0%}', ha='center', va='center',
-                        fontsize=6, color='#222')
+                ax.text(x, bottom + other_h / 2.0, f'Others\n{_share_pct(other_frac)}%',
+                        ha='center', va='center', fontsize=6, color='#222')
             bottom += other_h
+        # above-bar: the item's real total + its share of the full set (matches size_barplot).
+        ax.annotate(f'{int(round(total)):,}\n{100.0 * total / grand_total:.1f}%', xy=(x, bottom),
+                    xytext=(0, 2), textcoords='offset points', ha='center', va='bottom',
+                    fontsize=7, color='#222')
     labels = list(item_labels) if item_labels is not None else list(item_order)
     labels = [str(v) for v in labels]
     ax.set_xticks(xs)
-    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=7)
+    ax.set_xticklabels(labels, rotation=rotation, ha='right' if rotation else 'center', fontsize=7)
     ax.set_xlabel(xlabel, fontsize=9)
     ax.set_ylabel(ylabel, fontsize=9)
     if normalize:
-        ax.set_ylim(0, 1.10)
+        ax.set_ylim(0, 1.18)
         ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
+    else:
+        ax.set_ylim(0, max_total * 1.18 if max_total else 1.0)
     ax.grid(axis='y', linestyle=':', alpha=0.5)
     ax.set_axisbelow(True)
     ax.set_title(title, fontsize=10)

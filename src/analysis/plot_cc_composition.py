@@ -52,20 +52,28 @@ def main() -> None:
     sa, sb = summ['slot_a'], summ['slot_b']  # robust to hyphenated short names (PB1-F2, PA-X)
 
     ylabel = 'share of CC' if args.normalize else 'positive pairs in CC'
+    n_pairs = int(sizes['n_pairs'].sum())
+    largest_pct = 100.0 * sizes['n_pairs'].max() / n_pairs if n_pairs else 0.0
+    stats = (f'top {len(top_ccs)} of {len(sizes):,} CCs  ·  {n_pairs:,} positive pairs  ·  '
+             f'largest CC {largest_pct:.1f}%')
     for slot, sname in (('a', sa), ('b', sb)):
         cs = comp[comp['slot'] == slot]
         out = (args.cc_dir / 'figures' /
                f'cc_cluster_composition_{sname}_{args.pair}_{args.alphabet}_{args.threshold_id}.png')
+
         title = barplot_title(
-            args.pair, args.alphabet, args.threshold_id,
-            f'top {len(top_ccs)} of {len(sizes):,} CCs  (in-bar = cluster id + within-CC share)',
-            descriptor=f'{sname}-side cluster composition per CC', note=args.note)
+            args.pair, args.alphabet, args.threshold_id, stats,
+            descriptor=f'{sname}-side cluster composition per CC', note=args.note
+        )
+
         stacked_composition_barplot(
             cs, item_col='cc_id', category_col='cluster_id', value_col='n_pairs',
             item_order=top_ccs, item_labels=[f'CC{i + 1}' for i in range(len(top_ccs))],
-            out_png=out, normalize=args.normalize, title=title,
+            out_png=out, normalize=args.normalize, title=title, rotation=0,
             xlabel='connected component (sorted by size; not true CC ids)',
-            ylabel=ylabel)
+            ylabel=ylabel
+        )
+
         print(f'  wrote {out}')
 
 
