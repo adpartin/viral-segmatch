@@ -1,6 +1,6 @@
 # OOD vs random split: is the OOD split itself hard?
 
-**Status: IN PROGRESS** — builder implemented; datasets generated + fully validated (deterministic) 2026-07-25; Stage-4 training GATED (not launched).
+**Status: IN PROGRESS** — builder implemented; datasets generated + validated (deterministic) 2026-07-25; Stage-4 exploratory runs done 2026-07-26: **OOD collapses to chance across every model/feature tested** (see Stage-4 result).
 
 ## Question
 At a **fixed size**, is a cluster-disjoint (**OOD**) split harder than a **random** (non-OOD) split? If
@@ -54,8 +54,19 @@ is now a dense eigensolve -- see `2026-07-17_2d_cc_edge_cut_fragmentation_plan.m
   3 held-out CCs at t095: **CC1 (cc_id 60) = H3N2 99.6%**, **CC2 (cc_id 66) = avian mix (124 subtypes, no
   majority; top H5N1 30% / H9N2 12%)**, **CC3 (cc_id 40) = H1N1 99.2%**. Full per-subtype breakdown is in
   `cc_nt_cds_ood/HA-NA/t095/fragmented/figures/cc_metadata_hn_subtype_*.png`.
-- **(GATED)** Stage 4: train both arms (next: LGBM baseline), compare per-fold + mean AUC-PR/MCC. No launch
-  without explicit confirmation.
+## Stage-4 result (2026-07-26, exploratory)
+LGBM on kmer_nt_cds, all 6 t095 arm×folds (test): **OOD mean AUC-PR 0.51 / MCC 0.03 (chance) vs random
+0.97 / 0.88** — same pool, same size, only the partition differs. Every OOD fold collapses, including the
+124-subtype avian tangle (fold_1); the random arm is near-perfect and fold-stable. Models train fine
+in-distribution (val AUC-PR ~0.96–0.98) but cannot extrapolate to a held-out CC — an OOD-specific failure,
+not a training failure. Read AUC-PR/MCC, not F1 (OOD F1 is a degenerate predict-all-positive at the 0.5
+cutoff).
+
+**Robust across every axis** (fold_0 ablation): model (LGBM, MLP), threshold (t095 ≈ t099), interaction
+(concat ≈ unit_diff+prod), feature (kmer_nt_cds; **ESM-2 aa** only nudges AUC-ROC 0.52→0.56 — a sliver,
+still chance), scaling (none / unit_norm / standard). Conclusion: in-distribution performance is **entirely**
+the cluster shortcut; no representation tested carries a generalizable HA–NA co-occurrence signal. Runs are
+local artifacts under `models/flu/July_2025/runs/` (not committed); aggregator in scratchpad.
 
 ## Related
 `docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md` (fragmentation mechanism);
