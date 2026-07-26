@@ -1,6 +1,6 @@
 # OOD vs random split: is the OOD split itself hard?
 
-**Status: IN PROGRESS** — builder implemented + verified 2026-07-24; Stage-4 training GATED (not launched).
+**Status: IN PROGRESS** — builder implemented; datasets generated + fully validated (deterministic) 2026-07-25; Stage-4 training GATED (not launched).
 
 ## Question
 At a **fixed size**, is a cluster-disjoint (**OOD**) split harder than a **random** (non-OOD) split? If
@@ -35,16 +35,27 @@ point); `neg_to_pos_ratio: 1`. Report per-fold (the 3 folds differ: 2 subtype-pu
   `edge_cut.max_drop_frac 0.10`). `--override dataset.split_strategy.tail_ccs_to_train=false` measures
   the tail's effect.
 
-## Verified (2026-07-24)
-Built both arms (151,163 pairs). OOD arm: **0** test↔train sequence overlap in every fold; random arm:
-34k–38k overlap; **identical pool and identical negatives** across arms; per-fold test sizes matched
-(52,978 / 50,358 / 41,216).
+## Verified (2026-07-25, deterministic rebuild)
+Generated both arms to `runs/dataset_cc_nt_cds_ood_ood_vs_random_t095/{ood,random}/fold_{0,1,2}/` from ONE
+fixed pool of **151,409** pairs (75,740 pos / 75,669 within-CC neg; 3,580 straddler isolates dropped; 125
+atoms; test CCs = atoms 60/66/40 sized 26,611/25,179/20,608). Both arms partition the identical pool with
+identical negatives; per-fold test sizes matched (**53,222 / 50,358 / 41,216**). The **only** difference is
+CC recurrence across test↔train: **OOD 0** clusters / 0 sequences in every fold; **random 247–266 clusters /
+36–41k sequences** (the in-distribution control) — `pair_key` overlap is 0 in both arms. Deterministic: a
+fresh-process rebuild reproduced all 18 arm×fold×split assignments byte-identically (the spectral edge-cut
+is now a dense eigensolve -- see `2026-07-17_2d_cc_edge_cut_fragmentation_plan.md`).
 
 ## Remaining
-- Subtype-label each held-out CC (H_x) via `src/analysis/bigraph_cut_subtype.py::pair_key_to_subtype`.
-- Split-colored kmer_nt_cds UMAPs (per arm × slot); reuse `plot_utils.umap_scatter`.
-- **(GATED)** Stage 4: train both arms, compare per-fold + mean AUC-PR/MCC over cut-seed × fold-seed.
-  No launch without explicit confirmation.
+- **DONE** — split-geometry kmer_nt_cds UMAPs (per fold × arm × slot, 12 figs) via
+  `src/analysis/umap_ood_vs_random.py` (commit `98657fd`): OOD test = one contiguous held-out CC
+  (extrapolation); random test = scattered across the hubs (interpolation).
+- **ON HOLD** — persist per-CC modal subtype labels (would extend `plot_cc_metadata.py` to emit a
+  `cc_metadata_modal_*.csv`, reusing `_pair_helpers.pair_key_to_metadata`). Values already computed for the
+  3 held-out CCs at t095: **CC1 (cc_id 60) = H3N2 99.6%**, **CC2 (cc_id 66) = avian mix (124 subtypes, no
+  majority; top H5N1 30% / H9N2 12%)**, **CC3 (cc_id 40) = H1N1 99.2%**. Full per-subtype breakdown is in
+  `cc_nt_cds_ood/HA-NA/t095/fragmented/figures/cc_metadata_hn_subtype_*.png`.
+- **(GATED)** Stage 4: train both arms (next: LGBM baseline), compare per-fold + mean AUC-PR/MCC. No launch
+  without explicit confirmation.
 
 ## Related
 `docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md` (fragmentation mechanism);
