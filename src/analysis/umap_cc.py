@@ -123,7 +123,7 @@ def _umap_coords(hashes, alphabet, *, kmer_k, seed, metric, cache_dir):
 
 
 def _kmer_umap(hashes, categories, alphabet, out_png, title, *, kmer_k, min_share, cap,
-               metric, seed, legend_title, category_labeler=None):
+               metric, seed, legend_title, category_labeler=None, alpha=None):
     """Shared tail: hashes -> cached 2-D UMAP coords -> umap_scatter (dropping unresolved hashes).
     Default legend label is '<cat>, <share>%, n=<sequences>'."""
     out_png = Path(out_png)
@@ -135,11 +135,11 @@ def _kmer_umap(hashes, categories, alphabet, out_png, title, *, kmer_k, min_shar
             return f'{c}, {sh:.1%}, n={n:,}'
     return umap_scatter(xy, cats, out_png=out_png, title=title, min_share=min_share, cap=cap,
                         palette=_COLOR_PALETTE, metric=metric, seed=seed, legend_title=legend_title,
-                        category_labeler=category_labeler)
+                        category_labeler=category_labeler, alpha=alpha)
 
 
 def plot_single_side_clusters(clusters_root, threshold, short_name, out_dir, *, kmer_k=6,
-                              min_share=0.01, cap=12, metric='euclidean', seed=42):
+                              min_share=0.01, cap=12, metric='euclidean', seed=42, alpha=None):
     """4a: k-mer UMAP of one slot's cluster sequences (points = sequences), colored by cluster."""
     tl = threshold if str(threshold).startswith('t') else threshold_label(threshold)
     clusters = pd.read_parquet(Path(clusters_root) / tl / f'{short_name}_cluster.parquet')
@@ -151,7 +151,7 @@ def plot_single_side_clusters(clusters_root, threshold, short_name, out_dir, *, 
              f'{len(clusters):,} sequences; {n_clusters:,} clusters')
     stats = _kmer_umap(clusters[hcol].tolist(), clusters['cluster_id'].to_numpy(), alphabet, out_png,
                        title, kmer_k=kmer_k, min_share=min_share, cap=cap, metric=metric, seed=seed,
-                       legend_title=f'clusters >= {min_share:.0%}')
+                       legend_title=f'clusters >= {min_share:.0%}', alpha=alpha)
     print(f'  single_side {short_name} {tl}: {stats["n_points"]:,} pts, {stats["n_selected"]} colored -> {out_png}')
     return out_png
 
@@ -220,6 +220,8 @@ def main() -> None:
     p.add_argument('--kmer_k', type=int, default=6)
     p.add_argument('--min_share', type=float, default=0.01, help='min share of points for a distinct color')
     p.add_argument('--cap', type=int, default=12, help='max distinctly-colored categories')
+    p.add_argument('--alpha', type=float, default=None,
+                   help='point transparency 0..1 (default opaque); use e.g. 0.5 to reveal overplot/overlap')
     p.add_argument('--metric', default='euclidean', help='UMAP metric (default euclidean for k-mer SVD)')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--out_dir', type=Path, default=None)
@@ -240,7 +242,7 @@ def main() -> None:
         out_dir = args.out_dir or (args.clusters_root / 'figures')
         plot_single_side_clusters(args.clusters_root, args.threshold, args.short, out_dir,
                                   kmer_k=args.kmer_k, min_share=args.min_share, cap=args.cap,
-                                  metric=args.metric, seed=args.seed)
+                                  metric=args.metric, seed=args.seed, alpha=args.alpha)
     elif args.mode == 'megacc':
         out_dir = args.out_dir or (args.cc_dir / 'figures')
         plot_megacc_sides(args.cc_dir, args.universe, out_dir, args.pair, alphabet=args.alphabet,

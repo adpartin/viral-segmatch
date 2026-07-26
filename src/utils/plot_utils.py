@@ -388,6 +388,7 @@ def umap_scatter(
     others_color: str = '#4d4d4d',
     point_size: float = 12.0,
     other_size: float = 6.0,
+    alpha: Optional[float] = None,
     legend_title: Optional[str] = None,
     category_labeler=None,
     others_labeler=None,
@@ -429,11 +430,11 @@ def umap_scatter(
     other = ~sel['is_selected']
     if other.any():
         ax.scatter(xy[other, 0], xy[other, 1], s=other_size, c=others_color, linewidths=0,
-                   rasterized=True, label=oth_label(sel['others_count'], sel['others_share']))
+                   rasterized=True, alpha=alpha, label=oth_label(sel['others_count'], sel['others_share']))
     for cat, color, cnt, share in sel['selected']:
         m = categories == cat
         ax.scatter(xy[m, 0], xy[m, 1], s=point_size, color=color, linewidths=0,
-                   rasterized=True, label=cat_label(cat, cnt, share))
+                   rasterized=True, alpha=alpha, label=cat_label(cat, cnt, share))
     ax.legend(loc='best', fontsize=7, framealpha=0.9, title=legend_title)
     ax.set_xlabel('UMAP-1')
     ax.set_ylabel('UMAP-2')
