@@ -14,7 +14,7 @@ Figures (`--plots`), and which cluster sets they apply to:
     connected component of this hit graph). Drawn as a scatter (not a shrunk image) with
     violations ringed in red, so a lone violation can never be hidden. The visual
     companion to src/analysis/verify_ood_clusters.py, which certifies the same 0.
-    Needs the all-vs-all `<short>_hits.tsv` -> OOD sets only (build_ood_clusters).
+    Needs the all-vs-all `<short>_hits.tsv` -> OOD sets only (build_clusters.py --method search).
   umap        -- 2-D UMAP of the ESM-2 embeddings of the cluster sequences, colored by
     cluster. Qualitative check that same-cluster sequences group together in ESM-2 space.
     Uses the existing master embedding cache (no embeddings computed) -> aa sets only

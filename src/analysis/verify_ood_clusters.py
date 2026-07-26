@@ -1,7 +1,7 @@
 """Verify the across-cluster OOD guarantee for a single-segment cluster set.
 
 Given an OOD cluster parquet (`<hash>`, `cluster_id`) built by
-`build_mmseqs_clusters.py` with `--cluster-mode 1`, run an exhaustive mmseqs
+`build_clusters.py --method search` (or the `build_ood_clusters.py` shim), run an exhaustive mmseqs
 all-vs-all over the same unique-sequence FASTA and confirm:
 
     no pair of sequences in DIFFERENT clusters has identity >= t AND
