@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from omegaconf import ListConfig
+from omegaconf import ListConfig, OmegaConf
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
@@ -205,9 +205,14 @@ def main() -> None:
                    help='fragment: stop once this many atoms exist (default: unreachable, so max_drop_frac binds).')
     p.add_argument('--cut_method', default='spectral', help="fragment: 'spectral' or 'kl' (default spectral).")
     p.add_argument('--frag_seed', type=int, default=1, help='fragment: bisection RNG seed (default 1).')
+    p.add_argument('--override', nargs='+', default=None,
+                   help='Hydra dotlist overrides on top of the bundle (e.g. '
+                        'dataset.split_strategy.cluster_id_path=.../clusters_nt_cds_cm1/t095/combined_cluster.parquet).')
     args = p.parse_args()
 
     config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
+    if args.override:
+        config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.override))
     ds = config.dataset
     ss = config.dataset.split_strategy
     alphabet = str(ss.cluster_alphabet)
