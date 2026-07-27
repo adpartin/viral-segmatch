@@ -1,6 +1,6 @@
 # 1D cluster-disjoint (DataSAIL S1) — HA–NA single-slot CV, nt_cds / cm0
 
-**Status: IN PROGRESS** — builder change landed + validated (2026-07-27); experiment sweep next.
+**Status: IN PROGRESS** — code landed; 10 datasets built + validated (2026-07-27); Stage-4 next.
 
 ## Goal
 Does HA–NA co-occurrence generalize when ONE slot's clusters are held out (DataSAIL **S1**
@@ -63,12 +63,23 @@ the nt_cds `cds_dna_hash` cluster layout — a stale-tool gap, not fixed here.)
   held, HA cluster overlap 0%, NA recurs 14.6%; 10/10 existing tests pass.
 
 ## Experiments
-1. **Smoke:** `single_slot='a'` (HA), cm0, nt_cds, **t099**, k=4 — verify feasibility + 0 overlap.
-2. **Sweep a:** `single_slot='a'`, t099 → t095.
-3. **Sweep b:** `single_slot='b'` (NA), t099 → t095 (slot symmetry).
 
-Metrics per fold + mean: AUC-PR, MCC, F1; reference = random-split chance. Look for
-better-than-chance at t099 and monotone degradation to t095. Stage-4 training is gated (OK per run).
+### Datasets (BUILT 2026-07-27) — cm0/nt_cds, k=4, within_fold, ratio 1.0
+10 datasets at `data/datasets/flu/July_2025/runs/dataset_1dcd_nt_cds_cm0_slot{a,b}_t{099..095}`
+(bundle `flu_ha_na_1dcd_nt_cds`; t + slot varied via `--override`). Validation across all folds:
+- **`total_pos = 78,764` constant** across all t and both slots (positives are threshold- and
+  slot-independent; only routing changes) → Stage-4 degradation is pure OOD signal, not a size artifact.
+- **Constrained-slot cross-split cluster overlap = 0 everywhere**; **k=4 feasible everywhere**,
+  incl. t095/slot-b (the pair-mass boundary — its test folds spread 18.8k–22.5k, within the 5pp drift bound).
+- **Unconstrained-slot cluster leakage rises monotonically as t↓**: HA-side 14.5→39.5%, NA-side 13.7→35.4%.
+
+### Stage-4 (gated) — LGBM
+Matrix: 2 slots × 5 t × 4 folds. Model: LGBM on nt_cds k-mer k6 `concat` (pre-req: the
+`kmer_features_nt_cds_k6` corpus cache). At neg:pos = 1:1 the **chance floor is AUC-PR ≈ 0.50, MCC ≈ 0**
+(the better-than-chance bar; no baseline arm needed for the floor). Reads: (1) does each slot clear
+chance at t099? (2) mean ± range AUC-PR & MCC vs t (t099→t095) per slot — the degradation curve.
+Aggregate `(slot, t) → mean±range` reusing the `test_predicted.csv` parse from `aggregate_cm_stage4.py`.
+Run slot a first, then slot b.
 
 ## Caveats
 - **Subtype correlation** (`docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`): HA clusters
