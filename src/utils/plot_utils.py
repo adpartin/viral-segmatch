@@ -443,3 +443,71 @@ def umap_scatter(
     return {'n_points': int(len(categories)),
             'n_categories': int(pd.Series(categories).nunique()),
             'n_selected': len(sel['selected']), 'others_share': sel['others_share']}
+
+
+def annotated_heatmap(
+    matrix,
+    *,
+    row_labels: Sequence[str],
+    col_labels: Sequence[str],
+    out_png: Union[str, Path],
+    title: str,
+    xlabel: str = '',
+    ylabel: str = '',
+    cbar_label: str = '',
+    cmap: str = 'RdYlGn',
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    value_fmt: str = '{:.2f}',
+    annotate: bool = True,
+    row_fontsize: int = 8,
+    title_fontsize: int = 11,
+    nan_color: str = '#dcdcdc',
+    dpi: int = 180,
+    figsize: Optional[tuple] = None,
+    ) -> None:
+    """Annotated 2-D heatmap (imshow + per-cell value text + colorbar) for a labeled metric grid.
+
+    Shared primitive for `(row x col)` metric matrices -- e.g. a (regime x threshold) TNR grid.
+    The caller supplies ALL text (title, axis labels, cbar_label) and the cell `value_fmt`, so one
+    primitive serves many metrics/axes. `matrix` is shaped `(len(row_labels), len(col_labels))`;
+    NaN cells are drawn in `nan_color` and left un-annotated (the metric is undefined there). Cell
+    text color adapts to the cell's luminance so values stay legible on dark and light cells.
+    Saves to `out_png` (parent dirs created).
+    """
+    m = np.asarray(matrix, dtype=float)
+    if m.shape != (len(row_labels), len(col_labels)):
+        raise ValueError(f"annotated_heatmap: matrix shape {m.shape} != "
+                         f"(rows={len(row_labels)}, cols={len(col_labels)}).")
+    nrow, ncol = m.shape
+    if figsize is None:
+        figsize = (max(4.0, 1.15 * ncol + 2.5), max(3.0, 0.52 * nrow + 1.6))
+    cmap_obj = plt.get_cmap(cmap).copy()
+    cmap_obj.set_bad(nan_color)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    masked = np.ma.masked_invalid(m)
+    im = ax.imshow(masked, cmap=cmap_obj, vmin=vmin, vmax=vmax, aspect='auto')
+    ax.set_xticks(range(ncol))
+    ax.set_xticklabels(col_labels)
+    ax.set_yticks(range(nrow))
+    ax.set_yticklabels(row_labels, fontsize=row_fontsize)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=title_fontsize)
+
+    if annotate:
+        rgba = cmap_obj(im.norm(masked))  # per-cell colors -> luminance-based text color
+        for i in range(nrow):
+            for j in range(ncol):
+                if np.isnan(m[i, j]):
+                    continue
+                r, g, b = rgba[i, j, :3]
+                lum = 0.299 * r + 0.587 * g + 0.114 * b
+                ax.text(j, i, value_fmt.format(m[i, j]), ha='center', va='center',
+                        fontsize=7, color='black' if lum > 0.55 else 'white')
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
+    if cbar_label:
+        cbar.set_label(cbar_label)
+    savefig(out_png, dpi=dpi)
