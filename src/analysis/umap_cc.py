@@ -145,13 +145,13 @@ def plot_single_side_clusters(clusters_root, threshold, short_name, out_dir, *, 
     clusters = pd.read_parquet(Path(clusters_root) / tl / f'{short_name}_cluster.parquet')
     alphabet = str(clusters['alphabet'].iloc[0])
     hcol = schema.SCHEMA[alphabet].hash_col
-    out_png = Path(out_dir) / f'{short_name}_{tl}_{alphabet}_kmer_umap.png'
+    out_png = Path(out_dir) / f'kmers_umap_{short_name.lower()}_{alphabet}_{tl}.png'
     n_clusters = int(clusters['cluster_id'].nunique())
     title = (f'{short_name} -- {alphabet} -- {tl} -- {kmer_k}-mer UMAP\n'
              f'{len(clusters):,} sequences; {n_clusters:,} clusters')
     stats = _kmer_umap(clusters[hcol].tolist(), clusters['cluster_id'].to_numpy(), alphabet, out_png,
                        title, kmer_k=kmer_k, min_share=min_share, cap=cap, metric=metric, seed=seed,
-                       legend_title=f'clusters >= {min_share:.0%}', alpha=alpha)
+                       legend_title=None, alpha=alpha)
     print(f'  single_side {short_name} {tl}: {stats["n_points"]:,} pts, {stats["n_selected"]} colored -> {out_png}')
     return out_png
 

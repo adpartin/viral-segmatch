@@ -96,7 +96,7 @@ def main() -> None:
     p.add_argument('--out_dir',
                    default=str(PROJ / 'results/flu/July_2025/runs/1D_cluster_sizes'),
                    help='Output directory for plots/ and the long-form CSV.')
-    p.add_argument('--top_n', type=int, default=20,
+    p.add_argument('--top_n', type=int, default=12,
                    help='Number of largest clusters to draw per slice (default 20).')
     p.add_argument('--proteins', nargs='*', default=None,
                    help='Protein short names (default: the 8 majors from flu.yaml).')
