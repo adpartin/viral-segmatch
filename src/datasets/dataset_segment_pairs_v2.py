@@ -55,15 +55,14 @@ Duplicate handling (canonical reference for the three cases)
    train).
 """
 
-import ipdb
 import json
 import random
 import sys
 import time
-from itertools import combinations
 from pathlib import Path
 from typing import Iterator, Optional, Tuple
 
+import ipdb  # noqa: F401  (kept for the interactive-debug snippets below)
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -77,9 +76,9 @@ if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
 from src.datasets._pair_helpers import (
-    canonical_pair_key,
     _validate_schema_pair,
     build_cooccurrence_set,
+    canonical_pair_key,
     get_metadata_distributions,
 )
 from src.utils import schema
@@ -424,13 +423,13 @@ def create_negative_pairs_v2(
                 f"got {on_shortfall!r}"
             )
         from src.datasets._negative_regime_sampling import (
-            REGIME_NAMES,
             COVERAGE_PRIORITY_CHAIN,
+            REGIME_NAMES,
             build_cell_regime_partners,
             classify_pair_regime,
             compute_match_count,
-            count_isolates_per_cell,
             count_available_per_regime,
+            count_isolates_per_cell,
             resolve_regime_targets,
         )
         missing_regimes = set(REGIME_NAMES) - set(axis_quotas.keys())
@@ -1336,6 +1335,7 @@ def split_dataset_v2(
     single_slot: Optional[str] = None,
     routed_pos_override: Optional[dict] = None,
     pair_key_alphabet: str = 'aa',
+    negative_scope: str = 'coverage',
     drop_budget: Optional[dict] = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
     """Build train/val/test splits with global pair_key dedup, a plain
@@ -1390,7 +1390,11 @@ def split_dataset_v2(
     if axis_quotas is not None and len(axis_quotas) > 0:
         from src.datasets._negative_regime_sampling import (
             DEFAULT_AXES as _NEG_DEFAULT_AXES,
+        )
+        from src.datasets._negative_regime_sampling import (
             DEFAULT_YEAR_BIN_EDGES as _NEG_DEFAULT_YEAR_BIN_EDGES,
+        )
+        from src.datasets._negative_regime_sampling import (
             build_isolate_cells,
         )
         resolved_sampling_axes = list(sampling_axes) if sampling_axes else list(_NEG_DEFAULT_AXES)
@@ -1551,7 +1555,8 @@ def split_dataset_v2(
         # 'nt_cds' clusters CDS DNA (joins on cds_dna_hash); 'nt_ctg' clusters
         # contig DNA (joins on ctg_dna_hash). The pos-side hash is attached below.
         from src.datasets._split_helpers import (
-            cluster_disjoint_route_pos_df, load_cluster_lookup,
+            cluster_disjoint_route_pos_df,
+            load_cluster_lookup,
         )
         if cluster_id_path is None:
             raise ValueError(
@@ -1647,71 +1652,113 @@ def split_dataset_v2(
             f"expected 'random', 'seq_disjoint', or 'cluster_disjoint'."
         )
 
-    # Generate negatives with coverage-first sampler.
-    # `forbidden_so_far` accumulates pair_keys produced in earlier splits and
-    # is threaded into subsequent calls. This makes cross-split neg-neg
-    # collisions impossible by construction (rather than relying on a
-    # post-hoc cleanup that silently voids the per-seq coverage guarantee).
-    # Order matters: train first, val next (forbidden = train), test last
-    # (forbidden = train | val).
-    print("\nCreate negative pairs (coverage-first, schema mode)...", flush=True)
-    forbidden_so_far: set = set()
-    train_neg, train_reject_stats = create_negative_pairs_v2(
-        pos_df=train_pos,
-        num_negatives=int(len(train_pos) * neg_to_pos_ratio),
-        cooccur_pairs=cooccur_pairs,
-        schema_pair=schema_pair,
-        seed=seed,
-        max_attempts_per_seq=max_attempts_per_seq,
-        max_attempts_multiplier=max_attempts_multiplier,
-        axis_quotas=axis_quotas,
-        forbidden_pair_keys=forbidden_so_far,
-        isolate_to_cell=isolate_to_cell,
-        sampling_axes=resolved_sampling_axes,
-        on_shortfall=on_shortfall,
-        regime_aware_coverage=regime_aware_coverage,
-        pair_key_alphabet=pair_key_alphabet,
-    )
-    print(f"split_dataset_v2: train negatives created: "
-          f"({len(train_neg):,} pairs, {train_reject_stats.get('total_attempts', 0):,} attempts; "
-          f"coverage={train_reject_stats['coverage_phase_pairs']:,}, "
-          f"fill={train_reject_stats['fill_phase_pairs']:,})", flush=True)
-    forbidden_so_far |= set(train_neg['pair_key'])
+    # Negatives: two samplers, selected by negative_scope.
+    #   'coverage' (default) -- coverage-first sampler (per-DNA coverage floor +
+    #       optional regime targeting); forbidden_pair_keys threaded across splits.
+    #   'within_fold' -- ratio-driven random pairing within each split's own
+    #       positives (no coverage phase, no regime), reusing within_fold_negatives
+    #       (the same primitive the 2D-CD builder uses). See
+    #       docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
+    if negative_scope not in ('coverage', 'within_fold'):
+        raise ValueError(
+            f"split_dataset_v2: negative_scope must be 'coverage' or 'within_fold'; "
+            f"got {negative_scope!r}."
+        )
+    if negative_scope == 'within_fold':
+        # within_fold_negatives lives in the CC builder; import lazily to avoid the
+        # dataset_pairs_cc <-> dataset_segment_pairs_v2 module import cycle (the CC
+        # builder imports create_positive_pairs_v2 / _PAIR_COLUMNS from this module).
+        from src.datasets.dataset_pairs_cc import within_fold_negatives
+        # Enrich each split's negatives from a df restricted to that split's isolates
+        # so the synthesized assembly_ids stay in-split (satisfies the isolate-disjoint
+        # tripwire below). Cross-split neg pair_key collisions are impossible: the
+        # constrained slot's cluster_ids -- hence its hashes -- are disjoint across
+        # splits, so no forbidden_pair_keys threading is needed.
+        print("\nCreate negative pairs (within_fold, ratio-driven, no coverage/regime)...", flush=True)
+        _wf_hash = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash
+        _wf_neg = {}
+        for _si, (_nm, _sp) in enumerate(
+            (('train', train_pos), ('val', val_pos), ('test', test_pos))
+        ):
+            _iso = set(_sp['assembly_id_a']) | set(_sp['assembly_id_b'])
+            _df_split = df[df['assembly_id'].isin(_iso)]
+            _wf_neg[_nm] = within_fold_negatives(
+                _sp, cooccur_pairs, _df_split, schema_pair,
+                neg_to_pos_ratio=neg_to_pos_ratio, seed=seed + _si,
+                hash_col=_wf_hash,
+            )
+        train_neg, val_neg, test_neg = _wf_neg['train'], _wf_neg['val'], _wf_neg['test']
+        train_reject_stats = _within_fold_reject_stats(len(train_pos), len(train_neg), neg_to_pos_ratio)
+        val_reject_stats = _within_fold_reject_stats(len(val_pos), len(val_neg), neg_to_pos_ratio)
+        test_reject_stats = _within_fold_reject_stats(len(test_pos), len(test_neg), neg_to_pos_ratio)
+        print(f"split_dataset_v2: within_fold negatives -- train={len(train_neg):,} "
+              f"val={len(val_neg):,} test={len(test_neg):,}", flush=True)
+    else:
+        # Generate negatives with coverage-first sampler.
+        # `forbidden_so_far` accumulates pair_keys produced in earlier splits and
+        # is threaded into subsequent calls. This makes cross-split neg-neg
+        # collisions impossible by construction (rather than relying on a
+        # post-hoc cleanup that silently voids the per-seq coverage guarantee).
+        # Order matters: train first, val next (forbidden = train), test last
+        # (forbidden = train | val).
+        print("\nCreate negative pairs (coverage-first, schema mode)...", flush=True)
+        forbidden_so_far: set = set()
+        train_neg, train_reject_stats = create_negative_pairs_v2(
+            pos_df=train_pos,
+            num_negatives=int(len(train_pos) * neg_to_pos_ratio),
+            cooccur_pairs=cooccur_pairs,
+            schema_pair=schema_pair,
+            seed=seed,
+            max_attempts_per_seq=max_attempts_per_seq,
+            max_attempts_multiplier=max_attempts_multiplier,
+            axis_quotas=axis_quotas,
+            forbidden_pair_keys=forbidden_so_far,
+            isolate_to_cell=isolate_to_cell,
+            sampling_axes=resolved_sampling_axes,
+            on_shortfall=on_shortfall,
+            regime_aware_coverage=regime_aware_coverage,
+            pair_key_alphabet=pair_key_alphabet,
+        )
+        print(f"split_dataset_v2: train negatives created: "
+              f"({len(train_neg):,} pairs, {train_reject_stats.get('total_attempts', 0):,} attempts; "
+              f"coverage={train_reject_stats['coverage_phase_pairs']:,}, "
+              f"fill={train_reject_stats['fill_phase_pairs']:,})", flush=True)
+        forbidden_so_far |= set(train_neg['pair_key'])
 
-    val_neg, val_reject_stats = create_negative_pairs_v2(
-        pos_df=val_pos,
-        num_negatives=int(len(val_pos) * neg_to_pos_ratio),
-        cooccur_pairs=cooccur_pairs,
-        schema_pair=schema_pair,
-        seed=seed,
-        max_attempts_per_seq=max_attempts_per_seq,
-        max_attempts_multiplier=max_attempts_multiplier,
-        axis_quotas=axis_quotas,
-        forbidden_pair_keys=forbidden_so_far,
-        isolate_to_cell=isolate_to_cell,
-        sampling_axes=resolved_sampling_axes,
-        on_shortfall=on_shortfall,
-        regime_aware_coverage=regime_aware_coverage,
-        pair_key_alphabet=pair_key_alphabet,
-    )
-    forbidden_so_far |= set(val_neg['pair_key'])
+        val_neg, val_reject_stats = create_negative_pairs_v2(
+            pos_df=val_pos,
+            num_negatives=int(len(val_pos) * neg_to_pos_ratio),
+            cooccur_pairs=cooccur_pairs,
+            schema_pair=schema_pair,
+            seed=seed,
+            max_attempts_per_seq=max_attempts_per_seq,
+            max_attempts_multiplier=max_attempts_multiplier,
+            axis_quotas=axis_quotas,
+            forbidden_pair_keys=forbidden_so_far,
+            isolate_to_cell=isolate_to_cell,
+            sampling_axes=resolved_sampling_axes,
+            on_shortfall=on_shortfall,
+            regime_aware_coverage=regime_aware_coverage,
+            pair_key_alphabet=pair_key_alphabet,
+        )
+        forbidden_so_far |= set(val_neg['pair_key'])
 
-    test_neg, test_reject_stats = create_negative_pairs_v2(
-        pos_df=test_pos,
-        num_negatives=int(len(test_pos) * neg_to_pos_ratio),
-        cooccur_pairs=cooccur_pairs,
-        schema_pair=schema_pair,
-        seed=seed,
-        max_attempts_per_seq=max_attempts_per_seq,
-        max_attempts_multiplier=max_attempts_multiplier,
-        axis_quotas=axis_quotas,
-        forbidden_pair_keys=forbidden_so_far,
-        isolate_to_cell=isolate_to_cell,
-        sampling_axes=resolved_sampling_axes,
-        on_shortfall=on_shortfall,
-        regime_aware_coverage=regime_aware_coverage,
-        pair_key_alphabet=pair_key_alphabet,
-    )
+        test_neg, test_reject_stats = create_negative_pairs_v2(
+            pos_df=test_pos,
+            num_negatives=int(len(test_pos) * neg_to_pos_ratio),
+            cooccur_pairs=cooccur_pairs,
+            schema_pair=schema_pair,
+            seed=seed,
+            max_attempts_per_seq=max_attempts_per_seq,
+            max_attempts_multiplier=max_attempts_multiplier,
+            axis_quotas=axis_quotas,
+            forbidden_pair_keys=forbidden_so_far,
+            isolate_to_cell=isolate_to_cell,
+            sampling_axes=resolved_sampling_axes,
+            on_shortfall=on_shortfall,
+            regime_aware_coverage=regime_aware_coverage,
+            pair_key_alphabet=pair_key_alphabet,
+        )
 
     # Combine pos+neg per split, then attach axis flags, then compute exposure stats.
     train_pairs = pd.concat([train_pos, train_neg], ignore_index=True)
@@ -1738,7 +1785,7 @@ def split_dataset_v2(
     # Exposure tables (computed on the pre-overlap-removal pos/neg DataFrames so
     # they reflect the actual rows that went into pair_key dedup).
     # ipdb.set_trace(context=10)
-    print(f"Compute exposure stats", flush=True)
+    print("Compute exposure stats", flush=True)
     train_exp = compute_exposure_stats(train_pos, train_neg, df)
     val_exp = compute_exposure_stats(val_pos, val_neg, df)
     test_exp = compute_exposure_stats(test_pos, test_neg, df)
@@ -1960,6 +2007,27 @@ def _coverage_substats(reject_stats: dict) -> dict:
     }
 
 
+def _within_fold_reject_stats(n_pos_split: int, n_neg: int, neg_to_pos_ratio: float) -> dict:
+    """Minimal rejection_stats for the within_fold sampler, shaped like the
+    coverage-first sampler's output so save_split_output_v2 / _coverage_substats
+    consume it unchanged. within_fold_negatives does not expose per-reason counts,
+    so blocked_cooccur / *_attempts are 0 (not tracked) and the coverage fields are
+    inert (no coverage phase -- every negative is a fill-phase draw)."""
+    return {
+        'blocked_cooccur': 0,        # within_fold rejects cooccur internally; count not exposed
+        'duplicate_brc': 0,
+        'duplicate_seq': 0,
+        'cross_split_collision': 0,
+        'total_attempts': 0,
+        'requested_negatives': int(round(n_pos_split * neg_to_pos_ratio)),
+        'achieved_negatives': int(n_neg),
+        'coverage_phase_pairs': 0,   # no coverage phase
+        'fill_phase_pairs': int(n_neg),
+        'coverage_overrode_ratio': False,
+        'sampler': 'within_fold',
+    }
+
+
 # ---------------------------------------------------------------------------
 # 4.7 generate_all_cv_folds_v2
 # ---------------------------------------------------------------------------
@@ -2084,6 +2152,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     on_shortfall: str = 'redistribute',
     regime_aware_coverage: bool = False,
     pair_key_alphabet: str = 'aa',
+    negative_scope: str = 'coverage',
     ) -> Iterator[dict]:
     """Generate k-fold splits for single-slot cluster_disjoint routing.
 
@@ -2105,10 +2174,11 @@ def generate_all_cluster_disjoint_cv_folds_v2(
 
     See `docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md` Phase 3.
     """
-    from src.datasets._split_helpers import (
-        cluster_disjoint_route_pos_df, load_cluster_lookup,
-    )
     from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
+    from src.datasets._split_helpers import (
+        cluster_disjoint_route_pos_df,
+        load_cluster_lookup,
+    )
 
     # ----- Build co-occurrence set once -----
     _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
@@ -2300,6 +2370,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
                 'pos_dedup_stats':        pos_dedup_stats,
             },
             pair_key_alphabet=pair_key_alphabet,
+            negative_scope=negative_scope,
         )
         # Inject the cross-fold kfold_summary into this fold's duplicate_stats
         # so the saver can surface it in this fold's dataset_stats.json.
@@ -2364,7 +2435,7 @@ def save_split_output_v2(
     print(f"save_v2: pair CSVs done in {time.time()-_t:.2f}s", flush=True)
 
     _t = time.time()
-    print(f"save_v2: write pair parquets start", flush=True)
+    print("save_v2: write pair parquets start", flush=True)
     for split_name, split_df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
         _t_split = time.time()
         split_df.to_parquet(output_dir / f'{split_name}_pairs.parquet',
@@ -2654,7 +2725,7 @@ def save_split_output_v2(
     # Visualization plots (best-effort; v1 visualizer takes the same dataset_stats.json)
     if generate_visualizations:
         try:
-            print(f'\nGenerating dataset visualization plots...')
+            print('\nGenerating dataset visualization plots...')
             from src.analysis.visualize_dataset_stats import visualize_dataset_stats
             visualize_dataset_stats(
                 dataset_stats_path=output_dir / 'dataset_stats.json',
@@ -2902,7 +2973,7 @@ def _validate_v2_config(config) -> None:
     # if it's set; the actual sampler is in src/datasets/_negative_regime_sampling.py.
     neg_sampling = OmegaConf.select(config, "dataset.negative_sampling")
     if neg_sampling is not None:
-        from src.datasets._negative_regime_sampling import REGIME_NAMES, DEFAULT_AXES
+        from src.datasets._negative_regime_sampling import DEFAULT_AXES, REGIME_NAMES
         regime_targets = OmegaConf.select(config, "dataset.negative_sampling.regime_targets")
         if regime_targets is None:
             raise ValueError(
@@ -2969,9 +3040,9 @@ def _validate_v2_config(config) -> None:
     axis_quotas = OmegaConf.select(config, "dataset.axis_quotas")
     if axis_quotas is not None and len(axis_quotas) > 0:
         raise ValueError(
-            f"dataset.axis_quotas is no longer the entry point for regime-aware "
-            f"sampling; use dataset.negative_sampling.regime_targets instead. "
-            f"See docs/plans/2026-05-09_metadata_aware_negatives_plan.md."
+            "dataset.axis_quotas is no longer the entry point for regime-aware "
+            "sampling; use dataset.negative_sampling.regime_targets instead. "
+            "See docs/plans/2026-05-09_metadata_aware_negatives_plan.md."
         )
 
     # Removed: dataset.year_train / dataset.year_test. The legacy temporal-

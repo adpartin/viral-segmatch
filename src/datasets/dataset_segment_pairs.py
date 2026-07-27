@@ -109,37 +109,28 @@ Duplicate handling (blocked negatives):
 import argparse
 import hashlib
 import json
-import random
 import sys
 import time
 from datetime import datetime
-from itertools import combinations
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.timer_utils import Timer
-from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
-from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_dataframe
-from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
 from src.datasets._pair_helpers import (
-    canonical_pair_key,
     attach_ctg_dna_to_prot_df,
-    select_balanced_isolate_pool,
-    orient_pair_by_schema,
-    compute_isolate_pair_counts,
-    build_cooccurrence_set,
-    get_metadata_distributions,
     filter_by_metadata,
+    select_balanced_isolate_pool,
 )
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
+from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
+from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
+from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.timer_utils import Timer
 
 total_timer = Timer()
 
@@ -333,6 +324,8 @@ if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
 # at the boundary so filter_by_metadata's isinstance(..., (list, tuple))
 # checks succeed.
 from omegaconf import ListConfig
+
+
 def _coerce_filter(v):
     return list(v) if isinstance(v, ListConfig) else v
 hn_subtype_filter   = _coerce_filter(getattr(config.dataset, 'hn_subtype', None))
@@ -546,6 +539,7 @@ if PAIR_BUILDER_VERSION == 'v2':
     # idXX thresholds when bilateral cliffs into a mega-component — see
     # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.
     SINGLE_SLOT = None
+    NEGATIVE_SCOPE = 'coverage'  # 'coverage' (default) | 'within_fold' (cluster_disjoint single-slot)
     if SPLIT_STRATEGY_CFG is not None:
         m = getattr(SPLIT_STRATEGY_CFG, 'mode', None)
         if m is not None:
@@ -572,6 +566,14 @@ if PAIR_BUILDER_VERSION == 'v2':
                 raise ValueError(
                     f"dataset.split_strategy.single_slot must be 'a' or 'b' or null; "
                     f"got {SINGLE_SLOT!r}"
+                )
+        ns = getattr(SPLIT_STRATEGY_CFG, 'negative_scope', None)
+        if ns is not None:
+            NEGATIVE_SCOPE = str(ns)
+            if NEGATIVE_SCOPE not in ('coverage', 'within_fold'):
+                raise ValueError(
+                    f"dataset.split_strategy.negative_scope must be 'coverage' or "
+                    f"'within_fold'; got {NEGATIVE_SCOPE!r}"
                 )
         # pair_key_alphabet: explicit override; default inferred from
         # cluster_alphabet (or 'aa' if no cluster routing). Inference happens
@@ -641,12 +643,12 @@ if PAIR_BUILDER_VERSION == 'v2':
             REGIME_AWARE_COVERAGE = bool(rac)
 
     from src.datasets.dataset_segment_pairs_v2 import (
-        split_dataset_v2,
-        generate_all_cv_folds_v2,
-        generate_all_cluster_disjoint_cv_folds_v2,
-        save_split_output_v2,
-        compute_metadata_coverage,
         _validate_v2_config,
+        compute_metadata_coverage,
+        generate_all_cluster_disjoint_cv_folds_v2,
+        generate_all_cv_folds_v2,
+        save_split_output_v2,
+        split_dataset_v2,
     )
 
     _validate_v2_config(config)
@@ -737,6 +739,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 on_shortfall=ON_SHORTFALL,
                 regime_aware_coverage=REGIME_AWARE_COVERAGE,
                 pair_key_alphabet=PAIR_KEY_ALPHABET,
+                negative_scope=NEGATIVE_SCOPE,
             )
         else:
             cv_gen = generate_all_cv_folds_v2(
@@ -791,6 +794,7 @@ if PAIR_BUILDER_VERSION == 'v2':
         holdout_dict = None
         if HOLDOUT_CFG is not None:
             from omegaconf import OmegaConf
+
             from src.datasets._pair_helpers import compute_metadata_holdout_isolates
             holdout_dict = OmegaConf.to_container(HOLDOUT_CFG, resolve=True)
             holdout_train_ids, holdout_val_ids, holdout_test_ids, holdout_dropped_df = \
