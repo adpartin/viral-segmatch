@@ -17,7 +17,7 @@ clusters sit adjacent. Two orderings, side by side (the same pairs, two lenses):
     it. Cells colored by atom (top-K islands; rest grey). This is "what the cut
     produces".
   - RIGHT — subtype-grouped order. Axes grouped by each cluster's modal H- and
-    N-subtype (`bigraph_cut_subtype.pair_key_to_subtype`, from
+    N-subtype (`_pair_helpers.pair_key_to_metadata`, from
     flu_genomes_metadata_parsed.csv). Islands = (Hx,Ny) subtype blocks; reassortant
     pairs sit off the dominant blocks. This is "the latent biological islands".
 
@@ -47,10 +47,11 @@ import re
 import sys
 from pathlib import Path
 
+import matplotlib
+import networkx as nx
 import numpy as np
 import pandas as pd
-import networkx as nx
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -59,10 +60,11 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.analysis.bigraph_properties import load_cluster_map, build_bipartite_multigraph
 from src.analysis.bigraph_min_cut import min_cut_recursive
-from src.analysis.bigraph_cut_subtype import pair_key_to_subtype
+from src.analysis.bigraph_properties import build_bipartite_multigraph, load_cluster_map
+from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.datasets._pair_helpers import pair_key_to_metadata
+from src.utils.config_hydra import load_function_metadata
 
 _H_RE = re.compile(r'H\d+')
 _N_RE = re.compile(r'N\d+')
@@ -370,7 +372,13 @@ def main() -> None:
 
     print(f'Loading pair universe + subtype map for {slot_a}-{slot_b} ...')
     universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
-    subtype_df = pair_key_to_subtype(Path(args.cds_final), slot_a, slot_b)
+    # Modal hn_subtype per pair_key via the production helper. `load_pair_universe` keys pairs on
+    # prot_hash for every alphabet, so hash_col='prot_hash' matches its pair_key here too.
+    short_to_full = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml').short_to_function
+    subtype_df = pair_key_to_metadata(
+        Path(args.cds_final), short_to_full[slot_a], short_to_full[slot_b],
+        hash_col='prot_hash', fields=('hn_subtype',),
+    ).rename(columns={'hn_subtype': 'subtype'})
     print(f'  {len(universe):,} pairs; {subtype_df["subtype"].nunique()} distinct modal subtypes')
 
     for threshold in args.thresholds:
