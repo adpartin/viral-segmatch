@@ -76,6 +76,7 @@ if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
 from src.datasets._pair_helpers import (
+    HASH_FAMILY_ALPHABET,
     _validate_schema_pair,
     build_cooccurrence_set,
     canonical_pair_key,
@@ -1305,6 +1306,47 @@ def _jsonable(v):
 # ---------------------------------------------------------------------------
 # 4.6 split_dataset_v2
 # ---------------------------------------------------------------------------
+def _ensure_cds_dna_hash(pos_df, cds_final_path, schema_pair, *, requested_by: str):
+    """Return `pos_df` with cds_dna_hash_{a,b} POPULATED, attaching them if needed.
+
+    `build_pair_columns` always EMITS these columns, but they are empty (all-NaN) unless the
+    orchestrator pre-attached cds_dna_hash to df (the pair_key_alphabet='nt_cds' path) -- so this
+    gates on POPULATED, not present. Otherwise an nt_cds consumer paired with a non-nt_cds
+    pair_key (e.g. the historical protein-pair_key + nt_cds-cluster config) leaves them empty and
+    the downstream join crashes on a float64-vs-string merge. Empty placeholders are dropped and
+    re-attached.
+
+    Shared by the two routes that need CDS-DNA identity: cluster_disjoint with
+    `cluster_alphabet='nt_cds'` and seq_disjoint with `hash_key='cds'`.
+
+    Args:
+        pos_df: positive-pair rows.
+        cds_final_path: path to cds_dna_final.parquet; required (raises if None).
+        schema_pair: the (slot A, slot B) function pair, passed through to the attach.
+        requested_by: caller label for the error message (e.g. "cluster_alphabet='nt_cds'").
+
+    Returns:
+        `pos_df` with populated cds_dna_hash_{a,b}.
+    """
+    if cds_final_path is None:
+        raise ValueError(
+            f"split_dataset_v2: {requested_by} requires cds_final_path "
+            f"(the cds_dna_final.parquet path)."
+        )
+    populated = (
+        'cds_dna_hash_a' in pos_df.columns and 'cds_dna_hash_b' in pos_df.columns
+        and not pos_df['cds_dna_hash_a'].isna().all()
+        and not pos_df['cds_dna_hash_b'].isna().all()
+    )
+    if populated:
+        return pos_df
+
+    from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
+    pos_df = pos_df.drop(columns=[c for c in ('cds_dna_hash_a', 'cds_dna_hash_b')
+                                  if c in pos_df.columns])
+    return attach_cds_dna_hash_to_pos_df(pos_df, Path(cds_final_path), schema_pair=schema_pair)
+
+
 def split_dataset_v2(
     df: pd.DataFrame,
     schema_pair: Tuple[str, str],
@@ -1530,6 +1572,13 @@ def split_dataset_v2(
         # chosen family is impossible by construction (verified in audit).
         # See docs/plans/2026-05-10_seq_disjoint_routing_plan.md.
         from src.datasets._pair_helpers import seq_disjoint_route_pos_df
+        # 'seq'/'dna' read hashes pos_df carries natively; 'cds' needs the CDS-DNA hash attached
+        # first (same helper the nt_cds cluster_disjoint route uses).
+        if split_strategy_hash_key == 'cds':
+            pos_df = _ensure_cds_dna_hash(
+                pos_df, cds_final_path, schema_pair,
+                requested_by="split_strategy.hash_key='cds'",
+            )
         print(f"\nsplit_dataset_v2: seq_disjoint routing on pos_df rows "
               f"(bipartite CC + LPT-greedy bin-pack, hash_key={split_strategy_hash_key!r})...",
               flush=True)
@@ -1569,31 +1618,10 @@ def split_dataset_v2(
                 f"'nt_ctg', got {cluster_alphabet!r}"
             )
         if cluster_alphabet == 'nt_cds':
-            if cds_final_path is None:
-                raise ValueError(
-                    "split_dataset_v2: cluster_alphabet='nt_cds' requires "
-                    "cds_final_path (the cds_dna_final.parquet path)."
-                )
-            # cds_dna_hash_{a,b} are already populated if the orchestrator
-            # pre-attached cds_dna_hash to df (pair_key_alphabet='nt_cds' path).
-            # build_pair_columns always EMITS these columns, but they are empty
-            # (all-NaN) when pair_key != nt_cds -- so gate on POPULATED, not
-            # present: otherwise nt_cds clustering + a non-nt_cds pair_key (e.g.
-            # the historical protein-pair_key + nt_cds-cluster config) leaves them
-            # empty and the cluster join crashes on a float64-vs-string merge.
-            # Drop the empty placeholders and attach.
-            _populated = (
-                'cds_dna_hash_a' in pos_df.columns and 'cds_dna_hash_b' in pos_df.columns
-                and not pos_df['cds_dna_hash_a'].isna().all()
-                and not pos_df['cds_dna_hash_b'].isna().all()
+            pos_df = _ensure_cds_dna_hash(
+                pos_df, cds_final_path, schema_pair,
+                requested_by="cluster_alphabet='nt_cds'",
             )
-            if not _populated:
-                pos_df = pos_df.drop(columns=[c for c in ('cds_dna_hash_a', 'cds_dna_hash_b')
-                                              if c in pos_df.columns])
-                from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
-                pos_df = attach_cds_dna_hash_to_pos_df(
-                    pos_df, cds_final_path, schema_pair=schema_pair,
-                )
         # pos-side cluster-join hash from the registry: aa->prot_hash,
         # nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash. nt_ctg's ctg_dna_hash_{a,b}
         # are already populated on pos_df (only nt_cds needs the attach above).
@@ -3062,15 +3090,17 @@ def _validate_v2_config(config) -> None:
             f"docs/plans/2026-05-10_seq_disjoint_routing_plan.md and "
             f"docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
         )
-    # split_strategy.hash_key: 'seq' (protein, default — stricter) or 'dna'
-    # (nucleotide — appropriate when training on DNA k-mer features).
-    # Only meaningful for mode='seq_disjoint'; cluster_disjoint always operates
-    # on protein-level clusters from mmseqs2.
+    # split_strategy.hash_key: 'seq' (protein, default — stricter), 'dna' (contig nucleotide —
+    # appropriate when training on DNA k-mer features), or 'cds' (CDS DNA — the seq_disjoint
+    # counterpart of the nt_cds alphabet). Only meaningful for mode='seq_disjoint';
+    # cluster_disjoint selects its hash family via cluster_alphabet instead.
+    # Token -> alphabet mapping lives in `_pair_helpers.HASH_FAMILY_ALPHABET`.
     split_hash_key = OmegaConf.select(config, "dataset.split_strategy.hash_key")
-    if split_hash_key is not None and split_hash_key not in {'seq', 'dna'}:
+    if split_hash_key is not None and split_hash_key not in HASH_FAMILY_ALPHABET:
         raise ValueError(
-            f"v2 requires dataset.split_strategy.hash_key in {{'seq', 'dna'}} "
-            f"(or absent — defaults to 'seq'); got {split_hash_key!r}."
+            f"v2 requires dataset.split_strategy.hash_key in "
+            f"{sorted(HASH_FAMILY_ALPHABET)} (or absent — defaults to 'seq'); "
+            f"got {split_hash_key!r}."
         )
     # cluster_disjoint mode requires a cluster_id_path pointing at the mmseqs2 lookup parquet.
     if split_mode == 'cluster_disjoint':

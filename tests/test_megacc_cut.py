@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 
+import networkx as nx
 import pandas as pd
 
 PROJ = Path(__file__).resolve().parents[1]
@@ -27,6 +28,7 @@ from src.datasets._megacc_cut import (
     fragment_until,
     stop_at_n_atoms,
 )
+from src.datasets._pair_helpers import bipartite_components
 
 GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t099.json'
 FRAG_GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t095_fragment_until.json'
@@ -66,6 +68,68 @@ def test_build_pair_bigraph_edge_rows_partition_rows():
     _H, edge_rows = build_pair_bigraph(pos)
     all_rows = [i for rows in edge_rows.values() for i in rows]
     assert sorted(all_rows) == list(pos.index)   # every row assigned to exactly one edge
+
+
+def test_build_pair_bigraph_rejects_duplicate_index():
+    """A repeated row label would make `.drop(index=...)` / `.loc[...]` over-drop silently."""
+    pos = _two_blobs()
+    pos.index = [0] * len(pos)
+    try:
+        build_pair_bigraph(pos)
+    except AssertionError as e:
+        assert 'unique' in str(e)
+    else:
+        raise AssertionError('build_pair_bigraph accepted a duplicated index')
+
+
+# --- build_pair_bigraph vs bipartite_components (edge-set agreement) ----------
+# Production derives the SAME cluster-level bigraph twice, by two independent code paths:
+# `_pair_helpers.bipartite_components` (hand-rolled union-find, no networkx) labels the CCs, and
+# `build_pair_bigraph` (networkx) builds the graph the cut operates on. `assign_atoms_prod` runs
+# union-find -> networkx -> union-find in one flow, so if the two ever disagreed on what an edge
+# is, the routed atoms would not be the components that were cut. Nothing else asserts they agree.
+def _cc_labels_from_bigraph(pos, col_a='cluster_id_a', col_b='cluster_id_b'):
+    """Per-row CC label taken from `build_pair_bigraph`'s graph (the networkx path)."""
+    H, _edge_rows = build_pair_bigraph(pos, col_a=col_a, col_b=col_b)
+    node_cc = {n: i for i, comp in enumerate(nx.connected_components(H)) for n in comp}
+    return pd.Series(['a:' + str(v) for v in pos[col_a]], index=pos.index).map(node_cc)
+
+
+def _partition(labels):
+    """The row partition a labeling induces, ignoring the label values themselves."""
+    return {frozenset(g.index) for _, g in labels.groupby(labels)}
+
+
+def _assert_same_partition(pos):
+    nx_labels = _cc_labels_from_bigraph(pos)
+    uf_labels, _summary = bipartite_components(pos, col_a='cluster_id_a', col_b='cluster_id_b')
+    assert _partition(nx_labels) == _partition(uf_labels)
+
+
+def test_bigraph_matches_bipartite_components_connected():
+    _assert_same_partition(_two_blobs())            # bridge joins everything -> 1 CC
+
+
+def test_bigraph_matches_bipartite_components_disconnected():
+    _assert_same_partition(_pos(_BLOB1 + _BLOB2))   # no bridge -> 2 CCs
+
+
+def test_bigraph_matches_bipartite_components_after_a_cut():
+    """The flow `assign_atoms_prod` actually runs: re-label the KEPT rows after fragmenting."""
+    kept, _dropped, _step = fragment_once(_two_blobs(), cut_method='spectral', seed=1)
+    _assert_same_partition(kept)
+
+
+def test_bigraph_matches_bipartite_components_ood_nt_cds_t095():
+    """Same agreement on the production bigraph (670 nodes / 1,055 edges), natural and post-cut."""
+    if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
+        print('SKIP test_bigraph_matches_bipartite_components_ood_nt_cds_t095: OOD clusters absent')
+        return
+    pos = _build_ood_pos_ids('t095')
+    _assert_same_partition(pos)
+    kept, _dropped, _audit = fragment_until(
+        pos, cut_method='spectral', seed=1, stop_fn=stop_at_n_atoms(125), max_drop_frac=0.10)
+    _assert_same_partition(kept.reset_index(drop=True))
 
 
 # --- fragment_largest_cc -----------------------------------------------------
@@ -113,8 +177,6 @@ def test_fragment_once_deterministic():
 
 # --- fragment_until / stop_at_n_atoms / _live_atom_count ---------------------
 def test_live_atom_count_excludes_stranded_nodes():
-    import networkx as nx
-
     from src.datasets._megacc_cut import _live_atom_count
     H = nx.Graph()
     H.add_edge('a:1', 'b:1')                        # a real 2-node atom (>= 1 kept edge)
@@ -228,7 +290,6 @@ def test_fragment_until_ood_nt_cds_t095_golden():
     if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
         print('SKIP test_fragment_until_ood_nt_cds_t095_golden: OOD clusters absent')
         return
-    from src.datasets._pair_helpers import bipartite_components
     g = json.loads(FRAG_GOLDEN.read_text())
     pos = _build_ood_pos_ids('t095')
     _c0, summ0 = bipartite_components(pos, col_a='cluster_id_a', col_b='cluster_id_b')

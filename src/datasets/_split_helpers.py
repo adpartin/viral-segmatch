@@ -91,12 +91,20 @@ def attach_cluster_ids(
     `pos_hash_col='cds_dna_hash'`; the join then consumes
     `pos_df.cds_dna_hash_{a,b}` (attached via
     `attach_cds_dna_hash_to_pos_df`) and joins against
-    `cluster_lookup.cds_dna_hash`. Post Phase 2: `parse_cluster_tsv`
-    writes the alphabet-specific hash column name directly, so the
-    join column on the lookup side matches `pos_hash_col` exactly —
-    only a side-suffix rename (hash → hash_a / hash_b) is needed.
+    `cluster_lookup.cds_dna_hash`. `parse_cluster_tsv` writes the
+    alphabet-specific hash column name directly, so the join column on
+    the lookup side matches `pos_hash_col` exactly — only a side-suffix
+    rename (hash → hash_a / hash_b) is needed.
 
     Pairs whose pos-side hash is missing from the lookup are DROPPED.
+
+    Args:
+        pos_df: positive-pair rows carrying `{pos_hash_col}_a` and
+            `{pos_hash_col}_b`.
+        cluster_lookup: `(pos_hash_col, cluster_id)` table for one
+            threshold, from `load_cluster_lookup`.
+        pos_hash_col: the alphabet's hash column — `prot_hash` (aa),
+            `cds_dna_hash` (nt_cds), `ctg_dna_hash` (nt_ctg).
 
     Returns:
         (pos_df_with_ids, audit_dict)
@@ -117,15 +125,18 @@ def attach_cluster_ids(
 
     lookup = cluster_lookup[[pos_hash_col, 'cluster_id']].drop_duplicates(subset=pos_hash_col)
 
-    # Attach cluster_id_{a,b} to pos_df
-    out = pos_df.merge(
-        lookup.rename(columns={pos_hash_col: pos_col_a, 'cluster_id': 'cluster_id_a'}),
-        on=pos_col_a, how='left',
-    )
-    out = out.merge(
-        lookup.rename(columns={pos_hash_col: pos_col_b, 'cluster_id': 'cluster_id_b'}),
-        on=pos_col_b, how='left',
-    )
+    # Attach cluster_id_{a,b} to pos_df -- one left join per slot, each against the SAME lookup
+    # renamed onto that slot's hash column. Left (not inner) so an unmatched hash survives as NaN
+    # and is counted in the audit below, rather than vanishing silently in the join.
+
+    # Slot A: lookup's (hash, cluster_id) -> (pos_col_a, cluster_id_a), joined on the slot-A hash.
+    lookup_a = lookup.rename(columns={pos_hash_col: pos_col_a, 'cluster_id': 'cluster_id_a'})
+    out = pos_df.merge(lookup_a, on=pos_col_a, how='left')
+
+    # Slot B: same lookup, renamed onto the slot-B hash. Both slots draw from one cluster table --
+    # a cluster id means the same thing on either side.
+    lookup_b = lookup.rename(columns={pos_hash_col: pos_col_b, 'cluster_id': 'cluster_id_b'})
+    out = out.merge(lookup_b, on=pos_col_b, how='left')
 
     missing_a = out['cluster_id_a'].isna()
     missing_b = out['cluster_id_b'].isna()

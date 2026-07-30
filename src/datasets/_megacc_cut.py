@@ -179,7 +179,9 @@ def build_pair_bigraph(
 
     Args:
         pos_with_ids: positive-pair rows; `col_a`/`col_b` hold the slot-A/slot-B
-            cluster ids, and the row index identifies each pair.
+            cluster ids, and the row index identifies each pair. The index MUST be
+            unique -- it is the pair identity a cut is translated back through
+            (asserted below).
         col_a / col_b: slot-A / slot-B cluster-id column names.
 
     Nodes are inserted in canonical (sorted) order, so the seeded bisection downstream is
@@ -190,6 +192,15 @@ def build_pair_bigraph(
         `(a:, b:)` edge to the `pos_with_ids` row indices it carries (so a dropped
         edge maps back to its pair rows).
     """
+    # The row index IS the pair identity: `edges_to_row_index` hands these labels back and the
+    # callers feed them to `.drop(index=...)` / `.loc[...]`, which would silently over-drop and
+    # duplicate rows if a label repeated. Fail here rather than corrupt the split.
+    assert pos_with_ids.index.is_unique, \
+        'build_pair_bigraph: pos_with_ids.index must be unique (it identifies each pair).'
+
+    # Phase 1 -- group rows by cluster pair. The 'a:'/'b:' prefixes are what make the graph
+    # bipartite by construction: without them a slot-A and a slot-B cluster sharing an id string
+    # would collapse into one node. Downstream (`edges_to_row_index`) reads the side off the prefix.
     slot_a_ids = ('a:' + pos_with_ids[col_a].astype(str)).to_numpy()  # slot-A node id per row ('a:'-prefixed)
     slot_b_ids = ('b:' + pos_with_ids[col_b].astype(str)).to_numpy()  # slot-B node id per row ('b:'-prefixed)
     row_idx = pos_with_ids.index.to_numpy()                           # the pos_with_ids row label per row
@@ -197,6 +208,7 @@ def build_pair_bigraph(
     for u, v, i in zip(slot_a_ids, slot_b_ids, row_idx):
         edge_rows.setdefault((u, v), []).append(i)  # group row labels by their (slot-A, slot-B) cluster pair
 
+    # Phase 2 -- nodes. Taken from `edge_rows`, so a cluster is a node only if it appears in a pair.
     H = nx.Graph()
     # Nodes are the clusters on each side of the bigraph; each edge_rows key is one cluster pair
     # (slot-A node, slot-B node), slot-prefixed 'a:' / 'b:'.
@@ -209,6 +221,9 @@ def build_pair_bigraph(
     # valid) cut. Pinning both orders makes the edge min-cut reproducible across runs/machines
     # (PYTHONHASHSEED-independent); node order alone is not enough.
     H.add_nodes_from(all_nodes)
+    # Phase 3 -- weighted edges. nx.Graph (not MultiGraph): parallel edges collapse onto one edge
+    # carrying `weight`, so the weights sum to the row count -- the invariant that makes a cut's
+    # cost countable in pairs.
     for (u, v) in sorted(edge_rows):
         rows = edge_rows[(u, v)]
         edge_weight = len(rows) # positive pairs on this (u, v) cluster pair; the edge min-cut weights by it

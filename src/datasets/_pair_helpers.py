@@ -33,6 +33,18 @@ if str(_project_root) not in sys.path:
 from src.utils import schema
 from src.utils.path_utils import load_dataframe
 
+# seq_disjoint hash families: `split_strategy.hash_key` token -> schema alphabet. Single source of
+# truth for `bipartite_components`, `seq_disjoint_route_pos_df`, and the v2 config validator.
+#
+# The token is PERSISTED, not just internal: the seq_disjoint audit stores it as `hash_key` and the
+# saver interpolates it into the audit keys it hard-fails on (`{token}_hash_overlap`), so renaming a
+# token invalidates existing audits. The tokens stay short-form here and are swept together with the
+# rest of the naming pass.
+#
+# 'seq'/'dna' read hashes pos_df carries natively; 'cds' needs `attach_cds_dna_hash_to_pos_df` to
+# have run first (the v2 splitter attaches it before routing) -- which is why it was absent.
+HASH_FAMILY_ALPHABET = {'seq': 'aa', 'dna': 'nt_ctg', 'cds': 'nt_cds'}
+
 
 def canonical_pair_key(hash_a: str, hash_b: str) -> str:
     """Create a canonical pair key from two hashes.
@@ -678,16 +690,16 @@ def bipartite_components(
             raise ValueError("bipartite_components: pass both col_a and col_b, or neither.")
         node_key_label = f'explicit({col_a},{col_b})'
     else:
-        if hash_key not in {'seq', 'dna'}:
+        if hash_key not in HASH_FAMILY_ALPHABET:
             raise ValueError(
-                f"bipartite_components: hash_key must be 'seq' or 'dna'; "
-                f"got {hash_key!r}."
+                f"bipartite_components: hash_key must be one of "
+                f"{sorted(HASH_FAMILY_ALPHABET)}; got {hash_key!r}."
             )
-        # hash_key names the family ('seq'/'dna'); the column is the molecule-level
-        # hash from the schema registry (seq -> prot_hash, dna -> ctg_dna_hash).
-        _hk_col = {'seq': schema.hash_col('aa'), 'dna': schema.hash_col('nt_ctg')}
-        col_a = f'{_hk_col[hash_key]}_a'
-        col_b = f'{_hk_col[hash_key]}_b'
+        # hash_key names the family; the column is the molecule-level hash from the
+        # schema registry (see HASH_FAMILY_ALPHABET).
+        hk_col = schema.hash_col(HASH_FAMILY_ALPHABET[hash_key])
+        col_a = f'{hk_col}_a'
+        col_b = f'{hk_col}_b'
         node_key_label = hash_key
 
     if not {col_a, col_b}.issubset(pos_df.columns):
@@ -857,6 +869,11 @@ def seq_disjoint_route_pos_df(
         protein can land in different splits. Appropriate when the
         downstream feature is DNA-derived (k-mer) and you want maximum
         sample-level granularity.
+      - hash_key='cds': CDS-DNA partitioning via cds_dna_hash_a /
+        cds_dna_hash_b — the seq_disjoint counterpart of the nt_cds
+        alphabet. Unlike the other two, its columns are NOT native to
+        pos_df: `attach_cds_dna_hash_to_pos_df` must have run first, and
+        this function raises if the column is missing.
 
     LPT-greedy bin-packing: sort components by size desc (then by
     component-id for deterministic tie-breaking), assign each to the bin
@@ -888,10 +905,16 @@ def seq_disjoint_route_pos_df(
             f"seq_disjoint_route_pos_df: train+val ratios sum to >1 "
             f"({train_ratio} + {val_ratio})"
         )
-    if hash_key not in {'seq', 'dna'}:
+    if hash_key not in HASH_FAMILY_ALPHABET:
         raise ValueError(
-            f"seq_disjoint_route_pos_df: hash_key must be 'seq' or 'dna'; "
-            f"got {hash_key!r}."
+            f"seq_disjoint_route_pos_df: hash_key must be one of "
+            f"{sorted(HASH_FAMILY_ALPHABET)}; got {hash_key!r}."
+        )
+    _hcol_active = f"{schema.hash_col(HASH_FAMILY_ALPHABET[hash_key])}_a"
+    if _hcol_active not in pos_df.columns:
+        raise ValueError(
+            f"seq_disjoint_route_pos_df: hash_key={hash_key!r} needs {_hcol_active} on pos_df, "
+            f"which is absent. 'cds' requires attach_cds_dna_hash_to_pos_df to have run first."
         )
 
     component_id, cc_summary = bipartite_components(pos_df, hash_key=hash_key)
@@ -916,10 +939,10 @@ def seq_disjoint_route_pos_df(
     def _set(df: pd.DataFrame, col: str) -> set:
         return set(df[col].dropna())
     overlaps_by_family: dict = {}
-    # 'seq'/'dna' track the split_strategy.hash_key knob (NOT renamed); the
-    # column each reads is the molecule-level hash from the schema registry
-    # (aa -> prot_hash, nt_ctg -> ctg_dna_hash).
-    for family, _alphabet in (('seq', 'aa'), ('dna', 'nt_ctg')):
+    # Families track the split_strategy.hash_key knob (see HASH_FAMILY_ALPHABET); the column each
+    # reads is the molecule-level hash from the schema registry. A family whose column is absent
+    # from pos_df is skipped below, so 'cds' simply reports nothing when it was never attached.
+    for family, _alphabet in HASH_FAMILY_ALPHABET.items():
         _hcol = schema.hash_col(_alphabet)
         family_overlaps: dict = {}
         for side in ('a', 'b'):
@@ -962,6 +985,7 @@ def seq_disjoint_route_pos_df(
         # by hash_key in the saver); only the columns they read are renamed.
         'seq_hash_overlap': overlaps_by_family.get('seq', {}),
         'dna_hash_overlap': overlaps_by_family.get('dna', {}),
+        'cds_hash_overlap': overlaps_by_family.get('cds', {}),
     }
     return train_pos, val_pos, test_pos, audit
 

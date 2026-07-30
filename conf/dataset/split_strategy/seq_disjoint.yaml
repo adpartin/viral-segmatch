@@ -3,4 +3,8 @@
 # (vs cluster_disjoint, which groups by similarity). Mitigates sequence-level leakage.
 
 mode: seq_disjoint
-hash_key: seq   # seq_disjoint-only: 'seq' = protein hash (stricter) | 'dna' = contig DNA hash (looser)
+# seq_disjoint-only. Which exact-identity hash family the bigraph is built on:
+#   seq = prot_hash     (aa)      stricter — no protein in two splits; right for ESM-2 features
+#   dna = ctg_dna_hash  (nt_ctg)  looser — synonymous variants may split; for contig k-mer features
+#   cds = cds_dna_hash  (nt_cds)  the seq_disjoint counterpart of the nt_cds alphabet
+hash_key: seq
