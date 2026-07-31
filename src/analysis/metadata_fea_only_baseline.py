@@ -1,13 +1,14 @@
-"""Demographic-only baseline for the pair co-occurrence task (the "head-on" shortcut test).
+"""Metadata-feature-only baseline for the pair co-occurrence task (the "head-on" shortcut test).
 
 Trains an LGBM on ONLY the pair's isolate metadata -- host / subtype / year of each side -- with NO
 sequence features, on the exact same fold datasets and splits as the sequence LGBM. The gap
-(sequence model minus this baseline) is the signal the model gets from sequence beyond demographics.
+(sequence model minus this baseline) is the signal the model gets from sequence beyond metadata.
 
-Why this is the right control: a POSITIVE pair is two proteins from the SAME isolate, so its
-host/subtype/year always match; a NEGATIVE (cross-isolate) may or may not. So this model learns
-"do the demographics align -> co-occur", and (by construction) fails on the host_subtype_year
-regime -- it measures the ceiling reachable by demographic matching alone. It is also
+Why this is the right control for **demographic shortcut leakage** (the canonical leakage name; see
+docs/plans/2026-05-07_leakage_diagnostics_plan.md): a POSITIVE pair is two proteins from the SAME
+isolate, so its host/subtype/year always match; a NEGATIVE (cross-isolate) may or may not. So this
+model learns "does the metadata align -> co-occur", and (by construction) fails on the
+host_subtype_year regime -- it measures the ceiling reachable by metadata matching alone. It is also
 threshold-independent (metadata does not depend on the clustering t), so it is a flat reference the
 sequence curves can be compared against per t.
 
@@ -16,14 +17,14 @@ Features (all read straight from the pair CSVs -- no join needed):
   - numeric: year_a, year_b, year_diff = |year_a - year_b|
   - match flags (already in the CSV): same_host, same_hn_subtype, same_year
 
-Output mirrors the sequence baseline so `score_vs_threshold.py` can plot seq-vs-demo directly:
+Output mirrors the sequence baseline so `score_vs_threshold.py` can plot seq-vs-metadata directly:
   {out_root}/{run_prefix}_{tXXX}_fold{f}/test_predicted.csv   (label, pred_prob, pred_label)
                                         /metrics_summary.json
 
 CLI:
     python -m src.analysis.metadata_fea_only_baseline \\
         --dataset_prefix dataset_1dcd_nt_cds_cm0_slota \\
-        --run_prefix     demo_1dcd_cm0_slota \\
+        --run_prefix     meta_1dcd_cm0_slota \\
         --thresholds t099 t098 t097 t096 t095
 """
 from __future__ import annotations
@@ -131,7 +132,7 @@ def main() -> None:
     )
     ap.add_argument('--out_root', default=str(PROJ / 'models/flu/July_2025/runs'))
     ap.add_argument('--run_prefix', required=True,
-        help='Output run dirs are {run_prefix}_{tXXX}_fold{f} (e.g. demo_1dcd_cm0_slota).'
+        help='Output run dirs are {run_prefix}_{tXXX}_fold{f} (e.g. meta_1dcd_cm0_slota).'
     )
     ap.add_argument('--thresholds', nargs='+', required=True)
     ap.add_argument('--n_folds', type=int, default=4)

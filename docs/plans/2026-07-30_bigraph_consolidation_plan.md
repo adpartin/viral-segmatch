@@ -22,7 +22,7 @@ from it, never the reverse. Testable form:
 
 > No module in `src/datasets/` or `src/utils/` may import from `src/analysis/`.
 
-**Terminology.** Use **bigraph**, never "bipartite". Glossary changes land before code changes.
+**Terminology.** Use **bigraph** to name variables, functions, scripts, never "bipartite" (unless "bipartite" is an existing package modeules or attributes). Glossary changes land before code changes.
 
 **CC builders.** Two siblings in `_pair_helpers.py`, chosen by what the nodes are:
 - `cluster_ccs` — cluster-level bigraph (nodes = mmseqs clusters), networkx via `build_pair_bigraph`.
@@ -39,7 +39,14 @@ from it, never the reverse. Testable form:
 **Archiving.** A `docs/results/` reference is *not* a reason to keep code — those docs are the
 historical record. Archive to `src/archive/` via `git mv`; never import from it.
 
-**seq_disjoint** is retained as an option and supports nt_cds via the `cds` hash family.
+**seq_disjoint** is retained as an option and supports nt_cds via the `cds` hash family. It also
+stays the repo-wide default (`conf/dataset/default.yaml`), even though nearly every recorded run is
+`cluster_disjoint*` — bundles set `mode` explicitly.
+
+**Persisted audit values are frozen.** The split audits keep `algorithm =
+'bipartite_cc_lpt_greedy'` / `'bipartite_cc_lpt_greedy_on_cluster_ids'`. These are recorded data,
+not identifiers, so the bigraph naming rule does not reach them; renaming would only make new run
+dirs disagree with existing ones.
 
 ## 2. Done
 
@@ -100,7 +107,8 @@ Baseline digests: `tests/golden/megacc_cut/fold_baseline_*.json`, captured by
    - `load_cluster_map` defined identically in `bigraph_properties` and `cluster_pair_weight_topk`.
 3. **`bipartite` → `bigraph` pass.** Glossary first (`Bipartite multigraph` → `Multigraph bigraph`,
    `Bipartite hub` → `Bigraph hub`), then `build_bipartite_multigraph` (18 uses) and the
-   `bipartite_largest_pct_vs_threshold` output filename. **Blocked on 6.1.**
+   `bipartite_largest_pct_vs_threshold` output filename. The persisted `algorithm` audit values are
+   out of scope (see §1) — rename identifiers only.
 4. **Gen-2 ports** of the surviving `bigraph_*` scripts onto `cc_{source}` artifacts:
    `bigraph_properties` (per-CC λ / bridges / cut nodes / hub Gini), `bigraph_hub_peel` (node-peel —
    the only implementation of that route), `bigraph_min_cut`, `bigraph_pair_2d` (no Gen-2
@@ -116,12 +124,7 @@ splits); `_cv_sampling.assign_atoms` (the third split path).
 
 ## 6. Open questions (need a decision)
 
-6.1 **Persisted audit strings.** The split audits record an `algorithm` value of
-`'bipartite_cc_lpt_greedy'` (`_pair_helpers.seq_disjoint_route_pos_df`) and
-`'bipartite_cc_lpt_greedy_on_cluster_ids'` (`_split_helpers.cluster_disjoint_route_pos_df`).
-Renaming makes new run dirs disagree with existing ones. Rename, or leave the persisted values
-alone? Item 3 above is blocked on this.
-
-6.2 **Default split strategy.** `conf/dataset/default.yaml:10` makes `seq_disjoint` the repo-wide
-default, while 45 of 46 recorded runs are `cluster_disjoint*`. A new bundle that omits `mode`
-silently gets protein-level seq routing even on an nt_cds experiment. Retarget the default?
+6.1 **ood-arm attribution.** The `ood_vs_random` t095 ood arm moved −0.159 test F1 on
+negative-resampling alone (§3). The arm is at chance in both versions, so this is most likely
+instability rather than a capability change — but that is untested. Control: re-run the ood arm
+across several negative-sampling seeds and compare the spread to the observed delta.
