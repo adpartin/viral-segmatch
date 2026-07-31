@@ -2754,6 +2754,10 @@ def save_split_output_v2(
     if generate_visualizations:
         try:
             print('\nGenerating dataset visualization plots...')
+            # The one documented exception to "src/datasets must not import src/analysis"
+            # (docs/architecture.md, Layering): plotting is not split-producing, the import is
+            # function-local and reached only under this flag, and the except below degrades a
+            # failure to a warning. Do NOT use this as precedent for a second exception.
             from src.analysis.visualize_dataset_stats import visualize_dataset_stats
             visualize_dataset_stats(
                 dataset_stats_path=output_dir / 'dataset_stats.json',

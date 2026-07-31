@@ -29,18 +29,19 @@ import argparse
 import sys
 from pathlib import Path
 
-import pandas as pd
 import networkx as nx
+import pandas as pd
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.datasets._pair_helpers import canonical_pair_key
-from src.utils.metadata_enrichment import load_flu_metadata
-from src.analysis.cluster_pair_weight_topk import load_pair_universe, _FUNCTION_TO_SHORT
-from src.analysis.bigraph_properties import load_cluster_map, build_bipartite_multigraph
 from src.analysis.bigraph_min_cut import min_cut_recursive
+from src.analysis.bigraph_properties import build_bipartite_multigraph
+from src.analysis.cluster_pair_weight_topk import _FUNCTION_TO_SHORT, load_pair_universe
+from src.datasets._pair_helpers import canonical_pair_key
+from src.utils.cluster_source import cluster_map_for_root as load_cluster_map
+from src.utils.metadata_enrichment import load_flu_metadata
 
 
 def pair_key_to_subtype(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFrame:

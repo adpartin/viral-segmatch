@@ -23,13 +23,17 @@ docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md.
 `fragment_largest_cc`, and `edges_to_row_index`; `fragment_once` wraps those same
 three into a single standalone cut (it is not used by the budget loop).
 
-`fragment_until` is the routing-B sibling of `apply_drop_budget_cut`: the same loop
-with a caller-supplied count stop (`stop_fn`, e.g. `stop_at_n_atoms`) instead of the
-80/10/10 feasibility gate -- it grows the atom count for the GroupKFold CV builder.
+Three loops share that cut, differing only in the stop condition and the entry surface:
+  - `apply_drop_budget_cut` -- stop at 80/10/10 LPT-feasibility; raises past the budget.
+  - `fragment_until`        -- stop at a caller-supplied count (`stop_fn`, e.g.
+    `stop_at_n_atoms`); grows the atom count for the GroupKFold CV builder.
+  - `fragment_weighted`     -- stop at LPT-feasibility against arbitrary `targets`
+    (`uniform_targets(k)` for K-fold). The only one that takes a caller-built graph
+    and returns the fragmented graph, rather than taking/returning `pos_with_ids` rows.
 
-Dependency note: src/datasets must not import src/analysis (analysis depends on
-datasets), so the bisection core is duplicated here; a later cleanup can have the
-analysis diagnostics import this module.
+This module is the single home of the bisection core: `src/datasets/_cv_sampling` and
+the `src/analysis/bigraph_*` diagnostics all import it (analysis -> datasets is the
+allowed direction).
 """
 from __future__ import annotations
 
@@ -75,6 +79,17 @@ def _lpt_max_drift(sizes, targets=_TARGETS, bin_order=_BIN_ORDER) -> float:
         filled[w] += s
 
     return max(abs(filled[b] / total - targets[b]) for b in bin_order)
+
+
+def uniform_targets(k: int) -> dict:
+    """K equal bins summing to 1 -- the K-fold-feasibility target for fragmentation.
+
+    Pass as `targets=` to `fragment_weighted` to fragment a CC until its atoms LPT-pack
+    into K balanced folds (largest atom roughly <= 1/k). Tighter than the 80/10/10
+    holdout target `_TARGETS`: a single atom at 80% is LPT-feasible for 80/10/10 (it
+    fills train) but violates K equal bins.
+    """
+    return {f'f{i}': 1.0 / k for i in range(k)}
 
 
 def _bisect(H: nx.Graph, cut_method: str, seed: int, kl_max_iter: int = 10) -> set:
@@ -138,6 +153,11 @@ def _bisect(H: nx.Graph, cut_method: str, seed: int, kl_max_iter: int = 10) -> s
         return set(A)
 
     raise ValueError(f"cut_method must be 'spectral' or 'kl'; got {cut_method!r}")
+
+
+def _piece_pairs(H: nx.Graph, nodes) -> int:
+    """Pairs carried inside one component (its summed edge weight)."""
+    return int(H.subgraph(nodes).size(weight='weight'))
 
 
 def _largest_cc(H: nx.Graph):
@@ -564,3 +584,98 @@ def apply_drop_budget_cut(
         'dropped_pair_keys': dropped_pair_keys,
     }
     return kept_pos, cut_audit
+
+
+def fragment_weighted(
+    H: nx.Graph,
+    *,
+    targets: dict = _TARGETS,
+    cut_method: str = 'kl',
+    target_frac: float = 0.80,
+    drift_pp: float = 0.05,
+    seed: int = 1,
+    kl_max_iter: int = 10,
+    max_cuts: int = 200,
+    ) -> tuple[pd.DataFrame, nx.Graph, list]:
+    """Recursively bisect `H`'s largest CC until the kept atoms LPT-pack into `targets`.
+
+    The GRAPH-LEVEL entry point, and the only one here that takes a caller-built graph
+    rather than a `pos_with_ids` frame: the caller already holds a pair-weighted simple
+    graph and wants the fragmented graph back, not a row split. Used by
+    `_cv_sampling._fragment_atoms` (whose atoms are the CV harness's GroupKFold groups)
+    and by the `bigraph_min_cut` diagnostic CLI.
+
+    Same cut loop as `apply_drop_budget_cut` / `fragment_until` -- bisect the heaviest
+    component, drop its straddling edges -- with a third stop condition: the LPT drift
+    against arbitrary `targets`. Pass `uniform_targets(k)` for K-fold CV, or the default
+    `_TARGETS` for an 80/10/10 holdout. `bin_order` follows the `targets` key order.
+
+    MUTATES `H` (removes each cut's crossing edges).
+
+    Args:
+        H: a pair-weighted simple graph -- one node per cluster, edge `weight` = the
+            number of positive pairs on that cluster pair.
+        targets: bin name -> target fraction; the LPT feasibility gate.
+        cut_method: bisection heuristic -- 'spectral' or 'kl'.
+        target_frac: reference fraction for the audit-only `largest_le_target` column;
+            does NOT gate the loop (`drift_pp` against `targets` does).
+        drift_pp: stop once the LPT pack's worst-bin deviation from target is <= this.
+        seed: RNG seed for the seeded KL bisection ('spectral' is deterministic).
+        kl_max_iter: Kernighan-Lin refinement passes (KL only).
+        max_cuts: safety cap on the number of cuts.
+
+    Returns:
+        `(per_cut_df, H, dropped_edges)`: one row per cut recording the state BEFORE it
+        (plus a final row for the state reached), the mutated graph whose connected
+        components are the final atoms, and the crossing edges removed in cut order.
+        `dropped_frac` is against the graph's total pair mass (summed edge weight).
+    """
+    bin_order = list(targets.keys())
+    total_pairs = int(H.size(weight='weight'))
+    dropped = 0
+    dropped_edges: list[tuple] = []
+    rows: list[dict] = []
+    cut = 0
+
+    while True:
+        comps = list(nx.connected_components(H))
+        sizes = [_piece_pairs(H, c) for c in comps]
+        retained = total_pairs - dropped
+        largest = max(sizes)
+        largest_frac = largest / retained if retained else 0.0
+        drift = _lpt_max_drift(sizes, targets=targets, bin_order=bin_order)
+        feasible = drift <= drift_pp
+
+        rows.append({
+            'cut': cut,
+            'pairs_dropped': dropped,
+            'dropped_frac': round(dropped / total_pairs, 6),
+            'retained_pairs': retained,
+            'n_pieces': len(comps),
+            'largest_cc_pairs': largest,
+            'largest_frac_of_retained': round(largest_frac, 6),
+            'lpt_max_drift': round(drift, 6),
+            'lpt_feasible': feasible,
+            'largest_le_target': largest_frac <= target_frac,
+        })
+
+        if feasible or cut >= max_cuts:
+            break
+
+        # Bisect the heaviest piece, drop its crossing edges.
+        big = max(comps, key=lambda c: _piece_pairs(H, c))
+        # A <=2-node largest atom is a single cluster pair; an edge cut cannot split it
+        # further (the Fiedler split needs >=3 nodes), so the targets are unreachable --
+        # stop and let the final infeasible row report it (don't shred singletons).
+        if len(big) < 3:
+            break
+        sub = H.subgraph(big)
+        part_a = _bisect(sub, cut_method, seed, kl_max_iter)
+        cross_edges = [(x, y) for x, y in sub.edges() if (x in part_a) != (y in part_a)]
+        cross = sum(sub[x][y]['weight'] for x, y in cross_edges)
+        H.remove_edges_from(cross_edges)
+        dropped_edges.extend(cross_edges)
+        dropped += cross
+        cut += 1
+
+    return pd.DataFrame(rows), H, dropped_edges

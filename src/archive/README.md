@@ -18,6 +18,11 @@ Archived 2026-07-30, during the bigraph/fragmentation consolidation:
 | `bigraph_reassort_check.py` | one-off aa-only validation of the cut vs reassortment signal | none — finding recorded in `docs/results/2026-06-04_bigraph_megacc_structure_and_cutting.md` |
 | `bigraph_cut_subtype.py` | its `pair_key_to_subtype` was absorbed by the generalized helper | `_pair_helpers.pair_key_to_metadata(..., fields=('hn_subtype',))` |
 
-All four read the analysis-side `load_pair_universe`, which dedups on `prot_hash` for **every**
-alphabet — so their nt_cds numbers count 58,826 pairs where the production universe has 78,764.
-Treat any nt_cds figure they produced as aa-deduped.
+All four read the analysis-side `load_pair_universe`, which by default dedups on `prot_hash` for
+**every** alphabet — so their nt_cds numbers count 58,826 pairs where the true nt_cds universe for
+HA-NA has 79,347 (measured on `cds_dna_final.parquet`). Treat any nt_cds figure they produced as
+aa-deduped.
+
+Imports here are repointed when a live symbol they depend on moves — enough to keep them readable
+and importable, nothing more. As of 2026-07-31 all four import cleanly, but that is a courtesy, not
+a guarantee: no test covers them and they are not run.

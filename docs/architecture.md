@@ -97,6 +97,7 @@ src/
     _pair_helpers.py                # Shared helpers (seq_disjoint routing, filters, hash attach)
     _split_helpers.py               # cluster_disjoint routing (mmseqs2-based)
     _cc_helpers.py                  # within-CC isolate pool + negative samplers (CC builder)
+    _cv_sampling.py                 # atom assignment + per-unit positive sampling (CV harness)
     _megacc_cut.py                  # mega-CC edge min-cut (drop-budget 2D-CD; spectral/KL)
     _negative_regime_sampling.py    # 8-regime classifier + priority chain for racov
   models/
@@ -112,9 +113,9 @@ src/
     single_slot_cluster_disjoint_feasibility.py
     cluster_analysis_summary.py     # Post-hoc structural cluster summary
     plot_aa_vs_nt_cluster_disjoint.py    # LGBM + 1-NN cluster-disjoint comparison
-    cluster_source.py               # Membership-backed cluster-map source (registry-driven)
     mmd_per_slot.py / mmd_per_pair.py / aggregate_mmd_single_slot_sweep.py
   utils/
+    cluster_source.py               # Membership-backed cluster-map source (registry-driven)
     config_hydra.py                 # Hydra config loader (primary)
     schema.py                       # Per-alphabet column/file registry (aa, nt_cds, nt_ctg) — single source of truth
     esm2_utils.py, embedding_utils.py, kmer_utils.py
@@ -124,6 +125,30 @@ src/
     dna_utils.py                    # DNA QC utilities (in development)
     dim_reduction_utils.py, gto_utils.py, protein_utils.py, path_utils.py, timer_utils.py
 ```
+
+### Layering
+
+"Production" means code that participates in producing train/val/test splits, **regardless of
+directory**. It lives in `src/datasets/` or `src/utils/`; `src/analysis/` may import from those,
+never the reverse. The check:
+
+```bash
+grep -rnE "^\s*(from|import)\s+src\.analysis" src/datasets/ src/utils/
+```
+
+This is why `_cv_sampling.py` sits in `src/datasets/` although the harness that drives it
+(`cluster_disjoint_cv_experiment.py`) is in `src/analysis/`, and why `cluster_source.py` sits in
+`src/utils/` although its other callers are all analysis scripts.
+
+**One documented exception**, which the grep above will report: `dataset_segment_pairs_v2` imports
+`src.analysis.visualize_dataset_stats`. It is allowed to stand because it is not split-producing —
+the import is lazy (function-local), reached only under `if generate_visualizations`, and wrapped
+in try/except so a failure degrades to a `WARNING:` rather than affecting the dataset. Moving the
+visualizer to `src/utils/` would drag its plotting stack into the production layer to no benefit.
+Any *new* `src/analysis` import from `src/datasets/` or `src/utils/` is a violation, not a second
+exception.
+
+`src/archive/` is inert: nothing may import from it, and it may reference anything.
 
 ---
 

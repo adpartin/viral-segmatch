@@ -25,6 +25,12 @@ from it, never the reverse. Testable form:
 
 > No module in `src/datasets/` or `src/utils/` may import from `src/analysis/`.
 
+One exception, documented in `docs/architecture.md` § Layering and at the call site:
+`dataset_segment_pairs_v2` → `visualize_dataset_stats`. Plotting is not split-producing, the import
+is function-local under `if generate_visualizations`, and a failure degrades to a warning. Any new
+such import is a violation, not a second exception — so the grep above is a review aid, not a
+CI gate, unless it is taught to skip that one line.
+
 **Terminology.** Use **bigraph** to name variables, functions, scripts, never "bipartite" (unless "bipartite" is an existing package modeules or attributes). Glossary changes land before code changes.
 
 **CC builders.** Two siblings in `_pair_helpers.py`, chosen by what the nodes are:
@@ -62,6 +68,26 @@ dirs disagree with existing ones.
   merges, historical marker removed.
 - `bipartite_components` → `cluster_ccs` + `sequence_ccs`; 5 cluster-disjoint call sites redirected;
   summary keys renamed; equivalence + order-invariance tests added.
+- **Layering violation (a) closed** (item 1a). `_cv_sampling` → `src/datasets/`; `fragment_weighted`
+  + `uniform_targets` → `_megacc_cut` (its `method=` knob renamed `cut_method=` to match the
+  module's other three loops); `cluster_source` → `src/utils/` (its `cluster_map_for_root` is what
+  `bigraph_properties.load_cluster_map` delegated to, so `_cv_sampling` now imports it directly).
+  `lpt_max_drift` did NOT need moving — `_megacc_cut._lpt_max_drift` was already bit-identical
+  (checked on 3,000 random size vectors × 6 target schemes), so the analysis copy was deleted
+  rather than relocated. `bigraph_min_cut` keeps only `weighted_simple` + `min_cut_recursive` +
+  the CLI and imports the loop back from `_megacc_cut`.
+- **Layering violation (b) recorded as the one documented exception** (item 1b) —
+  `docs/architecture.md` § Layering (new; carries the rule, the grep, the exception, and the
+  `src/archive/` note) plus a call-site comment. The source-file map there was corrected for both
+  moves. **Item 1 is closed.**
+- **Hygiene** (item 2). `cluster_source.CLUSTERS_ROOT` is now the single per-alphabet cluster-root
+  map, consumed by `_cv_sampling` (its hardcoded `_ROOT` deleted) and the `--clusters_{aa,nt}` CLI
+  defaults of `bigraph_min_cut` / `bigraph_hub_peel` / `bigraph_properties` /
+  `cluster_pair_weight_topk` / `bigraph_pair_2d`. Both `load_cluster_map` delegates deleted; all 8
+  call sites use `cluster_map_for_root` directly. `load_pair_universe` gained
+  `pair_key_alphabet` (below). The 4 archived scripts were repointed off the deleted delegate and
+  all import again; `src/archive/README.md` now states that repointing is a courtesy, not a
+  guarantee. **Item 2 is closed** except the caller flip in §6.2.
 
 ## 3. Validation record
 
@@ -93,34 +119,17 @@ natural spread, so this delta can be attributed rather than assumed.
 Baseline digests: `tests/golden/megacc_cut/fold_baseline_*.json`, captured by
 `scripts/capture_2dcd_fold_baseline.py`.
 
+**Item 1a is behaviour-preserving** (verified, not assumed):
+- `assign_atoms` on aa HA-NA × t099..t095 × {natural, cut}: the full
+  `(pair_key, cluster_a/b, cluster_pair_id, cc_id, atom_id)` assignment is byte-identical
+  before/after, all 10 configs.
+- `bigraph_min_cut` CLI (`--alphabet aa --threshold t095 --method spectral`) reproduces the
+  committed 2026-06-07 `min_cut_ha_na_aa_t095_spectral.csv` exactly — this is the path that
+  exercises the `targets=None` → 80/10/10 default.
+- `pytest tests/ -q`: 146 passed.
+
 ## 4. Remaining work (in order)
 
-1. **Close the layering violations.** Two exist; `grep -rnE "^\s*(from|import)\s+src\.analysis"
-   over `src/datasets/ src/utils/` is the check.
-
-   a. **`_cv_sampling`** — `assign_atoms` produces the GroupKFold split unit (production) but lives
-      in `src/analysis` and imports `bigraph_properties.load_cluster_map` +
-      `bigraph_min_cut.{fragment_weighted, uniform_targets}`. Move `fragment_weighted` /
-      `uniform_targets` / `lpt_max_drift` into `_megacc_cut`, relocate `_cv_sampling` to
-      `src/datasets/`. Importers to update: `cluster_disjoint_cv_experiment.py`,
-      `cluster_disjoint_regime_cv.py` (`src/datasets/_cc_helpers.py` and `dataset_pairs_cc.py`
-      only *mention* it in comments). Also carries a hardcoded `_ROOT` cluster-path map, same
-      defect as item 2's `--clusters_nt`. Unblocks retiring `bigraph_min_cut`.
-
-   b. **`dataset_segment_pairs_v2`** imports `src.analysis.visualize_dataset_stats` for the
-      optional plots. Different in character from (a) — lazy, inside `if generate_visualizations`,
-      wrapped in try/except, and not part of split production. Options: move the visualiser to
-      `src/utils/`, have the orchestrator call it after the builder returns, or record it as a
-      documented exception. Decide before the grep above is wired into CI.
-2. **Hygiene.**
-   - `_megacc_cut` module docstring, "Dependency note" — claims the bisection core is duplicated
-     for the analysis diagnostics; it is not (they import `_bisect` from here).
-   - `cluster_pair_weight_topk.load_pair_universe` dedups on `prot_hash` for *every* alphabet →
-     nt_cds analyses undercount by 25% (58,826 vs 78,764). Guard or fix.
-   - `--clusters_nt` defaults to `clusters_nt`, which does not exist on disk (the real dirs are
-     `clusters_nt_cds*`), in 5 live scripts: `bigraph_min_cut`, `bigraph_hub_peel`,
-     `bigraph_properties`, `cluster_pair_weight_topk`, `cluster_analysis_summary`.
-   - `load_cluster_map` defined identically in `bigraph_properties` and `cluster_pair_weight_topk`.
 3. **`bipartite` → `bigraph` pass.** Glossary first (`Bipartite multigraph` → `Multigraph bigraph`,
    `Bipartite hub` → `Bigraph hub`), then `build_bipartite_multigraph` (18 uses) and the
    `bipartite_largest_pct_vs_threshold` output filename. The persisted `algorithm` audit values are
@@ -139,6 +148,25 @@ vs `apply_drop_budget_cut` (the two stop conditions); `route_holdout` + `make_fo
 splits); `_cv_sampling.assign_atoms` (the third split path).
 
 ## 6. Open questions (need a decision)
+
+6.2 **`load_pair_universe` nt_cds undercount — which callers to flip.** The function now takes
+`pair_key_alphabet`, but its default is still `'aa'`, so nothing changed yet: every current caller
+builds the universe once with the aa key and then maps nt_cds hashes off it. `keep='first'` picks
+one arbitrary CDS representative per protein pair, so those nt_cds analyses see **58,826** HA-NA
+pairs where the true nt_cds universe has **79,347** — a 26% undercount (measured on
+`cds_dna_final.parquet`; the plan previously recorded 78,764, which did not reproduce).
+
+Flipping a caller changes its published nt_cds numbers, so it is a decision, not a cleanup. The
+callers, and what each would need:
+- `cluster_pair_weight_topk.main` — loops BOTH alphabets off one universe; would need one universe
+  per alphabet, i.e. a real restructure of the loop.
+- `bigraph_properties`, `bigraph_hub_peel`, `bigraph_min_cut`, `bigraph_pair_2d` — one universe per
+  run, `--alphabet` already selects the cluster side; a one-line change each.
+- `cluster_disjoint_cv_experiment`, `cluster_disjoint_regime_cv`, `_cv_sampling` callers — the aa
+  path is the maintained one and nt is documented as not wired, so likely leave.
+
+Cheapest honest next step: flip the four single-alphabet bigraph scripts, re-run one nt_cds slice,
+and diff against the recorded figures before touching anything else.
 
 6.1 **ood-arm attribution.** The `ood_vs_random` t095 ood arm moved −0.159 test F1 on
 negative-resampling alone (§3). The arm is at chance in both versions, so this is most likely

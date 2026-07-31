@@ -73,10 +73,10 @@ if str(PROJ) not in sys.path:
 from src.analysis.bigraph_properties import build_bipartite_multigraph  # noqa: E402
 from src.analysis.cluster_pair_weight_topk import (  # noqa: E402
     _FUNCTION_TO_SHORT,
-    load_cluster_map,
     load_pair_universe,
 )
 from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
+from src.utils.cluster_source import cluster_map_for_root as load_cluster_map  # noqa: E402
 from src.utils.clustering_utils import threshold_decimal  # noqa: E402
 from src.utils.metadata_enrichment import load_flu_metadata  # noqa: E402
 

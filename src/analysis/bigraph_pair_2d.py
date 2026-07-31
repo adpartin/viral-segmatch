@@ -25,7 +25,7 @@ Both panels overlay the cut's straddling pairs as red ×. A companion
 subtype-level heatmap (H-subtype × N-subtype pair counts) gives the coarse,
 immediately-readable version of the same islands.
 
-Both alphabets work: `load_cluster_map` is membership-backed (`cluster_source`),
+Both alphabets work: `cluster_map_for_root` is membership-backed (`cluster_source`),
 keying aa on `prot_hash` and nt_cds on `cds_dna_hash`, so `--alphabet nt_cds`
 runs against `clusters_nt_cds`.
 
@@ -61,9 +61,10 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.bigraph_min_cut import min_cut_recursive
-from src.analysis.bigraph_properties import build_bipartite_multigraph, load_cluster_map
+from src.analysis.bigraph_properties import build_bipartite_multigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
 from src.datasets._pair_helpers import pair_key_to_metadata
+from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 from src.utils.config_hydra import load_function_metadata
 
 _H_RE = re.compile(r'H\d+')
@@ -294,8 +295,8 @@ def plot_subtype_heatmap(u, *, slot_a, slot_b, alphabet, threshold,
 def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphabet,
                   threshold, method, drift_pp, seed, top_atoms, max_h, max_n, out_dir,
                   no_cut=False, skip_heatmap=False, legend='cc'):
-    cmap_a = load_cluster_map(clusters_root, slot_a, threshold)
-    cmap_b = load_cluster_map(clusters_root, slot_b, threshold)
+    cmap_a = cluster_map_for_root(clusters_root, slot_a, threshold)
+    cmap_b = cluster_map_for_root(clusters_root, slot_b, threshold)
     if not cmap_a or not cmap_b:
         print(f'  [{alphabet} {threshold}] missing cluster parquet; skipping.')
         return
@@ -341,10 +342,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
                    default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'))
-    p.add_argument('--clusters_nt_cds',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'))
+    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
+    p.add_argument('--clusters_nt_cds', default=str(CLUSTERS_ROOT['nt_cds']))
     p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
                    metavar=('SLOT_A', 'SLOT_B'))
     p.add_argument('--alphabet', default='aa', choices=['aa', 'nt_cds'])

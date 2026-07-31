@@ -52,11 +52,12 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import pandas as pd
 from scipy import sparse
 from sklearn.model_selection import GroupKFold, train_test_split
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -64,17 +65,27 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
-from src.analysis._cv_sampling import (  # noqa: E402
-    assign_atoms, sample_positives, build_isolate_context,
-    sample_regime_negatives, sample_random_within_cc_negatives)
-from src.analysis._cv_features import build_hash_to_row, _interaction, _KMER_DIR  # noqa: E402
+from src.analysis._cv_features import _KMER_DIR, _interaction, build_hash_to_row  # noqa: E402
 from src.analysis.analyze_stage4_train import (  # noqa: E402
-    analyze_level1_neg_regimes, _LEVEL1_REGIME_ORDER, _resolve_neg_regime_column,
-    compute_basic_metrics, analyze_metrics_summary, plot_confusion_matrix)
+    _LEVEL1_REGIME_ORDER,
+    _resolve_neg_regime_column,
+    analyze_level1_neg_regimes,
+    analyze_metrics_summary,
+    compute_basic_metrics,
+    plot_confusion_matrix,
+)
+from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.analysis.visualize_dataset_stats import _render_split_composition_grouped  # noqa: E402
-from src.models.baselines.lgbm import get_estimator, fit as lgbm_fit  # noqa: E402
+from src.datasets._cv_sampling import (  # noqa: E402
+    assign_atoms,
+    build_isolate_context,
+    sample_positives,
+    sample_random_within_cc_negatives,
+    sample_regime_negatives,
+)
 from src.datasets._negative_regime_sampling import REGIME_NAMES  # noqa: E402
+from src.models.baselines.lgbm import fit as lgbm_fit
+from src.models.baselines.lgbm import get_estimator  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
 _HASH = {'aa': ('prot_hash_a', 'prot_hash_b'), 'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}

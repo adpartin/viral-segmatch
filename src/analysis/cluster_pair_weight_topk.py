@@ -24,10 +24,10 @@ CLI:
     python -m src.analysis.cluster_pair_weight_topk \\
         [--cds_final    data/processed/flu/July_2025/cds_dna_final.parquet] \\
         [--clusters_aa  data/processed/flu/July_2025/clusters_aa] \\
-        [--clusters_nt  data/processed/flu/July_2025/clusters_nt] \\
+        [--clusters_nt  data/processed/flu/July_2025/clusters_nt_cds] \\
         [--out_dir      results/flu/July_2025/runs/cluster_pair_weight] \\
         [--top_k 100] \\
-        [--thresholds id100 id099 ...]
+        [--thresholds t100 t099 ...]
 
 Outputs (under --out_dir):
     top{K}_{pair_slug}.csv     one long-form CSV per schema pair (slug =
@@ -58,9 +58,10 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -69,8 +70,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.datasets._pair_helpers import canonical_pair_key
-from src.analysis.cluster_source import cluster_map_for_root
-
+from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 # Function full → short (matches conf/virus/flu.yaml::function_short_names).
 _FUNCTION_TO_SHORT = {
@@ -100,17 +100,43 @@ _SCHEMA_PAIRS = [
 _DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(100, 89, -1)]
 
 
-def load_pair_universe(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFrame:
-    """Raw cooccurrence pair universe for one schema pair, deduped by protein pair_key.
+def load_pair_universe(
+    cds_final: Path,
+    slot_a: str,
+    slot_b: str,
+    pair_key_alphabet: str = 'aa',
+) -> pd.DataFrame:
+    """Raw cooccurrence pair universe for one schema pair, deduped by `pair_key_alphabet`.
 
-    Each row = one unique canonical protein pair appearing in at least one
-    isolate (multi-occurrence within and across isolates collapsed).
+    Each row = one unique canonical pair appearing in at least one isolate
+    (multi-occurrence within and across isolates collapsed).
+
+    `pair_key_alphabet` picks the hash the dedup key is built on, matching the project's
+    "the positive universe is alphabet-defined" rule (CLAUDE.md):
+      - `'aa'`     -> `canonical_pair_key(prot_hash_a, prot_hash_b)`
+      - `'nt_cds'` -> `canonical_pair_key(cds_dna_hash_a, cds_dna_hash_b)`
+
+    **The default is `'aa'`, which is WRONG for nt_cds analyses** — it collapses each protein
+    pair to one arbitrary CDS representative (`keep='first'`), so an nt_cds analysis run off the
+    default sees 58,826 HA-NA pairs where the true nt_cds universe has 79,347 (a 26% undercount,
+    measured on `cds_dna_final.parquet`). The default is kept only so existing callers stay
+    byte-identical; every caller mapping nt_cds hashes downstream should pass
+    `pair_key_alphabet='nt_cds'`. Switching one is a results-changing decision — re-run and
+    compare, do not assume.
 
     Columns: pair_key, prot_hash_a, prot_hash_b, cds_dna_hash_a, cds_dna_hash_b.
     The prot_hash_* values are protein hashes (md5 of prot_seq); the
     cds_dna_hash_* values are DNA hashes (md5 of cds_dna). Naming follows the
     project convention: prot_hash = protein, cds_dna_hash = DNA.
     """
+    key_cols = {'aa': ('prot_hash_a', 'prot_hash_b'),
+                'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}
+    if pair_key_alphabet not in key_cols:
+        raise ValueError(
+            f"pair_key_alphabet must be 'aa' or 'nt_cds'; got {pair_key_alphabet!r}"
+        )
+    key_a, key_b = key_cols[pair_key_alphabet]
+
     df = pd.read_parquet(
         cds_final,
         columns=['assembly_id', 'function', 'prot_hash', 'cds_dna_hash'],
@@ -130,24 +156,14 @@ def load_pair_universe(cds_final: Path, slot_a: str, slot_b: str) -> pd.DataFram
 
     pairs['pair_key'] = [
         canonical_pair_key(a, b)
-        for a, b in zip(pairs['prot_hash_a'], pairs['prot_hash_b'])
+        for a, b in zip(pairs[key_a], pairs[key_b])
     ]
-    # Mode-1 leakage dedup: collapse rows so each unique canonical protein
-    # pair appears once (within- and across-isolate duplicates removed).
+    # Same-pair leakage dedup: collapse rows so each unique canonical pair appears once
+    # (within- and across-isolate duplicates removed). `keep='first'` picks one arbitrary
+    # representative row for the OTHER alphabet's hashes -- which is exactly why an nt_cds
+    # analysis must not run on an aa-keyed universe (see the docstring).
     pairs = pairs.drop_duplicates(subset='pair_key', keep='first').reset_index(drop=True)
     return pairs[['pair_key', 'prot_hash_a', 'prot_hash_b', 'cds_dna_hash_a', 'cds_dna_hash_b']]
-
-
-def load_cluster_map(clusters_root: Path, slot_protein: str, threshold_id: str) -> dict[str, str]:
-    """Load {hash -> cluster_id} for one (slot_protein, threshold).
-
-    Delegates to `cluster_source.cluster_map_for_root` — membership-backed when
-    `cluster_memb_{alphabet}.parquet` is present (one cached table read replaces
-    the per-(protein, threshold) parquet reads), else a direct parquet read with
-    the alphabet's correct key column. Bit-identical either way
-    (`scripts/verify_membership_swap.py`). Returns {} if neither source exists.
-    """
-    return cluster_map_for_root(clusters_root, slot_protein, threshold_id)
 
 
 def compute_top_k_cluster_weights(
@@ -161,7 +177,7 @@ def compute_top_k_cluster_weights(
 
     Args:
         pair_universe: From `load_pair_universe`.
-        cluster_map:   From `load_cluster_map`.
+        cluster_map:   From `cluster_source.cluster_map_for_root`.
         side:          'a' or 'b' — which slot of the pair the slot-protein occupies.
         alphabet:      'aa' (uses prot_hash_{side}) or 'nt_cds' (uses cds_dna_hash_{side}).
         top_k:         Number of top rows to keep.
@@ -270,12 +286,10 @@ def main() -> None:
     p.add_argument('--cds_final',
                    default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'),
                    help='Stage 1.5 cds_dna_final.parquet — provides prot_hash and cds_dna_hash per (isolate, function).')
-    p.add_argument('--clusters_aa',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
-                   help='Root containing id{XXX}/{PROTEIN}_cluster.parquet for aa.')
-    p.add_argument('--clusters_nt',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'),
-                   help='Root containing id{XXX}/{PROTEIN}_cluster.parquet for nt.')
+    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']),
+                   help='Root containing t{XXX}/{PROTEIN}_cluster.parquet for aa.')
+    p.add_argument('--clusters_nt', default=str(CLUSTERS_ROOT['nt_cds']),
+                   help='Root containing t{XXX}/{PROTEIN}_cluster.parquet for nt_cds.')
     p.add_argument('--out_dir',
                    default=str(PROJ / 'results/flu/July_2025/runs/cluster_pair_weight'),
                    help='Output directory for per-pair long CSVs, combined rollup, and plots.')
@@ -306,7 +320,7 @@ def main() -> None:
         for slot_protein, side in [(slot_a, 'a'), (slot_b, 'b')]:
             for alphabet, clusters_root in [('aa', clusters_aa), ('nt_cds', clusters_nt)]:
                 for t in thresholds:
-                    cluster_map = load_cluster_map(clusters_root, slot_protein, t)
+                    cluster_map = cluster_map_for_root(clusters_root, slot_protein, t)
                     if not cluster_map:
                         continue
                     top_df, total, n_clusters = compute_top_k_cluster_weights(

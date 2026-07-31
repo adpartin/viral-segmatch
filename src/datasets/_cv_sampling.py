@@ -11,49 +11,49 @@ bigraph (nodes = clusters, edges = co-occurrences):
 `assign_atoms` tags every pair with `cluster_pair_id`, `cc_id`, and `atom_id`:
   - strategy='natural': atom = the bipartite CC (`atom_id == cc_id`). At low `t` one
     mega-CC dominates, so GroupKFold-by-atom needs per-CC capping to stay balanced.
-  - strategy='cut': the mega-CC is fragmented by edge min-cut (bigraph_min_cut's
+  - strategy='cut': the mega-CC is fragmented by edge min-cut (`_megacc_cut`'s
     `fragment_weighted` with `uniform_targets(k_folds)`) into atoms each <= ~1/k of
     the kept pairs; straddling pairs (endpoints in different atoms) are DROPPED.
 
 Cluster-disjointness invariant (asserted): every cluster belongs to exactly one
 atom, so GroupKFold-by-`atom_id` never shares a cluster across folds.
 
+Lives in `src/datasets` (not `src/analysis`, where the harness that drives it sits)
+because `assign_atoms` produces the CV split unit -- split-producing code is
+production regardless of directory, and production must not import analysis.
+
 The within-CC isolate-pool bridge (`build_isolate_context`) and the within-CC
 negative samplers (`sample_random_within_cc_negatives` / `sample_regime_negatives`)
-now LIVE in `src/datasets/_cc_helpers.py` so the maintained dataset builder can
-use them without `src/datasets` importing `src/analysis`. This module re-exposes
-them via thin compat wrappers that preserve the historical `prot_hash_a/b`
-interface the aa analysis harness expects; atom assignment stays here because it
-depends on `src/analysis` (load_cluster_map, fragment_weighted).
+LIVE in `_cc_helpers.py`, shared with the maintained dataset builder. This module
+re-exposes them via thin compat wrappers that preserve the historical `prot_hash_a/b`
+interface the aa analysis harness expects.
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
+import networkx as nx
 import numpy as np
 import pandas as pd
-import networkx as nx
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import load_cluster_map  # noqa: E402 (membership-backed)
-from src.analysis.bigraph_min_cut import fragment_weighted, uniform_targets  # noqa: E402
-from src.datasets._negative_regime_sampling import (  # noqa: E402
-    DEFAULT_AXES, DEFAULT_YEAR_BIN_EDGES)
-# Within-CC isolate-pool bridge + samplers moved to src/datasets/_cc_helpers
-# (datasets must not import analysis; the home for primitives the dataset builder
-# also needs). Re-exposed below via compat wrappers that keep the prot_hash_a/b
-# interface the aa harness uses.
-from src.datasets._cc_helpers import (  # noqa: E402
-    build_cc_isolate_pool as _cc_build_pool,
-    sample_random_within_cc_negatives as _cc_sample_random,
-    sample_regime_negatives as _cc_sample_regime)
+# `_cc_helpers` holds the within-CC isolate-pool bridge + samplers (shared with the dataset
+# builder); they are re-exposed below via compat wrappers that keep the prot_hash_a/b interface
+# the aa harness uses. `cluster_map_for_root` resolves (protein, threshold) against the
+# membership table; it comes from its `src/utils` home directly, since this module is
+# production and must not import `src/analysis`.
+from src.datasets._cc_helpers import build_cc_isolate_pool as _cc_build_pool  # noqa: E402
+from src.datasets._cc_helpers import sample_random_within_cc_negatives as _cc_sample_random
+from src.datasets._cc_helpers import sample_regime_negatives as _cc_sample_regime
+from src.datasets._megacc_cut import fragment_weighted, uniform_targets
+from src.datasets._negative_regime_sampling import DEFAULT_AXES, DEFAULT_YEAR_BIN_EDGES
+from src.utils.cluster_source import CLUSTERS_ROOT as _ROOT
+from src.utils.cluster_source import cluster_map_for_root
 
-_ROOT = {'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa',
-         'nt_cds': PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'}
 # hash columns on the pair universe (load_pair_universe) per alphabet.
 _HASH = {'aa': ('prot_hash_a', 'prot_hash_b'),
          'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}
@@ -84,8 +84,8 @@ def assign_atoms(
     n_cluster_pairs, largest_atom_frac).
     """
     ha, hb = _HASH[alphabet]
-    cmap_a = load_cluster_map(_ROOT[alphabet], slot_a, threshold)
-    cmap_b = load_cluster_map(_ROOT[alphabet], slot_b, threshold)
+    cmap_a = cluster_map_for_root(_ROOT[alphabet], slot_a, threshold)
+    cmap_b = cluster_map_for_root(_ROOT[alphabet], slot_b, threshold)
     u = universe.copy()
     u['cluster_a'] = u[ha].map(cmap_a)
     u['cluster_b'] = u[hb].map(cmap_b)
@@ -148,7 +148,7 @@ def _fragment_atoms(
     for na, nb, w in zip(cp['node_a'], cp['node_b'], cp['w']):
         H.add_edge(na, nb, weight=int(w))
     cut_df, H_kept, _ = fragment_weighted(
-        H, targets=uniform_targets(k_folds), method=cut_method,
+        H, targets=uniform_targets(k_folds), cut_method=cut_method,
         target_frac=1.0 / k_folds, drift_pp=drift_pp, seed=seed)
 
     node_atom = {n: i for i, c in enumerate(nx.connected_components(H_kept))

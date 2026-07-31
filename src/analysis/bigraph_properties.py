@@ -64,30 +64,19 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import networkx as nx
 import numpy as np
 import pandas as pd
-import networkx as nx
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.analysis.cluster_source import cluster_map_for_root
-
+from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 # Default threshold range. Matches cluster_pair_weight_topk._DEFAULT_THRESHOLDS.
 _DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(100, 89, -1)]
-
-
-def load_cluster_map(clusters_root: Path, slot_protein: str, threshold_id: str) -> dict[str, str]:
-    """Load {hash -> cluster_id} for one (slot_protein, threshold).
-
-    Delegates to `cluster_source.cluster_map_for_root` (membership-backed with a
-    direct-parquet fallback; bit-identical, see scripts/verify_membership_swap.py).
-    Empty dict if neither source exists.
-    """
-    return cluster_map_for_root(clusters_root, slot_protein, threshold_id)
 
 
 def build_bipartite_multigraph(
@@ -324,10 +313,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
                    default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'))
-    p.add_argument('--clusters_nt',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'))
+    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
+    p.add_argument('--clusters_nt', default=str(CLUSTERS_ROOT['nt_cds']))
     p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
                    metavar=('SLOT_A', 'SLOT_B'),
                    help='Two protein shorts (default HA NA).')
@@ -370,8 +357,8 @@ def main() -> None:
     for alphabet in args.alphabets:
         clusters_root = clusters_aa if alphabet == 'aa' else clusters_nt
         for threshold in args.thresholds:
-            ha_cmap = load_cluster_map(clusters_root, slot_a, threshold)
-            na_cmap = load_cluster_map(clusters_root, slot_b, threshold)
+            ha_cmap = cluster_map_for_root(clusters_root, slot_a, threshold)
+            na_cmap = cluster_map_for_root(clusters_root, slot_b, threshold)
             if not ha_cmap or not na_cmap:
                 print(f"  [{alphabet} {threshold}] missing cluster parquet; skipping.")
                 continue

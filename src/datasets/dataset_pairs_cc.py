@@ -151,7 +151,8 @@ def assign_atoms_prod(
     pos_hash_col: str, *,
     edge_cut: dict | None = None):
     """Attach cluster ids + the 2D routing atom (`cc_id`/`atom_id`) to the positive pairs
-    (production path, vs the analysis-side `_cv_sampling.assign_atoms`).
+    (the dataset-builder path, vs the CV harness's `_cv_sampling.assign_atoms`, which
+    resolves clusters through the membership table rather than a cluster-parquet lookup).
 
     Atom = one bipartite CC on (cluster_id_a, cluster_id_b), so `atom_id == cc_id`. Two modes:
     - natural (`edge_cut` None/disabled): one atom per whole CC.

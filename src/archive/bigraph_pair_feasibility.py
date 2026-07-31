@@ -48,8 +48,9 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import build_bipartite_multigraph, load_cluster_map  # noqa: E402
+from src.analysis.bigraph_properties import build_bipartite_multigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
+from src.utils.cluster_source import cluster_map_for_root as load_cluster_map
 from src.utils.clustering_utils import threshold_decimal  # noqa: E402
 
 _DEFAULT_PAIRS = ['HA-NA', 'PB2-PB1']

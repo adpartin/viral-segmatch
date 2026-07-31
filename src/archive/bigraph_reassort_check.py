@@ -25,17 +25,17 @@ import re
 import sys
 from pathlib import Path
 
-import pandas as pd
 import networkx as nx
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.analysis.bigraph_properties import load_cluster_map, build_bipartite_multigraph
 from src.analysis.bigraph_min_cut import min_cut_recursive
-from src.analysis.bigraph_cut_subtype import pair_key_to_subtype
+from src.analysis.bigraph_properties import build_bipartite_multigraph
+from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.archive.bigraph_cut_subtype import pair_key_to_subtype
+from src.utils.cluster_source import cluster_map_for_root as load_cluster_map
 
 _HN = re.compile(r'^H(\d+)N(\d+)$')
 
@@ -109,13 +109,13 @@ def main() -> None:
     if rk > 0:
         print(f"  --> dropped pairs are {rd / rk:.1f}x enriched for reassortants")
 
-    print(f"\n  top DROPPED (H,N) combos [* = reassortant]:")
+    print("\n  top DROPPED (H,N) combos [* = reassortant]:")
     vc = drop.groupby(['H', 'N']).size().sort_values(ascending=False)
     for (h, n), c in vc.head(12).items():
         star = '*' if bool(((clf['H'] == h) & (clf['N'] == n) & clf['reassortant']).any()) else ' '
         print(f"    {star} {h}{n}: {c:,}")
 
-    print(f"\n  top KEPT (H,N) combos:")
+    print("\n  top KEPT (H,N) combos:")
     for (h, n), c in kept.groupby(['H', 'N']).size().sort_values(ascending=False).head(6).items():
         print(f"      {h}{n}: {c:,}")
 

@@ -43,12 +43,13 @@ import argparse
 import sys
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import pandas as pd
 from scipy import sparse
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -56,10 +57,16 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
-from src.analysis._cv_sampling import assign_atoms, sample_positives, make_negatives  # noqa: E402
 from src.analysis._cv_features import (  # noqa: E402
-    build_hash_to_row, pair_features, fit_eval, _labeled, _HASH, _KMER_DIR)
+    _HASH,
+    _KMER_DIR,
+    _labeled,
+    build_hash_to_row,
+    fit_eval,
+    pair_features,
+)
+from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
+from src.datasets._cv_sampling import assign_atoms, make_negatives, sample_positives  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
 _MODEL_COLOR = {'mlp': '#1f77b4', 'lgbm': '#2ca02c', 'knn1': '#d62728'}

@@ -9,8 +9,8 @@ the biology splits on:
   - redundancy — cluster-pair dedup/balance (each (H-cluster, N-cluster) cell
                contributes one/capped example); join two slots on `assembly_id`
                and group by the `tXXX` columns.
-It also centralizes the per-(protein, threshold) `load_cluster_map` calls
-currently scattered across `src/analysis/{cluster,bigraph}_*.py`.
+It also centralizes the per-(protein, threshold) cluster-map reads, which callers now
+reach through `src/utils/cluster_source.cluster_map_for_root`.
 
 Per-alphabet key — do not cross the streams. Each alphabet keys on its OWN
 hash, matching the column its cluster parquets were built on:

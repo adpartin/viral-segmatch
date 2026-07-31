@@ -17,16 +17,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 PROJ = Path(__file__).resolve().parents[1]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis import cluster_source
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.utils.config_hydra import load_function_metadata
 from src.datasets._pair_helpers import canonical_pair_key
+from src.utils import cluster_source
+from src.utils.config_hydra import load_function_metadata
 
 _ROOTS = {
     'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa',

@@ -46,9 +46,10 @@ import sys
 import time
 from pathlib import Path
 
-import pandas as pd
-import networkx as nx
 import matplotlib
+import networkx as nx
+import pandas as pd
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -56,11 +57,9 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.analysis.bigraph_properties import build_bipartite_multigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.analysis.bigraph_properties import (
-    load_cluster_map,
-    build_bipartite_multigraph,
-)
+from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 
 def _largest_cc_by_pairs(H: nx.MultiGraph) -> set:
@@ -181,10 +180,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
                    default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'))
-    p.add_argument('--clusters_nt',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'))
+    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
+    p.add_argument('--clusters_nt', default=str(CLUSTERS_ROOT['nt_cds']))
     p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
                    metavar=('SLOT_A', 'SLOT_B'))
     p.add_argument('--alphabet', default='aa', choices=['aa', 'nt_cds'])
@@ -211,8 +208,8 @@ def main() -> None:
     universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
     print(f"  {len(universe):,} unique canonical protein pairs")
 
-    cmap_a = load_cluster_map(clusters_root, slot_a, args.threshold)
-    cmap_b = load_cluster_map(clusters_root, slot_b, args.threshold)
+    cmap_a = cluster_map_for_root(clusters_root, slot_a, args.threshold)
+    cmap_b = cluster_map_for_root(clusters_root, slot_b, args.threshold)
     if not cmap_a or not cmap_b:
         raise SystemExit(f"missing cluster parquet for {args.alphabet} {args.threshold} "
                          f"under {clusters_root}")
@@ -248,7 +245,7 @@ def main() -> None:
         # state AFTER a removal = the next step's row (each row records the
         # state BEFORE its own removal), so show largest_frac before -> after.
         frac_by_step = dict(zip(df['step'], df['largest_frac_of_retained']))
-        print(f"\n  removal order (heaviest hubs first; largest CC before -> after each cut):")
+        print("\n  removal order (heaviest hubs first; largest CC before -> after each cut):")
         for r in removed.head(8).itertuples():
             after = frac_by_step.get(r.step + 1, float('nan'))
             cut_tag = 'cut' if r.removed_is_cut_node else 'non-cut'

@@ -1,10 +1,8 @@
 """Within-CC isolate pool + within-CC negative sampling for the maintained
 CC-based CV builder (`dataset_pairs_cc.py`).
 
-Moved here from `src/analysis/_cv_sampling.py` so the dataset generator can use
-these without `src/datasets` importing `src/analysis` (the dependency rule
-documented in `_megacc_cut.py`: analysis depends on datasets, never the
-reverse). The analysis CV harness now imports these back from here.
+Shared with the CV harness's `_cv_sampling`, which re-exposes these through compat
+wrappers that keep its historical `prot_hash_a/b` column names.
 
 What lives here (datasets-only deps — `_pair_helpers`,
 `_negative_regime_sampling`):

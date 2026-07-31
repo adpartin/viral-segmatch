@@ -20,6 +20,11 @@ Greedy recursive bisection => an UPPER BOUND on the true balanced min-drop, but
 far tighter than node-peel. Determinism: KL is seeded; same (graph, seed) gives
 the same cut.
 
+This module is the CLI/report layer only: the cut loop itself is
+`src/datasets/_megacc_cut.fragment_weighted` (one implementation shared with the
+production splitter). What lives here is the multigraph -> weighted-simple
+projection and the per-cut report.
+
 CLI:
     python -m src.analysis.bigraph_min_cut \\
         [--schema_pair HA NA] [--alphabet aa] [--threshold t095] \\
@@ -37,21 +42,15 @@ import time
 from pathlib import Path
 
 import networkx as nx
-import pandas as pd
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import (
-    build_bipartite_multigraph,
-    load_cluster_map,
-)
+from src.analysis.bigraph_properties import build_bipartite_multigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.datasets._megacc_cut import _bisect as _prod_bisect
-
-_TARGETS = {'train': 0.80, 'val': 0.10, 'test': 0.10}
-_BIN_ORDER = ['train', 'val', 'test']
+from src.datasets._megacc_cut import fragment_weighted
+from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 
 def weighted_simple(G: nx.MultiGraph) -> nx.Graph:
@@ -68,133 +67,6 @@ def weighted_simple(G: nx.MultiGraph) -> nx.Graph:
     return H
 
 
-def piece_pairs(H: nx.Graph, nodes) -> int:
-    """Kept pairs (summed edge weight) inside one component."""
-    return int(H.subgraph(nodes).size(weight='weight'))
-
-
-def lpt_max_drift(
-    sizes: list,
-    targets: dict = _TARGETS,
-    bin_order: list = _BIN_ORDER
-    ) -> float:
-    """Max |achieved - target| over bins for LPT-greedy on these atom sizes.
-
-    Mirrors `_pair_helpers._lpt_bin_pack`: largest atom first, to the bin with
-    the biggest deficit (raw counts). Returns the max absolute fraction drift.
-    """
-    total = sum(sizes)
-    if total <= 0:
-        return 1.0
-    caps = {b: targets[b] * total for b in bin_order}
-    filled = {b: 0.0 for b in bin_order}
-    for s in sorted(sizes, reverse=True):
-        winner = max(bin_order, key=lambda b: caps[b] - filled[b])
-        filled[winner] += s
-    return max(abs(filled[b] / total - targets[b]) for b in bin_order)
-
-
-def uniform_targets(k: int) -> dict:
-    """K equal bins summing to 1 — the K-fold-feasibility target for fragmentation.
-
-    Pass as `targets=` to fragment a CC until its atoms LPT-pack into K balanced
-    folds (largest atom roughly <= 1/k). Tighter than the 80/10/10 splitter
-    target: a single atom at 80% is LPT-feasible for 80/10/10 (it fills train),
-    but violates K equal bins.
-    """
-    return {f'f{i}': 1.0 / k for i in range(k)}
-
-
-def _bisect(
-    H: nx.Graph,
-    method: str,
-    seed: int,
-    max_iter: int
-    ) -> tuple[set, set, int]:
-    """Balanced bisection of connected graph H; returns (A, B, crossing_weight).
-
-    Delegates the side assignment to the production cut core `_megacc_cut._bisect`
-    (deterministic dense-eigh 'spectral' / seeded 'kl'), so this analysis copy shares one
-    source of truth and inherits its cross-process bit-determinism (`method` -> `cut_method`,
-    `max_iter` -> `kl_max_iter`). The analysis->datasets import is the allowed direction;
-    these bigraph_* diagnostics are slated for retirement, so the coupling is a temporary bridge.
-    """
-    A = _prod_bisect(H, method, seed, max_iter)
-    cross = sum(d['weight'] for x, y, d in H.edges(data=True)
-                if (x in A) != (y in A))
-    return A, set(H.nodes()) - A, int(cross)
-
-
-def fragment_weighted(
-    H: nx.Graph,
-    *,
-    targets: dict = _TARGETS,
-    method: str = 'kl',
-    target_frac: float = 0.80,
-    drift_pp: float = 0.05,
-    seed: int = 1,
-    kl_max_iter: int = 10,
-    max_cuts: int = 200,
-    ) -> tuple[pd.DataFrame, nx.Graph, list]:
-    """Recursively bisect the largest CC of weighted simple graph `H` until the
-    kept atoms LPT-pack into `targets` within `drift_pp`.
-
-    MUTATES `H` (drops crossing edges). Returns `(per_cut_df, H_kept,
-    dropped_edges)`. `targets` selects the feasibility gate: `_TARGETS` (80/10/10)
-    for the splitter, `uniform_targets(k)` for K-fold CV; `bin_order` follows the
-    dict key order. Each row is the state BEFORE a cut (or the final feasible
-    state); `dropped_frac` is vs the graph's total pair mass (summed edge weight).
-    """
-    bin_order = list(targets.keys())
-    total_pairs = int(H.size(weight='weight'))
-    dropped = 0
-    dropped_edges: list[tuple] = []
-    rows: list[dict] = []
-    cut = 0
-
-    while True:
-        comps = list(nx.connected_components(H))
-        sizes = [piece_pairs(H, c) for c in comps]
-        retained = total_pairs - dropped
-        largest = max(sizes)
-        largest_frac = largest / retained if retained else 0.0
-        drift = lpt_max_drift(sizes, targets=targets, bin_order=bin_order)
-        feasible = drift <= drift_pp
-
-        rows.append({
-            'cut': cut,
-            'pairs_dropped': dropped,
-            'dropped_frac': round(dropped / total_pairs, 6),
-            'retained_pairs': retained,
-            'n_pieces': len(comps),
-            'largest_cc_pairs': largest,
-            'largest_frac_of_retained': round(largest_frac, 6),
-            'lpt_max_drift': round(drift, 6),
-            'lpt_feasible': feasible,
-            'largest_le_target': largest_frac <= target_frac,
-        })
-
-        if feasible or cut >= max_cuts:
-            break
-
-        # Bisect the largest piece, drop its crossing edges.
-        big = max(comps, key=lambda c: piece_pairs(H, c))
-        # A <=2-node largest atom is a single cluster pair; edge-cut cannot split
-        # it further (fiedler needs >=3 nodes), so the targets are unreachable —
-        # stop and let the final infeasible row report it (don't shred singletons).
-        if len(big) < 3:
-            break
-        sub = H.subgraph(big)
-        A, _, cross = _bisect(sub, method, seed, kl_max_iter)
-        cross_edges = [(x, y) for x, y in sub.edges() if (x in A) != (y in A)]
-        H.remove_edges_from(cross_edges)
-        dropped_edges.extend(cross_edges)
-        dropped += cross
-        cut += 1
-
-    return pd.DataFrame(rows), H, dropped_edges
-
-
 def min_cut_recursive(
     G: nx.MultiGraph,
     method: str = 'kl',
@@ -208,21 +80,23 @@ def min_cut_recursive(
     ):
     """Recursively bisect the largest CC until the kept atoms are LPT-feasible.
 
-    Thin wrapper over `fragment_weighted`: collapses the multigraph `G` to its
-    weighted simple projection, then fragments to `targets` (default `None` ->
-    80/10/10; pass `uniform_targets(k)` for K-fold CV). Each row is the state
-    BEFORE a cut (or the final feasible state); drops only crossing edges
-    (straddling pairs); `dropped_frac` is vs the full pair universe.
+    Thin wrapper over `_megacc_cut.fragment_weighted`: collapses the multigraph `G`
+    to its weighted simple projection, then fragments to `targets` (default `None`
+    -> the cut module's 80/10/10; pass `uniform_targets(k)` for K-fold CV). Each row
+    is the state BEFORE a cut (or the final feasible state); drops only crossing
+    edges (straddling pairs); `dropped_frac` is vs the full pair universe.
 
     Returns the per-cut DataFrame. If `return_partition`, returns
     `(df, H_kept, dropped_edges)` — the kept weighted simple graph whose
     connected components are the final atoms, and the list of cut (u, v) edges.
     """
     H = weighted_simple(G)
+    # Omit `targets` when None so `fragment_weighted`'s own 80/10/10 default applies --
+    # the constant lives there, not duplicated here.
+    targets_kw = {} if targets is None else {'targets': targets}
     df, H, dropped_edges = fragment_weighted(
-        H, targets=targets if targets is not None else _TARGETS,
-        method=method, target_frac=target_frac, drift_pp=drift_pp, seed=seed,
-        kl_max_iter=kl_max_iter, max_cuts=max_cuts)
+        H, cut_method=method, target_frac=target_frac, drift_pp=drift_pp, seed=seed,
+        kl_max_iter=kl_max_iter, max_cuts=max_cuts, **targets_kw)
     if return_partition:
         return df, H, dropped_edges
     return df
@@ -232,10 +106,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
                    default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'))
-    p.add_argument('--clusters_nt',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt'))
+    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
+    p.add_argument('--clusters_nt', default=str(CLUSTERS_ROOT['nt_cds']))
     p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
                    metavar=('SLOT_A', 'SLOT_B'))
     p.add_argument('--alphabet', default='aa', choices=['aa', 'nt_cds'])
@@ -259,8 +131,8 @@ def main() -> None:
     print(f"Loading pair universe for {slot_a}-{slot_b} ...")
     universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
     print(f"  {len(universe):,} unique canonical protein pairs")
-    cmap_a = load_cluster_map(clusters_root, slot_a, args.threshold)
-    cmap_b = load_cluster_map(clusters_root, slot_b, args.threshold)
+    cmap_a = cluster_map_for_root(clusters_root, slot_a, args.threshold)
+    cmap_b = cluster_map_for_root(clusters_root, slot_b, args.threshold)
     if not cmap_a or not cmap_b:
         raise SystemExit(f"missing cluster parquet for {args.alphabet} {args.threshold}")
     G, n_unmapped = build_bipartite_multigraph(universe, cmap_a, cmap_b, args.alphabet)
