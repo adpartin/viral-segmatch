@@ -28,7 +28,7 @@ if str(_project_root) not in sys.path:
 
 from sklearn.model_selection import GroupKFold
 
-from src.datasets._pair_helpers import _lpt_bin_pack, bipartite_components, route_holdout
+from src.datasets._pair_helpers import _lpt_bin_pack, cluster_ccs, route_holdout
 from src.utils import schema
 
 
@@ -284,9 +284,9 @@ def _build_audit(
     # max_feasible_k fields (Phase 4 of the k-fold plan): present in every
     # audit dict so the kfold_summary can derive cross-fold guidance even
     # from a single fold's audit. Strict + drift-aware bounds per D2.
-    largest_size = int(cc_summary['largest_component_pairs'])
+    largest_size = int(cc_summary['largest_atom_pairs'])
     max_atom_frac = largest_size / n_pairs if n_pairs > 0 else 0.0
-    n_atoms = int(cc_summary['n_components'])
+    n_atoms = int(cc_summary['n_atoms'])
     if max_atom_frac > 0:
         max_feasible_k_strict = min(int(np.floor(1.0 / max_atom_frac)), n_atoms)
     else:
@@ -447,19 +447,26 @@ def cluster_disjoint_route_pos_df(
         )
 
     # ----- Build atom IDs per routing mode -----
+    # The atom is the indivisible routing unit, and its type differs by mode: a bipartite CC of
+    # the cluster-level bigraph for 2D-CD, one slot's cluster for 1D-CD. Both land in `atom_id`,
+    # which is what `route_holdout` packs.
     if single_slot is None:
-        component_id, cc_summary = bipartite_components(
+        atom_id, cc_summary = cluster_ccs(
             pos_with_ids, col_a='cluster_id_a', col_b='cluster_id_b',
         )
     else:
-        component_id = pos_with_ids[f'cluster_id_{single_slot}'].copy()
-        atom_sizes = component_id.value_counts().sort_values(ascending=False).values
+        atom_id = pos_with_ids[f'cluster_id_{single_slot}'].copy()
+        # value_counts over one row per positive pair => positive pairs carried by each cluster
+        # (its pair mass). Same `*_atom*` keys `cluster_ccs` emits, but here the atom is one
+        # slot's CLUSTER, not a CC -- no bigraph is built on this branch. The measure is positive
+        # pairs (rows) either way, so each key means the same thing in both audits.
+        atom_sizes = atom_id.value_counts().sort_values(ascending=False).values
         cc_summary = {
-            'n_components':              int(len(atom_sizes)),
-            'largest_component_pairs':   int(atom_sizes[0]) if len(atom_sizes) else 0,
-            'second_component_pairs':    int(atom_sizes[1]) if len(atom_sizes) > 1 else 0,
-            'singleton_components':      int((atom_sizes == 1).sum()),
-            'single_slot':               single_slot,
+            'n_atoms':             int(len(atom_sizes)),                              # clusters on this slot
+            'largest_atom_pairs':  int(atom_sizes[0]) if len(atom_sizes) else 0,      # pairs on the heaviest cluster
+            'second_atom_pairs':   int(atom_sizes[1]) if len(atom_sizes) > 1 else 0,
+            'singleton_atoms':     int((atom_sizes == 1).sum()),                      # clusters carrying one pair
+            'single_slot':         single_slot,
         }
 
     # ----- Drop-budget edge min-cut (P2): bilateral 2D-CD holdout only; default off -----
@@ -483,12 +490,12 @@ def cluster_disjoint_route_pos_df(
             seed=drop_budget.get('seed', 1),
         )
         # Re-derive atoms on the post-cut (smaller) pair set.
-        component_id, cc_summary = bipartite_components(
+        atom_id, cc_summary = cluster_ccs(
             pos_with_ids, col_a='cluster_id_a', col_b='cluster_id_b',
         )
 
     n_pairs = int(len(pos_with_ids))
-    sizes = component_id.value_counts().sort_index()
+    sizes = atom_id.value_counts().sort_index()
 
     audit_kwargs_shared = dict(
         single_slot=single_slot,
@@ -511,7 +518,7 @@ def cluster_disjoint_route_pos_df(
         # Shared router (P2): same atom-pack + slice as seq_disjoint — only the
         # atom definition (bipartite CC / single-slot cluster) differs.
         train_pos, val_pos, test_pos, _atom_to_split, targets = route_holdout(
-            pos_with_ids, component_id, train_ratio, val_ratio,
+            pos_with_ids, atom_id, train_ratio, val_ratio,
         )
         achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
 
@@ -609,14 +616,14 @@ def cluster_disjoint_route_pos_df(
             lpt_val_target = n_non_test / 2.0
             lpt_train_target = n_non_test - lpt_val_target
 
-        non_test_component_id = non_test[f'cluster_id_{single_slot}']
-        non_test_sizes = non_test_component_id.value_counts().sort_index()
+        non_test_atom_id = non_test[f'cluster_id_{single_slot}']
+        non_test_sizes = non_test_atom_id.value_counts().sort_index()
         comp_to_tv = _lpt_bin_pack(
             sizes=non_test_sizes,
             targets={'train': lpt_train_target, 'val': lpt_val_target},
             bin_order=['train', 'val'],
         )
-        tv_split_for_row = non_test_component_id.map(comp_to_tv)
+        tv_split_for_row = non_test_atom_id.map(comp_to_tv)
         train_pos = non_test[tv_split_for_row == 'train'].reset_index(drop=True)
         val_pos   = non_test[tv_split_for_row == 'val'].reset_index(drop=True)
         achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}

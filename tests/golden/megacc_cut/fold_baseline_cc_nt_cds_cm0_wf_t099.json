@@ -1,0 +1,16 @@
+{
+  "n_pairs": 75248,
+  "n_pairs_by_fold": {
+    "fold_0": 21002,
+    "fold_1": 5891,
+    "fold_2": 14849,
+    "fold_3": 33506
+  },
+  "pair_keys_sha256_by_fold": {
+    "fold_0": "5291dad00df8bb3ff05cb32768f94a2944f8330fbbe9ea3bab4da0f09da582d2",
+    "fold_1": "6c7d0b207185b00c81049c32031a060e03678b7f6fb759e075fab46c9e79b151",
+    "fold_2": "8aa6f39c2947d97ed4555f94ee5262d9044af1438b4ea8181daa5dbecaa2f15b",
+    "fold_3": "079b4bf93def1e223be38d1b1fb0ed9505c518f3803777a831c86af5dc1b76c5"
+  },
+  "run_dir": "data/datasets/flu/July_2025/runs/dataset_cc_nt_cds_cm0_wf_t099"
+}

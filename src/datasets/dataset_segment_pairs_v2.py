@@ -1591,8 +1591,8 @@ def split_dataset_v2(
               f"(train={len(train_pos):,} pairs [{ach['train']:.2f}%], "
               f"val={len(val_pos):,} [{ach['val']:.2f}%], "
               f"test={len(test_pos):,} [{ach['test']:.2f}%], "
-              f"n_components={seq_disjoint_audit['cc_summary']['n_components']:,}, "
-              f"largest_component={seq_disjoint_audit['cc_summary']['largest_component_pairs']} pairs)",
+              f"n_components={seq_disjoint_audit['cc_summary']['n_atoms']:,}, "
+              f"largest_component={seq_disjoint_audit['cc_summary']['largest_atom_pairs']} pairs)",
               flush=True)
     elif split_strategy_mode == 'cluster_disjoint':
         # mmseqs2-cluster-disjoint routing: each connected component on the
@@ -1655,8 +1655,8 @@ def split_dataset_v2(
               f"(train={len(train_pos):,} pairs [{ach['train']:.2f}%], "
               f"val={len(val_pos):,} [{ach['val']:.2f}%], "
               f"test={len(test_pos):,} [{ach['test']:.2f}%], "
-              f"n_components={cluster_disjoint_audit['cc_summary']['n_components']:,}, "
-              f"largest_component={cluster_disjoint_audit['cc_summary']['largest_component_pairs']} pairs, "
+              f"n_components={cluster_disjoint_audit['cc_summary']['n_atoms']:,}, "
+              f"largest_component={cluster_disjoint_audit['cc_summary']['largest_atom_pairs']} pairs, "
               f"pairs_dropped_in_cluster_join={att['n_input']-att['n_kept']})", flush=True)
     elif split_strategy_mode == 'random':
         # Plain shuffle-split on the deduped pos_df. Safe because the is_unique assertion above

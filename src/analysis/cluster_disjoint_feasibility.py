@@ -60,7 +60,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.datasets._pair_helpers import bipartite_components
+from src.datasets._pair_helpers import cluster_ccs
 from src.utils import schema
 from src.utils.clustering_utils import attach_function_to_contigs
 
@@ -177,10 +177,10 @@ def feasibility_for_threshold(
             'n_raw_isolate_pairs': n_raw_pairs,
         }
 
-    component_id, cc_summary = bipartite_components(
+    cc_id, cc_summary = cluster_ccs(
         pairs, col_a='cluster_id_a', col_b='cluster_id_b',
     )
-    sizes = component_id.value_counts().sort_values(ascending=False).values
+    sizes = cc_id.value_counts().sort_values(ascending=False).values
     sizes_pct = sizes / n_pairs * 100.0
 
     # 80/10/10 feasibility: every split must hold its full 10% target (5,839 pairs at n_pairs ~58K).
@@ -199,7 +199,7 @@ def feasibility_for_threshold(
         'n_pairs': n_pairs,                # deduped pos_df rows (what v2 actually routes)
         'n_raw_isolate_pairs': n_raw_pairs,  # isolates with both proteins (pre-dedup)
         'n_dropped_in_join': n_dropped,
-        'n_components': int(cc_summary['n_components']),
+        'n_components': int(cc_summary['n_atoms']),
         'largest_pct': round(largest_pct, 2),
         'second_pct': round(second_pct, 2),
         'p99_cumpct': round(p99_pct, 2),

@@ -7,7 +7,7 @@ established:
 
   - **2D connected-component (CC) GroupKFold** — atoms = bipartite CCs on
     `(cluster_id_a, cluster_id_b)` (production `attach_cluster_ids` +
-    `bipartite_components`); whole CCs stay in one fold.
+    `cluster_ccs`); whole CCs stay in one fold.
   - **within-CC negatives** — every negative drawn from the same CC as its
     positives (`_cc_helpers.sample_random_within_cc_negatives`), so train/test
     negatives are cluster-disjoint by construction.
@@ -51,9 +51,9 @@ from src.datasets._megacc_cut import fragment_until, stop_at_n_atoms  # noqa: E4
 from src.datasets._pair_helpers import (  # noqa: E402
     attach_cds_dna_hash_to_prot_df,
     attach_ctg_dna_to_prot_df,
-    bipartite_components,
     build_cooccurrence_set,
     canonical_pair_key,
+    cluster_ccs,
     drop_ambiguous_hn_subtype,
     filter_by_metadata,
 )
@@ -168,8 +168,8 @@ def assign_atoms_prod(
     pos_ids = pos_ids.copy()
 
     # Natural bipartite-CC atoms on (cluster_id_a, cluster_id_b).
-    component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
-    pos_ids['cc_id'] = component_id.to_numpy()
+    cc_id, cc_summary = cluster_ccs(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
+    pos_ids['cc_id'] = cc_id.to_numpy()
 
     if edge_cut and edge_cut.get('enabled'):
         # Grow the atom count: bisect the mega-CC and drop straddling pairs within a drop budget.
@@ -184,8 +184,8 @@ def assign_atoms_prod(
         )
         pos_ids = kept_pos.reset_index(drop=True)
         # Re-derive atoms on the fragmented (kept) pairs -- each fragment is a bipartite CC == atom.
-        component_id, cc_summary = bipartite_components(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
-        pos_ids['cc_id'] = component_id.to_numpy()
+        cc_id, cc_summary = cluster_ccs(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
+        pos_ids['cc_id'] = cc_id.to_numpy()
         cc_summary['edge_cut'] = cut_audit  # full fragment_until audit (cut_method/seed/max_drop_frac/per_cut)
         # Faithful before/after for the 2D CC-size barplots: natural CCs on ALL pre-cut pairs vs
         # fragments on the kept pairs (the dropped straddling pairs show up as the difference).
@@ -712,7 +712,7 @@ def _build_positives(config, spec: CCSpec, args):
     lookup = load_cluster_lookup(spec.cluster_id_path) # load cluster_id_{a,b} lookup df
     pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[spec.alphabet], edge_cut=spec.edge_cut)
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
-          f"{cc_summary['n_components']:,} CCs; largest {cc_summary['largest_component_pairs']:,} pairs")
+          f"{cc_summary['n_atoms']:,} CCs; largest {cc_summary['largest_atom_pairs']:,} pairs")
 
     # Computed on the UNCAPPED positives (before the m_pos cap) so capping can't make a CC
     # look infeasible. See compute_negative_infeasible_ccs for the definition.

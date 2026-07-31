@@ -28,7 +28,7 @@ from src.datasets._megacc_cut import (
     fragment_until,
     stop_at_n_atoms,
 )
-from src.datasets._pair_helpers import bipartite_components
+from src.datasets._pair_helpers import cluster_ccs, sequence_ccs
 
 GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t099.json'
 FRAG_GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t095_fragment_until.json'
@@ -82,48 +82,59 @@ def test_build_pair_bigraph_rejects_duplicate_index():
         raise AssertionError('build_pair_bigraph accepted a duplicated index')
 
 
-# --- build_pair_bigraph vs bipartite_components (edge-set agreement) ----------
-# Production derives the SAME cluster-level bigraph twice, by two independent code paths:
-# `_pair_helpers.bipartite_components` (hand-rolled union-find, no networkx) labels the CCs, and
-# `build_pair_bigraph` (networkx) builds the graph the cut operates on. `assign_atoms_prod` runs
-# union-find -> networkx -> union-find in one flow, so if the two ever disagreed on what an edge
-# is, the routed atoms would not be the components that were cut. Nothing else asserts they agree.
-def _cc_labels_from_bigraph(pos, col_a='cluster_id_a', col_b='cluster_id_b'):
-    """Per-row CC label taken from `build_pair_bigraph`'s graph (the networkx path)."""
-    H, _edge_rows = build_pair_bigraph(pos, col_a=col_a, col_b=col_b)
-    node_cc = {n: i for i, comp in enumerate(nx.connected_components(H)) for n in comp}
-    return pd.Series(['a:' + str(v) for v in pos[col_a]], index=pos.index).map(node_cc)
-
-
+# --- cluster_ccs vs sequence_ccs (edge-set agreement) ------------------------
+# The two CC builders derive the same bigraph edge set by independent code paths: `cluster_ccs`
+# via networkx (`build_pair_bigraph`), `sequence_ccs` via hand-rolled union-find. `cluster_ccs`
+# labels the atoms the router packs and `build_pair_bigraph` builds the graph the edge min-cut
+# bisects, so a disagreement would mean the routed atoms are not the components that were cut.
+# These pin the agreement; `sequence_ccs`'s col_a/col_b mode exists for exactly this comparison.
 def _partition(labels):
     """The row partition a labeling induces, ignoring the label values themselves."""
     return {frozenset(g.index) for _, g in labels.groupby(labels)}
 
 
 def _assert_same_partition(pos):
-    nx_labels = _cc_labels_from_bigraph(pos)
-    uf_labels, _summary = bipartite_components(pos, col_a='cluster_id_a', col_b='cluster_id_b')
+    nx_labels, _s1 = cluster_ccs(pos, col_a='cluster_id_a', col_b='cluster_id_b')
+    uf_labels, _s2 = sequence_ccs(pos, col_a='cluster_id_a', col_b='cluster_id_b')
     assert _partition(nx_labels) == _partition(uf_labels)
 
 
-def test_bigraph_matches_bipartite_components_connected():
+def test_cluster_ccs_matches_sequence_ccs_connected():
     _assert_same_partition(_two_blobs())            # bridge joins everything -> 1 CC
 
 
-def test_bigraph_matches_bipartite_components_disconnected():
+def test_cluster_ccs_matches_sequence_ccs_disconnected():
     _assert_same_partition(_pos(_BLOB1 + _BLOB2))   # no bridge -> 2 CCs
 
 
-def test_bigraph_matches_bipartite_components_after_a_cut():
+def test_cluster_ccs_matches_sequence_ccs_after_a_cut():
     """The flow `assign_atoms_prod` actually runs: re-label the KEPT rows after fragmenting."""
     kept, _dropped, _step = fragment_once(_two_blobs(), cut_method='spectral', seed=1)
     _assert_same_partition(kept)
 
 
-def test_bigraph_matches_bipartite_components_ood_nt_cds_t095():
+def test_cluster_ccs_labels_are_order_invariant():
+    """cc_id must not depend on row order: it feeds `_lpt_bin_pack`'s `(-size, cc_id)` tie-break,
+    so an order-dependent id would silently move equal-sized CCs between splits."""
+    pos = _two_blobs()
+    base, _s = cluster_ccs(pos)
+    shuffled = pos.sample(frac=1.0, random_state=7)
+    shuf, _s2 = cluster_ccs(shuffled)
+    assert (base.sort_index() == shuf.sort_index()).all()
+
+
+def test_cluster_ccs_labels_rank_by_size():
+    """cc_id=0 is the largest CC (ties break on the lowest node id)."""
+    pos = _pos(_BLOB1 + _BLOB2)          # BLOB1 carries 5 rows, BLOB2 carries 4
+    cc_id, summary = cluster_ccs(pos)
+    assert summary['n_atoms'] == 2
+    assert cc_id.value_counts()[0] == 5  # the 5-row component is labelled 0
+
+
+def test_cluster_ccs_matches_sequence_ccs_ood_nt_cds_t095():
     """Same agreement on the production bigraph (670 nodes / 1,055 edges), natural and post-cut."""
     if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
-        print('SKIP test_bigraph_matches_bipartite_components_ood_nt_cds_t095: OOD clusters absent')
+        print('SKIP test_cluster_ccs_matches_sequence_ccs_ood_nt_cds_t095: OOD clusters absent')
         return
     pos = _build_ood_pos_ids('t095')
     _assert_same_partition(pos)
@@ -182,7 +193,7 @@ def test_live_atom_count_excludes_stranded_nodes():
     H.add_edge('a:1', 'b:1')                        # a real 2-node atom (>= 1 kept edge)
     H.add_node('a:9')                               # a stranded node (0 edges)
     assert nx.number_connected_components(H) == 2   # raw count includes the stranded node
-    assert _live_atom_count(H) == 1                 # atom count excludes it (== bipartite_components)
+    assert _live_atom_count(H) == 1                 # atom count excludes it (== cluster_ccs)
 
 
 def test_fragment_until_reaches_target_atoms():
@@ -292,8 +303,8 @@ def test_fragment_until_ood_nt_cds_t095_golden():
         return
     g = json.loads(FRAG_GOLDEN.read_text())
     pos = _build_ood_pos_ids('t095')
-    _c0, summ0 = bipartite_components(pos, col_a='cluster_id_a', col_b='cluster_id_b')
-    assert summ0['n_components'] == g['natural_atoms']           # 108 natural atoms (union-find, exact)
+    _c0, summ0 = cluster_ccs(pos, col_a='cluster_id_a', col_b='cluster_id_b')
+    assert summ0['n_atoms'] == g['natural_atoms']           # 108 natural atoms (union-find, exact)
 
     # budget-bound: an unreachable target -> the 2% drop budget is the stop (exact deterministic cut)
     gb = g['budget_bound']
@@ -306,9 +317,9 @@ def test_fragment_until_ood_nt_cds_t095_golden():
     assert audit['n_atoms'] == gb['n_atoms'] and gb['n_atoms'] > g['natural_atoms']   # grew to 124
     assert audit['dropped_frac'] <= gb['max_drop_frac']         # within budget (guaranteed by the guard)
     assert len(kept) + len(dropped) == len(pos)                 # a partition of pos
-    # the atom count fragment_until reports is exactly what the builder (bipartite_components) sees
-    _c1, summ1 = bipartite_components(kept, col_a='cluster_id_a', col_b='cluster_id_b')
-    assert audit['n_atoms'] == summ1['n_components']
+    # the atom count fragment_until reports is exactly what the builder (cluster_ccs) sees
+    _c1, summ1 = cluster_ccs(kept, col_a='cluster_id_a', col_b='cluster_id_b')
+    assert audit['n_atoms'] == summ1['n_atoms']
 
     # target-bound: a reachable atom target stops via stop_fn (reaching 115 costs << the budget)
     tb = g['target_bound']

@@ -17,7 +17,7 @@ What lives here (datasets-only deps — `_pair_helpers`,
 
 What does NOT live here: **atom assignment**. Callers build atoms with the
 production primitives — `_split_helpers.attach_cluster_ids` +
-`_pair_helpers.bipartite_components(col_a='cluster_id_a', col_b='cluster_id_b')`
+`_pair_helpers.cluster_ccs`
 — which are alphabet-clean (nt_cds keys on `cds_dna_hash`, NOT the analysis
 `dna_hash`-means-CDS mislabel) and carry no `src/analysis` dependency. The 'cut'
 (fragmentation) strategy reuses `_megacc_cut.apply_drop_budget_cut`.
@@ -108,7 +108,7 @@ def build_cc_isolate_pool(
         cluster_to_atom / cluster_to_cc: {cluster_id (str) -> atom_id / cc_id},
             built by the caller from the production atoms — i.e. from
             `pos_df['cluster_id_a' / 'cluster_id_b']` paired with the
-            `bipartite_components` component id. Cluster ids are globally unique
+            `cluster_ccs` component id. Cluster ids are globally unique
             across slots (e.g. `HA_123` vs `NA_45`), so no a:/b: prefix is needed.
         slot_a / slot_b: protein short names (e.g. 'HA', 'NA').
         alphabet: 'aa' | 'nt_cds' | 'nt_ctg' — selects `_MEMB` + `_MEMB_HASH`.

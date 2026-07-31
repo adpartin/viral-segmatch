@@ -198,7 +198,7 @@ def build_pair_bigraph(
     assert pos_with_ids.index.is_unique, \
         'build_pair_bigraph: pos_with_ids.index must be unique (it identifies each pair).'
 
-    # Phase 1 -- group rows by cluster pair. The 'a:'/'b:' prefixes are what make the graph
+    # Phase 1 - group rows by cluster pair. The 'a:'/'b:' prefixes are what make the graph
     # bipartite by construction: without them a slot-A and a slot-B cluster sharing an id string
     # would collapse into one node. Downstream (`edges_to_row_index`) reads the side off the prefix.
     slot_a_ids = ('a:' + pos_with_ids[col_a].astype(str)).to_numpy()  # slot-A node id per row ('a:'-prefixed)
@@ -208,7 +208,7 @@ def build_pair_bigraph(
     for u, v, i in zip(slot_a_ids, slot_b_ids, row_idx):
         edge_rows.setdefault((u, v), []).append(i)  # group row labels by their (slot-A, slot-B) cluster pair
 
-    # Phase 2 -- nodes. Taken from `edge_rows`, so a cluster is a node only if it appears in a pair.
+    # Phase 2 - nodes. Taken from `edge_rows`, so a cluster is a node only if it appears in a pair.
     H = nx.Graph()
     # Nodes are the clusters on each side of the bigraph; each edge_rows key is one cluster pair
     # (slot-A node, slot-B node), slot-prefixed 'a:' / 'b:'.
@@ -221,7 +221,8 @@ def build_pair_bigraph(
     # valid) cut. Pinning both orders makes the edge min-cut reproducible across runs/machines
     # (PYTHONHASHSEED-independent); node order alone is not enough.
     H.add_nodes_from(all_nodes)
-    # Phase 3 -- weighted edges. nx.Graph (not MultiGraph): parallel edges collapse onto one edge
+
+    # Phase 3 - weighted edges. nx.Graph (not MultiGraph): parallel edges collapse onto one edge
     # carrying `weight`, so the weights sum to the row count -- the invariant that makes a cut's
     # cost countable in pairs.
     for (u, v) in sorted(edge_rows):
@@ -312,7 +313,7 @@ def fragment_once(
 
 class FragmentState(NamedTuple):
     """State handed to a `fragment_until` stop predicate, evaluated before each cut."""
-    n_atoms: int          # atoms so far: CCs with >=1 kept edge (== bipartite_components on kept rows)
+    n_atoms: int          # atoms so far: CCs with >=1 kept edge (== cluster_ccs on kept rows)
     n_cuts: int           # cuts applied so far
     pairs_dropped: int    # straddling pairs dropped so far (sum of cut edge weights)
     n_total: int          # total pairs before any fragmentation
@@ -330,11 +331,11 @@ def stop_at_n_atoms(target_atoms: int):
 def _live_atom_count(H: nx.Graph) -> int:
     """Number of connected components carrying >= 1 edge (i.e. >= 2 nodes).
 
-    This is the atom count the builder actually routes. `bipartite_components` on the kept
+    This is the atom count the builder actually routes. `cluster_ccs` on the kept
     rows sees only clusters that appear in a kept pair, so a node stranded by a cut (all its
     edges dropped) is absent from it. Every kept edge joins an `a:` to a `b:` node, so a
     component with any kept edge has >= 2 nodes and a 1-node component is always a stranded
-    node -- counting >= 2-node CCs therefore matches `bipartite_components(kept_rows)` exactly,
+    node -- counting >= 2-node CCs therefore matches `cluster_ccs(kept_rows)` exactly,
     whereas a raw `nx.number_connected_components` would also count the stranded singletons.
     """
     return sum(1 for c in nx.connected_components(H) if len(c) > 1)

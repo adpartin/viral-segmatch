@@ -6,7 +6,7 @@ analysis no longer re-runs the front-end. (The Stage-3 builder `dataset_pairs_cc
 its own positives; only the analysis side reads this cache.)
 
 Reuses the Stage-3 positive path (`build_frontend` + `create_positive_pairs_v2`) AND the Stage-3
-atom derivation (`assign_atoms_prod` -- attach_cluster_ids + bipartite_components + optional
+atom derivation (`assign_atoms_prod` -- attach_cluster_ids + cluster_ccs + optional
 edge-cut fragmentation), so the CC structure matches `dataset_pairs_cc` for the same bundle by
 construction (one source of truth; no duplicate CC/fragmentation logic to drift). The universe
 cache is keyed on the resolved front-end filters + source-file mtimes (`pairs.meta.json`), so a
@@ -261,7 +261,7 @@ def main() -> None:
             continue
         lookup = load_cluster_lookup(cp)
         # Natural CCs via the SHARED production atom derivation (single source of truth;
-        # attach_cluster_ids + bipartite_components live inside dataset_pairs_cc.assign_atoms_prod).
+        # attach_cluster_ids + cluster_ccs live inside dataset_pairs_cc.assign_atoms_prod).
         pos_ids, cc_sum = assign_atoms_prod(pos, lookup, hash_col, edge_cut=None)
         n_dropped = cc_sum['n_dropped_cluster_join']
         if len(pos_ids) == 0:

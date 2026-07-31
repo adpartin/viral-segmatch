@@ -22,6 +22,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Optional, Tuple
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 
@@ -34,7 +35,7 @@ from src.utils import schema
 from src.utils.path_utils import load_dataframe
 
 # seq_disjoint hash families: `split_strategy.hash_key` token -> schema alphabet. Single source of
-# truth for `bipartite_components`, `seq_disjoint_route_pos_df`, and the v2 config validator.
+# truth for `sequence_ccs`, `seq_disjoint_route_pos_df`, and the v2 config validator.
 #
 # The token is PERSISTED, not just internal: the seq_disjoint audit stores it as `hash_key` and the
 # saver interpolates it into the audit keys it hard-fails on (`{token}_hash_overlap`), so renaming a
@@ -651,48 +652,53 @@ def get_metadata_distributions(df: pd.DataFrame, isolate_set: set) -> dict:
     return distributions
 
 
-def bipartite_components(
+def sequence_ccs(
     pos_df: pd.DataFrame,
     hash_key: str = 'seq',
     col_a: Optional[str] = None,
     col_b: Optional[str] = None,
     ) -> tuple[pd.Series, dict]:
-    """Connected components (CCs) of the bipartite (side-A, side-B) hash graph.
+    """Connected components (CCs) of the SEQUENCE-level bigraph — the seq_disjoint atom.
+
+    Nodes are unique sequence hashes (side A / side B); an edge is a `(hash_a, hash_b)`
+    co-occurrence. Sibling of `cluster_ccs`, which runs on the cluster-level bigraph
+    (nodes = clusters). Pick by what the nodes are: sequences here, clusters there.
+
+    Computed by iterative-path-compression union-find, no networkx — ~3x faster than the
+    networkx path at this scale (78k-123k nodes for HA-NA, vs 670 clusters), which is why
+    the two implementations differ.
 
     Two parameter styles, mutually exclusive:
 
-    1. `hash_key` (legacy): selects a hash family — 'seq' (protein-level,
-       columns prot_hash_a / prot_hash_b — stricter) or 'dna' (nucleotide-
-       level — looser; allows synonymous-mutation variants to land in
-       different splits).
-    2. `col_a` / `col_b` (explicit): pass arbitrary node-id column names.
-       Used by cluster-disjoint routing (col_a='cluster_id_a',
-       col_b='cluster_id_b'). When given, `hash_key` is ignored.
+    1. `hash_key`: selects the hash family via `HASH_FAMILY_ALPHABET` — 'seq' (prot_hash),
+       'dna' (ctg_dna_hash), 'cds' (cds_dna_hash). The seq_disjoint routing path.
+    2. `col_a` / `col_b`: explicit node-id columns. Diagnostic/test use only — no production
+       caller; `tests/test_megacc_cut.py` uses it to assert this union-find derivation and
+       `build_pair_bigraph`'s networkx one agree on the same edge set.
 
-    Edges: each unique `(node_a, node_b)` tuple. Computed by iterative-
-    path-compression union-find (no networkx dependency).
+    Args:
+        pos_df: positive-pair rows carrying the selected node-id columns.
+        hash_key: hash family token; ignored when `col_a`/`col_b` are given.
+        col_a / col_b: explicit node-id column names; pass both or neither.
 
     Returns:
-        (component_id, summary)
-        component_id: pd.Series aligned with pos_df.index, dtype int.
-            Each row is labelled with its component's representative id
-            (a contiguous integer 0..n_components-1).
-        summary: dict with `n_components`, `n_pairs`, `hash_key`,
-            `n_hashes_a`, `n_hashes_b`, `largest_component_pairs`,
-            `top_10_sizes`, `singleton_components`.
+        `(cc_id, summary)`. `cc_id` is a pd.Series aligned with `pos_df.index`, labelling each
+        row with its component (contiguous ints). `summary` carries `n_atoms`, `n_pairs`,
+        `hash_key`, `n_hashes_a`, `n_hashes_b`, `largest_atom_pairs`, `top_10_largest_cc_sizes`,
+        `singleton_atoms`.
 
-    The component label is stable under reordering of pos_df rows but
-    not under reordering of (a, b) sides. v2 schema-mode positives are
-    always (func_left, func_right) so this is fine.
+    Label ordering: ids follow the sorted union-find roots, which depend on `pos_df` row order —
+    reordering rows preserves the partition but renumbers the components. Callers that need
+    order-invariant ids use `cluster_ccs`, which orders by `(-pair_count, min node id)`.
     """
     if col_a is not None or col_b is not None:
         if col_a is None or col_b is None:
-            raise ValueError("bipartite_components: pass both col_a and col_b, or neither.")
+            raise ValueError("sequence_ccs: pass both col_a and col_b, or neither.")
         node_key_label = f'explicit({col_a},{col_b})'
     else:
         if hash_key not in HASH_FAMILY_ALPHABET:
             raise ValueError(
-                f"bipartite_components: hash_key must be one of "
+                f"sequence_ccs: hash_key must be one of "
                 f"{sorted(HASH_FAMILY_ALPHABET)}; got {hash_key!r}."
             )
         # hash_key names the family; the column is the molecule-level hash from the
@@ -704,7 +710,7 @@ def bipartite_components(
 
     if not {col_a, col_b}.issubset(pos_df.columns):
         raise ValueError(
-            f"bipartite_components: pos_df must contain {col_a} and {col_b} "
+            f"sequence_ccs: pos_df must contain {col_a} and {col_b} "
             f"columns (key={node_key_label!r})."
         )
 
@@ -739,27 +745,92 @@ def bipartite_components(
     root_to_int: dict = {}
     for r in sorted(set(row_roots)):
         root_to_int[r] = len(root_to_int)
-    component_id = pd.Series(
+    cc_id = pd.Series(
         [root_to_int[r] for r in row_roots],
         index=pos_df.index,
         dtype='int64',
-        name='component_id',
+        name='cc_id',
     )
 
-    sizes = component_id.value_counts().sort_values(ascending=False)
+    sizes = cc_id.value_counts().sort_values(ascending=False)
     summary = {
-        'n_components': int(component_id.nunique()),
+        'n_atoms': int(cc_id.nunique()),
         'n_pairs': int(len(pos_df)),
         'hash_key': node_key_label,
         'col_a': col_a,
         'col_b': col_b,
         'n_hashes_a': int(pos_df[col_a].nunique()),
         'n_hashes_b': int(pos_df[col_b].nunique()),
-        'largest_component_pairs': int(sizes.iloc[0]) if len(sizes) else 0,
-        'top_10_sizes': [int(s) for s in sizes.head(10).tolist()],
-        'singleton_components': int((sizes == 1).sum()),
+        'largest_atom_pairs': int(sizes.iloc[0]) if len(sizes) else 0,
+        'top_10_largest_cc_sizes': [int(s) for s in sizes.head(10).tolist()],
+        'singleton_atoms': int((sizes == 1).sum()),
     }
-    return component_id, summary
+    return cc_id, summary
+
+
+def cluster_ccs(
+    pos_df: pd.DataFrame,
+    *,
+    col_a: str = 'cluster_id_a',
+    col_b: str = 'cluster_id_b',
+    ) -> tuple[pd.Series, dict]:
+    """Connected components (CCs) of the CLUSTER-level bigraph — the 2D-CD atom.
+
+    Nodes are mmseqs clusters (side A / side B), slot-prefixed `a:`/`b:`; an edge is a cluster
+    pair, weighted by the positive pairs on it. Sibling of `sequence_ccs`, which runs on the
+    sequence-level bigraph (nodes = sequence hashes). Pick by what the nodes are: clusters here,
+    sequences there.
+
+    Built on `_megacc_cut.build_pair_bigraph`, so the components labelled here are exactly the
+    ones the edge min-cut bisects — one derivation of the cluster-level bigraph, not two.
+
+    Args:
+        pos_df: positive-pair rows carrying `col_a`/`col_b`; the row index identifies each pair.
+        col_a / col_b: slot-A / slot-B cluster-id column names.
+
+    Returns:
+        `(cc_id, summary)`. `cc_id` is a pd.Series aligned with `pos_df.index`, labelling each row
+        with its component (contiguous ints). `summary` carries `n_atoms`, `n_pairs`,
+        `col_a`, `col_b`, `n_clusters_a`, `n_clusters_b`, `largest_atom_pairs`,
+        `top_10_largest_cc_sizes`, `singleton_atoms`.
+
+    Label ordering: components are ranked by `(-pair_count, min node id)`, so `cc_id=0` is the
+    largest CC and ties break on the lowest node id. This is order-invariant — reordering
+    `pos_df` rows leaves every id unchanged. It matters because `_lpt_bin_pack` sorts atoms by
+    `(-size, cc_id)`, so the id decides which of two equal-sized CCs is placed first.
+    """
+    from src.datasets._megacc_cut import build_pair_bigraph
+
+    H, _edge_rows = build_pair_bigraph(pos_df, col_a=col_a, col_b=col_b)
+    # A CC's pair count is its total edge weight (weights sum to the row count); `min(comp)` is the
+    # lowest slot-prefixed node id in it, a deterministic tie-break that ignores row order.
+    ranked = sorted(nx.connected_components(H),
+                    key=lambda comp: (-H.subgraph(comp).size(weight='weight'), min(comp)))
+    node_cc = {node: i for i, comp in enumerate(ranked) for node in comp}
+
+    # Every row's slot-A node is in exactly one CC, and each edge joins an a: to a b: node, so
+    # labelling rows by their slot-A node labels the whole pair.
+    cc_id = pd.Series(('a:' + pos_df[col_a].astype(str)).map(node_cc).to_numpy(),
+                      index=pos_df.index, dtype='int64', name='cc_id')
+
+    sizes = cc_id.value_counts().sort_values(ascending=False)
+    # The `*_atom*` keys are the router's mode-neutral schema: `_split_helpers` fills the same keys
+    # from its 1D-CD branch, where the atom is one slot's CLUSTER rather than a CC. Here the atom
+    # is a CC. The measure is positive pairs (rows) in both, so a key means the same thing in
+    # either audit; only the unit being counted differs.
+    summary = {
+        'n_atoms': int(cc_id.nunique()),                  # CCs of the cluster-level bigraph
+        'n_pairs': int(len(pos_df)),
+        'col_a': col_a,
+        'col_b': col_b,
+        'n_clusters_a': int(pos_df[col_a].nunique()),
+        'n_clusters_b': int(pos_df[col_b].nunique()),
+        'largest_atom_pairs': int(sizes.iloc[0]) if len(sizes) else 0,   # pairs in the largest CC
+        # CC-specific (the 1D-CD branch has no counterpart), so named for the CC, not the atom.
+        'top_10_largest_cc_sizes': [int(s) for s in sizes.head(10).tolist()],
+        'singleton_atoms': int((sizes == 1).sum()),       # CCs carrying exactly one pair
+    }
+    return cc_id, summary
 
 
 def _lpt_bin_pack(
@@ -917,14 +988,14 @@ def seq_disjoint_route_pos_df(
             f"which is absent. 'cds' requires attach_cds_dna_hash_to_pos_df to have run first."
         )
 
-    component_id, cc_summary = bipartite_components(pos_df, hash_key=hash_key)
+    cc_id, cc_summary = sequence_ccs(pos_df, hash_key=hash_key)
 
     # Atom = bipartite connected component; the shared router (P2) packs atoms
     # LPT-greedy and slices pos_df. Only the atom definition is seq_disjoint-
     # specific — seq_disjoint and cluster_disjoint share route_holdout.
     n_pairs = int(len(pos_df))
     train_pos, val_pos, test_pos, _atom_to_split, targets = route_holdout(
-        pos_df, component_id, train_ratio, val_ratio,
+        pos_df, cc_id, train_ratio, val_ratio,
     )
 
     achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
