@@ -12,6 +12,9 @@ family.
 Related: `docs/plans/2026-07-21_cc_structure_prestep_plan.md` (the `cc_{source}` artifacts these
 analyses should read), `docs/methods/glossary.md` (canonical terms).
 
+Environment: `/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/cepi/bin/python` (has omegaconf +
+networkx; the system python does not). Ruff lives in the `segmatch` env.
+
 ---
 
 ## 1. Decisions (locked — do not re-litigate)
@@ -92,10 +95,23 @@ Baseline digests: `tests/golden/megacc_cut/fold_baseline_*.json`, captured by
 
 ## 4. Remaining work (in order)
 
-1. **Close the last layering violation.** `_cv_sampling.assign_atoms` produces GroupKFold splits
-   (production) but lives in `src/analysis` and imports `bigraph_min_cut`. Move
-   `fragment_weighted` / `uniform_targets` / `lpt_max_drift` into `_megacc_cut`, relocate
-   `_cv_sampling` to `src/datasets/`. Unblocks retiring `bigraph_min_cut`.
+1. **Close the layering violations.** Two exist; `grep -rnE "^\s*(from|import)\s+src\.analysis"
+   over `src/datasets/ src/utils/` is the check.
+
+   a. **`_cv_sampling`** — `assign_atoms` produces the GroupKFold split unit (production) but lives
+      in `src/analysis` and imports `bigraph_properties.load_cluster_map` +
+      `bigraph_min_cut.{fragment_weighted, uniform_targets}`. Move `fragment_weighted` /
+      `uniform_targets` / `lpt_max_drift` into `_megacc_cut`, relocate `_cv_sampling` to
+      `src/datasets/`. Importers to update: `cluster_disjoint_cv_experiment.py`,
+      `cluster_disjoint_regime_cv.py` (`src/datasets/_cc_helpers.py` and `dataset_pairs_cc.py`
+      only *mention* it in comments). Also carries a hardcoded `_ROOT` cluster-path map, same
+      defect as item 2's `--clusters_nt`. Unblocks retiring `bigraph_min_cut`.
+
+   b. **`dataset_segment_pairs_v2`** imports `src.analysis.visualize_dataset_stats` for the
+      optional plots. Different in character from (a) — lazy, inside `if generate_visualizations`,
+      wrapped in try/except, and not part of split production. Options: move the visualiser to
+      `src/utils/`, have the orchestrator call it after the builder returns, or record it as a
+      documented exception. Decide before the grep above is wired into CI.
 2. **Hygiene.**
    - `_megacc_cut` module docstring, "Dependency note" — claims the bisection core is duplicated
      for the analysis diagnostics; it is not (they import `_bisect` from here).
