@@ -90,10 +90,13 @@ Baseline digests: `tests/golden/megacc_cut/fold_baseline_*.json`, captured by
    `fragment_weighted` / `uniform_targets` / `lpt_max_drift` into `_megacc_cut`, relocate
    `_cv_sampling` to `src/datasets/`. Unblocks retiring `bigraph_min_cut`.
 2. **Hygiene.**
-   - `_megacc_cut.py:30-32` — stale note claiming the bisection core is duplicated; it is not.
+   - `_megacc_cut` module docstring, "Dependency note" — claims the bisection core is duplicated
+     for the analysis diagnostics; it is not (they import `_bisect` from here).
    - `cluster_pair_weight_topk.load_pair_universe` dedups on `prot_hash` for *every* alphabet →
      nt_cds analyses undercount by 25% (58,826 vs 78,764). Guard or fix.
-   - `--clusters_nt` defaults to a nonexistent dir in 5 scripts.
+   - `--clusters_nt` defaults to `clusters_nt`, which does not exist on disk (the real dirs are
+     `clusters_nt_cds*`), in 5 live scripts: `bigraph_min_cut`, `bigraph_hub_peel`,
+     `bigraph_properties`, `cluster_pair_weight_topk`, `cluster_analysis_summary`.
    - `load_cluster_map` defined identically in `bigraph_properties` and `cluster_pair_weight_topk`.
 3. **`bipartite` → `bigraph` pass.** Glossary first (`Bipartite multigraph` → `Multigraph bigraph`,
    `Bipartite hub` → `Bigraph hub`), then `build_bipartite_multigraph` (18 uses) and the
@@ -113,9 +116,11 @@ splits); `_cv_sampling.assign_atoms` (the third split path).
 
 ## 6. Open questions (need a decision)
 
-6.1 **Persisted audit strings.** `_pair_helpers.py:948` and `_split_helpers.py:267` write
-`'bipartite_cc_lpt_greedy'` / `'..._on_cluster_ids'` as the `algorithm` value. Renaming makes new
-run dirs disagree with existing ones. Rename, or leave the persisted values alone?
+6.1 **Persisted audit strings.** The split audits record an `algorithm` value of
+`'bipartite_cc_lpt_greedy'` (`_pair_helpers.seq_disjoint_route_pos_df`) and
+`'bipartite_cc_lpt_greedy_on_cluster_ids'` (`_split_helpers.cluster_disjoint_route_pos_df`).
+Renaming makes new run dirs disagree with existing ones. Rename, or leave the persisted values
+alone? Item 3 above is blocked on this.
 
 6.2 **Default split strategy.** `conf/dataset/default.yaml:10` makes `seq_disjoint` the repo-wide
 default, while 45 of 46 recorded runs are `cluster_disjoint*`. A new bundle that omits `mode`
