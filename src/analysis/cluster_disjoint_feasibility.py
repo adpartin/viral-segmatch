@@ -1,15 +1,15 @@
 """Pre-flight feasibility check for cluster_disjoint routing.
 
 Per-function cluster sizes (`build_mmseqs_clusters.py`) are necessary
-but NOT sufficient: cluster_disjoint routes pairs by the bipartite-component
+but NOT sufficient: cluster_disjoint routes pairs by the connected-component
 structure of (slot_a_cluster, slot_b_cluster). HA clusters and NA clusters
-connect through isolates that have proteins in both, so the **bipartite
+connect through isolates that have proteins in both, so the **connected
 component** that the routing actually operates on can be much larger than
 either side's biggest cluster — sometimes catastrophically so at low identity
 thresholds.
 
 This script answers: given a schema_pair and a cluster threshold, what does the
-bipartite-component-size distribution look like? If the largest component
+connected-component-size distribution look like? If the largest component
 exceeds 80% of pairs, the partition is forced and 80/10/10 is unachievable.
 
 Supports all three alphabets (slot key = the registry hash; cluster lookups under
@@ -81,12 +81,12 @@ def build_isolate_pairs(
     cluster-join hash from the schema registry — `prot_hash` (aa, md5 of
     prot_seq), `cds_dna_hash` (nt_cds), `ctg_dna_hash` (nt_ctg) — renamed to the
     neutral `hash_{a,b}`. The cluster lookup is keyed on the SAME hash, so the
-    bipartite components are computed on the alphabet's own hash space.
+    connected components are computed on the alphabet's own hash space.
 
     Note (nt_ctg): this dedups isolate-pairs on `ctg_dna_hash` (the cluster
     hash), i.e. distinct contigs are distinct routing atoms. v2's nt_ctg pair_key
     dedups on `prot_hash` instead (the pair_key_alphabet inference falls to 'aa'
-    for nt_ctg) — so this pre-flight is the cluster-faithful view; the bipartite
+    for nt_ctg) — so this pre-flight is the cluster-faithful view; the connected
     component TOPOLOGY (the operability signal) is the same, only per-component
     pair COUNTS differ from v2's deduped pos_df.
 
@@ -147,7 +147,7 @@ def feasibility_for_threshold(
     cluster_lookup: pd.DataFrame,
     threshold: float,
 ) -> dict:
-    """Compute bipartite-component stats on (cluster_id_a, cluster_id_b) AFTER
+    """Compute connected-component stats on (cluster_id_a, cluster_id_b) AFTER
     deduping on (hash_a, hash_b) — to match v2's actual routing input (Stage 3
     dedups pair_keys globally before split_dataset_v2 routes them). The slot hash
     is the alphabet's cluster hash (prot_hash / cds_dna_hash / ctg_dna_hash)."""
@@ -225,7 +225,7 @@ FUNCTION_TO_SHORT = {
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Pre-flight bipartite-component feasibility for cluster_disjoint.")
+    p = argparse.ArgumentParser(description="Pre-flight connected component feasibility for cluster_disjoint.")
     src = p.add_mutually_exclusive_group(required=True)
     src.add_argument('--protein_final', help='aa-mode input: path to protein_final.parquet.')
     src.add_argument('--cds_dna_final', help='nt_cds-mode input: path to cds_dna_final.parquet.')

@@ -1,7 +1,7 @@
 """Consolidated clustering structural analysis (aa + nt, 8 major proteins).
 
 Reads the per-function (major protein) redundancy sweep outputs (from
-`build_mmseqs_clusters.py`) and bipartite-component
+`build_mmseqs_clusters.py`) and connected component
 feasibility tables (from `cluster_disjoint_feasibility.py`) and emits
 a single set of plots + tables that articulate, for each of the 8 major
 Flu A protein functions at each mmseqs2 identity threshold:
@@ -9,7 +9,7 @@ Flu A protein functions at each mmseqs2 identity threshold:
   - How much sequence redundancy is in the underlying corpus (per
     function, per alphabet).
   - How quickly clusters collapse as the identity threshold drops.
-  - Whether the resulting bipartite-component structure can support
+  - Whether the resulting connected component structure can support
     an 80/10/10 routing, per schema pair × alphabet.
   - How many residue mismatches each threshold *concretely* admits
     inside a cluster, per function — making "id095" mean something
@@ -42,7 +42,7 @@ Outputs (under --out_dir):
     seq_freq_isolate_pct_{aa,nt_cds}.png — Plot D-alt (per-protein corpus coverage by tier; y = % isolates)
     seq_freq_tier_summary.csv         — Plot D summary table (tier counts + Gini + n_eff per protein × alphabet)
     cluster_counts_vs_threshold.png   — Plot B (log-Y, 8 lines × 2 alphabets)
-    bipartite_largest_pct_vs_threshold.png — Plot C (2 pairs × 2 alphabets, 80% line)
+    largest_cc_pct_vs_threshold.png — Plot C (2 pairs × 2 alphabets, 80% line)
     cluster_diversity_stats.csv       — per (alphabet, protein, threshold) Gini + n_eff on cluster-size distribution
     gini_vs_threshold.png             — Plot E (Gini of cluster-size distribution vs t; cluster-collapse evenness)
 """
@@ -53,9 +53,10 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -63,9 +64,8 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.config_hydra import load_function_metadata  # noqa: E402
 from src.utils import schema  # noqa: E402
-
+from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
 # Function full -> short alias, scoped to the 8 ML-relevant majors
 # (`selected_functions` in conf/virus/flu.yaml). Sourced from the YAML so
@@ -117,7 +117,7 @@ def load_redundancy_stats(clusters_root: Path, alphabet: str) -> pd.DataFrame:
 
 
 def load_feasibility(feasibility_dir: Path, pair_short: str, alphabet: str) -> Optional[pd.DataFrame]:
-    """Load the per-pair bipartite feasibility CSV.
+    """Load the per-pair connected component feasibility CSV.
 
     Default path (set by `cluster_disjoint_feasibility.py` since the
     2026-05-20 docs/results migration):
@@ -669,8 +669,8 @@ def plot_cluster_counts_vs_threshold(red_aa: pd.DataFrame, red_nt: pd.DataFrame,
     plt.close(fig)
 
 
-def plot_bipartite_largest_pct(feasibilities: list[pd.DataFrame], out_png: Path) -> None:
-    """Plot C: largest bipartite component % vs threshold, per (pair, alphabet)."""
+def plot_largest_cc_pct(feasibilities: list[pd.DataFrame], out_png: Path) -> None:
+    """Plot C: largest connected component % vs threshold, per (pair, alphabet)."""
     fig, ax = plt.subplots(figsize=(8.0, 4.8))
 
     pair_colors = {'ha_na': '#1f77b4', 'pb2_pb1': '#d62728'}
@@ -692,13 +692,13 @@ def plot_bipartite_largest_pct(feasibilities: list[pd.DataFrame], out_png: Path)
     ax.axhline(80.0, color='#666', linestyle=':', linewidth=1,
                label='80% (single-bin ceiling)')
     ax.set_xlabel('mmseqs2 identity threshold (`--min-seq-id`)')
-    ax.set_ylabel('Largest bipartite component (% of deduped pairs)')
+    ax.set_ylabel('Largest connected component (% of deduped pairs)')
     ax.set_ylim(0, 102)
     ax.invert_xaxis()
     ax.grid(True, linestyle=':', alpha=0.5)
     ax.set_axisbelow(True)
     ax.legend(loc='center right', fontsize=9, frameon=False)
-    ax.set_title('Bipartite-component feasibility for 80/10/10 routing\n'
+    ax.set_title('Connected-component feasibility for 80/10/10 routing\n'
                  'A pair × alphabet × threshold is FEASIBLE when the largest '
                  'component is below 80% (and the second below 20%).',
                  fontsize=10)
@@ -816,11 +816,11 @@ def main() -> None:
     plot_gini_vs_threshold(cluster_div_df, gini_png)
     print(f'wrote {gini_png}')
 
-    plot_bipartite_largest_pct(
+    plot_largest_cc_pct(
         feasibilities,
-        out_dir / 'bipartite_largest_pct_vs_threshold.png',
+        out_dir / 'largest_cc_pct_vs_threshold.png',
     )
-    print(f'wrote {out_dir / "bipartite_largest_pct_vs_threshold.png"}')
+    print(f'wrote {out_dir / "largest_cc_pct_vs_threshold.png"}')
 
     print('\nDone.')
 
