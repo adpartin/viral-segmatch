@@ -54,7 +54,7 @@ bundle system, active source-file map, key findings, roadmap, and HPC notes are 
 Canonical definitions of the terms that cause the most confusion. Detail in
 `docs/methods/glossary.md`; keep the two in sync, and reuse these exact terms — don't coin synonyms.
 
-- **atom** — the indivisible routing unit. In 2D-CD (`cluster_disjoint_cc`) atom = one bipartite **CC** (one atom per CC; `atom_id == cc_id`). An atom is NOT a row.
+- **atom** — the indivisible routing unit. In 2D-CD (`cluster_disjoint_cc`) atom = one **CC** (one atom per CC; `atom_id == cc_id`). An atom is NOT a row.
 - **rows ≠ atoms** — a positive "pair"/row is one record; `m_pos_per_cc` caps rows-*per-atom*, NOT the atom count (the cluster threshold fixes the atom count). Reserve "atom"/"CC" for components and "pair"/"row" for records.
 - **CC / mega-CC** — connected component on the (slot-A cluster, slot-B cluster) bigraph; the mega-CC is the giant component that swallows most pairs at low `t`.
 - **pair_key_alphabet** — the positive-dedup key is built on the alphabet's hash (aa→`prot_hash`, nt_cds→`cds_dna_hash`, nt_ctg→`ctg_dna_hash`), so the positive **universe is alphabet-defined** (nt keeps codon/contig variants that aa collapses).

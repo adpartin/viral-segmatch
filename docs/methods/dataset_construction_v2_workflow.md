@@ -203,7 +203,7 @@ post-dedup positive pairs are routed to train/val/test such that **no
 `seq_hash` appears in two splits** on either slot. The algorithm
 (`_pair_helpers.seq_disjoint_route_pos_df`):
 
-1. Build a bipartite graph with slot-A `seq_hash`es as one side,
+1. Build a bigraph with slot-A `seq_hash`es as one side,
    slot-B `seq_hash`es as the other, and an edge per positive pair.
 2. Find connected components (each component is a set of pairs that
    share at least one `seq_hash` on either side, transitively).

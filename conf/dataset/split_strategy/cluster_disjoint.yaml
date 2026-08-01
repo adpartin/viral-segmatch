@@ -1,5 +1,5 @@
 # Split strategy: cluster_disjoint
-# Routes positive pairs by bipartite-CC on mmseqs2 cluster ids (not identity hashes).
+# Routes positive pairs by CC on mmseqs2 cluster ids (not identity hashes).
 # Mitigates cluster leakage (near-clone neighbors below the identity threshold).
 
 mode: cluster_disjoint

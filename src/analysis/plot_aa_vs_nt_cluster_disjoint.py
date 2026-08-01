@@ -23,7 +23,7 @@ The reference deliverable promised by step 9 of
 `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt
 ("threshold sweep plot the aa side couldn't reach") is implemented here
 as a 4-routing comparison rather than a true threshold sweep — the
-bipartite-component collapse on the full Flu A corpus rules out feasible
+mega-CC collapse on the full Flu A corpus rules out feasible
 nt cluster_disjoint below id099 (see
 `results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_*_nt.csv`).
 
@@ -40,12 +40,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import matplotlib
 import numpy as np
 import pandas as pd
-import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:

@@ -84,7 +84,7 @@ _FUNCTION_TO_SHORT = {
     'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor': 'NS1',
 }
 
-# Schema pairs to analyze. HA-NA only while the bipartite-splitter
+# Schema pairs to analyze. HA-NA only while the bigraph-splitter
 # exploration is HA-NA-focused; add other pairs back here when ready.
 # Tuple: (display_label, slug, slot_a, slot_b). Slug is the lowercase
 # underscore form used in output filenames; matches the convention in
@@ -276,7 +276,7 @@ def plot_concentration(
 
 
 # Schema-pair slugs the plotter currently emits PNGs for. Keep this small
-# while the bipartite-splitter exploration is HA-NA-focused; switch to
+# while the bigraph-splitter exploration is HA-NA-focused; switch to
 # `[slug for _, slug, _, _ in _SCHEMA_PAIRS]` once we want all pairs.
 _PLOT_SLUGS = ['ha_na']
 

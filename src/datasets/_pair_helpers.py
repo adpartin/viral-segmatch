@@ -885,7 +885,7 @@ def route_holdout(
     The shared 'router' core for every atom-based mode (seq_disjoint,
     cluster_disjoint): given a per-row atom label, LPT-greedy bin-pack the atoms
     by pair count, then slice `pos_df` into (train, val, test). The atom
-    definition (bipartite CC on hash / on cluster / single-slot cluster) is the
+    definition (CC on hash / on cluster / single-slot cluster) is the
     mode-specific part; this packing + slicing is identical across modes.
 
     Args:
@@ -921,9 +921,9 @@ def seq_disjoint_route_pos_df(
     seed: int,
     hash_key: str = 'seq',
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    """Route `pos_df` rows into train/val/test by bipartite-component LPT-greedy.
+    """Route `pos_df` rows into train/val/test by CC LPT-greedy.
 
-    Each connected component in the bipartite (side-A, side-B) hash graph
+    Each connected component in the (side-A, side-B) hash bigraph
     is indivisible: the whole component lands in one split. The graph is
     built on the hash family selected by `hash_key`:
 
@@ -987,7 +987,7 @@ def seq_disjoint_route_pos_df(
 
     cc_id, cc_summary = sequence_ccs(pos_df, hash_key=hash_key)
 
-    # Atom = bipartite connected component; the shared router (P2) packs atoms
+    # Atom = connected component; the shared router (P2) packs atoms
     # LPT-greedy and slices pos_df. Only the atom definition is seq_disjoint-
     # specific — seq_disjoint and cluster_disjoint share route_holdout.
     n_pairs = int(len(pos_df))

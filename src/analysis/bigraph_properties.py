@@ -12,7 +12,7 @@ Then computes per-CC structural properties used to inform splitter design:
   - Per-CC: node counts on each side, unique-edge count, pair count (with
     multiplicity), n_bridges, n_cut_nodes (always — both O(V+E)), and
     per-side hub-concentration scalars: top1/top5 pair-mass share, max
-    simple-degree, and pair-mass Gini (high Gini = a few bipartite hubs
+    simple-degree, and pair-mass Gini (high Gini = a few bigraph hubs
     carry the component).
   - Optional, opt-in: λ(G) (edge connectivity) and the actual minimum edge
     cut for the largest CC (expensive — O(V·E·poly); set
@@ -93,13 +93,10 @@ def build_cluster_bigraph(
     the one every other consumer uses (weighted simple `nx.Graph`, edge `weight` =
     positive pairs).
 
-    Replaces the former `build_bipartite_multigraph`, which built an `nx.MultiGraph`
-    with one edge per row. The two carry the same information -- pair mass is
-    `degree(weight='weight')` instead of the multigraph `degree`, and a component's
-    pair count is `size(weight='weight')` instead of `number_of_edges()` -- but the
-    simple graph needs no `nx.Graph(...)` projection before `nx.bridges` /
-    `nx.articulation_points`, and it inherits `build_pair_bigraph`'s canonical
-    (sorted) node order, so results no longer depend on pair-universe row order.
+    Counting convention (see glossary `Simple bigraph`): pair mass is
+    `degree(weight='weight')` and a component's pair count is `size(weight='weight')`;
+    `number_of_edges()` counts CLUSTER pairs. Node order is canonical (sorted), so
+    results do not depend on pair-universe row order.
 
     Args:
         pair_universe: from load_pair_universe; one row per unique canonical pair.
@@ -133,7 +130,7 @@ def _gini(values) -> float:
     """Gini coefficient of a non-negative sequence (0 = even, 1 = all mass on one).
 
     Summarizes how concentrated a side's pair-mass is across its clusters:
-    a high Gini means a few bipartite hubs carry the component.
+    a high Gini means a few bigraph hubs carry the component.
     """
     x = np.sort(np.asarray(list(values), dtype=float))
     n = x.size

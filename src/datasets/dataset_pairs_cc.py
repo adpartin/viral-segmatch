@@ -5,7 +5,7 @@ Where v2's `cluster_disjoint` does single-slot k-fold (a/b) or bilateral holdout
 (one 80/10/10) with cross-isolate negatives, this builder does what the CC analysis
 established:
 
-  - **2D connected-component (CC) GroupKFold** — atoms = bipartite CCs on
+  - **2D connected-component (CC) GroupKFold** — atoms = CCs on
     `(cluster_id_a, cluster_id_b)` (production `attach_cluster_ids` +
     `cluster_ccs`); whole CCs stay in one fold.
   - **within-CC negatives** — every negative drawn from the same CC as its
@@ -154,7 +154,7 @@ def assign_atoms_prod(
     (the dataset-builder path, vs the CV harness's `_cv_sampling.assign_atoms`, which
     resolves clusters through the membership table rather than a cluster-parquet lookup).
 
-    Atom = one bipartite CC on (cluster_id_a, cluster_id_b), so `atom_id == cc_id`. Two modes:
+    Atom = one CC on (cluster_id_a, cluster_id_b), so `atom_id == cc_id`. Two modes:
     - natural (`edge_cut` None/disabled): one atom per whole CC.
     - edge-cut (routing-B): `_megacc_cut.fragment_until` bisects the mega-CC, dropping straddling
       pairs to grow the atom count within a drop budget. `cc_id`/`atom_id` become the post-cut
@@ -168,7 +168,7 @@ def assign_atoms_prod(
     pos_ids, attach_audit = attach_cluster_ids(pos, cluster_lookup, pos_hash_col=pos_hash_col)
     pos_ids = pos_ids.copy()
 
-    # Natural bipartite-CC atoms on (cluster_id_a, cluster_id_b).
+    # Natural CC atoms on (cluster_id_a, cluster_id_b).
     cc_id, cc_summary = cluster_ccs(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
     pos_ids['cc_id'] = cc_id.to_numpy()
 
@@ -184,7 +184,7 @@ def assign_atoms_prod(
             max_drop_frac=edge_cut['max_drop_frac']
         )
         pos_ids = kept_pos.reset_index(drop=True)
-        # Re-derive atoms on the fragmented (kept) pairs -- each fragment is a bipartite CC == atom.
+        # Re-derive atoms on the fragmented (kept) pairs -- each fragment is a CC == atom.
         cc_id, cc_summary = cluster_ccs(pos_ids, col_a='cluster_id_a', col_b='cluster_id_b')
         pos_ids['cc_id'] = cc_id.to_numpy()
         cc_summary['edge_cut'] = cut_audit  # full fragment_until audit (cut_method/seed/max_drop_frac/per_cut)

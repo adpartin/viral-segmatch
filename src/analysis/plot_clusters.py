@@ -24,7 +24,7 @@ Figures (`--plots`), and which cluster sets they apply to:
     only the cluster parquet -> any cluster set / alphabet.
 
 Cluster / mega-cluster here = single-segment SIMILARITY-graph component (nodes =
-sequences), NOT the bipartite CC / mega-CC of 2D-CD routing (docs/methods/glossary.md).
+sequences), NOT the CC / mega-CC of 2D-CD routing (docs/methods/glossary.md).
 
 CLI:
     # separation map (default)

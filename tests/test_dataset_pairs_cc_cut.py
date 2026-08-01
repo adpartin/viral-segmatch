@@ -66,7 +66,7 @@ def test_edge_cut_disabled_is_natural():
         return
     pos, lookup, hcol = _build_pos_lookup()
     nat, summ = assign_atoms_prod(pos, lookup, hcol, edge_cut=None)
-    assert nat['atom_id'].nunique() == 108                      # natural bipartite CCs
+    assert nat['atom_id'].nunique() == 108                      # natural CCs
     assert (nat['atom_id'] == nat['cc_id']).all()               # atom == cc
     assert 'natural_cc_id' not in nat.columns                   # no cut -> no snapshot column
     assert 'edge_cut' not in summ                               # no cut audit

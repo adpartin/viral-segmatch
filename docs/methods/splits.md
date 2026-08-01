@@ -32,10 +32,10 @@ cross-refs are inline at each result-bearing claim.
 |---|---|---|---|---|---|---|
 | 1 | `Random` | nothing | one isolate | random shuffle on isolates | `mode: random` | implemented |
 | 2 | `1D-SD` | different splits cannot share the same `prot_hash` (or `ctg_dna_hash`) on the constrained slot only | per-slot atom on `prot_hash` or `ctg_dna_hash` | per-slot atom LPT-greedy | `mode: seq_disjoint`, `single_slot: 'a'\|'b'`, `hash_key: seq\|dna` | **planned** |
-| 3 | `2D-SD` | different splits cannot share the same `prot_hash` (or `ctg_dna_hash`) on EITHER slot | bipartite CC on `(hash_a, hash_b)` | bipartite-CC LPT-greedy | `mode: seq_disjoint`, `hash_key: seq\|dna` | implemented |
+| 3 | `2D-SD` | different splits cannot share the same `prot_hash` (or `ctg_dna_hash`) on EITHER slot | CC on `(hash_a, hash_b)` | bipartite-CC LPT-greedy | `mode: seq_disjoint`, `hash_key: seq\|dna` | implemented |
 | 4 | `1D-CD` | different splits cannot share the same cluster on the constrained slot only | per-cluster atom on the constrained slot | per-cluster atom LPT-greedy | `mode: cluster_disjoint`, `single_slot: 'a'\|'b'`, `cluster_alphabet: aa\|nt_cds\|nt_ctg` | implemented (aa, nt_cds); nt_ctg planned |
-| 5 | `2D-CD` | different splits cannot share the same cluster on EITHER slot | bipartite CC on `(cluster_id_a, cluster_id_b)` | bipartite-CC LPT-greedy | `mode: cluster_disjoint`, `single_slot: null` (default), `cluster_alphabet: aa\|nt_cds\|nt_ctg` | implemented (aa, nt_cds); nt_ctg planned |
-| 6 | `2D-CD-test` | train and test cannot share the same cluster on EITHER slot; val is sampled from train's CC scope (leaky val) | bipartite CC on `(cluster_id_a, cluster_id_b)` for test partition; random subsample within train's CC scope for val | bipartite-CC LPT-greedy (test only) + random subsample (val) | not yet implemented | **planned** |
+| 5 | `2D-CD` | different splits cannot share the same cluster on EITHER slot | CC on `(cluster_id_a, cluster_id_b)` | bipartite-CC LPT-greedy | `mode: cluster_disjoint`, `single_slot: null` (default), `cluster_alphabet: aa\|nt_cds\|nt_ctg` | implemented (aa, nt_cds); nt_ctg planned |
+| 6 | `2D-CD-test` | train and test cannot share the same cluster on EITHER slot; val is sampled from train's CC scope (leaky val) | CC on `(cluster_id_a, cluster_id_b)` for test partition; random subsample within train's CC scope for val | bipartite-CC LPT-greedy (test only) + random subsample (val) | not yet implemented | **planned** |
 | 7 | `Metadata holdout` | isolate filter on metadata axes (host / year / subtype / geo / passage) | filter-defined isolate partition | filter-override dispatch (no bin-packing) | `mode: metadata_holdout` | implemented |
 
 Notes:
@@ -70,7 +70,7 @@ across train / val / test. What an atom is depends on the routing mode:
 - **`random`**: atom = one **isolate** (an entire isolate's pairs go
   to one split).
 - **`seq_disjoint` / bilateral `cluster_disjoint`**: atom = a
-  **bipartite connected component** on the (slot A key, slot B key)
+  **connected component** on the (slot A key, slot B key)
   graph. A CC can span multiple keys on each slot, linked through
   shared isolate pairs. One atom per CC.
 - **Single-slot `cluster_disjoint`** (`single_slot='a'` or `'b'`):
@@ -248,7 +248,7 @@ threshold).
 #### 1.7.1 The bipartite-CC framework (bilateral routing)
 
 Under bilateral cluster_disjoint, both slots' clusters are
-constrained. The atom is a **bipartite connected component** on the
+constrained. The atom is a **connected component** on the
 (slot A, slot B) cluster graph — built from positive pairs, with an
 edge `HA_ck — NA_cm` iff some pair has that combination:
 
@@ -269,7 +269,7 @@ HA aa clusters (slot A)             NA aa clusters (slot B)
    └─────────┘                        └─────────┘
 
 
-Connected components on this bipartite graph:
+Connected components on this bigraph:
    CC #1 = { HA_c1, NA_c5 }              ← pairs in CC #1 must split together
    CC #2 = { HA_c2, NA_c9 }
    CC #3 = { HA_c3, NA_c7 }
@@ -278,10 +278,10 @@ Connected components on this bipartite graph:
 All pairs inside one CC must land in the same split — otherwise a
 cluster on one side would appear in both train and test, defeating
 the routing's purpose. The per-protein collapse trajectory (§ 6.1 of
-`clusters.md`) predicts the resulting bipartite-CC sizes. When either
+`clusters.md`) predicts the resulting CC sizes. When either
 slot's clusters collapse into one mega-cluster — for example PB2 aa at
 t090 has only 24 clusters absorbing 99.6 % of the corpus (§ 6.3 of
-`clusters.md`) — the bipartite graph collapses into a single
+`clusters.md`) — the bigraph collapses into a single
 mega-component, and the routing becomes structurally infeasible.
 
 **Naming.** This routing goes by several names across docs, code, and
@@ -302,7 +302,7 @@ subsequent references; `cluster_disjoint` is for code and config;
 `BiCC-Split` is for manuscript prose where a memorable name helps.
 
 The algorithm differs from DataSAIL's split heuristic (cluster + ILP)
-in two ways: (a) routing operates on bipartite-CCs as atomic units,
+in two ways: (a) routing operates on CCs as atomic units,
 never dropping pairs ("CC bin-packing never splits a component",
 `_split_helpers.py:267`), where DataSAIL's I2/S2 explicitly drop
 pairs that straddle folds; (b) bicc's LPT-greedy is a heuristic that
@@ -360,9 +360,9 @@ closely (the bin-packer can't undo what the mega-CC dictates).
 **Interpretation: feasibility ceiling is corpus-controlled.** The
 aa-vs-nt_cds feasibility gap at t099 reflects the alphabet's
 underlying diversity structure plus the corpus's metadata-driven
-bipartite linking, not an algorithm-alphabet confound. nt_cds
+bigraph linking, not an algorithm-alphabet confound. nt_cds
 clustering does not unlock lower thresholds via synonymous diversity
-— even at t098 nt_cds sits at 91–94 % — because the *bipartite
+— even at t098 nt_cds sits at 91–94 % — because the *bigraph
 linking* between HA clusters and NA clusters is determined by which
 isolates carry which (HA, NA) combinations, and Flu A's small set
 of dominant HxNy subtypes × host × year cells links most pairs into
@@ -377,7 +377,7 @@ for the algorithm choice and its validation.
 The table above is for **bilateral** cluster_disjoint (both slots'
 clusters disjoint between splits). **Single-slot routing** (only one
 slot's clusters constrained — atom = per-cluster pair-count on the
-constrained slot rather than the bipartite component; see § 1.1, § 1.2)
+constrained slot rather than the CC; see § 1.1, § 1.2)
 relaxes the constraint and pushes the feasibility ceiling well below
 the bilateral one.
 
@@ -440,7 +440,7 @@ in pairs:
 - **Unique-weighted** undercounts — a cluster with N unique seqs
   can contribute many more than N pairs if its members have
   multiple partners (the multi-partner long tail; see `glossary.md`
-  "Bipartite hub").
+  "Bigraph hub").
 - **Records-weighted** overcounts — high-copy sequences that pair
   with the same partner across many isolates collapse to a single
   canonical pair under `pair_key` dedup. Records-count ≠ pair-count:
@@ -485,11 +485,11 @@ df = (universe
 Scripts performing this JOIN pattern:
 - `src/analysis/cluster_pair_weight_topk.py` — per-cluster
   pair-weight ranking (single-slot view).
-- `src/analysis/cluster_disjoint_feasibility.py` — bipartite-CC
+- `src/analysis/cluster_disjoint_feasibility.py` — CC
   feasibility (pair-weighted; multigraph view).
 - `src/analysis/bigraph_properties.py` — per-CC stats
   including bridges and cut nodes on the simple-graph projection
-  (see `glossary.md` "Simple bipartite graph").
+  (see `glossary.md` "Simple bigraph").
 - `src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df` —
   the production splitter (Stage 3).
 
@@ -584,8 +584,8 @@ is acceptable as residual leakage.
 
 ### 2.4 2-D cluster disjoint (`2D-CD`)
 
-**Atom**: one bipartite CC (see `glossary.md` "Connected component";
-the bipartite graph operated on is the co-occurrence graph —
+**Atom**: one CC (see `glossary.md` "Connected component";
+the bigraph operated on is the co-occurrence graph —
 see `glossary.md`).
 **Routing rule**: no CC appears in more than one split —
 equivalently, no cluster on either slot in more than one split.
@@ -595,13 +595,13 @@ Code/config:
 - `split_strategy.mode='cluster_disjoint'`
 - No `single_slot` knob set (default bilateral).
 
-Use as the default. Becomes infeasible when the largest bipartite CC
+Use as the default. Becomes infeasible when the largest CC
 (mega-CC) exceeds the train-budget fraction — see § 1.7 for the
 feasibility table on Flu A.
 
 ### 2.5 Test-only cluster disjoint (`2D-CD-test`)
 
-**Atom**: one bipartite CC (same as `2D-CD`).
+**Atom**: one CC (same as `2D-CD`).
 **Routing rule**: cluster-disjoint constraint enforced ONLY between
 train and test; val is sampled from train's CC scope (val shares
 HA/NA clusters with train by construction — leaky val).
@@ -622,8 +622,8 @@ is the priority over val/train disjointness.
 | Variant | Atom | Per-atom weight | Routing constraint |
 |---|---|---|---|
 | `1D-CD` | One slot's cluster | Number of pairs whose endpoint on that slot is in the cluster | No cluster of the constrained slot in multiple splits |
-| `2D-CD` | One bipartite CC | Number of pairs in the CC | No cluster on either slot in multiple splits |
-| `2D-CD-test` | One bipartite CC | Number of pairs in the CC | Train ↔ test cluster-disjoint only; val unconstrained |
+| `2D-CD` | One CC | Number of pairs in the CC | No cluster on either slot in multiple splits |
+| `2D-CD-test` | One CC | Number of pairs in the CC | Train ↔ test cluster-disjoint only; val unconstrained |
 
 The "Per-atom weight" column is the *uncapped* weight. In the 2D-CD builder,
 `split_strategy.m_pos_per_cc` caps the positive **rows** kept per atom at `m`
@@ -679,13 +679,13 @@ Per current code dispatch (`dataset_segment_pairs_v2.py:2865-2960`):
 **Placeholders for the three "not built" cells** — future work tracked
 in `docs/plans/2026-05-28_kfold_remaining.md`:
 
-- **`seq_disjoint` k-fold.** Would extend naturally: bipartite CCs as
+- **`seq_disjoint` k-fold.** Would extend naturally: CCs as
   atoms, sklearn `GroupKFold` + per-fold LPT-greedy + D3, same pattern
   as single-slot cluster_disjoint. ~ 40 LoC. Skipped because
   seq_disjoint atoms on Flu A are typically small (largest CC ~ 20 %
   of pairs at HA-NA `hash_key=seq`), so k-fold feasibility is rarely
   the bottleneck.
-- **Bilateral `cluster_disjoint` k-fold.** Bipartite CC atoms collapse
+- **Bilateral `cluster_disjoint` k-fold.** CC atoms collapse
   to a mega-component at most thresholds below t099 on Flu A (§ 1.7.2);
   k-fold feasibility unattainable at the interesting thresholds. At
   t100 technically feasible but redundant with seq_disjoint k-fold.

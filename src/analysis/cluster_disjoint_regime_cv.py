@@ -7,7 +7,7 @@ taxonomy, now sampled WITHIN each CC (the cluster-disjoint analogue of the
 production regime negatives).
 
 Design (locked 2026-06-08; see the session design notes):
-  - Atoms = natural bipartite CCs (`assign_atoms(strategy='natural')`). Each CC
+  - Atoms = natural CCs (`assign_atoms(strategy='natural')`). Each CC
     stays whole within a fold.
   - Positives: cap `m_pos` per CC (fold-size balance).
   - Negatives: WITHIN each CC, regime-targeted + availability-aware + redistribute

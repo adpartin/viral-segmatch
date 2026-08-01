@@ -1563,7 +1563,7 @@ def split_dataset_v2(
         val_pos = pos_df[pos_df['assembly_id_a'].isin(set(val_isolates))].reset_index(drop=True)
         test_pos = pos_df[pos_df['assembly_id_a'].isin(set(test_isolates))].reset_index(drop=True)
     elif split_strategy_mode == 'seq_disjoint':
-        # Bipartite-component routing: each connected component (on the
+        # CC routing: each connected component (on the
         # hash family selected by split_strategy_hash_key — prot_hash by
         # default for protein-level partitioning, or ctg_dna_hash for the
         # looser nucleotide-level partition) is indivisible; whole
@@ -1580,7 +1580,7 @@ def split_dataset_v2(
                 requested_by="split_strategy.hash_key='cds'",
             )
         print(f"\nsplit_dataset_v2: seq_disjoint routing on pos_df rows "
-              f"(bipartite CC + LPT-greedy bin-pack, hash_key={split_strategy_hash_key!r})...",
+              f"(CC + LPT-greedy bin-pack, hash_key={split_strategy_hash_key!r})...",
               flush=True)
         train_pos, val_pos, test_pos, seq_disjoint_audit = seq_disjoint_route_pos_df(
             pos_df, train_ratio=train_ratio, val_ratio=val_ratio, seed=seed,
@@ -1596,7 +1596,7 @@ def split_dataset_v2(
               flush=True)
     elif split_strategy_mode == 'cluster_disjoint':
         # mmseqs2-cluster-disjoint routing: each connected component on the
-        # bipartite (cluster_id_a, cluster_id_b) graph is indivisible. Routes
+        # (cluster_id_a, cluster_id_b) bigraph is indivisible. Routes
         # pairs into the split where BOTH sequences' clusters land; pairs whose
         # prot_hashes aren't covered by the cluster lookup are dropped.
         # See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
@@ -1630,7 +1630,7 @@ def split_dataset_v2(
             raise ValueError(
                 f"split_dataset_v2: single_slot must be None, 'a', or 'b'; got {single_slot!r}"
             )
-        routing_label = ('bipartite CC + LPT-greedy bin-pack on cluster_ids'
+        routing_label = ('CC + LPT-greedy bin-pack on cluster_ids'
                          if single_slot is None
                          else f'single-slot ({single_slot}) + LPT-greedy bin-pack on cluster_ids')
         print(f"\nsplit_dataset_v2: cluster_disjoint routing "

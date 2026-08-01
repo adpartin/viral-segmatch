@@ -7,7 +7,7 @@ Currently houses the cluster-disjoint routing helper (Experiment B in
 generalizes it to mmseqs2-defined clusters at lower identity thresholds.
 
 Design parallels `seq_disjoint_route_pos_df`:
-- Build a bipartite graph on (slot_a, slot_b) but with node ids = cluster ids
+- Build a bigraph on (slot_a, slot_b) but with node ids = cluster ids
   (not prot_hashes). Every pair contributes one edge.
 - Find connected components; each component is indivisible by construction.
 - LPT-greedy bin-pack components into train/val/test by target ratios.
@@ -364,7 +364,7 @@ def cluster_disjoint_route_pos_df(
     | >= 2          | 'a' or 'b'    | Single-slot GroupKFold + per-fold LPT  |
     | >= 2          | None          | NotImplementedError (OoS #5)           |
 
-    Bilateral atoms = bipartite CCs on (cluster_id_a, cluster_id_b);
+    Bilateral atoms = CCs on (cluster_id_a, cluster_id_b);
     single-slot atoms = pair-sets of one slot's cluster. Both bin-pack via
     LPT-greedy; the k-fold path uses sklearn `GroupKFold(n_splits=k)` for
     test-fold selection, then LPT-greedy on the remaining k-1 atoms for
@@ -447,7 +447,7 @@ def cluster_disjoint_route_pos_df(
         )
 
     # ----- Build atom IDs per routing mode -----
-    # The atom is the indivisible routing unit, and its type differs by mode: a bipartite CC of
+    # The atom is the indivisible routing unit, and its type differs by mode: a CC of
     # the cluster-level bigraph for 2D-CD, one slot's cluster for 1D-CD. Both land in `atom_id`,
     # which is what `route_holdout` packs.
     if single_slot is None:
@@ -516,7 +516,7 @@ def cluster_disjoint_route_pos_df(
     # ============================================================
     if n_folds_effective == 1:
         # Shared router (P2): same atom-pack + slice as seq_disjoint — only the
-        # atom definition (bipartite CC / single-slot cluster) differs.
+        # atom definition (CC / single-slot cluster) differs.
         train_pos, val_pos, test_pos, _atom_to_split, targets = route_holdout(
             pos_with_ids, atom_id, train_ratio, val_ratio,
         )

@@ -155,8 +155,8 @@ routing on pairs has additional mechanics:
    modes are implemented (see `splits.md` § 1.1, § 1.2):
    - **Single-slot** (`single_slot='a'` or `'b'`): atom = one cluster's
      pair-set on the constrained slot.
-   - **Bilateral** (`single_slot=null`, default): atom = a bipartite
-     connected component on the (slot A, slot B) cluster graph.
+   - **Bilateral** (`single_slot=null`, default): atom = a
+     connected component on the (slot A, slot B) cluster bigraph.
 4. **Bin-pack atoms into 80 / 10 / 10** via LPT-greedy (`splits.md`
    § 1.3).
 
@@ -880,7 +880,7 @@ python -m src.preprocess.build_mmseqs_clusters \
     --algorithm  linclust \
     --threads    16
 
-# 3. Bipartite-component feasibility per schema pair × alphabet.
+# 3. CC feasibility per schema pair × alphabet.
 #    --out_csv defaults to
 #    results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_<pair>_<alphabet>.csv
 python -m src.analysis.cluster_disjoint_feasibility \
@@ -935,4 +935,4 @@ largest_cc_pct_vs_threshold.png           — Plot C (`splits.md` § 1.8)
   and `data/processed/flu/July_2025/clusters_nt_cds/redundancy_summary.md`
   (nt_cds) — autogen per-threshold cluster-size tables for all 8 majors.
 - `results/flu/July_2025/runs/cluster_disjoint_feasibility/feasibility_{ha_na,pb2_pb1}_{aa,nt}.csv`
-  — raw bipartite-CC feasibility numbers per pair × alphabet × threshold.
+  — raw CC feasibility numbers per pair × alphabet × threshold.

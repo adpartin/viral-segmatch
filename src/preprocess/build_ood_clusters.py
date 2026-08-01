@@ -9,7 +9,7 @@ per-function SIMILARITY graph (nodes = unique sequences; edge = an mmseqs easy-s
 >= t identity AND >= -c coverage), computed by union-find. Putting whole components on one fold
 then guarantees no test sequence links to any train sequence -- the across-cluster separation
 ("across clusters: different") that a cluster-disjoint / OOD split needs. Component here =
-single-segment similarity-graph CC (a *cluster* / *mega-cluster*), NOT the bipartite CC / mega-CC
+single-segment similarity-graph CC (a *cluster* / *mega-cluster*), NOT the CC / mega-CC
 of 2D-CD routing (docs/methods/glossary.md).
 
 Contrast with `--method linclust`/`cluster` (set-cover), which do NOT give the guarantee -- and

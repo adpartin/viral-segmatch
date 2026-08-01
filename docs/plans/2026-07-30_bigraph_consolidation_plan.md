@@ -80,6 +80,18 @@ dirs disagree with existing ones.
   `docs/architecture.md` § Layering (new; carries the rule, the grep, the exception, and the
   `src/archive/` note) plus a call-site comment. The source-file map there was corrected for both
   moves. **Item 1 is closed.**
+- **"bipartite" retired** (item 3), as the two rules. By the time it ran, 4a had deleted
+  `build_bipartite_multigraph` and the Plot-C rename had taken `plot_bipartite_largest_pct`, so
+  **no live Python identifier contained the word** — it was purely a prose pass. 65 substitutions
+  across the glossary, `splits.md` / `clusters.md` / `dataset_construction_v2_workflow.md`,
+  `docs/architecture.md`, `CLAUDE.md`, `.claude/memory.md`, one config comment, and ~20 source
+  docstrings/comments. The glossary now states both rules and their exceptions under
+  *Bigraph (bipartite graph)*, and `Bipartite multigraph` → `Multigraph bigraph` was rewritten to
+  say the project does not build it (true since 4a). Deliberately untouched: the persisted
+  `algorithm` audit values and the published algorithm names **bipartite-CC LPT-greedy** /
+  **BiCC-Split** (`splits.md` § 1.7.1) that mirror them; `docs/results/`, `docs/plans/`, and
+  `docs/project_changelog.md` as historical record; and `preprocess_bunya_protein.py`, where
+  "bipartite" means a 2-segment **genome**, not a graph. **Item 3 is closed.**
 - **One bigraph builder** (item 4a). New leaf `src/datasets/_bigraph.py` holds
   `build_pair_bigraph`, `edges_to_row_index`, and `ranked_ccs`; `_megacc_cut`, `_pair_helpers`
   (lazy import dropped), `_cv_sampling` (two hand-rolled graph loops dropped), and the four

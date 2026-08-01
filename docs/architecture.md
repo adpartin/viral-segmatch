@@ -109,7 +109,7 @@ src/
     visualize_dataset_stats.py      # PCA plots, interaction diagnostics
     aggregate_experiment_results.py # Cross-bundle summary tables
     visualize_cv_results.py         # CV visualization
-    cluster_disjoint_feasibility.py # Bilateral bipartite-CC feasibility pre-flight
+    cluster_disjoint_feasibility.py # Bilateral CC feasibility pre-flight
     single_slot_cluster_disjoint_feasibility.py
     cluster_analysis_summary.py     # Post-hoc structural cluster summary
     plot_aa_vs_nt_cluster_disjoint.py    # LGBM + 1-NN cluster-disjoint comparison
@@ -164,7 +164,7 @@ exception.
 - **K-mer ≥ ESM-2 on homogeneous data**: k=6 (4096-dim) matches/exceeds ESM-2 on mixed-subtype HA/NA; dominates on H3N2-only. K-mer features are interaction-agnostic.
 - **K-mer interaction sweep (Tests 1–4, HA/NA)**: all four within seed noise; Test 3 narrowly leads (needs multi-seed before picking a winner). `unit_diff` semantics = element-wise abs first, then L2-normalize.
 - **seq_disjoint scales to conserved proteins**: PB2/PB1 with `hash_key=seq` gives clean 80/10/10 despite high conservation. 1-NN edges MLP on PB2/PB1 under seq_disjoint.
-- **Experiment B-nt feasibility ceiling = aa ceiling on Flu A**: nt CDS-level cluster_disjoint hits the same bipartite mega-component collapse at the same thresholds. Only id100/id099 operable on the full corpus on either alphabet. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
+- **Experiment B-nt feasibility ceiling = aa ceiling on Flu A**: nt CDS-level cluster_disjoint hits the same mega-CC collapse at the same thresholds. Only id100/id099 operable on the full corpus on either alphabet. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
 - **1-NN cosine margin ≥ LGBM at every cluster_disjoint routing**; cluster_disjoint weakens the near-neighbor signal gradually rather than eliminating it.
 - **Single-slot HA-only sweep (HA-NA, id100..id095)**: monotone MMD↑ and test perf↓; biological coupling (HA-cluster ≈ NA-subtype boundary). See `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`.
 - **PB2-PB1 PB2-only sweep (falsification sibling)**: ~half the shift/F1 drop of HA-NA; model ordering REVERSES (1-NN > MLP ≈ LGBM) — residual metadata-driven leakage survives cluster_disjoint single-slot here. See `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md`.

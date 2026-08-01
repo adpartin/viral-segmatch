@@ -13,7 +13,7 @@ change and aren't derivable from code. This file does NOT duplicate:
 - **`docs/project_changelog.md`** — relocated implementation log, Removed-keys log,
   Polaris/Task-11 history, CV/decoupling/temporal-holdout implementation detail, and
   pre-writeup exploration notes (HA-NA co-occurrence matrix, coverage `-c` sweep,
-  bipartite-graph properties, level-0 multiplicity, nt_ctg pivot, DataSAIL C1 scaling).
+  bigraph properties, level-0 multiplicity, nt_ctg pivot, DataSAIL C1 scaling).
   Reference material, not session-startup reading.
 
 ---
@@ -75,7 +75,7 @@ change and aren't derivable from code. This file does NOT duplicate:
   cluster-disjoint (2D-CD) holdout/K-fold + within-CC negatives, drop-in Stage-4
   `fold_k/{train,val,test}_pairs.csv`. Phase-1 core committed (`09fb2c2`): the
   `_cv_sampling`→`_cc_helpers` move + the builder, verified on aa HA-NA t099. Phase-1 (a) Hydra +
-  (c) front-end + §7 reproduction DONE; `negative_scope` knob (within_cc | within_fold) added. `m_pos_per_cc` caps positive ROWS kept per CC (default 1 → uniform-weight atoms); it does NOT change the atom count — atoms = bipartite CCs, fixed by the cluster threshold (see glossary 'Atom element'). The
+  (c) front-end + §7 reproduction DONE; `negative_scope` knob (within_cc | within_fold) added. `m_pos_per_cc` caps positive ROWS kept per CC (default 1 → uniform-weight atoms); it does NOT change the atom count — atoms = CCs, fixed by the cluster threshold (see glossary 'Atom element'). The
   2026-06 `singleton` audit + reconciliation is DONE: knob renamed `drop_singleton_ccs` →
   `drop_negative_infeasible_ccs`, predicate unified to a STRUCTURAL negative-infeasibility test
   (`compute_negative_infeasible_ccs`) used in BOTH scopes — parity verified (within_cc & within_fold
@@ -148,13 +148,12 @@ change and aren't derivable from code. This file does NOT duplicate:
   per-pair (metadata is per-pair, not per-side). This is how `bigraph_*` plotting is being retired — replaced
   by lean `plot_cc_*` callers over shared primitives; the `bigraph_*` scripts stay in place (deletion is a
   separate long-term sweep, plan §7.6).
-- **TECH DEBT — `build_cc_structure.py` duplicates `dataset_pairs_cc.py`'s atom logic** (user flagged
-  2026-07-24). The CC-derivation + fragmentation (attach_cluster_ids → bipartite_components → fragment_until
-  → re-derive CCs) is coded twice: `dataset_pairs_cc.assign_atoms_prod` (production single source) vs inline
-  in `build_cc_structure.main` + `_build_fragmented` — divergence risk. **De-dup: have build_cc_structure
-  call `assign_atoms_prod`** (edge_cut=None natural, edge_cut dict fragmented), keeping it as the thin
-  EDA-artifact writer (its floor/maxK `cc_summary` + `cc_cluster_composition` on top). Do NOT delete it — the
-  `plot_cc_*` figures consume its artifacts. (Front-end/positives are already shared via `build_frontend`.)
+- **RESOLVED (was TECH DEBT) — `build_cc_structure.py` atom-logic duplication** (flagged 2026-07-24,
+  closed by 2026-07-31). The CC-derivation + fragmentation (attach_cluster_ids → `cluster_ccs` →
+  fragment_until → re-derive CCs) is no longer coded twice: both `build_cc_structure.main` and
+  `_build_fragmented` call `dataset_pairs_cc.assign_atoms_prod` (edge_cut=None natural, edge_cut dict
+  fragmented), leaving build_cc_structure as the thin EDA-artifact writer (its floor/maxK `cc_summary`
+  + `cc_cluster_composition` on top). Do NOT delete it — the `plot_cc_*` figures consume its artifacts.
 - **NEXT: generate the OOD/non-OOD datasets** (`--config_bundle flu_ha_na_cc_nt_cds_ood_ood_vs_random
   --out_dir …/runs/dataset_cc_nt_cds_ood_ood_vs_random_t095`) → **Stage-4 training GATED** (no launch without
   explicit OK). Stale `data/datasets/` runs cleared by the user 2026-07-24.

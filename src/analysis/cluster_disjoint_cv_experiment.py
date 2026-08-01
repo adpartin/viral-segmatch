@@ -4,7 +4,7 @@ Standalone harness (not the Stage-3/4 production pipeline) for the score-vs-t cu
 under cluster-disjoint CV on k-mer features. Two experiment modes share the fold
 machinery (GroupKFold by `atom_id`, 1:1 within-fold negatives, per-fold metrics):
 
-  --strategy natural  (Exp 1-2, m-sweep): atom == bipartite CC; cap `m` pairs per CC
+  --strategy natural  (Exp 1-2, m-sweep): atom == CC; cap `m` pairs per CC
       (`--max_per_cc` swept); at low t the per-CC cap also bounds the mega-CC so the
       folds stay balanced. Plots `msweep_{A}_{B}_{alphabet}.png`.
   --strategy cut      (Exp 3, fixed-N): the mega-CC is edge-min-cut into atoms

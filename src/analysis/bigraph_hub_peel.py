@@ -1,7 +1,7 @@
 """Greedy hub-peel on the cluster-level bigraph: pairs-dropped vs largest-CC fraction.
 
-Tests the foundation claim that the bipartite mega-CC is held together by a few
-high-pair-mass bipartite hubs that are also cut nodes (articulation points), so
+Tests the foundation claim that the mega-CC is held together by a few
+high-pair-mass bigraph hubs that are also cut nodes (articulation points), so
 fragmenting it to recover an 80/10/10-feasible largest component costs data
 proportional to those hubs' pair mass — not the cheap peripheral bridges. The
 companion property script (`bigraph_properties.py`) measures the static

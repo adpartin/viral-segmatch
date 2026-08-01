@@ -9,7 +9,7 @@ bigraph (nodes = clusters, edges = co-occurrences):
       in an atom       -- a connected (sub-)component; the GroupKFold SPLIT unit
 
 `assign_atoms` tags every pair with `cluster_pair_id`, `cc_id`, and `atom_id`:
-  - strategy='natural': atom = the bipartite CC (`atom_id == cc_id`). At low `t` one
+  - strategy='natural': atom = the CC (`atom_id == cc_id`). At low `t` one
     mega-CC dominates, so GroupKFold-by-atom needs per-CC capping to stay balanced.
   - strategy='cut': the mega-CC is fragmented by edge min-cut (`_megacc_cut`'s
     `fragment_weighted` with `uniform_targets(k_folds)`) into atoms each <= ~1/k of

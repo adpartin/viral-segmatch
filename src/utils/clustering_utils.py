@@ -932,7 +932,7 @@ def connected_components_from_hits(
     graph give identical `cluster_id`s regardless of union order.
 
     NOTE: this is a connected component of the single-segment SIMILARITY graph
-    (nodes = sequences) -- a *cluster* / *mega-cluster*, NOT the bipartite CC /
+    (nodes = sequences) -- a *cluster* / *mega-cluster*, NOT the CC /
     mega-CC of 2D-CD routing (see docs/methods/glossary.md).
 
     Returns a DataFrame `[<hash_col>, cluster_id, cluster_rep]` -- the same shape

@@ -1,8 +1,8 @@
-"""Operational 2D-CD CC-size barplot: positive pairs per bipartite connected component.
+"""Operational 2D-CD CC-size barplot: positive pairs per connected component.
 
 The 2D sibling of the 1D cluster-size barplot (`plot_clusters.py --plots barplot`).
 Where that bars single-segment clusters by unique-sequence count for one slot, this
-bars bipartite CCs (2D-CD atoms) by the number of positive pairs they carry, for the
+bars CCs (2D-CD atoms) by the number of positive pairs they carry, for the
 slot PAIR. Reads `cc_pair_sizes.csv` emitted by `src/datasets/dataset_pairs_cc.py`
 (one row per CC: cc_id, n_pairs), so the counts are exactly what the splitter routes
 -- the operational universe, which for nt_cds keeps the codon variants the analysis
