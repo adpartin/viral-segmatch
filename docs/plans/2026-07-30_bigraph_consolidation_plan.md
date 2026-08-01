@@ -96,8 +96,12 @@ dirs disagree with existing ones.
     scripts, so it was a live function serving dead code.
   - Dead-code audit over all 85 graph-related functions in live `src/`: exactly two had zero live
     callers, both removed — `_cv_sampling.assign_cc` (a back-compat alias for
-    `assign_atoms(strategy='natural')`, referenced only by a `docs/plans/done/` plan) and
-    `_cc_artifacts.load_cc_summary` (added and never used in the same session).
+    `assign_atoms(strategy='natural')`) and `_cc_artifacts.load_cc_summary` (added and never used
+    in the same session). Confirmed by a filesystem-wide grep, not just a tracked-file one: every
+    directory including the ruff-excluded `notebooks/`, `eda/`, `examples/`, `documentation/`,
+    `reports/`, and `llms/` (excluding only `.git/` and `data/`) has zero code references to
+    either. Caveat: `assign_cc` existed as a back-compat alias, so code OUTSIDE this repo that
+    imported it would now break.
   - This closes §6.2 for these four callers by construction — they read the production universe
     (78,764) rather than `load_pair_universe`'s aa-keyed 58,826.
 - **"bipartite" retired** (item 3), as the two rules. By the time it ran, 4a had deleted
@@ -116,9 +120,9 @@ dirs disagree with existing ones.
   `build_pair_bigraph`, `edges_to_row_index`, and `ranked_ccs`; `_megacc_cut`, `_pair_helpers`
   (lazy import dropped), `_cv_sampling` (two hand-rolled graph loops dropped), and the four
   `bigraph_*` analysis scripts all consume it. `build_bipartite_multigraph` (45 lines) and
-  `weighted_simple` (11) deleted; `bigraph_properties.build_cluster_bigraph` is the remaining
-  hash→cluster mapping adapter. `per_cc_stats` / `hub_peel` converted to `weight=` (item 4b's
-  Gen-2 port is still open — this only changed the representation they read). **Item 4a is
+  `weighted_simple` (11) deleted; the hash→cluster mapping adapter `build_cluster_bigraph` was
+  introduced here and later moved to `src/archive/` (see the 4b entry). `per_cc_stats` /
+  `hub_peel` converted to `weight=` (this only changed the representation they read). **Item 4a is
   closed.** Two determinism bugs fixed on the way: `hub_peel` picked its heaviest candidate by
   scanning a `set` (hash-seed dependent), and `bridges.csv` row/endpoint order followed DFS
   traversal — both now canonical.
