@@ -80,6 +80,16 @@ dirs disagree with existing ones.
   `docs/architecture.md` § Layering (new; carries the rule, the grep, the exception, and the
   `src/archive/` note) plus a call-site comment. The source-file map there was corrected for both
   moves. **Item 1 is closed.**
+- **One bigraph builder** (item 4a). New leaf `src/datasets/_bigraph.py` holds
+  `build_pair_bigraph`, `edges_to_row_index`, and `ranked_ccs`; `_megacc_cut`, `_pair_helpers`
+  (lazy import dropped), `_cv_sampling` (two hand-rolled graph loops dropped), and the four
+  `bigraph_*` analysis scripts all consume it. `build_bipartite_multigraph` (45 lines) and
+  `weighted_simple` (11) deleted; `bigraph_properties.build_cluster_bigraph` is the remaining
+  hash→cluster mapping adapter. `per_cc_stats` / `hub_peel` converted to `weight=` (item 4b's
+  Gen-2 port is still open — this only changed the representation they read). **Item 4a is
+  closed.** Two determinism bugs fixed on the way: `hub_peel` picked its heaviest candidate by
+  scanning a `set` (hash-seed dependent), and `bridges.csv` row/endpoint order followed DFS
+  traversal — both now canonical.
 - **Hygiene** (item 2). `cluster_source.CLUSTERS_ROOT` is now the single per-alphabet cluster-root
   map, consumed by `_cv_sampling` (its hardcoded `_ROOT` deleted) and the `--clusters_{aa,nt}` CLI
   defaults of `bigraph_min_cut` / `bigraph_hub_peel` / `bigraph_properties` /
@@ -118,6 +128,33 @@ natural spread, so this delta can be attributed rather than assumed.
 
 Baseline digests: `tests/golden/megacc_cut/fold_baseline_*.json`, captured by
 `scripts/capture_2dcd_fold_baseline.py`.
+
+**Stored `cc_nt_cds_*` artifacts vs current code** (checked 2026-07-31, all 3 sources × 5
+thresholds × {natural, fragmented} = 30 artifacts, read-only re-derivation):
+- **Partition identical in all 30** — every CC holds the same `pair_key` set. Zero partition changes.
+- **All 15 `fragment_audit.json` identical** on `n_cuts` / `n_atoms` / `pairs_dropped` /
+  `dropped_frac` / `stopped_reason`. All were built with `cut_method: spectral`, the path item 4a
+  leaves untouched.
+- **`cc_id` labels differ** (so `cc_sizes.csv` does too). The cause is `6055a85`, not item 4a:
+  the artifacts date to 2026-07-26 and the label-ordering change landed 2026-07-30. Confirmed by
+  replicating `cluster_ccs`'s pre-4a body verbatim and diffing — identical in 15/15.
+- **Caveat**: the CC structure reproduces, a split derived from it need not. `_lpt_bin_pack` sorts
+  atoms by `(-size, cc_id)`, so relabelling can move size-tied CCs between folds (§3's 72% churn).
+
+**Item 4a is behaviour-preserving on every production path** (before/after capture of 4 scripts
+× 25 artifacts, plus the `assign_atoms` digest):
+- Byte-identical: `min_cut_*_spectral.csv` (aa + nt_cds), both `hub_peel_*.csv`.
+- Same content, canonical relabelling: `graph_props.csv` (all 5,700 aa / 5,934 nt stat rows equal
+  as a multiset with `cc_id` excluded), `node_degrees.csv`, `cut_nodes.csv`, `bridges.csv` (same
+  bridge SET — the diff was endpoint order), `pair_2d cells` (same `(node_a, node_b, n_pairs)`
+  and the same `kept` flag on all 10,756 cells), and `assign_atoms` spectral on all 10 configs
+  (audits identical).
+- **Changed: Kernighan-Lin only.** KL depends on node iteration order, so canonical ordering
+  moves it — `min_cut --method kl` t095 went from 1 cut / 5,925 dropped to 2 cuts / 2,640, and
+  `assign_atoms(cut_method='kl')` moved in both directions. Neither is "correct"; KL is a
+  heuristic. **Unreachable from production**: `_megacc_cut`'s three loops, `_cv_sampling`, and
+  `_split_helpers` all default to `spectral`, and all four configs naming `cut_method` set
+  `spectral`. Spectral is unaffected because `_bisect` already sorted nodes before the eigensolve.
 
 **Item 1a is behaviour-preserving** (verified, not assumed):
 - `assign_atoms` on aa HA-NA × t099..t095 × {natural, cut}: the full
@@ -210,8 +247,11 @@ splits); `_cv_sampling.assign_atoms` (the third split path).
 `pair_key_alphabet`, but its default is still `'aa'`, so nothing changed yet: every current caller
 builds the universe once with the aa key and then maps nt_cds hashes off it. `keep='first'` picks
 one arbitrary CDS representative per protein pair, so those nt_cds analyses see **58,826** HA-NA
-pairs where the true nt_cds universe has **79,347** — a 26% undercount (measured on
-`cds_dna_final.parquet`; the plan previously recorded 78,764, which did not reproduce).
+pairs where the nt_cds-keyed universe has **79,347** — a 26% undercount (both measured on
+`cds_dna_final.parquet` via `load_pair_universe`). Not to be confused with the **78,764**
+recorded elsewhere in this plan and in `fragment_audit.json`: that is the *production* HA-NA
+nt_cds universe (`build_pair_universe`, after the v2 filters), a different and equally correct
+quantity. Compare like with like when judging the undercount.
 
 Flipping a caller changes its published nt_cds numbers, so it is a decision, not a cleanup. The
 callers, and what each would need:

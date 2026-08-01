@@ -19,9 +19,10 @@ Archived 2026-07-30, during the bigraph/fragmentation consolidation:
 | `bigraph_cut_subtype.py` | its `pair_key_to_subtype` was absorbed by the generalized helper | `_pair_helpers.pair_key_to_metadata(..., fields=('hn_subtype',))` |
 
 All four read the analysis-side `load_pair_universe`, which by default dedups on `prot_hash` for
-**every** alphabet — so their nt_cds numbers count 58,826 pairs where the true nt_cds universe for
-HA-NA has 79,347 (measured on `cds_dna_final.parquet`). Treat any nt_cds figure they produced as
-aa-deduped.
+**every** alphabet — so their nt_cds numbers count 58,826 HA-NA pairs where the nt_cds-keyed
+universe has 79,347 (both via `load_pair_universe` on `cds_dna_final.parquet`; the production
+universe, after the v2 filters, is 78,764 — a third, separate quantity). Treat any nt_cds figure
+they produced as aa-deduped.
 
 Imports here are repointed when a live symbol they depend on moves — enough to keep them readable
 and importable, nothing more. As of 2026-07-31 all four import cleanly, but that is a courtesy, not

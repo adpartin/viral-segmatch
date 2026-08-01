@@ -118,7 +118,7 @@ def load_pair_universe(
 
     **The default is `'aa'`, which is WRONG for nt_cds analyses** — it collapses each protein
     pair to one arbitrary CDS representative (`keep='first'`), so an nt_cds analysis run off the
-    default sees 58,826 HA-NA pairs where the true nt_cds universe has 79,347 (a 26% undercount,
+    default sees 58,826 HA-NA pairs where the nt_cds-keyed universe has 79,347 (a 26% undercount,
     measured on `cds_dna_final.parquet`). The default is kept only so existing callers stay
     byte-identical; every caller mapping nt_cds hashes downstream should pass
     `pair_key_alphabet='nt_cds'`. Switching one is a results-changing decision — re-run and
