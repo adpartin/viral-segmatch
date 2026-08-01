@@ -9,7 +9,7 @@ min-cut**, remove stale analysis scripts, and bring the production split path in
 project's coding conventions. Covers `src/datasets/` (the splitters) and the `src/analysis/bigraph_*`
 family.
 
-Related: `docs/plans/2026-07-21_cc_structure_prestep_plan.md` (the `cc_{source}` artifacts these
+Related: `docs/plans/done/2026-07-21_cc_structure_prestep_plan.md` (the `cc_{source}` artifacts these
 analyses should read), `docs/methods/glossary.md` (canonical terms).
 
 Environment: `/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/cepi/bin/python` (has omegaconf +
@@ -205,8 +205,12 @@ thresholds × {natural, fragmented} = 30 artifacts, read-only re-derivation):
 
 3. **Retire "bipartite"** -- DONE (see §2), as two rules with the algorithm names kept.
 4. **One bigraph builder + Gen-2 ports** -- DONE (see §2). Items 4a and 4b both closed.
-5. **Reconcile** `docs/plans/2026-07-21_cc_structure_prestep_plan.md` — its §7 build order is
-   complete; either close it or record what remains.
+5. **Reconcile the cc-structure prestep plan** -- DONE. All seven of its build-order steps verified
+   complete and its §6.3 table reproduced exactly from `cc_summary.json`; marked IMPLEMENTED and
+   moved to `docs/plans/done/`. Its long-term goal (retire the ad-hoc `bigraph_*` analysis in
+   favour of these artifacts) was met by item 4b.
+
+**All items are closed.**
 
 ## 5. Walkthrough (understanding pass, interleaves with the above)
 

@@ -1,8 +1,39 @@
 # CC-structure pre-step: persist the pair universe + per-t CC data
 
-**Status: IN PROGRESS**
+**Status: IMPLEMENTED**
 
-Date: 2026-07-21
+Date: 2026-07-21 (closed 2026-07-31)
+
+## Closing note (2026-07-31)
+
+All seven §7 build-order steps are done, verified against the repo and the artifacts on disk:
+
+1-4. `pair_universe_nt_cds/HA-NA/pairs.parquet` (78,764 pairs) plus, per threshold,
+   `pairs_with_cc.parquet` / `cc_sizes.csv` / `cc_cluster_composition.csv` / `cc_summary.json`.
+5. `stacked_composition_barplot` is in `src/utils/plot_utils.py`; `pair_key_to_metadata` is in
+   `src/datasets/_pair_helpers.py` (and is alphabet-agnostic via `hash_col`).
+6. `src/analysis/plot_cc_sizes.py` and `src/analysis/plot_cc_composition.py`.
+7. `src/datasets/build_cc_structure.py` is `--config_bundle` driven.
+
+**§6.3 reproduces exactly** — `cc_summary.json` for `cc_nt_cds_ood/HA-NA` returns the table's own
+numbers at all four thresholds (t099 85.7% / NA_0 29.9% / K=3; t098 95.1% / 34.2% / K=2;
+t097 97.9% / 35.8% / K=2; t095 98.7% / 37.1% / K=2), so the finding it records still holds: one
+diffuse mega-CC at every `t`, NA_0 the pair-mass floor throughout, no `t` supporting balanced
+5-fold.
+
+Deviations from the plan as written, all in the "did more" direction:
+- **§8.2 superseded.** "`_ood` only for now" — three cluster sources are now built
+  (`cc_nt_cds_cm0`, `_cm1`, `_ood`), each × 5 thresholds (t099..t095, one more than the four
+  planned), each with a `fragmented/` sibling holding the post-edge-cut structure.
+- **§4 `figures/` subdir not used.** Plots are written under `results/…` by the plot scripts'
+  `--out_dir` / `--out_png` rather than beside the data.
+- **§5 is stale in one name only**: it lists `bipartite_components` as the CC helper; that became
+  `cluster_ccs` (2026-07-30, `6055a85`), reached through `dataset_pairs_cc.assign_atoms_prod`.
+
+The plan's stated long-term goal — "a correct nt_cds replacement for the ad-hoc `bigraph_*`
+analysis (long-term retirement target)" — was reached on 2026-07-31: all four `bigraph_*` scripts
+now read these artifacts (`8c421ca`, item 4b of
+`docs/plans/2026-07-30_bigraph_consolidation_plan.md`).
 
 Scope: a Stage-2.5 pre-step that builds and persists the positive **pair universe** (per alphabet,
 schema-pair) and the per-`t` **CC structure** (sizes, single-side-cluster composition, floor), so CC
