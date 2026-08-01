@@ -36,7 +36,16 @@ Follow-ups deliberately left open, none blocking:
 - `cc_aa_*` artifacts do not exist, so the aa CV harness (`cluster_disjoint_cv_experiment`,
   `cluster_disjoint_regime_cv`, `cluster_pair_weight_topk`) still uses the Gen-1
   `load_pair_universe` path. Correct on aa; would need artifacts to port.
-- `_cv_sampling` still carries a hardcoded `_ROOT` cluster-path map (§4 item 2 hygiene).
+- **(Corrected 2026-07-31: an earlier draft of this list claimed `_cv_sampling` still carries a
+  hardcoded `_ROOT` map. It does not — item 2 replaced it with
+  `from src.utils.cluster_source import CLUSTERS_ROOT as _ROOT`.)** The real residual is one level
+  down: `data/processed/flu/July_2025` is baked into 21 live `src/` files. 17 are `src/analysis`
+  CLI defaults (overridable by flag, normal for a CLI); the production dataset builders derive the
+  path from config (`build_cc_structure`: `processed_base = cluster_id_path.parents[2]`). Only two
+  are module-level constants on a production path — `cluster_source._PROC` and
+  `_cc_helpers._MEMB_DIR` (the latter defaults `build_cc_isolate_pool`'s membership table, already
+  overridable via `membership_path`). Latent portability, not a correctness bug: it bites only
+  when a second virus or `data_version` appears, and there is none to test a fix against.
 - CC artifacts cover HA-NA only, t099..t095; other pairs/thresholds on demand via
   `build_cc_structure.py`.
 
