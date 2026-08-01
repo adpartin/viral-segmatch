@@ -1,12 +1,12 @@
-"""Bipartite graph properties on the (cluster-level) HA-NA cooccurrence graph.
+"""Bigraph properties on the (cluster-level) HA-NA cooccurrence graph.
 
-For each (schema_pair, alphabet, threshold), builds the bipartite multigraph
-where:
+For each (schema_pair, alphabet, threshold), builds the cluster-level bigraph
+(`_bigraph.build_pair_bigraph`) where:
   - Side A = slot-a clusters (e.g., HA clusters)
   - Side B = slot-b clusters (e.g., NA clusters)
-  - Edges = one per row in the pair_key-deduped pair universe; multiple
-    distinct sequence pairs that map to the same (cluster_a, cluster_b)
-    tuple contribute parallel edges (multigraph).
+  - Edges = one per (cluster_a, cluster_b) cluster pair, with `weight` = the number
+    of pair_key-deduped pair-universe rows on it. So a component's PAIR count is
+    `size(weight='weight')` and its CLUSTER-PAIR count is `number_of_edges()`.
 
 Then computes per-CC structural properties used to inform splitter design:
   - Per-CC: node counts on each side, unique-edge count, pair count (with
@@ -48,7 +48,7 @@ Outputs (under --out_dir):
         max_simple_degree_{a,b}, pairmass_gini_{a,b}
     largest_cc/{slug}_{alphabet}_{threshold}/
         node_degrees.csv          always — per-node simple_degree + pair_mass
-                                  (multigraph degree = incident pairs) +
+                                  (weighted degree = incident pairs) +
                                   is_cut_node, sorted by pair_mass
         bridges.csv               always — edge list of bridges
         cut_nodes.csv             always — cut nodes with simple_degree +
@@ -73,36 +73,44 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.datasets._bigraph import build_pair_bigraph, ranked_ccs
 from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 # Default threshold range. Matches cluster_pair_weight_topk._DEFAULT_THRESHOLDS.
 _DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(100, 89, -1)]
 
 
-def build_bipartite_multigraph(
+def build_cluster_bigraph(
     pair_universe: pd.DataFrame,
     ha_cluster_map: dict,
     na_cluster_map: dict,
     alphabet: str,
-) -> tuple[nx.MultiGraph, int]:
-    """Build the cluster-level bipartite multigraph from the pair universe.
+) -> tuple[nx.Graph, int]:
+    """Map the pair universe onto clusters and build the cluster-level bigraph.
 
-    Side-prefixed node IDs ('a:HA_5', 'b:NA_12') keep the two sides
-    disjoint even when cluster IDs collide across slots. Each row in
-    pair_universe contributes one edge; multiple rows mapping to the
-    same (cluster_a, cluster_b) tuple become parallel edges.
+    Thin adapter over the shared `_bigraph.build_pair_bigraph`: this half does the
+    hash -> cluster_id mapping the analysis pair universe needs; the graph itself is
+    the one every other consumer uses (weighted simple `nx.Graph`, edge `weight` =
+    positive pairs).
+
+    Replaces the former `build_bipartite_multigraph`, which built an `nx.MultiGraph`
+    with one edge per row. The two carry the same information -- pair mass is
+    `degree(weight='weight')` instead of the multigraph `degree`, and a component's
+    pair count is `size(weight='weight')` instead of `number_of_edges()` -- but the
+    simple graph needs no `nx.Graph(...)` projection before `nx.bridges` /
+    `nx.articulation_points`, and it inherits `build_pair_bigraph`'s canonical
+    (sorted) node order, so results no longer depend on pair-universe row order.
 
     Args:
-        pair_universe: from load_pair_universe; one row per unique
-            canonical protein pair.
+        pair_universe: from load_pair_universe; one row per unique canonical pair.
         ha_cluster_map: {hash -> cluster_id} for slot-a (HA).
         na_cluster_map: {hash -> cluster_id} for slot-b (NA).
         alphabet: 'aa' (uses prot_hash_{a,b}) or 'nt_cds' (uses cds_dna_hash_{a,b}).
 
     Returns:
-        (G, n_unmapped). G is the multigraph; n_unmapped is the number of
-        pair-universe rows dropped because either endpoint lacked a
-        cluster assignment (should be 0 if clusters cover the corpus).
+        (H, n_unmapped). H is the weighted simple bigraph; n_unmapped is the number of
+        pair-universe rows dropped because either endpoint lacked a cluster assignment
+        (should be 0 if clusters cover the corpus).
     """
     if alphabet == 'aa':
         col_a, col_b = 'prot_hash_a', 'prot_hash_b'
@@ -115,15 +123,10 @@ def build_bipartite_multigraph(
     df['_cluster_a'] = df[col_a].map(ha_cluster_map)
     df['_cluster_b'] = df[col_b].map(na_cluster_map)
     n_unmapped = int(df[['_cluster_a', '_cluster_b']].isna().any(axis=1).sum())
-    df = df.dropna(subset=['_cluster_a', '_cluster_b'])
+    df = df.dropna(subset=['_cluster_a', '_cluster_b']).reset_index(drop=True)
 
-    edges = [
-        (f'a:{ca}', f'b:{cb}')
-        for ca, cb in zip(df['_cluster_a'].values, df['_cluster_b'].values)
-    ]
-    G = nx.MultiGraph()
-    G.add_edges_from(edges)
-    return G, n_unmapped
+    H, _edge_rows = build_pair_bigraph(df, col_a='_cluster_a', col_b='_cluster_b')
+    return H, n_unmapped
 
 
 def _gini(values) -> float:
@@ -147,7 +150,7 @@ def _side_concentration(masses: list, simple_degrees: list, n_pairs: int, side: 
     Each edge has exactly one endpoint per side, so a side's per-node
     pair_mass sums to n_pairs; top-k pair_mass / n_pairs is the share of the
     CC's pairs carried by that side's k heaviest clusters. `pair_mass` is the
-    multigraph degree (incident pairs = data dropped if the node is removed);
+    weighted degree (incident pairs = data dropped if the node is removed);
     `simple_degree` is the count of distinct opposite-side partners.
     """
     m = np.sort(np.asarray(masses, dtype=float))[::-1]
@@ -161,18 +164,23 @@ def _side_concentration(masses: list, simple_degrees: list, n_pairs: int, side: 
 
 
 def per_cc_stats(
-    G: nx.MultiGraph,
+    H: nx.Graph,
     compute_lambda_largest: bool = False,
     max_sec_lambda: int = 600,
 ) -> tuple[pd.DataFrame, Optional[dict]]:
     """One row per CC; bridges + cut nodes always; λ optional (largest only).
 
-    Bridges and cut nodes are computed on the simple-graph projection of
-    each CC (`nx.Graph(subgraph)`) because parallel edges in the
-    multigraph would never qualify as bridges (their parallel partner
-    keeps the endpoints connected). For routing purposes parallel edges
-    are "free" — they all travel with their endpoints regardless — so
-    bridge/cut analysis on the simple projection is the relevant view.
+    Takes the weighted simple bigraph (`_bigraph.build_pair_bigraph`), so bridges and
+    cut nodes run on it directly — no `nx.Graph(multigraph)` projection per component.
+    That projection was never about losing information: parallel edges can never be
+    bridges (their partner keeps the endpoints connected), and for routing they are
+    "free" — they travel with their endpoints regardless. The weighted simple graph is
+    that view natively, with the multiplicity kept on `weight` where it is still needed
+    (pair mass, per-CC pair count).
+
+    `cc_id` is the canonical `ranked_ccs` order — largest CC first by pair count, ties on
+    the lowest node id — so `cc_id == 0` is the mega-CC and ids do not depend on row or
+    insertion order (they previously did).
 
     Returns:
         (cc_df, largest_cc_artifacts) where largest_cc_artifacts is a
@@ -180,26 +188,22 @@ def per_cc_stats(
         'cut_nodes', and optionally 'min_cut', 'lambda' — used by the
         caller to write the per-largest-CC subdir.
     """
-    ccs = list(nx.connected_components(G))
+    ccs = ranked_ccs(H)
     if not ccs:
         return pd.DataFrame(), None
-    # Identify largest CC by edge count in the multigraph (= n_pairs).
-    cc_sizes = [(i, G.subgraph(cc).number_of_edges()) for i, cc in enumerate(ccs)]
-    cc_sizes.sort(key=lambda x: -x[1])
-    largest_cc_id = cc_sizes[0][0]
+    largest_cc_id = 0   # ranked_ccs is largest-pair-count first
 
     rows = []
     largest_artifacts: Optional[dict] = None
     for cc_id, cc_nodes in enumerate(ccs):
-        subg_multi = G.subgraph(cc_nodes)
-        subg_simple = nx.Graph(subg_multi)
+        subg_simple = H.subgraph(cc_nodes)
 
-        # Per-node pair_mass (multigraph degree = incident pairs) and
+        # Per-node pair_mass (summed incident edge weight = incident pairs) and
         # simple_degree (distinct opposite-side partners), split by side.
         masses_a, masses_b = [], []
         sdeg_a, sdeg_b = [], []
         for n in cc_nodes:
-            pm = subg_multi.degree(n)
+            pm = subg_simple.degree(n, weight='weight')
             sd = subg_simple.degree(n)
             if n.startswith('a:'):
                 masses_a.append(pm)
@@ -210,8 +214,8 @@ def per_cc_stats(
 
         n_nodes_a = len(masses_a)
         n_nodes_b = len(masses_b)
-        n_pairs = subg_multi.number_of_edges()
-        n_unique_edges = subg_simple.number_of_edges()
+        n_pairs = int(subg_simple.size(weight='weight'))   # pairs, not cluster pairs
+        n_unique_edges = subg_simple.number_of_edges()     # cluster pairs
 
         bridges = list(nx.bridges(subg_simple))
         cut_nodes = list(nx.articulation_points(subg_simple))
@@ -252,7 +256,7 @@ def per_cc_stats(
                     'side': side,
                     'cluster_id': cid,
                     'simple_degree': int(subg_simple.degree(n)),
-                    'pair_mass': int(subg_multi.degree(n)),
+                    'pair_mass': int(subg_simple.degree(n, weight='weight')),
                     'is_cut_node': n in cut_set,
                 })
             node_df = (pd.DataFrame(node_rows)
@@ -294,9 +298,16 @@ def write_largest_cc_artifacts(
         .reset_index(drop=True)
         .to_csv(out_dir / 'cut_nodes.csv', index=False))
 
+    # `nx.bridges` yields each edge in DFS-traversal order, so the endpoint that lands
+    # first -- and the row order -- depend on node insertion order. Canonicalize both:
+    # slot-A endpoint into the `_a` columns, then sort. Same bridge SET either way, but
+    # the file is now reproducible rather than an artifact of traversal.
+    bridge_rows = sorted(
+        (_split(u) + _split(v)) if u.startswith('a:') else (_split(v) + _split(u))
+        for u, v in artifacts['bridges']
+    )
     pd.DataFrame(
-        [_split(u) + _split(v) for u, v in artifacts['bridges']],
-        columns=['side_a', 'cluster_a', 'side_b', 'cluster_b'],
+        bridge_rows, columns=['side_a', 'cluster_a', 'side_b', 'cluster_b'],
     ).to_csv(out_dir / 'bridges.csv', index=False)
 
     if artifacts['min_cut'] is not None:
@@ -365,14 +376,15 @@ def main() -> None:
 
             print(f"=== {alphabet} {threshold} ===")
             t0 = time.time()
-            G, n_unmapped = build_bipartite_multigraph(universe, ha_cmap, na_cmap, alphabet)
+            H, n_unmapped = build_cluster_bigraph(universe, ha_cmap, na_cmap, alphabet)
             if n_unmapped > 0:
                 print(f"  WARNING: {n_unmapped} pair-universe rows dropped (unmapped endpoint).")
-            print(f"  graph: {G.number_of_nodes():,} nodes, "
-                  f"{G.number_of_edges():,} edges (multigraph)")
+            print(f"  graph: {H.number_of_nodes():,} nodes, "
+                  f"{H.number_of_edges():,} cluster pairs, "
+                  f"{int(H.size(weight='weight')):,} pairs")
 
             cc_df, largest_artifacts = per_cc_stats(
-                G,
+                H,
                 compute_lambda_largest=args.compute_lambda_largest,
                 max_sec_lambda=args.max_sec_lambda,
             )

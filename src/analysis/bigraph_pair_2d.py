@@ -61,7 +61,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.bigraph_min_cut import min_cut_recursive
-from src.analysis.bigraph_properties import build_bipartite_multigraph
+from src.analysis.bigraph_properties import build_cluster_bigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
 from src.datasets._pair_helpers import pair_key_to_metadata
 from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
@@ -300,12 +300,12 @@ def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphab
     if not cmap_a or not cmap_b:
         print(f'  [{alphabet} {threshold}] missing cluster parquet; skipping.')
         return
-    G, n_unmapped = build_bipartite_multigraph(universe, cmap_a, cmap_b, alphabet)
+    G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, alphabet)
     if no_cut:
         # Pre-fragmentation view: atoms = natural CCs. Every pair's two endpoints
         # share its CC by definition, so nothing straddles -> no red x markers.
         comps = sorted(nx.connected_components(G),
-                       key=lambda c: G.subgraph(c).number_of_edges(), reverse=True)
+                       key=lambda c: G.subgraph(c).size(weight='weight'), reverse=True)
         dropped_frac = 0.0
     else:
         df, H, dropped_edges = min_cut_recursive(

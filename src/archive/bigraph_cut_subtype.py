@@ -37,7 +37,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.bigraph_min_cut import min_cut_recursive
-from src.analysis.bigraph_properties import build_bipartite_multigraph
+from src.analysis.bigraph_properties import build_cluster_bigraph
 from src.analysis.cluster_pair_weight_topk import _FUNCTION_TO_SHORT, load_pair_universe
 from src.datasets._pair_helpers import canonical_pair_key
 from src.utils.cluster_source import cluster_map_for_root as load_cluster_map
@@ -102,7 +102,7 @@ def main() -> None:
     universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
     cmap_a = load_cluster_map(clusters_root, slot_a, args.threshold)
     cmap_b = load_cluster_map(clusters_root, slot_b, args.threshold)
-    G, _ = build_bipartite_multigraph(universe, cmap_a, cmap_b, args.alphabet)
+    G, _ = build_cluster_bigraph(universe, cmap_a, cmap_b, args.alphabet)
     print(f"  {len(universe):,} pairs; graph {G.number_of_nodes():,} nodes")
 
     print(f"Running {args.method} min-cut ...")

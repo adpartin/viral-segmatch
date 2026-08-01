@@ -33,7 +33,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import networkx as nx
 import numpy as np
 import pandas as pd
 
@@ -46,7 +45,8 @@ if str(PROJ) not in sys.path:
 # the aa harness uses. `cluster_map_for_root` resolves (protein, threshold) against the
 # membership table; it comes from its `src/utils` home directly, since this module is
 # production and must not import `src/analysis`.
-from src.datasets._cc_helpers import build_cc_isolate_pool as _cc_build_pool  # noqa: E402
+from src.datasets._bigraph import build_pair_bigraph, ranked_ccs  # noqa: E402
+from src.datasets._cc_helpers import build_cc_isolate_pool as _cc_build_pool
 from src.datasets._cc_helpers import sample_random_within_cc_negatives as _cc_sample_random
 from src.datasets._cc_helpers import sample_regime_negatives as _cc_sample_regime
 from src.datasets._megacc_cut import fragment_weighted, uniform_targets
@@ -95,10 +95,11 @@ def assign_atoms(
     u['node_b'] = 'b:' + u['cluster_b'].astype(str)
     u['cluster_pair_id'] = u['node_a'] + '|' + u['node_b']
 
-    # Natural connected components (the leakage unit, pre-fragmentation).
-    G = nx.Graph()
-    G.add_edges_from(zip(u['node_a'], u['node_b']))
-    node_cc = {n: i for i, c in enumerate(nx.connected_components(G)) for n in c}
+    # Natural connected components (the leakage unit, pre-fragmentation). Same shared builder
+    # and same canonical `(-pair_count, min node id)` ordering as `_pair_helpers.cluster_ccs`,
+    # so cc_id means the same thing on both the harness and production paths.
+    G, _edge_rows = build_pair_bigraph(u, col_a='cluster_a', col_b='cluster_b')
+    node_cc = {n: i for i, c in enumerate(ranked_ccs(G)) for n in c}
     u['cc_id'] = u['node_a'].map(node_cc).to_numpy()
 
     n_natural = len(u)
@@ -138,21 +139,23 @@ def _fragment_atoms(
     ) -> tuple[pd.DataFrame, int]:
     """Edge-min-cut the cluster bigraph to K-uniform atoms; drop straddling pairs.
 
-    Builds the weighted simple graph (one edge per cluster pair, weight = #pairs),
-    fragments it with `fragment_weighted(targets=uniform_targets(k_folds))`, then
-    keeps only pairs whose two clusters share a final atom. The kept/dropped split
-    must equal fragment_weighted's straddler count (asserted).
+    Builds the weighted simple graph via the shared `_bigraph.build_pair_bigraph` (one
+    edge per cluster pair, weight = #pairs), fragments it with
+    `fragment_weighted(targets=uniform_targets(k_folds))`, then keeps only pairs whose
+    two clusters share a final atom. The kept/dropped split must equal
+    fragment_weighted's straddler count (asserted).
+
+    `atom_id` is assigned from `ranked_ccs`, so ids are canonical (largest atom first,
+    ties on lowest node id) rather than an artifact of node insertion order.
     """
-    cp = u.groupby(['node_a', 'node_b']).size().reset_index(name='w')
-    H = nx.Graph()
-    for na, nb, w in zip(cp['node_a'], cp['node_b'], cp['w']):
-        H.add_edge(na, nb, weight=int(w))
+    # Pass the RAW cluster ids: build_pair_bigraph applies the 'a:'/'b:' prefixes itself,
+    # reproducing this frame's node_a/node_b exactly.
+    H, _edge_rows = build_pair_bigraph(u, col_a='cluster_a', col_b='cluster_b')
     cut_df, H_kept, _ = fragment_weighted(
         H, targets=uniform_targets(k_folds), cut_method=cut_method,
         target_frac=1.0 / k_folds, drift_pp=drift_pp, seed=seed)
 
-    node_atom = {n: i for i, c in enumerate(nx.connected_components(H_kept))
-                 for n in c}
+    node_atom = {n: i for i, c in enumerate(ranked_ccs(H_kept)) for n in c}
     atom_a = u['node_a'].map(node_atom)
     atom_b = u['node_b'].map(node_atom)
     keep = (atom_a == atom_b)

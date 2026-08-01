@@ -22,7 +22,6 @@ from itertools import combinations
 from pathlib import Path
 from typing import Optional, Tuple
 
-import networkx as nx
 import numpy as np
 import pandas as pd
 
@@ -31,6 +30,7 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
+from src.datasets._bigraph import build_pair_bigraph, ranked_ccs
 from src.utils import schema
 from src.utils.path_utils import load_dataframe
 
@@ -799,14 +799,11 @@ def cluster_ccs(
     `pos_df` rows leaves every id unchanged. It matters because `_lpt_bin_pack` sorts atoms by
     `(-size, cc_id)`, so the id decides which of two equal-sized CCs is placed first.
     """
-    from src.datasets._megacc_cut import build_pair_bigraph
-
     H, _edge_rows = build_pair_bigraph(pos_df, col_a=col_a, col_b=col_b)
-    # A CC's pair count is its total edge weight (weights sum to the row count); `min(comp)` is the
-    # lowest slot-prefixed node id in it, a deterministic tie-break that ignores row order.
-    ranked = sorted(nx.connected_components(H),
-                    key=lambda comp: (-H.subgraph(comp).size(weight='weight'), min(comp)))
-    node_cc = {node: i for i, comp in enumerate(ranked) for node in comp}
+    # `ranked_ccs` orders by (-pair_count, min node id) -- a CC's pair count is its total edge
+    # weight (weights sum to the row count), and `min(comp)` is the lowest slot-prefixed node id,
+    # a deterministic tie-break that ignores row order.
+    node_cc = {node: i for i, comp in enumerate(ranked_ccs(H)) for node in comp}
 
     # Every row's slot-A node is in exactly one CC, and each edge joins an a: to a b: node, so
     # labelling rows by their slot-A node labels the whole pair.

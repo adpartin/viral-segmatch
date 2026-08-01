@@ -22,8 +22,7 @@ the same cut.
 
 This module is the CLI/report layer only: the cut loop itself is
 `src/datasets/_megacc_cut.fragment_weighted` (one implementation shared with the
-production splitter). What lives here is the multigraph -> weighted-simple
-projection and the per-cut report.
+production splitter). What lives here is the CLI and the per-cut report.
 
 CLI:
     python -m src.analysis.bigraph_min_cut \\
@@ -47,28 +46,14 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import build_bipartite_multigraph
+from src.analysis.bigraph_properties import build_cluster_bigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
 from src.datasets._megacc_cut import fragment_weighted
 from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 
-def weighted_simple(G: nx.MultiGraph) -> nx.Graph:
-    """Collapse the multigraph to a simple graph with edge weight = pair count.
-
-    Sum of all edge weights = number of multigraph edges = pair-universe size.
-    """
-    H = nx.Graph()
-    for x, y in G.edges():
-        if H.has_edge(x, y):
-            H[x][y]['weight'] += 1
-        else:
-            H.add_edge(x, y, weight=1)
-    return H
-
-
 def min_cut_recursive(
-    G: nx.MultiGraph,
+    G: nx.Graph,
     method: str = 'kl',
     target_frac: float = 0.80,
     drift_pp: float = 0.05,
@@ -80,17 +65,21 @@ def min_cut_recursive(
     ):
     """Recursively bisect the largest CC until the kept atoms are LPT-feasible.
 
-    Thin wrapper over `_megacc_cut.fragment_weighted`: collapses the multigraph `G`
-    to its weighted simple projection, then fragments to `targets` (default `None`
-    -> the cut module's 80/10/10; pass `uniform_targets(k)` for K-fold CV). Each row
-    is the state BEFORE a cut (or the final feasible state); drops only crossing
-    edges (straddling pairs); `dropped_frac` is vs the full pair universe.
+    Thin wrapper over `_megacc_cut.fragment_weighted`: fragments the pair-weighted
+    simple bigraph `G` (from `bigraph_properties.build_cluster_bigraph`) to `targets`
+    (default `None` -> the cut module's 80/10/10; pass `uniform_targets(k)` for K-fold
+    CV). Each row is the state BEFORE a cut (or the final feasible state); drops only
+    crossing edges (straddling pairs); `dropped_frac` is vs the full pair universe.
+
+    Does NOT mutate `G` — `fragment_weighted` removes the cut edges in place, so it is
+    handed a copy. (This used to fall out of the `weighted_simple` multigraph
+    projection, which always returned a fresh graph.)
 
     Returns the per-cut DataFrame. If `return_partition`, returns
     `(df, H_kept, dropped_edges)` — the kept weighted simple graph whose
     connected components are the final atoms, and the list of cut (u, v) edges.
     """
-    H = weighted_simple(G)
+    H = G.copy()
     # Omit `targets` when None so `fragment_weighted`'s own 80/10/10 default applies --
     # the constant lives there, not duplicated here.
     targets_kw = {} if targets is None else {'targets': targets}
@@ -135,10 +124,11 @@ def main() -> None:
     cmap_b = cluster_map_for_root(clusters_root, slot_b, args.threshold)
     if not cmap_a or not cmap_b:
         raise SystemExit(f"missing cluster parquet for {args.alphabet} {args.threshold}")
-    G, n_unmapped = build_bipartite_multigraph(universe, cmap_a, cmap_b, args.alphabet)
+    G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, args.alphabet)
     if n_unmapped:
         print(f"  WARNING: {n_unmapped} pair-universe rows dropped (unmapped endpoint).")
-    print(f"  graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} edges (multigraph)")
+    print(f"  graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} cluster pairs, "
+          f"{int(G.size(weight='weight')):,} pairs")
 
     print(f"\nRecursive {args.method.upper()} min-cut until LPT-feasible "
           f"(drift <= {args.drift_pp:.0%}) ...")
@@ -152,7 +142,6 @@ def main() -> None:
     csv_path = out_dir / f'{stem}.csv'
     df.to_csv(csv_path, index=False)
 
-    total = G.number_of_edges()
     le80 = df[df['largest_le_target']]
     feas = df[df['lpt_feasible']]
     print(f"\n  ({elapsed:.1f}s, {len(df) - 1} cut(s))")

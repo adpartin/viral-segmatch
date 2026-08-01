@@ -70,7 +70,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import build_bipartite_multigraph  # noqa: E402
+from src.analysis.bigraph_properties import build_cluster_bigraph  # noqa: E402
 from src.analysis.cluster_pair_weight_topk import (  # noqa: E402
     _FUNCTION_TO_SHORT,
     load_pair_universe,
@@ -390,10 +390,10 @@ def main() -> None:
                 if not cmap_a or not cmap_b:
                     print(f"  [{pair} {alphabet} {t}] missing cluster map; skipping.")
                     continue
-                G, n_unmapped = build_bipartite_multigraph(universe, cmap_a, cmap_b, alphabet)
+                G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, alphabet)
                 if n_unmapped:
                     print(f"  WARNING: {pair} {alphabet} {t} dropped {n_unmapped} unmapped pairs.")
-                n_pairs = G.number_of_edges()
+                n_pairs = int(G.size(weight='weight'))   # pairs, not cluster pairs (weighted simple bigraph)
                 node_cc, sizes = cc_rank_order(G)
                 n_ccs = len(sizes)
 

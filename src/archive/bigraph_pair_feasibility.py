@@ -13,7 +13,7 @@ line marks the 1/K budget. When the largest CC towers over it (e.g. 98% at t095)
 the split is infeasible without a cut.
 
 Self-contained: reuses `load_pair_universe` + the membership-backed
-`load_cluster_map` + `build_bipartite_multigraph`, then `nx.connected_components`.
+`load_cluster_map` + `build_cluster_bigraph`, then `nx.connected_components`.
 
 CLI:
     python -m src.analysis.bigraph_pair_feasibility \\
@@ -48,7 +48,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import build_bipartite_multigraph
+from src.analysis.bigraph_properties import build_cluster_bigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.utils.cluster_source import cluster_map_for_root as load_cluster_map
 from src.utils.clustering_utils import threshold_decimal  # noqa: E402
@@ -158,10 +158,10 @@ def main() -> None:
                 if not cmap_a or not cmap_b:
                     print(f"  [{pair} {alphabet} {t}] missing cluster map; skipping.")
                     continue
-                G, n_unmapped = build_bipartite_multigraph(universe, cmap_a, cmap_b, alphabet)
+                G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, alphabet)
                 if n_unmapped:
                     print(f"  WARNING: {pair} {alphabet} {t} dropped {n_unmapped} unmapped pairs.")
-                n_pairs = G.number_of_edges()
+                n_pairs = int(G.size(weight='weight'))   # pairs, not cluster pairs (weighted simple bigraph)
                 n_cells = len(set(G.edges()))
                 sizes, n_ccs = cc_pair_sizes(G)
 

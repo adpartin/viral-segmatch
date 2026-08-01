@@ -7,10 +7,10 @@ proportional to those hubs' pair mass — not the cheap peripheral bridges. The
 companion property script (`bigraph_properties.py`) measures the static
 structure (degrees, bridges, cut nodes); this script runs the dynamic surgery.
 
-Algorithm (greedy, deterministic). Build the bipartite multigraph for one
+Algorithm (greedy, deterministic). Build the cluster-level bigraph for one
 (schema_pair, alphabet, threshold) from the pair universe (same construction as
-`bigraph_properties.build_bipartite_multigraph`). Then repeat:
-  1. find the largest CC (by pair count = multigraph edges);
+`bigraph_properties.build_cluster_bigraph`). Then repeat:
+  1. find the largest CC (by pair count = summed edge weight);
   2. if its share of the *retained* pairs is <= target, stop;
   3. else remove the largest CC's heaviest node by pair_mass, restricted to cut
      nodes (strategy=cut_node, default — only a cut node can split a component)
@@ -57,19 +57,19 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import build_bipartite_multigraph
+from src.analysis.bigraph_properties import build_cluster_bigraph
 from src.analysis.cluster_pair_weight_topk import load_pair_universe
 from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 
-def _largest_cc_by_pairs(H: nx.MultiGraph) -> set:
-    """Node set of the CC with the most multigraph edges (pairs)."""
+def _largest_cc_by_pairs(H: nx.Graph) -> set:
+    """Node set of the CC carrying the most pairs (greatest total edge weight)."""
     return max(nx.connected_components(H),
-               key=lambda cc: H.subgraph(cc).number_of_edges())
+               key=lambda cc: H.subgraph(cc).size(weight='weight'))
 
 
 def hub_peel(
-    G: nx.MultiGraph,
+    G: nx.Graph,
     target_frac: float = 0.80,
     strategy: str = 'cut_node',
     max_steps: int = 100_000,
@@ -77,17 +77,25 @@ def hub_peel(
     """Greedily peel hubs from the largest CC until it fits `target_frac`.
 
     Each row is the state BEFORE a removal plus the node removed at that step
-    (the final row, where the target is met, has null `removed_*`). pair_mass
-    is the multigraph degree (= incident pairs dropped when the node is
-    removed); fractions are vs the full pair universe (`dropped_frac`,
+    (the final row, where the target is met, has null `removed_*`). `pair_mass`
+    is the WEIGHTED degree (= incident pairs dropped when the node is removed);
+    fractions are vs the full pair universe (`dropped_frac`,
     `largest_frac_of_original`) or vs the retained set (`largest_frac_of_retained`,
     the 80/10/10 feasibility gate).
+
+    Takes the weighted simple bigraph, so `sub` is already the simple projection the
+    articulation-point search needs — no per-step `nx.Graph(multigraph)` conversion.
+
+    Determinism: candidates are scanned in sorted node order, so two hubs tied on
+    pair mass break on the lower node id. Previously the scan ran over a `set`, whose
+    iteration order is PYTHONHASHSEED-dependent, making a tied peel step vary between
+    processes.
     """
     if strategy not in ('cut_node', 'any_node'):
         raise ValueError(f"strategy must be 'cut_node' or 'any_node', got {strategy!r}")
 
     H = G.copy()
-    total_pairs = H.number_of_edges()
+    total_pairs = int(H.size(weight='weight'))
     rows: list[dict] = []
     dropped = 0
     step = 0
@@ -95,7 +103,7 @@ def hub_peel(
     while True:
         largest = _largest_cc_by_pairs(H)
         sub = H.subgraph(largest)
-        lp_pairs = sub.number_of_edges()
+        lp_pairs = int(sub.size(weight='weight'))
         retained = total_pairs - dropped
         frac_ret = lp_pairs / retained if retained > 0 else 0.0
         n_pieces = sum(1 for cc in nx.connected_components(H)
@@ -116,24 +124,25 @@ def hub_peel(
             rows.append(row)
             break
 
-        # Choose the node to remove from the largest CC.
-        simple_sub = nx.Graph(sub)
-        arts = set(nx.articulation_points(simple_sub))
+        # Choose the node to remove from the largest CC. `sub` is already simple.
+        arts = set(nx.articulation_points(sub))
         if strategy == 'cut_node':
             cand_pool = arts if arts else set(largest)
         else:
             cand_pool = set(largest)
-        cand = max(cand_pool, key=lambda n: H.degree(n))  # heaviest by pair_mass
+        # sorted() so a pair-mass tie breaks on the lower node id rather than on set
+        # iteration order (hash-seed dependent, i.e. varying between processes).
+        cand = max(sorted(cand_pool), key=lambda n: H.degree(n, weight='weight'))
         side, cid = cand.split(':', 1)
 
         row['removed_node'] = cid
         row['removed_side'] = side
-        row['removed_pair_mass'] = int(H.degree(cand))
-        row['removed_simple_degree'] = int(simple_sub.degree(cand))
+        row['removed_pair_mass'] = int(H.degree(cand, weight='weight'))
+        row['removed_simple_degree'] = int(sub.degree(cand))
         row['removed_is_cut_node'] = cand in arts
         rows.append(row)
 
-        dropped += H.degree(cand)
+        dropped += H.degree(cand, weight='weight')
         H.remove_node(cand)
         step += 1
 
@@ -214,10 +223,11 @@ def main() -> None:
         raise SystemExit(f"missing cluster parquet for {args.alphabet} {args.threshold} "
                          f"under {clusters_root}")
 
-    G, n_unmapped = build_bipartite_multigraph(universe, cmap_a, cmap_b, args.alphabet)
+    G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, args.alphabet)
     if n_unmapped:
         print(f"  WARNING: {n_unmapped} pair-universe rows dropped (unmapped endpoint).")
-    print(f"  graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} edges (multigraph)")
+    print(f"  graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} cluster pairs, "
+          f"{int(G.size(weight='weight')):,} pairs")
 
     print(f"\nPeeling ({args.strategy}) until largest CC <= {args.target_frac:.0%} of retained ...")
     t0 = time.time()
@@ -235,7 +245,7 @@ def main() -> None:
     print(f"\n  {'REACHED' if reached else 'STOPPED (max_steps)'} after removing "
           f"{n_removed} node(s) in {elapsed:.1f}s")
     print(f"  pairs dropped: {final['pairs_dropped']:,} "
-          f"({final['dropped_frac']:.1%} of the {G.number_of_edges():,}-pair universe)")
+          f"({final['dropped_frac']:.1%} of the {int(G.size(weight='weight')):,}-pair universe)")
     print(f"  largest CC now: {final['largest_cc_pairs']:,} pairs "
           f"= {final['largest_frac_of_retained']:.1%} of retained, "
           f"{int(final['n_components'])} components")
