@@ -180,18 +180,6 @@ def _assert_cluster_disjoint(u: pd.DataFrame) -> None:
                 f">1 atom (e.g. {bad.index[0]} in {int(bad.iloc[0])} atoms)")
 
 
-def assign_cc(
-    universe: pd.DataFrame,
-    slot_a: str,
-    slot_b: str,
-    alphabet: str,
-    threshold: str,
-    ) -> pd.DataFrame:
-    """Back-compat shim for `assign_atoms(strategy='natural')` (atom_id == cc_id)."""
-    return assign_atoms(universe, slot_a, slot_b, alphabet, threshold,
-                        strategy='natural')
-
-
 def sample_positives(
     pairs: pd.DataFrame,
     max_per: int = 1,

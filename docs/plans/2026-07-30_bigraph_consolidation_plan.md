@@ -91,8 +91,13 @@ dirs disagree with existing ones.
   - `hub_peel`, `properties`, `min_cut` are clean ports; `pair_2d` is a documented **hybrid** —
     the artifact is deduped to one row per `pair_key`, so the isolate set behind each pair is
     gone and the modal subtype still comes from `cds_dna_final`.
-  - `bigraph_properties.build_cluster_bigraph` is now live-dead: kept, and marked, only because
-    the four archived scripts still call it.
+  - `build_cluster_bigraph` (the Gen-1 "look up clusters, then build" adapter) moved to
+    `src/archive/_gen1_bigraph.py` — after the ports its only callers were the four archived
+    scripts, so it was a live function serving dead code.
+  - Dead-code audit over all 85 graph-related functions in live `src/`: exactly two had zero live
+    callers, both removed — `_cv_sampling.assign_cc` (a back-compat alias for
+    `assign_atoms(strategy='natural')`, referenced only by a `docs/plans/done/` plan) and
+    `_cc_artifacts.load_cc_summary` (added and never used in the same session).
   - This closes §6.2 for these four callers by construction — they read the production universe
     (78,764) rather than `load_pair_universe`'s aa-keyed 58,826.
 - **"bipartite" retired** (item 3), as the two rules. By the time it ran, 4a had deleted

@@ -76,62 +76,11 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis._cc_artifacts import add_cc_source_args, cc_dir, load_cc_bigraph
-from src.datasets._bigraph import build_pair_bigraph, ranked_ccs
+from src.datasets._bigraph import ranked_ccs
 
 # Default threshold sweep: the range the CC artifacts are built for (t099..t095).
 # Wider sweeps need build_cc_structure.py run for the extra thresholds first.
 _DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(99, 94, -1)]
-
-
-def build_cluster_bigraph(
-    pair_universe: pd.DataFrame,
-    ha_cluster_map: dict,
-    na_cluster_map: dict,
-    alphabet: str,
-) -> tuple[nx.Graph, int]:
-    """Map the pair universe onto clusters and build the cluster-level bigraph.
-
-    **Gen-1 path, retained only for `src/archive/`.** Live analyses read the persisted CC
-    artifacts instead (`_cc_artifacts.load_cc_bigraph`), which start from the PRODUCTION
-    positives rather than `load_pair_universe`'s aa-keyed dedup -- 78,764 HA-NA nt_cds pairs
-    against this path's 58,826. Do not add new callers.
-
-    Thin adapter over the shared `_bigraph.build_pair_bigraph`: this half does the
-    hash -> cluster_id mapping the analysis pair universe needs; the graph itself is
-    the one every other consumer uses (weighted simple `nx.Graph`, edge `weight` =
-    positive pairs).
-
-    Counting convention (see glossary `Simple bigraph`): pair mass is
-    `degree(weight='weight')` and a component's pair count is `size(weight='weight')`;
-    `number_of_edges()` counts CLUSTER pairs. Node order is canonical (sorted), so
-    results do not depend on pair-universe row order.
-
-    Args:
-        pair_universe: from load_pair_universe; one row per unique canonical pair.
-        ha_cluster_map: {hash -> cluster_id} for slot-a (HA).
-        na_cluster_map: {hash -> cluster_id} for slot-b (NA).
-        alphabet: 'aa' (uses prot_hash_{a,b}) or 'nt_cds' (uses cds_dna_hash_{a,b}).
-
-    Returns:
-        (H, n_unmapped). H is the weighted simple bigraph; n_unmapped is the number of
-        pair-universe rows dropped because either endpoint lacked a cluster assignment
-        (should be 0 if clusters cover the corpus).
-    """
-    if alphabet == 'aa':
-        col_a, col_b = 'prot_hash_a', 'prot_hash_b'
-    elif alphabet == 'nt_cds':
-        col_a, col_b = 'cds_dna_hash_a', 'cds_dna_hash_b'
-    else:
-        raise ValueError(f"alphabet must be 'aa' or 'nt_cds', got {alphabet!r}")
-
-    df = pair_universe.copy()
-    df['_cluster_a'] = df[col_a].map(ha_cluster_map)
-    df['_cluster_b'] = df[col_b].map(na_cluster_map)
-    n_unmapped = int(df[['_cluster_a', '_cluster_b']].isna().any(axis=1).sum())
-    df = df.dropna(subset=['_cluster_a', '_cluster_b']).reset_index(drop=True)
-
-    H, _edge_rows = build_pair_bigraph(df, col_a='_cluster_a', col_b='_cluster_b')
-    return H, n_unmapped
 
 
 def _gini(values) -> float:

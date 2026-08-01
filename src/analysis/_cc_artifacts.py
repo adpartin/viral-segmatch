@@ -29,7 +29,6 @@ handing it `fragmented/` would cut an already-cut graph.
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -71,12 +70,6 @@ def load_cc_pairs(d: Path) -> pd.DataFrame:
             f"      --config_bundle flu_ha_na_cc_nt_cds_cm0_wf --thresholds {Path(d).name} --fragment"
         )
     return pd.read_parquet(f)
-
-
-def load_cc_summary(d: Path) -> dict:
-    """`cc_summary.json` from one artifact dir ({} if absent -- it is a convenience, not required)."""
-    f = Path(d) / 'cc_summary.json'
-    return json.loads(f.read_text()) if f.exists() else {}
 
 
 def load_cc_bigraph(d: Path) -> tuple[nx.Graph, pd.DataFrame]:
