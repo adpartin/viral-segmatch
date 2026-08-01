@@ -21,7 +21,7 @@ PROJ = Path(__file__).resolve().parents[1]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.archive.cluster_pair_weight_topk import load_pair_universe
 from src.datasets._pair_helpers import canonical_pair_key
 from src.utils import cluster_source
 from src.utils.config_hydra import load_function_metadata

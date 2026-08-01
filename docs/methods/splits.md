@@ -483,7 +483,7 @@ df = (universe
 ```
 
 Scripts performing this JOIN pattern:
-- `src/analysis/cluster_pair_weight_topk.py` — per-cluster
+- `src/archive/cluster_pair_weight_topk.py` (archived 2026-07-31) — per-cluster
   pair-weight ranking (single-slot view).
 - `src/analysis/cluster_disjoint_feasibility.py` — CC
   feasibility (pair-weighted; multigraph view).

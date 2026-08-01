@@ -70,11 +70,11 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import (  # noqa: E402
+from src.archive._gen1_bigraph import build_cluster_bigraph  # noqa: E402
+from src.archive.cluster_pair_weight_topk import (  # noqa: E402
     _FUNCTION_TO_SHORT,
     load_pair_universe,
 )
-from src.archive._gen1_bigraph import build_cluster_bigraph  # noqa: E402
 from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
 from src.utils.cluster_source import cluster_map_for_root as load_cluster_map  # noqa: E402
 from src.utils.clustering_utils import threshold_decimal  # noqa: E402

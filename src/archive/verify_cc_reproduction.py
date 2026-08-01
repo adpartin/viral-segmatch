@@ -35,10 +35,10 @@ PROJ = Path(__file__).resolve().parents[1]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_disjoint_regime_cv import _DEFAULT_REGIME_TARGETS, build_regime_dataset  # noqa: E402
-from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
+from src.archive._cv_sampling import assign_atoms, build_isolate_context  # noqa: E402
+from src.archive.cluster_disjoint_regime_cv import _DEFAULT_REGIME_TARGETS, build_regime_dataset  # noqa: E402
+from src.archive.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool  # noqa: E402
-from src.datasets._cv_sampling import assign_atoms, build_isolate_context  # noqa: E402
 from src.datasets._pair_helpers import build_cooccurrence_set  # noqa: E402
 from src.datasets._split_helpers import load_cluster_lookup  # noqa: E402
 from src.datasets.dataset_pairs_cc import (  # noqa: E402

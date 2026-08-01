@@ -57,7 +57,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis._cv_features import (  # noqa: E402
+from src.archive._cv_features import (  # noqa: E402
     _HASH,
     _KMER_DIR,
     _labeled,
@@ -65,8 +65,8 @@ from src.analysis._cv_features import (  # noqa: E402
     fit_eval,
     pair_features,
 )
-from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
-from src.datasets._cv_sampling import assign_atoms, make_negatives, sample_positives  # noqa: E402
+from src.archive._cv_sampling import assign_atoms, make_negatives, sample_positives  # noqa: E402
+from src.archive.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 
 _MODEL_COLOR = {'mlp': '#1f77b4', 'lgbm': '#2ca02c', 'knn1': '#d62728'}

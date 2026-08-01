@@ -6,9 +6,8 @@ records-weighted membership tables (built by `src.preprocess.build_cluster_membe
 One cached table read per alphabet replaces the per-(protein, threshold) cluster-
 parquet reads that used to be scattered across `src/analysis/{cluster,bigraph}_*.py`.
 
-Lives in `src/utils` because `src/datasets/_cv_sampling` (the CV harness's atom
-assignment -- split-producing code) needs it alongside the `src/analysis` consumers,
-and datasets must not import analysis. Distinct from the main splitter's
+Lives in `src/utils` so both `src/analysis` and `src/datasets` can use it without
+datasets importing analysis. Distinct from the main splitter's
 `_split_helpers.load_cluster_lookup`, which reads one cluster parquet by PATH; this one
 resolves (protein, threshold) against the membership table.
 
@@ -22,7 +21,9 @@ on the live `clusters_nt_cds` layout; both the membership path and this fallback
 fix that.
 
 Equivalence (membership map == direct parquet map for every protein × threshold ×
-alphabet) is asserted by `scripts/verify_membership_swap.py`. Set
+alphabet) was asserted by `src/archive/verify_membership_swap.py` (archived 2026-07-31;
+the membership tables it checked are not built, so `cluster_map_for_root` currently always
+takes the direct-parquet path). Set
 `USE_MEMBERSHIP = False` (or env `SEGMATCH_NO_MEMBERSHIP=1`) to force the legacy
 parquet path.
 

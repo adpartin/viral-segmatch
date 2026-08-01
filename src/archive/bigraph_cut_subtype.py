@@ -37,8 +37,8 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.bigraph_min_cut import min_cut_recursive
-from src.analysis.cluster_pair_weight_topk import _FUNCTION_TO_SHORT, load_pair_universe
 from src.archive._gen1_bigraph import build_cluster_bigraph
+from src.archive.cluster_pair_weight_topk import _FUNCTION_TO_SHORT, load_pair_universe
 from src.datasets._pair_helpers import canonical_pair_key
 from src.utils.cluster_source import cluster_map_for_root as load_cluster_map
 from src.utils.metadata_enrichment import load_flu_metadata

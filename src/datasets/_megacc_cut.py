@@ -32,9 +32,8 @@ Three loops share that cut, differing only in the stop condition and the entry s
     (`uniform_targets(k)` for K-fold). The only one that takes a caller-built graph
     and returns the fragmented graph, rather than taking/returning `pos_with_ids` rows.
 
-This module is the single home of the bisection core: `src/datasets/_cv_sampling` and
-the `src/analysis/bigraph_*` diagnostics all import it (analysis -> datasets is the
-allowed direction).
+This module is the single home of the bisection core; the `src/analysis/bigraph_*`
+diagnostics import it (analysis -> datasets is the allowed direction).
 
 Sizes here are always PAIR counts, i.e. weighted (`_piece_pairs` /
 `size(weight='weight')`), never `number_of_edges()` -- an edge is a cluster pair, not a

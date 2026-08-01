@@ -65,7 +65,6 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis._cv_features import _KMER_DIR, _interaction, build_hash_to_row  # noqa: E402
 from src.analysis.analyze_stage4_train import (  # noqa: E402
     _LEVEL1_REGIME_ORDER,
     _resolve_neg_regime_column,
@@ -74,15 +73,16 @@ from src.analysis.analyze_stage4_train import (  # noqa: E402
     compute_basic_metrics,
     plot_confusion_matrix,
 )
-from src.analysis.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.analysis.visualize_dataset_stats import _render_split_composition_grouped  # noqa: E402
-from src.datasets._cv_sampling import (  # noqa: E402
+from src.archive._cv_features import _KMER_DIR, _interaction, build_hash_to_row  # noqa: E402
+from src.archive._cv_sampling import (  # noqa: E402
     assign_atoms,
     build_isolate_context,
     sample_positives,
     sample_random_within_cc_negatives,
     sample_regime_negatives,
 )
+from src.archive.cluster_pair_weight_topk import load_pair_universe  # noqa: E402
 from src.datasets._negative_regime_sampling import REGIME_NAMES  # noqa: E402
 from src.models.baselines.lgbm import fit as lgbm_fit
 from src.models.baselines.lgbm import get_estimator  # noqa: E402

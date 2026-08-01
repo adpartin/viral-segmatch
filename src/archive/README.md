@@ -18,12 +18,28 @@ Archived 2026-07-30, during the bigraph/fragmentation consolidation:
 | `bigraph_reassort_check.py` | one-off aa-only validation of the cut vs reassortment signal | none — finding recorded in `docs/results/2026-06-04_bigraph_megacc_structure_and_cutting.md` |
 | `bigraph_cut_subtype.py` | its `pair_key_to_subtype` was absorbed by the generalized helper | `_pair_helpers.pair_key_to_metadata(..., fields=('hn_subtype',))` |
 
-All four read the analysis-side `load_pair_universe`, which by default dedups on `prot_hash` for
-**every** alphabet — so their nt_cds numbers count 58,826 HA-NA pairs where the nt_cds-keyed
-universe has 79,347 (both via `load_pair_universe` on `cds_dna_final.parquet`; the production
-universe, after the v2 filters, is 78,764 — a third, separate quantity). Treat any nt_cds figure
-they produced as aa-deduped.
+Archived 2026-07-31 — the aa-only CV harness and its dependencies, retired in favour of the
+production 2D-CD path (`dataset_pairs_cc.py` + Stage 4) reading `cc_{source}` artifacts:
+
+| Script | Why archived | Replacement |
+|---|---|---|
+| `cluster_pair_weight_topk.py` | **misleading**: built ONE aa-keyed universe then looped BOTH alphabets over it, emitting rows *labelled* `nt_cds` computed from 58,826 aa pairs. Also the home of `load_pair_universe` | `cc_cluster_composition.csv` (per-CC cluster composition) + `cc_summary.json` (per-slot floor), from the production universe |
+| `cluster_disjoint_cv_experiment.py` | aa-only score-vs-t harness (raised `NotImplementedError` on nt: the nt k-mer cache is contig-level while clusters are CDS-level). Last run 2026-06-07 | production 2D-CD builder + Stage 4 |
+| `cluster_disjoint_regime_cv.py` | aa-only per-regime TPR/TNR companion, same guard. Last run 2026-06-08 | production 2D-CD builder + Stage 4 |
+| `_cv_sampling.py` | the harness's atom assignment; no production builder ever imported it | `dataset_pairs_cc.assign_atoms_prod` |
+| `_cv_features.py` | k-mer feature assembly for the harness only | Stage-4 feature path |
+| `verify_cc_reproduction.py` | verified the 2D-CD builder reproduced the harness — moot once the harness is retired | — |
+| `verify_membership_swap.py` | one-shot check for the 2026-06-05 membership-table swap; **both its inputs are gone** (`cds_final.parquet` renamed, and `cluster_memb_{aa,nt_cds}.parquet` were never built), so it cannot run | — |
+
+`_gen1_bigraph.py` holds `build_cluster_bigraph`, the Gen-1 "map hashes to clusters, then build"
+adapter, moved here 2026-07-31 once no live code called it.
+
+**The `load_pair_universe` caveat** applies to everything above that uses it: by default it dedups
+on `prot_hash` for **every** alphabet, so its nt_cds numbers count 58,826 HA-NA pairs where the
+nt_cds-keyed universe has 79,347 (both via `load_pair_universe` on `cds_dna_final.parquet`; the
+production universe, after the v2 filters, is 78,764 — a third, separate quantity). Treat any
+nt_cds figure these produced as aa-deduped.
 
 Imports here are repointed when a live symbol they depend on moves — enough to keep them readable
-and importable, nothing more. As of 2026-07-31 all four import cleanly, but that is a courtesy, not
-a guarantee: no test covers them and they are not run.
+and importable, nothing more. As of 2026-07-31 all 12 modules import cleanly, but that is a
+courtesy, not a guarantee: no test covers them and they are not run.
