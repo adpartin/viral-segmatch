@@ -21,11 +21,13 @@ on the live `clusters_nt_cds` layout; both the membership path and this fallback
 fix that.
 
 Equivalence (membership map == direct parquet map for every protein × threshold ×
-alphabet) was asserted by `src/archive/verify_membership_swap.py` (archived 2026-07-31;
-the membership tables it checked are not built, so `cluster_map_for_root` currently always
-takes the direct-parquet path). Set
-`USE_MEMBERSHIP = False` (or env `SEGMATCH_NO_MEMBERSHIP=1`) to force the legacy
-parquet path.
+alphabet) was asserted once when the swap landed (2026-06-05); that one-shot verifier was
+deleted 2026-07-31. **As of 2026-07-31 the membership tables are not built** —
+`cluster_memb_{aa,nt_cds}.parquet` do not exist, so `membership_available()` is False for
+both alphabets and `cluster_map_for_root` always takes the direct-parquet path. Build them
+with `src/preprocess/build_cluster_membership.py` to re-enable the cached path. Set
+`USE_MEMBERSHIP = False` (or env `SEGMATCH_NO_MEMBERSHIP=1`) to force the parquet path
+regardless.
 
 Not swapped: `load_pair_universe` stays on `cds_final` — a protein pair_key's
 `dna_hash` representative (which isolate's CDS stands for the pair) is not uniquely

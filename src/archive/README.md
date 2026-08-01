@@ -29,7 +29,11 @@ production 2D-CD path (`dataset_pairs_cc.py` + Stage 4) reading `cc_{source}` ar
 | `_cv_sampling.py` | the harness's atom assignment; no production builder ever imported it | `dataset_pairs_cc.assign_atoms_prod` |
 | `_cv_features.py` | k-mer feature assembly for the harness only | Stage-4 feature path |
 | `verify_cc_reproduction.py` | verified the 2D-CD builder reproduced the harness — moot once the harness is retired | — |
-| `verify_membership_swap.py` | one-shot check for the 2026-06-05 membership-table swap; **both its inputs are gone** (`cds_final.parquet` renamed, and `cluster_memb_{aa,nt_cds}.parquet` were never built), so it cannot run | — |
+
+`verify_membership_swap.py` was **deleted outright** (2026-07-31), not archived: a one-shot check
+for the 2026-06-05 membership-table swap whose inputs no longer exist (`cds_final.parquet` renamed
+to `cds_dna_final.parquet`; `cluster_memb_{aa,nt_cds}.parquet` never built), so it could not run at
+all. Recoverable from git history at `4e41dfb` if ever needed.
 
 `_gen1_bigraph.py` holds `build_cluster_bigraph`, the Gen-1 "map hashes to clusters, then build"
 adapter, moved here 2026-07-31 once no live code called it.
