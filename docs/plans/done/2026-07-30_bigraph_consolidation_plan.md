@@ -1,8 +1,44 @@
 # Bigraph / cluster-disjoint code consolidation
 
-**Status: IN PROGRESS**
+**Status: IMPLEMENTED**
 
-Date: 2026-07-30
+Date: 2026-07-30 (closed 2026-07-31)
+
+## Closing summary (2026-07-31)
+
+All five work items (§4) and both questions (§6) are closed. What changed, in one place:
+
+**One builder.** `src/datasets/_bigraph.py` is the single home of `build_pair_bigraph` /
+`edges_to_row_index` / `ranked_ccs`. It replaced three independent derivations of the same
+cluster-level bigraph, and the representation is now a weighted simple `nx.Graph` everywhere —
+the multigraph is gone, having been shown equal on every statistic that used it.
+
+**One layer.** Split-producing code lives in `src/datasets` / `src/utils` and never imports
+`src/analysis`; the single exception (optional plotting) is documented in `docs/architecture.md`
+§ Layering and at its call site.
+
+**One input for the analyses.** The four `bigraph_*` scripts read the persisted `cc_{source}`
+artifacts via `src/analysis/_cc_artifacts.py`, so they see the pairs the splitter actually routes
+rather than a re-derived universe. This is what closed §6.2 and what the
+`2026-07-21_cc_structure_prestep_plan` had set out to enable.
+
+**One vocabulary.** "bipartite" is retired as a graph adjective (→ *bigraph*) and as a component
+qualifier (→ *CC*), with the persisted `algorithm` audit values and the published algorithm names
+deliberately kept, and virology's "bipartite genome" untouched.
+
+Behaviour was preserved and verified at each step, not assumed: `assign_atoms` byte-identical
+across 10 configs; the `bigraph_min_cut` CLI reproducing its committed 2026-06-07 output; all 30
+stored `cc_nt_cds_*` artifacts partition-identical with all 15 fragmentation audits matching; and
+146 tests passing throughout. The only genuine behaviour change is confined to Kernighan-Lin,
+which no production path uses (all default to spectral).
+
+Follow-ups deliberately left open, none blocking:
+- `cc_aa_*` artifacts do not exist, so the aa CV harness (`cluster_disjoint_cv_experiment`,
+  `cluster_disjoint_regime_cv`, `cluster_pair_weight_topk`) still uses the Gen-1
+  `load_pair_universe` path. Correct on aa; would need artifacts to port.
+- `_cv_sampling` still carries a hardcoded `_ROOT` cluster-path map (§4 item 2 hygiene).
+- CC artifacts cover HA-NA only, t099..t095; other pairs/thresholds on demand via
+  `build_cc_structure.py`.
 
 Scope: consolidate the code that builds the **cluster-level bigraph** and fragments it by **edge
 min-cut**, remove stale analysis scripts, and bring the production split path in line with the
@@ -218,31 +254,36 @@ thresholds × {natural, fragmented} = 30 artifacts, read-only re-derivation):
 vs `apply_drop_budget_cut` (the two stop conditions); `route_holdout` + `make_folds` (atoms →
 splits); `_cv_sampling.assign_atoms` (the third split path).
 
-## 6. Open questions (need a decision)
+## 6. Questions — both closed (2026-07-31)
 
-6.2 **`load_pair_universe` nt_cds undercount — which callers to flip.** The function now takes
-`pair_key_alphabet`, but its default is still `'aa'`, so nothing changed yet: every current caller
-builds the universe once with the aa key and then maps nt_cds hashes off it. `keep='first'` picks
-one arbitrary CDS representative per protein pair, so those nt_cds analyses see **58,826** HA-NA
-pairs where the nt_cds-keyed universe has **79,347** — a 26% undercount (both measured on
-`cds_dna_final.parquet` via `load_pair_universe`). Not to be confused with the **78,764**
-recorded elsewhere in this plan and in `fragment_audit.json`: that is the *production* HA-NA
-nt_cds universe (`build_pair_universe`, after the v2 filters), a different and equally correct
-quantity. Compare like with like when judging the undercount.
+6.1 **ood-arm attribution — accepted, no further work.** The `ood_vs_random` t095 ood arm moved
+−0.159 test F1 on negative-resampling alone (§3). The arm sits at chance in both versions
+(AUC-ROC 0.53 → 0.49), where F1 is unstable, and the delta is dominated by a single fold (−0.34).
+User decision: chance is chance — the seed-spread control is not worth running.
 
-Flipping a caller changes its published nt_cds numbers, so it is a decision, not a cleanup. The
-callers, and what each would need:
-- `cluster_pair_weight_topk.main` — loops BOTH alphabets off one universe; would need one universe
-  per alphabet, i.e. a real restructure of the loop.
-- `bigraph_properties`, `bigraph_hub_peel`, `bigraph_min_cut`, `bigraph_pair_2d` — one universe per
-  run, `--alphabet` already selects the cluster side; a one-line change each.
-- `cluster_disjoint_cv_experiment`, `cluster_disjoint_regime_cv`, `_cv_sampling` callers — the aa
-  path is the maintained one and nt is documented as not wired, so likely leave.
+6.2 **`load_pair_universe` nt_cds undercount — resolved by item 4b; production was never
+affected.** The concern was that the function's aa-keyed default dedup collapses each protein pair
+onto one arbitrary CDS representative, so an nt_cds analysis run off the default sees **58,826**
+HA-NA pairs where the nt_cds-keyed universe has **79,347** (both via `load_pair_universe` on
+`cds_dna_final.parquet`; the production universe, after the v2 filters, is a third quantity,
+**78,764**).
 
-Cheapest honest next step: flip the four single-alphabet bigraph scripts, re-run one nt_cds slice,
-and diff against the recorded figures before touching anything else.
+Two findings closed it:
 
-6.1 **ood-arm attribution.** The `ood_vs_random` t095 ood arm moved −0.159 test F1 on
-negative-resampling alone (§3). The arm is at chance in both versions, so this is most likely
-instability rather than a capability change — but that is untested. Control: re-run the ood arm
-across several negative-sampling seeds and compare the spread to the observed delta.
+- **No production code calls it.** `dataset_segment_pairs_v2`, `dataset_pairs_cc`, and
+  `build_cc_structure` build the universe with `create_positive_pairs_v2` /
+  `build_pair_universe`. The three `load_pair_universe` hits under `src/datasets/` and
+  `src/utils/` are comments naming it, not calls (checked line by line).
+- **The exposed callers are gone.** The four `bigraph_*` scripts stopped using it when 4b pointed
+  them at the CC artifacts. What remains is `cluster_disjoint_cv_experiment`,
+  `cluster_disjoint_regime_cv`, `cluster_pair_weight_topk`, plus two `scripts/verify_*` checkers
+  and the archive — all **aa-only** paths (the CV harness documents nt as "NOT wired"), and on aa
+  the default is the correct choice.
+
+The `pair_key_alphabet` parameter stays, so the correct nt_cds behaviour is one argument away if
+an nt analysis is ever wired up.
+
+**Not moved to `src/archive/`**, unlike `build_cluster_bigraph`: that had zero live callers, this
+has five. Archiving it would force live code to import from the archive, which the layering rule
+forbids. If it should eventually go, the order is the one 4b used — retire or port the callers
+first, then the function moves on its own. That would need `cc_aa_*` artifacts, which do not exist.

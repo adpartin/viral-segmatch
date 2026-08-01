@@ -33,7 +33,7 @@ Deviations from the plan as written, all in the "did more" direction:
 The plan's stated long-term goal — "a correct nt_cds replacement for the ad-hoc `bigraph_*`
 analysis (long-term retirement target)" — was reached on 2026-07-31: all four `bigraph_*` scripts
 now read these artifacts (`8c421ca`, item 4b of
-`docs/plans/2026-07-30_bigraph_consolidation_plan.md`).
+`docs/plans/done/2026-07-30_bigraph_consolidation_plan.md`).
 
 Scope: a Stage-2.5 pre-step that builds and persists the positive **pair universe** (per alphabet,
 schema-pair) and the per-`t` **CC structure** (sizes, single-side-cluster composition, floor), so CC
