@@ -80,6 +80,21 @@ dirs disagree with existing ones.
   `docs/architecture.md` § Layering (new; carries the rule, the grep, the exception, and the
   `src/archive/` note) plus a call-site comment. The source-file map there was corrected for both
   moves. **Item 1 is closed.**
+- **Gen-2 ports** (item 4b). All four `bigraph_*` scripts now read the persisted CC artifacts via
+  a new `src/analysis/_cc_artifacts.py` (`cc_dir` / `load_cc_pairs` / `load_cc_bigraph` /
+  `add_cc_source_args`) instead of rebuilding the pair universe and re-deriving clusters.
+  `--cds_final` / `--clusters_*` / `--schema_pair` give way to `--cc_source` / `--pair` /
+  `--threshold(s)`, matching the convention `plot_cc_composition` and `umap_cc` already set.
+  Default is **nt_cds / `cc_nt_cds_cm0` / HA-NA / t099..t095** (user decision, 2026-07-31).
+  **Item 4b is closed** — and with it, item 4.
+
+  - `hub_peel`, `properties`, `min_cut` are clean ports; `pair_2d` is a documented **hybrid** —
+    the artifact is deduped to one row per `pair_key`, so the isolate set behind each pair is
+    gone and the modal subtype still comes from `cds_dna_final`.
+  - `bigraph_properties.build_cluster_bigraph` is now live-dead: kept, and marked, only because
+    the four archived scripts still call it.
+  - This closes §6.2 for these four callers by construction — they read the production universe
+    (78,764) rather than `load_pair_universe`'s aa-keyed 58,826.
 - **"bipartite" retired** (item 3), as the two rules. By the time it ran, 4a had deleted
   `build_bipartite_multigraph` and the Plot-C rename had taken `plot_bipartite_largest_pct`, so
   **no live Python identifier contained the word** — it was purely a prose pass. 65 substitutions
@@ -179,71 +194,8 @@ thresholds × {natural, fragmented} = 30 artifacts, read-only re-derivation):
 
 ## 4. Remaining work (in order)
 
-3. **Retire "bipartite" — as TWO rules, not one.** The word does two different jobs, and they get
-   different replacements:
-
-   a. **Graph-structure adjective → `bigraph`.** Where it describes the graph being two-sided:
-      glossary first (`Bipartite multigraph` → `Multigraph bigraph`, `Bipartite hub` →
-      `Bigraph hub`), then `build_bipartite_multigraph` (18 uses — but see item 4a, which deletes
-      it outright, so do 4a first and this shrinks).
-
-   b. **`bipartite component`/`bipartite CC` → `CC`.** Where it names the routing unit, the
-      "bipartite" is redundant: `glossary.md` already defines unqualified **CC** as exactly this
-      cluster-level bigraph, and reserves *cluster*/*mega-cluster* for the single-segment
-      similarity graph — so the qualifier adds nothing the canonical term does not already carry.
-      Done for `cluster_analysis_summary.py` + `cluster_disjoint_feasibility.py` (incl. the Plot-C
-      output rename `bipartite_largest_pct_vs_threshold.png` →
-      `largest_cc_pct_vs_threshold.png`, with `clusters.md` / `splits.md` updated).
-
-   Out of scope for both: the persisted `algorithm` audit values (§1), and the glossary lines where
-   "bipartite" is the *standard graph-theory* term being defined (`**Bigraph (bipartite graph)**`)
-   or contrasted — those are definitions, not usages, and a blind replace destroys them.
-
-   Total surface: 254 occurrences across 70 tracked files, but ~232 are prose and roughly half of
-   those sit in `docs/results/` + `docs/plans/done/`, which are historical record and should be
-   left alone (CLAUDE.md: docs describe current state, not history). Only two live Python
-   identifiers exist — `build_bipartite_multigraph` and (now renamed) `plot_bipartite_largest_pct`.
-   No `nx.bipartite` / `bipartite=` usage anywhere, so nothing is blocked by networkx's own naming.
-4. **One bigraph builder** (4a), then the Gen-2 ports (4b).
-
-   a. **Collapse the three graph builders into one.** Three implementations build the same
-      cluster-level bigraph: `_megacc_cut.build_pair_bigraph`, `bigraph_properties.
-      build_bipartite_multigraph`, and a hand-rolled loop in `_cv_sampling._fragment_atoms`.
-      Measured on aa HA-NA t095: all three yield the **same node set, edge set, and edge weights**
-      (9,712 nodes / 10,756 edges / total weight 58,826 = the row count).
-
-      **Standardise on the weighted simple `nx.Graph`** (edge `weight` = pairs). Every multigraph
-      statistic is recoverable from it via stock networkx `weight=` args — verified equal on the
-      real graph for pair mass (`degree(weight=)`), simple degree, CC partition, per-CC pair count
-      (`size(weight=)`), bridges, and cut nodes. The multigraph is strictly lossier: it needs an
-      `nx.Graph(...)` conversion at every CC just to get bridges/cut nodes back.
-
-      Three blocks:
-      - **map** — rows + cluster source → `cluster_id_a/b`. Extend `_split_helpers.
-        attach_cluster_ids` (parquet-lookup flavour) with a dict-map flavour, so the analysis and
-        CV paths stop inlining `.map()`. One place decides which hash column per alphabet
-        (`schema.SCHEMA` is already the source of truth).
-      - **build** — `build_pair_bigraph`, unchanged logic, moved with `edges_to_row_index` into a
-        new leaf `src/datasets/_bigraph.py` (imports nothing from `src`, so `_megacc_cut`,
-        `_pair_helpers`, `_cv_sampling`, and analysis all import it cleanly; removes the lazy
-        function-local import at `_pair_helpers.cluster_ccs`). `cluster_ccs` does **not** move — it
-        stays beside its locked sibling `sequence_ccs`.
-      - **consume** — `cluster_ccs`, the `_megacc_cut` cut loops, and `per_cc_stats` all take `H`.
-
-      Deletes `build_bipartite_multigraph` (45 lines + 18 refs), `weighted_simple` (11 lines), the
-      hand-rolled loop in `_fragment_atoms`, and the per-CC `nx.Graph(...)` conversions. Free win:
-      the analysis min-cut path inherits canonical node order and stops being row-order sensitive
-      (today `build_bipartite_multigraph`'s node order is NOT stable under a row shuffle — measured
-      — which is the exact hazard `build_pair_bigraph`'s sorted-insertion comment warns about).
-
-      Verify by diffing `graph_props.csv` / `hub_peel_*.csv` before and after.
-
-   b. **Gen-2 ports** of the surviving `bigraph_*` scripts onto `cc_{source}` artifacts:
-      `bigraph_properties` (per-CC λ / bridges / cut nodes / hub Gini), `bigraph_hub_peel`
-      (node-peel — the only implementation of that route), `bigraph_min_cut`, `bigraph_pair_2d`
-      (no Gen-2 equivalent exists). **Deferred** — converting `bigraph_properties` /
-      `bigraph_hub_peel` to `weight=` under 4a is work on scripts this item may rewrite anyway, so
-      4a lands the builder and leaves those two consumers for here.
+3. **Retire "bipartite"** -- DONE (see §2), as two rules with the algorithm names kept.
+4. **One bigraph builder + Gen-2 ports** -- DONE (see §2). Items 4a and 4b both closed.
 5. **Reconcile** `docs/plans/2026-07-21_cc_structure_prestep_plan.md` — its §7 build order is
    complete; either close it or record what remains.
 

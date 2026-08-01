@@ -24,10 +24,13 @@ This module is the CLI/report layer only: the cut loop itself is
 `src/datasets/_megacc_cut.fragment_weighted` (one implementation shared with the
 production splitter). What lives here is the CLI and the per-cut report.
 
+Input is the NATURAL (pre-cut) CC artifact (`_cc_artifacts`) -- this script performs the
+cut, so handing it `tXXX/fragmented/` would re-cut an already-cut graph.
+
 CLI:
     python -m src.analysis.bigraph_min_cut \\
-        [--schema_pair HA NA] [--alphabet aa] [--threshold t095] \\
-        [--method kl] [--target_frac 0.80] [--drift_pp 0.05] \\
+        [--cc_source nt_cds_cm0] [--pair HA-NA] [--alphabet nt_cds] \\
+        [--threshold t095] [--method kl] [--target_frac 0.80] [--drift_pp 0.05] \\
         [--out_dir results/flu/July_2025/runs/bigraph_min_cut]
 
 Outputs (under --out_dir):
@@ -46,10 +49,8 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import build_cluster_bigraph
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.analysis._cc_artifacts import add_cc_source_args, cc_dir, load_cc_bigraph
 from src.datasets._megacc_cut import fragment_weighted
-from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
 
 def min_cut_recursive(
@@ -66,7 +67,7 @@ def min_cut_recursive(
     """Recursively bisect the largest CC until the kept atoms are LPT-feasible.
 
     Thin wrapper over `_megacc_cut.fragment_weighted`: fragments the pair-weighted
-    simple bigraph `G` (from `bigraph_properties.build_cluster_bigraph`) to `targets`
+    simple bigraph `G` (from `_cc_artifacts.load_cc_bigraph`) to `targets`
     (default `None` -> the cut module's 80/10/10; pass `uniform_targets(k)` for K-fold
     CV). Each row is the state BEFORE a cut (or the final feasible state); drops only
     crossing edges (straddling pairs); `dropped_frac` is vs the full pair universe.
@@ -93,13 +94,10 @@ def min_cut_recursive(
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
-    p.add_argument('--clusters_nt', default=str(CLUSTERS_ROOT['nt_cds']))
-    p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
-                   metavar=('SLOT_A', 'SLOT_B'))
-    p.add_argument('--alphabet', default='aa', choices=['aa', 'nt_cds'])
+    add_cc_source_args(p)
+    p.add_argument('--alphabet', default='nt_cds',
+                   help='alphabet label for output names (default nt_cds; must match --cc_source, '
+                        'which is what actually selects the data).')
     p.add_argument('--threshold', default='t095')
     p.add_argument('--method', default='kl', choices=['kl', 'spectral'])
     p.add_argument('--target_frac', type=float, default=0.80)
@@ -113,20 +111,14 @@ def main() -> None:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    slot_a, slot_b = args.schema_pair
-    slug = f'{slot_a.lower()}_{slot_b.lower()}'
-    clusters_root = Path(args.clusters_aa if args.alphabet == 'aa' else args.clusters_nt)
+    slug = args.pair.lower().replace('-', '_')
+    # The NATURAL slice: this script performs the cut, so it must start from the pre-cut
+    # graph. Pointing it at tXXX/fragmented/ would re-cut an already-cut graph.
+    d = args.cc_dir or cc_dir(args.cc_source, args.pair, args.threshold)
 
-    print(f"Loading pair universe for {slot_a}-{slot_b} ...")
-    universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
-    print(f"  {len(universe):,} unique canonical protein pairs")
-    cmap_a = cluster_map_for_root(clusters_root, slot_a, args.threshold)
-    cmap_b = cluster_map_for_root(clusters_root, slot_b, args.threshold)
-    if not cmap_a or not cmap_b:
-        raise SystemExit(f"missing cluster parquet for {args.alphabet} {args.threshold}")
-    G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, args.alphabet)
-    if n_unmapped:
-        print(f"  WARNING: {n_unmapped} pair-universe rows dropped (unmapped endpoint).")
+    print(f"Loading CC artifact (natural, pre-cut): {d}")
+    G, pairs = load_cc_bigraph(d)
+    print(f"  {len(pairs):,} positive pairs, {pairs['cc_id'].nunique():,} natural CCs")
     print(f"  graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} cluster pairs, "
           f"{int(G.size(weight='weight')):,} pairs")
 

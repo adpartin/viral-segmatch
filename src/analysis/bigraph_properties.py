@@ -1,7 +1,8 @@
 """Bigraph properties on the (cluster-level) HA-NA cooccurrence graph.
 
-For each (schema_pair, alphabet, threshold), builds the cluster-level bigraph
-(`_bigraph.build_pair_bigraph`) where:
+For each (cluster source, schema pair, threshold), loads the cluster-level bigraph
+from the persisted CC artifact (`_cc_artifacts.load_cc_bigraph` -> the shared
+`_bigraph.build_pair_bigraph`) where:
   - Side A = slot-a clusters (e.g., HA clusters)
   - Side B = slot-b clusters (e.g., NA clusters)
   - Edges = one per (cluster_a, cluster_b) cluster pair, with `weight` = the number
@@ -30,12 +31,14 @@ Terminology (see docs/methods/glossary.md):
     we use "cut node" throughout this project for consistency.)
   - λ(G) — edge connectivity; minimum size of an edge cut.
 
+Input is the persisted CC artifact (`_cc_artifacts`), not a rebuilt pair universe, so
+the graph is the one the splitter routed. Build missing slices with
+`src/datasets/build_cc_structure.py`.
+
 CLI:
     python -m src.analysis.bigraph_properties \\
-        [--schema_pair HA NA] \\
-        [--alphabets aa nt_cds] \\
-        [--thresholds t100 t099 t098 t097 t096 t095 \\
-                       t094 t093 t092 t091 t090] \\
+        [--cc_source nt_cds_cm0] [--pair HA-NA] [--alphabet nt_cds] \\
+        [--thresholds t099 t098 t097 t096 t095] [--fragmented] \\
         [--compute_lambda_largest] \\
         [--export_graphml] \\
         [--out_dir results/flu/July_2025/runs/bigraph_properties]
@@ -72,12 +75,12 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
+from src.analysis._cc_artifacts import add_cc_source_args, cc_dir, load_cc_bigraph
 from src.datasets._bigraph import build_pair_bigraph, ranked_ccs
-from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 
-# Default threshold range. Matches cluster_pair_weight_topk._DEFAULT_THRESHOLDS.
-_DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(100, 89, -1)]
+# Default threshold sweep: the range the CC artifacts are built for (t099..t095).
+# Wider sweeps need build_cc_structure.py run for the extra thresholds first.
+_DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(99, 94, -1)]
 
 
 def build_cluster_bigraph(
@@ -87,6 +90,11 @@ def build_cluster_bigraph(
     alphabet: str,
 ) -> tuple[nx.Graph, int]:
     """Map the pair universe onto clusters and build the cluster-level bigraph.
+
+    **Gen-1 path, retained only for `src/archive/`.** Live analyses read the persisted CC
+    artifacts instead (`_cc_artifacts.load_cc_bigraph`), which start from the PRODUCTION
+    positives rather than `load_pair_universe`'s aa-keyed dedup -- 78,764 HA-NA nt_cds pairs
+    against this path's 58,826. Do not add new callers.
 
     Thin adapter over the shared `_bigraph.build_pair_bigraph`: this half does the
     hash -> cluster_id mapping the analysis pair universe needs; the graph itself is
@@ -319,18 +327,15 @@ def write_largest_cc_artifacts(
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
-    p.add_argument('--clusters_nt', default=str(CLUSTERS_ROOT['nt_cds']))
-    p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
-                   metavar=('SLOT_A', 'SLOT_B'),
-                   help='Two protein shorts (default HA NA).')
-    p.add_argument('--alphabets', nargs='+', default=['aa'],
-                   choices=['aa', 'nt_cds'],
-                   help='Alphabets to sweep (default aa only).')
+    add_cc_source_args(p)
+    p.add_argument('--alphabet', default='nt_cds',
+                   help='alphabet label for the output column/titles (default nt_cds; must match '
+                        '--cc_source, which is what actually selects the data).')
     p.add_argument('--thresholds', nargs='+', default=_DEFAULT_THRESHOLDS,
-                   help='Cluster thresholds (default t100..t90).')
+                   help=f'Cluster thresholds (default {" ".join(_DEFAULT_THRESHOLDS)}); a threshold '
+                        f'with no persisted artifact is skipped with a note.')
+    p.add_argument('--fragmented', action='store_true',
+                   help='read the post-edge-cut slice (tXXX/fragmented/) instead of the natural CCs.')
     p.add_argument('--compute_lambda_largest', action='store_true',
                    help='Compute λ(G) and the actual minimum edge cut for the '
                         'largest CC at each slice. Expensive: O(V·E·poly), '
@@ -350,83 +355,76 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    slot_a, slot_b = args.schema_pair
-    schema_pair_label = f'{slot_a}-{slot_b}'
-    schema_pair_slug = f'{slot_a.lower()}_{slot_b.lower()}'
-
-    print(f"Loading pair universe for {schema_pair_label} ...")
-    universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
-    print(f"  {len(universe):,} unique canonical protein pairs\n")
-
-    clusters_aa = Path(args.clusters_aa)
-    clusters_nt = Path(args.clusters_nt)
+    schema_pair_label = args.pair
+    schema_pair_slug = args.pair.lower().replace('-', '_')
+    alphabet = args.alphabet
+    # Slot labels for the console summary only; the data comes from the artifact's
+    # cluster_id_a / cluster_id_b columns, so a malformed --pair cannot mis-assign sides.
+    slot_a, slot_b = (args.pair.split('-', 1) + ['b'])[:2] if '-' in args.pair else ('a', 'b')
 
     long_frames = []
-    for alphabet in args.alphabets:
-        clusters_root = clusters_aa if alphabet == 'aa' else clusters_nt
-        for threshold in args.thresholds:
-            ha_cmap = cluster_map_for_root(clusters_root, slot_a, threshold)
-            na_cmap = cluster_map_for_root(clusters_root, slot_b, threshold)
-            if not ha_cmap or not na_cmap:
-                print(f"  [{alphabet} {threshold}] missing cluster parquet; skipping.")
-                continue
+    for threshold in args.thresholds:
+        d = (args.cc_dir if args.cc_dir else
+             cc_dir(args.cc_source, args.pair, threshold, fragmented=args.fragmented))
+        if not (d / 'pairs_with_cc.parquet').exists():
+            print(f"  [{alphabet} {threshold}] no CC artifact at {d}; skipping.")
+            continue
 
-            print(f"=== {alphabet} {threshold} ===")
-            t0 = time.time()
-            H, n_unmapped = build_cluster_bigraph(universe, ha_cmap, na_cmap, alphabet)
-            if n_unmapped > 0:
-                print(f"  WARNING: {n_unmapped} pair-universe rows dropped (unmapped endpoint).")
-            print(f"  graph: {H.number_of_nodes():,} nodes, "
-                  f"{H.number_of_edges():,} cluster pairs, "
-                  f"{int(H.size(weight='weight')):,} pairs")
+        print(f"=== {alphabet} {threshold} ===")
+        t0 = time.time()
+        H, cc_pairs = load_cc_bigraph(d)
+        print(f"  artifact: {d}")
+        print(f"  graph: {H.number_of_nodes():,} nodes, "
+              f"{H.number_of_edges():,} cluster pairs, "
+              f"{int(H.size(weight='weight')):,} pairs")
 
-            cc_df, largest_artifacts = per_cc_stats(
-                H,
-                compute_lambda_largest=args.compute_lambda_largest,
-                max_sec_lambda=args.max_sec_lambda,
+        cc_df, largest_artifacts = per_cc_stats(
+            H,
+            compute_lambda_largest=args.compute_lambda_largest,
+            max_sec_lambda=args.max_sec_lambda,
+        )
+        cc_df.insert(0, 'threshold', threshold)
+        cc_df.insert(0, 'alphabet', alphabet)
+        cc_df.insert(0, 'schema_pair', schema_pair_label)
+        long_frames.append(cc_df)
+
+        largest_row = cc_df.iloc[0]
+        bridge_frac = (largest_row['n_bridges'] / largest_row['n_unique_edges']
+                       if largest_row['n_unique_edges'] else 0.0)
+        print(f"  largest CC: {largest_row['n_nodes_a']} + {largest_row['n_nodes_b']} nodes, "
+              f"{largest_row['n_unique_edges']:,} unique edges, "
+              f"{largest_row['n_pairs']:,} pairs, "
+              f"{largest_row['n_bridges']} bridges ({bridge_frac:.0%}), "
+              f"{largest_row['n_cut_nodes']} cut nodes"
+              + (f", λ={largest_row['lambda']}" if pd.notna(largest_row['lambda']) else "")
+              + f"  ({time.time() - t0:.1f}s)")
+        print(f"    hub concentration  "
+              f"{slot_a}: top1={largest_row['top1_pairmass_frac_a']:.1%} "
+              f"top5={largest_row['top5_pairmass_frac_a']:.1%} "
+              f"gini={largest_row['pairmass_gini_a']:.2f} "
+              f"maxdeg={largest_row['max_simple_degree_a']}  |  "
+              f"{slot_b}: top1={largest_row['top1_pairmass_frac_b']:.1%} "
+              f"top5={largest_row['top5_pairmass_frac_b']:.1%} "
+              f"gini={largest_row['pairmass_gini_b']:.2f} "
+              f"maxdeg={largest_row['max_simple_degree_b']}")
+
+        if largest_artifacts is not None:
+            nd = largest_artifacts['node_degrees']
+            for side, lbl in [('a', slot_a), ('b', slot_b)]:
+                top = nd[nd['side'] == side].head(3)
+                hub_str = ", ".join(
+                    f"{r.cluster_id}(deg {r.simple_degree}, {r.pair_mass:,}p)"
+                    for r in top.itertuples()
+                )
+                print(f"    top {lbl} hubs: {hub_str}")
+            largest_dir = (
+                out_dir / 'largest_cc'
+                / f'{schema_pair_slug}_{alphabet}_{threshold}'
             )
-            cc_df.insert(0, 'threshold', threshold)
-            cc_df.insert(0, 'alphabet', alphabet)
-            cc_df.insert(0, 'schema_pair', schema_pair_label)
-            long_frames.append(cc_df)
-
-            largest_row = cc_df.iloc[0]
-            bridge_frac = (largest_row['n_bridges'] / largest_row['n_unique_edges']
-                           if largest_row['n_unique_edges'] else 0.0)
-            print(f"  largest CC: {largest_row['n_nodes_a']} + {largest_row['n_nodes_b']} nodes, "
-                  f"{largest_row['n_unique_edges']:,} unique edges, "
-                  f"{largest_row['n_pairs']:,} pairs (with parallel), "
-                  f"{largest_row['n_bridges']} bridges ({bridge_frac:.0%}), "
-                  f"{largest_row['n_cut_nodes']} cut nodes"
-                  + (f", λ={largest_row['lambda']}" if pd.notna(largest_row['lambda']) else "")
-                  + f"  ({time.time() - t0:.1f}s)")
-            print(f"    hub concentration  "
-                  f"{slot_a}: top1={largest_row['top1_pairmass_frac_a']:.1%} "
-                  f"top5={largest_row['top5_pairmass_frac_a']:.1%} "
-                  f"gini={largest_row['pairmass_gini_a']:.2f} "
-                  f"maxdeg={largest_row['max_simple_degree_a']}  |  "
-                  f"{slot_b}: top1={largest_row['top1_pairmass_frac_b']:.1%} "
-                  f"top5={largest_row['top5_pairmass_frac_b']:.1%} "
-                  f"gini={largest_row['pairmass_gini_b']:.2f} "
-                  f"maxdeg={largest_row['max_simple_degree_b']}")
-
-            if largest_artifacts is not None:
-                nd = largest_artifacts['node_degrees']
-                for side, lbl in [('a', slot_a), ('b', slot_b)]:
-                    top = nd[nd['side'] == side].head(3)
-                    hub_str = ", ".join(
-                        f"{r.cluster_id}(deg {r.simple_degree}, {r.pair_mass:,}p)"
-                        for r in top.itertuples()
-                    )
-                    print(f"    top {lbl} hubs: {hub_str}")
-                largest_dir = (
-                    out_dir / 'largest_cc'
-                    / f'{schema_pair_slug}_{alphabet}_{threshold}'
-                )
-                write_largest_cc_artifacts(
-                    largest_artifacts, largest_dir,
-                    export_graphml=args.export_graphml,
-                )
+            write_largest_cc_artifacts(
+                largest_artifacts, largest_dir,
+                export_graphml=args.export_graphml,
+            )
 
     if not long_frames:
         print("\nNo slices processed.")

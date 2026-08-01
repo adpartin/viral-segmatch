@@ -7,9 +7,10 @@ proportional to those hubs' pair mass — not the cheap peripheral bridges. The
 companion property script (`bigraph_properties.py`) measures the static
 structure (degrees, bridges, cut nodes); this script runs the dynamic surgery.
 
-Algorithm (greedy, deterministic). Build the cluster-level bigraph for one
-(schema_pair, alphabet, threshold) from the pair universe (same construction as
-`bigraph_properties.build_cluster_bigraph`). Then repeat:
+Algorithm (greedy, deterministic). Load the cluster-level bigraph for one
+(cluster source, schema pair, threshold) from the persisted CC artifact
+(`_cc_artifacts.load_cc_bigraph` -> the shared `_bigraph.build_pair_bigraph`), so the
+graph is exactly the one the splitter routed. Then repeat:
   1. find the largest CC (by pair count = summed edge weight);
   2. if its share of the *retained* pairs is <= target, stop;
   3. else remove the largest CC's heaviest node by pair_mass, restricted to cut
@@ -24,16 +25,19 @@ optimal min-drop: it confirms the mechanism and yields a representative cost,
 not the provable minimum (true min-drop would need METIS/KaHIP-style balanced
 min-cut — bicc audit direction #3, docs/results/2026-05-21_bicc_pair_drop_audit.md).
 
-Denominator note. `dropped_frac` and the largest-CC fractions are measured
-against the canonical pair universe (HA-NA aa = 58,826 pairs). The 2026-05-21
-audit's "~18.5%" is relative to a larger dataset-build positive count, so
-compare shape/magnitude, not exact percentages.
+Denominator note. `dropped_frac` and the largest-CC fractions are measured against
+the artifact's pair universe — the PRODUCTION positives (HA-NA nt_cds = 78,764), not
+the analysis-side aa-keyed 58,826 this script used before the Gen-2 port. Figures
+published against the old denominator are not directly comparable.
 
 CLI:
     python -m src.analysis.bigraph_hub_peel \\
-        [--schema_pair HA NA] [--alphabet aa] [--threshold t095] \\
-        [--target_frac 0.80] [--strategy cut_node] \\
+        [--cc_source nt_cds_cm0] [--pair HA-NA] [--threshold t095] \\
+        [--alphabet nt_cds] [--target_frac 0.80] [--strategy cut_node] \\
         [--out_dir results/flu/July_2025/runs/bigraph_hub_peel]
+
+Requires the CC artifact (see `_cc_artifacts`); build it with
+`src/datasets/build_cc_structure.py` if absent.
 
 Outputs (under --out_dir):
     hub_peel_{slug}_{alphabet}_{threshold}_{strategy}.csv   per-step curve
@@ -57,9 +61,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.analysis.bigraph_properties import build_cluster_bigraph
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
-from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
+from src.analysis._cc_artifacts import add_cc_source_args, cc_dir, load_cc_bigraph
 
 
 def _largest_cc_by_pairs(H: nx.Graph) -> set:
@@ -187,13 +189,10 @@ def plot_peel_curve(df: pd.DataFrame, title: str, target_frac: float, out_png: P
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
-    p.add_argument('--clusters_nt', default=str(CLUSTERS_ROOT['nt_cds']))
-    p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
-                   metavar=('SLOT_A', 'SLOT_B'))
-    p.add_argument('--alphabet', default='aa', choices=['aa', 'nt_cds'])
+    add_cc_source_args(p)
+    p.add_argument('--alphabet', default='nt_cds',
+                   help='alphabet label for output names/titles (default nt_cds; must match '
+                        '--cc_source, which is what actually selects the data).')
     p.add_argument('--threshold', default='t095',
                    help='Single cluster threshold to peel at (default t095).')
     p.add_argument('--target_frac', type=float, default=0.80,
@@ -209,23 +208,12 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    slot_a, slot_b = args.schema_pair
-    slug = f'{slot_a.lower()}_{slot_b.lower()}'
-    clusters_root = Path(args.clusters_aa if args.alphabet == 'aa' else args.clusters_nt)
+    slug = args.pair.lower().replace('-', '_')
+    d = args.cc_dir or cc_dir(args.cc_source, args.pair, args.threshold)
 
-    print(f"Loading pair universe for {slot_a}-{slot_b} ...")
-    universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
-    print(f"  {len(universe):,} unique canonical protein pairs")
-
-    cmap_a = cluster_map_for_root(clusters_root, slot_a, args.threshold)
-    cmap_b = cluster_map_for_root(clusters_root, slot_b, args.threshold)
-    if not cmap_a or not cmap_b:
-        raise SystemExit(f"missing cluster parquet for {args.alphabet} {args.threshold} "
-                         f"under {clusters_root}")
-
-    G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, args.alphabet)
-    if n_unmapped:
-        print(f"  WARNING: {n_unmapped} pair-universe rows dropped (unmapped endpoint).")
+    print(f"Loading CC artifact: {d}")
+    G, pairs = load_cc_bigraph(d)
+    print(f"  {len(pairs):,} positive pairs, {pairs['cc_id'].nunique():,} natural CCs")
     print(f"  graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} cluster pairs, "
           f"{int(G.size(weight='weight')):,} pairs")
 
@@ -266,7 +254,7 @@ def main() -> None:
     png_path = out_dir / f'{stem}.png'
     plot_peel_curve(
         df,
-        title=(f'{slot_a}-{slot_b} {args.alphabet} {args.threshold} — greedy hub-peel ({args.strategy})'),
+        title=(f'{args.pair} {args.alphabet} {args.threshold} — greedy hub-peel ({args.strategy})'),
         target_frac=args.target_frac,
         out_png=png_path,
     )

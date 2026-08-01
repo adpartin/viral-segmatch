@@ -25,13 +25,17 @@ Both panels overlay the cut's straddling pairs as red ×. A companion
 subtype-level heatmap (H-subtype × N-subtype pair counts) gives the coarse,
 immediately-readable version of the same islands.
 
-Both alphabets work: `cluster_map_for_root` is membership-backed (`cluster_source`),
-keying aa on `prot_hash` and nt_cds on `cds_dna_hash`, so `--alphabet nt_cds`
-runs against `clusters_nt_cds`.
+Inputs are HYBRID: the bigraph comes from the persisted CC artifact
+(`_cc_artifacts`), but the per-pair modal subtype still comes from `cds_dna_final` --
+the artifact is deduped to one row per `pair_key`, so the isolate set behind each pair
+is not recoverable from it. The subtype map MUST be keyed on the artifact's own hash
+(`--alphabet` selects it): joining an nt_cds artifact against a prot_hash-keyed map
+matches 0% of pairs and silently renders every subtype as 'unknown'.
 
 CLI:
     python -m src.analysis.bigraph_pair_2d \\
-        [--schema_pair HA NA] [--alphabet aa] [--thresholds t095 t090] \\
+        [--cc_source nt_cds_cm0] [--pair HA-NA] [--alphabet nt_cds] \\
+        [--thresholds t099 t095] \\
         [--method spectral] [--drift_pp 0.05] [--top_atoms 8] \\
         [--out_dir results/flu/July_2025/runs/2D_cluster_maps]
 
@@ -60,15 +64,18 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.analysis._cc_artifacts import add_cc_source_args, cc_dir, load_cc_bigraph
 from src.analysis.bigraph_min_cut import min_cut_recursive
-from src.analysis.bigraph_properties import build_cluster_bigraph
-from src.analysis.cluster_pair_weight_topk import load_pair_universe
 from src.datasets._pair_helpers import pair_key_to_metadata
-from src.utils.cluster_source import CLUSTERS_ROOT, cluster_map_for_root
 from src.utils.config_hydra import load_function_metadata
 
 _H_RE = re.compile(r'H\d+')
 _N_RE = re.compile(r'N\d+')
+
+# The artifact's `pair_key` is built on the pair_key_alphabet's hash (CLAUDE.md: aa -> prot_hash,
+# nt_cds -> cds_dna_hash), so the subtype map must be keyed on the SAME hash or the join on
+# `pair_key` silently yields all-NaN subtypes. Asserted at the call site.
+_SUBTYPE_HASH_COL = {'aa': 'prot_hash', 'nt_cds': 'cds_dna_hash'}
 
 
 def _h_part(subtype: str) -> str:
@@ -86,19 +93,19 @@ def _modal(s: pd.Series) -> str:
     return m.iat[0] if len(m) else 'unknown'
 
 
-def build_pair_table(universe, cmap_a, cmap_b, alphabet, node_atom, subtype_df):
-    """One row per canonical pair: cluster nodes, atoms, kept flag, H/N subtype.
+def build_pair_table(cc_pairs, node_atom, subtype_df):
+    """One row per pair: cluster nodes, atoms, kept flag, H/N subtype.
 
-    `kept` is True when both cluster endpoints landed in the same min-cut atom
-    (an on-block pair); False = a straddling/dropped pair. `h`/`n` are the modal
-    H- and N-subtype carried by the pair's isolate(s).
+    `cc_pairs` is the persisted CC slice (`pair_key`, `cluster_id_a/b`, `cc_id`), so the
+    cluster assignment is read, not re-derived. `kept` is True when both cluster endpoints
+    landed in the same min-cut atom (an on-block pair); False = a straddling/dropped pair.
+    `h`/`n` are the modal H- and N-subtype carried by the pair's isolate(s), joined on
+    `pair_key` — which must therefore be keyed on the SAME hash as the artifact
+    (see `_SUBTYPE_HASH_COL`).
     """
-    col_a = 'prot_hash_a' if alphabet == 'aa' else 'cds_dna_hash_a'
-    col_b = 'prot_hash_b' if alphabet == 'aa' else 'cds_dna_hash_b'
-    u = universe.copy()
-    u = u[u[col_a].isin(cmap_a) & u[col_b].isin(cmap_b)].copy()
-    u['node_a'] = 'a:' + u[col_a].map(cmap_a).astype(str)
-    u['node_b'] = 'b:' + u[col_b].map(cmap_b).astype(str)
+    u = cc_pairs.copy()
+    u['node_a'] = 'a:' + u['cluster_id_a'].astype(str)
+    u['node_b'] = 'b:' + u['cluster_id_b'].astype(str)
     u['atom_a'] = u['node_a'].map(node_atom)
     u['atom_b'] = u['node_b'].map(node_atom)
     u = u.dropna(subset=['atom_a', 'atom_b'])
@@ -292,15 +299,14 @@ def plot_subtype_heatmap(u, *, slot_a, slot_b, alphabet, threshold,
     plt.close(fig)
 
 
-def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphabet,
+def run_threshold(subtype_df, d, *, slot_a, slot_b, alphabet,
                   threshold, method, drift_pp, seed, top_atoms, max_h, max_n, out_dir,
                   no_cut=False, skip_heatmap=False, legend='cc'):
-    cmap_a = cluster_map_for_root(clusters_root, slot_a, threshold)
-    cmap_b = cluster_map_for_root(clusters_root, slot_b, threshold)
-    if not cmap_a or not cmap_b:
-        print(f'  [{alphabet} {threshold}] missing cluster parquet; skipping.')
+    if not (d / 'pairs_with_cc.parquet').exists():
+        print(f'  [{alphabet} {threshold}] no CC artifact at {d}; skipping.')
         return
-    G, n_unmapped = build_cluster_bigraph(universe, cmap_a, cmap_b, alphabet)
+    # The NATURAL slice: min_cut_recursive below performs the cut itself.
+    G, cc_pairs = load_cc_bigraph(d)
     if no_cut:
         # Pre-fragmentation view: atoms = natural CCs. Every pair's two endpoints
         # share its CC by definition, so nothing straddles -> no red x markers.
@@ -316,7 +322,7 @@ def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphab
     node_atom = {n: i for i, c in enumerate(comps) for n in c}
     n_atoms = len(comps)
 
-    u = build_pair_table(universe, cmap_a, cmap_b, alphabet, node_atom, subtype_df)
+    u = build_pair_table(cc_pairs, node_atom, subtype_df)
     cells = aggregate_cells(u)
     ranks = _node_orderings(u)
 
@@ -341,13 +347,15 @@ def run_threshold(universe, subtype_df, clusters_root, *, slot_a, slot_b, alphab
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--cds_final',
-                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'))
-    p.add_argument('--clusters_aa', default=str(CLUSTERS_ROOT['aa']))
-    p.add_argument('--clusters_nt_cds', default=str(CLUSTERS_ROOT['nt_cds']))
-    p.add_argument('--schema_pair', nargs=2, default=['HA', 'NA'],
-                   metavar=('SLOT_A', 'SLOT_B'))
-    p.add_argument('--alphabet', default='aa', choices=['aa', 'nt_cds'])
-    p.add_argument('--thresholds', nargs='+', default=['t095', 't090'])
+                   default=str(PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet'),
+                   help='still needed for the per-pair modal subtype: the CC artifact is deduped '
+                        'to one row per pair_key, so the isolate set behind each pair is not '
+                        'recoverable from it.')
+    add_cc_source_args(p)
+    p.add_argument('--alphabet', default='nt_cds', choices=['aa', 'nt_cds'],
+                   help='pair_key alphabet of the artifact; also selects the subtype join hash '
+                        '(aa -> prot_hash, nt_cds -> cds_dna_hash). Must match --cc_source.')
+    p.add_argument('--thresholds', nargs='+', default=['t099', 't095'])
     p.add_argument('--method', default='spectral', choices=['spectral', 'kl'])
     p.add_argument('--drift_pp', type=float, default=0.05)
     p.add_argument('--seed', type=int, default=1)
@@ -366,22 +374,22 @@ def main() -> None:
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    slot_a, slot_b = args.schema_pair
-    clusters_root = Path(args.clusters_aa if args.alphabet == 'aa' else args.clusters_nt_cds)
+    slot_a, slot_b = (args.pair.split('-', 1) + ['NA'])[:2]
 
-    print(f'Loading pair universe + subtype map for {slot_a}-{slot_b} ...')
-    universe = load_pair_universe(Path(args.cds_final), slot_a, slot_b)
-    # Modal hn_subtype per pair_key via the production helper. `load_pair_universe` keys pairs on
-    # prot_hash for every alphabet, so hash_col='prot_hash' matches its pair_key here too.
+    # Modal hn_subtype per pair_key. Keyed on the artifact's OWN hash so the join lands.
+    hash_col = _SUBTYPE_HASH_COL[args.alphabet]
+    print(f'Loading subtype map for {args.pair} (pair_key on {hash_col}) ...')
     short_to_full = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml').short_to_function
     subtype_df = pair_key_to_metadata(
         Path(args.cds_final), short_to_full[slot_a], short_to_full[slot_b],
-        hash_col='prot_hash', fields=('hn_subtype',),
+        hash_col=hash_col, fields=('hn_subtype',),
     ).rename(columns={'hn_subtype': 'subtype'})
-    print(f'  {len(universe):,} pairs; {subtype_df["subtype"].nunique()} distinct modal subtypes')
+    print(f'  {len(subtype_df):,} pair_keys; '
+          f'{subtype_df["subtype"].nunique()} distinct modal subtypes')
 
     for threshold in args.thresholds:
-        run_threshold(universe, subtype_df, clusters_root, slot_a=slot_a, slot_b=slot_b,
+        d = args.cc_dir or cc_dir(args.cc_source, args.pair, threshold)
+        run_threshold(subtype_df, d, slot_a=slot_a, slot_b=slot_b,
                       alphabet=args.alphabet, threshold=threshold, method=args.method,
                       drift_pp=args.drift_pp, seed=args.seed, top_atoms=args.top_atoms,
                       max_h=args.max_h, max_n=args.max_n, out_dir=out_dir,
