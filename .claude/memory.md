@@ -108,10 +108,8 @@ change and aren't derivable from code. This file does NOT duplicate:
   "lineage").
 - **1D cluster-disjoint single-slot**: code landed; 10 datasets built + validated 2026-07-27;
   Stage-4 next. Plan: `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md`.
-- **STANDING DIRECTIVE — lean, reusable, consistently-named functions.** For every new
-  plot/helper: deep-search the codebase for a reusable primitive FIRST; reuse `plot_utils` /
-  `_pair_helpers` / `_bigraph` / `schema`; match variable names across scripts (prefer the
-  production names); don't split by slot when the data is per-pair.
+- **Plot helpers**: don't split by slot when the data is per-pair. (The general rules — reuse
+  existing primitives, consistent names, docstring standard — are CLAUDE.md § Conventions.)
 - **Stage-4 training is GATED** — no launch without explicit OK.
 
 ## Forward-looking work
