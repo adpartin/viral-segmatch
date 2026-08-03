@@ -265,7 +265,7 @@ def stop_at_n_atoms(target_atoms: int):
     """A `fragment_until` `stop_fn`: stop once the graph holds >= `target_atoms` atoms.
 
     Routing-B's count stop -- grow the atom count to a target so the downstream GroupKFold
-    CV builder (`dataset_pairs_cc.make_folds`) has enough independent atoms.
+    CV builder (`dataset_pairs_cc.groupkfold_by_atom`) has enough independent atoms.
     """
     return lambda state: state.n_atoms >= target_atoms
 
@@ -407,7 +407,7 @@ def apply_drop_budget_cut(
 
     Layer: routing-A's L2 fragment-until loop (stop = holdout 80/10/10 LPT-feasibility);
     `fragment_until` is the routing-B sibling (count stop). Both only shrink the graph --
-    the actual routing (L3: `route_holdout` / `make_folds`) is the caller's -- so they live
+    the actual routing (L3: `route_holdout` / `groupkfold_by_atom`) is the caller's -- so they live
     here with the cut primitives, not with the routers.
 
     Args:
