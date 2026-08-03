@@ -65,7 +65,7 @@ of scope).
   is routing-A (pair-mass LPT for a *holdout*, floor-limited at t095) and is NOT used by P2; it
   stays the holdout tool at lower priority. Layers: **L1** `fragment_largest_cc` (cut a CC, have)
   → **L2** a count-based stop (`fragment_until`: target #atoms / N cuts) → **L3** the existing
-  routers (`make_folds` GroupKFold+`m_pos` for CV; `route_holdout` LPT for a holdout). The stop
+  routers (`groupkfold_by_atom` GroupKFold+`m_pos` for CV; `route_holdout` LPT for a holdout). The stop
   rule is decoupled from the router, except the feasibility stop, which is holdout-specific.
 - **D2. Cut method = spectral (default)**, expose `kl`. Spectral drops fewer pairs (glossary:
   0.9% vs 10.1% at aa t095) but is unbalanced; for routing-B, fold balance is by atom count in
@@ -104,7 +104,7 @@ untouched); absorbs task 4's *edge weight* docstrings. **Deferred to P2:** the c
 the atom count by fragmenting the mega-CC, then use the existing folds machinery unchanged. In
 `assign_atoms_prod`: after the natural CCs, if fragmentation is enabled, loop `fragment_largest_cc`
 to a target #atoms (L2 count stop) → drop the straddling pairs → re-derive atoms via
-`bipartite_components` → `make_folds` (GroupKFold + `m_pos`). Does NOT call `apply_drop_budget_cut`
+`bipartite_components` → `groupkfold_by_atom` (GroupKFold + `m_pos`). Does NOT call `apply_drop_budget_cut`
 (routing-A). Add the knobs to the OOD bundle; fix the L154 note (it still points at
 `apply_drop_budget_cut`). Rebuild OOD nt_cds HA-NA at t095 and below → recover atoms toward the
 t097 count. **Reality (measured): edge-cut is floor-limited** -- t095 goes 108 -> ~124 within a 2%

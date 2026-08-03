@@ -676,6 +676,19 @@ Per current code dispatch (`dataset_segment_pairs_v2.py:2865-2960`):
 | `cluster_disjoint` single-slot | `'a'` or `'b'` | per-cluster atom LPT-greedy on the constrained slot | sklearn `GroupKFold` on constrained slot's `cluster_id`, then LPT-greedy on remaining k-1 atoms for train/val | `generate_all_cluster_disjoint_cv_folds_v2` (line 1976) → `cluster_disjoint_route_pos_df(n_folds=k)` |
 | `metadata_holdout` (axis-based filter) | n/a | filter-defined isolate partition fed through `random` dispatch | **not built** — raises `NotImplementedError` (line 2947) | metadata_holdout plan |
 
+A second builder sits outside that dispatch. `cluster_disjoint_cc` is served by
+`src/datasets/dataset_pairs_cc.py`, which requires `n_folds ≥ 2` (no holdout) and routes with
+sklearn `GroupKFold` on `atom_id` — the CC, or the post-edge-cut fragment when
+`split_strategy.edge_cut` is enabled — followed by a group-aware val carve that takes whole atoms.
+
+**Two k-fold routers, one guarantee.** 1D-CD (above) and 2D-CD (`dataset_pairs_cc.py`) both keep
+whole atoms in one split, in all three bins, and both draw within-fold negatives from the same
+sampler (`dataset_pairs_cc.within_fold_negatives`, imported by the v2 builder). They differ in
+mechanism: 1D-CD uses unshuffled `GroupKFold` plus LPT-greedy for train/val and is seed-independent,
+while 2D-CD uses a seeded `GroupKFold` shuffle plus a seeded atom shuffle for val. Unifying them is
+deferred — LPT is what minimizes the drift the D3 check (§ 3.3) measures, so swapping it is not
+free. See `docs/plans/2026-08-03_fold_maker_consolidation_plan.md`.
+
 **Placeholders for the three "not built" cells** — future work tracked
 in `docs/plans/2026-05-28_kfold_remaining.md`:
 
@@ -685,10 +698,11 @@ in `docs/plans/2026-05-28_kfold_remaining.md`:
   seq_disjoint atoms on Flu A are typically small (largest CC ~ 20 %
   of pairs at HA-NA `hash_key=seq`), so k-fold feasibility is rarely
   the bottleneck.
-- **Bilateral `cluster_disjoint` k-fold.** CC atoms collapse
-  to a mega-component at most thresholds below t099 on Flu A (§ 1.7.2);
-  k-fold feasibility unattainable at the interesting thresholds. At
-  t100 technically feasible but redundant with seq_disjoint k-fold.
+- **Bilateral `cluster_disjoint` k-fold.** Not built in the v2 dispatch, but built in
+  `dataset_pairs_cc.py` under `mode: cluster_disjoint_cc` (see the note above the placeholders).
+  The obstacle the v2 dispatch could not clear — CC atoms collapsing into a mega-CC below t099
+  on Flu A (§ 1.7.2) — is handled there by edge-cut fragmentation, which bisects the mega-CC
+  within a drop budget until enough atoms exist for k folds.
 - **`metadata_holdout` k-fold.** Orthogonal extension. Could be either
   GroupKFold-on-isolates within a filter pool, or per-axis-stratified
   KFold. Design unfinished.
