@@ -759,8 +759,10 @@ def _partition_full(full: pd.DataFrame, spec: CCSpec) -> dict:
     if spec.paired_random:
         tail_pairs = tail if spec.tail_ccs_to_train else full.iloc[0:0]
         per_fold_sizes = [len(test) for _, _, test in arms['ood']]
-        arms['random'] = make_folds_random(main, tail_pairs, spec.val_ratio, spec.seed,
-                                            per_fold_sizes=per_fold_sizes)
+        arms['random'] = make_folds_random(
+            main, tail_pairs, spec.val_ratio, spec.seed,
+            per_fold_sizes=per_fold_sizes
+        )
     return arms
 
 
