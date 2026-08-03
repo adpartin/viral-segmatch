@@ -9,9 +9,9 @@ before Phase 1); two of them are production. This plan removes duplication where
 behaviour change, fixes names and docstrings against the current code, and records the divergences
 that are deliberate.
 
-**Progress.** Phase 1 (§5) is done and committed — F1, F4, F5, F6, F7, F10 and D3 with it. Open:
-F8/D1 (per-fold val-carve seed), F9/D2 (one router for both paths), F11/D4 (what the
-`_partition_full` subtree is for). F2 and F3 are context and need no action.
+**Progress.** Phase 1 (§5) and Phase 2 (§5b) are done — F1, F4, F5, F6, F7, F10, F11, D3 and D4
+with them. Open: F8/D1 (per-fold val-carve seed) and F9/D2 (one router for both paths). F2 and F3
+are context and need no action.
 
 Related: `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md` (the graph/CC layer this sits on
 top of), `docs/methods/glossary.md` (canonical terms), `docs/methods/splits.md`.
@@ -123,7 +123,7 @@ live-but-unreached, the way the removed `make_folds` wrapper was (F5). **Open �
 `make_folds_within_fold`'s docstring; the sampler draws both endpoints from the split's positives
 without regard to CC, so a negative may fall within or across CCs. *Fixed:* all three corrected.
 
-**F11 — the whole `_partition_full` subtree exists for one experiment and has no tests.**
+**DONE F11 — the whole `_partition_full` subtree exists for one experiment and had no tests.**
 `_partition_full`, `pick_largest_atoms`, `make_folds_leave_cc_out`, `make_folds_random`,
 `_carve_val_pairs`, and the `fold_assignment` / `tail_ccs_to_train` / `paired_random` /
 `membership_path` knobs all arrived in one commit, `c1f7afd` (2026-07-24, OOD-vs-random paired CV),
@@ -131,7 +131,8 @@ which calls `_partition_full` the "arms selector". Each has exactly one call sit
 roots at `_partition_full`, whose only caller is the `within_cc` branch of `_make_folds_for_scope`.
 The only `within_cc` bundle is `flu_ha_na_cc_nt_cds_ood_ood_vs_random`, so one bundle exercises the
 subtree — and no test file mentions `leave_cc_out`, `paired_random`, `tail_ccs_to_train` or
-`membership_path`. **Open — see D4.**
+`membership_path`. *Answered by Phase 2 (§5b) and D4: kept, co-located behind a banner, documented,
+and pinned by `tests/test_partition_full_arms.py`.*
 
 **Not a defect.** `negative_scope` takes different value sets per mode, but `within_fold` names the
 same function in both.
@@ -171,6 +172,37 @@ pre-change build (12 files each); `pytest tests/ -q` 146 passed.
 Verification for every item: rebuild both production bundles, diff the fold CSVs byte-for-byte, run
 `pytest tests/ -q`.
 
+## 5b. Phase 2 — make the experiment subtree legible — **DONE (2026-08-03)**
+
+Answers F11/D4. Behaviour-preserving: 2D-CD rebuilt md5-identical to the Phase-1 baseline,
+`pytest tests/ -q` 151 passed (146 + 5 new).
+
+1. **DONE — Co-locate the subtree** behind a `# ===` banner in `dataset_pairs_cc.py`, directly above
+   `_make_folds_for_scope`: `_carve_val_pairs`, `pick_largest_atoms`, `make_folds_leave_cc_out`,
+   `make_folds_random`, `_partition_full`. `_partition_full` stayed put so it remains adjacent to
+   its caller; the other four moved down to join it. The banner names the one bundle, the
+   `within_cc` route, and the design plan. **This reverses Phase-1 item 2** — `_carve_val_pairs` is
+   used only by the two arms, so grouping by usage beat keeping it beside its twin
+   `_carve_val_atoms`; the twinship is carried by a docstring cross-reference instead. No separate
+   module: the boundary would cut through the dispatch, and `pick_largest_atoms` is general.
+2. **DONE — One sentence in the module docstring** pointing at the block. The docstring previously
+   never mentioned the arms at all.
+3. **DONE — `KEEP` header on the bundle** (`flu_ha_na_cc_nt_cds_ood_ood_vs_random.yaml`), naming
+   what depends on it. A rename was considered and rejected: a name does not prevent deletion, and
+   the run dirs already on disk (`dataset_cc_nt_cds_ood_ood_vs_random_t095…`, referenced by
+   `src/analysis/umap_ood_vs_random.py`) would desync from it. The doubled `ood_ood` is a genuine
+   defect — the first is the cluster root, the second the experiment — worth fixing only when those
+   run dirs are regenerated anyway.
+4. **DONE — `tests/test_partition_full_arms.py`** (5 tests). Binds the real bundle through
+   `_resolve_spec` — deleting it turns the suite red, which is the actual guard the `KEEP` header
+   only advertises — but drives `_partition_full` with a synthetic frame, since an end-to-end build
+   would mostly exercise the negative sampler. Pins: the bundle still selects
+   `leave_cc_out` + `paired_random`; **both arms partition the same rows** (the experiment's
+   premise, previously unchecked); per-fold test sizes match; the OOD arm tests one whole atom per
+   fold with no atom repeated; the random arm tests each row once *and* straddles atoms. Verified by
+   mutation, not just by passing: dropping the tail from the random arm and making that arm
+   atom-aware each fail the intended assertion.
+
 ## 6. Deferred — behaviour-changing, each its own decision
 
 - **D1 — vary the val-carve seed per fold** (F8). Cheap and correct, but changes every built dataset.
@@ -184,15 +216,10 @@ Verification for every item: rebuild both production bundles, diff the fold CSVs
   declined, the rename becomes a standalone Phase-1 item.
 - **DONE D3 — decide `make_folds`'s fate** (F5). Removed in Phase 1. The `within_cc + groupkfold`
   arm it wrapped survives, inlined in `_partition_full`.
-- **D4 — decide what the `_partition_full` subtree is for** (F11). Six functions and four config
-  knobs serve one bundle, with no test coverage. Options, in rough order of cost: (a) leave it and
-  say so in the module docstring, so the next reader knows it is experiment scaffolding rather than
-  a general routing facility; (b) add a small test over `make_folds_leave_cc_out` /
-  `make_folds_random` so the arms are pinned before any further change; (c) move the subtree behind
-  a clearer boundary — its own module — since it shares only `_carve_val_pairs` and the atom
-  vocabulary with the production path; (d) retire it if the OOD-vs-random question is settled. Worth
-  noting (a) is not a no-op: the subtree is the only consumer of `negative_scope: within_cc`, which
-  the docs still present as the stricter, shortcut-removing scope.
+- **DONE D4 — decide what the `_partition_full` subtree is for** (F11). Kept, and made legible
+  rather than retired — see Phase 2. Retiring was rejected: the subtree is the only consumer of
+  `negative_scope: within_cc`, which the glossary and `splits.md` both present as the stricter,
+  shortcut-removing scope, and the cluster-disjoint-vs-random question may be revisited.
 
 D2 carries one further open question: the within_cc arm routes positives + negatives through
 `groupkfold_by_atom` while within_fold routes positives only, so a single router for both scopes

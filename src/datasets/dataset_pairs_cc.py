@@ -22,6 +22,10 @@ raise rather than silently no-op): regime-targeted negatives, subtype balancing 
 max_isolates, the full v2 saver, and `n_repeats>1`. See
 `docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
 
+One block near the bottom (banner: "OOD-vs-random paired CV") is experiment
+scaffolding rather than production routing -- it serves a single bundle and is
+reachable only through `negative_scope: within_cc`.
+
 CLI:
     python src/datasets/dataset_pairs_cc.py \\
         --config_bundle flu_ha_na_cc_aa --out_dir <dir> \\
@@ -355,26 +359,6 @@ def _carve_val_atoms(tv: pd.DataFrame, val_ratio: float, n_total: int, seed: int
     return tv[~is_val], tv[is_val]
 
 
-def _carve_val_pairs(pairs: pd.DataFrame, val_ratio: float, seed: int):
-    """Carve val out of one fold's non-test rows at ROW level, so atoms may straddle train/val.
-
-    The row-level twin of `_carve_val_atoms`, used by the leave-one-atom-out and random arms, where
-    only the test fold is held out and val is deliberately in-distribution.
-
-    Args:
-        pairs: one fold's non-test rows.
-        val_ratio: val size target, as a fraction of `len(pairs)`.
-        seed: seeds the row shuffle.
-
-    Returns:
-        (train, val) -- row-disjoint frames partitioning `pairs`, index reset.
-    """
-    shuf = pairs.sample(frac=1, random_state=np.random.RandomState(seed))
-    n_val = int(round(val_ratio * len(shuf)))
-    val, train = shuf.iloc[:n_val], shuf.iloc[n_val:]
-    return train.reset_index(drop=True), val.reset_index(drop=True)
-
-
 def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed: int) -> list:
     """Partition `pairs` into k folds by GroupKFold on `atom_id`, carving val group-aware.
 
@@ -403,81 +387,6 @@ def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed
         train, val = _carve_val_atoms(train_val, val_ratio, n_total, seed)
         train, val, test = train.reset_index(drop=True), val.reset_index(drop=True), test.reset_index(drop=True)
         folds.append((train, val, test))
-    return folds
-
-
-def pick_largest_atoms(full: pd.DataFrame, n: int) -> list:
-    """The `n` atom_ids carrying the most POSITIVE pairs, largest first.
-
-    Negatives are excluded because the within-CC budget is proportional to each CC's positive
-    count, so counting them would rescale every atom by the same factor.
-
-    Args:
-        full: the pos+neg pool after any edge-cut fragmentation; carries `atom_id` and `label`.
-        n: how many atom_ids to return.
-
-    Returns:
-        list of up to `n` atom_ids, most positive pairs first.
-    """
-    return full[full['label'] == 1].groupby('atom_id').size().nlargest(n).index.tolist()
-
-
-def make_folds_leave_cc_out(full: pd.DataFrame, test_atom_ids, val_ratio: float, seed: int):
-    """Leave-one-atom-out folds: each atom in `test_atom_ids` is the sole test fold once.
-
-    Train is every other row of `full` (the remaining test atoms plus whatever tail `full` carries);
-    val is a row-level carve of train, so atoms straddle train/val here by design -- only test is
-    held out.
-
-    Args:
-        full: the pos+neg pool, carrying `atom_id`.
-        test_atom_ids: atoms to rotate through the test slot, one fold each.
-        val_ratio: val size target, as a fraction of the non-test rows.
-        seed: base seed; fold i uses `seed + i`.
-
-    Returns:
-        list of len(test_atom_ids) (train, val, test) frames.
-    """
-    folds = []
-    for i, atom in enumerate(test_atom_ids):
-        is_test = full['atom_id'] == atom
-        train, val = _carve_val_pairs(full[~is_test], val_ratio, seed + i)
-        folds.append((train, val, full[is_test].reset_index(drop=True)))
-    return folds
-
-
-def make_folds_random(main_atom_pairs: pd.DataFrame, tail_atom_pairs: pd.DataFrame,
-                      val_ratio: float, seed: int, *, per_fold_sizes):
-    """Size-matched random control for the leave-one-atom-out arm: partitions ROWS, not atoms.
-
-    Shuffles `main_atom_pairs` once and cuts it into consecutive test folds of `per_fold_sizes`, so
-    each row is tested exactly once and the per-fold test sizes match the OOD arm over the same
-    rows -- only the partition differs. Atoms straddle splits here, which is what makes this the
-    in-distribution control.
-
-    Args:
-        main_atom_pairs: rows of the test atoms (the material the OOD arm tests on).
-        tail_atom_pairs: rows appended to every train; may be empty.
-        val_ratio: val size target, as a fraction of the non-test rows.
-        seed: base seed; fold i uses `seed + i`.
-        per_fold_sizes: test row count per fold; must sum to len(main_atom_pairs).
-
-    Returns:
-        list of len(per_fold_sizes) (train, val, test) frames.
-    """
-    shuf = main_atom_pairs.sample(frac=1, random_state=np.random.RandomState(seed)).reset_index(drop=True)
-    if sum(per_fold_sizes) != len(shuf):
-        raise ValueError(f"per_fold_sizes (sum {sum(per_fold_sizes)}) must sum to "
-                         f"len(main_atom_pairs)={len(shuf)}; got {list(per_fold_sizes)}.")
-    folds, start = [], 0
-    for i, n_test in enumerate(per_fold_sizes):
-        test = shuf.iloc[start:start + n_test]
-        # Non-test = everything outside this fold's slice, plus the tail atoms.
-        rest = pd.concat([shuf.iloc[:start], shuf.iloc[start + n_test:]], ignore_index=True)
-        non_test = pd.concat([rest, tail_atom_pairs], ignore_index=True)
-        train, val = _carve_val_pairs(non_test, val_ratio, seed + i)
-        folds.append((train, val, test.reset_index(drop=True)))
-        start += n_test
     return folds
 
 
@@ -855,6 +764,113 @@ def _build_positives(config, spec: CCSpec, args):
     return df, pos_ids, cooccur, cc_summary.get('cc_sizes')  # cc_sizes: pre/post-cut CC-size Series, or None
 
 
+# =============================================================================
+# OOD-vs-random paired CV -- experiment scaffolding, NOT the production path.
+#
+# Everything down to the closing banner serves one bundle,
+# `flu_ha_na_cc_nt_cds_ood_ood_vs_random`: leave-one-atom-out folds against a
+# size-matched random control, both partitioning the SAME rows so the split is
+# the only difference between the arms. Reached only through
+# `negative_scope: within_cc`, of which this block is the sole consumer.
+# Design: docs/plans/2026-07-21_ood_vs_random_split_plan.md
+# =============================================================================
+
+
+def _carve_val_pairs(pairs: pd.DataFrame, val_ratio: float, seed: int):
+    """Carve val out of one fold's non-test rows at ROW level, so atoms may straddle train/val.
+
+    The row-level twin of `_carve_val_atoms` (defined above with the production routing), used by
+    the two arms below, where only the test fold is held out and val is deliberately
+    in-distribution.
+
+    Args:
+        pairs: one fold's non-test rows.
+        val_ratio: val size target, as a fraction of `len(pairs)`.
+        seed: seeds the row shuffle.
+
+    Returns:
+        (train, val) -- row-disjoint frames partitioning `pairs`, index reset.
+    """
+    shuf = pairs.sample(frac=1, random_state=np.random.RandomState(seed))
+    n_val = int(round(val_ratio * len(shuf)))
+    val, train = shuf.iloc[:n_val], shuf.iloc[n_val:]
+    return train.reset_index(drop=True), val.reset_index(drop=True)
+
+
+def pick_largest_atoms(full: pd.DataFrame, n: int) -> list:
+    """The `n` atom_ids carrying the most POSITIVE pairs, largest first.
+
+    Negatives are excluded because the within-CC budget is proportional to each CC's positive
+    count, so counting them would rescale every atom by the same factor.
+
+    Args:
+        full: the pos+neg pool after any edge-cut fragmentation; carries `atom_id` and `label`.
+        n: how many atom_ids to return.
+
+    Returns:
+        list of up to `n` atom_ids, most positive pairs first.
+    """
+    return full[full['label'] == 1].groupby('atom_id').size().nlargest(n).index.tolist()
+
+
+def make_folds_leave_cc_out(full: pd.DataFrame, test_atom_ids, val_ratio: float, seed: int):
+    """Leave-one-atom-out folds: each atom in `test_atom_ids` is the sole test fold once.
+
+    Train is every other row of `full` (the remaining test atoms plus whatever tail `full` carries);
+    val is a row-level carve of train, so atoms straddle train/val here by design -- only test is
+    held out.
+
+    Args:
+        full: the pos+neg pool, carrying `atom_id`.
+        test_atom_ids: atoms to rotate through the test slot, one fold each.
+        val_ratio: val size target, as a fraction of the non-test rows.
+        seed: base seed; fold i uses `seed + i`.
+
+    Returns:
+        list of len(test_atom_ids) (train, val, test) frames.
+    """
+    folds = []
+    for i, atom in enumerate(test_atom_ids):
+        is_test = full['atom_id'] == atom
+        train, val = _carve_val_pairs(full[~is_test], val_ratio, seed + i)
+        folds.append((train, val, full[is_test].reset_index(drop=True)))
+    return folds
+
+
+def make_folds_random(main_atom_pairs: pd.DataFrame, tail_atom_pairs: pd.DataFrame,
+                      val_ratio: float, seed: int, *, per_fold_sizes):
+    """Size-matched random control for the leave-one-atom-out arm: partitions ROWS, not atoms.
+
+    Shuffles `main_atom_pairs` once and cuts it into consecutive test folds of `per_fold_sizes`, so
+    each row is tested exactly once and the per-fold test sizes match the OOD arm over the same
+    rows -- only the partition differs. Atoms straddle splits here, which is what makes this the
+    in-distribution control.
+
+    Args:
+        main_atom_pairs: rows of the test atoms (the material the OOD arm tests on).
+        tail_atom_pairs: rows appended to every train; may be empty.
+        val_ratio: val size target, as a fraction of the non-test rows.
+        seed: base seed; fold i uses `seed + i`.
+        per_fold_sizes: test row count per fold; must sum to len(main_atom_pairs).
+
+    Returns:
+        list of len(per_fold_sizes) (train, val, test) frames.
+    """
+    shuf = main_atom_pairs.sample(frac=1, random_state=np.random.RandomState(seed)).reset_index(drop=True)
+    if sum(per_fold_sizes) != len(shuf):
+        raise ValueError(f"per_fold_sizes (sum {sum(per_fold_sizes)}) must sum to "
+                         f"len(main_atom_pairs)={len(shuf)}; got {list(per_fold_sizes)}.")
+    folds, start = [], 0
+    for i, n_test in enumerate(per_fold_sizes):
+        test = shuf.iloc[start:start + n_test]
+        # Non-test = everything outside this fold's slice, plus the tail atoms.
+        rest = pd.concat([shuf.iloc[:start], shuf.iloc[start + n_test:]], ignore_index=True)
+        non_test = pd.concat([rest, tail_atom_pairs], ignore_index=True)
+        train, val = _carve_val_pairs(non_test, val_ratio, seed + i)
+        folds.append((train, val, test.reset_index(drop=True)))
+        start += n_test
+    return folds
+
 def _partition_full(full: pd.DataFrame, spec: CCSpec) -> dict:
     """Partition the fixed pos+neg `full` into fold arms, per `spec.fold_assignment`.
 
@@ -895,6 +911,9 @@ def _partition_full(full: pd.DataFrame, spec: CCSpec) -> dict:
             per_fold_sizes=per_fold_sizes
         )
     return arms
+
+
+# === end OOD-vs-random paired CV ===
 
 
 def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path) -> dict:

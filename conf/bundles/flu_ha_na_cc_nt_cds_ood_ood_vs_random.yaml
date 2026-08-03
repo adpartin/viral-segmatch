@@ -1,3 +1,7 @@
+# KEEP -- do not delete when tidying conf/bundles/. This is the sole consumer of
+# negative_scope: within_cc, and the only bundle that reaches the OOD-vs-random block in
+# src/datasets/dataset_pairs_cc.py. Pinned by tests/test_partition_full_arms.py.
+#
 # STATUS: experimental -- HA-NA OOD-vs-random paired CV at t095 (leave-one-CC-out vs size-matched random).
 # Builds BOTH arms from ONE fixed within-CC negative pool, differing only in how the same `full` pairs
 # are partitioned: out_dir/ood/fold_k/ (each of the 3 largest fragmented CCs is the sole test fold once)
