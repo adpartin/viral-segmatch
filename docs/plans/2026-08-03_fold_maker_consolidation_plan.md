@@ -29,11 +29,11 @@ and `neg_to_pos_ratio: 1.0`, and draw **within-fold negatives** from the same sa
 | builder | `dataset_pairs_cc.py` | `dataset_segment_pairs_v2.py` |
 | mode | `cluster_disjoint_cc` | `cluster_disjoint` + `single_slot: a` — **HA** is the cluster-disjoint axis, NA unconstrained |
 | atom | one CC on (`cluster_id_a`, `cluster_id_b`); under `edge_cut`, a post-cut fragment of one | one HA cluster |
-| router | `make_folds_within_fold` (`dataset_pairs_cc.py:560`) | k-fold branch of `_split_helpers.cluster_disjoint_route_pos_df:591-628` — inline, unnamed |
+| router | `make_folds_within_fold` (`dataset_pairs_cc.py:469`) | k-fold branch of `_split_helpers.cluster_disjoint_route_pos_df:591-628` — inline, unnamed |
 | test folds | `GroupKFold(shuffle=True, random_state=seed)` on `atom_id` | `GroupKFold` (**unshuffled**) on `cluster_id_a` (`:596`) |
-| val carve | `_carve_val_atoms:324` — seeded atom shuffle | `_lpt_bin_pack` over non-test atoms, two bins (`:621`) |
+| val carve | `_carve_val_atoms:328` — seeded atom shuffle | `_lpt_bin_pack` over non-test atoms, two bins (`:621`) |
 | determinism | seeded | **seed-independent** — `seed` is audited, never consumed (`_split_helpers.py:380-382`) |
-| negatives | `within_fold_negatives` (`dataset_pairs_cc.py:484`) | same function, lazily imported at `dataset_segment_pairs_v2.py:1699` |
+| negatives | `within_fold_negatives` (`dataset_pairs_cc.py:393`) | same function, lazily imported at `dataset_segment_pairs_v2.py:1699` |
 
 Both routers partition positives only. Both val carves take whole atoms, so val is cluster-disjoint
 from train on both paths — same guarantee, different mechanism.
@@ -55,17 +55,29 @@ safe. Anything that cannot meet this moves to §6. `pytest tests/ -q` must pass 
 
 ## 3. Current state — four fold-makers over one shared core
 
-Post-Phase-1. `groupkfold_by_atom` (`dataset_pairs_cc.py:378`) is the shared GroupKFold-by-atom core;
+Post-Phase-2. `groupkfold_by_atom` (`dataset_pairs_cc.py:362`) is the shared GroupKFold-by-atom core;
 both negative scopes route through it. Phase 1 removed a fifth fold-maker, `make_folds`, which had
 become a pure delegate to that core and which no bundle reached (F5).
 
-| function | file:line | reached by | test unit | val carve | atoms whole in val? |
-|---|---|---|---|---|---|
-| `make_folds_within_fold` | `dataset_pairs_cc.py:560` | **2D-CD production** | k atom-groups | `_carve_val_atoms` | yes |
-| `_split_helpers` k-fold branch | `_split_helpers.py:591-628` | **1D-CD production** | k atom-groups | `_lpt_bin_pack` | yes |
-| `_partition_full` groupkfold arm | `dataset_pairs_cc.py:876` | no bundle (F5) | k atom-groups | `_carve_val_atoms` | yes |
-| `make_folds_leave_cc_out` | `dataset_pairs_cc.py:425` | `flu_ha_na_cc_nt_cds_ood_ood_vs_random` | **one atom** per fold | `_carve_val_pairs` | **no** |
-| `make_folds_random` | `dataset_pairs_cc.py:449` | same bundle, `paired_random` arm | **rows** | `_carve_val_pairs` | **no** |
+The **leave-cc-out experiment?** column marks membership of the `# ===`-banded block at
+`dataset_pairs_cc.py:767-916`, which serves one thing: the paired leave-one-CC-out vs size-matched
+random comparison, bundle `flu_ha_na_cc_nt_cds_ood_ood_vs_random` (F11, §5b).
+
+*"OOD" is overloaded here and none of its other senses are meant by this column.* It also names
+(a) the `clusters_*_ood` cluster root, and (b) the general property that any cluster-disjoint split
+holds out unseen clusters — 2D-CD included, so `make_folds_within_fold` produces out-of-distribution
+test folds while sitting **outside** this block. The column is about the experiment only.
+
+| function | file:line | reached by | leave-cc-out experiment? | test unit | val carve | atoms whole in val? |
+|---|---|---|---|---|---|---|
+| `make_folds_within_fold` | `dataset_pairs_cc.py:469` | **2D-CD production** | no | k atom-groups | `_carve_val_atoms` | yes |
+| `_split_helpers` k-fold branch | `_split_helpers.py:591-628` | **1D-CD production** | no | k atom-groups | `_lpt_bin_pack` | yes |
+| `_partition_full` groupkfold arm | `dataset_pairs_cc.py:892` | no bundle (F5) | in the block, but this arm is the generic branch | k atom-groups | `_carve_val_atoms` | yes |
+| `make_folds_leave_cc_out` | `dataset_pairs_cc.py:816` | `flu_ha_na_cc_nt_cds_ood_ood_vs_random` | **yes** | **one atom** per fold | `_carve_val_pairs` | **no** |
+| `make_folds_random` | `dataset_pairs_cc.py:840` | same bundle, `paired_random` arm | **yes** — the control arm | **rows** | `_carve_val_pairs` | **no** |
+
+Two helpers sit in the block without being fold-makers: `_carve_val_pairs` (`:779`) and
+`pick_largest_atoms`. `groupkfold_by_atom` and `_carve_val_atoms` (`:328`) are production, outside it.
 
 `route_holdout` (`_pair_helpers.py:877`) is a sixth router but produces one holdout, not folds.
 Callers: `_split_helpers.py:520` and `seq_disjoint_route_pos_df` (`_pair_helpers.py:994`). Neither
