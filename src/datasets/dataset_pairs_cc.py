@@ -747,6 +747,7 @@ def _partition_full(full: pd.DataFrame, spec: CCSpec) -> dict:
     the SAME rows. Returns {arm_name: [(train, val, test), ...]} ('' = single unnamed arm)."""
     if spec.fold_assignment == 'groupkfold':
         return {'': make_folds(full, spec.k_folds, spec.val_ratio, spec.seed)}
+
     # leave_cc_out: the k largest CCs rotate as the sole test fold.
     test_cc_ids = pick_largest_atoms(full, spec.k_folds)
     is_main = full['atom_id'].isin(test_cc_ids)
