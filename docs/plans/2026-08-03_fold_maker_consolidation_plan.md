@@ -11,7 +11,7 @@ that are deliberate.
 
 **Progress.** Phase 1 (§5) and Phase 2 (§5b) are done — F1, F4, F5, F6, F7, F10, F11, D3 and D4
 with them. Open: F8/D1 (per-fold val-carve seed), F9/D2 (one router for both paths), and the
-fragmentation walkthrough (§6b) carried over from the closed bigraph plan. F2 and F3 are context
+fragmentation walkthrough + cleanup (§6b) carried over from the closed bigraph plan. F2 and F3 are context
 and need no action.
 
 Related: `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md` (the graph/CC layer this sits on
@@ -239,13 +239,23 @@ D2 carries one further open question: the within_cc arm routes positives + negat
 would need to know whether `GroupKFold(shuffle=True)` partitions identically when every group size
 is scaled by the same constant (F3's `(1+r)` factor). Not checked.
 
-## 6b. Walkthrough — fragmentation (carried over)
+## 6b. Walkthrough + cleanup — fragmentation (carried over)
 
-Not implementation work: an understanding pass, producing an explanation rather than a commit. It
-is the tail of the walkthrough begun in `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md`
-§5, moved here so that closed plan holds no live items. Already covered there or since:
-`build_pair_bigraph`, `route_holdout` and the fold-makers. Dropped: `_cv_sampling.assign_atoms`
-(archived 2026-07-31).
+A walkthrough is the working method, not a deliverable type: reading the code in execution order is
+what exposes the work. The output is cleanup — docstring accuracy, naming consistency, redundancy,
+dead paths — to the §7 standard, under the §2 bit-exact constraint, verified rather than argued.
+That is how the 07-30 plan ran (walking `build_pair_bigraph` surfaced three independent graph
+builders and eleven archivable scripts) and how Phases 1 and 2 of this plan ran (walking the
+fold-makers produced F1–F11).
+
+This is the tail of the walkthrough begun in
+`docs/plans/done/2026-07-30_bigraph_consolidation_plan.md` §5, moved here so that closed plan holds
+no live items. Already covered: `build_pair_bigraph` (there), `route_holdout` and the fold-makers
+(Phases 1–2). Dropped: `_cv_sampling.assign_atoms`, archived 2026-07-31.
+
+These three loops have **not** had an accuracy-and-redundancy pass. Item 4a of the 07-30 plan
+touched them, but only to change the representation they read (`weight=`); their structure,
+docstrings and naming were left as found.
 
 Remaining, all in `src/datasets/_megacc_cut.py`:
 
@@ -258,13 +268,55 @@ Remaining, all in `src/datasets/_megacc_cut.py`:
   `assign_atoms_prod` on the 2D-CD production path); `apply_drop_budget_cut` stops when the kept
   CCs LPT-pack into 80/10/10 within `drift_pp` (routing-A, the holdout path in `_split_helpers`).
 
-Deliverable: a short written summary of how the three loops differ and which path reaches each —
-no code changes expected, since all three were read, modified and byte-verified during the
-2026-07-30 plan.
+**Deliverable: the cleanup.** Explanation happens through questions as the walk proceeds and is not
+a separate output. Held to the same bar as Phases 1–2 and as the 07-30 plan: docstrings verified
+line by line rather than trusted, names checked against what the code does, redundancy named before
+it is removed, dead scripts moved to `src/archive/` with a README entry, and every behaviour claim
+backed by a before/after capture. Bit-exact on both production bundles (§2); `pytest tests/ -q`
+green.
+
+**Scope, in priority order.** The three loops are the entry point, not the boundary — 07-30 started
+at `build_pair_bigraph` and ended up consolidating three graph builders and archiving eleven
+scripts — but the boundary is the **fragmentation path**, not the repo.
+
+1. `src/datasets` (11 files, 9,075 lines) — highest priority; read what the fragmentation path
+   touches, and follow what that reading exposes.
+2. `src/analysis` (47 files, 20,126 lines) — only where the fragmentation path reaches it, plus a
+   dead-code sweep. The `bigraph_*` family was already swept by 07-30; the rest is largely plotting
+   and one-off experiments.
+
+Not every problem found has to be solved. Anything off the fragmentation path gets **recorded as a
+finding and left**, rather than pulled into this pass.
+
+Open questions to answer during the pass, not assumed in advance: are the three loops as parallel
+as they look, or does one carry logic the others silently lack? Is `_bisect`'s 61 lines doing one
+job or several? Does `apply_drop_budget_cut`'s 124 lines earn its size, given that only the stop
+condition should differ from `fragment_until`?
+
+**F12 — plan labels have leaked into live code, including user-facing errors.** Identifiers that
+only the plan documents define are used as if they were code terms, so a reader cannot resolve them
+from the source: `D1`–`D4` (~25 sites across `_split_helpers`, `dataset_segment_pairs{,_v2}`,
+`_pair_helpers`, `src/analysis/single_slot_cluster_disjoint_feasibility`), `OoS #5`/`#7` (4),
+`P2` (5), `routing-A`/`routing-B` (6), `L1`/`L2`/`L3` as layer names in `_megacc_cut` (3), and
+"Phase N of <plan>" (4). Worst case: `D3`/`D4` appear in raised error text
+(`_split_helpers.py:544,567`; `dataset_segment_pairs_v2.py:2288-2320`), so a user hitting the
+feasibility guard is pointed at a plan label rather than told what failed.
+
+The rule: a bare label used as a name is a defect — say what the thing *is* ("the per-fold drift and
+min-test-size check"), then cite the plan for provenance if the derivation matters. A full path
+pointer is fine; a label the code never defines is not. Distinguish from the legitimate `L1`/`L2` of
+vector norms, which are standard mathematics and stay.
+
+**Only the on-path half is in scope for §6b.** `routing-A`/`routing-B` and `L1`/`L2`/`L3`-as-layers
+sit in `_megacc_cut` and `assign_atoms_prod`, whose docstrings this pass rewrites anyway — leaving
+them would mean knowingly shipping a docstring that fails §7. The `D1`–`D4` / `OoS` / `P2` cluster
+in `_split_helpers` and `dataset_segment_pairs_v2` belongs to the 1D-CD and holdout paths and is
+**recorded, not fixed**. Worth revisiting separately: `D3`/`D4` in raised error text is user-facing,
+so it is the one off-path item with a real cost.
 
 ## 7. Standard for every function touched
 
-Full rules: `CLAUDE.md` § Conventions. The four that bite here:
+Full rules: `CLAUDE.md` § Conventions. The five that bite here:
 
 - **Docstring** — first sentence says what the function does; `Args:` and `Returns:` present and
   correct; every claim checked against the code, never inferred from the name; current state only.
@@ -274,6 +326,11 @@ Full rules: `CLAUDE.md` § Conventions. The four that bite here:
 - **Statement complexity** — break a dense statement into named steps with a brief comment. Never
   return an expression that also does the work: bind the call to a named variable, then return it.
   Example to fix: `_make_folds_for_scope:838`, `return {'': make_folds_within_fold(...)}`.
+- **No plan-only vocabulary in code** — code, comments, docstrings and error messages must be
+  readable without opening a plan. Never use a label that only a plan defines (`D3`, `OoS #5`,
+  `routing-B`, `P2`, "Phase 2") as though it were a term: say what the thing *is*, then cite the
+  plan by full path if the derivation matters. Canonical terms belong in
+  `docs/methods/glossary.md`; plan labels are not canonical terms. See F12 for the current extent.
 
 ## 8. Out of scope
 
