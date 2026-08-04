@@ -33,9 +33,10 @@ stored `cc_nt_cds_*` artifacts partition-identical with all 15 fragmentation aud
 which no production path uses (all default to spectral).
 
 Follow-ups deliberately left open, none blocking:
-- `cc_aa_*` artifacts do not exist, so the aa CV harness (`cluster_disjoint_cv_experiment`,
-  `cluster_disjoint_regime_cv`, `cluster_pair_weight_topk`) still uses the Gen-1
-  `load_pair_universe` path. Correct on aa; would need artifacts to port.
+- ~~`cc_aa_*` artifacts do not exist, so the aa CV harness still uses the Gen-1
+  `load_pair_universe` path.~~ **Moot since 2026-07-31**: `cluster_disjoint_cv_experiment`,
+  `cluster_disjoint_regime_cv` and `cluster_pair_weight_topk` were archived to `src/archive/`
+  (`4e41dfb`), so no live code takes that path and no `cc_aa_*` artifacts are needed.
 - **(Corrected 2026-07-31: an earlier draft of this list claimed `_cv_sampling` still carries a
   hardcoded `_ROOT` map. It does not — item 2 replaced it with
   `from src.utils.cluster_source import CLUSTERS_ROOT as _ROOT`.)** The real residual is one level
@@ -204,8 +205,8 @@ negative-resampling variation alone):
 
 The random arm is stable. The **ood arm sits at chance in both versions** (AUC-ROC 0.53 → 0.49),
 where F1 is highly unstable — its −0.159 is dominated by one fold (−0.34) and is not a capability
-change. Open control: re-run the ood arm at several negative-sampling seeds to establish its
-natural spread, so this delta can be attributed rather than assumed.
+change. A seed-spread control (re-run the ood arm at several negative-sampling seeds) would let the
+delta be attributed rather than assumed; §6.1 records the decision not to run it.
 
 Baseline digests: `tests/golden/megacc_cut/fold_baseline_*.json`, captured by
 `scripts/capture_2dcd_fold_baseline.py`.
@@ -259,9 +260,12 @@ thresholds × {natural, fragmented} = 30 artifacts, read-only re-derivation):
 
 ## 5. Walkthrough (understanding pass, interleaves with the above)
 
-`build_pair_bigraph` done. Remaining: `_bisect` → `fragment_largest_cc` (one cut); `fragment_until`
-vs `apply_drop_budget_cut` (the two stop conditions); `route_holdout` + `make_folds` (atoms →
-splits); `_cv_sampling.assign_atoms` (the third split path).
+Covered while this plan ran: `build_pair_bigraph`. Covered afterwards, under
+`docs/plans/2026-08-03_fold_maker_consolidation_plan.md`: `route_holdout` and the fold-makers
+(atoms → splits). Dropped: `_cv_sampling.assign_atoms`, archived 2026-07-31 (`4e41dfb`).
+
+The remainder — `_bisect` → `fragment_largest_cc`, and `fragment_until` vs `apply_drop_budget_cut`
+— moved to §6b of the 2026-08-03 plan, so this closed plan holds no live work.
 
 ## 6. Questions — both closed (2026-07-31)
 

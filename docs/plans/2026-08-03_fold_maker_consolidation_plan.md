@@ -10,8 +10,9 @@ behaviour change, fixes names and docstrings against the current code, and recor
 that are deliberate.
 
 **Progress.** Phase 1 (§5) and Phase 2 (§5b) are done — F1, F4, F5, F6, F7, F10, F11, D3 and D4
-with them. Open: F8/D1 (per-fold val-carve seed) and F9/D2 (one router for both paths). F2 and F3
-are context and need no action.
+with them. Open: F8/D1 (per-fold val-carve seed), F9/D2 (one router for both paths), and the
+fragmentation walkthrough (§6b) carried over from the closed bigraph plan. F2 and F3 are context
+and need no action.
 
 Related: `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md` (the graph/CC layer this sits on
 top of), `docs/methods/glossary.md` (canonical terms), `docs/methods/splits.md`.
@@ -237,6 +238,29 @@ D2 carries one further open question: the within_cc arm routes positives + negat
 `groupkfold_by_atom` while within_fold routes positives only, so a single router for both scopes
 would need to know whether `GroupKFold(shuffle=True)` partitions identically when every group size
 is scaled by the same constant (F3's `(1+r)` factor). Not checked.
+
+## 6b. Walkthrough — fragmentation (carried over)
+
+Not implementation work: an understanding pass, producing an explanation rather than a commit. It
+is the tail of the walkthrough begun in `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md`
+§5, moved here so that closed plan holds no live items. Already covered there or since:
+`build_pair_bigraph`, `route_holdout` and the fold-makers. Dropped: `_cv_sampling.assign_atoms`
+(archived 2026-07-31).
+
+Remaining, all in `src/datasets/_megacc_cut.py`:
+
+- **`_bisect:101`** (61 lines) — the one cut. Spectral (Fiedler vector over a dense `eigh` on
+  sorted nodes) or Kernighan-Lin; straddling pairs are dropped. Sorting the nodes is what makes
+  spectral insertion-order-independent, and KL not.
+- **`fragment_largest_cc:196`** (25 lines) — applies one `_bisect` to the heaviest CC.
+- **`fragment_until:286`** (97 lines) vs **`apply_drop_budget_cut:385`** (124 lines) — the two
+  stop conditions over the same cut. `fragment_until` stops on an atom count (routing-B, used by
+  `assign_atoms_prod` on the 2D-CD production path); `apply_drop_budget_cut` stops when the kept
+  CCs LPT-pack into 80/10/10 within `drift_pp` (routing-A, the holdout path in `_split_helpers`).
+
+Deliverable: a short written summary of how the three loops differ and which path reaches each —
+no code changes expected, since all three were read, modified and byte-verified during the
+2026-07-30 plan.
 
 ## 7. Standard for every function touched
 
