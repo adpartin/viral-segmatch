@@ -182,9 +182,12 @@ def test_real_corpus_spot_check():
     """
     proj = Path(__file__).resolve().parents[1]
     prot_csv = proj / 'data/processed/flu/July_2025/protein_final.csv'
-    gen_csv = proj / 'data/processed/flu/July_2025/genome_final.csv'
-    if not prot_csv.exists() or not gen_csv.exists():
-        pytest.skip('spot-check skipped: Stage 1 outputs not present')
+    # Contig DNA comes from ctg_dna_final -- the file the production front-end reads
+    # (`_pair_helpers.attach_ctg_dna_to_prot_df`), so this checks the extractor against
+    # the contigs the pipeline actually feeds it.
+    ctg_parquet = proj / 'data/processed/flu/July_2025/ctg_dna_final.parquet'
+    if not prot_csv.exists() or not ctg_parquet.exists():
+        pytest.skip('Stage 1 outputs not present')
 
     # selected_functions from conf/virus/flu.yaml — the 8 majors, all unspliced.
     unspliced_majors = (
@@ -207,12 +210,12 @@ def test_real_corpus_spot_check():
     sample = prot.sample(n=min(200, len(prot)), random_state=0)
     needed_ctgs = sample[['assembly_id', 'genbank_ctg_id']].drop_duplicates()
 
-    gen = pd.read_csv(gen_csv,
-                      usecols=['assembly_id', 'genbank_ctg_id', 'dna_seq'],
-                      dtype={'assembly_id': str, 'genbank_ctg_id': str})
-    gen = gen.merge(needed_ctgs, on=['assembly_id', 'genbank_ctg_id'], how='inner')
+    ctg = pd.read_parquet(ctg_parquet,
+                          columns=['assembly_id', 'genbank_ctg_id', 'ctg_dna_seq'])
+    ctg = ctg.astype({'assembly_id': str, 'genbank_ctg_id': str})
+    ctg = ctg.merge(needed_ctgs, on=['assembly_id', 'genbank_ctg_id'], how='inner')
     ctg_lookup = {(a, c): d for a, c, d in
-                  zip(gen['assembly_id'], gen['genbank_ctg_id'], gen['dna_seq'])}
+                  zip(ctg['assembly_id'], ctg['genbank_ctg_id'], ctg['ctg_dna_seq'])}
 
     mismatches = 0
     checked = 0
@@ -266,7 +269,7 @@ if __name__ == '__main__':
         try:
             print(f'... {t.__name__}')
             t()
-            print(f'    OK')
+            print('    OK')
         except Exception as e:
             failed += 1
             print(f'    FAIL: {e}')
