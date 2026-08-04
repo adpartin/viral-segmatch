@@ -16,6 +16,8 @@ Run: python tests/test_cds_utils.py
 import sys
 from pathlib import Path
 
+import pytest
+
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
@@ -182,8 +184,7 @@ def test_real_corpus_spot_check():
     prot_csv = proj / 'data/processed/flu/July_2025/protein_final.csv'
     gen_csv = proj / 'data/processed/flu/July_2025/genome_final.csv'
     if not prot_csv.exists() or not gen_csv.exists():
-        print('  spot-check skipped: Stage 1 outputs not present')
-        return
+        pytest.skip('spot-check skipped: Stage 1 outputs not present')
 
     # selected_functions from conf/virus/flu.yaml — the 8 majors, all unspliced.
     unspliced_majors = (

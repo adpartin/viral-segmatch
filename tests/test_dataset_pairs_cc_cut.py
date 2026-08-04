@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[1]
@@ -62,8 +63,7 @@ def _max_atoms_per_cluster(pos_ids):
 def test_edge_cut_disabled_is_natural():
     """edge_cut=None: the pre-existing natural path -- 108 atoms, atom==cc, no natural_cc_id."""
     if _ood_absent():
-        print('SKIP test_edge_cut_disabled_is_natural: OOD clusters absent')
-        return
+        pytest.skip('OOD clusters absent')
     pos, lookup, hcol = _build_pos_lookup()
     nat, summ = assign_atoms_prod(pos, lookup, hcol, edge_cut=None)
     assert nat['atom_id'].nunique() == 108                      # natural CCs
@@ -79,8 +79,7 @@ def test_edge_cut_grows_atoms_and_stays_cluster_disjoint():
     with natural_cc_id retained. The spectral cut is a deterministic dense eigensolve
     (`_megacc_cut._bisect`), so atom count / n_cuts / pairs_dropped are bit-stable -- asserted exactly."""
     if _ood_absent():
-        print('SKIP test_edge_cut_grows_atoms: OOD clusters absent')
-        return
+        pytest.skip('OOD clusters absent')
     pos, lookup, hcol = _build_pos_lookup()
     ec = {'enabled': True, 'cut_method': 'spectral', 'target_atoms': 124, 'max_drop_frac': 0.02, 'seed': 42}
     cut, summ = assign_atoms_prod(pos, lookup, hcol, edge_cut=ec)
@@ -99,8 +98,7 @@ def test_edge_cut_grows_atoms_and_stays_cluster_disjoint():
 def test_edge_cut_target_below_natural_does_zero_cuts():
     """A target <= the natural atom count needs no cut (already satisfied)."""
     if _ood_absent():
-        print('SKIP test_edge_cut_target_below_natural: OOD clusters absent')
-        return
+        pytest.skip('OOD clusters absent')
     pos, lookup, hcol = _build_pos_lookup()
     ec = {'enabled': True, 'cut_method': 'spectral', 'target_atoms': 50, 'max_drop_frac': 0.02, 'seed': 42}
     cut, summ = assign_atoms_prod(pos, lookup, hcol, edge_cut=ec)

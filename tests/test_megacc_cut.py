@@ -15,6 +15,7 @@ from pathlib import Path
 
 import networkx as nx
 import pandas as pd
+import pytest
 
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
@@ -134,8 +135,7 @@ def test_cluster_ccs_labels_rank_by_size():
 def test_cluster_ccs_matches_sequence_ccs_ood_nt_cds_t095():
     """Same agreement on the production bigraph (670 nodes / 1,055 edges), natural and post-cut."""
     if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
-        print('SKIP test_cluster_ccs_matches_sequence_ccs_ood_nt_cds_t095: OOD clusters absent')
-        return
+        pytest.skip('OOD clusters absent')
     pos = _build_ood_pos_ids('t095')
     _assert_same_partition(pos)
     kept, _dropped, _audit = fragment_until(
@@ -260,8 +260,7 @@ def test_fragment_once_ood_nt_cds_t095_reproduces_p1():
     """P1 anchor: one spectral cut of the OOD nt_cds t095 mega-CC drops 14 straddling
     pairs and splits 440 clusters into 297 / 143."""
     if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
-        print('SKIP test_fragment_once_ood_nt_cds_t095: OOD clusters absent')
-        return
+        pytest.skip('OOD clusters absent')
     pos = _build_ood_pos_ids('t095')
     kept, dropped, step = fragment_once(pos, cut_method='spectral', seed=1)
     part_b = len(step.cc_nodes) - len(step.part_a)
@@ -274,8 +273,7 @@ def test_apply_drop_budget_cut_ood_nt_cds_t099_golden():
     """Behavior-preserving guard: the budget loop on OOD nt_cds t099 reproduces the
     pre-refactor digest (cut count, dropped pairs, kept/dropped pair_key sets)."""
     if not (OOD_CLUSTERS / 't099' / 'combined_cluster.parquet').exists():
-        print('SKIP test_apply_drop_budget_cut_ood_nt_cds_t099_golden: OOD clusters absent')
-        return
+        pytest.skip('OOD clusters absent')
     g = json.loads(GOLDEN.read_text())
     pos = _build_ood_pos_ids('t099')
     kept, audit = apply_drop_budget_cut(pos, cut_method='spectral', seed=1)
@@ -299,8 +297,7 @@ def test_fragment_until_ood_nt_cds_t095_golden():
     (`_megacc_cut._bisect`), so it is bit-deterministic across processes -- this asserts the EXACT
     cut (n_cuts / pairs_dropped / n_atoms), not a range."""
     if not (OOD_CLUSTERS / 't095' / 'combined_cluster.parquet').exists():
-        print('SKIP test_fragment_until_ood_nt_cds_t095_golden: OOD clusters absent')
-        return
+        pytest.skip('OOD clusters absent')
     g = json.loads(FRAG_GOLDEN.read_text())
     pos = _build_ood_pos_ids('t095')
     _c0, summ0 = cluster_ccs(pos, col_a='cluster_id_a', col_b='cluster_id_b')
