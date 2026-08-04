@@ -49,7 +49,7 @@ from src.datasets._bigraph import build_pair_bigraph, ranked_ccs  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool as _cc_build_pool
 from src.datasets._cc_helpers import sample_random_within_cc_negatives as _cc_sample_random
 from src.datasets._cc_helpers import sample_regime_negatives as _cc_sample_regime
-from src.datasets._megacc_cut import fragment_weighted, uniform_targets
+from src.datasets._megacc_cut import fragment_weighted
 from src.datasets._negative_regime_sampling import DEFAULT_AXES, DEFAULT_YEAR_BIN_EDGES
 from src.utils.cluster_source import CLUSTERS_ROOT as _ROOT
 from src.utils.cluster_source import cluster_map_for_root
@@ -57,6 +57,20 @@ from src.utils.cluster_source import cluster_map_for_root
 # hash columns on the pair universe (load_pair_universe) per alphabet.
 _HASH = {'aa': ('prot_hash_a', 'prot_hash_b'),
          'nt_cds': ('cds_dna_hash_a', 'cds_dna_hash_b')}
+
+
+def uniform_targets(k: int) -> dict:
+    """K equal bins summing to 1 -- the K-fold-feasibility target for fragmentation.
+
+    Pass as `targets=` to `fragment_weighted` to fragment a CC until its atoms LPT-pack
+    into K balanced folds (largest atom roughly <= 1/k). Tighter than an 80/10/10 holdout
+    target: a single atom at 80% is LPT-feasible for 80/10/10 (it fills train) but violates
+    K equal bins.
+
+    Lived in `src/datasets/_megacc_cut.py` until 2026-08-04; moved here when this harness
+    turned out to be its only caller, so live code carries no unused K-fold target builder.
+    """
+    return {f'f{i}': 1.0 / k for i in range(k)}
 
 
 def assign_atoms(

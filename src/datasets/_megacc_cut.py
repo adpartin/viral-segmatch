@@ -19,18 +19,20 @@ dropping more than `max_drop_frac`. Plug-in point: `_split_helpers`
 `cluster_disjoint_route_pos_df` (the bilateral 2D-CD holdout path). See
 docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md.
 
-`apply_drop_budget_cut`'s budget loop is built from `_bigraph.build_pair_bigraph`,
-`fragment_largest_cc`, and `_bigraph.edges_to_row_index`; `fragment_once` wraps those
-same three into a single standalone cut (it is not used by the budget loop). The graph
-CONSTRUCTION primitives live in `_bigraph.py` -- this module is the cut.
+`fragment_largest_cc` is the one cut: bisect the heaviest component, return the crossing
+edges without mutating the graph. Everything else here is that cut plus a stop condition.
+The graph CONSTRUCTION primitives live in `_bigraph.py` -- this module is the cut.
 
-Three loops share that cut, differing only in the stop condition and the entry surface:
+Three loops call it, differing only in the stop condition and the entry surface:
   - `apply_drop_budget_cut` -- stop at 80/10/10 LPT-feasibility; raises past the budget.
   - `fragment_until`        -- stop at a caller-supplied count (`stop_fn`, e.g.
     `stop_at_n_atoms`); grows the atom count for the GroupKFold CV builder.
-  - `fragment_weighted`     -- stop at LPT-feasibility against arbitrary `targets`
-    (`uniform_targets(k)` for K-fold). The only one that takes a caller-built graph
-    and returns the fragmented graph, rather than taking/returning `pos_with_ids` rows.
+  - `fragment_weighted`     -- stop at LPT-feasibility against arbitrary `targets`. The only
+    one that takes a caller-built graph and returns the fragmented graph, rather than
+    taking/returning `pos_with_ids` rows.
+
+`fragment_once` calls it exactly once, for callers that want a single cut and the `CutStep`
+describing it rather than a loop and an audit.
 
 This module is the single home of the bisection core; the `src/analysis/bigraph_*`
 diagnostics import it (analysis -> datasets is the allowed direction).
@@ -87,37 +89,16 @@ def _lpt_max_drift(sizes, targets=_TARGETS, bin_order=_BIN_ORDER) -> float:
     return max(abs(filled[b] / total - targets[b]) for b in bin_order)
 
 
-def uniform_targets(k: int) -> dict:
-    """K equal bins summing to 1 -- the K-fold-feasibility target for fragmentation.
-
-    Pass as `targets=` to `fragment_weighted` to fragment a CC until its atoms LPT-pack
-    into K balanced folds (largest atom roughly <= 1/k). Tighter than the 80/10/10
-    holdout target `_TARGETS`: a single atom at 80% is LPT-feasible for 80/10/10 (it
-    fills train) but violates K equal bins.
-    """
-    return {f'f{i}': 1.0 / k for i in range(k)}
-
-
 def _bisect(H: nx.Graph, cut_method: str, seed: int, kl_max_iter: int = 10) -> set:
     """Bisect a connected simple bigraph into two node sets; return one side.
 
     'spectral' splits on the sign of the Fiedler vector (the eigenvector of the graph
     Laplacian's second-smallest eigenvalue); 'kl' uses Kernighan-Lin (node-balanced).
 
-    Spectral determinism & cost:
-        The Fiedler vector is obtained by a DIRECT dense eigensolve -- `nx.laplacian_matrix`
-        on a canonical (sorted) node order, then `scipy.linalg.eigh` -- NOT by
-        `nx.fiedler_vector`. networkx's default `tracemin_pcg` is an ITERATIVE solver that
-        assembles its Laplacian in H's PYTHONHASHSEED-randomized node-iteration order, so its
-        result is bit-reproducible WITHIN a process (hash seed fixed for the process) but varies
-        ACROSS processes; empirically that made this fragmentation land on 123 vs 124 atoms with a
-        different dropped set run-to-run. A dense eigensolve on a sorted-node Laplacian is
-        byte-identical across processes (validated here) and at this scale also ~50x faster
-        (measured: a full t095 `fragment_until` ~10.6s -> ~0.2s; the 440-node mega-CC solve
-        ~3667ms -> ~15ms). Cost is the dense eigensolver's O(n^3) time / O(n^2) memory in the CC
-        node count n -- a standard result, not benchmarked across sizes here; n (clusters per CC,
-        <=440 at t095) is small, so it is negligible. `subset_by_index=[1, 1]` requests only the
-        Fiedler eigenpair.
+    Spectral is deterministic across processes: the Laplacian is built on a sorted node order
+    and solved directly with `scipy.linalg.eigh`, so the result never depends on dict iteration
+    order. Cost is that dense solve -- O(n^3) time, O(n^2) memory in the component's node count
+    -- negligible here, where a component holds at most a few hundred clusters.
 
     Args:
         H: a connected simple bigraph -- in our use, one CC of the pair bigraph
@@ -135,8 +116,10 @@ def _bisect(H: nx.Graph, cut_method: str, seed: int, kl_max_iter: int = 10) -> s
         return {nodes[0]}
 
     if cut_method == 'spectral':
-        # fv = nx.fiedler_vector(H, weight='weight', seed=seed)   # replaced: nondeterministic across
-        #   processes (iterative tracemin_pcg over hash-randomized node order) -- see docstring.
+        # Deliberately NOT networkx's own solver:
+        #   fv = nx.fiedler_vector(H, weight='weight', seed=seed)
+        # its default `tracemin_pcg` is iterative and assembles the Laplacian in hash-randomized
+        # node order, so the cut varied between processes (once: 123 vs 124 atoms on the same input).
         # Laplacian in canonical node order; `.toarray()` is the dense n x n matrix (O(n^2) memory).
         L = nx.laplacian_matrix(H, nodelist=nodes, weight='weight').toarray().astype(float)
         # Direct symmetric eigensolve for the 2nd-smallest eigenpair only (index 1) = the Fiedler pair.
@@ -193,18 +176,20 @@ class CutStep(NamedTuple):
     pairs_dropped: int    # straddling pairs those edges carry (sum of their edge weights)
 
 
-def fragment_largest_cc(H: nx.Graph, *, cut_method: str = 'spectral', seed: int = 1) -> CutStep:
+def fragment_largest_cc(H: nx.Graph, *, cut_method: str = 'spectral', seed: int = 1,
+                        kl_max_iter: int = 10) -> CutStep:
     """One edge min-cut of `H`'s largest connected component (the one with the most pairs).
 
-    `_bisect` assigns the component's clusters to two sides; the cluster pairs that
-    cross the two sides are the cut. Does not mutate `H` -- the caller removes the
-    returned `cross_edges`, so the same primitive serves a single cut
-    (`fragment_once`) or the recursive budget loop (`apply_drop_budget_cut`).
+    The shared cut. `_bisect` assigns the component's clusters to two sides; the cluster pairs
+    crossing the two sides are the cut. Does not mutate `H` -- the caller removes the returned
+    `cross_edges` -- so one primitive serves the single cut (`fragment_once`) and all three
+    loops (`fragment_until`, `apply_drop_budget_cut`, `fragment_weighted`).
 
     Args:
         H: the pair-weighted simple bigraph from `build_pair_bigraph`.
         cut_method: bisection heuristic -- 'spectral' or 'kl'.
         seed: RNG seed for the seeded bisection.
+        kl_max_iter: Kernighan-Lin refinement passes (KL only).
 
     Returns:
         A `CutStep` with the component that was cut, one bisection side, the crossing
@@ -212,7 +197,7 @@ def fragment_largest_cc(H: nx.Graph, *, cut_method: str = 'spectral', seed: int 
     """
     cc_nodes = _largest_cc(H)                          # node set (clusters) of the largest CC
     cc_subgraph = H.subgraph(cc_nodes)                 # that CC as an induced subgraph (its clusters + edges)
-    part_a = _bisect(cc_subgraph, cut_method, seed)    # assign the CC's clusters to two sides
+    part_a = _bisect(cc_subgraph, cut_method, seed, kl_max_iter)   # assign the CC's clusters to two sides
     # straddling edges: cluster pairs with exactly one endpoint in part_a ((u in A) != (v in A) is XOR),
     # i.e. the edges crossing the two sides -- these are the cut.
     cross_edges = [(u, v) for u, v in cc_subgraph.edges() if (u in part_a) != (v in part_a)]
@@ -227,13 +212,16 @@ def fragment_once(
     cut_method: str = 'spectral',
     seed: int = 1,
     ) -> tuple[pd.DataFrame, pd.DataFrame, CutStep]:
-    """Bisect the mega-CC once (no budget loop) and drop that cut's straddling pairs.
+    """Bisect the mega-CC once and drop that cut's straddling pairs.
 
-    A single standalone cut -- not used by `apply_drop_budget_cut`. Builds the
-    bigraph, cuts the largest connected component once, and drops its straddling
-    pairs. The two fragments are `step.part_a` and (`step.cc_nodes - step.part_a`);
-    each may itself be several connected components after the cut, and pairs outside
-    the mega-CC are untouched.
+    Purpose: the row-level single cut. The three loops here work on a graph they mutate across
+    cuts, so none of them can use this; what it uniquely provides is one cut applied to
+    `pos_with_ids` rows, returning the `CutStep` that describes it -- which the loops do not
+    (they return an audit dict). That makes it the way to inspect or assert on an individual
+    cut, and it is currently exercised by `tests/test_megacc_cut.py`.
+
+    The two fragments are `step.part_a` and (`step.cc_nodes - step.part_a`); each may itself be
+    several connected components after the cut, and pairs outside the mega-CC are untouched.
 
     Args:
         pos_with_ids: positive-pair rows with `col_a`/`col_b` cluster ids.
@@ -264,8 +252,8 @@ class FragmentState(NamedTuple):
 def stop_at_n_atoms(target_atoms: int):
     """A `fragment_until` `stop_fn`: stop once the graph holds >= `target_atoms` atoms.
 
-    Routing-B's count stop -- grow the atom count to a target so the downstream GroupKFold
-    CV builder (`dataset_pairs_cc.groupkfold_by_atom`) has enough independent atoms.
+    Grows the atom count to a target so the downstream GroupKFold CV builder
+    (`dataset_pairs_cc.groupkfold_by_atom`) has enough independent atoms to fill K folds.
     """
     return lambda state: state.n_atoms >= target_atoms
 
@@ -295,8 +283,8 @@ def fragment_until(
     ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Repeatedly edge-min-cut the largest CC to grow the atom count, within a drop budget.
 
-    Routing-B's L2 fragment-until loop -- the count-stop sibling of routing-A's
-    `apply_drop_budget_cut`. Loops `fragment_largest_cc`, dropping each cut's straddling
+    The count-stop sibling of `apply_drop_budget_cut`, which stops on holdout feasibility
+    instead. Loops `fragment_largest_cc`, dropping each cut's straddling
     pairs, until `stop_fn(FragmentState)` is satisfied, the next cut would push the dropped
     fraction past `max_drop_frac`, or `max_cuts` is hit -- whichever comes first.
     `stop_at_n_atoms(target)` grows the atom count so the downstream GroupKFold CV builder
@@ -405,10 +393,10 @@ def apply_drop_budget_cut(
     once dropping would exceed `max_drop_frac`. Clusters (the nodes) are never split, so the
     cost is counted in pairs.
 
-    Layer: routing-A's L2 fragment-until loop (stop = holdout 80/10/10 LPT-feasibility);
-    `fragment_until` is the routing-B sibling (count stop). Both only shrink the graph --
-    the actual routing (L3: `route_holdout` / `groupkfold_by_atom`) is the caller's -- so they live
-    here with the cut primitives, not with the routers.
+    Stops on holdout feasibility; `fragment_until` is the sibling that stops on an atom count.
+    Neither assigns pairs to splits -- they only shrink the graph, and the caller does the
+    routing afterwards (`route_holdout` for a holdout, `groupkfold_by_atom` for K-fold). That
+    is why both live here with the cut primitives rather than with the routers.
 
     Args:
         pos_with_ids: positive-pair rows with `col_a`/`col_b` cluster ids (+ `pair_key_col`);
@@ -521,16 +509,16 @@ def fragment_weighted(
     ) -> tuple[pd.DataFrame, nx.Graph, list]:
     """Recursively bisect `H`'s largest CC until the kept atoms LPT-pack into `targets`.
 
-    The GRAPH-LEVEL entry point, and the only one here that takes a caller-built graph
-    rather than a `pos_with_ids` frame: the caller already holds a pair-weighted simple
-    graph and wants the fragmented graph back, not a row split. Used by
-    `_cv_sampling._fragment_atoms` (whose atoms are the CV harness's GroupKFold groups)
-    and by the `bigraph_min_cut` diagnostic CLI.
+    The graph-level entry point, and the only one here that takes a caller-built graph rather
+    than a `pos_with_ids` frame: the caller already holds a pair-weighted simple graph and wants
+    the fragmented graph back, not a row split. Its one live caller is the `bigraph_min_cut`
+    diagnostic CLI.
 
-    Same cut loop as `apply_drop_budget_cut` / `fragment_until` -- bisect the heaviest
-    component, drop its straddling edges -- with a third stop condition: the LPT drift
-    against arbitrary `targets`. Pass `uniform_targets(k)` for K-fold CV, or the default
-    `_TARGETS` for an 80/10/10 holdout. `bin_order` follows the `targets` key order.
+    Same cut loop as `apply_drop_budget_cut` / `fragment_until` -- bisect the heaviest component,
+    drop its straddling edges -- with a third stop condition: the LPT drift against arbitrary
+    `targets`, whose key order sets `bin_order`. The default `_TARGETS` is an 80/10/10 holdout;
+    K equal bins would fragment far harder, since one atom holding 80% of the pairs satisfies
+    80/10/10 but not K balanced folds.
 
     MUTATES `H` (removes each cut's crossing edges).
 
@@ -560,18 +548,20 @@ def fragment_weighted(
     cut = 0
 
     while True:
+        # Each connected component is one atom; its size is the pairs it carries.
         comps = list(nx.connected_components(H))
         sizes = [_piece_pairs(H, c) for c in comps]
         retained = total_pairs - dropped
-        largest = max(sizes)
+        largest = max(sizes) if sizes else 0
         largest_frac = largest / retained if retained else 0.0
+        # Feasible once LPT-packing the atoms lands every bin within drift_pp of its target.
         drift = _lpt_max_drift(sizes, targets=targets, bin_order=bin_order)
         feasible = drift <= drift_pp
 
         rows.append({
             'cut': cut,
             'pairs_dropped': dropped,
-            'dropped_frac': round(dropped / total_pairs, 6),
+            'dropped_frac': round(dropped / total_pairs, 6) if total_pairs else 0.0,
             'retained_pairs': retained,
             'n_pieces': len(comps),
             'largest_cc_pairs': largest,
@@ -591,13 +581,10 @@ def fragment_weighted(
         # stop and let the final infeasible row report it (don't shred singletons).
         if len(big) < 3:
             break
-        sub = H.subgraph(big)
-        part_a = _bisect(sub, cut_method, seed, kl_max_iter)
-        cross_edges = [(x, y) for x, y in sub.edges() if (x in part_a) != (y in part_a)]
-        cross = sum(sub[x][y]['weight'] for x, y in cross_edges)
-        H.remove_edges_from(cross_edges)
-        dropped_edges.extend(cross_edges)
-        dropped += cross
+        step = fragment_largest_cc(H, cut_method=cut_method, seed=seed, kl_max_iter=kl_max_iter)
+        H.remove_edges_from(step.cross_edges)
+        dropped_edges.extend(step.cross_edges)
+        dropped += step.pairs_dropped
         cut += 1
 
     return pd.DataFrame(rows), H, dropped_edges
