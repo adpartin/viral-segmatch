@@ -2,7 +2,7 @@
 One-shot migration: add assembly_id column to master_esm2_embeddings.parquet.
 
 Background: the ESM-2 lookup index was previously keyed by brc_fea_id alone.
-The cache-symmetry design (docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md)
+The cache-symmetry design (docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md)
 shifts the public lookup to a composite (assembly_id, brc_fea_id) tuple — same
 contract that the new aa k-mer cache will use. The HDF5 embeddings themselves
 are unchanged; only the parquet index gains a column.

@@ -28,7 +28,7 @@ def load_embedding_index(embeddings_file: Path) -> Dict[Tuple[str, str], int]:
       the composite (assembly_id, brc_fea_id) is the public lookup key.
 
     The composite-key contract is shared with the aa k-mer cache (see
-    docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md). It is robust
+    docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md). It is robust
     if `brc_fea_id` ever loses global uniqueness across data sources.
 
     Args:
@@ -284,7 +284,7 @@ def create_pair_embeddings_concatenation(
         return empty_embs, empty_labels
 
     # Vectorized lookup via composite (assembly_id, brc_fea_id) tuple keys.
-    # See docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+    # See docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
     keys_a = list(zip(pairs_df['assembly_id_a'].astype(str),
                       pairs_df['brc_a'].astype(str)))
     keys_b = list(zip(pairs_df['assembly_id_b'].astype(str),

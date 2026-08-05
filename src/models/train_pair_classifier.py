@@ -168,7 +168,7 @@ class ESMPairDataset(Dataset):
         parquet index sidecar.
 
         Composite-tuple keying matches the contract in
-        docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+        docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
         """
         if self.use_parquet:
             index_file = Path(self.embeddings_file).with_suffix('.parquet')

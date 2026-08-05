@@ -22,7 +22,7 @@ Because amino acids are more conserved than DNA across flu isolates
 unchanged), we conjectured the aa representation should see *closer*
 nearest-train-neighbors than the dna representation. This was raised
 during the nt-vs-aa k-mer comparison (see
-`docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md`) — if the
+`docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md`) — if the
 conjecture holds, part of aa k=3's measured F1 lead on HA/NA may come
 from similarity leakage rather than pure representation power.
 
@@ -142,7 +142,7 @@ if it shrinks or disappears, it was the similarity leakage. Plan:
   does not mitigate it.
 - `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
   proposed mitigation via cluster-disjoint splits.
-- `docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` — the
+- `docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` — the
   aa k-mer work that motivated this diagnostic.
 - `docs/results/2026-05-11_exp4a_seq_disjoint_results.md` — original
   seq_disjoint routing results, which established the

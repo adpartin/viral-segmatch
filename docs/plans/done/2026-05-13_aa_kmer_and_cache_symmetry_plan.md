@@ -1,6 +1,19 @@
 # AA k-mer support + feature-cache symmetry
 
-**Status: IN PROGRESS** — branch `feature/aa-kmer-support`.
+**Status: IMPLEMENTED** (closed 2026-08-05).
+
+## Closing summary (2026-08-05)
+
+Phases 1–5 landed; the branch is merged and gone. Verified: `compute_kmer_features.py` is a
+dual-alphabet pipeline driven by `kmer.alphabet`, `kmer_features_aa_k3.npz` is built, and
+`flu_ha_na_cc_aa.yaml` selects it. `scripts/migrate_esm2_parquet_add_assembly_id.py` is Phase 1's
+migration.
+
+**Phase 6 (nt cache migration) was superseded**, not skipped. The nt_cds/nt_ctg refactor
+(`docs/plans/done/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`) replaced the `nt` alphabet
+entirely: the cache is now `kmer_features_{aa,nt_cds}_k{K}`, with no legacy `kmer_features_nt_k*`
+left to migrate from. That refactor also retired this plan's closing caveat that alphabets beyond
+`nt`|`aa` are not config-selectable — `aa`, `nt_cds` and `nt_ctg` all are.
 
 ## Motivation
 

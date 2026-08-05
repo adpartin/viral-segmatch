@@ -55,7 +55,7 @@ the ESM-2 cache pattern and saves substantial space on flu where
 
 The **nt_ctg cache** currently stores **one row per contig occurrence**
 (no dedup yet). Phase 6 of the cache-symmetry plan
-(`docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md`) is the
+(`docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md`) is the
 follow-up migration that will dedup nt_ctg by `md5(ctg_dna_seq)` and
 gate the swap on a cross-cache equality test.
 
@@ -144,7 +144,7 @@ slots is ~64 GB — infeasible even before the MLP.
 - **nt_ctg k=6** is the current production setting; comfortable.
 - **aa up to k=4** is reachable with the current pipeline. k=3 is the bundle in use today.
 - **aa k≥5** is not feasible with the exhaustive-vocab approach. Going there would require either **observed-vocab** (enumerate only k-mers actually seen — bounded by ~`N_seqs × L` distinct, probably 1–10M at aa k=6) or **feature hashing** (hash each k-mer into a fixed-size index space, e.g. 2^18 = 256K columns). Neither is implemented; both would require redesign of `compute_kmer_features.py` and the loader. See
-  `docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` for the
+  `docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` for the
   current pipeline state and follow-up work.
 
 ## GTO → contigs

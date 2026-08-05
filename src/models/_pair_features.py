@@ -195,7 +195,7 @@ def _load_esm2_pair_features(
         )
 
     # Composite (assembly_id, brc_fea_id) tuple lookup. See
-    # docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+    # docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
     keys_a = list(zip(pairs_df["assembly_id_a"].astype(str),
                       pairs_df["brc_a"].astype(str)))
     keys_b = list(zip(pairs_df["assembly_id_b"].astype(str),
@@ -249,7 +249,7 @@ def _load_esm2_brc_index(embeddings_file: Path) -> dict:
 
     Mirrors ``ESMPairDataset._build_id_to_row`` in the MLP trainer.
     Composite-tuple keying matches the contract in
-    docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md and is shared
+    docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md and is shared
     with the aa k-mer cache.
     """
     index_file = Path(embeddings_file).with_suffix(".parquet")

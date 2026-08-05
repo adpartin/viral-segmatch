@@ -2,7 +2,9 @@
 
 **Status: PARTIALLY IMPLEMENTED** (2026-06-03; reviewed 2026-08-05). P0 (regression harness +
 holdout goldens), P1 (shared LPT packer), P2 (route_holdout shared by seq + cluster; dead dispatch
-glue removed), and v1 retirement (P5) are done and bit-exact-verified (harness 8/8 at every step).
+glue removed), and v1 retirement (P5) are done and bit-exact-verified (harness 8/8 at every step,
+against the guard set as it stood then — `split_regression_harness.py` was narrowed to 2
+seq_disjoint guards on 2026-08-05, once 5 of its 8 bundles no longer existed).
 v1 retirement is split out as `docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md`.
 
 **P3 (CV redesign) is deferred, not abandoned — it is the live remainder of this plan.** Verified

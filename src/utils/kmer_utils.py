@@ -8,7 +8,7 @@ scipy .npz + parquet index. Supports both alphabets:
     aa: occurrence keyed by (assembly_id, brc_fea_id); pair-table
         lookup uses (assembly_id_a, brc_a) / (assembly_id_b, brc_b).
 
-See docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
+See docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
 """
 
 from pathlib import Path

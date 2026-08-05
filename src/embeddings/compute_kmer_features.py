@@ -23,7 +23,7 @@ Outputs (per alphabet/k):
 
 CPU-only; no GPU. Simple existence-check caching (recompute with
 `--force_recompute`). See
-`docs/plans/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` for the
+`docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` for the
 cache-symmetry design.
 
 Example:
