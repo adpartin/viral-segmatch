@@ -5,8 +5,8 @@
 Date: 2026-08-03
 
 Consolidate the code that turns *atoms* into folds and that fragments the mega-CC to create
-those atoms. Three phases are done; testing the production paths is agreed and unstarted
-(§5); two behaviour-changing decisions remain open (§6).
+those atoms. Four phases are done, including test coverage for both paths (§5). Two
+behaviour-changing decisions remain open (§6); nothing else is outstanding.
 
 Related: `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md` (the graph/CC layer below
 this), `docs/methods/glossary.md`, `docs/methods/splits.md`.
@@ -109,40 +109,44 @@ stops on LPT feasibility rather than an atom count, and carries no drop budget.
 Verification across all three: 2D-CD and 1D-CD t099 HA-NA rebuild md5-identical to the pre-Phase-1
 baseline; `pytest tests/ -q` green. Per-finding detail is in the commit messages, not restated here.
 
-## 5. Phase 4 — test the production paths (agreed 2026-08-05, not started)
+## 5. Phase 4 — test the production paths — **DONE (2026-08-05)**
 
-Neither production path is adequately tested. 1D-CD has **no tests at all** — nothing exercises
-`cluster_disjoint_route_pos_df`, `_lpt_bin_pack`, the drift check or `route_holdout`. 2D-CD is
-tested where it is least needed: `assign_atoms_prod`, the cut primitives and the leave-cc-out
-experiment arms are covered, while `groupkfold_by_atom`, `make_folds_within_fold`,
-`_carve_val_atoms` and both negative samplers — the code that decides what lands in train/val/test
-— are not. Every bit-exactness claim in §4 came from building and diffing by hand.
+Before this phase, 1D-CD had **no tests at all** and 2D-CD was tested where it mattered least:
+`assign_atoms_prod`, the cut primitives and the leave-cc-out experiment arms were covered, while
+the functions deciding what lands in train/val/test were not. Every bit-exactness claim in §4 came
+from building and diffing by hand.
 
-`scripts/production_split_harness.py` (added 2026-08-05) closes the end-to-end hole for both paths
-but is a manual script.
+**P4.1 — end-to-end, both paths.** `tests/test_production_splits.py` rebuilds each production
+bundle and diffs per-fold `pair_key` digests against `tests/golden/production_splits/`. It invokes
+`scripts/production_split_harness.py` as a subprocess rather than re-implementing the digest, so
+test and script cannot drift. All three constraints held:
+- Skips rather than fails when the corpus or a golden is absent; all three skip branches verified.
+- Deselected by default via a `production_split` marker (`pyproject.toml`'s first
+  `[tool.pytest.ini_options]`). Default suite 2:45; the guards 5:09 — adding them unconditionally
+  would have tripled it. A command-line `-m` overrides the `addopts` filter, verified both ways.
+- The harness failure message names the `capture` regeneration path and separates the two causes:
+  split code moving pairs is the regression, a rebuilt corpus is legitimate.
 
-**P4.1 — end-to-end, both paths.** A test per path that builds the production bundle and compares
-per-fold `pair_key` digests against `tests/golden/production_splits/`. Invokes the harness rather
-than re-implementing the digest, so the two cannot drift. Three constraints:
-- **Skip, don't fail, when the corpus is absent** (`protein_final`, `cds_dna_final`, the cluster
-  parquets), matching the rest of the suite.
-- **Deselected by default.** 2D-CD ~105s and 1D-CD ~125s, and both run longer under load; adding
-  them unconditionally takes `pytest tests/ -q` from ~3 min to ~8-10. Mark them so the default
-  suite stays fast and the guard is one explicit command.
-- **The goldens pin the current corpus.** Rebuilding Stage 1 changes the pairs legitimately and
-  will turn these red for a good reason. The failure message must say so and name the `capture`
-  regeneration path, or the next reader will "fix" the code instead.
+**P4.2 — Tier 1 unit tests.** `tests/test_fold_makers_2d_cd.py` (15 tests, 3.3s) and
+`tests/test_fold_makers_1d_cd.py` (16 tests, 1.1s), covering every function listed for both paths.
+They pin properties, not values: atoms whole in every split, val measured against the whole set,
+negatives drawn only from their own split, folds partitioning the positives exactly once. For
+1D-CD the central pair asserts the guarantee **and its asymmetry** — the constrained slot never
+spans splits while the unconstrained slot recurs; if the second ever failed, the split would have
+silently become 2D-CD.
 
-**P4.2 — unit tests, Tier 1 (pure decision functions).** Cheap with synthetic frames, and a
-failure names the culprit — which the end-to-end test cannot.
-- 2D-CD: `groupkfold_by_atom`, `make_folds_within_fold`, `_carve_val_atoms`,
-  `within_fold_negatives`, `within_cc_negatives`, `compute_negative_infeasible_ccs`
-- 1D-CD: the k-fold branch of `cluster_disjoint_route_pos_df`, `_lpt_bin_pack`, the drift check
-- shared: `_resolve_spec`'s validation, which is the guard that makes F6 safe
+Every invariant was verified able to fail by mutating the code and re-running: 4/4 for 2D-CD, 5/5
+for 1D-CD. That pass caught a test that passed for the wrong reason — with atom sizes
+`(40,30,20,6,4)`, the correct val target and the incorrect one land on the same accumulation
+boundary, so the assertion held either way; single-row atoms make it discriminate 10 vs 8. The two
+`pytest.raises` tests were separately checked for firing on the condition they name rather than an
+unrelated error.
 
-Properties worth pinning, not just smoke: atoms whole in every split; val ≈ `val_ratio` of the
-whole set, not of the non-test pool; negatives drawn only from their own split; folds partitioning
-the positives exactly once. Each test verified able to fail, as in `test_partition_full_arms.py`.
+`_resolve_spec`'s validation was listed for this phase and is **not** covered: it is exercised
+indirectly wherever a test resolves a bundle, but has no test of its own. Small, and the F6 safety
+argument rests on it.
+
+Suite: 152 → 183 tests, still 2:45.
 
 **Tier 2 — orchestration, covered by P4.1 rather than unit-tested.** `_build_positives`,
 `_make_folds_for_scope`, `split_dataset_v2`, `generate_all_cluster_disjoint_cv_folds_v2`. Heavy
@@ -152,8 +156,9 @@ already catches.
 **Tier 3 — not tested.** `_side_rep`, `_write_output`, `_write_cc_sizes`, `_write_cc_pair_sizes`.
 A test costs maintenance and catches nothing P4.1 misses.
 
-Order: P4.1 first — it protects everything else while the unit tests land — then Tier 1 for 2D-CD,
-then Tier 1 for 1D-CD, which is the largest gap.
+The Tier 2 / Tier 3 boundary held up in practice: the end-to-end guards did catch things during
+P4.2 — every fixture mistake showed up as a build or digest failure — and no orchestration bug
+appeared that a unit test would have localized better.
 
 ## 6. Open
 
