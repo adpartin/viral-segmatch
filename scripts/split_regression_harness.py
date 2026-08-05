@@ -1,20 +1,25 @@
 #!/usr/bin/env python
-"""Split-router regression harness — P0 of the dataset-split refactor.
+"""seq_disjoint holdout regression harness.
 
 Captures a deterministic digest of the split router's output (the positive
-`pair_key -> split` assignment, plus a full digest including negatives) for each
-holdout guard-set bundle, so any refactor can be verified bit-exact.
+`pair_key -> split` assignment, plus a full digest including negatives) for each guard
+bundle, so any refactor can be verified bit-exact.
 
   extract --dir RUN_DIR        # print the digest of an existing dataset run dir
   capture [--only NAME ...]    # build each guard bundle at fixed N and write its golden
   check   [--only NAME ...]    # rebuild and diff against goldens (exit != 0 on mismatch)
 
-Scope: HOLDOUT-mode bit-exact guard only (plan 3.1). CV, single_slot=b, and
-nt_cds-single-slot are fresh-validated separately (plan 5), NOT regression-guarded here.
+Scope: `seq_disjoint` holdout, one entry per hash family. This is the repo-wide default
+routing mode (`conf/dataset/default.yaml`), which nothing else guards bit-exact.
+
+**The two production paths are guarded elsewhere**, by
+`scripts/production_split_harness.py` and `tests/test_production_splits.py`: 2D-CD and
+1D-CD are K-fold, emit `fold_k/` rather than flat splits, and the 2D-CD builder rejects
+the isolate subsampling this harness relies on.
+
 Builds run at a small fixed isolate count (the split code path is scale-invariant, so a
 path regression shows at any N) and land under results/ (gitignored); goldens are small
-JSON under tests/golden/ (committed). See
-docs/plans/2026-06-03_dataset_split_refactor_plan.md.
+JSON under tests/golden/ (committed).
 """
 from __future__ import annotations
 
@@ -30,22 +35,12 @@ GOLDEN_DIR = PROJECT_ROOT / "tests" / "golden" / "split_regression"
 BUILD_ROOT = PROJECT_ROOT / "results" / "flu" / "July_2025" / "runs" / "split_regression" / "builds"
 SPLITS = ("train", "val", "test")
 
-# Holdout bit-exact guard set (plan 3.1, threshold-realigned). One entry per distinct
-# split code path. CV / single_slot=b / nt_cds-single-slot are intentionally absent.
+# seq_disjoint bit-exact guard set: one entry per hash family, since `hash_key` selects
+# genuinely different code in `seq_disjoint_route_pos_df` (prot_hash vs ctg_dna_hash).
 GUARD_SET = [
-    {"name": "random_holdout",      "bundle": "flu_ha_na_random",                 "n": 2000,  "overrides": []},
-    {"name": "seq_disjoint_seq",    "bundle": "flu_ha_na",                        "n": 2000,  "overrides": []},
-    {"name": "seq_disjoint_seq_pb", "bundle": "flu_pb2_pb1",                      "n": 2000,  "overrides": []},
-    {"name": "seq_disjoint_dna",    "bundle": "flu_ha_na",                        "n": 2000,  "overrides": ["dataset.split_strategy.hash_key=dna"]},
-    {"name": "cluster_2d_aa",       "bundle": "flu_ha_na_cluster_t099",           "n": 2000,  "overrides": []},
-    {"name": "cluster_2d_nt",       "bundle": "flu_ha_na_cluster_nt_t099",        "n": 2000,  "overrides": []},
-    {"name": "cluster_1d_aa_slotA", "bundle": "flu_ha_na_cluster_aa_t095_HAonly", "n": 2000,  "overrides": []},
-    # metadata_holdout filters isolates by axis, so it needs enough corpus to fill
-    # train/val/test pools; a 2k subsample can starve a split. Tune N if the build errors.
-    {"name": "metadata_holdout",    "bundle": "flu_ha_na_holdout_year",           "n": 20000, "overrides": []},
-    # (No 2D-CD holdout entry: bilateral cluster_disjoint reaches only the holdout branch, which
-    #  no bundle configures. The 2D-CD K-fold path is guarded by tests/test_megacc_cut.py and
-    #  tests/test_dataset_pairs_cc_cut.py.)
+    {"name": "seq_disjoint_seq", "bundle": "flu_ha_na", "n": 2000, "overrides": []},
+    {"name": "seq_disjoint_dna", "bundle": "flu_ha_na", "n": 2000,
+     "overrides": ["dataset.split_strategy.hash_key=dna"]},
 ]
 
 
