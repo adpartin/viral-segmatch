@@ -226,6 +226,15 @@ Rule: Lustre rewards few large reads, punishes many small ones.
 
 ---
 
+## Polaris quick facts
+
+- **Profiling tools installed** (via the NVIDIA HPC SDK, on PATH): `nsys` (Nsight Systems, timeline
+  profiler), `ncu` (Nsight Compute, per-kernel counters), `dcgmi` (DCGM). Note: `ncu` needs GPU
+  performance counters enabled for non-root users — check on a compute node before relying on it.
+- **Queues:** `debug` (up to 24 nodes, 1 h walltime), `debug-scaling` (up to 10 nodes, 1 h, one job
+  per user), `prod` (routing queue → small/medium/large by node count; medium = 25-99 nodes, 6 h).
+- **Filesystems flag:** PBS jobs need `-l filesystems=home:eagle` or they are rejected.
+
 ## Sources
 
 - NVIDIA — pinned/page-locked memory and async transfers: "How to Optimize Data Transfers in CUDA
