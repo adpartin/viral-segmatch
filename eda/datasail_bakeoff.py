@@ -13,7 +13,7 @@ the dedicated `datasail` conda env. Run with:
         --techniques I2 \\
         --output_dir results/flu/July_2025/runs/datasail_bakeoff/phase0_<TS>
 
-See `docs/plans/2026-05-19_datasail_bakeoff_plan.md` for the full bake-off
+See `docs/plans/done/2026-05-19_datasail_bakeoff_plan.md` for the full bake-off
 context, decision criteria, and phase plan.
 """
 from __future__ import annotations

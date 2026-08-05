@@ -275,7 +275,7 @@ sanity-check.
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` § "1-NN
   cosine margin (leakage upper bound)" (the existing edge-style
   measure this plan complements).
-- `docs/plans/2026-05-19_datasail_bakeoff_plan.md` (the paused
+- `docs/plans/done/2026-05-19_datasail_bakeoff_plan.md` (the paused
   bake-off; this plan reuses its DataSAIL wrapper in measurement-only
   mode rather than re-engaging with the solving mode).
 - Gretton, A. et al. (2012). "A Kernel Two-Sample Test." JMLR 13.

@@ -1,6 +1,40 @@
 # DataSAIL vs segmatch bicc — Bake-off plan
 
-**Status: PAUSED after Phase 0** (decision criterion 2 met: DataSAIL C2 drop rate >50% across all configs tested; see `docs/results/2026-05-20_datasail_phase0_results.md`)
+**Status: CONCLUDED at Phase 0 (2026-05-20; closed 2026-08-05).**
+
+## Closing summary (2026-08-05)
+
+The bake-off asked whether to adopt DataSAIL for routing. Phase 0 answered it and the plan's own
+**decision criterion 2** fired: C2 drop rate 51–71% across every config tested, i.e. DataSAIL hits
+the same feasibility ceiling as bicc on Flu A. That criterion prescribed documenting the result as
+a parallel finding rather than continuing, which is what happened
+(`docs/results/2026-05-20_datasail_phase0_results.md`).
+
+Phases 1–4 were never run and are moot: each is contingent on DataSAIL routing being viable at
+full corpus, which Phase 0 disproved at C2.
+
+The code lives in `eda/`, not `src/`, and stays there: `datasail_bakeoff.py` (the Phase-0 wrapper)
+plus three L(π) scripts, `datasail_lpi_{measure,validate,diagnose_sim}.py`. All four need the
+dedicated `datasail` conda env, which is why they were never wired into the pipeline — bioconda
+pulls a `libhdf5` that breaks the `segmatch` env (see `.claude/memory.md` § Env Management). Its
+docstring still points at this plan by its old path; it is exploratory code, not maintained.
+
+Two findings outlived the bake-off, both recorded in the results doc: the DataSAIL package uses
+C1/C2 where the paper says S1/S2, and its I2 ILP minimizes the constant 1 (no objective), which
+explains the unpredictable fold-size drift.
+
+The **L(π) leg continued elsewhere** rather than dying here: `docs/plans/2026-05-22_split_separation_metrics_plan.md`
+took it over as a separation metric, producing `docs/results/2026-05-24_datasail_lpi_results.md`.
+That plan's L(π) leg is itself paused; its MMD leg is done.
+
+**Re-engagement notes are preserved in `BACKLOG.md` § DataSAIL follow-ups** — three Tier-C items,
+all upstream DataSAIL bugs (a 1-pair overflow edge case, a SCIP `None` return at K=10/ε=0.05, and
+I2's objective-free ILP). None of them changes this plan's answer; they matter only if DataSAIL is
+ever revisited.
+
+---
+
+**Original plan below, unchanged.**
 **Date:** 2026-05-19; Phase 0 results documented 2026-05-20.
 **Branch:** `feature/datasail-bakeoff`
 **Parent doc:** `docs/methods/leakage.md` § "Relation to prior-art split taxonomies"

@@ -2,7 +2,7 @@
 
 **Date.** 2026-05-20.
 **Scope.** Phase 0 sanity run of the bake-off plan
-(`docs/plans/2026-05-19_datasail_bakeoff_plan.md`) on 100 HA/NA Flu A
+(`docs/plans/done/2026-05-19_datasail_bakeoff_plan.md`) on 100 HA/NA Flu A
 isolates. Goal: validate the wrapper script, measure drop rate, and
 verify the round-trip back to segmatch format works.
 **Dataset.** Subsampled from
@@ -151,7 +151,7 @@ low (DataSAIL ran in seconds per config at this scale; even
 ## What this means for the bake-off plan
 
 Per the plan's decision criteria
-(`docs/plans/2026-05-19_datasail_bakeoff_plan.md` § "Decision
+(`docs/plans/done/2026-05-19_datasail_bakeoff_plan.md` § "Decision
 criteria"):
 
 > **DataSAIL drops are heavy (>50%):** DataSAIL hits the same
@@ -216,7 +216,7 @@ In rough priority order:
 
 ## See also
 
-- `docs/plans/2026-05-19_datasail_bakeoff_plan.md` — parent plan
+- `docs/plans/done/2026-05-19_datasail_bakeoff_plan.md` — parent plan
 - `docs/methods/leakage.md` § "Relation to prior-art split taxonomies"
 - `docs/methods/clusters.md` § 4.4 (bicc naming)
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (bicc feasibility ceiling)

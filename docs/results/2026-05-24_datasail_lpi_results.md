@@ -362,7 +362,7 @@ Outputs (gitignored under `results/`):
 - `docs/plans/2026-05-22_split_separation_metrics_plan.md` — parent
   plan; Step 1 (L(π) leg) is the source of this work. MMD leg
   (Step 2) is independent and not addressed here.
-- `docs/plans/2026-05-19_datasail_bakeoff_plan.md` — earlier DataSAIL
+- `docs/plans/done/2026-05-19_datasail_bakeoff_plan.md` — earlier DataSAIL
   bake-off (paused 2026-05-20); the bake-off ran DataSAIL in
   *solving* mode, this work runs it in *measurement-only* mode via
   `eval_split`.

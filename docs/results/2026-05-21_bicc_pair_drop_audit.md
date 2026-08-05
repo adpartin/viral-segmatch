@@ -211,4 +211,4 @@ Reordered by relevance now that the no-drop status is confirmed:
 - Feasibility ceiling table:
   `docs/methods/clusters.md` §10.2.
 - DataSAIL bake-off (paused): `feature/datasail-bakeoff` branch +
-  `docs/plans/2026-05-19_datasail_bakeoff_plan.md`.
+  `docs/plans/done/2026-05-19_datasail_bakeoff_plan.md`.

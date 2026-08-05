@@ -23,9 +23,11 @@ plan from meetings) and `docs/plans/` (active and completed plans).
 
 ## DataSAIL follow-ups
 
-Bake-off paused after Phase 0 (see
-`docs/plans/2026-05-19_datasail_bakeoff_plan.md`). These are the
-items worth revisiting before deciding to fully retire the bake-off.
+Bake-off concluded at Phase 0 (see
+`docs/plans/done/2026-05-19_datasail_bakeoff_plan.md`): DataSAIL hits the
+same feasibility ceiling as bicc on Flu A, so it was not adopted. The items
+below are upstream DataSAIL bugs, not open questions for us — keep them only
+as notes for if DataSAIL is ever revisited.
 
 1. (Tier C, low priority) **Resolve the 1-pair-silently-missing edge
    case** from `solver/overflow.py` pre-assignment. Reproducible
