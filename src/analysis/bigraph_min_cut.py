@@ -148,7 +148,7 @@ def main() -> None:
         r = feas.iloc[0]
         print(f"  LPT 80/10/10 feasible:    after {int(r['cut'])} cut(s), "
               f"dropped {r['pairs_dropped']:,} ({r['dropped_frac']:.1%}); "
-              f"{int(r['n_pieces'])} atoms, max drift {r['lpt_max_drift']:.1%}")
+              f"{int(r['n_atoms'])} atoms, max drift {r['lpt_max_drift']:.1%}")
     else:
         print("  LPT 80/10/10 NOT reached within max_cuts.")
 
@@ -156,7 +156,7 @@ def main() -> None:
     for r in df.itertuples():
         tag = 'FEASIBLE' if r.lpt_feasible else ('<=target' if r.largest_le_target else '')
         print(f"    cut {r.cut:>2}: dropped {r.pairs_dropped:>7,} ({r.dropped_frac:>5.1%})  "
-              f"{int(r.n_pieces):>5} atoms  largest {r.largest_frac_of_retained:>5.1%}  "
+              f"{int(r.n_atoms):>5} atoms  largest {r.largest_frac_of_retained:>5.1%}  "
               f"drift {r.lpt_max_drift:>5.1%}  {tag}")
 
     print(f"\nwrote {csv_path}")

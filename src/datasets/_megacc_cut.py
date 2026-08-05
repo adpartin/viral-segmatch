@@ -416,6 +416,9 @@ def fragment_to_targets(
         (plus a final row for the state reached), the mutated graph whose connected
         components are the final atoms, and the crossing edges removed in cut order.
         `dropped_frac` is against the graph's total pair mass (summed edge weight).
+        Two atom counts per row: `n_atoms` is what a splitter would route and matches
+        `fragment_until`'s audit; `n_pieces` is the raw component count, which also
+        includes nodes a cut stranded.
     """
     bin_order = list(targets.keys())
     total_pairs = int(H.size(weight='weight'))
@@ -441,6 +444,9 @@ def fragment_to_targets(
             'dropped_frac': round(dropped / total_pairs, 6) if total_pairs else 0.0,
             'retained_pairs': retained,
             'n_pieces': len(comps),
+            # What a splitter would route: `n_pieces` also counts nodes a cut stranded, which
+            # carry no pairs and so never become atoms downstream.
+            'n_atoms': _live_atom_count(H),
             'largest_cc_pairs': largest,
             'largest_frac_of_retained': round(largest_frac, 6),
             'lpt_max_drift': round(drift, 6),
