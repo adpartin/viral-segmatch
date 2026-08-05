@@ -1,10 +1,20 @@
 # Dataset split refactor — design plan
 
-**Status: PARTIALLY IMPLEMENTED** (2026-06-03). P0 (regression harness + holdout goldens),
-P1 (shared LPT packer), P2 (route_holdout shared by seq + cluster; dead dispatch glue removed),
-and v1 retirement (P5) are done and bit-exact-verified (harness 8/8 at every step). **P3 (CV
-redesign) and P4 (PairKeySpec) are deferred — not pursued.** v1 retirement is split out as
-`docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md`.
+**Status: PARTIALLY IMPLEMENTED** (2026-06-03; reviewed 2026-08-05). P0 (regression harness +
+holdout goldens), P1 (shared LPT packer), P2 (route_holdout shared by seq + cluster; dead dispatch
+glue removed), and v1 retirement (P5) are done and bit-exact-verified (harness 8/8 at every step).
+v1 retirement is split out as `docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md`.
+
+**P3 (CV redesign) is deferred, not abandoned — it is the live remainder of this plan.** Verified
+2026-08-05: both retirement targets, `generate_all_cv_folds_v2` and
+`generate_all_cluster_disjoint_cv_folds_v2`, are still in `dataset_segment_pairs_v2.py` with 10
+references between them. **P4 (PairKeySpec) is deferred and not pursued.**
+
+Progress on P3 since, from `docs/plans/2026-08-03_fold_maker_consolidation_plan.md`: the 2D-CD
+K-fold builder now routes through one shared core, `dataset_pairs_cc.groupkfold_by_atom`, which is
+this plan's `route_kfold` for that path. What P3 still wants beyond it — one router shared with the
+1D-CD path, plus retiring the two generators, plus the end-to-end CV validation — is tracked there
+as **D2**. Keep the two in step: D2 is a subset of P3, not a replacement for it.
 
 Scope: `src/datasets/` split generation (Stage 3 routing), measured against
 `docs/methods/splits.md` §1.1. Assessment 2026-06-03.

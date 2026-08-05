@@ -120,7 +120,10 @@ baseline; `pytest tests/ -q` green. Per-finding detail is in the commit messages
   and LPT minimizes it, while `_carve_val_atoms` can overshoot by a whole atom (the 2D-CD path has
   no such check). Carries the `cluster_disjoint_route_pos_df` naming question — it implements
   bilateral holdout, single-slot holdout and single-slot k-fold, but every bundle sets
-  `single_slot`, so only the single-slot paths are reachable.
+  `single_slot`, so only the single-slot paths are reachable. D2 is a **subset of P3** in
+  `docs/plans/2026-06-03_dataset_split_refactor_plan.md`, which additionally wants
+  `generate_all_cv_folds_v2` and `generate_all_cluster_disjoint_cv_folds_v2` retired and CV
+  validated end-to-end.
 - **Recorded, not fixed** — plan labels off the fragmentation path: `D1`–`D4`, `OoS`, `P2` (~35
   sites in `_split_helpers` and `dataset_segment_pairs{,_v2}`). `D3`/`D4` appear in raised error
   text, so a user tripping the feasibility guard is pointed at a plan label; that one has a real
