@@ -1,0 +1,23 @@
+#!/bin/bash -l
+# Phase 0c node-count scaling probe, as a BATCH job (submit and walk away).
+# The `-l` login-shell shebang is required so `source scripts/polaris_env.sh`
+# can load modules/conda in batch mode (batch shells do not source dotfiles).
+#
+# Submit:   qsub logs/phase0c/phase0c.pbs
+#   (or try the debug queue for possibly faster 8-node turnaround:
+#    qsub -q debug logs/phase0c/phase0c.pbs )
+# Watch:    qstat -u apartin
+# Results:  models/flu/July_2025/runs/phase0c_*  and  logs/phase0c/*.log
+#
+#PBS -N phase0c_scaling
+#PBS -l select=8:ncpus=64:ngpus=4
+#PBS -l walltime=01:00:00
+#PBS -l filesystems=home:eagle
+#PBS -q debug-scaling
+#PBS -A IMPROVE_Aim1
+#PBS -o /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/phase0c/pbs.out
+#PBS -e /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/phase0c/pbs.err
+
+cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
+source scripts/polaris_env.sh
+bash logs/phase0c/run_scaling.sh

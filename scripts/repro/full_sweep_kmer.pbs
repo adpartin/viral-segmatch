@@ -1,0 +1,27 @@
+#!/bin/bash -l
+# Full 28-pair unfiltered k-mer baseline sweep, with the mpiexec CPU-binding fix, reusing the
+# April val_unfilt datasets (DATASET_MANIFEST -> no Stage 3). One pair per node, 28 nodes, 12-fold
+# CV, 100 epochs. Expect ~8.5 min/fold (was ~44 min); whole sweep ~30 min + queue wait. Also
+# re-runs the 2 pairs that failed in April (pb1_ha, pb2_pa), giving a complete baseline.
+#
+# Submit:  qsub logs/sweep/full_sweep_kmer.pbs
+# Watch:   qstat -u apartin ; tail logs/sweep/sweep.out
+#
+#PBS -N allpairs_kmer_fixed
+#PBS -l select=28:ncpus=64:ngpus=4
+#PBS -l walltime=02:00:00
+#PBS -l filesystems=home:eagle
+#PBS -q prod
+#PBS -A IMPROVE_Aim1
+#PBS -o /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/sweep/sweep.out
+#PBS -e /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/sweep/sweep.err
+
+cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
+source scripts/polaris_env.sh
+
+# No PAIRS export -> the launcher runs all 28 flu_28p_* bundles.
+# Reuse the April datasets (unfiltered k-mer baseline); skip dataset generation.
+export SKIP_DATASET=true
+export DATASET_MANIFEST="/lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/models/flu/July_2025/allpairs_prod_val_unfilt_20260413_151649/dataset_manifest.json"
+
+bash scripts/run_allpairs_polaris_prod.sh

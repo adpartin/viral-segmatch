@@ -1,0 +1,27 @@
+#!/bin/bash -l
+# Phase 0d: validate the CPU-binding FIX through the REAL prod launcher, 2 pairs / 2 nodes.
+# Reuses the April val_unfilt datasets (DATASET_MANIFEST) so there is no dataset-gen, and runs
+# the exact production config (100 epochs, 12-fold CV) through mpiexec -> run_cv_lambda.py -> the
+# 4 Popen folds. Expect ~5 s/epoch and ~9 min/fold (was ~44 min under the default binding).
+#
+# Submit:  qsub logs/phase0d/validate_2pair.pbs
+# Watch:   qstat -u apartin ; tail logs/phase0d/validate.out
+#
+#PBS -N validate_2pair
+#PBS -l select=2:ncpus=64:ngpus=4
+#PBS -l walltime=00:50:00
+#PBS -l filesystems=home:eagle
+#PBS -q debug
+#PBS -A IMPROVE_Aim1
+#PBS -o /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/phase0d/validate.out
+#PBS -e /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/phase0d/validate.err
+
+cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
+source scripts/polaris_env.sh
+
+# One pair per node; reuse the April datasets, skip Stage 3.
+export PAIRS="flu_28p_ha_na flu_28p_pb2_pb1"
+export SKIP_DATASET=true
+export DATASET_MANIFEST="/lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/models/flu/July_2025/allpairs_prod_val_unfilt_20260413_151649/dataset_manifest.json"
+
+bash scripts/run_allpairs_polaris_prod.sh

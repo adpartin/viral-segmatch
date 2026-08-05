@@ -1,0 +1,43 @@
+#!/bin/bash -l
+# CPU-binding A/B confirmation (2 nodes). Tests whether mpiexec's default CPU binding
+# is what slows each epoch 5x on the host-bound workload. Runs the same 2-node 4-fold
+# packing under three mpiexec binding modes and records per-epoch time for each.
+#
+# Submit:  qsub logs/phase0c/phase0conf.pbs
+# Watch:   qstat -u apartin ; tail logs/phase0c/conf.out
+#
+#PBS -N phase0conf
+#PBS -l select=2:ncpus=64:ngpus=4
+#PBS -l walltime=00:40:00
+#PBS -l filesystems=home:eagle
+#PBS -q debug
+#PBS -A IMPROVE_Aim1
+#PBS -o /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/phase0c/conf.out
+#PBS -e /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch/logs/phase0c/conf.err
+
+cd /lus/eagle/projects/IMPROVE_Aim1/apartin/viral-segmatch
+source scripts/polaris_env.sh
+mkdir -p logs/phase0c
+
+mapfile -t NODES < <(sort -u "$PBS_NODEFILE")
+echo "nodes: ${NODES[*]}"
+
+# default = current prod behavior; none = no binding; depth64 = give rank all 64 threads (the ALCF fix)
+for MODE in default none depth64; do
+  case $MODE in
+    default) BIND="" ;;
+    none)    BIND="--cpu-bind none" ;;
+    depth64) BIND="--depth=64 --cpu-bind depth" ;;
+  esac
+  echo "=== MODE=$MODE   (mpiexec ${BIND:-<default binding>}) ==="
+  pids=()
+  for i in 0 1; do
+    echo "${NODES[$i]}" > "logs/phase0c/host_conf_$i"
+    mpiexec -n 1 --ppn 1 $BIND --hostfile "logs/phase0c/host_conf_$i" \
+      bash logs/phase0c/node_worker.sh "$MODE" &
+    pids+=($!)
+  done
+  wait "${pids[@]}"
+  echo "MODE=$MODE done"
+done
+echo "phase0conf done."
