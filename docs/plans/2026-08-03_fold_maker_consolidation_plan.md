@@ -5,7 +5,8 @@
 Date: 2026-08-03
 
 Consolidate the code that turns *atoms* into folds and that fragments the mega-CC to create
-those atoms. Three phases are done; two behaviour-changing decisions remain open (§5).
+those atoms. Three phases are done; testing the production paths is agreed and unstarted
+(§5); two behaviour-changing decisions remain open (§6).
 
 Related: `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md` (the graph/CC layer below
 this), `docs/methods/glossary.md`, `docs/methods/splits.md`.
@@ -41,7 +42,7 @@ different protein. **HA is always the held-out axis**, but its slot follows `pro
 
 **Bit-exact on both production bundles.** Every change must reproduce the existing
 `fold_k/{train,val,test}_pairs.csv` byte-for-byte, evidenced by a before/after capture rather than
-an argument. `pytest tests/ -q` green before each commit. Anything that cannot meet this goes to §5.
+an argument. `pytest tests/ -q` green before each commit. Anything that cannot meet this goes to §6.
 
 ## 3. Current state
 
@@ -108,7 +109,53 @@ stops on LPT feasibility rather than an atom count, and carries no drop budget.
 Verification across all three: 2D-CD and 1D-CD t099 HA-NA rebuild md5-identical to the pre-Phase-1
 baseline; `pytest tests/ -q` green. Per-finding detail is in the commit messages, not restated here.
 
-## 5. Open
+## 5. Phase 4 — test the production paths (agreed 2026-08-05, not started)
+
+Neither production path is adequately tested. 1D-CD has **no tests at all** — nothing exercises
+`cluster_disjoint_route_pos_df`, `_lpt_bin_pack`, the drift check or `route_holdout`. 2D-CD is
+tested where it is least needed: `assign_atoms_prod`, the cut primitives and the leave-cc-out
+experiment arms are covered, while `groupkfold_by_atom`, `make_folds_within_fold`,
+`_carve_val_atoms` and both negative samplers — the code that decides what lands in train/val/test
+— are not. Every bit-exactness claim in §4 came from building and diffing by hand.
+
+`scripts/production_split_harness.py` (added 2026-08-05) closes the end-to-end hole for both paths
+but is a manual script.
+
+**P4.1 — end-to-end, both paths.** A test per path that builds the production bundle and compares
+per-fold `pair_key` digests against `tests/golden/production_splits/`. Invokes the harness rather
+than re-implementing the digest, so the two cannot drift. Three constraints:
+- **Skip, don't fail, when the corpus is absent** (`protein_final`, `cds_dna_final`, the cluster
+  parquets), matching the rest of the suite.
+- **Deselected by default.** 2D-CD ~105s and 1D-CD ~125s, and both run longer under load; adding
+  them unconditionally takes `pytest tests/ -q` from ~3 min to ~8-10. Mark them so the default
+  suite stays fast and the guard is one explicit command.
+- **The goldens pin the current corpus.** Rebuilding Stage 1 changes the pairs legitimately and
+  will turn these red for a good reason. The failure message must say so and name the `capture`
+  regeneration path, or the next reader will "fix" the code instead.
+
+**P4.2 — unit tests, Tier 1 (pure decision functions).** Cheap with synthetic frames, and a
+failure names the culprit — which the end-to-end test cannot.
+- 2D-CD: `groupkfold_by_atom`, `make_folds_within_fold`, `_carve_val_atoms`,
+  `within_fold_negatives`, `within_cc_negatives`, `compute_negative_infeasible_ccs`
+- 1D-CD: the k-fold branch of `cluster_disjoint_route_pos_df`, `_lpt_bin_pack`, the drift check
+- shared: `_resolve_spec`'s validation, which is the guard that makes F6 safe
+
+Properties worth pinning, not just smoke: atoms whole in every split; val ≈ `val_ratio` of the
+whole set, not of the non-test pool; negatives drawn only from their own split; folds partitioning
+the positives exactly once. Each test verified able to fail, as in `test_partition_full_arms.py`.
+
+**Tier 2 — orchestration, covered by P4.1 rather than unit-tested.** `_build_positives`,
+`_make_folds_for_scope`, `split_dataset_v2`, `generate_all_cluster_disjoint_cv_folds_v2`. Heavy
+I/O and mostly wiring; their bugs surface as wrong output, which is what the end-to-end digest
+already catches.
+
+**Tier 3 — not tested.** `_side_rep`, `_write_output`, `_write_cc_sizes`, `_write_cc_pair_sizes`.
+A test costs maintenance and catches nothing P4.1 misses.
+
+Order: P4.1 first — it protects everything else while the unit tests land — then Tier 1 for 2D-CD,
+then Tier 1 for 1D-CD, which is the largest gap.
+
+## 6. Open
 
 - **D1 — vary the val-carve seed per fold.** `make_folds_within_fold:480` passes the bare `seed` to
   `_carve_val_atoms` on every fold while its negatives vary. Both schemes are equally reproducible;
@@ -129,7 +176,7 @@ baseline; `pytest tests/ -q` green. Per-finding detail is in the commit messages
   text, so a user tripping the feasibility guard is pointed at a plan label; that one has a real
   cost.
 
-## 6. Standard
+## 7. Standard
 
 `CLAUDE.md` § Conventions, in particular: docstrings state what the function does with accurate
 `Args:`/`Returns:` and no history; names consistent across production scripts and inferable from
@@ -137,7 +184,7 @@ the code; function names describe current behaviour, and renames need approval; 
 broken into named steps, never a return that also does the work; and no plan-only vocabulary in
 code, comments or error text.
 
-## 7. Out of scope
+## 8. Out of scope
 
 `route_holdout` and the `seq_disjoint` router; the sampling logic inside the negative samplers
 (their docstrings are in scope); `dataset_segment_pairs_v2`'s coverage sampler; `src/archive/`.
