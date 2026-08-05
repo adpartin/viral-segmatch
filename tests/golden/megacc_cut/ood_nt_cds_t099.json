@@ -10,6 +10,6 @@
   "pairs_dropped": 9,
   "largest_cc_frac_after": 0.610895,
   "lpt_drift_after": 0.046245,
-  "n_atoms_after": 3354,
+  "n_atoms": 3354,
   "dropped_pairkeys_sha256": "4f57067b6400d56050395ef0faaba3ec60eae3656844587775eff74ce11f6ec3"
 }

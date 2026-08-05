@@ -283,7 +283,7 @@ def test_apply_drop_budget_cut_ood_nt_cds_t099_golden():
 
     assert len(kept) == g['n_kept']
     assert audit['n_cuts'] == g['n_cuts'] and audit['pairs_dropped'] == g['pairs_dropped']
-    assert audit['n_atoms_after'] == g['n_atoms_after']
+    assert audit['n_atoms'] == g['n_atoms']
     assert _sha(sorted(kept['pair_key'].astype(str))) == g['kept_pairkeys_sha256']
     assert _sha(sorted(audit['dropped_pair_keys'])) == g['dropped_pairkeys_sha256']
 

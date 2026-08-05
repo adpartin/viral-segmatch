@@ -416,9 +416,11 @@ def apply_drop_budget_cut(
         max_cuts: safety cap on the number of bisection iterations.
 
     Returns:
-        `(kept_pos, cut_audit)`: `kept_pos` is `pos_with_ids` minus the dropped straddling
-        pairs (the caller recomputes `component_id` on it); `cut_audit` holds the per-cut
-        accounting and the dropped pair_keys.
+        `(kept_pos, audit)`: `kept_pos` is `pos_with_ids` minus the dropped straddling pairs
+        (the caller re-derives components on it); `audit` holds the per-cut accounting and the
+        dropped pair_keys, keyed like `fragment_until`'s where the two overlap
+        (`cut_method`, `seed`, `n_cuts`, `n_atoms`, `pairs_dropped`, `dropped_frac`,
+        `max_drop_frac`, `per_cut`).
 
     Raises:
         DropBudgetExceeded: if reaching 80/10/10 feasibility would need dropping more than
@@ -483,7 +485,7 @@ def apply_drop_budget_cut(
         if pair_key_col in pos_with_ids.columns else []
     )
 
-    cut_audit = {
+    audit = {
         'cut_method': cut_method,
         'seed': seed,
         'target_frac': target_frac,
@@ -496,12 +498,13 @@ def apply_drop_budget_cut(
         'largest_cc_frac_after': per_cut[-1]['largest_frac_of_retained'],
         'lpt_drift_after': per_cut[-1]['lpt_drift'],
         # Routable atoms, not raw components: a node stranded by a cut (all its edges dropped)
-        # is absent from the kept rows, so `n_pieces` would overcount. Matches `fragment_until`.
-        'n_atoms_after': _live_atom_count(H),
+        # is absent from the kept rows, so `n_pieces` would overcount. Same key and same
+        # measure as `fragment_until`'s audit.
+        'n_atoms': _live_atom_count(H),
         'per_cut': per_cut,
         'dropped_pair_keys': dropped_pair_keys,
     }
-    return kept_pos, cut_audit
+    return kept_pos, audit
 
 
 def fragment_weighted(
