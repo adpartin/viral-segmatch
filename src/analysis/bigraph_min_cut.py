@@ -55,7 +55,7 @@ from src.datasets._megacc_cut import fragment_weighted
 
 def min_cut_recursive(
     G: nx.Graph,
-    method: str = 'kl',
+    method: str = 'spectral',
     target_frac: float = 0.80,
     drift_pp: float = 0.05,
     seed: int = 1,
@@ -99,7 +99,9 @@ def main() -> None:
                    help='alphabet label for output names (default nt_cds; must match --cc_source, '
                         'which is what actually selects the data).')
     p.add_argument('--threshold', default='t095')
-    p.add_argument('--method', default='kl', choices=['kl', 'spectral'])
+    p.add_argument('--method', default='spectral', choices=['kl', 'spectral'],
+                   help='Bisection heuristic. Default matches production, which is spectral '
+                        'everywhere; kl is order-sensitive and gives different cuts.')
     p.add_argument('--target_frac', type=float, default=0.80)
     p.add_argument('--drift_pp', type=float, default=0.05,
                    help='LPT feasibility gate: max |achieved-target| over bins (splits.md § 3.3).')

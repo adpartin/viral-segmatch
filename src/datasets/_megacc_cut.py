@@ -327,7 +327,9 @@ def fragment_until(
         `(kept_pos, dropped_pos, audit)`: `pos_with_ids` minus the straddling pairs, just
         those straddling pairs, and an audit dict (`cut_method`, `seed`, `n_cuts`, `n_atoms`,
         `pairs_dropped`, `dropped_frac`, `max_drop_frac`, `stopped_reason`, `per_cut`).
-        `stopped_reason` is one of 'stop_fn' | 'max_drop_frac' | 'max_cuts'.
+        `stopped_reason` is one of 'stop_fn' | 'max_drop_frac' | 'cut_floor' | 'max_cuts';
+        'cut_floor' means the heaviest component was down to a single cluster pair, which no
+        cut can split into more atoms.
     """
     n_total = int(len(pos_with_ids))
     H, edge_rows = build_pair_bigraph(pos_with_ids, col_a=col_a, col_b=col_b)
@@ -352,6 +354,14 @@ def fragment_until(
         })
         if stop_fn(state):
             stopped_reason = 'stop_fn'
+            break
+        # A <=2-node heaviest component is a single cluster pair. Bisecting it removes its only
+        # edge and strands both nodes, so the atom count FALLS while pairs are dropped -- and no
+        # smaller component can be split either. Stop rather than shred. (Same floor
+        # `fragment_weighted` enforces; without it, a permissive budget with an unreachable
+        # target takes 3 atoms to 0 while dropping every pair.)
+        if len(_largest_cc(H)) < 3:
+            stopped_reason = 'cut_floor'
             break
         step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
         if n_total and (pairs_dropped + step.pairs_dropped) / n_total > max_drop_frac:
@@ -528,7 +538,7 @@ def fragment_weighted(
     H: nx.Graph,
     *,
     targets: dict = _TARGETS,
-    cut_method: str = 'kl',
+    cut_method: str = 'spectral',
     target_frac: float = 0.80,
     drift_pp: float = 0.05,
     seed: int = 1,
