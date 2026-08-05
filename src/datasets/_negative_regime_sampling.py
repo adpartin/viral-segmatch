@@ -27,7 +27,6 @@ from typing import Iterable, Optional
 
 import pandas as pd
 
-
 REGIME_NAMES = (
     'none_match',
     'host_only',

@@ -1,14 +1,12 @@
-"""Tests for the modular edge-min-cut primitives in `src/datasets/_megacc_cut.py`
-(`build_pair_bigraph` / `fragment_largest_cc` / `edges_to_row_index` /
-`fragment_once` / `fragment_until`) and the behavior-preserving `apply_drop_budget_cut`
-refactor (Phase R of docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md).
+"""Tests for the edge-min-cut primitives in `src/datasets/_megacc_cut.py`:
+`build_pair_bigraph`, `fragment_largest_cc`, `edges_to_row_index`, `fragment_once`,
+`fragment_until` and `fragment_to_targets`.
 
-Fast synthetic tests run everywhere. The OOD tests reproduce the P1 / pre-refactor
-numbers on the production OOD nt_cds clusters and SKIP when that data is absent.
+Fast synthetic tests run everywhere. The OOD tests pin the cut against the production
+OOD nt_cds clusters and SKIP when that data is absent.
 
 Run: pytest tests/test_megacc_cut.py   (or: python tests/test_megacc_cut.py)
 """
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -21,20 +19,17 @@ PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.datasets._megacc_cut import (
-    DropBudgetExceeded,
     _largest_cc,
-    apply_drop_budget_cut,
     build_pair_bigraph,
     edges_to_row_index,
     fragment_largest_cc,
     fragment_once,
+    fragment_to_targets,
     fragment_until,
-    fragment_weighted,
     stop_at_n_atoms,
 )
 from src.datasets._pair_helpers import cluster_ccs, sequence_ccs
 
-GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t099.json'
 FRAG_GOLDEN = PROJ / 'tests' / 'golden' / 'megacc_cut' / 'ood_nt_cds_t095_fragment_until.json'
 OOD_CLUSTERS = PROJ / 'data' / 'processed' / 'flu' / 'July_2025' / 'clusters_nt_cds_ood'
 
@@ -231,11 +226,6 @@ def test_fragment_until_deterministic():
     assert list(a.index) == list(b.index)
 
 
-# --- apply_drop_budget_cut (synthetic no-cut path) ---------------------------
-def test_apply_drop_budget_cut_none_is_noop():
-    pos = _two_blobs()
-    kept, audit = apply_drop_budget_cut(pos, cut_method='none')
-    assert len(kept) == len(pos) and audit['n_cuts'] == 0 and audit['pairs_dropped'] == 0
 
 
 # --- OOD integration (skip when the production clusters are absent) -----------
@@ -272,23 +262,6 @@ def test_fragment_once_ood_nt_cds_t095_reproduces_p1():
     assert len(dropped) == 14 and len(kept) == 78750
 
 
-def test_apply_drop_budget_cut_ood_nt_cds_t099_golden():
-    """Behavior-preserving guard: the budget loop on OOD nt_cds t099 reproduces the
-    pre-refactor digest (cut count, dropped pairs, kept/dropped pair_key sets)."""
-    if not (OOD_CLUSTERS / 't099' / 'combined_cluster.parquet').exists():
-        pytest.skip('OOD clusters absent')
-    g = json.loads(GOLDEN.read_text())
-    pos = _build_ood_pos_ids('t099')
-    kept, audit = apply_drop_budget_cut(pos, cut_method='spectral', seed=1)
-
-    def _sha(o):
-        return hashlib.sha256(repr(o).encode()).hexdigest()
-
-    assert len(kept) == g['n_kept']
-    assert audit['n_cuts'] == g['n_cuts'] and audit['pairs_dropped'] == g['pairs_dropped']
-    assert audit['n_atoms'] == g['n_atoms']
-    assert _sha(sorted(kept['pair_key'].astype(str))) == g['kept_pairkeys_sha256']
-    assert _sha(sorted(audit['dropped_pair_keys'])) == g['dropped_pairkeys_sha256']
 
 
 def test_fragment_until_ood_nt_cds_t095_golden():
@@ -348,23 +321,13 @@ def test_fragment_until_on_empty_input_returns_cleanly():
     assert audit['n_cuts'] == 0 and audit['n_atoms'] == 0 and audit['pairs_dropped'] == 0
 
 
-def test_apply_drop_budget_cut_on_empty_input_returns_cleanly():
-    kept, audit = apply_drop_budget_cut(_EMPTY)
-    assert len(kept) == 0 and audit['n_cuts'] == 0 and audit['n_atoms'] == 0
-    assert len(audit['per_cut']) == 1, 'the audit still needs its first/last per-cut row'
 
 
-def test_fragment_weighted_on_empty_graph_returns_cleanly():
-    df, H, dropped_edges = fragment_weighted(nx.Graph())
+def test_fragment_to_targets_on_empty_graph_returns_cleanly():
+    df, H, dropped_edges = fragment_to_targets(nx.Graph())
     assert len(dropped_edges) == 0 and H.number_of_nodes() == 0 and len(df) == 1
 
 
-def test_apply_drop_budget_cut_raises_when_one_atom_holds_everything():
-    """A lone cluster pair is one 2-node atom carrying 100% of the mass: 80/10/10 is
-    unreachable, so the budget guard must raise rather than shred it."""
-    one = pd.DataFrame({'cluster_id_a': ['c1'], 'cluster_id_b': ['c2'], 'pair_key': ['k']})
-    with pytest.raises(DropBudgetExceeded):
-        apply_drop_budget_cut(one)
 
 
 if __name__ == '__main__':

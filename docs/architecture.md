@@ -98,7 +98,7 @@ src/
     _split_helpers.py               # cluster_disjoint routing (mmseqs2-based)
     _cc_helpers.py                  # within-CC isolate pool + negative samplers (CC builder)
     _cv_sampling.py                 # atom assignment + per-unit positive sampling (CV harness)
-    _megacc_cut.py                  # mega-CC edge min-cut (drop-budget 2D-CD; spectral/KL)
+    _megacc_cut.py                  # mega-CC edge min-cut (spectral/KL) + the fragmentation loops
     _negative_regime_sampling.py    # 8-regime classifier + priority chain for racov
   models/
     train_pair_classifier.py        # Stage 4: MLP classifier training

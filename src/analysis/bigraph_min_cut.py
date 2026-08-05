@@ -21,7 +21,7 @@ far tighter than node-peel. Determinism: KL is seeded; same (graph, seed) gives
 the same cut.
 
 This module is the CLI/report layer only: the cut loop itself is
-`src/datasets/_megacc_cut.fragment_weighted` (one implementation shared with the
+`src/datasets/_megacc_cut.fragment_to_targets` (one implementation shared with the
 production splitter). What lives here is the CLI and the per-cut report.
 
 Input is the NATURAL (pre-cut) CC artifact (`_cc_artifacts`) -- this script performs the
@@ -50,7 +50,7 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis._cc_artifacts import add_cc_source_args, cc_dir, load_cc_bigraph
-from src.datasets._megacc_cut import fragment_weighted
+from src.datasets._megacc_cut import fragment_to_targets
 
 
 def min_cut_recursive(
@@ -66,13 +66,13 @@ def min_cut_recursive(
     ):
     """Recursively bisect the largest CC until the kept atoms are LPT-feasible.
 
-    Thin wrapper over `_megacc_cut.fragment_weighted`: fragments the pair-weighted
+    Thin wrapper over `_megacc_cut.fragment_to_targets`: fragments the pair-weighted
     simple bigraph `G` (from `_cc_artifacts.load_cc_bigraph`) to `targets`
     (default `None` -> the cut module's 80/10/10; pass `uniform_targets(k)` for K-fold
     CV). Each row is the state BEFORE a cut (or the final feasible state); drops only
     crossing edges (straddling pairs); `dropped_frac` is vs the full pair universe.
 
-    Does NOT mutate `G` — `fragment_weighted` removes the cut edges in place, so it is
+    Does NOT mutate `G` — `fragment_to_targets` removes the cut edges in place, so it is
     handed a copy. (This used to fall out of the `weighted_simple` multigraph
     projection, which always returned a fresh graph.)
 
@@ -81,10 +81,10 @@ def min_cut_recursive(
     connected components are the final atoms, and the list of cut (u, v) edges.
     """
     H = G.copy()
-    # Omit `targets` when None so `fragment_weighted`'s own 80/10/10 default applies --
+    # Omit `targets` when None so `fragment_to_targets`'s own 80/10/10 default applies --
     # the constant lives there, not duplicated here.
     targets_kw = {} if targets is None else {'targets': targets}
-    df, H, dropped_edges = fragment_weighted(
+    df, H, dropped_edges = fragment_to_targets(
         H, cut_method=method, target_frac=target_frac, drift_pp=drift_pp, seed=seed,
         kl_max_iter=kl_max_iter, max_cuts=max_cuts, **targets_kw)
     if return_partition:

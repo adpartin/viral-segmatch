@@ -1,38 +1,26 @@
-"""Mega-CC edge min-cut for the drop-budget 2D-CD router (operational home).
+"""Mega-CC edge min-cut: shrink a mega-CC by dropping straddling pairs.
 
-This module is edge-cut: shrink a mega-CC by dropping straddling pairs (cost in
-pairs). The counterpart node-cut -- splitting an oversized single-side cluster
-by dropping sequences -- is a separate, future concern, not handled here.
+The cost is in pairs, never in sequences -- clusters (the graph's nodes) are never split.
+The counterpart node-cut, splitting an oversized single-side cluster by dropping sequences,
+is a separate concern and is not handled here.
 
-The `src/analysis/bigraph_*.py` diagnostics explored this cut on the analysis
-pair universe; this module is the operational version the splitter calls. It
-works directly on the production `pos_with_ids` `(cluster_id_a, cluster_id_b)`
-columns -- no analysis-side `load_pair_universe` -- so the pairs and alphabet
-are exactly what the splitter routes (this also sidesteps the analysis loader's
-protein-only dedup for nt_cds).
-
-`apply_drop_budget_cut` builds the pair-weighted simple bigraph and recursively
-bisects the largest connected component (spectral or KL), dropping only each
-cut's straddling pairs, until the kept components LPT bin-pack into the target
-ratios within `drift_pp` -- or it raises `DropBudgetExceeded` if that would need
-dropping more than `max_drop_frac`. Plug-in point: `_split_helpers`
-`cluster_disjoint_route_pos_df` (the bilateral 2D-CD holdout path). See
-docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md.
+It works directly on the production `pos_with_ids` `(cluster_id_a, cluster_id_b)` columns,
+so the pairs and alphabet are exactly what the splitter routes.
 
 `fragment_largest_cc` is the one cut: bisect the heaviest component, return the crossing
 edges without mutating the graph. Everything else here is that cut plus a stop condition.
 The graph CONSTRUCTION primitives live in `_bigraph.py` -- this module is the cut.
 
-Three loops call it, differing only in the stop condition and the entry surface:
-  - `apply_drop_budget_cut` -- stop at 80/10/10 LPT-feasibility; raises past the budget.
-  - `fragment_until`        -- stop at a caller-supplied count (`stop_fn`, e.g.
-    `stop_at_n_atoms`); grows the atom count for the GroupKFold CV builder.
-  - `fragment_weighted`     -- stop at LPT-feasibility against arbitrary `targets`. The only
-    one that takes a caller-built graph and returns the fragmented graph, rather than
-    taking/returning `pos_with_ids` rows.
+Two loops call it, differing in the stop condition and the entry surface:
+  - `fragment_until`      -- stop on a caller-supplied predicate (`stop_fn`, e.g.
+    `stop_at_n_atoms`), capped by `max_drop_frac`; grows the atom count for the GroupKFold
+    CV builder. This is the production 2D-CD path, via `dataset_pairs_cc.assign_atoms_prod`.
+  - `fragment_to_targets` -- stop on LPT-feasibility against arbitrary `targets`. Takes a
+    caller-built graph and returns the fragmented graph rather than `pos_with_ids` rows.
+    Used by the `bigraph_min_cut` diagnostic.
 
-`fragment_once` calls it exactly once, for callers that want a single cut and the `CutStep`
-describing it rather than a loop and an audit.
+`fragment_once` calls the cut exactly once, for callers that want a single cut and the
+`CutStep` describing it rather than a loop and an audit.
 
 This module is the single home of the bisection core; the `src/analysis/bigraph_*`
 diagnostics import it (analysis -> datasets is the allowed direction).
@@ -55,10 +43,6 @@ from src.datasets._bigraph import build_pair_bigraph, edges_to_row_index
 # (`_pair_helpers._lpt_bin_pack`); the feasibility gate mirrors splits.md §3.3.
 _TARGETS = {'train': 0.80, 'val': 0.10, 'test': 0.10}
 _BIN_ORDER = ['train', 'val', 'test']
-
-
-class DropBudgetExceeded(RuntimeError):
-    """Reaching an 80/10/10-feasible split would drop more than `max_drop_frac` of pairs."""
 
 
 def _lpt_max_drift(sizes, targets=_TARGETS, bin_order=_BIN_ORDER) -> float:
@@ -193,7 +177,7 @@ def fragment_largest_cc(H: nx.Graph, *, cut_method: str = 'spectral', seed: int 
     The shared cut. `_bisect` assigns the component's clusters to two sides; the cluster pairs
     crossing the two sides are the cut. Does not mutate `H` -- the caller removes the returned
     `cross_edges` -- so one primitive serves the single cut (`fragment_once`) and all three
-    loops (`fragment_until`, `apply_drop_budget_cut`, `fragment_weighted`).
+    loops (`fragment_until`, `apply_drop_budget_cut`, `fragment_to_targets`).
 
     Args:
         H: the pair-weighted simple bigraph from `build_pair_bigraph`.
@@ -389,147 +373,7 @@ def fragment_until(
         'per_cut': per_cut,
     }
     return kept_pos, dropped_pos, audit
-
-
-def apply_drop_budget_cut(
-    pos_with_ids: pd.DataFrame,
-    *,
-    col_a: str = 'cluster_id_a',
-    col_b: str = 'cluster_id_b',
-    pair_key_col: str = 'pair_key',
-    cut_method: str = 'spectral',
-    target_frac: float = 0.80,
-    drift_pp: float = 0.05,
-    max_drop_frac: float = 0.20,
-    seed: int = 1,
-    max_cuts: int = 1000,
-    ) -> tuple[pd.DataFrame, dict]:
-    """Shrink the 2D mega-CC by edge min-cut so the kept components fit an 80/10/10 split.
-
-    2D-CD routes each whole connected component (an atom) to one split, so a single very
-    large component (the mega-CC) makes an 80/10/10 split impossible. This builds the
-    pair-weighted simple bigraph and repeatedly bisects the largest component
-    (`cut_method`), dropping each cut's straddling pairs, until the kept components LPT
-    bin-pack into the 80/10/10 targets within `drift_pp` -- or it raises `DropBudgetExceeded`
-    once dropping would exceed `max_drop_frac`. Clusters (the nodes) are never split, so the
-    cost is counted in pairs.
-
-    Stops on holdout feasibility; `fragment_until` is the sibling that stops on an atom count.
-    Neither assigns pairs to splits -- they only shrink the graph, and the caller does the
-    routing afterwards (`route_holdout` for a holdout, `groupkfold_by_atom` for K-fold). That
-    is why both live here with the cut primitives rather than with the routers.
-
-    Args:
-        pos_with_ids: positive-pair rows with `col_a`/`col_b` cluster ids (+ `pair_key_col`);
-            the pairs being routed (its index identifies each pair).
-        col_a / col_b: slot-a / slot-b cluster-id column names.
-        pair_key_col: per-pair key column; dropped keys are recorded in the audit.
-        cut_method: how to bisect the largest CC -- `'spectral'` (Fiedler vector),
-            `'kl'` (Kernighan-Lin), or `'none'` (no cut; return `pos_with_ids` unchanged).
-        target_frac: nominal train fraction (0.80); audit-only -- the LPT bin targets are
-            the module `_TARGETS` (80/10/10).
-        drift_pp: stop once the LPT pack's worst-bin deviation from target is <= this
-            (a fraction; 0.05 = 5 percentage points).
-        max_drop_frac: cap on the dropped-pair fraction. Checked against what the NEXT cut
-            would reach, so the cap holds on return: a cut that would break it is never
-            applied, and `DropBudgetExceeded` is raised instead.
-        seed: RNG seed for the seeded spectral / KL bisection.
-        max_cuts: safety cap on the number of bisection iterations.
-
-    Returns:
-        `(kept_pos, audit)`: `kept_pos` is `pos_with_ids` minus the dropped straddling pairs
-        (the caller re-derives components on it); `audit` holds the per-cut accounting and the
-        dropped pair_keys, keyed like `fragment_until`'s where the two overlap
-        (`cut_method`, `seed`, `n_cuts`, `n_atoms`, `pairs_dropped`, `dropped_frac`,
-        `max_drop_frac`, `per_cut`).
-
-    Raises:
-        DropBudgetExceeded: if reaching 80/10/10 feasibility would need dropping more than
-            `max_drop_frac` of pairs (the message lists the config knobs to relax).
-    """
-    n_total = int(len(pos_with_ids))
-    if cut_method == 'none':
-        return pos_with_ids, {'cut_method': 'none', 'pairs_dropped': 0,
-                              'dropped_frac': 0.0, 'n_cuts': 0, 'per_cut': []}
-
-    H, edge_rows = build_pair_bigraph(pos_with_ids, col_a=col_a, col_b=col_b)
-
-    cross_edges: list[tuple] = []   # straddling edges dropped so far, in cut order
-    pairs_dropped = 0               # straddling pairs dropped so far (edge weight)
-    per_cut: list[dict] = []
-    cut = 0
-
-    while True:
-        comps = list(nx.connected_components(H))
-        cc_sizes = [int(H.subgraph(c).size(weight='weight')) for c in comps] # per-CC pair count
-        retained = n_total - pairs_dropped
-        largest = max(cc_sizes) if cc_sizes else 0
-        drift = _lpt_max_drift(cc_sizes)
-        per_cut.append({
-            'cut': cut,
-            'pairs_dropped': pairs_dropped,
-            'dropped_frac': round(pairs_dropped / n_total, 6) if n_total else 0.0,
-            'n_pieces': len(comps),  # raw CC count (may include a node stranded by a cut); cf. live n_atoms
-            'largest_frac_of_retained': round(largest / retained, 6) if retained else 0.0,
-            'lpt_drift': round(drift, 6),
-        })
-        if drift <= drift_pp:
-            break
-        # Empty input: nothing to cut. Checked after the row is recorded, so the audit below
-        # still has a first and last entry.
-        if not comps:
-            break
-
-        # Cost the next cut before applying it, so the budget caps what is dropped.
-        step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
-        would_drop_frac = (pairs_dropped + step.pairs_dropped) / n_total if n_total else 0.0
-        if would_drop_frac > max_drop_frac or cut >= max_cuts:
-            largest_frac = largest / retained if retained else 0.0   # guard: raising must not raise
-            raise DropBudgetExceeded(
-                f"drop-budget 2D-CD: recovering 80/10/10 needs dropping "
-                f">{max_drop_frac:.0%} of pairs (would reach {would_drop_frac:.1%} at cut "
-                f"{cut + 1}; largest CC still {largest_frac:.1%} of retained). "
-                f"Options (require an explicit config change):\n"
-                f"  - raise cluster_id_threshold (looser cut, smaller mega-CC),\n"
-                f"  - raise split_strategy.drop_budget.max_drop_frac to accept the loss,\n"
-                f"  - or use single_slot 1D-CD for this pair (no pairs dropped)."
-            )
-        cross_edges.extend(step.cross_edges)
-        pairs_dropped += step.pairs_dropped
-        # drop the crossing edges -> the largest CC splits into >=2 CCs (the 2 bisection
-        # sides; a side splits further if its internal links ran through the other side).
-        # The next loop's connected_components picks up the new pieces.
-        H.remove_edges_from(step.cross_edges)
-        cut += 1
-
-    drop_idx = edges_to_row_index(cross_edges, edge_rows)
-    kept_pos = pos_with_ids.drop(index=drop_idx)
-    dropped_pair_keys = (
-        pos_with_ids.loc[drop_idx, pair_key_col].tolist()
-        if pair_key_col in pos_with_ids.columns else []
-    )
-
-    audit = {
-        'cut_method': cut_method,
-        'seed': seed,
-        'target_frac': target_frac,
-        'drift_pp': drift_pp,
-        'max_drop_frac': max_drop_frac,
-        'n_cuts': cut,
-        'pairs_dropped': pairs_dropped,
-        'dropped_frac': round(pairs_dropped / n_total, 6) if n_total else 0.0,
-        'largest_cc_frac_before': per_cut[0]['largest_frac_of_retained'],
-        'largest_cc_frac_after': per_cut[-1]['largest_frac_of_retained'],
-        'lpt_drift_after': per_cut[-1]['lpt_drift'],
-        # Routable atoms, not raw components: a stranded node is absent from the kept rows.
-        'n_atoms': _live_atom_count(H),
-        'per_cut': per_cut,
-        'dropped_pair_keys': dropped_pair_keys,
-    }
-    return kept_pos, audit
-
-
-def fragment_weighted(
+def fragment_to_targets(
     H: nx.Graph,
     *,
     targets: dict = _TARGETS,

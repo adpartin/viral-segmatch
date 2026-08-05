@@ -160,10 +160,10 @@ def assign_atoms_prod(
 
     Atom = one CC on (cluster_id_a, cluster_id_b), so `atom_id == cc_id`. Two modes:
     - natural (`edge_cut` None/disabled): one atom per whole CC.
-    - edge-cut (routing-B): `_megacc_cut.fragment_until` bisects the mega-CC, dropping straddling
-      pairs to grow the atom count within a drop budget. `cc_id`/`atom_id` become the post-cut
-      fragment; the pre-cut CC is kept on `natural_cc_id` (analysis-only -- the fold CSVs re-select
-      `_PAIR_COLUMNS`, which drops it). NOT routing-A's `apply_drop_budget_cut`.
+    - edge-cut: `_megacc_cut.fragment_until` bisects the mega-CC, dropping straddling pairs to
+      grow the atom count within a drop budget. `cc_id`/`atom_id` become the post-cut fragment;
+      the pre-cut CC is kept on `natural_cc_id` (analysis-only -- the fold CSVs re-select
+      `_PAIR_COLUMNS`, which drops it).
 
     `edge_cut` (when enabled): `{cut_method, target_atoms, max_drop_frac, seed}`. Returns
     `(pos_with_ids, cc_summary)`; the edge-cut run adds `cc_summary['edge_cut']` (the cut audit).
@@ -632,7 +632,7 @@ def _resolve_spec(args, config) -> CCSpec:
     if seed is None:
         raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
 
-    # Optional edge-cut fragmentation (routing-B): grow the atom count by bisecting the mega-CC.
+    # Optional edge-cut fragmentation: grow the atom count by bisecting the mega-CC.
     # Default off (existing bundles unaffected). See _megacc_cut.fragment_until.
     edge_cut = None
     if bool(OmegaConf.select(config, 'dataset.split_strategy.edge_cut.enabled', default=False)):

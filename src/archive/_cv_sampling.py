@@ -12,7 +12,7 @@ bigraph (nodes = clusters, edges = co-occurrences):
   - strategy='natural': atom = the CC (`atom_id == cc_id`). At low `t` one
     mega-CC dominates, so GroupKFold-by-atom needs per-CC capping to stay balanced.
   - strategy='cut': the mega-CC is fragmented by edge min-cut (`_megacc_cut`'s
-    `fragment_weighted` with `uniform_targets(k_folds)`) into atoms each <= ~1/k of
+    `fragment_to_targets` with `uniform_targets(k_folds)`) into atoms each <= ~1/k of
     the kept pairs; straddling pairs (endpoints in different atoms) are DROPPED.
 
 Cluster-disjointness invariant (asserted): every cluster belongs to exactly one
@@ -49,7 +49,7 @@ from src.datasets._bigraph import build_pair_bigraph, ranked_ccs  # noqa: E402
 from src.datasets._cc_helpers import build_cc_isolate_pool as _cc_build_pool
 from src.datasets._cc_helpers import sample_random_within_cc_negatives as _cc_sample_random
 from src.datasets._cc_helpers import sample_regime_negatives as _cc_sample_regime
-from src.datasets._megacc_cut import fragment_weighted
+from src.datasets._megacc_cut import fragment_to_targets
 from src.datasets._negative_regime_sampling import DEFAULT_AXES, DEFAULT_YEAR_BIN_EDGES
 from src.utils.cluster_source import CLUSTERS_ROOT as _ROOT
 from src.utils.cluster_source import cluster_map_for_root
@@ -62,7 +62,7 @@ _HASH = {'aa': ('prot_hash_a', 'prot_hash_b'),
 def uniform_targets(k: int) -> dict:
     """K equal bins summing to 1 -- the K-fold-feasibility target for fragmentation.
 
-    Pass as `targets=` to `fragment_weighted` to fragment a CC until its atoms LPT-pack
+    Pass as `targets=` to `fragment_to_targets` to fragment a CC until its atoms LPT-pack
     into K balanced folds (largest atom roughly <= 1/k). Tighter than an 80/10/10 holdout
     target: a single atom at 80% is LPT-feasible for 80/10/10 (it fills train) but violates
     K equal bins.
@@ -155,9 +155,9 @@ def _fragment_atoms(
 
     Builds the weighted simple graph via the shared `_bigraph.build_pair_bigraph` (one
     edge per cluster pair, weight = #pairs), fragments it with
-    `fragment_weighted(targets=uniform_targets(k_folds))`, then keeps only pairs whose
+    `fragment_to_targets(targets=uniform_targets(k_folds))`, then keeps only pairs whose
     two clusters share a final atom. The kept/dropped split must equal
-    fragment_weighted's straddler count (asserted).
+    fragment_to_targets's straddler count (asserted).
 
     `atom_id` is assigned from `ranked_ccs`, so ids are canonical (largest atom first,
     ties on lowest node id) rather than an artifact of node insertion order.
@@ -165,7 +165,7 @@ def _fragment_atoms(
     # Pass the RAW cluster ids: build_pair_bigraph applies the 'a:'/'b:' prefixes itself,
     # reproducing this frame's node_a/node_b exactly.
     H, _edge_rows = build_pair_bigraph(u, col_a='cluster_a', col_b='cluster_b')
-    cut_df, H_kept, _ = fragment_weighted(
+    cut_df, H_kept, _ = fragment_to_targets(
         H, targets=uniform_targets(k_folds), cut_method=cut_method,
         target_frac=1.0 / k_folds, drift_pp=drift_pp, seed=seed)
 
@@ -177,7 +177,7 @@ def _fragment_atoms(
     reported = int(cut_df.iloc[-1]['pairs_dropped'])
     assert n_dropped == reported, (
         f"straddler accounting mismatch: kept-side dropped {n_dropped} pairs but "
-        f"fragment_weighted reported {reported}")
+        f"fragment_to_targets reported {reported}")
     u = u.loc[keep].copy()
     u['atom_id'] = atom_a[keep].astype(int).to_numpy()
     return u.reset_index(drop=True), reported

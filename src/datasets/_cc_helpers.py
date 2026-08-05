@@ -18,7 +18,7 @@ production primitives — `_split_helpers.attach_cluster_ids` +
 `_pair_helpers.cluster_ccs`
 — which are alphabet-clean (nt_cds keys on `cds_dna_hash`, NOT the analysis
 `dna_hash`-means-CDS mislabel) and carry no `src/analysis` dependency. The 'cut'
-(fragmentation) strategy reuses `_megacc_cut.apply_drop_budget_cut`.
+(fragmentation) strategy reuses `_megacc_cut.fragment_until`.
 
 Column convention: the sequence-hash columns are GENERIC (`hash_a` / `hash_b`),
 holding whichever alphabet's per-slot sequence hash the membership carries

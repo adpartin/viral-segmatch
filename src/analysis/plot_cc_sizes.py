@@ -12,7 +12,7 @@ delegates drawing to `src.utils.plot_utils.size_barplot`.
 The mega-CC's dominance -- the tall first bar, and the largest-CC % in the title --
 is the 2D-CD K-fold feasibility signal: whole CCs route to one fold, so a mega-CC
 that towers over ~1/K of the pairs makes an 80/10/10 split infeasible without a cut
-(docs/methods/glossary.md; the cut is `_megacc_cut.apply_drop_budget_cut`).
+(docs/methods/glossary.md; the cut is `_megacc_cut.fragment_until`).
 
 CLI:
     python -m src.analysis.plot_cc_sizes \\

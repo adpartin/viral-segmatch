@@ -38,6 +38,18 @@ all. Recoverable from git history at `4e41dfb` if ever needed.
 `_gen1_bigraph.py` holds `build_cluster_bigraph`, the Gen-1 "map hashes to clusters, then build"
 adapter, moved here 2026-07-31 once no live code called it.
 
+Archived 2026-08-05, during the fragmentation cleanup:
+
+| Script | Why archived | Replacement |
+|---|---|---|
+| `_drop_budget_cut.py` | holds `apply_drop_budget_cut` + `DropBudgetExceeded`: the hardcoded-80/10/10 form of `fragment_to_targets`, serving the 2D-CD **holdout** that the K-fold builder superseded. No bundle or config group ever declared the `split_strategy.drop_budget` knob that reached it | `_megacc_cut.fragment_to_targets` for arbitrary targets; `_megacc_cut.fragment_until` for the production K-fold path |
+
+The drop-budget **mechanism** was not retired with it: `fragment_until` caps its cuts with
+`max_drop_frac`, wired as `split_strategy.edge_cut.max_drop_frac`, and that is what the production
+2D-CD path uses. Its wiring (`split_strategy.drop_budget` through `dataset_segment_pairs.py` →
+`dataset_segment_pairs_v2.py` → `_split_helpers.cluster_disjoint_route_pos_df`) was removed at the
+same time, so the config key no longer does anything.
+
 **The `load_pair_universe` caveat** applies to everything above that uses it: by default it dedups
 on `prot_hash` for **every** alphabet, so its nt_cds numbers count 58,826 HA-NA pairs where the
 nt_cds-keyed universe has 79,347 (both via `load_pair_universe` on `cds_dna_final.parquet`; the
