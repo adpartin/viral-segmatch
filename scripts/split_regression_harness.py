@@ -43,7 +43,9 @@ GUARD_SET = [
     # metadata_holdout filters isolates by axis, so it needs enough corpus to fill
     # train/val/test pools; a 2k subsample can starve a split. Tune N if the build errors.
     {"name": "metadata_holdout",    "bundle": "flu_ha_na_holdout_year",           "n": 20000, "overrides": []},
-    # (drop-budget 2D-CD edge min-cut is guarded directly in tests/test_megacc_cut.py, not here.)
+    # (No 2D-CD holdout entry: bilateral cluster_disjoint reaches only the holdout branch, which
+    #  no bundle configures. The 2D-CD K-fold path is guarded by tests/test_megacc_cut.py and
+    #  tests/test_dataset_pairs_cc_cut.py.)
 ]
 
 

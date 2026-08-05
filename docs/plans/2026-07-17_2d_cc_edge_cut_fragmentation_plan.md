@@ -13,7 +13,7 @@ Related:
 - **Supersedes** `docs/plans/2026-06-06_fragmentation_cv_plan.md` (analysis-harness; aa +
   set-cover clusters). Kept for its edge-cut design + the K-uniform reasoning. [→ move to
   `done/` with a superseded-by note; task 1.]
-- `docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md` — the drop-budget router
+- `docs/plans/done/2026-06-04_2d_cd_drop_budget_router_plan.md` — the drop-budget router
   (`src/datasets/_megacc_cut.apply_drop_budget_cut`), **CORE IMPLEMENTED**; wired into
   `_split_helpers.cluster_disjoint_route_pos_df` (bilateral holdout, L459-477), **not** into
   `dataset_pairs_cc` (its L154 is the TODO this plan closes).

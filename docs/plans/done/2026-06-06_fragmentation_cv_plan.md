@@ -7,7 +7,7 @@ Owner: cluster-disjoint CV harness (`src/analysis/cluster_disjoint_cv_experiment
 
 Related:
 - `docs/results/2026-06-04_bigraph_megacc_structure_and_cutting.md` — mega-CC structure + edge min-cut characterization (atoms ≈ antigenic subtypes; spectral reaches 80/10/10 feasibility at 0.9% drop on HA-NA aa t095).
-- `docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md` — the production drop-budget 2D-CD router (`src/datasets/_megacc_cut.py`), which uses the same edge min-cut for the splitter.
+- `docs/plans/done/2026-06-04_2d_cd_drop_budget_router_plan.md` — the production drop-budget 2D-CD router (`src/datasets/_megacc_cut.py`), which uses the same edge min-cut for the splitter.
 - `docs/methods/glossary.md` — canonical terms used below (**cluster pair**, **atom**, **mega-CC**, **straddling pair**, **edge min-cut**).
 - Roadmap order (decided): **fragmentation → metadata-aware sampling → nt_cds → nt_ctg.** This plan is step 1.
 

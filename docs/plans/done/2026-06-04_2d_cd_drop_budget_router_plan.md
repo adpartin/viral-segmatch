@@ -1,6 +1,41 @@
 # 2D-CD drop-budget router (mega-CC edge min-cut) — implementation plan
 
-**Status: CORE IMPLEMENTED (P0–P3) + Q4/Q5 reorg done.** Cut module + router wiring (default-off, 8/8 bit-exact), real build feasible, 9th regression golden; clusters builder → `src/preprocess` + `bigraph_*` renames merged to master (`0abe400`). **Remaining:** §3.6 cut-quality validation (the `mmseqs` rep-distance / floor-violation diagnostic), the balanced post-cut routing option, and **P4 (train-and-score / fixed-test sweep — a separate plan, not yet written)**.
+**Status: IMPLEMENTED, then RETIRED (2026-08-05).**
+
+## Closing summary (2026-08-05)
+
+P0–P3 all landed as described in §5, and the router worked: HA-NA aa t095 went from a 97.8%
+mega-CC to a feasible 80.9/11.4/7.7 split by dropping 0.51% of pairs.
+
+It was retired anyway, because the design it served was superseded. This plan targets the 2D-CD
+**holdout** — `_split_helpers.cluster_disjoint_route_pos_df` with `n_folds<=1` (§2). 2D-CD work
+moved to K-fold in `dataset_pairs_cc.py`, which is why that function raises `NotImplementedError`
+for bilateral K-fold. The holdout path stayed reachable in code but no bundle ever configured it:
+`split_strategy.drop_budget` was declared in no bundle and no config group.
+
+`apply_drop_budget_cut` moved to `src/archive/_drop_budget_cut.py` in `d68d464`, with its wiring
+(`dataset_segment_pairs.py` → `dataset_segment_pairs_v2.py` → `cluster_disjoint_route_pos_df`), its
+tests, and the `ood_nt_cds_t099` golden. The `drop_budget_2d_aa` harness golden this plan added as
+the 9th guard (§4) was retired earlier; `scripts/split_regression_harness.py` carries no entry for
+it now.
+
+**The mechanism outlived the function.** An edge min-cut capped by a dropped-pair budget is what
+the production 2D-CD path uses today — `_megacc_cut.fragment_until` with
+`split_strategy.edge_cut.max_drop_frac`, stopping on an atom count rather than 80/10/10
+feasibility. The glossary's *drop-budget* entry points there. Two of this plan's §6 decisions
+carried over intact: spectral as the default `cut_method`, and LPT for post-cut routing.
+
+Its three open items are moot for retired code: §3.6 cut-quality validation, the balanced
+post-cut routing option, and P4 (the train-and-score sweep, which was overtaken by
+`docs/plans/2026-07-21_ood_vs_random_split_plan.md`).
+
+Successor: `docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md` (the K-fold fragmentation
+this became) and `docs/plans/2026-08-03_fold_maker_consolidation_plan.md` (the consolidation that
+retired it).
+
+---
+
+**Original plan below, unchanged.**
 
 **Date.** 2026-06-04.
 **Goal.** Add a routing path that makes **2D-CD** feasible below t099 by **cutting the mega-CC**: drop the minimum *straddling pairs* (edge min-cut) so the kept connected components bin-pack into 80/10/10. This operationalizes the verified result in `docs/results/2026-06-04_bigraph_megacc_structure_and_cutting.md`.

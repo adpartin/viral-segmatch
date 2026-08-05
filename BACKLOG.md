@@ -183,7 +183,7 @@ Non-blocking loose ends from the closed refactor
 
 Explicitly-parked future phases from `docs/plans/2026-06-09_cc_dataset_cv_plan.md`
 (Phases 1–3 implemented). The cut-fragmentation machinery lives in
-`docs/plans/2026-06-04_2d_cd_drop_budget_router_plan.md` (`_megacc_cut.py`, core
+`docs/plans/done/2026-06-04_2d_cd_drop_budget_router_plan.md` (`_megacc_cut.py`, core
 implemented, holdout-wired); item 3 is the concrete CC-builder wiring.
 
 1. **Regime-targeted within-CC negatives.** `dataset.negative_sampling` in the CC
