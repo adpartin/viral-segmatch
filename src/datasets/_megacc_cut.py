@@ -409,8 +409,9 @@ def apply_drop_budget_cut(
             the module `_TARGETS` (80/10/10).
         drift_pp: stop once the LPT pack's worst-bin deviation from target is <= this
             (a fraction; 0.05 = 5 percentage points).
-        max_drop_frac: cap on the dropped-pair fraction; exceeding it raises
-            `DropBudgetExceeded` instead of dropping more.
+        max_drop_frac: cap on the dropped-pair fraction. Checked against what the NEXT cut
+            would reach, so the cap holds on return: a cut that would break it is never
+            applied, and `DropBudgetExceeded` is raised instead.
         seed: RNG seed for the seeded spectral / KL bisection.
         max_cuts: safety cap on the number of bisection iterations.
 
@@ -451,17 +452,22 @@ def apply_drop_budget_cut(
         })
         if drift <= drift_pp:
             break
-        if (pairs_dropped / n_total) > max_drop_frac or cut >= max_cuts:
+
+        # Cost the next cut BEFORE applying it, so `max_drop_frac` is a cap and not a
+        # trip-wire: a cut that would break the budget is never applied. (`cut >= max_cuts`
+        # needs no lookahead -- it is already about cuts taken.)
+        step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
+        would_drop_frac = (pairs_dropped + step.pairs_dropped) / n_total if n_total else 0.0
+        if would_drop_frac > max_drop_frac or cut >= max_cuts:
             raise DropBudgetExceeded(
                 f"drop-budget 2D-CD: recovering 80/10/10 needs dropping "
-                f">{max_drop_frac:.0%} of pairs (reached {pairs_dropped/n_total:.1%} after "
-                f"{cut} cut(s); largest CC still {largest/retained:.1%} of retained). "
+                f">{max_drop_frac:.0%} of pairs (would reach {would_drop_frac:.1%} at cut "
+                f"{cut + 1}; largest CC still {largest/retained:.1%} of retained). "
                 f"Options (require an explicit config change):\n"
                 f"  - raise cluster_id_threshold (looser cut, smaller mega-CC),\n"
                 f"  - raise split_strategy.drop_budget.max_drop_frac to accept the loss,\n"
                 f"  - or use single_slot 1D-CD for this pair (no pairs dropped)."
             )
-        step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
         cross_edges.extend(step.cross_edges)
         pairs_dropped += step.pairs_dropped
         # drop the crossing edges -> the largest CC splits into >=2 CCs (the 2 bisection
@@ -489,7 +495,9 @@ def apply_drop_budget_cut(
         'largest_cc_frac_before': per_cut[0]['largest_frac_of_retained'],
         'largest_cc_frac_after': per_cut[-1]['largest_frac_of_retained'],
         'lpt_drift_after': per_cut[-1]['lpt_drift'],
-        'n_atoms_after': per_cut[-1]['n_pieces'],
+        # Routable atoms, not raw components: a node stranded by a cut (all its edges dropped)
+        # is absent from the kept rows, so `n_pieces` would overcount. Matches `fragment_until`.
+        'n_atoms_after': _live_atom_count(H),
         'per_cut': per_cut,
         'dropped_pair_keys': dropped_pair_keys,
     }
