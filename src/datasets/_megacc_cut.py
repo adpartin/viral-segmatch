@@ -150,17 +150,26 @@ def _piece_pairs(H: nx.Graph, nodes) -> int:
 
 
 def _largest_cc(H: nx.Graph):
-    """The node set of the connected component carrying the most pairs
-    (greatest total edge weight)."""
+    """The node set of the connected component carrying the most pairs.
+
+    A component's size is the pairs inside it (its summed edge weight), not its node count.
+    Ties go to the first component in `nx.connected_components` order, which `max` preserves,
+    so the choice is deterministic for a given graph.
+
+    Args:
+        H: a pair-weighted simple bigraph with at least one node.
+
+    Returns:
+        The node set of the heaviest component.
+
+    Raises:
+        ValueError: if `H` has no nodes -- callers loop until a stop condition and must
+            check for an empty graph themselves rather than get an IndexError from here.
+    """
     components = list(nx.connected_components(H))  # each CC is a set of nodes (clusters)
-    # a CC's size = total edge weight inside it = the number of positive pairs it carries
-    cc_sizes = [H.subgraph(c).size(weight='weight') for c in components]
-    # argmax over cc_sizes: the CC with the most pairs (first index wins ties, so it is deterministic)
-    best_i, best_size = 0, -1
-    for i, size in enumerate(cc_sizes):
-        if size > best_size:
-            best_i, best_size = i, size
-    return components[best_i]
+    if not components:
+        raise ValueError('_largest_cc: graph has no nodes, so there is no component to cut')
+    return max(components, key=lambda c: _piece_pairs(H, c))
 
 
 class CutStep(NamedTuple):
@@ -330,6 +339,9 @@ def fragment_until(
     stopped_reason = 'max_cuts'
 
     while cut < max_cuts:
+        if H.number_of_nodes() == 0:      # nothing to cut (empty input); stop before _largest_cc
+            stopped_reason = 'stop_fn'
+            break
         n_atoms = _live_atom_count(H)
         state = FragmentState(n_atoms=n_atoms, n_cuts=cut, pairs_dropped=pairs_dropped, n_total=n_total)
         per_cut.append({
@@ -454,6 +466,10 @@ def apply_drop_budget_cut(
         })
         if drift <= drift_pp:
             break
+        # Empty input: no component to cut. Checked after the per-cut row is recorded, so the
+        # audit below still has its first and last entry.
+        if not comps:
+            break
 
         # Cost the next cut BEFORE applying it, so `max_drop_frac` is a cap and not a
         # trip-wire: a cut that would break the budget is never applied. (`cut >= max_cuts`
@@ -461,10 +477,11 @@ def apply_drop_budget_cut(
         step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
         would_drop_frac = (pairs_dropped + step.pairs_dropped) / n_total if n_total else 0.0
         if would_drop_frac > max_drop_frac or cut >= max_cuts:
+            largest_frac = largest / retained if retained else 0.0   # guard: raising must not raise
             raise DropBudgetExceeded(
                 f"drop-budget 2D-CD: recovering 80/10/10 needs dropping "
                 f">{max_drop_frac:.0%} of pairs (would reach {would_drop_frac:.1%} at cut "
-                f"{cut + 1}; largest CC still {largest/retained:.1%} of retained). "
+                f"{cut + 1}; largest CC still {largest_frac:.1%} of retained). "
                 f"Options (require an explicit config change):\n"
                 f"  - raise cluster_id_threshold (looser cut, smaller mega-CC),\n"
                 f"  - raise split_strategy.drop_budget.max_drop_frac to accept the loss,\n"
@@ -585,8 +602,11 @@ def fragment_weighted(
         if feasible or cut >= max_cuts:
             break
 
+        if not comps:                     # empty graph: nothing to cut
+            break
+
         # Bisect the heaviest piece, drop its crossing edges.
-        big = max(comps, key=lambda c: _piece_pairs(H, c))
+        big = _largest_cc(H)
         # A <=2-node largest atom is a single cluster pair; an edge cut cannot split it
         # further (the Fiedler split needs >=3 nodes), so the targets are unreachable --
         # stop and let the final infeasible row report it (don't shred singletons).

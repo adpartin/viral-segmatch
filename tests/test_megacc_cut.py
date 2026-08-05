@@ -21,12 +21,15 @@ PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.datasets._megacc_cut import (
+    DropBudgetExceeded,
+    _largest_cc,
     apply_drop_budget_cut,
     build_pair_bigraph,
     edges_to_row_index,
     fragment_largest_cc,
     fragment_once,
     fragment_until,
+    fragment_weighted,
     stop_at_n_atoms,
 )
 from src.datasets._pair_helpers import cluster_ccs, sequence_ccs
@@ -326,6 +329,42 @@ def test_fragment_until_ood_nt_cds_t095_golden():
     assert audit2['stopped_reason'] == tb['stopped_reason'] == 'stop_fn'
     assert audit2['n_atoms'] == tb['n_atoms'] and audit2['n_cuts'] == tb['n_cuts']
     assert audit2['pairs_dropped'] == tb['pairs_dropped']
+
+
+# --- degenerate inputs -------------------------------------------------------
+# Every entry point used to die with `IndexError: list index out of range` on an empty
+# graph, from _largest_cc indexing an empty component list. These pin the clean exits.
+_EMPTY = pd.DataFrame({'cluster_id_a': [], 'cluster_id_b': [], 'pair_key': []})
+
+
+def test_largest_cc_on_empty_graph_says_what_is_wrong():
+    with pytest.raises(ValueError, match='no nodes'):
+        _largest_cc(nx.Graph())
+
+
+def test_fragment_until_on_empty_input_returns_cleanly():
+    kept, dropped, audit = fragment_until(_EMPTY, stop_fn=stop_at_n_atoms(100), max_drop_frac=0.05)
+    assert len(kept) == 0 and len(dropped) == 0
+    assert audit['n_cuts'] == 0 and audit['n_atoms'] == 0 and audit['pairs_dropped'] == 0
+
+
+def test_apply_drop_budget_cut_on_empty_input_returns_cleanly():
+    kept, audit = apply_drop_budget_cut(_EMPTY)
+    assert len(kept) == 0 and audit['n_cuts'] == 0 and audit['n_atoms'] == 0
+    assert len(audit['per_cut']) == 1, 'the audit still needs its first/last per-cut row'
+
+
+def test_fragment_weighted_on_empty_graph_returns_cleanly():
+    df, H, dropped_edges = fragment_weighted(nx.Graph())
+    assert len(dropped_edges) == 0 and H.number_of_nodes() == 0 and len(df) == 1
+
+
+def test_apply_drop_budget_cut_raises_when_one_atom_holds_everything():
+    """A lone cluster pair is one 2-node atom carrying 100% of the mass: 80/10/10 is
+    unreachable, so the budget guard must raise rather than shred it."""
+    one = pd.DataFrame({'cluster_id_a': ['c1'], 'cluster_id_b': ['c2'], 'pair_key': ['k']})
+    with pytest.raises(DropBudgetExceeded):
+        apply_drop_budget_cut(one)
 
 
 if __name__ == '__main__':
