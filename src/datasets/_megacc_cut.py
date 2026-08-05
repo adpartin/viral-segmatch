@@ -169,7 +169,8 @@ def _largest_cc(H: nx.Graph):
     components = list(nx.connected_components(H))  # each CC is a set of nodes (clusters)
     if not components:
         raise ValueError('_largest_cc: graph has no nodes, so there is no component to cut')
-    return max(components, key=lambda c: _piece_pairs(H, c))
+    heaviest = max(components, key=lambda c: _piece_pairs(H, c))
+    return heaviest
 
 
 class CutStep(NamedTuple):
@@ -355,12 +356,10 @@ def fragment_until(
         if stop_fn(state):
             stopped_reason = 'stop_fn'
             break
-        # A <=2-node heaviest component is a single cluster pair. Bisecting it removes its only
-        # edge and strands both nodes, so the atom count FALLS while pairs are dropped -- and no
-        # smaller component can be split either. Stop rather than shred. (Same floor
-        # `fragment_weighted` enforces; without it, a permissive budget with an unreachable
-        # target takes 3 atoms to 0 while dropping every pair.)
-        if len(_largest_cc(H)) < 3:
+        # Cutting a 2-node component removes its only edge and strands both nodes: an atom lost
+        # and pairs dropped, for no gain. Nothing smaller can be split either, so stop.
+        heaviest = _largest_cc(H)
+        if len(heaviest) < 3:
             stopped_reason = 'cut_floor'
             break
         step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
@@ -476,14 +475,12 @@ def apply_drop_budget_cut(
         })
         if drift <= drift_pp:
             break
-        # Empty input: no component to cut. Checked after the per-cut row is recorded, so the
-        # audit below still has its first and last entry.
+        # Empty input: nothing to cut. Checked after the row is recorded, so the audit below
+        # still has a first and last entry.
         if not comps:
             break
 
-        # Cost the next cut BEFORE applying it, so `max_drop_frac` is a cap and not a
-        # trip-wire: a cut that would break the budget is never applied. (`cut >= max_cuts`
-        # needs no lookahead -- it is already about cuts taken.)
+        # Cost the next cut before applying it, so the budget caps what is dropped.
         step = fragment_largest_cc(H, cut_method=cut_method, seed=seed)
         would_drop_frac = (pairs_dropped + step.pairs_dropped) / n_total if n_total else 0.0
         if would_drop_frac > max_drop_frac or cut >= max_cuts:
@@ -524,9 +521,7 @@ def apply_drop_budget_cut(
         'largest_cc_frac_before': per_cut[0]['largest_frac_of_retained'],
         'largest_cc_frac_after': per_cut[-1]['largest_frac_of_retained'],
         'lpt_drift_after': per_cut[-1]['lpt_drift'],
-        # Routable atoms, not raw components: a node stranded by a cut (all its edges dropped)
-        # is absent from the kept rows, so `n_pieces` would overcount. Same key and same
-        # measure as `fragment_until`'s audit.
+        # Routable atoms, not raw components: a stranded node is absent from the kept rows.
         'n_atoms': _live_atom_count(H),
         'per_cut': per_cut,
         'dropped_pair_keys': dropped_pair_keys,
