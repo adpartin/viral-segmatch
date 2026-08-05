@@ -156,7 +156,11 @@ def cmd_check(args):
                     print(f"  MISMATCH {fold}/{split}: expected {exp} got {act}")
 
     if failures:
-        raise SystemExit(f"ERROR: {len(failures)} guard(s) changed: {failures}")
+        raise SystemExit(
+            f"ERROR: {len(failures)} guard(s) changed: {failures}\n"
+            f"  If the split code changed, this is the regression it is here to catch.\n"
+            f"  If the Stage-1 corpus was rebuilt, the pairs changed for a legitimate reason --\n"
+            f"  re-capture with: python {Path(__file__).name} capture --only {' '.join(failures)}")
     print('\nDone. All production splits bit-exact.')
 
 
