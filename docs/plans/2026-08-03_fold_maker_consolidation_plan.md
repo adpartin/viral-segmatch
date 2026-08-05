@@ -98,6 +98,13 @@ input in every entry point, and `fragment_until` shredding single-pair component
 Moved `uniform_targets` to the archived harness that was its only caller. Removed the plan labels
 (`routing-A/B`, `L2/L3`) and `_bisect`'s history essay.
 
+Closed the three ways the analysis loop diverged from production: it defaulted to `kl`, which no
+production path uses and which the 07-30 plan measured as order-sensitive; it lacked the cut floor;
+and it reported raw components where production reports routable atoms — `bigraph_min_cut` printed
+that raw count under the label "atoms". `fragment_to_targets` now defaults to `spectral`, carries
+the floor, and emits an `n_atoms` column beside `n_pieces`. What still differs is deliberate: it
+stops on LPT feasibility rather than an atom count, and carries no drop budget.
+
 Verification across all three: 2D-CD and 1D-CD t099 HA-NA rebuild md5-identical to the pre-Phase-1
 baseline; `pytest tests/ -q` green. Per-finding detail is in the commit messages, not restated here.
 
@@ -114,9 +121,6 @@ baseline; `pytest tests/ -q` green. Per-finding detail is in the commit messages
   no such check). Carries the `cluster_disjoint_route_pos_df` naming question — it implements
   bilateral holdout, single-slot holdout and single-slot k-fold, but every bundle sets
   `single_slot`, so only the single-slot paths are reachable.
-- **Analysis fidelity.** `fragment_to_targets` reports raw `n_pieces` where production reports live
-  atoms, so `min_cut_*.csv` over-reports. An additive `n_atoms` column would close it. (The `kl`
-  default and the missing cut floor, the other two gaps, are fixed.)
 - **Recorded, not fixed** — plan labels off the fragmentation path: `D1`–`D4`, `OoS`, `P2` (~35
   sites in `_split_helpers` and `dataset_segment_pairs{,_v2}`). `D3`/`D4` appear in raised error
   text, so a user tripping the feasibility guard is pointed at a plan label; that one has a real
