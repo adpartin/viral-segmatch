@@ -9,6 +9,43 @@ The scientific results are already produced by the working `mpiexec` launcher; n
 here changes the science. This is about measurement rigor, understanding, and a
 reproducible, documented artifact.
 
+## Summary — what we found and did
+
+**Findings** (each traceable to a phase below):
+- The training is **host-bound**, not GPU-bound: GPU utilization was ~39% on a single fold, so
+  the GPU waited on the CPU/data path. (Phase 0b)
+- **Ensemble packing** (4 folds per node) is not the bottleneck: the contention factor is
+  ~1.06x (~94% packing efficiency). This ruled out the first hypothesis. (Phase 0b)
+- The ~5x slowdown appeared as a **step change at 2 nodes** and stayed flat from 2 to 28 nodes
+  — a per-node effect, which ruled out shared-filesystem and network contention. (Phase 0c)
+- **Root cause:** the `mpiexec` default **CPU binding** pinned each rank and its 4 folds to a
+  few cores, starving the host-bound work. Proven with a 3-way binding A/B (default 25 s/epoch
+  vs `--cpu-bind none` and `--depth=64`, both 5 s/epoch). (Phase 0c, confirmed)
+- The earlier **speedup** (69x) and **parallel efficiency** (62%) used the contended per-fold
+  time as the serial baseline; the true single-GPU (uncontended) time is ~5x lower, so those
+  figures were not defensible. (Phase 0b)
+- **Dataset generation** is CPU-bound (~75 min/pair) and runs with the GPUs idle; separating
+  this serial part from the GPU training explains most of the end-to-end efficiency gap. (Phase 0a)
+- `torch.profiler` on one fold: the GPU is idle ~82% of the window; the CPU time is dominated by
+  **batch collation** (`aten::stack` / `aten::cat`) and the **host-to-device copy** (`aten::to`),
+  not the MLP matmuls. (Phase 1)
+- `ncu` adds nothing here: it profiles inside kernels and cannot see the between-kernel host
+  stall that dominates this workload; `torch.profiler` is the right tool. (Phase 1)
+
+**Actions:**
+- **Fix:** added `--depth=64 --cpu-bind depth` to the `mpiexec` launch so each rank gets all
+  node cores. Result: ~5x throughput (25 → 5 s/epoch; ~44 → ~8.5 min/fold; ~3.5 h → ~30 min
+  sweep), same accuracy, validated on 336/336 folds. (Phase 0d + full re-run; commit 3147878)
+- **Profiling:** added an opt-in `--profile_steps` flag (`torch.profiler`) to the training
+  script. (Phase 1; commit b8f8577)
+- **Parsl port:** rewrote the launcher on Parsl (`HighThroughputExecutor` + `PBSProProvider` +
+  `MpiExecLauncher`); the ALCF config sets the same CPU affinity by default. Validated at full
+  scale: 336/336 folds at ~5.3 s/epoch. (Phase 3; commits 17019c3, 19cf14c)
+- **Docs:** rewrote `docs/hardware_notes.md` (glossary + aligned terms) and wrote this plan.
+  (commit 26fe717)
+
+**Status:** Phases 0, 1, and 3 done. Phase 2 (ESM-2 extraction throughput) not started.
+
 ## Goals (why this plan exists)
 
 1. **Defensible numbers.** Every scaling/perf number we report must be re-derivable
@@ -368,7 +405,7 @@ Fixed launcher, all 28 pairs / 28 nodes, reusing the April datasets. **28/28 pai
 non-issue. Includes the two pairs that failed in April → the first complete, fast, saved unfiltered
 k-mer baseline. Metrics match April (AUC 0.99x), so the fix changed only speed.
 
-### Reproduce & CAR
+### Reproduce
 
 **Reproduce the k-mer baseline (verified 2026-07-13):**
 ```bash
@@ -379,19 +416,6 @@ Fixed launcher, all 28 pairs / 28 nodes, reusing the April datasets via `DATASET
 `kmer_features_k6.npz` (+ `master_esm2_embeddings.h5` for the ESM-2 variant); 28/28 datasets with
 12 folds. Output: `allpairs_prod_<ts>/` (28-pair summary, heatmaps, `pbs_job.log`) + 336 per-fold
 model dirs (`best_model.pt`). Last run: 28/28, 336/336 folds, 29m32s, 8.4 min/fold.
-
-**CAR (segmatch 28-pair sweep — HPC debugging):**
-- **Challenge:** a 28-protein-pair × 12-fold CV sweep (336 GPU training jobs) ran ~5× slower on
-  Polaris than a single-GPU baseline predicted (25 s vs 5 s/epoch) — ~44 min/fold, 3.5 h/sweep.
-- **Action:** profiled with `nvidia-smi dmon` → workload is host-bound (GPU util ~39%, not compute-
-  or memory-bound); a 1→2→4→8-node scaling test showed a step-function 5× at the 2-node (mpiexec)
-  boundary and *flat* thereafter — ruling out cluster-scale contention and falsifying my first
-  hypothesis (fold packing); a 3-way mpiexec CPU-binding A/B isolated the cause: default binding
-  pinned each node's rank and its 4 host-bound folds to a core subset.
-- **Result:** one-line launcher fix (`mpiexec --depth=64 --cpu-bind depth`), validated end-to-end —
-  42.7 → 8.4 min/fold (5.1×), 336/336 folds, metrics unchanged, provenance saved. Reframed the
-  team's "62% efficiency" number: the loss was a missing CPU-affinity flag, not fundamental
-  inefficiency.
 
 ---
 
