@@ -110,19 +110,34 @@ flu_schema.yaml ─────────────► flu_schema_diff.yaml
 
 ### Paper experiments
 
-Bundles for publication experiments must stay **flat** in `conf/bundles/` (not in a subdirectory).
-
-**Reason**: Hydra's package resolution double-nests inherited configs from subdirectories.
-For a bundle in `conf/bundles/paper/`, the composed config lands at `full_config.bundles.paper.*`
-instead of `full_config.bundles.*`, breaking `get_virus_config_hydra`. No Hydra package directive
-(`@package bundles`, `@_global_`, etc.) fully resolves this without changing the loader.
+Flat in `conf/bundles/` is the default for publication bundles — nothing extra to remember.
 
 **Convention**: use a `paper_` prefix or an unambiguous descriptive name for paper bundles:
 - `flu_schema_raw_slot_norm_unit_diff_cv5.yaml` — 5-fold CV (active)
 - Future: `flu_schema_raw_slot_norm_unit_diff_temporal.yaml`, etc.
 
-`conf/bundles/paper/` directory is kept for non-Hydra documentation (e.g., notes, experiment
-descriptions) but YAML bundle files must live in the flat `conf/bundles/` directory.
+### Filing a leaf bundle in a subdirectory
+
+Hydra packages a config by its directory, so a bundle in `conf/bundles/flu_28/` composes to
+`full_config.bundles.flu_28.*` instead of `full_config.bundles.*`, which `get_virus_config_hydra`
+cannot read. Two lines fix it (verified on all 28 bundles in `conf/bundles/flu_28/`, which compose
+identically to a flat leaf):
+
+```yaml
+# @package bundles                                        # MUST be line 1 of the file
+defaults:
+  - /bundles/flu_28_major_protein_pairs_master@_here_     # absolute path + @_here_
+  - _self_
+```
+
+Both parts are required: the `@package` directive alone places the child correctly but leaves the
+inherited parent in a sibling package (its own group), so the composed config comes out missing
+`virus`/`training`. `@_here_` merges the parent into the child's package.
+
+Callers still refer to the bundle by **bare name** (`--config_bundle flu_28p_ha_na`):
+`_resolve_bundle_name` in `src/utils/config_hydra.py` looks one level down when
+`bundles/<name>.yaml` is absent, so relocating a leaf does not change launcher arguments,
+manifest keys, or run-directory names. It raises if a bare name is ambiguous across subdirs.
 
 ---
 

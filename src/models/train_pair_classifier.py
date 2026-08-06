@@ -711,8 +711,11 @@ def train_model(
                 with torch.amp.autocast('cuda', enabled=use_amp):
                     preds = model(batch_a, batch_b).squeeze(-1) if is_pair else model(batch_x).squeeze(-1)
                     loss = criterion(preds, batch_y)
-                loss.backward()
-                optimizer.step()
+                # Mirror the epoch loop's step exactly (GradScaler included) so the
+                # trace profiles the real training step, not a simplified stand-in.
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
                 _prof.step()
                 if _i + 1 >= _n_needed:
                     break

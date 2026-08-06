@@ -239,9 +239,11 @@ if [ -n "$PAIR_FILTER" ]; then
     BUNDLES=($PAIR_FILTER)
 else
     BUNDLES=()
-    for f in conf/bundles/flu_28p_*.yaml; do
+    # The 28 pair bundles are filed under conf/bundles/flu_28/; search both levels
+    # and keep the bare name -- that is what --config_bundle and the run dirs use.
+    while IFS= read -r f; do
         BUNDLES+=("$(basename "$f" .yaml)")
-    done
+    done < <(find conf/bundles -maxdepth 2 -name 'flu_28p_*.yaml' | sort)
 fi
 
 NUM_BUNDLES=${#BUNDLES[@]}

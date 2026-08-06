@@ -14,8 +14,9 @@ from itertools import combinations
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-BUNDLES_DIR = PROJECT_ROOT / "conf" / "bundles"
-MASTER_BUNDLE = "flu_28_major_protein_pairs_master"
+# The 28 children are filed in a subdirectory; the master bundle stays flat.
+BUNDLES_DIR = PROJECT_ROOT / "conf" / "bundles" / "flu_28"
+MASTER_BUNDLE = "/bundles/flu_28_major_protein_pairs_master@_here_"
 
 # 8 major proteins: one per segment, ordered S1-S8.
 # Full function strings are defined in conf/virus/flu.yaml (selected_functions).
@@ -31,7 +32,10 @@ PROTEINS = [
 ]
 
 CHILD_TEMPLATE = """\
+# @package bundles
 # STATUS: active -- {short_a}/{short_b} pair (Task 11: all protein-pair combinations)
+# Subdir bundle: the @package line above and the absolute parent ref below keep
+# composition identical to a flat bundle (Hydra packages a config by its directory).
 defaults:
   - {master}
   - _self_

@@ -98,6 +98,45 @@ def _resolve_molecule_alphabets(config: DictConfig) -> None:
         )
 
 
+def _resolve_bundle_name(config_bundle: str, config_path: Optional[str]) -> str:
+    """Resolve a bundle name to its path relative to `conf/bundles/`.
+
+    Leaf bundles may be filed in a subdirectory (e.g. `conf/bundles/flu_28/`), but
+    callers -- launchers, manifests, run-directory names -- refer to them by bare
+    name. When `bundles/<name>.yaml` is absent, look one level down for it, so a
+    relocation stays invisible to callers.
+
+    Args:
+        config_bundle: bundle name, bare (`flu_28p_ha_na`) or already carrying its
+            subdirectory (`flu_28/flu_28p_ha_na`).
+        config_path: path to the config directory; `conf` when None (the
+            `load_hydra_config` default).
+
+    Returns:
+        The bundle name Hydra should compose, relative to `conf/bundles/` and
+        without the `.yaml` suffix. Returned unchanged when nothing matches, so
+        Hydra raises its own missing-config error.
+
+    Raises:
+        ValueError: the bare name exists in more than one subdirectory.
+    """
+    bundles_dir = Path(config_path or "conf") / "bundles"
+    if (bundles_dir / f"{config_bundle}.yaml").is_file():
+        return config_bundle
+
+    matches = sorted(bundles_dir.glob(f"*/{config_bundle}.yaml"))
+    if len(matches) > 1:
+        found = ", ".join(str(m.relative_to(bundles_dir)) for m in matches)
+        raise ValueError(
+            f"Bundle name {config_bundle!r} is ambiguous -- it matches {found}. "
+            f"Pass the subdirectory too (e.g. 'flu_28/{config_bundle}')."
+        )
+    if matches:
+        resolved = matches[0].relative_to(bundles_dir).with_suffix("")
+        return str(resolved)
+    return config_bundle
+
+
 def get_virus_config_hydra(
     config_bundle: str,
     training_config: Optional[str] = None,
@@ -144,8 +183,8 @@ def get_virus_config_hydra(
                                        embeddings_config='embeddings/flu_a_large',
                                        paths_config='paths/default')
     """
-    # Load the bundle for this config
-    config_name = f"bundles/{config_bundle}"
+    # Load the bundle for this config (subdir-filed bundles resolve by bare name)
+    config_name = f"bundles/{_resolve_bundle_name(config_bundle, config_path)}"
 
     # Build overrides for any provided config groups
     overrides = []

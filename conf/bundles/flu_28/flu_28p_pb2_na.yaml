@@ -1,6 +1,9 @@
+# @package bundles
 # STATUS: active -- PB2/NA pair (Task 11: all protein-pair combinations)
+# Subdir bundle: the @package line above and the absolute parent ref below keep
+# composition identical to a flat bundle (Hydra packages a config by its directory).
 defaults:
-  - flu_28_major_protein_pairs_master
+  - /bundles/flu_28_major_protein_pairs_master@_here_
   - _self_
 
 dataset:
