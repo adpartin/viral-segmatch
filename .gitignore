@@ -7,6 +7,8 @@ __pycache__/
 
 # Misc
 .vscode/
+/llms
+resume.md
 
 # Claude Code (machine-specific overrides only; settings.json and memory.md are tracked)
 .claude/settings.local.json
