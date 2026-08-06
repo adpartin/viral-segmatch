@@ -62,7 +62,6 @@ import time
 from pathlib import Path
 from typing import Iterator, Optional, Tuple
 
-import ipdb  # noqa: F401  (kept for the interactive-debug snippets below)
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -1025,6 +1024,7 @@ def create_negative_pairs_v2(
     neg_df = pd.DataFrame(neg_pairs, columns=_PAIR_COLUMNS) if neg_pairs else pd.DataFrame(columns=_PAIR_COLUMNS)
 
     """
+    Parked debug snippet -- add `import ipdb` locally to use it.
     ipdb.set_trace(context=10)
     a_counts = neg_df['prot_hash_a'].value_counts()  # Series: prot_hash → count
     b_counts = neg_df['prot_hash_b'].value_counts()
