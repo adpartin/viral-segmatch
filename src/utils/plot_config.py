@@ -61,7 +61,7 @@ SAMPLE_PATTERNS = {
 # =============================================================================
 # PROTEIN FUNCTION NAME MAPPINGS
 # =============================================================================
-# TODO. I think this PROTEIN_NAME_MAPPING is bunya specific.
+# NOTE. This PROTEIN_NAME_MAPPING is bunya specific.
 PROTEIN_NAME_MAPPING = {
     'RNA-dependent RNA polymerase': 'RdRp protein',
     'Pre-glycoprotein polyprotein GP complex': 'GPC protein',
@@ -75,7 +75,7 @@ PROTEIN_NAME_MAPPING = {
 # =============================================================================
 # SEGMENT COLORS (for consistency with existing code)
 # =============================================================================
-# TODO. I think these SEGMENT_COLORS and SEGMENT_ORDER are bunya specific.
+# NOTE. These SEGMENT_COLORS and SEGMENT_ORDER are bunya specific.
 SEGMENT_COLORS = {
     'S': '#1f77b4',  # Blue
     'M': '#ff7f0e',  # Orange
@@ -83,6 +83,44 @@ SEGMENT_COLORS = {
 }
 
 SEGMENT_ORDER = ['S', 'M', 'L']
+
+# =============================================================================
+# PROTEIN COLORS (Flu A; stable across plots)
+# =============================================================================
+# Cross-plot consistency: HA is always the same color in every figure that
+# colors by protein identity, regardless of category order or per-split count.
+# Keys are short names from `function_short_names` in conf/virus/flu.yaml.
+# Aux/minor products that aren't listed fall through to PROTEIN_FALLBACK_PALETTE.
+PROTEIN_COLORS = {
+    'PB2': '#1f77b4',  # blue
+    'PB1': '#ff7f0e',  # orange
+    'PA':  '#2ca02c',  # green
+    'HA':  '#d62728',  # red
+    'NP':  '#9467bd',  # purple
+    'NA':  '#8c564b',  # brown
+    'M1':  '#e377c2',  # pink
+    'M2':  '#7f7f7f',  # gray
+    'NS1': '#bcbd22',  # olive
+    'NEP': '#17becf',  # teal
+}
+
+# Fallback palette for short names not in PROTEIN_COLORS (HA1, HA2, PA-X, etc.).
+# Lighter Tableau-style colors so they're visually distinguishable from majors.
+PROTEIN_FALLBACK_PALETTE = [
+    '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+    '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5',
+]
+
+
+def get_protein_color(short_name: str, fallback_index: int = 0) -> str:
+    """Resolve a short protein name to a stable hex color.
+
+    Major proteins (PB2/PB1/PA/HA/NP/NA/M1/M2/NS1/NEP) get fixed colors.
+    Anything else cycles through PROTEIN_FALLBACK_PALETTE by `fallback_index`.
+    """
+    if short_name in PROTEIN_COLORS:
+        return PROTEIN_COLORS[short_name]
+    return PROTEIN_FALLBACK_PALETTE[fallback_index % len(PROTEIN_FALLBACK_PALETTE)]
 
 # =============================================================================
 # HELPER FUNCTIONS

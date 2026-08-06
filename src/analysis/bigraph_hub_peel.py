@@ -1,0 +1,267 @@
+"""Greedy hub-peel on the cluster-level bigraph: pairs-dropped vs largest-CC fraction.
+
+Tests the foundation claim that the mega-CC is held together by a few
+high-pair-mass bigraph hubs that are also cut nodes (articulation points), so
+fragmenting it to recover an 80/10/10-feasible largest component costs data
+proportional to those hubs' pair mass — not the cheap peripheral bridges. The
+companion property script (`bigraph_properties.py`) measures the static
+structure (degrees, bridges, cut nodes); this script runs the dynamic surgery.
+
+Algorithm (greedy, deterministic). Load the cluster-level bigraph for one
+(cluster source, schema pair, threshold) from the persisted CC artifact
+(`_cc_artifacts.load_cc_bigraph` -> the shared `_bigraph.build_pair_bigraph`), so the
+graph is exactly the one the splitter routed. Then repeat:
+  1. find the largest CC (by pair count = summed edge weight);
+  2. if its share of the *retained* pairs is <= target, stop;
+  3. else remove the largest CC's heaviest node by pair_mass, restricted to cut
+     nodes (strategy=cut_node, default — only a cut node can split a component)
+     or any node (strategy=any_node, for contrast);
+  4. record the step.
+
+Removing a node deletes its incident pairs — they are "dropped" (the DataSAIL
+S2 / drop-budget move; see splits.md § 4.1). The resulting curve is the
+drop-budget cost of recovering feasibility. Greedy gives an UPPER BOUND on the
+optimal min-drop: it confirms the mechanism and yields a representative cost,
+not the provable minimum (true min-drop would need METIS/KaHIP-style balanced
+min-cut — bicc audit direction #3, docs/results/2026-05-21_bicc_pair_drop_audit.md).
+
+Denominator note. `dropped_frac` and the largest-CC fractions are measured against
+the artifact's pair universe — the PRODUCTION positives (HA-NA nt_cds = 78,764), not
+the analysis-side aa-keyed 58,826 this script used before the Gen-2 port. Figures
+published against the old denominator are not directly comparable.
+
+CLI:
+    python -m src.analysis.bigraph_hub_peel \\
+        [--cc_source nt_cds_cm0] [--pair HA-NA] [--threshold t095] \\
+        [--alphabet nt_cds] [--target_frac 0.80] [--strategy cut_node] \\
+        [--out_dir results/flu/July_2025/runs/bigraph_hub_peel]
+
+Requires the CC artifact (see `_cc_artifacts`); build it with
+`src/datasets/build_cc_structure.py` if absent.
+
+Outputs (under --out_dir):
+    hub_peel_{slug}_{alphabet}_{threshold}_{strategy}.csv   per-step curve
+    hub_peel_{slug}_{alphabet}_{threshold}_{strategy}.png   drop% vs largest-CC%
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+import matplotlib
+import networkx as nx
+import pandas as pd
+
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+PROJ = Path(__file__).resolve().parents[2]
+if str(PROJ) not in sys.path:
+    sys.path.insert(0, str(PROJ))
+
+from src.analysis._cc_artifacts import add_cc_source_args, cc_dir, load_cc_bigraph
+
+
+def _largest_cc_by_pairs(H: nx.Graph) -> set:
+    """Node set of the CC carrying the most pairs (greatest total edge weight)."""
+    return max(nx.connected_components(H),
+               key=lambda cc: H.subgraph(cc).size(weight='weight'))
+
+
+def hub_peel(
+    G: nx.Graph,
+    target_frac: float = 0.80,
+    strategy: str = 'cut_node',
+    max_steps: int = 100_000,
+) -> pd.DataFrame:
+    """Greedily peel hubs from the largest CC until it fits `target_frac`.
+
+    Each row is the state BEFORE a removal plus the node removed at that step
+    (the final row, where the target is met, has null `removed_*`). `pair_mass`
+    is the WEIGHTED degree (= incident pairs dropped when the node is removed);
+    fractions are vs the full pair universe (`dropped_frac`,
+    `largest_frac_of_original`) or vs the retained set (`largest_frac_of_retained`,
+    the 80/10/10 feasibility gate).
+
+    Takes the weighted simple bigraph, so `sub` is already the simple projection the
+    articulation-point search needs — no per-step `nx.Graph(multigraph)` conversion.
+
+    Determinism: candidates are scanned in sorted node order, so two hubs tied on
+    pair mass break on the lower node id. Previously the scan ran over a `set`, whose
+    iteration order is PYTHONHASHSEED-dependent, making a tied peel step vary between
+    processes.
+    """
+    if strategy not in ('cut_node', 'any_node'):
+        raise ValueError(f"strategy must be 'cut_node' or 'any_node', got {strategy!r}")
+
+    H = G.copy()
+    total_pairs = int(H.size(weight='weight'))
+    rows: list[dict] = []
+    dropped = 0
+    step = 0
+
+    while True:
+        largest = _largest_cc_by_pairs(H)
+        sub = H.subgraph(largest)
+        lp_pairs = int(sub.size(weight='weight'))
+        retained = total_pairs - dropped
+        frac_ret = lp_pairs / retained if retained > 0 else 0.0
+        n_pieces = sum(1 for cc in nx.connected_components(H)
+                       if H.subgraph(cc).number_of_edges() > 0)
+
+        row = {
+            'step': step,
+            'pairs_dropped': dropped,
+            'dropped_frac': round(dropped / total_pairs, 6),
+            'retained_pairs': retained,
+            'largest_cc_pairs': lp_pairs,
+            'largest_frac_of_retained': round(frac_ret, 6),
+            'largest_frac_of_original': round(lp_pairs / total_pairs, 6),
+            'n_components': n_pieces,
+        }
+
+        if frac_ret <= target_frac or step >= max_steps:
+            rows.append(row)
+            break
+
+        # Choose the node to remove from the largest CC. `sub` is already simple.
+        arts = set(nx.articulation_points(sub))
+        if strategy == 'cut_node':
+            cand_pool = arts if arts else set(largest)
+        else:
+            cand_pool = set(largest)
+        # sorted() so a pair-mass tie breaks on the lower node id rather than on set
+        # iteration order (hash-seed dependent, i.e. varying between processes).
+        cand = max(sorted(cand_pool), key=lambda n: H.degree(n, weight='weight'))
+        side, cid = cand.split(':', 1)
+
+        row['removed_node'] = cid
+        row['removed_side'] = side
+        row['removed_pair_mass'] = int(H.degree(cand, weight='weight'))
+        row['removed_simple_degree'] = int(sub.degree(cand))
+        row['removed_is_cut_node'] = cand in arts
+        rows.append(row)
+
+        dropped += H.degree(cand, weight='weight')
+        H.remove_node(cand)
+        step += 1
+
+    return pd.DataFrame(rows)
+
+
+def plot_peel_curve(df: pd.DataFrame, title: str, target_frac: float, out_png: Path) -> None:
+    """Drop% (x) vs largest-CC-share-of-retained% (y), with the target line."""
+    fig, ax = plt.subplots(figsize=(7.5, 5.2))
+    x = df['dropped_frac'] * 100
+    y = df['largest_frac_of_retained'] * 100
+    ax.plot(x, y, color='#1f77b4', linewidth=1.8, marker='o', markersize=2.5)
+
+    ax.axhline(target_frac * 100, color='#d62728', linestyle='--', linewidth=1.2,
+               label=f'feasibility target ({target_frac:.0%})')
+
+    crossed = df[df['largest_frac_of_retained'] <= target_frac]
+    if len(crossed):
+        c = crossed.iloc[0]
+        ax.axvline(c['dropped_frac'] * 100, color='#2ca02c', linestyle=':', linewidth=1.2)
+        ax.annotate(
+            f"{int(c['step'])} hubs removed\n"
+            f"{c['pairs_dropped']:,} pairs ({c['dropped_frac']:.1%}) dropped",
+            xy=(c['dropped_frac'] * 100, target_frac * 100),
+            xytext=(c['dropped_frac'] * 100 + 1.5, target_frac * 100 + 8),
+            fontsize=8.5,
+            arrowprops=dict(arrowstyle='->', color='#2ca02c', lw=1.0),
+        )
+
+    ax.set_xlabel('cumulative pairs dropped (% of pair universe)')
+    ax.set_ylabel('largest CC (% of retained pairs)')
+    ax.set_ylim(0, 102)
+    ax.grid(True, linestyle=':', alpha=0.5)
+    ax.set_axisbelow(True)
+    ax.legend(loc='upper right', fontsize=8.5, frameon=False)
+    fig.suptitle(title, fontsize=11)
+    fig.tight_layout()
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=180, bbox_inches='tight')
+    plt.close(fig)
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    add_cc_source_args(p)
+    p.add_argument('--alphabet', default='nt_cds',
+                   help='alphabet label for output names/titles (default nt_cds; must match '
+                        '--cc_source, which is what actually selects the data).')
+    p.add_argument('--threshold', default='t095',
+                   help='Single cluster threshold to peel at (default t095).')
+    p.add_argument('--target_frac', type=float, default=0.80,
+                   help='Stop when largest CC <= this share of retained pairs (default 0.80).')
+    p.add_argument('--strategy', default='cut_node', choices=['cut_node', 'any_node'],
+                   help="cut_node (default): remove the heaviest articulation point. "
+                        "any_node: remove the heaviest node regardless (contrast).")
+    p.add_argument('--max_steps', type=int, default=100_000)
+    p.add_argument('--out_dir', type=Path,
+                   default=PROJ / 'results/flu/July_2025/runs/bigraph_hub_peel')
+    args = p.parse_args()
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    slug = args.pair.lower().replace('-', '_')
+    d = args.cc_dir or cc_dir(args.cc_source, args.pair, args.threshold)
+
+    print(f"Loading CC artifact: {d}")
+    G, pairs = load_cc_bigraph(d)
+    print(f"  {len(pairs):,} positive pairs, {pairs['cc_id'].nunique():,} natural CCs")
+    print(f"  graph: {G.number_of_nodes():,} nodes, {G.number_of_edges():,} cluster pairs, "
+          f"{int(G.size(weight='weight')):,} pairs")
+
+    print(f"\nPeeling ({args.strategy}) until largest CC <= {args.target_frac:.0%} of retained ...")
+    t0 = time.time()
+    df = hub_peel(G, target_frac=args.target_frac, strategy=args.strategy,
+                  max_steps=args.max_steps)
+    elapsed = time.time() - t0
+
+    stem = f'hub_peel_{slug}_{args.alphabet}_{args.threshold}_{args.strategy}'
+    csv_path = out_dir / f'{stem}.csv'
+    df.to_csv(csv_path, index=False)
+
+    final = df.iloc[-1]
+    reached = final['largest_frac_of_retained'] <= args.target_frac
+    n_removed = int(final['step'])
+    print(f"\n  {'REACHED' if reached else 'STOPPED (max_steps)'} after removing "
+          f"{n_removed} node(s) in {elapsed:.1f}s")
+    print(f"  pairs dropped: {final['pairs_dropped']:,} "
+          f"({final['dropped_frac']:.1%} of the {int(G.size(weight='weight')):,}-pair universe)")
+    print(f"  largest CC now: {final['largest_cc_pairs']:,} pairs "
+          f"= {final['largest_frac_of_retained']:.1%} of retained, "
+          f"{int(final['n_components'])} components")
+
+    removed = df[df['removed_node'].notna()] if 'removed_node' in df.columns else df.iloc[0:0]
+    if len(removed):
+        # state AFTER a removal = the next step's row (each row records the
+        # state BEFORE its own removal), so show largest_frac before -> after.
+        frac_by_step = dict(zip(df['step'], df['largest_frac_of_retained']))
+        print("\n  removal order (heaviest hubs first; largest CC before -> after each cut):")
+        for r in removed.head(8).itertuples():
+            after = frac_by_step.get(r.step + 1, float('nan'))
+            cut_tag = 'cut' if r.removed_is_cut_node else 'non-cut'
+            print(f"    {r.step:>3}. {r.removed_side}:{r.removed_node:<12} "
+                  f"deg={int(r.removed_simple_degree):<5} {int(r.removed_pair_mass):>6,} pairs "
+                  f"[{cut_tag}]  largest {r.largest_frac_of_retained:.1%} -> {after:.1%}")
+
+    png_path = out_dir / f'{stem}.png'
+    plot_peel_curve(
+        df,
+        title=(f'{args.pair} {args.alphabet} {args.threshold} — greedy hub-peel ({args.strategy})'),
+        target_frac=args.target_frac,
+        out_png=png_path,
+    )
+    print(f"\nwrote {csv_path}")
+    print(f"wrote {png_path}")
+    print("\nDone.")
+
+
+if __name__ == '__main__':
+    main()

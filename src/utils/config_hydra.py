@@ -7,12 +7,13 @@ virus configurations and training parameters.
 """
 
 import warnings
+from pathlib import Path
+from pprint import pprint
+from types import SimpleNamespace
+from typing import Optional
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from pathlib import Path
-from typing import Any, Optional
-from pprint import pprint
 
 # =============================================================================
 # HYDRA CONFIGURATION LOADING
@@ -47,6 +48,54 @@ def load_hydra_config(
     
     config = hydra.compose(config_name=config_name, overrides=overrides)
     return config
+
+
+def _resolve_molecule_alphabets(config: DictConfig) -> None:
+    """Opt-in axis consistency (plan §13). When `dataset.molecule` is set, derive
+    the three alphabet axes from it and enforce they agree; no-op otherwise.
+
+    - cluster_alphabet / pair_key_alphabet: molecule fills them WHERE ABSENT; an
+      explicit per-axis value wins (a deliberate override).
+    - kmer.alphabet (features): molecule is authoritative -- it is set to the
+      molecule whenever a `kmer` section exists. To diverge features from the
+      split axes, use a legacy bundle (no `dataset.molecule`) and set the three
+      axes explicitly.
+    - Guard: the effective axes must agree unless `dataset.allow_alphabet_mismatch`
+      is true (a deliberate mix).
+
+    Legacy bundles (no `dataset.molecule`) are untouched -- the orchestrator's
+    pair_key inference and the per-stage `kmer.alphabet` default still apply. The
+    guard is therefore OPT-IN: it protects molecule-based bundles without
+    reclassifying the existing fleet (which intentionally runs nt_ctg features +
+    aa pair_key under seq_disjoint). Mutates `config` in place.
+    """
+    mol = OmegaConf.select(config, 'dataset.molecule')
+    if mol is None:
+        return  # legacy mode: no derivation, no guard
+    mol = str(mol)
+    valid = ('aa', 'nt_cds', 'nt_ctg')
+    if mol not in valid:
+        raise ValueError(f"dataset.molecule must be one of {valid}, got {mol!r}")
+
+    effective = {}
+    for key in ('dataset.split_strategy.cluster_alphabet',
+                'dataset.split_strategy.pair_key_alphabet'):
+        explicit = OmegaConf.select(config, key)
+        eff = str(explicit) if explicit is not None else mol
+        effective[key.rsplit('.', 1)[-1]] = eff
+        OmegaConf.update(config, key, eff, force_add=True)
+    if OmegaConf.select(config, 'kmer') is not None:
+        OmegaConf.update(config, 'kmer.alphabet', mol, force_add=True)
+        effective['kmer.alphabet'] = mol
+
+    allow = bool(OmegaConf.select(config, 'dataset.allow_alphabet_mismatch') or False)
+    if len(set(effective.values())) > 1 and not allow:
+        details = ", ".join(f"{k}={v!r}" for k, v in effective.items())
+        raise ValueError(
+            f"dataset.molecule={mol!r} but the alphabet axes disagree ({details}). "
+            f"Match them to the molecule, drop the explicit per-axis override, or set "
+            f"dataset.allow_alphabet_mismatch: true for a deliberate mix."
+        )
 
 
 def get_virus_config_hydra(
@@ -159,6 +208,10 @@ def get_virus_config_hydra(
     # breakpoint()
     # print(flattened.keys()) --> ['virus', 'paths', 'embeddings', 'training', 'master_seed', 'max_files_to_process', 'process_seeds', 'run_suffix', ...]
 
+    # Opt-in axis consistency: derive cluster/pair_key/kmer alphabets from
+    # `dataset.molecule` + enforce agreement (plan §13). No-op for legacy bundles.
+    _resolve_molecule_alphabets(flattened)
+
     return flattened
 
 # =============================================================================
@@ -197,21 +250,21 @@ def print_config_summary(config: DictConfig):
 
     # Embeddings section
     if hasattr(config, 'embeddings') and config.embeddings:
-        print(f"Embeddings:")
+        print("Embeddings:")
         pprint(config.embeddings)
     else:
         print("Embeddings: Not configured")
 
     # Dataset section
     if hasattr(config, 'dataset') and config.dataset:
-        print(f"Dataset:")
+        print("Dataset:")
         pprint(config.dataset)
     else:
         print("Dataset: Not configured")
 
     # Training section
     if hasattr(config, 'training') and config.training:
-        print(f"Training:")
+        print("Training:")
         pprint(config.training)
     else:
         print("Training: Not configured")
@@ -290,6 +343,77 @@ def get_aux_function_segment_mapping(config: DictConfig) -> list[dict[str, str]]
                     'aux_segment': segment
                 })
     return mappings
+
+
+def get_function_short_name_map(config: DictConfig) -> dict[str, str]:
+    """Return the function → short-name mapping from config.virus.
+
+    Reads the optional `function_short_names` block (added per-virus). If the
+    block is missing, returns an empty dict so callers can fall back to the
+    full function string. Keys are the verbose function strings used in CSVs
+    (e.g., "Hemagglutinin precursor"); values are short labels (e.g., "HA").
+    """
+    virus = getattr(config, 'virus', None)
+    if virus is None:
+        return {}
+    raw = getattr(virus, 'function_short_names', None)
+    if raw is None:
+        return {}
+    # OmegaConf DictConfig → plain dict[str, str].
+    return {str(k): str(v) for k, v in dict(raw).items()}
+
+
+def load_function_metadata(virus_yaml: Path) -> SimpleNamespace:
+    """Load protein/function metadata from a virus-config YAML.
+
+    Path-based companion to `get_function_short_name_map` (which takes
+    an already-loaded `DictConfig`). Used by standalone analysis scripts
+    that don't have a Hydra bundle context — reads just the virus YAML
+    directly via OmegaConf so the script doesn't need to construct a
+    full bundle.
+
+    Expected YAML keys:
+        - `function_short_names`: dict (full name -> short alias)
+        - `protein_order`: list of full names, segment-ordered
+        - `selected_functions`: list of full names (ML-relevant subset)
+
+    Returns a SimpleNamespace with:
+        - `function_to_short`: dict (full -> short)
+        - `short_to_function`: dict (short -> full)
+        - `short_canonical_order`: list of short names, segment-ordered,
+              covering every entry in `protein_order`
+        - `selected_short_names`: list of short names from
+              `selected_functions`
+
+    Raises if `protein_order` or `selected_functions` reference a
+    function not present in `function_short_names`.
+    """
+    cfg = OmegaConf.load(Path(virus_yaml))
+    function_to_short = {str(k): str(v) for k, v in dict(cfg.function_short_names).items()}
+
+    missing_in_short = [f for f in cfg.protein_order if f not in function_to_short]
+    if missing_in_short:
+        raise ValueError(
+            f"load_function_metadata: protein_order has functions not in "
+            f"function_short_names: {missing_in_short[:3]}"
+            f"{'...' if len(missing_in_short) > 3 else ''}"
+        )
+    short_canonical_order = [function_to_short[f] for f in cfg.protein_order]
+
+    missing_selected = [f for f in cfg.selected_functions if f not in function_to_short]
+    if missing_selected:
+        raise ValueError(
+            f"load_function_metadata: selected_functions has functions not in "
+            f"function_short_names: {missing_selected}"
+        )
+    selected_short_names = [function_to_short[f] for f in cfg.selected_functions]
+
+    return SimpleNamespace(
+        function_to_short=function_to_short,
+        short_to_function={v: k for k, v in function_to_short.items()},
+        short_canonical_order=short_canonical_order,
+        selected_short_names=selected_short_names,
+    )
 
 
 def _get_replicon_type_for_segment(virus_name: str, segment: str) -> Optional[str]:

@@ -1,0 +1,74 @@
+# @package bundles
+#
+# Sklearn-style baseline defaults. Each baseline_<name>.* group mirrors the
+# in-code defaults read by src/models/baselines/<name>.py via cfg.get(...).
+# Bundles override individual keys; this file is the single source of truth
+# for "what gets used if I don't override."
+#
+# Why @package bundles:
+#   - The Python code reads top-level keys (config.baseline_lgbm, etc.).
+#   - `get_virus_config_hydra` flattens config.bundles.* to the root.
+#   - So we place this file's keys at the `bundles` level; the flatten step
+#     surfaces them as config.baseline_lgbm, etc., matching what the
+#     baselines runner expects.
+#
+# `baselines.enabled` is consumed by src/models/train_pair_baselines.py
+# when --baseline isn't passed on the CLI.
+
+baselines:
+  enabled: [logistic, lgbm, knn1_margin, knn_vote]
+
+# -------------------------------------------------------------------
+# Logistic regression baseline (sklearn LogisticRegression).
+# Defaults read by src/models/baselines/logistic.py.
+# Note: 'standard' feature_scaling is appropriate for logistic regression;
+# the train-fit StandardScaler is saved to feature_scaler.joblib.
+# -------------------------------------------------------------------
+baseline_logistic:
+  feature_scaling: standard   # 'standard' | 'none'
+  C: 1.0                      # inverse regularization strength
+  penalty: l2                 # 'l1' | 'l2' | 'elasticnet' | 'none'
+  solver: lbfgs               # 'lbfgs' | 'liblinear' | 'saga' | ...
+  max_iter: 1000
+  class_weight: null          # null | 'balanced' | {0: w0, 1: w1}
+  n_jobs: 16                  # -1 = all cores
+
+# -------------------------------------------------------------------
+# LightGBM baseline (gradient-boosted trees).
+# Defaults read by src/models/baselines/lgbm.py.
+# Tree models are scale-insensitive, so feature_scaling stays 'none'.
+# Early stopping is val-driven (AUC on the val split).
+# -------------------------------------------------------------------
+baseline_lgbm:
+  feature_scaling: none       # 'none' | 'standard'
+  n_estimators: 1000          # cap; early stopping typically halts earlier
+  learning_rate: 0.05
+  num_leaves: 31              # max leaves per tree
+  min_child_samples: 20       # min samples per leaf; main overfitting brake
+  colsample_bytree: 0.25      # feature subsample per tree
+  reg_alpha: 0.1              # L1 regularization
+  reg_lambda: 0.1             # L2 regularization
+  n_jobs: 16                  # threads per LGBM instance
+  early_stopping_rounds: 50   # val-metric plateau window
+
+# -------------------------------------------------------------------
+# 1-NN cosine margin baseline.
+# Defaults read by src/models/baselines/knn1_margin.py.
+# 'cosine' distance via sklearn NearestNeighbors; cosine is scale-invariant
+# so feature_scaling stays 'none'.
+# -------------------------------------------------------------------
+baseline_knn1_margin:
+  feature_scaling: none       # cosine is scale-invariant
+  algorithm: brute            # 'brute' | 'ball_tree' | 'kd_tree' | 'auto'
+  n_jobs: 16
+
+# -------------------------------------------------------------------
+# k-NN majority-vote baseline.
+# Defaults read by src/models/baselines/knn_vote.py.
+# -------------------------------------------------------------------
+baseline_knn_vote:
+  feature_scaling: none
+  k: 5                        # odd to avoid hard-vote ties
+  weights: distance           # 'uniform' | 'distance'
+  algorithm: brute
+  n_jobs: 16

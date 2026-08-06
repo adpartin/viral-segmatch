@@ -1,0 +1,22 @@
+# STATUS: experimental -- HA/NA 2D-CD (CC) GroupKFold on nt_cds cm0, within_fold negatives,
+# m_pos_per_cc=null (keep all pairs). Edge-cut (spectral) fragments the mega-CC so k=4 is feasible:
+# target_atoms is set unreachably high so max_drop_frac is the real governor (stops at the knee).
+# cluster_id_path -> cm0/t099; sweep t via --override dataset.split_strategy.cluster_id_path=...
+# Built by src/datasets/dataset_pairs_cc.py.
+defaults:
+  - flu_ha_na_cc_nt_cds
+  - _self_
+
+dataset:
+  n_folds: 4
+  split_strategy:
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds_cm0/t099/combined_cluster.parquet
+    negative_scope: within_fold
+    m_pos_per_cc: null            # keep all positive pairs per CC (atoms weighted by pair mass)
+    drop_negative_infeasible_ccs: false  # within_fold gives single-edge CCs cross-CC negatives; keep them
+    fold_assignment: groupkfold
+    edge_cut:
+      enabled: true
+      cut_method: spectral
+      target_atoms: 100000        # unreachable -> max_drop_frac governs the fragmentation depth
+      max_drop_frac: 0.05         # drop budget; raise to create more atoms at hub-heavy t

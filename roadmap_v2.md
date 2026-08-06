@@ -73,32 +73,59 @@ in ~3.5 h wall-clock on 28 nodes, ~98 node-hours total.
 
 ## Experiments: High Priority (2026-03-12 meeting)
 
-### 2. Scale to large dataset — PARTIALLY SUPPORTED
+---
 
-> **[2026-03-12 meeting]** **TOP PRIORITY.** Jim: "expanding your training set... to include a large and balanced subset."
+### 2. Subtype-balanced training and test sets — NOT IMPLEMENTED
 
-**Goal:** Scale from 5K to ~50–100K isolates.
+> **[2026-03-12 meeting]** **TOP PRIORITY (Jim's #1).** Jim: "expanding your training set... to include a large and balanced subset. Like you want to balance your types and everything."
 
-**Approach — analysis first, then balance if needed:**
-1. Scale up with existing (random) sampling → fastest path to results at scale.
-2. Run stratified eval (new Task) → determines whether rebalancing is needed.
-3. If failures found → implement subtype-balanced sampling as data-centric intervention.
+**Status clarification (2026-04):** The "scale up" portion of Task 2 is complete — Task 11 ran on the full ~111K-isolate dataset with strong results. What remains is the **balancing** portion, which was the substantive part of Jim's ask.
 
-See `paper_outline_v2.md` Section 2.1.1 for the negative pair taxonomy (within-subtype vs
-cross-subtype) and the analysis-first priority order.
+**Goal:** Construct subtype-balanced train, val, and test sets so that per-subtype test performance is a clean measurement of model capability, not confounded by training-frequency effects.
 
-**Status:** Pipeline supports `max_isolates_to_process: null`. Tested at full scale (~111K isolates) in runtime profiling runs (k-mer concat, 10-fold CV, no early stopping).
+**Definitions (use consistently throughout the paper):**
+- **subtype-balanced** — explicitly resampled so HN-subtype representation is equalized across subtypes (downsampling dominant subtypes, optionally upsampling rare ones).
+- **subtype-filtered** — restricted to one subtype (e.g., H3N2-only).
+- **natural / unfiltered** — sampled proportional to BV-BRC frequencies (dominated by H3N2, H1N1, H5N1).
 
-**Implementation needed:**
-- Pair-distribution ledger output for each dataset (unconditional)
-- Subtype-stratified isolate sampling (conditional — data-centric lever)
-- Controlled negative pair generation with ratio parameter (conditional)
+**Implementation approaches:**
 
-**HPC fit:** High. Polaris handles k-mers + MLP easily at this scale.
+1. **Sub-sample from existing folds (faster pass).**
+   Reuse the fold structure from the completed Task 11 runs. Add a post-dataset balancing filter that downsamples each fold's train/val/test to equalize HN-subtype representation at the isolate level (important: balance must operate at isolate level, not independently per pair — otherwise the 28 pair classifiers no longer share the same underlying sample). Script: `scripts/balance_folds_by_subtype.py`. Re-run 28-pair job on Polaris.
+   - Pro: fast, no new dataset generation, preserves k-mer vs ESM-2 comparability.
+   - Con: only supports downsampling; loses data. Upsampling rare subtypes requires Approach 2.
+
+2. **Integrate balancing into dataset generation (canonical).**
+   Add a `subtype_balancing` config option to `src/datasets/dataset_segment_pairs.py`. Generate a new set of 28-pair × 12-fold datasets with balanced splits. Re-run the 28-pair job on Polaris.
+   - Pro: reusable; supports both down- and upsampling; principled; right place for pair-distribution ledger.
+   - Con: requires new Polaris dataset-generation job.
+
+**Recommended order:** (1) as a fast diagnostic — does balancing change results at all? If yes, (2) for the paper's canonical experiment. If no, stay with natural frequencies and report stratified eval only.
+
+**Stratified evaluation requirements** (apply to both the natural and balanced runs — see NEW: Stratified evaluation task):
+- Level 1 — pair-type regime (positive / within-subtype neg / cross-subtype neg)
+- Level 2 — per-axis marginals: HN subtype, **H-type**, **N-type**, host, isolation year, region
+
+Notes:
+- Post-filter class balance audit **complete** — see
+  `docs/audits/class_balance_audit.md`. Finding: post-filter val/test ratios
+  are 0.20–0.51 (vs 1:1 target), driven by `pair_key` cross-split removal.
+  Material for F1 interpretation; AUC-ROC conclusions unaffected. Optional
+  future work: oversample negatives during generation (`neg_to_pos_ratio > 1`)
+  and truncate post-filter to restore balance.
+- Negative-pair RNG determinism audit **complete** — see
+  `negative_pair_rng_fix_plan.md`. Finding: isolate-level splits are
+  deterministic in (master_seed, fold_id) and identical across the 28 pair
+  bundles. Negative-pair *identities* diverge across bundles (val/test overlap
+  ~0%) due to a plumbed `seed` argument silently discarded in
+  `create_negative_pairs`. Does not invalidate Task 11 results. Apply minimal
+  fix before generating balanced-subtype datasets so future runs are reproducible.
+
+**HPC fit:** Same as Task 11 — 28 pairs × 12 folds ensemble-packed on Polaris, ~3.5 h walltime.
 
 ---
 
-### 11. All protein-pair combinations (8×8 heatmap) — COMPLETE (2026-04-08)
+### 11. All protein-pair combinations (8×8 heatmap) — COMPLETE (2026-04-08 k-mer / 2026-04-19 ESM-2 + H3N2 variants)
 
 > **[2026-03-12 meeting]** **TOP PRIORITY.** Jim: "I basically want to see the table... for all eight segments."
 
@@ -107,19 +134,37 @@ Results as 8×8 AUC/F1 heatmap.
 
 See `paper_outline_v2.md` Section 3.7 for paper framing and biology context.
 
-**Status:** **Complete on Polaris.** k-mer k=6 + slot_norm + concat, full Flu A dataset
-(~111K isolates), 12-fold CV, 100 epochs. 28 pairs run as 28 ensemble-packed nodes
-(4 folds/A100/node). 334/336 folds completed; 2 launcher races on `pb1_ha/fold11` and
-`pb2_pa/fold6` (not OOMs, not re-run).
+**Status:** **Complete on Polaris.** Four sweeps: k-mer vs ESM-2 × unfiltered vs H3N2.
+All 28 pairs × 12 folds, full Flu A dataset, slot_norm + concat, 100 epochs, ensemble-packed
+on Polaris. 336/336 folds for the three clean sweeps; the original k-mer unfilt sweep had
+2 Polaris launcher races (pb1_ha/fold11, pb2_pa/fold6) re-run on Lambda.
 
-**Results summary:**
-- val_AUC across 28 pairs: median 0.9944, range [0.9924, 0.9958], spread only ~0.0034
-- val_F1: median 0.9711, range [0.9568, 0.9821]
-- Per-pair fold std σ_AUC ≈ 0.0005–0.0009 (very stable)
-- Easiest: M1-containing pairs (PA·M1, HA·M1, PB2·M1, PB1·M1 ≈ 0.9956)
-- Hardest: NA-containing surface pairs (NA·NS1 0.9924, PB2·NA 0.9927)
-- Manifest: `models/flu/July_2025/allpairs_prod_20260408_063203/`
-  (`allpairs_summary.{csv,json}`, `heatmap_auc_roc.{csv,png}`, `heatmap_f1_binary.{csv,png}`)
+**Results summary — 4 sweeps:**
+
+| Sweep | Feature | Subset | AUC median [min, max] | F1 median | Manifest |
+|---|---|---|---|---|---|
+| val_unfilt | k-mer k=6 concat | full (~111K) | 0.9944 [0.9928, 0.9960] | 0.9712 | `allpairs_prod_val_unfilt_20260414_080617/` |
+| val_unfilt_esm2 | ESM-2 concat | full (~111K) | 0.9757 [0.4971, 0.9874] | 0.8970 | `allpairs_prod_val_unfilt_esm2_20260416_182049/` |
+| val_h3n2 | k-mer k=6 concat | H3N2-only | 0.9931 [0.9910, 0.9948] | 0.9659 | `allpairs_prod_val_h3n2_20260417_224216/` |
+| val_h3n2_esm2 | ESM-2 concat | H3N2-only | 0.9486 [0.4981, 0.9751] | 0.7947 | `allpairs_prod_val_h3n2_esm2_20260419_012308/` |
+
+Original (2026-04-08) k-mer unfilt sweep also archived at `allpairs_prod_20260408_063203/`.
+
+**Key findings across the 4 sweeps:**
+- **ESM-2 `concat` collapse is not H3N2-specific.** PB1/PA collapses on BOTH the full
+  unfiltered dataset (AUC=0.4971) and the H3N2-filtered dataset (AUC=0.4981). The
+  subspace-offset failure mode recurs on a conserved internal-gene pair, not just on
+  HA/NA under H3N2 restriction as previously documented. K-mer concat never collapses
+  on any pair in any sweep.
+- **K-mer dominates ESM-2 across the full 28-pair heatmap.** Median AUC gap is 0.019
+  (unfiltered) and 0.045 (H3N2). The gap widens on the homogeneous subset as expected —
+  ESM-2's geometry is more fragile when the subtype axis is removed.
+- **K-mer is nearly filter-invariant** (median 0.9944 → 0.9931 unfilt → H3N2); ESM-2 is
+  not (0.9757 → 0.9486). Supports the hypothesis that k-mer features are
+  interaction-agnostic because sparse frequency vectors don't carry ESM-2's
+  protein-type-specific subspace offset.
+- **FP/FN ratios are 2–3× higher with ESM-2 than k-mer** (unfilt 5.87 vs 2.36;
+  H3N2 4.58 vs 3.06). Makes ESM-2 the natural target for the Task 12 FP/FN interventions.
 
 **HPC findings:** Phase 3 only worked after diagnosing two interacting bugs unique to
 multi-process ensemble packing on Polaris: (1) `pin_memory=True` + cudaHostAlloc
@@ -163,6 +208,9 @@ Level 3: diagnostic cross-tabulation heatmaps) and the metadata confounder discu
   (~50–100 test pair minimum).
 - **Level 3 heatmap** — (subtype_a × subtype_b) FP-rate matrix for diagnostics.
 - **Pair-distribution ledger** output (Section 2.1.2 of `paper_outline_v2.md`).
+- **Metric choice:** Report AUC-ROC as primary (class-prior invariant). Report F1
+  alongside post-filter positive rate per pair. Consider also reporting PR-AUC or
+  balanced F1 for cross-pair comparison. See `docs/audits/class_balance_audit.md`.
 
 **Effort:** Low–medium. Extend `analyze_stage4_train.py:analyze_errors_by_metadata()`
 (around line 547) rather than writing from scratch. Post-hoc on existing
@@ -293,6 +341,15 @@ Three analyses that guide whether to pursue data-centric or model-centric mitiga
    Confirms whether FPs concentrate in within-subtype negatives (hypothesis: they do,
    because cross-subtype negatives are trivially distinguishable).
 
+**Concrete anchors from the 4 Task 11 sweeps (2026-04):**
+- ESM-2 FP/FN ratio is 2–3× higher than k-mer on the same pairs (5.87 vs 2.36 unfilt;
+  4.58 vs 3.06 H3N2). ESM-2 is the natural target for FP/FN mitigation experiments.
+- The ESM-2 PB1/PA collapse (AUC≈0.50 in both unfilt and H3N2 sweeps) is a ready-made
+  diagnostic case. Start embedding distance + probability histogram + metadata-matrix
+  analyses there — the pair is already known to fail catastrophically with ESM-2 concat
+  while succeeding with k-mer concat on the same data, isolating feature geometry as
+  the cause.
+
 **Effort:** Low. No retraining needed — uses existing predictions and metadata files.
 Implement as an analysis script.
 
@@ -388,10 +445,15 @@ easy and hard problems.
 **Status:** K-mer + MLP done. XGBoost/LightGBM needs new training script.
 
 **K-mer + MLP results:**
-- Mixed-subtype: AUC 0.982 vs ESM-2 0.966–0.975
-- H3N2-only: AUC 0.988 (unit_diff) / 0.985 (concat) vs ESM-2 0.957 / 0.498
+- Mixed-subtype HA/NA: AUC 0.982 vs ESM-2 0.966–0.975
+- H3N2-only HA/NA: AUC 0.988 (unit_diff) / 0.985 (concat) vs ESM-2 0.957 / 0.498
 - Temporal holdout: AUC 0.941 vs ESM-2 0.891
-- Key finding: k-mer concat does NOT collapse on H3N2 (ESM-2 geometry-specific failure)
+- All-pairs heatmap (28 pairs × 12 folds, 100 epochs, concat):
+  k-mer AUC 0.9944 (unfilt) / 0.9931 (H3N2) vs ESM-2 0.9757 / 0.9486.
+  ESM-2 collapses fully on PB1/PA in BOTH sweeps (AUC≈0.50); k-mer never collapses.
+- Key finding: k-mer concat is filter-invariant and pair-invariant. ESM-2 concat fails
+  on specific protein pairs regardless of subtype filtering (the subspace-offset
+  failure is geometry-specific, not H3N2-specific).
 
 ---
 
@@ -435,6 +497,8 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 
 1. ~~Scale up to ~50–100K isolates (Task 2)~~ — done; Task 11 ran on full ~111K dataset.
 2. ~~Run 8×8 all-segment heatmap with CV (Task 11)~~ — done; results in `allpairs_prod_20260408_063203/`.
+   ESM-2 and H3N2-filter variants complete (4 sweeps total, Apr 2026). Feature-source
+   comparison now available for stratified analysis.
 3. **(NEXT)** Stratified error analysis by pair type and metadata (unconditional)
 4. Carla's mixed-subtype discrimination test
 5. If good across all pair types → no interventions needed
@@ -455,7 +519,7 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 | Task | Status | Effort | Priority | Meeting |
 |------|--------|--------|----------|---------|
 | **2. Large dataset** | Partially supported | Scale + ledger | **High** | Jim's #1 |
-| **11. All pairs (8×8)** | **Complete (2026-04-08)** | — | **High** | Jim's #2 |
+| **11. All pairs (8×8)** | **Complete (2026-04-08 k-mer / 2026-04-19 ESM-2 + H3N2 variants)** | — | **High** | Jim's #2 |
 | **NEW: Stratified eval** | Partial (Level 2 only) | Extend `analyze_errors_by_metadata` | **High (unconditional)** | Core deliverable |
 | **NEW: Mixed-subtype** | Not started | Dataset + eval | **High** | Carla's test |
 | 1. Cross-validation | Implemented | Run end-to-end | High | Default |
@@ -478,6 +542,10 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 - ~~Scale to full dataset (~111K isolates)~~ — validated on Lambda (k-mer concat, 10-fold CV). See Runtime Analysis.
 - ~~Run CV end-to-end~~ — CV10 completed for: k-mer concat (5K + full), ESM-2 concat (5K), H3N2 variants (k-mer + ESM-2). Results in `models/flu/July_2025/cv_runs/`.
 - ~~Run Task 11 (all 28 protein pairs)~~ — Complete on Polaris (12-fold CV, full dataset, 100 epochs). See Task 11 above and `polaris_plan.md` Phase 3 results.
+- ~~Run Task 11 ESM-2 and H3N2-filter variants~~ — all 28 pairs × 12 folds complete for
+  val_unfilt_esm2, val_h3n2, val_h3n2_esm2 (Apr 2026). Post-hoc artifacts generated for
+  all 4 sweeps. Confirms ESM-2 concat collapse is not H3N2-specific (PB1/PA collapses
+  on full dataset too).
 
 **Remaining:**
 1. **Implement pair-distribution ledger** for every dataset.
@@ -497,6 +565,14 @@ Out of scope for Paper 1. Deferred to Paper 2. Needs new embedding pipeline.
 ## Appendix: Biology Context from 2026-03-12 Meeting
 
 > Reference material for understanding the problem. Not paper prose.
+
+### Terminology used in this paper
+
+- **subtype-balanced** — the dataset has been explicitly resampled so that HN subtypes are approximately equally represented across splits (via downsampling dominant subtypes).
+- **subtype-filtered** — the dataset has been restricted to a single HN subtype (e.g., H3N2-only).
+- **natural** or **unfiltered** — the dataset reflects the actual (BV-BRC) frequencies without resampling; dominated by H3N2, H1N1, H5N1.
+
+These three terms are not interchangeable. In particular, "H3N2-only" is a filter, not a form of balance, despite being trivially "balanced" in the degenerate single-category sense.
 
 ### H-type vs N-type vs HN subtype terminology
 

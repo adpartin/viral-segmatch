@@ -1,0 +1,23 @@
+# pre-commit for viral-segmatch (DRAFT — review before adopting).
+# Git-level gate, independent of Claude — runs on CHANGED files at every commit.
+# Activate once:   pip install pre-commit && pre-commit install
+# Uses the ruff config in pyproject.toml.   Run on everything once: pre-commit run -a
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4          # pin; check latest at github.com/astral-sh/ruff-pre-commit/releases
+    hooks:
+      - id: ruff               # lint (reads pyproject.toml)
+        args: [--fix]
+      - id: ruff-format        # black-compatible formatting
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files      # guards against committing big blobs (esp. on a full FS)
+        args: [--maxkb=5000]
+
+exclude: '^(notebooks|examples|eda|data|reports|documentation)/'

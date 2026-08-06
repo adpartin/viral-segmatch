@@ -79,7 +79,7 @@ ls -lt data/datasets/flu/July_2025/runs/ | head -3
 - **LayerNorm (`slot_norm`) is critical for ESM-2**: Without per-slot normalization, raw HA/NA embeddings live in slightly different subspaces and `unit_diff` picks up slot offset rather than biological signal.
 - **Conservation hypothesis** (Gen1): Variable segments (HA-NA) achieve 91.6% F1; conserved segments (PB2-PB1-PA) are limited to 75.3% F1 by biological constraints.
 
-*For detailed analysis, see [Experiment Results](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
+*For the full pipeline + evaluation methodology, see [docs/methods/pipeline_overview.md](docs/methods/pipeline_overview.md).*
 
 ## 📁 Project Structure
 
@@ -103,7 +103,6 @@ viral-segmatch/
 │   └── training/           # Training configs
 ├── eda/                    # Exploratory analysis scripts (not pipeline)
 ├── examples/               # HuggingFace reference scripts (not pipeline)
-├── old_scripts/            # Superseded scripts (not maintained)
 ├── data/                   # Data directories
 │   ├── processed/          # Preprocessed data (shared)
 │   ├── embeddings/         # ESM-2 embeddings (shared, master cache)
@@ -170,7 +169,7 @@ See [`conf/bundles/README.md`](conf/bundles/README.md) for the full list and bun
 - `selected_functions`: Protein selection
 - `allow_same_func_negatives`: Control same-function negative pairs
 
-*For detailed configuration guide, see [Configuration Guide](docs/CONFIGURATION_GUIDE.md)*
+*For detailed configuration guide, see [Configuration Guide](docs/conf_guide.md)*
 
 ## 🔬 Pipeline Stages
 
@@ -194,7 +193,7 @@ See [`conf/bundles/README.md`](conf/bundles/README.md) for the full list and bun
    - Script: `./scripts/stage4_train.sh {bundle} --cuda_name cuda:X --dataset_dir {path}`
    - Provenance tracked in `training_info.json` saved to the training output directory
 
-*For detailed pipeline overview, see [Pipeline Overview](documentation/pipeline-overview.md)*
+*For the detailed pipeline overview, see [docs/methods/pipeline_overview.md](docs/methods/pipeline_overview.md).*
 
 ## 🧬 Supported Viruses
 
@@ -204,15 +203,11 @@ See [`conf/bundles/README.md`](conf/bundles/README.md) for the full list and bun
 ## 📈 Analysis Tools
 
 ```bash
-# Comprehensive results analysis (automatically finds latest training run)
-python src/analysis/analyze_stage4_train.py --config_bundle flu_schema_raw_slot_norm_unit_diff
+# Per-run analysis (autodiscovers the latest training run for a bundle)
+python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na
 
-# Or specify model directory explicitly
-python src/analysis/analyze_stage4_train.py --config_bundle flu_schema_raw_slot_norm_unit_diff \
-    --model_dir models/flu/July_2025/runs/training_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS
-
-# Presentation-ready plots
-python src/analysis/create_presentation_plots.py --config_bundle flu_schema_raw_slot_norm_unit_diff
+# Cross-model heatmap: MLP vs sklearn baselines, per metadata regime
+python src/analysis/aggregate_baselines_vs_mlp.py --bundle flu_ha_na
 ```
 
 *For detailed analysis guide, see [Results Analysis](documentation/analysis/results-analysis.md)*
@@ -220,18 +215,16 @@ python src/analysis/create_presentation_plots.py --config_bundle flu_schema_raw_
 ## 📚 Documentation
 
 ### User Guides (`documentation/`)
-- **[Quick Start Guide](documentation/quick-start.md)** - Complete setup and usage
-- **[Pipeline Overview](documentation/pipeline-overview.md)** - Understanding the 4-stage pipeline
-- **[Configuration Guide](documentation/configuration.md)** - Configuration overview
+- **[Installation](documentation/installation.md)** - Environment setup and dependencies
+- **[Quick Start Guide](documentation/quick-start.md)** - Complete setup and first run
 - **[Troubleshooting](documentation/troubleshooting.md)** - Common issues and solutions
 - **[Results Analysis](documentation/analysis/results-analysis.md)** - Understanding model performance
 
 ### Technical Documentation (`docs/`)
-- **[Configuration Guide](docs/CONFIGURATION_GUIDE.md)** - Comprehensive configuration documentation
-- **[Experiment Results](docs/EXPERIMENT_RESULTS_ANALYSIS.md)** - Detailed experiment analysis
-- **[Project Status](docs/EXP_RESULTS_STATUS.md)** - Research status and roadmap
+- **[Pipeline overview](docs/methods/pipeline_overview.md)** - Multi-audience synthesis (data, models, evaluation)
+- **[Methods reference docs](docs/methods/)** - preprocess, k-mer features, leakage definitions, feature normalization, GTO format
+- **[Configuration Guide](docs/conf_guide.md)** - Hydra configuration documentation
 - **[Seed System](docs/SEED_SYSTEM.md)** - Reproducibility and seed management
-- **[Experiment Tracking](docs/EXPERIMENT_TRACKING_GUIDE.md)** - Tracking experiments
 
 ## 🔬 Research Findings
 
@@ -254,13 +247,12 @@ Protein conservation directly impacts model performance:
 - **Matches or exceeds ESM-2 on mixed-subtype HA-NA**: AUC 0.982 vs 0.966–0.975.
 - Needs cross-validation confirmation before publication.
 
-*For comprehensive analysis, see [Experiment Results Analysis](docs/EXPERIMENT_RESULTS_ANALYSIS.md)*
+*For comprehensive analysis, see [docs/methods/pipeline_overview.md](docs/methods/pipeline_overview.md) and the per-topic methods docs.*
 
 ## 🛠️ Development
 
 - **Code Structure**: See [Code Structure](documentation/development/code-structure.md)
-- **Model Improvements**: See [Model Improvements](documentation/model-improvements.md)
-- **Adding New Viruses**: See [Configuration Guide](docs/CONFIGURATION_GUIDE.md#creating-a-new-experiment)
+- **Adding New Viruses**: See [Configuration Guide](docs/conf_guide.md#creating-a-new-experiment)
 
 ## 📄 License
 

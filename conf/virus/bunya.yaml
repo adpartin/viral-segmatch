@@ -14,6 +14,19 @@ aux_functions:
   - 'Bunyavirales small nonstructural protein NSs'
   - 'Phenuiviridae mature nonstructural 78-kD protein'
 
+# Canonical protein ordering (by segment: L, M, S).
+# Used by Stage 3 (`dataset_segment_pairs.py`) to canonicalize `dataset.schema_pair`
+# so that a bundle with schema_pair=[A,B] and one with [B,A] produce the same dataset
+# orientation (otherwise `unit_diff` would silently sign-flip between bundles).
+# Must cover every function that may appear in schema_pair; unknown entries raise.
+protein_order:
+  - 'RNA-dependent RNA polymerase'                                # L segment
+  - 'Pre-glycoprotein polyprotein GP complex'                     # M segment
+  - 'Bunyavirales mature nonstructural membrane protein (NSm)'    # M segment (aux)
+  - 'Phenuiviridae mature nonstructural 78-kD protein'            # M segment (aux)
+  - 'Nucleocapsid protein'                                        # S segment
+  - 'Bunyavirales small nonstructural protein NSs'                # S segment (aux)
+
 # Selected protein functions (subset used for downstream ML modeling)
 # Bunyavirales: All 3 core proteins (L, M, S segments)
 selected_functions:

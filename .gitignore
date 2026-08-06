@@ -10,10 +10,21 @@ __pycache__/
 
 # Claude Code (machine-specific overrides only; settings.json and memory.md are tracked)
 .claude/settings.local.json
+# Runtime lock for Claude Code ScheduleWakeup / CronCreate
+.claude/scheduled_tasks.lock
+# NFS "silly-rename" files for deleted-but-still-open file handles
+.claude/.nfs*
 
 # CEPI
 _notes.txt
-prompts.txt
+# Personal scratch notes (untracked)
+/notes*
+prompt*.txt
+prompt*.md
+# External reference papers + personal study notes — entire directory ignored
+refs/
+# Scratch / smoke-test outputs, downloaded reference figures, etc.
+tmp/
 data/
 data/raw/Anno_Updates/
 data/raw/Full_Flu_Annos/
@@ -26,3 +37,5 @@ esm2_t6_8M_UR50D-finetuned-localization/
 /logs/
 /models/
 /results/
+/reports/
+data_split_design_*

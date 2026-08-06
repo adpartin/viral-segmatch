@@ -1,239 +1,163 @@
-# viral-segmatch — Project Memory
+# viral-segmatch — Project Memory (compact working state)
 
-This file is version-controlled in the repo (.claude/memory.md) so it is available on every machine.
-Claude: read this at the start of every session. Update it when decisions change or new findings emerge.
+Version-controlled (`.claude/memory.md`) so it travels across machines. Read at session start.
+Update when production settings change, work moves in/out of flight, or a durable decision is made.
+
+**Scope**: current production state, work in flight, env rules, user preferences — things that
+change and aren't derivable from code. This file does NOT duplicate:
+- **`CLAUDE.md`** — behavioural rules, core vocabulary, conventions. Read it first.
+- **`docs/architecture.md`** — descriptive/reference material: pipeline stages, config system,
+  source-file map, layering rule, Key Experimental Findings, Recent Run Outputs, roadmap, HPC.
+- **`docs/results/`** — canonical writeup for every headline finding.
+- **`docs/plans/`** (+ `done/`) — design/implementation plans.
+- **`docs/project_changelog.md`** — relocated implementation log, Removed-keys log, Polaris/Task-11
+  history, CV/temporal-holdout implementation detail, pre-writeup exploration notes. Reference
+  material, not session-startup reading.
 
 ---
 
-## Project Summary
-Flu A viral segment co-occurrence prediction. ESM-2 protein embeddings (frozen) + MLP binary classifier.
-Primary virus: Influenza A. Bunya support exists but NOT actively maintained.
+## Current Production State
+- **Builder**: v2 is the only builder (v1 retired 2026-06-03); the `dataset_segment_pairs.py` CLI
+  dispatches to `dataset_segment_pairs_v2.py`. Stage 3/4 are decoupled — Stage 4 takes
+  `--dataset_dir` explicitly; provenance in `training_info.json`. **The v1 CLI path is not
+  supported for new work** — e.g. its default `pair_key_alphabet` inference is intentionally
+  unfixed (`cluster_alphabet=nt_ctg` without an explicit `pair_key_alphabet` silently falls to `aa`).
+- **Active HA/NA + PB2/PB1 bundles** (`flu_ha_na.yaml`, `flu_pb2_pb1.yaml`) bake in
+  `split_strategy.mode=seq_disjoint`, `hash_key=seq` (protein-level, stricter), and the "Test 3"
+  interaction (`slot_transform=unit_norm`, `interaction=unit_diff+prod`).
+- **Clustering**: symmetric mmseqs2 `easy-linclust` on BOTH alphabets (since 2026-05-22). Artifacts
+  at `clusters_aa/tXXX/<func>_cluster.parquet` (col `prot_hash`) and
+  `clusters_nt_cds/tXXX/<func>_cluster.parquet` (col `cds_dna_hash`); pre-Phase-2 easy-cluster +
+  idXXX artifacts archived under `clusters_*_archive_*`. Binary via the dedicated `mmseqs2` env,
+  resolved through `MMSEQS_BIN` / `--mmseqs_bin` / PATH.
+- **pair_key + axis consistency**: `split_strategy.pair_key_alphabet` ∈ `{aa, nt_cds, nt_ctg}` (`aa`
+  default). Non-`aa` pair_keys make finer variants distinct positives (nt_cds: codon variants;
+  nt_ctg: +UTR), inflating the universe / opening DNA-variant leakage — cite the alphabet in any
+  post-2026-06-03 experiment. **`dataset.molecule` master knob** (opt-in): derives
+  `cluster_alphabet` + `pair_key_alphabet` + `kmer.alphabet` from one value with a config-load guard
+  (`dataset.allow_alphabet_mismatch` to override a deliberate mix); legacy bundles are untouched.
+  See `config_hydra._resolve_molecule_alphabets`.
+- **Two DNA notions, by purpose**: **contig** DNA (`ctg_dna_seq`/`ctg_dna_hash` — full submitted
+  contig; k-mer *features* + nt_ctg clustering) vs **CDS** DNA (`cds_dna_seq`/`cds_dna_hash` —
+  coding-only; nt_cds clustering). History not derivable from code: DNA *clustering* was switched to
+  CDS on the assumption clustering should be coding-only — never tested vs contig clustering — while
+  k-mer *features* stayed contig. Resolved by the nt_cds/nt_ctg refactor
+  (`docs/plans/done/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`, closed 2026-06-25): explicit names
+  everywhere via the `src/utils/schema.py` registry, `nt_ctg` enabled end-to-end, `dataset.molecule`
+  added. Phase C tested CDS-vs-contig on HA/NA t100: feature axis ~flat (~0.3 pp), all three configs
+  0.95–0.97 LGBM.
+- **Routing modes**: `random`; `seq_disjoint` (hash_key seq|dna); `cluster_disjoint` (bilateral /
+  `single_slot: a|b` / planned `cluster_disjoint_test_only`); `metadata_holdout`. `single_slot`
+  exercised on HA-only and PB2-only; NA-only / PB1-only and nt single_slot untested.
+- **Graph + CC layer** (consolidated 2026-07-31,
+  `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md`): ONE builder,
+  `src/datasets/_bigraph.build_pair_bigraph`, returning a weighted simple `nx.Graph` (edge `weight`
+  = pairs) — no multigraph anywhere. Split-producing code lives in `src/datasets`/`src/utils` and
+  never imports `src/analysis` (one documented exception: optional plotting; see
+  `docs/architecture.md` § Layering). The four `bigraph_*` analyses read persisted `cc_{source}`
+  artifacts via `src/analysis/_cc_artifacts.py` (default `nt_cds_cm0` / HA-NA / t099..t095), not a
+  re-derived universe. `m_pos_per_cc` default is `null` (no cap).
+- **Threshold notation `tXXX`**: on-disk cluster parquets at `clusters_*/tXXX/`; pre-Phase-2
+  dataset/model run dirs keep their `idXXX` names.
+- **Best-model finding** (slot_norm + unit_diff for ESM-2 on HA/NA): see `docs/architecture.md`
+  § Key Experimental Findings. The `flu_schema_raw_slot_norm_unit_diff` bundle was retired
+  2026-05-12 — the finding stands, the bundle file no longer exists.
 
-## Pipeline (4 stages)
-- Stage 1: `src/preprocess/preprocess_flu_protein.py` → `data/processed/flu/{version}/protein_final.csv` (run once)
-- Stage 2: `src/embeddings/compute_esm2_embeddings.py` → `data/embeddings/flu/{version}/master_esm2_embeddings.h5` (run once)
-- Stage 3: `src/datasets/dataset_segment_pairs.py` → `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` (per experiment)
-- Stage 4: `src/models/train_pair_classifier.py` → `models/flu/{version}/runs/training_{bundle}_{ts}/` (per experiment)
-- Shell wrappers: `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`
+## Work In Flight
+- **Data-split refactor (TOP PRIORITY, 2026-06-03)**: `src/datasets/` splitting is
+  patched-incremental — two per-mode CV generators, non-uniform `single_slot`/alphabet wiring.
+  Target: one atom-provider + one packer + one CV path mapping 1:1 to `splits.md` §1.1. Plan:
+  `docs/plans/2026-06-03_dataset_split_refactor_plan.md` (PARTIALLY IMPLEMENTED). Constraint:
+  bit-exact on a code-path-coverage bundle set. Partly addressed by the 2026-07-31 consolidation
+  (one graph builder, LPT packer shared, layering fixed).
+- **Cross-validation**: NOT validated end-to-end on v2; the only complete CV run is a Feb-2026
+  v1-era artifact on a retired bundle. Folded into the split refactor as a redesign (`route_kfold`
+  over atom_id, validated fresh — NOT a bit-exact-preserve target). Canonical reference
+  `docs/methods/splits.md` §2; remaining work `docs/plans/2026-05-28_kfold_remaining.md`. Output is
+  nested `fold_k/` dirs + `cv_summary.*`; launchers `scripts/run_cv_lambda.py` and
+  `scripts/run_cv_polaris.pbs`. Impl detail in `docs/project_changelog.md`.
+- **Temporal holdout**: IMPLEMENTED. Known issue: pair_key dedup removes ~42% of val/test positives
+  (same strains across years), creating label imbalance — fix (disable dedup for temporal mode)
+  needed before publication. K-mer beats ESM-2 (AUC 0.941 vs 0.891).
+- **Task 11 (28 protein pairs, 8×8 heatmap)**: ON HOLD since 2026-04-06. Built; Phase 3 failed on
+  Polaris (training data-loading bound). Resume by swapping the master bundle's
+  `dataset.negative_sampling` block to the regime-aware one. Post-mortem in
+  `docs/project_changelog.md`.
+- **2D-CD builder (`dataset_pairs_cc.py`)**: Stage-3 builder for bilateral cluster-disjoint
+  holdout/K-fold + within-CC negatives. Phase-1 done (Hydra, front-end, `negative_scope`
+  within_cc|within_fold, `drop_negative_infeasible_ccs` unified across both scopes — parity
+  verified). Remaining: full-saver (deferred), Phase 2 (nt_cds) / Phase 3 (nt_ctg). Plan:
+  `docs/plans/done/2026-06-09_cc_dataset_cv_plan.md`.
+- **Single-segment OOD clustering**: IMPLEMENTED (`src/preprocess/build_ood_clusters.py`). The
+  "across clusters: different" guarantee needs clusters that are **connected components of the
+  ≥t/cov all-vs-all graph** — mmseqs `easy-cluster --cluster-mode 1` does NOT deliver this (M1 aa
+  t099: 566 clusters WITH 3,797 cross-cluster ≥0.99 pairs); correct method is `easy-search`
+  all-vs-all → threshold → **union-find** (M1: 234 clusters, 0 violations). `--exhaustive-search` is
+  profile-iterative, NOT all-vs-all; `--prefilter-mode 2` is the provable-complete search. Writes
+  `clusters_{alphabet}_ood/tXXX/` (never overwrites set-cover parquets). Figures via
+  `src/analysis/plot_clusters.py`; verifier `src/analysis/verify_ood_clusters.py`.
+  **Validated: aa M1 t099 ONLY** — 8-major scale-out + nt rollout pending. Plan:
+  `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md`.
+- **OOD-vs-random CV** (branch `feature/ood-vs-random-cv`): paired build in `dataset_pairs_cc.py`
+  — leave-one-CC-out (3 largest fragmented CCs = 3 test folds, `make_folds_leave_cc_out`) vs a
+  size-matched `make_folds_random` arm, both partitioning ONE fixed within_cc negative pool →
+  `out_dir/{ood,random}/fold_k/`. Datasets built + validated 2026-07-25; Stage-4 exploratory runs
+  2026-07-26: **OOD collapses to chance across every model/feature tested**. Plan:
+  `docs/plans/2026-07-21_ood_vs_random_split_plan.md`. Subtype context: HA_0×NA_0 hub = **H3N2**,
+  HA_1×NA_1 = **H1N1**, the multi-cluster tangle = avian mix (never call a 95%-nt cluster a
+  "lineage").
+- **1D cluster-disjoint single-slot**: code landed; 10 datasets built + validated 2026-07-27;
+  Stage-4 next. Plan: `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md`.
+- **Plot helpers**: don't split by slot when the data is per-pair. (The general rules — reuse
+  existing primitives, consistent names, docstring standard — are CLAUDE.md § Conventions.)
+- **Stage-4 training is GATED** — no launch without explicit OK.
 
-## Config System
-Hydra + bundle-per-experiment. `conf/bundles/{bundle}.yaml` = one file per named experiment.
-Bundle naming: currently inconsistent across generations. Planned general signature (not yet enforced):
-  `{virus}_{proteins}[_{n_isolates}][_{slot_transform}_{interaction}][_{data_filter}]`
-  e.g. `flu_ha_na_5ks_slot_norm_unit_diff_h3n2` -- renaming existing bundles is a future task.
-Config loader: `src/utils/config_hydra.py` via `hydra.compose(config_name="bundles/{name}")`.
-No root config -- bundles are loaded directly. `src/utils/config.py` and `conf/config.yaml` deleted (legacy).
+## Forward-looking work
+- Todos: `BACKLOG.md` (numbered, triaged — the single source of truth). Big-picture experiments:
+  `roadmap_v2.md`. Keep new items there, not here, so this file doesn't re-accumulate stale lists.
+- In-development modules + k-mer scaling limits: `docs/architecture.md`.
 
-## Bundle Organization (see conf/bundles/README.md for full detail)
-- Each bundle has `# STATUS: active|ablation|experimental|legacy|not maintained` header.
-- Three generations: Gen1 (flu.yaml base), Gen2 (flu_schema.yaml base), Gen3 (flu_schema_raw_* -- current)
-- Base bundles must stay flat (moving them breaks Hydra defaults chains in children)
-- `conf/bundles/paper/` reserved for publication experiments
-- Best model: `flu_schema_raw_slot_norm_unit_diff` (slot_norm + unit_diff, HA/NA)
+## Env Management
+**Rule**: bioconda / kalininalab CLI tools and experimental Python packages live in **dedicated
+conda envs**, never in the `segmatch` pipeline env. **Why**: bioconda pulls a different `libhdf5`
+than conda-forge and breaks the precompiled `h5py` wheel (broke the pipeline env twice — mmseqs2
+2026-05-15, datasail 2026-05-19). **Never** `conda remove --force` to undo bioconda damage —
+rebuild from `environment.yml`.
+- `segmatch`: clean pipeline env (conda-forge only, `environment.yml`). Validated 2026-05-20.
+- `mmseqs2`: CLI-only, v18.8cc5c, `/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs`.
+- `datasail`: dedicated env for the DataSAIL bake-off.
+- On lambda13 `$HOME` has no miniconda — use NFS absolute binaries
+  (`/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/<env>/bin/python`); bare `conda activate` fails.
 
-## Key Findings
-- ESM-2 `unit_diff` > `concat` on homogeneous data (H3N2-only): AUC 0.96 vs 0.50
-- K-mer concat does NOT collapse on H3N2 (AUC 0.985) -- concat failure is ESM-2-specific, not interaction-specific
-- K-mer dominates ESM-2 on H3N2: k-mer unit_diff AUC 0.988 vs ESM-2 unit_diff AUC 0.957; k-mers are interaction-agnostic
-- K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA (AUC 0.982 vs 0.966-0.975)
-- LayerNorm (`slot_norm`) critical for ESM-2 on homogeneous subsets
-- Delayed learning on H3N2 + unit_diff: increase patience to 40+
-- High FP rate on filtered datasets (year/host/geo) -- likely population-level confounders
-- **Temporal holdout**: K-mer AUC 0.941 vs ESM-2 AUC 0.891 (train 2021-2023, test 2024); k-mers generalize better across flu seasons
-
-## Roadmap (02/10/2026 meeting + March 2026 updates) -- for publication
-1. Cross-validation -- IMPLEMENTED, needs end-to-end run
-2. Large dataset (full Flu A ~100K isolates, HPC) -- supported, not yet run
-3. Temporal holdout -- IMPLEMENTED, needs dedup fix + re-run
-4. K-mer + MLP -- DONE; k-mer + XGBoost/LightGBM still TODO
-5. PB2/PB1 + H3N2 bundle -- optional (one new bundle)
-11. All protein pairs (C(8,2)=28 pairs of 8 major proteins) -- NOT IMPLEMENTED, HPC
-12. FP/FN ratio diagnosis + mitigation -- NOT IMPLEMENTED; see `roadmap_v1.md` Task 12
-    - Diagnostics first (embedding distances, probability histograms, pair-level metadata matrix)
-    - Data-centric: hard negative mining (highest priority), negative ratio, curriculum learning
-    - Model-centric: focal loss, contrastive learning (if simpler approaches fail)
-
-## Publication Strategy (March 2026)
-- **Paper 1 (biology, primary):** Segment matching for data remediation + surveillance.
-  Target: Bioinformatics / PLOS Comp Bio / Genome Biology. See `paper_outline_v1.md`.
-- **Paper 2 (ML, follow-up):** ESM-2 concat collapse + GenSLM. Target: NeurIPS/ICML workshop.
-- Paper outline: `paper_outline_v1.md` (v1), `paper_outline_v2.md` (v2, current)
-- Applications: data remediation (BV-BRC), wastewater surveillance, reassortment detection (future)
-
-## Directory Structure (post-cleanup Feb 2026)
-- `.claude/` -- settings.json (permissions) + memory.md (this file)
-- `eda/` -- exploratory scripts (bunya EDA moved here; NOT pipeline)
-- `examples/` -- HuggingFace reference scripts (NOT pipeline)
-- `old_scripts/` -- superseded scripts (NOT maintained)
-- `flu_genomes_eda.py` stays in `src/preprocess/` -- generates flu_genomes_metadata_parsed.csv (pipeline input)
-
-## Not Maintained
-- `old_scripts/`, `src/preprocess/preprocess_bunya_protein.py`, `conf/bundles/bunya.yaml`
-
-## Temporal Holdout (IMPLEMENTED — initial runs complete)
-- Bundles: `flu_schema_raw_slot_norm_unit_diff_temporal` (ESM-2), `flu_schema_raw_kmer_k6_slot_norm_unit_diff_temporal` (k-mer)
-- Train 2021-2023 (~20K isolates), val+test 2024 (~17K isolates)
-- Notable subtype shift: H5N1 24%→41%, H3N2 40%→32% (2024 avian flu surge)
-- **Pair-key dedup issue**: 42% of val/test pairs removed (positive pair_keys overlap with train due to same strains across years), creating 25/75 label imbalance in val/test. Needs fix before publication — likely disable dedup for temporal mode (approach A). See plan doc.
-- **Initial results** (with dedup artifact, threshold=0.5):
-  - ESM-2: AUC 0.891, F1 0.734, FP/FN=64.1
-  - K-mer (k=6): AUC 0.941, F1 0.832, FP/FN=11.6
-  - K-mers substantially outperform ESM-2 on temporal holdout; gap wider than on random splits
-  - Both show AUC drop vs random splits (~0.97), confirming genuine temporal difficulty
-- See `docs/plans/temporal_holdout_plan.md` for full analysis and results
-
-## In Development
-- Unified Flu preprocessing (`preprocess_flu.py`) -- see docs/genome_pipeline_design.md
-- `src/utils/dna_utils.py` -- DNA QC utilities (summarize_dna_qc complete, clean_dna_sequences untested)
-
-## HPC
-- For 8-GPU dev cluster (no scheduler): Python subprocess launcher with CUDA_VISIBLE_DEVICES per fold.
-- Polaris (ALCF), PBS job arrays. Do NOT use Hydra's submitit launcher (SLURM only).
-- See `polaris_plan.md` for Task 11 plan: phases 0-3, env setup, bundle design, queue strategy, scripts.
-- See `speed_up.md` for training optimizations (67% speedup: batch_size=128, eval_train_metrics=false, pin_memory=true).
-- See `docs/hardware_notes.md` for HW/SW interaction notes: `pin_memory` + cudaHostAlloc serialization under ensemble packing, `num_workers=0` rationale, TF GPU pre-allocation prevention, L3 cache vs working-set, and `[Extra]` background topics (CUDA async, AMP, CUDA_VISIBLE_DEVICES remapping, pinned-memory budget, ensemble packing vs PBS arrays).
-- **Batch vs interactive env**: PBS batch mode doesn't source dotfiles. The fix is `#!/bin/bash -l` (login shell shebang) which loads the full default env (PrgEnv-nvidia, Cray PALS/mpiexec, libfabric, CUDA). No manual PATH or LD_LIBRARY_PATH needed — just conda + venv on top. Interactive mode uses `scripts/polaris_env.sh`.
-
-## Cross-validation (IMPLEMENTED — branch: feature/cross-validation)
-### Output structure
-- Stage 3 runs ONCE → `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/`
-  - Nested: `fold_0/`, `fold_1/`, …, `fold_{N-1}/` each with train/val/test CSVs, stats, plots
-  - Top-level `cv_info.json` with fold isolate assignments and seeds
-- Stage 4 trains per fold → `models/flu/{version}/runs/training_{bundle}_fold{k}_{ts}/`
-  - Each training dir has `test_predicted.csv`, `optimal_threshold.txt`
-  - `train_pair_classifier.py` auto-invokes `analyze_stage4_train.py` at end of training, writing artifacts to `<training_run>/post_hoc/`. Guardrailed — post-hoc failure logs `WARNING:` but never changes training exit code. Opt-out with `--skip_post_hoc`.
-  - Backfill / refresh post_hoc over an entire sweep: `bash scripts/run_allpairs_post_hoc.sh <TAG>` (used for legacy runs predating in-train integration, or after analysis code evolves).
-- After all folds: `cv_run_manifest.json` (dataset run dir), `cv_summary.csv/json`
-- Cross-pair aggregation (`aggregate_allpairs_results.py`) emits `allpairs_summary.csv` + `allpairs_summary_fp_fn.csv`; also flags pairs with incomplete `post_hoc/` coverage (columns `post_hoc_n_with/n_total/missing_folds`).
-
-### Config
-- `conf/dataset/default.yaml`: `n_folds: null`, `fold_id: null` (null = single-split, backward compat)
-- `conf/bundles/flu_schema_raw_slot_norm_unit_diff_cv5.yaml`: inherits base bundle, adds `n_folds: 5`
-
-### Key implementation details
-- `split_dataset()` gains `train/val/test_isolates_override` params (None = existing behavior)
-- `generate_all_cv_folds()`: KFold on isolates; `val_frac = val_ratio / (1 - 1/n_folds)` for consistent val size
-- Fold seed = `master_seed + fold_i` for reproducible but distinct negative sampling
-- `--fold_id` added to training script (optional; appends `fold_{k}/` to `--dataset_dir`)
-- `save_split_output()`: extracted helper used by both single-split and CV paths
-
-### Launchers
-- `scripts/run_cv_lambda.py`: subprocess.Popen per fold, CUDA_VISIBLE_DEVICES=gpu_k, saves manifest, calls aggregation
-- `scripts/run_cv_polaris.pbs`: STAGE=dataset|train|aggregate; train uses PBS_ARRAY_INDEX=fold_id
-- `scripts/aggregate_cv_results.py`: reads manifest or --training_dirs, computes mean±std, writes cv_summary.*
-
-### Hydra limitation: no subdirectory bundles
-CV bundle is flat (`conf/bundles/flu_schema_raw_slot_norm_unit_diff_cv5.yaml`), not in `paper/`.
-Hydra's package resolution double-nests inherited configs from subdirs, breaking `get_virus_config_hydra`.
-`conf/bundles/paper/` kept as directory but YAML bundles must stay flat. See README.md in bundles/.
-
-### Next steps for CV
-- Run dry run: `python scripts/run_cv_lambda.py --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --dry_run`
-- Run full CV: `python scripts/run_cv_lambda.py --config_bundle flu_schema_raw_slot_norm_unit_diff_cv5 --gpus 0 1 2 3 4`
-
-## Stage 3/4 Decoupling (IMPLEMENTED — branch: feature/decouple-dataset-training)
-- `stage4_train.sh` requires `--dataset_dir` explicitly; no bundle extraction from path
-- `--allow_bundle_mismatch` flag removed (no longer needed)
-- Training script saves `training_info.json` with full provenance (config_bundle, dataset_dir, HPs)
-- Both shell scripts slimmed to ~60-100 lines matching the lean stage1/stage2b pattern
-- Workflow: Stage 3 once → Stage 4 N times with different training bundles
-
-## Task 11: All Protein-Pair Combinations (8x8 Heatmap) — IN PROGRESS
-Goal: 28 pairwise combinations C(8,2) of 8 major proteins (PB2, PB1, PA, HA, NP, NA, M1, NS1).
-Full run: 28 pairs × 12 CV folds × 100 epochs × ~111K isolates (Polaris).
-
-### What's built
-- **Master bundle**: `conf/bundles/flu_28_major_protein_pairs_master.yaml` — Phase 3 production settings (full dataset, 12-fold CV, batch_size=128, optimized training). Children override only `schema_pair`.
-- **28 child bundles**: `conf/bundles/flu_28p_{protA}_{protB}.yaml` — generated by `scripts/generate_all_pairs_bundles.py`
-- **Phase 0 launcher**: `scripts/run_allpairs_polaris_phase0.sh` — sequential single-GPU for validation
-- **Prod launcher**: `scripts/run_allpairs_polaris_prod.sh` — multi-node PBS job (28 nodes, prod queue). Each node runs `run_cv_lambda.py` with 4 GPUs for 12-fold CV.
-- **Full plan**: `polaris_plan.md` — phases 0-3, env setup, bundle design, HPC reference
-
-### What needs to be built
-1. **Cross-pair aggregation + heatmap** — collect 28 CV summaries into 8×8 AUC/F1 matrix for paper
-2. **Resolved config snapshot** — added `save_config()` calls to Stage 3 and Stage 4 (saves `resolved_config.yaml` in output dir). Not yet tested in a run.
-
-### Key constraints
-- Master bundle is set to Phase 3 defaults (patience=100, effectively no early stopping). For Phases 0-2, temporarily edit the master.
-- Data is on Polaris (copied from Lambda 2026-03-27): `protein_final.csv`, `kmer_k6_*`, ESM-2 embeddings.
-- N=12 folds chosen for perfect GPU packing (12/4 = 3 waves, no idle GPU).
-
-### Phase status (2026-04-02)
-- **Phase 0** — COMPLETE (single pair, single GPU, sequential)
-- **Phase 1** — COMPLETE (single pair, 12-fold CV, 4 GPUs)
-- **Phase 2** — COMPLETE (Steps 1-6). Key results:
-  - Steps 2-4: interactive `qsub -I` with SSH (Step 2) and mpiexec (Step 4)
-  - Step 5: batch `qsub` with 2 pairs — 2/2 SUCCEEDED
-  - Step 6: full 28-pair batch — 23/28 SUCCEEDED, 5 failed (CUDA OOM on specific nodes, transient)
-  - Root cause of early env failures: `#!/bin/bash -l` needed for login shell in batch mode
-- **Phase 3** — FAILED (walltime kill after 6h, 0/336 folds completed). Root cause diagnosed and fixed. Ready to re-test.
-- **Branch**: `feature/polaris-mpiexec` (master as of latest commits)
-
-### Phase 3 failure root cause + fixes (2026-04-02 → 2026-04-06)
-**Problem**: Training ~15-34x slower per batch on Polaris vs Lambda (7.5 min/epoch vs 29s).
-Three root causes identified:
-1. **Memory explosion**: `KmerPairDataset` densified the ENTIRE 868K×4096 sparse matrix (14.2 GB) per fold. 4 concurrent folds = 56.9 GB → folds 1-11 OOM. Only fold 0 survived per pair.
-2. **Cache thrashing**: 14.2 GB array >> L3 cache (~32-64 MB). Shuffled batch access = pure cache misses.
-3. **Per-item overhead**: `self.pairs.iloc[idx]['label']` (pandas iloc) + `torch.tensor()` copy per item.
-
-**Round 1 fixes** (in `src/models/train_pair_classifier.py`):
-- Matrix subsetting: only densify rows used by this fold's pairs (~3.5 GB vs 14.2 GB). 4 folds fit: 14 GB vs 56.9 GB.
-- Label pre-extraction: `self.labels = pairs['label'].values` — eliminates pandas iloc.
-- Zero-copy tensors: `torch.from_numpy()` instead of `torch.tensor()` (safe with num_workers=0).
-- tqdm `miniters=50` to reduce Lustre I/O from 1385 writes/epoch to ~28.
-- `NUM_WORKERS` hard-coded to 0 (was configurable but num_workers>0 is 87% slower + incompatible with torch.from_numpy).
-- Level 1 profiling added: per-epoch data_time/compute_time/eval_time in training_history.csv.
-
-**Test run results (2026-04-06)**: Folds 0,1,3 ran 6 epochs before job died. Fold 2 OOM'd at model.to(device).
-Profiling showed data loading is STILL 96-97% of epoch time (~460s data, ~4s compute, ~14s eval).
-Matrix subsetting fixed memory but NOT speed. Two remaining issues:
-
-**Round 2 diagnosis (2026-04-06)**:
-1. **Fold 2 OOM**: TensorFlow installed in Polaris system conda env, loaded transitively by HuggingFace `transformers`
-   (via esm2_utils.py). TF's default is to eagerly allocate all GPU memory. Added defensive env vars
-   (`TF_CPP_MIN_LOG_LEVEL=3`, `TF_FORCE_GPU_ALLOW_GROWTH=true`) at top of script before any imports.
-   Also added `torch.cuda.mem_get_info()` diagnostic before model.to(device) to capture GPU state.
-2. **Data loading 460s/epoch**: Strongest hypothesis is `pin_memory=True` with 4 concurrent folds.
-   pin_memory forces cudaHostAlloc (CUDA driver call that serializes across processes) for every batch.
-   1385 batches/epoch × 4 folds = 5540 driver calls/epoch contending on same driver lock.
-   The 18% speedup from pin_memory was benchmarked on Lambda (single fold) — likely counterproductive
-   with 4 concurrent folds on Polaris. Added Level 2 diagnostic (micro-benchmark 10 batches with
-   pin_memory=True vs False) to confirm before changing the config.
-
-**Additional changes**:
-- `run_cv_lambda.py`: `--skip_dataset` now auto-discovers latest dataset dir (no longer requires `--dataset_run_dir`).
-- `src/analysis/analyze_training_profile.py`: post-hoc profiling aggregation (single run, CV, all-pairs modes).
-- Cross-pair aggregation wired into prod launcher (`aggregate_allpairs_results.py`).
-
-See `polaris_plan.md` for detailed step-by-step checklists per phase.
-
-## What's Next (immediate)
-**H3N2 all-pairs sweep** — rerun the 28 protein-pair × 12-fold CV with the
-`dataset.hn_subtype=H3N2` filter applied via the new `--filter`/`--tag`
-mechanism (no new bundles). Runbook: `docs/allpairs_filter_sweep_runbook.md`.
-
-Plumbing added (committed on feature branch, not yet on master):
-- `--override key=value` in `dataset_segment_pairs.py` and `train_pair_classifier.py`
-- `--override` + `--tag` in `scripts/run_cv_lambda.py`
-- `--filter` + `--filter-tag` in `scripts/run_allpairs_polaris_prod.sh`
-- `--tag` in `src/analysis/aggregate_allpairs_results.py`
-
-Workflow summary (see runbook for detail):
-1. Stage 3 (serial loop over 28 bundles with `--skip_training --tag h3n2 --override dataset.hn_subtype=H3N2`)
-2. Stage 4 — interactive `qsub -I` then `bash scripts/run_allpairs_polaris_prod.sh --filter dataset.hn_subtype=H3N2 --skip_dataset`
-3. Aggregate with `--tag h3n2`
-
-## What's Next (beyond Task 11)
-- Fix pair_key dedup for temporal holdout -- re-run for clean metrics
-- Run cross-validation end-to-end (see CV section above)
-- FP/FN diagnostics (Task 12) -- understand error distribution before mitigation
-- Quantify unlinked BV-BRC records (ask Jim) -- scopes the remediation demo
-- Bundle naming cleanup -- deferred, future task
+## HPC (ALCF Polaris)
+- PBS job arrays, not SLURM. Do NOT use Hydra's submitit launcher (SLURM-only).
+- Batch mode doesn't source dotfiles: use `#!/bin/bash -l` (login shell) to load PrgEnv/CUDA.
+- Stage 2 (embeddings) is GPU-heavy; Stage 4 (training) is modest. The 8-GPU dev cluster has no
+  scheduler — use a `subprocess.Popen`-per-fold launcher with `CUDA_VISIBLE_DEVICES`.
+- Refs: `polaris_plan.md` (Task 11 phases), `speed_up.md`, `docs/hardware_notes.md`.
 
 ## User Preferences
 - Concise responses, no emojis unless asked
 - No unnecessary refactoring beyond what's asked
 - Always ask before destructive operations (rm, git reset --hard, git push --force, etc.)
 - CLAUDE.md is the authoritative project context; .claude/memory.md is the compact working memory
-- Both files are in the repo -- update them when decisions change
-- **One script per purpose**: follow the existing pattern in `src/analysis/` — propose a dedicated script with a clear name (e.g., `aggregate_cv_results.py`) rather than hedging between existing scripts. Commit to the obvious answer.
+- Both files are in the repo — update them when decisions change
+- **One script per purpose**: follow the existing pattern in `src/analysis/` — propose a dedicated
+  script with a clear name rather than hedging between existing scripts. Commit to the obvious answer.
+- **Code priority order**: correctness > readability > efficiency. Optimize for the next reader, not
+  the next clock cycle. Reach for performance changes only when measured (or when efficiency is
+  correctness-critical).
+- **Communication style**: prefer common words; use jargon only when it carries meaning the plain
+  term doesn't. Don't cut technical content; cut hedges and filler. Concrete numbers, file:line refs,
+  and observed data beat hedged adjectives. When explaining, assume the reader does not carry the
+  codebase in their head — lead with the plain-language answer, then the evidence.
+- **Terminology**: use canonical terms from `docs/methods/glossary.md`; add new terms there first.
+  (Enforced as CLAUDE.md Conventions § Terminology.)
+- **Accuracy over confidence**: state only what is verified against a source actually checked in this
+  session (paper passage, code at file:line, observed command output). When uncertain, say so with
+  what would resolve it. Don't pattern-match across sources without verification — superficially
+  synonymous terms (DataSAIL I2, Park & Marcotte C3, segmatch seq_disjoint) may differ in
+  dimensionality or which axes they cover. (Full rule: CLAUDE.md Conventions § Verify before asserting.)
+- **Commits are explicit-only** (full rule: CLAUDE.md Conventions § Commits are explicit-only): never
+  run `git commit`/`--amend` on Claude's own initiative. Otherwise stage + prep the diff and wait.
+- **Refer to Claude as "Claude"** in committed docs and writeups, not "I" or "my proposal".

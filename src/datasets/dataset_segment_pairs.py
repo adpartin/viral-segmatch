@@ -24,13 +24,13 @@ Key columns:
 - prot_seq: protein sequence
 - function: protein function
 - brc_fea_id: unique feature ID
-- seq_hash: deterministic hash of prot_seq used for deduplication / pair keys
+- prot_hash: deterministic hash of prot_seq used for deduplication / pair keys
 
 Key Concepts
 ------------
 - pair_key:
-    A canonical, order-invariant key derived from (seq_hash_a, seq_hash_b)
-    (e.g., canonical_pair_key(seq_hash_a, seq_hash_b)).
+    A canonical, order-invariant key derived from (prot_hash_a, prot_hash_b)
+    (e.g., canonical_pair_key(prot_hash_a, prot_hash_b)).
     Used for:
       (1) deduplicating identical sequence pairs
       (2) preventing contradictory labeling (e.g., a pair that is both positive and negative)
@@ -48,7 +48,7 @@ Key Concepts
     However, the default model input can be directed (e.g., [emb_a, emb_b]).
     To prevent "direction -> label" shortcut learning, we can enforce a deterministic
     orientation rule for BOTH positives and negatives by swapping all *_a/*_b fields
-    when needed (e.g., order by (seq_hash, brc_fea_id) or a fallback).
+    when needed (e.g., order by (prot_hash, brc_fea_id) or a fallback).
     This does NOT change pair_key (pair_key is always order-invariant).
 
 Dataset Construction Steps
@@ -63,9 +63,9 @@ Dataset Construction Steps
    - Keep only pairs that satisfy required constraints (currently: different brc_fea_id
      AND different function; same-function pairs are not used as positives).
    - For each positive pair, compute:
-       pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)   (stored as column 'pair_key')
+       pair_key = canonical_pair_key(row_a.prot_hash, row_b.prot_hash)   (stored as column 'pair_key')
      and store paired fields:
-       assembly_id_a/b, brc_a/b, seq_a/b, seg_a/b, func_a/b, seq_hash_a/b, label=1
+       assembly_id_a/b, brc_a/b, prot_seq_a/b, seg_a/b, func_a/b, prot_hash_a/b, label=1
    - (Optional) Canonicalize stored orientation by swapping all *_a/*_b fields
      according to a deterministic rule that does NOT reference label, function, or segment.
 
@@ -80,7 +80,7 @@ Dataset Construction Steps
    - Reject a candidate negative if:
        a) its pair_key is in cooccur_pairs (would contradict observed co-occurrence),
        b) it duplicates a previously added negative by brc_id-pair (symmetric duplicate),
-       c) it duplicates a previously added negative by seq_hash-pair,
+       c) it duplicates a previously added negative by prot_hash-pair,
        d) it violates configured same-function constraints (optional ratio cap).
    - For accepted negatives, store the same paired fields as positives with label=0.
    - (Optional) Canonicalize stored orientation by the same deterministic rule used for positives.
@@ -100,1402 +100,45 @@ Dataset Construction Steps
 
 Duplicate handling (blocked negatives):
 - Identical amino-acid sequences can occur in multiple genomes/isolates
-- A pair (seq_a, seq_b) can appear as positive (same isolate) AND negative (different isolates)
+- A pair (prot_seq_a, prot_seq_b) can appear as positive (same isolate) AND negative (different isolates)
 - This creates contradictory labels and potential data leakage
 - Solution: Block negative pairs where sequences co-occur in ANY isolate
 - Split by pair_key (not just isolate) to prevent same pair appearing in train and test
-
-For deeper discussion of ordering artifacts / PCA diagnostics, see:
-  docs/PAIR_EMBEDDING_ORDERING_AND_NORM_ARTIFACT.md
 """
 
 import argparse
 import hashlib
 import json
-import random
 import sys
+import time
 from datetime import datetime
-from itertools import combinations
 from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.timer_utils import Timer
+from src.datasets._pair_helpers import (
+    attach_ctg_dna_to_prot_df,
+    filter_by_metadata,
+    select_balanced_isolate_pool,
+)
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
-from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.path_utils import resolve_run_suffix, build_dataset_paths, load_dataframe
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
+from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
+from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.timer_utils import Timer
 
 total_timer = Timer()
 
 
-def canonical_pair_key(seq_hash_a: str, seq_hash_b: str) -> str:
-    """Create a canonical pair key from two sequence hashes.
-
-    Ensures consistent ordering so (a, b) and (b, a) produce the same key.
-    """
-    return "__".join(sorted([seq_hash_a, seq_hash_b]))
-
-
-def orient_pair_by_schema(dct: dict, func_left: str, func_right: str) -> Optional[dict]:
-    """Force pair orientation by a (func_left, func_right) schema.
-
-    In schema-ordered mode, slot semantics are fixed:
-      - slot A must be func_left
-      - slot B must be func_right
-
-    If the input pair matches the schema in either order, this function returns a
-    dict where all *_a/*_b fields are oriented so that func_a==func_left and
-    func_b==func_right. If the pair does not match the schema, returns None.
-    """
-    fa = dct.get("func_a")
-    fb = dct.get("func_b")
-    if fa == func_left and fb == func_right:
-        return dct
-    if fa == func_right and fb == func_left:
-        # Swap all paired fields ending with _a/_b (future-proof).
-        for k in list(dct.keys()):
-            if not k.endswith("_a"):
-                continue
-            kb = k[:-2] + "_b"
-            if kb in dct:
-                dct[k], dct[kb] = dct[kb], dct[k]
-        return dct
-    return None
-
-
-def canonicalize_pair_orientation(dct: dict) -> dict:
-    """Canonicalize stored pair orientation by swapping all *_a/*_b fields if needed.
-
-    The task is meant to be *undirected* (a,b) ≡ (b,a), but our model input
-    uses a directed concatenation [emb_a, emb_b]. If positives and negatives
-    have different orientation patterns, the model can learn a shortcut
-    (direction → label).
-
-    Ordering rule (deterministic):
-    - Prefer ordering by (seq_hash, brc) when both seq_hash values are present.
-    - Fall back to ordering by (brc) if either seq_hash is missing.
-
-    Robust swapping:
-    - Swap *all* key pairs that end with "_a" and have a corresponding "_b"
-      to avoid forgetting future paired metadata columns (e.g., host_a/host_b).
-    """
-    seq_hash_a = dct.get("seq_hash_a")
-    seq_hash_b = dct.get("seq_hash_b")
-    brc_a = dct.get("brc_a")
-    brc_b = dct.get("brc_b")
-
-    # Build comparable keys (string-cast for robustness across mixed types).
-    # If seq_hash is missing on either side, we fall back to BRC ordering only.
-    if seq_hash_a is not None and seq_hash_b is not None:
-        key_a = (str(seq_hash_a), str(brc_a) if brc_a is not None else "")
-        key_b = (str(seq_hash_b), str(brc_b) if brc_b is not None else "")
-    else:
-        key_a = (str(brc_a) if brc_a is not None else "",)
-        key_b = (str(brc_b) if brc_b is not None else "",)
-
-    if key_a <= key_b:
-        return dct
-
-    # Swap all paired fields ending with _a/_b (future-proof).
-    for k in list(dct.keys()):
-        if not k.endswith("_a"):
-            continue
-        kb = k[:-2] + "_b"
-        if kb in dct:
-            dct[k], dct[kb] = dct[kb], dct[k]
-    return dct
-
-
-def create_positive_pairs(
-    df: pd.DataFrame,
-    seed: int = 42,
-    canonicalize_pair_orientation_enabled: bool = True,
-    pair_mode: str = "unordered",
-    schema_pair: Optional[Tuple[str, str]] = None,
-    ) -> pd.DataFrame:
-    """ Create positive protein pairs (within-isolate and cross-function).
-    For example, creates pairs within an isolate: RdRp-GPC, RdRp-N, GPC-N
-
-    Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
-    Uses combinations (instead of permutations) to create positive pairs to
-    avoid duplicates that stem from symmetric pairs.
-
-    Each pair gets a canonical pair_key based on sequence hashes for:
-    1. Deduplication across isolates (same sequences in different isolates)
-    2. Preventing data leakage during train/test split
-    """
-    # Seeding is handled upstream by set_deterministic_seeds() in the CLI section.
-    isolates = df.groupby('assembly_id')
-
-    pos_pairs = []
-    isolates_with_few_proteins = []
-
-    if pair_mode not in {"unordered", "schema_ordered"}:
-        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
-    if pair_mode == "schema_ordered":
-        if schema_pair is None or len(schema_pair) != 2:
-            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
-        func_left, func_right = schema_pair
-        if func_left == func_right:
-            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
-
-    for aid, grp in isolates:
-        # print(grp[['file', 'assembly_id', 'canonical_segment', 'replicon_type', 'function', 'brc_fea_id']])
-        # Ignore isolates with fewer than 2 proteins (these cannot be used to
-        # create positive pairs, but these will be used to create negative pairs)
-        if len(grp) < 2:
-            isolates_with_few_proteins.append(aid)
-            continue
-
-        # Get all possible within-isolate pairs.
-        #
-        # NOTE: combinations(grp.itertuples(), 2) returns pairs as (row_a, row_b) with
-        # row_a appearing BEFORE row_b in the current row order of `grp` DataFrame.
-        # - This ordering is NOT based on DataFrame "Index", but rather on the DataFrame row order.
-        # - Therefore, any consistent upstream ordering of proteins within an isolate
-        #   (e.g., implicit segment/function sort in the input) can create a consistent
-        #   orientation in positives and can interact with the concatenated embedding
-        #   representation [emb_a, emb_b] vs [emb_b, emb_a].
-        #
-        # Important: pair_key is canonicalized by seq_hash, so (a,b) and (b,a) share
-        # the same pair_key for dedup/splitting even if their stored orientation differs.
-        #
-        # DEBUG (uncomment to inspect within-isolate row order that drives (row_a,row_b)):
-        # breakpoint()
-        # print(grp[['assembly_id', 'brc_fea_id', 'function', 'canonical_segment']].head(10))
-        if pair_mode == "schema_ordered":
-            # Schema-ordered positives: all within-isolate cross-products between
-            # (function==func_left) and (function==func_right), oriented as left->right.
-            left_rows = [r for r in grp.itertuples() if r.function == func_left]
-            right_rows = [r for r in grp.itertuples() if r.function == func_right]
-            for row_a in left_rows:
-                for row_b in right_rows:
-                    if row_a.brc_fea_id == row_b.brc_fea_id:
-                        continue
-                    seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
-                    dct = {
-                        'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
-                        'assembly_id_a': aid, 'assembly_id_b': aid,
-                        'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-                        'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
-                        'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
-                        'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-                        'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-                        'func_a': row_a.function, 'func_b': row_b.function,
-                        'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-                        'label': 1  # By definition a positive pair
-                    }
-                    dct = orient_pair_by_schema(dct, func_left=func_left, func_right=func_right)
-                    if dct is None:
-                        continue
-                    pos_pairs.append(dct)
-        else:
-            # pairs will be [(row_a, row_b), (row_a, row_b), ...]
-            pairs = list(combinations(grp.itertuples(), 2))
-            for row_a, row_b in pairs:
-                # Add the pair only if the proteins have different BRC ids and different functions
-                if row_a.brc_fea_id != row_b.brc_fea_id and row_a.function != row_b.function:
-                    # Create canonical seq_pair_key based on sequence hashes
-                    seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
-                    dct = {
-                        'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
-                        'assembly_id_a': aid, 'assembly_id_b': aid,
-                        'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-                        'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
-                        'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
-                        'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-                        'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-                        'func_a': row_a.function, 'func_b': row_b.function,
-                        'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-                        'label': 1  # By definition a positive pair
-                    }
-                    if canonicalize_pair_orientation_enabled:
-                        dct = canonicalize_pair_orientation(dct)
-                    pos_pairs.append(dct)
-
-    pos_df = pd.DataFrame(pos_pairs)
-    # print(pos_df[['brc_a', 'brc_b', 'seg_a', 'seg_b', 'func_a', 'func_b']])
-
-    # Log isolates with fewer than 2 proteins
-    # If an isolate has only one protein, it won't generate any positive pairs.
-    if isolates_with_few_proteins:
-        print(f'Warning: {len(isolates_with_few_proteins)} isolates have <2 proteins.')
-    return pos_df
-
-
-def create_negative_pairs(
-    df: pd.DataFrame,
-    num_negatives: int,
-    isolate_ids: list[str],
-    cooccur_pairs: set,
-    allow_same_func_negatives: bool = True,
-    max_same_func_ratio: float = 0.5,
-    seed: int = 42,
-    max_attempts_multiplier: int = 100,
-    canonicalize_pair_orientation_enabled: bool = True,
-    pair_mode: str = "unordered",
-    schema_pair: Optional[Tuple[str, str]] = None,
-    ) -> tuple[pd.DataFrame, int, dict]:
-    """ Create negative pairs (cross-isolate, with optional control over
-    same-function pairs).
-
-    BLOCKED NEGATIVES: Pairs where the two sequences co-occur in ANY isolate
-    are blocked to prevent contradictory labels. If sequences (a, b) appear
-    together in some isolate (positive), they cannot be used as a negative pair.
-
-    Same-function pairs (e.g., RdRp from A vs. RdRp from B)
-    Do we want this in negative pairs? These pairs are important since same-function
-    proteins across isolates are more similar (due to functional conservation)
-    than cross-function proteins within an isolate. Excluding them could make
-    the task too easy, as the model might rely on functional differences alone.
-    However, you want to control their ratio and log their prevalence to ensure
-    the dataset isn't dominated by same-function negatives.
-
-    Symmetric pairs handling (e.g., [seq_a, seq_b] and [seq_b, seq_a]).
-    Tracks seen_pairs when creating negative pairs to prevent symmetric
-    duplicates.
-
-    Args:
-        df: DataFrame containing the protein data
-        num_negatives: Number of negative pairs to create
-        isolate_ids: List of isolate IDs to sample from
-        cooccur_pairs: Set of canonical pair keys that co-occur in any isolate (blocked)
-        allow_same_func_negatives: Whether to allow same-function negative pairs
-        max_same_func_ratio: Maximum fraction of same-function negative pairs
-        seed: Random seed (not used directly, seeding done upstream)
-        max_attempts_multiplier: Max sampling attempts = num_negatives * this value
-
-    Returns:
-        Tuple of:
-        - DataFrame of negative pairs
-        - Number of same-function negative pairs
-        - Dict with rejection statistics
-    """
-    # Seeding is handled upstream by set_deterministic_seeds() in the CLI section.
-    neg_pairs = []
-    seen_pairs = set()  # Track unique pairs by brc_fea_id
-    seen_seq_pairs = set()  # Track unique pairs by sequence hash
-
-    if pair_mode not in {"unordered", "schema_ordered"}:
-        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
-    if pair_mode == "schema_ordered":
-        if schema_pair is None or len(schema_pair) != 2:
-            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
-        func_left, func_right = schema_pair
-        if func_left == func_right:
-            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
-
-    # Precompute isolate_groups for efficient negative sampling:
-    # - df_subset contains only proteins from the candidate isolates (isolate_ids)
-    # - groupby('assembly_id') yields (aid, grp) where grp is the per-isolate sub-DataFrame
-    # - list(grp.itertuples()) materializes that isolate's proteins as namedtuples
-    # Result: isolate_groups[aid] is a list of proteins we can random.choice() from.
-    #
-    # DEBUG (uncomment to see intermediate results for isolate_groups):
-    # breakpoint()
-    # df_subset_dbg = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
-    # print(f"[DEBUG] df_subset_dbg rows={len(df_subset_dbg):,}, unique_isolates={df_subset_dbg['assembly_id'].nunique():,}")
-    # print("[DEBUG] df_subset_dbg head:")
-    # print(df_subset_dbg[['assembly_id', 'brc_fea_id', 'function', 'canonical_segment', 'seq_hash']].head(10))
-    # gb_dbg = df_subset_dbg.groupby('assembly_id')
-    # print(f"[DEBUG] groupby('assembly_id') ngroups={gb_dbg.ngroups:,}")
-    # for i, (aid_dbg, grp_dbg) in enumerate(gb_dbg):
-    #     rows_dbg = list(grp_dbg.itertuples())
-    #     preview_dbg = [
-    #         (r.brc_fea_id, r.function, getattr(r, 'canonical_segment', None), str(r.seq_hash)[:8])
-    #         for r in rows_dbg[:3]
-    #     ]
-    #     print(f"[DEBUG] aid={aid_dbg} n_rows={len(rows_dbg)} first3={preview_dbg}")
-    #     if i >= 2:
-    #         break
-    df_subset = df[df['assembly_id'].isin(isolate_ids)].reset_index(drop=True)
-    isolate_groups = {aid: list(grp.itertuples()) for aid, grp in df_subset.groupby('assembly_id')}
-
-    # Precompute per-isolate function buckets for schema mode to avoid repeated filtering
-    # inside the sampling loop.
-    isolate_func_groups = None
-    if pair_mode == "schema_ordered":
-        isolate_func_groups = {}
-        for aid, rows in isolate_groups.items():
-            isolate_func_groups[aid] = {
-                func_left: [r for r in rows if r.function == func_left],
-                func_right: [r for r in rows if r.function == func_right],
-            }
-
-    # If allows to generate same-function negative pairs, then compute the max
-    # fraction of such pairs out of all negative pairs
-    same_func_count = 0
-    max_same_func = int(num_negatives * max_same_func_ratio) if allow_same_func_negatives else 0
-
-    # Track rejection statistics
-    rejection_stats = {
-        'blocked_cooccur': 0,  # Rejected because sequences co-occur (would be contradictory)
-        'duplicate_brc': 0,    # Rejected because same brc_fea_id pair already seen
-        'duplicate_seq': 0,    # Rejected because same sequence pair already seen
-        'same_func_limit': 0,  # Rejected due to same-function ratio limit (unordered mode)
-        'missing_left_func': 0,   # schema_ordered: isolate lacked func_left
-        'missing_right_func': 0,  # schema_ordered: isolate lacked func_right
-        'total_attempts': 0,
-    }
-
-    max_attempts = num_negatives * max_attempts_multiplier
-    attempts = 0
-
-    while len(neg_pairs) < num_negatives and attempts < max_attempts:
-        attempts += 1
-        aid1, aid2 = random.sample(isolate_ids, 2)  # Sample 2 different isolates
-        if pair_mode == "schema_ordered":
-            # Schema-ordered negatives: sample func_left from isolate aid1 (slot A),
-            # and func_right from isolate aid2 (slot B).
-            left_candidates = isolate_func_groups[aid1][func_left] if isolate_func_groups is not None else []
-            if not left_candidates:
-                rejection_stats['missing_left_func'] += 1
-                continue
-            right_candidates = isolate_func_groups[aid2][func_right] if isolate_func_groups is not None else []
-            if not right_candidates:
-                rejection_stats['missing_right_func'] += 1
-                continue
-            row_a = random.choice(left_candidates)
-            row_b = random.choice(right_candidates)
-        else:
-            row_a = random.choice(isolate_groups[aid1]) # Sample a random protein from the 1st isolate
-            row_b = random.choice(isolate_groups[aid2]) # Sample a random protein from the 2nd isolate
-
-        # Check if brc_fea_id pair is unique and not symmetric
-        brc_pair_key = tuple(sorted([row_a.brc_fea_id, row_b.brc_fea_id]))
-        if brc_pair_key in seen_pairs:
-            rejection_stats['duplicate_brc'] += 1
-            continue
-
-        # Create canonical pair key based on sequence hashes
-        seq_pair_key = canonical_pair_key(row_a.seq_hash, row_b.seq_hash)
-
-        # BLOCK CONTRADICTORY PAIRS: Check if these sequences ever co-occur
-        if seq_pair_key in cooccur_pairs:
-            rejection_stats['blocked_cooccur'] += 1
-            continue
-
-        # Check if we've already seen this sequence pair (different brc_ids, same sequences)
-        if seq_pair_key in seen_seq_pairs:
-            rejection_stats['duplicate_seq'] += 1
-            continue
-
-        # Check same-function constraint (unordered mode only).
-        is_same_func = row_a.function == row_b.function
-        if pair_mode != "schema_ordered":
-            if is_same_func and (not allow_same_func_negatives or same_func_count >= max_same_func):
-                rejection_stats['same_func_limit'] += 1
-                continue
-        else:
-            # In schema mode, config requires func_left != func_right, so we should not
-            # see same-function negatives (unless input data is inconsistent).
-            is_same_func = False
-
-        dct = {
-            'pair_key': seq_pair_key,  # Canonical key for dedup and splitting
-            'assembly_id_a': row_a.assembly_id, 'assembly_id_b': row_b.assembly_id,
-            'brc_a': row_a.brc_fea_id, 'brc_b': row_b.brc_fea_id,
-            'ctg_a': getattr(row_a, 'genbank_ctg_id', None),
-            'ctg_b': getattr(row_b, 'genbank_ctg_id', None),
-            'seq_a': row_a.prot_seq, 'seq_b': row_b.prot_seq,
-            'seg_a': row_a.canonical_segment, 'seg_b': row_b.canonical_segment,
-            'func_a': row_a.function, 'func_b': row_b.function,
-            'seq_hash_a': row_a.seq_hash, 'seq_hash_b': row_b.seq_hash,
-            'label': 0  # Negative pair
-        }
-        if canonicalize_pair_orientation_enabled:
-            dct = canonicalize_pair_orientation(dct)
-        if pair_mode == "schema_ordered":
-            dct = orient_pair_by_schema(dct, func_left=func_left, func_right=func_right)
-            if dct is None:
-                # Should not happen if schema sampling was done correctly, but keep robust.
-                continue
-        neg_pairs.append(dct)
-        seen_pairs.add(brc_pair_key)
-        seen_seq_pairs.add(seq_pair_key)
-        if is_same_func:
-            same_func_count += 1
-
-    rejection_stats['total_attempts'] = attempts
-
-    if len(neg_pairs) < num_negatives:
-        print(f"WARNING: Only generated {len(neg_pairs)}/{num_negatives} negative pairs after {attempts} attempts")
-        print(f"   This may indicate high sequence overlap across isolates")
-
-    return pd.DataFrame(neg_pairs), same_func_count, rejection_stats
-        
-
-def compute_isolate_pair_counts(
-    df: pd.DataFrame,
-    verbose: bool = False,
-    pair_mode: str = "unordered",
-    schema_pair: Optional[Tuple[str, str]] = None,
-    ) -> dict:
-    """Compute positive pair counts per isolate for stratified splitting.
-    
-    Counts how many positive pairs (cross-function pairs within the same isolate)
-    can be generated from each isolate. This is used to stratify isolates by
-    positive pair count for balanced train/val/test splits.
-    
-    Note: Data filtering (e.g., by selected_functions) should be done before
-    calling this function. This function does not validate data quality.
-    
-    Args:
-        df: DataFrame with protein data, already filtered to desired functions
-        verbose: If True, print detailed information per isolate
-    
-    Returns:
-        Dict mapping assembly_id -> number of positive pairs that can be generated
-    """
-    isolate_pos_counts = {} # pos pairs that will originate from this isolate
-
-    if pair_mode not in {"unordered", "schema_ordered"}:
-        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
-    if pair_mode == "schema_ordered":
-        if schema_pair is None or len(schema_pair) != 2:
-            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
-        func_left, func_right = schema_pair
-        if func_left == func_right:
-            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
-
-    for aid, grp in df.groupby('assembly_id'): # isolates
-        n_proteins = len(grp)
-
-        if verbose:
-            print(f"assembly_id {aid}: {n_proteins} proteins, Functions: {grp['function'].tolist()}")
-
-        if n_proteins < 2:
-            isolate_pos_counts[aid] = 0
-        elif pair_mode == "schema_ordered":
-            # Number of possible schema positives within this isolate is a cross-product.
-            n_left = int((grp['function'] == func_left).sum())
-            n_right = int((grp['function'] == func_right).sum())
-            isolate_pos_counts[aid] = n_left * n_right
-        else:
-            pairs = list(combinations(grp.itertuples(), 2))
-            pos_count = sum(1 for row_a, row_b in pairs if row_a.function != row_b.function)
-            isolate_pos_counts[aid] = pos_count
-
-    return isolate_pos_counts
-
-
-def build_cooccurrence_set(df: pd.DataFrame) -> tuple[set, dict]:
-    """Build a set of all sequence pairs that co-occur in any isolate.
-
-    Two sequences "co-occur" if they appear together in the same isolate (same assembly_id).
-    For example, if PB2 sequence A and PB1 sequence B both appear in isolate X, they co-occur.
-
-    Purpose: Prevent contradictory labels in the dataset.
-    - If sequences (A, B) co-occur in isolate X, they form a positive pair (same isolate).
-    - If we then use (A, B) from different isolates as a negative pair, we have a contradiction:
-      * They co-occurred in isolate X → positive label
-      * But we're labeling them as "not from same isolate" → negative label
-    - Solution: Block all pairs that co-occur in ANY isolate from being used as negatives.
-
-    This function identifies all such pairs by iterating through each isolate and recording
-    all sequence pairs that appear together within that isolate.
-
-    Args:
-        df: DataFrame with protein data. Must contain columns:
-            - 'assembly_id': Isolate identifier
-            - 'seq_hash': Unique hash for each protein sequence
-            - 'prot_seq': Protein sequence (optional, for reference)
-
-    Returns:
-        Tuple of:
-        - cooccur_pairs: Set of canonical pair keys (format: "seq_hash_a__seq_hash_b")
-          representing all sequence pairs that co-occur in at least one isolate.
-          These pairs should be blocked when creating negative pairs.
-        - cooccur_stats: Dict with statistics:
-            - 'total_cooccur_pairs': Total number of unique co-occurring pairs
-            - 'max_isolates_per_pair': Maximum number of isolates a single pair appears in
-            - 'pairs_in_multiple_isolates': Count of pairs that appear in >1 isolate
-            - 'isolate_pair_counts': Dict mapping pair_key -> number of isolates it appears in
-    """
-    cooccur_pairs = set()
-    isolate_pair_counts = {}  # Track how many isolates each pair appears in
-
-    for aid, grp in df.groupby('assembly_id'):
-        if len(grp) < 2:
-            continue
-
-        # Get all unique sequences in this isolate
-        seq_hashes = grp['seq_hash'].unique().tolist()
-
-        # All pairs of sequences in this isolate co-occur
-        for i in range(len(seq_hashes)):
-            for j in range(i + 1, len(seq_hashes)):
-                seq_pair_key = canonical_pair_key(seq_hashes[i], seq_hashes[j])
-                cooccur_pairs.add(seq_pair_key)
-
-                # Track count for stats
-                if seq_pair_key not in isolate_pair_counts:
-                    isolate_pair_counts[seq_pair_key] = 0
-                isolate_pair_counts[seq_pair_key] += 1
-
-    # Compute statistics
-    cooccur_stats = {
-        'total_cooccur_pairs': len(cooccur_pairs),
-        'max_isolates_per_pair': max(isolate_pair_counts.values()) if isolate_pair_counts else 0,
-        'pairs_in_multiple_isolates': sum(1 for c in isolate_pair_counts.values() if c > 1),
-        'isolate_pair_counts': isolate_pair_counts  # Full mapping for detailed analysis
-    }
-
-    return cooccur_pairs, cooccur_stats
-
-
-def split_dataset(
-    df: pd.DataFrame,
-    neg_to_pos_ratio: float = 3.0,
-    allow_same_func_negatives: bool = True,
-    max_same_func_ratio: float = 0.5,
-    hard_partition_isolates: bool = True,
-    train_ratio: float = 0.8,
-    val_ratio: float = 0.1,
-    seed: int = 42,
-    canonicalize_pair_orientation_enabled: bool = True,
-    pair_mode: str = "unordered",
-    schema_pair: Optional[Tuple[str, str]] = None,
-    train_isolates_override: Optional[list] = None,
-    val_isolates_override: Optional[list] = None,
-    test_isolates_override: Optional[list] = None,
-    cooccur_pairs: Optional[set] = None,
-    cooccur_stats: Optional[dict] = None,
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    """Split dataset into train, val, and test sets with stratified sampling.
-
-    Key features:
-    1. BLOCKED NEGATIVES: Prevents contradictory labels by excluding negative pairs
-       where sequences co-occur in any isolate (uses cooccur_pairs set).
-    2. PAIR-KEY VALIDATION: After splitting by isolates, validates that no pair_key
-       appears across train/val/test splits. If overlap is found, removes those pairs
-       from val/test to prevent data leakage.
-
-    Approach:
-    1. Split ISOLATES into train/val/test (keeps all proteins from an isolate together).
-       If override lists are provided, this step is skipped entirely.
-    2. Generate positive pairs within each isolate group.
-    3. Generate negative pairs and block co-occurring sequences.
-    4. Validate no pair_key leakage across splits (remove if found).
-
-    Args:
-        df: Protein-level DataFrame with columns assembly_id, function, sequence_id, etc.
-        neg_to_pos_ratio: Number of negative pairs to generate per positive pair.
-        allow_same_func_negatives: Whether negatives can pair two sequences of the same
-            protein function (e.g., HA with HA from a different isolate).
-        max_same_func_ratio: Maximum fraction of negatives that may be same-function pairs
-            (only relevant when allow_same_func_negatives=True).
-        hard_partition_isolates: If True, enforce strict isolate disjointness across splits
-            (no isolate appears in more than one of train/val/test).
-        train_ratio: Fraction of isolates assigned to train in the internal stratified split.
-            Ignored when train_isolates_override is provided.
-        val_ratio: Fraction of isolates assigned to val in the internal stratified split.
-            Ignored when val_isolates_override is provided.
-        seed: Random seed for isolate splitting and negative pair sampling.
-        canonicalize_pair_orientation_enabled: In unordered mode, sort each pair's
-            sequence IDs so (A, B) and (B, A) always map to the same pair_key, preventing
-            duplicate pairs and ensuring unit_diff has a consistent direction. Automatically
-            disabled when pair_mode='schema_ordered' (the schema defines the ordering).
-        pair_mode: 'unordered' (default) or 'schema_ordered'. In schema_ordered mode,
-            func_left is always placed in slot A and func_right in slot B.
-        schema_pair: Tuple (func_left, func_right) required when pair_mode='schema_ordered'.
-            Defines which protein function occupies the left (A) and right (B) embedding slot.
-        train_isolates_override: If provided, skip internal isolate splitting and use this
-            list directly as train isolates. Used by generate_all_cv_folds().
-        val_isolates_override: If provided, use this list as val isolates.
-            Only meaningful when train_isolates_override is also provided.
-        test_isolates_override: If provided, use this list as test isolates.
-            Only meaningful when train_isolates_override is also provided.
-        cooccur_pairs: Pre-computed co-occurrence set from build_cooccurrence_set().
-            If None, built internally. Pass this to avoid redundant computation when
-            calling split_dataset() multiple times on the same data (e.g., CV folds).
-        cooccur_stats: Pre-computed co-occurrence stats from build_cooccurrence_set().
-            Must be provided together with cooccur_pairs. Included in the returned
-            duplicate_stats dict for downstream saving by save_split_output().
-
-    Returns:
-        Tuple of (train_pairs, val_pairs, test_pairs, duplicate_stats) where each
-        *_pairs is a DataFrame of labeled sequence pairs and duplicate_stats is a dict
-        with co-occurrence and rejection statistics.
-    """
-    if pair_mode not in {"unordered", "schema_ordered"}:
-        raise ValueError(f"Unknown pair_mode: {pair_mode!r}")
-    if pair_mode == "schema_ordered":
-        if schema_pair is None or len(schema_pair) != 2:
-            raise ValueError("schema_ordered mode requires schema_pair=(func_left, func_right)")
-        func_left, func_right = schema_pair
-        if func_left == func_right:
-            raise ValueError("schema_pair must contain two different functions (func_left != func_right)")
-        if canonicalize_pair_orientation_enabled:
-            print("Note: schema_ordered mode disables canonicalize_pair_orientation_enabled")
-            canonicalize_pair_orientation_enabled = False
-
-    # Build co-occurrence set FIRST (before any pair generation).
-    # This identifies all sequence pairs that appear together in any isolate.
-    # Callers that invoke split_dataset() multiple times on the same df (e.g.,
-    # generate_all_cv_folds) can pre-compute this once and pass it in.
-    if cooccur_pairs is None:
-        print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
-        cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
-        print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
-        print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
-        print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
-    else:
-        if cooccur_stats is None:
-            raise ValueError("cooccur_stats must be provided together with cooccur_pairs")
-
-    # Stratify isolates by positive pair counts for balanced train/val/test splits.
-    # 
-    # Purpose: Ensures that train/val/test splits have similar distributions of
-    # isolates with different numbers of positive pairs. This prevents scenarios
-    # where, for example, all high-pair-count isolates end up in training, leaving
-    # validation/test with only low-pair-count isolates.
-    #
-    # When does this matter?
-    # - With 2 selected_functions: Most isolates generate 1 positive pair (if they
-    #   have both functions), but some may have 0 (missing proteins). Stratification
-    #   ensures balanced distribution of isolates with 0 vs 1+ pairs.
-    # - With 3+ selected_functions: Isolates can generate varying numbers of pairs
-    #   (e.g., 3 functions = up to 3 pairs: AB, AC, BC). Some isolates may be missing
-    #   one or more functions, resulting in 0, 1, 2, or 3 pairs. Stratification is
-    #   especially important here to balance the distribution across splits.
-    #
-    # Example: If we have 100 isolates with 3 pairs each and 100 isolates with 1 pair
-    # each, stratification ensures each split gets roughly 50 of each type, rather
-    # than all 3-pair isolates in train and all 1-pair isolates in test.
-    unique_isolates = list(df['assembly_id'].unique())
-
-    if train_isolates_override is not None:
-        # Pre-assigned isolates (e.g., from CV fold generation): skip internal splitting.
-        # compute_isolate_pair_counts is not needed here — stratification is the caller's
-        # responsibility when providing pre-assigned isolates.
-        train_isolates = list(train_isolates_override)
-        val_isolates   = list(val_isolates_override)  if val_isolates_override  is not None else []
-        test_isolates  = list(test_isolates_override) if test_isolates_override is not None else []
-    else:
-        # Compute positive pair counts per isolate (only needed for stratified splitting)
-        isolate_pos_counts = compute_isolate_pair_counts(
-            df,
-            pair_mode=pair_mode,
-            schema_pair=schema_pair,
-        )
-        pos_count_groups = {}
-        for aid in unique_isolates:
-            pos_count = isolate_pos_counts[aid]
-            if pos_count not in pos_count_groups:
-                pos_count_groups[pos_count] = []
-            pos_count_groups[pos_count].append(aid)
-
-        # Split isolates into train/val/test sets (~80/10/10) based on their positive pair counts.
-        train_isolates, val_isolates, test_isolates = [], [], []
-        for pos_count, isolates in pos_count_groups.items():
-            if len(isolates) <= 1:
-                train_isolates.extend(isolates)
-                continue
-            train, temp = train_test_split(isolates, train_size=train_ratio, random_state=seed)
-            val, test = train_test_split(temp, train_size=val_ratio/(1-train_ratio), random_state=seed)
-            train_isolates.extend(train)
-            val_isolates.extend(val)
-            test_isolates.extend(test)
-
-        # Enforce hard partitioning on isolates
-        if hard_partition_isolates:
-            val_isolates  = [aid for aid in val_isolates if (aid not in train_isolates)]
-            test_isolates = [aid for aid in test_isolates if (aid not in train_isolates) and (aid not in val_isolates)]
-            unassigned    = [aid for aid in unique_isolates if (aid not in train_isolates) and (aid not in val_isolates) and (aid not in test_isolates)]
-            if unassigned:
-                print(f"Warning: {len(unassigned)} unassigned isolates.")
-                for aid in unassigned:
-                    set_sizes = {'train': len(train_isolates), 'val': len(val_isolates), 'test': len(test_isolates)}
-                    smallest_set = min(set_sizes, key=set_sizes.get)
-                    if smallest_set == 'train':
-                        train_isolates.append(aid)
-                    elif smallest_set == 'val':
-                        val_isolates.append(aid)
-                    else:
-                        test_isolates.append(aid)
-
-    pos_kwargs = {
-        'seed': seed,
-        'canonicalize_pair_orientation_enabled': canonicalize_pair_orientation_enabled,
-        'pair_mode': pair_mode,
-        'schema_pair': schema_pair,
-    }
-
-    # Generate positive pairs for each set (already includes pair_key)
-    train_pos = create_positive_pairs(
-        df[df['assembly_id'].isin(train_isolates)],
-        **pos_kwargs,
-    )
-    val_pos = create_positive_pairs(
-        df[df['assembly_id'].isin(val_isolates)],
-        **pos_kwargs,
-    )
-    test_pos = create_positive_pairs(
-        df[df['assembly_id'].isin(test_isolates)],
-        **pos_kwargs,
-    )
-
-    # Generate negative pairs within each set (with BLOCKED contradictory pairs)
-    print("\nCreating negative pairs with blocked contradictory pairs...")
-    neg_kwargs = {
-        'cooccur_pairs': cooccur_pairs,
-        'allow_same_func_negatives': allow_same_func_negatives,
-        'max_same_func_ratio': max_same_func_ratio,
-        'seed': seed,
-        'canonicalize_pair_orientation_enabled': canonicalize_pair_orientation_enabled,
-        'pair_mode': pair_mode,
-        'schema_pair': schema_pair,
-    }
-
-    train_neg, train_same_func, train_reject_stats = create_negative_pairs(
-        df,
-        num_negatives=int(len(train_pos) * neg_to_pos_ratio),
-        isolate_ids=train_isolates,
-        **neg_kwargs,
-    )
-    val_neg, val_same_func, val_reject_stats = create_negative_pairs(
-        df,
-        num_negatives=int(len(val_pos) * neg_to_pos_ratio),
-        isolate_ids=val_isolates,
-        **neg_kwargs,
-    )
-    test_neg, test_same_func, test_reject_stats = create_negative_pairs(
-        df,
-        num_negatives=int(len(test_pos) * neg_to_pos_ratio),
-        isolate_ids=test_isolates,
-        **neg_kwargs,
-    )
-
-    # Log rejection statistics
-    total_blocked = (train_reject_stats['blocked_cooccur'] + 
-                     val_reject_stats['blocked_cooccur'] + 
-                     test_reject_stats['blocked_cooccur'])
-    total_attempts = (train_reject_stats['total_attempts'] + 
-                      val_reject_stats['total_attempts'] + 
-                      test_reject_stats['total_attempts'])
-    print(f"\nNegative Pair Rejection Statistics:")
-    print(f"   Total sampling attempts: {total_attempts:,}")
-    print(f"   Blocked (contradictory co-occur): {total_blocked:,} ({100*total_blocked/max(1,total_attempts):.1f}%)")
-    print(f"   Train blocked: {train_reject_stats['blocked_cooccur']:,}")
-    print(f"   Val blocked:   {val_reject_stats['blocked_cooccur']:,}")
-    print(f"   Test blocked:  {test_reject_stats['blocked_cooccur']:,}")
-    if pair_mode == "schema_ordered":
-        total_missing_left = (
-            train_reject_stats.get('missing_left_func', 0)
-            + val_reject_stats.get('missing_left_func', 0)
-            + test_reject_stats.get('missing_left_func', 0)
-        )
-        total_missing_right = (
-            train_reject_stats.get('missing_right_func', 0)
-            + val_reject_stats.get('missing_right_func', 0)
-            + test_reject_stats.get('missing_right_func', 0)
-        )
-        print(f"   Missing func_left:  {total_missing_left:,}")
-        print(f"   Missing func_right: {total_missing_right:,}")
-
-    # Combine positive and negative pairs
-    train_pairs = pd.concat([train_pos, train_neg], ignore_index=True)
-    val_pairs   = pd.concat([val_pos, val_neg], ignore_index=True)
-    test_pairs  = pd.concat([test_pos, test_neg], ignore_index=True)
-
-    # Schema-mode sanity assertions: enforce fixed slot semantics.
-    if pair_mode == "schema_ordered":
-        if schema_pair is None:
-            raise ValueError("schema_ordered mode requires schema_pair")
-        func_left, func_right = schema_pair
-        for name, pairs_df in [("train", train_pairs), ("val", val_pairs), ("test", test_pairs)]:
-            if len(pairs_df) == 0:
-                continue
-            bad = pairs_df[(pairs_df["func_a"] != func_left) | (pairs_df["func_b"] != func_right)]
-            if not bad.empty:
-                raise ValueError(
-                    f"Schema constraint violated in {name} split: expected func_a=={func_left!r} and func_b=={func_right!r}, "
-                    f"found {len(bad)} violating rows."
-                )
-
-    # PAIR-KEY BASED SPLITTING: Ensure no pair_key appears across train/val/test
-    # This is a VALIDATION step - our isolate-based split should already prevent this
-    # if the same sequence pair doesn't appear in different isolate groups
-    print("\nValidating pair_key partitioning...")
-    train_pair_keys = set(train_pairs['pair_key'])
-    val_pair_keys = set(val_pairs['pair_key'])
-    test_pair_keys = set(test_pairs['pair_key'])
-    
-    # Store original sizes before removal (for percentage calculations)
-    val_pairs_before = len(val_pairs)
-    test_pairs_before = len(test_pairs)
-    
-    train_val_key_overlap = train_pair_keys & val_pair_keys
-    train_test_key_overlap = train_pair_keys & test_pair_keys
-    val_test_key_overlap = val_pair_keys & test_pair_keys
-    
-    total_key_overlap = len(train_val_key_overlap) + len(train_test_key_overlap) + len(val_test_key_overlap)
-    
-    if total_key_overlap > 0:
-        # Calculate percentages
-        train_val_pct = (len(train_val_key_overlap) / val_pairs_before * 100) if val_pairs_before > 0 else 0
-        train_test_pct = (len(train_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
-        val_test_pct = (len(val_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0
-        
-        print(f"   WARNING: Found {total_key_overlap} overlapping pair_keys across splits!")
-        print(f"      Train-Val overlap: {len(train_val_key_overlap)} ({train_val_pct:.2f}% of val set)")
-        print(f"      Train-Test overlap: {len(train_test_key_overlap)} ({train_test_pct:.2f}% of test set)")
-        print(f"      Val-Test overlap: {len(val_test_key_overlap)} ({val_test_pct:.2f}% of test set)")
-        print(f"   These represent sequence pairs that appear in isolates assigned to different splits.")
-        print(f"   This can cause data leakage. Consider re-splitting or deduplicating by pair_key.")
-        
-        # Remove overlapping pairs from val and test (keep in train)
-        # This is a conservative approach - keep pairs in training, remove from val/test
-        print(f"   Removing overlapping pairs from val and test sets...")
-        val_pairs = val_pairs[~val_pairs['pair_key'].isin(train_val_key_overlap | val_test_key_overlap)]
-        test_pairs = test_pairs[~test_pairs['pair_key'].isin(train_test_key_overlap | val_test_key_overlap)]
-        
-        # Calculate removal percentages
-        val_removed = val_pairs_before - len(val_pairs)
-        test_removed = test_pairs_before - len(test_pairs)
-        val_removed_pct = (val_removed / val_pairs_before * 100) if val_pairs_before > 0 else 0
-        test_removed_pct = (test_removed / test_pairs_before * 100) if test_pairs_before > 0 else 0
-        
-        print(f"   After removal: Train={len(train_pairs)}, Val={len(val_pairs)} (removed {val_removed}, {val_removed_pct:.2f}%), Test={len(test_pairs)} (removed {test_removed}, {test_removed_pct:.2f}%)")
-    else:
-        print(f"   No pair_key overlap detected. Train, Val, Test are mutually exclusive on pair_key.")
-
-    # Shuffle training labels if requested (for sanity tests)
-    if SHUFFLE_TRAIN_LABELS:
-        shuffle_seed = SHUFFLE_TRAIN_LABELS_SEED if SHUFFLE_TRAIN_LABELS_SEED is not None else RANDOM_SEED
-        print(f"\nShuffling training labels (seed: {shuffle_seed})...")
-        print(f"   Original train label distribution: {train_pairs['label'].value_counts().to_dict()}")
-        
-        # Use a separate RandomState to avoid affecting global numpy random state
-        # This preserves reproducibility of other operations that rely on the global seed
-        rng = np.random.RandomState(shuffle_seed)
-        shuffled_indices = rng.permutation(len(train_pairs))
-        
-        # Replace labels in train_pairs using shuffled indices
-        train_pairs = train_pairs.copy()
-        train_pairs['label'] = train_pairs['label'].iloc[shuffled_indices].values
-        
-        print(f"   Shuffled train label distribution: {train_pairs['label'].value_counts().to_dict()}")
-        print(f"   WARNING: Training labels have been shuffled! Val/Test labels remain unchanged.")
-        print(f"   This is a sanity test - model should not generalize if labels are random.")
-
-    # Compute and log dataset stats
-    total_pairs = len(train_pairs) + len(val_pairs) + len(test_pairs)
-    print(f'\nTotal pairs: {total_pairs}')
-    print(f'Positive pairs: {len(train_pos) + len(val_pos) + len(test_pos)}')
-    print(f'Negative pairs: {len(train_neg) + len(val_neg) + len(test_neg)}')
-    
-    train_neg_pct = (train_same_func/len(train_neg)*100) if len(train_neg) > 0 else 0
-    val_neg_pct = (val_same_func/len(val_neg)*100) if len(val_neg) > 0 else 0
-    test_neg_pct = (test_same_func/len(test_neg)*100) if len(test_neg) > 0 else 0
-
-    print(f'Train same-function negative pairs: {train_same_func} ({train_neg_pct:.2f}%)')
-    print(f'Val same-function negative pairs:   {val_same_func} ({val_neg_pct:.2f}%)')
-    print(f'Test same-function negative pairs:  {test_same_func} ({test_neg_pct:.2f}%)')
-    
-    if len(train_neg) > 0 and len(val_neg) > 0 and len(test_neg) > 0:
-        segment_pair_counts = pd.concat([train_neg, val_neg, test_neg]).groupby(
-            ['seg_a', 'seg_b']).size().rename('count').reset_index()
-        print(f'Negative pair segment count:\n{segment_pair_counts}\n')
-
-    # Validate assignments
-    if len(train_pairs) == 0 or len(val_pairs) == 0 or len(test_pairs) == 0:
-        raise ValueError('One or more sets are empty.')
-
-    # Check isolate overlap in pairs
-    if hard_partition_isolates:
-        train_set = set(train_pairs['assembly_id_a']).union(set(train_pairs['assembly_id_b']))
-        val_set   = set(val_pairs['assembly_id_a']).union(set(val_pairs['assembly_id_b']))
-        test_set  = set(test_pairs['assembly_id_a']).union(set(test_pairs['assembly_id_b']))
-        train_val_overlap  = train_set & val_set
-        train_test_overlap = train_set & test_set
-        val_test_overlap   = val_set & test_set
-        if train_val_overlap or train_test_overlap or val_test_overlap:
-            print(f"Error: Overlap detected in isolate sets!")
-            if train_val_overlap:
-                print(f"Train-Val overlap: {train_val_overlap}")
-            if train_test_overlap:
-                print(f"Train-Test overlap: {train_test_overlap}")
-            if val_test_overlap:
-                print(f"Val-Test overlap: {val_test_overlap}")
-            raise ValueError("Isolate overlap detected in pair sets.")
-        else:
-            print("No overlap in isolates: Train, Val, and Test sets are mutually exclusive.")
-        if len(set(unique_isolates)) != len(train_set | val_set | test_set):
-            print(f"Warning: {len(unique_isolates) - len(train_set | val_set | test_set)} isolates not assigned.")
-
-    # Log statistics
-    total_isolates = len(unique_isolates)
-    print(f"\nTrain pairs: {len(train_pairs)} ({len(train_pairs)/total_pairs*100:.2f}%)")
-    print(f"Val pairs:   {len(val_pairs)} ({len(val_pairs)/total_pairs*100:.2f}%)")
-    print(f"Test pairs:  {len(test_pairs)} ({len(test_pairs)/total_pairs*100:.2f}%)")
-    print(f"\nTrain isolates: {len(train_set)} ({len(train_set)/total_isolates*100:.2f}%)")
-    print(f"Val isolates:   {len(val_set)} ({len(val_set)/total_isolates*100:.2f}%)")
-    print(f"Test isolates:  {len(test_set)} ({len(test_set)/total_isolates*100:.2f}%)")
-    print(f"\nTrain positive pairs: {train_pairs['label'].sum()} "
-          f"({train_pairs['label'].sum()/len(train_pairs)*100:.2f}% of the set)")
-    print(f"Val positive pairs:   {val_pairs['label'].sum()} "
-          f"({val_pairs['label'].sum()/len(val_pairs)*100:.2f}% of the set)")
-    print(f"Test positive pairs:  {test_pairs['label'].sum()} "
-          f"({test_pairs['label'].sum()/len(test_pairs)*100:.2f}% of the set)")
-
-    # Compile duplicate/rejection statistics for saving
-    # Use stored original sizes for percentage calculations
-    duplicate_stats = {
-        'cooccur_stats': cooccur_stats,
-        'train_reject_stats': train_reject_stats,
-        'val_reject_stats': val_reject_stats,
-        'test_reject_stats': test_reject_stats,
-        'pair_key_overlaps': {
-            'train_val': {
-                'count': len(train_val_key_overlap),
-                'pct_of_val': (len(train_val_key_overlap) / val_pairs_before * 100) if val_pairs_before > 0 else 0,
-            },
-            'train_test': {
-                'count': len(train_test_key_overlap),
-                'pct_of_test': (len(train_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
-            },
-            'val_test': {
-                'count': len(val_test_key_overlap),
-                'pct_of_test': (len(val_test_key_overlap) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
-            },
-            'total_overlap': total_key_overlap,
-            'val_pairs_before_removal': val_pairs_before,
-            'test_pairs_before_removal': test_pairs_before,
-            'val_pairs_after_removal': len(val_pairs),
-            'test_pairs_after_removal': len(test_pairs),
-            'val_removed_pct': ((val_pairs_before - len(val_pairs)) / val_pairs_before * 100) if val_pairs_before > 0 else 0,
-            'test_removed_pct': ((test_pairs_before - len(test_pairs)) / test_pairs_before * 100) if test_pairs_before > 0 else 0,
-        }
-    }
-
-    return train_pairs, val_pairs, test_pairs, duplicate_stats
-
-
-def get_metadata_distributions(df: pd.DataFrame, isolate_set: set) -> dict:
-    """Return metadata value-count dicts for a set of isolates."""
-    if len(isolate_set) == 0:
-        return {'host': {}, 'year': {}, 'hn_subtype': {}, 'geo_location_clean': {}, 'passage': {}}
-    isolate_meta = df[df['assembly_id'].isin(isolate_set)].groupby('assembly_id').first()
-    distributions = {}
-    for col in ['host', 'year', 'hn_subtype', 'geo_location_clean', 'passage']:
-        if col in isolate_meta.columns:
-            counts = isolate_meta[col].value_counts(dropna=False)
-            distributions[col] = {
-                str(k) if pd.notna(k) else 'null': int(v) for k, v in counts.items()
-            }
-        else:
-            distributions[col] = {}
-    return distributions
-
-
-def filter_by_metadata(
-    prot_df: pd.DataFrame,
-    host: str = None,
-    year=None,
-    hn_subtype: str = None,
-    geo_location: str = None,
-    passage: str = None,
-    ) -> pd.DataFrame:
-    """Filter protein records by isolate-level metadata criteria.
-
-    Filtering is performed at the isolate level: isolates matching ALL specified
-    criteria are identified, then ALL protein records from those isolates are kept.
-    This ensures we don't lose proteins due to metadata merge issues (e.g., an
-    isolate has host metadata on one protein but not another).
-
-    Args:
-        prot_df: Protein DataFrame with columns including 'assembly_id', 'host',
-            'year', 'hn_subtype', and optionally 'geo_location_clean', 'passage'.
-        host: Keep only isolates with this host value (e.g., 'Human').
-        year: Keep only isolates from this year (e.g., 2023).
-        hn_subtype: Keep only isolates with this HA/NA subtype (e.g., 'H3N2').
-        geo_location: Keep only isolates from this geographic location.
-        passage: Keep only isolates with this passage type.
-
-    Returns:
-        Filtered DataFrame (reset index). If no filters are active, returns the
-        input DataFrame unchanged.
-    """
-    any_filter = any(f is not None for f in [host, year, hn_subtype, geo_location, passage])
-    if not any_filter:
-        return prot_df
-
-    print('\nMetadata filtering enabled.')
-    print(f'Host filter: {host}')
-    print(f'Year filter: {year}')
-    print(f'HN subtype filter: {hn_subtype}')
-    print(f'Geographic location filter: {geo_location}')
-    print(f'Passage filter: {passage}')
-
-    # Build per-isolate metadata table (one row per assembly_id)
-    meta_cols = ['assembly_id', 'host', 'year', 'hn_subtype']
-    if 'geo_location_clean' in prot_df.columns:
-        meta_cols.append('geo_location_clean')
-    if 'passage' in prot_df.columns:
-        meta_cols.append('passage')
-    aid_meta = prot_df.groupby('assembly_id')[meta_cols].first().reset_index(drop=True)
-
-    # Print available metadata for diagnostics
-    print(f"\n   Available metadata columns: {meta_cols}")
-    if 'geo_location_clean' in aid_meta.columns:
-        unique_locations = aid_meta['geo_location_clean'].dropna().unique()
-        print(f"   Unique geo_location_clean values (first 20): {sorted(unique_locations)[:20]}")
-        if geo_location:
-            matching_locs = [loc for loc in unique_locations if geo_location.lower() in str(loc).lower()]
-            print(f"   Locations matching '{geo_location}' (case-insensitive): {matching_locs[:10]}")
-    else:
-        print(f"   WARNING: geo_location_clean column NOT found in prot_df!")
-        print(f"   Available columns with 'location' in name: {[c for c in prot_df.columns if 'location' in c.lower()]}")
-
-    # Build filter mask (AND across all specified filters)
-    aid_mask = pd.Series([True] * len(aid_meta))
-    if host is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['host'].isin([host])
-        after = aid_mask.sum()
-        print(f"   Host filter '{host}': {before:,} -> {after:,} isolates")
-
-    if year is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['year'].isin([year])
-        after = aid_mask.sum()
-        print(f"   Year filter '{year}': {before:,} -> {after:,} isolates")
-
-    if hn_subtype is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['hn_subtype'].isin([hn_subtype])
-        after = aid_mask.sum()
-        print(f"   HN subtype filter '{hn_subtype}': {before:,} -> {after:,} isolates")
-
-    if geo_location is not None:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['geo_location_clean'].isin([geo_location])
-        after = aid_mask.sum()
-        print(f"   Geographic location filter '{geo_location}': {before:,} -> {after:,} isolates")
-
-    if passage is not None and 'passage' in aid_meta.columns:
-        before = aid_mask.sum()
-        aid_mask = aid_mask & aid_meta['passage'].isin([passage])
-        after = aid_mask.sum()
-        print(f"   Passage filter '{passage}': {before:,} -> {after:,} isolates")
-
-    # Filter protein DataFrame to keep only proteins from matching isolates
-    matching_isolates = aid_meta[aid_mask]['assembly_id'].tolist()
-    n_before = len(prot_df)
-    prot_df = prot_df[prot_df['assembly_id'].isin(matching_isolates)].reset_index(drop=True)
-    n_after = len(prot_df)
-
-    print(f"   Filtered to {len(matching_isolates):,} isolates matching criteria")
-    print(f"   Protein records: {n_before:,} -> {n_after:,} ({100*n_after/n_before:.1f}%)")
-
-    return prot_df
-
-
-def save_split_output(
-    output_dir: Path,
-    train_pairs: pd.DataFrame,
-    val_pairs: pd.DataFrame,
-    test_pairs: pd.DataFrame,
-    duplicate_stats: dict,
-    df: pd.DataFrame,
-    config_bundle: str,
-    pair_mode: str,
-    schema_pair,
-    filters_applied: dict,
-    generate_visualizations: bool = True,
-    ) -> None:
-    """Save train/val/test CSVs, dataset_stats.json, duplicate_stats.json, and optional plots.
-
-    Args:
-        output_dir: Directory to write all outputs into (created if it does not exist).
-            For single-split runs this is the top-level run directory; for CV folds
-            this is the per-fold subdirectory (e.g., fold_2/).
-        train_pairs: Labeled pair DataFrame for the training split.
-        val_pairs: Labeled pair DataFrame for the validation split.
-        test_pairs: Labeled pair DataFrame for the test split.
-        duplicate_stats: Dict returned by split_dataset() containing co-occurrence stats
-            and per-split negative-pair rejection counts.
-        df: Protein-level DataFrame (used to derive per-isolate metadata and distributions).
-        config_bundle: Hydra bundle name (e.g. 'flu_schema_raw_slot_norm_unit_diff_cv5');
-            written into dataset_stats.json for provenance and passed to the visualization script.
-        pair_mode: 'unordered' or 'schema_ordered'; recorded in filters_applied for provenance.
-        schema_pair: Tuple (func_left, func_right) or None; recorded in filters_applied.
-        filters_applied: Dict of filter values (host, year, hn_subtype, geo_location, passage,
-            pair_mode, schema_pair) recorded verbatim in dataset_stats.json.
-        generate_visualizations: If True, call visualize_dataset_stats() to produce plots.
-            Set to False for CV folds to avoid generating N × plot sets (or when running
-            headlessly without a display).
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save pair CSVs
-    train_pairs.to_csv(output_dir / 'train_pairs.csv', index=False)
-    val_pairs.to_csv(output_dir / 'val_pairs.csv', index=False)
-    test_pairs.to_csv(output_dir / 'test_pairs.csv', index=False)
-
-    # Isolate sets per split (for stats)
-    train_iso = set(train_pairs['assembly_id_a']).union(set(train_pairs['assembly_id_b']))
-    val_iso   = set(val_pairs['assembly_id_a']).union(set(val_pairs['assembly_id_b']))
-    test_iso  = set(test_pairs['assembly_id_a']).union(set(test_pairs['assembly_id_b']))
-
-    total_pairs = len(train_pairs) + len(val_pairs) + len(test_pairs)
-    dataset_stats = {
-        'split_sizes': {
-            'train': {
-                'pairs': len(train_pairs), 'isolates': len(train_iso),
-                'positive_pairs': int(train_pairs['label'].sum()),
-                'negative_pairs': int((train_pairs['label'] == 0).sum()),
-                'positive_ratio': round(float(train_pairs['label'].mean()), 3),
-            },
-            'val': {
-                'pairs': len(val_pairs), 'isolates': len(val_iso),
-                'positive_pairs': int(val_pairs['label'].sum()),
-                'negative_pairs': int((val_pairs['label'] == 0).sum()),
-                'positive_ratio': round(float(val_pairs['label'].mean()), 3),
-            },
-            'test': {
-                'pairs': len(test_pairs), 'isolates': len(test_iso),
-                'positive_pairs': int(test_pairs['label'].sum()),
-                'negative_pairs': int((test_pairs['label'] == 0).sum()),
-                'positive_ratio': round(float(test_pairs['label'].mean()), 3),
-            },
-        },
-        'total': {
-            'pairs': total_pairs,
-            'isolates': len(df['assembly_id'].unique()),
-        },
-        'metadata_distributions': {
-            'train': get_metadata_distributions(df, train_iso),
-            'val':   get_metadata_distributions(df, val_iso),
-            'test':  get_metadata_distributions(df, test_iso),
-        },
-        'co_occurrence_blocking': {
-            'total_cooccur_pairs':       duplicate_stats['cooccur_stats']['total_cooccur_pairs'],
-            'pairs_in_multiple_isolates': duplicate_stats['cooccur_stats']['pairs_in_multiple_isolates'],
-            'max_isolates_per_pair':      duplicate_stats['cooccur_stats']['max_isolates_per_pair'],
-            'train_blocked': duplicate_stats['train_reject_stats']['blocked_cooccur'],
-            'val_blocked':   duplicate_stats['val_reject_stats']['blocked_cooccur'],
-            'test_blocked':  duplicate_stats['test_reject_stats']['blocked_cooccur'],
-            'total_blocked': (duplicate_stats['train_reject_stats']['blocked_cooccur'] +
-                              duplicate_stats['val_reject_stats']['blocked_cooccur'] +
-                              duplicate_stats['test_reject_stats']['blocked_cooccur']),
-        },
-        'filters_applied': filters_applied,
-    }
-    with open(output_dir / 'dataset_stats.json', 'w') as f:
-        json.dump(dataset_stats, f, indent=2)
-    print(f"Saved dataset stats to: {output_dir / 'dataset_stats.json'}")
-
-    # Per-isolate metadata
-    isolate_metadata_cols = ['assembly_id', 'host', 'hn_subtype', 'year']
-    if 'geo_location_clean' in df.columns:
-        isolate_metadata_cols.append('geo_location_clean')
-    if 'passage' in df.columns:
-        isolate_metadata_cols.append('passage')
-    try:
-        isolate_meta = df.groupby('assembly_id')[isolate_metadata_cols].first().reset_index(drop=True)
-        isolate_meta.to_csv(output_dir / 'isolate_metadata.csv', index=False)
-        print(f"Saved isolate metadata to: {output_dir / 'isolate_metadata.csv'}")
-    except Exception as e:
-        print(f"WARNING: failed to save isolate_metadata.csv ({type(e).__name__}: {e})")
-
-    # Duplicate/rejection stats
-    cooccur_stats = duplicate_stats['cooccur_stats']
-    cooccur_stats_summary = {k: v for k, v in cooccur_stats.items() if k != 'isolate_pair_counts'}
-    duplicate_summary = {
-        'cooccurrence': cooccur_stats_summary,
-        'negative_pair_rejections': {
-            'train': dict(duplicate_stats['train_reject_stats']),
-            'val':   dict(duplicate_stats['val_reject_stats']),
-            'test':  dict(duplicate_stats['test_reject_stats']),
-        },
-        'pair_key_overlaps': duplicate_stats['pair_key_overlaps'],
-    }
-    with open(output_dir / 'duplicate_stats.json', 'w') as f:
-        json.dump(duplicate_summary, f, indent=2)
-    print(f"Saved duplicate stats to: {output_dir / 'duplicate_stats.json'}")
-
-    # Co-occurring pairs list
-    if cooccur_stats['total_cooccur_pairs'] > 0:
-        isolate_pair_counts = cooccur_stats.get('isolate_pair_counts', {})
-        if isolate_pair_counts:
-            cooccur_df = pd.DataFrame([
-                {'pair_key': k, 'num_isolates': v} for k, v in isolate_pair_counts.items()
-            ]).sort_values('num_isolates', ascending=False)
-            cooccur_df.to_csv(output_dir / 'cooccurring_sequence_pairs.csv', index=False)
-            print(f"Saved {len(cooccur_df)} co-occurring sequence pairs to: cooccurring_sequence_pairs.csv")
-
-    # Visualization plots
-    if generate_visualizations:
-        try:
-            print(f'\nGenerating dataset visualization plots...')
-            from src.analysis.visualize_dataset_stats import visualize_dataset_stats
-            visualize_dataset_stats(
-                dataset_stats_path=output_dir / 'dataset_stats.json',
-                bundle_name=config_bundle,
-                output_dir_dataset=output_dir,
-            )
-        except Exception as e:
-            print(f"WARNING: Failed to generate visualizations: {e}")
-
-
-def generate_all_cv_folds(
-    df: pd.DataFrame,
-    n_folds: int,
-    seed: int,
-    neg_to_pos_ratio: float,
-    allow_same_func_negatives: bool,
-    max_same_func_ratio: float,
-    hard_partition_isolates: bool,
-    val_ratio: float,
-    canonicalize_pair_orientation_enabled: bool,
-    pair_mode: str,
-    schema_pair,
-    ) -> list[dict]:
-    """Generate all N CV fold splits in one pass.
-
-    Splits isolates into N folds using KFold (stratified by isolate count into test sets).
-    For each fold k:
-      - test isolates:  fold k  (~1/N of all isolates)
-      - val isolates:   val_ratio fraction of the remaining isolates
-      - train isolates: the rest
-
-    Returns a list of N dicts, each containing:
-      fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats
-    """
-    from sklearn.model_selection import KFold
-
-    # Build co-occurrence set once for all folds (data-level, not fold-level).
-    print("\nBuilding co-occurrence set (sequences that appear together in any isolate)...")
-    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df)
-    print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
-    print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
-    print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
-
-    # Sort for determinism
-    unique_isolates = np.array(sorted(df['assembly_id'].unique()))
-    kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
-
-    # val_ratio is relative to ALL data in single-split mode.
-    # In K-fold, test takes 1/K; the remaining (K-1)/K goes to train+val.
-    # To keep the absolute val size similar, scale val_frac accordingly.
-    val_frac = val_ratio / (1.0 - 1.0 / n_folds)
-    val_frac = min(val_frac, 0.5)
-
-    folds = []
-    for fold_i, (trainval_idx, test_idx) in enumerate(kf.split(unique_isolates)):
-        print(f"\n{'='*60}")
-        print(f"CV: generating fold {fold_i + 1}/{n_folds}  "
-              f"(test={len(test_idx)}, trainval={len(trainval_idx)} isolates)")
-        print(f"{'='*60}")
-
-        trainval_ids = unique_isolates[trainval_idx].tolist()
-        test_ids     = unique_isolates[test_idx].tolist()
-
-        if len(trainval_ids) < 2:
-            train_ids, val_ids = trainval_ids, []
-        else:
-            train_ids, val_ids = train_test_split(
-                trainval_ids, test_size=val_frac, random_state=seed + fold_i
-            )
-
-        train_pairs, val_pairs, test_pairs, dup_stats = split_dataset(
-            df=df,
-            neg_to_pos_ratio=neg_to_pos_ratio,
-            allow_same_func_negatives=allow_same_func_negatives,
-            max_same_func_ratio=max_same_func_ratio,
-            hard_partition_isolates=hard_partition_isolates,
-            train_ratio=0.8,      # unused when overrides are provided
-            val_ratio=val_ratio,  # unused when overrides are provided
-            seed=seed + fold_i,   # fold-specific seed for negative sampling
-            canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
-            pair_mode=pair_mode,
-            schema_pair=schema_pair,
-            train_isolates_override=train_ids,
-            val_isolates_override=val_ids,
-            test_isolates_override=test_ids,
-            cooccur_pairs=cooccur_pairs,
-            cooccur_stats=cooccur_stats,
-        )
-        folds.append({
-            'fold_id':         fold_i,
-            'train_pairs':     train_pairs,
-            'val_pairs':       val_pairs,
-            'test_pairs':      test_pairs,
-            'duplicate_stats': dup_stats,
-        })
-
-    return folds
-
-
-def generate_temporal_split(
-    prot_df: pd.DataFrame,
-    year_train: list,
-    year_test: list,
-    val_ratio: float,
-    split_kwargs: dict,
-    ) -> tuple:
-    """Partition isolates by year for temporal holdout.
-
-    Train isolates come from year_train years. Val and test isolates are split from
-    year_test years so that val reflects the same future-season distribution as test
-    (important for early stopping and threshold tuning).
-
-    Returns (train_pairs, val_pairs, test_pairs, duplicate_stats) — same as split_dataset().
-    """
-    # Get year per isolate
-    isolate_years = prot_df.groupby("assembly_id")["year"].first()
-
-    # Validate: no overlap between train and test years
-    overlap = set(year_train) & set(year_test)
-    if overlap:
-        raise ValueError(f"year_train and year_test overlap: {overlap}")
-
-    # Partition isolates by year
-    train_isolates = isolate_years[isolate_years.isin(year_train)].index.tolist()
-    test_pool = isolate_years[isolate_years.isin(year_test)].index.tolist()
-
-    if len(test_pool) < 50:
-        print(f"WARNING: Only {len(test_pool)} isolates from test years {year_test}")
-    if len(train_isolates) < 50:
-        print(f"WARNING: Only {len(train_isolates)} train isolates from years {year_train}")
-
-    # Split val from test-year pool so val matches the test distribution
-    seed = split_kwargs.get("seed", 42)
-    train_ratio = split_kwargs.get("train_ratio", 0.8)
-    # val_ratio is relative to total data; rescale for the test pool
-    # Aim for val ~= val_ratio / (val_ratio + test_ratio) of test_pool
-    val_frac = val_ratio / (1.0 - train_ratio)  # e.g., 0.1 / 0.2 = 0.5
-    val_frac = min(val_frac, 0.5)  # never take more than half
-    val_frac = max(val_frac, 0.1)  # at least 10%
-    n_val = max(1, int(len(test_pool) * val_frac))
-    rng = np.random.RandomState(seed)
-    shuffled = rng.permutation(test_pool)
-    val_isolates = shuffled[:n_val].tolist()
-    test_isolates = shuffled[n_val:].tolist()
-
-    print(f"Temporal split: {len(train_isolates)} train, {len(val_isolates)} val, "
-          f"{len(test_isolates)} test isolates")
-    print(f"  Train years: {sorted(year_train)}")
-    print(f"  Val+test years: {sorted(year_test)} "
-          f"(val={len(val_isolates)}, test={len(test_isolates)})")
-
-    # Call split_dataset with overrides
-    updated_kwargs = {**split_kwargs,
-                      "train_isolates_override": train_isolates,
-                      "val_isolates_override": val_isolates,
-                      "test_isolates_override": test_isolates}
-    return split_dataset(**updated_kwargs)
+# Removed 2026-05-11: generate_temporal_split() and dataset.year_train /
+# dataset.year_test config keys. The temporal-holdout mechanism is superseded
+# by the general metadata_holdout path (year-axis holdout is its degenerate
+# case). See docs/plans/2026-05-11_metadata_holdout_plan.md.
 
 
 # Parser
@@ -1542,45 +185,39 @@ if args.override:
     print(f"Applied CLI overrides: {args.override}")
 print_config_summary(config)
 
-# Extract config values
+# Extract config values. v1-only and v2-only knobs are read inside their
+# dispatch branches below, not here.
 VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'datasets')
-USE_SELECTED_ONLY = config.dataset.use_selected_only
 NEG_TO_POS_RATIO = config.dataset.neg_to_pos_ratio
-ALLOW_SAME_FUNC_NEGATIVES = config.dataset.allow_same_func_negatives
-MAX_SAME_FUNC_RATIO = config.dataset.max_same_func_ratio
 TRAIN_RATIO = config.dataset.train_ratio
 VAL_RATIO = config.dataset.val_ratio
-HARD_PARTITION_ISOLATES = config.dataset.hard_partition_isolates
-CANONICALIZE_PAIR_ORIENTATION = config.dataset.canonicalize_pair_orientation
-PAIR_MODE = getattr(config.dataset, 'pair_mode', 'unordered')
+PAIR_MODE = getattr(config.dataset, 'pair_mode', 'schema_ordered')
 SCHEMA_PAIR_RAW = getattr(config.dataset, 'schema_pair', None)
 MAX_ISOLATES_TO_PROCESS = getattr(config.dataset, 'max_isolates_to_process', None)
 SHUFFLE_TRAIN_LABELS = getattr(config.dataset, 'shuffle_train_labels', False)
 SHUFFLE_TRAIN_LABELS_SEED = getattr(config.dataset, 'shuffle_train_labels_seed', None)
 N_FOLDS = getattr(config.dataset, 'n_folds', None)
 GENERATE_VISUALIZATIONS = getattr(config.dataset, 'generate_visualizations', True)
+SKIP_ESM_PCA_PLOTS = getattr(config.dataset, 'skip_esm_pca_plots', False)
+SKIP_KMER_PCA_PLOTS = getattr(config.dataset, 'skip_kmer_pca_plots', False)
 
-# Temporal holdout config
-YEAR_TRAIN = getattr(config.dataset, 'year_train', None)
-YEAR_TEST = getattr(config.dataset, 'year_test', None)
+# Pair builder selection (default v1 for backward compatibility).
+PAIR_BUILDER_VERSION = getattr(config.dataset, 'pair_builder_version', 'v1')
 
-# Normalize to lists (Hydra may pass a single int or a ListConfig)
-if YEAR_TRAIN is not None:
-    YEAR_TRAIN = list(YEAR_TRAIN) if hasattr(YEAR_TRAIN, '__iter__') else [YEAR_TRAIN]
-if YEAR_TEST is not None:
-    YEAR_TEST = list(YEAR_TEST) if hasattr(YEAR_TEST, '__iter__') else [YEAR_TEST]
-
-# Mutual exclusivity checks
-if YEAR_TRAIN is not None or YEAR_TEST is not None:
-    if YEAR_TRAIN is None or YEAR_TEST is None:
-        raise ValueError("Both year_train and year_test must be set (or both null)")
-    year_filter_check = getattr(config.dataset, 'year', None)
-    if year_filter_check is not None:
-        raise ValueError("year (filter) and year_train/year_test (temporal split) are mutually exclusive")
-    if N_FOLDS is not None and N_FOLDS > 1:
-        raise ValueError("n_folds (CV) and year_train/year_test (temporal split) are mutually exclusive")
+# Loud rejection of legacy year_train / year_test keys. They were removed
+# 2026-05-11 (replaced by metadata_holdout under v2). Surface a clear migration
+# message rather than letting OmegaConf return None silently if a bundle still
+# carries them.
+for _legacy_key in ('year_train', 'year_test'):
+    if getattr(config.dataset, _legacy_key, None) is not None:
+        raise ValueError(
+            f"dataset.{_legacy_key} is no longer supported; the temporal-holdout "
+            f"mechanism was replaced by dataset.metadata_holdout under "
+            f"pair_builder_version=v2 on 2026-05-11. See "
+            f"docs/plans/2026-05-11_metadata_holdout_plan.md."
+        )
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -1611,6 +248,7 @@ paths = build_dataset_paths(
     config=config
 )
 
+# Default input and output paths are derived from the config and virus, but can be overridden via CLI args.
 default_input_file = paths['input_file']
 default_output_dir = paths['output_dir']
 
@@ -1652,33 +290,93 @@ except FileNotFoundError:
 except Exception as e:
     raise RuntimeError(f"Error loading data from {input_file}: {e}")
 
-# Enrich with metadata (e.g., host, year, hn_subtype)
+# Attach DNA sequences to protein dataframe (carried through into the output
+# pair CSVs so we can run nucleotide-level leakage audits post-hoc without
+# re-running Stage 3).
+print('\nAttach DNA sequences to protein dataframe.')
+prot_df = attach_ctg_dna_to_prot_df(prot_df, input_file)
+
+# Enrich the df with metadata (e.g., host, year, hn_subtype)
 print('\nEnrich dataframe with metadata.')
 prot_df = enrich_prot_data_with_metadata(prot_df, project_root=project_root)
 
+# Drop isolates with non-conforming hn_subtype (ambiguous typing). See
+# drop_ambiguous_hn_subtype docstring in _pair_helpers.py for the rationale.
+# Toggle via `dataset.drop_ambiguous_subtype` (default true). Setting it false
+# preserves the legacy behavior where ~1,006 'HN' / 'H?N' isolates flow
+# through to the regime sampler as `unknown_metadata_neg`.
+if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
+    from src.datasets._pair_helpers import drop_ambiguous_hn_subtype as _drop_ambig
+    prot_df, _ambig_summary = _drop_ambig(prot_df)
+    if _ambig_summary['n_isolates_dropped'] > 0:
+        print(f"\nWARNING: dropped {_ambig_summary['n_isolates_dropped']:,} "
+              f"isolates with non-HxNy hn_subtype: "
+              f"{_ambig_summary['value_counts']}")
+        print(f"   Protein records: "
+              f"{_ambig_summary['n_rows_total']:,} -> "
+              f"{_ambig_summary['n_rows_kept']:,} "
+              f"(dropped {_ambig_summary['n_rows_dropped']:,} rows)")
+
 # Filter isolates by metadata criteria (host, year, hn_subtype, geo_location, passage)
-host_filter = getattr(config.dataset, 'host', None)
-year_filter = getattr(config.dataset, 'year', None)
-hn_subtype_filter = getattr(config.dataset, 'hn_subtype', None)
-geo_location_filter = getattr(config.dataset, 'geo_location', None)
-passage_filter = getattr(config.dataset, 'passage', None)
+# year vs year_range: mutually exclusive; year for scalar/list set membership,
+# year_range for inclusive [min, max]. The helper enforces the exclusion.
+# OmegaConf returns ListConfig for list-typed fields; coerce to Python list
+# at the boundary so filter_by_metadata's isinstance(..., (list, tuple))
+# checks succeed.
+from omegaconf import ListConfig
+
+
+def _coerce_filter(v):
+    return list(v) if isinstance(v, ListConfig) else v
+hn_subtype_filter   = _coerce_filter(getattr(config.dataset, 'hn_subtype', None))
+host_filter         = _coerce_filter(getattr(config.dataset, 'host', None))
+year_filter         = _coerce_filter(getattr(config.dataset, 'year', None))
+year_range_filter   = _coerce_filter(getattr(config.dataset, 'year_range', None))
+geo_location_filter = _coerce_filter(getattr(config.dataset, 'geo_location', None))
+passage_filter      = _coerce_filter(getattr(config.dataset, 'passage', None))
 prot_df = filter_by_metadata(
     prot_df,
+    hn_subtype=hn_subtype_filter,
     host=host_filter,
     year=year_filter,
-    hn_subtype=hn_subtype_filter,
+    year_range=year_range_filter,
     geo_location=geo_location_filter,
     passage=passage_filter,
 )
 
-# Temporal holdout: filter to union of train + test years
-if YEAR_TRAIN is not None:
-    all_years = list(YEAR_TRAIN) + list(YEAR_TEST)
-    before_count = prot_df['assembly_id'].nunique()
-    prot_df = prot_df[prot_df["year"].isin(all_years)]
-    after_count = prot_df['assembly_id'].nunique()
-    print(f"Temporal filter: kept {after_count} isolates from years {sorted(all_years)} "
-          f"(dropped {before_count - after_count})")
+
+# Jim's balancing request
+# Subtype balancing (downsample to equal per-subtype representation).
+# No-op when mode=natural, which is the default and preserves natural subtype distribution.
+# See docs/plans/subtype_balancing_plan.md.
+# Mutually exclusive with max_isolates_to_process (both sample isolates) and
+# with dataset.hn_subtype (single-subtype filter contradicts multi-subtype balancing).
+print("\nApply subtype balancing (if requested)...")
+subtype_sel_cfg = getattr(config.dataset, 'subtype_selection', None)
+subtype_sel_mode = getattr(subtype_sel_cfg, 'mode', 'natural') if subtype_sel_cfg is not None else 'natural'
+if subtype_sel_mode == 'balanced':
+    # Subtype balancing and max_isolates_to_process can't be used together (since
+    # both aim to sub-sample isolates so it's unclear which should take precedence)
+    if MAX_ISOLATES_TO_PROCESS is not None:
+        raise ValueError(
+            f"dataset.subtype_selection.mode=balanced is incompatible with "
+            f"dataset.max_isolates_to_process={MAX_ISOLATES_TO_PROCESS} (both perform sub-sampling of isolates). "
+            "Set max_isolates_to_process=null or subtype_selection.mode=natural."
+        )
+    # Subtype balancing and single-subtype filtering are incompatible (contradictory goals)
+    if hn_subtype_filter is not None:
+        raise ValueError(
+            f"dataset.subtype_selection.mode=balanced is incompatible with "
+            f"dataset.hn_subtype={hn_subtype_filter!r} (single-subtype filter contradicts "
+            "multi-subtype balancing). Unset the single-subtype filter or use "
+            "subtype_selection.mode=natural."
+        )
+prot_df = select_balanced_isolate_pool(
+    prot_df,
+    subtype_sel_cfg,
+    master_seed=RANDOM_SEED,
+    output_dir=output_dir,
+)
 
 # Sample a subset of isolates from the dataframe
 sampled_isolates_file = output_dir / 'sampled_isolates.txt'
@@ -1697,61 +395,72 @@ if MAX_ISOLATES_TO_PROCESS:
             size=MAX_ISOLATES_TO_PROCESS,
             replace=False,
         )
-        sampled_isolates = sorted(sampled_isolates.tolist())
+        sampled_isolates = sorted(sampled_isolates)
     sampled_isolates_file.parent.mkdir(parents=True, exist_ok=True)
     with open(sampled_isolates_file, 'w') as f:
         for isolate in sampled_isolates:
             f.write(f"{isolate}\n")
     print(f"Wrote list of {len(sampled_isolates)} sampled isolates to {sampled_isolates_file}")
 
-    original_count = len(prot_df)
+    before_count = len(prot_df)
     prot_df = prot_df[prot_df['assembly_id'].isin(sampled_isolates)].reset_index(drop=True)
-    print(f"Filtered {len(prot_df)} protein records from {original_count} after isolate sampling.")
+    print(f"Filtered {len(prot_df)} protein records from {before_count} after isolate sampling.")
 
-# Restrict to selected functions if specified
-# TODO: consider adapting implementation from compute_esm2_embeddings.py
-# breakpoint()
-if USE_SELECTED_ONLY:
-    if hasattr(config.virus, 'selected_functions') and config.virus.selected_functions:
-        # Both Flu A and Bunya can use selected_functions approach
-        # For Flu A: selected_functions = specific protein functions
-        # For Bunya: selected_functions = core protein functions (L, M, S)
-        if 'function' not in prot_df.columns:
-            raise ValueError("'function' column not found in protein data")
-        print(f"Filtering to selected functions: {config.virus.selected_functions}")
-        mask = prot_df['function'].isin(config.virus.selected_functions)
-        df = prot_df[mask].reset_index(drop=True)
-        print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected functions.")
-    else:
-        raise ValueError("use_selected_only is True but no selected_functions defined in config")
-else:
-    df = prot_df.reset_index(drop=True)
+# Restrict to config.virus.selected_functions. Both Flu A and Bunya require
+# this: Flu A picks major protein functions; Bunya picks core L/M/S.
+if not (hasattr(config.virus, 'selected_functions') and config.virus.selected_functions):
+    raise ValueError("config.virus.selected_functions must be set and non-empty")
+if 'function' not in prot_df.columns:
+    raise ValueError("'function' column not found in protein data")
+print(f"Filtering to selected functions: {config.virus.selected_functions}")
+mask = prot_df['function'].isin(config.virus.selected_functions)
+df = prot_df[mask].reset_index(drop=True)
+print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected functions.")
 
-# Add sequence hash for duplicate detection (used by canonical_pair_key, cooccur_pairs, etc.)
-df['seq_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
+# Add sequence hash for duplicate detection (used by canonical_pair_key, cooccur_pairs, etc.).
+# Stage 1 (preprocess_flu.py) already writes `prot_hash` to protein_final.csv; reuse it when
+# present so the hash algorithm lives in exactly one place.
+if 'prot_hash' not in df.columns:
+    df['prot_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
-# Pair-mode validation / schema parsing (validation-stage: keep loud + explicit)
-if PAIR_MODE not in {"unordered", "schema_ordered"}:
-    raise ValueError(f"Unknown dataset.pair_mode: {PAIR_MODE!r} (expected 'unordered' or 'schema_ordered')")
-
+# Schema-pair parsing (shared by v1 and v2). PAIR_MODE validity check and
+# v1-only notes (canonicalize override, same-func controls) live in the v1
+# dispatch branch; v2 enforces schema_ordered via _validate_v2_config.
 schema_pair: Optional[Tuple[str, str]] = None
-canonicalize_pair_orientation_enabled = CANONICALIZE_PAIR_ORIENTATION
 
 if PAIR_MODE == "schema_ordered":
-    # In schema mode, A/B semantics are defined by function schema (func_left -> *_a, func_right -> *_b),
-    # so hash-based canonicalization conflicts with those semantics and is disabled.
-    if canonicalize_pair_orientation_enabled:
-        print("Note: dataset.pair_mode='schema_ordered' disables dataset.canonicalize_pair_orientation")
-        canonicalize_pair_orientation_enabled = False
-
     if SCHEMA_PAIR_RAW is None:
         raise ValueError("dataset.schema_pair must be set when dataset.pair_mode='schema_ordered'")
     schema_list = list(SCHEMA_PAIR_RAW)
     if len(schema_list) != 2:
         raise ValueError(f"dataset.schema_pair must be length 2, got: {schema_list!r}")
-    func_left, func_right = str(schema_list[0]), str(schema_list[1])
-    if func_left == func_right:
+    f0, f1 = str(schema_list[0]), str(schema_list[1])
+    if f0 == f1:
         raise ValueError(f"dataset.schema_pair must contain two different functions, got: {schema_list!r}")
+
+    # Canonicalize schema order using virus.protein_order so [A,B] and [B,A]
+    # produce identical datasets. Without this, unit_diff would silently
+    # sign-flip between bundles that differ only in YAML ordering.
+    if not (hasattr(config.virus, 'protein_order') and config.virus.protein_order):
+        raise ValueError(
+            "config.virus.protein_order must be set and non-empty for pair_mode='schema_ordered'"
+        )
+    canonical_order = list(config.virus.protein_order)
+    unknown = [f for f in (f0, f1) if f not in canonical_order]
+    if unknown:
+        raise ValueError(
+            f"dataset.schema_pair contains functions not in virus.protein_order: {unknown!r}. "
+            f"Add them to conf/virus/{VIRUS_NAME}.yaml:protein_order or fix the bundle."
+        )
+    # Ensure canonical order for left and right functions in the pair
+    if canonical_order.index(f0) <= canonical_order.index(f1):
+        func_left, func_right = f0, f1
+    else:
+        func_left, func_right = f1, f0
+        print(
+            f"INFO: schema_pair reordered to canonical segment order: "
+            f"({f0!r}, {f1!r}) -> ({func_left!r}, {func_right!r})"
+        )
     schema_pair = (func_left, func_right)
 
     # Validate that schema functions exist in the filtered dataframe.
@@ -1763,140 +472,400 @@ if PAIR_MODE == "schema_ordered":
             f"missing={missing!r}, available_n={len(available_funcs):,}"
         )
 
-    # In schema mode, same-function negative controls are irrelevant by construction.
-    if ALLOW_SAME_FUNC_NEGATIVES or MAX_SAME_FUNC_RATIO:
-        print("Note: schema_ordered mode ignores same-function negative controls (schema_pair is cross-function).")
-
 # Validate brc_fea_id uniqueness within isolates
 dups = df[df.duplicated(subset=['assembly_id', 'brc_fea_id'], keep=False)]
 if not dups.empty:
     raise ValueError(f"Duplicate brc_fea_id found within isolates: \
         {dups[['assembly_id', 'brc_fea_id']]}")
 
-# Settings (using config values)
-neg_to_pos_ratio = NEG_TO_POS_RATIO
-allow_same_func_negatives = ALLOW_SAME_FUNC_NEGATIVES
-max_same_func_ratio = MAX_SAME_FUNC_RATIO
-
-# Shared kwargs for split_dataset (both single-split and CV modes)
-split_kwargs = dict(
-    df=df,
-    neg_to_pos_ratio=neg_to_pos_ratio,
-    allow_same_func_negatives=allow_same_func_negatives,
-    max_same_func_ratio=max_same_func_ratio,
-    hard_partition_isolates=HARD_PARTITION_ISOLATES,
-    train_ratio=TRAIN_RATIO,
-    val_ratio=VAL_RATIO,
-    seed=RANDOM_SEED,
-    canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
-    pair_mode=PAIR_MODE,
-    schema_pair=schema_pair,
-)
-
-# filters_applied dict reused by save_split_output for provenance
+# filters_applied dict reused by save_split_output_v2 for provenance
 filters_applied = {
+    'hn_subtype': hn_subtype_filter,
     'host': host_filter,
     'year': year_filter,
-    'hn_subtype': hn_subtype_filter,
+    'year_range': list(year_range_filter) if year_range_filter is not None else None,
     'geo_location': geo_location_filter,
     'passage': passage_filter,
     'pair_mode': PAIR_MODE,
     'schema_pair': list(schema_pair) if schema_pair is not None else None,
-    'year_train': YEAR_TRAIN,
-    'year_test': YEAR_TEST,
 }
 
-if N_FOLDS is not None and N_FOLDS > 1:
-    # ── CV mode: generate all N folds in one run ──────────────────────────
-    print(f'\nCV mode: generating {N_FOLDS} folds (seed={RANDOM_SEED}).')
-    folds = generate_all_cv_folds(
-        df=df,
-        n_folds=N_FOLDS,
-        seed=RANDOM_SEED,
-        neg_to_pos_ratio=neg_to_pos_ratio,
-        allow_same_func_negatives=allow_same_func_negatives,
-        max_same_func_ratio=max_same_func_ratio,
-        hard_partition_isolates=HARD_PARTITION_ISOLATES,
-        val_ratio=VAL_RATIO,
-        canonicalize_pair_orientation_enabled=canonicalize_pair_orientation_enabled,
-        pair_mode=PAIR_MODE,
-        schema_pair=schema_pair,
+if PAIR_BUILDER_VERSION == 'v2':
+    # v2 dispatch. v2 is opt-in via dataset.pair_builder_version=v2; v1 path
+    # below is unchanged. See docs/plans/done/design_dataset_gen_v2.md.
+
+    # v2-only config knobs.
+    MAX_ATTEMPTS_PER_SEQ = getattr(config.dataset, 'max_attempts_per_seq', 50)
+    AXES_FOR_FLAGS = list(getattr(config.dataset, 'axes_for_flags',
+                                  ['hn_subtype', 'host', 'year', 'geo_location', 'passage']))
+
+    NEG_SAMPLING_CFG = getattr(config.dataset, 'negative_sampling', None)
+    AXIS_QUOTAS = None
+    SAMPLING_AXES = None
+    YEAR_MATCH = 'binned'
+    YEAR_BIN_EDGES = None
+    ON_SHORTFALL = 'redistribute'
+    # Regime-aware coverage gate; default False keeps existing builds identical.
+    # See docs/plans/2026-05-14_regime_aware_coverage_plan.md.
+    REGIME_AWARE_COVERAGE = False
+
+    # Split-strategy dispatch (validated by _validate_v2_config below). Default
+    # 'random' preserves existing v2 behavior. See
+    # docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
+    # docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+    SPLIT_STRATEGY_CFG = getattr(config.dataset, 'split_strategy', None)
+    SPLIT_STRATEGY_MODE = 'random'
+    # hash_key picks the routing hash family when mode=seq_disjoint:
+    # 'seq' = protein (default, stricter); 'dna' = nucleotide (looser, but
+    # appropriate when training features are DNA-derived such as k-mer).
+    SPLIT_STRATEGY_HASH_KEY = 'seq'
+    # cluster_id_path and cluster_id_threshold only consumed when mode='cluster_disjoint'.
+    # cluster_alphabet picks the clustering alphabet: aa / nt_cds / nt_ctg (default aa).
+    # cds_final_path provides cds_dna_hash; needed when the nt_cds alphabet is used.
+    CLUSTER_ID_PATH = None
+    CLUSTER_ID_THRESHOLD = None
+    CLUSTER_ALPHABET = 'aa'
+    CDS_FINAL_PATH = None
+    # pair_key_alphabet: which hash family the pair_key is built on
+    # (aa = prot_hash, nt_cds = cds_dna_hash, nt_ctg = ctg_dna_hash).
+    # Default: 'nt_cds' when cluster_alphabet='nt_cds' under cluster_disjoint,
+    # else 'aa' (nt_ctg falls here too -> set pair_key_alphabet explicitly for it).
+    # Explicit override via `dataset.split_strategy.pair_key_alphabet`
+    # (e.g., random routing + nt_cds dedup).
+    PAIR_KEY_ALPHABET = 'aa'
+    # single_slot is a cluster_disjoint-only sub-knob. None = bilateral (both
+    # slots' clusters disjoint, default); 'a' or 'b' = constrain only that
+    # slot's clusters, leaving the other slot unconstrained. Unlocks lower
+    # idXX thresholds when bilateral cliffs into a mega-component — see
+    # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.
+    SINGLE_SLOT = None
+    NEGATIVE_SCOPE = 'coverage'  # 'coverage' (default) | 'within_fold' (cluster_disjoint single-slot)
+    if SPLIT_STRATEGY_CFG is not None:
+        m = getattr(SPLIT_STRATEGY_CFG, 'mode', None)
+        if m is not None:
+            SPLIT_STRATEGY_MODE = str(m)
+        hk = getattr(SPLIT_STRATEGY_CFG, 'hash_key', None)
+        if hk is not None:
+            SPLIT_STRATEGY_HASH_KEY = str(hk)
+        cp = getattr(SPLIT_STRATEGY_CFG, 'cluster_id_path', None)
+        if cp is not None:
+            CLUSTER_ID_PATH = str(cp)
+        ct = getattr(SPLIT_STRATEGY_CFG, 'cluster_id_threshold', None)
+        if ct is not None:
+            CLUSTER_ID_THRESHOLD = float(ct)
+        ca = getattr(SPLIT_STRATEGY_CFG, 'cluster_alphabet', None)
+        if ca is not None:
+            CLUSTER_ALPHABET = str(ca)
+        cf = getattr(SPLIT_STRATEGY_CFG, 'cds_final_path', None)
+        if cf is not None:
+            CDS_FINAL_PATH = str(cf)
+        ss = getattr(SPLIT_STRATEGY_CFG, 'single_slot', None)
+        if ss is not None:
+            SINGLE_SLOT = str(ss)
+            if SINGLE_SLOT not in ('a', 'b'):
+                raise ValueError(
+                    f"dataset.split_strategy.single_slot must be 'a' or 'b' or null; "
+                    f"got {SINGLE_SLOT!r}"
+                )
+        ns = getattr(SPLIT_STRATEGY_CFG, 'negative_scope', None)
+        if ns is not None:
+            NEGATIVE_SCOPE = str(ns)
+            if NEGATIVE_SCOPE not in ('coverage', 'within_fold'):
+                raise ValueError(
+                    f"dataset.split_strategy.negative_scope must be 'coverage' or "
+                    f"'within_fold'; got {NEGATIVE_SCOPE!r}"
+                )
+        # pair_key_alphabet: explicit override; default inferred from
+        # cluster_alphabet (or 'aa' if no cluster routing). Inference happens
+        # after the CLUSTER_ALPHABET block above has run.
+        pk = getattr(SPLIT_STRATEGY_CFG, 'pair_key_alphabet', None)
+        if pk is not None:
+            PAIR_KEY_ALPHABET = str(pk)
+            if PAIR_KEY_ALPHABET not in ('aa', 'nt_cds', 'nt_ctg'):
+                raise ValueError(
+                    f"dataset.split_strategy.pair_key_alphabet must be 'aa', 'nt_cds', "
+                    f"or 'nt_ctg', got {PAIR_KEY_ALPHABET!r}"
+                )
+        else:
+            # Default inference: 'nt_cds' for nt_cds cluster_disjoint, 'aa' otherwise
+            # (nt_ctg falls here too -> 'aa'; use an explicit pair_key_alphabet for nt_ctg).
+            if SPLIT_STRATEGY_MODE == 'cluster_disjoint' and CLUSTER_ALPHABET == 'nt_cds':
+                PAIR_KEY_ALPHABET = 'nt_cds'
+            else:
+                PAIR_KEY_ALPHABET = 'aa'
+    # D3 feasibility knobs for k-fold cluster_disjoint (read from
+    # split_strategy.feasibility.*; defaults match D3 of the k-fold plan).
+    # See docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md D3.
+    MAX_ACCEPTABLE_DRIFT_PP = 0.05
+    MIN_TEST_FRAC = 0.05
+    if SPLIT_STRATEGY_CFG is not None:
+        feas = getattr(SPLIT_STRATEGY_CFG, 'feasibility', None)
+        if feas is not None:
+            mdp = getattr(feas, 'max_acceptable_drift_pp', None)
+            if mdp is not None:
+                MAX_ACCEPTABLE_DRIFT_PP = float(mdp)
+            mtf = getattr(feas, 'min_test_frac', None)
+            if mtf is not None:
+                MIN_TEST_FRAC = float(mtf)
+    # Default CDS path: data/processed/<virus>/<version>/cds_dna_final.parquet
+    # (alongside the input protein_final).
+    if CLUSTER_ALPHABET == 'nt_cds' and CDS_FINAL_PATH is None:
+        CDS_FINAL_PATH = str(input_file.parent / 'cds_dna_final.parquet')
+    if NEG_SAMPLING_CFG is not None:
+        from omegaconf import OmegaConf
+        rt = OmegaConf.to_container(NEG_SAMPLING_CFG.regime_targets, resolve=True)
+        AXIS_QUOTAS = {k: float(v) for k, v in rt.items()}
+        ax = getattr(NEG_SAMPLING_CFG, 'axes', None)
+        if ax is not None:
+            SAMPLING_AXES = list(ax)
+        ym = getattr(NEG_SAMPLING_CFG, 'year_match', None)
+        if ym is not None:
+            YEAR_MATCH = str(ym)
+        yb = getattr(NEG_SAMPLING_CFG, 'year_bin_edges', None)
+        if yb is not None:
+            YEAR_BIN_EDGES = [tuple(row) for row in OmegaConf.to_container(yb, resolve=True)]
+        os_v = getattr(NEG_SAMPLING_CFG, 'on_shortfall', None)
+        if os_v is not None:
+            ON_SHORTFALL = str(os_v)
+        rac = getattr(NEG_SAMPLING_CFG, 'regime_aware_coverage', None)
+        if rac is not None:
+            REGIME_AWARE_COVERAGE = bool(rac)
+
+    from src.datasets.dataset_segment_pairs_v2 import (
+        _validate_v2_config,
+        compute_metadata_coverage,
+        generate_all_cluster_disjoint_cv_folds_v2,
+        generate_all_cv_folds_v2,
+        save_split_output_v2,
+        split_dataset_v2,
     )
 
-    # Write top-level CV metadata
-    cv_info = {
-        'n_folds': N_FOLDS,
-        'master_seed': RANDOM_SEED,
-        'fold_seeds': {i: RANDOM_SEED + i for i in range(N_FOLDS)},
-        'bundle': config_bundle,
-        'fold_dirs': [f'fold_{i}' for i in range(N_FOLDS)],
-    }
-    with open(output_dir / 'cv_info.json', 'w') as f:
-        json.dump(cv_info, f, indent=2)
-    print(f"Saved CV metadata to: {output_dir / 'cv_info.json'}")
+    _validate_v2_config(config)
 
-    # Save each fold
-    for fold_data in folds:
-        fold_dir = output_dir / f"fold_{fold_data['fold_id']}"
-        print(f"\nSaving fold {fold_data['fold_id'] + 1}/{N_FOLDS} to: {fold_dir}")
-        save_split_output(
-            output_dir=fold_dir,
-            train_pairs=fold_data['train_pairs'],
-            val_pairs=fold_data['val_pairs'],
-            test_pairs=fold_data['test_pairs'],
-            duplicate_stats=fold_data['duplicate_stats'],
+    # Narrow df to schema_pair rows. v2 hard-codes pair_mode='schema_ordered',
+    # so only (func_left, func_right) rows can appear in pair generation,
+    # cooccur queries, axis flags, or exposure tables. Restricting df once here
+    # avoids a ~C(|selected_functions|, 2)x bloat in build_cooccurrence_set
+    # and seq_to_isolates, and keeps the QC artifact (metadata_coverage.json)
+    # describing the same population that drives pair generation.
+    df = df[df['function'].isin(schema_pair)].reset_index(drop=True)
+
+    # Pre-attach cds_dna_hash when pair_key_alphabet='nt_cds'. v2's
+    # create_positive_pairs_v2 + build_cooccurrence_set expect the column
+    # on df; pair_key is built on cds_dna_hash_{a,b} instead of prot_hash_{a,b}.
+    # Resolves cds_final path from CDS_FINAL_PATH (set above when
+    # cluster_alphabet='nt_cds') or from the input file's parent dir.
+    if PAIR_KEY_ALPHABET == 'nt_cds':
+        from src.datasets._pair_helpers import attach_cds_dna_hash_to_prot_df
+        cds_path = CDS_FINAL_PATH
+        if cds_path is None:
+            cds_path = str(input_file.parent / 'cds_dna_final.parquet')
+        print(f'\nv2: pair_key_alphabet=nt_cds — attaching cds_dna_hash to df '
+              f'from {cds_path}')
+        df = attach_cds_dna_hash_to_prot_df(df, cds_path)
+
+    # Per-run artifact: written once after df is finalized and before split /
+    # CV branching. The launcher (run_cv_lambda.py) needs no changes -- the
+    # file simply lands in the parent of fold_*/ in CV mode.
+    # TODO. Check the issue in compute_metadata_coverage() function docstring
+    print('\nv2: computing metadata_coverage.json (per-run artifact)...')
+    coverage = compute_metadata_coverage(df, axes=AXES_FOR_FLAGS)
+    with open(output_dir / 'metadata_coverage.json', 'w') as f:
+        json.dump(coverage, f, indent=2, default=str)
+    print(f"Saved metadata coverage to: {output_dir / 'metadata_coverage.json'}")
+
+    if N_FOLDS is not None and N_FOLDS > 1:
+        # v2 CV mode
+        print(f'\nv2 CV mode: generating {N_FOLDS} folds (seed={RANDOM_SEED}).')
+        cv_info = {
+            'n_folds': N_FOLDS,
+            'master_seed': RANDOM_SEED,
+            'fold_seeds': {i: RANDOM_SEED + i for i in range(N_FOLDS)},
+            'bundle': config_bundle,
+            'fold_dirs': [f'fold_{i}' for i in range(N_FOLDS)],
+            'pair_builder_version': 'v2',
+        }
+        with open(output_dir / 'cv_info.json', 'w') as f:
+            json.dump(cv_info, f, indent=2)
+        print(f"Saved CV metadata to: {output_dir / 'cv_info.json'}")
+
+        # Dispatch the CV generator by split mode:
+        # - cluster_disjoint + single_slot: new k-fold generator from Phase 3
+        #   of the k-fold variance plan (GroupKFold-on-cluster_id +
+        #   collect-all D3 + D4 menu).
+        # - all other modes (random / seq_disjoint*): existing
+        #   isolate-KFold-on-random generator. (*seq_disjoint with N_FOLDS>1
+        #   is still rejected by _validate_v2_config at the moment.)
+        use_cluster_disjoint_kfold = (
+            SPLIT_STRATEGY_MODE == 'cluster_disjoint' and SINGLE_SLOT is not None
+        )
+        if use_cluster_disjoint_kfold:
+            print(f'v2 CV mode: routing via cluster_disjoint k-fold '
+                  f"(single_slot={SINGLE_SLOT!r}, alphabet={CLUSTER_ALPHABET!r}, "
+                  f'threshold={CLUSTER_ID_THRESHOLD}, '
+                  f'max_acceptable_drift_pp={MAX_ACCEPTABLE_DRIFT_PP}, '
+                  f'min_test_frac={MIN_TEST_FRAC})')
+            cv_gen = generate_all_cluster_disjoint_cv_folds_v2(
+                df=df,
+                n_folds=N_FOLDS,
+                seed=RANDOM_SEED,
+                neg_to_pos_ratio=NEG_TO_POS_RATIO,
+                val_ratio=VAL_RATIO,
+                schema_pair=schema_pair,
+                single_slot=SINGLE_SLOT,
+                cluster_id_path=CLUSTER_ID_PATH,
+                cluster_id_threshold=CLUSTER_ID_THRESHOLD,
+                cluster_alphabet=CLUSTER_ALPHABET,
+                cds_final_path=CDS_FINAL_PATH,
+                max_acceptable_drift_pp=MAX_ACCEPTABLE_DRIFT_PP,
+                min_test_frac=MIN_TEST_FRAC,
+                max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
+                axes_for_flags=AXES_FOR_FLAGS,
+                axis_quotas=AXIS_QUOTAS,
+                sampling_axes=SAMPLING_AXES,
+                year_match=YEAR_MATCH,
+                year_bin_edges=YEAR_BIN_EDGES,
+                on_shortfall=ON_SHORTFALL,
+                regime_aware_coverage=REGIME_AWARE_COVERAGE,
+                pair_key_alphabet=PAIR_KEY_ALPHABET,
+                negative_scope=NEGATIVE_SCOPE,
+            )
+        else:
+            cv_gen = generate_all_cv_folds_v2(
+                df=df,
+                n_folds=N_FOLDS,
+                seed=RANDOM_SEED,
+                neg_to_pos_ratio=NEG_TO_POS_RATIO,
+                val_ratio=VAL_RATIO,
+                schema_pair=schema_pair,
+                max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
+                axes_for_flags=AXES_FOR_FLAGS,
+                axis_quotas=AXIS_QUOTAS,
+                sampling_axes=SAMPLING_AXES,
+                year_match=YEAR_MATCH,
+                year_bin_edges=YEAR_BIN_EDGES,
+                on_shortfall=ON_SHORTFALL,
+                regime_aware_coverage=REGIME_AWARE_COVERAGE,
+                pair_key_alphabet=PAIR_KEY_ALPHABET,
+            )
+
+        # Stream each fold to disk as it's produced (reduces peak memory; lets
+        # progress show up on disk while later folds are still computing).
+        for fold_data in cv_gen:
+            fold_dir = output_dir / f"fold_{fold_data['fold_id']}"
+            print(f"\nSaving fold {fold_data['fold_id'] + 1}/{N_FOLDS} to: {fold_dir}")
+            save_split_output_v2(
+                output_dir=fold_dir,
+                train_pairs=fold_data['train_pairs'],
+                val_pairs=fold_data['val_pairs'],
+                test_pairs=fold_data['test_pairs'],
+                duplicate_stats=fold_data['duplicate_stats'],
+                exposure_tables=fold_data['exposure_tables'],
+                df=df,
+                config_bundle=config_bundle,
+                schema_pair=schema_pair,
+                filters_applied=filters_applied,
+                axes_for_flags=AXES_FOR_FLAGS,
+                generate_visualizations=GENERATE_VISUALIZATIONS,
+                skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
+                skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
+                holdout_cfg=None,  # validator forbids holdout + CV combo
+            )
+    else:
+        # v2 single-split mode. (Temporal/legacy year_train was removed
+        # 2026-05-11; see docs/plans/2026-05-11_metadata_holdout_plan.md.)
+        # If dataset.metadata_holdout is set, compute the three isolate-id
+        # lists from the per-slot filters and pass them through the existing
+        # *_isolates_override hook on split_dataset_v2.
+        HOLDOUT_CFG = getattr(config.dataset, 'metadata_holdout', None)
+        holdout_train_ids = holdout_val_ids = holdout_test_ids = None
+        holdout_dropped_df = None
+        holdout_dict = None
+        if HOLDOUT_CFG is not None:
+            from omegaconf import OmegaConf
+
+            from src.datasets._pair_helpers import compute_metadata_holdout_isolates
+            holdout_dict = OmegaConf.to_container(HOLDOUT_CFG, resolve=True)
+            holdout_train_ids, holdout_val_ids, holdout_test_ids, holdout_dropped_df = \
+                compute_metadata_holdout_isolates(
+                    df, holdout_dict, seed=RANDOM_SEED, val_ratio=VAL_RATIO,
+                )
+
+        print('\nv2: single-split mode: generate train/val/test...')
+        _t = time.time()
+        train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables = split_dataset_v2(
+            df=df,
+            schema_pair=schema_pair,
+            neg_to_pos_ratio=NEG_TO_POS_RATIO,
+            train_ratio=TRAIN_RATIO,
+            val_ratio=VAL_RATIO,
+            seed=RANDOM_SEED,
+            max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
+            axes_for_flags=AXES_FOR_FLAGS,
+            axis_quotas=AXIS_QUOTAS,
+            sampling_axes=SAMPLING_AXES,
+            year_match=YEAR_MATCH,
+            year_bin_edges=YEAR_BIN_EDGES,
+            on_shortfall=ON_SHORTFALL,
+            regime_aware_coverage=REGIME_AWARE_COVERAGE,
+            split_strategy_mode=SPLIT_STRATEGY_MODE,
+            split_strategy_hash_key=SPLIT_STRATEGY_HASH_KEY,
+            cluster_id_path=CLUSTER_ID_PATH,
+            cluster_id_threshold=CLUSTER_ID_THRESHOLD,
+            cluster_alphabet=CLUSTER_ALPHABET,
+            cds_final_path=CDS_FINAL_PATH,
+            single_slot=SINGLE_SLOT,
+            train_isolates_override=holdout_train_ids,
+            val_isolates_override=holdout_val_ids,
+            test_isolates_override=holdout_test_ids,
+            pair_key_alphabet=PAIR_KEY_ALPHABET,
+        )
+        print(f"stage3 v2: split_dataset_v2 (done in {time.time()-_t:.2f}s)", flush=True)
+
+        # Persist metadata_holdout artifacts next to dataset_stats.json.
+        if holdout_dropped_df is not None:
+            holdout_dropped_path = output_dir / 'metadata_holdout_dropped.csv'
+            holdout_dropped_df.to_csv(holdout_dropped_path, index=False)
+            print(f"Saved metadata_holdout dropped-isolates manifest "
+                  f"({len(holdout_dropped_df):,} isolate(s)) to: {holdout_dropped_path}")
+            # Stash a summary to be merged into dataset_stats.json by the saver.
+            duplicate_stats['metadata_holdout'] = {
+                'config': holdout_dict,
+                'n_train_isolates': len(holdout_train_ids),
+                'n_val_isolates': len(holdout_val_ids),
+                'n_test_isolates': len(holdout_test_ids),
+                'n_dropped': int(len(holdout_dropped_df)),
+                'val_source': (
+                    'explicit_filter' if (holdout_dict.get('val') is not None)
+                    else 'carved_from_train'
+                ),
+            }
+
+        print(f'\nSave datasets: {output_dir}')
+        # breakpoint()
+        save_split_output_v2(
+            output_dir=output_dir,
+            train_pairs=train_pairs,
+            val_pairs=val_pairs,
+            test_pairs=test_pairs,
+            duplicate_stats=duplicate_stats,
+            exposure_tables=exposure_tables,
             df=df,
             config_bundle=config_bundle,
-            pair_mode=PAIR_MODE,
             schema_pair=schema_pair,
             filters_applied=filters_applied,
+            axes_for_flags=AXES_FOR_FLAGS,
             generate_visualizations=GENERATE_VISUALIZATIONS,
+            skip_esm_pca_plots=SKIP_ESM_PCA_PLOTS,
+            skip_kmer_pca_plots=SKIP_KMER_PCA_PLOTS,
+            holdout_cfg=holdout_dict,
         )
 
-elif YEAR_TRAIN is not None:
-    # ── Temporal holdout mode ─────────────────────────────────────────────
-    print(f'\nTemporal holdout: train={YEAR_TRAIN}, test={YEAR_TEST}')
-    train_pairs, val_pairs, test_pairs, duplicate_stats = generate_temporal_split(
-        prot_df=df,
-        year_train=YEAR_TRAIN,
-        year_test=YEAR_TEST,
-        val_ratio=VAL_RATIO,
-        split_kwargs=split_kwargs,
-    )
-
-    print(f'\nSave datasets: {output_dir}')
-    save_split_output(
-        output_dir=output_dir,
-        train_pairs=train_pairs,
-        val_pairs=val_pairs,
-        test_pairs=test_pairs,
-        duplicate_stats=duplicate_stats,
-        df=df,
-        config_bundle=config_bundle,
-        pair_mode=PAIR_MODE,
-        schema_pair=schema_pair,
-        filters_applied=filters_applied,
-        generate_visualizations=GENERATE_VISUALIZATIONS,
-    )
-
 else:
-    # ── Single-split mode (existing behavior) ─────────────────────────────
-    print('\nSplit dataset and create pairs.')
-    train_pairs, val_pairs, test_pairs, duplicate_stats = split_dataset(**split_kwargs)
-
-    print(f'\nSave datasets: {output_dir}')
-    save_split_output(
-        output_dir=output_dir,
-        train_pairs=train_pairs,
-        val_pairs=val_pairs,
-        test_pairs=test_pairs,
-        duplicate_stats=duplicate_stats,
-        df=df,
-        config_bundle=config_bundle,
-        pair_mode=PAIR_MODE,
-        schema_pair=schema_pair,
-        filters_applied=filters_applied,
-        generate_visualizations=GENERATE_VISUALIZATIONS,
+    raise ValueError(
+        f"pair_builder_version={PAIR_BUILDER_VERSION!r} is not supported. The v1 builder "
+        "was retired 2026-06-03; only 'v2' remains. See "
+        "docs/plans/2026-06-03_deprecate_v1_builder_plan.md."
     )
 
 print(f'\nDone. Finished {Path(__file__).name}.')

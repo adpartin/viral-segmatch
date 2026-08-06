@@ -1,0 +1,15 @@
+# STATUS: experimental -- HA/NA 2D-CD CV on aa.
+# Built by src/datasets/dataset_pairs_cc.py.
+
+defaults:
+  - flu_ha_na_cc
+  - _self_
+
+dataset:
+  split_strategy:
+    cluster_alphabet: aa
+    cluster_id_path: data/processed/flu/July_2025/clusters_aa/t099/combined_cluster.parquet
+
+kmer:
+  alphabet: aa
+  k: 3

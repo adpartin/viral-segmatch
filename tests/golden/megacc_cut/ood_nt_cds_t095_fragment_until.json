@@ -1,0 +1,24 @@
+{
+  "_note": "fragment_until on OOD nt_cds t095. The spectral cut uses a DIRECT dense eigensolve on a canonical (sorted) node-order Laplacian (_megacc_cut._bisect), so it is bit-deterministic across processes -- these are EXACT expected values, not a range. (Before, nx.fiedler_vector's iterative tracemin_pcg wobbled across processes.)",
+  "threshold": "t095",
+  "cut_method": "spectral",
+  "seed": 1,
+  "natural_atoms": 108,
+  "budget_bound": {
+    "target_atoms": 10000,
+    "max_drop_frac": 0.02,
+    "n_atoms": 124,
+    "n_cuts": 16,
+    "pairs_dropped": 1394,
+    "dropped_frac": 0.017698,
+    "stopped_reason": "max_drop_frac"
+  },
+  "target_bound": {
+    "target_atoms": 115,
+    "max_drop_frac": 0.05,
+    "n_atoms": 115,
+    "n_cuts": 7,
+    "pairs_dropped": 69,
+    "stopped_reason": "stop_fn"
+  }
+}

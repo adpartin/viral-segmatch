@@ -57,9 +57,11 @@ import seaborn as sns
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.config_hydra import get_virus_config_hydra
+from src.utils.config_hydra import get_virus_config_hydra, get_function_short_name_map
 from src.utils.dim_reduction_utils import compute_pca_reduction
-from src.utils.plot_config import SPLIT_COLORS, SPLIT_MARKERS, LABEL_SCATTER_STYLES, apply_default_style
+from src.utils.plot_config import (
+    SPLIT_COLORS, SPLIT_MARKERS, LABEL_SCATTER_STYLES, apply_default_style,
+)
 from src.utils.embedding_utils import (
     create_pair_embeddings_concatenation,
     extract_unique_sequences_from_pairs,
@@ -68,6 +70,7 @@ from src.utils.embedding_utils import (
     plot_embeddings_by_category,
     sample_pairs_stratified,
 )
+from src.analysis.plot_kmer_routing_geometry import plot_kmer_routing_geometry
 
 
 def _collapse_to_top_n(series: pd.Series, top_n: int, other_label: str = 'Other') -> pd.Series:
@@ -103,7 +106,58 @@ def _load_pairs_minimal(run_dir: Path, split: str) -> Optional[pd.DataFrame]:
         return pd.read_csv(csv_path, low_memory=False)
 
 
-def _plot_pair_embedding_splits_2d(
+_CORNER_TO_AXES_XY = {
+    'upper left':  (0.02, 0.98, 'left',  'top'),
+    'upper right': (0.98, 0.98, 'right', 'top'),
+    'lower left':  (0.02, 0.02, 'left',  'bottom'),
+    'lower right': (0.98, 0.02, 'right', 'bottom'),
+}
+
+
+def _pick_sparse_corner(points_2d: np.ndarray, used: set[str], region_frac: float = 0.25) -> str:
+    """Pick a plot corner with few points to minimize legend/textbox overlap.
+
+    Uses a quadrant density heuristic on coordinates normalized to [0, 1].
+    """
+    x = points_2d[:, 0]
+    y = points_2d[:, 1]
+    xr = (x - np.nanmin(x)) / (np.nanmax(x) - np.nanmin(x) + 1e-12)
+    yr = (y - np.nanmin(y)) / (np.nanmax(y) - np.nanmin(y) + 1e-12)
+
+    corners = {
+        'upper left':  (xr <= region_frac) & (yr >= 1 - region_frac),
+        'upper right': (xr >= 1 - region_frac) & (yr >= 1 - region_frac),
+        'lower left':  (xr <= region_frac) & (yr <= region_frac),
+        'lower right': (xr >= 1 - region_frac) & (yr <= region_frac),
+    }
+    scores = []
+    for name, mask in corners.items():
+        if name in used:
+            continue
+        scores.append((int(np.sum(mask)), name))
+    if not scores:
+        return 'upper right'
+    scores.sort(key=lambda t: t[0])
+    return scores[0][1]
+
+
+def _draw_corner_textbox(ax, points_2d: np.ndarray, used_locs: set[str], text: str) -> None:
+    """Place a text box in a sparse corner of the axes (mutates `used_locs`)."""
+    if not text:
+        return
+    loc = _pick_sparse_corner(points_2d, used_locs)
+    used_locs.add(loc)
+    x0, y0, ha, va = _CORNER_TO_AXES_XY.get(loc, (0.98, 0.98, 'right', 'top'))
+    ax.text(
+        x0, y0, text,
+        transform=ax.transAxes,
+        ha=ha, va=va,
+        fontsize=9,
+        bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, edgecolor='0.7'),
+    )
+
+
+def _plot_pair_features_splits_2d(
     reduced_2d: np.ndarray,
     pairs: pd.DataFrame,
     splits: list[str],
@@ -114,8 +168,14 @@ def _plot_pair_embedding_splits_2d(
     title: str,
     output_path: Path,
     filters_text: str = "",
+    sample_text: str = "",
     ) -> None:
-    """Scatter plot of 2D embeddings, colored by split and styled by label (pos/neg)."""
+    """Scatter plot of 2D pair feature vectors, colored by split, styled by label.
+
+    The "feature vector" can be ESM-2 pair embeddings (concat/diff/prod/unit_diff)
+    or k-mer pair features — anything reducible to 2D. Color encodes split
+    (train/val/test); marker fill encodes label (positive filled, negative hollow).
+    """
     fig, ax = plt.subplots(1, 1, figsize=(12, 9))
     # Plot per (split × label) so we can keep split color semantics and still indicate pos/neg.
     for split in splits:
@@ -162,32 +222,6 @@ def _plot_pair_embedding_splits_2d(
         )
         for s in splits
     ]
-    def _pick_sparse_corner(points_2d: np.ndarray, used: set[str], region_frac: float = 0.25) -> str:
-        """Pick a plot corner with few points, to minimize legend/text overlap.
-
-        We use a simple quadrant density heuristic on normalized coordinates.
-        """
-        x = points_2d[:, 0]
-        y = points_2d[:, 1]
-        xr = (x - np.nanmin(x)) / (np.nanmax(x) - np.nanmin(x) + 1e-12)
-        yr = (y - np.nanmin(y)) / (np.nanmax(y) - np.nanmin(y) + 1e-12)
-
-        corners = {
-            'upper left':  (xr <= region_frac) & (yr >= 1 - region_frac),
-            'upper right': (xr >= 1 - region_frac) & (yr >= 1 - region_frac),
-            'lower left':  (xr <= region_frac) & (yr <= region_frac),
-            'lower right': (xr >= 1 - region_frac) & (yr <= region_frac),
-        }
-        scores = []
-        for name, mask in corners.items():
-            if name in used:
-                continue
-            scores.append((int(np.sum(mask)), name))
-        if not scores:
-            return 'upper right'
-        scores.sort(key=lambda t: t[0])
-        return scores[0][1]
-
     used_locs: set[str] = set()
 
     # Place Split legend inside the axes, in a sparse corner.
@@ -250,26 +284,9 @@ def _plot_pair_embedding_splits_2d(
     # Title: keep clean (no 2nd-row filter text). Filters go into an in-axes textbox only.
     ax.set_title(title, fontweight='bold', fontsize=14)
     if filters_text:
-        # Place Filters textbox in a sparse corner distinct from legends.
-        filters_loc = _pick_sparse_corner(reduced_2d, used_locs)
-        used_locs.add(filters_loc)
-
-        # Map legend-like loc strings to axes coordinates.
-        loc_to_xy = {
-            'upper left': (0.02, 0.98, 'left', 'top'),
-            'upper right': (0.98, 0.98, 'right', 'top'),
-            'lower left': (0.02, 0.02, 'left', 'bottom'),
-            'lower right': (0.98, 0.02, 'right', 'bottom'),
-        }
-        x0, y0, ha, va = loc_to_xy.get(filters_loc, (0.98, 0.98, 'right', 'top'))
-        ax.text(
-            x0, y0,
-            f"Filters:\n{filters_text}",
-            transform=ax.transAxes,
-            ha=ha, va=va,
-            fontsize=9,
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.85, edgecolor='0.7'),
-        )
+        _draw_corner_textbox(ax, reduced_2d, used_locs, f"Filters:\n{filters_text}")
+    if sample_text:
+        _draw_corner_textbox(ax, reduced_2d, used_locs, sample_text)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     plt.savefig(output_path, dpi=200, bbox_inches='tight')
@@ -302,10 +319,26 @@ def _load_filters_applied_from_run(run_dir: Path) -> dict:
         return {}
 
 
-def _format_filters_for_plot(filters_applied: Optional[dict]) -> str:
-    """Format dataset filters into a compact string for plot title/textbox."""
+def _format_filters_for_plot(
+    filters_applied: Optional[dict],
+    short_name_map: Optional[dict] = None,
+    ) -> str:
+    """Format dataset filters into a compact string for plot title/textbox.
+
+    `short_name_map` (e.g., the `function_short_names` block from the virus
+    config) is applied element-wise to any string filter value — so a filter
+    like `schema_pair=['Hemagglutinin precursor', 'Neuraminidase protein']`
+    renders as `schema_pair=['HA', 'NA']`.
+    """
     if not filters_applied:
         return ""
+
+    short_name_map = short_name_map or {}
+
+    def _shorten(x):
+        if isinstance(x, str):
+            return short_name_map.get(x, x)
+        return x
 
     parts: list[str] = []
     for k, v in filters_applied.items():
@@ -314,7 +347,7 @@ def _format_filters_for_plot(filters_applied: Optional[dict]) -> str:
 
         # Best-effort compact formatting for near-future multi-valued/range filters.
         if isinstance(v, (list, tuple, set)):
-            vv = list(v)
+            vv = [_shorten(x) for x in list(v)]
             if len(vv) == 0:
                 continue
             if len(vv) <= 4:
@@ -329,7 +362,7 @@ def _format_filters_for_plot(filters_applied: Optional[dict]) -> str:
                 parts.append(f"{k}={{...}}")
             continue
 
-        parts.append(f"{k}={v}")
+        parts.append(f"{k}={_shorten(v)}")
 
     return "; ".join(parts)
 
@@ -370,6 +403,26 @@ def _compute_interaction_features(
     return np.concatenate(features, axis=1)
 
 
+def _format_sample_counts(pairs: pd.DataFrame, per_split_totals: dict[str, int]) -> str:
+    """Compact 'sampled vs available' description for in-axes textbox.
+
+    `pairs` is the post-sampling concatenated frame with a `split` column;
+    `per_split_totals` is the pre-sampling row count from each split CSV.
+    """
+    if 'split' not in pairs.columns or not per_split_totals:
+        return ""
+    sampled_counts = pairs.groupby('split').size().to_dict()
+    total_sampled = int(sum(sampled_counts.values()))
+    total_available = int(sum(per_split_totals.values()))
+    lines = [f"Sampled: {total_sampled:,} / {total_available:,} pairs"]
+    for split in ('train', 'val', 'test'):
+        if split in per_split_totals:
+            n_s = int(sampled_counts.get(split, 0))
+            n_t = int(per_split_totals[split])
+            lines.append(f"  {split}: {n_s:,} / {n_t:,}")
+    return "\n".join(lines)
+
+
 def _interaction_spec_to_filename(interaction_spec: str) -> str:
     """Convert interaction spec to a safe filename component.
 
@@ -386,7 +439,8 @@ def plot_pair_interactions(
     interactions: Optional[list] = None,
     max_per_label_per_split: int = 1000,
     random_state: int = 42,
-) -> None:
+    function_short_names: Optional[dict] = None,
+    ) -> None:
     """Generate PCA scatter plots of pair embeddings for multiple interaction modes.
 
     For each interaction mode (e.g., concat, diff, prod, unit_diff), computes
@@ -425,18 +479,20 @@ def plot_pair_interactions(
     split_markers = SPLIT_MARKERS
 
     filters_applied = _load_filters_applied_from_run(run_dir)
-    filters_text = _format_filters_for_plot(filters_applied)
+    filters_text = _format_filters_for_plot(filters_applied, function_short_names)
 
     # ── 1. Load and sample pairs (once for all interactions) ──────────────
     sampled = []
+    per_split_totals: dict[str, int] = {}
     for split in splits:
-        df = _load_pairs_minimal(run_dir, split)
+        df = _load_pairs_minimal(run_dir, split)  # load only necessary columns for embedding visualization
         if df is None or len(df) == 0:
             continue
         if 'label' in df.columns:
             df = df.copy()
             df['label'] = pd.to_numeric(df['label'], errors='coerce')
             df = df[df['label'].isin([0, 1])]
+        per_split_totals[split] = int(len(df))
         df_s = sample_pairs_stratified(
             df,
             max_per_label=max_per_label_per_split,
@@ -447,10 +503,11 @@ def plot_pair_interactions(
         sampled.append(df_s)
 
     if not sampled:
-        print(f"⚠️  plot_pair_interactions: no pair CSVs found in {run_dir}")
+        print(f"WARNING: plot_pair_interactions: no pair CSVs found in {run_dir}")
         return
 
     pairs = pd.concat(sampled, ignore_index=True)
+    sample_text = _format_sample_counts(pairs, per_split_totals)
 
     # ── 2. Load raw emb_a, emb_b (once, via concat then split) ───────────
     id_to_row = load_embedding_index(embeddings_file)
@@ -466,7 +523,7 @@ def plot_pair_interactions(
         use_unit_diff=False,
     )
     if len(concat_embs) == 0:
-        print("⚠️  plot_pair_interactions: no valid pair embeddings (missing IDs?)")
+        print("WARNING: plot_pair_interactions: no valid pair embeddings (missing IDs?)")
         return
 
     # Align pairs to valid mask
@@ -474,7 +531,7 @@ def plot_pair_interactions(
     pairs = pairs.loc[valid_mask].reset_index(drop=True)
     dropped = n_in - len(pairs)
     if dropped > 0:
-        print(f"ℹ️  plot_pair_interactions: dropped {dropped:,}/{n_in:,} sampled pairs (missing embeddings)")
+        print(f"plot_pair_interactions: dropped {dropped:,}/{n_in:,} sampled pairs (missing embeddings)")
     assert len(pairs) == len(concat_embs), "pairs/embeddings misalignment"
 
     D = concat_embs.shape[1] // 2
@@ -512,7 +569,7 @@ def plot_pair_interactions(
         try:
             features = _compute_interaction_features(emb_a, emb_b, spec)
         except ValueError as e:
-            print(f"⚠️  Skipping interaction '{spec}': {e}")
+            print(f"WARNING: skipping interaction '{spec}': {e}")
             continue
 
         # PCA → 2D
@@ -536,7 +593,7 @@ def plot_pair_interactions(
 
         # ── Plot ──
         out_path = output_dir / f"pair_pca_{safe_name}.png"
-        _plot_pair_embedding_splits_2d(
+        _plot_pair_features_splits_2d(
             reduced_2d=pca_2d,
             pairs=pairs_tmp,
             splits=splits,
@@ -547,6 +604,7 @@ def plot_pair_interactions(
             title=f"PCA: Pair Embeddings (features={spec})",
             output_path=out_path,
             filters_text=filters_text,
+            sample_text=sample_text,
         )
 
         # ── Diagnostics ──
@@ -588,9 +646,35 @@ def plot_pair_interactions(
         diag_path = output_dir / "pair_interaction_diagnostics.json"
         with open(diag_path, 'w') as f:
             json.dump(all_diagnostics, f, indent=2)
-        print(f"\n🧾 Saved interaction diagnostics: {diag_path}")
+        print(f"\nSaved interaction diagnostics: {diag_path}")
     except Exception as e:
-        print(f"⚠️  Failed to save diagnostics JSON: {e}")
+        print(f"WARNING: failed to save diagnostics JSON: {e}")
+
+
+# =============================================================================
+# K-mer plot helpers
+# =============================================================================
+# K-mer pair / sequence routing-geometry plots are produced by
+# src.analysis.plot_kmer_routing_geometry. The previous in-file
+# `plot_kmer_pca` + its private helpers (`_plot_kmer_pair_concat`,
+# `_plot_kmer_scree`, `_resolve_kmer_k`, `_build_kmer_lookup_keys`,
+# `_densify_kmer_rows`) were removed when the new module landed — they
+# produced only a single PCA panel under the old `kmer_features_k{k}.*`
+# naming and had a latent key-format bug. Only the small bridge below
+# is kept here because plot_pair_interactions also needs it.
+
+
+def get_function_short_name_map_from_config(virus_config) -> dict[str, str]:
+    """Bridge to the Hydra-aware helper without requiring the wrapping cfg.
+
+    `get_function_short_name_map(cfg)` reads `cfg.virus.function_short_names`.
+    Plot callers tend to already hold a `cfg.virus` sub-node, so accept it
+    directly here and adapt.
+    """
+    raw = getattr(virus_config, 'function_short_names', None) if virus_config is not None else None
+    if raw is None:
+        return {}
+    return {str(k): str(v) for k, v in dict(raw).items()}
 
 
 def plot_pair_embeddings_splits_overlap(
@@ -658,7 +742,7 @@ def plot_pair_embeddings_splits_overlap(
         sampled.append(df_s)
 
     if not sampled:
-        print(f"⚠️  Skipping split-overlap plot: no pair CSVs found in {run_dir}")
+        print(f"WARNING: Skipping split-overlap plot: no pair CSVs found in {run_dir}")
         return
 
     pairs = pd.concat(sampled, ignore_index=True)
@@ -680,7 +764,7 @@ def plot_pair_embeddings_splits_overlap(
         use_unit_diff=use_unit_diff,
     )
     if len(pair_embeddings) == 0:
-        print("⚠️  Skipping split-overlap plot: could not create any pair embeddings (missing embeddings?)")
+        print("WARNING: Skipping split-overlap plot: could not create any pair embeddings (missing embeddings?)")
         return
 
     # Align `pairs` to the returned embedding rows (critical when some IDs are
@@ -689,7 +773,7 @@ def plot_pair_embeddings_splits_overlap(
     pairs = pairs.loc[valid_mask].reset_index(drop=True)
     dropped = n_in - len(pairs)
     if dropped > 0:
-        print(f"ℹ️  Split-overlap plot: dropped {dropped:,}/{n_in:,} sampled pairs due to missing embeddings")
+        print(f"Split-overlap plot: dropped {dropped:,}/{n_in:,} sampled pairs due to missing embeddings")
     assert len(pairs) == len(pair_embeddings), "pairs/embeddings misalignment: filter logic bug"
 
     # Feature descriptor for plot titles / logs.
@@ -917,9 +1001,9 @@ def plot_pair_embeddings_splits_overlap(
         diag_path = output_path.parent / "pair_embedding_order_diagnostics.json"
         with open(diag_path, 'w') as f:
             json.dump(diagnostics, f, indent=2)
-        print(f"\n🧾 Saved pair embedding ordering diagnostics: {diag_path}")
+        print(f"\nSaved pair embedding ordering diagnostics: {diag_path}")
     except Exception as e:
-        print(f"⚠️  Failed to save pair embedding ordering diagnostics JSON ({type(e).__name__}: {e})")
+        print(f"WARNING: Failed to save pair embedding ordering diagnostics JSON ({type(e).__name__}: {e})")
 
     # --- Extra PCA plots colored by seg_pair / func_pair (top-N, collapsed) ---
     def _plot_pca_by_category(
@@ -965,7 +1049,7 @@ def plot_pair_embeddings_splits_overlap(
         out_path = output_path.parent / out_name
         fig.savefig(out_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
-        print(f"✅ Saved: {out_path}")
+        print(f"Saved: {out_path}")
 
     _plot_pca_by_category(
         category_col='seg_pair',
@@ -980,7 +1064,7 @@ def plot_pair_embeddings_splits_overlap(
         title_prefix='PCA: Pair embeddings colored by func_pair',
     )
 
-    _plot_pair_embedding_splits_2d(
+    _plot_pair_features_splits_2d(
         reduced_2d=pca_2d,
         pairs=pairs,
         splits=splits,
@@ -1007,7 +1091,7 @@ def plot_pair_embeddings_splits_overlap(
             random_state=random_state,
             return_model=False,
         )
-        _plot_pair_embedding_splits_2d(
+        _plot_pair_features_splits_2d(
             reduced_2d=umap_2d,
             pairs=pairs,
             splits=splits,
@@ -1020,9 +1104,9 @@ def plot_pair_embeddings_splits_overlap(
             filters_text=filters_text,
         )
     except ImportError as e:
-        print(f"ℹ️  UMAP not available ({e}). Saved PCA plot only: {pca_path}")
+        print(f"UMAP not available ({e}). Saved PCA plot only: {pca_path}")
     except Exception as e:
-        print(f"⚠️  UMAP failed ({type(e).__name__}: {e}). Saved PCA plot only: {pca_path}")
+        print(f"WARNING: UMAP failed ({type(e).__name__}: {e}). Saved PCA plot only: {pca_path}")
 
 
 def plot_sequence_embeddings_by_confounders_from_pairs(
@@ -1059,7 +1143,7 @@ def plot_sequence_embeddings_by_confounders_from_pairs(
     pairs = pd.concat(sampled, ignore_index=True)
 
     if not protein_metadata_csv.exists():
-        print(f"⏭️  Skipping confounder embedding plots (missing protein metadata: {protein_metadata_csv})")
+        print(f"Skipping confounder embedding plots (missing protein metadata: {protein_metadata_csv})")
         return
 
     # Load protein metadata (minimal columns if possible)
@@ -1095,16 +1179,19 @@ def plot_sequence_embeddings_by_confounders_from_pairs(
     if len(seqs_for_plot) > max_sequences:
         seqs_for_plot = seqs_for_plot.sample(n=max_sequences, random_state=random_state).reset_index(drop=True)
 
-    # Load embeddings
+    # Load embeddings via composite (assembly_id, brc_fea_id) keys.
     id_to_row = load_embedding_index(embeddings_file)
-    embeddings, valid_ids = load_embeddings_by_ids(
-        seqs_for_plot['brc_fea_id'].tolist(),
+    keys = list(zip(seqs_for_plot['assembly_id'].astype(str),
+                    seqs_for_plot['brc_fea_id'].astype(str)))
+    embeddings, valid_keys = load_embeddings_by_ids(
+        keys,
         embeddings_file,
         id_to_row=id_to_row,
     )
     if len(embeddings) == 0:
         return
-    seqs_for_plot = seqs_for_plot[seqs_for_plot['brc_fea_id'].isin(valid_ids)].reset_index(drop=True)
+    valid_brc_ids = {brc for _, brc in valid_keys}
+    seqs_for_plot = seqs_for_plot[seqs_for_plot['brc_fea_id'].isin(valid_brc_ids)].reset_index(drop=True)
 
     # Reduce dimensionality (UMAP preferred; PCA fallback)
     method = 'UMAP'
@@ -1171,6 +1258,461 @@ def should_plot_distribution(distribution_dict: dict, min_unique: int = 2) -> bo
     # Count non-zero entries (unique values with data)
     unique_values = len([k for k, v in distribution_dict.items() if v > 0 and k != 'null'])
     return unique_values >= min_unique
+
+
+# Per-regime display order for the split-composition stack. Positive first
+# (single segment), then negatives by ascending hardness — same order used by
+# `_LEVEL1_REGIME_ORDER` in src/analysis/analyze_stage4_train.py.
+_SPLIT_COMP_NEG_ORDER = (
+    'none_match',
+    'host_only',
+    'subtype_only',
+    'year_only',
+    'host_subtype_only',
+    'host_year_only',
+    'subtype_year_only',
+    'host_subtype_year',
+)
+
+
+def _load_regime_manifest_for_composition(
+    manifest_csv: Path,
+    ) -> Optional[dict]:
+    """Read negative_regime_manifest.csv into {split -> {regime -> achieved}}.
+
+    Returns None if the file is absent or unreadable; the caller falls back to
+    deriving counts from the saved pair CSVs.
+    """
+    if not manifest_csv.exists():
+        return None
+    try:
+        df = pd.read_csv(manifest_csv)
+    except Exception as e:
+        print(f"WARNING: failed to read regime manifest {manifest_csv}: {e}")
+        return None
+    required_cols = {'split', 'regime', 'achieved'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        print(f"WARNING: regime manifest missing columns {sorted(missing)}; "
+              f"falling back to pair-CSV derivation")
+        return None
+    out: dict = {}
+    for (split, regime), sub in df.groupby(['split', 'regime']):
+        out.setdefault(str(split), {})[str(regime)] = int(sub['achieved'].sum())
+    return out
+
+
+def _derive_regime_counts_from_pairs(
+    run_dir: Path,
+    splits: list,
+    ) -> dict:
+    """Compute {split -> {regime -> count}} for negatives by classifying each
+    saved pair via same_host / same_hn_subtype / same_year. Works whether or
+    not regime-aware sampling was used at construction time.
+
+    Returns an empty dict if no pair CSV is readable. Regimes with zero
+    negatives are simply absent from the inner dict; callers should treat
+    a missing key as "N/A" rather than as zero.
+    """
+    out: dict = {}
+    for sp in splits:
+        csv = run_dir / f'{sp}_pairs.csv'
+        if not csv.exists():
+            continue
+        try:
+            df = pd.read_csv(
+                csv, engine='python',
+                usecols=['label', 'same_hn_subtype', 'same_host', 'same_year'],
+            )
+        except Exception as e:
+            print(f"WARNING: failed reading {csv}: {e}; skipping {sp} in "
+                  f"regime derivation")
+            continue
+        neg = df[df['label'] == 0]
+        if len(neg) == 0:
+            out[sp] = {}
+            continue
+
+        def _regime(row):
+            h = bool(row['same_host'])
+            s = bool(row['same_hn_subtype'])
+            y = bool(row['same_year'])
+            if not h and not s and not y: return 'none_match'
+            if h and not s and not y:     return 'host_only'
+            if not h and s and not y:     return 'subtype_only'
+            if not h and not s and y:     return 'year_only'
+            if h and s and not y:         return 'host_subtype_only'
+            if h and not s and y:         return 'host_year_only'
+            if not h and s and y:         return 'subtype_year_only'
+            return 'host_subtype_year'
+
+        regimes = neg.apply(_regime, axis=1)
+        counts = regimes.value_counts().to_dict()
+        out[sp] = {r: int(c) for r, c in counts.items()}
+    return out
+
+
+def _read_split_composition_config(run_dir: Path) -> tuple:
+    """Extract (neg_to_pos_ratio, regime_targets) from resolved_config.yaml.
+
+    Returns (None, None) on read failure. regime_targets is None when
+    regime-aware sampling is disabled for the run.
+    """
+    cfg_path = run_dir / 'resolved_config.yaml'
+    if not cfg_path.exists():
+        return None, None
+    try:
+        import yaml
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f)
+    except Exception as e:
+        print(f"WARNING: failed reading {cfg_path}: {e}")
+        return None, None
+    ds = cfg.get('dataset', {}) or {}
+    ratio = ds.get('neg_to_pos_ratio')
+    ns = ds.get('negative_sampling') or {}
+    targets = ns.get('regime_targets') if isinstance(ns, dict) else None
+    return ratio, targets
+
+
+def _format_regime_targets_lines(targets: dict, per_line: int = 4) -> list:
+    """Multi-line summary of regime_targets as fractions in _SPLIT_COMP_NEG_ORDER.
+
+    Returns a list of lines; first line is prefixed `regime_targets:` and the
+    rest are indented for visual alignment. `per_line` controls how many
+    `regime=value` pairs go on each line.
+    """
+    if not targets:
+        return []
+    items = [f'{r}={float(targets[r]):.2f}'
+             for r in _SPLIT_COMP_NEG_ORDER if r in targets]
+    chunks = [items[i:i + per_line] for i in range(0, len(items), per_line)]
+    lines = []
+    for i, chunk in enumerate(chunks):
+        prefix = 'regime_targets: ' if i == 0 else '                '
+        lines.append(prefix + ', '.join(chunk))
+    return lines
+
+
+def _split_composition_text_annotations(
+    neg_to_pos_ratio,
+    regime_targets,
+    holdout_active: bool,
+    split_sizes: dict,
+    splits: list,
+    ) -> list:
+    """Build the upper-left text-annotation lines for a split-composition plot.
+
+    Returns a list of (line, color, bg) tuples. Caller renders them in order.
+    The block always includes per-split achieved-ratio + absolute count +
+    proportional share lines so the grouped plot is self-contained without
+    needing per-bar overlays.
+    """
+    lines = []
+    if neg_to_pos_ratio is not None:
+        lines.append((f'neg_to_pos_ratio (config) = {float(neg_to_pos_ratio):.2f}',
+                      'black', None))
+    for regime_line in _format_regime_targets_lines(regime_targets):
+        lines.append((regime_line, 'black', None))
+
+    # Per-split achieved metrics. Pulled from split_sizes (Stage 3's
+    # canonical record); written as compact `train/val/test` triples so
+    # all three values sit on one line each.
+    achieved_parts: list[str] = []
+    count_parts: list[str] = []
+    share_parts: list[str] = []
+    total_pairs = 0
+    for s in splits:
+        info = split_sizes.get(s, {}) or {}
+        n_pos = int(info.get('positive_pairs', 0))
+        n_neg = int(info.get('negative_pairs', 0))
+        n_pairs = int(info.get('pairs', n_pos + n_neg))
+        total_pairs += n_pairs
+        ratio = (n_neg / n_pos) if n_pos > 0 else float('nan')
+        achieved_parts.append(
+            f'{s}={ratio:.2f}' if not np.isnan(ratio) else f'{s}=—'
+        )
+        count_parts.append(f'{s}={n_pairs:,}')
+
+    for s in splits:
+        info = split_sizes.get(s, {}) or {}
+        n_pairs = int(info.get('pairs', 0))
+        share = n_pairs / total_pairs if total_pairs > 0 else float('nan')
+        share_parts.append(
+            f'{s}={share:.2f}' if not np.isnan(share) else f'{s}=—'
+        )
+
+    lines.append((
+        'neg:pos (achieved): ' + ', '.join(achieved_parts),
+        'black', None,
+    ))
+    lines.append((
+        'pair counts: ' + ', '.join(count_parts),
+        'black', None,
+    ))
+    lines.append((
+        'split share: ' + ', '.join(share_parts),
+        'black', None,
+    ))
+
+    if holdout_active:
+        share_parts_iso = []
+        for s in splits:
+            sh = split_sizes.get(s, {}).get('isolate_share')
+            share_parts_iso.append(f'{sh:.1%}' if sh is not None else '—')
+        lines.append((
+            f'Holdout active: actual = {" / ".join(share_parts_iso)} (isolates); '
+            f'train_ratio/val_ratio/test_ratio ignored',
+            '#5a3a00', '#fff2cc',
+        ))
+    return lines
+
+
+def _render_split_composition_grouped(
+    splits: list,
+    pos_counts: np.ndarray,
+    regime_counts_per_split: dict,
+    by_regime: bool,
+    annotations: list,
+    bundle_name: str,
+    output_path: Path,
+    ) -> None:
+    """Plot variant: horizontal bars, NOT stacked. For each split there is
+    a group of bars (positive + neg or positive + 8 regime bars); each bar
+    is labeled with its count. Bars with zero count are rendered as a thin
+    placeholder and labeled "N/A".
+    """
+    if by_regime:
+        bar_categories = ['positive'] + [f'neg: {r}' for r in _SPLIT_COMP_NEG_ORDER]
+        n_bars_per_group = 1 + len(_SPLIT_COMP_NEG_ORDER)
+    else:
+        bar_categories = ['positive', 'negative']
+        n_bars_per_group = 2
+
+    n_groups = len(splits)
+    fig_height = max(4.5, 0.42 * n_bars_per_group * n_groups + 1.5)
+    fig, ax = plt.subplots(figsize=(11, fig_height))
+
+    pos_color = '#2ca02c'
+    neg_blended_color = '#d62728'
+    # Skip tab10's green (index 2) — it's identical to the positive
+    # color, so giving it to any regime causes a confusing color clash
+    # ("neg: host_only" used to be drawn in the same green as positive).
+    tab10 = list(plt.get_cmap('tab10').colors)
+    regime_palette = [c for i, c in enumerate(tab10) if i != 2]
+    regime_colors = {r: regime_palette[i % len(regime_palette)]
+                     for i, r in enumerate(_SPLIT_COMP_NEG_ORDER)}
+
+    # Layout: groups stacked top-to-bottom (train at top), bars within a group
+    # also top-to-bottom. y-coordinates are negated so larger y is lower.
+    y_positions = []
+    bar_labels = []
+    bar_colors = []
+    bar_values = []
+    bar_value_strs = []
+    group_centers = []   # y-coord at the center of each group, for the split label
+
+    intra_group_gap = 0.0
+    inter_group_gap = 1.0
+
+    cursor = 0.0
+    for gi, sp in enumerate(splits):
+        group_top = cursor
+        for bi, cat in enumerate(bar_categories):
+            y = cursor
+            cursor += 1.0 + intra_group_gap
+
+            if cat == 'positive':
+                count = int(pos_counts[gi])
+                color = pos_color
+            elif cat == 'negative':
+                count = int(sum(regime_counts_per_split.get(sp, {}).values()))
+                color = neg_blended_color
+            else:
+                regime = cat.split('neg: ', 1)[1]
+                count = int(regime_counts_per_split.get(sp, {}).get(regime, 0))
+                color = regime_colors[regime]
+
+            y_positions.append(y)
+            bar_labels.append(cat)
+            bar_colors.append(color)
+            bar_values.append(count)
+            bar_value_strs.append(f'{count:,}' if count > 0 else 'N/A')
+
+        group_bottom = cursor - 1.0 - intra_group_gap
+        group_centers.append((group_top + group_bottom) / 2.0)
+        cursor += inter_group_gap
+
+    y_arr = np.array(y_positions)
+    val_arr = np.array(bar_values, dtype=float)
+    # For "N/A" bars we draw a tiny visible nub so the row is locatable on
+    # the y-axis; the label "N/A" carries the meaning.
+    max_val = max(1.0, val_arr.max() if len(val_arr) else 1.0)
+    display_widths = np.where(val_arr > 0, val_arr, max_val * 0.005)
+    ax.barh(-y_arr, display_widths, color=bar_colors, edgecolor='white',
+            linewidth=0.4, height=0.85)
+
+    # Tick labels = the regime/positive/negative names, in the same order.
+    ax.set_yticks(-y_arr)
+    ax.set_yticklabels(bar_labels, fontsize=8)
+
+    # Value labels at the bar tip.
+    pad = max_val * 0.01
+    for i, (v, vs) in enumerate(zip(val_arr, bar_value_strs)):
+        ax.text(display_widths[i] + pad, -y_arr[i], vs,
+                ha='left', va='center', fontsize=8,
+                color='#555555' if v == 0 else 'black')
+
+    # Group labels (split names) on the right, near the group center.
+    for gi, sp in enumerate(splits):
+        ax.text(1.005, -group_centers[gi], sp.capitalize(),
+                transform=ax.get_yaxis_transform(),
+                ha='left', va='center', fontsize=11, fontweight='bold',
+                rotation=270)
+
+    # Horizontal separator lines between groups, drawn at the midpoint
+    # of the inter_group_gap.
+    if len(splits) > 1:
+        group_size = (1.0 + intra_group_gap) * n_bars_per_group + inter_group_gap
+        for gi in range(1, len(splits)):
+            sep_y = -(gi * group_size - inter_group_gap / 2.0 - 0.5)
+            ax.axhline(sep_y, color='#cccccc', linewidth=0.7, linestyle=':')
+
+    ax.set_xlabel('Pair count', fontsize=11)
+    ax.set_title(f'Split composition — {bundle_name}', fontsize=12, fontweight='bold')
+    ax.set_xlim(0, max_val * 1.18)
+    ax.grid(True, axis='x', alpha=0.3)
+
+    fig.tight_layout()
+    # Make room above the axes for the figure-level annotation lines.
+    if annotations:
+        fig.subplots_adjust(bottom=_annotation_bottom_reserved(len(annotations)))
+        _render_text_annotations(fig, ax, annotations)
+    plt.savefig(output_path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+_ANNO_LINE_H = 0.028  # fraction of figure height per annotation line
+_ANNO_XAXIS_PAD = 0.10  # extra room reserved above the annotation block for the x-axis tick labels and xlabel (bumped 2026-05-20 — was clipping into xticks with 5+ annotation lines)
+
+
+def _annotation_bottom_reserved(n_lines: int) -> float:
+    """Figure-fraction of bottom space to reserve for n annotation lines. Includes
+    a small margin above the lines so the x-axis label and tick labels stay
+    visible. The caller subtracts this via
+    `fig.subplots_adjust(bottom=_annotation_bottom_reserved(n))`.
+    """
+    if n_lines <= 0:
+        return 0.0
+    return _ANNO_LINE_H * n_lines + _ANNO_XAXIS_PAD
+
+
+def _render_text_annotations(fig, ax, annotations: list) -> None:
+    """Render annotation lines (built by `_split_composition_text_annotations`)
+    in the figure footer, below the x-axis label. This keeps them clear of
+    both the title (top) and bars (interior).
+
+    The caller must reserve enough bottom space via
+    `fig.subplots_adjust(bottom=_annotation_bottom_reserved(n))` before
+    invoking this; otherwise lines collide with the x-axis label.
+    """
+    if not annotations:
+        return
+    bbox = ax.get_position()
+    # First annotation line sits just above figure y=0, lines stack upward
+    # toward the axes. Reverse iteration so the original order reads
+    # top-to-bottom (line 0 of the list ends up on top, closest to the axes).
+    n = len(annotations)
+    for i, (line, color, bg) in enumerate(annotations):
+        y = 0.01 + (n - 1 - i) * _ANNO_LINE_H
+        kw = dict(ha='left', va='bottom', fontsize=9, color=color)
+        if bg:
+            kw['bbox'] = dict(boxstyle='round,pad=0.3', facecolor=bg,
+                              edgecolor='#bf9000', alpha=0.9)
+        fig.text(bbox.x0, y, line, **kw)
+
+
+def _plot_split_composition(
+    split_sizes: dict,
+    coverage: dict,
+    regime_manifest_csv: Path,
+    bundle_name: str,
+    output_path: Path,
+    holdout_active: bool = False,
+    run_dir: Optional[Path] = None,
+    ) -> None:
+    """Top-level orchestrator: emits 2 split-composition PNGs.
+
+    Output files (all in the same directory as `output_path`):
+      - split_composition_grouped.png               (horizontal grouped, pos vs neg)
+      - split_composition_grouped_by_regime.png     (horizontal grouped, pos + 8 regimes)
+
+    `output_path` determines the directory and the stem; the second
+    filename is derived by appending `_by_regime`. Per-regime breakdown
+    is drawn from the regime manifest when available, otherwise derived
+    from the saved pair CSVs (same_host / same_hn_subtype / same_year
+    columns), so both plots render even when regime-aware sampling is
+    off.
+
+    The previous vstacked variants (`split_composition.png` +
+    `split_composition_by_regime.png`) were dropped 2026-05-20 — the
+    stacked-bar layout collapsed neg:pos into one column per split,
+    which read as a single mass rather than a comparable breakdown.
+    The horizontal-grouped variants make the per-category counts
+    legible at a glance.
+    """
+    splits = ['train', 'val', 'test']
+    splits = [s for s in splits if s in split_sizes]
+    if not splits:
+        print("WARNING: _plot_split_composition: no split data found; skipping")
+        return
+
+    pos_counts = np.array(
+        [int(split_sizes[s].get('positive_pairs', 0)) for s in splits],
+        dtype=int,
+    )
+
+    # Per-split per-regime negative counts. Prefer the manifest (regime-aware
+    # builds) and fall back to deriving from pair CSVs (regime-blind builds).
+    manifest_counts = _load_regime_manifest_for_composition(regime_manifest_csv)
+    if manifest_counts is not None:
+        regime_counts_per_split = manifest_counts
+    elif run_dir is not None:
+        regime_counts_per_split = _derive_regime_counts_from_pairs(run_dir, splits)
+    else:
+        regime_counts_per_split = {}
+
+    # Pull annotation inputs (config-level neg_to_pos_ratio + regime_targets).
+    neg_to_pos_ratio, regime_targets = (None, None)
+    if run_dir is not None:
+        neg_to_pos_ratio, regime_targets = _read_split_composition_config(run_dir)
+    annotations = _split_composition_text_annotations(
+        neg_to_pos_ratio=neg_to_pos_ratio,
+        regime_targets=regime_targets,
+        holdout_active=holdout_active,
+        split_sizes=split_sizes,
+        splits=splits,
+    )
+
+    out_dir = output_path.parent
+    primary_stem = output_path.stem  # usually "split_composition"
+    suffix = output_path.suffix or '.png'
+    paths = {
+        'grouped_blended':   out_dir / f'{primary_stem}_grouped{suffix}',
+        'grouped_regimes':   out_dir / f'{primary_stem}_grouped_by_regime{suffix}',
+    }
+
+    _render_split_composition_grouped(
+        splits, pos_counts, regime_counts_per_split,
+        by_regime=False, annotations=annotations,
+        bundle_name=bundle_name, output_path=paths['grouped_blended'],
+    )
+    _render_split_composition_grouped(
+        splits, pos_counts, regime_counts_per_split,
+        by_regime=True, annotations=annotations,
+        bundle_name=bundle_name, output_path=paths['grouped_regimes'],
+    )
 
 
 def plot_distribution_by_split(
@@ -1241,13 +1783,20 @@ def plot_distribution_by_split(
         ax.set_yticklabels(series.index, fontsize=9)
         ax.set_xlabel(ylabel, fontsize=11)
         
-        # Title: "X of N" where N = total isolates in split (consistent across all metadata plots)
+        # Title: "X of N (P%)" where N = total isolates in split and P = isolate_share
+        # across train+val+test. Surfaces holdout-driven imbalances at a glance.
+        share = None
+        if split_sizes and split in split_sizes:
+            share = split_sizes[split].get('isolate_share')
+        share_txt = f', {share:.1%} of dataset' if share is not None else ''
         if displayed_count < dist_total:
-            ax.set_title(f'{split.capitalize()} Split (showing {displayed_count:,} of {total_isolates:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (showing {displayed_count:,} of {total_isolates:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         else:
-            ax.set_title(f'{split.capitalize()} Split (n={total_isolates:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (n={total_isolates:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         ax.grid(axis='x', alpha=0.3)
         ax.grid(axis='y', visible=False)
         
@@ -1266,15 +1815,19 @@ def plot_distribution_by_split(
 def plot_year_distribution_by_split(
     metadata_distributions: dict,
     output_path: Path,
-    start_year: int = 2000
+    start_year: int = 2000,
+    split_sizes: Optional[dict] = None,
     ) -> None:
     """
     Plot year distribution as histograms across train/val/test splits.
-    
+
     Args:
         metadata_distributions: Dict with 'train', 'val', 'test' keys
         output_path: Path to save the plot
         start_year: Minimum year to display
+        split_sizes: Optional dict with 'train'/'val'/'test' -> {'isolate_share': ...}.
+                     When provided, each subplot title shows the split's share of the
+                     full dataset (post-filtering) — mirrors `plot_distribution_by_split`.
     """
     splits = ['train', 'val', 'test']
     fig, axes = plt.subplots(3, 1, figsize=(12, 10))
@@ -1370,13 +1923,19 @@ def plot_year_distribution_by_split(
         ax.set_xlabel('Year', fontsize=11)
         ax.set_ylabel('Number of Isolates', fontsize=11)
         
-        # Title showing displayed count out of total
+        # Title showing displayed count out of total + dataset share (when known).
+        share = None
+        if split_sizes and split in split_sizes:
+            share = split_sizes[split].get('isolate_share')
+        share_txt = f', {share:.1%} of dataset' if share is not None else ''
         if displayed_count < total_count:
-            ax.set_title(f'{split.capitalize()} Split (showing {displayed_count:,} of {total_count:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (showing {displayed_count:,} of {total_count:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         else:
-            ax.set_title(f'{split.capitalize()} Split (n={total_count:,})', 
-                        fontsize=12, fontweight='bold')
+            ax.set_title(
+                f'{split.capitalize()} Split (n={total_count:,}{share_txt})',
+                fontsize=12, fontweight='bold')
         ax.grid(alpha=0.3, axis='y')
         
         # Add statistics
@@ -1477,7 +2036,7 @@ def compute_crosstab_from_pairs(
         return None
         
     except Exception as e:
-        print(f"⚠️  Warning: Error computing crosstab from {pair_csv_path}: {e}")
+        print(f"WARNING: Error computing crosstab from {pair_csv_path}: {e}")
         return None
 
 
@@ -1501,7 +2060,8 @@ def plot_host_subtype_heatmap_by_split(
     bundle_name: str,
     output_path: Path,
     top_hosts: int = 15,
-    top_subtypes: int = 15
+    top_subtypes: int = 15,
+    split_sizes: Optional[dict] = None,
     ) -> None:
     """
     Plot host × HN subtype heatmap across train/val/test splits.
@@ -1535,7 +2095,7 @@ def plot_host_subtype_heatmap_by_split(
         plt.tight_layout()
         plt.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.close()
-        print("⏭️  Skipping host×subtype heatmap: could not load isolate metadata (missing/unreadable isolate_metadata.csv)")
+        print("Skipping host×subtype heatmap: could not load isolate metadata (missing/unreadable isolate_metadata.csv)")
         return
     
     all_crosstabs = {}
@@ -1623,8 +2183,13 @@ def plot_host_subtype_heatmap_by_split(
         )
         ax.set_xlabel('H/N Subtype', fontsize=11)
         ax.set_ylabel('Host', fontsize=11)
-        ax.set_title(f'{split.capitalize()} Split (n={crosstab_filtered.sum().sum():,} isolates)', 
-                    fontsize=12, fontweight='bold')
+        share = None
+        if split_sizes and split in split_sizes:
+            share = split_sizes[split].get('isolate_share')
+        share_txt = f', {share:.1%} of dataset' if share is not None else ''
+        ax.set_title(
+            f'{split.capitalize()} Split (n={crosstab_filtered.sum().sum():,} isolates{share_txt})',
+            fontsize=12, fontweight='bold')
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
         plt.setp(ax.get_yticklabels(), rotation=0)
     
@@ -1643,26 +2208,36 @@ def visualize_dataset_stats(
     run_dir: Optional[Path] = None,
     project_root: Optional[Path] = None,
     generate_confounder_plots: bool = False,
+    skip_esm_pca_plots: bool = False,
+    skip_kmer_pca_plots: bool = False,
     ) -> None:
     """
     Generate visualization plots for a dataset.
-    
+
     Args:
         dataset_stats_path: Path to dataset_stats.json file
         bundle_name: Bundle name (for plot titles)
         output_dir_dataset: Output directory in dataset run folder (optional)
+        skip_esm_pca_plots: If True, skip the four pair_pca_*.png plots and the
+            pair_interaction_diagnostics.json file produced by
+            plot_pair_interactions().
+        skip_kmer_pca_plots: If True, skip the four routing-geometry PNGs
+            (kmer_sequence_{svd,umap}.png + kmer_pair_{svd,umap}.png)
+            produced by plot_kmer_routing_geometry(). The flag name is
+            kept for backwards compatibility with callers that knew it
+            as a "skip kmer reduction plots" switch.
     """
     # Load dataset statistics
     if not dataset_stats_path.exists():
         raise FileNotFoundError(f"Dataset stats file not found: {dataset_stats_path}")
-    
+
     with open(dataset_stats_path, 'r') as f:
         stats = json.load(f)
-    
+
     metadata_distributions = stats.get('metadata_distributions', {})
     split_sizes = stats.get('split_sizes', {})
     if not metadata_distributions:
-        print(f"⚠️  Warning: No metadata_distributions found in {dataset_stats_path}")
+        print(f"WARNING: no metadata_distributions found in {dataset_stats_path}")
         return
     
     # Determine run_dir and project_root if not provided
@@ -1704,6 +2279,26 @@ def visualize_dataset_stats(
     start_year = 2000
     # breakpoint()
 
+    # 0. Split composition (4 PNGs: vstacked-blended, vstacked-by-regime,
+    # grouped-blended, grouped-by-regime). All 4 render regardless of whether
+    # regime-aware sampling was used; the by-regime variants derive the
+    # negative breakdown from the regime manifest if present, otherwise from
+    # the saved pair CSVs.
+    coverage = stats.get('coverage', {})
+    holdout_active = stats.get('metadata_holdout') is not None
+    try:
+        _plot_split_composition(
+            split_sizes=split_sizes,
+            coverage=coverage,
+            regime_manifest_csv=run_dir / 'negative_regime_manifest.csv',
+            bundle_name=bundle_name,
+            output_path=plots_dir / 'split_composition.png',
+            holdout_active=holdout_active,
+            run_dir=run_dir,
+        )
+    except Exception as e:
+        print(f"WARNING: failed to render split_composition plots ({type(e).__name__}: {e})")
+
     # 1. Host distribution
     if has_host:
         plot_distribution_by_split(
@@ -1716,7 +2311,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping host distribution (only 1 unique value)")
+        print("Skipping host distribution (only 1 unique value)")
 
     # 2. HN subtype distribution
     if has_subtype:
@@ -1730,7 +2325,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping subtype distribution (only 1 unique value)")
+        print("Skipping subtype distribution (only 1 unique value)")
 
     # 3. Geographic location distribution (geo_location_clean)
     if has_geo:
@@ -1744,7 +2339,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping geo_location distribution (insufficient variation)")
+        print("Skipping geo_location distribution (insufficient variation)")
 
     # 4. Passage distribution
     if has_passage:
@@ -1758,7 +2353,7 @@ def visualize_dataset_stats(
             split_sizes=split_sizes
         )
     else:
-        print("⏭️  Skipping passage distribution (insufficient variation)")
+        print("Skipping passage distribution (insufficient variation)")
     
     # 5. Year distribution
     if has_year:
@@ -1780,14 +2375,15 @@ def visualize_dataset_stats(
                 plot_year_distribution_by_split(
                     metadata_distributions,
                     plots_dir / 'year_distribution.png',
-                    start_year=start_year
+                    start_year=start_year,
+                    split_sizes=split_sizes,
                 )
             else:
-                print("⏭️  Skipping year distribution (very narrow range)")
+                print("Skipping year distribution (very narrow range)")
         else:
-            print("⏭️  Skipping year distribution (no year data)")
+            print("Skipping year distribution (no year data)")
     else:
-        print("⏭️  Skipping year distribution (only 1 unique value)")
+        print("Skipping year distribution (only 1 unique value)")
 
     # 6. Host × Subtype heatmap
     # Check if both host and subtype have sufficient variation
@@ -1798,20 +2394,29 @@ def visualize_dataset_stats(
             bundle_name=bundle_name,
             output_path=plots_dir / 'host_subtype_heatmap.png',
             top_hosts=15,
-            top_subtypes=15
+            top_subtypes=15,
+            split_sizes=split_sizes,
         )
     else:
-        print("⏭️  Skipping host × subtype heatmap (insufficient variation in host or subtype)")
+        print("Skipping host × subtype heatmap (insufficient variation in host or subtype)")
 
-    # 7. Low-dimensional PCA plots for each interaction mode (pair embeddings)
-    # Generates pair_pca_concat.png, pair_pca_diff.png, pair_pca_prod.png,
-    # pair_pca_unit_diff.png + pair_interaction_diagnostics.json.
+    # 7. Low-dimensional plots
+    # ESM-2 side: pair_pca_{concat,diff,prod,unit_diff}.png +
+    #   pair_interaction_diagnostics.json (from plot_pair_interactions).
+    # K-mer side: routing-geometry plots from plot_kmer_routing_geometry
+    #   — kmer_sequence_{pca,umap}.png (per-function subplots, color = split,
+    #   gray = "appears in multiple splits") + kmer_pair_{pca,umap}.png
+    #   (one point per sampled pair, color = split, fill = label).
     try:
         cfg = get_virus_config_hydra(bundle_name, config_path=str(project_root / 'conf'))
         virus_name = cfg.virus.virus_name
         data_version = cfg.virus.data_version
-        embeddings_file = project_root / 'data' / 'embeddings' / virus_name / data_version / 'master_esm2_embeddings.h5'
-        if embeddings_file.exists():
+        embeddings_dir = project_root / 'data' / 'embeddings' / virus_name / data_version
+        embeddings_file = embeddings_dir / 'master_esm2_embeddings.h5'
+
+        if skip_esm_pca_plots:
+            print("Skipping ESM-2 pair PCA plots (skip_esm_pca_plots=True)")
+        elif embeddings_file.exists():
             plot_pair_interactions(
                 run_dir=run_dir,
                 embeddings_file=embeddings_file,
@@ -1819,6 +2424,7 @@ def visualize_dataset_stats(
                 interactions=["concat", "diff", "prod", "unit_diff"],
                 max_per_label_per_split=1000,
                 random_state=42,
+                function_short_names=get_function_short_name_map_from_config(cfg.virus),
             )
             # Task 8 (optional): single-embedding confounder plots (derived from sequences appearing in pairs).
             # Disabled by default since it can be slow and is not required for the split-overlap sanity check.
@@ -1834,10 +2440,36 @@ def visualize_dataset_stats(
                     random_state=42,
                 )
         else:
-            print(f"⏭️  Skipping pair interaction plots (missing embeddings file: {embeddings_file})")
+            print(f"Skipping ESM-2 pair PCA plots (missing embeddings file: {embeddings_file})")
+
+        # K-mer routing-geometry plots: cache lives next to ESM-2 embeddings.
+        # Pulls `alphabet` and `k` from the bundle config so the cache picked
+        # matches what training will actually consume (multiple caches can
+        # coexist in the embeddings dir — e.g., nt_k6 + aa_k3 + nt_k3).
+        if skip_kmer_pca_plots:
+            print("Skipping k-mer routing-geometry plots (skip_kmer_pca_plots=True)")
+        else:
+            kmer_alphabet = str(getattr(cfg.kmer, 'alphabet', 'nt'))
+            kmer_k = int(getattr(cfg.kmer, 'k', 6))
+            expected_cache = embeddings_dir / f"kmer_features_{kmer_alphabet}_k{kmer_k}.npz"
+            if expected_cache.exists():
+                plot_kmer_routing_geometry(
+                    run_dir=run_dir,
+                    kmer_dir=embeddings_dir,
+                    output_dir=plots_dir,
+                    function_to_short=get_function_short_name_map_from_config(cfg.virus),
+                    alphabet=kmer_alphabet,
+                    k=kmer_k,
+                    max_per_label_per_split=1000,
+                    max_sequences_per_function=5000,
+                    umap_pre_pca_dim=50,
+                    random_state=42,
+                )
+            else:
+                print(f"Skipping k-mer routing-geometry plots (no {expected_cache.name} under {embeddings_dir})")
     except Exception as e:
-        print(f"⏭️  Skipping pair interaction plots (could not resolve embeddings/config): {e}")
- 
+        print(f"WARNING: skipping pair interaction / k-mer plots ({type(e).__name__}: {e})")
+
     print(f"\n{'='*70}")
     print("VISUALIZATION COMPLETE")
     print(f"{'='*70}")
@@ -1909,6 +2541,16 @@ def main():
         action='store_true',
         help='Optional (Task 8): generate single-embedding confounder plots (can be slow). Default: off.'
     )
+    parser.add_argument(
+        '--skip_esm_pca_plots',
+        action='store_true',
+        help='Skip pair_pca_{concat,diff,prod,unit_diff}.png + pair_interaction_diagnostics.json.'
+    )
+    parser.add_argument(
+        '--skip_kmer_pca_plots',
+        action='store_true',
+        help='Skip kmer_pca_concat.png + kmer_pca_scree.png.'
+    )
     """
     python src/analysis/visualize_dataset_stats.py --bundle flu_ha_na_5ks --dataset_dir ./data/datasets/flu/July_2025/runs/dataset_flu_ha_na_5ks_20260119_144322
     """
@@ -1977,12 +2619,12 @@ def main():
             run_dir = find_dataset_run_directory(base_dir, bundle_name)
 
         if run_dir is None:
-            print(f"⚠️  Warning: No run directory found for bundle '{bundle_name}'")
+            print(f"WARNING: No run directory found for bundle '{bundle_name}'")
             continue
 
         dataset_stats_path = run_dir / 'dataset_stats.json'
         if not dataset_stats_path.exists():
-            print(f"⚠️  Warning: dataset_stats.json not found in {run_dir}")
+            print(f"WARNING: dataset_stats.json not found in {run_dir}")
             continue
 
         # Determine output directories
@@ -1995,6 +2637,8 @@ def main():
             run_dir=run_dir,
             project_root=project_root,
             generate_confounder_plots=args.confounder_plots,
+            skip_esm_pca_plots=args.skip_esm_pca_plots,
+            skip_kmer_pca_plots=args.skip_kmer_pca_plots,
         )
 
 

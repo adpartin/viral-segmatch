@@ -1,246 +1,106 @@
 # CLAUDE.md — Project Context for Claude Code
 
-This file provides persistent context for Claude Code sessions. Update it as the project evolves.
-Also read `.claude/memory.md` for compact, up-to-date project memory (pipeline state, recent decisions).
+Persistent, always-on context. **Behavioral rules** live here; **descriptive/reference**
+material (pipeline stages, config system, source-file map, findings, roadmap, HPC) moved to
+`docs/architecture.md` — read that when you need orientation on a subsystem.
+Also read `.claude/memory.md` for compact, up-to-date project memory.
 
 ---
 
 ## Session Startup Checklist
 
-At the start of each session:
 1. Read `.claude/memory.md` (in the repo) for current project state.
-2. Check if the machine-local auto-memory `MEMORY.md` (path provided in the system prompt) exists.
-   If it does not exist, create it with exactly this content:
+2. If the machine-local `MEMORY.md` (path in the system prompt) doesn't exist, create it with:
    ```
    Project memory has moved into the repo for portability across machines.
    Read: .claude/memory.md (in the repo root)
    This machine-local file is no longer updated.
    ```
-3. Check `docs/plans/` for any in-progress plans (status != IMPLEMENTED).
-   If found, read the plan and offer to resume implementation.
+3. Check `docs/plans/` for in-progress plans (status != IMPLEMENTED); read and offer to resume.
 
-### Plans directory (`docs/plans/`)
-
-Plans are saved in the repo (not machine-local `~/.claude/`) for cross-machine portability.
-When creating a plan during plan mode, save it to `docs/plans/<descriptive_name>_plan.md` before
-starting implementation. Mark the plan's status right after the title heading:
-- `**Status: IN PROGRESS**` — plan approved, implementation underway
-- `**Status: IMPLEMENTED**` — implementation complete
-
-When a plan is fully implemented, mark `**Status: IMPLEMENTED**` and move it to `docs/plans/done/`.
-Active plans stay in `docs/plans/`; completed plans live in `docs/plans/done/`.
+**Plans** (`docs/plans/`): save new plans to `docs/plans/<descriptive_name>_plan.md` with a status
+line right under the title — `**Status: IN PROGRESS**` (underway) / `**Status: IMPLEMENTED**`
+(complete). When fully implemented, mark IMPLEMENTED and move the file to `docs/plans/done/`.
 
 ---
 
 ## Approval Required
 
-Always ask for explicit confirmation before running any of the following — even if you think it is safe:
+Always ask for explicit confirmation before running any of these — even if it seems safe:
 
 - `rm *` or any file/directory deletion
-- `git rm *`
-- `git reset --hard *` or `git reset --mixed *`
-- `git push --force *` or `git push -f *`
-- `git branch -D *`
-- `git rebase *`
-- `git clean *`
+- `git rm *`, `git reset --hard *` / `--mixed *`, `git push --force*` / `-f *`,
+  `git branch -D *`, `git rebase *`, `git clean *`
 - Any command that modifies shared infrastructure, sends messages, or affects state outside this repo
 
----
-
-## What This Project Does
-
-**viral-segmatch**: Predicts whether two viral protein segments co-occur in the same isolate (binary classification). Given embeddings of two protein segments from the same virus, the model learns to distinguish true co-occurring pairs (positive) from artificially mixed pairs (negative).
-
-**Approach**: Frozen ESM-2 protein embeddings (1280-dim, `esm2_t33_650M_UR50D`) → pairwise interaction feature (e.g., `unit_diff`, `concat`) → MLP binary classifier.
-
-**Primary virus**: Influenza A (Flu A). Bunyavirales support exists but is not actively maintained.
+(`.claude/settings.json` `permissions.deny` already hard-blocks several of these, e.g. `rm *`.)
 
 ---
 
-## Pipeline Stages
+## What This Project Does — orientation (full detail in `docs/architecture.md`)
 
-Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are experiment-specific.
-
-| Stage | Script | Output | Runs |
-|-------|--------|--------|------|
-| 1. Preprocess | `src/preprocess/preprocess_flu_protein.py` | `data/processed/flu/{version}/protein_final.csv` | Once |
-| 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
-| 3. Dataset | `src/datasets/dataset_segment_pairs.py` | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
-| 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
-
-Shell wrappers: `scripts/stage2_esm2.sh`, `scripts/stage3_dataset.sh`, `scripts/stage4_train.sh`.
-
-There is no stage1 shell script; preprocessing is run directly.
-
-**Stage 3/4 decoupling**: Stage 4's shell script requires `--dataset_dir` explicitly and
-does not extract or validate a bundle name from the dataset path. This allows running
-Stage 3 once and Stage 4 multiple times with different training bundles against the same
-dataset. Provenance is tracked via `training_info.json` saved in the training output dir.
+**viral-segmatch** predicts whether two viral protein segments co-occur in the same isolate
+(binary classification). Frozen ESM-2 embeddings (1280-dim `esm2_t33_650M_UR50D`) or k-mer
+features → pairwise interaction (e.g. `unit_diff`) → MLP / sklearn-baseline classifier. Primary
+virus: **Influenza A** (Bunyavirales support exists but is not maintained). Stages 1–2 run once
+per `{virus}/{data_version}` (shared); Stages 3–4 are per-experiment. The stage table, Hydra
+bundle system, active source-file map, key findings, roadmap, and HPC notes are in
+`docs/architecture.md`.
 
 ---
 
-## Configuration System
+## Core Vocabulary
 
-**Hydra** with a bundle-per-experiment pattern.
+Canonical definitions of the terms that cause the most confusion. Detail in
+`docs/methods/glossary.md`; keep the two in sync, and reuse these exact terms — don't coin synonyms.
 
-- Bundles: `conf/bundles/{bundle_name}.yaml` — one file per named experiment
-- Virus configs: `conf/virus/flu.yaml`, `conf/virus/bunya.yaml`
-- Data paths: `conf/paths/flu.yaml`, `conf/paths/bunya.yaml`
-- Defaults: `conf/dataset/default.yaml`, `conf/embeddings/default.yaml`, `conf/training/base.yaml`
-- Config loader: `src/utils/config_hydra.py`
-
-**Convention**: One bundle = one reproducible experiment. Bundle names encode the experiment:
-`flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g., `flu_ha_na_5ks`, `flu_schema_raw_slot_norm_unit_diff_h3n2`.
-
-Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`, `dataset.hn_subtype`, `dataset.year`, `dataset.host`, `training.slot_transform`, `training.interaction`.
-
-**Bundle organization** (see `conf/bundles/README.md` for full detail):
-- Each bundle has a `# STATUS: active|ablation|experimental|legacy|not maintained` header comment.
-- Bundles form inheritance chains via Hydra `defaults`. Base bundles (e.g., `flu_schema.yaml`,
-  `flu_schema_raw_slot_norm_unit_diff.yaml`) must stay flat; only leaf bundles can be moved to subdirs.
-- `conf/bundles/paper/` — reserved for publication experiments (CV, temporal holdout, large dataset).
-- Three generations: Gen1 (`flu.yaml` base, no schema ordering), Gen2 (`flu_schema.yaml` base,
-  none+concat), Gen3 (`flu_schema_raw_*`, current best: `slot_norm + unit_diff`).
-
-
----
-
-## Active Source Files
-
-```
-src/
-  preprocess/
-    preprocess_flu_protein.py       # Stage 1: GTO → protein_final.csv
-    flu_genomes_eda.py              # Generates flu_genomes_metadata_parsed.csv (run once)
-    preprocess_bunya_protein.py     # Bunya preprocessing (NOT actively maintained)
-    preprocess_bunya_genome.py      # Bunya genome preprocessing (NOT actively maintained; renamed from preprocess_bunya_dna.py)
-  embeddings/
-    compute_esm2_embeddings.py      # Stage 2: sequences → ESM-2 HDF5 cache
-    compute_kmer_features.py        # Stage 2b: DNA → k-mer sparse matrix
-  datasets/
-    dataset_segment_pairs.py        # Stage 3: pairs + train/val/test splits
-  models/
-    train_pair_classifier.py  # Stage 4: MLP classifier training
-  analysis/
-    analyze_stage4_train.py         # Confusion matrix, ROC, FP/FN analysis
-    visualize_dataset_stats.py      # PCA plots, interaction diagnostics
-    aggregate_experiment_results.py # Cross-bundle summary tables
-    visualize_cv_results.py         # CV visualization (error bars, ROC curves)
-    analyze_stage1_preprocess.py    # Preprocessing QC
-    analyze_stage2_embeddings.py    # Embedding quality checks
-    analyze_stage3_datasets.py      # Dataset balance/distribution
-    create_presentation_plots.py    # PPT-ready figures
-  utils/
-    config_hydra.py                 # Hydra config loader (primary)
-    esm2_utils.py                   # ESM-2 tokenization, batch embedding
-    embedding_utils.py              # Load/index embeddings from HDF5
-    metadata_enrichment.py          # Load flu_genomes_metadata_parsed.csv
-    experiment_registry.py          # experiments/registry.yaml tracking
-    seed_utils.py                   # Hierarchical seed system
-    learning_verification_utils.py  # Karpathy-style sanity checks
-    plot_config.py                  # Colors, protein name mapping
-    gto_utils.py, protein_utils.py, path_utils.py, timer_utils.py
-    kmer_utils.py                   # Load k-mer features, pair construction
-    dna_utils.py                    # DNA QC utilities (in development)
-    dim_reduction_utils.py          # PCA/UMAP wrappers
-```
-
----
-
-## Key Experimental Findings (as of Mar 2026)
-
-- **`unit_diff` > `concat` on homogeneous data (ESM-2 only)**: ESM-2 `concat` fails on H3N2-only (AUC=0.50); `unit_diff` succeeds (AUC=0.96). Direction of embedding difference carries genuine biological signal; magnitude is a shortcut.
-- **K-mer concat does NOT collapse on H3N2**: K-mer concat achieves AUC=0.985 on H3N2-only, proving the concat failure is specific to ESM-2's embedding geometry (subspace offset between protein types), not concatenation as an interaction.
-- **K-mer dominates ESM-2 on homogeneous data**: On H3N2-only, k-mer unit_diff AUC=0.988 vs ESM-2 unit_diff AUC=0.957. K-mer features are interaction-agnostic (unit_diff≈concat) because sparse frequency vectors don't have ESM-2's subspace offset problem.
-- **LayerNorm (`slot_norm`) is critical for homogeneous subsets**: Without it, raw HA/NA embeddings live in slightly different subspaces; `unit_diff` then picks up slot offset rather than biological signal.
-- **Delayed learning on H3N2 + unit_diff**: Characteristic plateau-then-breakthrough (~epochs 10–32, seed-dependent). Increase `patience` to 40+ for H3N2-only runs.
-- **High FP rate on filtered datasets**: Likely due to subtype/host confounders in negative pairs. Hypothesis: model learns "same population" rather than "same isolate." Hard negatives or strict metadata filtering can test this.
-- **K-mer (k=6, 4096-dim) matches or exceeds ESM-2 on mixed-subtype HA/NA**: AUC 0.982 vs 0.966–0.975. Both interactions work with k-mers.
-
----
-
-## Roadmap (from 02/10/2026 meeting)
-
-Priority experiments for publication:
-1. **Cross-validation** (N splits, mean ± std metrics) — needs `fold_id`/`n_folds` in dataset config + job array
-2. **Large dataset** (full Flu A, ~100K isolates) — HPC required (Polaris)
-3. **Temporal holdout** (train 2021–2023, test 2024) — `year_train`/`year_test` config fields
-4. **Genome features** (k-mers + XGBoost/LightGBM, then GenSLM) — unified `preprocess_flu.py` planned
-5. **PB2/PB1 + H3N2 bundle** — trivial; one new bundle
-6. **Accuracy vs genetic distance** — needs clade metadata from BV-BRC
-
----
-
-## HPC (ALCF Polaris)
-
-- PBS job arrays, not SLURM. Hydra's `submitit` launcher is SLURM-only — do not use it.
-- For CV/parallel runs: PBS job array where `PBS_ARRAY_INDEX` maps to fold ID; pass as Hydra override `dataset.fold_id=${FOLD}`.
-- For 8-GPU dev cluster (no scheduler): Python launcher using `subprocess.Popen` per fold, each with `CUDA_VISIBLE_DEVICES=K`.
-- Stage 2 (embeddings) is the most GPU-intensive. Stage 4 (training) is modest.
-
----
-
-## What Is NOT Maintained
-
-- `old_scripts/` — superseded by current stage scripts; see `old_scripts/README.md`
-- `src/preprocess/preprocess_bunya_protein.py` — Bunya preprocessing; see maintenance note in file
-- `conf/bundles/bunya.yaml` — Bunya experiment config; see maintenance note in file
-
-## What Is In Development (Not Yet Production)
-
-- `src/utils/dna_utils.py` — DNA sequence QC utilities
-- Unified Flu preprocessing (`preprocess_flu.py` — protein + genome extraction in one pass)
-- Temporal holdout split logic (`year_train`/`year_test`)
-
----
-
-## Directory Layout
-
-```
-viral-segmatch/
-├── CLAUDE.md                   # This file (auto-loaded by Claude Code)
-├── .claude/
-│   ├── settings.json           # Claude Code permissions (deny/allow rules)
-│   └── memory.md               # Compact project memory — read this every session
-├── README.md                   # Project overview
-├── roadmap_v1.md               # Experiment plan v1 (02/10/2026 meeting)
-├── roadmap_v2.md               # Experiment plan v2 (updated 03/12/2026 meeting)
-├── paper_outline_v1.md         # Paper outline v1 (initial draft)
-├── paper_outline_v2.md         # Paper outline v2 (updated 03/12/2026 meeting)
-├── _ongoing_work.md            # Technical notes on interactions, findings
-├── _notes.txt                  # Ad-hoc questions and TODOs
-├── src/                        # Python source code
-├── scripts/                    # Shell pipeline wrappers (stage2–4)
-├── conf/                       # Hydra configs
-│   └── bundles/                # One YAML per named experiment
-├── eda/                        # Exploratory analysis scripts (not pipeline)
-├── examples/                   # HuggingFace reference scripts (not pipeline)
-├── old_scripts/                # Superseded scripts (not maintained)
-├── notebooks/                  # Jupyter notebooks
-├── docs/                       # Technical docs
-├── documentation/              # User guides
-├── experiments/
-│   └── registry.yaml           # Experiment tracking (all pipeline runs)
-└── data/                       # Not in git; symlinked raw data
-```
-
----
-
-## Per-machine Git Setup
-
-Run once after cloning on each new machine (writes to `.git/config`, not tracked by git):
-```bash
-git config pull.rebase true   # avoid "need to reconcile divergent branches" on git pull
-```
+- **atom** — the indivisible routing unit. In 2D-CD (`cluster_disjoint_cc`) atom = one **CC** (one atom per CC; `atom_id == cc_id`). An atom is NOT a row.
+- **rows ≠ atoms** — a positive "pair"/row is one record; `m_pos_per_cc` caps rows-*per-atom*, NOT the atom count (the cluster threshold fixes the atom count). Reserve "atom"/"CC" for components and "pair"/"row" for records.
+- **CC / mega-CC** — connected component on the (slot-A cluster, slot-B cluster) bigraph; the mega-CC is the giant component that swallows most pairs at low `t`.
+- **pair_key_alphabet** — the positive-dedup key is built on the alphabet's hash (aa→`prot_hash`, nt_cds→`cds_dna_hash`, nt_ctg→`ctg_dna_hash`), so the positive **universe is alphabet-defined** (nt keeps codon/contig variants that aa collapses).
+- **front-end (df)** — the output of `build_frontend`: `protein_final` loaded + DNA hashes attached. The `protein_final` *file* natively carries only `prot_hash`; `ctg_dna_hash`/`cds_dna_hash` are attached *after* load from sibling files (`ctg_dna_final`/`cds_dna_final`).
+- **hash source-stages** — Stage 1 writes `prot_hash` + `ctg_dna_hash`; Stage 1.5 writes `cds_dna_hash`; Stage 3 reads them (no recompute).
+- **within_cc vs within_fold** — CC-builder negative scope: within_cc draws negatives inside each CC (removes the cluster shortcut; hard); within_fold draws cross-CC in-split (keeps it; easier).
+- **molecule ↔ alphabet** — aa↔prot / nt_cds↔cds_dna / nt_ctg↔ctg_dna (the `aa/nt vs protein/DNA` convention below is the full rule) — the single most-crossed pairing.
 
 ---
 
 ## Conventions
 
-- **Experiment naming**: `{virus}_{proteins}_{n_isolates}[_{modifiers}]`
-- **Timestamps**: All run directories include `YYYYMMDD_HHMMSS`
+- **Experiment naming**: `{virus}_{proteins}_{n_isolates}[_{modifiers}]`.
+- **Timestamps**: All run directories include `YYYYMMDD_HHMMSS`.
 - **Shared vs. run-specific**: Preprocessing and embeddings are shared per `{virus}/{data_version}`. Datasets and models are per run in `runs/` subdirectories.
 - **Seed system**: Hierarchical — `master_seed` derives all process seeds. See `docs/SEED_SYSTEM.md`.
-- **Metrics**: F1, AUC-ROC, Brier score. Val imbalance is intentional (realistic); train is balanced.
-- **Proteins**: `preprocess_flu_protein.py` maps GTO replicon functions to standard protein names (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP).
-- **Log messages**: No emojis in print/log output. Use text prefixes instead: `ERROR:` (fatal, script will raise/exit), `WARNING:` (non-fatal but noteworthy), `Done.` (success). Decorative emojis (`📊`, `🔍`, etc.) should be removed — the surrounding text is sufficient.
+- **Metrics**: `metrics.csv` carries F1 (binary + macro), precision, recall, AUC-ROC, AUC-PR, MCC, Brier, BCE loss. Early-stop options: `loss`, `f1`, `auc_roc`, `auc_pr`, `mcc`. Naming: snake_case identifiers are `auc_roc` / `auc_pr`; display strings are `AUC-ROC` / `AUC-PR`. Sklearn names `roc_auc_score` / `average_precision_score` are external and left alone. Train targets neg:pos = `neg_to_pos_ratio` (default 1.0); val/test drift to ~1.07–1.20× neg-heavy because v2's coverage phase overshoots.
+- **Proteins**: `preprocess_flu.py` maps GTO replicon functions to standard protein names (PB2, PB1, PA, HA, NP, NA, M1, M2, NEP).
+- **Threshold notation**: `tXXX` (zero-padded, e.g. `t095`) denotes the mmseqs identity threshold at `0.XXX`. Canonical across docs, plot labels, code, bundle YAML filenames, and `cluster_id_path` refs. **Asymmetry (Phase 2)**: on-disk cluster parquets now live at `clusters_*/tXXX/` (pre-Phase-2 `idXXX` + easy-cluster artifacts archived under `clusters_*_archive_*`); existing dataset and training run dirs retain their pre-Phase-2 `idXXX` names.
+- **Sequence hashes**: `prot_hash = md5(prot_seq)`, `ctg_dna_hash = md5(ctg_dna_seq)`, `cds_dna_hash = md5(cds_dna_seq)`. In pair tables: `*_hash_a` / `*_hash_b`. Per-alphabet column/file names come from one source of truth — the `SCHEMA` registry in `src/utils/schema.py` (alphabet ∈ {`aa`, `nt_cds`, `nt_ctg`}). Each hash is produced/persisted at its source stage (Stage 1 writes `prot_hash`/`ctg_dna_hash`; Stage 1.5 writes `cds_dna_hash`); Stage 3 reads them (no recompute). ESM-2 cache key uses `sha1(prot_seq)` — separate namespace, never joined back to `prot_hash`.
+- **Log messages**: No emojis. Use text prefixes: `ERROR:` (fatal), `WARNING:` (non-fatal), `Done.` (success).
+- **Lean, reusable functions**: before writing a helper, search for an existing primitive in the entire codebase. Prefer one obvious implementation over a flexible one. Correctness > readability > efficiency.
+- **Function docstrings**: the first sentence (two at most) states what the function does; `Args:` and `Returns:` present and correct. Every claim checked against the code — never inferred from the function name or from memory. Lean, and current-state only (no account of how the function evolved).
+- **Names across functions**: the same concept uses the same name everywhere; different concepts never share a name (unless generic). A reader must infer meaning from the code, never guess it. Where an analysis variant disagrees with production, production wins. Watch the pairs that get crossed: atom vs CC vs cluster, row/pair vs atom, `cc_id` vs `atom_id`, `aa`/`nt_cds`/`nt_ctg` vs `prot`/`cds_dna`/`ctg_dna`.
+- **Function names describe current behaviour**: rename when the code has changed and the name no longer reflects what it does. Never change a function name without the user's approval.
+- **Statement complexity**: break a dense statement into named steps with a brief comment. Never return an expression that also does the work — bind the call to a named variable, then return it.
+- **No plan-only vocabulary in code**: code, comments, docstrings and error messages must be readable without opening a plan. Never use a label that only a plan defines (`D3`, `OoS #5`, `routing-B`, `P2`, "Phase 2") as though it were a term — say what the thing *is*, then cite the plan by full path if the derivation matters. A path pointer is fine; an undefined label is not. Canonical terms belong in `docs/methods/glossary.md`; plan labels are not canonical terms. This matters most in raised error text, which reaches users who have never seen the plan.
+- **Leakage terminology**: use canonical names from `docs/plans/2026-05-07_leakage_diagnostics_plan.md` (same-pair leakage, sequence-level label imbalance, sequence-level leakage, cluster leakage, demographic shortcut leakage). New modes go in that table first.
+- **aa/nt vs protein/DNA**: alphabet tokens `aa` / `nt_cds` / `nt_ctg` at the **alphabet/residue** level; molecule names `prot` / `cds_dna` / `ctg_dna` at the **molecule/sequence** level. Pairing is aa↔protein, nt_cds↔CDS DNA, nt_ctg↔contig DNA — don't cross the streams. `src/utils/schema.py` enforces it.
+- **Reading CSVs with `function_short`**: any CSV with a `function_short` column has the literal string `'NA'` (Neuraminidase) as a value. Default `pd.read_csv()` parses `'NA'` as NaN and **silently drops Neuraminidase rows**. Always read with `keep_default_na=False, na_values=['']`. Source pipeline CSVs use full names (safe); derived `function_short` CSVs are vulnerable.
+- **Bash tool calls**: prefer single-command invocations over compound chains (`&&`, `;`, `$(...)`, `bash -c '...'`) — the allow-list matcher only auto-approves statically-parseable commands. Use compound only when atomicity matters (`git add X && git commit ...`) or it's fundamentally one shell idiom.
+- **Documentation language**: prefer plain technical verbs (`removes`, `drops`, `reads`, `writes`, `joins`) over decorative alternatives (`scrubs`, `munges`, `slurps`). Same word for the same thing throughout the repo.
+- **Terminology**: `docs/methods/glossary.md` is canonical (graph-theory + project terms). Use its exact terms; add new terms there first.
+- **Docs describe current state, not history**. Method/reference docs (`docs/methods/`, `CLAUDE.md`, `.claude/memory.md`) read as a stable description of how things are now. Historical framing belongs in `docs/results/` or `docs/plans/`.
+- **Claims match verified evidence — no more, no less**. Don't under- or over-claim; state the scope of verification ("checked PB2 and PB1; not confirmed on the other 6") rather than rounding to a universal claim.
+- **Verify before asserting; flag the unverified**. Claims about what *exists* (files, functions, flags, bundles), *current values*, or *what code does* must be checked against the source (Read / Grep / run) in the same turn before stating them — never from memory or inference. For anything not checked, say so inline ("unverified", "likely", "would need to check X"). A bare factual claim with no evidence and no hedge is a bug. And surface confusion rather than narrating around it — say "I'm not sure" *before* you explain, not after you're corrected.
+- **Absence and universal claims need an exhaustive search, not a sample**. Before asserting something *doesn't exist* / is *new* / *first* / *only*, or that *all* / *none* share a property, grep the whole repo. Scope the claim to exactly what was checked, and name the exception rather than just the rule.
+- **Concrete numbers in takeaways when the magnitude IS the point**. "PB2 id093 → id092: 1,085 → 112 (−90%)" beats "drops sharply". Reserve qualitative descriptors for when SHAPE matters more than magnitude.
+- **Design symmetry: check before proposing**. Before naming a field/structure/API, list the dimensions it covers (slot a/b, routing modes, alphabets, splits) and verify uniformity across each. Names that fit the current example better than the alternatives bake in assumptions.
+- **Commits are explicit-only**. Never run `git commit` / `--amend` on Claude's own initiative. Commit only on an explicit user instruction (a specific change, or a standing batch/session authorization). Otherwise: stage, show the diff, draft the message, and stop. `git commit` is allow-listed (no prompt), so this rule is the sole guard — apply it strictly.
+
+---
+
+## Per-machine Git Setup
+
+Run once after cloning on each new machine (writes to `.git/config`, not tracked):
+```bash
+git config pull.rebase true   # avoid "need to reconcile divergent branches" on git pull
+```

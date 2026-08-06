@@ -1,0 +1,33 @@
+# STATUS: experimental -- HA/NA 1D cluster-disjoint (DataSAIL S1) CV on nt_cds.
+# Built by src/datasets/dataset_segment_pairs_v2.py: single-slot cluster_disjoint routing
+# (GroupKFold on ONE slot's clusters) + within_fold negatives (ratio-driven, no coverage/regime).
+# Defaults to cm0 / t099 / single_slot=a / k=4; sweep t + slot via --override.
+# See docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
+#
+# split_strategy is set inline (not via a `- /dataset/split_strategy: cluster_disjoint` group
+# re-selection, which Hydra rejects as a duplicate group choice under the `bundles` package).
+
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  n_folds: 4                     # k=4: feasible for both slots across t099..t095 (pair-mass pre-flight)
+  neg_to_pos_ratio: 1.0
+  generate_visualizations: false # Stage-3 build only; features (kmer/esm) not built yet
+  split_strategy:
+    mode: cluster_disjoint
+    cluster_alphabet: nt_cds
+    pair_key_alphabet: nt_cds
+    single_slot: a               # 'a' = hold out HA clusters; 'b' = hold out NA
+    negative_scope: within_fold
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds_cm0/t099/combined_cluster.parquet
+    cluster_id_threshold: 0.99
+    cds_final_path: data/processed/flu/July_2025/cds_dna_final.parquet
+    feasibility:
+      max_acceptable_drift_pp: 0.05
+      min_test_frac: 0.05
+
+kmer:
+  alphabet: nt_cds
+  k: 6

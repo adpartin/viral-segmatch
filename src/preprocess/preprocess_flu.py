@@ -2,10 +2,13 @@
 Preprocess protein and genome data from GTO files for Flu A.
 
 Unified script that parses each GTO file once and extracts both:
-- Protein data -> protein_final.csv (identical to preprocess_flu_protein.py output)
-- Genome data  -> genome_final.csv (new)
+- Protein data -> protein_final.csv
+- Genome data  -> ctg_dna_final.csv
 
-See docs/genome_pipeline_design.md for design decisions.
+See docs/methods/preprocess.md for the current reference (output schemas,
+filter pipeline, QC step coverage, why two output files instead of one
+merged DataFrame). This script absorbed and replaced the now-deleted
+preprocess_flu_protein.py.
 
 Example:
 ```bash
@@ -180,7 +183,7 @@ def aggregate_data_from_gto_files(
 
 
 # =============================================================================
-# Protein pipeline functions (copied from preprocess_flu_protein.py)
+# Protein pipeline functions
 # =============================================================================
 
 def validate_protein_counts(
@@ -557,13 +560,25 @@ def apply_protein_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     print(f'Remaining prot_df:       {prot_df.shape}')
     non_cds.to_csv(output_dir / 'protein_non_cds.csv', sep=',', index=False)
 
-    # Drop poor quality (genome-level quality)
-    # TODO: Also consider filtering by feature_quality (per-protein quality from GTO)
-    #       which may catch poor individual proteins in otherwise good assemblies.
-    poor_df = prot_df[prot_df['quality'] == 'Poor']
-    prot_df = prot_df[prot_df['quality'] != 'Poor'].reset_index(drop=True)
-    print(f'\nDropped Poor quality samples: {poor_df.shape}')
-    print(f'Remaining prot_df:            {prot_df.shape}')
+    # Drop poor quality at TWO levels:
+    #   1. genome-level (`quality` from gto['quality']['genome_quality']) — entire
+    #      assembly flagged Poor.
+    #   2. feature-level (`feature_quality` from feature['feature_quality']) — the
+    #      individual protein annotation flagged Poor. NaN means "no claim made"
+    #      (BV-BRC only marks feature_quality on the 8 major proteins; auxiliaries
+    #      like M2/NEP/M42/NS3/PA-X carry NaN by design) and is NOT treated as
+    #      Poor. Conservative: drop only on explicit 'Poor'.
+    #
+    # On the current Flu A July 2025 corpus the feature_quality drop is a no-op
+    # (0 rows), but the filter is in place for defense-in-depth against future
+    # GTO releases where one major in an otherwise-Good isolate is flagged Poor.
+    poor_df = prot_df[(prot_df['quality'] == 'Poor')
+                      | (prot_df['feature_quality'] == 'Poor')]
+    prot_df = prot_df[(prot_df['quality'] != 'Poor')
+                      & (prot_df['feature_quality'].fillna('Good') != 'Poor')
+                     ].reset_index(drop=True)
+    print(f'\nDropped Poor quality samples (genome or feature level): {poor_df.shape}')
+    print(f'Remaining prot_df:                                       {prot_df.shape}')
     poor_df.to_csv(output_dir / 'protein_poor_quality.csv', sep=',', index=False)
 
     # Drop unassigned replicons
@@ -891,13 +906,23 @@ def apply_genome_basic_filters(
     if not unassigned.empty:
         unassigned.to_csv(output_dir / 'genome_unassigned_segments.csv', sep=',', index=False)
 
-    # Drop poor quality (genome-level quality)
-    # TODO: Also consider filtering by contig_quality (per-contig quality from GTO)
-    #       which may catch poor individual segments in otherwise good assemblies.
-    poor = genome_df[genome_df['quality'] == 'Poor']
-    genome_df = genome_df[genome_df['quality'] != 'Poor'].reset_index(drop=True)
-    print(f'\nDropped Poor quality: {poor.shape}')
-    print(f'Remaining genome_df: {genome_df.shape}')
+    # Drop poor quality at TWO levels:
+    #   1. genome-level (`quality` from gto['quality']['genome_quality']) — entire
+    #      assembly flagged Poor.
+    #   2. contig-level (`contig_quality` from contig['contig_quality']) — the
+    #      individual segment flagged Poor. NaN means "no claim made" and is NOT
+    #      treated as Poor. Conservative: drop only on explicit 'Poor'.
+    #
+    # On the current Flu A July 2025 corpus the contig_quality drop is a no-op
+    # (0 rows), but the filter is in place for defense-in-depth against future
+    # GTO releases where one segment in an otherwise-Good isolate is flagged Poor.
+    poor = genome_df[(genome_df['quality'] == 'Poor')
+                     | (genome_df['contig_quality'] == 'Poor')]
+    genome_df = genome_df[(genome_df['quality'] != 'Poor')
+                          & (genome_df['contig_quality'].fillna('Good') != 'Poor')
+                         ].reset_index(drop=True)
+    print(f'\nDropped Poor quality (genome or contig level): {poor.shape}')
+    print(f'Remaining genome_df:                            {genome_df.shape}')
     if not poor.empty:
         poor.to_csv(output_dir / 'genome_poor_quality.csv', sep=',', index=False)
 
@@ -1085,7 +1110,7 @@ print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
 
 
 # =============================================================================
-# PROTEIN PIPELINE (identical to preprocess_flu_protein.py)
+# PROTEIN PIPELINE
 # =============================================================================
 print(f"\n{'#'*60}")
 print(f"# PROTEIN PIPELINE")
@@ -1196,6 +1221,9 @@ del prot_dups, dup_counts, problematic_seqs_df, ambig_df
 print(f"\n{'='*50}")
 print("Save final protein data.")
 print('='*50)
+import hashlib  # Tier-2: produce the protein hash at its source stage (Stage 1), then only read it.
+prot_df['prot_hash'] = prot_df[PROT_SEQ_COL_NAME].map(
+    lambda s: hashlib.md5(str(s).encode()).hexdigest())
 prot_df.to_csv(output_dir / 'protein_final.csv', sep=',', index=False)
 prot_df.to_parquet(output_dir / 'protein_final.parquet', index=False)
 print(f'prot_df final: {prot_df.shape}')
@@ -1233,10 +1261,18 @@ genome_df = handle_genome_duplicates(genome_df, output_dir)
 
 # Save final genome data
 print(f"\n{'='*50}")
-print("Save final genome data.")
+print("Save final contig-DNA data.")
 print('='*50)
-genome_df.to_csv(output_dir / 'genome_final.csv', sep=',', index=False)
-genome_df.to_parquet(output_dir / 'genome_final.parquet', index=False)
+import hashlib
+# Tier-2: write the molecule-level contig schema -- rename dna_seq -> ctg_dna_seq and produce
+# the contig-DNA hash at its source stage. File renamed genome_final -> ctg_dna_final.
+# (genome_df keeps its internal 'dna_seq' name; only the persisted output is renamed.)
+genome_out = genome_df.rename(columns={DNA_SEQ_COL_NAME: 'ctg_dna_seq'})
+genome_out['ctg_dna_hash'] = genome_out['ctg_dna_seq'].map(
+    lambda s: hashlib.md5(str(s).encode()).hexdigest())
+genome_out.to_csv(output_dir / 'ctg_dna_final.csv', sep=',', index=False)
+genome_out.to_parquet(output_dir / 'ctg_dna_final.parquet', index=False)
+del genome_out
 print(f'genome_df final: {genome_df.shape}')
 print(f"Unique genome sequences: {genome_df[DNA_SEQ_COL_NAME].nunique()}")
 print(f"Unique assemblies: {genome_df['assembly_id'].nunique()}")

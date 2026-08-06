@@ -1,0 +1,64 @@
+# STATUS: experimental -- HA/NA 2D-CD CV.
+
+defaults:
+  - flu_28_major_protein_pairs_master
+  # - flu_ha_na
+  - _self_
+
+dataset:
+  # pair_builder_version: v2 # doesn't apply to cluster_disjoint_cc
+  schema_pair:
+    - "Hemagglutinin precursor"
+    - "Neuraminidase protein"
+
+  n_folds: 5              # K (cross-validation)
+  neg_to_pos_ratio: 1.0   # 1:1 within-CC negatives (overrides flu_ha_na's 1.5)
+  val_ratio: 0.1
+
+  split_strategy:
+    mode: cluster_disjoint_cc # 'random' | 'seq_disjoint' | 'cluster_disjoint' | 'cluster_disjoint_cc'
+    hash_key: null # 'seq' (protein, default) | 'dna' (nucleotide)
+    negative_scope: within_fold # within_cc (hard, removes cluster shortcut) | within_fold (easier)
+    m_pos_per_cc: 1  # cap positive ROWS per CC at 1 -> uniform-weight atoms (atom=CC; m doesn't change #atoms)
+    drop_negative_infeasible_ccs: true
+
+# kmer:
+#   k: 6
+#   alphabet: nt_cds # 'aa' | 'nt_cds' | 'nt_ctg'
+
+training:
+  epochs: 100
+  patience: 20
+  feature_source: kmer  # kmer | esm2
+  # hidden_dims: [100] # bottleneck layer; default: [512, 256, 64]
+  # hidden_dims: [] # simulate logistic regression; default: [512, 256, 64]
+  # dropout: 0.0 # no dropout
+
+  # # Test 1: [|u  − v|, u * v]
+  # slot_transform: "none"
+  # interaction: "diff + prod"
+
+  # # Test 2: [|u_n − v_n|, u_n * v_n], where u_n and v_n are L2-normalized (unit norm) versions of the original k-mer count vectors u and v
+  # # This test is the primary representation for interpretability.
+  # slot_transform: "unit_norm"
+  # interaction: "diff + prod"
+
+  # Test 3: [|u_n − v_n|/‖·‖, u_n * v_n]
+  slot_transform: "unit_norm"
+  interaction: "unit_diff + prod"
+
+  # # Test 4: [|u_n − v_n|/‖·‖, (u_n * v_n)/‖·‖]
+  # # Here the magnitude fully stripped
+  # slot_transform: "unit_norm"
+  # interaction: "unit_diff + unit_prod"
+
+# Sklearn-style baselines that should run alongside the MLP. The list under
+# `baselines.enabled` is consumed by `src/models/train_pair_baselines.py`
+# when --baseline is omitted on the CLI. Per-baseline knobs live at top
+# level under `baseline_<name>` (matches the existing pattern that each
+# baseline module reads from). See:
+#   src/models/baselines/{logistic,lgbm,knn1_margin,knn_vote}.py
+baselines:
+  # enabled: [logistic, lgbm, knn1_margin, knn_vote]
+  # enabled: [lgbm, knn1_margin]
+  enabled: [lgbm]

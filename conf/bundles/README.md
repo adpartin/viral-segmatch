@@ -126,6 +126,72 @@ descriptions) but YAML bundle files must live in the flat `conf/bundles/` direct
 
 ---
 
+## Running balanced subtype sweeps (no new bundle required)
+
+Roadmap v2 Task 2 ("subtype-balanced training and test sets") uses the
+existing single-master setup plus Hydra CLI overrides -- no parallel master
+files. The `subtype_selection` config block in `conf/dataset/default.yaml`
+defaults to `mode: natural` (no-op, current behavior). To run a balanced
+sweep, pass overrides via `scripts/run_cv_lambda.py --override ...` (or
+directly to `dataset_segment_pairs.py`). Every child bundle inheriting from
+`flu_28_major_protein_pairs_master` picks up the same override.
+
+**big3 balanced sweep (H1N1 / H3N2 / H5N1, downsampled to the smallest):**
+
+```bash
+python scripts/run_cv_lambda.py --config_bundle flu_28p_ha_na \
+  --override dataset.subtype_selection.mode=balanced \
+             'dataset.subtype_selection.included_subtypes=[H1N1,H3N2,H5N1]'
+```
+
+**Notes:**
+
+- `subtype_selection.target_count_per_subtype` defaults to `"min"` (use the
+  smallest included-subtype count as N). Override to an int to cap lower;
+  exceeding the smallest count is rejected (no upsampling).
+- `subtype_selection.seed` defaults to the dataset process seed (derived
+  from `master_seed`). Override only when you want a distinct balanced pool
+  for ablation.
+- Incompatible config combinations error loudly in Stage 3:
+  - `subtype_selection.mode=balanced` + `dataset.max_isolates_to_process`
+  - `subtype_selection.mode=balanced` + `dataset.hn_subtype`
+- Stage 3 writes `subtype_selection_manifest.json` at the dataset-run-dir
+  root documenting the per-subtype counts, N, seed, and full list of
+  selected `assembly_id`s. Audit trail for the paper methods section.
+- For concurrent natural + balanced sweeps on the same bundle, launch two
+  separate jobs with different overrides; timestamps + `resolved_config.yaml`
+  in each run dir disambiguate.
+- See `docs/plans/subtype_balancing_plan.md` for the full design.
+
+---
+
+## Adding a new bundle: DNA-coverage feasibility check
+
+Before adding a bundle that combines multiple narrowing filters
+(`host` + `hn_subtype` + `year`, or any tight clade slice), run the
+DNA-coverage feasibility sweep on the proposed filter spec:
+
+```bash
+# Add the new filter to BUNDLES list at the top of the script, then:
+python eda/dna_coverage_feasibility_sweep.py
+```
+
+The script runs in ~10 seconds against `protein_final.csv` and does
+not need a Stage 3 dataset. Look at the new bundle's `ratio_max`:
+
+- `ratio_max < 1` — DNA-level negative coverage is feasible. Proceed.
+- `ratio_max ≥ 1` — DNA-level coverage cannot be enforced for at
+  least one protein. The v2 builder will run in best-effort mode and
+  emit `n_dna_uncovered` in `dataset_stats.json`. Decide whether the
+  residual gap is acceptable for the experiment before building.
+
+Tight clade examples that break: PB2/PB1 + Human + H3N2 + 2024
+(see `docs/results/2026-05-08_dna_coverage_feasibility_sweep.md` for
+the full discussion). HA/NA-based bundles are typically feasible at
+any filter level tested.
+
+---
+
 ## Key Findings (inform new bundle design)
 
 - **ESM-2: `unit_diff` + `slot_norm`** is the current best ESM-2 combination. ESM-2 `concat`

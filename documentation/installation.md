@@ -3,101 +3,104 @@
 ## Prerequisites
 
 - Python 3.9+
-- CUDA-capable GPU (recommended)
-- 50GB+ free disk space for datasets and models
+- CUDA-capable GPU (recommended for Stage 2 ESM-2 embeddings)
+- ~50 GB free disk space (the full-Flu-A data version produces a ~1.78 GB
+  k-mer NPZ and a similarly-sized ESM-2 HDF5 cache, plus per-experiment
+  dataset and model outputs)
 
-## Environment Setup
+## Environment setup
 
-### 1. Create Conda Environment
+### 1. Create a conda environment
+
 ```bash
 conda create -n cepi python=3.9
 conda activate cepi
 ```
 
-### 2. Install Dependencies
+### 2. Install dependencies
+
 ```bash
 # Core ML libraries
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install transformers
-pip install fair-esm
+pip install transformers fair-esm
 
 # Data processing
-pip install pandas numpy scikit-learn
+pip install pandas numpy scikit-learn h5py
 pip install matplotlib seaborn
 
 # Configuration
 pip install hydra-core omegaconf
 
-# Optional: Jupyter for analysis
+# Sklearn baselines (LightGBM, k-NN)
+pip install lightgbm
+
+# Optional: Jupyter
 pip install jupyter ipykernel
 ```
 
-### 3. Verify Installation
+### 3. Verify installation
+
 ```bash
 python -c "import torch; print(f'PyTorch: {torch.__version__}')"
 python -c "import transformers; print(f'Transformers: {transformers.__version__}')"
 python -c "import fair_esm; print('ESM-2 available')"
+python -c "from src.utils.config_hydra import get_virus_config_hydra; print('Config system OK')"
 ```
 
-## Project Structure
+## Project structure
 
 ```
 viral-segmatch/
 ├── src/                    # Python source code
-├── scripts/               # Shell scripts for experiments
-├── conf/                  # Hydra configuration files
-├── data/                  # Data directories (created automatically)
-├── models/                # Trained models (created automatically)
-├── results/               # Analysis results (created automatically)
-└── documentation/         # This documentation
+├── scripts/                # Shell scripts for the 4-stage pipeline
+├── conf/                   # Hydra configuration (bundles, virus, dataset, training, baselines)
+├── data/                   # Created by the pipeline (not in git; symlink raw GTOs in)
+├── models/                 # Created by Stage 4 training
+├── results/                # Created by post-hoc analysis
+├── docs/                   # Methods / technical / plans documentation
+└── documentation/          # User guides (this directory)
 ```
 
-## Data Setup
+For the source-tree breakdown, see
+[`development/code-structure.md`](development/code-structure.md) and
+[`../CLAUDE.md`](../CLAUDE.md).
 
-### 1. Create Data Directories
+## Data setup
+
+### 1. Create the data directories
+
 ```bash
 mkdir -p data/{raw,processed,embeddings,datasets}
 mkdir -p models results logs
 ```
 
-### 2. Download ESM-2 Models (Automatic)
-The ESM-2 models will be downloaded automatically on first use (~2GB).
+### 2. Drop in the raw GTO files
 
-### 3. Prepare Your Data
-Place your viral protein data in `data/raw/` following the expected format.
+Stage 1 expects BV-BRC Genome Typed Object (GTO) JSON files under
+`data/raw/<run_dir>/`. For the production Flu-A July 2025 dataset this
+is `data/raw/Full_Flu_Annos/July_2025/*.gto`. See
+[`../docs/methods/gto_format_reference.md`](../docs/methods/gto_format_reference.md)
+for the GTO schema.
 
-## Verification
+### 3. ESM-2 models download automatically
 
-Run a quick test to verify everything works:
+The ESM-2 model (`esm2_t33_650M_UR50D`, ~2.5 GB) downloads on first use
+of Stage 2.
+
+## Per-machine git setup (one-time)
 
 ```bash
-# Test configuration loading
-python -c "from src.utils.config_hydra import get_virus_config_hydra; print('Config system OK')"
-
-# Test path utilities
-python -c "from src.utils.path_utils import build_training_paths; print('Path utilities OK')"
+git config pull.rebase true   # avoid "need to reconcile divergent branches" on git pull
 ```
 
-## Troubleshooting
+## Common installation issues
 
-### Common Issues
+- **CUDA not available** — check `python -c "import torch; print(torch.cuda.is_available())"`. If False, verify GPU drivers and that you installed the CUDA-bundled PyTorch wheel.
+- **ESM-2 download fails** — confirm internet connectivity and disk space; the model lives at HuggingFace (`facebook/esm2_t33_650M_UR50D`).
+- **Permission errors on data/** — ensure your user has write access to the data directory.
 
-**CUDA not available:**
-- Install CUDA toolkit
-- Verify GPU drivers
-- Check PyTorch CUDA installation
+More issues + fixes: [`troubleshooting.md`](troubleshooting.md).
 
-**ESM-2 download fails:**
-- Check internet connection
-- Verify disk space
-- Try manual download from Hugging Face
+## Next step
 
-**Permission errors:**
-- Check file permissions
-- Ensure write access to data directories
-
-### Getting Help
-
-- Check [Troubleshooting Guide](troubleshooting.md)
-- Review existing [docs/](../docs/) for technical notes
-- Check script logs in `logs/` directory
+[`quick-start.md`](quick-start.md) — run your first experiment.

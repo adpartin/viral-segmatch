@@ -1,38 +1,62 @@
 # Dataset configuration for segment pairs
-# This config defines parameters for creating train/val/test splits and protein pairs
+# This config defines parameters for creating train/val/test splits and segment pairs
 
-# Task name for output directory
-# task_name: 'segment_pair_classifier' # TODO: we currently don't use this
+# Split-strategy knobs are mode-scoped Hydra config groups under
+# conf/dataset/split_strategy/. The default selected here is seq_disjoint; bundles
+# that need a different mode either select another group
+# (defaults: [- /dataset/split_strategy: cluster_disjoint]) or override
+# dataset.split_strategy.* inline. See conf/dataset/split_strategy/*.yaml.
+defaults:
+  - split_strategy: seq_disjoint
+  - _self_
+
+# Pair builder version
+# Read only by src/datasets/dataset_segment_pairs_v2.py (v1/v2).
+# - v2 (default since 2026-05-11): schema-mode-only builder with coverage-first
+#       negative sampling, within-split positive dedup, per-sequence exposure
+#       tracking, metadata-axis annotations on every pair, and (opt-in) the
+#       regime-aware sampler, seq_disjoint split, and metadata_holdout
+#       cross-population split. Hard-codes pair_mode=schema_ordered,
+#       allow_same_func_negatives=false, canonicalize_pair_orientation=false,
+#       hard_partition_isolates=true. See docs/plans/done/design_dataset_gen_v2.md.
+# - v1: original builder, supports unordered + schema_ordered modes. Kept for
+#       legacy bundles only; new bundles should use v2.
+pair_builder_version: v2
 
 # Isolate partitioning strategy
-hard_partition_isolates: true  # true = partition isolates into train/val/test sets, false = partition proteins into train/val/test sets
+# true: isolate-level partitioning (no shared isolates between train/val/test); false: pair-level
+# partitioning (isolates can appear in multiple splits, but pairs are unique to splits)
+hard_partition_isolates: true
 
-# Protein filtering strategy
-use_selected_only: true  # true = use selected_functions, false = use all proteins
+# Isolate sampling
 max_isolates_to_process: null  # null = use all isolates; int = deterministic isolate sampling
 
 # Plotting / post-processing
 generate_visualizations: true  # If true, generate dataset plots after dataset creation
+skip_esm_pca_plots: false      # If true, skip pair_pca_{concat,diff,prod,unit_diff}.png + pair_interaction_diagnostics.json
+skip_kmer_pca_plots: false     # If true, skip kmer_pca_concat.png + kmer_pca_segments_{split}.png
 
 # Pair construction mode
 # - unordered: original behavior (pairs are conceptually undirected; optional hash-based canonicalization can be applied)
 # - schema_ordered: force slot semantics by function schema (func_left -> *_a, func_right -> *_b)
 #                  This is an experimental/validation mode to remove "direction" as a free variable for directed features.
-pair_mode: unordered
+pair_mode: schema_ordered
 # Required when pair_mode=schema_ordered. Order is semantic; do NOT sort.
 # Example: ["HA", "NA"]
 schema_pair: null
 
-# Pair orientation canonicalization
+# Pair orientation canonicalization (applies on to pair_mode=unordered)
 # The segment-matching task is conceptually undirected (a,b) ≡ (b,a), but we store directed columns
 # (*_a/*_b) and feed the model a directed representation (e.g., [emb_a, emb_b]).
 # Canonicalizing orientation helps prevent "direction → label" shortcut learning.
-canonicalize_pair_orientation: true
+canonicalize_pair_orientation: false
+
+# Same-function negative pairs option
+allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
+max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs; not used when allow_same_func_negatives=false
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs
-allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
-max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs; not used when allow_same_func_negatives=false
 
 # Train/validation/test split ratios
 train_ratio: 0.8  # 80% for training
@@ -44,20 +68,119 @@ shuffle_train_labels_seed: null  # Seed for label shuffling (null = use RANDOM_S
 
 # Metadata filtering (Optional. Filter isolates by host, year, H/N subtype, etc.)
 # If any of these are specified, metadata will be enriched and isolates filtered
-host: null      # null = no filter, or "Human", "Pig", "Chicken", etc.
-year: null      # null = no filter, or integer year (e.g., 2020)
-hn_subtype: null # null = no filter, or "H1N1", "H3N2", etc.
-geo_location: null  # null = no filter, or geographic location name (e.g., "Illinois")
-passage: null   # null = no filter, or passage value (e.g., "Original", "S1", "Egg")
+host: null         # null = no filter, scalar (e.g. "Human"), or list (e.g. ["Human","Pig"]) for set membership
+year: null         # null = no filter, scalar (e.g. 2020), or list for set membership. Mutually exclusive with year_range.
+year_range: null   # null = no filter, or [min, max] inclusive (e.g. [2008, 9999]). Mutually exclusive with year.
+hn_subtype: null   # null = no filter, scalar (e.g. "H3N2"), or list (e.g. ["H3N2","H1N1"]) for set membership
+geo_location: null # null = no filter, scalar, or list for set membership
+passage: null      # null = no filter, scalar (e.g. "Original"), or list for set membership
 
-# Temporal holdout split
-# year_train/year_test: null = disabled; list of years = temporal holdout mode
-# Mutually exclusive with year (single-value filter) and n_folds (CV mode)
-year_train: null  # e.g., [2021, 2022, 2023]
-year_test: null   # e.g., [2024]
+# Subtype balancing (Roadmap v2 Task 2). Downsamples isolates to equal
+# per-subtype representation once, before CV fold generation. See
+# docs/plans/subtype_balancing_plan.md for the full design and error rules.
+#
+# mode: natural | balanced
+#   - natural: no-op (default, backward compatible).
+#   - balanced: keep only isolates from included_subtypes; downsample each
+#     subtype to N isolates; N is min(available counts) when
+#     target_count_per_subtype='min', else the configured int (errors if
+#     int > min available -- upsampling not supported).
+#
+# Mutually exclusive with max_isolates_to_process (both sample isolates) and
+# with dataset.hn_subtype (single-subtype filter contradicts multi-subtype
+# balancing). Stage 3 errors out loudly if either is combined with balanced.
+subtype_selection:
+  mode: natural                   # natural | balanced
+  included_subtypes: null         # list[str], required when mode=balanced
+  target_count_per_subtype: min   # "min" or int
+  seed: null                      # null -> inherit RANDOM_SEED (master_seed -> datasets)
 
 # Cross-validation
 # n_folds: null = single-split mode (default); int N = generate N CV folds in one dataset run
 # fold_id: used by launchers to select which fold dir to pass to the training script; null = ignored
 n_folds: null
 fold_id: null
+
+# 2D-CD builder (dataset_pairs_cc.py, split_strategy.mode=cluster_disjoint_cc) only:
+# repeated K-fold. Placeholder — only n_repeats=1 is wired; >1 raises. Reserved
+# output layout repeat_{r}/fold_{k}/.
+n_repeats: 1
+
+# v2-only: coverage-phase attempt cap. Each positive-pair seq gets up to this many tries
+# to find a valid negative partner before being logged as coverage_skipped.
+max_attempts_per_seq: 50
+
+# v2-only: metadata axes annotated on every pair as <axis>_a, <axis>_b, same_<axis>.
+axes_for_flags:
+  - hn_subtype
+  - host
+  - year
+  - geo_location
+  - passage
+
+# v2-only: legacy placeholder. Must be null. The regime-aware sampler now
+# lives under `negative_sampling` (below); a non-null `axis_quotas` is rejected
+# at config-validation time with a migration message.
+axis_quotas: null
+
+# v2-only: metadata-aware negative sampling. Default null (legacy regime-blind
+# fill phase). Setting any value enables regime-aware sampling; regime_targets
+# must be a complete dict over the 8 regime names summing to 1.0. See
+# `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md`. The legacy
+# `unknown_metadata_neg` regime was retired 2026-05-11 -- the validator
+# rejects it in regime_targets with a migration message.
+negative_sampling: null
+# Example (uncomment + adjust per bundle):
+# negative_sampling:
+#   axes: [host, hn_subtype, year]
+#   year_match: binned                # exact | binned
+#   year_bin_edges:                   # only used when year_match=binned
+#     - [-1e30, 2015, "<=2015"]       # use a finite sentinel for -inf in YAML
+#     - [2016, 2020, "2016-2020"]
+#     - [2021, 1e30, "2021+"]
+#   regime_targets:
+#     none_match:           0.05
+#     host_only:            0.10
+#     subtype_only:         0.10
+#     year_only:            0.10
+#     host_subtype_only:    0.15
+#     host_year_only:       0.15
+#     subtype_year_only:    0.15
+#     host_subtype_year:    0.20
+#   on_shortfall: redistribute  # redistribute | warn_only | error
+#
+# on_shortfall semantics — what happens when a regime cannot reach its target
+# within the per-regime sampling budget (e.g. the eligible pair pool for that
+# regime is too small after metadata filtering / co-occurrence exclusion):
+#   - 'redistribute' (default, recommended): after per-regime sampling finishes,
+#       run one regime-blind redistribution pass that accepts ANY pair whose
+#       regime is still under target, until the total `fill_phase_target` is
+#       met or the redistribution attempt budget runs out. Maximizes total
+#       negatives placed at the cost of skewing the achieved per-regime mix.
+#   - 'warn_only': accept the partial sample as-is. The achieved per-regime
+#       mix matches what the budget could produce; total pair count may fall
+#       short. Useful for diagnostic runs where the goal is to *measure* the
+#       per-regime availability, not to hit a target.
+#   - 'error': raise RuntimeError if any regime is below target after the
+#       per-regime pass. Per-regime shortfall summary
+#       (target / achieved / available) is included in the message. Use when
+#       you want the run to fail loudly rather than silently produce a
+#       skewed dataset.
+
+# Drop isolates with ambiguous hn_subtype before pair generation. The full
+# Flu A enriched set carries ~1,006 isolates out of ~108,530 (~0.93%) whose
+# hn_subtype doesn't match the regex ^H\d+N\d+$ -- almost all are 'HN' (both
+# axes unknown), plus a couple of 'H1N' / 'H3N' singletons. Dropping them at
+# source removes the bulk of pairs that the now-retired unknown_metadata_neg
+# regime used to absorb. Set to false to retain them (legacy behavior).
+# Implemented by `_pair_helpers.drop_ambiguous_hn_subtype()`.
+drop_ambiguous_subtype: true
+
+# split_strategy is selected as a mode-scoped config group (see the `defaults:`
+# list at the top of this file and conf/dataset/split_strategy/*.yaml):
+#   - seq_disjoint (default)   mode + hash_key
+#   - cluster_disjoint         + cluster_alphabet / cluster_id_path / feasibility / single_slot
+#   - cluster_disjoint_cc      + negative_scope / m_pos_per_cc / drop_negative_infeasible_ccs
+# Per-mode knob docs live in those group files. Bundles select a non-default mode
+# via `defaults: [- /dataset/split_strategy: <group>]` or override
+# dataset.split_strategy.* inline.

@@ -27,13 +27,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import h5py
+# h5py is lazy-imported inside ESMPairDataset where it is actually needed.
+# Module-level import breaks the k-mer training path whenever the conda env
+# has a libhdf5/h5py ABI mismatch (e.g., after a bioconda install pulled a
+# different libhdf5).
 import pandas as pd
+import pyarrow.parquet as pq
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import (
-    f1_score, roc_auc_score, classification_report,
-    precision_recall_curve, precision_score, recall_score
+    f1_score, roc_auc_score,
+    precision_score, recall_score,
+    average_precision_score, matthews_corrcoef,
 )
 
 import torch
@@ -48,6 +53,7 @@ from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.path_utils import resolve_run_suffix, build_training_paths, build_embeddings_paths
+from src.utils import schema
 from src.utils.torch_utils import determine_device, create_optimizer, create_lr_scheduler
 from src.utils.esm2_utils import load_esm2_embedding, get_esm2_embedding_dim, validate_embeddings_metadata
 from src.utils.learning_verification_utils import (
@@ -56,87 +62,53 @@ from src.utils.learning_verification_utils import (
     plot_learning_curves
 )
 from src.utils.kmer_utils import load_kmer_index, load_kmer_matrix, get_kmer_pair_features
-import h5py
+from src.models._pair_metrics import (
+    compute_pair_metrics,
+    find_optimal_threshold_pr,
+    swap_pairs_df_columns,
+)
 
 total_timer = Timer()
 
 
-def find_optimal_threshold_pr(y_true, y_probs, metric='f1'):
+def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool, bool]:
     """
-    Find optimal threshold using Precision-Recall curve.
-    TODO: allow an option to generate a plot of the PR curve, showing the optimal threshold and the best score.
+    Parse interaction spec string into
+    (use_concat, use_diff, use_prod, use_unit_diff, use_unit_prod).
+    Accepts: "concat", "diff", "prod", "unit_diff", "unit_prod", or combinations
+    like "unit_diff+unit_prod" (any order).
 
-    This method is preferred for imbalanced datasets and when optimizing F1.
-    It's faster than grid search and directly optimizes F1 score.
-
-    Args:
-        y_true: True binary labels (array-like)
-        y_probs: Predicted probabilities (array-like)
-        metric: Metric to optimize ('f1', 'f0.5', 'f2')
-            - 'f1': Maximize F1 score (harmonic mean of precision and recall)
-            - 'f0.5': Emphasize precision more (F0.5 = (1+0.5²) * P*R / (0.5²*P + R))
-            - 'f2': Emphasize recall more (F2 = (1+2²) * P*R / (2²*P + R))
-
-    Returns:
-        optimal_threshold: Threshold that maximizes the specified metric
-        best_score: Best score achieved at optimal threshold
-    """
-    precision, recall, thresholds = precision_recall_curve(y_true, y_probs)
-
-    # Handle edge case: no thresholds (all predictions same class)
-    if len(thresholds) == 0:
-        return 0.5, 0.0
-
-    # Calculate F-beta scores
-    if metric == 'f1':
-        # F1 = 2 * (precision * recall) / (precision + recall)
-        # Add small epsilon to avoid division by zero
-        f_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
-    elif metric == 'f0.5':
-        # F0.5 emphasizes precision: beta = 0.5
-        beta_sq = 0.5 ** 2
-        f_scores = (1 + beta_sq) * (precision * recall) / (beta_sq * precision + recall + 1e-10)
-    elif metric == 'f2':
-        # F2 emphasizes recall: beta = 2
-        beta_sq = 2 ** 2
-        f_scores = (1 + beta_sq) * (precision * recall) / (beta_sq * precision + recall + 1e-10)
-    else:
-        raise ValueError(f"Unknown metric: {metric}. Choose from 'f1', 'f0.5', 'f2'")
-
-    # Find best F-score (excluding last point which has threshold=None)
-    # The last point in precision_recall_curve has threshold=None and corresponds
-    # to the case where all predictions are positive
-    optimal_idx = np.argmax(f_scores[:-1])
-    optimal_threshold = thresholds[optimal_idx]
-    best_score = f_scores[optimal_idx]
-
-    return optimal_threshold, best_score
-
-
-def parse_interaction_flags(interaction: str) -> tuple[bool, bool, bool, bool]:
-    """
-    Parse interaction spec string into (use_concat, use_diff, use_prod, use_unit_diff).
-    Accepts: "concat", "diff", "prod", "unit_diff", or combinations like "concat+diff" (any order).
-
-    unit_diff: L2-normalized difference (emb_a - emb_b) / (||emb_a - emb_b|| + eps).
-    Preserves only the *direction* of the difference, removing magnitude information.
-    Use as a diagnostic to test whether the model relies on diff magnitude vs direction.
+    unit_diff: L2-normalized abs-difference |emb_a - emb_b| / max(|||emb_a - emb_b|||, eps).
+        Element-wise abs (matching `diff`) so the operation is symmetric
+        in (a, b); then L2-normalized so magnitude is collapsed.
+    unit_prod: L2-normalized element-wise product (emb_a * emb_b) / max(||emb_a * emb_b||, eps).
+        Removes magnitude from the agreement signal; pairs well with
+        slot_transform='unit_norm' for a fully magnitude-invariant pipeline.
     """
     if interaction is None:
-        return False, False, False, False
+        return False, False, False, False, False
     tokens = [t.strip().lower() for t in str(interaction).split('+') if t.strip()]
-    allowed = {"concat", "diff", "prod", "unit_diff"}
+    allowed = {"concat", "diff", "prod", "unit_diff", "unit_prod"}
     unknown = [t for t in tokens if t not in allowed]
     if unknown:
         raise ValueError(f"Unknown interaction tokens: {unknown} (allowed: {sorted(allowed)})")
-    return ("concat" in tokens, "diff" in tokens, "prod" in tokens, "unit_diff" in tokens)
+    return (
+        "concat" in tokens,
+        "diff" in tokens,
+        "prod" in tokens,
+        "unit_diff" in tokens,
+        "unit_prod" in tokens,
+    )
 
 
-class SegmentPairDataset(Dataset):
+class ESMPairDataset(Dataset):
     """
-    Dataset for segment pairs with ESM-2 embeddings.
-    Always returns (emb_a, emb_b), label. Interaction features are computed in the model.
-    Uses row-based indexing for master cache access.
+    Dataset for segment pairs with ESM-2 protein embeddings.
+
+    Always returns (emb_a, emb_b), label. Interaction features (concat / diff /
+    unit_diff / prod) are computed inside the MLP, not here. Naming parallels
+    KmerPairDataset so it's clear which feature source each dataset wraps.
+    Uses row-based indexing into the master HDF5 cache.
     """
     # Shared cache so multiple datasets (train/val/test) can reuse the same embeddings
     _shared_embedding_cache: dict[str, np.ndarray] = {}
@@ -162,21 +134,22 @@ class SegmentPairDataset(Dataset):
         
         # Build id_to_row mapping (must be done before opening H5)
         self.id_to_row = self._build_id_to_row()
-        
+
         # Open H5 file to read metadata and optionally preload embeddings
+        import h5py  # lazy: only the ESM-2 path uses HDF5
         self.h5 = h5py.File(embeddings_file, 'r')
         
         # Require master cache format (strict - no old format support)
         if 'emb' not in self.h5 or 'emb_keys' not in self.h5:
             raise ValueError(
-                f"❌ Invalid embeddings file format: {embeddings_file}. "
+                f"Invalid embeddings file format: {embeddings_file}. "
                 "Master cache format required (with 'emb' and 'emb_keys' datasets). "
                 "Old format is not supported."
             )
         
         # Display metadata (required for master cache format)
         if 'model_name' in self.h5.attrs:
-            print(f"📋 Embedding metadata: model={self.h5.attrs.get('model_name', 'unknown')}, "
+            print(f"Embedding metadata: model={self.h5.attrs.get('model_name', 'unknown')}, "
                   f"pooling={self.h5.attrs.get('pooling', 'unknown')}, "
                   f"layer={self.h5.attrs.get('layer', 'unknown')}, "
                   f"max_length={self.h5.attrs.get('max_length', 'unknown')}, "
@@ -191,27 +164,32 @@ class SegmentPairDataset(Dataset):
             self.embeddings_cache = None
     
     def _build_id_to_row(self) -> dict:
-        """
-        Build mapping from brc_fea_id to row index in master cache.
-        
-        Returns:
-            dict: Mapping {brc_fea_id: row_index}
+        """Build (assembly_id, brc_fea_id) -> row index mapping from the
+        parquet index sidecar.
+
+        Composite-tuple keying matches the contract in
+        docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md.
         """
         if self.use_parquet:
-            # Use parquet index file
             index_file = Path(self.embeddings_file).with_suffix('.parquet')
             if index_file.exists():
                 df = pd.read_parquet(index_file)
-                return dict(zip(df['brc_fea_id'], df['row']))
+                if 'assembly_id' not in df.columns:
+                    raise KeyError(
+                        f"Parquet index at {index_file} is missing 'assembly_id'. "
+                        "Run scripts/migrate_esm2_parquet_add_assembly_id.py to upgrade."
+                    )
+                keys = list(zip(df['assembly_id'].astype(str),
+                                df['brc_fea_id'].astype(str)))
+                return dict(zip(keys, df['row']))
             else:
-                print(f"⚠️  Parquet index not found: {index_file}. Falling back to H5 key scan.")
+                print(f"WARNING: Parquet index not found: {index_file}. Falling back to H5 key scan.")
                 self.use_parquet = False
-        
-        # Master cache format requires parquet index
+
         raise ValueError(
-            f"❌ Parquet index not found: {index_file}. "
-            "Master cache format requires parquet index for brc_fea_id to row mapping. "
-            "Ensure the index file exists or regenerate embeddings."
+            f"Parquet index not found: {index_file}. "
+            "Master cache format requires parquet index for (assembly_id, brc_fea_id) "
+            "to row mapping. Ensure the index file exists or regenerate embeddings."
         )
 
     def _get_or_preload_shared_embeddings(self) -> np.ndarray:
@@ -225,7 +203,7 @@ class SegmentPairDataset(Dataset):
         print("Pre-loading entire embeddings matrix into memory (shared cache)...")
         emb_matrix = self.h5['emb'][:].astype(np.float32)
         self._shared_embedding_cache[self.embeddings_file] = emb_matrix
-        print(f"✅ Pre-loading complete ({emb_matrix.shape[0]:,} embeddings cached).")
+        print(f"Pre-loading complete ({emb_matrix.shape[0]:,} embeddings cached).")
         return emb_matrix
 
     def __len__(self):
@@ -236,20 +214,21 @@ class SegmentPairDataset(Dataset):
         Return the aggregated embedding vector for a segment pair and its label.
         Uses row-based indexing for fast access to master cache.
         """
-        # breakpoint()
         row = self.pairs.iloc[idx]
 
-        # Get row indices for brc_a and brc_b
-        row_a = self.id_to_row.get(row['brc_a'], -1)
-        row_b = self.id_to_row.get(row['brc_b'], -1)
+        # Composite (assembly_id, brc_fea_id) lookup for each slot.
+        key_a = (str(row['assembly_id_a']), str(row['brc_a']))
+        key_b = (str(row['assembly_id_b']), str(row['brc_b']))
+        row_a = self.id_to_row.get(key_a, -1)
+        row_b = self.id_to_row.get(key_b, -1)
 
         if row_a == -1 or row_b == -1:
             missing = []
             if row_a == -1:
-                missing.append(f"brc_a={row['brc_a']}")
+                missing.append(f"key_a={key_a}")
             if row_b == -1:
-                missing.append(f"brc_b={row['brc_b']}")
-            raise KeyError(f"❌ Missing embeddings for: {', '.join(missing)}")
+                missing.append(f"key_b={key_b}")
+            raise KeyError(f"Missing embeddings for: {', '.join(missing)}")
 
         # Access embeddings from cache (preloaded) or master cache (on-demand)
         if self.embeddings_cache is not None:
@@ -277,11 +256,13 @@ class SegmentPairDataset(Dataset):
 class KmerPairDataset(Dataset):
     """Dataset for segment pairs with k-mer features.
 
-    Returns (emb_a, emb_b), label — same interface as SegmentPairDataset
+    Returns (emb_a, emb_b), label — same interface as ESMPairDataset
     so the training loop and MLPClassifier work unchanged.
 
-    Pairs are looked up via composite key (assembly_id::genbank_ctg_id)
-    using ctg_a/ctg_b columns in the pair CSV.
+    Pairs are looked up via composite (assembly_id, occurrence_id)
+    tuple keys. The occurrence column is alphabet-dependent:
+        nt: ctg_a / ctg_b
+        aa: brc_a / brc_b
     """
 
     def __init__(
@@ -289,12 +270,17 @@ class KmerPairDataset(Dataset):
         pairs: pd.DataFrame,
         kmer_matrix,   # scipy sparse CSR
         key_to_row: dict,
+        alphabet: str = 'nt_ctg',
         ) -> None:
-        # Pre-compute row indices for each pair
-        keys_a = pairs['assembly_id_a'].astype(str) + '::' + pairs['ctg_a'].astype(str)
-        keys_b = pairs['assembly_id_b'].astype(str) + '::' + pairs['ctg_b'].astype(str)
-        rows_a = keys_a.map(key_to_row).astype(int).values
-        rows_b = keys_b.map(key_to_row).astype(int).values
+        occ_col_a = schema.pair_occ_col(alphabet, 'a')
+        occ_col_b = schema.pair_occ_col(alphabet, 'b')
+
+        keys_a = list(zip(pairs['assembly_id_a'].astype(str),
+                          pairs[occ_col_a].astype(str)))
+        keys_b = list(zip(pairs['assembly_id_b'].astype(str),
+                          pairs[occ_col_b].astype(str)))
+        rows_a = np.array([key_to_row[k] for k in keys_a], dtype=np.int64)
+        rows_b = np.array([key_to_row[k] for k in keys_b], dtype=np.int64)
 
         # Subset the sparse matrix to only the rows used by this fold's pairs.
         # Full matrix is 868K×4096 (14.2 GB dense). Each fold uses ~100-200K unique
@@ -346,7 +332,7 @@ class MLPClassifier(nn.Module):
         self,
         input_dim: int = 2560,
         hidden_dims: list[int] = [512, 256, 64],
-        dropout: float = 0.3,
+        dropout: float = 0.2,
         slot_transform: str = "none",
         slot_transform_dims: Optional[list[int]] = None,
         adapter_dims: Optional[list[int]] = None,
@@ -354,6 +340,7 @@ class MLPClassifier(nn.Module):
         use_diff: bool = False,
         use_prod: bool = False,
         use_unit_diff: bool = False,
+        use_unit_prod: bool = False,
         embed_dim: Optional[int] = None,
     ):
         super().__init__()
@@ -363,6 +350,7 @@ class MLPClassifier(nn.Module):
         self.use_diff = use_diff
         self.use_prod = use_prod
         self.use_unit_diff = use_unit_diff
+        self.use_unit_prod = use_unit_prod
 
         self.slot_transform_shared = None
         self.slot_transform_a = None
@@ -427,6 +415,13 @@ class MLPClassifier(nn.Module):
             self.norm_a = nn.LayerNorm(out_dim)
             self.norm_b = nn.LayerNorm(out_dim)
 
+        elif self.slot_transform == "unit_norm":
+            # Per-slot L2 row normalization: u -> u / max(||u||, eps).
+            # No learned parameters; collapses magnitude to 1 so downstream
+            # interactions operate on direction only. Pairs well with
+            # unit_prod / unit_diff for a fully magnitude-invariant pipeline.
+            pass
+
         elif self.slot_transform != "none":
             raise ValueError(f"Unknown slot_transform: {self.slot_transform!r}")
 
@@ -478,6 +473,13 @@ class MLPClassifier(nn.Module):
                 a = self.slot_transform_shared(a)
                 b = self.slot_transform_shared(b)
             return self.norm_a(a), self.norm_b(b)
+
+        if self.slot_transform == "unit_norm":
+            # L2 row-normalization. Eps clamp mirrors unit_diff/unit_prod.
+            a_norm = torch.linalg.norm(a, dim=1, keepdim=True).clamp(min=1e-8)
+            b_norm = torch.linalg.norm(b, dim=1, keepdim=True).clamp(min=1e-8)
+            return a / a_norm, b / b_norm
+
         raise ValueError(f"Unknown slot_transform: {self.slot_transform!r}")
 
     def _compute_interaction(self, a: torch.Tensor, b: torch.Tensor
@@ -497,13 +499,22 @@ class MLPClassifier(nn.Module):
         if self.use_diff:
             features.append(torch.abs(a - b))
         if self.use_unit_diff:
-            diff = a - b
+            # Element-wise abs in the numerator (symmetric in a/b, like `diff`),
+            # then L2-normalize. Note: ||·|| is invariant to elementwise abs, so
+            # the denominator is the same whether we abs first or not.
+            diff = torch.abs(a - b)
             norm = torch.linalg.norm(diff, dim=1, keepdim=True).clamp(min=1e-8)
             features.append(diff / norm)
         if self.use_prod:
             features.append(a * b)
+        if self.use_unit_prod:
+            prod = a * b
+            norm = torch.linalg.norm(prod, dim=1, keepdim=True).clamp(min=1e-8)
+            features.append(prod / norm)
         if not features:
-            raise ValueError("At least one of concat/diff/prod/unit_diff must be enabled for interaction.")
+            raise ValueError(
+                "At least one of concat/diff/prod/unit_diff/unit_prod must be enabled for interaction."
+            )
         return torch.cat(features, dim=1)
 
     def forward(self, x: torch.Tensor, x_b: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -536,10 +547,15 @@ def train_model(
     Train the MLP classifier with early stopping based on a configurable metric.
     
     Args:
-        early_stopping_metric: Metric to use for early stopping ('loss', 'f1', 'auc')
+        early_stopping_metric: Metric to use for early stopping. One of:
+            'loss'    -- BCE on val (lower is better, threshold-independent)
+            'f1'      -- F1 of positive class at threshold 0.5
+            'auc_roc' -- AUC-ROC, ranking-based, threshold-independent
+            'auc_pr'  -- AUC-PR, positive-class focused, threshold-independent
+            'mcc'     -- Matthews CC at threshold 0.5; full-CM, symmetric, 0 on collapse
             - 'loss': Lower is better (default, backward compatible)
             - 'f1': Higher is better
-            - 'auc': Higher is better
+            - 'auc_roc': Higher is better
         threshold_metric: Metric to optimize for threshold selection ('f1', 'f0.5', 'f2', or None)
             - 'f1': Maximize F1 score (default)
             - 'f0.5': Emphasize precision more
@@ -588,7 +604,9 @@ def train_model(
         'val_f1_macro': [],  # F1 macro (average of both classes)
         'val_precision': [],  # Precision for positive class (measures FP)
         'val_recall': [],  # Recall for positive class (measures FN)
-        'val_auc': [],
+        'val_auc_roc': [],  # AUC-ROC: ranking quality, threshold-independent
+        'val_auc_pr': [],   # AUC-PR: positive-class focused, threshold-independent
+        'val_mcc': [],      # MCC at threshold 0.5: full-CM, symmetric
         'val_brier': [],
         'learning_rate': [],  # Track learning rate over epochs
         'epoch_time_sec': [],  # Wall-clock time per epoch (seconds)
@@ -606,7 +624,7 @@ def train_model(
             'train_f1_macro': [],
             'train_precision': [],
             'train_recall': [],
-            'train_auc': [],
+            'train_auc_roc': [],
             'train_brier': [],
         })
     
@@ -619,14 +637,21 @@ def train_model(
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
 
     # Initialize best metric tracking based on metric type
+    # MCC is bounded in [-1, 1]; the others (f1, auc_roc, auc_pr) are in [0, 1].
+    # Using -1.0 as the "no result yet" sentinel works for all four because the
+    # first computed value will always be >= -1.0.
+    _HIGHER_IS_BETTER_METRICS = ['f1', 'auc_roc', 'auc_pr', 'mcc']
     if early_stopping_metric == 'loss':
         best_metric_value = float('inf')
         is_higher_better = False
-    elif early_stopping_metric in ['f1', 'auc']:
+    elif early_stopping_metric in _HIGHER_IS_BETTER_METRICS:
         best_metric_value = -1.0
         is_higher_better = True
     else:
-        raise ValueError(f"Unknown early_stopping_metric: {early_stopping_metric}. Choose from 'loss', 'f1', 'auc'")
+        raise ValueError(
+            f"Unknown early_stopping_metric: {early_stopping_metric}. "
+            f"Choose from 'loss', 'f1', 'auc_roc', 'auc_pr', 'mcc'"
+        )
 
     # --- Level 2 diagnostic: micro-benchmark first 10 batches ---
     # Confirmed that pin_memory=True causes ~300x data-loading slowdown with 4 concurrent
@@ -765,13 +790,13 @@ def train_model(
             train_precision = precision_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
             train_recall = recall_score(train_labels, train_preds, average='binary', pos_label=1, zero_division=0)
             try:
-                train_auc = roc_auc_score(train_labels, train_probs)
+                train_auc_roc = roc_auc_score(train_labels, train_probs)
             except ValueError:
-                # See val_auc comment: degenerate predictions break roc_auc_score.
-                train_auc = 0.5
+                # See val_auc_roc comment: degenerate predictions break roc_auc_score.
+                train_auc_roc = 0.5
             train_brier = float(np.mean((train_probs - np.array(train_labels)) ** 2))
         else:
-            train_f1 = train_f1_macro = train_precision = train_recall = train_auc = train_brier = None
+            train_f1 = train_f1_macro = train_precision = train_recall = train_auc_roc = train_brier = None
 
         model.eval()
         val_loss = 0
@@ -803,14 +828,21 @@ def train_model(
         val_precision = precision_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         val_recall = recall_score(val_labels, val_preds, average='binary', pos_label=1, zero_division=0)
         try:
-            val_auc = roc_auc_score(val_labels, val_probs)
+            val_auc_roc = roc_auc_score(val_labels, val_probs)
         except ValueError:
             # roc_auc_score measures how well the model ranks positives above
             # negatives across all thresholds. When predictions are near-constant
             # (degenerate model), the FPR values contain ties that break
             # monotonicity, causing sklearn to raise ValueError. Fall back to
-            # AUC=0.5 (equivalent to random ranking) so training can continue.
-            val_auc = 0.5
+            # AUC-ROC=0.5 (equivalent to random ranking) so training can continue.
+            val_auc_roc = 0.5
+        # AUC-PR (sklearn's average_precision_score): integrates precision
+        # over recall; asymmetric (positive-class focused), useful when
+        # positives are rare.
+        val_auc_pr = average_precision_score(val_labels, val_probs)
+        # MCC: full-CM single number, symmetric across classes, returns 0 on
+        # collapse (constant predictions). Threshold-dependent at 0.5.
+        val_mcc = matthews_corrcoef(val_labels, val_preds)
         val_brier = float(np.mean((np.array(val_probs) - np.array(val_labels)) ** 2))
 
         # Select metric value for early stopping
@@ -818,8 +850,12 @@ def train_model(
             current_metric_value = val_loss
         elif early_stopping_metric == 'f1':
             current_metric_value = val_f1
-        elif early_stopping_metric == 'auc':
-            current_metric_value = val_auc
+        elif early_stopping_metric == 'auc_roc':
+            current_metric_value = val_auc_roc
+        elif early_stopping_metric == 'auc_pr':
+            current_metric_value = val_auc_pr
+        elif early_stopping_metric == 'mcc':
+            current_metric_value = val_mcc
 
         # Update learning rate scheduler if provided
         if lr_scheduler is not None:
@@ -846,13 +882,15 @@ def train_model(
             history['train_f1_macro'].append(train_f1_macro)
             history['train_precision'].append(train_precision)
             history['train_recall'].append(train_recall)
-            history['train_auc'].append(train_auc)
+            history['train_auc_roc'].append(train_auc_roc)
             history['train_brier'].append(train_brier)
         history['val_f1'].append(val_f1)
         history['val_f1_macro'].append(val_f1_macro)
         history['val_precision'].append(val_precision)
         history['val_recall'].append(val_recall)
-        history['val_auc'].append(val_auc)
+        history['val_auc_roc'].append(val_auc_roc)
+        history['val_auc_pr'].append(val_auc_pr)
+        history['val_mcc'].append(val_mcc)
         history['val_brier'].append(val_brier)
         history['learning_rate'].append(current_lr)
         history['epoch_time_sec'].append(round(epoch_time, 2))
@@ -862,11 +900,11 @@ def train_model(
         if eval_train_metrics:
             print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
                   f'Train F1: {train_f1:.4f}, Val F1: {val_f1:.4f}, '
-                  f'Train AUC: {train_auc:.4f}, Val AUC: {val_auc:.4f} '
+                  f'Train AUC-ROC: {train_auc_roc:.4f}, Val AUC-ROC: {val_auc_roc:.4f} '
                   f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}] {timing_str}')
         else:
             print(f'Epoch {epoch+1}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, '
-                  f'Val F1: {val_f1:.4f}, Val AUC: {val_auc:.4f} '
+                  f'Val F1: {val_f1:.4f}, Val AUC-ROC: {val_auc_roc:.4f} '
                   f'[{early_stopping_metric.upper()}: {current_metric_value:.4f}, LR: {current_lr:.6f}] {timing_str}')
 
         # Check if current metric is better than best
@@ -883,7 +921,7 @@ def train_model(
             # Save validation probabilities and labels for threshold optimization
             best_val_probs = val_probs.copy()
             best_val_labels = np.array(val_labels)
-            print(f'  ✓ New best {early_stopping_metric}: {best_metric_value:.4f}')
+            print(f'  New best {early_stopping_metric}: {best_metric_value:.4f}')
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -900,13 +938,15 @@ def train_model(
             'train_f1_macro': history.get('train_f1_macro', [None] * len(history['train_loss'])),
             'train_precision': history.get('train_precision', [None] * len(history['train_loss'])),
             'train_recall': history.get('train_recall', [None] * len(history['train_loss'])),
-            'train_auc': history.get('train_auc', [None] * len(history['train_loss'])),
+            'train_auc_roc': history.get('train_auc_roc', [None] * len(history['train_loss'])),
             'train_brier': history.get('train_brier', [None] * len(history['train_loss'])),
             'val_f1': history.get('val_f1', [None] * len(history['train_loss'])),
             'val_f1_macro': history.get('val_f1_macro', [None] * len(history['train_loss'])),
             'val_precision': history.get('val_precision', [None] * len(history['train_loss'])),
             'val_recall': history.get('val_recall', [None] * len(history['train_loss'])),
-            'val_auc': history.get('val_auc', [None] * len(history['train_loss'])),
+            'val_auc_roc': history.get('val_auc_roc', [None] * len(history['train_loss'])),
+            'val_auc_pr': history.get('val_auc_pr', [None] * len(history['train_loss'])),
+            'val_mcc': history.get('val_mcc', [None] * len(history['train_loss'])),
             'val_brier': history.get('val_brier', [None] * len(history['train_loss'])),
             'learning_rate': history.get('learning_rate', [None] * len(history['train_loss'])),
             'epoch_time_sec': history.get('epoch_time_sec', [None] * len(history['train_loss'])),
@@ -934,9 +974,9 @@ def train_model(
             print(f"Best val F1 (macro): {max(history['val_f1_macro']):.4f}")
         print(f"Baseline (majority class) F1: {baseline_metrics['majority_f1']:.4f}")
         if max(history['val_f1']) > baseline_metrics['majority_f1']:
-            print("✅ Model learned! (F1 > baseline)")
+            print("Model learned! (F1 > baseline)")
         else:
-            print("⚠️  Model did not beat baseline - may indicate learning issues")
+            print("WARNING: Model did not beat baseline - may indicate learning issues")
         print('='*60 + "\n")
 
     # Find optimal threshold on validation set using best model's predictions
@@ -1004,56 +1044,40 @@ def evaluate_on_split(
     mean_loss = loss_sum / len(data_loader.dataset)
     logits = all_logits.float().cpu().numpy().astype(np.float32, copy=False)
     probs = torch.sigmoid(all_logits).cpu().numpy()
-    pred_labels = (probs > threshold).astype(np.float32)
     true_labels = all_labels.cpu().numpy()
-    # Compute metrics for positive class (label=1, same isolate)
-    # Explicit parameters: average='binary', pos_label=1
-    test_f1 = f1_score(true_labels, pred_labels, average='binary', pos_label=1)
-    test_f1_macro = f1_score(true_labels, pred_labels, average='macro')
-    test_precision = precision_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
-    test_recall = recall_score(true_labels, pred_labels, average='binary', pos_label=1, zero_division=0)
-    try:
-        test_auc = roc_auc_score(true_labels, probs)
-    except ValueError:
-        # See train_model() val_auc comment: degenerate predictions break roc_auc_score.
-        test_auc = 0.5
 
-    # Classification report
-    print('\nClassification Report:')
-    print(classification_report(true_labels, pred_labels, target_names=['Negative', 'Positive']))
+    metrics, res_df = compute_pair_metrics(
+        true_labels, probs, threshold, pairs_df, logits=logits,
+    )
 
-    # Create results df (preserve original columns and append predictions)
-    res_df = pairs_df.copy()
-    res_df['pred_label'] = pred_labels
-    res_df['pred_prob'] = probs
-    res_df['pred_logit'] = logits
+    # MCC and AUC-PR aren't in compute_pair_metrics's return dict; compute
+    # them inline so the log block reports the full panel (threshold-
+    # dependent: precision/recall/F1/MCC; ranking: AUC-ROC/AUC-PR).
+    pred_labels = (probs > threshold).astype(int)
+    mcc = matthews_corrcoef(true_labels, pred_labels)
+    auc_pr = average_precision_score(true_labels, probs)
 
     split_title = split_name.strip() if split_name is not None else "split"
-    print(f'{split_title} Loss: {mean_loss:.4f}, {split_title} F1 (binary): {test_f1:.4f}, {split_title} F1 (macro): {test_f1_macro:.4f}')
-    print(f'{split_title} Precision: {test_precision:.4f}, {split_title} Recall: {test_recall:.4f}, {split_title} AUC: {test_auc:.4f}')
-    print(f'Using threshold: {threshold:.4f}')
-    print(f'Note: Precision measures False Positives (FP), Recall measures False Negatives (FN)')
-    print(f'      F1 (binary) focuses on positive class, F1 (macro) averages both classes')
+    print(f'\n{split_title} metrics:')
+    print(f'Using threshold: {threshold:.2f}')
+    print(f'{split_title} Loss: {mean_loss:.4f}')
+    print(f'{split_title} Precision: {metrics["precision"]:.4f}')
+    print(f'{split_title} Recall: {metrics["recall"]:.4f}')
+    print(f'{split_title} F1 (binary): {metrics["f1"]:.4f}')
+    print(f'{split_title} F1 (macro): {metrics["f1_macro"]:.4f}')
+    print(f'{split_title} MCC: {mcc:.4f}')
+    print(f'{split_title} AUC-ROC: {metrics["auc_roc"]:.4f}')
+    print(f'{split_title} AUC-PR: {auc_pr:.4f}')
+    print()
+    print('Note:')
+    print('Precision measures the fraction of predicted positives that are actually positive.')
+    print('Recall measures the fraction of actual positives that are correctly predicted.')
+    print('F1 (binary) is the harmonic mean of precision and recall for the positive class.')
+    print('F1 (macro) is the unweighted average of per-class F1 scores, ignoring class frequency.')
+    print('MCC is the correlation between predicted and true labels, balanced across all four confusion-matrix cells.')
+    print('AUC-ROC is the ranking quality across thresholds, balancing TPR against FPR.')
+    print('AUC-PR is the ranking quality across thresholds, emphasizing performance on the positive class.')
     return res_df
-
-
-def swap_pairs_df_columns(pairs_df: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of pairs_df with every *_a/*_b column pair swapped.
-
-    This is used for the "swap test" diagnostic: evaluate a trained directed model
-    (e.g., features=[emb_a, emb_b]) on swapped inputs (b,a) with labels unchanged.
-    """
-    swapped = pairs_df.copy()
-    cols = list(swapped.columns)
-    for col_a in cols:
-        if not col_a.endswith("_a"):
-            continue
-        col_b = col_a[:-2] + "_b"
-        if col_b in swapped.columns:
-            tmp = swapped[col_a].copy()
-            swapped[col_a] = swapped[col_b]
-            swapped[col_b] = tmp
-    return swapped
 
 
 # Parser
@@ -1153,6 +1177,11 @@ ADAPTER_DIMS = getattr(config.training, 'adapter_dims', None)
 # Interaction spec: "concat", "diff", "unit_diff", "prod", or combinations like "concat+unit_diff"
 INTERACTION_SPEC = getattr(config.training, 'interaction', 'concat')
 FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
+FEATURE_SCALING = getattr(config.training, 'feature_scaling', 'none')
+if FEATURE_SCALING not in {'none', 'standard'}:
+    raise ValueError(
+        f"training.feature_scaling must be 'none' or 'standard'; got {FEATURE_SCALING!r}"
+    )
 EVAL_TRAIN_METRICS = getattr(config.training, 'eval_train_metrics', False)
 INFER_BATCH_SIZE = getattr(config.training, 'infer_batch_size', None) or BATCH_SIZE
 # Hard-coded to 0. Do NOT change without addressing both issues below:
@@ -1212,7 +1241,7 @@ default_output_dir = paths['output_dir']
 # Dataset directory MUST be provided explicitly (not built from config)
 if not args.dataset_dir:
     raise ValueError(
-        "❌ --dataset_dir is required. "
+        "--dataset_dir is required. "
         "Datasets are in runs/ subdirectories: "
         "data/datasets/{virus}/{data_version}/runs/dataset_{config_bundle}_{timestamp}/"
     )
@@ -1235,7 +1264,7 @@ else:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     fallback_run_id = f"training_{config_bundle}_{timestamp}"
     output_dir = default_output_dir / 'runs' / fallback_run_id
-    print(f"⚠️  Warning: No run_output_subdir provided, using fallback: {fallback_run_id}")
+    print(f"WARNING: No run_output_subdir provided, using fallback: {fallback_run_id}")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # Save resolved config snapshot for reproducibility
@@ -1256,14 +1285,53 @@ print(f'num_workers:     {NUM_WORKERS} (hard-coded)')
 print(f'pin_memory:      {PIN_MEMORY}')
 print(f'use_amp:         {USE_AMP}')
 
+total_timer.begin_phase('load_data')
 print('\nLoad pair datasets.')
-# Use engine='python' to avoid a pandas C parser segfault triggered by certain
-# protein sequence byte patterns in large CSVs (observed on Polaris, fold 11 of
-# PB1/HA and fold 6 of PB2/PA). The Python engine is slower but only adds ~seconds.
+# --- CSV loading (deprecated; kept commented for reference) -------------------
+# We previously loaded the pair files as CSV with engine='python' to avoid a
+# pandas C parser segfault triggered by certain protein sequence byte patterns
+# in large CSVs (observed on Polaris, fold 11 of PB1/HA and fold 6 of PB2/PA).
+# The Python engine was slower but added only ~seconds. We've since switched to
+# parquet (see below) which is faster, smaller on disk, and sidesteps the C
+# parser entirely — so the segfault workaround is no longer needed. Stage 3
+# writes parquet alongside CSV for all new datasets.
 CSV_ENGINE = 'python'
 train_pairs = pd.read_csv(dataset_dir / 'train_pairs.csv', engine=CSV_ENGINE)
 val_pairs   = pd.read_csv(dataset_dir / 'val_pairs.csv', engine=CSV_ENGINE)
 test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv', engine=CSV_ENGINE)
+# -----------------------------------------------------------------------------
+
+# Parquet loading with column projection. We exclude the heavy sequence
+# strings (seq_a/seq_b, dna_seq_a/dna_seq_b) which are ~95% of the file size
+# on disk and unused at training time — k-mer features and ESM-2 embeddings
+# are precomputed and loaded from their own caches. Light metadata columns
+# (seg_*, func_*, hashes, pair_key) are kept because evaluate_on_split copies
+# the pair df into the predictions output and downstream analysis stratifies
+# by them.
+# KEEP_COLS = [
+#     'pair_key',
+#     'assembly_id_a', 'assembly_id_b',
+#     'brc_a', 'brc_b',
+#     'ctg_a', 'ctg_b',
+#     'seg_a', 'seg_b',
+#     'func_a', 'func_b',
+#     'seq_hash_a', 'seq_hash_b',
+#     'dna_hash_a', 'dna_hash_b',  # only present in datasets built on/after 2026-04-23
+#     'label',
+# ]
+
+
+# def _load_pairs_parquet(path: Path) -> pd.DataFrame:
+#     # Intersect KEEP_COLS with the file's actual schema so older datasets
+#     # (missing dna_hash_*) still load without raising.
+#     available = set(pq.ParquetFile(path).schema_arrow.names)
+#     cols = [c for c in KEEP_COLS if c in available]
+#     return pd.read_parquet(path, columns=cols)
+
+
+# train_pairs = _load_pairs_parquet(dataset_dir / 'train_pairs.parquet')
+# val_pairs   = _load_pairs_parquet(dataset_dir / 'val_pairs.parquet')
+# test_pairs  = _load_pairs_parquet(dataset_dir / 'test_pairs.parquet')
 
 # CUDA device
 CUDA_NAME = args.cuda_name
@@ -1276,9 +1344,14 @@ if FEATURE_SOURCE == 'kmer':
     from omegaconf import OmegaConf
     if hasattr(config, 'kmer') and config.get('kmer') is not None:
         KMER_K = int(config.kmer.get('k', 6))
+        KMER_ALPHABET = str(config.kmer.get('alphabet', 'nt_ctg')).lower()
     else:
         KMER_K = 6
-    EMBED_DIM = 4 ** KMER_K
+        KMER_ALPHABET = 'nt_ctg'
+    if KMER_ALPHABET not in {'nt_ctg', 'nt_cds', 'aa'}:
+        raise ValueError(f"kmer.alphabet must be 'nt_ctg', 'nt_cds', or 'aa'; got {KMER_ALPHABET!r}")
+    _alpha_size = 4 if KMER_ALPHABET in ('nt_ctg', 'nt_cds') else 20
+    EMBED_DIM = _alpha_size ** KMER_K
 
     # K-mer features live alongside ESM-2 embeddings
     kmer_dir = build_embeddings_paths(
@@ -1286,24 +1359,26 @@ if FEATURE_SOURCE == 'kmer':
         data_version=DATA_VERSION, run_suffix="", config=config,
     )['output_dir']
     print(f'K-mer dir: {kmer_dir}')
-    print(f'K-mer k={KMER_K}, embed_dim={EMBED_DIM}')
+    print(f'K-mer alphabet={KMER_ALPHABET}, k={KMER_K}, embed_dim={EMBED_DIM}')
 
-    kmer_key_to_row = load_kmer_index(kmer_dir, KMER_K)
-    kmer_matrix = load_kmer_matrix(kmer_dir, KMER_K)
+    kmer_key_to_row = load_kmer_index(kmer_dir, KMER_K, alphabet=KMER_ALPHABET)
+    kmer_matrix = load_kmer_matrix(kmer_dir, KMER_K, alphabet=KMER_ALPHABET)
     print(f'Loaded k-mer matrix: {kmer_matrix.shape}')
 
-    # Validate that pair CSVs have ctg_a/ctg_b columns
+    # Validate that pair CSVs have the alphabet-specific occurrence columns.
+    required_pair_cols = [schema.pair_occ_col(KMER_ALPHABET, 'a'),
+                          schema.pair_occ_col(KMER_ALPHABET, 'b')]
     for name, pdf in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
-        for col in ['ctg_a', 'ctg_b']:
+        for col in required_pair_cols:
             if col not in pdf.columns:
                 raise ValueError(
-                    f"Pair CSV ({name}) missing '{col}' column. "
-                    "Re-run Stage 3 (dataset_segment_pairs.py) to add ctg columns."
+                    f"Pair CSV ({name}) missing {col!r} column. "
+                    "Re-run Stage 3 (dataset_segment_pairs.py)."
                 )
 
-    train_dataset = KmerPairDataset(train_pairs, kmer_matrix, kmer_key_to_row)
-    val_dataset = KmerPairDataset(val_pairs, kmer_matrix, kmer_key_to_row)
-    test_dataset = KmerPairDataset(test_pairs, kmer_matrix, kmer_key_to_row)
+    train_dataset = KmerPairDataset(train_pairs, kmer_matrix, kmer_key_to_row, alphabet=KMER_ALPHABET)
+    val_dataset = KmerPairDataset(val_pairs, kmer_matrix, kmer_key_to_row, alphabet=KMER_ALPHABET)
+    test_dataset = KmerPairDataset(test_pairs, kmer_matrix, kmer_key_to_row, alphabet=KMER_ALPHABET)
 
 else:
     # --- ESM-2 embedding path (default) ---
@@ -1323,28 +1398,67 @@ else:
     index_file = Path(embeddings_file).with_suffix('.parquet')
     if not index_file.exists():
         raise ValueError(
-            f"❌ Parquet index not found: {index_file}. "
+            f"Parquet index not found: {index_file}. "
             "Master cache format requires parquet index for validation."
         )
 
     index_df = pd.read_parquet(index_file)
-    available_ids = set(index_df['brc_fea_id'].unique())
+    if 'assembly_id' not in index_df.columns:
+        raise KeyError(
+            f"Parquet index at {index_file} is missing 'assembly_id'. "
+            "Run scripts/migrate_esm2_parquet_add_assembly_id.py to upgrade."
+        )
+    available_keys = set(zip(index_df['assembly_id'].astype(str),
+                             index_df['brc_fea_id'].astype(str)))
     for df_name, df in [('train', train_pairs), ('val', val_pairs), ('test', test_pairs)]:
-        required_ids = set(df['brc_a']).union(set(df['brc_b']))
-        missing = required_ids - available_ids
+        keys_a = set(zip(df['assembly_id_a'].astype(str), df['brc_a'].astype(str)))
+        keys_b = set(zip(df['assembly_id_b'].astype(str), df['brc_b'].astype(str)))
+        required = keys_a | keys_b
+        missing = required - available_keys
         if missing:
             raise ValueError(
-                f"❌ Missing embeddings for {len(missing)} IDs in {df_name} set: {list(missing)[:5]}..."
+                f"Missing embeddings for {len(missing)} (assembly_id, brc_fea_id) "
+                f"pairs in {df_name} set: {list(missing)[:5]}..."
             )
-    print(f"All required embeddings available ({len(available_ids)} total embeddings)")
+    print(f"All required embeddings available ({len(available_keys)} total composite keys)")
 
     # Create datasets (always returns (emb_a, emb_b), label)
-    train_dataset = SegmentPairDataset(train_pairs, embeddings_file)
-    val_dataset = SegmentPairDataset(val_pairs, embeddings_file)
-    test_dataset = SegmentPairDataset(test_pairs, embeddings_file)
+    train_dataset = ESMPairDataset(train_pairs, embeddings_file)
+    val_dataset = ESMPairDataset(val_pairs, embeddings_file)
+    test_dataset = ESMPairDataset(test_pairs, embeddings_file)
 
     # Get embedding dimension from model checkpoint
     EMBED_DIM = get_esm2_embedding_dim(MODEL_CKPT)
+
+# ── Optional StandardScaler ────────────────────────────────────────────
+# Fit on TRAIN slot vectors only (no val/test leakage). The same fitted
+# scaler transforms train/val/test. K-mer datasets store features in a
+# per-fold dense matrix at `self.features`, so we mutate them in place.
+# ESM-2 datasets share a global embedding cache; per-dataset scaling there
+# requires a `__getitem__`-level hook that hasn't been wired yet.
+feature_scaler = None
+if FEATURE_SCALING == 'standard':
+    if FEATURE_SOURCE == 'kmer':
+        from sklearn.preprocessing import StandardScaler
+        import joblib
+        print('\nFitting StandardScaler on training k-mer features (per-feature mean/std)...')
+        feature_scaler = StandardScaler()
+        feature_scaler.fit(train_dataset.features)
+        train_dataset.features = feature_scaler.transform(train_dataset.features).astype(np.float32)
+        val_dataset.features   = feature_scaler.transform(val_dataset.features).astype(np.float32)
+        test_dataset.features  = feature_scaler.transform(test_dataset.features).astype(np.float32)
+        scaler_path = output_dir / 'feature_scaler.joblib'
+        joblib.dump(feature_scaler, scaler_path)
+        print(f'  fitted on {len(train_dataset.features):,} train rows '
+              f'({train_dataset.features.shape[1]:,} features)')
+        print(f'  saved scaler to: {scaler_path}')
+    else:
+        raise NotImplementedError(
+            "feature_scaling='standard' is currently implemented for feature_source='kmer' "
+            "only. ESM-2 support requires a per-dataset scaler hook in ESMPairDataset "
+            "(the embedding cache is shared across train/val/test, so in-place mutation "
+            "would leak across runs). TODO before running ESM ablations."
+        )
 
 train_loader = DataLoader(
     train_dataset, batch_size=BATCH_SIZE, shuffle=True,
@@ -1360,7 +1474,8 @@ test_loader = DataLoader(
     num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
 
 # Resolve interaction flags from training.interaction
-USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW = parse_interaction_flags(INTERACTION_SPEC)
+USE_CONCAT_RAW, USE_DIFF_RAW, USE_PROD_RAW, USE_UNIT_DIFF_RAW, USE_UNIT_PROD_RAW = \
+    parse_interaction_flags(INTERACTION_SPEC)
 
 # Compute input dimension based on feature flags and slot transform
 if SLOT_TRANSFORM in {"shared", "slot_specific", "shared_adapter"}:
@@ -1386,10 +1501,16 @@ if USE_UNIT_DIFF_RAW:
 if USE_PROD_RAW:
     mlp_input_dim += out_dim
     feature_desc_parts.append("1")
+if USE_UNIT_PROD_RAW:
+    mlp_input_dim += out_dim
+    feature_desc_parts.append("1")
 if mlp_input_dim == 0:
     raise ValueError("At least one interaction term must be enabled (training.interaction).")
 feature_desc = "+".join(feature_desc_parts) if feature_desc_parts else "0"
 print(f"MLP Input Dimension: {mlp_input_dim} ({feature_desc} * {out_dim})")
+
+total_timer.end_phase('load_data')
+total_timer.begin_phase('train')
 
 # Initialize model
 model = MLPClassifier(
@@ -1403,6 +1524,7 @@ model = MLPClassifier(
     use_diff=USE_DIFF_RAW,
     use_prod=USE_PROD_RAW,
     use_unit_diff=USE_UNIT_DIFF_RAW,
+    use_unit_prod=USE_UNIT_PROD_RAW,
     embed_dim=EMBED_DIM,
 )
 
@@ -1470,6 +1592,9 @@ best_model_path, optimal_threshold = train_model(
     profile_steps=args.profile_steps
 )
 
+total_timer.end_phase('train')
+total_timer.begin_phase('inference')
+
 # Evaluate
 print('\nEvaluate model.')
 model.load_state_dict(torch.load(best_model_path))
@@ -1490,9 +1615,10 @@ if EVAL_SWAPPED_TEST:
     print('\nSwap-test diagnostic: evaluate on swapped test inputs (B,A) using SAME checkpoint.')
     swapped_test_pairs = swap_pairs_df_columns(test_pairs)
     if FEATURE_SOURCE == 'kmer':
-        swapped_test_dataset = KmerPairDataset(swapped_test_pairs, kmer_matrix, kmer_key_to_row)
+        swapped_test_dataset = KmerPairDataset(swapped_test_pairs, kmer_matrix, kmer_key_to_row,
+                                               alphabet=KMER_ALPHABET)
     else:
-        swapped_test_dataset = SegmentPairDataset(swapped_test_pairs, embeddings_file)
+        swapped_test_dataset = ESMPairDataset(swapped_test_pairs, embeddings_file)
     swapped_test_loader = DataLoader(swapped_test_dataset, batch_size=INFER_BATCH_SIZE, shuffle=False,
                                      num_workers=NUM_WORKERS, pin_memory=PIN_MEMORY)
     swapped_test_res_df = evaluate_on_split(
@@ -1505,12 +1631,17 @@ if EVAL_SWAPPED_TEST:
     print(f'\nSave swapped-test predictions to: {swapped_preds_file}')
     swapped_test_res_df.to_csv(swapped_preds_file, index=False)
 
+total_timer.end_phase('inference')
+
 # Save training provenance
 training_info = {
     'config_bundle': config_bundle,
     'dataset_dir': str(dataset_dir),
     'embeddings_file': str(embeddings_file),
     'feature_source': FEATURE_SOURCE,
+    'kmer_alphabet': KMER_ALPHABET if FEATURE_SOURCE == 'kmer' else None,
+    'kmer_k': KMER_K if FEATURE_SOURCE == 'kmer' else None,
+    'feature_scaling': FEATURE_SCALING,
     'interaction': INTERACTION_SPEC,
     'slot_transform': SLOT_TRANSFORM,
     'hidden_dims': list(HIDDEN_DIMS) if HIDDEN_DIMS else None,

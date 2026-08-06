@@ -80,10 +80,10 @@ def save_experiment_metadata(
     
     Example:
         >>> save_experiment_metadata(
-        ...     output_dir=Path('processed/flu_a/July_2025_pb1_pb2'),
+        ...     output_dir=Path('processed/flu/July_2025'),
         ...     config=config,
         ...     stage='preprocessing',
-        ...     script_name='preprocess_flu_protein.py',
+        ...     script_name='preprocess_flu.py',
         ...     additional_info={'proteins_processed': 1500}
         ... )
     """

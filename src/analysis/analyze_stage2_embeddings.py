@@ -243,11 +243,13 @@ def load_embeddings_for_analysis(protein_subset_df, max_proteins=1000):
         print(f"Subsampled to {max_proteins} proteins for analysis")
     
     # Use new utility functions
-    brc_ids = protein_subset_df['brc_fea_id'].tolist()
-    embeddings, valid_ids = load_embeddings_by_ids(brc_ids, embeddings_file)
-    
+    keys = list(zip(protein_subset_df['assembly_id'].astype(str),
+                    protein_subset_df['brc_fea_id'].astype(str)))
+    embeddings, valid_keys = load_embeddings_by_ids(keys, embeddings_file)
+    valid_brc_ids = {brc for _, brc in valid_keys}
+
     # Filter protein_subset_df to only valid IDs
-    valid_proteins_df = protein_subset_df[protein_subset_df['brc_fea_id'].isin(valid_ids)].copy()
+    valid_proteins_df = protein_subset_df[protein_subset_df['brc_fea_id'].isin(valid_brc_ids)].copy()
     
     # Ensure truncation information is included
     # Compute original_length if not present

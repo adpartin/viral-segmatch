@@ -416,7 +416,7 @@ def main() -> None:
                     "f1": float(metrics_row.get("f1_score")),
                     "f1_macro": float(metrics_row.get("f1_macro")),
                     "auc_roc": float(metrics_row.get("auc_roc")),
-                    "auc_pr": float(metrics_row.get("avg_precision")),
+                    "auc_pr": float(metrics_row.get("auc_pr")),
                     "plots_dir": str((exp_dir / "training_analysis").as_posix()),
                 }
             )

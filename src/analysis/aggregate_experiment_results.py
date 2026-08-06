@@ -276,7 +276,7 @@ def aggregate_experiment_results(
             result['F1'] = round(metrics.get('f1_score', 0), 4)
             result['F1 Macro'] = round(metrics.get('f1_macro', 0), 4)
             result['AUC-ROC'] = round(metrics.get('auc_roc', 0), 4)
-            result['AUC-PR'] = round(metrics.get('avg_precision', 0), 4)
+            result['AUC-PR'] = round(metrics.get('auc_pr', 0), 4)
         else:
             result['F1'] = 'N/A'
             result['F1 Macro'] = 'N/A'

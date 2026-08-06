@@ -15,7 +15,7 @@ cd "$PROJECT_ROOT"
 # --- Parse arguments ---
 CONFIG_BUNDLE="${1:-}"
 if [ -z "$CONFIG_BUNDLE" ]; then
-    echo "Usage: $0 <config_bundle> --dataset_dir DIR [--cuda_name CUDA] [--embeddings_file FILE] [--output_dir DIR] [--skip_postprocessing]"
+    echo "Usage: $0 <config_bundle> --dataset_dir DIR [--cuda_name CUDA] [--embeddings_file FILE] [--output_dir DIR] [--skip_postprocessing] [--override key=val ...]"
     exit 1
 fi
 shift
@@ -25,6 +25,8 @@ DATASET_DIR=""
 EMBEDDINGS_FILE=""
 OUTPUT_DIR=""
 SKIP_POSTPROCESSING=false
+OVERRIDES=()  # Hydra-style dotlist overrides; collected here and passed
+              # through as --override <a> <b> ... at the end of the command.
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,6 +35,15 @@ while [[ $# -gt 0 ]]; do
         --embeddings_file)     EMBEDDINGS_FILE="$2"; shift 2 ;;
         --output_dir)          OUTPUT_DIR="$2"; shift 2 ;;
         --skip_postprocessing) SKIP_POSTPROCESSING=true; shift ;;
+        --override)
+            # Accept either --override key=val (one) or repeated --override key=val.
+            shift
+            # Consume subsequent non-flag tokens as override entries until we
+            # hit the next --flag or run out of args.
+            while [[ $# -gt 0 && "$1" != --* ]]; do
+                OVERRIDES+=("$1"); shift
+            done
+            ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -58,6 +69,12 @@ if [ -n "$OUTPUT_DIR" ]; then
     CMD="$CMD --output_dir $OUTPUT_DIR"
 else
     CMD="$CMD --run_output_subdir $RUN_ID"
+fi
+if [ ${#OVERRIDES[@]} -gt 0 ]; then
+    CMD="$CMD --override"
+    for kv in "${OVERRIDES[@]}"; do
+        CMD="$CMD $kv"
+    done
 fi
 
 # --- Run training ---
@@ -92,10 +109,6 @@ if [ $EXIT_CODE -eq 0 ] && [ "$SKIP_POSTPROCESSING" = false ]; then
         python src/analysis/analyze_stage4_train.py \
             --config_bundle "$CONFIG_BUNDLE" --model_dir "$ACTUAL_OUTPUT_DIR" \
             2>&1 | tee -a "$LOG_FILE" || echo "WARNING: analyze_stage4_train.py failed"
-
-        python src/analysis/create_presentation_plots.py \
-            --config_bundle "$CONFIG_BUNDLE" --model_dir "$ACTUAL_OUTPUT_DIR" \
-            2>&1 | tee -a "$LOG_FILE" || echo "WARNING: create_presentation_plots.py failed"
     else
         echo "WARNING: Could not detect output directory, skipping postprocessing"
     fi

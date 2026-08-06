@@ -2,7 +2,10 @@ from typing import Optional, Union
 from pathlib import Path
 import hashlib
 
-import h5py
+# h5py is lazy-imported inside the functions that touch HDF5 (search for
+# `import h5py` below). Module-level import broke every consumer (including
+# the k-mer training path) whenever the conda env had a libhdf5/h5py ABI
+# mismatch.
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -213,7 +216,8 @@ def validate_embeddings_metadata(
     embeddings_file = Path(embeddings_file)
     if not embeddings_file.exists():
         return True  # File doesn't exist yet, no validation needed
-    
+
+    import h5py  # lazy: only ESM-2 paths need HDF5
     try:
         with h5py.File(embeddings_file, 'r') as f:
             # Require master cache format
@@ -302,7 +306,8 @@ def embedding_exists(cache_key: str, embeddings_file: str) -> bool:
     """
     if not Path(embeddings_file).exists():
         return False
-    
+
+    import h5py  # lazy: only ESM-2 paths need HDF5
     try:
         with h5py.File(embeddings_file, 'r') as f:
             if 'emb_keys' not in f:
@@ -362,8 +367,9 @@ def save_esm2_embeddings_batch(
     
     # Get dtype mappings for the specified precision
     hdf5_dtype, numpy_dtype = _get_precision_dtypes(emb_storage_precision)
-    
+
     # Open HDF5 file once for all operations
+    import h5py  # lazy: only ESM-2 paths need HDF5
     with h5py.File(embeddings_file, 'a') as f:
         # Create or get embeddings dataset
         is_new_file = 'emb' not in f
@@ -794,6 +800,7 @@ def load_esm2_embedding(brc_fea_id: str, embeddings_file: str) -> np.ndarray:
     Raises:
         KeyError: If brc_fea_id is not found in the embeddings file.
     """
+    import h5py  # lazy: only ESM-2 paths need HDF5
     with h5py.File(embeddings_file, 'r') as file:
         if brc_fea_id not in file:
             raise KeyError(f'brc_fea_id {brc_fea_id} not found in {embeddings_file}')

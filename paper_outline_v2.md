@@ -19,7 +19,7 @@ databases often lack reliable metadata for this linkage. We frame segment matchi
 binary classification: given two sequence representations, predict whether they originate
 from the same viral isolate. We evaluate k-mer frequency features (primary) and protein
 language model representations (ESM-2, comparison baseline) with an MLP classifier on a
-subtype-balanced dataset of ~50–100K Flu A isolates across all 28 segment-pair
+["subtype-balanced dataset of ~50–100K" --> update this based on what we actually run] Flu A isolates across all 28 segment-pair
 combinations. We assess model performance stratified by HN subtype, host, and isolation
 year, and demonstrate the model's utility for data remediation and wastewater surveillance
 applications.
@@ -83,6 +83,12 @@ of the 8 major segment gene products (PB2, PB1, PA, HA, NP, NA, M1, NS1).
   applied to both protein and genome sequences.
 - **Dataset scale:** ~50–100K isolates (see `roadmap_v2.md` Task 2 for scaling plan).
 
+#### Terminology
+
+- **Subtype-balanced** — explicitly resampled to equalize HN-subtype representation.
+- **Subtype-filtered** — restricted to one subtype.
+- **Natural** / **unfiltered** — sampled proportional to the (BV-BRC) data frequencies.
+
 #### 2.1.1 Negative pair taxonomy and pair-distribution analysis
 
 > **[2026-03-12 meeting]** New from group discussion. The **analysis framework** is the unconditional priority; balanced training is a conditional data-centric lever.
@@ -131,6 +137,11 @@ within-subtype vs cross-subtype negative ratio explicitly.
 
 #### 2.1.2 Pair-distribution ledger
 
+In the completed Task 11 sweeps, post-filter train stayed at exactly 1:1 but val
+and test settled at ~0.20–0.51 pos:neg across pairs (median ~0.43), driven by
+cross-split `pair_key` collision removal. The ledger makes this visible per pair
+so that F1 reporting is interpreted against the correct class prior.
+
 For every experiment, maintain a full accounting of pair distributions:
 
 | Pair type | Subtype(s) | Label | Count |
@@ -147,10 +158,44 @@ distribution as a data-centric lever.
 
 ### 2.2 Feature representations
 
+We use **k-mer frequency vectors** as the primary sequence representation.
+K-mers are a long-standing primitive for genome comparison: each sequence
+becomes a fixed-length count vector over a `4^k`-sized vocabulary, and
+similarity reduces to a vector operation. Four practical properties
+motivate the choice in our setting:
+
+- **Alignment-free.** No multiple-sequence alignment (MSA) is required.
+  MSA scales super-linearly with the number of sequences, makes tool- and
+  parameter-dependent gap-placement choices that can bias downstream
+  analysis, degrades on highly divergent sequences (e.g., across flu
+  subtypes for the most variable segments), and is often infeasible at
+  the surveillance-archive scale we target — the full Flu A corpus has
+  868,240 segments. K-mer counting is linear in sequence length.
+- **Reference-free.** No pretrained model is required. K-mer vectors are
+  computed directly from the raw nucleotide sequence, so the pipeline
+  has no external weight-file dependency.
+- **Compute-cheap.** Feature extraction is CPU-only and runs in ~5–10
+  minutes on the full Flu A corpus; no GPU is needed at the feature
+  stage.
+- **Interpretable per-feature.** Each dimension is a specific 6-mer
+  count, localizing attribution at the nucleotide level. Caveat:
+  stride-1 k-mers mix all three reading frames plus UTRs and introns,
+  so attributions cannot be read directly as codon-level signal — see
+  `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`.
+
+We additionally run **ESM-2** as a learned-representation reference.
+ESM-2 is the natural alternative for sequence-only segment classification:
+a frozen transformer pretrained on UniRef protein sequences, requiring
+no alignment but a GPU and the 650M-parameter `esm2_t33_650M_UR50D`
+checkpoint at inference. The empirical comparison appears in §3 —
+k-mer + MLP matches or exceeds ESM-2 + MLP across the 28-pair sweep
+(median val AUC 0.994 vs 0.976; see `roadmap_v2.md` §11 for the
+per-pair table).
+
 | Feature | Source | Dimensionality | Description | Role |
 |---------|--------|---------------|-------------|------|
 | K-mer (k=6) | Nucleotide sequences | 4096 | Sparse frequency vectors over 6-mer vocabulary | **Primary** |
-| ESM-2 | `esm2_t33_650M_UR50D` | 1280 | Frozen protein language model mean-pool embeddings | Comparison baseline |
+| ESM-2 | `esm2_t33_650M_UR50D` | 1280 | Frozen protein language model mean-pool embeddings | Reference |
 
 ### 2.3 Interaction approaches
 
@@ -220,7 +265,20 @@ stopping on validation loss.
 
 ### 2.6 Evaluation metrics
 
-F1, AUC-ROC, precision, recall, Brier score. Optimal threshold selected on validation set.
+**Primary:** AUC-ROC and PR-AUC. Both are threshold-free; AUC-ROC is class-prior
+invariant and is the correct primary metric for cross-pair comparison in the 8×8
+heatmap. PR-AUC is sensitive to class prior but reflects performance under the
+observed test distribution.
+
+**Secondary:** F1 at the validation-optimal threshold, with precision and recall
+reported separately. F1 is sensitive to class prior, so when compared across pairs
+it is reported alongside the post-filter positive:negative ratio of each pair's
+test set (see pair-distribution ledger, §2.1.2). The `pair_key` dedup step removes
+cross-split overlaps asymmetrically across classes and across pairs, producing
+post-filter val/test ratios of ~0.20–0.51 rather than the target 1:1 — so F1
+differences across pairs partly reflect class-prior differences, not model quality.
+
+**Calibration:** Brier score, ECE, reliability diagram (see §4.2).
 
 ---
 
@@ -344,7 +402,7 @@ interventions, enabling direct comparison.
 consider pre-filtering or per-pair classifiers.
 
 **Training options:** (a) one subtype → test mixed (cross-subtype generalization);
-(b) mixed balanced → test mixed (out-of-the-box performance).
+(b) subtype-balanced training → test on subtype-balanced mix (Jim's formulation)
 
 ### 3.7 All protein-pair combinations (8×8 heatmap)
 

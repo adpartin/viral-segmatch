@@ -421,20 +421,19 @@ def visualize_sequence_embeddings_from_pairs(
         else:
             sampled_seqs = unique_seqs
     
-    # Load embeddings
+    # Load embeddings via composite (assembly_id, brc_fea_id) keys.
     id_to_row = load_embedding_index(embeddings_file)
-    embeddings, valid_ids = load_embeddings_by_ids(
-        sampled_seqs['brc_fea_id'].tolist(),
-        embeddings_file,
-        id_to_row
-    )
-    
+    keys = list(zip(sampled_seqs['assembly_id'].astype(str),
+                    sampled_seqs['brc_fea_id'].astype(str)))
+    embeddings, valid_keys = load_embeddings_by_ids(keys, embeddings_file, id_to_row)
+
     if len(embeddings) == 0:
-        print(f"   ⚠️  No embeddings found for {split_name} sequences")
+        print(f"   WARNING: No embeddings found for {split_name} sequences")
         return
-    
+
     # Filter to valid sequences
-    sampled_seqs = sampled_seqs[sampled_seqs['brc_fea_id'].isin(valid_ids)].reset_index(drop=True)
+    valid_brc_ids = {brc for _, brc in valid_keys}
+    sampled_seqs = sampled_seqs[sampled_seqs['brc_fea_id'].isin(valid_brc_ids)].reset_index(drop=True)
     
     # Compute PCA
     pca_embeddings, pca = compute_pca_reduction(embeddings, n_components=2, return_model=True)

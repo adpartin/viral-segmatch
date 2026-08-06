@@ -2,6 +2,18 @@
 
 This note captures two related ideas discussed while validating **schema-ordered** datasets (e.g., HA→NA where slot A is always HA and slot B is always NA).
 
+**Implementation status (2026-05-12):** all four ablation-ladder items
+below are implemented as `training.slot_transform` options in
+`src/models/train_pair_classifier.py` —
+`{none, shared, slot_specific, shared_adapter}` corresponds to ladder
+items 1→4. Two parameter-free variants are also supported:
+`slot_norm` (learnable LayerNorm per slot — referenced as
+"Option 2 — slot-specific normalization") and `unit_norm` (L2 row-norm
+per slot, added 2026-05-12). Current production bundles
+(`flu_ha_na`, `flu_pb2_pb1`) use `unit_norm`. See
+`docs/methods/feature_normalization.md` for the empirical
+recommendations per (model, feature_source).
+
 Note on formatting:
 - Some renderers do not support LaTeX math. To keep this doc portable, equations are written in plain text below (e.g., "a' = f_A(a)").
 
@@ -76,7 +88,7 @@ Use shared \(g\), but allow per-slot LayerNorm / affine scaling (very low parame
 - In schema-ordered datasets, the model is **not required** to be swap-invariant under directed features like [emb_a, emb_b]. Swapping A/B breaks the schema semantics.
 - If you compare architectures, keep an eye on:
   - performance on the “hard” subsets (e.g., H3N2, human-only)
-  - calibration / PR-AUC (not only accuracy)
+  - calibration / AUC-PR (not only accuracy)
   - sensitivity to swapped inputs (expected to degrade in schema mode)
 
 ## Recommended ablation ladder (minimal)
@@ -90,7 +102,7 @@ Use shared \(g\), but allow per-slot LayerNorm / affine scaling (very low parame
 
 **Short answer**: implement in the **model**, not the dataset.
 
-- **SegmentPairDataset** should keep returning raw embeddings (a, b) as it does today.
+- **ESMPairDataset** should keep returning raw embeddings (a, b) as it does today.
 - **MLPClassifier / model code** should own the architecture:
   - Add optional slot transform blocks (shared or per-slot).
   - Add optional adapters / slot-specific norm.

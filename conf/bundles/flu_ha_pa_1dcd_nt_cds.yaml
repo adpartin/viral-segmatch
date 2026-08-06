@@ -1,0 +1,14 @@
+# STATUS: experimental -- HA 1D cluster-disjoint (HA held out) paired with PA, nt_cds/cm0.
+# PA is on an earlier segment than HA (seg 3 < seg 4), so schema_pair canonicalizes to (PA, HA):
+# HA lands in slot b, so single_slot: b holds out HA's clusters. Base recipe: flu_ha_na_1dcd_nt_cds.
+# t sweep (cluster_id_path / cluster_id_threshold) is set per-run via --override at build time.
+defaults:
+  - flu_ha_na_1dcd_nt_cds
+  - _self_
+
+dataset:
+  schema_pair:
+    - 'Hemagglutinin precursor'
+    - 'RNA-dependent RNA polymerase PA subunit'
+  split_strategy:
+    single_slot: b

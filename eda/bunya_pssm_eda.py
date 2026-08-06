@@ -1,18 +1,48 @@
 """
 Exploratory analysis of Bunyavirales Viral_PSSM.json.
 
-The annotation script reads from Viral_PSSM.json. If a protein has a segment assigned
-to it, then it's used in defining the segment and making sure that segment is intact.
+Status (2026-05-13): NOT MAINTAINED. Bunya preprocessing is in the
+"What Is NOT Maintained" list in CLAUDE.md, and the data_version this
+script points at (`Feb_2025`) is itself superseded. Preserved as a
+reference for the Viral_PSSM.json schema should the Bunya path ever
+be revived.
 
-The Viral_PSSM.json file serves as a reference schema for the expected structure and
-composition of segmented viral genomes, particularly within the order Bunyavirales
-and a few other segmented RNA viruses (e.g., Arenaviridae, Phasmaviridae, etc.).
+Context
+-------
+The BV-BRC viral annotation script reads from Viral_PSSM.json. If a
+protein has a segment assigned to it, that segment is used in defining
+the genome and verifying it's intact.
 
-It is designed to inform genome annotation and quality assessment pipelines by describing:
-1. What segments (replicons) are expected for each viral family.
-2. What features (usually protein-coding genes) are expected on each segment.
-3. What the expected lengths are for both segments and features.
-4. Which feature belongs to which segment, based on curated domain knowledge and taxonomic conventions.
+Viral_PSSM.json is a reference schema for the expected structure and
+composition of segmented viral genomes — primarily Bunyavirales but
+also other segmented RNA virus orders (Arenaviridae, Phasmaviridae,
+etc.). It describes:
+  1. Which segments (replicons) are expected for each viral family.
+  2. Which features (usually protein-coding genes) are expected on each segment.
+  3. Expected length bounds for both segments and features.
+  4. Which feature belongs to which segment, by curated domain knowledge.
+
+What this script does
+---------------------
+- Loads `Viral_PSSM.json` from
+  `data/raw/Anno_Updates/<data_version>/bunya-from-datasets/`.
+- Parses the family-keyed JSON into a flat DataFrame `pssm_df` with
+  one row per segment and one row per feature, columns:
+  `family, segment_name, segment_min_len, segment_max_len,
+   replicon_geometry, feature_name, feature_type, anno, segment,
+   min_len, max_len, type` (where `type` ∈ {segment, feature}).
+- Drops into `breakpoint()` for interactive inspection of `pssm_df`.
+
+Suggested follow-ups (commented out at the bottom): write `pssm_df` to
+`viral_pssm.csv`, summarize family / segment distributions.
+
+Run
+---
+    python eda/bunya_pssm_eda.py
+
+Outputs
+-------
+stdout + a Python debugger prompt for interactive exploration.
 """
 import sys
 import json
