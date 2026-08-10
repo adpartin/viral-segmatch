@@ -1,8 +1,25 @@
 # 2D-CD K-fold routing assigned atoms by count, not size — folds were badly unbalanced
 
-**Date:** 2026-08-09. **Scope:** every 2D-CD build routed by `fold_assignment: groupkfold`
-(the default), i.e. all of `dataset_pairs_cc.py` except `leave_cc_out` bundles. Measured on
-HA-NA · nt_cds · cm0 · t099 · within_fold · k=4 (bundle `flu_ha_na_cc_nt_cds_cm0_wf`).
+```yaml
+# Provenance. status: current | at-risk (inputs changed, not rebuilt) | superseded (replaced)
+status:         current
+date:           2026-08-09
+schema_pair:    HA-NA
+alphabet:       nt_cds
+clusters:       clusters_nt_cds_cm0/t099
+bundle:         flu_ha_na_cc_nt_cds_cm0_wf
+k_folds:        4
+negative_scope: within_fold
+model:          LGBM on kmer_nt_cds k=6
+builder_commit: 020c107        # branch fix/2d-cd-fold-balance, unmerged; the Stage-3/4 runs
+                               # predate the commit but the code state is identical to it
+depends_on:     [src/datasets/dataset_pairs_cc.py, src/datasets/_megacc_cut.py]
+dataset:        data/datasets/flu/July_2025/runs/dataset_cc_nt_cds_cm0_wf_t099_balanced
+models:         models/flu/July_2025/runs/lgbm_cc_cm0_wf_t099_balanced_fold{0..3}
+```
+
+**Scope:** every 2D-CD build routed by `fold_assignment: groupkfold` (the default), i.e. all of
+`dataset_pairs_cc.py` except `leave_cc_out` bundles.
 
 ## What was wrong
 

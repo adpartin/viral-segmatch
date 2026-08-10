@@ -57,59 +57,52 @@ change and aren't derivable from code. This file does NOT duplicate:
   `docs/architecture.md` § Layering). The four `bigraph_*` analyses read persisted `cc_{source}`
   artifacts via `src/analysis/_cc_artifacts.py` (default `nt_cds_cm0` / HA-NA / t099..t095), not a
   re-derived universe. `m_pos_per_cc` default is `null` (no cap).
+- **2D-CD fold balance**: `groupkfold_by_atom` routes with unshuffled `GroupKFold`, whose assignment
+  is LPT (largest atom to the lightest fold) — every fold receives one of the k largest atoms and the
+  folds come out equal-sized. **Feasibility rule**: an edge cut cannot split a cluster, so balanced
+  k-fold needs the heaviest single-side cluster's pair mass `<= 1/k`. HA-NA nt_cds cm0: 8.8% at t099
+  rising to 25.8% at t095 — so k=4 is unreachable at t095 whatever the router does. Check the floor
+  before choosing k. Detail: `docs/results/2026-08-09_2d_cd_fold_balance.md`.
 - **Threshold notation `tXXX`**: on-disk cluster parquets at `clusters_*/tXXX/`; pre-Phase-2
   dataset/model run dirs keep their `idXXX` names.
 - **Best-model finding** (slot_norm + unit_diff for ESM-2 on HA/NA): see `docs/architecture.md`
   § Key Experimental Findings. The `flu_schema_raw_slot_norm_unit_diff` bundle was retired
   2026-05-12 — the finding stands, the bundle file no longer exists.
+- **2D-CD builder** (`src/datasets/dataset_pairs_cc.py`): Stage-3 builder for bilateral
+  cluster-disjoint holdout/K-fold. All three alphabets (aa / nt_cds / nt_ctg) build end-to-end;
+  `negative_scope` within_cc|within_fold, with `drop_negative_infeasible_ccs` unified across both.
+- **Single-segment OOD clusters** (`src/preprocess/build_ood_clusters.py`): the "across clusters,
+  sequences are `< t` identical" guarantee requires clusters that are **connected components of the
+  `>= t`/coverage all-vs-all graph**. mmseqs `easy-cluster --cluster-mode 1` does NOT deliver it (M1
+  aa t099: 566 clusters containing 3,797 cross-cluster `>= 0.99` pairs); the correct build is
+  `easy-search` all-vs-all -> threshold -> **union-find** (M1: 234 clusters, 0 violations).
+  `--exhaustive-search` is profile-iterative, NOT all-vs-all; `--prefilter-mode 2` is the
+  provable-complete search. Writes `clusters_{alphabet}_ood/tXXX/`, never overwriting the set-cover
+  parquets. Figures `src/analysis/plot_clusters.py`; verifier `src/analysis/verify_ood_clusters.py`.
+- **Subtype context for the HA-NA CCs**: the HA_0×NA_0 hub is **H3N2**, HA_1×NA_1 is **H1N1**, and
+  the multi-cluster tangle is an avian mix. Never call a 95%-nt cluster a "lineage".
+- **CV output shape**: nested `fold_k/` dirs + `cv_summary.*`; launchers `scripts/run_cv_lambda.py`
+  and `scripts/run_cv_polaris.pbs`.
+- **Temporal holdout**: implemented. Known issue — pair_key dedup removes ~42% of val/test positives
+  (the same strains recur across years), creating label imbalance; disable dedup for temporal mode
+  before publication. K-mer beats ESM-2 here (AUC 0.941 vs 0.891).
+- **Plot helpers**: don't split by slot when the data is per-pair.
 
 ## Work In Flight
-- **Data-split refactor (TOP PRIORITY, 2026-06-03)**: `src/datasets/` splitting is
-  patched-incremental — two per-mode CV generators, non-uniform `single_slot`/alphabet wiring.
-  Target: one atom-provider + one packer + one CV path mapping 1:1 to `splits.md` §1.1. Plan:
-  `docs/plans/2026-06-03_dataset_split_refactor_plan.md` (PARTIALLY IMPLEMENTED). Constraint:
-  bit-exact on a code-path-coverage bundle set. Partly addressed by the 2026-07-31 consolidation
-  (one graph builder, LPT packer shared, layering fixed).
-- **Cross-validation**: NOT validated end-to-end on v2; the only complete CV run is a Feb-2026
-  v1-era artifact on a retired bundle. Folded into the split refactor as a redesign (`route_kfold`
-  over atom_id, validated fresh — NOT a bit-exact-preserve target). Canonical reference
-  `docs/methods/splits.md` §2; remaining work `docs/plans/2026-05-28_kfold_remaining.md`. Output is
-  nested `fold_k/` dirs + `cv_summary.*`; launchers `scripts/run_cv_lambda.py` and
-  `scripts/run_cv_polaris.pbs`. Impl detail in `docs/project_changelog.md`.
-- **Temporal holdout**: IMPLEMENTED. Known issue: pair_key dedup removes ~42% of val/test positives
-  (same strains across years), creating label imbalance — fix (disable dedup for temporal mode)
-  needed before publication. K-mer beats ESM-2 (AUC 0.941 vs 0.891).
-- **Task 11 (28 protein pairs, 8×8 heatmap)**: ON HOLD since 2026-04-06. Built; Phase 3 failed on
-  Polaris (training data-loading bound). Resume by swapping the master bundle's
-  `dataset.negative_sampling` block to the regime-aware one. Post-mortem in
-  `docs/project_changelog.md`.
-- **2D-CD builder (`dataset_pairs_cc.py`)**: Stage-3 builder for bilateral cluster-disjoint
-  holdout/K-fold + within-CC negatives. Phase-1 done (Hydra, front-end, `negative_scope`
-  within_cc|within_fold, `drop_negative_infeasible_ccs` unified across both scopes — parity
-  verified). Remaining: full-saver (deferred), Phase 2 (nt_cds) / Phase 3 (nt_ctg). Plan:
-  `docs/plans/done/2026-06-09_cc_dataset_cv_plan.md`.
-- **Single-segment OOD clustering**: IMPLEMENTED (`src/preprocess/build_ood_clusters.py`). The
-  "across clusters: different" guarantee needs clusters that are **connected components of the
-  ≥t/cov all-vs-all graph** — mmseqs `easy-cluster --cluster-mode 1` does NOT deliver this (M1 aa
-  t099: 566 clusters WITH 3,797 cross-cluster ≥0.99 pairs); correct method is `easy-search`
-  all-vs-all → threshold → **union-find** (M1: 234 clusters, 0 violations). `--exhaustive-search` is
-  profile-iterative, NOT all-vs-all; `--prefilter-mode 2` is the provable-complete search. Writes
-  `clusters_{alphabet}_ood/tXXX/` (never overwrites set-cover parquets). Figures via
-  `src/analysis/plot_clusters.py`; verifier `src/analysis/verify_ood_clusters.py`.
-  **Validated: aa M1 t099 ONLY** — 8-major scale-out + nt rollout pending. Plan:
-  `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md`.
-- **OOD-vs-random CV** (branch `feature/ood-vs-random-cv`): paired build in `dataset_pairs_cc.py`
-  — leave-one-CC-out (3 largest fragmented CCs = 3 test folds, `make_folds_leave_cc_out`) vs a
-  size-matched `make_folds_random` arm, both partitioning ONE fixed within_cc negative pool →
-  `out_dir/{ood,random}/fold_k/`. Datasets built + validated 2026-07-25; Stage-4 exploratory runs
-  2026-07-26: **OOD collapses to chance across every model/feature tested**. Plan:
-  `docs/plans/2026-07-21_ood_vs_random_split_plan.md`. Subtype context: HA_0×NA_0 hub = **H3N2**,
-  HA_1×NA_1 = **H1N1**, the multi-cluster tangle = avian mix (never call a 95%-nt cluster a
-  "lineage").
-- **1D cluster-disjoint single-slot**: code landed; 10 datasets built + validated 2026-07-27;
-  Stage-4 next. Plan: `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md`.
-- **Plot helpers**: don't split by slot when the data is per-pair. (The general rules — reuse
-  existing primitives, consistent names, docstring standard — are CLAUDE.md § Conventions.)
+
+**Status lives in each plan's own `**Status:**` line — this table only says what the work is, so
+there is one place to update.** Read the plan before assuming a state.
+
+| work | plan |
+|---|---|
+| Data-split refactor (**top priority**): one atom-provider + one packer + one CV path, bit-exact on a code-path-coverage bundle set | `docs/plans/2026-06-03_dataset_split_refactor_plan.md` |
+| K-fold: remaining validation of the v2 CV path | `docs/plans/2026-05-28_kfold_remaining.md` |
+| Fold-maker consolidation + the two production split paths | `docs/plans/2026-08-03_fold_maker_consolidation_plan.md` |
+| Single-segment OOD clusters: 8-major scale-out + nt rollout | `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md` |
+| OOD-vs-random CV at matched size (leave-one-CC-out vs random) | `docs/plans/2026-07-21_ood_vs_random_split_plan.md` |
+| 1D cluster-disjoint single-slot (HA held out vs each partner) | `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md` |
+| Task 11 / 28-pair sweep; throughput fix lives on the unmerged branch `fix/mpiexec-cpu-binding` | `polaris_plan.md`, `docs/project_changelog.md` |
+
 - **Stage-4 training is GATED** — no launch without explicit OK.
 
 ## Forward-looking work

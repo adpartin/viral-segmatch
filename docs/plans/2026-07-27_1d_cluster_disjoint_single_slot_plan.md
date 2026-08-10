@@ -1,6 +1,9 @@
 # 1D cluster-disjoint (DataSAIL S1) — HA–NA single-slot CV, nt_cds / cm0
 
-**Status: IN PROGRESS** — code landed; 10 datasets built + validated (2026-07-27); Stage-4 next.
+**Status: IMPLEMENTED** — code landed; 10 datasets built + validated (2026-07-27); Stage-4 run
+(2026-07-27) across both slots and six further HA partners. **1D-CD clears chance at t099 (AUC-PR
+0.90–0.93 vs a 0.500 floor) and degrades monotonically as `t` loosens; NA is the harder axis to hold
+out than HA.** Remaining: promote the result to `docs/results/`.
 
 ## Goal
 Does HA–NA co-occurrence generalize when ONE slot's clusters are held out (DataSAIL **S1**
@@ -73,13 +76,43 @@ the nt_cds `cds_dna_hash` cluster layout — a stale-tool gap, not fixed here.)
   incl. t095/slot-b (the pair-mass boundary — its test folds spread 18.8k–22.5k, within the 5pp drift bound).
 - **Unconstrained-slot cluster leakage rises monotonically as t↓**: HA-side 14.5→39.5%, NA-side 13.7→35.4%.
 
-### Stage-4 (gated) — LGBM
-Matrix: 2 slots × 5 t × 4 folds. Model: LGBM on nt_cds k-mer k6 `concat` (pre-req: the
-`kmer_features_nt_cds_k6` corpus cache). At neg:pos = 1:1 the **chance floor is AUC-PR ≈ 0.50, MCC ≈ 0**
-(the better-than-chance bar; no baseline arm needed for the floor). Reads: (1) does each slot clear
-chance at t099? (2) mean ± range AUC-PR & MCC vs t (t099→t095) per slot — the degradation curve.
-Aggregate `(slot, t) → mean±range` reusing the `test_predicted.csv` parse from `aggregate_cm_stage4.py`.
-Run slot a first, then slot b.
+### Stage-4 — LGBM — **DONE 2026-07-27**
+Matrix: 2 slots × 5 t × 4 folds, plus an extension holding HA out against the other six partners.
+Model: LGBM on nt_cds k-mer k6 `concat`. Every fold is exactly 1:1, so the **AUC-PR chance floor is
+0.500** (measured: positive fraction 0.5000 in all folds).
+
+**Both reads answered: yes at t099, and the degradation is monotone.**
+
+AUC-PR, mean [min–max] over 4 folds:
+
+| held out | t099 | t098 | t097 | t096 | t095 |
+|---|---|---|---|---|---|
+| HA (of HA-NA) | 0.918 [0.887–0.940] | 0.894 | 0.874 | 0.811 | 0.755 [0.622–0.816] |
+| **NA (of HA-NA)** | 0.903 [0.881–0.925] | 0.861 | 0.815 | 0.780 | **0.623 [0.555–0.714]** |
+| HA (of HA-PB2) | 0.918 | 0.893 | 0.847 | 0.804 | 0.766 |
+| HA (of HA-PB1) | 0.909 | 0.898 | 0.864 | 0.793 | 0.751 |
+| HA (of HA-PA) | 0.906 | 0.893 | 0.855 | 0.792 | 0.752 |
+| HA (of HA-NP) | 0.910 | 0.888 | 0.865 | 0.806 | 0.786 |
+| HA (of HA-M1) | 0.934 | 0.902 | 0.834 | 0.802 | 0.801 |
+| HA (of HA-NS1) | 0.920 | 0.905 | 0.864 | 0.804 | 0.770 |
+
+MCC follows the same shape — HA-of-HA-NA 0.816 → 0.454, NA-of-HA-NA 0.768 → 0.160.
+
+**Findings.**
+- **1D-CD clears chance comfortably at t099** — every family lands at 0.90–0.93 AUC-PR (MCC
+  0.77–0.86) against a 0.500 floor. This is the contrast with 2D-CD under within_cc negatives, which
+  sits at chance.
+- **Degradation is monotone in `t` for all eight families**, as designed: looser threshold → coarser
+  clusters → a more OOD split.
+- **The constrained slot matters, and NA is the harder axis.** Holding out NA decays faster than
+  holding out HA (0.903 → 0.623 vs 0.918 → 0.755; MCC 0.768 → 0.160 vs 0.816 → 0.454), and at
+  t095/slot-b one fold reaches MCC **−0.042** — at chance. Consistent with the caveat below: HA
+  clusters are ≥95% NA-subtype-pure, so constraining NA removes more of the shared signal.
+- **Per-fold spread widens as `t` loosens** (HA-of-HA-NA: ±0.03 at t099 → ±0.10 at t095), which is
+  what few, large held-out clusters look like.
+
+Runs: `models/flu/July_2025/runs/lgbm_1dcd_cm0_{slota,slotb,ha_*}_t{099..095}_fold{0..3}`; figures in
+`tmp/score/` via `src/analysis/score_vs_threshold.py`. **Not yet promoted to a `docs/results/` entry.**
 
 ## Caveats
 - **Subtype correlation** (`docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`): HA clusters
