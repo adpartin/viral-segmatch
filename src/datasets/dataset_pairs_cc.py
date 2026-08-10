@@ -44,7 +44,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from omegaconf import ListConfig, OmegaConf
-from sklearn.model_selection import GroupKFold  # GroupKFold(shuffle=, random_state=) requires scikit-learn>=1.6
+from sklearn.model_selection import GroupKFold
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
@@ -372,12 +372,16 @@ def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed
         pairs: rows to partition; must carry an `atom_id` column.
         k_folds: number of folds (K).
         val_ratio: val size target, as a fraction of `len(pairs)`.
-        seed: seeds both the GroupKFold shuffle and the val atom shuffle.
+        seed: seeds the val atom shuffle. It does not affect the test-fold assignment, which
+            `GroupKFold(shuffle=False)` derives deterministically from the atom sizes.
 
     Returns:
         list of k (train, val, test) frames, index reset; together they partition `pairs`.
     """
-    gkf = GroupKFold(n_splits=k_folds, shuffle=True, random_state=seed)
+    # shuffle=False keeps GroupKFold's size balancing -- largest atom to the lightest fold, so
+    # every fold receives one of the k largest atoms. shuffle=True instead cuts the atoms into
+    # equal-COUNT chunks, which unbalances the folds badly when atom sizes are skewed.
+    gkf = GroupKFold(n_splits=k_folds, shuffle=False)
     groups = pairs['atom_id'].to_numpy()
     n_total = len(pairs)
     folds = []

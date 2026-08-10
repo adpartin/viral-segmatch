@@ -160,15 +160,32 @@ The Tier 2 / Tier 3 boundary held up in practice: the end-to-end guards did catc
 P4.2 — every fixture mistake showed up as a build or digest failure — and no orchestration bug
 appeared that a unit test would have localized better.
 
+## 5b. Phase 5 — 2D-CD fold balance — **DONE (2026-08-09)**
+
+The first defect the Phase-4 guards were pointed at, found by reading the folds rather than the
+code. `groupkfold_by_atom` used `GroupKFold(shuffle=True)`, which in scikit-learn 1.6 replaces
+size balancing with equal-atom-**count** chunking; with atom sizes spanning three orders of
+magnitude the t099 test folds came out 7.8 / 19.7 / 27.9 / 44.5% of positives, one of them holding
+no atom above rank 13. `shuffle=False` restores LPT — exactly 25% each, one of the top-4 atoms per
+fold — and cut per-fold score sd by ~30%. Cluster-disjointness was never affected either way.
+
+Scope is wide because `groupkfold` is the default `fold_assignment`: every 2D-CD result except the
+OOD-vs-random arms was built this way. Full measurement, the score deltas, the
+`floor <= 1/K` feasibility criterion, and which earlier results are implicated:
+`docs/results/2026-08-09_2d_cd_fold_balance.md`.
+
+Datasets and models were rebuilt to `*_balanced` paths, the pre-fix artifacts kept beside them, and
+`tests/golden/production_splits/2d_cd_t099.json` re-captured.
+
 ## 6. Open
 
 - **D1 — vary the val-carve seed per fold.** `make_folds_within_fold:480` passes the bare `seed` to
   `_carve_val_atoms` on every fold while its negatives vary. Both schemes are equally reproducible;
   only fold-to-fold independence differs. 2D-CD only — the 1D-CD router consumes no seed. Cheap and
   correct, but it changes every built dataset.
-- **D2 — one router for both production paths.** Both route positives only, but disagree on
-  shuffled vs unshuffled `GroupKFold` and on seeded atom shuffle vs LPT for val, so D2 cannot be
-  bit-exact on both. LPT is not arbitrary: `_build_audit:179-180` measures drift on all three bins
+- **D2 — one router for both production paths.** Both route positives only and, since Phase 5, both
+  use unshuffled `GroupKFold` — one of the two obstacles is gone. They still disagree on how val is
+  carved (seeded atom shuffle vs LPT), so D2 remains non-bit-exact on both. LPT is not arbitrary: `_build_audit:179-180` measures drift on all three bins
   and LPT minimizes it, while `_carve_val_atoms` can overshoot by a whole atom (the 2D-CD path has
   no such check). Carries the `cluster_disjoint_route_pos_df` naming question — it implements
   bilateral holdout, single-slot holdout and single-slot k-fold, but every bundle sets
