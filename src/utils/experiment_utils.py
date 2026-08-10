@@ -38,8 +38,11 @@ def get_git_info() -> Dict[str, str]:
         ).decode('utf-8').strip()
 
         # Uncommitted changes mean `commit` names the last commit, NOT the code that ran.
+        # Untracked files are excluded: scratch notes and unstaged data in the working tree
+        # would otherwise mark every build dirty, which makes the flag useless. The gap is an
+        # untracked .py that gets imported -- narrow, and worth it for a flag that stays meaningful.
         status = subprocess.check_output(
-            ['git', 'status', '--porcelain'],
+            ['git', 'status', '--porcelain', '--untracked-files=no'],
             stderr=subprocess.DEVNULL, cwd=_REPO_ROOT
         ).decode('utf-8').strip()
         
