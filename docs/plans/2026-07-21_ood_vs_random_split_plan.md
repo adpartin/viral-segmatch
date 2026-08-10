@@ -31,7 +31,7 @@ point); `neg_to_pos_ratio: 1`. Report per-fold (the 3 folds differ: 2 subtype-pu
 - `build_cc_isolate_pool(membership_path=...)` — within_cc now runs on `_ood` clusters via
   `cluster_memb_nt_cds_ood.parquet`, and drops **edge-cut straddler** isolates (slot-a/slot-b clusters
   in different atoms) so no within-CC negative leaks a sequence across atoms.
-- Bundle `flu_ha_na_cc_nt_cds_ood_ood_vs_random` (t095, `leave_cc_out`, `within_cc`, `paired_random`,
+- Bundle `flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random` (t095, `leave_cc_out`, `within_cc`, `paired_random`,
   `edge_cut.max_drop_frac 0.10`). `--override dataset.split_strategy.tail_ccs_to_train=false` measures
   the tail's effect.
 

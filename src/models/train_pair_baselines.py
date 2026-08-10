@@ -59,13 +59,13 @@ import pandas as pd
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.timer_utils import Timer
-from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
-from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.path_utils import build_training_paths, build_embeddings_paths
 from src.models._pair_features import load_pair_features_for_baselines
 from src.models._pair_metrics import compute_pair_metrics, find_optimal_threshold_pr
-
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
+from src.utils.experiment_utils import get_git_info
+from src.utils.path_utils import build_embeddings_paths, build_training_paths
+from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.timer_utils import Timer
 
 BASELINE_REGISTRY = {
     'logistic':    'src.models.baselines.logistic',
@@ -341,6 +341,7 @@ def _run_one_baseline(
         'patience': None,
         'learning_rate': None,
         'use_amp': None,
+        'code': get_git_info(),
     }
     with open(output_dir / 'training_info.json', 'w') as f:
         json.dump(training_info, f, indent=2)

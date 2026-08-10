@@ -70,6 +70,7 @@ from src.utils.config_hydra import (  # noqa: E402
     print_config_summary,
     save_config,
 )
+from src.utils.experiment_utils import get_git_info  # noqa: E402
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  # noqa: E402
@@ -772,7 +773,7 @@ def _build_positives(config, spec: CCSpec, args):
 # OOD-vs-random paired CV -- experiment scaffolding, NOT the production path.
 #
 # Everything down to the closing banner serves one bundle,
-# `flu_ha_na_cc_nt_cds_ood_ood_vs_random`: leave-one-atom-out folds against a
+# `flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random`: leave-one-atom-out folds against a
 # size-matched random control, both partitioning the SAME rows so the split is
 # the only difference between the arms. Reached only through
 # `negative_scope: within_cc`, of which this block is the sole consumer.
@@ -1019,7 +1020,8 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
                'pair_key_alphabet': spec.pair_key_alphabet, 'negative_scope': spec.negative_scope,
                'drop_negative_infeasible_ccs': spec.drop_negative_infeasible_ccs,
                'fold_assignment': spec.fold_assignment,
-               'fold_dirs': [f'fold_{k}' for k in range(spec.k_folds)]}
+               'fold_dirs': [f'fold_{k}' for k in range(spec.k_folds)],
+               'code': get_git_info()}
     (out_dir / 'cv_info.json').write_text(json.dumps(cv_info, indent=2))
     for k, (train, val, test) in enumerate(folds):
         fdir = out_dir / f'fold_{k}'
@@ -1034,14 +1036,36 @@ def _write_output(out_dir: Path, folds, spec: CCSpec) -> None:
         print(f"  fold_{k}: train={len(train):,} val={len(val):,} test={len(test):,}")
 
 
-def _write_cc_sizes(out_dir: Path, sizes: pd.Series, filename: str) -> None:
-    """Write `filename` (cc_id, n_pairs) from a per-unit size Series, largest first.
-    Header is always (cc_id, n_pairs) so src/analysis/plot_cc_sizes.py reads either file."""
+def summarize_cc_sizes(sizes: pd.Series) -> pd.DataFrame:
+    """Per-CC pair counts with each CC's share of the total, largest CC first.
+
+    Percentages are of this Series' own total, so a pre-cut and a post-cut summary each
+    describe their own universe and their percentages are not directly comparable.
+
+    Args:
+        sizes: pairs per CC, indexed by cc_id.
+
+    Returns:
+        DataFrame with columns `cc_id`, `n_pairs`, `pct_of_total`, `cum_pct`, sorted by
+        `n_pairs` descending. Percentages are rounded to 4 decimals.
+    """
     cc = sizes.sort_values(ascending=False).rename('n_pairs')
     cc.index.name = 'cc_id'
     cc = cc.reset_index()
+    total = int(cc['n_pairs'].sum())
+    share = 100 * cc['n_pairs'] / total if total else cc['n_pairs'].astype(float)
+    cc['pct_of_total'] = share.round(4)
+    cc['cum_pct'] = share.cumsum().round(4)
+    return cc
+
+
+def _write_cc_sizes(out_dir: Path, sizes: pd.Series, filename: str) -> None:
+    """Write `filename` from a per-unit size Series via `summarize_cc_sizes`.
+    Leading columns stay (cc_id, n_pairs) so src/analysis/plot_cc_sizes.py reads either file."""
+    cc = summarize_cc_sizes(sizes)
     cc.to_csv(out_dir / filename, index=False)
-    print(f"  wrote {filename} ({len(cc):,} units, {int(cc['n_pairs'].sum()):,} pairs)")
+    print(f"  wrote {filename} ({len(cc):,} units, {int(cc['n_pairs'].sum()):,} pairs; "
+          f"largest {cc['pct_of_total'].iloc[0]:.1f}% of them)")
 
 
 def _write_cc_pair_sizes(out_dir: Path, pos_ids: pd.DataFrame, cc_sizes: dict | None = None) -> None:

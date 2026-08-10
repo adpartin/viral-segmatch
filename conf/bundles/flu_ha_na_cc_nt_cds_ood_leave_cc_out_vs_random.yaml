@@ -1,0 +1,29 @@
+# KEEP -- sole consumer of negative_scope: within_cc and the only bundle reaching the
+# leave-cc-out arm of `_partition_full`. Pinned by tests/test_partition_full_arms.py.
+#
+# STATUS: experimental -- HA-NA leave-one-CC-out vs random CV at t095, from ONE fixed within-CC
+# negative pool: `make_folds_leave_cc_out` writes out_dir/ood/ (each of the 3 largest fragmented
+# CCs is the sole test fold once) and `make_folds_random` writes out_dir/random/ (the same pairs
+# in matched-size folds), so any gap between them is the split, not the data.
+# Inherits flu_ha_na_cc_nt_cds_ood_edge_cut; raises the drop budget to 0.10 so the largest
+# component splits into those 3 CCs, and sets within_cc negatives, leave_cc_out, n_folds 3.
+# Plan: docs/plans/2026-07-21_ood_vs_random_split_plan.md.
+
+defaults:
+  - flu_ha_na_cc_nt_cds_ood_edge_cut
+  - _self_
+
+dataset:
+  n_folds: 3
+  split_strategy:
+    negative_scope: within_cc
+    m_pos_per_cc: null
+    fold_assignment: leave_cc_out
+    paired_random: true
+    tail_ccs_to_train: true
+    membership_path: data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_cds_ood.parquet
+    edge_cut:
+      enabled: true
+      cut_method: spectral
+      target_atoms: 500      # unreachable at t095 (floor ~125) -> max_drop_frac binds
+      max_drop_frac: 0.10    # reproduces the 3-hub fragmented structure (pre-step used 0.10)

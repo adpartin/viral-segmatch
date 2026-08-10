@@ -37,7 +37,7 @@ SPLITS = ('train', 'val', 'test')
 # One entry per production path. `builder` selects the CLI: the two take different
 # output flags, and only the v2 one accepts --override.
 GUARD_SET = [
-    {'name': '2d_cd_t099', 'bundle': 'flu_ha_na_cc_nt_cds_cm0_wf', 'builder': 'cc'},
+    {'name': '2d_cd_t099', 'bundle': 'flu_ha_na_cc_nt_cds_cm0', 'builder': 'cc'},
     {'name': '1d_cd_ha_t099', 'bundle': 'flu_ha_na_1dcd_nt_cds', 'builder': 'v2'},
 ]
 

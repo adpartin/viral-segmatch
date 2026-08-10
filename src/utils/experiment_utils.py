@@ -4,37 +4,43 @@ import json
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from omegaconf import DictConfig, OmegaConf
 
+# git is queried against the repo, not the caller's cwd -- a launcher that runs from elsewhere
+# would otherwise get the 'unknown' fallback and silently lose provenance.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def get_git_info() -> Dict[str, str]:
-    """Get current git repository information.
-    
+    """Current commit, branch and clean/dirty state of the repo holding this file.
+
     Returns:
-        Dictionary with git commit, branch, and status information
+        Dict with `commit`, `commit_short`, `branch`, `is_dirty` (bool) and `status`
+        ('clean' | 'dirty'). All fields are 'unknown' (and `is_dirty` None) if git is
+        unavailable or the path is not a repository.
     """
     try:
         commit = subprocess.check_output(
             ['git', 'rev-parse', 'HEAD'],
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL, cwd=_REPO_ROOT
         ).decode('utf-8').strip()
-        
+
         commit_short = subprocess.check_output(
             ['git', 'rev-parse', '--short', 'HEAD'],
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL, cwd=_REPO_ROOT
         ).decode('utf-8').strip()
-        
+
         branch = subprocess.check_output(
             ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL, cwd=_REPO_ROOT
         ).decode('utf-8').strip()
-        
-        # Check if there are uncommitted changes
+
+        # Uncommitted changes mean `commit` names the last commit, NOT the code that ran.
         status = subprocess.check_output(
             ['git', 'status', '--porcelain'],
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL, cwd=_REPO_ROOT
         ).decode('utf-8').strip()
         
         is_dirty = len(status) > 0

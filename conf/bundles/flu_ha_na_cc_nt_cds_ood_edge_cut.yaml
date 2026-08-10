@@ -1,15 +1,9 @@
-# STATUS: experimental -- HA/NA 2D-CD CV on nt_cds OOD clusters WITH edge-cut fragmentation.
-# Same as flu_ha_na_cc_nt_cds_ood, but at t095 with routing-B edge_cut enabled: fragment_until
-# grows the atom count from the natural 108 to ~124 within a 2% drop budget (spectral bisection).
-# Inherits within_fold negatives + m_pos_per_cc=1 + drop_negative_infeasible_ccs=false.
+# KEEP -- parent of flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random; deleting it breaks that bundle.
 #
-# Run Stage 3:
-#   python src/datasets/dataset_pairs_cc.py \
-#       --config_bundle flu_ha_na_cc_nt_cds_ood_edge_cut --out_dir <out_dir>
-# Sweep the target / threshold with overrides, e.g.:
-#   --override dataset.split_strategy.edge_cut.target_atoms=150 \
-#       dataset.split_strategy.cluster_id_path=data/processed/flu/July_2025/clusters_nt_cds_ood/t097/combined_cluster.parquet
-# Turn fragmentation off (natural 108-atom baseline): --override dataset.split_strategy.edge_cut.enabled=false
+# STATUS: experimental -- HA-NA 2D-CD CV on nt_cds OOD clusters at t095, with edge-cut
+# fragmentation on: `_megacc_cut.fragment_until` spectrally bisects the largest component until
+# the drop budget binds, growing the atom count from the natural 108 to ~124 for ~2% of pairs.
+# Inherits flu_ha_na_cc_nt_cds_ood; disable with edge_cut.enabled=false for the 108-atom baseline.
 
 defaults:
   - flu_ha_na_cc_nt_cds_ood

@@ -127,6 +127,7 @@ from src.datasets._pair_helpers import (
     select_balanced_isolate_pool,
 )
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
+from src.utils.experiment_utils import get_git_info
 from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
 from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
@@ -684,6 +685,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             'bundle': config_bundle,
             'fold_dirs': [f'fold_{i}' for i in range(N_FOLDS)],
             'pair_builder_version': 'v2',
+            'code': get_git_info(),
         }
         with open(output_dir / 'cv_info.json', 'w') as f:
             json.dump(cv_info, f, indent=2)

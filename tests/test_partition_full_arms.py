@@ -2,7 +2,7 @@
 
 The subtree under `_partition_full` (`pick_largest_atoms`, `make_folds_leave_cc_out`,
 `make_folds_random`, `_carve_val_pairs`) exists for one bundle,
-`flu_ha_na_cc_nt_cds_ood_ood_vs_random`, and had no test coverage. The property that
+`flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random`, and had no test coverage. The property that
 matters most is the experiment's own premise: **both arms partition the SAME rows**, so
 any difference in results is attributable to the split and nothing else. Nothing else in
 the suite checks that.
@@ -29,7 +29,7 @@ if str(PROJ) not in sys.path:
 from src.datasets.dataset_pairs_cc import _partition_full, _resolve_spec  # noqa: E402
 from src.utils.config_hydra import get_virus_config_hydra  # noqa: E402
 
-BUNDLE = 'flu_ha_na_cc_nt_cds_ood_ood_vs_random'
+BUNDLE = 'flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random'
 
 
 def _spec(**overrides):

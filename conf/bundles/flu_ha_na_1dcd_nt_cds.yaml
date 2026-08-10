@@ -1,11 +1,10 @@
-# STATUS: experimental -- HA/NA 1D cluster-disjoint (DataSAIL S1) CV on nt_cds.
-# Built by src/datasets/dataset_segment_pairs_v2.py: single-slot cluster_disjoint routing
-# (GroupKFold on ONE slot's clusters) + within_fold negatives (ratio-driven, no coverage/regime).
-# Defaults to cm0 / t099 / single_slot=a / k=4; sweep t + slot via --override.
-# See docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
+# STATUS: production -- 1D cluster-disjoint CV holding out HA's clusters; HA paired with NA.
+# NA is segment 6, after HA's 4, so the canonical pair is (HA, NA) and HA sits in slot a.
+# Base recipe for the six flu_ha_<partner>_1dcd_nt_cds bundles; sweep t and slot via --override.
+# Guarded by tests/test_production_splits.py; plan docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
 #
-# split_strategy is set inline (not via a `- /dataset/split_strategy: cluster_disjoint` group
-# re-selection, which Hydra rejects as a duplicate group choice under the `bundles` package).
+# split_strategy is inline because Hydra rejects a `- /dataset/split_strategy: cluster_disjoint`
+# group re-selection as a duplicate group choice under the `bundles` package.
 
 defaults:
   - flu_ha_na
@@ -31,3 +30,9 @@ dataset:
 kmer:
   alphabet: nt_cds
   k: 6
+
+training:
+  # Restores the repo default (flu_28_major_protein_pairs_master sets concat); flu_ha_na overrides
+  # it to 'unit_diff + prod' for its own k-mer interaction sweep. Every 1D-CD result to date was
+  # produced with concat, so declaring it keeps runs reproducible without a CLI override.
+  interaction: concat

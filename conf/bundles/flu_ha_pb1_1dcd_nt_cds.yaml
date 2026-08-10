@@ -1,7 +1,6 @@
-# STATUS: experimental -- HA 1D cluster-disjoint (HA held out) paired with PB1, nt_cds/cm0.
-# PB1 is on an earlier segment than HA (seg 2 < seg 4), so schema_pair canonicalizes to (PB1, HA):
-# HA lands in slot b, so single_slot: b holds out HA's clusters. Base recipe: flu_ha_na_1dcd_nt_cds.
-# t sweep (cluster_id_path / cluster_id_threshold) is set per-run via --override at build time.
+# STATUS: experimental -- 1D cluster-disjoint CV holding out HA's clusters; HA paired with PB1.
+# PB1 is segment 2, before HA's 4, so the canonical pair is (PB1, HA) and HA sits in slot b.
+# Inherits flu_ha_na_1dcd_nt_cds (nt_cds/cm0, k=4, within_fold negatives); sweep t via --override.
 defaults:
   - flu_ha_na_1dcd_nt_cds
   - _self_

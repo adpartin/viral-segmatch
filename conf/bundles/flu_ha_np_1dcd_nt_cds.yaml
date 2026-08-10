@@ -1,7 +1,6 @@
-# STATUS: experimental -- HA 1D cluster-disjoint (HA held out) paired with NP, nt_cds/cm0.
-# NP is on a later segment than HA (seg 4 < seg 5), so schema_pair stays (HA, NP):
-# HA is slot a, so single_slot: a holds out HA's clusters. Base recipe: flu_ha_na_1dcd_nt_cds.
-# t sweep (cluster_id_path / cluster_id_threshold) is set per-run via --override at build time.
+# STATUS: experimental -- 1D cluster-disjoint CV holding out HA's clusters; HA paired with NP.
+# NP is segment 5, after HA's 4, so the canonical pair is (HA, NP) and HA sits in slot a.
+# Inherits flu_ha_na_1dcd_nt_cds (nt_cds/cm0, k=4, within_fold negatives); sweep t via --override.
 defaults:
   - flu_ha_na_1dcd_nt_cds
   - _self_

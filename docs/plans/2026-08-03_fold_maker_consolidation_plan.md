@@ -20,7 +20,7 @@ Every change is judged against these. Both cluster nt_cds at **t099** on the `cm
 
 | | **2D-CD** | **1D-CD (HA axis)** |
 |---|---|---|
-| bundle | `flu_ha_na_cc_nt_cds_cm0_wf.yaml` | `flu_ha_na_1dcd_nt_cds.yaml` |
+| bundle | `flu_ha_na_cc_nt_cds_cm0.yaml` | `flu_ha_na_1dcd_nt_cds.yaml` |
 | builder | `dataset_pairs_cc.py` | `dataset_segment_pairs_v2.py` |
 | mode | `cluster_disjoint_cc` | `cluster_disjoint` + `single_slot: a` — **HA** is the held-out axis |
 | atom | one CC on (`cluster_id_a`, `cluster_id_b`); under `edge_cut`, a post-cut fragment | one HA cluster |
@@ -48,7 +48,7 @@ an argument. `pytest tests/ -q` green before each commit. Anything that cannot m
 
 **Fold-makers** — four, over one shared core, `groupkfold_by_atom` (`dataset_pairs_cc.py:362`).
 The **leave-cc-out** column marks the `# ===` block at `dataset_pairs_cc.py:767-916`, which serves
-only `flu_ha_na_cc_nt_cds_ood_ood_vs_random` — not to be confused with the other senses of "OOD"
+only `flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random` — not to be confused with the other senses of "OOD"
 (the `clusters_*_ood` root; the general property that any cluster-disjoint split holds out unseen
 clusters, 2D-CD included).
 

@@ -2,7 +2,7 @@
 # Built by src/datasets/dataset_pairs_cc.py.
 
 defaults:
-  - flu_ha_na_cc_aa
+  - flu_ha_na_cc
   - _self_
 
 dataset:

@@ -20,3 +20,10 @@ dataset:
       cut_method: spectral
       target_atoms: 100000        # unreachable -> max_drop_frac governs the fragmentation depth
       max_drop_frac: 0.05         # drop budget; raise to create more atoms at hub-heavy t
+
+training:
+  # Restores the repo default (flu_28_major_protein_pairs_master sets concat). flu_ha_na overrides
+  # it to 'unit_diff + prod' for its own k-mer interaction sweep ("Test 3") and the whole cc family
+  # inherits that, but every production result here was produced with concat via a CLI override.
+  # Declaring it keeps runs reproducible without the override.
+  interaction: concat

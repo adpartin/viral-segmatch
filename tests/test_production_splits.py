@@ -63,7 +63,7 @@ def _run_guard(name: str):
 
 @pytest.mark.production_split
 def test_2d_cd_t099_is_bit_exact():
-    """2D-CD, nt_cds t099 HA-NA (`flu_ha_na_cc_nt_cds_cm0_wf`)."""
+    """2D-CD, nt_cds t099 HA-NA (`flu_ha_na_cc_nt_cds_cm0`)."""
     _run_guard('2d_cd_t099')
 
 

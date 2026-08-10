@@ -7,15 +7,14 @@ date:           2026-08-09
 schema_pair:    HA-NA
 alphabet:       nt_cds
 clusters:       clusters_nt_cds_cm0/t099
-bundle:         flu_ha_na_cc_nt_cds_cm0_wf
+bundle:         flu_ha_na_cc_nt_cds_cm0
 k_folds:        4
 negative_scope: within_fold
-model:          LGBM on kmer_nt_cds k=6
-builder_commit: 020c107        # branch fix/2d-cd-fold-balance, unmerged; the Stage-3/4 runs
-                               # predate the commit but the code state is identical to it
+model:          LGBM on kmer_nt_cds k=6, interaction concat
+builder_commit: 2eea3b6        # see each artifact's own cv_info.json / training_info.json `code`
 depends_on:     [src/datasets/dataset_pairs_cc.py, src/datasets/_megacc_cut.py]
-dataset:        data/datasets/flu/July_2025/runs/dataset_cc_nt_cds_cm0_wf_t099_balanced
-models:         models/flu/July_2025/runs/lgbm_cc_cm0_wf_t099_balanced_fold{0..3}
+dataset:        data/datasets/flu/July_2025/runs/dataset_cc_nt_cds_cm0_t099
+models:         models/flu/July_2025/runs/lgbm_cc_cm0_t099_concat_fold{0..3}
 ```
 
 **Scope:** every 2D-CD build routed by `fold_assignment: groupkfold` (the default), i.e. all of
@@ -56,16 +55,25 @@ either slot, under both settings.
 
 ## Measured effect on scores
 
-LGBM, k-mer nt_cds k=6, same features/hyperparameters/seed, same 75,248 positives:
+LGBM, k-mer nt_cds k=6, **interaction `concat`** in both arms, same seed, same 75,248 positives —
+so the fold assignment is the only thing that differs:
 
-| | macro F1 | sd | range | AUC-ROC | sd |
-|---|---:|---:|---:|---:|---:|
-| before | 0.7652 | 0.0528 | 0.118 | 0.8571 | 0.0379 |
-| after | 0.7996 | 0.0373 | 0.079 | 0.8646 | 0.0269 |
+| folds | macro F1 | sd | range | AUC-ROC |
+|---|---:|---:|---:|---:|
+| unbalanced (`shuffle=True`) | 0.7652 | 0.0528 | 0.118 | 0.8571 |
+| **balanced (`shuffle=False`)** | **0.8373** | **0.0213** | **0.049** | **0.8921** |
 
-**The variance reduction is the real result** — per-fold sd fell ~30% on both metrics. The mean
-rising 0.765 → 0.800 is not a better model; it is a different estimate over differently-composed
-folds, part of which is simply that no fold now trains on 45% of the data.
+**The variance reduction is the headline** — per-fold sd fell **60%** and the range 58%. The mean
+also rose 0.072, which is partly a real gain (no fold now trains on only 45% of the data) and
+partly the estimate simply being better conditioned; it is not a better model.
+
+Both production bundles now declare `training.interaction: concat`. That is the repo default
+(`flu_28_major_protein_pairs_master`); `flu_ha_na` overrides it to `unit_diff + prod` for its own
+k-mer interaction sweep and the `cc` family inherits that, so production had been restoring `concat`
+via a CLI override that lived nowhere in the repo. Declaring it makes the runs reproducible. On
+these folds `concat` also scored higher (macro F1 0.8373 vs 0.7996), but that gap is about one
+per-fold sd — read it as "not worse", not as a winner; the k-mer interaction sweep put all four
+variants within seed noise.
 
 ## Fix
 
@@ -105,19 +113,21 @@ experiment was produced on unbalanced folds — including
 (`dataset_pairs_cc.py:893`).
 
 Qualitative conclusions are very unlikely to move — the within_cc-vs-within_fold gap
-(~0.50 vs 0.87 AUC) is an order of magnitude larger than anything fold packing shifted here
-(~0.03 on the mean). **The per-fold ± values are the part to distrust**, since they were
-inflated by uneven training sizes. That matters most for `2026-07-14`, whose central inference
-compares a 0.025 threshold spread against a ±0.03–0.08 per-fold std; with a ~30% smaller std,
-that comparison needs re-checking before the "flat across t099–t097" claim is restated. None of
-these have been rebuilt.
+(~0.50 vs 0.87 AUC) is far larger than the 0.072 the fold fix moved the mean here. **The per-fold
+± values are the part to distrust**, since they were inflated by uneven training sizes. That
+matters most for `2026-07-14`, whose central inference compares a 0.025 threshold spread against a
+±0.03–0.08 per-fold std; the std measured here fell **60%** once folds were balanced, so that
+comparison needs re-checking before the "flat across t099–t097" claim is restated. None of these
+have been rebuilt.
 
 ## Artifacts
 
-- Datasets: `data/datasets/flu/July_2025/runs/dataset_cc_nt_cds_cm0_wf_t099_balanced/fold_{0..3}`
-  (the pre-fix build is preserved at `dataset_cc_nt_cds_cm0_wf_t099`).
-- Models: `models/flu/July_2025/runs/lgbm_cc_cm0_wf_t099_balanced_fold{0..3}`
-  (pre-fix at `lgbm_cc_cm0_wf_t099_fold{0..3}`).
-- Golden re-captured: `tests/golden/production_splits/2d_cd_t099.json`.
+- Dataset: `data/datasets/flu/July_2025/runs/dataset_cc_nt_cds_cm0_t099/fold_{0..3}`.
+- Models: `models/flu/July_2025/runs/lgbm_cc_cm0_t099_concat_fold{0..3}` (the `concat` production
+  config above); `lgbm_cc_cm0_t099_fold{0..3}` are the same folds under the inherited
+  `unit_diff + prod`, kept for the interaction comparison.
+- The pre-fix (unbalanced) build and its runs were deleted; its numbers survive only in the table
+  above. Every artifact here records its builder commit in `cv_info.json` / `training_info.json`.
+- Golden: `tests/golden/production_splits/2d_cd_t099.json`.
 - The 1D-CD path was never affected — `_split_helpers.py:568` already used
   `GroupKFold(n_splits=...)` with no shuffle.

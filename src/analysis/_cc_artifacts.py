@@ -67,7 +67,7 @@ def load_cc_pairs(d: Path) -> pd.DataFrame:
             f"ERROR: no CC artifact at {f}.\n"
             f"Build it first, e.g.:\n"
             f"  python src/datasets/build_cc_structure.py \\\n"
-            f"      --config_bundle flu_ha_na_cc_nt_cds_cm0_wf --thresholds {Path(d).name} --fragment"
+            f"      --config_bundle flu_ha_na_cc_nt_cds_cm0 --thresholds {Path(d).name} --fragment"
         )
     return pd.read_parquet(f)
 
