@@ -69,7 +69,7 @@ _FILL_UNKNOWN = ['hn_subtype', 'host', 'geo_location_clean']  # categorical; yea
 _ALPHABET_CFG = {
     'aa': {
         'source': 'data/processed/flu/July_2025/protein_final.parquet',
-        'clusters': 'data/processed/flu/July_2025/clusters_aa',
+        'clusters': 'data/processed/flu/July_2025/clusters_aa_cm0',
         'out': 'data/processed/flu/July_2025/cluster_membership/cluster_memb_aa.parquet',
         'key_col': 'prot_hash',
         'length_col': 'length',
@@ -78,7 +78,7 @@ _ALPHABET_CFG = {
     },
     'nt_cds': {
         'source': 'data/processed/flu/July_2025/cds_dna_final.parquet',
-        'clusters': 'data/processed/flu/July_2025/clusters_nt_cds',
+        'clusters': 'data/processed/flu/July_2025/clusters_nt_cds_cm0',
         'out': 'data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_cds.parquet',
         'key_col': 'cds_dna_hash',
         'length_col': 'cds_length',

@@ -37,7 +37,10 @@ class AlphabetSchema:
     file_basename: str     # Stage 1/1.5 output file (no extension)
     occurrence_col: str    # k-mer matrix INDEX key (in the source table)
     pair_occ_base: str     # pair-side k-mer join base ('brc'/'ctg' -> '<base>_{a,b}')
-    cluster_dir: str       # mmseqs cluster output directory name
+    cluster_dir: str       # BASE name for mmseqs cluster output; on-disk dirs append the
+                           # clustering mode (`_cm0` set-cover, `_cm1`, `_ood` connected
+                           # components), e.g. clusters_nt_cds_cm0. The unsuffixed dir is
+                           # not itself an artifact -- use src/utils/cluster_source.py.
     memb_basename: str     # per-isolate cluster-membership parquet (no extension)
     kmer_basename: str     # k-mer feature cache basename (alphabet-tagged)
 

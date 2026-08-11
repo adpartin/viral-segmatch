@@ -21,7 +21,9 @@ dataset:
     mode: cluster_disjoint_cc
     hash_key: null                # seq_disjoint-only knob; unused on this path
     cluster_alphabet: nt_cds
-    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds/t099/combined_cluster.parquet
+    # cm0 (linclust set-cover) is the only nt_cds cluster set kept on disk besides _ood;
+    # flu_ha_na_cc_nt_cds_cm0 restates this path, and the _ood variants override it.
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds_cm0/t099/combined_cluster.parquet
     negative_scope: within_fold   # within_cc (removes the cluster shortcut; hard) | within_fold
     m_pos_per_cc: 1               # cap positive ROWS per CC -> uniform-weight atoms
     drop_negative_infeasible_ccs: true

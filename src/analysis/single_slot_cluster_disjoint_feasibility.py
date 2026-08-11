@@ -33,7 +33,7 @@ CLI:
     # aa single-slot feasibility on HA-NA at multiple thresholds:
     python -m src.analysis.single_slot_cluster_disjoint_feasibility \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
-        --clusters_root data/processed/flu/July_2025/clusters_aa \\
+        --clusters_root data/processed/flu/July_2025/clusters_aa_cm0 \\
         --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90 0.85
 

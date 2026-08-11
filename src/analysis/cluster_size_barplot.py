@@ -29,8 +29,8 @@ size). NOT the archived pre-Phase-2 `clusters_nt` / `id{XXX}` layout.
 
 CLI:
     python -m src.analysis.cluster_size_barplot \\
-        [--clusters_aa     data/processed/flu/July_2025/clusters_aa] \\
-        [--clusters_nt_cds data/processed/flu/July_2025/clusters_nt_cds] \\
+        [--clusters_aa     data/processed/flu/July_2025/clusters_aa_cm0] \\
+        [--clusters_nt_cds data/processed/flu/July_2025/clusters_nt_cds_cm0] \\
         [--out_dir         results/flu/July_2025/runs/1D_cluster_sizes] \\
         [--top_n 20] \\
         [--proteins HA NA PB2 PB1] \\
@@ -88,10 +88,10 @@ def _list_thresholds(root: Path) -> list[str]:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--clusters_aa',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
+                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa_cm0'),
                    help='Root containing tXXX/{PROTEIN}_cluster.parquet for aa.')
     p.add_argument('--clusters_nt_cds',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'),
+                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt_cds_cm0'),
                    help='Root containing tXXX/{PROTEIN}_cluster.parquet for nt_cds.')
     p.add_argument('--out_dir',
                    default=str(PROJ / 'results/flu/July_2025/runs/1D_cluster_sizes'),

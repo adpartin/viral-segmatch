@@ -29,7 +29,7 @@ Artifact layout (under --out_root):
 CLI:
     python -m src.preprocess.build_clusters --method linclust \\
         --cds_dna_final data/processed/flu/July_2025/cds_dna_final.parquet \\
-        --out_root      data/processed/flu/July_2025/clusters_nt_cds \\
+        --out_root      data/processed/flu/July_2025/clusters_nt_cds_cm0 \\
         --thresholds 0.99 0.98 0.97 0.96 0.95 --threads 64
     python -m src.preprocess.build_clusters --method search \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\

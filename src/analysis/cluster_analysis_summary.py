@@ -26,8 +26,8 @@ different inputs and consumers:
 
 CLI:
     python -m src.analysis.cluster_analysis_summary \\
-        [--clusters_aa  data/processed/flu/July_2025/clusters_aa] \\
-        [--clusters_nt  data/processed/flu/July_2025/clusters_nt_cds] \\
+        [--clusters_aa  data/processed/flu/July_2025/clusters_aa_cm0] \\
+        [--clusters_nt  data/processed/flu/July_2025/clusters_nt_cds_cm0] \\
         [--protein_final data/processed/flu/July_2025/protein_final.csv] \\
         [--cds_final     data/processed/flu/July_2025/cds_dna_final.parquet] \\
         [--feasibility_dir results/flu/July_2025/runs/cluster_disjoint_feasibility] \\
@@ -715,10 +715,10 @@ def plot_largest_cc_pct(feasibilities: list[pd.DataFrame], out_png: Path) -> Non
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--clusters_aa',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa'),
+                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_aa_cm0'),
                    help='Directory containing aa redundancy_stats.csv + per-(function, threshold) cluster parquets.')
     p.add_argument('--clusters_nt',
-                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'),
+                   default=str(PROJ / 'data/processed/flu/July_2025/clusters_nt_cds_cm0'),
                    help='Directory containing nt_cds redundancy_stats.csv + per-(function, threshold) cluster parquets.')
     p.add_argument('--protein_final',
                    default=str(PROJ / 'data/processed/flu/July_2025/protein_final.csv'),

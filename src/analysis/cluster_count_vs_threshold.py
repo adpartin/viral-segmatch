@@ -49,8 +49,8 @@ from src.utils.clustering_utils import cluster_sizes_unique  # noqa: E402
 from src.utils.plot_config import get_protein_color  # noqa: E402
 
 _DEFAULT_THRESHOLDS = [f't{i:03d}' for i in range(99, 89, -1)]  # t099..t090
-_ROOT = {'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa',
-         'nt_cds': PROJ / 'data/processed/flu/July_2025/clusters_nt_cds'}
+_ROOT = {'aa': PROJ / 'data/processed/flu/July_2025/clusters_aa_cm0',
+         'nt_cds': PROJ / 'data/processed/flu/July_2025/clusters_nt_cds_cm0'}
 
 
 def main() -> None:

@@ -30,7 +30,7 @@ CLI:
     # aa feasibility (HA/NA). --out_csv default basename: feasibility_ha_na_aa.csv
     python -m src.analysis.cluster_disjoint_feasibility \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
-        --clusters_root data/processed/flu/July_2025/clusters_aa \\
+        --clusters_root data/processed/flu/July_2025/clusters_aa_cm0 \\
         --schema_pair "Hemagglutinin precursor" "Neuraminidase protein" \\
         --thresholds 1.00 0.99 0.98 0.97 0.96 0.95 0.90
 

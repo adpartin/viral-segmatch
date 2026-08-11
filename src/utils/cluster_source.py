@@ -54,14 +54,12 @@ USE_MEMBERSHIP = os.environ.get('SEGMATCH_NO_MEMBERSHIP', '') != '1'
 
 _PROC = PROJ / 'data/processed/flu/July_2025'
 
-# Canonical on-disk cluster root per alphabet -- one source of truth for the
-# `--clusters_{aa,nt}` CLI defaults and `_cv_sampling._ROOT`. The nt root is
-# `clusters_nt_cds`; several scripts used to default it to `clusters_nt`, which has never
-# existed on disk (so their nt runs silently found no cluster parquet). Variant roots
-# (`clusters_*_cm0`, `_cm1`, `_ood`) are passed explicitly and resolve via
+# Canonical on-disk cluster root per alphabet. The unsuffixed `clusters_aa` /
+# `clusters_nt_cds` roots no longer exist -- cm0 (linclust set-cover) is the kept baseline,
+# alongside the `_cm1` and `_ood` variants, which are passed explicitly and resolve via
 # `alphabet_from_root`.
-CLUSTERS_ROOT = {'aa': _PROC / 'clusters_aa',
-                 'nt_cds': _PROC / 'clusters_nt_cds'}
+CLUSTERS_ROOT = {'aa': _PROC / 'clusters_aa_cm0',
+                 'nt_cds': _PROC / 'clusters_nt_cds_cm0'}
 
 _MEMB_DIR = _PROC / 'cluster_membership'
 _MEMB_FILE = {'aa': _MEMB_DIR / 'cluster_memb_aa.parquet',
