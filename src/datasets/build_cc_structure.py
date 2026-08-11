@@ -27,7 +27,7 @@ another t. Join pairs_with_cc across thresholds on pair_key, never on cc_id.
 
 CLI:
     python src/datasets/build_cc_structure.py \\
-        --config_bundle flu_ha_na_cc_nt_cds_ood_edge_cut \\
+        --config_bundle flu_ha_na_cc_nt_cds_ood \\
         --thresholds t099 t098 t097 t095 [--rebuild] [--fragment --max_drop_frac 0.10]
 """
 from __future__ import annotations

@@ -13,10 +13,11 @@ Representation is the exact k-mer matrix the model consumes -- reuses `umap_cc.c
 fixed-color scatter (not `plot_utils.umap_scatter`) is used so test/train keep the SAME colors across the
 4 figs (umap_scatter colors by size rank, which would swap test/train between the ood and random panels).
 
-CLI (`--run_dir` is a Stage-3 output of `flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random`, i.e. a
-directory holding the paired `ood/` and `random/` arms):
+CLI (`--run_dir` is a Stage-3 output built with `negative_scope: within_cc` +
+`fold_assignment: leave_cc_out` + `paired_random: true` -- see the banner in
+src/datasets/dataset_pairs_cc.py -- i.e. a directory holding the paired `ood/` and `random/` arms):
     python -m src.analysis.umap_ood_vs_random \\
-        --run_dir data/datasets/flu/July_2025/runs/<leave_cc_out_vs_random_run> \\
+        --run_dir data/datasets/flu/July_2025/runs/<paired_arms_run> \\
         --fold 0 --pair HA-NA --alphabet nt_cds
 """
 from __future__ import annotations

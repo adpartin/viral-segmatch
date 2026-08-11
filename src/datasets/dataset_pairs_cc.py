@@ -770,13 +770,18 @@ def _build_positives(config, spec: CCSpec, args):
 
 
 # =============================================================================
-# OOD-vs-random paired CV -- experiment scaffolding, NOT the production path.
+# Leave-cc-out vs random paired CV -- experiment scaffolding, NOT the production path.
 #
-# Everything down to the closing banner serves one bundle,
-# `flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random`: leave-one-atom-out folds against a
-# size-matched random control, both partitioning the SAME rows so the split is
-# the only difference between the arms. Reached only through
-# `negative_scope: within_cc`, of which this block is the sole consumer.
+# Everything down to the closing banner builds leave-one-atom-out folds against a
+# size-matched random control, both partitioning the SAME rows so the split is the
+# only difference between the arms. Reached only through `negative_scope: within_cc`,
+# of which this block is the sole consumer. No shipped bundle sets it -- run it by
+# overriding a 2D-CD bundle:
+#   --override dataset.n_folds=3 \
+#       dataset.split_strategy.negative_scope=within_cc \
+#       dataset.split_strategy.fold_assignment=leave_cc_out \
+#       dataset.split_strategy.paired_random=true
+# Covered by tests/test_partition_full_arms.py, which is this path's only test.
 # Design: docs/plans/2026-07-21_ood_vs_random_split_plan.md
 # =============================================================================
 
@@ -875,6 +880,7 @@ def make_folds_random(main_atom_pairs: pd.DataFrame, tail_atom_pairs: pd.DataFra
         folds.append((train, val, test.reset_index(drop=True)))
         start += n_test
     return folds
+
 
 def _partition_full(full: pd.DataFrame, spec: CCSpec) -> dict:
     """Partition the fixed pos+neg `full` into fold arms, per `spec.fold_assignment`.

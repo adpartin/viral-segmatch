@@ -1,16 +1,15 @@
-"""Pin the OOD-vs-random arm contract in `dataset_pairs_cc._partition_full`.
+"""Pin the leave-cc-out vs random arm contract in `dataset_pairs_cc._partition_full`.
 
 The subtree under `_partition_full` (`pick_largest_atoms`, `make_folds_leave_cc_out`,
-`make_folds_random`, `_carve_val_pairs`) exists for one bundle,
-`flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random`, and had no test coverage. The property that
-matters most is the experiment's own premise: **both arms partition the SAME rows**, so
-any difference in results is attributable to the split and nothing else. Nothing else in
-the suite checks that.
+`make_folds_random`, `_carve_val_pairs`) runs only under `negative_scope: within_cc`, which no
+shipped bundle sets -- it is reached by overriding a 2D-CD bundle, as `ARM_OVERRIDES` does here.
+These tests are therefore the only coverage that path has. The property that matters most is the
+paired experiment's premise: **both arms partition the SAME rows**, so any difference in results
+is attributable to the split and nothing else.
 
-Binds the real bundle through `_resolve_spec` (so a bundle rename or deletion fails here)
-but drives `_partition_full` with a synthetic `full` frame -- an end-to-end build would
-pull in the `_ood` membership pool and mostly exercise the within-CC negative sampler
-rather than the arms.
+Drives `_partition_full` with a synthetic `full` frame -- an end-to-end build would pull in the
+within-CC negative pool and mostly exercise the negative sampler rather than the arms. Design and
+the thresholds it was run at: docs/plans/2026-07-21_ood_vs_random_split_plan.md.
 """
 from __future__ import annotations
 
@@ -29,15 +28,31 @@ if str(PROJ) not in sys.path:
 from src.datasets.dataset_pairs_cc import _partition_full, _resolve_spec  # noqa: E402
 from src.utils.config_hydra import get_virus_config_hydra  # noqa: E402
 
-BUNDLE = 'flu_ha_na_cc_nt_cds_ood_leave_cc_out_vs_random'
+BUNDLE = 'flu_ha_na_cc_nt_cds_cm0'
+
+# The paired arms are selected by config, not by a dedicated bundle: any 2D-CD bundle plus these
+# four settings reaches _partition_full's leave_cc_out branch. `_resolve_spec` rejects
+# leave_cc_out without within_cc, so the two must be set together.
+ARM_OVERRIDES = [
+    'dataset.n_folds=3',
+    'dataset.split_strategy.negative_scope=within_cc',
+    'dataset.split_strategy.fold_assignment=leave_cc_out',
+    'dataset.split_strategy.paired_random=true',
+]
 
 
 def _spec(**overrides):
-    """CCSpec resolved from the real bundle, so the test fails if the bundle is deleted."""
+    """CCSpec for the paired arms: a live 2D-CD bundle plus `ARM_OVERRIDES`.
+
+    Args:
+        **overrides: extra `dataset.split_strategy.*` values, applied after ARM_OVERRIDES.
+
+    Returns:
+        The resolved CCSpec.
+    """
     cfg = get_virus_config_hydra(BUNDLE, config_path=str(PROJ / 'conf'))
-    if overrides:
-        dotlist = [f'dataset.split_strategy.{k}={v}' for k, v in overrides.items()]
-        cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(dotlist))
+    dotlist = ARM_OVERRIDES + [f'dataset.split_strategy.{k}={v}' for k, v in overrides.items()]
+    cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(dotlist))
     args = SimpleNamespace(config_bundle=BUNDLE, protein_final=None, override=None, out_dir=None)
     return _resolve_spec(args, cfg)
 
@@ -54,8 +69,8 @@ def _synthetic_full(atom_sizes=(40, 30, 20, 6, 4)):
     return full
 
 
-def test_bundle_still_configures_the_arms():
-    """The bundle exists and still selects leave_cc_out + paired_random."""
+def test_overrides_select_the_arms():
+    """`_resolve_spec` reads the knobs that switch `_partition_full` to the paired arms."""
     spec = _spec()
     assert spec.fold_assignment == 'leave_cc_out'
     assert spec.paired_random is True
