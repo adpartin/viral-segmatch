@@ -373,6 +373,8 @@ def fragment_until(
         'per_cut': per_cut,
     }
     return kept_pos, dropped_pos, audit
+
+
 def fragment_to_targets(
     H: nx.Graph,
     *,
