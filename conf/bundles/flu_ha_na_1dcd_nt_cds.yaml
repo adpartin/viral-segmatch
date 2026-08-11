@@ -6,11 +6,19 @@
 # split_strategy is inline because Hydra rejects a `- /dataset/split_strategy: cluster_disjoint`
 # group re-selection as a duplicate group choice under the `bundles` package.
 
+# Inherits the 28-pair master directly rather than flu_ha_na, whose seq_disjoint settings would
+# have to be overridden field by field (and leaked hash_key: seq into the resolved config).
+
 defaults:
-  - flu_ha_na
+  - flu_28_major_protein_pairs_master
   - _self_
 
 dataset:
+  pair_builder_version: v2
+  schema_pair:
+    - "Hemagglutinin precursor"
+    - "Neuraminidase protein"
+
   n_folds: 4                     # k=4: feasible for both slots across t099..t095 (pair-mass pre-flight)
   neg_to_pos_ratio: 1.0
   generate_visualizations: false # Stage-3 build only; features (kmer/esm) not built yet
@@ -32,7 +40,9 @@ kmer:
   k: 6
 
 training:
-  # Restores the repo default (flu_28_major_protein_pairs_master sets concat); flu_ha_na overrides
-  # it to 'unit_diff + prod' for its own k-mer interaction sweep. Every 1D-CD result to date was
-  # produced with concat, so declaring it keeps runs reproducible without a CLI override.
+  # concat matches the inherited master default; declared so the bundle states what it trains with.
   interaction: concat
+  slot_transform: "unit_norm"   # L2-normalize each slot vector before the interaction
+
+baselines:
+  enabled: [lgbm]

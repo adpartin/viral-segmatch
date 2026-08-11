@@ -1,15 +1,47 @@
-# STATUS: experimental -- HA/NA 2D-CD CV on nt_cds.
-# Built by src/datasets/dataset_pairs_cc.py.
+# STATUS: experimental -- HA-NA 2D-CD (bilateral cluster-disjoint) CV on nt_cds.
+# Root of the 2D-CD line: flu_ha_na_cc_nt_cds_cm0 (production) and the _ood variants inherit it.
+# Built by src/datasets/dataset_pairs_cc.py, which routes on connected components of the
+# cluster-level bigraph (atom = CC). Inherits the 28-pair master directly rather than flu_ha_na,
+# whose seq_disjoint settings would have to be overridden field by field.
 
 defaults:
-  - flu_ha_na_cc
+  - flu_28_major_protein_pairs_master
   - _self_
 
 dataset:
+  schema_pair:
+    - "Hemagglutinin precursor"
+    - "Neuraminidase protein"
+
+  n_folds: 5              # K (cross-validation)
+  neg_to_pos_ratio: 1.0   # 1:1 negatives
+  val_ratio: 0.1
+
   split_strategy:
+    mode: cluster_disjoint_cc
+    hash_key: null                # seq_disjoint-only knob; unused on this path
     cluster_alphabet: nt_cds
     cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds/t099/combined_cluster.parquet
+    negative_scope: within_fold   # within_cc (removes the cluster shortcut; hard) | within_fold
+    m_pos_per_cc: 1               # cap positive ROWS per CC -> uniform-weight atoms
+    drop_negative_infeasible_ccs: true
 
 kmer:
   alphabet: nt_cds
   k: 6
+
+training:
+  epochs: 100
+  patience: 20
+  feature_source: kmer  # kmer | esm2
+  # L2-normalize each slot vector before the interaction. `interaction` is deliberately NOT set
+  # here: it inherits concat from flu_28_major_protein_pairs_master, which is what every 2D-CD
+  # experiment has actually run with. The k-mer interaction sweep (concat / diff+prod /
+  # unit_diff+prod / unit_diff+unit_prod) found all four within seed noise -- pass
+  # `--override training.interaction=...` to revisit it rather than changing the default here.
+  slot_transform: "unit_norm"
+
+# Sklearn-style baselines run alongside the MLP; consumed by src/models/train_pair_baselines.py
+# when --baseline is omitted. Registered: logistic, lgbm, knn1_margin, knn_vote.
+baselines:
+  enabled: [lgbm]
