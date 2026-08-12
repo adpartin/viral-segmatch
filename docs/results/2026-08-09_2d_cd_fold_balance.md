@@ -123,11 +123,11 @@ have been rebuilt.
 ## Artifacts
 
 - Dataset: `data/datasets/flu/July_2025/runs/dataset_cc_nt_cds_cm0_t099/fold_{0..3}`.
-- Models: `models/flu/July_2025/runs/lgbm_cc_cm0_t099_concat_fold{0..3}` (the `concat` production
-  config above); `lgbm_cc_cm0_t099_fold{0..3}` are the same folds under the inherited
-  `unit_diff + prod`, kept for the interaction comparison.
-- The pre-fix (unbalanced) build and its runs were deleted; its numbers survive only in the table
-  above. Every artifact here records its builder commit in `cv_info.json` / `training_info.json`.
+- Models: `models/flu/July_2025/runs/lgbm_cc_cm0_t099_fold{0..3}` — `concat`, resolved from the
+  bundle rather than a CLI override, which is why the run names carry no interaction suffix.
+- The pre-fix (unbalanced) build and its runs, and the `unit_diff + prod` runs behind the 0.7996
+  comparison, were deleted; their numbers survive only in this document. Every artifact here
+  records its builder commit in `cv_info.json` / `training_info.json`.
 - Golden: `tests/golden/production_splits/2d_cd_t099.json`.
 - The 1D-CD path was never affected — `_split_helpers.py:568` already used
   `GroupKFold(n_splits=...)` with no shuffle.

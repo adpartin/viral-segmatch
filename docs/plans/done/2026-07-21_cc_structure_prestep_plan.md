@@ -25,8 +25,10 @@ Deviations from the plan as written, all in the "did more" direction:
 - **§8.2 superseded.** "`_ood` only for now" — three cluster sources are now built
   (`cc_nt_cds_cm0`, `_cm1`, `_ood`), each × 5 thresholds (t099..t095, one more than the four
   planned), each with a `fragmented/` sibling holding the post-edge-cut structure.
-- **§4 `figures/` subdir not used.** Plots are written under `results/…` by the plot scripts'
-  `--out_dir` / `--out_png` rather than beside the data.
+- **§4 `figures/` is used, one level deeper than drawn.** `plot_cc_composition` and
+  `plot_cc_metadata` default to `<cc_dir>/figures/` — so `tXXX/figures/` and
+  `tXXX/fragmented/figures/`, not the `{pair}/figures/` the layout below shows;
+  `plot_cc_sizes` defaults to `<run_dir>/figures/`.
 - **§5 is stale in one name only**: it lists `bipartite_components` as the CC helper; that became
   `cluster_ccs` (2026-07-30, `6055a85`), reached through `dataset_pairs_cc.assign_atoms_prod`.
 

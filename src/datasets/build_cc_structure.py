@@ -128,7 +128,9 @@ def cc_summary(pos_ids: pd.DataFrame, threshold: str, sa: str, sb: str,
     """CC-structure summary. Fractions use the t-invariant universe size as the denominator so
     they compare across thresholds; `floor` is the per-slot largest-cluster pair mass (the
     edge-cut floor) and `max_balanced_k = floor(joined / floor)` -- the most balanced folds
-    achievable (a single cluster's pair mass cannot be split by edge-cut)."""
+    achievable (a single cluster's pair mass cannot be split by edge-cut). `floor_frac_joined`
+    restates the floor over the joined pairs: the two denominators diverge once an edge cut has
+    dropped pairs, and only the joined one is comparable to 1/K."""
     n = int(len(pos_ids))
     sizes = pos_ids.groupby('cc_id').size().sort_values(ascending=False)
     a = pos_ids['cluster_id_a'].value_counts()
@@ -143,6 +145,9 @@ def cc_summary(pos_ids: pd.DataFrame, threshold: str, sa: str, sb: str,
         'largest_cluster_a': {'cluster_id': str(a.index[0]), 'pairs': a_pairs, 'frac': round(a_pairs / n_universe, 4)},
         'largest_cluster_b': {'cluster_id': str(b.index[0]), 'pairs': b_pairs, 'frac': round(b_pairs / n_universe, 4)},
         'floor_pairs': floor, 'floor_frac': round(floor / n_universe, 4),
+        # k-fold feasibility reads this one, not `floor_frac`: after an edge cut the dropped pairs
+        # leave the joined count but not the universe, so only this is comparable to 1/K.
+        'floor_frac_joined': round(floor / n, 4),
         'max_balanced_k': n // floor,
     }
 

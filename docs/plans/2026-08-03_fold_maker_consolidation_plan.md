@@ -25,7 +25,7 @@ Every change is judged against these. Both cluster nt_cds at **t099** on the `cm
 | mode | `cluster_disjoint_cc` | `cluster_disjoint` + `single_slot: a` — **HA** is the held-out axis |
 | atom | one CC on (`cluster_id_a`, `cluster_id_b`); under `edge_cut`, a post-cut fragment | one HA cluster |
 | router | `make_folds_within_fold` (`dataset_pairs_cc.py:469`) | k-fold branch of `_split_helpers.cluster_disjoint_route_pos_df:591-628` |
-| test folds | `GroupKFold(shuffle=True, random_state=seed)` on `atom_id` | `GroupKFold` (**unshuffled**) on `cluster_id_a` |
+| test folds | `GroupKFold` (unshuffled) on `atom_id` | `GroupKFold` (unshuffled) on `cluster_id_a` |
 | val carve | `_carve_val_atoms:328` — seeded atom shuffle | `_lpt_bin_pack`, two bins |
 | determinism | seeded | **seed-independent** — `seed` is audited, never consumed |
 | negatives | `within_fold_negatives:393` | same function, lazily imported by the v2 builder |
@@ -167,7 +167,8 @@ code. `groupkfold_by_atom` used `GroupKFold(shuffle=True)`, which in scikit-lear
 size balancing with equal-atom-**count** chunking; with atom sizes spanning three orders of
 magnitude the t099 test folds came out 7.8 / 19.7 / 27.9 / 44.5% of positives, one of them holding
 no atom above rank 13. `shuffle=False` restores LPT — exactly 25% each, one of the top-4 atoms per
-fold — and cut per-fold score sd by ~30%. Cluster-disjointness was never affected either way.
+fold — and cut per-fold score sd by 60% (0.0528 → 0.0213). Cluster-disjointness was never
+affected either way.
 
 Scope is wide because `groupkfold` is the default `fold_assignment`: every 2D-CD result except the
 OOD-vs-random arms was built this way. Full measurement, the score deltas, the
