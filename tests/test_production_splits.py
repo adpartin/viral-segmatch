@@ -6,10 +6,12 @@ against `tests/golden/production_splits/`. The build and the digest come from
 `scripts/production_split_harness.py`, invoked as a subprocess, so this file cannot drift from
 the script you run by hand.
 
-**Deselected by default** via the `production_split` marker: each build takes minutes and needs
-the Stage-1 corpus. Run them with:
+**Deselected by default**: each build takes minutes and needs the Stage-1 corpus. The two paths
+carry separate markers because the 1D-CD rebuild is far slower, and keeping it out of the routine
+guard is what makes that guard cheap enough to run before every merge:
 
-    pytest -m production_split
+    pytest -m production_split        # 2D-CD -- the routine guard
+    pytest -m production_split_1d     # 1D-CD -- run when that path changes
 
 A failure means either the split code moved pairs (the regression this catches) or the corpus was
 rebuilt (legitimate — re-capture the goldens). The harness prints which, and how.
@@ -67,7 +69,7 @@ def test_2d_cd_t099_is_bit_exact():
     _run_guard('2d_cd_t099')
 
 
-@pytest.mark.production_split
+@pytest.mark.production_split_1d
 def test_1d_cd_ha_t099_is_bit_exact():
     """1D-CD on the HA axis, nt_cds t099 HA-NA (`flu_ha_na_1dcd_nt_cds`)."""
     _run_guard('1d_cd_ha_t099')

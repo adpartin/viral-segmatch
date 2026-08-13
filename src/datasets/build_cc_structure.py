@@ -123,9 +123,13 @@ def cc_cluster_composition(pos_ids: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=['cc_id', 'slot', 'cluster_id', 'n_pairs', 'pct_of_cc'])
 
 
-def cc_summary(pos_ids: pd.DataFrame, threshold: str, sa: str, sb: str,
-               n_universe: int, n_dropped: int) -> dict:
-    """CC-structure summary. Fractions use the t-invariant universe size as the denominator so
+def summarize_cc_structure(pos_ids: pd.DataFrame, threshold: str, sa: str, sb: str,
+                           n_universe: int, n_dropped: int) -> dict:
+    """CC-structure summary, written as `cc_summary.json`. Distinct from the dict `cluster_ccs`
+    returns, which callers also bind to `cc_summary` and which shares none of these keys --
+    it counts atoms (`n_atoms`, `largest_atom_pairs`) where this counts components.
+
+    Fractions use the t-invariant universe size as the denominator so
     they compare across thresholds; `floor` is the per-slot largest-cluster pair mass (the
     edge-cut floor) and `max_balanced_k = floor(joined / floor)` -- the most balanced folds
     achievable (a single cluster's pair mass cannot be split by edge-cut). `floor_frac_joined`
@@ -152,7 +156,7 @@ def cc_summary(pos_ids: pd.DataFrame, threshold: str, sa: str, sb: str,
     }
 
 
-def _write_cc_artifacts(pos_ids: pd.DataFrame, out_dir: Path, t: str, sa: str, sb: str,
+def _write_cc_artifacts(pos_ids: pd.DataFrame, out_dir: Path, th: str, sa: str, sb: str,
                         n_universe: int, n_dropped: int) -> dict:
     """Persist the four CC artifacts for a pos frame carrying cluster_id_a/b + cc_id, and return
     its summary. Shared by the natural per-t structure and the fragmented (`--fragment`) one, so
@@ -163,13 +167,13 @@ def _write_cc_artifacts(pos_ids: pd.DataFrame, out_dir: Path, t: str, sa: str, s
     sizes.index.name = 'cc_id'
     sizes.reset_index().to_csv(out_dir / 'cc_sizes.csv', index=False)
     cc_cluster_composition(pos_ids).to_csv(out_dir / 'cc_cluster_composition.csv', index=False)
-    summ = cc_summary(pos_ids, t, sa, sb, n_universe, n_dropped)
+    summ = summarize_cc_structure(pos_ids, th, sa, sb, n_universe, n_dropped)
     (out_dir / 'cc_summary.json').write_text(json.dumps(summ, indent=2))
     return summ
 
 
 def _build_fragmented(pos: pd.DataFrame, lookup: pd.DataFrame, hash_col: str, out_dir: Path,
-                      t: str, sa: str, sb: str, n_universe: int, n_before: int, *,
+                      th: str, sa: str, sb: str, n_universe: int, n_before: int, *,
                       cut_method: str, seed: int, target_atoms: int | None,
                       max_drop_frac: float) -> None:
     """Edge-cut the mega-CC via the SHARED `assign_atoms_prod` (edge_cut mode == the same
@@ -183,13 +187,13 @@ def _build_fragmented(pos: pd.DataFrame, lookup: pd.DataFrame, hash_col: str, ou
                 'max_drop_frac': max_drop_frac, 'seed': seed}
     kept, cc_sum = assign_atoms_prod(pos, lookup, hash_col, edge_cut=edge_cut)
 
-    summ = _write_cc_artifacts(kept, out_dir, t, sa, sb, n_universe, n_universe - int(len(kept)))
+    summ = _write_cc_artifacts(kept, out_dir, th, sa, sb, n_universe, n_universe - int(len(kept)))
     audit = cc_sum['edge_cut']  # full fragment_until audit
     audit_out = {'params': {'cut_method': cut_method, 'seed': seed,
                             'target_atoms': target_atoms, 'max_drop_frac': max_drop_frac},
                  'n_pairs_before': n_before, 'n_pairs_kept': int(len(kept)), **audit}
     (out_dir / 'fragment_audit.json').write_text(json.dumps(audit_out, indent=2))
-    print(f'  {t}/fragmented: {audit["n_cuts"]} cuts, dropped {audit["pairs_dropped"]:,} '
+    print(f'  {th}/fragmented: {audit["n_cuts"]} cuts, dropped {audit["pairs_dropped"]:,} '
           f'({100 * audit["dropped_frac"]:.1f}%), stop={audit["stopped_reason"]}; '
           f'{summ["n_ccs"]:,} CCs; largest {100 * summ["largest_cc_frac"]:.1f}%; '
           f'floor {summ["largest_cluster_b"]["cluster_id"]}={100 * summ["largest_cluster_b"]["frac"]:.1f}%; '
@@ -259,10 +263,10 @@ def main() -> None:
     n_universe = int(len(pos))
 
     # 2-4. per-t CC structure.
-    for t in args.thresholds:
-        cp = clusters_root / t / cluster_file
+    for th in args.thresholds:
+        cp = clusters_root / th / cluster_file
         if not cp.exists():
-            print(f'  {t}: MISSING {cp}; skipping.')
+            print(f'  {th}: MISSING {cp}; skipping.')
             continue
         lookup = load_cluster_lookup(cp)
         # Natural CCs via the SHARED production atom derivation (single source of truth;
@@ -270,20 +274,20 @@ def main() -> None:
         pos_ids, cc_sum = assign_atoms_prod(pos, lookup, hash_col, edge_cut=None)
         n_dropped = cc_sum['n_dropped_cluster_join']
         if len(pos_ids) == 0:
-            print(f'  {t}: 0 pairs after cluster join (lookup covers none of the universe); skipping.')
+            print(f'  {th}: 0 pairs after cluster join (lookup covers none of the universe); skipping.')
             continue
 
-        out = processed_base / f'cc_{source}' / pair / t
-        summ = _write_cc_artifacts(pos_ids, out, t, sa, sb, n_universe, n_dropped)
+        out = processed_base / f'cc_{source}' / pair / th
+        summ = _write_cc_artifacts(pos_ids, out, th, sa, sb, n_universe, n_dropped)
         drop_note = f' (dropped {n_dropped:,} on cluster join)' if n_dropped else ''
-        print(f'  {t}: {summ["n_ccs"]:,} CCs; largest {100*summ["largest_cc_frac"]:.1f}%; '
+        print(f'  {th}: {summ["n_ccs"]:,} CCs; largest {100*summ["largest_cc_frac"]:.1f}%; '
               f'floor {summ["largest_cluster_b"]["cluster_id"]}={100*summ["largest_cluster_b"]["frac"]:.1f}% / '
               f'{summ["largest_cluster_a"]["cluster_id"]}={100*summ["largest_cluster_a"]["frac"]:.1f}%; '
               f'maxK={summ["max_balanced_k"]}{drop_note} -> {out}')
 
         if args.fragment:
             _build_fragmented(
-                pos, lookup, hash_col, out / 'fragmented', t, sa, sb, n_universe, len(pos_ids),
+                pos, lookup, hash_col, out / 'fragmented', th, sa, sb, n_universe, len(pos_ids),
                 cut_method=args.cut_method, seed=args.frag_seed,
                 target_atoms=args.target_atoms, max_drop_frac=args.max_drop_frac)
 
