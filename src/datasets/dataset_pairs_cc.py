@@ -333,6 +333,9 @@ def _carve_val_atoms(tv: pd.DataFrame, val_ratio: float, n_total: int, seed: int
     Atoms are shuffled with `seed` and accumulated into val until val reaches `val_ratio` of
     `n_total` -- the whole set, not just `tv` -- which keeps the val fraction comparable across folds.
 
+    Not on the production path -- `groupkfold_by_atom` carves with `_carve_val_pairs`. Kept as the
+    cluster-disjoint alternative, which reaches the target only when atoms are small relative to it.
+
     Args:
         tv: one fold's non-test rows; must carry an `atom_id` column.
         val_ratio: val size target, as a fraction of `n_total`.
@@ -360,20 +363,54 @@ def _carve_val_atoms(tv: pd.DataFrame, val_ratio: float, n_total: int, seed: int
     return tv[~is_val], tv[is_val]
 
 
-def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed: int) -> list:
-    """Partition `pairs` into k folds by GroupKFold on `atom_id`, carving val group-aware.
+def _carve_val_pairs(pairs: pd.DataFrame, val_ratio: float, seed: int, *, n_total: int | None = None):
+    """Carve val out of one fold's non-test rows at ROW level, so atoms may straddle train/val.
 
-    Whole atoms stay in one split everywhere: GroupKFold keeps an atom out of every fold but one,
-    and `_carve_val_atoms` moves whole atoms into val. Both negative scopes route through this.
-    Under within_cc, `_partition_full` passes positives + pre-built negatives, which already carry
-    their CC's `atom_id` and so travel with it; under within_fold, `make_folds_within_fold` passes
-    positives only and draws each split's negatives afterwards.
+    The row-level counterpart of `_carve_val_atoms`, and the carve `groupkfold_by_atom` uses. Val
+    lands on the target row count exactly, whatever the atom sizes, and is in-distribution with
+    train; the test fold stays cluster-disjoint from both, since its atoms appear in neither.
+
+    Args:
+        pairs: one fold's non-test rows.
+        val_ratio: val size target, as a fraction of `n_total`.
+        seed: seeds the row shuffle.
+        n_total: denominator for the target; defaults to `len(pairs)`. `groupkfold_by_atom` passes
+            the whole set's row count so the val fraction is comparable across folds.
+
+    Returns:
+        (train, val) -- row-disjoint frames partitioning `pairs`, index reset.
+
+    Raises:
+        ValueError: if the target exceeds the rows available to carve from.
+    """
+    denominator = len(pairs) if n_total is None else n_total
+    n_val = int(round(val_ratio * denominator))
+    if n_val > len(pairs):
+        raise ValueError(f"val target {n_val:,} rows ({val_ratio} of {denominator:,}) exceeds the "
+                         f"{len(pairs):,} non-test rows available to carve from.")
+
+    shuf = pairs.sample(frac=1, random_state=np.random.RandomState(seed))
+    val, train = shuf.iloc[:n_val], shuf.iloc[n_val:]
+    return train.reset_index(drop=True), val.reset_index(drop=True)
+
+
+def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed: int) -> list:
+    """Partition `pairs` into k folds by GroupKFold on `atom_id`, carving val at row level.
+
+    Atoms are held whole ACROSS folds: GroupKFold keeps an atom out of every fold but one, so a
+    test fold shares no atom with any other fold's test. Within a fold, val is carved from the
+    non-test rows by `_carve_val_pairs`, so an atom may straddle train/val -- val is deliberately
+    in-distribution, while test stays cluster-disjoint from train and val alike. Both negative
+    scopes route through this. Under within_cc, `_partition_full` passes positives + pre-built
+    negatives, which already carry their CC's `atom_id` and so travel with it; under within_fold,
+    `make_folds_within_fold` passes positives only and draws each split's negatives afterwards.
 
     Args:
         pairs: rows to partition; must carry an `atom_id` column.
         k_folds: number of folds (K).
-        val_ratio: val size target, as a fraction of `len(pairs)`.
-        seed: seeds the val atom shuffle. It does not affect the test-fold assignment, which
+        val_ratio: val size target, as a fraction of `len(pairs)` -- the whole set, so every fold
+            carves the same number of val rows.
+        seed: seeds the val row shuffle. It does not affect the test-fold assignment, which
             `GroupKFold(shuffle=False)` derives deterministically from the atom sizes.
 
     Returns:
@@ -389,7 +426,7 @@ def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed
     for train_val_idx, test_idx in gkf.split(pairs, groups=groups):
         test = pairs.iloc[test_idx]
         train_val = pairs.iloc[train_val_idx]
-        train, val = _carve_val_atoms(train_val, val_ratio, n_total, seed)
+        train, val = _carve_val_pairs(train_val, val_ratio, seed, n_total=n_total)
         train, val, test = train.reset_index(drop=True), val.reset_index(drop=True), test.reset_index(drop=True)
         folds.append((train, val, test))
     return folds
@@ -784,27 +821,6 @@ def _build_positives(config, spec: CCSpec, args):
 # Covered by tests/test_partition_full_arms.py, which is this path's only test.
 # Design: docs/plans/2026-07-21_ood_vs_random_split_plan.md
 # =============================================================================
-
-
-def _carve_val_pairs(pairs: pd.DataFrame, val_ratio: float, seed: int):
-    """Carve val out of one fold's non-test rows at ROW level, so atoms may straddle train/val.
-
-    The row-level twin of `_carve_val_atoms` (defined above with the production routing), used by
-    the two arms below, where only the test fold is held out and val is deliberately
-    in-distribution.
-
-    Args:
-        pairs: one fold's non-test rows.
-        val_ratio: val size target, as a fraction of `len(pairs)`.
-        seed: seeds the row shuffle.
-
-    Returns:
-        (train, val) -- row-disjoint frames partitioning `pairs`, index reset.
-    """
-    shuf = pairs.sample(frac=1, random_state=np.random.RandomState(seed))
-    n_val = int(round(val_ratio * len(shuf)))
-    val, train = shuf.iloc[:n_val], shuf.iloc[n_val:]
-    return train.reset_index(drop=True), val.reset_index(drop=True)
 
 
 def pick_largest_atoms(full: pd.DataFrame, n: int) -> list:

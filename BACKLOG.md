@@ -196,13 +196,14 @@ implemented, holdout-wired); item 3 is the concrete CC-builder wiring.
 2. **Repeated CV (`n_repeats > 1`).** The CC builder wires `n_repeats=1` only
    (>1 raises). Next action: loop GroupKFold with a per-repeat reseed, write
    `fold_{r}_{k}` dirs, aggregate mean ± std across repeats × folds. (~1–2 h + test)
-3. **Wire cut fragmentation into the CC builder.** Call
-   `_megacc_cut.apply_drop_budget_cut` in `assign_atoms_prod` (`dataset_pairs_cc.py`)
-   to split mega-CCs into sub-atoms before GroupKFold, so `atom_id` becomes a
-   sub-unit of `cc_id` (breaks `atom_id == cc_id`) and 2D-CD is feasible below t099.
-   `_megacc_cut.py` is done + validated but wired only into the holdout router
-   (`_split_helpers::route_holdout`) — this is the new `dataset_pairs_cc` integration
-   (the production twin; NOT analysis `_cv_sampling.assign_atoms(strategy='cut')`).
-   Add a `drop_budget`/`cut` knob (default off = natural behavior). Next action:
-   design how the cut composes with `m_pos_per_cc` and `drop_negative_infeasible_ccs`.
-   (needs design)
+3. ~~Wire cut fragmentation into the CC builder.~~ **DONE 2026-07-20** (`f0e9ce9`) —
+   landed as the `split_strategy.edge_cut` knob calling `_megacc_cut.fragment_until`
+   from `assign_atoms_prod`, not `apply_drop_budget_cut` (since archived). Design and
+   measurements: `docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md`.
+4. **`build_cc_structure.py` fragmentation defaults diverge from production.**
+   `--max_drop_frac` defaults to 0.10 and `--frag_seed` to 1, while the production
+   bundle resolves 0.05 and 42 — so a default `--fragment` run previews, and persists
+   under `tXXX/fragmented/`, a cut no build performs. Next action: change both defaults
+   to the production values and say in the help text that they track the bundle. Check
+   the four `bigraph_*` readers and any committed result citing the current artifacts
+   first. (~15 min)

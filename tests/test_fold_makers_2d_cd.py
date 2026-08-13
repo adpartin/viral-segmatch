@@ -92,11 +92,16 @@ def test_groupkfold_partitions_rows_exactly_once():
 
 
 def test_groupkfold_keeps_atoms_whole_in_all_three_splits():
-    """The cluster-disjointness guarantee: no atom may appear in two splits of a fold."""
+    """The cluster-disjointness guarantee: the test fold shares no atom with train or val.
+
+    Train and val DO share atoms -- `_carve_val_pairs` carves val at row level, so val is
+    deliberately in-distribution. That is asserted positively, so a return to whole-atom carving
+    fails here instead of passing quietly.
+    """
     for train, val, test in groupkfold_by_atom(_pos(), k_folds=4, val_ratio=0.1, seed=1):
         assert not _atoms(train) & _atoms(test)
-        assert not _atoms(train) & _atoms(val)
         assert not _atoms(val) & _atoms(test)
+        assert _atoms(train) & _atoms(val)
 
 
 def test_groupkfold_is_deterministic_for_a_seed():

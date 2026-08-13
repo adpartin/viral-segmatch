@@ -1,8 +1,9 @@
 """Pin the leave-cc-out vs random arm contract in `dataset_pairs_cc._partition_full`.
 
 The subtree under `_partition_full` (`pick_largest_atoms`, `make_folds_leave_cc_out`,
-`make_folds_random`, `_carve_val_pairs`) runs only under `negative_scope: within_cc`, which no
-shipped bundle sets -- it is reached by overriding a 2D-CD bundle, as `ARM_OVERRIDES` does here.
+`make_folds_random`) runs only under `negative_scope: within_cc`, which no shipped bundle sets --
+it is reached by overriding a 2D-CD bundle, as `ARM_OVERRIDES` does here. `_carve_val_pairs` is
+shared with the production router and lives outside this block.
 These tests are therefore the only coverage that path has. The property that matters most is the
 paired experiment's premise: **both arms partition the SAME rows**, so any difference in results
 is attributable to the split and nothing else.
