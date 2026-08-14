@@ -28,6 +28,12 @@ production 2D-CD path (`dataset_pairs_cc.py` + Stage 4) reading `cc_{source}` ar
 | `cluster_disjoint_regime_cv.py` | aa-only per-regime TPR/TNR companion, same guard. Last run 2026-06-08 | production 2D-CD builder + Stage 4 |
 | `_cv_sampling.py` | the harness's atom assignment; no production builder ever imported it | `dataset_pairs_cc.assign_atoms_prod` |
 | `_cv_features.py` | k-mer feature assembly for the harness only | Stage-4 feature path |
+
+Archived 2026-08-13:
+
+| Script | Why archived | Replacement |
+|---|---|---|
+| `umap_ood_vs_random.py` | read a paired-arm run dir (`run_dir/{ood,random}/fold_k/`) that no builder produces any more — the arms are now sibling dataset dirs — and hardcoded `cds_dna_hash_a/b` rather than resolving the alphabet through `src/utils/schema.py`. Its `docs/plans/2026-07-21_ood_vs_random_split_plan.md` is closed and its figures were deleted | `src/analysis/umap_split_geometry.py` — one figure per (fold dir, slot, colouring), over `plot_utils.umap_scatter` |
 | `verify_cc_reproduction.py` | verified the 2D-CD builder reproduced the harness — moot once the harness is retired | — |
 
 `verify_membership_swap.py` was **deleted outright** (2026-07-31), not archived: a one-shot check
