@@ -336,6 +336,7 @@ def select_categories_with_others(
     min_share: float = 0.01,
     cap: int = 12,
     palette='tab20',
+    category_colors: Optional[dict] = None,
     ) -> dict:
     """Split per-point categories into 'colored distinctly' vs a single 'Others'.
 
@@ -343,6 +344,11 @@ def select_categories_with_others(
     most `cap` of them (largest first); every other point folds into 'Others'. Colors are
     assigned by size rank from `palette`. One shared definition of the 'top categories +
     gray Others' rule, so `umap_scatter` (and any other categorical scatter) agree.
+
+    `category_colors` pins named categories to fixed colors, for labels that carry meaning
+    ('test', 'H3N2') rather than an arbitrary id: rank-assigned color would otherwise move with
+    the counts, so the same category could read differently between two figures meant to be
+    compared. Categories absent from the mapping still take a palette color by rank.
 
     Returns a dict:
       'selected': list of (category, color_rgba, count, share), largest first (len <= cap);
@@ -360,7 +366,8 @@ def select_categories_with_others(
         colors = [cmap(i % cmap.N) for i in range(max(1, len(chosen)))]
     else:
         colors = list(palette)  # explicit list of color specs
-    selected = [(c, colors[i % len(colors)], int(vc[c]), int(vc[c]) / total)
+    pinned = category_colors or {}
+    selected = [(c, pinned.get(c, colors[i % len(colors)]), int(vc[c]), int(vc[c]) / total)
                 for i, c in enumerate(chosen)]
     is_selected = np.isin(labels, chosen)
     others_count = n - int(is_selected.sum())
@@ -392,6 +399,7 @@ def umap_scatter(
     legend_title: Optional[str] = None,
     category_labeler=None,
     others_labeler=None,
+    category_colors: Optional[dict] = None,
     title_fontsize: int = 10,
     dpi: int = 200,
     ) -> dict:
@@ -415,7 +423,8 @@ def umap_scatter(
         X, n_components=2, n_neighbors=n_neighbors, min_dist=min_dist,
         metric=metric, random_state=seed)[0]
 
-    sel = select_categories_with_others(categories, min_share=min_share, cap=cap, palette=palette)
+    sel = select_categories_with_others(categories, min_share=min_share, cap=cap, palette=palette,
+                                        category_colors=category_colors)
 
     def _cat_label(cat, cnt, share):
         return f'{cat} {share:.0%}'

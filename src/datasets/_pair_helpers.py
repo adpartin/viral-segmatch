@@ -606,7 +606,8 @@ def pair_key_to_metadata(final_path: Path, func_a: str, func_b: str, *,
     cds_dna_hash for nt_cds) read from the matching *_final parquet, builds the isolate-level
     co-occurrence of `func_a` and `func_b` (full function names), joins isolate metadata
     (`load_flu_metadata`), and reduces each pair to the MODAL value of every requested field
-    (deterministic tie-break: count desc, label asc). Missing -> 'unknown'; `year` is stringified
+    (deterministic tie-break: count desc, label asc -- `seq_hash_to_metadata` carries the same rule
+    for single sequences, so a change here belongs there). Missing -> 'unknown'; `year` is stringified
     so it stacks like the categorical fields. Returns `pair_key` + one column per field.
     """
     from src.utils.metadata_enrichment import load_flu_metadata
@@ -632,6 +633,50 @@ def pair_key_to_metadata(final_path: Path, func_a: str, func_b: str, *,
              .sort_values(['pair_key', 'n', f], ascending=[True, False, True])
              .drop_duplicates('pair_key', keep='first').set_index('pair_key')[f])
         out[f] = g
+    return out.reset_index()
+
+
+def seq_hash_to_metadata(final_path: Path, func: str, *,
+                         hash_col: str = 'prot_hash',
+                         fields=('hn_subtype', 'host', 'year')) -> pd.DataFrame:
+    """Modal isolate metadata per sequence hash, for one protein function.
+
+    The per-sequence counterpart of `pair_key_to_metadata`: reads the `*_final` parquet, keeps the
+    rows of `func`, joins isolate metadata (`load_flu_metadata`), and reduces each hash to the MODAL
+    value of every requested field over the isolates carrying that sequence. Missing -> 'unknown';
+    `year` is stringified. Deterministic tie-break: count desc, label asc -- the same rule
+    `pair_key_to_metadata` applies to pair_keys, duplicated here rather than shared, so a change to
+    one belongs in the other.
+
+    Args:
+        final_path: `*_final` parquet holding assembly_id, function and `hash_col`.
+        func: full protein function name (e.g. 'Hemagglutinin precursor').
+        hash_col: the alphabet's hash column (prot_hash for aa, cds_dna_hash for nt_cds).
+        fields: metadata columns to reduce.
+
+    Returns:
+        One row per hash: `hash_col` plus one column per field.
+    """
+    from src.utils.metadata_enrichment import load_flu_metadata
+    seqs = pd.read_parquet(final_path, columns=['assembly_id', 'function', hash_col])
+    iso = seqs[seqs['function'] == func][['assembly_id', hash_col]].copy()
+
+    meta = load_flu_metadata()[['assembly_id', *fields]].copy()
+    meta['assembly_id'] = meta['assembly_id'].astype(str)
+    iso['assembly_id'] = iso['assembly_id'].astype(str)
+    iso = iso.merge(meta, on='assembly_id', how='left')
+    for f in fields:
+        if f == 'year':
+            iso[f] = iso[f].apply(lambda v: 'unknown' if pd.isna(v) else str(int(v)))
+        else:
+            iso[f] = iso[f].fillna('unknown').astype(str)
+
+    out = pd.DataFrame({hash_col: sorted(iso[hash_col].unique())}).set_index(hash_col)
+    for f in fields:  # modal category per hash, deterministic tie-break (count desc, label asc)
+        modal = (iso.groupby([hash_col, f]).size().reset_index(name='n')
+                 .sort_values([hash_col, 'n', f], ascending=[True, False, True])
+                 .drop_duplicates(hash_col, keep='first').set_index(hash_col)[f])
+        out[f] = modal
     return out.reset_index()
 
 
