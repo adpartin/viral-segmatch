@@ -137,11 +137,17 @@ def main() -> None:
     ap.add_argument('--floor', type=float, default=None,
                     help='Optional chance-floor reference line (e.g. 0.5 for AUC-PR at 1:1); omit for none.')
     ap.add_argument('--xlabel', default='MMseqs identity threshold  t')
+    ap.add_argument('--legend_loc', default='best',
+                    help="matplotlib legend location (default 'best'); set it when the automatic "
+                         'placement lands on data.')
     ap.add_argument('--xlim', nargs=2, type=float, default=None,
                     help='x range as given, e.g. 1.00 0.96; the order sets the direction.')
     ap.add_argument('--ylim', nargs=2, type=float, default=None)
-    ap.add_argument('--marker_size', type=float, default=5.0,
-                    help='point size (default 5); smaller lets a tight error bar show.')
+    ap.add_argument('--marker_size', type=float, default=4.5,
+                    help='point size in points (default 4.5); applies to both spread modes.')
+    ap.add_argument('--series_offset', type=float, default=0.025,
+                    help='horizontal nudge per series, as a fraction of the x span (default 0.025),'
+                         ' so two series at one threshold do not coincide.')
     ap.add_argument('--spread', choices=('folds', 'errorbar', 'none'), default='folds',
                     help="How to show fold-to-fold variation: 'folds' scatters every fold's score "
                          "(default), 'errorbar' draws min-max bars, 'none' plots means only.")
@@ -167,15 +173,16 @@ def main() -> None:
         mean_curve, per_threshold = series_curve(
             args.runs_root, run_pattern, args.thresholds, args.n_folds, metric_fn)
         color = _SERIES_COLORS[i % len(_SERIES_COLORS)]
-        offset = (i - (len(series) - 1) / 2) * 0.012 * x_span
+        offset = (i - (len(series) - 1) / 2) * args.series_offset * x_span
         x = threshold_x + offset
         if args.spread == 'folds':
             # Every fold as its own point and no summary line: with four folds the eye averages
             # them, and a mean would hide structure like t097's two-low/two-high split.
             xs = np.repeat(x, [len(scores) for scores in per_threshold])
             ys = np.concatenate(per_threshold)
-            ax.scatter(xs, ys, s=55, facecolors=color, alpha=0.7, edgecolors='black',
-                       linewidths=0.8, label=label, zorder=3)
+            # scatter sizes in points^2, so square marker_size to match the line mode's `ms`.
+            ax.scatter(xs, ys, s=args.marker_size ** 2, facecolors=color, alpha=0.7,
+                       edgecolors='black', linewidths=0.8, label=label, zorder=3)
             continue
         ax.plot(x, mean_curve, '-o', color=color, lw=2.2, ms=args.marker_size,
                 label=label, zorder=3)
@@ -200,7 +207,7 @@ def main() -> None:
     if args.ylim:
         ax.set_ylim(*args.ylim)
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=9, loc=args.legend_loc)
     ax.set_title(args.title, fontsize=11)
     savefig(args.out_png, dpi=180)
     print(f'wrote {args.out_png}')
