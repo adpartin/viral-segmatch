@@ -1,21 +1,23 @@
 """Metric score vs mmseqs identity threshold for a Stage-4 experiment (ONE metric per figure).
 
-For each `--series` (a run family `{prefix}_{tXXX}_fold{f}` under `--runs_root`), compute the chosen
-metric per fold from `test_predicted.csv`, then plot its mean with min-max error bars across folds
-vs the threshold t. One line per series; one metric per figure. The `--title` is caller-supplied so
-it can name the schema pair / clustering / alphabet / model (e.g. "HA-NA, cm0, nt_cds, LGBM").
+For each `--series`, compute the chosen metric per fold from `test_predicted.csv`, then plot its
+mean with min-max error bars across folds vs the threshold t. One line per series; one metric per
+figure. The `--title` is caller-supplied so it can name the schema pair / clustering / alphabet /
+model (e.g. "HA-NA, cm0, nt_cds, LGBM").
 
-Series are given as `label=run_prefix`, so the same tool compares slots
-(`"HA held out=lgbm_1dcd_cm0_slota" "NA held out=lgbm_1dcd_cm0_slotb"`) OR models
-(`"LGBM=lgbm_..." "MLP=mlp_..."`). Optional `--floor` draws a single reference line (e.g. the
-AUC-PR chance floor 0.50 at neg:pos = 1:1); omit it for metrics with no clean chance value.
+A series is `label=run_pattern`, where the pattern names the run dirs under `--runs_root` with
+`{t}` and `{fold}` placeholders. Spelling the whole dir name out lets series differ anywhere, not
+only in a leading prefix -- the 2D-CD and random arms differ by a suffix sitting between the
+threshold and the fold. Optional `--floor` draws a single reference line (e.g. the AUC-PR chance
+floor 0.50 at neg:pos = 1:1); omit it for metrics with no clean chance value.
 
 CLI:
     python -m src.analysis.score_vs_threshold \\
-        --series "HA held out=lgbm_1dcd_cm0_slota" "NA held out=lgbm_1dcd_cm0_slotb" \\
-        --thresholds t099 t098 t097 t096 t095 --metric aucpr --floor 0.5 \\
-        --title "AUC-PR -- HA-NA, cm0, nt_cds, LGBM" \\
-        --out_png tmp/score/score_aucpr_1dcd_cm0.png
+        --series "2D-CD=lgbm_cc_nt_cds_cm0_{t}_fold{fold}" \\
+                 "random=lgbm_cc_nt_cds_cm0_{t}_random_fold{fold}" \\
+        --thresholds t099 t098 t097 --metric f1_macro \\
+        --title "F1 macro -- HA-NA, cm0, nt_cds, LGBM" \\
+        --out_png tmp/score/score_f1_macro_2dcd_vs_random.png
 """
 from __future__ import annotations
 
@@ -45,41 +47,49 @@ _METRICS = {
     'f1':       ('F1',       lambda y_true, prob, pred: f1_score(y_true, pred)),
     'mcc':      ('MCC',      lambda y_true, prob, pred: matthews_corrcoef(y_true, pred)),
 }
-# Wong colorblind-safe order (slot a / slot b == blue / vermillion, matching the prior figures).
-# Full 8-colour Wong set so up to 8 series get distinct colours (black + yellow appended; the
-# first six are unchanged, so 2-series figures render identically).
+# Wong colorblind-safe palette, in its published order; the first series is blue, the second
+# vermillion. Eight entries, so up to eight series get distinct colours.
 _SERIES_COLORS = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9',
                   '#000000', '#F0E442']
 
 
 def _parse_series(items):
-    """Split each `label=run_prefix` CLI item into its two parts.
+    """Split each `label=run_pattern` CLI item into its two parts.
 
     Args:
-        items: Strings of the form 'label=run_prefix'.
+        items: Strings of the form 'label=run_pattern', the pattern carrying `{t}` and `{fold}`.
 
     Returns:
-        List of (label, run_prefix) tuples, both stripped of surrounding whitespace.
+        List of (label, run_pattern) tuples, both stripped of surrounding whitespace.
+
+    Raises:
+        SystemExit: on a missing '=', or a pattern lacking either placeholder -- without them
+            every threshold and fold would resolve to the same run dir and the curve would be flat
+            rather than empty, which is the harder mistake to notice.
     """
     series = []
     for item in items:
         if '=' not in item:
-            raise SystemExit(f"--series item must be 'label=run_prefix'; got {item!r}")
-        label, run_prefix = item.split('=', 1)
-        series.append((label.strip(), run_prefix.strip()))
+            raise SystemExit(f"--series item must be 'label=run_pattern'; got {item!r}")
+        label, run_pattern = item.split('=', 1)
+        label, run_pattern = label.strip(), run_pattern.strip()
+        missing = [p for p in ('{t}', '{fold}') if p not in run_pattern]
+        if missing:
+            raise SystemExit(f'--series pattern {run_pattern!r} is missing {" and ".join(missing)}')
+        series.append((label, run_pattern))
     return series
 
 
-def series_curve(runs_root, prefix, thresholds, n_folds, metric_fn):
+def series_curve(runs_root, run_pattern, thresholds, n_folds, metric_fn):
     """Mean, min and max of one metric across folds, at each threshold.
 
-    Scores each run dir `{prefix}_{threshold}_fold{f}` under `runs_root` from its
+    Scores the run dir `run_pattern.format(t=..., fold=...)` under `runs_root` from its
     `test_predicted.csv`. Folds with no run dir on disk are skipped; a threshold with no
     folds at all scores NaN and logs a warning.
 
     Args:
         runs_root: Directory holding the Stage-4 run dirs.
-        prefix: Run-family prefix — the run dir name without its `_{threshold}_fold{f}` tail.
+        run_pattern: Run dir name with `{t}` and `{fold}` placeholders.
         thresholds: Threshold tokens as they appear in run dir names (e.g. 't099').
         n_folds: How many folds to look for at each threshold.
         metric_fn: Callable (y_true, pred_prob, pred_label) -> float.
@@ -89,10 +99,10 @@ def series_curve(runs_root, prefix, thresholds, n_folds, metric_fn):
         `metric_fn` over the folds found.
     """
     means, mins, maxes = [], [], []
-    for threshold in thresholds:
+    for th in thresholds:
         fold_scores = []
         for fold in range(n_folds):
-            run_dir = Path(runs_root) / f'{prefix}_{threshold}_fold{fold}'
+            run_dir = Path(runs_root) / run_pattern.format(t=th, fold=fold)
             pred_csv = run_dir / 'test_predicted.csv'
             if not pred_csv.exists():
                 continue
@@ -101,7 +111,8 @@ def series_curve(runs_root, prefix, thresholds, n_folds, metric_fn):
             score = metric_fn(preds['label'], preds['pred_prob'], preds['pred_label'])
             fold_scores.append(score)
         if not fold_scores:
-            print(f'WARNING: no run dirs found for {prefix}_{threshold}_fold[0-{n_folds - 1}] '
+            print(f'WARNING: no run dirs found for '
+                  f'{run_pattern.format(t=th, fold=f"[0-{n_folds - 1}]")} '
                   f'under {runs_root}; this threshold plots as NaN')
             fold_scores = [np.nan]
         scores = np.array(fold_scores)
@@ -118,7 +129,8 @@ def main() -> None:
     """Parse the CLI, plot one metric vs threshold for every series, and write the PNG."""
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--runs_root', default=str(PROJ / 'models/flu/July_2025/runs'))
-    ap.add_argument('--series', nargs='+', required=True, help="'label=run_prefix' (repeatable).")
+    ap.add_argument('--series', nargs='+', required=True,
+                    help="'label=run_pattern' with {t} and {fold} placeholders (repeatable).")
     ap.add_argument('--thresholds', nargs='+', required=True, help='tXXX values, strict-first.')
     ap.add_argument('--n_folds', type=int, default=4)
     ap.add_argument('--metric', default='aucpr', choices=list(_METRICS))
@@ -146,9 +158,9 @@ def main() -> None:
     threshold_x = np.array(x_positions)
 
     fig, ax = plt.subplots(figsize=(7.6, 5.0))
-    for i, (label, prefix) in enumerate(series):
+    for i, (label, run_pattern) in enumerate(series):
         mean_curve, min_curve, max_curve = series_curve(
-            args.runs_root, prefix, args.thresholds, args.n_folds, metric_fn)
+            args.runs_root, run_pattern, args.thresholds, args.n_folds, metric_fn)
         color = _SERIES_COLORS[i % len(_SERIES_COLORS)]
         if args.no_errorbars:
             ax.plot(threshold_x, mean_curve, '-o', color=color, lw=2.2, ms=6, label=label, zorder=3)

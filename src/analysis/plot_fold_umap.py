@@ -209,6 +209,8 @@ def _parse_args():
     p.add_argument('--color_by', default='split',
                    help="'split' or a metadata field (hn_subtype, host, year). Default split.")
     p.add_argument('--alphabet', default='nt_cds', help='k-mer alphabet (default nt_cds).')
+    p.add_argument('--alpha', type=float, default=0.5,
+                   help='point opacity (default 0.5), so overlapping categories show through.')
     p.add_argument('--out_png', type=Path, default=None, help='default: <fold_dir>/figures/<name>.png')
     p.add_argument('--title', default=None, help='default: derived from the dataset, fold and coloring.')
     return p.parse_args()
@@ -254,7 +256,7 @@ def main() -> None:
     title = args.title or (f'{args.fold_dir.parent.name} · {args.fold_dir.name}\n'
                            f'{unit_label} ({args.alphabet} k-mer) colored by {args.color_by}')
 
-    stats = umap_scatter(X, categories, out_png=out_png, title=title,
+    stats = umap_scatter(X, categories, out_png=out_png, title=title, alpha=args.alpha,
                          category_colors=pinned, legend_title=legend_title)
     # Only the categories the figure colors; a metadata field can have a long tail (>100 subtypes)
     # that the plot folds into 'Others' anyway.
