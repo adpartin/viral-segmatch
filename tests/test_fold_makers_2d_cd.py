@@ -170,6 +170,28 @@ def test_within_fold_negatives_respect_the_ratio_and_label_zero():
     assert list(neg.columns) == list(_PAIR_COLUMNS)
 
 
+def test_within_fold_negatives_shared_seen_stops_a_pair_being_drawn_twice():
+    """One `seen` set across two calls keeps a pair out of both; separate sets do not.
+
+    Both halves draw from one atom, so they share sequences and can reach the same pairs -- the
+    situation train and val are in once val is carved at row level. The second assertion pins that
+    the fixture reaches it, so the first cannot pass for want of any overlap to prevent.
+    """
+    pos = _pos_recurring_hashes(atom_sizes=(12,))
+    cooccur, df = _cooccur(pos), _front_end(pos)
+    first, second = pos.iloc[:6], pos.iloc[6:]
+    kwargs = dict(neg_to_pos_ratio=2.0, hash_col='prot_hash')
+
+    shared = set()
+    a = within_fold_negatives(first, cooccur, df, (FA, FB), seed=1, seen=shared, **kwargs)
+    b = within_fold_negatives(second, cooccur, df, (FA, FB), seed=2, seen=shared, **kwargs)
+    assert not set(a['pair_key']) & set(b['pair_key'])
+
+    solo_a = within_fold_negatives(first, cooccur, df, (FA, FB), seed=1, **kwargs)
+    solo_b = within_fold_negatives(second, cooccur, df, (FA, FB), seed=2, **kwargs)
+    assert set(solo_a['pair_key']) & set(solo_b['pair_key']), 'fixture must produce collisions'
+
+
 # --- make_folds_within_fold: the production fold-maker ----------------------
 def _within_fold_folds(pos, k=4):
     return make_folds_within_fold(pos, k, 0.1, seed=1, neg_to_pos_ratio=1.0,
@@ -184,6 +206,54 @@ def test_make_folds_within_fold_returns_k_folds_of_positives_plus_negatives():
     for split in (s for fold in folds for s in fold):
         assert set(split['label']) <= {0, 1}
         assert (split['label'] == 1).sum() > 0, 'a split lost its positives'
+
+
+def _pos_recurring_hashes(atom_sizes=(40, 30, 20, 6, 4)):
+    """Positives whose sequences recur across rows, as a real corpus has them.
+
+    `_pos` gives every row unique endpoints, so two splits can never draw the same negative and
+    cross-split dedup has nothing to catch. Here each atom draws its rows from a small pool of
+    sequences per slot -- pair_keys stay unique, but the hashes repeat, so the splits' negative
+    draw pools overlap.
+
+    The two pool sizes are consecutive, hence coprime, so `(i % n_a, i % n_b)` is unique over the
+    atom, and their product is about twice `size` -- leaving roughly as many non-co-occurring
+    combinations as positives, so negatives can actually be drawn.
+    """
+    rows = []
+    for atom, size in enumerate(atom_sizes):
+        n_a = int((2 * size) ** 0.5) + 1
+        n_b = n_a + 1
+        for i in range(size):
+            rows.append({'atom_id': atom, 'cc_id': atom,
+                         'prot_hash_a': f'a{atom}_{i % n_a}',
+                         'prot_hash_b': f'b{atom}_{i % n_b}'})
+    pos = pd.DataFrame(rows)
+    pos['row_id'] = range(len(pos))
+    pos['pair_key'] = pos['prot_hash_a'] + '__' + pos['prot_hash_b']
+    pos['label'] = 1
+    assert pos['pair_key'].is_unique, 'fixture must give one row per pair_key'
+    for col in _PAIR_COLUMNS:
+        if col not in pos.columns:
+            pos[col] = pd.NA
+    return pos
+
+
+def test_make_folds_within_fold_draws_each_negative_at_most_once_per_fold():
+    """No pair may appear in two splits of a fold.
+
+    Since val is carved at row level, train and val share atoms and therefore share sequences, so
+    both draw negatives from overlapping pools; only one `seen` set spanning the fold keeps a pair
+    from being drawn twice. Test cannot collide with either -- GroupKFold holds its atoms out of
+    both -- but it is checked so a regression there is not silent.
+    """
+    folds = _within_fold_folds(_pos_recurring_hashes())
+    for train, val, test in folds:
+        keys = {name: set(s['pair_key']) for name, s in
+                (('train', train), ('val', val), ('test', test))}
+        assert not keys['train'] & keys['val'], 'a pair landed in both train and val'
+        assert not keys['train'] & keys['test'], 'a pair landed in both train and test'
+        assert not keys['val'] & keys['test'], 'a pair landed in both val and test'
 
 
 def test_make_folds_within_fold_partitions_positives_exactly_once():

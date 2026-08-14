@@ -439,7 +439,8 @@ def within_fold_negatives(
     schema_pair_full: tuple, *,
     neg_to_pos_ratio: float,
     seed: int,
-    hash_col: str = 'prot_hash') -> pd.DataFrame:
+    hash_col: str = 'prot_hash',
+    seen: set | None = None) -> pd.DataFrame:
     """Draw within-fold negatives for ONE split: a random positive's slot-a sequence paired with
     another positive's slot-b sequence, both taken from THIS split's positives.
 
@@ -447,10 +448,9 @@ def within_fold_negatives(
     fall within one CC or across CCs; either way both endpoints stay in-split, so the fold remains
     cluster-disjoint. Unlike a within-CC negative this does NOT remove the cluster shortcut.
 
-    Callers pass one split at a time, and the `seen` dedup set is per call -- yet the same negative
-    cannot appear in two splits of a fold, because every row carrying a given hash shares one
-    `atom_id` (a hash joins to one cluster, a cluster sits in one CC, and the edge cut puts each
-    cluster node in one fragment), so the splits' positive hash sets are disjoint.
+    Pass ONE `seen` set across a fold's three splits, as `make_folds_within_fold` does, or a pair
+    can be drawn twice: train and val share atoms, hence sequences, so their draw pools overlap.
+    A test fold's atoms are held out of both, so it cannot collide with either.
 
     Args:
         split_pos: this split's positive rows.
@@ -460,6 +460,8 @@ def within_fold_negatives(
         neg_to_pos_ratio: budget = round(ratio * len(split_pos)).
         seed: seeds the reject sampler.
         hash_col: the alphabet's per-slot hash column (aa: `prot_hash`).
+        seen: pair_keys already drawn, extended in place. Defaults to a fresh set, which dedups
+            within this call only.
 
     Returns:
         negatives in `_PAIR_COLUMNS`, index reset; empty frame if none could be drawn.
@@ -473,7 +475,9 @@ def within_fold_negatives(
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
 
     rng = np.random.RandomState(seed)
-    na, nb, seen = [], [], set()  # neg slot-a, neg slot-b, seen neg pair_keys
+    na, nb = [], []               # neg slot-a, neg slot-b
+    if seen is None:
+        seen = set()              # drawn neg pair_keys; caller-supplied to span a fold's splits
     placed, attempts, max_attempts = 0, 0, budget * 50 + 200 # reject-sampling ceiling: ~50 attempts + 200 floor for tiny budgets
     while placed < budget and attempts < max_attempts:
         attempts += 1
@@ -525,6 +529,9 @@ def make_folds_within_fold(
     positives. Both endpoints stay in-split, so folds remain cluster-disjoint. Routing is
     `groupkfold_by_atom`.
 
+    One `seen` set spans each fold's three splits, so a pair drawn for train is not drawn again
+    for val or test. The splits are drawn train, val, test, and the first to draw a pair keeps it.
+
     Args:
         pos_full: positive rows only, carrying `atom_id`.
         k_folds: number of folds (K).
@@ -545,11 +552,12 @@ def make_folds_within_fold(
     folds = []
     for fold_id, pos_splits in enumerate(pos_folds):
         splits = []
+        drawn = set()  # negatives drawn so far in THIS fold; shared so no pair lands in two splits
         for split_id, split_pos in enumerate(pos_splits):  # (train, val, test)
             neg = within_fold_negatives(
                 split_pos, cooccur, df, schema_pair_full,
                 neg_to_pos_ratio=neg_to_pos_ratio,
-                seed=seed + fold_id * 100 + split_id, hash_col=hash_col
+                seed=seed + fold_id * 100 + split_id, hash_col=hash_col, seen=drawn
             )
             splits.append(pd.concat([split_pos[cols], neg[cols]], ignore_index=True).reset_index(drop=True))
         folds.append(tuple(splits))
