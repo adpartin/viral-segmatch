@@ -47,10 +47,10 @@ _METRICS = {
     'f1':       ('F1',       lambda y_true, prob, pred: f1_score(y_true, pred)),
     'mcc':      ('MCC',      lambda y_true, prob, pred: matthews_corrcoef(y_true, pred)),
 }
-# Wong colorblind-safe palette, in its published order; the first series is blue, the second
-# vermillion. Eight entries, so up to eight series get distinct colours.
-_SERIES_COLORS = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9',
-                  '#000000', '#F0E442']
+# Paul Tol's high-contrast triple first (deep blue / muted red / amber), then his muted set, so
+# two-series figures get the most legible pair and up to eight series stay colorblind-safe.
+_SERIES_COLORS = ['#004488', '#BB5566', '#DDAA33', '#332288', '#117733', '#88CCEE',
+                  '#882255', '#999933']
 
 
 def _parse_series(items):
@@ -95,10 +95,11 @@ def series_curve(runs_root, run_pattern, thresholds, n_folds, metric_fn):
         metric_fn: Callable (y_true, pred_prob, pred_label) -> float.
 
     Returns:
-        Three float arrays with one entry per threshold: the mean, the min and the max of
-        `metric_fn` over the folds found.
+        `(mean_curve, per_threshold_scores)`: the mean per threshold, and the list of raw fold
+        scores behind each -- summarising is the caller's, so the spread it draws and the mean it
+        plots come from one place.
     """
-    means, mins, maxes = [], [], []
+    means, per_threshold = [], []
     for th in thresholds:
         fold_scores = []
         for fold in range(n_folds):
@@ -117,12 +118,9 @@ def series_curve(runs_root, run_pattern, thresholds, n_folds, metric_fn):
             fold_scores = [np.nan]
         scores = np.array(fold_scores)
         means.append(scores.mean())
-        mins.append(scores.min())
-        maxes.append(scores.max())
+        per_threshold.append(scores)
     mean_curve = np.array(means)
-    min_curve = np.array(mins)
-    max_curve = np.array(maxes)
-    return mean_curve, min_curve, max_curve
+    return mean_curve, per_threshold
 
 
 def main() -> None:
@@ -138,10 +136,15 @@ def main() -> None:
     ap.add_argument('--out_png', required=True, type=Path)
     ap.add_argument('--floor', type=float, default=None,
                     help='Optional chance-floor reference line (e.g. 0.5 for AUC-PR at 1:1); omit for none.')
-    ap.add_argument('--xlabel', default='mmseqs identity threshold  t')
+    ap.add_argument('--xlabel', default='MMseqs identity threshold  t')
+    ap.add_argument('--xlim', nargs=2, type=float, default=None,
+                    help='x range as given, e.g. 1.00 0.96; the order sets the direction.')
     ap.add_argument('--ylim', nargs=2, type=float, default=None)
-    ap.add_argument('--no_errorbars', action='store_true',
-                    help='Plot mean lines only (no min-max error bars); clearer with many series.')
+    ap.add_argument('--marker_size', type=float, default=5.0,
+                    help='point size (default 5); smaller lets a tight error bar show.')
+    ap.add_argument('--spread', choices=('folds', 'errorbar', 'none'), default='folds',
+                    help="How to show fold-to-fold variation: 'folds' scatters every fold's score "
+                         "(default), 'errorbar' draws min-max bars, 'none' plots means only.")
     args = ap.parse_args()
 
     setup_plot_style(use_seaborn_palette=False)
@@ -158,16 +161,29 @@ def main() -> None:
     threshold_x = np.array(x_positions)
 
     fig, ax = plt.subplots(figsize=(7.6, 5.0))
+    # Offset each series slightly on x so their fold points do not overlap at a shared threshold.
+    x_span = abs(threshold_x.max() - threshold_x.min()) or 1.0
     for i, (label, run_pattern) in enumerate(series):
-        mean_curve, min_curve, max_curve = series_curve(
+        mean_curve, per_threshold = series_curve(
             args.runs_root, run_pattern, args.thresholds, args.n_folds, metric_fn)
         color = _SERIES_COLORS[i % len(_SERIES_COLORS)]
-        if args.no_errorbars:
-            ax.plot(threshold_x, mean_curve, '-o', color=color, lw=2.2, ms=6, label=label, zorder=3)
-        else:
-            spread = np.vstack([mean_curve - min_curve, max_curve - mean_curve])
-            ax.errorbar(threshold_x, mean_curve, yerr=spread, fmt='-o', color=color, lw=2.2, ms=6,
-                        capsize=4, elinewidth=1.3, capthick=1.3, label=label, zorder=3)
+        offset = (i - (len(series) - 1) / 2) * 0.012 * x_span
+        x = threshold_x + offset
+        if args.spread == 'folds':
+            # Every fold as its own point and no summary line: with four folds the eye averages
+            # them, and a mean would hide structure like t097's two-low/two-high split.
+            xs = np.repeat(x, [len(scores) for scores in per_threshold])
+            ys = np.concatenate(per_threshold)
+            ax.scatter(xs, ys, s=55, facecolors=color, alpha=0.7, edgecolors='black',
+                       linewidths=0.8, label=label, zorder=3)
+            continue
+        ax.plot(x, mean_curve, '-o', color=color, lw=2.2, ms=args.marker_size,
+                label=label, zorder=3)
+        if args.spread == 'errorbar':
+            lows = np.array([s.min() for s in per_threshold])
+            highs = np.array([s.max() for s in per_threshold])
+            ax.errorbar(x, mean_curve, yerr=np.vstack([mean_curve - lows, highs - mean_curve]),
+                        fmt='none', ecolor=color, capsize=4, elinewidth=1.3, capthick=1.3, zorder=3)
     if args.floor is not None:
         ax.axhline(args.floor, ls='--', color='#999999', lw=1.3,
                    label=f'chance floor ({args.floor:.2f})', zorder=2)
@@ -175,7 +191,12 @@ def main() -> None:
     ax.set_ylabel(ylabel)
     ax.set_xticks(threshold_x)
     ax.set_xticklabels([f'{v:.2f}' for v in threshold_x])
-    ax.invert_xaxis()
+    # --xlim states the direction itself (1.00 -> 0.96), so inverting is only for the default
+    # range, where strict-first thresholds should still read left to right.
+    if args.xlim:
+        ax.set_xlim(*args.xlim)
+    else:
+        ax.invert_xaxis()
     if args.ylim:
         ax.set_ylim(*args.ylim)
     ax.grid(alpha=0.3)
