@@ -25,11 +25,13 @@ change and aren't derivable from code. This file does NOT duplicate:
 - **Active HA/NA + PB2/PB1 bundles** (`flu_ha_na.yaml`, `flu_pb2_pb1.yaml`) bake in
   `split_strategy.mode=seq_disjoint`, `hash_key=seq` (protein-level, stricter), and the "Test 3"
   interaction (`slot_transform=unit_norm`, `interaction=unit_diff+prod`).
-- **Clustering**: symmetric mmseqs2 `easy-linclust` on BOTH alphabets (since 2026-05-22). Artifacts
-  at `clusters_aa/tXXX/<func>_cluster.parquet` (col `prot_hash`) and
-  `clusters_nt_cds/tXXX/<func>_cluster.parquet` (col `cds_dna_hash`); pre-Phase-2 easy-cluster +
-  idXXX artifacts archived under `clusters_*_archive_*`. Binary via the dedicated `mmseqs2` env,
-  resolved through `MMSEQS_BIN` / `--mmseqs_bin` / PATH.
+- **Clustering**: built on BOTH alphabets by `src/preprocess/build_clusters.py`. Six roots on disk,
+  `clusters_{aa,nt_cds}_{cm0,cm1,ood}`, each holding `tXXX/<func>_cluster.parquet` (col `prot_hash`
+  for aa, `cds_dna_hash` for nt_cds) plus a shared `fasta/` and `cluster_stats.csv`. The suffix is
+  the build method: `cm0` = `easy-linclust --cluster-mode 0` (set-cover; the production root),
+  `cm1` = the same at `--cluster-mode 1`, `ood` = `easy-search` all-vs-all + union-find. All at
+  coverage 0.8, thresholds t099..t095. No `clusters_nt_ctg` root has been built. Binary via the
+  dedicated `mmseqs2` env, resolved through `MMSEQS_BIN` / `--mmseqs_bin` / PATH.
 - **pair_key + axis consistency**: `split_strategy.pair_key_alphabet` ∈ `{aa, nt_cds, nt_ctg}` (`aa`
   default). Non-`aa` pair_keys make finer variants distinct positives (nt_cds: codon variants;
   nt_ctg: +UTR), inflating the universe / opening DNA-variant leakage — cite the alphabet in any
