@@ -212,8 +212,10 @@ def add_input_args(p: argparse.ArgumentParser) -> None:
 def load_and_filter(args) -> tuple:
     """load_sequence_frame + out_root mkdir + filter_present_functions; returns (df, alphabet, functions)."""
     df, alphabet = load_sequence_frame(
-        protein_final=args.protein_final, cds_dna_final=args.cds_dna_final,
-        ctg_dna_final=args.ctg_dna_final, alphabet=args.alphabet,
+        protein_final=args.protein_final,
+        cds_dna_final=args.cds_dna_final,
+        ctg_dna_final=args.ctg_dna_final,
+        alphabet=args.alphabet,
         function_source=args.function_source,
     )
     Path(args.out_root).mkdir(parents=True, exist_ok=True)
