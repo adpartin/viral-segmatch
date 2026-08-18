@@ -1,0 +1,27 @@
+# STATUS: experimental -- HA/NA 2D-CD on H3N2 only, at t099 with k=3.
+# Clusters are built from H3N2 isolates ONLY (clusters_nt_cds_cm0_h3n2, via
+# `build_clusters.py --hn_subtype H3N2`), not by filtering the global clusters afterwards. The two
+# are not equivalent: re-clustering one subtype changes the partition at every threshold measured
+# (t099 HA 1,843 -> 1,818 clusters; t098 NA 832 -> 900, with 80% of NA hashes in a cluster that
+# re-partitions), because set-cover picks different representatives once the sequence set changes.
+#
+# k=3, not the k=4 inherited from flu_ha_na_cc_nt_cds_cm0. An edge cut partitions clusters and so
+# can never split one, which makes the heaviest single-side cluster's pair mass a hard floor:
+# balanced k-fold needs floor <= 1/k. On this cluster set the floor is 32.0% of pairs at t099
+# (NA_621), so k=3 is the most that fits and k=4 is unreachable at any drop budget. t098 (38.6%,
+# k=2) and t097 (63.8%, k=1) are worse still -- hence t099 only. Restricting to one subtype is what
+# collapses the headroom: the global HA-NA cm0 floor is 8.8% at t099. Measured by
+# build_cc_structure.py; see cc_nt_cds_cm0_h3n2/HA-NA/tXXX/cc_summary.json.
+#
+# `dataset.hn_subtype` narrows the pair universe to the same population the clusters were built
+# from. It does not change which pairs are kept -- the cluster join alone yields the identical
+# 27,478 pairs, with n_dropped=0 -- so it is here for the universe cache key and provenance.
+defaults:
+  - flu_ha_na_cc_nt_cds_cm0
+  - _self_
+
+dataset:
+  n_folds: 3
+  hn_subtype: [H3N2]
+  split_strategy:
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds_cm0_h3n2/t099/combined_cluster.parquet
