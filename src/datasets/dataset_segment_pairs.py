@@ -128,7 +128,7 @@ from src.datasets._pair_helpers import (
 )
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
 from src.utils.experiment_utils import get_git_info
-from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
+from src.utils.metadata_enrichment import attach_isolate_metadata
 from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.timer_utils import Timer
@@ -299,7 +299,7 @@ prot_df = attach_ctg_dna_to_prot_df(prot_df, input_file)
 
 # Enrich the df with metadata (e.g., host, year, hn_subtype)
 print('\nEnrich dataframe with metadata.')
-prot_df = enrich_prot_data_with_metadata(prot_df, project_root=project_root)
+prot_df = attach_isolate_metadata(prot_df, project_root=project_root)
 
 # Drop isolates with non-conforming hn_subtype (ambiguous typing). See
 # drop_ambiguous_hn_subtype docstring in _pair_helpers.py for the rationale.

@@ -19,8 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.utils.metadata_enrichment import enrich_prot_data_with_metadata
-
+from src.utils.metadata_enrichment import attach_isolate_metadata
 
 HA_FUNCTION = "Hemagglutinin precursor"
 NA_FUNCTION = "Neuraminidase protein"
@@ -88,7 +87,7 @@ def main():
         )
 
     print("Enriching with hn_subtype metadata...")
-    df = enrich_prot_data_with_metadata(df, project_root=project_root)
+    df = attach_isolate_metadata(df, project_root=project_root)
 
     df["h_part"] = df["hn_subtype"].str.extract(r"(H\d+)", expand=False)
     df["n_part"] = df["hn_subtype"].str.extract(r"(N\d+)", expand=False)

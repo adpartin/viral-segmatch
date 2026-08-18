@@ -71,7 +71,7 @@ from src.utils.config_hydra import (  # noqa: E402
     save_config,
 )
 from src.utils.experiment_utils import get_git_info  # noqa: E402
-from src.utils.metadata_enrichment import enrich_prot_data_with_metadata  # noqa: E402
+from src.utils.metadata_enrichment import attach_isolate_metadata  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  # noqa: E402
 
@@ -124,7 +124,7 @@ def build_frontend(
     # Load protein_final.parquet and attach ctg_dna_{seq,hash} via ctg_dna_final.parquet
     df = load_dataframe(input_file) # protein_final.parquet
     df = attach_ctg_dna_to_prot_df(df, input_file) # attach ctg_dna_{seq,hash} to protein df
-    df = enrich_prot_data_with_metadata(df, project_root=PROJ) # host, year, hn_subtype, ...
+    df = attach_isolate_metadata(df, project_root=PROJ) # host, year, hn_subtype, ...
     if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
         df, _ = drop_ambiguous_hn_subtype(df)
 

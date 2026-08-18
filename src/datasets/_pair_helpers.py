@@ -365,7 +365,7 @@ def select_balanced_isolate_pool(
     if 'hn_subtype' not in prot_df.columns:
         raise RuntimeError(
             "hn_subtype column missing from prot_df. "
-            "select_balanced_isolate_pool must run after enrich_prot_data_with_metadata."
+            "select_balanced_isolate_pool must run after attach_isolate_metadata."
         )
 
     included_raw = getattr(subtype_selection_cfg, 'included_subtypes', None)
