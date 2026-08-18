@@ -123,12 +123,11 @@ sys.path.append(str(project_root))
 
 from src.datasets._pair_helpers import (
     attach_ctg_dna_to_prot_df,
-    filter_by_metadata,
     select_balanced_isolate_pool,
 )
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
 from src.utils.experiment_utils import get_git_info
-from src.utils.metadata_enrichment import attach_isolate_metadata
+from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata
 from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.timer_utils import Timer

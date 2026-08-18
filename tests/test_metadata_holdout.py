@@ -28,8 +28,8 @@ if str(project_root) not in sys.path:
 from src.datasets._pair_helpers import (
     compute_metadata_holdout_isolates,
     drop_ambiguous_hn_subtype,
-    filter_by_metadata,
 )
+from src.utils.metadata_enrichment import filter_by_metadata
 
 
 # A small per-isolate world that exercises every axis. 12 isolates,

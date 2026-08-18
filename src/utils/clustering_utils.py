@@ -675,11 +675,15 @@ def load_sequence_frame(
 
     Exactly one of `protein_final` / `cds_dna_final` / `ctg_dna_final` must be
     given; the alphabet follows from it (aa / nt_cds / nt_ctg). Returns
-    `(df, alphabet)` where `df` carries `function` plus the alphabet's seq+hash
-    columns. aa input (`protein_final`) does not carry `prot_hash`, so it is
-    computed here; nt inputs already carry their hash. For nt_ctg the `function`
-    label is attached from `function_source` (default: the sibling
-    `cds_dna_final.parquet`) via a verified 1-1 join.
+    `(df, alphabet)` where `df` carries `assembly_id` and `function` plus the
+    alphabet's seq+hash columns. aa input (`protein_final`) does not carry
+    `prot_hash`, so it is computed here; nt inputs already carry their hash. For
+    nt_ctg the `function` label is attached from `function_source` (default: the
+    sibling `cds_dna_final.parquet`) via a verified 1-1 join.
+
+    `assembly_id` is carried for every alphabet so callers can filter the frame by
+    isolate metadata before it is exported to FASTA; `export_function_fasta`
+    ignores it.
 
     Shared by `build_mmseqs_clusters.py` (set-cover) and `build_ood_clusters.py`
     (connected-component) so both cluster the identical input universe.
@@ -701,9 +705,9 @@ def load_sequence_frame(
     # aa loads only the seq (prot_hash is computed below); nt inputs carry their hash.
     cols = _COLS_BY_ALPHABET[alphabet]
     if alphabet == 'aa':
-        usecols = ['function', cols['seq_col']]
+        usecols = ['assembly_id', 'function', cols['seq_col']]
     elif alphabet == 'nt_cds':
-        usecols = ['function', cols['seq_col'], cols['hash_col']]
+        usecols = ['assembly_id', 'function', cols['seq_col'], cols['hash_col']]
     else:  # nt_ctg: ctg_dna_final has no `function`; attach it from function_source below.
         usecols = ['assembly_id', 'genbank_ctg_id', cols['seq_col'], cols['hash_col']]
     print(f"Loading {in_path} (alphabet={alphabet}) ...")
@@ -713,8 +717,8 @@ def load_sequence_frame(
         df = pd.read_parquet(in_path, columns=usecols)
     print(f"  Loaded {len(df):,} rows")
 
-    # nt_ctg: attach `function` (ctg_dna_final carries none) via a 1-1 join, then
-    # drop the join keys so the df matches the {function, seq, hash} exporter shape.
+    # nt_ctg: attach `function` (ctg_dna_final carries none) via a 1-1 join, then drop the
+    # contig half of the join key; `assembly_id` stays, as it does for the other alphabets.
     if alphabet == 'nt_ctg':
         fsrc = (Path(function_source) if function_source
                 else in_path.with_name('cds_dna_final.parquet'))
@@ -724,7 +728,7 @@ def load_sequence_frame(
                 f"default sibling not found: {fsrc}")
         print(f"  Attaching `function` from {fsrc.name} (1-1 join) ...")
         df = attach_function_to_contigs(df, fsrc)
-        df = df.drop(columns=['assembly_id', 'genbank_ctg_id'])
+        df = df.drop(columns=['genbank_ctg_id'])
 
     # aa: protein_final has no prot_hash; compute it once (reused across thresholds).
     if alphabet == 'aa':

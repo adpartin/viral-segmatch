@@ -59,7 +59,6 @@ from src.datasets._pair_helpers import (  # noqa: E402
     canonical_pair_key,
     cluster_ccs,
     drop_ambiguous_hn_subtype,
-    filter_by_metadata,
 )
 from src.datasets._split_helpers import attach_cluster_ids, load_cluster_lookup  # noqa: E402
 from src.datasets.dataset_segment_pairs_v2 import _PAIR_COLUMNS, create_positive_pairs_v2  # noqa: E402
@@ -71,7 +70,7 @@ from src.utils.config_hydra import (  # noqa: E402
     save_config,
 )
 from src.utils.experiment_utils import get_git_info  # noqa: E402
-from src.utils.metadata_enrichment import attach_isolate_metadata  # noqa: E402
+from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  # noqa: E402
 

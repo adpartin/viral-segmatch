@@ -26,11 +26,20 @@ Artifact layout (under --out_root):
     t<NN>/runtime.json                  per-threshold build config + timing rollup
     cluster_stats.csv                   per-(function, threshold) size stats (merged across runs)
 
+`--hn_subtype` clusters only the isolates of one subtype. Both cached artifacts above
+(`fasta/`, `t<NN>/*_cluster.parquet`) are reused by path and neither name records the subtype,
+so a filtered build needs its own `--out_root`; `verify_out_root_subtype` reads the subtype back
+from `t<NN>/runtime.json` and refuses to mix two builds in one root.
+
 CLI:
     python -m src.preprocess.build_clusters --method linclust \\
         --cds_dna_final data/processed/flu/July_2025/cds_dna_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_nt_cds_cm0 \\
         --thresholds 0.99 0.98 0.97 0.96 0.95 --threads 64
+    python -m src.preprocess.build_clusters --method linclust --hn_subtype H3N2 \\
+        --cds_dna_final data/processed/flu/July_2025/cds_dna_final.parquet \\
+        --out_root      data/processed/flu/July_2025/clusters_nt_cds_cm0_h3n2 \\
+        --thresholds 0.99 0.98 0.97 --threads 64
     python -m src.preprocess.build_clusters --method search \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_aa_ood \\
@@ -39,6 +48,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 import time
@@ -67,6 +77,7 @@ from src.utils.clustering_utils import (  # noqa: E402
     write_runtime_json,
 )
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
+from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata  # noqa: E402
 
 _FLU_YAML = PROJECT_ROOT / 'conf' / 'virus' / 'flu.yaml'
 _FLU_META = load_function_metadata(_FLU_YAML)
@@ -209,8 +220,76 @@ def add_input_args(p: argparse.ArgumentParser) -> None:
                    help='[builder] sequence alphabet (default: inferred from the input file)')
 
 
+def verify_out_root_subtype(out_root: Path, hn_subtype) -> None:
+    """Exit if `out_root` already holds clusters built with a different `--hn_subtype`.
+
+    Both cached artifacts are reused by path alone: `fasta/<short>.fasta` (shared across
+    thresholds) and `tXXX/<short>_cluster.parquet`. Neither name records the subtype, so a
+    filtered build aimed at an unfiltered root would silently reuse the unfiltered sequences,
+    or with `--force` overwrite them. Every dataset resolves its clusters through this path,
+    so a mismatch stops the run instead of rebuilding over it.
+
+    Args:
+        out_root: cluster root about to be written.
+        hn_subtype: subtype requested for this run, or None for no filter.
+
+    Raises:
+        SystemExit: when the root's recorded subtype differs, or when a cached FASTA has no
+            `runtime.json` to attribute it to a subtype.
+    """
+    runtimes = sorted(out_root.glob('t*/runtime.json'))
+    if not runtimes:
+        fasta_dir = out_root / 'fasta'
+        if fasta_dir.is_dir() and any(fasta_dir.iterdir()):
+            raise SystemExit(
+                f"ERROR: {out_root} holds a cached fasta/ but no tXXX/runtime.json, so the "
+                f"subtype its sequences came from is unknown. Delete fasta/ or pick another "
+                f"--out_root.")
+        return
+    built_with = {json.loads(p.read_text()).get('hn_subtype') for p in runtimes}
+    if built_with != {hn_subtype}:
+        raise SystemExit(
+            f"ERROR: {out_root} was built with hn_subtype="
+            f"{sorted(built_with, key=str)}, but this run requests {hn_subtype!r}. "
+            f"Clusters are reused by path, so pick another --out_root.")
+
+
+def filter_records_by_subtype(df: pd.DataFrame, hn_subtype: str) -> pd.DataFrame:
+    """Keep the records whose isolate carries `hn_subtype`.
+
+    The filter is decided on a one-row-per-isolate frame rather than on `df` itself:
+    `filter_by_metadata` already selects at isolate level, and `df` carries the sequence
+    column (868,240 rows for nt_cds), which a metadata merge would copy. Clustering then
+    dedups by sequence hash, so a sequence survives when ANY isolate carrying it matches.
+
+    Args:
+        df: record frame with an `assembly_id` column, from `load_sequence_frame`.
+        hn_subtype: the subtype to keep, e.g. 'H3N2'.
+
+    Returns:
+        `df` restricted to records from matching isolates, index reset.
+    """
+    isolates = attach_isolate_metadata(df[['assembly_id']].drop_duplicates(),
+                                       project_root=PROJECT_ROOT)
+    kept = filter_by_metadata(isolates, hn_subtype=hn_subtype)
+    n_before = len(df)
+    filtered = df[df['assembly_id'].isin(set(kept['assembly_id']))].reset_index(drop=True)
+    print(f"  hn_subtype={hn_subtype}: {n_before:,} -> {len(filtered):,} records "
+          f"from {len(kept):,} isolates")
+    return filtered
+
+
 def load_and_filter(args) -> tuple:
-    """load_sequence_frame + out_root mkdir + filter_present_functions; returns (df, alphabet, functions)."""
+    """load_sequence_frame + optional isolate filter + out_root mkdir + filter_present_functions.
+
+    Args:
+        args: parsed CLI namespace; reads the sequence-source group, `alphabet`,
+            `function_source`, `hn_subtype`, `out_root` and `functions`.
+
+    Returns:
+        `(df, alphabet, functions)` -- the loaded frame (subtype-filtered when
+        `--hn_subtype` is set), the resolved alphabet, and the short names present in it.
+    """
     df, alphabet = load_sequence_frame(
         protein_final=args.protein_final,
         cds_dna_final=args.cds_dna_final,
@@ -218,6 +297,8 @@ def load_and_filter(args) -> tuple:
         alphabet=args.alphabet,
         function_source=args.function_source,
     )
+    if args.hn_subtype:
+        df = filter_records_by_subtype(df, args.hn_subtype)
     Path(args.out_root).mkdir(parents=True, exist_ok=True)
     functions, skipped = filter_present_functions(df, args.functions, SHORT_TO_FUNCTION)
     if skipped:
@@ -266,6 +347,9 @@ def main(default_method=None) -> None:
                    help='[mmseqs2: --min-seq-id] identity thresholds, e.g. 0.99 0.98 0.95')
     p.add_argument('--functions', nargs='+', default=_FLU_META.selected_short_names,
                    help='[builder] function short names to cluster')
+    p.add_argument('--hn_subtype', default=None,
+                   help='[builder] cluster only isolates of this subtype, e.g. H3N2 '
+                        '(default: all). Needs its own --out_root')
     p.add_argument('--threads', type=int, default=16, help='[mmseqs2: --threads]')
     p.add_argument('--mmseqs_bin', help='[builder] mmseqs binary (default: $MMSEQS_BIN, then "mmseqs" on PATH)')
     p.add_argument('--force', action='store_true', help='[builder] recompute even if cached')
@@ -323,8 +407,12 @@ def main(default_method=None) -> None:
         raise SystemExit(f"--thresholds collide on directory labels {sorted(set(labels))}; "
                          "use distinct thresholds (percent granularity).")
 
-    df, alphabet, functions = load_and_filter(args)
+    # Before anything is loaded or reused: this root's cached artifacts must come from the
+    # same --hn_subtype, since neither their names nor their contents record it.
     out_root = Path(args.out_root)
+    verify_out_root_subtype(out_root, args.hn_subtype)
+
+    df, alphabet, functions = load_and_filter(args)
 
     all_stats = []
     for threshold in args.thresholds:
@@ -350,6 +438,9 @@ def main(default_method=None) -> None:
             'alphabet': alphabet, 'method': args.method, 'threshold': float(threshold),
             'functions': list(functions), 'coverage': args.coverage,
             'sensitivity': args.sensitivity, 'max_seqs': args.max_seqs, 'threads': args.threads,
+            # Read back by verify_out_root_subtype: the only record of which isolates the
+            # sequences in this root came from.
+            'hn_subtype': args.hn_subtype,
         }
         if args.method == 'search':
             config.update({'prefilter_mode': prefilter_mode, 'exhaustive': args.exhaustive, 'gpu': args.gpu})

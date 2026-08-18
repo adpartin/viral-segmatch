@@ -32,6 +32,13 @@ change and aren't derivable from code. This file does NOT duplicate:
   `cm1` = the same at `--cluster-mode 1`, `ood` = `easy-search` all-vs-all + union-find. All at
   coverage 0.8, thresholds t099..t095. No `clusters_nt_ctg` root has been built. Binary via the
   dedicated `mmseqs2` env, resolved through `MMSEQS_BIN` / `--mmseqs_bin` / PATH.
+  `--hn_subtype` clusters one subtype only and needs its own `--out_root`
+  (`verify_out_root_subtype` refuses to mix two filters in one root, since `fasta/` and the
+  cluster parquets are reused by path). Built so far: `clusters_nt_cds_cm0_h3n2` — HA + NA at
+  t099/t098/t097. Re-clustering a subtype is NOT the same as filtering global clusters
+  afterwards: measured on H3N2, the partition differs at every threshold (t098 NA: 80% of
+  hashes sit in a cluster that re-partitions), because set-cover picks different
+  representatives once the sequence set changes.
 - **pair_key + axis consistency**: `split_strategy.pair_key_alphabet` ∈ `{aa, nt_cds, nt_ctg}` (`aa`
   default). Non-`aa` pair_keys make finer variants distinct positives (nt_cds: codon variants;
   nt_ctg: +UTR), inflating the universe / opening DNA-variant leakage — cite the alphabet in any
