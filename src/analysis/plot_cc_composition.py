@@ -38,7 +38,8 @@ def main() -> None:
     p.add_argument('--alphabet', required=True, help='aa / nt_cds / nt_ctg (title only)')
     p.add_argument('--threshold_id', required=True, help='tXXX (title only)')
     p.add_argument('--top_n', type=int, default=12, help='number of largest CCs to draw (default 12)')
-    p.add_argument('--note', default='', help='optional extra title line (e.g. "fragmented (1.6% dropped)")')
+    p.add_argument('--note', default='',
+                   help='optional extra title line (e.g. "fragmented (1.6%% dropped)")')
     p.add_argument('--normalize', action='store_true',
                    help='scale every bar to 100%% (share-of-CC) instead of real pair counts; default off '
                         '-- real heights match the CC-size barplot so the mega-CC towers and its colored '

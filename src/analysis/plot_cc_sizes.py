@@ -88,7 +88,8 @@ def main() -> None:
     p.add_argument('--alphabet', required=True, help='aa / nt_cds / nt_ctg (title only)')
     p.add_argument('--threshold_id', required=True, help='tXXX (title only)')
     p.add_argument('--top_n', type=int, default=12, help='largest CCs to draw (default 12)')
-    p.add_argument('--note', default='', help='optional extra title line (e.g. "fragmented: 30 cuts, 1.6% dropped")')
+    p.add_argument('--note', default='',
+                   help='optional extra title line (e.g. "fragmented: 30 cuts, 1.6%% dropped")')
     p.add_argument('--out_png', type=Path, default=None,
                    help='default: <run_dir>/figures/<csv-stem>_<pair>_<tXXX>_barplot.png')
     args = p.parse_args()

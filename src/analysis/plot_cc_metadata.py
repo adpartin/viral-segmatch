@@ -52,7 +52,8 @@ def main() -> None:
                    help='metadata fields, one figure each (default hn_subtype host year)')
     p.add_argument('--top_n', type=int, default=12, help='number of largest CCs to draw (default 12)')
     p.add_argument('--top_k', type=int, default=6, help='top categories per bar before Others (default 6)')
-    p.add_argument('--note', default='', help='optional extra title line (e.g. "fragmented (3.9% dropped)")')
+    p.add_argument('--note', default='',
+                   help='optional extra title line (e.g. "fragmented (3.9%% dropped)")')
     p.add_argument('--normalize', action='store_true',
                    help='100%%-stacked bars (share of CC) instead of real pair counts (default off)')
     p.add_argument('--final', type=Path, default=None,
