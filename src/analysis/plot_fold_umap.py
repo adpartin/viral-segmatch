@@ -20,8 +20,12 @@ sizes), so both runs embed an identical matrix and, under a fixed UMAP seed, lan
 coordinates. Only the coloring differs. `category_colors` pins each split label to one color so it
 cannot move with the counts between the two figures.
 
-Positives only: negatives are drawn per split by the builder, so including them would show the
-negative sampler's geometry rather than the split's.
+Positives only by default: negatives are drawn per split by the builder, so including them shows
+the negative sampler's geometry rather than the split's. `--include_negatives` asks for exactly
+that geometry -- split keeps the color channel it has in every other figure and positive/negative
+takes point shape, so the two read together and the colors still mean what they do elsewhere. It
+needs `--unit pair`: one sequence carries both positive and negative rows, so a slot point has no
+single label.
 
 CLI:
     python -m src.analysis.plot_fold_umap \\
@@ -55,15 +59,15 @@ _SPLITS = ('train', 'val', 'test')
 _SPLIT_COLORS = {'train/val only': '#4c72b0', 'test only': '#d43d51', 'both': '#dd8452'}
 
 
-def load_fold_positives(fold_dir: Path, hash_a: str, hash_b: str) -> dict:
-    """Read the fold's three split CSVs and keep the positive rows.
+def load_fold_pairs(fold_dir: Path, hash_a: str, hash_b: str) -> dict:
+    """Read the fold's three split CSVs, positives and negatives alike.
 
     Args:
         fold_dir: a `fold_k` directory holding `{train,val,test}_pairs.csv`.
         hash_a / hash_b: the alphabet's per-slot hash columns.
 
     Returns:
-        {split_name: DataFrame} carrying pair_key and both hash columns, positives only.
+        {split_name: DataFrame} carrying pair_key, label and both hash columns.
 
     Raises:
         SystemExit: if a split CSV is missing.
@@ -73,10 +77,23 @@ def load_fold_positives(fold_dir: Path, hash_a: str, hash_b: str) -> dict:
         path = fold_dir / f'{name}_pairs.csv'
         if not path.exists():
             raise SystemExit(f'ERROR: no {name} split at {path}.')
-        df = pd.read_csv(path, usecols=['pair_key', 'label', hash_a, hash_b],
-                         dtype=str, keep_default_na=False, na_values=[], low_memory=False)
-        out[name] = df[df['label'] == '1'].drop(columns='label').reset_index(drop=True)
+        out[name] = pd.read_csv(path, usecols=['pair_key', 'label', hash_a, hash_b],
+                                dtype=str, keep_default_na=False, na_values=[], low_memory=False)
     return out
+
+
+def load_fold_positives(fold_dir: Path, hash_a: str, hash_b: str) -> dict:
+    """The positive rows of `load_fold_pairs`, with the label column dropped.
+
+    Args:
+        fold_dir: a `fold_k` directory holding `{train,val,test}_pairs.csv`.
+        hash_a / hash_b: the alphabet's per-slot hash columns.
+
+    Returns:
+        {split_name: DataFrame} carrying pair_key and both hash columns, positives only.
+    """
+    return {name: df[df['label'] == '1'].drop(columns='label').reset_index(drop=True)
+            for name, df in load_fold_pairs(fold_dir, hash_a, hash_b).items()}
 
 
 def load_dataset_info(fold_dir: Path) -> dict:
@@ -208,6 +225,8 @@ def _parse_args():
     p.add_argument('--slot', choices=('a', 'b'), default='a', help='which slot, for --unit slot (default a).')
     p.add_argument('--color_by', default='split',
                    help="'split' or a metadata field (hn_subtype, host, year). Default split.")
+    p.add_argument('--include_negatives', action='store_true',
+                   help='plot negatives too, as point shape; --unit pair only.')
     p.add_argument('--alphabet', default='nt_cds', help='k-mer alphabet (default nt_cds).')
     p.add_argument('--alpha', type=float, default=0.5,
                    help='point opacity (default 0.5), so overlapping categories show through.')
@@ -226,8 +245,17 @@ def main() -> None:
     short_to_full = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml').short_to_function
     slot_short = sa if args.slot == 'a' else sb
 
-    pos = load_fold_positives(args.fold_dir, hash_a, hash_b)
-    print('positives: ' + ' '.join(f'{n}={len(df):,}' for n, df in pos.items()))
+    if args.include_negatives and args.unit != 'pair':
+        raise SystemExit("--include_negatives needs --unit pair: one sequence carries both "
+                         "positive and negative rows, so a slot point has no single label.")
+    if args.include_negatives:
+        pos = load_fold_pairs(args.fold_dir, hash_a, hash_b)
+        label_of = dict(zip(pd.concat(pos.values())['pair_key'], pd.concat(pos.values())['label']))
+        print('rows: ' + ' '.join(f'{n}={len(df):,}' for n, df in pos.items()))
+    else:
+        pos = load_fold_positives(args.fold_dir, hash_a, hash_b)
+        label_of = None
+        print('positives: ' + ' '.join(f'{n}={len(df):,}' for n, df in pos.items()))
 
     if args.unit == 'slot':
         hash_col = hash_a if args.slot == 'a' else hash_b
@@ -239,10 +267,18 @@ def main() -> None:
         keys, X = pair_points(pos, hash_a, hash_b, args.alphabet)
         key_of = {n: set(df['pair_key']) for n, df in pos.items()}
         funcs = (short_to_full[sa], short_to_full[sb])
-        unit_label = 'pairs'
+        unit_label = f'{sa}-{sb} pairs'
     print(f'{unit_label}: {len(keys):,} points, {X.shape[1]} dims')
 
-    if args.color_by == 'split':
+    markers = None
+    if args.include_negatives:
+        # Split keeps the color channel it has in every other figure, so the colors mean the same
+        # thing across the set; positive/negative takes the shape channel. Reading them together
+        # shows whether the negatives sit where the positives do.
+        categories = split_labels(keys, key_of['test'], key_of['train'] | key_of['val'])
+        markers = np.asarray(['positive' if label_of[k] == '1' else 'negative' for k in keys])
+        pinned, legend_title = _SPLIT_COLORS, 'split'
+    elif args.color_by == 'split':
         categories = split_labels(keys, key_of['test'], key_of['train'] | key_of['val'])
         pinned, legend_title = _SPLIT_COLORS, 'split'
     else:
@@ -251,13 +287,20 @@ def main() -> None:
                                      args.alphabet, funcs)
         pinned, legend_title = None, args.color_by
 
-    name = f'umap_{args.unit}' + (f'_{slot_short}' if args.unit == 'slot' else '') + f'_{args.color_by}'
+    color_by = 'split' if args.include_negatives else args.color_by
+    # The suffix names which rows are in the figure, so a positives-only and a pos+neg figure of
+    # the same coloring cannot collide (both color by split).
+    name = (f'umap_{args.unit}' + (f'_{slot_short}' if args.unit == 'slot' else '')
+            + f'_{color_by}' + ('_posneg' if args.include_negatives else '_pos'))
     out_png = args.out_png or (args.fold_dir / 'figures' / f'{name}.png')
+    # The legends already name the color and shape channels, so the title carries only what they
+    # cannot: which rows are in the figure.
+    content = 'pos + neg' if args.include_negatives else 'pos only'
     title = args.title or (f'{args.fold_dir.parent.name} · {args.fold_dir.name}\n'
-                           f'{unit_label} ({args.alphabet} k-mer) colored by {args.color_by}')
+                           f'{unit_label}, {content} ({args.alphabet} k-mer)')
 
     stats = umap_scatter(X, categories, out_png=out_png, title=title, alpha=args.alpha,
-                         category_colors=pinned, legend_title=legend_title)
+                         category_colors=pinned, legend_title=legend_title, markers=markers)
     # Only the categories the figure colors; a metadata field can have a long tail (>100 subtypes)
     # that the plot folds into 'Others' anyway.
     counts = pd.Series(categories).value_counts().head(stats['n_selected'])

@@ -8,6 +8,7 @@ from typing import Optional, Sequence, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 from matplotlib.ticker import PercentFormatter
 
 from .plot_config import SEGMENT_COLORS, SEGMENT_ORDER, apply_default_style
@@ -400,6 +401,8 @@ def umap_scatter(
     category_labeler=None,
     others_labeler=None,
     category_colors: Optional[dict] = None,
+    markers: Optional[Sequence] = None,
+    marker_shapes: Sequence[str] = ('o', '^', 's', 'D', 'v', 'P'),
     title_fontsize: int = 10,
     dpi: int = 200,
     ) -> dict:
@@ -412,6 +415,11 @@ def umap_scatter(
     saves. `categories` is the length-N per-point label (cluster_id, fragment, ...). The
     representation-specific step (ESM-2 vs k-mer, any pre-SVD/PCA) is the caller's; this function
     is representation-agnostic. Extracted from `plot_clusters.plot_cluster_umap`.
+
+    `markers` is an optional SECOND length-N label drawn as point shape, independent of the color
+    channel, for showing two categoricals at once (e.g. color = positive/negative, shape =
+    train/test). Its distinct values take `marker_shapes` in sorted order and get their own legend;
+    'Others' keeps one entry per shape. Leave it None for the single-channel scatter.
 
     Returns {'n_points', 'n_categories', 'n_selected', 'others_share'}.
     """
@@ -435,16 +443,41 @@ def umap_scatter(
     cat_label = category_labeler or _cat_label
     oth_label = others_labeler or _oth_label
 
+    # One shape per distinct `markers` value; a single unlabeled shape when the channel is unused,
+    # so both paths run the same draw loop.
+    if markers is None:
+        shape_of = [(np.ones(len(xy), dtype=bool), 'o', None)]
+    else:
+        markers = np.asarray(markers)
+        values = sorted(pd.unique(markers))
+        if len(values) > len(marker_shapes):
+            raise ValueError(f'umap_scatter: {len(values)} marker values exceeds the '
+                             f'{len(marker_shapes)} shapes available; pass more marker_shapes.')
+        shape_of = [(markers == v, marker_shapes[i], str(v)) for i, v in enumerate(values)]
+
     fig, ax = plt.subplots(figsize=(9, 8))
     other = ~sel['is_selected']
-    if other.any():
-        ax.scatter(xy[other, 0], xy[other, 1], s=other_size, c=others_color, linewidths=0,
-                   rasterized=True, alpha=alpha, label=oth_label(sel['others_count'], sel['others_share']))
+    for shape_mask, shape, _ in shape_of:
+        m = other & shape_mask
+        if m.any():
+            ax.scatter(xy[m, 0], xy[m, 1], s=other_size, c=others_color, linewidths=0, marker=shape,
+                       rasterized=True, alpha=alpha,
+                       label=oth_label(sel['others_count'], sel['others_share']) if shape == 'o' else None)
     for cat, color, cnt, share in sel['selected']:
-        m = categories == cat
-        ax.scatter(xy[m, 0], xy[m, 1], s=point_size, color=color, linewidths=0,
-                   rasterized=True, alpha=alpha, label=cat_label(cat, cnt, share))
-    ax.legend(loc='best', fontsize=7, framealpha=0.9, title=legend_title)
+        for shape_mask, shape, _ in shape_of:
+            m = (categories == cat) & shape_mask
+            if m.any():
+                ax.scatter(xy[m, 0], xy[m, 1], s=point_size, color=color, linewidths=0, marker=shape,
+                           rasterized=True, alpha=alpha,
+                           label=cat_label(cat, cnt, share) if shape == shape_of[0][1] else None)
+    color_legend = ax.legend(loc='best', fontsize=7, framealpha=0.9, title=legend_title)
+    if markers is not None:
+        # Shape is a second, independent channel, so it needs its own key -- drawn in neutral gray
+        # so the swatch reads as "shape only" and is not mistaken for a color category.
+        handles = [Line2D([], [], linestyle='none', marker=shape, color='#4d4d4d', markersize=5,
+                          label=f'{label} (n={int(mask.sum()):,})') for mask, shape, label in shape_of]
+        ax.add_artist(color_legend)
+        ax.legend(handles=handles, loc='lower right', fontsize=7, framealpha=0.9, title='shape')
     ax.set_xlabel('UMAP-1')
     ax.set_ylabel('UMAP-2')
     ax.set_title(title, fontsize=title_fontsize)
@@ -452,6 +485,81 @@ def umap_scatter(
     return {'n_points': int(len(categories)),
             'n_categories': int(pd.Series(categories).nunique()),
             'n_selected': len(sel['selected']), 'others_share': sel['others_share']}
+
+
+def histogram_panels(
+    values_by_label: dict,
+    *,
+    out_png: Union[str, Path],
+    title: str,
+    xlabel: str,
+    ylabel: str = 'isolates',
+    xlim: Optional[tuple] = None,
+    xtick_step: Optional[float] = None,
+    bins=None,
+    label_colors: Optional[dict] = None,
+    palette: Sequence[str] = ('#4c72b0', '#dd8452', '#d43d51', '#55a868'),
+    dpi: int = 180,
+    ) -> dict:
+    """One numeric distribution per label, as stacked panels sharing an x-axis.
+
+    The shared axis is what makes the panels comparable: a series that occupies a different part
+    of the range sits visibly apart from the others rather than being rescaled to fill its own
+    panel. Counts are per panel (not normalized), with each panel's n in its title.
+
+    Args:
+        values_by_label: {label: 1-D numeric values}; the panel order follows the dict. Empty
+            series still get a panel, labeled as empty, so the layout matches across figures.
+        out_png / title / xlabel / ylabel: figure destination and labels.
+        xlim: `(min, max)` for every panel; either end may be None to keep the data's own bound.
+        xtick_step: tick spacing along x (e.g. 5 for a year axis); None leaves matplotlib's.
+        bins: bin edges or count for `numpy.histogram`; default is one bin per integer unit over
+            the pooled range, which suits year data.
+        label_colors: optional {label: color}; labels not present fall back to `palette` in order.
+
+    Returns:
+        {'labels': [...], 'n_by_label': {label: n}, 'bins': n_bins}.
+    """
+    series = {k: np.asarray(v, dtype=float) for k, v in values_by_label.items()}
+    series = {k: v[~np.isnan(v)] for k, v in series.items()}
+    pooled = np.concatenate([v for v in series.values() if len(v)]) if any(
+        len(v) for v in series.values()) else None
+    if pooled is None:
+        raise ValueError('histogram_panels: every series is empty.')
+
+    if bins is None:
+        lo, hi = np.floor(pooled.min()), np.ceil(pooled.max())
+        bins = np.arange(lo, hi + 2) - 0.5   # one bin per integer, centered on it
+    edges = np.histogram_bin_edges(pooled, bins=bins)
+
+    fig, axes = plt.subplots(len(series), 1, figsize=(11, 2.6 * len(series)), sharex=True)
+    axes = np.atleast_1d(axes)
+    for ax, (i, (label, values)) in zip(axes, enumerate(series.items())):
+        color = (label_colors or {}).get(label, palette[i % len(palette)])
+        if len(values):
+            counts, _ = np.histogram(values, bins=edges)
+            ax.stairs(counts, edges, fill=True, color=color, alpha=0.8)
+            ax.stairs(counts, edges, fill=False, color=color, linewidth=1.0)
+        ax.set_title(f'{label} (n={len(values):,})', fontsize=10, fontweight='bold')
+        ax.set_ylabel(ylabel)
+        ax.grid(alpha=0.3)
+    axes[-1].set_xlabel(xlabel)
+
+    # Applied to the last axis only: sharex=True propagates limits and ticks to the whole column.
+    # The open end falls back to the bin range, not to get_xlim(), whose auto-padding would leave
+    # empty axis past the data.
+    left = edges[0] if xlim is None or xlim[0] is None else xlim[0]
+    right = edges[-1] if xlim is None or xlim[1] is None else xlim[1]
+    if xtick_step:  # ticks before the limits, so a tick past `right` cannot widen the axis
+        first = np.ceil(left / xtick_step) * xtick_step
+        ticks = np.arange(first, right + xtick_step, xtick_step)
+        axes[-1].set_xticks(ticks[ticks <= right])
+    axes[-1].set_xlim(left, right)
+
+    fig.suptitle(title, fontsize=11)
+    savefig(out_png, dpi=dpi)
+    return {'labels': list(series), 'n_by_label': {k: int(len(v)) for k, v in series.items()},
+            'bins': int(len(edges) - 1)}
 
 
 def annotated_heatmap(
