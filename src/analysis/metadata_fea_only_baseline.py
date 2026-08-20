@@ -12,25 +12,39 @@ host_subtype_year regime -- it measures the ceiling reachable by metadata matchi
 threshold-independent (metadata does not depend on the clustering t), so it is a flat reference the
 sequence curves can be compared against per t.
 
-Features (all read straight from the pair CSVs -- no join needed):
+Features are JOINED per isolate from `load_flu_metadata`, keyed on the pair's `assembly_id_a` /
+`assembly_id_b`, rather than read from metadata columns in the pair CSV. Those columns exist only
+in the v2 / 1D-CD output -- `dataset_pairs_cc.py` writes neither them nor `neg_regime`, so reading
+them would restrict this baseline to one builder. Joining keeps it usable on any fold directory,
+since `label` and the two assembly ids are all it needs.
+
   - one-hot: host_a, host_b, hn_subtype_a, hn_subtype_b
   - numeric: year_a, year_b, year_diff = |year_a - year_b|
-  - match flags (already in the CSV): same_host, same_hn_subtype, same_year
+  - match flags, derived here: same_host, same_hn_subtype, same_year
+
+`build_features` takes a pair frame and returns a row-aligned matrix, so a model over sequence AND
+metadata can hstack it onto the k-mer features for the same rows.
 
 Output mirrors the sequence baseline so `score_vs_threshold.py` can plot seq-vs-metadata directly:
-  {out_root}/{run_prefix}_{tXXX}_fold{f}/test_predicted.csv   (label, pred_prob, pred_label)
-                                        /metrics_summary.json
+  {out_root}/{run_prefix}_{tXXX}{arm_suffix}_fold{f}/test_predicted.csv  (label, pred_prob, pred_label)
+                                                    /metrics_summary.json
 
 CLI:
     python -m src.analysis.metadata_fea_only_baseline \\
         --dataset_prefix dataset_1dcd_nt_cds_cm0_slota \\
         --run_prefix     meta_1dcd_cm0_slota \\
         --thresholds t099 t098 t097 t096 t095
+    # paired arms: the suffix sits after the threshold in both the dataset dir and the run dir,
+    # matching how the sequence runs are named (..._t099_random_fold0).
+    python -m src.analysis.metadata_fea_only_baseline \\
+        --dataset_prefix dataset_cc_nt_cds_cm0_h3n2 --run_prefix meta_cc_nt_cds_cm0_h3n2 \\
+        --thresholds t099 --n_folds 3 --arm_suffix _random
 """
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -45,26 +59,61 @@ from sklearn.metrics import (
 )
 
 PROJ = Path(__file__).resolve().parents[2]
+if str(PROJ) not in sys.path:
+    sys.path.insert(0, str(PROJ))
 
-_CAT = ['host_a', 'host_b', 'hn_subtype_a', 'hn_subtype_b']       # one-hot
-_MATCH = ['same_host', 'same_hn_subtype', 'same_year']            # 0/1 match flags (already in CSV)
-_NEEDED = ['label', 'year_a', 'year_b'] + _CAT + _MATCH
-# 'NA' is a real hn_subtype-free value here (subtypes are H1N1/H3N2/...), but read defensively so no
-# metadata token is silently turned into NaN.
-_READ_KW = dict(keep_default_na=False, na_values=[''])
+from src.utils.metadata_enrichment import load_flu_metadata  # noqa: E402
+
+_FIELDS = ('host', 'hn_subtype', 'year')      # per-isolate axes; each yields _a, _b and same_*
+_ONE_HOT = ('host', 'hn_subtype')             # the unordered ones; year stays numeric
+_NEEDED = ['label', 'assembly_id_a', 'assembly_id_b']
+# assembly ids are read as text: they are opaque tokens, and a numeric-looking one would otherwise
+# be parsed as a float and stop matching the metadata table.
+_READ_KW = dict(dtype=str, keep_default_na=False, na_values=[''])
 
 
-def build_features(df: pd.DataFrame, ref_cols=None) -> pd.DataFrame:
-    """Metadata-only feature matrix. `ref_cols` (from the train split) aligns val/test one-hot
-    columns so unseen categories map to all-zero and the column set matches train exactly."""
-    ya = pd.to_numeric(df['year_a'], errors='coerce')
-    yb = pd.to_numeric(df['year_b'], errors='coerce')
+def isolate_metadata_maps() -> dict:
+    """`{field: {assembly_id: value}}` for the axes the baseline uses.
+
+    Built once per run and passed to `build_features`, which needs a per-side lookup on two
+    columns rather than the single-column merge `attach_isolate_metadata` performs.
+
+    Returns:
+        Dict keyed by `_FIELDS`, each an assembly_id -> value mapping.
+    """
+    meta = load_flu_metadata().drop_duplicates('assembly_id')
+    meta['assembly_id'] = meta['assembly_id'].astype(str)
+    return {f: dict(zip(meta['assembly_id'], meta[f])) for f in _FIELDS}
+
+
+def build_features(df: pd.DataFrame, maps: dict, ref_cols=None) -> pd.DataFrame:
+    """Metadata-only feature matrix, row-aligned to `df`.
+
+    Args:
+        df: pair rows carrying `assembly_id_a` and `assembly_id_b`.
+        maps: from `isolate_metadata_maps()`.
+        ref_cols: the train split's columns; val/test are reindexed onto them so a category
+            unseen in train maps to all-zero instead of shifting the column set.
+
+    Returns:
+        float32 frame; unknown or blank values become the sentinel -1.0.
+    """
+    side = {f'{f}_{s}': df[f'assembly_id_{s}'].map(maps[f]).reset_index(drop=True)
+            for f in _FIELDS for s in ('a', 'b')}
+
+    ya, yb = (pd.to_numeric(side['year_a'], errors='coerce'),
+              pd.to_numeric(side['year_b'], errors='coerce'))
     num = pd.DataFrame({'year_a': ya, 'year_b': yb, 'year_diff': (ya - yb).abs()})
-    match = df[_MATCH].apply(
-        lambda s: s.astype(str).str.strip().str.lower().isin(['true', '1', 'yes']).astype(int))
-    cat = pd.get_dummies(df[_CAT].astype(str), prefix=_CAT, prefix_sep='=')
-    X = pd.concat([cat, num.reset_index(drop=True), match.reset_index(drop=True)], axis=1)
-    X = X.fillna(-1.0)  # unknown/blank year -> sentinel
+    # Derived from the joined values, so no parsing of however a CSV spelled the flag. An unknown
+    # value never equals itself, so a pair missing that axis reads as NOT matching -- true of both
+    # sides of a positive, whose two ids are the same isolate (~0.4% of rows on flu July_2025).
+    match = pd.DataFrame({f'same_{f}': (side[f'{f}_a'] == side[f'{f}_b']).astype(int)
+                          for f in _FIELDS})
+    cat = pd.get_dummies(  # get_dummies prefixes each column with its own name
+        pd.DataFrame({f'{f}_{s}': side[f'{f}_{s}'].astype(str)
+                      for f in _ONE_HOT for s in ('a', 'b')}), prefix_sep='=')
+
+    X = pd.concat([cat, num, match], axis=1).fillna(-1.0)
     if ref_cols is not None:
         X = X.reindex(columns=ref_cols, fill_value=0)
     return X.astype(np.float32)
@@ -88,19 +137,23 @@ def _best_threshold(y_val, p_val) -> float:
     return float(max(grid, key=lambda thr: f1_score(y_val, (p_val >= thr).astype(int), average='macro')))
 
 
-def run_fold(dataset_dir: Path, out_dir: Path, seed: int) -> dict | None:
-    need = ['train_pairs.csv', 'val_pairs.csv', 'test_pairs.csv']
-    if not all((dataset_dir / f).exists() for f in need):
-        print(f'  SKIP {dataset_dir} (missing pair CSVs)')
-        return None
-    tr = pd.read_csv(dataset_dir / 'train_pairs.csv', usecols=_NEEDED, **_READ_KW)
-    va = pd.read_csv(dataset_dir / 'val_pairs.csv', usecols=_NEEDED, **_READ_KW)
-    te = pd.read_csv(dataset_dir / 'test_pairs.csv', usecols=_NEEDED, **_READ_KW)
+def run_fold(dataset_dir: Path, out_dir: Path, seed: int, maps: dict) -> dict | None:
+    """Fit on the fold's train split, tune the threshold on val, score test; None if a CSV is missing."""
+    splits = {}
+    for name in ('train', 'val', 'test'):
+        path = dataset_dir / f'{name}_pairs.csv'
+        if not path.exists():
+            print(f'  SKIP {dataset_dir} (missing {path.name})')
+            return None
+        df = pd.read_csv(path, usecols=_NEEDED, **_READ_KW)
+        df['label'] = df['label'].astype(int)
+        splits[name] = df
+    tr, va, te = splits['train'], splits['val'], splits['test']
 
-    Xtr = build_features(tr)
+    Xtr = build_features(tr, maps)
     cols = list(Xtr.columns)
-    Xva = build_features(va, ref_cols=cols)
-    Xte = build_features(te, ref_cols=cols)
+    Xva = build_features(va, maps, ref_cols=cols)
+    Xte = build_features(te, maps, ref_cols=cols)
 
     # Pass numpy (columns are already position-aligned by reindex) so LightGBM does not choke on
     # one-hot names that collide after it sanitizes spaces/special chars in category values.
@@ -137,13 +190,17 @@ def main() -> None:
     ap.add_argument('--thresholds', nargs='+', required=True)
     ap.add_argument('--n_folds', type=int, default=4)
     ap.add_argument('--seed', type=int, default=42)
+    ap.add_argument('--arm_suffix', default='',
+                    help="Appended after the threshold in BOTH the dataset dir and the run dir "
+                         "(e.g. '_random' for a paired control arm); default none.")
     args = ap.parse_args()
 
+    maps = isolate_metadata_maps()
     for t in args.thresholds:
         for f in range(args.n_folds):
-            ddir = Path(args.datasets_root) / f'{args.dataset_prefix}_{t}' / f'fold_{f}'
-            odir = Path(args.out_root) / f'{args.run_prefix}_{t}_fold{f}'
-            m = run_fold(ddir, odir, args.seed)
+            ddir = Path(args.datasets_root) / f'{args.dataset_prefix}_{t}{args.arm_suffix}' / f'fold_{f}'
+            odir = Path(args.out_root) / f'{args.run_prefix}_{t}{args.arm_suffix}_fold{f}'
+            m = run_fold(ddir, odir, args.seed, maps)
             if m is not None:
                 print(f'  {t} fold{f}: AUC-PR={m["aucpr"]:.3f}  MCC={m["mcc"]:.3f}  '
                       f'F1_macro={m["f1_macro"]:.3f}  (thr={m["threshold"]:.2f}) -> {odir.name}')
