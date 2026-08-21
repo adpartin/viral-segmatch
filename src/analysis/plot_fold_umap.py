@@ -41,6 +41,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
@@ -97,32 +98,78 @@ def load_fold_positives(fold_dir: Path, hash_a: str, hash_b: str) -> dict:
 
 
 def load_dataset_info(fold_dir: Path) -> dict:
-    """The `cv_info.json` of the dataset `fold_dir` belongs to.
+    """Schema pair and sequence source for the dataset `fold_dir` belongs to.
 
-    A random arm has no cv_info of its own -- it re-partitions another dataset's rows rather than
-    building them -- so it carries `arm_info.json` naming its source. Following that pointer makes
-    both arms resolve to the same schema pair and cluster path, which is what they share.
+    The run dir is `fold_dir.parent` for a k-fold dataset and `fold_dir` itself for a single-split
+    one, whose CSVs sit at the top level with no fold subdir; whichever holds a recognized file
+    wins. Three sources, in order:
+      - `cv_info.json`, from the CV builders.
+      - `arm_info.json`: a random arm re-partitions another dataset's rows rather than building
+        them, so it names its source and both arms resolve to the same schema pair and clusters.
+      - `resolved_config.yaml`, which the v2 builder writes. A single-split dataset has only this,
+        and under `metadata_holdout` it has no clustering at all, so `cluster_id_path` is None and
+        `cds_final_path` is what locates the sequences.
 
     Args:
-        fold_dir: a `fold_k` directory.
+        fold_dir: a `fold_k` directory, or a single-split dataset directory.
 
     Returns:
-        The parsed cv_info dict.
+        Dict carrying at least `schema_pair`, plus `cluster_id_path` and/or `cds_final_path`.
 
     Raises:
-        SystemExit: if the run directory has neither file.
+        SystemExit: if no recognized file is found in either candidate directory.
     """
-    run_dir = fold_dir.parent
+    known = ('cv_info.json', 'arm_info.json', 'resolved_config.yaml')
+    run_dir = next((d for d in (fold_dir.parent, fold_dir)
+                    if any((d / f).exists() for f in known)), None)
+    if run_dir is None:
+        raise SystemExit(f'ERROR: no {" / ".join(known)} in {fold_dir} or {fold_dir.parent}.')
+
     if (run_dir / 'cv_info.json').exists():
         return json.loads((run_dir / 'cv_info.json').read_text())
 
     arm_path = run_dir / 'arm_info.json'
-    if not arm_path.exists():
-        raise SystemExit(f'ERROR: {run_dir} has neither cv_info.json nor arm_info.json.')
-    source = Path(json.loads(arm_path.read_text())['source_dataset_dir'])
-    if not source.is_absolute():
-        source = PROJ / source
-    return json.loads((source / 'cv_info.json').read_text())
+    if arm_path.exists():
+        source = Path(json.loads(arm_path.read_text())['source_dataset_dir'])
+        if not source.is_absolute():
+            source = PROJ / source
+        return json.loads((source / 'cv_info.json').read_text())
+
+    cfg = OmegaConf.load(run_dir / 'resolved_config.yaml')
+    # The config names the schema pair in full; cv_info records short names and the caller indexes
+    # short_to_function with them, so convert to keep one contract.
+    to_short = load_function_metadata(PROJ / 'conf' / 'virus' / 'flu.yaml').function_to_short
+    return {'schema_pair': [to_short[str(f)] for f in OmegaConf.select(cfg, 'dataset.schema_pair')],
+            'cluster_id_path': OmegaConf.select(cfg, 'dataset.split_strategy.cluster_id_path'),
+            'cds_final_path': OmegaConf.select(cfg, 'dataset.split_strategy.cds_final_path')}
+
+
+def processed_base_of(info: dict) -> Path:
+    """The `data/processed/{virus}/{version}` dir holding the `*_final` parquets.
+
+    Read off whichever path the dataset recorded: a cluster file sits at
+    `<base>/clusters_*/tXXX/<file>`, a cds_dna_final at `<base>/cds_dna_final.parquet`.
+
+    Args:
+        info: from `load_dataset_info`.
+
+    Returns:
+        The processed-data base directory.
+
+    Raises:
+        SystemExit: when the dataset recorded neither path, so the metadata colorings have no
+            `*_final` parquet to read.
+    """
+    cluster_path = info.get('cluster_id_path')
+    source = cluster_path or info.get('cds_final_path')
+    if not source:
+        raise SystemExit('ERROR: this dataset records neither cluster_id_path nor cds_final_path, '
+                         'so --color_by <metadata field> cannot locate the *_final parquet; '
+                         'use --color_by split.')
+    path = Path(source)
+    if not path.is_absolute():
+        path = PROJ / path
+    return path.parents[2] if cluster_path else path.parent
 
 
 def split_labels(keys, test_keys: set, trainval_keys: set) -> np.ndarray:
@@ -282,8 +329,7 @@ def main() -> None:
         categories = split_labels(keys, key_of['test'], key_of['train'] | key_of['val'])
         pinned, legend_title = _SPLIT_COLORS, 'split'
     else:
-        processed_base = Path(cv_info['cluster_id_path']).parents[2]
-        categories = metadata_labels(keys, args.unit, args.color_by, processed_base,
+        categories = metadata_labels(keys, args.unit, args.color_by, processed_base_of(cv_info),
                                      args.alphabet, funcs)
         pinned, legend_title = None, args.color_by
 
