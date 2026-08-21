@@ -1,0 +1,33 @@
+# STATUS: experimental -- as flu_ha_na_cc_nt_cds_cm0_h3n2, but negatives drawn inside each CC.
+# Exp 4 of docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md.
+#
+# Why: 2D-CD routes positives so no cluster is shared between splits, but `within_fold` draws
+# negatives at random inside a split, ignoring CC membership. So whether a negative is within-CC
+# (a recombination of similar sequences) or cross-CC (the cluster pairing alone predicts the label)
+# is decided by which CCs land in that fold's test set: 93.4% / 41.4% / 18.7% within-CC across the
+# three folds. The false-positive rate tracks that (91.4% / 40.7% / 29.9%), and AUC-ROC splits
+# 0.91-0.99 on cross-CC negatives against 0.51-0.71 on within-CC ones -- so the three folds measure
+# three different tasks. `within_cc` draws every negative inside one CC, so they measure one.
+#
+# The three settings below go together:
+#   - negative_scope: within_cc -- the point of the experiment.
+#   - membership_path -- within_cc needs to know which isolate carries which sequence, which lives
+#     in the membership table, not in the pair rows. It must be pinned: cluster ids are unique
+#     across slots (HA_123 vs NA_45) but NOT across cluster sets, so HA_0 means different sequences
+#     in clusters_nt_cds_cm0 than in clusters_nt_cds_cm0_h3n2. The wrong table would join cleanly
+#     and build pools from the wrong sequences.
+#   - drop_negative_infeasible_ccs: true -- a CC needs >=2 pairs to yield a within-CC negative. The
+#     parent sets false, justified there by within_fold giving singleton CCs cross-CC negatives;
+#     that no longer holds. Costs 493 of 786 CCs but only 1.9% of pairs.
+#
+# Watch k=3 feasibility: dropping those CCs lifts the edge-cut floor from 32.3% to ~32.9% against
+# the 33.3% k=3 needs. Read max_balanced_k / floor_frac_joined from cc_summary.json before training.
+defaults:
+  - flu_ha_na_cc_nt_cds_cm0_h3n2
+  - _self_
+
+dataset:
+  split_strategy:
+    negative_scope: within_cc
+    drop_negative_infeasible_ccs: true
+    membership_path: data/processed/flu/July_2025/cluster_membership/cluster_memb_nt_cds_cm0_h3n2.parquet
