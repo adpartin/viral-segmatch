@@ -1,0 +1,39 @@
+# STATUS: experimental -- HA/NA on H3N2, train on 2015-2024 and test on 2025.
+# Isolates the temporal factor that the 2D-CD folds confound. Routing whole connected components
+# also routes time, because components are year-concentrated: on cm0_h3n2 t099 fold_0 trains at a
+# median year of 2017 (14.5% >= 2021) and tests on 2024 (97.3%), while its random arm sits at ~42%
+# on both sides. Holding negative composition fixed, fold_0 scored 0.5403 INSIDE its training year
+# range and 0.4935 outside, so time alone did not explain its collapse -- but there the held-out
+# component was novel too. Here the split is temporal ONLY, so a good score means forward
+# extrapolation is easy and fold_0's failure is about component novelty, and a poor score puts
+# time back in play.
+#
+# Population is H3N2 across all hosts, matching flu_ha_na_cc_nt_cds_cm0_h3n2 so the two are
+# comparable; `metadata_holdout` carries just the year cut.
+#
+# Two constraints the v2 validator enforces (dataset_segment_pairs_v2.py:3178-3191), both of which
+# this design needs anyway: metadata_holdout is single-split only (n_folds must be null), and it
+# requires split_strategy.mode=random -- seq_disjoint / cluster_disjoint do their own routing and
+# cannot be combined with it. So there is no fold-to-fold variance here, only one split.
+# Built by src/datasets/dataset_segment_pairs.py (dispatches to v2).
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  n_folds: null                 # required by the metadata_holdout dispatch
+  neg_to_pos_ratio: 1.0
+  generate_visualizations: false
+  hn_subtype: [H3N2]            # population filter, applied before the holdout split
+  metadata_holdout:
+    train: {year_range: [2015, 2024]}
+    test: {year: [2025]}
+    val: null                   # carved from the train pool at val_ratio, seeded
+  split_strategy:
+    mode: random                # required by the metadata_holdout dispatch
+    pair_key_alphabet: nt_cds
+    cds_final_path: data/processed/flu/July_2025/cds_dna_final.parquet
+
+kmer:
+  alphabet: nt_cds
+  k: 6
