@@ -1,0 +1,48 @@
+# STATUS: experimental -- PB2-PB1 on H3N2 isolates collected in 2024, 4-fold random-split CV.
+# One point of the H3N2 single-year sweep; see flu_ha_na_h3n2_2024_random_cv4 for the design notes
+# this bundle follows. 4,180 positive pairs from 5,482 isolates (76% survive pair_key dedup) -- more than HA-NA at the same year (3,723), the polymerase segments carrying more distinct sequences.
+#
+# Random split, not 2D-CD: a cluster-disjoint k-fold needs the heaviest single-side cluster's pair
+# mass <= 1/k, and on a single-year H3N2 population one cluster carries almost everything (2024
+# HA-NA: 94.6% at t099, max_balanced_k=1). A random split has no such constraint. It measures
+# whether the model can match PB2-PB1 segments when it HAS seen the clusters -- not the
+# cluster-disjoint question in docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md.
+#
+# `negative_scope: within_fold` uses the same negative primitive as the 2D-CD runs
+# (`dataset_pairs_cc.within_fold_negatives`), so scores are comparable to those arms rather than to
+# the coverage-first sampler's output. Read the realised within-CC share off
+# cc_nt_cds_cm0_h3n2_2024/PB2-PB1/tXXX/ rather than assuming it.
+#
+# `training.interaction: concat` is declared rather than left to a CLI override: flu_ha_na sets
+# 'unit_diff + prod' for its own k-mer sweep, and every H3N2 result to date was produced with
+# concat. Declaring it keeps the run reproducible from the bundle alone (same reasoning as
+# flu_ha_na_cc_nt_cds_cm0).
+#
+# Path: dataset_segment_pairs.py -> v2 generate_all_cv_folds_v2 (KFold over unique isolates, so the
+# 4 test sets are disjoint). mode: random is required -- the v2 validator rejects seq_disjoint
+# (flu_ha_na's default) with n_folds > 1.
+defaults:
+  - flu_ha_na
+  - _self_
+
+dataset:
+  n_folds: 4
+  neg_to_pos_ratio: 1.0         # matches the 2D-CD runs
+  hn_subtype: [H3N2]
+  year: [2024]
+  generate_visualizations: false
+  schema_pair:
+    - 'RNA-dependent RNA polymerase PB2 subunit'
+    - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'
+  split_strategy:
+    mode: random
+    negative_scope: within_fold
+    pair_key_alphabet: nt_cds
+    cds_final_path: data/processed/flu/July_2025/cds_dna_final.parquet
+
+kmer:
+  alphabet: nt_cds
+  k: 6
+
+training:
+  interaction: concat
