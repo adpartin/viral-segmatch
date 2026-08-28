@@ -1,0 +1,26 @@
+# STATUS: experimental -- HA/NA 2D-CD on H3N2 isolates collected in 2024, at t099/t098.
+# Narrows flu_ha_na_cc_nt_cds_cm0_h3n2 by one more axis (year), the variant Jim asked for after
+# the within-CC result in docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md.
+#
+# Clusters are built from H3N2 + 2024 isolates ONLY (clusters_nt_cds_cm0_h3n2_2024, via
+# `build_clusters.py --hn_subtype H3N2 --year 2024`), not by filtering a broader cluster set
+# afterwards -- set-cover picks different representatives once the sequence set changes, so the
+# two give different partitions at every threshold.
+#
+# `dataset.hn_subtype` + `dataset.year` narrow the pair universe to the same population the
+# clusters were built from; `build_frontend` applies both, and both are part of the universe
+# cache key (`build_cc_structure._FILTER_KEYS`).
+#
+# n_folds is inherited (3) and NOT yet validated against this cluster set's floor. The single-year
+# filter collapses the clusters hard -- at t099 one HA cluster holds 84.6% of unique HA sequences
+# and one NA cluster 92.9% -- so the pair-mass floor may put max_balanced_k below 3. Read
+# cc_nt_cds_cm0_h3n2_2024/HA-NA/tXXX/cc_summary.json (`floor_frac_joined`, `max_balanced_k`)
+# before building a dataset from this bundle.
+defaults:
+  - flu_ha_na_cc_nt_cds_cm0_h3n2
+  - _self_
+
+dataset:
+  year: [2024]
+  split_strategy:
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds_cm0_h3n2_2024/t099/combined_cluster.parquet

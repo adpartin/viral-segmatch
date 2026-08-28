@@ -1,0 +1,19 @@
+# STATUS: experimental -- CC structure for HA/NA on H3N2 isolates collected in 2025.
+# Exists to produce cc_nt_cds_cm0_h3n2_2025/HA-NA/tXXX/ (the pair-mass floor in cc_summary.json,
+# and the CC composition the within-CC negative share is read off). It does NOT build a dataset:
+# the training run for this year is flu_ha_na_h3n2_2025_random_cv4 (random split, k=4).
+#
+# Clusters come from H3N2 + 2025 isolates only (clusters_nt_cds_cm0_h3n2_2025, via
+# `build_clusters.py --hn_subtype H3N2 --year 2025`), not by filtering a broader cluster set --
+# set-cover picks different representatives once the sequence set changes.
+#
+# n_folds is inherited and is not meaningful here; read `max_balanced_k` out of cc_summary.json
+# instead. On H3N2+2024 it came out at 1 for both thresholds.
+defaults:
+  - flu_ha_na_cc_nt_cds_cm0_h3n2
+  - _self_
+
+dataset:
+  year: [2025]
+  split_strategy:
+    cluster_id_path: data/processed/flu/July_2025/clusters_nt_cds_cm0_h3n2_2025/t099/combined_cluster.parquet

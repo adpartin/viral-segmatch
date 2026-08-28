@@ -1,0 +1,18 @@
+# STATUS: experimental -- CC structure for PB2/PB1 on H3N2 isolates collected in 2024.
+# The segment-pair counterpart of flu_ha_na_cc_nt_cds_cm0_h3n2_2024: same population, same cluster
+# root, different slot pair. Produces cc_nt_cds_cm0_h3n2_2024/PB2-PB1/tXXX/. It does NOT build a
+# dataset -- the training run is flu_pb2_pb1_h3n2_2024_random_cv4 (random split, k=4).
+#
+# PB2/PB1 clusters live in the SAME root as HA/NA (clusters_nt_cds_cm0_h3n2_2024): the FASTA and
+# cluster parquets are per-function, and `verify_out_root_filters` compares isolate filters, which
+# match. `combined_cluster.parquet` there carries all four functions.
+#
+# Slot order is semantic: PB2 is slot a, PB1 is slot b.
+defaults:
+  - flu_ha_na_cc_nt_cds_cm0_h3n2_2024
+  - _self_
+
+dataset:
+  schema_pair:
+    - 'RNA-dependent RNA polymerase PB2 subunit'
+    - 'RNA-dependent RNA polymerase catalytic core PB1 subunit'
