@@ -748,6 +748,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 on_shortfall=ON_SHORTFALL,
                 regime_aware_coverage=REGIME_AWARE_COVERAGE,
                 pair_key_alphabet=PAIR_KEY_ALPHABET,
+                negative_scope=NEGATIVE_SCOPE,
             )
 
         # Stream each fold to disk as it's produced (reduces peak memory; lets

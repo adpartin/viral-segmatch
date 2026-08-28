@@ -1697,11 +1697,15 @@ def split_dataset_v2(
         from src.datasets.dataset_pairs_cc import within_fold_negatives
         # Enrich each split's negatives from a df restricted to that split's isolates
         # so the synthesized assembly_ids stay in-split (satisfies the isolate-disjoint
-        # tripwire below). Cross-split neg pair_key collisions are impossible: the
-        # constrained slot's cluster_ids -- hence its hashes -- are disjoint across
-        # splits, so no forbidden_pair_keys threading is needed.
+        # tripwire below). One `seen` set spans the three splits, exactly as
+        # `make_folds_within_fold` does in the CC builder: under mode='random' the splits
+        # share a sequence pool, so two splits can otherwise draw the same negative pair_key
+        # and trip the cross-split pair_key check below. Under single_slot cluster_disjoint
+        # the constrained slot's cluster_ids -- hence its hashes -- are already disjoint
+        # across splits, so sharing the set changes nothing there.
         print("\nCreate negative pairs (within_fold, ratio-driven, no coverage/regime)...", flush=True)
         _wf_hash = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash
+        _wf_seen: set = set()
         _wf_neg = {}
         for _si, (_nm, _sp) in enumerate(
             (('train', train_pos), ('val', val_pos), ('test', test_pos))
@@ -1711,7 +1715,7 @@ def split_dataset_v2(
             _wf_neg[_nm] = within_fold_negatives(
                 _sp, cooccur_pairs, _df_split, schema_pair,
                 neg_to_pos_ratio=neg_to_pos_ratio, seed=seed + _si,
-                hash_col=_wf_hash,
+                hash_col=_wf_hash, seen=_wf_seen,
             )
         train_neg, val_neg, test_neg = _wf_neg['train'], _wf_neg['val'], _wf_neg['test']
         train_reject_stats = _within_fold_reject_stats(len(train_pos), len(train_neg), neg_to_pos_ratio)
@@ -2074,10 +2078,18 @@ def generate_all_cv_folds_v2(
     on_shortfall: str = 'redistribute',
     regime_aware_coverage: bool = False,
     pair_key_alphabet: str = 'aa',
+    negative_scope: str = 'coverage',
     ) -> Iterator[dict]:
     """Generate all N CV fold splits, yielding each as a dict containing
     fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats, and
     exposure_tables.
+
+    Folds are KFold over unique isolates, so the k test sets are disjoint and each
+    fold's split is a random partition of the population (no sequence, cluster or CC
+    constraint). `negative_scope` selects the sampler `split_dataset_v2` uses:
+    'coverage' (the coverage-first default) or 'within_fold' (ratio-driven random
+    pairing inside each split, the same primitive the 2D-CD builder uses -- pass it to
+    make a random-split run comparable to a 2D-CD run).
 
     v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False,
     canonicalize_pair_orientation_enabled=False, hard_partition_isolates=True.
@@ -2140,6 +2152,7 @@ def generate_all_cv_folds_v2(
             cooccur_pairs=cooccur_pairs,
             cooccur_stats=cooccur_stats,
             pair_key_alphabet=pair_key_alphabet,
+            negative_scope=negative_scope,
         )
         yield {
             'fold_id': fold_i,
