@@ -26,10 +26,15 @@ Artifact layout (under --out_root):
     t<NN>/runtime.json                  per-threshold build config + timing rollup
     cluster_stats.csv                   per-(function, threshold) size stats (merged across runs)
 
-`--hn_subtype` clusters only the isolates of one subtype. Both cached artifacts above
-(`fasta/`, `t<NN>/*_cluster.parquet`) are reused by path and neither name records the subtype,
-so a filtered build needs its own `--out_root`; `verify_out_root_subtype` reads the subtype back
-from `t<NN>/runtime.json` and refuses to mix two builds in one root.
+`--hn_subtype`, `--year` and `--year_range` cluster only the isolates matching them. `--year` is
+set membership (`--year 2022 2024` = exactly those two years), `--year_range` an inclusive
+[min, max] span; the two are mutually exclusive, matching `dataset.year` / `dataset.year_range`
+in conf. Both cached artifacts above (`fasta/`, `t<NN>/*_cluster.parquet`) are reused by path and
+neither name records the filters, so a filtered build needs its own `--out_root`;
+`verify_out_root_filters` reads the filters back from `t<NN>/runtime.json` and refuses to mix two
+builds in one root. Root naming convention: append the filters to the unfiltered root name --
+`clusters_nt_cds_cm0_h3n2_2024` for `--hn_subtype H3N2 --year 2024`,
+`clusters_nt_cds_cm0_h3n2_2023_2025` for `--hn_subtype H3N2 --year_range 2023 2025`.
 
 CLI:
     python -m src.preprocess.build_clusters --method linclust \\
@@ -40,6 +45,10 @@ CLI:
         --cds_dna_final data/processed/flu/July_2025/cds_dna_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_nt_cds_cm0_h3n2 \\
         --thresholds 0.99 0.98 0.97 --threads 64
+    python -m src.preprocess.build_clusters --method linclust --hn_subtype H3N2 --year 2024 \\
+        --cds_dna_final data/processed/flu/July_2025/cds_dna_final.parquet \\
+        --out_root      data/processed/flu/July_2025/clusters_nt_cds_cm0_h3n2_2024 \\
+        --thresholds 0.99 0.98 --functions HA NA --threads 64
     python -m src.preprocess.build_clusters --method search \\
         --protein_final data/processed/flu/July_2025/protein_final.parquet \\
         --out_root      data/processed/flu/July_2025/clusters_aa_ood \\
@@ -220,22 +229,49 @@ def add_input_args(p: argparse.ArgumentParser) -> None:
                    help='[builder] sequence alphabet (default: inferred from the input file)')
 
 
-def verify_out_root_subtype(out_root: Path, hn_subtype) -> None:
-    """Exit if `out_root` already holds clusters built with a different `--hn_subtype`.
+def isolate_filter_key(hn_subtype, year, year_range) -> tuple:
+    """Pack the three isolate filters into one hashable, comparable key.
+
+    `year` and `year_range` arrive as lists (from argparse and from JSON), which cannot go in
+    a set, so both are normalized to tuples. The `year` tuple is sorted and deduped because
+    that axis is set membership, where order and repeats carry no meaning; `year_range` is an
+    ordered [min, max] pair and is left as given.
+
+    Args:
+        hn_subtype: subtype string, or None for no subtype filter.
+        year: years to keep (set membership), or None for no year filter.
+        year_range: [min, max] inclusive span, or None for no range filter.
+
+    Returns:
+        `(hn_subtype, years_or_None, span_or_None)`.
+    """
+    years = tuple(sorted({int(y) for y in year})) if year is not None else None
+    span = tuple(int(y) for y in year_range) if year_range is not None else None
+    return (hn_subtype, years, span)
+
+
+def verify_out_root_filters(out_root: Path, requested: tuple) -> None:
+    """Exit if `out_root` already holds clusters built with different isolate filters.
 
     Both cached artifacts are reused by path alone: `fasta/<short>.fasta` (shared across
-    thresholds) and `tXXX/<short>_cluster.parquet`. Neither name records the subtype, so a
-    filtered build aimed at an unfiltered root would silently reuse the unfiltered sequences,
-    or with `--force` overwrite them. Every dataset resolves its clusters through this path,
-    so a mismatch stops the run instead of rebuilding over it.
+    thresholds) and `tXXX/<short>_cluster.parquet`. Neither name records which isolates the
+    sequences came from, so a filtered build aimed at an unfiltered root would silently reuse
+    the unfiltered sequences, or with `--force` overwrite them. Every dataset resolves its
+    clusters through this path, so a mismatch stops the run instead of rebuilding over it.
+
+    The comparison is on the packed `isolate_filter_key`, so `--year 2024` and
+    `--year_range 2024 2024` count as different requests even though they select the same
+    isolates; re-run with the flag the root's `runtime.json` records. A root built before
+    `--year` existed has no `year` key, which reads back as no year filter, so it still
+    matches an unfiltered request.
 
     Args:
         out_root: cluster root about to be written.
-        hn_subtype: subtype requested for this run, or None for no filter.
+        requested: `isolate_filter_key` of the filters this run requests.
 
     Raises:
-        SystemExit: when the root's recorded subtype differs, or when a cached FASTA has no
-            `runtime.json` to attribute it to a subtype.
+        SystemExit: when the root's recorded filters differ, or when a cached FASTA has no
+            `runtime.json` to attribute it to a filter set.
     """
     runtimes = sorted(out_root.glob('t*/runtime.json'))
     if not runtimes:
@@ -243,38 +279,51 @@ def verify_out_root_subtype(out_root: Path, hn_subtype) -> None:
         if fasta_dir.is_dir() and any(fasta_dir.iterdir()):
             raise SystemExit(
                 f"ERROR: {out_root} holds a cached fasta/ but no tXXX/runtime.json, so the "
-                f"subtype its sequences came from is unknown. Delete fasta/ or pick another "
-                f"--out_root.")
+                f"isolate filters its sequences came from are unknown. Delete fasta/ or pick "
+                f"another --out_root.")
         return
-    built_with = {json.loads(p.read_text()).get('hn_subtype') for p in runtimes}
-    if built_with != {hn_subtype}:
+    built_with = set()
+    for path in runtimes:
+        record = json.loads(path.read_text())
+        built_with.add(isolate_filter_key(
+            record.get('hn_subtype'), record.get('year'), record.get('year_range')))
+    if built_with != {requested}:
         raise SystemExit(
-            f"ERROR: {out_root} was built with hn_subtype="
-            f"{sorted(built_with, key=str)}, but this run requests {hn_subtype!r}. "
+            f"ERROR: {out_root} was built with (hn_subtype, year, year_range)="
+            f"{sorted(built_with, key=str)}, but this run requests {requested}. "
             f"Clusters are reused by path, so pick another --out_root.")
 
 
-def filter_records_by_subtype(df: pd.DataFrame, hn_subtype: str) -> pd.DataFrame:
-    """Keep the records whose isolate carries `hn_subtype`.
+def filter_records_by_metadata(df: pd.DataFrame, *, hn_subtype=None, year=None,
+                               year_range=None) -> pd.DataFrame:
+    """Keep the records whose isolate matches every filter given.
 
     The filter is decided on a one-row-per-isolate frame rather than on `df` itself:
     `filter_by_metadata` already selects at isolate level, and `df` carries the sequence
     column (868,240 rows for nt_cds), which a metadata merge would copy. Clustering then
     dedups by sequence hash, so a sequence survives when ANY isolate carrying it matches.
 
+    Isolates with no recorded year are dropped by either year filter: the metadata `year`
+    column is nullable, and neither set membership nor range matching holds for a missing
+    value. `filter_by_metadata` prints the per-axis isolate counts; this function prints the
+    record rollup.
+
     Args:
         df: record frame with an `assembly_id` column, from `load_sequence_frame`.
-        hn_subtype: the subtype to keep, e.g. 'H3N2'.
+        hn_subtype: subtype to keep, e.g. 'H3N2'; None for no subtype filter.
+        year: years to keep (set membership), e.g. [2024]; None for no year filter.
+        year_range: [min, max] inclusive year span; None for no range filter. Mutually
+            exclusive with `year` -- `filter_by_metadata` raises when both are set.
 
     Returns:
         `df` restricted to records from matching isolates, index reset.
     """
     isolates = attach_isolate_metadata(df[['assembly_id']].drop_duplicates(),
                                        project_root=PROJECT_ROOT)
-    kept = filter_by_metadata(isolates, hn_subtype=hn_subtype)
+    kept = filter_by_metadata(isolates, hn_subtype=hn_subtype, year=year, year_range=year_range)
     n_before = len(df)
     filtered = df[df['assembly_id'].isin(set(kept['assembly_id']))].reset_index(drop=True)
-    print(f"  hn_subtype={hn_subtype}: {n_before:,} -> {len(filtered):,} records "
+    print(f"  isolate filters: {n_before:,} -> {len(filtered):,} records "
           f"from {len(kept):,} isolates")
     return filtered
 
@@ -284,11 +333,12 @@ def load_and_filter(args) -> tuple:
 
     Args:
         args: parsed CLI namespace; reads the sequence-source group, `alphabet`,
-            `function_source`, `hn_subtype`, `out_root` and `functions`.
+            `function_source`, `hn_subtype`, `year`, `year_range`, `out_root` and `functions`.
 
     Returns:
-        `(df, alphabet, functions)` -- the loaded frame (subtype-filtered when
-        `--hn_subtype` is set), the resolved alphabet, and the short names present in it.
+        `(df, alphabet, functions)` -- the loaded frame (isolate-filtered when any of
+        `--hn_subtype` / `--year` / `--year_range` is set), the resolved alphabet, and the
+        short names present in it.
     """
     df, alphabet = load_sequence_frame(
         protein_final=args.protein_final,
@@ -297,8 +347,11 @@ def load_and_filter(args) -> tuple:
         alphabet=args.alphabet,
         function_source=args.function_source,
     )
-    if args.hn_subtype:
-        df = filter_records_by_subtype(df, args.hn_subtype)
+    # Guarded rather than called unconditionally: the filter reads the metadata CSV and runs an
+    # isin over every record, which is wasted work when no filter is set.
+    if args.hn_subtype or args.year or args.year_range:
+        df = filter_records_by_metadata(df, hn_subtype=args.hn_subtype, year=args.year,
+                                        year_range=args.year_range)
     Path(args.out_root).mkdir(parents=True, exist_ok=True)
     functions, skipped = filter_present_functions(df, args.functions, SHORT_TO_FUNCTION)
     if skipped:
@@ -350,6 +403,17 @@ def main(default_method=None) -> None:
     p.add_argument('--hn_subtype', default=None,
                    help='[builder] cluster only isolates of this subtype, e.g. H3N2 '
                         '(default: all). Needs its own --out_root')
+    # Two flags, not one that switches on argument count: `year` means set membership and
+    # `year_range` an inclusive span everywhere else in the repo (conf/dataset/default.yaml,
+    # filter_by_metadata), and one flag reading `2023 2025` as a span would contradict that.
+    year_axis = p.add_mutually_exclusive_group()
+    year_axis.add_argument('--year', nargs='+', type=int, default=None,
+                           help='[builder] cluster only isolates from these years, as set '
+                                'membership: 2024, or 2022 2024 for exactly those two '
+                                '(default: all). Needs its own --out_root')
+    year_axis.add_argument('--year_range', nargs=2, type=int, metavar=('MIN', 'MAX'), default=None,
+                           help='[builder] cluster only isolates in this inclusive year span, '
+                                'e.g. 2023 2025 (default: all). Needs its own --out_root')
     p.add_argument('--threads', type=int, default=16, help='[mmseqs2: --threads]')
     p.add_argument('--mmseqs_bin', help='[builder] mmseqs binary (default: $MMSEQS_BIN, then "mmseqs" on PATH)')
     p.add_argument('--force', action='store_true', help='[builder] recompute even if cached')
@@ -407,10 +471,17 @@ def main(default_method=None) -> None:
         raise SystemExit(f"--thresholds collide on directory labels {sorted(set(labels))}; "
                          "use distinct thresholds (percent granularity).")
 
-    # Before anything is loaded or reused: this root's cached artifacts must come from the
-    # same --hn_subtype, since neither their names nor their contents record it.
+    # filter_by_metadata rejects an inverted span too, but only after the sequence frame is
+    # loaded; catching it here keeps a typo cheap.
+    if args.year_range and args.year_range[0] > args.year_range[1]:
+        raise SystemExit(f"--year_range min ({args.year_range[0]}) is greater than max "
+                         f"({args.year_range[1]}).")
+
+    # Before anything is loaded or reused: this root's cached artifacts must come from the same
+    # isolate filters, since neither their names nor their contents record them.
     out_root = Path(args.out_root)
-    verify_out_root_subtype(out_root, args.hn_subtype)
+    requested_filters = isolate_filter_key(args.hn_subtype, args.year, args.year_range)
+    verify_out_root_filters(out_root, requested_filters)
 
     df, alphabet, functions = load_and_filter(args)
 
@@ -438,9 +509,11 @@ def main(default_method=None) -> None:
             'alphabet': alphabet, 'method': args.method, 'threshold': float(threshold),
             'functions': list(functions), 'coverage': args.coverage,
             'sensitivity': args.sensitivity, 'max_seqs': args.max_seqs, 'threads': args.threads,
-            # Read back by verify_out_root_subtype: the only record of which isolates the
+            # Read back by verify_out_root_filters: the only record of which isolates the
             # sequences in this root came from.
             'hn_subtype': args.hn_subtype,
+            'year': args.year,
+            'year_range': args.year_range,
         }
         if args.method == 'search':
             config.update({'prefilter_mode': prefilter_mode, 'exhaustive': args.exhaustive, 'gpu': args.gpu})
