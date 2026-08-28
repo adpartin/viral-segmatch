@@ -32,11 +32,14 @@ change and aren't derivable from code. This file does NOT duplicate:
   `cm1` = the same at `--cluster-mode 1`, `ood` = `easy-search` all-vs-all + union-find. All at
   coverage 0.8, thresholds t099..t095. No `clusters_nt_ctg` root has been built. Binary via the
   dedicated `mmseqs2` env, resolved through `MMSEQS_BIN` / `--mmseqs_bin` / PATH.
-  `--hn_subtype` clusters one subtype only and needs its own `--out_root`
-  (`verify_out_root_subtype` refuses to mix two filters in one root, since `fasta/` and the
-  cluster parquets are reused by path). Built so far: `clusters_nt_cds_cm0_h3n2` — HA + NA at
-  t099/t098/t097. Re-clustering a subtype is NOT the same as filtering global clusters
-  afterwards: measured on H3N2, the partition differs at every threshold (t098 NA: 80% of
+  Isolate filters `--hn_subtype` / `--year` (set membership) / `--year_range` (inclusive span,
+  mutually exclusive with `--year`) each need their own `--out_root`; name it by appending the
+  filters (`clusters_nt_cds_cm0_h3n2_2024`, `clusters_nt_cds_cm0_h3n2_2023_2025`).
+  `verify_out_root_filters` refuses to mix two filter sets in one root, since `fasta/` and the
+  cluster parquets are reused by path; it reads them back from `tXXX/runtime.json`, where a root
+  predating `--year` has no `year` key and so reads as unfiltered on that axis. Built so far:
+  `clusters_nt_cds_cm0_h3n2` — HA + NA at t099/t098/t097. Re-clustering a subtype is NOT the
+  same as filtering global clusters afterwards: measured on H3N2, the partition differs at every threshold (t098 NA: 80% of
   hashes sit in a cluster that re-partitions), because set-cover picks different
   representatives once the sequence set changes.
 - **pair_key + axis consistency**: `split_strategy.pair_key_alphabet` ∈ `{aa, nt_cds, nt_ctg}` (`aa`
@@ -92,9 +95,14 @@ change and aren't derivable from code. This file does NOT duplicate:
   the multi-cluster tangle is an avian mix. Never call a 95%-nt cluster a "lineage".
 - **CV output shape**: nested `fold_k/` dirs + `cv_summary.*`; launchers `scripts/run_cv_lambda.py`
   and `scripts/run_cv_polaris.pbs`.
-- **Temporal holdout**: implemented. Known issue — pair_key dedup removes ~42% of val/test positives
-  (the same strains recur across years), creating label imbalance; disable dedup for temporal mode
-  before publication. K-mer beats ESM-2 here (AUC 0.941 vs 0.891).
+- **Temporal holdout**: implemented, via `dataset.metadata_holdout`; `year` and `year_range` are both
+  supported per slot (`_pair_helpers._HOLDOUT_AXES`), so train=[T] / test=[T+1] needs no code. The
+  validator forces `n_folds: null` and `split_strategy.mode: random`, so a temporal run is one split
+  with no fold variance and is NOT cluster-disjoint. Cross-year pair_key dedup is a small effect on
+  nt_cds pair_keys, not the ~42% an earlier note claimed: measured 2026-08-27 on H3N2 HA-NA,
+  2015-2024 -> 2025 keeps 2,600 of the 2,663 2025 positives (2.4% lost) at 1.11 neg:pos, and only 139
+  pair_keys (5.2% of the 2025 universe) occur in both spans. On aa pair_keys recurrence is ~2x higher
+  (10.5%), which may be what the old figure described. K-mer beats ESM-2 here (AUC 0.941 vs 0.891).
 - **Plot helpers**: don't split by slot when the data is per-pair.
 
 ## Work In Flight
