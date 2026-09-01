@@ -15,8 +15,10 @@ Naming convention (glossary `aa/nt vs protein/DNA`): the alphabet values
 (`aa`/`nt_cds`/`nt_ctg`) are alphabet/residue level — used for the enum, cluster
 dirs, and k-mer cache names. The molecule names (`prot`/`cds_dna`/`ctg_dna`) are
 molecule/sequence level — used for sequence columns, hashes, and file basenames.
-All three hashes are md5; the ESM-2 cache key is a separate `sha1(prot_seq)`
-namespace and is NOT modelled here. File *directories* (`data_version`/virus
+All three hashes are md5; the ESM-2 cache key is a separate `sha1(esm2_ready_seq)`
+namespace (the cleaned column, not `prot_seq` — chosen at
+`compute_esm2_embeddings.py:55`, hashed at `esm2_utils.py:643`) and is NOT
+modelled here. File *directories* (`data_version`/virus
 roots) live in `conf/paths`; this module owns only the *names* (basenames + columns).
 """
 from __future__ import annotations
