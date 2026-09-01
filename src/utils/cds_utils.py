@@ -1,13 +1,11 @@
-"""CDS extraction utilities.
+"""CDS extraction utils.
 
 Reconstructs per-row coding DNA (CDS) from the genome and protein metadata
 tables produced by Stage 1. The recipe is documented in
 `docs/methods/gto_format_reference.md` § 9 and § 5 (`location` schema).
 
 Used by `src/preprocess/extract_cds_dna.py` (the Stage 1.5 driver that
-emits `cds_dna_final.parquet`) and by `src/utils/clustering_utils.py` for the
-nt-level cluster_disjoint follow-up (Experiment B-nt; see
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt).
+emits `cds_dna_final.parquet`).
 
 Conventions:
 - 1-based inclusive starts (GTO/GenBank) are translated to 0-based half-open
@@ -25,6 +23,12 @@ import ast
 import hashlib
 
 
+# Base -> its complement, used by `reverse_complement` for a minus-strand CDS. Case is
+# preserved, so a lowercase record stays lowercase. IUPAC ambiguity codes are included because
+# a record may contain them: R (A or G) complements to Y (C or T), K (G or T) to M (A or C),
+# B (C/G/T) to V (A/C/G), D (A/G/T) to H (A/C/T); N, S and W are their own complements.
+# `U` maps to `A`, so an RNA-spelled record complements into DNA and does not round-trip back
+# to `U` -- that normalisation is intended.
 _COMPLEMENT = {
     'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G',
     'a': 't', 't': 'a', 'g': 'c', 'c': 'g',
@@ -92,7 +96,7 @@ def extract_cds_dna(contig_dna: str, location: object) -> str:
     or asks for a slice that goes off the end of `contig_dna`.
     """
     exons = parse_location(location)
-    strands = {e[2] for e in exons}
+    strands = {ex[2] for ex in exons}
     if len(strands) != 1:
         raise ValueError(f"mixed strands within one location: {exons}")
     strand = strands.pop()
@@ -109,7 +113,11 @@ def extract_cds_dna(contig_dna: str, location: object) -> str:
         cds_dna = reverse_complement(cds_dna)
     return cds_dna
 
-
+# NCBI translation table 1, the standard genetic code -- which is the one influenza uses, since
+# it is translated by host ribosomes. Uppercase DNA triplet -> one-letter amino acid, with the
+# three stop codons (TAA, TAG, TGA) mapping to '*'. All 64 ACGT triplets are present, so a
+# lookup that misses means the triplet held a character outside ACGT; `_translate_codon` then
+# falls through to the IUPAC expansion below.
 _CODON_TABLE_1 = {
     'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
     'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
@@ -129,7 +137,10 @@ _CODON_TABLE_1 = {
     'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G',
 }
 
-
+# IUPAC nucleotide code -> the concrete bases it stands for. `_translate_codon` uses this to
+# expand an ambiguous codon into every triplet it could be: if all of them give the same amino
+# acid the residue is unambiguous despite the ambiguity (TAR is TAA or TAG, both stops), and
+# otherwise the residue is 'X'. `U` expands to `T` so RNA spelling translates like DNA.
 _IUPAC_EXPAND = {
     'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'U': 'T',
     'R': 'AG', 'Y': 'CT', 'S': 'CG', 'W': 'AT', 'K': 'GT', 'M': 'AC',
