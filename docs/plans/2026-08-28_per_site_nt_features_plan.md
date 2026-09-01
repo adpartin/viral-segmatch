@@ -20,10 +20,52 @@ choices, and we follow that split:
 
 - `feature_source: site` — one feature per position. A position in an alignment is a **site**;
   "per-site" is the standard term (also used as "column" in the MSA literature).
-- `site.encoding: ordinal | onehot` — how each base is coded. `ordinal` maps A/C/G/T to integers,
-  `onehot` gives four binary features per site. Both names are standard.
+- `site.unit: nt | codon | aa` — what one site is.
+- `site.encoding: ordinal | onehot` — how each site's value is coded. Both names are standard.
 
-Add both to `docs/methods/glossary.md` before using them anywhere else.
+The config block is `site:` at top level, matching the existing `kmer:` block that goes with
+`feature_source: kmer`. Same word in both places.
+
+Add the terms to `docs/methods/glossary.md` before using them anywhere else.
+
+### Which unit to use
+
+`codon` and `aa` are the SAME positions, not just the same count: 3 x protein length = CDS length
+exactly (HA 1,701 nt = 567 codons = 567 protein characters; NA 1,410 = 470 = 470). Codon site 200
+and amino-acid site 200 are the same place. Only the value differs — the 3-letter DNA group (64
+possible) or the protein letter it becomes (21). So the choice between them is one thing: **codon
+keeps silent changes, aa discards them.**
+
+| unit | reads | sites per pair | values | ordinal width | one-hot width |
+|---|---|---|---|---|---|
+| `nt` | CDS DNA | 3,111 | 4 | 3,111 | 12,444 |
+| `codon` | CDS DNA | 1,037 | 64 | 1,037 | **66,368** |
+| `aa` | protein | 1,037 | 21 | 1,037 | 21,777 |
+
+(Current k-mer setup is 8,192 wide.) Note codon is narrower than nt only under `ordinal`; under
+`onehot` it is the widest of the three, because each site needs 64 columns.
+
+`nt_ctg` (contig DNA) is not a valid source for any unit: contigs include the untranslated ends and
+vary in length, so positions do not line up. Measured on H3N2 2024 segment 4, contigs span
+1,672-1,762 with the most common length covering 58%, against 99.7% for the CDS.
+
+Order of work: start with `nt` (finest view, and the direct comparison to Jamie's results), then
+add `codon` and `aa` on the same positions. Comparing those two says whether silent changes carry
+any signal, which is nearly free once the machinery exists.
+
+### Codon numbering
+
+Use GenSLM's codon-to-integer map. `genslm_vocab/tokenizer_config.json` has all 64
+codons at ids 33-96, five special tokens (`<cls>` 0, `<pad>` 1, `<eos>` 2, `<unk>` 3, `<mask>` 32),
+tokenizer class `EsmTokenizer`, max length 2,048 tokens. The order is NOT alphabetical — it starts
+GGC, GCC, ATC, GAC and puts the three stops last (93, 95, 96), which looks like frequency order.
+
+For our own models the numbering does not matter, since the column is declared categorical and the
+model treats the values as unordered labels. It matters only if we later feed sequences to GenSLM
+for embeddings, where the ids must be theirs. Adopting their map now avoids
+rebuilding the feature cache later. Two things to confirm against their loader first: whether each
+sequence needs the `<cls>` / `<eos>` wrappers, and whether input must be upper-cased (ours is stored
+lowercase). Length is not a constraint — 567 and 470 codons against GenSLM's 2,048 context window.
 
 ## What we already know (measured 2026-08-28)
 
@@ -54,10 +96,7 @@ stop, so nothing is frameshifted.
 and all three standard stop codons are used. Each segment prefers one stop codon (e.g. M1 is 98%
 `TGA`, PA is 97% `TAG`), so the filter must accept all three.
 
-**Only 8 of the 18 functions in `protein_final` appear in `cds_dna_final`.** The missing ten are
-the spliced, frameshifted and alternative-start products (M2, NEP, M42, PB2-S1, NS3, PA-X,
-PB1-N40, PB1-F2, PA-N155, PA-N182), none of which has one contiguous CDS. HA and NA are both
-present, so this does not block the work, but per-site features can only ever cover those 8.
+**Only 8 of the 18 functions in `protein_final` appear in `cds_dna_final`.** These are the 8 major proteins (one per segment).
 
 ## Design decisions
 
@@ -125,8 +164,8 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    would be high and flat across the whole length. Note this catches wholesale misalignment, not
    one or two shifted sequences — the completeness plus equal-length filter is what rules those
    out, since an internal shift would need an insertion and a deletion that cancel.
-3. **Feature builder.** `src/embeddings/compute_pos_enc_features.py` (rename to match the chosen
-   term), alongside the existing `compute_esm2_embeddings.py` and `compute_kmer_features.py`. Write
+3. **Feature builder.** `src/embeddings/compute_site_features.py`, matching the existing
+   `compute_esm2_embeddings.py` and `compute_kmer_features.py` in that directory. Write
    a cache keyed by `cds_dna_hash`, same pattern as the k-mer cache. Verify a few sequences decode
    back to the original.
 4. **Loader and training.** Add a `site` branch to `src/models/_pair_features.py`, which today
@@ -149,10 +188,17 @@ but a feature set that scores clearly worse is not worth interpreting.
 
 ## Open questions for Jamie
 
-1. Did you filter to complete CDS, or did the GenBank pull already contain only complete records?
-   This is the likeliest reason you saw one length per segment.
-2. Ordinal codes with a random forest treat A/C/G/T as ordered. Did you compare against one-hot?
-3. For masking, did you drop the columns or shuffle them?
+Checked against the 2026-05-12 chat in `notes.md`.
+
+1. **Did you filter to complete CDS, or did your GenBank pull already contain only complete
+   records?** Asked twice, never directly answered. She said "mostly a single length" early and
+   "the single length holds for all segments" later. Our data has 4.7% of NA off-length, nearly all
+   incomplete records — so either the datasets differ or something filtered them. She sampled 300
+   unique sequences per season; that sampling may have picked complete ones.
+2. **Did you compare ordinal codes against one-hot?** Not covered in the chat.
+
+Already answered: masking meant dropping the columns, not shuffling — "I would just exclude those
+features with high importance value".
 
 ## Risks
 
