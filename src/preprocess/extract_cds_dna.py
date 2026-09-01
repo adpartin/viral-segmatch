@@ -1,5 +1,31 @@
 """Stage 1.5: emit `cds_dna_final.parquet` from Stage 1 outputs.
 
+1. The protein record says where in the contig this CDS sits (its coordinates).
+2. The DNA letters are cut out of the contig at those coordinates.
+3. The code translates that DNA and checks it matches the stored protein.
+
+Important flags carried from Stage 1:
+
+- starts_with_m — ATG is the only triplet (i.e., codon) that gives M. So if the
+  protein's first letter is M, the first DNA codon must be ATG. A record that
+  covers the whole CDS starts with M. The ones that don't are records where the
+  sequencing never reached the start. So M is what we expect, not what we always
+  get — which is exactly why it's worth recording.
+
+- has_internal_stop — a stop marker turns up somewhere in the middle instead of
+  only at the end. The record is still full length, so the positions do not
+  shift; what it means is that the read is bad, or that copy of the CDS is
+  broken. The flag is reliable because the translation is compared position by
+  position against the stored protein, so a stop in the middle of the DNA has
+  to show up as a * in the middle of the protein. There are none in this data
+  version: 0 of 868,240 rows.
+
+- has_terminal_stop — measured, not guaranteed. This one is different, and worth
+  knowing. The validation strips a trailing * off both sides before comparing,
+  so it would not notice if one side had a final stop and the other didn't. Here
+  the agreement is empirical: 99.999% across 868,240 rows, with the 6 exceptions
+  being the TAR case where the protein side is the more correct one.
+
 For every selected protein row in `protein_final.csv`, reconstruct the
 coding DNA from `ctg_dna_final.csv` using the `location` field (per
 `docs/methods/gto_format_reference.md` § 9), hash it, and write a
