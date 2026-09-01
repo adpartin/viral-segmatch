@@ -4,10 +4,10 @@
 
 ## Goal
 
-Find out which parts of the sequence drive the match/no-match prediction. K-mer counts throw
-position away, so a k-mer feature importance score cannot be traced back to a place in the CDS.
-Encoding each position as its own feature keeps that link, so feature importance becomes a map
-along the CDS.
+Find out which parts of the sequence the model uses to decide match or no-match. A k-mer count
+records how many times a subsequence occurs but not where, so a k-mer importance score cannot be
+traced back to a place in the CDS. One feature per position keeps the position, so importance can
+be reported per position along the CDS.
 
 Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes.md`, chat of
 2026-05-12), who used the same features with a random forest to predict collection date.
@@ -51,7 +51,7 @@ vary in length, so positions do not line up. Measured on H3N2 2024 segment 4, co
 
 Order of work: start with `nt` (finest view, and the direct comparison to Jamie's results), then
 add `codon` and `aa` on the same positions. Comparing those two says whether silent changes carry
-any signal, which is nearly free once the machinery exists.
+any signal, and needs only a second feature cache once the loader exists.
 
 ### Codon numbering
 
@@ -82,21 +82,19 @@ Counts are unique CDS in H3N2 + 2024 from `cds_dna_final.parquet`.
 length divisible by 3, passes on 100% of rows and so is dropped — see Background.)
 
 The off-length sequences are almost all incomplete records, not real length variation. Of 7
-off-modal HA, none is a complete CDS. Of 114 off-modal NA, only 5 are. The rest are cut off at one
-end (90 NA missing the stop, 17 missing the start). No sequence in either segment has an internal
-stop, so nothing is frameshifted.
+off-modal HA, none is a complete CDS (6 missing the stop, 1 missing both ends). Of 114 off-modal
+NA, only 5 are (90 missing the stop, 17 missing the start, 2 missing both). No sequence in either
+segment has an internal stop, so nothing is frameshifted.
 
 **Filter yield.** Keeping only pairs where both slots are complete and at modal length leaves
 **3,580 of 3,723 positive pairs (96.2%)**.
-
-**Feature width.** 1701 + 1410 = **3,111** features per pair under `ordinal`, **12,444** under
-`onehot`. For comparison the current k-mer setup uses 8,192 (2 x 4096).
 
 **Codons.** Across all 8 proteins in `cds_dna_final`, 98.6-99.8% of unique CDS start with `ATG`,
 and all three standard stop codons are used. Each segment prefers one stop codon (e.g. M1 is 98%
 `TGA`, PA is 97% `TAG`), so the filter must accept all three.
 
-**Only 8 of the 18 functions in `protein_final` appear in `cds_dna_final`.** These are the 8 major proteins (one per segment).
+**Only 8 of the 18 functions in `protein_final` appear in `cds_dna_final`** — the 8 majors, one per
+segment.
 
 ## Design decisions
 
@@ -111,10 +109,11 @@ must be told. LightGBM supports this through `categorical_feature`; sklearn's ra
 not, which is why Jamie's ordinal codes were treated as ordered. Keep `onehot` as the fallback if
 declared categoricals underperform.
 
-**Reuse the split, not the dataset.** The 2024 folds
-(`dataset_ha_na_h3n2_2024_random_cv4`) were built before the completeness filter existed, so they
-contain pairs this plan drops. Rebuild the dataset with the filter, then re-run the k-mer baseline
-on the new folds so both feature types see the same population. That re-run is 4 x ~35 s.
+**Rebuild the dataset, then re-run the k-mer baseline on it.** The 2024 folds
+(`dataset_ha_na_h3n2_2024_random_cv4`) were built before the filter existed, so they contain pairs
+this plan drops — nothing about them can be reused. Once rebuilt, the old k-mer number describes a
+different population, so it has to be re-run on the new folds for the comparison to mean anything.
+That re-run is 4 x ~35 s.
 
 **The split stays random.** A cluster-disjoint split is not available for a single year: at t099
 one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
@@ -155,8 +154,11 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    - Do NOT merge `extract_cds_dna.py` into `preprocess_flu.py`, and do not rename the two
      aggregates. Keeping the names makes the archive diff a straight file-for-file comparison.
 
-1. **Completeness filter.** Filter on `is_complete_cds` in the front end (the per-experiment stage,
-   not preprocessing) and rebuild the 2024 dataset. Record how many sequences and pairs it removes. Re-run the k-mer LGBM baseline on the new folds; the current
+1. **Filter — two conditions, not one.** `is_complete_cds` does not by itself give equal length:
+   5 NA sequences are complete but off-modal (2,306 complete, 2,301 of them at 1410). Modal length
+   is a property of a population, not of a record, so it cannot live in preprocessing. Filter on
+   `is_complete_cds` AND on modal length, both in the front end. Rebuild the 2024 dataset and record
+   what each condition removes. Then re-run the k-mer LGBM baseline on the new folds; the current
    number on the unfiltered folds is F1 macro 0.9177 +/- 0.0086.
 2. **Entropy map.** Stack the kept sequences into a matrix (rows = sequences, columns = positions)
    and compute Shannon entropy down each column. Two purposes: a conservation map along each CDS,
@@ -176,14 +178,14 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
 6. **Importance map.** Per-position importance along each CDS, read against the entropy map from
    step 2.
 7. **Masking and shuffling.** Retrain with the top-ranked positions removed, and separately with
-   their values shuffled between isolates. If the score holds up, the model was not relying on
-   those positions. If it collapses, they carry the signal. Shuffling is the better control of the
-   two because it keeps the feature count fixed.
+   their values shuffled between isolates. If the score is unchanged, the model was not using those
+   positions. If it drops sharply, those positions carry the signal. Shuffling is the better control
+   of the two because the feature count stays the same.
 8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
-   interaction values or LightGBM split-pair statistics. At ~3,100 features an all-pairs pass is
-   expensive, so this needs its own design; do not assume it comes for free.
+   interaction values or LightGBM split-pair statistics. At 1,000-3,100 features depending on unit,
+   an all-pairs pass is costly in time and memory, so budget for it as its own piece of work.
 
-Stop after step 5 if per-site features do not at least match k-mers. The point is interpretability,
+Stop after step 5 if per-site features do not at least match k-mers. The goal is interpretability,
 but a feature set that scores clearly worse is not worth interpreting.
 
 ## Open questions for Jamie
@@ -202,10 +204,11 @@ features with high importance value".
 
 ## Risks
 
-- **Memorisation.** A per-site vector is close to a fingerprint: with ~1,700 positions, a handful
-  of them usually identify a sequence exactly. K-mer counts blur this. Under a random split the
-  same sequences appear in train and test, so the model can score well by memorising which HA goes
-  with which NA. Step 7 is the check; without it a win over k-mers cannot be interpreted.
+- **Memorisation.** With ~1,700 positions per segment, a small number of them is usually enough to
+  identify one sequence exactly, so a per-site vector nearly names the sequence it came from. K-mer
+  counts do not, because many sequences give the same counts. Under a random split the same
+  sequences appear in train and test, so the model can score well by memorising which HA goes with
+  which NA. Step 7 is the check; without it a higher score than k-mers cannot be interpreted.
 - **Filter changes the population.** The completeness filter drops 3.8% of pairs, so results are
   not directly comparable to any earlier 2024 number until the k-mer baseline is re-run (step 1).
 - **One year, one subtype.** Nothing here shows the importance map generalises to other years or
@@ -219,7 +222,8 @@ features with high importance value".
 
 A CDS (coding sequence) is the stretch of DNA that codes for one protein. The cell reads it 3
 letters at a time, and each group of 3 becomes one letter of a protein. So a 1,410-letter CDS makes
-a 469-letter protein, plus one group at the end that means "stop here" (stop codon).
+a 469-letter protein, plus one group at the end that means "stop here" (stop codon) — the CDS is
+always exactly 3 times the length of the protein record it came from.
 
 Two markers tell you where a CDS begins and ends:
 
@@ -241,8 +245,8 @@ A stop in the MIDDLE is a different problem, not a version of this one. A short 
 position after the cut, which is exactly what breaks per-site features. A mid-sequence stop shifts
 nothing — it means the read is bad or that copy of the CDS is non-functional. In this data version
 there are zero of them: 0 of 868,240 rows in `cds_dna_final` and 0 of 1,793,563 in `protein_final`.
-So the flag costs nothing to keep and guards future data versions, but it is not what makes the
-positions line up. If one ever appears, drop the record.
+Keeping the flag therefore removes no rows today and will catch the case in a future data version,
+but it is not what makes the positions line up. If one ever appears, drop the record.
 
 Confirmed: for every one of these, the DNA length exactly matches the protein length it came from.
 Our extraction never disagrees with its source. So nothing is corrupted.
@@ -268,5 +272,3 @@ a stop, so the protein correctly says `*`, but a literal DNA text match does not
 
 So the two checks mean the same thing, and **the protein version is the more reliable one** — it
 copes with uncertain letters, the DNA text match does not.
-
-Also, the extracted CDS records are 3 times longer than their equivalent protiens records.
