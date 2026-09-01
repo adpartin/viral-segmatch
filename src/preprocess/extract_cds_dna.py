@@ -122,6 +122,13 @@ _OUTPUT_COLUMNS = [
     'cds_dna_hash',       # md5(cds_dna_seq) — nt_cds cluster key
     'length',             # AA length (from Stage 1)
     'cds_length',         # nt length (== 3 * AA length for major CDSs)
+    # Completeness, carried from Stage 1 rather than recomputed. The protein-level answer is the
+    # more reliable one: translation resolves IUPAC ambiguity codes that a literal DNA match
+    # misses (6 rows corpus-wide end in TAR, where R is A-or-G and either way a stop).
+    'starts_with_m',
+    'has_terminal_stop',
+    'has_internal_stop',
+    'is_complete_cds',    # starts_with_m & has_terminal_stop & ~has_internal_stop
 ]
 
 
@@ -197,8 +204,13 @@ def main():
         prot_csv,
         dtype={'assembly_id': str, 'genbank_ctg_id': str, 'brc_fea_id': str},
         usecols=['assembly_id', 'genbank_ctg_id', 'brc_fea_id', 'function',
-                 'canonical_segment', 'prot_seq', 'prot_hash', 'location', 'length'],
+                 'canonical_segment', 'prot_seq', 'prot_hash', 'location', 'length',
+                 'starts_with_m', 'has_terminal_stop', 'has_internal_stop'],
     )
+    # CSV round-trips booleans as text; coerce so the derived column is boolean, not string.
+    for _flag in ('starts_with_m', 'has_terminal_stop', 'has_internal_stop'):
+        prot[_flag] = prot[_flag].map({True: True, False: False,
+                                       'True': True, 'False': False}).astype(bool)
     # prot_hash is produced + persisted at Stage 1 (protein_final); read it, don't recompute.
     print(f'  protein_final rows: {len(prot):,}')
     print(f'\nFiltering to selected functions ...')
@@ -316,7 +328,15 @@ def main():
     out['cds_dna_seq'] = cds_list
     out['cds_dna_hash'] = cds_hashes
     out['cds_length'] = out['cds_dna_seq'].apply(len)
+    # A record covers the whole CDS when it has both end markers and no stop in the middle.
+    # Modal length is deliberately NOT part of this: it is a property of a population, not of a
+    # record, so a length filter belongs in the per-experiment stage.
+    out['is_complete_cds'] = (out['starts_with_m']
+                              & out['has_terminal_stop']
+                              & ~out['has_internal_stop'])
     out = out[_OUTPUT_COLUMNS]
+    print(f'  is_complete_cds: {int(out["is_complete_cds"].sum()):,} of {len(out):,} '
+          f'({100 * out["is_complete_cds"].mean():.2f}%)')
     print(f'  output rows:  {len(out):,}')
     print(f'  output cols:  {list(out.columns)}')
     print(f'  unique cds_dna_hash: {out["cds_dna_hash"].nunique():,}')

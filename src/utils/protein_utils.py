@@ -49,18 +49,24 @@ def analyze_protein_ambiguities(
         - 'has_terminal_stop': Bool indicating if sequence ends with '*'
         - 'has_internal_stop': Bool indicating if sequence has internal '*'
         - 'internal_stop_positions': List of positions of internal stop codons
+        - 'starts_with_m': Bool indicating if sequence starts with 'M'. ATG is the only
+          codon for M, so this is equivalent to the CDS starting with ATG. A record that
+          covers the whole CDS starts with M; one that does not was cut short at the 5'
+          end. Together with has_terminal_stop and has_internal_stop it says whether the
+          record covers the whole coding sequence.
     """
     prot_df = prot_df.copy()
 
     def identify_ambiguities(seq: str):
         """ Identify ambiguous residues in a protein sequence and their positions. """
         if not isinstance(seq, str):
-            return False, [], {}, 0, False, False, []
+            return False, [], {}, 0, False, False, [], False
 
         seq = seq.upper().strip()
         positions = {}  # Positions of ambiguous residues
         internal_stop_positions = []  # Premature Stop Codon
         has_terminal_stop = seq.endswith('*')  # Terminal Stop Codon
+        starts_with_m = seq.startswith('M')  # Start Codon (ATG is the only codon for M)
 
         for i, aa in enumerate(seq):
             if aa not in STANDARD_AMINO_ACIDS:
@@ -85,7 +91,8 @@ def analyze_protein_ambiguities(
             ambiguity_count,
             has_terminal_stop,
             has_internal_stop,
-            internal_stop_positions
+            internal_stop_positions,
+            starts_with_m
         )
     
     # Apply the function to each sequence
@@ -99,6 +106,7 @@ def analyze_protein_ambiguities(
     prot_df['has_terminal_stop'] = results.apply(lambda x: x[4])
     prot_df['has_internal_stop'] = results.apply(lambda x: x[5])
     prot_df['internal_stop_positions'] = results.apply(lambda x: x[6])
+    prot_df['starts_with_m'] = results.apply(lambda x: x[7])
 
     return prot_df
 

@@ -152,10 +152,15 @@ def handle_assembly_duplicates(
     Returns:
         tuple: (cleaned_df, removed_duplicates_df)
     """
-    print(f"Analyzing duplicates on ['{seq_col_name}', 'assembly_id']")
     
-    # Find all duplicates
-    dup_cols = [seq_col_name, 'assembly_id']
+    # Find all duplicates. `function` is part of the key so that two DIFFERENT products of the
+    # same segment that happen to share a sequence are never collapsed into one. That happens for
+    # nested or cleaved annotations -- PB1 with PB1-N40, PA with PA-N155/PA-N182, HA with its
+    # mature subunit -- 334 such groups exist in the raw Flu A July 2025 corpus. Without
+    # `function` in the key, `keep_first` would pick between them by brc_fea_id order, which is
+    # arbitrary with respect to which one is the major protein.
+    dup_cols = [seq_col_name, 'assembly_id', 'function']
+    print(f"Analyzing duplicates on {dup_cols}")
     all_dups = (
         df[df.duplicated(subset=dup_cols, keep=False)]
         .sort_values(dup_cols + ['file', 'brc_fea_id'])
@@ -173,7 +178,7 @@ def handle_assembly_duplicates(
     dup_summary = []
     keep_indices = set()
 
-    for (seq, aid), grp in all_dups.groupby(dup_cols):
+    for (seq, aid, _function), grp in all_dups.groupby(dup_cols):
         files = grp['file'].unique()
         dup_type = 'different_files' if len(files) > 1 else 'same_file'
 
