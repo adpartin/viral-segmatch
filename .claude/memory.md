@@ -62,7 +62,7 @@ repeat what these already say:
 - **pair_key + axis consistency**: `split_strategy.pair_key_alphabet` ∈ `{aa, nt_cds, nt_ctg}` (`aa`
   default). Non-`aa` pair_keys make finer variants distinct positives (nt_cds: codon variants;
   nt_ctg: +UTR), inflating the universe / opening DNA-variant leakage — cite the alphabet in any
-  post-2026-06-03 experiment. **`dataset.molecule` master knob** (opt-in): derives
+  post-2026-06-03 experiment. **`dataset.molecule` sets all three alphabets at once** (opt-in): derives
   `cluster_alphabet` + `pair_key_alphabet` + `kmer.alphabet` from one value with a config-load guard
   (`dataset.allow_alphabet_mismatch` to override a deliberate mix); legacy bundles are untouched.
   See `config_hydra._resolve_molecule_alphabets`.
@@ -119,11 +119,16 @@ repeat what these already say:
   2015-2024 -> 2025 keeps 2,600 of the 2,663 2025 positives (2.4% lost) at 1.11 neg:pos, and only 139
   pair_keys (5.2% of the 2025 universe) occur in both spans. On aa pair_keys recurrence is ~2x higher
   (10.5%), which may be what the old figure described. K-mer beats ESM-2 here (AUC 0.941 vs 0.891).
+- **Preprocessing outputs moved (2026-09-01)**: `protein_final`, `ctg_dna_final` and
+  `cds_dna_final` are NOT at `data/processed/flu/July_2025/` right now — they were moved to
+  `archive_09_01_2026/` before re-running Stage 1 / 1.5 with the new completeness flag. Read them
+  from the archive until the re-run lands, and diff new output against it. Plan:
+  `docs/plans/2026-08-28_per_site_nt_features_plan.md` step 0.
 - **Plot helpers**: don't split by slot when the data is per-pair. `cluster_size_barplot.py` writes
   PNGs to `<out_dir>/plots/` while `umap_cc.py` writes to `<out_dir>` itself, so figures for one
   cluster root do not land together without moving them.
 
-## Work In Flight
+## Work In Progress
 
 **Each plan's own `**Status:**` line is the truth; this table only says what the work is, so there
 is one place to update.** Read the plan before assuming anything about its state. For the full list
@@ -140,6 +145,7 @@ items that need context beyond their title.
 | 1D cluster-disjoint single-slot (HA held out vs each partner) | `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md` |
 | Task 11 / 28-pair sweep; throughput fix lives on the unmerged branch `fix/mpiexec-cpu-binding` | `polaris_plan.md`, `docs/project_changelog.md` |
 | H3N2 segment matching for the PIs: 2D-CD is infeasible on one-year populations, so random 4-fold CV + a 2024->2025 temporal split answer the two questions instead. Results are in the commit messages only; no results doc yet | `docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md` |
+| Per-site nucleotide features: one feature per position instead of k-mer counts, so importance maps to a place in the CDS. Blocked on step 0, a Stage 1 completeness flag + preprocessing re-run | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
 
 - **Stage-4 training is GATED** — no launch without explicit OK.
 
@@ -159,7 +165,7 @@ rebuild from `environment.yml`.
 - `mmseqs2`: CLI-only, v18.8cc5c. On lambda13 use the NFS path,
   `/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs` — the `/homes/...` form
   does not resolve there.
-- `datasail`: dedicated env for the DataSAIL bake-off.
+- `datasail`: dedicated env for comparing DataSAIL's splits against ours.
 - On lambda13 `$HOME` has no miniconda — use NFS absolute binaries
   (`/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/<env>/bin/python`); bare `conda activate` fails.
 
@@ -177,21 +183,22 @@ rebuild from `environment.yml`.
 - CLAUDE.md is the authoritative project context; .claude/memory.md is the compact working memory
 - Both files are in the repo — update them when decisions change
 - **One script per purpose**: follow the existing pattern in `src/analysis/` — propose a dedicated
-  script with a clear name rather than hedging between existing scripts. Commit to the obvious answer.
-- **Code priority order**: correctness > readability > efficiency. Optimize for the next reader, not
-  the next clock cycle. Reach for performance changes only when measured (or when efficiency is
-  correctness-critical).
+  script with a clear name rather than stretching an existing script to cover a second job. Pick the
+  obvious answer rather than offering several.
+- **Code priority order**: correctness > readability > efficiency. Optimise for the next person
+  reading the code, not for run time. Make a performance change only when it is measured, or when
+  speed is required for the result to be correct.
 - **Communication style**: prefer common words; use jargon only when it carries meaning the plain
   term doesn't. Don't cut technical content; cut hedges and filler. Concrete numbers, file:line refs,
-  and observed data beat hedged adjectives. When explaining, assume the reader does not carry the
-  codebase in their head — lead with the plain-language answer, then the evidence.
+  and observed data are better than hedged adjectives. When explaining, assume the reader does not
+  already know the codebase — give the plain-language answer first, then the evidence.
 - **Terminology**: use canonical terms from `docs/methods/glossary.md`; add new terms there first.
-  (Enforced as CLAUDE.md Conventions § Terminology.)
+  (Enforced as CLAUDE.md Conventions § Wording.)
 - **Accuracy over confidence**: state only what is verified against a source actually checked in this
   session (paper passage, code at file:line, observed command output). When uncertain, say so with
   what would resolve it. Don't pattern-match across sources without verification — superficially
   synonymous terms (DataSAIL I2, Park & Marcotte C3, segmatch seq_disjoint) may differ in
-  dimensionality or which axes they cover. (Full rule: CLAUDE.md Conventions § Verify before asserting.)
+  dimensionality or which axes they cover. (Full rule: CLAUDE.md Conventions § Check before you assert.)
 - **Commits are explicit-only** (full rule: CLAUDE.md Conventions § Commits are explicit-only): never
   run `git commit`/`--amend` on Claude's own initiative. Otherwise stage + prep the diff and wait.
 - **Refer to Claude as "Claude"** in committed docs and writeups, not "I" or "my proposal".
