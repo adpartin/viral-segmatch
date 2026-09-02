@@ -395,7 +395,7 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    column per amino-acid position, so a site number is a residue number. Writes
    four files: `site_importance_codon.png` (importance along the CDS, plus importance against
    entropy), `site_importance_codon_barplot.png` (LightGBM's own `plot_importance` bar charts for
-   split and gain beside the held-out SHAP ranking), `site_importance_codon.csv` (column, slot,
+   `split` and `gain` beside the held-out SHAP ranking), `site_importance_codon.csv` (column, slot,
    protein, site, shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count,
    entropy_bits, n_values, shap_rank, gain_rank) and `site_importance_codon_per_fold.csv` (each
    fold's own shares, so the fold agreement can be recomputed). Both figures carry the producing
@@ -482,39 +482,70 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    This does not address memorisation: a model recalling "this HA goes with this NA" also needs
    both sides. It rules out one-sided leakage only.
 
-   **7b. Shuffling — design.** Two passes, because they ask different questions.
+   **7b(i). Permutation, one site at a time — DONE (2026-09-02).** In each fold's held-out test
+   split, one column's values are shuffled among the rows, the SAME fitted model re-predicts, and
+   the AUC-ROC drop is recorded. Nothing is retrained. 5 shuffles per column, averaged; 1,037
+   columns x 4 folds takes about 1.5 minutes. Added to `plot_site_importance.py` alongside SHAP
+   and gain, so all three sit in one table.
 
-   - **One site at a time, no retrain.** Shuffle one column in the test split, re-predict, measure
-     the drop. Asks whether the fitted model relies on that position. This is permutation
-     importance, and it is a third opinion on the SHAP and gain rankings, measured on predictions
-     rather than on the model's internals.
-   - **The top N together, with retrain.** Corrupt N positions in all three splits and refit. Asks
-     whether the signal is unique to those positions or also elsewhere. Sweep
-     N in {1, 5, 10, 25, 50, 100}. Pair every N with a random-site control, or a drop after
-     corrupting the top 10 cannot be told from "any corruption hurts".
+   Row-level shuffling is right for this pass: the model is fixed and predicts one row at a time,
+   so it cannot notice that a sequence appearing in several rows now carries different values in
+   each. That changes for 7b(ii), which retrains.
 
-   Which splits: test only for the no-retrain pass (the model is already fitted); all three,
-   identically, for the retrain pass. Corrupting train alone leaves real values in test and
-   creates a train/test mismatch that confounds the result.
+   **The top sites hold up.** HA 544 is rank 1 on all three measures, costing 0.0288 AUC. NA 284
+   and NA 244 cost 0.0219 and 0.0218. SHAP and permutation share 12 of the top 15 sites for HA and
+   11 of 15 for NA.
 
-   Shuffle at the **sequence** level, not the row level -- permute the site's value across unique
-   sequences and propagate to the pair rows. Shuffling rows would give one sequence different
-   values at the same site in different rows, which is a harsher corruption than intended.
+   Their rank correlation over all 1,037 columns is only +0.555 (HA) and +0.536 (NA), against
+   +0.97 between SHAP and gain -- but that is a fact about the tail, not the head. Most columns
+   have no measurable drop, so their permutation ranks are noise, and a whole-list Spearman is
+   dominated by it. Read the top overlap.
+
+   **No single position is load-bearing, and the signal is redundant.** Against a clean AUC-ROC of
+   0.9547, i.e. 0.4547 above chance:
+
+   | | value |
+   |---|---|
+   | sites whose shuffle costs > 0.001 AUC | 43 of 1,037 |
+   | sites whose shuffle costs > 0.005 AUC | 10 |
+   | largest single-site cost | 0.0288 (6.3% of the signal) |
+   | all single-site costs added up | 0.2523 (55.5%) |
+   | top 10 by SHAP, added up | 0.1388 (30.5%) |
+
+   Scrambling the single most important position costs 6.3% of what the model knows. Every
+   single-site cost added together reaches 55.5%, so nearly half the signal is invisible to
+   one-at-a-time removal -- positions cover for each other. That gap is what a group ablation
+   measures and this pass cannot, which is the case for 7b(ii).
+
+   It also bears on memorisation. A model identifying sequences would lean hard on a few
+   high-resolution positions; this one does not lean hard on any.
+
+   **7b(ii). The top N together, with retrain — design.** Corrupt N positions in train, val AND
+   test, refit, evaluate. Sweep N in {1, 5, 10, 25, 50, 100}, and pair every N with a random-site
+   control, or a drop after corrupting the top 10 cannot be told from "any corruption hurts".
+
+   Corrupt all three splits identically. Corrupting train alone leaves real values in test and
+   creates a train/test mismatch, so a drop could mean "the site mattered" or "the splits no
+   longer look alike" with no way to tell which.
+
+   Shuffle at the **sequence** level here, not the row level: permute the site's value across the
+   2,732 unique HA (2,298 NA) sequences and propagate to the pair rows, so each sequence carries
+   one consistent but wrong value. Row-level shuffling would give one sequence different values at
+   the same site in different rows, which destroys more than the site.
 
    On masking: permuting one feature at a time understates importance when features are
-   correlated, since the model falls back on a correlated twin. Measured here, that risk is small.
-   Cramer's V between varying codon sites has median 0.051 (HA) and 0.084 (NA), with 0.9% and 2.0%
-   of pairs above 0.8 -- and among the top 10 SHAP sites the highest pair is 0.700 (HA) and 0.534
-   (NA), with none above 0.8. So single-site permutation is safe for the sites that matter, and the
-   top-N pass is itself the grouped-permutation remedy.
+   correlated, since the model falls back on a correlated twin. Measured here that risk is small
+   for the sites that matter. Cramer's V between varying codon sites has median 0.051 (HA) and
+   0.084 (NA), with 0.9% and 2.0% of pairs above 0.8 -- and among the top 10 SHAP sites the highest
+   pair is 0.700 (HA) and 0.534 (NA), none above 0.8. The redundancy the numbers above reveal is
+   therefore spread across many weakly related positions rather than concentrated in correlated
+   twins, and the top-N pass is itself the grouped-permutation remedy.
+
 8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
    interaction values or LightGBM split-pair statistics. Main-effect SHAP is already cheap --
    step 6 measures it in 0.3 s per fold through `pred_contrib` -- but interaction values are
    `n_features` times more work per row, so at 1,037 codon features that is a different scale.
    Budget for it as its own piece of work.
-
-Stop after step 5 if per-site features do not at least match k-mers. The goal is interpretability,
-but a feature set that scores clearly worse is not worth interpreting.
 
 ## Open questions for Jamie
 
