@@ -5,7 +5,7 @@ This script analyzes the train/val/test datasets created in Stage 3,
 providing insights into dataset composition, balance, and distribution.
 
 Output directory: results/{virus_name}/{data_version}/{config_bundle}/dataset_analysis/
-(Config-specific - datasets depend on allow_same_func_negatives, ratios, etc.)
+(Config-specific - datasets depend on neg_to_pos_ratio, the split strategy, etc.)
 
 Plots generated:
 - segment_pair_histograms.png: Segment pair counts for pos/neg pairs across train/val/test (2x3 grid)

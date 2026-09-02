@@ -17,8 +17,7 @@ defaults:
 #       tracking, metadata-axis annotations on every pair, and (opt-in) the
 #       regime-aware sampler, seq_disjoint split, and metadata_holdout
 #       cross-population split. Hard-codes pair_mode=schema_ordered,
-#       allow_same_func_negatives=false, hard_partition_isolates=true. See
-#       docs/plans/done/design_dataset_gen_v2.md.
+#       hard_partition_isolates=true. See docs/plans/done/design_dataset_gen_v2.md.
 # - v1: retired 2026-06-03. Any other value raises; see
 #       docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md.
 pair_builder_version: v2
@@ -44,9 +43,6 @@ pair_mode: schema_ordered
 # Example: ["HA", "NA"]
 schema_pair: null
 
-# Same-function negative pairs option
-allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)
-max_same_func_ratio: 0.5  # Maximum fraction of same-function negative pairs; not used when allow_same_func_negatives=false
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs

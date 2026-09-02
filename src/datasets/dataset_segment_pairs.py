@@ -70,8 +70,7 @@ Dataset Construction Steps
    - Reject a candidate negative if:
        a) its pair_key is in cooccur_pairs (would contradict observed co-occurrence),
        b) it duplicates a previously added negative by brc_id-pair (symmetric duplicate),
-       c) it duplicates a previously added negative by prot_hash-pair,
-       d) it violates configured same-function constraints (optional ratio cap).
+       c) it duplicates a previously added negative by prot_hash-pair.
    - For accepted negatives, store the same paired fields as positives with label=0.
 
 5) Prevent split leakage by pair_key (order-invariant)
@@ -198,6 +197,12 @@ PAIR_BUILDER_VERSION = getattr(config.dataset, 'pair_builder_version', 'v1')
 # Loud rejection of retired keys. Hydra does not run in struct mode here, so a bundle that still
 # carries one would otherwise be read as None and silently ignored. Raise on ANY value, including
 # the old default: the key does nothing now, so leaving it in a bundle misdescribes the run.
+_SAME_FUNC_RETIRED_REASON = (
+    "a same-function negative cannot occur in schema-ordered mode -- slot A is always "
+    "func_left and slot B always func_right, so func_a never equals func_b. The knobs were "
+    "v1-only and went with the v1 builder on 2026-06-03; see "
+    "docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md"
+)
 _RETIRED_DATASET_KEYS = {
     'year_train':
         "the temporal-holdout mechanism was replaced by dataset.metadata_holdout under "
@@ -212,6 +217,11 @@ _RETIRED_DATASET_KEYS = {
         "and there is no orientation left to choose. The flag only ever applied to "
         "pair_mode=unordered, which was removed with the v1 builder on 2026-06-03; see "
         "docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md",
+    # Same reason for both: schema-ordered slots make func_a == func_b unreachable, so there is
+    # no same-function negative to allow or to cap. Measured on
+    # dataset_ha_na_h3n2_2024_random_cv4: 0 of 14,892 negatives.
+    'allow_same_func_negatives': _SAME_FUNC_RETIRED_REASON,
+    'max_same_func_ratio': _SAME_FUNC_RETIRED_REASON,
 }
 for _retired_key, _reason in _RETIRED_DATASET_KEYS.items():
     if getattr(config.dataset, _retired_key, None) is not None:

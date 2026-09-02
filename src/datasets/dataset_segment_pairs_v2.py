@@ -28,8 +28,6 @@ v2 supports only schema-ordered pairs (`pair_mode = "schema_ordered"`,
 `schema_pair` required). Several v1-configurable behaviors are hard-coded
 because they are vestigial or auto-disabled in schema mode:
 
-- `allow_same_func_negatives = False`, `max_same_func_ratio = 0.5` (vestigial):
-  same-function negatives are impossible in schema mode by construction.
 - `hard_partition_isolates = True`: train/val/test isolates are always disjoint.
 - `drop_within_split_pos_duplicates = True`: always runs.
 
@@ -1407,9 +1405,9 @@ def split_dataset_v2(
     to threading a `forbidden_pair_keys` set through the val/test calls so
     overlap is impossible by construction.
 
-    v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False,
-    hard_partition_isolates=True and drop_within_split_pos_duplicates=True; config
-    validation rejects any setting that contradicts these.
+    v2 hard-codes pair_mode='schema_ordered', hard_partition_isolates=True and
+    drop_within_split_pos_duplicates=True; config validation rejects any setting that
+    contradicts these.
 
     Returns:
         (train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables)
@@ -2084,8 +2082,7 @@ def generate_all_cv_folds_v2(
     pairing inside each split, the same primitive the 2D-CD builder uses -- pass it to
     make a random-split run comparable to a 2D-CD run).
 
-    v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False and
-    hard_partition_isolates=True.
+    v2 hard-codes pair_mode='schema_ordered' and hard_partition_isolates=True.
 
     cooccur_pairs is built once at the dataset level and reused across folds
     (matches v1's CV behavior).
@@ -2981,13 +2978,6 @@ def _validate_v2_config(config) -> None:
         raise ValueError(
             f"v2 requires dataset.pair_mode='schema_ordered' (or absent); "
             f"got {pair_mode!r}."
-        )
-
-    allow_same = OmegaConf.select(config, "dataset.allow_same_func_negatives")
-    if allow_same is not None and allow_same is not False:
-        raise ValueError(
-            f"v2 requires dataset.allow_same_func_negatives=false (or absent); "
-            f"got {allow_same!r}."
         )
 
     hard_part = OmegaConf.select(config, "dataset.hard_partition_isolates")
