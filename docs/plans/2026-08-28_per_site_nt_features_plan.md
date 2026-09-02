@@ -564,14 +564,48 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    shuffling actively puts wrong values in, which disables the column more thoroughly. Measured
    rather than argued.
 
-   **7b(iii). Retrain — still open.** Corrupt the top N in train, val AND test, refit, evaluate,
-   sweeping N with the same random control. Group permutation says what THIS model depends on;
-   only refitting says whether a NEW model could do the job from the other ~990 sites. Shuffle at
-   the sequence level there -- permute the site's value across the 2,732 unique HA (2,298 NA)
-   sequences and propagate to the pair rows -- so each sequence keeps one consistent but wrong
-   value. Row-level would give one sequence different values at the same site in different rows,
-   which destroys more than the site. Corrupt all three splits identically: corrupting train alone
-   leaves real values in test and creates a mismatch that confounds the result.
+   **7b(iii). Corrupt, then refit — DONE (2026-09-02).**
+   `src/analysis/plot_site_retrain_ablation.py`. N columns are corrupted in train, val and test
+   alike and the model is fitted from scratch on them, using the same estimator and fit as the
+   baselines. Two corruption modes and two arms, 7 set sizes, 4 folds; 116 refits in about 6
+   minutes. The anchor holds in both modes: corrupting all 1,037 columns loses 0.99-1.01 of the
+   signal.
+
+   | N | row, top | row, random | sequence, top | sequence, random |
+   |---|---|---|---|---|
+   | 1 | 0.004 | 0.000 | 0.006 | -0.000 |
+   | 5 | 0.042 | -0.004 | 0.035 | 0.003 |
+   | 10 | **0.159** | 0.008 | **0.126** | 0.005 |
+   | 25 | 0.333 | 0.004 | 0.255 | 0.002 |
+   | 50 | 0.561 | 0.015 | 0.409 | 0.008 |
+   | 100 | 0.892 | 0.020 | 0.865 | 0.017 |
+   | 1,037 | 1.007 | - | 0.994 | - |
+
+   **The signal is redundant: a fresh model recovers most of what the top sites carried.** Take
+   the top 10. With the model fixed, scrambling them costs 49.5% of the signal (7b(ii)). Refit
+   afterwards and the cost falls to **15.9%** -- two thirds of the loss comes back from the other
+   1,027 columns. The same holds at 25 and 50. Only by N=100 do the two agree (0.892 against
+   0.892): once a hundred positions are gone there is nothing left to recover from.
+
+   So "the top 10 sites hold half the signal" is a statement about THIS fitted model, not about
+   where the information lives. The information is spread widely; the model concentrates on a few
+   positions because a boosted tree is greedy, not because the rest are uninformative.
+
+   **The random control stays flat.** Corrupting 100 random sites costs 1.7-2.0% after refitting,
+   against 86-89% for the top 100. The ranking picks out something real.
+
+   **Sequence-level corruption is consistently gentler than row-level** -- 0.126 against 0.159 at
+   N=10, 0.409 against 0.561 at N=50, converging by N=100. Row-level makes a column noise within a
+   sequence, so a refit model discards it; sequence-level leaves each sequence one consistent
+   wrong value, which a refit model can still read as a (re-coded) property of that sequence.
+
+   That gap is smaller than the framing this plan used to give it, and it does not cleanly separate
+   memorisation from signal. Two readings fit: the model recovers by identifying sequences it saw
+   in training, or the corrupted column still correlates with sequence identity and so, indirectly,
+   with lineage. Nothing here chooses between them. The seen-versus-unseen test is what would --
+   split the test rows by whether their sequences appear in training and compare scores. Only
+   7-10% of test rows have both slots seen and pair_key overlap is 0 (step 5), which already bounds
+   how much memorisation could be worth.
 
 8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
    interaction values or LightGBM split-pair statistics. Main-effect SHAP is already cheap --
