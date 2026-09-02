@@ -291,3 +291,42 @@ a stop, so the protein correctly says `*`, but a literal DNA text match does not
 
 So the two checks mean the same thing, and **the protein version is the more reliable one** — it
 copes with uncertain letters, the DNA text match does not.
+
+---
+
+## Known weak points in Stage 1 / 1.5 (audit, 2026-09-01)
+
+Found while auditing `preprocess_flu.py` and `extract_cds_dna.py` before step 0. None is firing
+today. Each is recorded here because the evidence took a while to gather and is easy to lose.
+
+The audit's headline result: `extract_cds_dna.py` reproduces its archived output exactly —
+868,240 rows, all 11 columns byte-identical, zero rows dropped. Joins, location parsing,
+coordinates and translation are correct on this corpus. Also verified: `brc_fea_id` unique in both
+outputs, `(assembly_id, function)` unique in both, no nulls in any critical column, `prot_hash` and
+`cds_dna_hash` equal to md5 of their sequences, `assembly_id -> file` 1:1, and no duplicate
+`(assembly_id, genbank_ctg_id)` contigs — which matters because `extract_cds_dna` builds a dict on
+that key and would otherwise overwrite silently.
+
+- **The minus-strand path is never exercised.** All 2,070,209 features in the corpus are on the `+`
+  strand, so `extract_cds_dna`'s reverse-complement branch has never run on real data. If it ever
+  does with a multi-exon feature, check the exon order first: reverse-complementing a concatenation
+  reverses exon order, and the code assumes the order in `location` is already correct. Single-exon
+  minus-strand is unambiguous and safe.
+- **`genetic_code` is 11 on every row, but translation uses NCBI table 1.** This is correct —
+  tables 1 and 11 have identical codon-to-residue maps and differ only in permitted start codons —
+  but nothing checks or documents it. Translate-back validation would catch a genuinely different
+  table, so the guard exists indirectly.
+- **`extract_cds_dna.py` reads `.csv` when Stage 1 writes both `.csv` and `.parquet`.** Slower, and
+  it round-trips `location` and `prot_seq` through text for no benefit. Switching to parquet should
+  be verified against the archive rather than assumed, since the byte-identical reproduction above
+  was measured on the CSV path.
+- **The ESM-2 readiness filter gates a shared output.** `preprocess_flu.py` drops rows whose
+  `esm2_ready_seq` is null from `protein_final`, which every experiment reads. 199 rows today, all
+  auxiliary proteins (M2, M42, PB1-F2, NS3, PA-X), so nothing the nt_cds path needs is lost. But an
+  ESM-2-specific rule is deciding the contents of a shared artifact.
+- **Dead code.** The "drop unassigned replicons" filter in `apply_protein_basic_filters` removes 0
+  rows and cannot fire: canonical-segment assignment already requires a mapped replicon, and that
+  filter runs first. It still writes an empty CSV.
+- **Module globals in functions.** `validate_protein_counts` reads `core_functions` and
+  `analyze_protein_counts_per_file` reads `output_dir` from module scope rather than taking them as
+  parameters.
