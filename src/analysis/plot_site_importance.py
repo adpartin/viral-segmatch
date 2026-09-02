@@ -155,6 +155,82 @@ def site_entropy_from_cache(cache, hashes) -> tuple[np.ndarray, np.ndarray]:
     return column_entropy(cache.codes[rows])
 
 
+def _stamp(fig) -> None:
+    """Write the producing script into the figure, so a stray PNG can be traced back.
+
+    Args:
+      fig: the figure to stamp.
+    """
+    fig.text(0.995, 0.002, f'src/analysis/{Path(__file__).name}', ha='right', va='bottom',
+             fontsize=7, color='0.45')
+
+
+def plot_conventional_importance(model_root: Path, run_stem: str, fold: int, columns, table,
+                                 top_n: int, out_png: Path, unit: str, dpi: int) -> Path:
+    """Draw LightGBM's own ranked bar charts beside the held-out SHAP ranking.
+
+    `lightgbm.plot_importance` is the conventional view and calls the same
+    `booster.feature_importance` this module does, so the split and gain panels are LightGBM's
+    output unmodified except for the tick labels: the boosters were fitted on plain arrays, so
+    their features are named `Column_0..`, and those are rewritten to the site they stand for.
+
+    Both LightGBM panels show ONE fold, since `plot_importance` takes one booster. The SHAP panel
+    is the average over all folds, which is why its order differs -- a single fold's ranking is
+    noisier than the average, and that difference is itself worth seeing.
+
+    Args:
+      model_root: directory holding the per-fold run dirs.
+      run_stem: run dir name minus the `_fold{k}` suffix.
+      fold: which fold's booster the two LightGBM panels use.
+      columns: the site layout from `site_feature_columns`.
+      table: the per-site table, for the fold-averaged SHAP panel.
+      top_n: features per panel.
+      out_png: where to write.
+      unit: site unit, for the titles.
+      dpi: figure resolution.
+
+    Returns:
+      The path written.
+    """
+    import lightgbm as lgb
+
+    booster = joblib.load(model_root / f'{run_stem}_fold{fold}' / 'best_model.joblib').booster_
+    site_label = {int(r.column): f"{r.protein} {int(r.site)}" for r in columns.itertuples()}
+
+    setup_plot_style()
+    fig, axes = plt.subplots(1, 3, figsize=(16, 0.34 * top_n + 2.2))
+    for ax, importance_type in zip(axes[:2], ('split', 'gain')):
+        lgb.plot_importance(booster, ax=ax, importance_type=importance_type,
+                            max_num_features=top_n, color=TRACE_COLOR,
+                            title=f'LightGBM {importance_type} (fold {fold})',
+                            xlabel=f'{importance_type} importance', ylabel='')
+        # 'Column_123' -> 'HA 124'. The number LightGBM prints is the column index, which means
+        # nothing on its own; the site is the point of per-site features.
+        ax.set_yticklabels([site_label.get(int(t.get_text().removeprefix('Column_')),
+                                           t.get_text())
+                            for t in ax.get_yticklabels()])
+        ax.grid(axis='x', alpha=0.3)
+
+    top = table.nlargest(top_n, 'shap_frac').iloc[::-1]
+    labels = [f"{r.protein} {int(r.site)}" for r in top.itertuples()]
+    ax = axes[2]
+    ax.barh(range(len(top)), top['shap_frac'], xerr=top['shap_frac_std'],
+            color=ACCENT_COLOR, edgecolor=MARKER_EDGE, linewidth=0.7,
+            error_kw={'ecolor': MARKER_EDGE, 'elinewidth': 0.8})
+    ax.set_yticks(range(len(top)))
+    ax.set_yticklabels(labels)
+    ax.set_xlabel('share of SHAP')
+    ax.set_title('held-out SHAP (all folds, mean +/- std)')
+    ax.grid(axis='x', alpha=0.3)
+
+    fig.suptitle(f'{run_stem}  |  unit={unit}, top {top_n} sites', fontsize=10, y=1.01)
+    fig.tight_layout()
+    _stamp(fig)
+    written = savefig(out_png, dpi=dpi)
+    print(f"Wrote {written}")
+    return written
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--model_run_template', required=True,
@@ -169,6 +245,9 @@ def main() -> None:
     p.add_argument('--shap_split', default='test', choices=['train', 'val', 'test'],
                    help="split SHAP is measured on; 'test' is held out from the fit")
     p.add_argument('--top_n', type=int, default=15, help='sites listed per protein')
+    p.add_argument('--barplot_fold', type=int, default=0,
+                   help="fold whose booster the LightGBM bar charts use; plot_importance "
+                        "takes one booster")
     p.add_argument('--out_dir', type=Path, default=None,
                    help='default: results/<virus>/<version>/<run name>/site_importance')
     p.add_argument('--dpi', type=int, default=200)
@@ -232,6 +311,16 @@ def main() -> None:
     out_csv = args.out_dir / f'site_importance_{args.unit}.csv'
     table.to_csv(out_csv, index=False)
     print(f"\nWrote {out_csv}")
+
+    # Per-fold importance, one column per fold, so the agreement between folds can be recomputed
+    # or re-plotted later. The printed Spearman numbers are derived from exactly this.
+    per_fold = columns.drop(columns=['code']).copy()
+    for fold in range(args.n_folds):
+        per_fold[f'shap_frac_fold{fold}'] = shap_fractions[fold]
+        per_fold[f'gain_frac_fold{fold}'] = gain_fractions[fold]
+    out_folds = args.out_dir / f'site_importance_{args.unit}_per_fold.csv'
+    per_fold.to_csv(out_folds, index=False)
+    print(f"Wrote {out_folds}")
 
     for cache in caches:
         of_protein = table[table['protein'] == cache.protein].sort_values(
@@ -299,7 +388,7 @@ def main() -> None:
                       alpha=0.35, label='gain (in-sample)')
         ax_trace.plot(by_site['site'], by_site['shap_frac'], color=TRACE_COLOR, linewidth=0.8,
                       label=f'SHAP ({args.shap_split}, held out)')
-        top = of_protein.head(5)
+        top = of_protein.nlargest(5, 'shap_frac')
         ax_trace.scatter(top['site'], top['shap_frac'], s=32, color=ACCENT_COLOR,
                          edgecolors=MARKER_EDGE, linewidths=0.7, zorder=3)
         for _, r in top.iterrows():
@@ -323,9 +412,17 @@ def main() -> None:
         ax_scatter.set_title('a site must vary to be used', fontsize=10)
         ax_scatter.grid(alpha=0.3)
 
+    fig.suptitle(f"{args.model_run_template}  |  unit={args.unit}, {args.n_folds} folds, "
+                 f"SHAP on {args.shap_split}", fontsize=10, y=1.005)
     fig.tight_layout()
+    _stamp(fig)
     out_png = savefig(args.out_dir / f'site_importance_{args.unit}.png', dpi=args.dpi)
     print(f"\nDone. Wrote {out_png}")
+
+    plot_conventional_importance(
+        args.models_root, args.model_run_template, args.barplot_fold, columns, table,
+        args.top_n, args.out_dir / f'site_importance_{args.unit}_barplot.png', args.unit,
+        args.dpi)
 
 
 if __name__ == '__main__':

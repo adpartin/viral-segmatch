@@ -393,9 +393,19 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
 6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, on the `codon`
    arm: 1,037 columns, statistically indistinguishable from `nt` at a third of the width, and one
    column per amino-acid position, so a site number is a residue number. Writes
-   `site_importance_codon.png` and `site_importance_codon.csv` (column, slot, protein, site,
-   shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count, entropy_bits,
-   n_values, shap_rank, gain_rank).
+   four files: `site_importance_codon.png` (importance along the CDS, plus importance against
+   entropy), `site_importance_codon_barplot.png` (LightGBM's own `plot_importance` bar charts for
+   split and gain beside the held-out SHAP ranking), `site_importance_codon.csv` (column, slot,
+   protein, site, shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count,
+   entropy_bits, n_values, shap_rank, gain_rank) and `site_importance_codon_per_fold.csv` (each
+   fold's own shares, so the fold agreement can be recomputed). Both figures carry the producing
+   script and the run name.
+
+   **Split is the third measure, and it ranks differently.** `lightgbm.plot_importance` defaults
+   to split -- how often a feature was used -- and on fold 0 its top list holds NA 154, HA 162,
+   HA 325, NA 233 and NA 349, none of which appear in the gain or SHAP top 15. Counting splits
+   rewards a position consulted in many shallow splits; it does not say what the position was
+   worth. Shown for comparison, not used for ranking.
 
    **Two importance measures, not one.** Gain is a training-time quantity read off the fitted
    trees, so on its own it says what the trees were built on rather than what they are worth on

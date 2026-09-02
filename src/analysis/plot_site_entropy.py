@@ -236,7 +236,11 @@ def main() -> None:
         ax_codon.set_title('3rd should be highest\n(silent changes)', fontsize=10)
         ax_codon.grid(axis='y', alpha=0.3)
 
+    fig.suptitle(f'{args.dataset_dir.name}  |  {args.n_folds} folds, all splits',
+                 fontsize=10, y=1.005)
     fig.tight_layout()
+    fig.text(0.995, 0.002, f'src/analysis/{Path(__file__).name}', ha='right', va='bottom',
+             fontsize=7, color='0.45')
     out_png = savefig(args.out_dir / 'site_entropy.png', dpi=args.dpi)
     print(f"Done. Wrote {out_png}")
 
