@@ -17,10 +17,10 @@ defaults:
 #       tracking, metadata-axis annotations on every pair, and (opt-in) the
 #       regime-aware sampler, seq_disjoint split, and metadata_holdout
 #       cross-population split. Hard-codes pair_mode=schema_ordered,
-#       allow_same_func_negatives=false, canonicalize_pair_orientation=false,
-#       hard_partition_isolates=true. See docs/plans/done/design_dataset_gen_v2.md.
-# - v1: original builder, supports unordered + schema_ordered modes. Kept for
-#       legacy bundles only; new bundles should use v2.
+#       allow_same_func_negatives=false, hard_partition_isolates=true. See
+#       docs/plans/done/design_dataset_gen_v2.md.
+# - v1: retired 2026-06-03. Any other value raises; see
+#       docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md.
 pair_builder_version: v2
 
 # Isolate partitioning strategy
@@ -36,20 +36,13 @@ generate_visualizations: true  # If true, generate dataset plots after dataset c
 skip_esm_pca_plots: false      # If true, skip pair_pca_{concat,diff,prod,unit_diff}.png + pair_interaction_diagnostics.json
 skip_kmer_pca_plots: false     # If true, skip kmer_pca_concat.png + kmer_pca_segments_{split}.png
 
-# Pair construction mode
-# - unordered: original behavior (pairs are conceptually undirected; optional hash-based canonicalization can be applied)
-# - schema_ordered: force slot semantics by function schema (func_left -> *_a, func_right -> *_b)
-#                  This is an experimental/validation mode to remove "direction" as a free variable for directed features.
+# Pair construction mode. schema_ordered is the only mode: slot semantics are fixed by the
+# function schema (func_left -> *_a, func_right -> *_b), which removes direction as a free
+# variable for directed features.
 pair_mode: schema_ordered
 # Required when pair_mode=schema_ordered. Order is semantic; do NOT sort.
 # Example: ["HA", "NA"]
 schema_pair: null
-
-# Pair orientation canonicalization (applies on to pair_mode=unordered)
-# The segment-matching task is conceptually undirected (a,b) ≡ (b,a), but we store directed columns
-# (*_a/*_b) and feed the model a directed representation (e.g., [emb_a, emb_b]).
-# Canonicalizing orientation helps prevent "direction → label" shortcut learning.
-canonicalize_pair_orientation: false
 
 # Same-function negative pairs option
 allow_same_func_negatives: false  # Allow same-function negative pairs (e.g., RdRp vs RdRp)

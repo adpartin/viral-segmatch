@@ -30,15 +30,12 @@ because they are vestigial or auto-disabled in schema mode:
 
 - `allow_same_func_negatives = False`, `max_same_func_ratio = 0.5` (vestigial):
   same-function negatives are impossible in schema mode by construction.
-- `canonicalize_pair_orientation_enabled = False`: schema mode defines slot
-  orientation by function; hash-based canonicalization conflicts with that.
 - `hard_partition_isolates = True`: train/val/test isolates are always disjoint.
 - `drop_within_split_pos_duplicates = True`: always runs.
 
-The corresponding parameters are dropped from v2 function signatures. v2
-config validation rejects any setting that contradicts these. v1
-(`dataset_segment_pairs.py`) retains the configurable versions for users who
-need other modes.
+The corresponding parameters are dropped from v2 function signatures, and v2
+config validation rejects any setting that contradicts these. v1, which made them
+configurable, was retired 2026-06-03.
 
 Duplicate handling (canonical reference for the three cases)
 ------------------------------------------------------------
@@ -120,10 +117,8 @@ def create_positive_pairs_v2(
     Vectorized via merge-on-`assembly_id`. Slot A is `func_left`, slot B is
     `func_right` by construction (no post-hoc orientation needed).
 
-    v2 hard-codes pair_mode='schema_ordered', drop_within_split_pos_duplicates=True,
-    canonicalize_pair_orientation_enabled=False. See dataset_segment_pairs.py (v1)
-    for the configurable versions. v2 config validation rejects any setting that
-    contradicts these.
+    v2 hard-codes pair_mode='schema_ordered' and drop_within_split_pos_duplicates=True;
+    config validation rejects any setting that contradicts these.
 
     Args:
         df: Protein-level DataFrame already filtered to the relevant isolates.
@@ -1413,10 +1408,8 @@ def split_dataset_v2(
     overlap is impossible by construction.
 
     v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False,
-    canonicalize_pair_orientation_enabled=False, hard_partition_isolates=True,
-    drop_within_split_pos_duplicates=True. See dataset_segment_pairs.py (v1)
-    for the configurable versions. v2 config validation rejects any setting
-    that contradicts these.
+    hard_partition_isolates=True and drop_within_split_pos_duplicates=True; config
+    validation rejects any setting that contradicts these.
 
     Returns:
         (train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables)
@@ -2091,9 +2084,8 @@ def generate_all_cv_folds_v2(
     pairing inside each split, the same primitive the 2D-CD builder uses -- pass it to
     make a random-split run comparable to a 2D-CD run).
 
-    v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False,
-    canonicalize_pair_orientation_enabled=False, hard_partition_isolates=True.
-    See dataset_segment_pairs.py (v1) for the configurable versions.
+    v2 hard-codes pair_mode='schema_ordered', allow_same_func_negatives=False and
+    hard_partition_isolates=True.
 
     cooccur_pairs is built once at the dataset level and reused across folds
     (matches v1's CV behavior).
@@ -2996,13 +2988,6 @@ def _validate_v2_config(config) -> None:
         raise ValueError(
             f"v2 requires dataset.allow_same_func_negatives=false (or absent); "
             f"got {allow_same!r}."
-        )
-
-    canon = OmegaConf.select(config, "dataset.canonicalize_pair_orientation")
-    if canon is not None and canon is not False:
-        raise ValueError(
-            f"v2 requires dataset.canonicalize_pair_orientation=false (or absent); "
-            f"got {canon!r}."
         )
 
     hard_part = OmegaConf.select(config, "dataset.hard_partition_isolates")

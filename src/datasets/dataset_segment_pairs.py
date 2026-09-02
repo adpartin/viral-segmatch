@@ -43,14 +43,6 @@ Key Concepts
     sequences appear in the same isolate at all, regardless of whether that pair would
     have been included as a positive under additional constraints (e.g., different functions).
 
-- canonicalization of stored orientation (optional):
-    The semantic task is undirected: (a,b) ≡ (b,a).
-    However, the default model input can be directed (e.g., [emb_a, emb_b]).
-    To prevent "direction -> label" shortcut learning, we can enforce a deterministic
-    orientation rule for BOTH positives and negatives by swapping all *_a/*_b fields
-    when needed (e.g., order by (prot_hash, brc_fea_id) or a fallback).
-    This does NOT change pair_key (pair_key is always order-invariant).
-
 Dataset Construction Steps
 --------------------------
 1) Split isolates (assembly_id) into train/val/test
@@ -66,8 +58,6 @@ Dataset Construction Steps
        pair_key = canonical_pair_key(row_a.prot_hash, row_b.prot_hash)   (stored as column 'pair_key')
      and store paired fields:
        assembly_id_a/b, brc_a/b, prot_seq_a/b, seg_a/b, func_a/b, prot_hash_a/b, label=1
-   - (Optional) Canonicalize stored orientation by swapping all *_a/*_b fields
-     according to a deterministic rule that does NOT reference label, function, or segment.
 
 3) Build cooccur_pairs (blocking set for negatives)
    - Build a set of all sequence-hash pairs that appear together in any isolate.
@@ -83,7 +73,6 @@ Dataset Construction Steps
        c) it duplicates a previously added negative by prot_hash-pair,
        d) it violates configured same-function constraints (optional ratio cap).
    - For accepted negatives, store the same paired fields as positives with label=0.
-   - (Optional) Canonicalize stored orientation by the same deterministic rule used for positives.
 
 5) Prevent split leakage by pair_key (order-invariant)
    - Ensure that the same pair_key does not appear in more than one split.
@@ -206,18 +195,27 @@ SKIP_KMER_PCA_PLOTS = getattr(config.dataset, 'skip_kmer_pca_plots', False)
 # Pair builder selection (default v1 for backward compatibility).
 PAIR_BUILDER_VERSION = getattr(config.dataset, 'pair_builder_version', 'v1')
 
-# Loud rejection of legacy year_train / year_test keys. They were removed
-# 2026-05-11 (replaced by metadata_holdout under v2). Surface a clear migration
-# message rather than letting OmegaConf return None silently if a bundle still
-# carries them.
-for _legacy_key in ('year_train', 'year_test'):
-    if getattr(config.dataset, _legacy_key, None) is not None:
-        raise ValueError(
-            f"dataset.{_legacy_key} is no longer supported; the temporal-holdout "
-            f"mechanism was replaced by dataset.metadata_holdout under "
-            f"pair_builder_version=v2 on 2026-05-11. See "
-            f"docs/plans/2026-05-11_metadata_holdout_plan.md."
-        )
+# Loud rejection of retired keys. Hydra does not run in struct mode here, so a bundle that still
+# carries one would otherwise be read as None and silently ignored. Raise on ANY value, including
+# the old default: the key does nothing now, so leaving it in a bundle misdescribes the run.
+_RETIRED_DATASET_KEYS = {
+    'year_train':
+        "the temporal-holdout mechanism was replaced by dataset.metadata_holdout under "
+        "pair_builder_version=v2 on 2026-05-11; see "
+        "docs/plans/2026-05-11_metadata_holdout_plan.md",
+    'year_test':
+        "the temporal-holdout mechanism was replaced by dataset.metadata_holdout under "
+        "pair_builder_version=v2 on 2026-05-11; see "
+        "docs/plans/2026-05-11_metadata_holdout_plan.md",
+    'canonicalize_pair_orientation':
+        "pairs are schema-ordered, so slot A is always func_left and slot B always func_right "
+        "and there is no orientation left to choose. The flag only ever applied to "
+        "pair_mode=unordered, which was removed with the v1 builder on 2026-06-03; see "
+        "docs/plans/done/2026-06-03_deprecate_v1_builder_plan.md",
+}
+for _retired_key, _reason in _RETIRED_DATASET_KEYS.items():
+    if getattr(config.dataset, _retired_key, None) is not None:
+        raise ValueError(f"dataset.{_retired_key} is no longer supported: {_reason}.")
 
 print(f"\n{'='*40}")
 print(f"Virus: {VIRUS_NAME}")
@@ -423,9 +421,8 @@ print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected
 if 'prot_hash' not in df.columns:
     df['prot_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
-# Schema-pair parsing (shared by v1 and v2). PAIR_MODE validity check and
-# v1-only notes (canonicalize override, same-func controls) live in the v1
-# dispatch branch; v2 enforces schema_ordered via _validate_v2_config.
+# Schema-pair parsing. schema_ordered is the only pair_mode; _validate_v2_config
+# rejects anything else.
 schema_pair: Optional[Tuple[str, str]] = None
 
 if PAIR_MODE == "schema_ordered":

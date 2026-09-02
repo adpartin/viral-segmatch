@@ -187,12 +187,14 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
      `conf/dataset/default.yaml`. Off by default because the filter drops rows: always-on would
      change every nt_cds dataset built before it existed and make those results irreproducible.
    - **Not "canonical" in a name.** The repo already uses that word for two other things —
-     `canonical_segment` (the segment label) and `canonical_pair_key` /
-     `canonicalize_pair_orientation` (fixing a pair's slot order) — so a third meaning in an
-     identifier would be ambiguous. "Pinned" is the word already used for this idea, in
+     `canonical_segment` (the segment label) and `canonical_pair_key` (the order-invariant
+     dedup key, `'__'.join(sorted([hash_a, hash_b]))`) — so a third meaning in an identifier
+     would be ambiguous. "Pinned" is the word already used for this idea, in
      `check_cds_length(..., pinned_nt)` and in the `flu.yaml` comment. In prose "canonical
      length" is unambiguous and stays, which is why `conf/virus/flu.yaml` and
-     `check_cds_length`'s error text still say it.
+     `check_cds_length`'s error text still say it. (A third use, the
+     `canonicalize_pair_orientation` config flag, was removed after this: it was v1-only and
+     v1 went on 2026-06-03.)
    - **Implementation.** `_pair_helpers.filter_complete_cds_at_pinned_length`, called from
      `dataset_segment_pairs.py` just before the `cds_dna_hash` attach. It matches on
      `(assembly_id, function)` membership rather than a merge, so a duplicate key in
