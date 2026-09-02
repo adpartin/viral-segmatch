@@ -21,6 +21,10 @@ sampled strain would otherwise decide the answer. It uses every split. Nothing i
 that leaks nothing -- but if entropy is ever used to SELECT positions, it must be recomputed on
 the training split alone.
 
+The per-protein CSVs are named `site_entropy_HA.csv` / `site_entropy_NA.csv` rather than carrying
+a protein column, so they do not hit the `NA`-parsed-as-NaN trap that `pd.read_csv` sets for any
+column holding the literal string `NA` (Neuraminidase).
+
 Outputs (to `--out_dir`, by default derived from the dataset dir):
     site_entropy.png                per-position trace and codon-position summary, one row per protein
     site_entropy_{SHORT}.csv        position, codon_position, entropy_bits, n_symbols

@@ -33,6 +33,11 @@ the feature cache restricted to the sequences this dataset holds, not from the w
 in the SAME unit as the features, so codon importance is read against codon entropy (ceiling 6
 bits) rather than against nucleotide entropy (ceiling 2).
 
+Reading the CSVs back: the `protein` column holds the literal string `NA` (Neuraminidase), which
+a default `pd.read_csv` parses as NaN and so silently drops every Neuraminidase row. Read with
+`keep_default_na=False, na_values=['']`, the same rule CLAUDE.md gives for any `function_short`
+column.
+
 Outputs (to `--out_dir`, by default derived from the dataset dir):
     site_importance_{unit}.png   importance along each CDS, plus importance against entropy
     site_importance_{unit}.csv   column, slot, protein, site, shap_frac, shap_frac_std,
@@ -165,8 +170,8 @@ def _stamp(fig) -> None:
              fontsize=7, color='0.45')
 
 
-def plot_conventional_importance(model_root: Path, run_stem: str, fold: int, columns, table,
-                                 top_n: int, out_png: Path, unit: str, dpi: int) -> Path:
+def lgbm_plot_importance(model_root: Path, run_stem: str, fold: int, columns, table,
+                         top_n: int, out_png: Path, unit: str, dpi: int) -> Path:
     """Draw LightGBM's own ranked bar charts beside the held-out SHAP ranking.
 
     `lightgbm.plot_importance` is the conventional view and calls the same
@@ -419,7 +424,7 @@ def main() -> None:
     out_png = savefig(args.out_dir / f'site_importance_{args.unit}.png', dpi=args.dpi)
     print(f"\nDone. Wrote {out_png}")
 
-    plot_conventional_importance(
+    lgbm_plot_importance(
         args.models_root, args.model_run_template, args.barplot_fold, columns, table,
         args.top_n, args.out_dir / f'site_importance_{args.unit}_barplot.png', args.unit,
         args.dpi)

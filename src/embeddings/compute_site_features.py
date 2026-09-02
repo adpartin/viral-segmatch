@@ -67,6 +67,10 @@ from src.utils.timer_utils import Timer  # noqa: E402
 
 UNITS = ('nt', 'codon', 'aa')
 
+# TODO. Several things are probably defined somewhere in the codebase. We need to define their
+# canonical location and import them from there, rather than redefining them here. These could
+# include: NT_ALPHABET, NT_OTHER_CODE, AA_ALPHABET, AA_STOP_CODE, AA_OTHER_CODE, CODON_UNK_CODE.
+
 # Nucleotide codes. The values are labels for a categorical column, so the numbering is arbitrary;
 # it is fixed here and recorded in the metadata so a cache stays readable. Anything outside ACGT --
 # the IUPAC ambiguity codes, which are rare -- shares one "other" code rather than getting 11 more.
