@@ -191,8 +191,8 @@ GENERATE_VISUALIZATIONS = getattr(config.dataset, 'generate_visualizations', Tru
 SKIP_ESM_PCA_PLOTS = getattr(config.dataset, 'skip_esm_pca_plots', False)
 SKIP_KMER_PCA_PLOTS = getattr(config.dataset, 'skip_kmer_pca_plots', False)
 
-# Pair builder selection (default v1 for backward compatibility).
-PAIR_BUILDER_VERSION = getattr(config.dataset, 'pair_builder_version', 'v1')
+# Pair builder selection. v2 is the only builder; anything else is rejected below.
+PAIR_BUILDER_VERSION = getattr(config.dataset, 'pair_builder_version', 'v2')
 
 # Loud rejection of retired keys. Hydra does not run in struct mode here, so a bundle that still
 # carries one would otherwise be read as None and silently ignored. Raise on ANY value, including
@@ -498,8 +498,7 @@ filters_applied = {
 }
 
 if PAIR_BUILDER_VERSION == 'v2':
-    # v2 dispatch. v2 is opt-in via dataset.pair_builder_version=v2; v1 path
-    # below is unchanged. See docs/plans/done/design_dataset_gen_v2.md.
+    # See docs/plans/done/design_dataset_gen_v2.md.
 
     # v2-only config knobs.
     MAX_ATTEMPTS_PER_SEQ = getattr(config.dataset, 'max_attempts_per_seq', 50)

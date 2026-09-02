@@ -9,12 +9,11 @@ Output directory: results/{virus_name}/{data_version}/{config_bundle}/dataset_an
 
 Plots generated:
 - segment_pair_histograms.png: Segment pair counts for pos/neg pairs across train/val/test (2x3 grid)
-- isolate_distributions.png: 4-panel plot showing:
+- isolate_distributions.png: 3-panel plot showing:
     - Unique isolates per dataset
     - Total pairs per dataset
     - Positive vs negative pairs
-    - Same-function negative pair rate
-- function_distributions.png: Function pair distributions for positive and same-function negative pairs
+- function_distributions.png: Function pair distribution for positive pairs
 
 Other outputs:
 - dataset_basic_statistics.csv: Basic statistics table
@@ -75,11 +74,6 @@ def analyze_basic_statistics():
         # Count unique isolates
         unique_isolates = set(df['assembly_id_a']).union(set(df['assembly_id_b']))
         
-        # Same-function negative pairs
-        same_func_neg = df[(df['label'] == 0) & (df['func_a'] == df['func_b'])]
-        same_func_neg_count = len(same_func_neg)
-        same_func_neg_rate = same_func_neg_count / negative_pairs if negative_pairs > 0 else 0
-        
         stats.append({
             'Dataset': name,
             'Total Pairs': total_pairs,
@@ -87,8 +81,6 @@ def analyze_basic_statistics():
             'Negative Pairs': negative_pairs,
             'Positive Rate': f"{pos_rate:.3f}",
             'Unique Isolates': len(unique_isolates),
-            'Same-Func Neg': same_func_neg_count,
-            'Same-Func Neg Rate': f"{same_func_neg_rate:.3f}"
         })
     
     stats_df = pd.DataFrame(stats)
@@ -165,7 +157,7 @@ def create_isolate_distribution_plots():
     """Create plots showing isolate distributions across datasets."""
     print("\nCreate isolate distribution plots.")
     
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
     
     # 1. Number of unique isolates per dataset
     datasets = ['Train', 'Val', 'Test']
@@ -236,30 +228,6 @@ def create_isolate_distribution_plots():
         ax3.text(bar_neg.get_x() + bar_neg.get_width()/2., height_neg + 10,
                 f'{neg_count}\n({pct_neg:.1f}%)', ha='center', va='bottom', fontweight='bold', fontsize=10)
     
-    # 4. Same-function negative pairs analysis
-    same_func_neg_counts = []
-    total_neg_counts = []
-    
-    for df in [train_df, val_df, test_df]:
-        neg_pairs = df[df['label'] == 0]
-        same_func_neg = neg_pairs[neg_pairs['func_a'] == neg_pairs['func_b']]
-        same_func_neg_counts.append(len(same_func_neg))
-        total_neg_counts.append(len(neg_pairs))
-    
-    same_func_rates = [sf/total if total > 0 else 0 
-                      for sf, total in zip(same_func_neg_counts, total_neg_counts)]
-    
-    bars = ax4.bar(datasets, same_func_rates, color=SPLIT_COLORS_LIST, alpha=0.8)
-    ax4.set_title('Same-Function Negative Pair Rate', fontweight='bold', fontsize=14)
-    ax4.set_ylabel('Proportion of Negative Pairs')
-    ax4.set_ylim(0, 1)
-    
-    # Add count and rate labels
-    for bar, rate, count, total in zip(bars, same_func_rates, same_func_neg_counts, total_neg_counts):
-        height = bar.get_height()
-        ax4.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                f'{count}/{total}\n({rate:.3f})', ha='center', va='bottom', fontweight='bold', fontsize=10)
-    
     plt.tight_layout()
     plt.savefig(results_dir / 'isolate_distributions.png', dpi=300, bbox_inches='tight')
     plt.show()
@@ -290,7 +258,7 @@ def analyze_function_distribution():
     FUNCTION_COLORS = ['#9B59B6', '#E74C3C', '#17A2B8']  # Purple, Red, Teal
     
     # Create function pair distribution plot
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    fig, ax1 = plt.subplots(figsize=(10, 6))
     
     # Positive pairs by function
     pos_pairs = combined_df[combined_df['label'] == 1]
@@ -305,22 +273,6 @@ def analyze_function_distribution():
     ax1.set_xlabel('Dataset')
     ax1.legend(title='Function Pair', bbox_to_anchor=(1.05, 1), loc='best')
     ax1.tick_params(axis='x', rotation=0)
-    
-    # Negative pairs by function (same-function only)
-    neg_same_func = combined_df[(combined_df['label'] == 0) & 
-                               (combined_df['func_a'] == combined_df['func_b'])]
-    
-    if len(neg_same_func) > 0:
-        func_counts_neg = neg_same_func.groupby(['dataset', 'func_pair']).size().unstack(fill_value=0)
-        # Ensure datasets are in correct order
-        func_counts_neg = func_counts_neg.reindex(['Train', 'Val', 'Test'])
-        
-        func_counts_neg.plot(kind='bar', ax=ax2, alpha=0.8, color=FUNCTION_COLORS)
-        ax2.set_title('Same-Function Negative Pairs', fontweight='bold', fontsize=14)
-        ax2.set_ylabel('Count')
-        ax2.set_xlabel('Dataset')
-        ax2.legend(title='Function', bbox_to_anchor=(1.05, 1), loc='best')
-        ax2.tick_params(axis='x', rotation=0)
     
     plt.tight_layout()
     plt.savefig(results_dir / 'function_distributions.png', dpi=300, bbox_inches='tight')
@@ -353,9 +305,6 @@ def create_dataset_summary_table():
         
         unique_seg_pairs = df['seg_pair'].nunique()
         
-        # Same-function analysis
-        same_func_neg = df[(df['label'] == 0) & (df['func_a'] == df['func_b'])]
-        
         summary_data.append({
             'Dataset': name,
             'Total_Pairs': total_pairs,
@@ -364,8 +313,6 @@ def create_dataset_summary_table():
             'Positive_Rate': f"{pos_pairs/total_pairs:.3f}",
             'Unique_Isolates': len(unique_isolates),
             'Unique_Segment_Pairs': unique_seg_pairs,
-            'Same_Func_Negatives': len(same_func_neg),
-            'Same_Func_Neg_Rate': f"{len(same_func_neg)/neg_pairs:.3f}" if neg_pairs > 0 else "0"
         })
     
     summary_df = pd.DataFrame(summary_data)
@@ -749,12 +696,6 @@ def main(virus_name: str, data_version: str, config_bundle: str, dataset_dir: Pa
     print(f'• Total unique isolates: {total_isolates}')
     print(f'• Dataset split: {len(train_df)/total_pairs:.1%} train, {len(val_df)/total_pairs:.1%} val, {len(test_df)/total_pairs:.1%} test')
     print(f"• Positive pair rate: {(train_df['label']==1).mean():.1%} (consistent across all sets)")
-    
-    # Same-function negative rates
-    neg_count = (train_df['label']==0).sum()
-    if neg_count > 0:
-        train_sf_rate = len(train_df[(train_df['label']==0) & (train_df['func_a']==train_df['func_b'])]) / neg_count
-        print(f'• Same-function negative rate: ~{train_sf_rate:.1%} (prevents task from being too easy)')
 
 
 if __name__ == '__main__':
