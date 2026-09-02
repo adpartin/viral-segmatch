@@ -6,6 +6,7 @@ defaults:
   - /paths: flu
   - /embeddings: default
   - /kmer: default
+  - /site: default
   - /dataset: default
   - /training: base
   - /baselines: default

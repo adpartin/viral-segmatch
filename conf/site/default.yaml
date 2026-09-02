@@ -1,0 +1,39 @@
+# Default per-site feature configuration.
+#
+# Per-site features give every position along the CDS its own column, so a feature-importance
+# score points at a place in the sequence. K-mer counts cannot do that: a count records how many
+# times a subsequence occurs, not where. Goes with `training.feature_source: site`, the same way
+# the `kmer:` block goes with `feature_source: kmer`.
+#
+# Requires every sequence to be the same length, so the dataset must be built with
+# `dataset.require_complete_cds_at_pinned_length: true`. Position 200 is otherwise a different
+# place in different records.
+#
+# Not "positional encoding" -- in ML that means the sinusoidal position signal added to token
+# embeddings in a transformer, which is a different thing.
+#
+# See docs/plans/2026-08-28_per_site_nt_features_plan.md and docs/methods/glossary.md.
+
+unit: nt            # What one site is:
+                    #   nt    -- one nucleotide.  Reads cds_dna_final -> cds_dna_seq. 4 values.
+                    #            HA 1,701 sites, NA 1,410.
+                    #   codon -- one 3-letter DNA group. Reads cds_dna_seq. 64 values.
+                    #            HA 567 sites, NA 470.
+                    #   aa    -- one amino acid. Reads cds_dna_final -> prot_seq. 22 values
+                    #            (20 standard + stop + unknown). HA 567 sites, NA 470.
+                    # codon and aa are the SAME positions, not just the same count: codon site i
+                    # and amino-acid site i are the same place, because 3 x protein length ==
+                    # CDS length exactly. Only the value differs, so the choice between them is
+                    # one thing -- codon keeps silent changes, aa discards them.
+                    #
+                    # nt_ctg (contig DNA) is not a valid source for any unit: contigs carry the
+                    # untranslated ends and vary in length, so positions do not line up.
+
+encoding: ordinal   # How each site's value is coded:
+                    #   ordinal -- one integer column per site. The codes are labels, not
+                    #              magnitudes, so the model must be told the column is
+                    #              categorical (LightGBM `categorical_feature`).
+                    #   onehot  -- one binary column per (site, value). Wider by the number of
+                    #              values, so 4x for nt, 64x for codon, 22x for aa.
+                    # The feature cache stores ordinal codes either way; `onehot` is expanded at
+                    # load time, so switching does not rebuild the cache.

@@ -36,14 +36,20 @@ and amino-acid site 200 are the same place. Only the value differs — the 3-let
 possible) or the protein letter it becomes (21). So the choice between them is one thing: **codon
 keeps silent changes, aa discards them.**
 
-| unit | reads | sites per pair | values | ordinal width | one-hot width |
+| unit | reads | sites per pair | codes | ordinal width | one-hot width |
 |---|---|---|---|---|---|
-| `nt` | CDS DNA | 3,111 | 4 | 3,111 | 12,444 |
-| `codon` | CDS DNA | 1,037 | 64 | 1,037 | **66,368** |
-| `aa` | protein | 1,037 | 21 | 1,037 | 21,777 |
+| `nt` | CDS DNA | 3,111 | 5 | 3,111 | 15,555 |
+| `codon` | CDS DNA | 1,037 | 65 | 1,037 | **67,405** |
+| `aa` | protein | 1,037 | 22 | 1,037 | 22,814 |
 
 (Current k-mer setup is 8,192 wide.) Note codon is narrower than nt only under `ordinal`; under
-`onehot` it is the widest of the three, because each site needs 64 columns.
+`onehot` it is the widest of the three, because each site needs one column per codon.
+
+The code counts include one catch-all, which the plain alphabet sizes (4 / 64 / 21) leave out: a
+site whose character is an IUPAC ambiguity code has no clean value. Rare -- 0.006% of nt sites and
+0.010% of aa sites on the built cache -- but it is a real code, and a one-hot expansion needs a
+column for it. The aa count is 22, not 21, for the same reason: 20 residues, the stop character,
+and `X` (residue unknown) sharing the catch-all.
 
 `nt_ctg` (contig DNA) is not a valid source for any unit: contigs include the untranslated ends and
 vary in length, so positions do not line up. Measured on H3N2 2024 segment 4, contigs span
@@ -248,10 +254,57 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    This catches wholesale misalignment, not one or two shifted sequences. The completeness plus
    pinned-length filter is what rules those out, since an internal shift would need an insertion
    and a deletion that cancel.
-3. **Feature builder.** `src/embeddings/compute_site_features.py`, matching the existing
-   `compute_esm2_embeddings.py` and `compute_kmer_features.py` in that directory. Write
-   a cache keyed by `cds_dna_hash`, same pattern as the k-mer cache. Verify a few sequences decode
-   back to the original.
+3. **Feature builder — DONE (2026-09-01).** `src/embeddings/compute_site_features.py`, alongside
+   `compute_esm2_embeddings.py` and `compute_kmer_features.py`. Config group `conf/site/default.yaml`
+   (`unit`, `encoding`), registered in `conf/bundles/flu_base.yaml` next to `/kmer`. The four terms
+   are in `docs/methods/glossary.md`.
+
+   Per protein and unit it writes `site_features_{unit}_{SHORT}.npz` (uint8 codes),
+   `_index.parquet` (`cds_dna_hash` -> row) and `_metadata.json` (code map, site count, kept and
+   dropped counts) to the embeddings dir. Existence-check caching per protein, `--force_recompute`
+   to rebuild.
+
+   **One matrix per protein, not one for the corpus.** The width is the CDS length, which differs
+   by protein, so a single matrix cannot hold them. Only complete CDS at the pinned length take
+   part.
+
+   **The cache stores ordinal codes only.** `site.encoding: onehot` is expanded at load time
+   (step 4), so switching encoding does not rebuild the cache. Storing one-hot would be 5-65x
+   larger for nothing.
+
+   **Keyed by `cds_dna_hash` for every unit, `aa` included.** Two CDS that translate to the same
+   protein get two identical aa rows. That costs a little space and buys one join key and one row
+   order across all three units -- so codon site *i* and aa site *i* are the same place for the
+   same row, by construction rather than by convention.
+
+   Built for HA and NA in all three units:
+
+   | | unique CDS | complete | at pinned length | nt sites | codon/aa sites |
+   |---|---|---|---|---|---|
+   | HA | 65,414 | 64,125 | 44,202 | 1,701 | 567 |
+   | NA | 58,887 | 57,278 | 46,175 | 1,410 | 470 |
+
+   37 MB on disk for all six matrices, against 140 MB uncompressed for `nt` alone. 15 s to build
+   both proteins for one unit.
+
+   HA loses 19,923 complete CDS (31%) to the length filter, because the corpus spans subtypes the
+   pin does not cover -- H5N1 HA is 1704 nt, H9 and H7 are 1683. That is correct, not a bug: those
+   sequences cannot be placed position by position against a 1,701-nt frame. A per-site run on
+   them needs its own pinned length. The H3N2 2024 dataset is unaffected: the cache covers all
+   2,732 HA and 2,298 NA hashes it needs.
+
+   **Verification.** Every build decodes a sample of rows back to the source and raises on any
+   mismatch, so a wrong code map cannot reach a model silently; the catch-all code is checked the
+   other way round, since those positions cannot round-trip. Three further checks, run once:
+
+   - The `nt` codes rebuild the codon ids exactly -- 0 mismatches over 400 rows per protein.
+   - Each codon translates to its amino-acid code under NCBI table 1 -- 0 mismatches. This is an
+     independent path: the codon ids come from GenSLM's tokenizer, the aa codes from `prot_seq`,
+     and the translation from `cds_utils._CODON_TABLE_1`. All three agree.
+   - The three units share one index, and nt sites == 3 x codon sites == 3 x aa sites.
+
+   Codon ids are GenSLM's, read from `genslm_vocab/tokenizer_config.json` at build time rather
+   than copied: GGC 33, GCC 34, ATC 35, GAC 36, stops 93 / 95 / 96, `<unk>` 3.
 4. **Loader and training.** Add a `site` branch to `src/models/_pair_features.py`, which today
    rejects anything outside `{kmer, esm2}` (line 326). Wire `categorical_feature` into the LGBM
    baseline, which does not pass it today. Reject any `interaction` other than `concat` and any
