@@ -26,6 +26,10 @@ listed for cross-reference if you read LightGBM docs / params.
 
 Early stopping uses the val split's AUC as the eval metric (matches the
 MLP path's val-driven model selection).
+
+``fit`` accepts ``categorical_feature``: the column indices whose integer values are
+labels rather than magnitudes. Ordinal per-site features pass every column; every other
+feature source passes ``None`` and the columns stay numeric.
 """
 from typing import Optional
 
@@ -60,24 +64,35 @@ def get_estimator(config, *, random_state: Optional[int] = None):
     )
 
 
-def fit(estimator, X_train, y_train, *, X_val=None, y_val=None, config=None) -> None:
+def fit(estimator, X_train, y_train, *, X_val=None, y_val=None, config=None,
+        categorical_feature=None) -> None:
     """Fit LightGBM with val-driven early stopping.
 
     Reads ``early_stopping_rounds`` from ``config.baseline_lgbm.early_stopping_rounds``
     (default 50). Uses AUC on the val split as the eval metric.
     Falls back to plain ``fit(X_train, y_train)`` when no val set is given.
+
+    ``categorical_feature`` is a list of column indices whose values are labels rather than
+    magnitudes — ordinal per-site codes, where code 7 is not "more" than code 3. Without it
+    LightGBM splits such a column on ``<=`` and reads an order that is not there. ``None``
+    (the default) leaves every column numeric, which is right for k-mer counts, ESM-2
+    embeddings and one-hot columns alike.
     """
     import lightgbm as lgb
     cfg = getattr(config, 'baseline_lgbm', None) if config is not None else None
     cfg = dict(cfg) if cfg is not None else {}
     es_rounds = int(cfg.get('early_stopping_rounds', 50))
 
+    # LightGBM's own default is the string 'auto', not None.
+    categorical = categorical_feature if categorical_feature is not None else 'auto'
+
     if X_val is not None and y_val is not None:
         estimator.fit(
             X_train, y_train,
             eval_set=[(X_val, y_val)],
             eval_metric='auc',
+            categorical_feature=categorical,
             callbacks=[lgb.early_stopping(stopping_rounds=es_rounds, verbose=True)],
         )
     else:
-        estimator.fit(X_train, y_train)
+        estimator.fit(X_train, y_train, categorical_feature=categorical)

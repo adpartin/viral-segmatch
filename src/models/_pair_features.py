@@ -18,6 +18,17 @@ Supported feature sources
   ``interaction`` from ``{concat, diff, unit_diff, prod}`` or
   ``+``-separated combinations (matches ``train_pair_classifier.py``'s
   ``parse_interaction_flags`` syntax).
+- ``feature_source='site'``: one column per position along the CDS, read
+  from the cache ``compute_site_features.py`` writes. ``interaction``
+  must be ``'concat'`` and ``slot_transform`` must be ``'none'`` — the
+  two slots are different spaces of different lengths (slot A is HA
+  position 1..1701, slot B is NA position 1..1410), so a difference or a
+  product between them is meaningless, and there is nothing for a
+  normalizer to scale in a column of category codes. ``feature_scaling``
+  must be ``'none'`` for the same reason. Under
+  ``site.encoding='ordinal'`` every column is categorical and the model
+  has to be told so (LightGBM ``categorical_feature``); the caller gets
+  that from ``site_feature_columns``.
 
 Pipeline (ESM-2 path)
 ---------------------
@@ -61,6 +72,11 @@ from src.utils.kmer_utils import (
     get_kmer_pair_features,
     load_kmer_index,
     load_kmer_matrix,
+)
+from src.utils.site_utils import (
+    get_site_pair_features,
+    load_site_cache,
+    site_feature_columns,
 )
 
 
@@ -268,6 +284,75 @@ def _load_esm2_brc_index(embeddings_file: Path) -> dict:
     return dict(zip(keys, df["row"]))
 
 
+def _check_site_arguments(site_dir, site_proteins, interaction: str, slot_transform: str,
+                          feature_scaling: str) -> None:
+    """Reject the combinations that have no meaning for per-site features.
+
+    Slot A and slot B are different spaces of different lengths -- slot A is HA position 1..1701,
+    slot B is NA position 1..1410 -- so `concat` is the only interaction that says anything, and
+    `diff`, `unit_diff` and `prod` would silently compute over positions that do not correspond.
+    A column of category codes has nothing for a normalizer or a scaler to work on, so
+    `slot_transform` and `feature_scaling` must both be off.
+
+    Args:
+      site_dir: directory holding the per-site cache.
+      site_proteins: `(slot A, slot B)` short protein names.
+      interaction: the requested interaction.
+      slot_transform: the requested per-slot transform.
+      feature_scaling: the requested feature scaling.
+
+    Raises:
+      ValueError: a required argument is missing or a rejected combination was asked for.
+    """
+    if site_dir is None:
+        raise ValueError("site_dir is required for feature_source='site'.")
+    if site_proteins is None or len(site_proteins) != 2:
+        raise ValueError(
+            "site_proteins must be the (slot A, slot B) pair of short protein names, e.g. "
+            f"('HA', 'NA'); got {site_proteins!r}.")
+    if interaction != "concat":
+        raise NotImplementedError(
+            f"per-site features support interaction='concat' only; got {interaction!r}. The two "
+            f"slots are different spaces of different lengths, so a difference or a product "
+            f"between them compares positions that have nothing to do with each other.")
+    if slot_transform != "none":
+        raise NotImplementedError(
+            f"per-site features support slot_transform='none' only; got {slot_transform!r}. The "
+            f"values are category codes -- labels, not magnitudes -- so normalizing them has no "
+            f"meaning.")
+    if feature_scaling != "none":
+        raise NotImplementedError(
+            f"per-site features support feature_scaling='none' only; got {feature_scaling!r}, "
+            f"for the same reason slot_transform must be 'none'.")
+
+
+def _check_site_slots_match_pairs(pairs_df, cache_a, cache_b) -> None:
+    """Check the two caches hold the proteins the pair table actually carries in each slot.
+
+    The caches are addressed by short name and the pair table by full function string, so nothing
+    else ties the two together; without this a run could featurize NA into slot A and never say so.
+
+    Args:
+      pairs_df: a pair table carrying `func_a` and `func_b`.
+      cache_a: slot A's cache, whose metadata names the function it was built from.
+      cache_b: slot B's cache.
+
+    Raises:
+      ValueError: a slot holds more than one function, or the cache names a different one.
+    """
+    for slot, cache in (('a', cache_a), ('b', cache_b)):
+        in_pairs = sorted(pairs_df[f'func_{slot}'].unique())
+        if len(in_pairs) != 1:
+            raise ValueError(
+                f"slot {slot} carries {len(in_pairs)} functions {in_pairs}; per-site features "
+                f"need one protein per slot, which schema-ordered pairs guarantee.")
+        if in_pairs[0] != cache.metadata['function']:
+            raise ValueError(
+                f"slot {slot} carries {in_pairs[0]!r} but the {cache.protein} cache was built "
+                f"from {cache.metadata['function']!r}. site_proteins is in the wrong order, or "
+                f"names the wrong proteins.")
+
+
 def load_pair_features_for_baselines(
     train_pairs: pd.DataFrame,
     val_pairs: pd.DataFrame,
@@ -282,6 +367,11 @@ def load_pair_features_for_baselines(
     kmer_alphabet: str = 'nt_ctg',
     # ESM-2 specific (required when feature_source='esm2')
     embeddings_file: Optional[Path] = None,
+    # Per-site specific (required when feature_source='site')
+    site_dir: Optional[Path] = None,
+    site_unit: str = 'nt',
+    site_encoding: str = 'ordinal',
+    site_proteins: Optional[tuple] = None,
     # Interaction & slot transform (apply to either source where supported)
     interaction: str = "concat",
     slot_transform: str = "none",
@@ -308,6 +398,12 @@ def load_pair_features_for_baselines(
             feature_source='kmer'.
         embeddings_file: for the ESM-2 path. Required when
             feature_source='esm2'.
+        site_dir / site_unit / site_encoding / site_proteins: for the
+            per-site path. ``site_proteins`` is the ``(slot A, slot B)``
+            pair of short protein names, e.g. ``('HA', 'NA')``; it is
+            checked against the cache metadata and the pair table's
+            ``func_a``/``func_b``, so a mismatch raises rather than
+            silently featurizing the wrong protein.
         interaction: ``'concat'`` (default), ``'diff'``, ``'unit_diff'``,
             ``'prod'``, ``'unit_prod'``, or ``+``-separated combinations
             (e.g., ``'unit_diff+unit_prod'``). Both feature sources
@@ -323,17 +419,42 @@ def load_pair_features_for_baselines(
         scaler)``. ``scaler`` is ``None`` when ``feature_scaling ==
         'none'``.
     """
-    if feature_source not in {"kmer", "esm2"}:
+    if feature_source not in {"kmer", "esm2", "site"}:
         raise NotImplementedError(
             f"Baseline feature loader supports feature_source in "
-            f"{{'kmer', 'esm2'}}; got {feature_source!r}."
+            f"{{'kmer', 'esm2', 'site'}}; got {feature_source!r}."
         )
     if feature_scaling not in {"none", "standard"}:
         raise ValueError(
             f"feature_scaling must be 'none' or 'standard'; got {feature_scaling!r}"
         )
 
-    if feature_source == "kmer":
+    if feature_source == "site":
+        _check_site_arguments(site_dir, site_proteins, interaction, slot_transform,
+                              feature_scaling)
+        short_a, short_b = site_proteins
+        print(f"\nLoading per-site pair features (unit={site_unit!r}, "
+              f"encoding={site_encoding!r}, slots={short_a}/{short_b}) from {site_dir}")
+        cache_a = load_site_cache(Path(site_dir), site_unit, short_a)
+        cache_b = load_site_cache(Path(site_dir), site_unit, short_b)
+        _check_site_slots_match_pairs(train_pairs, cache_a, cache_b)
+        print(f"  {short_a}: {cache_a.codes.shape[1]:,} sites over "
+              f"{cache_a.codes.shape[0]:,} unique CDS; "
+              f"{short_b}: {cache_b.codes.shape[1]:,} sites over "
+              f"{cache_b.codes.shape[0]:,} unique CDS")
+
+        X_train, y_train = get_site_pair_features(train_pairs, cache_a, cache_b, site_encoding)
+        X_val, y_val = get_site_pair_features(val_pairs, cache_a, cache_b, site_encoding)
+        X_test, y_test = get_site_pair_features(test_pairs, cache_a, cache_b, site_encoding)
+
+        # Which column is which position. Written out so a per-position importance map does not
+        # have to re-derive the layout, which is the whole point of per-site features.
+        columns = site_feature_columns(cache_a, cache_b, site_encoding)
+        columns_path = Path(output_dir) / f'site_feature_columns_{site_unit}_{site_encoding}.csv'
+        columns.to_csv(columns_path, index=False)
+        print(f"  {len(columns):,} columns; layout written to {columns_path}")
+
+    elif feature_source == "kmer":
         if slot_transform not in {"none", "unit_norm"}:
             raise NotImplementedError(
                 f"k-mer baseline path supports slot_transform in {{'none', 'unit_norm'}} "

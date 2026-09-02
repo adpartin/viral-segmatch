@@ -61,7 +61,12 @@ sys.path.append(str(project_root))
 
 from src.models._pair_features import load_pair_features_for_baselines
 from src.models._pair_metrics import compute_pair_metrics, find_optimal_threshold_pr
-from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
+from src.utils.config_hydra import (
+    get_function_short_name_map,
+    get_virus_config_hydra,
+    print_config_summary,
+    save_config,
+)
 from src.utils.experiment_utils import get_git_info
 from src.utils.path_utils import build_embeddings_paths, build_training_paths
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
@@ -84,6 +89,20 @@ def _resolve_baseline_module(name: str):
             f"Unknown baseline {name!r}. Registered: {sorted(BASELINE_REGISTRY)}"
         )
     return importlib.import_module(BASELINE_REGISTRY[name])
+
+
+def _resolve_site_settings(config) -> tuple:
+    """Read `site.unit` and `site.encoding` from the bundle, with the config-group defaults.
+
+    Args:
+      config: the resolved Hydra config.
+
+    Returns:
+      `(unit, encoding)`.
+    """
+    site_cfg = config.get('site') if hasattr(config, 'site') else None
+    site_cfg = site_cfg or {}
+    return str(site_cfg.get('unit', 'nt')), str(site_cfg.get('encoding', 'ordinal'))
 
 
 def _resolve_kmer_k(config) -> int:
@@ -214,7 +233,7 @@ def _run_one_baseline(
     X_test_raw: np.ndarray, y_test: np.ndarray,
     FEATURE_SOURCE: str, KMER_K: int,
     INTERACTION: str, SLOT_TRANSFORM: str,
-    RANDOM_SEED, dataset_dir: Path,
+    CATEGORICAL_FEATURES, RANDOM_SEED, dataset_dir: Path,
     ) -> dict:
     """Fit one baseline on the shared materialized features, write per-baseline
     artifacts, and run post-hoc analysis. Returns a small summary dict.
@@ -252,9 +271,13 @@ def _run_one_baseline(
     per_timer.begin_phase('train')
     estimator = baseline_module.get_estimator(config, random_state=RANDOM_SEED)
     print(f'Fitting {type(estimator).__name__}: {estimator}')
+    # A baseline module that defines `fit` takes over training entirely, and must accept these
+    # keywords; only lgbm does today. categorical_feature is None for every source but ordinal
+    # per-site features.
     fit_fn = getattr(baseline_module, 'fit', None)
     if fit_fn is not None:
-        fit_fn(estimator, X_train, y_train, X_val=X_val, y_val=y_val, config=config)
+        fit_fn(estimator, X_train, y_train, X_val=X_val, y_val=y_val, config=config,
+               categorical_feature=CATEGORICAL_FEATURES)
     else:
         estimator.fit(X_train, y_train)
     model_path = output_dir / 'best_model.joblib'
@@ -422,6 +445,7 @@ def main() -> None:
     FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
     KMER_K = _resolve_kmer_k(config)
     KMER_ALPHABET = _resolve_kmer_alphabet(config)
+    SITE_UNIT, SITE_ENCODING = _resolve_site_settings(config)
     INTERACTION = str(getattr(config.training, 'interaction', 'concat'))
     SLOT_TRANSFORM = str(getattr(config.training, 'slot_transform', 'none'))
 
@@ -476,14 +500,27 @@ def main() -> None:
     test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv',  engine=CSV_ENGINE)
     print(f'  train: {len(train_pairs):,} | val: {len(val_pairs):,} | test: {len(test_pairs):,}')
 
-    if FEATURE_SOURCE == 'kmer':
-        kmer_dir = build_embeddings_paths(
+    kmer_dir = site_dir = embeddings_file = None
+    site_proteins = None
+    if FEATURE_SOURCE in ('kmer', 'site'):
+        cache_dir = build_embeddings_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
             data_version=DATA_VERSION, run_suffix="", config=config,
         )['output_dir']
-        embeddings_file = None
+        if FEATURE_SOURCE == 'kmer':
+            kmer_dir = cache_dir
+        else:
+            site_dir = cache_dir
+            # Which protein sits in which slot comes from the pair table rather than from the
+            # bundle's schema_pair, whose order the dataset builder may have canonicalized. The
+            # loader re-checks the answer against each cache's own metadata.
+            short_map = get_function_short_name_map(config)
+            slot_functions = (train_pairs['func_a'].iloc[0], train_pairs['func_b'].iloc[0])
+            site_proteins = tuple(short_map.get(f, f) for f in slot_functions)
+            print(f'Site cache dir:  {site_dir}')
+            print(f'Site slots:      {site_proteins[0]} (a) / {site_proteins[1]} (b), '
+                  f'unit={SITE_UNIT}, encoding={SITE_ENCODING}')
     else:  # esm2
-        kmer_dir = None
         embeddings_file = build_training_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
             data_version=DATA_VERSION, run_suffix="", config=config,
@@ -501,6 +538,8 @@ def main() -> None:
             feature_scaling='none',  # raw; per-baseline scaling applied below
             kmer_dir=kmer_dir, kmer_k=KMER_K, kmer_alphabet=KMER_ALPHABET,
             embeddings_file=embeddings_file,
+            site_dir=site_dir, site_unit=SITE_UNIT, site_encoding=SITE_ENCODING,
+            site_proteins=site_proteins,
             interaction=INTERACTION,
             slot_transform=SLOT_TRANSFORM,
             output_dir=default_output_dir,
@@ -509,6 +548,16 @@ def main() -> None:
     total_timer.end_phase('load_data')
     print(f'\nMaterialized shared features: '
           f'X_train={X_train_raw.shape}, X_val={X_val_raw.shape}, X_test={X_test_raw.shape}')
+
+    # Ordinal site codes are labels, not magnitudes: code 7 is not "more" than code 3, and a tree
+    # that splits them on <= would read an order that is not there. Under this encoding every
+    # column is one site, so every column is categorical. One-hot columns are already binary and
+    # need no declaration.
+    CATEGORICAL_FEATURES = None
+    if FEATURE_SOURCE == 'site' and SITE_ENCODING == 'ordinal':
+        CATEGORICAL_FEATURES = list(range(X_train_raw.shape[1]))
+        print(f'Declaring all {len(CATEGORICAL_FEATURES):,} columns categorical '
+              f'(site.encoding=ordinal).')
 
     # ── Per-baseline runs ───────────────────────────────────────────────────
     n_baselines = len(baselines)
@@ -527,6 +576,7 @@ def main() -> None:
                 X_test_raw=X_test_raw,   y_test=y_test,
                 FEATURE_SOURCE=FEATURE_SOURCE, KMER_K=KMER_K,
                 INTERACTION=INTERACTION, SLOT_TRANSFORM=SLOT_TRANSFORM,
+                CATEGORICAL_FEATURES=CATEGORICAL_FEATURES,
                 RANDOM_SEED=RANDOM_SEED, dataset_dir=dataset_dir,
             )
             res['wall_seconds'] = time.time() - t0

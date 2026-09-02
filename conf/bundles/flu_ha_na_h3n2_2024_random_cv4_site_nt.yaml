@@ -1,0 +1,33 @@
+# STATUS: experimental -- per-site nucleotide features on the pinned-length H3N2 2024 folds.
+#
+# Same dataset as flu_ha_na_h3n2_2024_random_cv4_pinned_length; only the features differ. That is
+# the point: the k-mer baseline on these folds scores F1 macro 0.9094 +/- 0.0145, so any
+# difference here is the feature set and not the population.
+#
+# One column per position along the CDS (HA 1,701 + NA 1,410 = 3,111 columns), so a
+# feature-importance score points at a place in the sequence. A k-mer count cannot do that: it
+# records how many times a subsequence occurs, not where.
+#
+# interaction MUST be concat and slot_transform MUST be none. Slot A is HA position 1..1701 and
+# slot B is NA position 1..1410 -- different spaces of different lengths, so a difference or a
+# product between them compares positions that have nothing to do with each other, and a
+# normalizer has nothing to work on in a column of category codes. The loader rejects anything
+# else rather than computing it.
+#
+# Reads the cache from `src/embeddings/compute_site_features.py`; build it first with
+#   python src/embeddings/compute_site_features.py \
+#       --config_bundle flu_ha_na_h3n2_2024_random_cv4_site_nt --unit nt --proteins HA NA
+#
+# See docs/plans/2026-08-28_per_site_nt_features_plan.md steps 4 and 5.
+defaults:
+  - flu_ha_na_h3n2_2024_random_cv4_pinned_length
+  - _self_
+
+site:
+  unit: nt
+  encoding: ordinal
+
+training:
+  feature_source: site
+  interaction: concat
+  slot_transform: none

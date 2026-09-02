@@ -305,10 +305,45 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
 
    Codon ids are GenSLM's, read from `genslm_vocab/tokenizer_config.json` at build time rather
    than copied: GGC 33, GCC 34, ATC 35, GAC 36, stops 93 / 95 / 96, `<unk>` 3.
-4. **Loader and training.** Add a `site` branch to `src/models/_pair_features.py`, which today
-   rejects anything outside `{kmer, esm2}` (line 326). Wire `categorical_feature` into the LGBM
-   baseline, which does not pass it today. Reject any `interaction` other than `concat` and any
-   `slot_transform` other than `none`.
+4. **Loader and training — DONE (2026-09-02).** `src/utils/site_utils.py` reads the cache
+   (sibling of `kmer_utils.py`); `src/models/_pair_features.py` gained the `site` branch it used
+   to reject; `train_pair_baselines.py` resolves the cache dir and the two slot proteins;
+   `baselines/lgbm.py` takes `categorical_feature`. Bundle
+   `flu_ha_na_h3n2_2024_random_cv4_site_nt` inherits the pinned-length dataset bundle and only
+   swaps the features, so a difference against the k-mer number is the feature set and not the
+   population.
+
+   **Categoricals are declared.** Ordinal codes are labels, not magnitudes -- code 7 is not "more"
+   than code 3, and without the declaration LightGBM splits on `<=` and reads an order that is not
+   there. Under `encoding: ordinal` every column is one site, so every column is categorical; the
+   fitted booster confirms all 3,111. One-hot columns are already binary and are left numeric.
+   Every other feature source passes `None`, which becomes LightGBM's own `'auto'`.
+
+   **Widths match the table above exactly**, measured on fold 0: nt 3,111 ordinal / 15,555
+   one-hot; codon 1,037 / 67,405; aa 1,037 / 22,814. One-hot rows sum to the site count, so
+   exactly one code fires per site. One-hot width comes from the code map the cache declares, not
+   from the values a split happens to hold, so train, val and test cannot come out different
+   widths.
+
+   **Which column is which position** is written to
+   `site_feature_columns_{unit}_{encoding}.csv` at load time: column, slot, protein, site and (for
+   one-hot) code. Column 0 is HA site 1, column 1700 is HA site 1701, column 1701 is NA site 1.
+   Step 6 reads this instead of re-deriving the layout.
+
+   **Guards.** Twelve, all tested and firing: `interaction` other than `concat`, `slot_transform`
+   other than `none`, `feature_scaling` other than `none`, missing `site_dir`, missing or
+   malformed `site_proteins`, slots given in the wrong order, a protein with no cache, an unknown
+   `feature_source`, a `cds_dna_hash` the cache does not hold, the two slots built with different
+   units, a pair table without the hash columns, and an unknown encoding. The wrong-order one
+   matters most: nothing else ties the short names the cache is addressed by to the full function
+   strings the pair table carries, so without it a run could featurize NA into slot A and never
+   say so.
+
+   **Regression.** The k-mer baseline on fold 0 reproduces to six decimals after the change, so
+   the shared loader and the new `categorical_feature` keyword are inert for the other sources.
+
+   Smoke result, fold 0 only: site nt F1 macro 0.9246 against k-mer 0.9219 on the same fold. One
+   fold decides nothing; step 5 is the comparison.
 5. **Train and compare.** LGBM on the new folds, against the re-run k-mer number. Report both.
 6. **Importance map.** Per-position importance along each CDS, read against the entropy map from
    step 2.
