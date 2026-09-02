@@ -520,26 +520,58 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    It also bears on memorisation. A model identifying sequences would lean hard on a few
    high-resolution positions; this one does not lean hard on any.
 
-   **7b(ii). The top N together, with retrain — design.** Corrupt N positions in train, val AND
-   test, refit, evaluate. Sweep N in {1, 5, 10, 25, 50, 100}, and pair every N with a random-site
-   control, or a drop after corrupting the top 10 cannot be told from "any corruption hurts".
+   **7b(ii). The top N shuffled together, no retrain — DONE (2026-09-02).**
+   `src/analysis/plot_site_group_permutation.py`. Same idea as 7b(i) but N whole columns at once,
+   still with the fitted model. Two arms at every N: the top N by SHAP, and N sites drawn at
+   random as the control. 10 set sizes x 2 arms x 4 folds x 5 repeats, on test and on train.
+   Reported as share of the signal lost, `(clean AUC - shuffled AUC) / (clean AUC - 0.5)`, so
+   train and test sit on one scale despite different clean scores (test 0.9547, train 0.9859).
 
-   Corrupt all three splits identically. Corrupting train alone leaves real values in test and
-   creates a train/test mismatch, so a drop could mean "the site mattered" or "the splits no
-   longer look alike" with no way to tell which.
+   | N | top, test | random, test | top, train | random, train |
+   |---|---|---|---|---|
+   | 1 | 0.049 | 0.000 | 0.039 | 0.000 |
+   | 5 | 0.293 | 0.000 | 0.256 | 0.003 |
+   | 10 | **0.495** | 0.008 | 0.456 | 0.004 |
+   | 50 | 0.801 | 0.031 | 0.747 | 0.033 |
+   | 100 | 0.892 | 0.062 | 0.851 | 0.070 |
+   | 200 | 0.989 | 0.135 | 0.961 | 0.189 |
+   | 500 | 1.002 | 0.532 | 0.998 | 0.541 |
+   | 1,037 | 0.980 | 1.000 | 1.003 | 0.999 |
 
-   Shuffle at the **sequence** level here, not the row level: permute the site's value across the
-   2,732 unique HA (2,298 NA) sequences and propagate to the pair rows, so each sequence carries
-   one consistent but wrong value. Row-level shuffling would give one sequence different values at
-   the same site in different rows, which destroys more than the site.
+   The anchor holds: shuffling every column loses 0.98-1.00 of the signal, i.e. AUC-ROC 0.5. Both
+   arms meet there, since "top 1,037" and "random 1,037" are the same set.
 
-   On masking: permuting one feature at a time understates importance when features are
-   correlated, since the model falls back on a correlated twin. Measured here that risk is small
-   for the sites that matter. Cramer's V between varying codon sites has median 0.051 (HA) and
-   0.084 (NA), with 0.9% and 2.0% of pairs above 0.8 -- and among the top 10 SHAP sites the highest
-   pair is 0.700 (HA) and 0.534 (NA), none above 0.8. The redundancy the numbers above reveal is
-   therefore spread across many weakly related positions rather than concentrated in correlated
-   twins, and the top-N pass is itself the grouped-permutation remedy.
+   **The top sites are special, by a wide margin.** Ten well-chosen sites cost half the signal;
+   ten random sites cost nothing (0.008). It takes about 500 random sites -- half of all columns --
+   to reach what the top 10 do.
+
+   **The group is worth more than the sum of its parts, which settles the masking question.**
+   Shuffling the top 10 one at a time and adding up the drops gives 30.5% of the signal (7b(i)).
+   Shuffling the same 10 together gives **49.5%** -- 1.6x more. So the top sites were covering for
+   each other and single-site permutation understated every one of them. The redundancy the
+   single-site pass exposed is therefore partly INSIDE the top set, not only spread across the
+   tail.
+
+   **Nothing here looks like memorisation.** If the model had fitted those positions to
+   training-specific detail, shuffling them would hurt train more than test. It hurts train
+   *less* at every N. In absolute AUC the two are the same: the top 10 are worth 0.225 on test and
+   0.222 on train. The model's train-to-test gap (0.9859 against 0.9547) is not located in the
+   sites it leans on.
+
+   **Constant fill understates, so shuffling is the right choice.** Replacing a column with its
+   most common value instead of scrambling it loses 0.08-0.15 less signal at both N=10 and N=50,
+   on both splits. Filling with the mode sends every row down the branch most rows already take;
+   shuffling actively puts wrong values in, which disables the column more thoroughly. Measured
+   rather than argued.
+
+   **7b(iii). Retrain — still open.** Corrupt the top N in train, val AND test, refit, evaluate,
+   sweeping N with the same random control. Group permutation says what THIS model depends on;
+   only refitting says whether a NEW model could do the job from the other ~990 sites. Shuffle at
+   the sequence level there -- permute the site's value across the 2,732 unique HA (2,298 NA)
+   sequences and propagate to the pair rows -- so each sequence keeps one consistent but wrong
+   value. Row-level would give one sequence different values at the same site in different rows,
+   which destroys more than the site. Corrupt all three splits identically: corrupting train alone
+   leaves real values in test and creates a mismatch that confounds the result.
 
 8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
    interaction values or LightGBM split-pair statistics. Main-effect SHAP is already cheap --
