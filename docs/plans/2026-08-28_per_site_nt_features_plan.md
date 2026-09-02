@@ -59,6 +59,10 @@ Order of work: start with `nt` (finest view, and the direct comparison to Jamie'
 add `codon` and `aa` on the same positions. Comparing those two says whether silent changes carry
 any signal, and needs only a second feature cache once the loader exists.
 
+**Answered (step 5): they carry most of it.** `codon` scores 0.9159 F1 macro against `aa`'s
+0.8091 -- same positions, same records, +0.107 on every fold, p=0.002. `nt` and `codon` are
+indistinguishable (p=0.509), so `codon` is the efficient choice at a third of `nt`'s width.
+
 ### Codon numbering
 
 Use GenSLM's codon-to-integer map. `genslm_vocab/tokenizer_config.json` has all 64
@@ -344,7 +348,48 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
 
    Smoke result, fold 0 only: site nt F1 macro 0.9246 against k-mer 0.9219 on the same fold. One
    fold decides nothing; step 5 is the comparison.
-5. **Train and compare.** LGBM on the new folds, against the re-run k-mer number. Report both.
+5. **Train and compare — DONE (2026-09-02).** LGBM on the four pinned-length folds, all arms on
+   the same folds so the differences are paired.
+
+   | arm | columns | F1 macro | F1 | AUC-ROC |
+   |---|---|---|---|---|
+   | k-mer k=6 (nt_cds) | 8,192 | 0.9094 +/- 0.0145 | 0.9159 +/- 0.0122 | 0.9564 +/- 0.0064 |
+   | per-site `nt` | 3,111 | **0.9192 +/- 0.0134** | 0.9239 +/- 0.0121 | 0.9597 +/- 0.0087 |
+   | per-site `codon` | 1,037 | 0.9159 +/- 0.0087 | 0.9211 +/- 0.0077 | 0.9547 +/- 0.0056 |
+   | per-site `aa` | 1,037 | 0.8091 +/- 0.0228 | 0.8257 +/- 0.0185 | 0.8842 +/- 0.0200 |
+
+   Paired on F1 macro across the four folds:
+
+   | comparison | mean difference | folds won | p |
+   |---|---|---|---|
+   | `nt` vs k-mer | +0.0098 | 4/4 | 0.128 |
+   | `codon` vs k-mer | +0.0065 | 3/4 | 0.397 |
+   | `codon` vs `aa` | **+0.1067** | 4/4 | **0.002** |
+   | `nt` vs `codon` | +0.0033 | 3/4 | 0.509 |
+
+   **Per-site at least matches k-mers, so the plan continues.** `nt` wins every fold, but at k=4
+   the paired test does not reach significance (p=0.128), so the honest reading is "matches", not
+   "beats" -- and it does it with 3,111 columns against 8,192, or 1,037 for `codon`, which is
+   indistinguishable from `nt` (p=0.509) at a third of the width.
+
+   **Silent changes carry most of the signal.** `codon` and `aa` are the same 1,037 positions on
+   the same records and differ in one thing: whether a change that leaves the protein unchanged is
+   visible. Removing those costs **0.107 F1 macro**, on every fold, p=0.002 -- far the largest
+   effect in the comparison, an order above the k-mer gap. Synonymous sites are nearly neutral, so
+   they drift with lineage and act as a lineage fingerprint; amino-acid changes are under
+   selection and can converge across lineages. This says the matching signal lives in the DNA and
+   not in the protein, at least at the resolution a per-site categorical column can see. It does
+   NOT say the same about ESM-2, which reads 1,280 continuous dimensions rather than 22 categories
+   per site; that comparison has not been run.
+
+   **The memorisation risk is bounded but not settled.** Under a random split some sequences recur
+   across splits, and a per-site vector nearly names the sequence it came from. Measured on these
+   folds: 18-21% of test HA sequences and 22-26% of test NA also appear in train, but only
+   **7-10% of test rows have BOTH slots seen in training**, and `pair_key` overlap is 0 in every
+   fold -- no test pair was trained on. So at most about a tenth of the test set could be answered
+   by recalling a combination. The `aa` result is consistent with memorisation and with real
+   signal alike, since collapsing silent variants removes identities and signal together, so it
+   does not separate the two. Step 7 is what does.
 6. **Importance map.** Per-position importance along each CDS, read against the entropy map from
    step 2.
 7. **Masking and shuffling.** Retrain with the top-ranked positions removed, and separately with
