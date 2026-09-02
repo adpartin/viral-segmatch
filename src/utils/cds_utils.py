@@ -22,6 +22,8 @@ from __future__ import annotations
 import ast
 import hashlib
 
+import pandas as pd
+
 
 # Base -> its complement, used by `reverse_complement` for a minus-strand CDS. Case is
 # preserved, so a lowercase record stays lowercase. IUPAC ambiguity codes are included because
@@ -195,6 +197,66 @@ def translate_dna(cds_dna: str) -> str:
         )
     return ''.join(_translate_codon(cds_dna[i : i + 3])
                    for i in range(0, len(cds_dna), 3))
+
+
+def check_cds_length(
+    observed_lengths,
+    pinned_nt: int,
+    *,
+    protein: str,
+    min_coverage: float = 0.90,
+    ) -> dict:
+    """Check a pinned canonical CDS length against the population actually built.
+
+    Per-site features need every sequence at one length, so a run pins the length from
+    `conf/virus/flu.yaml` `cds_length` rather than taking the most common length of whatever
+    rows it loaded -- a value that can drift between runs and make two importance maps
+    non-comparable without anything failing. This re-derives the most common length from the
+    data and refuses to continue if it disagrees with the pin, or if the pin covers too little
+    of the population to be the canonical form.
+
+    Args:
+        observed_lengths: CDS lengths in nucleotides, one per unique sequence, for one protein
+            in one population. Pass unique sequences, not rows: a heavily sampled strain would
+            otherwise decide the answer.
+        pinned_nt: the length from the config for this protein.
+        protein: short name, used in the error text only.
+        min_coverage: least share of `observed_lengths` that must equal `pinned_nt`.
+
+    Returns:
+        `{'pinned_nt', 'observed_mode_nt', 'coverage', 'n'}` -- coverage is the share at
+        `pinned_nt`, not at the observed mode.
+
+    Raises:
+        ValueError: when `observed_lengths` is empty, when the most common observed length is
+            not `pinned_nt`, or when coverage is below `min_coverage`.
+    """
+    lengths = pd.Series(list(observed_lengths))
+    if lengths.empty:
+        raise ValueError(f"check_cds_length: no sequences given for {protein}.")
+    counts = lengths.value_counts()
+    observed_mode = int(counts.index[0])
+    coverage = float((lengths == pinned_nt).mean())
+
+    if observed_mode != pinned_nt:
+        raise ValueError(
+            f"{protein}: config pins cds_length {pinned_nt} nt, but the most common length in "
+            f"this population is {observed_mode} nt ({100 * counts.iloc[0] / len(lengths):.1f}% "
+            f"of {len(lengths):,} unique sequences; the pinned length covers "
+            f"{100 * coverage:.1f}%). The pin is for H3N2 and H1N1 only -- other subtypes "
+            f"differ (H5N1 HA is 1704, H9/H7 HA 1683, N8/N6/N9 NA 1413), and PB1 and NS1 have "
+            f"no single canonical length. Either narrow the population or add a per-subtype "
+            f"entry; do not re-pin one number across subtypes."
+        )
+    if coverage < min_coverage:
+        raise ValueError(
+            f"{protein}: cds_length {pinned_nt} nt is the most common length but covers only "
+            f"{100 * coverage:.1f}% of {len(lengths):,} unique sequences, below the "
+            f"{100 * min_coverage:.0f}% floor. A per-site run would drop the rest, so the "
+            f"population is probably a mix of forms rather than one canonical length."
+        )
+    return {'pinned_nt': pinned_nt, 'observed_mode_nt': observed_mode,
+            'coverage': coverage, 'n': int(len(lengths))}
 
 
 def compute_cds_dna_hash(cds_dna: str) -> str:

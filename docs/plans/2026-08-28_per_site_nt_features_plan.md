@@ -73,7 +73,7 @@ Counts are unique CDS in H3N2 + 2024 from `cds_dna_final.parquet`.
 
 **The sequences are nearly all one length per segment, once incomplete records are removed.**
 
-| | unique CDS | complete CDS | complete and at modal length |
+| | unique CDS | complete CDS | complete and at the canonical length |
 |---|---|---|---|
 | HA | 2,792 | 2,785 | 2,785 (length 1701) |
 | NA | 2,415 | 2,306 | 2,301 (length 1410) |
@@ -82,11 +82,11 @@ Counts are unique CDS in H3N2 + 2024 from `cds_dna_final.parquet`.
 length divisible by 3, passes on 100% of rows and so is dropped — see Background.)
 
 The off-length sequences are almost all incomplete records, not real length variation. Of 7
-off-modal HA, none is a complete CDS (6 missing the stop, 1 missing both ends). Of 114 off-modal
-NA, only 5 are (90 missing the stop, 17 missing the start, 2 missing both). No sequence in either
+off-length HA, none is a complete CDS (6 missing the stop, 1 missing both ends). Of 114
+off-length NA, only 5 are (90 missing the stop, 17 missing the start, 2 missing both). No sequence in either
 segment has an internal stop, so nothing is frameshifted.
 
-**Filter yield.** Keeping only pairs where both slots are complete and at modal length leaves
+**Filter yield.** Keeping only pairs where both slots are complete and at the canonical length leaves
 **3,580 of 3,723 positive pairs (96.2%)**.
 
 **Codons.** Across all 8 proteins in `cds_dna_final`, 98.6-99.8% of unique CDS start with `ATG`,
@@ -121,7 +121,11 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
 
 ## Steps
 
-0. **Preprocessing prerequisite** (do this first; it is the only change outside the per-site work).
+0. **Preprocessing prerequisite — DONE (2026-09-01).** Implemented and verified; the sub-points
+   below record what was built. Outcome: `protein_final` 1,793,563 -> 1,793,572 rows (+9), one new
+   column, every pre-existing row byte-identical on every shared column; `ctg_dna_final`
+   unchanged; `cds_dna_final` 868,240 rows unchanged with four new columns, 855,695 complete
+   (98.56%). The +9 are exactly the rows the old duplicate key removed — see the last sub-point.
    - Add `starts_with_m` in Stage 1, next to `has_terminal_stop` and `has_internal_stop` in
      `src/utils/protein_utils.py`. This is the one part of completeness nothing records today, and
      it belongs on the protein because the protein version is the more reliable of the two (see
@@ -153,12 +157,27 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
      some of those reports, so update their paths in the same change.
    - Do NOT merge `extract_cds_dna.py` into `preprocess_flu.py`, and do not rename the two
      aggregates. Keeping the names makes the archive diff a straight file-for-file comparison.
+   - **Also fixed while here** (found by auditing Stage 1): `handle_assembly_duplicates` keyed on
+     `[prot_seq, assembly_id]`, which collapses two DIFFERENT products of one segment when they
+     share a sequence — 334 such groups exist in the raw corpus (PB1 with PB1-N40, PA with
+     PA-N155/PA-N182, HA with its mature subunit, NS3 with NEP). `function` is now part of the key.
+     No group contains two of the 8 majors, so nothing important was ever at risk, but the
+     protection came from an unrelated filter running first. Stage 1 now reports "No duplicates
+     found": every removal this function made on this corpus was a cross-function one.
 
 1. **Filter — two conditions, not one.** `is_complete_cds` does not by itself give equal length:
-   5 NA sequences are complete but off-modal (2,306 complete, 2,301 of them at 1410). Modal length
-   is a property of a population, not of a record, so it cannot live in preprocessing. Filter on
-   `is_complete_cds` AND on modal length, both in the front end. Rebuild the 2024 dataset and record
-   what each condition removes. Then re-run the k-mer LGBM baseline on the new folds; the current
+   5 NA sequences are complete but off-length (2,306 complete, 2,301 of them at 1410). Length is a
+   property of a population, not of a record, so it cannot live in preprocessing. Filter on
+   `is_complete_cds` AND on the canonical length, both in the front end.
+
+   Take the length from `conf/virus/flu.yaml` `cds_length` (HA 1701, NA 1410) rather than computing
+   the most common length per run — a per-run value can drift between populations and quietly make
+   two importance maps non-comparable. Call `src.utils.cds_utils.check_cds_length`, which re-derives
+   the most common length from the population actually built and fails if it disagrees with the pin
+   or if coverage falls below 90%. The table is scoped to H3N2 and H1N1; PB1 and NS1 are absent
+   because neither has one canonical length (both change by subtype and by year).
+
+   Rebuild the 2024 dataset and record what each condition removes. Then re-run the k-mer LGBM baseline on the new folds; the current
    number on the unfiltered folds is F1 macro 0.9177 +/- 0.0086.
 2. **Entropy map.** Stack the kept sequences into a matrix (rows = sequences, columns = positions)
    and compute Shannon entropy down each column. Two purposes: a conservation map along each CDS,

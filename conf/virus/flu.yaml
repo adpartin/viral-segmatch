@@ -244,3 +244,44 @@ replicon_types:
   - 'Segment 6'
   - 'Segment 7'
   - 'Segment 8'
+
+# =============================================================================
+# Canonical CDS length, in nucleotides, per major protein
+# =============================================================================
+# WHAT THIS IS. Per-site features give every position in the coding sequence its own
+# column, so position 200 must be the same place in every sequence. That only works if all
+# sequences are the same length. This table is that length, so a run pins a constant instead
+# of recomputing the most common length from whatever rows it happens to load -- a value
+# that could drift between runs and quietly make two importance maps non-comparable.
+#
+# SCOPE: H3N2 and H1N1 only. These are 61.5% of isolates (34.0% + 27.5%). The values are NOT
+# valid for other subtypes -- H5N1 HA is 1704, H9 and H7 HA are 1683, and N8/N6/N9 NA is
+# 1413. Including H5N1 would drop HA coverage from 97.7% to 85.7%. Widen the scope only by
+# making the entry per-subtype, never by keeping one number.
+#
+# COVERAGE is the share of unique complete CDS at this exact length, measured on the Flu A
+# July 2025 corpus over H3N2 + H1N1. "Complete" means is_complete_cds: starts_with_m AND
+# has_terminal_stop AND NOT has_internal_stop (src/preprocess/extract_cds_dna.py).
+# Sequences at any other length are dropped by a per-site run -- they cannot be placed
+# position by position without real alignment. That is a limit of the feature method, not a
+# fault in those records.
+#
+# PB1 AND NS1 ARE DELIBERATELY ABSENT. Neither has one canonical length:
+#   PB1  H1N1 and H5N1 hold 2274 (99%), but H3N2 switched from 2274 to 2277 -- one extra
+#        codon -- between 2023 and 2024, with 2023 mid-turnover at 68%. Any single value is
+#        wrong for half the years.
+#   NS1  H1N1 is 660 (219 aa), H5N1 is 693 (230 aa), and H3N2 moved from 660 to 693 around
+#        2021. The two forms differ by 11 amino acids -- the known C-terminal truncation.
+# Both would need a (protein, subtype, year) key. A per-site run on either must pin its own
+# length for its own population and say so.
+#
+# Verify, do not trust: `src.utils.cds_utils.check_cds_length` re-derives the most common
+# length from the population actually built and fails if it disagrees with the pin or if
+# coverage falls below a floor.
+cds_length:
+  PB2: {nt: 2280, coverage: 0.998}   # 760 codons; 100% in H3N2, H1N1 and H5N1
+  PA:  {nt: 2151, coverage: 0.999}   # 717 codons; 100% in all three
+  NP:  {nt: 1497, coverage: 1.000}   # 499 codons; 100% in all three
+  M1:  {nt: 759,  coverage: 1.000}   # 253 codons; 100% in all three
+  HA:  {nt: 1701, coverage: 0.977}   # 567 codons; H3N2 100%, H1N1 94-100%. H5N1 is 1704.
+  NA:  {nt: 1410, coverage: 0.977}   # 470 codons; H3N2 100%, H1N1 98-100%
