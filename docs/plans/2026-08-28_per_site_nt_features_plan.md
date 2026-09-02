@@ -214,12 +214,40 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    - **Regression.** Rebuilding the unfiltered dataset with the modified driver reproduces the
      existing run byte-identically across all 12 fold splits, so the change is inert when the
      flag is off.
-2. **Entropy map.** Stack the kept sequences into a matrix (rows = sequences, columns = positions)
-   and compute Shannon entropy down each column. Two purposes: a conservation map along each CDS,
-   and a check that positions are comparable. If the sequences were not truly aligned, entropy
-   would be high and flat across the whole length. Note this catches wholesale misalignment, not
-   one or two shifted sequences — the completeness plus equal-length filter is what rules those
-   out, since an internal shift would need an insertion and a deletion that cancel.
+2. **Entropy map — DONE (2026-09-01).** `src/analysis/plot_site_entropy.py`. Stacks the kept
+   sequences into a matrix (rows = unique CDS, columns = positions) and computes Shannon entropy
+   down each column. Writes `site_entropy.png` and one `site_entropy_{SHORT}.csv` per protein to
+   `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/site_entropy/`; step 6
+   reads the CSV against the importance map.
+
+   Unique CDS, not pair rows -- a heavily sampled strain would otherwise decide the answer. All
+   splits, because nothing is fitted. If entropy is ever used to *select* positions, it must be
+   recomputed on train alone.
+
+   **Conservation.** HA: 2,732 unique CDS, mean 0.0577 bits, 550 of 1,701 positions invariant
+   (32.3%). NA: 2,298 unique CDS, mean 0.0580 bits, 506 of 1,410 invariant (35.9%). Against a
+   ceiling of 2 bits for four bases, both are strongly conserved with isolated variable sites.
+
+   **The positions line up.** Two checks, and the second is the sharper one:
+
+   | | mean bits | 1st | 2nd | 3rd | 3rd/1st |
+   |---|---|---|---|---|---|
+   | HA as built | 0.0577 | 0.0383 | 0.0283 | 0.1065 | 2.78x |
+   | NA as built | 0.0580 | 0.0376 | 0.0281 | 0.1084 | 2.88x |
+   | HA, each sequence shifted 0-2 nt | 1.0971 | 1.0970 | 1.0981 | 1.0963 | 1.00x |
+
+   Third codon positions are the most variable and second the least, in both proteins -- the
+   expected order, since most third-base changes are silent and most second-base changes are not.
+   That ordering is what says the reading frame is right; a flat entropy trace would not.
+
+   The last row is the negative control: shifting each sequence by a random 0-2 nt, so the
+   positions no longer correspond, raises mean entropy 19-fold and flattens the codon-position
+   ordering to 1.00x. The diagnostic has teeth. (Shuffling each column independently instead
+   leaves the numbers identical to four decimals, as it must -- entropy is per column.)
+
+   This catches wholesale misalignment, not one or two shifted sequences. The completeness plus
+   pinned-length filter is what rules those out, since an internal shift would need an insertion
+   and a deletion that cancel.
 3. **Feature builder.** `src/embeddings/compute_site_features.py`, matching the existing
    `compute_esm2_embeddings.py` and `compute_kmer_features.py` in that directory. Write
    a cache keyed by `cds_dna_hash`, same pattern as the k-mer cache. Verify a few sequences decode
