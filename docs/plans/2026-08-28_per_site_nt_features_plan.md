@@ -12,6 +12,40 @@ be reported per position along the CDS.
 Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes.md`, chat of
 2026-05-12), who used the same features with a random forest to predict collection date.
 
+## Files touched
+
+### New scripts
+
+| file | step | what it does |
+|---|---|---|
+| `src/analysis/plot_site_entropy.py` | 2 | Shannon entropy per CDS position; the conservation map and the alignment sanity check |
+| `src/embeddings/compute_site_features.py` | 3 | builds the per-site feature cache (nt / codon / aa) |
+| `src/utils/site_utils.py` | 3-4, 7a | reads the cache, builds pair feature matrices, entropy helper, one-side slot selection |
+| `src/analysis/plot_site_importance.py` | 6, 7b(i) | gain / SHAP / permutation importance, plus the conventional `plot_importance` bar charts |
+| `src/analysis/plot_site_group_permutation.py` | 7b(ii) | shuffle the top N sites together, no retrain |
+| `src/analysis/plot_site_retrain_ablation.py` | 7b(iii) | corrupt the top N sites, then refit from scratch |
+| `src/analysis/plot_seen_sequence_effect.py` | 7c | test AUC split by whether a sequence was seen in training |
+
+Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), and 6 new experiment bundles (`..._pinned_length`, `..._site_nt`, `..._site_codon`, `..._site_aa`, `..._site_codon_slot_a`, `..._site_codon_slot_b`).
+
+### Updated (existing files, extended for this plan)
+
+| file | what changed |
+|---|---|
+| `src/utils/protein_utils.py` | added `starts_with_m` |
+| `src/utils/gto_utils.py` | dedup key now includes `function`, so it can no longer merge two different proteins that share a sequence |
+| `src/preprocess/extract_cds_dna.py` | carries `starts_with_m` / `has_terminal_stop` / `has_internal_stop` / `is_complete_cds` into `cds_dna_final` |
+| `src/utils/cds_utils.py` | added `check_cds_length` |
+| `conf/virus/flu.yaml` | added the `cds_length` pin table |
+| `conf/dataset/default.yaml` | added `require_complete_cds_at_pinned_length` |
+| `src/datasets/_pair_helpers.py` | added `filter_complete_cds_at_pinned_length` |
+| `src/datasets/dataset_segment_pairs.py` | wired the filter in |
+| `conf/bundles/flu_base.yaml` | registered the `/site` config group |
+| `docs/methods/glossary.md` | added the Site / Site unit / Site encoding / Pinned CDS length terms |
+| `src/models/_pair_features.py` | added the `site` feature-source branch |
+| `src/models/train_pair_baselines.py` | resolves the site cache dir and slot proteins |
+| `src/models/baselines/lgbm.py` | added `categorical_feature` |
+
 ## What we found (steps 0-7 done; step 8 open)
 
 Scope throughout: HA-NA, H3N2, collected 2024, four random-split folds, LGBM. Every arm runs on
@@ -45,8 +79,8 @@ tree is greedy. [steps 6, 7b(ii), 7b(iii)]
   against its overall 0.9597. The seen-minus-unseen gap is +0.0202 for per-site `nt` and +0.0276
   for k-mer. [7c]
 
-**The positions genuinely line up**, which everything above depends on. Third codon positions are
-2.8x more variable than first and 3.8x more than second, the expected order under selection.
+**The positions genuinely line up**, which everything above depends on. 3rd codon positions are
+2.8x more variable than 1st and 3.8x more than 2nd, the expected order under selection.
 Shifting each sequence by a random 0-2 nt destroys that ordering and raises mean entropy 19-fold,
 so the check has teeth. [step 2]
 
@@ -130,7 +164,7 @@ Counts are unique CDS in H3N2 + 2024 from `cds_dna_final.parquet`.
 | HA | 2,792 | 2,785 | 2,785 (length 1701) |
 | NA | 2,415 | 2,306 | 2,301 (length 1410) |
 
-"Complete" means: starts `ATG`, ends in a stop group, no stop in the middle. (A fourth test,
+"Complete" means: starts `ATG`, ends in a stop group, no stop in the middle. (A 4th test,
 length divisible by 3, passes on 100% of rows and so is dropped — see Background.)
 
 The off-length sequences are almost all incomplete records, not real length variation. Of 7
@@ -206,7 +240,7 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    **K-mer baseline re-run on the filtered folds:** F1 macro 0.9094 +/- 0.0145, against 0.9177 +/- 0.0086 on the unfiltered folds. The 0.008 drop is smaller than the normal spread across folds, so the filter itself does not change what k-mers can do on this population — the wider spread is the cost of having 4% fewer pairs. **0.9094 is the number per-site features have to beat.**
 
    - **Config.** New setting `dataset.require_complete_cds_at_pinned_length` in `conf/dataset/default.yaml`, off by default. Off by default because turning it on changes which rows survive; leaving it on would silently change every nt_cds dataset built before it existed and make old results impossible to reproduce.
-   - **Naming.** Not called "canonical" in code. That word is already used for two other things in this repo — `canonical_segment` (the segment label) and `canonical_pair_key` (the order-invariant dedup key, `'__'.join(sorted([hash_a, hash_b]))`). A third meaning as an identifier would be ambiguous. The word used here is "pinned" (`check_cds_length(..., pinned_nt)`, and the comment in `flu.yaml`). In plain sentences "canonical length" is still fine and is still used in `flu.yaml` and in `check_cds_length`'s error text — the naming rule is about identifiers, not prose. (A third use of the word, the `canonicalize_pair_orientation` config flag, was removed later: it was v1-only code, and v1 was retired on 2026-06-03.)
+   - **Naming.** Not called "canonical" in code. That word is already used for two other things in this repo — `canonical_segment` (the segment label) and `canonical_pair_key` (the order-invariant dedup key, `'__'.join(sorted([hash_a, hash_b]))`). A 3rd meaning as an identifier would be ambiguous. The word used here is "pinned" (`check_cds_length(..., pinned_nt)`, and the comment in `flu.yaml`). In plain sentences "canonical length" is still fine and is still used in `flu.yaml` and in `check_cds_length`'s error text — the naming rule is about identifiers, not prose. (A 3rd use of the word, the `canonicalize_pair_orientation` config flag, was removed later: it was v1-only code, and v1 was retired on 2026-06-03.)
    - **Implementation.** `_pair_helpers.filter_complete_cds_at_pinned_length`, called from `dataset_segment_pairs.py` right before the `cds_dna_hash` attach step. It checks `(assembly_id, function)` membership rather than doing a merge, so a duplicate key in `cds_dna_final` cannot silently multiply protein rows. `dataset_pairs_cc.py` (the 2D-CD builder) does NOT read this flag yet.
    - **Where the target length comes from.** `conf/virus/flu.yaml` `cds_length` (HA 1701, NA 1410) — not "the most common length in this run", because that value can drift between different populations and quietly make two importance maps impossible to compare. `src.utils.cds_utils.check_cds_length` re-derives the most common length from the complete CDS this run actually loaded and fails if it disagrees with the pinned value, or if fewer than 90% of records hit that length. Both failure cases were tested and do fire: PB1 (no pinned length exists for it) and H5N1 HA (real length 1704, against the H3N2/H1N1 pin of 1701). The pinned-length table only covers H3N2 and H1N1; PB1 and NS1 are left out because neither has one fixed length across subtypes and years.
    - **Bundle.** `flu_ha_na_h3n2_2024_random_cv4_pinned_length` — a new bundle that inherits the unfiltered one and adds the flag, rather than editing the unfiltered bundle in place. This keeps the 0.9177 result reproducible from its own unchanged recipe.
@@ -223,7 +257,7 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    - NA: 2,298 unique CDS, mean entropy 0.0580 bits, 506 of 1,410 positions never vary (35.9%).
    - The maximum possible entropy for 4 bases is 2 bits, so both proteins are strongly conserved with a few variable spots.
 
-   **Checking the positions really line up.** Two checks; the second is the sharper one.
+   **Checking the positions really line up.** Two checks; the 2nd is the sharper one.
 
    | | mean bits | 1st codon pos. | 2nd | 3rd | 3rd/1st ratio |
    |---|---|---|---|---|---|
@@ -231,7 +265,7 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    | NA, as built | 0.0580 | 0.0376 | 0.0281 | 0.1084 | 2.88x |
    | HA, each sequence shifted 0-2 nt | 1.0971 | 1.0970 | 1.0981 | 1.0963 | 1.00x |
 
-   - Third codon positions are the most variable and second the least, in both proteins — the expected pattern, since most changes at the third position of a codon do not change the amino acid, and most changes at the second position do. This pattern is what shows the reading frame is correct; a flat entropy trace would not.
+   - 3rd codon positions are the most variable and 2nd the least, in both proteins — the expected pattern, since most changes at the 3rd position of a codon do not change the amino acid, and most changes at the 2nd position do. This pattern is what shows the reading frame is correct; a flat entropy trace would not.
    - The last row is the negative control: shift each sequence by a random 0, 1, or 2 nucleotides, so positions no longer line up. Mean entropy jumps 19-fold and the codon-position pattern flattens to 1.00x. This shows the check would actually catch a misalignment if one existed.
    - Separate sanity check: shuffling each column's values independently (instead of shifting sequences) leaves the entropy numbers identical to four decimals, as it must — entropy is computed per column.
    - This check catches wholesale misalignment, not one or two shifted sequences. The completeness-and-length filter from step 1 is what rules those out, since an internal shift would need an insertion and a deletion that exactly cancel.
@@ -291,7 +325,7 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
 
    **Paired comparison, F1 macro, across the four folds:**
 
-   | comparison | mean difference | folds where the first arm wins | p-value |
+   | comparison | mean difference | folds where the 1st arm wins | p-value |
    |---|---|---|---|
    | `nt` vs k-mer | +0.0098 | 4 of 4 | 0.128 |
    | `codon` vs k-mer | +0.0065 | 3 of 4 | 0.397 |
@@ -483,7 +517,7 @@ always exactly 3 times the length of the protein record it came from.
 
 Two markers tell you where a CDS begins and ends:
 
-- **Starts** with `ATG` in the DNA, which becomes `M` as the first protein letter.
+- **Starts** with `ATG` in the DNA, which becomes `M` as the 1st protein letter.
 - **Ends** with one of three specific 3-letter groups meaning "stop", written as `*` at the end
   of the protein.
 
