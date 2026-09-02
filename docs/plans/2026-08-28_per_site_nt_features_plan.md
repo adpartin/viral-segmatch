@@ -12,6 +12,48 @@ be reported per position along the CDS.
 Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes.md`, chat of
 2026-05-12), who used the same features with a random forest to predict collection date.
 
+## What we found (steps 0-7 done; step 8 open)
+
+Scope throughout: HA-NA, H3N2, collected 2024, four random-split folds, LGBM. Every arm runs on
+the same folds, so the comparisons are paired.
+
+**Per-site features work, at a third of the width.** F1 macro 0.9192 +/- 0.0134 for `nt` (3,111
+columns) against 0.9094 +/- 0.0145 for k-mer k=6 (8,192). `nt` wins all four folds but at k=4 that
+is p=0.128, so the honest claim is "matches", not "beats". `codon` is indistinguishable from `nt`
+(p=0.509) at 1,037 columns and is the efficient choice. [step 5]
+
+**Silent changes carry most of the signal — the largest effect in the whole study.** `codon` and
+`aa` are the same 1,037 positions on the same records and differ only in whether a change that
+leaves the protein unchanged is visible. Removing those costs **0.107 F1 macro**, every fold,
+p=0.002. The matching signal lives in the DNA, not the protein. That says nothing about ESM-2,
+which reads 1,280 continuous dimensions rather than 22 categories per site. [step 5]
+
+**The model leans on few positions, but the information is spread widely.** The top 10 codon sites
+hold 34% of SHAP and, with the model fixed, half the signal. Refit after corrupting them and the
+cost falls from 49.5% to 15.9% -- two thirds comes back from the other 1,027 columns. So "the top
+10 hold half the signal" describes this fitted model, not where the information lives: a boosted
+tree is greedy. [steps 6, 7b(ii), 7b(iii)]
+
+**Three checks that could have invalidated the interpretation, all passed.**
+- One side alone scores at chance: AUC-ROC 0.5007 (HA only) and 0.4979 (NA only) against 0.9547
+  with both. No one-sided shortcut in how pairs were built, so the mixed HA/NA top-15 is
+  meaningful. [7a]
+- Corrupting random sites costs nothing: 1.7-2.0% at N=100 against 86-89% for the top 100. The
+  ranking picks out something real. [7b(ii), 7b(iii)]
+- Memorisation is not carrying the result, and per-site leans on recall LESS than k-mers do. On
+  the 2,953 test rows whose sequences never appear in training, per-site `nt` scores 0.9544
+  against its overall 0.9597. The seen-minus-unseen gap is +0.0202 for per-site `nt` and +0.0276
+  for k-mer. [7c]
+
+**The positions genuinely line up**, which everything above depends on. Third codon positions are
+2.8x more variable than first and 3.8x more than second, the expected order under selection.
+Shifting each sequence by a random 0-2 nt destroys that ordering and raises mean entropy 19-fold,
+so the check has teeth. [step 2]
+
+**Three importance measures agree at the top.** SHAP and gain correlate at +0.97 with 12 of 15 top
+sites shared; permutation shares 12 of 15 with SHAP. Split count -- what `lightgbm.plot_importance`
+shows by default -- ranks differently and is reported for contrast, not used. [step 6]
+
 ## Naming
 
 Not "positional encoding" — in ML that means the sinusoidal position signal added to token
@@ -452,10 +494,11 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    **What this does not yet say.** A handful of sites holding half the gain is equally consistent
    with those positions carrying real lineage signal and with their being the most efficient way
    to identify a sequence -- the memorisation risk. Step 7 separates them.
-7. **Masking and shuffling.** Retrain with the top-ranked positions removed, and separately with
-   their values shuffled between isolates. If the score is unchanged, the model was not using those
-   positions. If it drops sharply, those positions carry the signal. Shuffling is the better control
-   of the two because the feature count stays the same.
+7. **Masking and shuffling — DONE (2026-09-02), in four passes.** The original plan was to retrain
+   with the top-ranked positions removed and separately with their values shuffled. That grew into
+   four checks, because the first attempts kept answering a narrower question than the one asked:
+   7a one side alone, 7b(i) one site at a time, 7b(ii) the top N together, 7b(iii) the same with a
+   refit, and 7c seen against unseen sequences.
 
    **7a. One side alone — DONE (2026-09-02), passes.** Run first, because it decides whether the
    importance map is worth interpreting at all. `site.slots: a | b | both` (`conf/site/default.yaml`,
