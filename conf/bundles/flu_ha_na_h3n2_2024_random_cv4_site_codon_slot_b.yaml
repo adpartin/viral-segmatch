@@ -1,0 +1,22 @@
+# STATUS: ablation -- flu_ha_na_h3n2_2024_random_cv4_site_codon with slot b (NA) only.
+#
+# NOT a feature set to train for real. This is a falsification test on the dataset.
+#
+# The label says whether two segments came from the same isolate. One segment alone cannot answer
+# that: the negative sampler pairs one isolate's segment with someone else's, so the same sequence
+# appears in both matched and mismatched rows. A NA-only model should therefore land near
+# chance -- F1 macro around 0.5.
+#
+# If it scores well above chance, something about one sequence on its own predicts the label, and
+# that could only come from how the pairs were built (for instance, sequences from heavily sampled
+# strains landing disproportionately among positives). Every importance number from the two-sided
+# runs would then need rereading, and the 0.9192 headline would be part shortcut.
+#
+# Run it against flu_ha_na_h3n2_2024_random_cv4_site_codon, which scores 0.9159 +/- 0.0087 on the
+# same folds with both slots. See docs/plans/2026-08-28_per_site_nt_features_plan.md step 7.
+defaults:
+  - flu_ha_na_h3n2_2024_random_cv4_site_codon
+  - _self_
+
+site:
+  slots: b

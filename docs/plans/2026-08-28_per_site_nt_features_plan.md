@@ -456,6 +456,57 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    their values shuffled between isolates. If the score is unchanged, the model was not using those
    positions. If it drops sharply, those positions carry the signal. Shuffling is the better control
    of the two because the feature count stays the same.
+
+   **7a. One side alone — DONE (2026-09-02), passes.** Run first, because it decides whether the
+   importance map is worth interpreting at all. `site.slots: a | b | both` (`conf/site/default.yaml`,
+   default `both`) keeps one slot's columns and drops the other; bundles
+   `flu_ha_na_h3n2_2024_random_cv4_site_codon_slot_{a,b}`.
+
+   | arm | columns | F1 macro | AUC-ROC | precision |
+   |---|---|---|---|---|
+   | both slots (HA+NA) | 1,037 | 0.9159 +/- 0.0087 | 0.9547 +/- 0.0056 | 0.8708 |
+   | slot a only (HA) | 567 | 0.4942 +/- 0.0086 | **0.5007 +/- 0.0076** | 0.4996 |
+   | slot b only (NA) | 470 | 0.4819 +/- 0.0214 | **0.4979 +/- 0.0084** | 0.4992 |
+
+   Chance, to three decimals, on both sides: per-fold AUC-ROC spans 0.4914-0.5113 and precision
+   sits on the 0.50 base rate. Read AUC-ROC here, not F1 -- F1 is not centred on 0.5, so a model
+   that guesses "match" often still scores 0.48-0.59 while learning nothing.
+
+   Why it matters. The label is a fact about a PAIR, and the negative sampler pairs one isolate's
+   segment with someone else's, so the same sequence appears in both matched and mismatched rows.
+   One sequence alone therefore cannot answer the question -- unless the pair construction leaked
+   something one-sided, for instance sequences from heavily sampled strains landing
+   disproportionately among positives. It did not. Every bit of the 0.9159 comes from relating the
+   two sides, which is what makes the mixed top-15 (8 HA, 7 NA) meaningful rather than incidental.
+
+   This does not address memorisation: a model recalling "this HA goes with this NA" also needs
+   both sides. It rules out one-sided leakage only.
+
+   **7b. Shuffling — design.** Two passes, because they ask different questions.
+
+   - **One site at a time, no retrain.** Shuffle one column in the test split, re-predict, measure
+     the drop. Asks whether the fitted model relies on that position. This is permutation
+     importance, and it is a third opinion on the SHAP and gain rankings, measured on predictions
+     rather than on the model's internals.
+   - **The top N together, with retrain.** Corrupt N positions in all three splits and refit. Asks
+     whether the signal is unique to those positions or also elsewhere. Sweep
+     N in {1, 5, 10, 25, 50, 100}. Pair every N with a random-site control, or a drop after
+     corrupting the top 10 cannot be told from "any corruption hurts".
+
+   Which splits: test only for the no-retrain pass (the model is already fitted); all three,
+   identically, for the retrain pass. Corrupting train alone leaves real values in test and
+   creates a train/test mismatch that confounds the result.
+
+   Shuffle at the **sequence** level, not the row level -- permute the site's value across unique
+   sequences and propagate to the pair rows. Shuffling rows would give one sequence different
+   values at the same site in different rows, which is a harsher corruption than intended.
+
+   On masking: permuting one feature at a time understates importance when features are
+   correlated, since the model falls back on a correlated twin. Measured here, that risk is small.
+   Cramer's V between varying codon sites has median 0.051 (HA) and 0.084 (NA), with 0.9% and 2.0%
+   of pairs above 0.8 -- and among the top 10 SHAP sites the highest pair is 0.700 (HA) and 0.534
+   (NA), with none above 0.8. So single-site permutation is safe for the sites that matter, and the
+   top-N pass is itself the grouped-permutation remedy.
 8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
    interaction values or LightGBM split-pair statistics. Main-effect SHAP is already cheap --
    step 6 measures it in 0.3 s per fold through `pred_contrib` -- but interaction values are

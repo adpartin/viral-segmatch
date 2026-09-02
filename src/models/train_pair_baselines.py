@@ -92,17 +92,18 @@ def _resolve_baseline_module(name: str):
 
 
 def _resolve_site_settings(config) -> tuple:
-    """Read `site.unit` and `site.encoding` from the bundle, with the config-group defaults.
+    """Read `site.unit`, `site.encoding` and `site.slots`, with the config-group defaults.
 
     Args:
       config: the resolved Hydra config.
 
     Returns:
-      `(unit, encoding)`.
+      `(unit, encoding, slots)`.
     """
     site_cfg = config.get('site') if hasattr(config, 'site') else None
     site_cfg = site_cfg or {}
-    return str(site_cfg.get('unit', 'nt')), str(site_cfg.get('encoding', 'ordinal'))
+    return (str(site_cfg.get('unit', 'nt')), str(site_cfg.get('encoding', 'ordinal')),
+            str(site_cfg.get('slots', 'both')))
 
 
 def _resolve_kmer_k(config) -> int:
@@ -445,7 +446,7 @@ def main() -> None:
     FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
     KMER_K = _resolve_kmer_k(config)
     KMER_ALPHABET = _resolve_kmer_alphabet(config)
-    SITE_UNIT, SITE_ENCODING = _resolve_site_settings(config)
+    SITE_UNIT, SITE_ENCODING, SITE_SLOTS = _resolve_site_settings(config)
     INTERACTION = str(getattr(config.training, 'interaction', 'concat'))
     SLOT_TRANSFORM = str(getattr(config.training, 'slot_transform', 'none'))
 
@@ -519,7 +520,7 @@ def main() -> None:
             site_proteins = tuple(short_map.get(f, f) for f in slot_functions)
             print(f'Site cache dir:  {site_dir}')
             print(f'Site slots:      {site_proteins[0]} (a) / {site_proteins[1]} (b), '
-                  f'unit={SITE_UNIT}, encoding={SITE_ENCODING}')
+                  f'unit={SITE_UNIT}, encoding={SITE_ENCODING}, slots={SITE_SLOTS}')
     else:  # esm2
         embeddings_file = build_training_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
@@ -539,7 +540,7 @@ def main() -> None:
             kmer_dir=kmer_dir, kmer_k=KMER_K, kmer_alphabet=KMER_ALPHABET,
             embeddings_file=embeddings_file,
             site_dir=site_dir, site_unit=SITE_UNIT, site_encoding=SITE_ENCODING,
-            site_proteins=site_proteins,
+            site_proteins=site_proteins, site_slots=SITE_SLOTS,
             interaction=INTERACTION,
             slot_transform=SLOT_TRANSFORM,
             output_dir=default_output_dir,

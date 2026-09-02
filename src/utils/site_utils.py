@@ -27,6 +27,10 @@ import numpy as np
 import pandas as pd
 
 ENCODINGS = ('ordinal', 'onehot')
+# Which slots' columns end up in the pair matrix. 'both' is the real feature set; 'a' and 'b'
+# are the one-side ablation, which should score near chance -- the label is a fact about a
+# PAIR, and the same sequence appears on both sides of it.
+SLOT_CHOICES = ('both', 'a', 'b')
 
 
 def sequences_to_byte_matrix(sequences: list[str]) -> np.ndarray:
@@ -155,7 +159,8 @@ def declared_codes(cache: SiteCache) -> list[int]:
     return sorted({int(v) for v in cache.metadata['code_map'].values()})
 
 
-def site_feature_columns(cache_a: SiteCache, cache_b: SiteCache, encoding: str) -> pd.DataFrame:
+def site_feature_columns(cache_a: SiteCache, cache_b: SiteCache, encoding: str,
+                         slots: str = 'both') -> pd.DataFrame:
     """Describe every output column, so an importance score can name a position.
 
     The layout is fixed: slot A's sites in order, then slot B's. Under `ordinal` that is one
@@ -166,18 +171,21 @@ def site_feature_columns(cache_a: SiteCache, cache_b: SiteCache, encoding: str) 
       cache_a: slot A's cache.
       cache_b: slot B's cache.
       encoding: `ordinal` or `onehot`.
+      slots: which slots contribute columns -- `both`, or `a` / `b` for the one-side ablation.
 
     Returns:
       One row per column with `column`, `slot`, `protein`, `site` (1-based along the CDS) and,
       under `onehot`, the `code` that column indicates.
 
     Raises:
-      ValueError: `encoding` is not one of `ENCODINGS`.
+      ValueError: `encoding` or `slots` is not a recognised value.
     """
     if encoding not in ENCODINGS:
         raise ValueError(f"site encoding must be one of {list(ENCODINGS)}; got {encoding!r}.")
+    if slots not in SLOT_CHOICES:
+        raise ValueError(f"site slots must be one of {list(SLOT_CHOICES)}; got {slots!r}.")
     rows = []
-    for slot, cache in (('a', cache_a), ('b', cache_b)):
+    for slot, cache in _selected_slots(cache_a, cache_b, slots):
         n_sites = cache.codes.shape[1]
         codes = declared_codes(cache) if encoding == 'onehot' else [None]
         for site in range(1, n_sites + 1):
@@ -186,6 +194,25 @@ def site_feature_columns(cache_a: SiteCache, cache_b: SiteCache, encoding: str) 
     out = pd.DataFrame(rows)
     out.insert(0, 'column', np.arange(len(out)))
     return out
+
+
+def _selected_slots(cache_a: SiteCache, cache_b: SiteCache, slots: str) -> list:
+    """The (slot letter, cache) pairs that contribute columns, in output order.
+
+    One place decides this, so the column layout and the feature matrix cannot disagree about
+    which slots are present or what order they come in.
+
+    Args:
+      cache_a: slot A's cache.
+      cache_b: slot B's cache.
+      slots: `both`, `a` or `b`.
+
+    Returns:
+      A list of `(slot letter, cache)` tuples.
+    """
+    available = {'a': cache_a, 'b': cache_b}
+    letters = ('a', 'b') if slots == 'both' else (slots,)
+    return [(letter, available[letter]) for letter in letters]
 
 
 def _slot_matrix(cache: SiteCache, hashes: pd.Series, slot: str, encoding: str) -> np.ndarray:
@@ -232,29 +259,41 @@ def _slot_matrix(cache: SiteCache, hashes: pd.Series, slot: str, encoding: str) 
 
 
 def get_site_pair_features(pairs_df: pd.DataFrame, cache_a: SiteCache, cache_b: SiteCache,
-                           encoding: str = 'ordinal') -> tuple[np.ndarray, np.ndarray]:
+                           encoding: str = 'ordinal',
+                           slots: str = 'both') -> tuple[np.ndarray, np.ndarray]:
     """Build the pair feature matrix from two per-protein site caches.
 
     Slot A's sites come first, then slot B's -- `concat`, the only interaction the two spaces
     admit. Every pair must resolve; unlike the k-mer path this does not skip a pair it cannot look
     up, because dropping rows would quietly change the evaluation set.
 
+    `slots='a'` or `'b'` keeps one side's columns and drops the other. That is an ablation, not a
+    feature set anyone should train for real: the label says whether two sequences came from the
+    same isolate, and one sequence alone cannot answer it, since the same sequence appears in both
+    matched and mismatched rows. A one-side run scoring near chance is the expected result and
+    confirms the model has to relate the two sides; scoring well above chance would mean something
+    about one sequence on its own predicts the label, which could only come from how the pairs
+    were built.
+
     Args:
       pairs_df: pair table with `cds_dna_hash_a`, `cds_dna_hash_b` and `label`.
       cache_a: slot A's cache.
       cache_b: slot B's cache.
       encoding: `ordinal` or `onehot`.
+      slots: `both` (default), or `a` / `b` for the one-side ablation.
 
     Returns:
       `(features, labels)`. `features` is float32 (n pairs, n columns); `labels` is (n pairs,).
 
     Raises:
       ValueError: a required column is missing, the two caches disagree on the unit, or
-          `encoding` is not one of `ENCODINGS`.
+          `encoding` / `slots` is not a recognised value.
       KeyError: a pair's hash is not in the cache.
     """
     if encoding not in ENCODINGS:
         raise ValueError(f"site encoding must be one of {list(ENCODINGS)}; got {encoding!r}.")
+    if slots not in SLOT_CHOICES:
+        raise ValueError(f"site slots must be one of {list(SLOT_CHOICES)}; got {slots!r}.")
     if cache_a.unit != cache_b.unit:
         raise ValueError(
             f"the two slots were built with different site units: {cache_a.protein} is "
@@ -266,8 +305,8 @@ def get_site_pair_features(pairs_df: pd.DataFrame, cache_a: SiteCache, cache_b: 
             f"get_site_pair_features: pair table missing {missing}. cds_dna_hash_a/b are written "
             f"when the dataset is built with split_strategy.pair_key_alphabet=nt_cds.")
 
-    features_a = _slot_matrix(cache_a, pairs_df['cds_dna_hash_a'], 'a', encoding)
-    features_b = _slot_matrix(cache_b, pairs_df['cds_dna_hash_b'], 'b', encoding)
-    features = np.hstack([features_a, features_b])
+    blocks = [_slot_matrix(cache, pairs_df[f'cds_dna_hash_{letter}'], letter, encoding)
+              for letter, cache in _selected_slots(cache_a, cache_b, slots)]
+    features = np.hstack(blocks) if len(blocks) > 1 else blocks[0]
     labels = pairs_df['label'].to_numpy()
     return features, labels

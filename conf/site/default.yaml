@@ -29,6 +29,17 @@ unit: nt            # What one site is:
                     # nt_ctg (contig DNA) is not a valid source for any unit: contigs carry the
                     # untranslated ends and vary in length, so positions do not line up.
 
+slots: both         # Which slots' columns go into the pair matrix:
+                    #   both -- slot A's sites then slot B's. The real feature set.
+                    #   a / b -- one side only. An ABLATION, not something to train for real.
+                    # The label says whether two sequences came from the same isolate, and one
+                    # sequence alone cannot answer that: the negative sampler pairs one isolate's
+                    # segment with someone else's, so the same sequence turns up in both matched
+                    # and mismatched rows. A one-side run should therefore score near chance.
+                    # If it scores well above chance, something about one sequence on its own
+                    # predicts the label, which could only come from how the pairs were built --
+                    # and every importance number from the two-sided runs would need rereading.
+
 encoding: ordinal   # How each site's value is coded:
                     #   ordinal -- one integer column per site. The codes are labels, not
                     #              magnitudes, so the model must be told the column is

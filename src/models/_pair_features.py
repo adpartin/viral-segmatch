@@ -371,6 +371,7 @@ def load_pair_features_for_baselines(
     site_dir: Optional[Path] = None,
     site_unit: str = 'nt',
     site_encoding: str = 'ordinal',
+    site_slots: str = 'both',
     site_proteins: Optional[tuple] = None,
     # Interaction & slot transform (apply to either source where supported)
     interaction: str = "concat",
@@ -404,6 +405,10 @@ def load_pair_features_for_baselines(
             checked against the cache metadata and the pair table's
             ``func_a``/``func_b``, so a mismatch raises rather than
             silently featurizing the wrong protein.
+        site_slots: ``'both'`` (default), or ``'a'`` / ``'b'`` to keep one
+            side's columns only. The one-side form is an ablation that
+            should score near chance; see
+            ``site_utils.get_site_pair_features``.
         interaction: ``'concat'`` (default), ``'diff'``, ``'unit_diff'``,
             ``'prod'``, ``'unit_prod'``, or ``+``-separated combinations
             (e.g., ``'unit_diff+unit_prod'``). Both feature sources
@@ -434,7 +439,11 @@ def load_pair_features_for_baselines(
                               feature_scaling)
         short_a, short_b = site_proteins
         print(f"\nLoading per-site pair features (unit={site_unit!r}, "
-              f"encoding={site_encoding!r}, slots={short_a}/{short_b}) from {site_dir}")
+              f"encoding={site_encoding!r}, proteins={short_a}/{short_b}, "
+              f"slots={site_slots!r}) from {site_dir}")
+        if site_slots != 'both':
+            print(f"  ABLATION: slot {site_slots} only. The label is a fact about a pair, so one "
+                  f"side alone should score near chance.")
         cache_a = load_site_cache(Path(site_dir), site_unit, short_a)
         cache_b = load_site_cache(Path(site_dir), site_unit, short_b)
         _check_site_slots_match_pairs(train_pairs, cache_a, cache_b)
@@ -443,14 +452,18 @@ def load_pair_features_for_baselines(
               f"{short_b}: {cache_b.codes.shape[1]:,} sites over "
               f"{cache_b.codes.shape[0]:,} unique CDS")
 
-        X_train, y_train = get_site_pair_features(train_pairs, cache_a, cache_b, site_encoding)
-        X_val, y_val = get_site_pair_features(val_pairs, cache_a, cache_b, site_encoding)
-        X_test, y_test = get_site_pair_features(test_pairs, cache_a, cache_b, site_encoding)
+        X_train, y_train = get_site_pair_features(train_pairs, cache_a, cache_b, site_encoding,
+                                                  site_slots)
+        X_val, y_val = get_site_pair_features(val_pairs, cache_a, cache_b, site_encoding,
+                                              site_slots)
+        X_test, y_test = get_site_pair_features(test_pairs, cache_a, cache_b, site_encoding,
+                                                site_slots)
 
         # Which column is which position. Written out so a per-position importance map does not
         # have to re-derive the layout, which is the whole point of per-site features.
-        columns = site_feature_columns(cache_a, cache_b, site_encoding)
-        columns_path = Path(output_dir) / f'site_feature_columns_{site_unit}_{site_encoding}.csv'
+        columns = site_feature_columns(cache_a, cache_b, site_encoding, site_slots)
+        columns_path = (Path(output_dir) /
+                        f'site_feature_columns_{site_unit}_{site_encoding}_{site_slots}.csv')
         columns.to_csv(columns_path, index=False)
         print(f"  {len(columns):,} columns; layout written to {columns_path}")
 
