@@ -1,0 +1,23 @@
+# STATUS: experimental -- flu_ha_na_h3n2_2024_random_cv4 with the CDS population narrowed to
+# complete CDS at the pinned length (HA 1701 nt, NA 1410 nt; conf/virus/flu.yaml `cds_length`).
+#
+# Why it exists: per-site nucleotide features give every position in the CDS its own column, so
+# position 200 has to be the same place in every sequence. That holds only for records that
+# cover the whole CDS and share one length. See
+# docs/plans/2026-08-28_per_site_nt_features_plan.md step 1.
+#
+# Kept separate from flu_ha_na_h3n2_2024_random_cv4 rather than switching the flag on in place:
+# step 1 compares filtered against unfiltered, so both recipes have to exist. The unfiltered
+# bundle is the one that produced F1 macro 0.9177 +/- 0.0086
+# (models/flu/July_2025/runs/lgbm_ha_na_h3n2_2024_random_cv4_fold{0..3}), and editing it would
+# leave that result in a run dir whose recipe no longer describes it.
+#
+# Expected effect on H3N2 2024, measured on cds_dna_final before the run: HA 2,792 unique CDS ->
+# 2,785; NA 2,415 -> 2,301; unique positive pairs 3,723 -> 3,580 (96.2%). The run writes its own
+# count to complete_cds_at_pinned_length.json.
+defaults:
+  - flu_ha_na_h3n2_2024_random_cv4
+  - _self_
+
+dataset:
+  require_complete_cds_at_pinned_length: true

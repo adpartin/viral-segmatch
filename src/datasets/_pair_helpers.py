@@ -244,6 +244,143 @@ def attach_cds_dna_hash_to_prot_df(
     return out
 
 
+def filter_complete_cds_at_pinned_length(
+    prot_df: pd.DataFrame,
+    cds_final_path: Path,
+    pinned_lengths: dict,
+    function_to_short: dict,
+    *,
+    min_seq_frac: float = 0.90,
+    ) -> Tuple[pd.DataFrame, dict]:
+    """Keep only the protein rows whose CDS is complete and at the length pinned for its protein.
+
+    Per-site features give every position in the CDS its own column, so position 200 must be the
+    same place in every sequence. Two conditions make that true, and they are different kinds of
+    statement. `is_complete_cds` (written by Stage 1.5) is a fact about one record: it starts
+    ATG, ends in a stop, and has no internal stop, so it covers the whole CDS. The pinned length
+    is a fact about the population, which is why it comes from `conf/virus/flu.yaml` `cds_length`
+    rather than being re-derived per run -- a per-run value can differ between populations and
+    make two runs non-comparable without anything failing.
+
+    Both conditions are applied even where one is redundant. On H3N2 2024 every HA at 1701 nt and
+    every NA at 1410 nt is already complete, so the length test alone would give the same answer;
+    that is a property of that population, not a guarantee.
+
+    `src.utils.cds_utils.check_cds_length` re-derives the most common length from the complete
+    CDS this run actually loaded and raises if it disagrees with the pin, or if the pin holds for
+    less than `min_seq_frac` of them.
+
+    Args:
+      prot_df: protein-level rows; must contain `assembly_id` and `function`.
+      cds_final_path: path to `cds_dna_final.parquet`; supplies `cds_length` and
+          `is_complete_cds` (Stage 1.5).
+      pinned_lengths: short protein name -> CDS length in nucleotides, i.e.
+          `config.virus.cds_length`. Every function in `prot_df` must have an entry.
+      function_to_short: full function string -> short name, i.e.
+          `config_hydra.get_function_short_name_map`.
+      min_seq_frac: least share of complete unique CDS that must sit at the pinned length.
+
+    Returns:
+      `(filtered_prot_df, audit)`. `audit` records `rows_in` / `rows_out` and, per protein, how
+      many unique CDS each condition removed.
+
+    Raises:
+      FileNotFoundError: `cds_final_path` does not exist.
+      ValueError: `prot_df` lacks a required column, a function has no pinned length, or
+          `check_cds_length` rejects the population.
+    """
+    from src.utils.cds_utils import check_cds_length
+
+    cds_final_path = Path(cds_final_path)
+    if not cds_final_path.exists():
+        raise FileNotFoundError(
+            f"filter_complete_cds_at_pinned_length: cds_final not found at {cds_final_path}. "
+            f"Build via `python src/preprocess/extract_cds_dna.py --config_bundle <bundle>`."
+        )
+    for col in ('assembly_id', 'function'):
+        if col not in prot_df.columns:
+            raise ValueError(
+                f"filter_complete_cds_at_pinned_length: prot_df missing '{col}' column"
+            )
+
+    # Every function present needs a pinned length. The table is scoped to H3N2 and H1N1 and
+    # deliberately omits PB1 and NS1, neither of which has one length across subtypes and years.
+    functions = sorted(prot_df['function'].unique())
+    short_name = {}
+    for fn in functions:
+        short = function_to_short.get(fn, fn)
+        if short not in pinned_lengths:
+            raise ValueError(
+                f"filter_complete_cds_at_pinned_length: no cds_length pinned for {short!r} "
+                f"({fn!r}). conf/virus/flu.yaml cds_length has "
+                f"{sorted(pinned_lengths)}; PB1 and NS1 are absent on purpose because neither "
+                f"has one length across subtypes and years. Either pin a length for this "
+                f"population and say so, or leave "
+                f"dataset.require_complete_cds_at_pinned_length off."
+            )
+        short_name[fn] = short
+
+    cds_df = pd.read_parquet(
+        cds_final_path,
+        columns=['assembly_id', 'function', 'cds_dna_hash', 'cds_length', 'is_complete_cds'],
+    )
+    cds_df['assembly_id'] = cds_df['assembly_id'].astype(str)
+
+    out = prot_df.copy()
+    out['assembly_id'] = out['assembly_id'].astype(str)
+
+    # Narrow the CDS table to the rows this run loaded, so the length check describes this
+    # population rather than the whole corpus.
+    run_keys = out[['assembly_id', 'function']].drop_duplicates()
+    cds_df = cds_df.merge(run_keys, on=['assembly_id', 'function'], how='inner')
+
+    audit = {'rows_in': int(len(out)), 'min_seq_frac': float(min_seq_frac), 'per_protein': {}}
+    keep_keys = []
+    print('\nfilter_complete_cds_at_pinned_length: keeping complete CDS at the pinned length.')
+
+    for fn in functions:
+        short = short_name[fn]
+        pinned_nt = int(pinned_lengths[short])
+        sub = cds_df[cds_df['function'] == fn]
+        uniq = sub.drop_duplicates('cds_dna_hash')
+        complete = uniq[uniq['is_complete_cds']]
+        # Raises if this population's most common length is not the pin, or the pin is rare.
+        length_check = check_cds_length(
+            complete['cds_length'], pinned_nt, protein=short, min_seq_frac=min_seq_frac)
+
+        at_pinned = complete[complete['cds_length'] == pinned_nt]
+        kept_rows = sub[sub['is_complete_cds'] & (sub['cds_length'] == pinned_nt)]
+        keep_keys.append(kept_rows[['assembly_id', 'function']])
+
+        audit['per_protein'][short] = {
+            'function': fn,
+            'pinned_nt': pinned_nt,
+            'unique_cds': int(len(uniq)),
+            'unique_complete': int(len(complete)),
+            'unique_complete_at_pinned': int(len(at_pinned)),
+            'dropped_incomplete': int(len(uniq) - len(complete)),
+            'dropped_complete_off_pinned': int(len(complete) - len(at_pinned)),
+            'seq_frac_among_complete': length_check['seq_frac'],
+        }
+        print(f"  {short}: unique CDS {len(uniq):,} -> complete {len(complete):,} "
+              f"-> at {pinned_nt} nt {len(at_pinned):,} "
+              f"(dropped {len(uniq) - len(complete):,} incomplete, "
+              f"{len(complete) - len(at_pinned):,} complete but off-length)")
+
+    # Membership on (assembly_id, function) rather than a merge: it cannot fan out, so a
+    # duplicate key in cds_final would not silently multiply protein rows.
+    allowed = pd.concat(keep_keys, ignore_index=True)
+    keep_mask = pd.MultiIndex.from_frame(out[['assembly_id', 'function']]).isin(
+        pd.MultiIndex.from_frame(allowed))
+    out = out[keep_mask].reset_index(drop=True)
+
+    audit['rows_out'] = int(len(out))
+    audit['rows_dropped'] = audit['rows_in'] - audit['rows_out']
+    print(f"  protein rows: {audit['rows_in']:,} -> {audit['rows_out']:,} "
+          f"(dropped {audit['rows_dropped']:,}).")
+    return out, audit
+
+
 def attach_cds_dna_hash_to_pos_df(
     pos_df: pd.DataFrame,
     cds_final_path: Path,

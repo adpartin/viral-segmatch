@@ -176,6 +176,24 @@ negative_sampling: null
 # Implemented by `_pair_helpers.drop_ambiguous_hn_subtype()`.
 drop_ambiguous_subtype: true
 
+# Keep only rows whose CDS is complete AND exactly the length pinned for that protein in
+# `conf/virus/flu.yaml` `cds_length`. Off by default: the filter drops rows, so turning it on
+# unconditionally would change every nt_cds dataset already built.
+#
+# Two conditions, because they are different kinds of statement. `is_complete_cds` (Stage 1.5)
+# is a fact about one record -- it starts ATG, ends in a stop, and has no internal stop, so it
+# covers the whole CDS. The pinned length is a fact about the population, which is why it lives
+# in config instead of being re-derived per run: a per-run value can differ between populations
+# and quietly make two runs non-comparable.
+#
+# Needed by per-site features, which give every position in the CDS its own column and so
+# require position 200 to be the same place in every sequence. K-mer and ESM-2 features do not
+# line positions up and do not need it.
+# Implemented by `_pair_helpers.filter_complete_cds_at_pinned_length()`; writes
+# `complete_cds_at_pinned_length.json` to the run dir. See
+# docs/plans/2026-08-28_per_site_nt_features_plan.md step 1.
+require_complete_cds_at_pinned_length: false
+
 # split_strategy is selected as a mode-scoped config group (see the `defaults:`
 # list at the top of this file and conf/dataset/split_strategy/*.yaml):
 #   - seq_disjoint (default)   mode + hash_key

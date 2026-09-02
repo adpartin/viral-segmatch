@@ -499,6 +499,12 @@ if PAIR_BUILDER_VERSION == 'v2':
     AXES_FOR_FLAGS = list(getattr(config.dataset, 'axes_for_flags',
                                   ['hn_subtype', 'host', 'year', 'geo_location', 'passage']))
 
+    # Keep only complete CDS at the length pinned in the virus config's `cds_length` block.
+    # Off by default -- the filter drops rows, so it must not change datasets built before it
+    # existed. Applied below, once the cds_dna_final path is resolved.
+    REQUIRE_COMPLETE_CDS_AT_PINNED_LENGTH = bool(
+        getattr(config.dataset, 'require_complete_cds_at_pinned_length', False))
+
     NEG_SAMPLING_CFG = getattr(config.dataset, 'negative_sampling', None)
     AXIS_QUOTAS = None
     SAMPLING_AXES = None
@@ -650,16 +656,40 @@ if PAIR_BUILDER_VERSION == 'v2':
     # describing the same population that drives pair generation.
     df = df[df['function'].isin(schema_pair)].reset_index(drop=True)
 
+    # cds_dna_final path, resolved once: the pinned-length filter and the nt_cds pair key both
+    # read it. CDS_FINAL_PATH is set above when cluster_alphabet='nt_cds'; otherwise the file
+    # sits alongside the input protein_final.
+    cds_path = CDS_FINAL_PATH
+    if cds_path is None:
+        cds_path = str(input_file.parent / 'cds_dna_final.parquet')
+
+    # Keep only complete CDS at the length pinned in conf/virus/<virus>.yaml `cds_length`.
+    # Off by default; per-site features need it because they compare one position across
+    # sequences, so every sequence has to cover the same span. Runs before the hash attach:
+    # it decides which protein rows survive, which is upstream of keying them.
+    if REQUIRE_COMPLETE_CDS_AT_PINNED_LENGTH:
+        from src.datasets._pair_helpers import filter_complete_cds_at_pinned_length
+        from src.utils.config_hydra import get_function_short_name_map
+        pinned_lengths = getattr(config.virus, 'cds_length', None)
+        if pinned_lengths is None:
+            raise ValueError(
+                "dataset.require_complete_cds_at_pinned_length is on but "
+                f"conf/virus/{config.virus.virus_name}.yaml has no `cds_length` block to "
+                "read the pinned lengths from."
+            )
+        pinned_lengths = {str(k): int(v['nt']) for k, v in dict(pinned_lengths).items()}
+        df, cds_filter_audit = filter_complete_cds_at_pinned_length(
+            df, cds_path, pinned_lengths, get_function_short_name_map(config))
+        audit_path = output_dir / 'complete_cds_at_pinned_length.json'
+        with open(audit_path, 'w') as f:
+            json.dump(cds_filter_audit, f, indent=2)
+        print(f'Saved CDS filter audit to: {audit_path}')
+
     # Pre-attach cds_dna_hash when pair_key_alphabet='nt_cds'. v2's
     # create_positive_pairs_v2 + build_cooccurrence_set expect the column
     # on df; pair_key is built on cds_dna_hash_{a,b} instead of prot_hash_{a,b}.
-    # Resolves cds_final path from CDS_FINAL_PATH (set above when
-    # cluster_alphabet='nt_cds') or from the input file's parent dir.
     if PAIR_KEY_ALPHABET == 'nt_cds':
         from src.datasets._pair_helpers import attach_cds_dna_hash_to_prot_df
-        cds_path = CDS_FINAL_PATH
-        if cds_path is None:
-            cds_path = str(input_file.parent / 'cds_dna_final.parquet')
         print(f'\nv2: pair_key_alphabet=nt_cds — attaching cds_dna_hash to df '
               f'from {cds_path}')
         df = attach_cds_dna_hash_to_prot_df(df, cds_path)

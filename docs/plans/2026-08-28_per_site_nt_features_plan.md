@@ -73,7 +73,7 @@ Counts are unique CDS in H3N2 + 2024 from `cds_dna_final.parquet`.
 
 **The sequences are nearly all one length per segment, once incomplete records are removed.**
 
-| | unique CDS | complete CDS | complete and at the canonical length |
+| | unique CDS | complete CDS | complete and at the pinned length |
 |---|---|---|---|
 | HA | 2,792 | 2,785 | 2,785 (length 1701) |
 | NA | 2,415 | 2,306 | 2,301 (length 1410) |
@@ -86,7 +86,7 @@ off-length HA, none is a complete CDS (6 missing the stop, 1 missing both ends).
 off-length NA, only 5 are (90 missing the stop, 17 missing the start, 2 missing both). No sequence in either
 segment has an internal stop, so nothing is frameshifted.
 
-**Filter yield.** Keeping only pairs where both slots are complete and at the canonical length leaves
+**Filter yield.** Keeping only pairs where both slots are complete and at the pinned length leaves
 **3,580 of 3,723 positive pairs (96.2%)**.
 
 **Codons.** Across all 8 proteins in `cds_dna_final`, 98.6-99.8% of unique CDS start with `ATG`,
@@ -113,7 +113,7 @@ declared categoricals underperform.
 (`dataset_ha_na_h3n2_2024_random_cv4`) were built before the filter existed, so they contain pairs
 this plan drops — nothing about them can be reused. Once rebuilt, the old k-mer number describes a
 different population, so it has to be re-run on the new folds for the comparison to mean anything.
-That re-run is 4 x ~35 s.
+Done in step 1: the rebuild takes ~55 s and the four LGBM folds ~5 s each.
 
 **The split stays random.** A cluster-disjoint split is not available for a single year: at t099
 one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
@@ -165,20 +165,53 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
      protection came from an unrelated filter running first. Stage 1 now reports "No duplicates
      found": every removal this function made on this corpus was a cross-function one.
 
-1. **Filter — two conditions, not one.** `is_complete_cds` does not by itself give equal length:
-   5 NA sequences are complete but off-length (2,306 complete, 2,301 of them at 1410). Length is a
-   property of a population, not of a record, so it cannot live in preprocessing. Filter on
-   `is_complete_cds` AND on the canonical length, both in the front end.
+1. **Filter — DONE (2026-09-01).** Two conditions, not one. `is_complete_cds` does not by itself
+   give equal length: 5 NA sequences are complete but off-length (1407 x3, 1413, 1416). Length is
+   a property of a population, not of a record, so it cannot live in preprocessing. Both
+   conditions are applied in the dataset builder, on the protein rows, before pairs are made.
 
-   Take the length from `conf/virus/flu.yaml` `cds_length` (HA 1701, NA 1410) rather than computing
-   the most common length per run — a per-run value can drift between populations and quietly make
-   two importance maps non-comparable. Call `src.utils.cds_utils.check_cds_length`, which re-derives
-   the most common length from the population actually built and fails if it disagrees with the pin
-   or if the share of sequences at that length falls below 90%. The table is scoped to H3N2 and H1N1; PB1 and NS1 are absent
-   because neither has one canonical length (both change by subtype and by year).
+   Outcome on H3N2 2024: HA 2,792 unique CDS -> 2,785 (7 incomplete, 0 off-length); NA 2,415 ->
+   2,301 (109 incomplete, 5 complete but off-length). Protein rows 10,964 -> 10,787; unique
+   positive pairs 3,723 -> 3,580 (96.2%). Every CDS in the built folds is now one length — HA
+   went from 5 distinct lengths to 1, NA from 15 to 1, both 100% complete. That is what the step
+   exists to guarantee. The folds carry 2,732 unique HA and 2,298 unique NA rather than the
+   2,785 / 2,301 kept, because 169 isolates hold only one of the two proteins and never enter a
+   pair.
 
-   Rebuild the 2024 dataset and record what each condition removes. Then re-run the k-mer LGBM baseline on the new folds; the current
-   number on the unfiltered folds is F1 macro 0.9177 +/- 0.0086.
+   K-mer LGBM re-run on the new folds: F1 macro **0.9094 +/- 0.0145**, against 0.9177 +/- 0.0086
+   on the unfiltered folds. The 0.008 drop is smaller than the fold spread, so the filter does
+   not change what k-mers can do on this population; the wider spread is what 4% fewer pairs
+   buys. 0.9094 is the number per-site features have to beat.
+
+   - **Config.** `dataset.require_complete_cds_at_pinned_length`, default false, in
+     `conf/dataset/default.yaml`. Off by default because the filter drops rows: always-on would
+     change every nt_cds dataset built before it existed and make those results irreproducible.
+   - **Not "canonical" in a name.** The repo already uses that word for two other things —
+     `canonical_segment` (the segment label) and `canonical_pair_key` /
+     `canonicalize_pair_orientation` (fixing a pair's slot order) — so a third meaning in an
+     identifier would be ambiguous. "Pinned" is the word already used for this idea, in
+     `check_cds_length(..., pinned_nt)` and in the `flu.yaml` comment. In prose "canonical
+     length" is unambiguous and stays, which is why `conf/virus/flu.yaml` and
+     `check_cds_length`'s error text still say it.
+   - **Implementation.** `_pair_helpers.filter_complete_cds_at_pinned_length`, called from
+     `dataset_segment_pairs.py` just before the `cds_dna_hash` attach. It matches on
+     `(assembly_id, function)` membership rather than a merge, so a duplicate key in
+     `cds_dna_final` cannot silently multiply protein rows. `dataset_pairs_cc.py` is NOT wired
+     yet: the 2D-CD builder ignores the flag.
+   - **Where the length comes from.** `conf/virus/flu.yaml` `cds_length` (HA 1701, NA 1410), not
+     the most common length per run — a per-run value can differ between populations and quietly
+     make two importance maps non-comparable. `src.utils.cds_utils.check_cds_length` re-derives
+     the most common length from the complete CDS this run actually loaded and raises if it
+     disagrees with the pin, or if the pin holds for under 90% of them. Both guards were tested
+     and fire: PB1 (no pinned length) and H5N1 HA (real length 1704 against a 1701 pin). The
+     table is scoped to H3N2 and H1N1; PB1 and NS1 are absent because neither has one length
+     across subtypes and years.
+   - **Bundle.** `flu_ha_na_h3n2_2024_random_cv4_pinned_length`, inheriting the unfiltered
+     bundle plus the flag. Kept separate rather than switching the flag on in place, so the
+     0.9177 result stays reproducible from its own recipe.
+   - **Regression.** Rebuilding the unfiltered dataset with the modified driver reproduces the
+     existing run byte-identically across all 12 fold splits, so the change is inert when the
+     flag is off.
 2. **Entropy map.** Stack the kept sequences into a matrix (rows = sequences, columns = positions)
    and compute Shannon entropy down each column. Two purposes: a conservation map along each CDS,
    and a check that positions are comparable. If the sequences were not truly aligned, entropy
@@ -228,8 +261,9 @@ features with high importance value".
   counts do not, because many sequences give the same counts. Under a random split the same
   sequences appear in train and test, so the model can score well by memorising which HA goes with
   which NA. Step 7 is the check; without it a higher score than k-mers cannot be interpreted.
-- **Filter changes the population.** The completeness filter drops 3.8% of pairs, so results are
-  not directly comparable to any earlier 2024 number until the k-mer baseline is re-run (step 1).
+- **Filter changes the population.** The filter drops 3.8% of pairs, so no earlier 2024 number
+  is directly comparable. Settled in step 1: the k-mer baseline was re-run on the filtered folds
+  and scores 0.9094 +/- 0.0145. Compare against that, not against 0.9177.
 - **One year, one subtype.** Nothing here shows the importance map generalises to other years or
   subtypes. Treat it as a description of H3N2 2024.
 
