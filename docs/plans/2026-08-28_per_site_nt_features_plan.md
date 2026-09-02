@@ -394,26 +394,47 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    arm: 1,037 columns, statistically indistinguishable from `nt` at a third of the width, and one
    column per amino-acid position, so a site number is a residue number. Writes
    `site_importance_codon.png` and `site_importance_codon.csv` (column, slot, protein, site,
-   gain_frac, gain_frac_std, folds_used, split_count, entropy_bits, n_values, rank).
+   shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count, entropy_bits,
+   n_values, shap_rank, gain_rank).
 
-   Score is LightGBM gain, normalised per fold before averaging -- early stopping gives the folds
-   411 to 998 trees, so raw gain is not comparable across them. A site's number is its share of
-   the model's total gain.
+   **Two importance measures, not one.** Gain is a training-time quantity read off the fitted
+   trees, so on its own it says what the trees were built on rather than what they are worth on
+   new data. SHAP is exact TreeSHAP through LightGBM's own `pred_contrib` -- no extra dependency,
+   and the script checks that contributions plus base value reconstruct the raw margin rather than
+   assuming it -- measured on each fold's **held-out test split**. The split count that
+   `lightgbm.plot_importance` shows by default is in the CSV; counting splits says how often a
+   position was consulted, not what it was worth.
 
-   **The model uses few positions.** Slot A (HA) holds 57.2% of total gain, slot B (NA) 42.8%.
-   Within each, the top 10 sites hold 46.4% (HA) and 53.6% (NA) of that protein's gain, and the
-   top 50 hold 79.5% and 86.6%. Only 344 of 567 HA sites and 253 of 470 NA sites get any gain at
-   all, against 97.5% and 96.6% that vary.
+   **The two agree, so the ranking survives an out-of-sample check.** Spearman(SHAP, gain) is
+   +0.971 for HA and +0.974 for NA, with 12 of the top 15 sites shared. Where they differ, believe
+   SHAP.
 
-   **The ranking is stable enough to read.** Fold-to-fold Spearman on gain is 0.730 for HA
-   (0.711-0.746 across the six fold pairs) and 0.701 for NA; 8 of the top 15 HA sites and 7 of 15
-   NA sites are in every fold's top 15, and every site in both top-15 lists is used by all four
-   folds. Individual ranks past the top few move, so read the head of the list, not its order.
+   Two differences worth knowing. Gain **overstates concentration**: the HA top 10 holds 34.1% of
+   SHAP against 46.4% of gain, and the top 50 hold 65.3% against 79.5%. And gain **undersells the
+   many-valued sites** -- HA 161 (10 codon values) is gain rank 35 but SHAP rank 9, HA 363 is 69
+   and 13, NA 400 (11 values) is 22 and 3, NA 385 (10 values) is 116 and 11. Note this is the
+   opposite of the usual warning that split-gain favours high-cardinality features; measured here,
+   it does the reverse. Gain also splits the two slots differently: HA 57.2% / NA 42.8% by gain
+   against 52.3% / 47.7% by SHAP.
 
-   Top sites: HA 544, 36, 129, 239, 286, 87, 531; NA 310, 244, 284, 24, 462, 223.
+   Both measures are normalised per fold before averaging -- early stopping gives the folds 411 to
+   998 trees, so raw totals are not comparable across them. A site's number is its share of the
+   model's total.
 
-   **Variability is necessary, not sufficient.** Spearman(gain, entropy) over varying sites is
-   +0.485 (HA) and +0.529 (NA) -- positive, since an invariant column cannot separate anything,
+   **The model uses few positions.** The HA top 10 sites hold 34.1% of HA's SHAP and the top 50
+   hold 65.3%; for NA, 47.8% and 75.4%. Only 344 of 567 HA sites and 253 of 470 NA sites get any
+   gain at all, against 97.5% and 96.6% that vary.
+
+   **The ranking is stable enough to read.** Fold-to-fold Spearman on SHAP is 0.715 for HA
+   (0.699-0.731 over the six fold pairs) and 0.681 for NA; 9 of the top 15 sites are in every
+   fold's top 15 for both proteins, and every site in both top-15 lists is used by all four folds.
+   Individual ranks past the head move, so read the list as a set, not an order.
+
+   Top sites by SHAP: HA 544, 36, 129, 239, 531, 286, 87, 451, 161; NA 284, 310, 400, 244, 223,
+   24, 140.
+
+   **Variability is necessary, not sufficient.** Spearman(SHAP, entropy) over varying sites is
+   +0.516 (HA) and +0.579 (NA) -- positive, since an invariant column cannot separate anything,
    but far from 1. The scatter shows the shape: every top site sits at 0.5-1.0 bits, while most
    sites in that same range contribute nothing. So conservation bounds importance and does not
    predict it, which is what makes the map worth having.
@@ -426,8 +447,10 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    positions. If it drops sharply, those positions carry the signal. Shuffling is the better control
    of the two because the feature count stays the same.
 8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
-   interaction values or LightGBM split-pair statistics. At 1,000-3,100 features depending on unit,
-   an all-pairs pass is costly in time and memory, so budget for it as its own piece of work.
+   interaction values or LightGBM split-pair statistics. Main-effect SHAP is already cheap --
+   step 6 measures it in 0.3 s per fold through `pred_contrib` -- but interaction values are
+   `n_features` times more work per row, so at 1,037 codon features that is a different scale.
+   Budget for it as its own piece of work.
 
 Stop after step 5 if per-site features do not at least match k-mers. The goal is interpretability,
 but a feature set that scores clearly worse is not worth interpreting.
