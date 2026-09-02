@@ -607,6 +607,38 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    7-10% of test rows have both slots seen and pair_key overlap is 0 (step 5), which already bounds
    how much memorisation could be worth.
 
+   **7c. Seen against unseen sequences — DONE (2026-09-02), memorisation is not what carries the
+   result.** `src/analysis/plot_seen_sequence_effect.py`. The model is left alone; the test rows
+   are split instead, by whether each slot's sequence also appears in that fold's training split.
+   Reads the saved `test_predicted.csv`, so any feature source can be compared on the same rows.
+   `pair_key` overlap between train and test is 0 in every fold, checked before anything else, so
+   this is about sequences and never about repeated answers.
+
+   | arm | all | neither seen | slot a seen | slot b seen | both seen |
+   |---|---|---|---|---|---|
+   | k-mer k=6 | 0.9564 | 0.9493 | 0.9608 | 0.9528 | 0.9769 |
+   | per-site nt | 0.9597 | **0.9544** | 0.9620 | 0.9594 | 0.9746 |
+   | per-site codon | 0.9547 | 0.9489 | 0.9622 | 0.9511 | 0.9701 |
+   | rows, all folds | 7,160 | 2,953 | 1,348 | 2,261 | 598 |
+
+   **The result holds on sequences the model has never seen.** On the 2,953 rows where neither
+   sequence appears in training, per-site nt scores 0.9544 against its overall 0.9597 -- a
+   difference of 0.005. Nothing collapses when recall is impossible.
+
+   **Per-site features memorise LESS than k-mers, not more.** The gap between "both seen" and
+   "neither seen" is +0.0276 for k-mer, +0.0202 for per-site nt and +0.0213 for per-site codon.
+   The risk this plan flagged was that a per-site vector nearly names its sequence while k-mer
+   counts do not, so per-site would lean on recall. Measured, the k-mer baseline shows the larger
+   seen-advantage of the three.
+
+   **The ranking survives on the hardest rows.** per-site nt (0.9544) still leads k-mer (0.9493)
+   and codon (0.9489) where neither sequence was ever seen, so per-site's edge in step 5 is not
+   bought with recall.
+
+   Caveat on direction: having seen HA_x with NA_y helps reject a test negative pairing HA_x with
+   something else, but works against a test positive where HA_x has a different true partner. The
+   +0.02 to +0.03 is the net of the two, not a pure memorisation term.
+
 8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
    interaction values or LightGBM split-pair statistics. Main-effect SHAP is already cheap --
    step 6 measures it in 0.3 s per fold through `pred_contrib` -- but interaction values are
@@ -629,11 +661,13 @@ features with high importance value".
 
 ## Risks
 
-- **Memorisation.** With ~1,700 positions per segment, a small number of them is usually enough to
-  identify one sequence exactly, so a per-site vector nearly names the sequence it came from. K-mer
-  counts do not, because many sequences give the same counts. Under a random split the same
-  sequences appear in train and test, so the model can score well by memorising which HA goes with
-  which NA. Step 7 is the check; without it a higher score than k-mers cannot be interpreted.
+- **Memorisation — checked in step 7c, and it is not what carries the result.** The worry was that
+  with ~1,700 positions per segment a handful is enough to identify a sequence exactly, so a
+  per-site vector nearly names the sequence it came from, while k-mer counts do not. Splitting the
+  test rows by whether their sequences appear in training: on the 2,953 rows where neither
+  sequence was ever seen, per-site nt scores 0.9544 against its overall 0.9597. The gap between
+  "both seen" and "neither seen" is +0.0202 for per-site nt and +0.0276 for the k-mer baseline --
+  so per-site leans on recall LESS than k-mers do, the opposite of the concern.
 - **Filter changes the population.** The filter drops 3.8% of pairs, so no earlier 2024 number
   is directly comparable. Settled in step 1: the k-mer baseline was re-run on the filtered folds
   and scores 0.9094 +/- 0.0145. Compare against that, not against 0.9177.
