@@ -174,7 +174,7 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    the most common length per run — a per-run value can drift between populations and quietly make
    two importance maps non-comparable. Call `src.utils.cds_utils.check_cds_length`, which re-derives
    the most common length from the population actually built and fails if it disagrees with the pin
-   or if coverage falls below 90%. The table is scoped to H3N2 and H1N1; PB1 and NS1 are absent
+   or if the share of sequences at that length falls below 90%. The table is scoped to H3N2 and H1N1; PB1 and NS1 are absent
    because neither has one canonical length (both change by subtype and by year).
 
    Rebuild the 2024 dataset and record what each condition removes. Then re-run the k-mer LGBM baseline on the new folds; the current

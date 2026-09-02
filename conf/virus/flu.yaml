@@ -256,11 +256,14 @@ replicon_types:
 #
 # SCOPE: H3N2 and H1N1 only. These are 61.5% of isolates (34.0% + 27.5%). The values are NOT
 # valid for other subtypes -- H5N1 HA is 1704, H9 and H7 HA are 1683, and N8/N6/N9 NA is
-# 1413. Including H5N1 would drop HA coverage from 97.7% to 85.7%. Widen the scope only by
+# 1413. Including H5N1 would drop HA seq_frac from 97.7% to 85.7%. Widen the scope only by
 # making the entry per-subtype, never by keeping one number.
 #
-# COVERAGE is the share of unique complete CDS at this exact length, measured on the Flu A
-# July 2025 corpus over H3N2 + H1N1. "Complete" means is_complete_cds: starts_with_m AND
+# SEQ_FRAC is the share of unique complete CDS at this exact length, measured on the Flu A
+# July 2025 corpus over H3N2 + H1N1. Called seq_frac, not "coverage": that word already means
+# two other things here -- the mmseqs alignment fraction (`--coverage 0.8`, build_clusters.py)
+# and the coverage-first negative sampler (`negative_scope: coverage`). The repo spells a
+# fraction `*_frac` (max_drop_frac, largest_cc_frac, ambig_frac, ...). "Complete" means is_complete_cds: starts_with_m AND
 # has_terminal_stop AND NOT has_internal_stop (src/preprocess/extract_cds_dna.py).
 # Sequences at any other length are dropped by a per-site run -- they cannot be placed
 # position by position without real alignment. That is a limit of the feature method, not a
@@ -277,11 +280,11 @@ replicon_types:
 #
 # Verify, do not trust: `src.utils.cds_utils.check_cds_length` re-derives the most common
 # length from the population actually built and fails if it disagrees with the pin or if
-# coverage falls below a floor.
+# the share at that length falls below a floor.
 cds_length:
-  PB2: {nt: 2280, coverage: 0.998}   # 760 codons; 100% in H3N2, H1N1 and H5N1
-  PA:  {nt: 2151, coverage: 0.999}   # 717 codons; 100% in all three
-  NP:  {nt: 1497, coverage: 1.000}   # 499 codons; 100% in all three
-  M1:  {nt: 759,  coverage: 1.000}   # 253 codons; 100% in all three
-  HA:  {nt: 1701, coverage: 0.977}   # 567 codons; H3N2 100%, H1N1 94-100%. H5N1 is 1704.
-  NA:  {nt: 1410, coverage: 0.977}   # 470 codons; H3N2 100%, H1N1 98-100%
+  PB2: {nt: 2280, seq_frac: 0.998}   # 760 codons; 100% in H3N2, H1N1 and H5N1
+  PA:  {nt: 2151, seq_frac: 0.999}   # 717 codons; 100% in all three
+  NP:  {nt: 1497, seq_frac: 1.000}   # 499 codons; 100% in all three
+  M1:  {nt: 759,  seq_frac: 1.000}   # 253 codons; 100% in all three
+  HA:  {nt: 1701, seq_frac: 0.977}   # 567 codons; H3N2 100%, H1N1 94-100%. H5N1 is 1704.
+  NA:  {nt: 1410, seq_frac: 0.977}   # 470 codons; H3N2 100%, H1N1 98-100%
