@@ -173,225 +173,114 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
 
 ## Steps
 
-0. **Preprocessing prerequisite — DONE (2026-09-01).** Implemented and verified; the sub-points
-   below record what was built. Outcome: `protein_final` 1,793,563 -> 1,793,572 rows (+9), one new
-   column, every pre-existing row byte-identical on every shared column; `ctg_dna_final`
-   unchanged; `cds_dna_final` 868,240 rows unchanged with four new columns, 855,695 complete
-   (98.56%). The +9 are exactly the rows the old duplicate key removed — see the last sub-point.
-   - Add `starts_with_m` in Stage 1, next to `has_terminal_stop` and `has_internal_stop` in
-     `src/utils/protein_utils.py`. This is the one part of completeness nothing records today, and
-     it belongs on the protein because the protein version is the more reliable of the two (see
-     Background).
-   - Carry all three flags into `cds_dna_final` in Stage 1.5. That file already holds `prot_seq`,
-     so this copies a value rather than recomputing it — same rule the repo already uses for hashes.
-   - Add one derived column in Stage 1.5 for convenience:
+0. **Preprocessing prerequisite — DONE (2026-09-01).**
+   - Result: `protein_final` went from 1,793,563 to 1,793,572 rows (+9 rows, one new column). Every pre-existing row is byte-identical on every column it already had.
+   - `ctg_dna_final`: unchanged.
+   - `cds_dna_final`: still 868,240 rows, four new columns added; 855,695 rows (98.56%) are complete.
+   - The +9 new rows are exactly the rows an old duplicate-key bug used to remove (see the last bullet below).
+   - Added `starts_with_m` in Stage 1 (`src/utils/protein_utils.py`), next to the existing `has_terminal_stop` and `has_internal_stop`. This is the one completeness fact nothing recorded before. It is computed from the protein, not the DNA, because the protein version is more reliable (see Background).
+   - Copied all three flags into `cds_dna_final` in Stage 1.5. That file already holds `prot_seq`, so this copies a value instead of recomputing it — same rule the repo already uses for hashes.
+   - Added one derived column in Stage 1.5:
 
          is_complete_cds = starts_with_m & has_terminal_stop & ~has_internal_stop
 
-     Keep the three underlying flags as well, so an experiment can use a different combination.
-     Per-site features strictly need only the first two — an internal stop does not shift positions
-     — but the combined column is what step 1 filters on.
-   - **Flag, do not drop.** Preprocessing is shared across every experiment, so a record dropped
-     here is lost to experiments that would have been fine with it (k-mer features never line
-     positions up, so they do not care about completeness). Recording a fact and letting each
-     experiment apply its own rule is also what Stage 1 already does with `has_terminal_stop`,
-     `has_ambiguities`, `x_count_ratio` and the rest. The existing drops in `extract_cds_dna.py`
-     are a different case and stay: those rows failed extraction, so there is nothing to record.
-     The rule is — drop when there is no data to record, flag when there is. Avoid naming a column
-     "invalid": that is a verdict that depends on the use, not a fact about the record.
-   - Re-run both stages and diff the output against
-     `data/processed/flu/July_2025/archive_09_01_2026/`: same row count, same columns plus the new
-     flag, identical values everywhere else. Do not proceed until that passes.
-   - Output layout. Top level keeps five files — `protein_final`, `ctg_dna_final`, `cds_dna_final`,
-     and the two GTO aggregates `protein_agg_from_GTOs` / `genome_agg_from_GTOs` (a cache
-     `preprocess_flu.py` reads back by fixed path, so their names and location must not change).
-     The remaining ~13 report files move to `preprocess_qc_20260901/`. A few analysis scripts read
-     some of those reports, so update their paths in the same change.
-   - Do NOT merge `extract_cds_dna.py` into `preprocess_flu.py`, and do not rename the two
-     aggregates. Keeping the names makes the archive diff a straight file-for-file comparison.
-   - **Also fixed while here** (found by auditing Stage 1): `handle_assembly_duplicates` keyed on
-     `[prot_seq, assembly_id]`, which collapses two DIFFERENT products of one segment when they
-     share a sequence — 334 such groups exist in the raw corpus (PB1 with PB1-N40, PA with
-     PA-N155/PA-N182, HA with its mature subunit, NS3 with NEP). `function` is now part of the key.
-     No group contains two of the 8 majors, so nothing important was ever at risk, but the
-     protection came from an unrelated filter running first. Stage 1 now reports "No duplicates
-     found": every removal this function made on this corpus was a cross-function one.
+     Kept the three underlying flags too, so an experiment can combine them differently. Per-site features strictly need only the first two — an internal stop does not shift positions — but step 1 filters on the combined column.
+   - **Flag, don't drop.** Preprocessing is shared by every experiment, so dropping a record here would remove it from experiments that don't care about completeness (k-mer features never need positions to line up, for example). Recording a fact and letting each experiment apply its own rule is also what Stage 1 already does with `has_terminal_stop`, `has_ambiguities`, `x_count_ratio`, and the rest — the drops that already exist in `extract_cds_dna.py` are a different case and stay, because those rows failed extraction and there is nothing to record. The rule: drop only when there is no data to record; flag when there is. Don't name a column "invalid" — that is a judgment about use, not a fact about the record.
+   - Re-ran both stages and diffed the output against the pre-change archive (`data/processed/flu/July_2025/archive_09_01_2026/`): same row count, same columns plus the new flag, every other value identical. Do not proceed past this step until that check passes.
+   - Output layout: top level still keeps five files — `protein_final`, `ctg_dna_final`, `cds_dna_final`, and the two GTO aggregates `protein_agg_from_GTOs` / `genome_agg_from_GTOs` (read back by fixed path, so their names and location cannot change). The ~13 other report files moved to `preprocess_qc_20260901/`; the analysis scripts that read them were updated to match.
+   - Kept `extract_cds_dna.py` separate from `preprocess_flu.py`, and kept the two aggregate file names as they are, so the archive diff stays a plain file-for-file comparison.
+   - **Also fixed while auditing Stage 1:** `handle_assembly_duplicates` used to key on `[prot_seq, assembly_id]` only, which merged two DIFFERENT proteins from one segment whenever they happened to share a sequence — 334 such groups exist in the raw corpus (e.g. PB1 with PB1-N40, PA with PA-N155/PA-N182, HA with its mature subunit, NS3 with NEP). No group contains two of the 8 major proteins, so nothing important was ever at risk — but the protection came from an unrelated filter running first, not from the key itself. `function` is now part of the key. Stage 1 now reports "No duplicates found" — every removal this function made on this corpus was a cross-function one.
 
-1. **Filter — DONE (2026-09-01).** Two conditions, not one. `is_complete_cds` does not by itself
-   give equal length: 5 NA sequences are complete but off-length (1407 x3, 1413, 1416). Length is
-   a property of a population, not of a record, so it cannot live in preprocessing. Both
-   conditions are applied in the dataset builder, on the protein rows, before pairs are made.
+1. **Filter — DONE (2026-09-01).** Two conditions are needed, not one.
+   - `is_complete_cds` alone does not guarantee equal length: 5 NA sequences are complete but the wrong length (1407 nt x3, 1413, 1416).
+   - Length is a property of the whole population, not of one record, so it cannot be decided during preprocessing. Both conditions — complete AND at the pinned length — are applied together, on the protein rows, before pairs are built.
 
-   Outcome on H3N2 2024: HA 2,792 unique CDS -> 2,785 (7 incomplete, 0 off-length); NA 2,415 ->
-   2,301 (109 incomplete, 5 complete but off-length). Protein rows 10,964 -> 10,787; unique
-   positive pairs 3,723 -> 3,580 (96.2%). Every CDS in the built folds is now one length — HA
-   went from 5 distinct lengths to 1, NA from 15 to 1, both 100% complete. That is what the step
-   exists to guarantee. The folds carry 2,732 unique HA and 2,298 unique NA rather than the
-   2,785 / 2,301 kept, because 169 isolates hold only one of the two proteins and never enter a
-   pair.
+   **Result on H3N2 2024:**
+   - HA: 2,792 unique CDS → 2,785 kept (7 dropped for incomplete, 0 for wrong length).
+   - NA: 2,415 → 2,301 kept (109 incomplete, 5 complete but wrong length).
+   - Protein rows: 10,964 → 10,787.
+   - Unique positive pairs: 3,723 → 3,580 (96.2% kept).
+   - Every CDS in the built folds is now exactly one length: HA went from 5 different lengths to 1, NA from 15 to 1, and both are 100% complete. That is what this step exists to guarantee.
+   - The folds end up with 2,732 unique HA and 2,298 unique NA (fewer than the 2,785 / 2,301 kept above), because 169 isolates carry only one of the two proteins and so never form a pair.
 
-   K-mer LGBM re-run on the new folds: F1 macro **0.9094 +/- 0.0145**, against 0.9177 +/- 0.0086
-   on the unfiltered folds. The 0.008 drop is smaller than the fold spread, so the filter does
-   not change what k-mers can do on this population; the wider spread is what 4% fewer pairs
-   buys. 0.9094 is the number per-site features have to beat.
+   **K-mer baseline re-run on the filtered folds:** F1 macro 0.9094 +/- 0.0145, against 0.9177 +/- 0.0086 on the unfiltered folds. The 0.008 drop is smaller than the normal spread across folds, so the filter itself does not change what k-mers can do on this population — the wider spread is the cost of having 4% fewer pairs. **0.9094 is the number per-site features have to beat.**
 
-   - **Config.** `dataset.require_complete_cds_at_pinned_length`, default false, in
-     `conf/dataset/default.yaml`. Off by default because the filter drops rows: always-on would
-     change every nt_cds dataset built before it existed and make those results irreproducible.
-   - **Not "canonical" in a name.** The repo already uses that word for two other things —
-     `canonical_segment` (the segment label) and `canonical_pair_key` (the order-invariant
-     dedup key, `'__'.join(sorted([hash_a, hash_b]))`) — so a third meaning in an identifier
-     would be ambiguous. "Pinned" is the word already used for this idea, in
-     `check_cds_length(..., pinned_nt)` and in the `flu.yaml` comment. In prose "canonical
-     length" is unambiguous and stays, which is why `conf/virus/flu.yaml` and
-     `check_cds_length`'s error text still say it. (A third use, the
-     `canonicalize_pair_orientation` config flag, was removed after this: it was v1-only and
-     v1 went on 2026-06-03.)
-   - **Implementation.** `_pair_helpers.filter_complete_cds_at_pinned_length`, called from
-     `dataset_segment_pairs.py` just before the `cds_dna_hash` attach. It matches on
-     `(assembly_id, function)` membership rather than a merge, so a duplicate key in
-     `cds_dna_final` cannot silently multiply protein rows. `dataset_pairs_cc.py` is NOT wired
-     yet: the 2D-CD builder ignores the flag.
-   - **Where the length comes from.** `conf/virus/flu.yaml` `cds_length` (HA 1701, NA 1410), not
-     the most common length per run — a per-run value can differ between populations and quietly
-     make two importance maps non-comparable. `src.utils.cds_utils.check_cds_length` re-derives
-     the most common length from the complete CDS this run actually loaded and raises if it
-     disagrees with the pin, or if the pin holds for under 90% of them. Both guards were tested
-     and fire: PB1 (no pinned length) and H5N1 HA (real length 1704 against a 1701 pin). The
-     table is scoped to H3N2 and H1N1; PB1 and NS1 are absent because neither has one length
-     across subtypes and years.
-   - **Bundle.** `flu_ha_na_h3n2_2024_random_cv4_pinned_length`, inheriting the unfiltered
-     bundle plus the flag. Kept separate rather than switching the flag on in place, so the
-     0.9177 result stays reproducible from its own recipe.
-   - **Regression.** Rebuilding the unfiltered dataset with the modified driver reproduces the
-     existing run byte-identically across all 12 fold splits, so the change is inert when the
-     flag is off.
-2. **Entropy map — DONE (2026-09-01).** `src/analysis/plot_site_entropy.py`. Stacks the kept
-   sequences into a matrix (rows = unique CDS, columns = positions) and computes Shannon entropy
-   down each column. Writes `site_entropy.png` and one `site_entropy_{SHORT}.csv` per protein to
-   `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/site_entropy/`; step 6
-   reads the CSV against the importance map.
+   - **Config.** New setting `dataset.require_complete_cds_at_pinned_length` in `conf/dataset/default.yaml`, off by default. Off by default because turning it on changes which rows survive; leaving it on would silently change every nt_cds dataset built before it existed and make old results impossible to reproduce.
+   - **Naming.** Not called "canonical" in code. That word is already used for two other things in this repo — `canonical_segment` (the segment label) and `canonical_pair_key` (the order-invariant dedup key, `'__'.join(sorted([hash_a, hash_b]))`). A third meaning as an identifier would be ambiguous. The word used here is "pinned" (`check_cds_length(..., pinned_nt)`, and the comment in `flu.yaml`). In plain sentences "canonical length" is still fine and is still used in `flu.yaml` and in `check_cds_length`'s error text — the naming rule is about identifiers, not prose. (A third use of the word, the `canonicalize_pair_orientation` config flag, was removed later: it was v1-only code, and v1 was retired on 2026-06-03.)
+   - **Implementation.** `_pair_helpers.filter_complete_cds_at_pinned_length`, called from `dataset_segment_pairs.py` right before the `cds_dna_hash` attach step. It checks `(assembly_id, function)` membership rather than doing a merge, so a duplicate key in `cds_dna_final` cannot silently multiply protein rows. `dataset_pairs_cc.py` (the 2D-CD builder) does NOT read this flag yet.
+   - **Where the target length comes from.** `conf/virus/flu.yaml` `cds_length` (HA 1701, NA 1410) — not "the most common length in this run", because that value can drift between different populations and quietly make two importance maps impossible to compare. `src.utils.cds_utils.check_cds_length` re-derives the most common length from the complete CDS this run actually loaded and fails if it disagrees with the pinned value, or if fewer than 90% of records hit that length. Both failure cases were tested and do fire: PB1 (no pinned length exists for it) and H5N1 HA (real length 1704, against the H3N2/H1N1 pin of 1701). The pinned-length table only covers H3N2 and H1N1; PB1 and NS1 are left out because neither has one fixed length across subtypes and years.
+   - **Bundle.** `flu_ha_na_h3n2_2024_random_cv4_pinned_length` — a new bundle that inherits the unfiltered one and adds the flag, rather than editing the unfiltered bundle in place. This keeps the 0.9177 result reproducible from its own unchanged recipe.
+   - **Regression check.** Rebuilding the unfiltered dataset with the modified code reproduces the existing run byte-for-byte across all 12 fold splits — so the change has no effect when the flag is off.
 
-   Unique CDS, not pair rows -- a heavily sampled strain would otherwise decide the answer. All
-   splits, because nothing is fitted. If entropy is ever used to *select* positions, it must be
-   recomputed on train alone.
+2. **Entropy map — DONE (2026-09-01).** `src/analysis/plot_site_entropy.py`.
+   - What it does: stacks the kept sequences into a matrix (rows = unique CDS, columns = positions) and computes Shannon entropy down each column.
+   - Output: `site_entropy.png` and one `site_entropy_{SHORT}.csv` per protein, written to `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/site_entropy/`. Step 6 reads the CSV against the importance map.
+   - Uses unique CDS, not pair rows — a heavily sampled strain would otherwise dominate the answer.
+   - Uses all splits (train + val + test), because nothing is being fit here. If entropy is ever used to select which positions to keep, it must be recomputed on the training split only.
 
-   **Conservation.** HA: 2,732 unique CDS, mean 0.0577 bits, 550 of 1,701 positions invariant
-   (32.3%). NA: 2,298 unique CDS, mean 0.0580 bits, 506 of 1,410 invariant (35.9%). Against a
-   ceiling of 2 bits for four bases, both are strongly conserved with isolated variable sites.
+   **Conservation.**
+   - HA: 2,732 unique CDS, mean entropy 0.0577 bits, 550 of 1,701 positions never vary (32.3%).
+   - NA: 2,298 unique CDS, mean entropy 0.0580 bits, 506 of 1,410 positions never vary (35.9%).
+   - The maximum possible entropy for 4 bases is 2 bits, so both proteins are strongly conserved with a few variable spots.
 
-   **The positions line up.** Two checks, and the second is the sharper one:
+   **Checking the positions really line up.** Two checks; the second is the sharper one.
 
-   | | mean bits | 1st | 2nd | 3rd | 3rd/1st |
+   | | mean bits | 1st codon pos. | 2nd | 3rd | 3rd/1st ratio |
    |---|---|---|---|---|---|
-   | HA as built | 0.0577 | 0.0383 | 0.0283 | 0.1065 | 2.78x |
-   | NA as built | 0.0580 | 0.0376 | 0.0281 | 0.1084 | 2.88x |
+   | HA, as built | 0.0577 | 0.0383 | 0.0283 | 0.1065 | 2.78x |
+   | NA, as built | 0.0580 | 0.0376 | 0.0281 | 0.1084 | 2.88x |
    | HA, each sequence shifted 0-2 nt | 1.0971 | 1.0970 | 1.0981 | 1.0963 | 1.00x |
 
-   Third codon positions are the most variable and second the least, in both proteins -- the
-   expected order, since most third-base changes are silent and most second-base changes are not.
-   That ordering is what says the reading frame is right; a flat entropy trace would not.
+   - Third codon positions are the most variable and second the least, in both proteins — the expected pattern, since most changes at the third position of a codon do not change the amino acid, and most changes at the second position do. This pattern is what shows the reading frame is correct; a flat entropy trace would not.
+   - The last row is the negative control: shift each sequence by a random 0, 1, or 2 nucleotides, so positions no longer line up. Mean entropy jumps 19-fold and the codon-position pattern flattens to 1.00x. This shows the check would actually catch a misalignment if one existed.
+   - Separate sanity check: shuffling each column's values independently (instead of shifting sequences) leaves the entropy numbers identical to four decimals, as it must — entropy is computed per column.
+   - This check catches wholesale misalignment, not one or two shifted sequences. The completeness-and-length filter from step 1 is what rules those out, since an internal shift would need an insertion and a deletion that exactly cancel.
 
-   The last row is the negative control: shifting each sequence by a random 0-2 nt, so the
-   positions no longer correspond, raises mean entropy 19-fold and flattens the codon-position
-   ordering to 1.00x. The diagnostic has teeth. (Shuffling each column independently instead
-   leaves the numbers identical to four decimals, as it must -- entropy is per column.)
+3. **Feature builder — DONE (2026-09-01).** `src/embeddings/compute_site_features.py`, alongside `compute_esm2_embeddings.py` and `compute_kmer_features.py`.
+   - New config group `conf/site/default.yaml` (`unit`, `encoding`), registered in `conf/bundles/flu_base.yaml` next to `/kmer`. The four new terms are defined in `docs/methods/glossary.md`.
+   - For each protein and unit, writes three files to the embeddings directory:
+     - `site_features_{unit}_{SHORT}.npz` — the codes (uint8)
+     - `_index.parquet` — maps `cds_dna_hash` to a row number
+     - `_metadata.json` — code map, site count, kept/dropped counts
+   - Caching is existence-check based, per protein; `--force_recompute` rebuilds.
 
-   This catches wholesale misalignment, not one or two shifted sequences. The completeness plus
-   pinned-length filter is what rules those out, since an internal shift would need an insertion
-   and a deletion that cancel.
-3. **Feature builder — DONE (2026-09-01).** `src/embeddings/compute_site_features.py`, alongside
-   `compute_esm2_embeddings.py` and `compute_kmer_features.py`. Config group `conf/site/default.yaml`
-   (`unit`, `encoding`), registered in `conf/bundles/flu_base.yaml` next to `/kmer`. The four terms
-   are in `docs/methods/glossary.md`.
+   - **One matrix per protein, not one for the corpus.** The matrix width is the CDS length, which differs by protein, so one matrix cannot hold every protein. Only complete CDS at the pinned length take part.
+   - **The cache stores ordinal codes only.** `site.encoding: onehot` is expanded later, at load time (step 4), so switching encoding does not require rebuilding the cache. Storing one-hot directly would make the cache 5-65x larger for no benefit.
+   - **Keyed by `cds_dna_hash` in every unit, `aa` included.** Two different DNA sequences that translate to the same protein get two separate (but identical) `aa` rows. That costs a little extra space and buys one join key and one row order shared across all three units — so codon site *i* and amino-acid site *i* are guaranteed to be the same position, by construction rather than by convention.
 
-   Per protein and unit it writes `site_features_{unit}_{SHORT}.npz` (uint8 codes),
-   `_index.parquet` (`cds_dna_hash` -> row) and `_metadata.json` (code map, site count, kept and
-   dropped counts) to the embeddings dir. Existence-check caching per protein, `--force_recompute`
-   to rebuild.
-
-   **One matrix per protein, not one for the corpus.** The width is the CDS length, which differs
-   by protein, so a single matrix cannot hold them. Only complete CDS at the pinned length take
-   part.
-
-   **The cache stores ordinal codes only.** `site.encoding: onehot` is expanded at load time
-   (step 4), so switching encoding does not rebuild the cache. Storing one-hot would be 5-65x
-   larger for nothing.
-
-   **Keyed by `cds_dna_hash` for every unit, `aa` included.** Two CDS that translate to the same
-   protein get two identical aa rows. That costs a little space and buys one join key and one row
-   order across all three units -- so codon site *i* and aa site *i* are the same place for the
-   same row, by construction rather than by convention.
-
-   Built for HA and NA in all three units:
+   **Built for HA and NA in all three units:**
 
    | | unique CDS | complete | at pinned length | nt sites | codon/aa sites |
    |---|---|---|---|---|---|
    | HA | 65,414 | 64,125 | 44,202 | 1,701 | 567 |
    | NA | 58,887 | 57,278 | 46,175 | 1,410 | 470 |
 
-   37 MB on disk for all six matrices, against 140 MB uncompressed for `nt` alone. 15 s to build
-   both proteins for one unit.
+   - 37 MB on disk for all six matrices, against 140 MB if `nt` alone were stored uncompressed. About 15 seconds to build both proteins for one unit.
+   - HA loses 19,923 complete CDS (31%) to the length filter, because the full corpus spans subtypes the pin does not cover — H5N1 HA is 1704 nt, H9 and H7 are 1683 nt. That is expected, not a bug: those sequences cannot be lined up position-by-position against a 1,701-nt reference. A per-site run on those subtypes would need its own pinned length. The H3N2 2024 dataset itself is unaffected — the cache holds every one of the 2,732 HA and 2,298 NA hashes it needs.
 
-   HA loses 19,923 complete CDS (31%) to the length filter, because the corpus spans subtypes the
-   pin does not cover -- H5N1 HA is 1704 nt, H9 and H7 are 1683. That is correct, not a bug: those
-   sequences cannot be placed position by position against a 1,701-nt frame. A per-site run on
-   them needs its own pinned length. The H3N2 2024 dataset is unaffected: the cache covers all
-   2,732 HA and 2,298 NA hashes it needs.
+   **Verification.**
+   - Every build decodes a sample of rows back to the source sequence and fails on any mismatch, so a wrong code map cannot reach a model silently. Positions on the catch-all code are checked the other way round, since those cannot round-trip exactly.
+   - Three further checks, run once:
+     - The `nt` codes rebuild the correct codon IDs exactly — 0 mismatches over 400 rows per protein.
+     - Each codon translates to the correct amino-acid code (NCBI translation table 1) — 0 mismatches. This is an independent check: codon IDs come from GenSLM's tokenizer, amino-acid codes come from `prot_seq`, and the translation rule comes from `cds_utils._CODON_TABLE_1` — three separate sources, all agreeing.
+     - The three units share one index, and site counts line up: nt sites = 3 x codon sites = 3 x aa sites.
+   - Codon IDs come from GenSLM's own vocabulary (`genslm_vocab/tokenizer_config.json`, read at build time, not hand-copied): GGC=33, GCC=34, ATC=35, GAC=36, the three stop codons = 93/95/96, `<unk>` = 3.
 
-   **Verification.** Every build decodes a sample of rows back to the source and raises on any
-   mismatch, so a wrong code map cannot reach a model silently; the catch-all code is checked the
-   other way round, since those positions cannot round-trip. Three further checks, run once:
+4. **Loader and training — DONE (2026-09-02).**
+   - `src/utils/site_utils.py` reads the cache (a sibling of `kmer_utils.py`).
+   - `src/models/_pair_features.py` gained a `site` branch — it used to reject `feature_source: site`.
+   - `train_pair_baselines.py` now resolves the cache directory and figures out which protein is in which slot.
+   - `baselines/lgbm.py` now accepts a `categorical_feature` argument.
+   - New bundle `flu_ha_na_h3n2_2024_random_cv4_site_nt`: inherits the pinned-length dataset bundle and only swaps the feature source, so any difference from the k-mer result is due to the features, not the underlying population.
 
-   - The `nt` codes rebuild the codon ids exactly -- 0 mismatches over 400 rows per protein.
-   - Each codon translates to its amino-acid code under NCBI table 1 -- 0 mismatches. This is an
-     independent path: the codon ids come from GenSLM's tokenizer, the aa codes from `prot_seq`,
-     and the translation from `cds_utils._CODON_TABLE_1`. All three agree.
-   - The three units share one index, and nt sites == 3 x codon sites == 3 x aa sites.
+   - **Categorical columns are declared.** Ordinal codes are labels, not numbers with meaning — code 7 is not "more" than code 3. Without telling LightGBM this, it would split on `<=` and read an order into the codes that is not really there. Under `encoding: ordinal`, every column is one site, so every column is declared categorical; checked against the fitted model directly — all 3,111 columns confirmed. One-hot columns are already 0/1, so they are left as ordinary numeric columns. Every other feature source (k-mer, ESM-2) passes `None`, which LightGBM treats as `'auto'`.
+   - **Column counts match the table in step 3, confirmed on fold 0:** nt 3,111 ordinal / 15,555 one-hot; codon 1,037 / 67,405; aa 1,037 / 22,814. One-hot rows always sum to the site count, so exactly one code fires per site. One-hot width comes from the code map the cache declares, not from which values happen to appear in a given split, so train, val and test always come out with identical widths.
+   - **A file records which column is which position:** `site_feature_columns_{unit}_{encoding}.csv`, written at load time. Columns: `column`, `slot`, `protein`, `site`, and (for one-hot) `code`. Example: column 0 = HA site 1, column 1700 = HA site 1701, column 1701 = NA site 1. Step 6 reads this file instead of re-deriving the layout.
+   - **Twelve error checks, all tested and confirmed to fire:** `interaction` other than `concat`, `slot_transform` other than `none`, `feature_scaling` other than `none`, missing `site_dir`, missing or malformed `site_proteins`, slots given in the wrong order, a protein with no cache, an unrecognized `feature_source`, a `cds_dna_hash` not in the cache, the two slots built with different units, a pair table missing the hash columns, and an unrecognized encoding. The wrong-order check matters most: nothing else confirms that the cache addressed by short name (e.g. "HA") actually matches the full function name the pair table carries in that slot — without it, a run could silently featurize NA into slot A.
+   - **Regression check.** The k-mer baseline on fold 0 reproduces to six decimal places after this change, so the shared loader and the new `categorical_feature` argument have no effect on the other feature sources.
+   - Quick smoke test on fold 0 only: site nt F1 macro 0.9246 vs. k-mer 0.9219 on the same fold. One fold proves nothing by itself — step 5 is the real comparison.
 
-   Codon ids are GenSLM's, read from `genslm_vocab/tokenizer_config.json` at build time rather
-   than copied: GGC 33, GCC 34, ATC 35, GAC 36, stops 93 / 95 / 96, `<unk>` 3.
-4. **Loader and training — DONE (2026-09-02).** `src/utils/site_utils.py` reads the cache
-   (sibling of `kmer_utils.py`); `src/models/_pair_features.py` gained the `site` branch it used
-   to reject; `train_pair_baselines.py` resolves the cache dir and the two slot proteins;
-   `baselines/lgbm.py` takes `categorical_feature`. Bundle
-   `flu_ha_na_h3n2_2024_random_cv4_site_nt` inherits the pinned-length dataset bundle and only
-   swaps the features, so a difference against the k-mer number is the feature set and not the
-   population.
-
-   **Categoricals are declared.** Ordinal codes are labels, not magnitudes -- code 7 is not "more"
-   than code 3, and without the declaration LightGBM splits on `<=` and reads an order that is not
-   there. Under `encoding: ordinal` every column is one site, so every column is categorical; the
-   fitted booster confirms all 3,111. One-hot columns are already binary and are left numeric.
-   Every other feature source passes `None`, which becomes LightGBM's own `'auto'`.
-
-   **Widths match the table above exactly**, measured on fold 0: nt 3,111 ordinal / 15,555
-   one-hot; codon 1,037 / 67,405; aa 1,037 / 22,814. One-hot rows sum to the site count, so
-   exactly one code fires per site. One-hot width comes from the code map the cache declares, not
-   from the values a split happens to hold, so train, val and test cannot come out different
-   widths.
-
-   **Which column is which position** is written to
-   `site_feature_columns_{unit}_{encoding}.csv` at load time: column, slot, protein, site and (for
-   one-hot) code. Column 0 is HA site 1, column 1700 is HA site 1701, column 1701 is NA site 1.
-   Step 6 reads this instead of re-deriving the layout.
-
-   **Guards.** Twelve, all tested and firing: `interaction` other than `concat`, `slot_transform`
-   other than `none`, `feature_scaling` other than `none`, missing `site_dir`, missing or
-   malformed `site_proteins`, slots given in the wrong order, a protein with no cache, an unknown
-   `feature_source`, a `cds_dna_hash` the cache does not hold, the two slots built with different
-   units, a pair table without the hash columns, and an unknown encoding. The wrong-order one
-   matters most: nothing else ties the short names the cache is addressed by to the full function
-   strings the pair table carries, so without it a run could featurize NA into slot A and never
-   say so.
-
-   **Regression.** The k-mer baseline on fold 0 reproduces to six decimals after the change, so
-   the shared loader and the new `categorical_feature` keyword are inert for the other sources.
-
-   Smoke result, fold 0 only: site nt F1 macro 0.9246 against k-mer 0.9219 on the same fold. One
-   fold decides nothing; step 5 is the comparison.
-5. **Train and compare — DONE (2026-09-02).** LGBM on the four pinned-length folds, all arms on
-   the same folds so the differences are paired.
+5. **Train and compare — DONE (2026-09-02).** LGBM trained on all four pinned-length folds; every arm uses the same folds, so the comparisons are paired.
 
    | arm | columns | F1 macro | F1 | AUC-ROC |
    |---|---|---|---|---|
@@ -400,110 +289,60 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    | per-site `codon` | 1,037 | 0.9159 +/- 0.0087 | 0.9211 +/- 0.0077 | 0.9547 +/- 0.0056 |
    | per-site `aa` | 1,037 | 0.8091 +/- 0.0228 | 0.8257 +/- 0.0185 | 0.8842 +/- 0.0200 |
 
-   Paired on F1 macro across the four folds:
+   **Paired comparison, F1 macro, across the four folds:**
 
-   | comparison | mean difference | folds won | p |
+   | comparison | mean difference | folds where the first arm wins | p-value |
    |---|---|---|---|
-   | `nt` vs k-mer | +0.0098 | 4/4 | 0.128 |
-   | `codon` vs k-mer | +0.0065 | 3/4 | 0.397 |
-   | `codon` vs `aa` | **+0.1067** | 4/4 | **0.002** |
-   | `nt` vs `codon` | +0.0033 | 3/4 | 0.509 |
+   | `nt` vs k-mer | +0.0098 | 4 of 4 | 0.128 |
+   | `codon` vs k-mer | +0.0065 | 3 of 4 | 0.397 |
+   | `codon` vs `aa` | **+0.1067** | 4 of 4 | **0.002** |
+   | `nt` vs `codon` | +0.0033 | 3 of 4 | 0.509 |
 
-   **Per-site at least matches k-mers, so the plan continues.** `nt` wins every fold, but at k=4
-   the paired test does not reach significance (p=0.128), so the honest reading is "matches", not
-   "beats" -- and it does it with 3,111 columns against 8,192, or 1,037 for `codon`, which is
-   indistinguishable from `nt` (p=0.509) at a third of the width.
+   - **Per-site features at least match k-mers.** `nt` wins on every fold, but with only 4 folds the difference is not statistically significant (p=0.128), so the fair claim is "matches", not "beats" — and it does that with 3,111 columns instead of 8,192. `codon` (1,037 columns, a third of `nt`'s width) is statistically indistinguishable from `nt` (p=0.509).
+   - **Silent (synonymous) changes carry most of the signal.** `codon` and `aa` cover the exact same 1,037 positions in the exact same records — the only difference is whether a DNA change that does not change the amino acid is visible to the model. Removing that information costs **0.107 F1 macro**, on every fold, p=0.002 — by far the largest effect measured, roughly an order of magnitude above the k-mer-vs-per-site gap.
+     - One interpretation, not separately tested: synonymous changes are close to neutral, so they drift with lineage and can act like a lineage marker, while amino-acid changes are shaped by selection and can end up similar across different lineages. Under that reading, the matching signal is carried mostly in the DNA rather than the protein — at least at the level of detail a per-site categorical feature can capture.
+     - **This has not been tested for ESM-2**, which reads 1,280 continuous dimensions rather than 22 categories per site. It should not be assumed to hold there.
+   - **The memorisation risk is bounded here, but not yet ruled out at this step.** Under a random split, some sequences appear in both train and test, and a per-site vector could in principle almost identify which exact sequence it is. Measured: 18-21% of test HA sequences and 22-26% of test NA sequences also appear somewhere in training, but only **7-10% of test rows have BOTH sequences already seen in training**, and `pair_key` overlap between train and test is 0 in every fold — no test pair was trained on. So recalling a specific pairing could explain at most about a tenth of the test set. The `aa` result by itself cannot separate "the model is relying on memory" from "removing synonymous positions removes real signal", because both would look the same here. Step 7 is what separates them.
 
-   **Silent changes carry most of the signal.** `codon` and `aa` are the same 1,037 positions on
-   the same records and differ in one thing: whether a change that leaves the protein unchanged is
-   visible. Removing those costs **0.107 F1 macro**, on every fold, p=0.002 -- far the largest
-   effect in the comparison, an order above the k-mer gap. Synonymous sites are nearly neutral, so
-   they drift with lineage and act as a lineage fingerprint; amino-acid changes are under
-   selection and can converge across lineages. This says the matching signal lives in the DNA and
-   not in the protein, at least at the resolution a per-site categorical column can see. It does
-   NOT say the same about ESM-2, which reads 1,280 continuous dimensions rather than 22 categories
-   per site; that comparison has not been run.
+6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the `codon` arm (1,037 columns — statistically the same as `nt` at a third of the width, and one column per amino-acid position, so a site number IS a residue number).
 
-   **The memorisation risk is bounded but not settled.** Under a random split some sequences recur
-   across splits, and a per-site vector nearly names the sequence it came from. Measured on these
-   folds: 18-21% of test HA sequences and 22-26% of test NA also appear in train, but only
-   **7-10% of test rows have BOTH slots seen in training**, and `pair_key` overlap is 0 in every
-   fold -- no test pair was trained on. So at most about a tenth of the test set could be answered
-   by recalling a combination. The `aa` result is consistent with memorisation and with real
-   signal alike, since collapsing silent variants removes identities and signal together, so it
-   does not separate the two. Step 7 is what does.
-6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, on the `codon`
-   arm: 1,037 columns, statistically indistinguishable from `nt` at a third of the width, and one
-   column per amino-acid position, so a site number is a residue number. Writes
-   four files: `site_importance_codon.png` (importance along the CDS, plus importance against
-   entropy), `site_importance_codon_barplot.png` (LightGBM's own `plot_importance` bar charts for
-   `split` and `gain` beside the held-out SHAP ranking), `site_importance_codon.csv` (column, slot,
-   protein, site, shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count,
-   entropy_bits, n_values, shap_rank, gain_rank) and `site_importance_codon_per_fold.csv` (each
-   fold's own shares, so the fold agreement can be recomputed). Both figures carry the producing
-   script and the run name.
+   Four output files:
+   - `site_importance_codon.png` — importance plotted along the CDS, and importance plotted against entropy.
+   - `site_importance_codon_barplot.png` — LightGBM's own `plot_importance` bar charts (`split` and `gain`) next to the SHAP ranking.
+   - `site_importance_codon.csv` — one row per column: `column, slot, protein, site, shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count, entropy_bits, n_values, shap_rank, gain_rank`.
+   - `site_importance_codon_per_fold.csv` — each fold's own numbers separately, so fold-to-fold agreement can be recomputed.
+   - Both figures record the script that made them and the run name.
 
-   **Split is the third measure, and it ranks differently.** `lightgbm.plot_importance` defaults
-   to split -- how often a feature was used -- and on fold 0 its top list holds NA 154, HA 162,
-   HA 325, NA 233 and NA 349, none of which appear in the gain or SHAP top 15. Counting splits
-   rewards a position consulted in many shallow splits; it does not say what the position was
-   worth. Shown for comparison, not used for ranking.
+   **Three importance measures, for three different reasons.**
+   - **Split count** — how often a feature was used to split. This is what `lightgbm.plot_importance` shows by default. On fold 0, its top list (NA 154, HA 162, HA 325, NA 233, NA 349) does not overlap at all with the gain or SHAP top-15 lists. A feature used in many shallow splits scores high here even if none of those splits mattered much. Shown for comparison only, not used to rank sites.
+   - **Gain** — total reduction in loss from every split that used a feature. Read directly off the fitted trees, so on its own it describes what the trees were built on, not necessarily what they are worth on new data.
+   - **SHAP** — exact TreeSHAP, computed via LightGBM's own `pred_contrib` (no extra library needed), on each fold's **held-out test split**. The script checks that SHAP values plus the base value reconstruct the model's raw margin score, rather than assuming this holds. Where gain and SHAP disagree, SHAP is treated as correct, because it is measured on data the model did not fit.
+   - **The two agree closely, so the ranking survives an out-of-sample check.** Spearman +0.971 (HA) and +0.974 (NA), with 12 of the top 15 sites shared between them.
+   - Two known differences: gain overstates how concentrated the signal is (HA top 10 = 34.1% of SHAP but 46.4% of gain; top 50 = 65.3% vs 79.5%), and gain undervalues sites with many possible codon values — e.g. HA site 161 (10 codon values) ranks 35th by gain but 9th by SHAP; HA 363 ranks 69th and 13th; NA 400 (11 values) ranks 22nd and 3rd; NA 385 (10 values) ranks 116th and 11th. This is the opposite of the usual warning that gain favours high-cardinality features — measured here, it does the reverse. Gain also splits credit between HA and NA slightly differently than SHAP does (57.2%/42.8% vs 52.3%/47.7%).
+   - Both gain and SHAP are normalised to sum to 1 within each fold before averaging, because early stopping gives each fold a different number of trees (411 to 998), so raw totals are not comparable across folds.
 
-   **Two importance measures, not one.** Gain is a training-time quantity read off the fitted
-   trees, so on its own it says what the trees were built on rather than what they are worth on
-   new data. SHAP is exact TreeSHAP through LightGBM's own `pred_contrib` -- no extra dependency,
-   and the script checks that contributions plus base value reconstruct the raw margin rather than
-   assuming it -- measured on each fold's **held-out test split**. The split count that
-   `lightgbm.plot_importance` shows by default is in the CSV; counting splits says how often a
-   position was consulted, not what it was worth.
+   **The model concentrates on a small number of positions.**
+   - HA: top 10 sites hold 34.1% of HA's total SHAP; top 50 hold 65.3%. Only 344 of 567 HA sites get any gain at all, though 97.5% of HA sites vary at least somewhat.
+   - NA: top 10 hold 47.8%; top 50 hold 75.4%. Only 253 of 470 NA sites get any gain, though 96.6% vary at all.
 
-   **The two agree, so the ranking survives an out-of-sample check.** Spearman(SHAP, gain) is
-   +0.971 for HA and +0.974 for NA, with 12 of the top 15 sites shared. Where they differ, believe
-   SHAP.
+   **The ranking is consistent enough across folds to trust.** Fold-to-fold Spearman on SHAP is 0.715 for HA (range 0.699-0.731 across the six fold pairs) and 0.681 for NA. 9 of the top-15 sites for each protein are in every single fold's top 15, and every site on both top-15 lists is used by all four folds. Ranks further down the list move around more, so treat the top list as a group of important sites rather than a precise ordering.
 
-   Two differences worth knowing. Gain **overstates concentration**: the HA top 10 holds 34.1% of
-   SHAP against 46.4% of gain, and the top 50 hold 65.3% against 79.5%. And gain **undersells the
-   many-valued sites** -- HA 161 (10 codon values) is gain rank 35 but SHAP rank 9, HA 363 is 69
-   and 13, NA 400 (11 values) is 22 and 3, NA 385 (10 values) is 116 and 11. Note this is the
-   opposite of the usual warning that split-gain favours high-cardinality features; measured here,
-   it does the reverse. Gain also splits the two slots differently: HA 57.2% / NA 42.8% by gain
-   against 52.3% / 47.7% by SHAP.
+   Top sites by SHAP: HA 544, 36, 129, 239, 531, 286, 87, 451, 161; NA 284, 310, 400, 244, 223, 24, 140.
 
-   Both measures are normalised per fold before averaging -- early stopping gives the folds 411 to
-   998 trees, so raw totals are not comparable across them. A site's number is its share of the
-   model's total.
+   **A site has to vary to matter, but varying is not enough on its own.** Spearman correlation between SHAP and entropy, restricted to sites that vary at all, is +0.516 (HA) and +0.579 (NA) — positive, since a site that never changes cannot help the model decide anything, but far from a perfect correlation. Looking at the scatter: every top site sits at entropy 0.5-1.0 bits, while most sites in that same range contribute nothing. So conservation sets an upper bound on how important a site could be, without predicting which variable sites actually matter — that gap is what makes the importance map worth having.
 
-   **The model uses few positions.** The HA top 10 sites hold 34.1% of HA's SHAP and the top 50
-   hold 65.3%; for NA, 47.8% and 75.4%. Only 344 of 567 HA sites and 253 of 470 NA sites get any
-   gain at all, against 97.5% and 96.6% that vary.
+   **What this step alone cannot tell you.** A handful of sites carrying most of the model's decision is equally consistent with those positions carrying real lineage signal and with their being the most efficient way to identify a sequence — the memorisation risk. Step 7 is what separates them.
 
-   **The ranking is stable enough to read.** Fold-to-fold Spearman on SHAP is 0.715 for HA
-   (0.699-0.731 over the six fold pairs) and 0.681 for NA; 9 of the top 15 sites are in every
-   fold's top 15 for both proteins, and every site in both top-15 lists is used by all four folds.
-   Individual ranks past the head move, so read the list as a set, not an order.
+7. **Masking and shuffling — DONE (2026-09-02), in four passes.**
+   - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the first attempts kept answering a narrower question than the one asked:
+     - **7a** — can one side alone predict anything?
+     - **7b(i)** — does the fitted model depend on one site at a time?
+     - **7b(ii)** — does it depend on a group of top sites together, still without retraining?
+     - **7b(iii)** — same as 7b(ii), but the model is retrained on the corrupted data.
+     - **7c** — does the score depend on having seen a sequence before?
 
-   Top sites by SHAP: HA 544, 36, 129, 239, 531, 286, 87, 451, 161; NA 284, 310, 400, 244, 223,
-   24, 140.
-
-   **Variability is necessary, not sufficient.** Spearman(SHAP, entropy) over varying sites is
-   +0.516 (HA) and +0.579 (NA) -- positive, since an invariant column cannot separate anything,
-   but far from 1. The scatter shows the shape: every top site sits at 0.5-1.0 bits, while most
-   sites in that same range contribute nothing. So conservation bounds importance and does not
-   predict it, which is what makes the map worth having.
-
-   **What this does not yet say.** A handful of sites holding half the gain is equally consistent
-   with those positions carrying real lineage signal and with their being the most efficient way
-   to identify a sequence -- the memorisation risk. Step 7 separates them.
-7. **Masking and shuffling — DONE (2026-09-02), in four passes.** The original plan was to retrain
-   with the top-ranked positions removed and separately with their values shuffled. That grew into
-   four checks, because the first attempts kept answering a narrower question than the one asked:
-   7a one side alone, 7b(i) one site at a time, 7b(ii) the top N together, 7b(iii) the same with a
-   refit, and 7c seen against unseen sequences.
-
-   **7a. One side alone — DONE (2026-09-02), passes.** Run first, because it decides whether the
-   importance map is worth interpreting at all. `site.slots: a | b | both` (`conf/site/default.yaml`,
-   default `both`) keeps one slot's columns and drops the other; bundles
-   `flu_ha_na_h3n2_2024_random_cv4_site_codon_slot_{a,b}`.
+   **7a. One side alone — DONE (2026-09-02), passes.** Run first, because a failure here would mean the importance map in step 6 is not worth interpreting.
+   - New config option `site.slots: a | b | both` (`conf/site/default.yaml`, default `both`) keeps one slot's columns and drops the other. New bundles `flu_ha_na_h3n2_2024_random_cv4_site_codon_slot_a` and `..._slot_b`.
 
    | arm | columns | F1 macro | AUC-ROC | precision |
    |---|---|---|---|---|
@@ -511,64 +350,33 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    | slot a only (HA) | 567 | 0.4942 +/- 0.0086 | **0.5007 +/- 0.0076** | 0.4996 |
    | slot b only (NA) | 470 | 0.4819 +/- 0.0214 | **0.4979 +/- 0.0084** | 0.4992 |
 
-   Chance, to three decimals, on both sides: per-fold AUC-ROC spans 0.4914-0.5113 and precision
-   sits on the 0.50 base rate. Read AUC-ROC here, not F1 -- F1 is not centred on 0.5, so a model
-   that guesses "match" often still scores 0.48-0.59 while learning nothing.
+   - Both one-sided models score at chance, to three decimal places: per-fold AUC-ROC never leaves 0.4914-0.5113, and precision sits on the 0.50 base rate. Read AUC-ROC here, not F1 — F1 is not centred on 0.5, so a model that just guesses "match" can still score 0.48-0.59 on F1 while having learned nothing.
+   - Why this matters: the label describes a PAIR, and the negative sampler deliberately pairs one isolate's segment with a different isolate's segment, so the same HA sequence shows up in both correct and incorrect pairings across the dataset. One sequence alone therefore cannot answer the question — unless something in how the pairs were built leaked information one-sidedly, for instance if common strains ended up disproportionately in positive pairs. This test shows that did not happen: essentially all of the 0.9159 score comes from relating the two sides, which is also why the mixed HA/NA top-15 list in step 6 (8 HA sites, 7 NA sites) is meaningful rather than a coincidence.
+   - This test does NOT rule out memorisation — a model recalling "this exact HA goes with this exact NA" also needs both sides to do that. It rules out a one-sided shortcut only.
 
-   Why it matters. The label is a fact about a PAIR, and the negative sampler pairs one isolate's
-   segment with someone else's, so the same sequence appears in both matched and mismatched rows.
-   One sequence alone therefore cannot answer the question -- unless the pair construction leaked
-   something one-sided, for instance sequences from heavily sampled strains landing
-   disproportionately among positives. It did not. Every bit of the 0.9159 comes from relating the
-   two sides, which is what makes the mixed top-15 (8 HA, 7 NA) meaningful rather than incidental.
+   **7b(i). Shuffle one site at a time, no retraining — DONE (2026-09-02).**
+   - Method: in each fold's held-out test split, shuffle one column's values across the rows, keep the already-fitted model unchanged, re-predict, and record the AUC-ROC drop. Repeated 5 times per column and averaged; 1,037 columns x 4 folds runs in about 1.5 minutes. Row-level shuffling is correct here because the model is fixed and scores one row at a time — it has no way to notice that the same sequence now carries different values in different rows. (That changes once the model is retrained — see 7b(iii).)
+   - Added to `plot_site_importance.py`, so gain, SHAP, and this permutation score all sit in one table.
+   - The top-ranked sites hold up under this test too: HA site 544 is rank 1 on all three measures, costing 0.0288 AUC when shuffled. NA sites 284 and 244 cost 0.0219 and 0.0218. SHAP and permutation share 12 of the top 15 sites for HA and 11 of 15 for NA.
+   - Rank correlation between SHAP and permutation over ALL 1,037 columns is only +0.555 (HA) / +0.536 (NA), much weaker than the +0.97 between SHAP and gain — but this is a fact about the tail of the list, not the head. Most columns have no measurable effect when shuffled, so their permutation ranks are noise, and a whole-list correlation is dominated by that noise. The overlap at the top of the list is the number that matters.
+   - **No single site is essential on its own, and the signal is spread across many sites.** Baseline AUC-ROC is 0.9547, i.e. 0.4547 above the chance level of 0.5.
 
-   This does not address memorisation: a model recalling "this HA goes with this NA" also needs
-   both sides. It rules out one-sided leakage only.
+     | | value |
+     |---|---|
+     | sites whose shuffle costs more than 0.001 AUC | 43 of 1,037 |
+     | sites whose shuffle costs more than 0.005 AUC | 10 |
+     | largest single-site cost | 0.0288 (6.3% of the total signal) |
+     | sum of every single-site cost | 0.2523 (55.5% of the total signal) |
+     | sum of just the top 10 sites' costs (ranked by SHAP) | 0.1388 (30.5%) |
 
-   **7b(i). Permutation, one site at a time — DONE (2026-09-02).** In each fold's held-out test
-   split, one column's values are shuffled among the rows, the SAME fitted model re-predicts, and
-   the AUC-ROC drop is recorded. Nothing is retrained. 5 shuffles per column, averaged; 1,037
-   columns x 4 folds takes about 1.5 minutes. Added to `plot_site_importance.py` alongside SHAP
-   and gain, so all three sit in one table.
+   - Shuffling the single most important site removes only 6.3% of what the model knows. Adding up every site's individual cost reaches only 55.5% — meaning almost half of what the model uses is invisible when sites are tested one at a time, because sites can substitute for each other. That gap is exactly what the group test in 7b(ii) measures.
+   - This also bears on memorisation: a model that was memorising specific sequences would be expected to depend heavily on a small number of very informative positions. This model does not depend heavily on any single position.
 
-   Row-level shuffling is right for this pass: the model is fixed and predicts one row at a time,
-   so it cannot notice that a sequence appearing in several rows now carries different values in
-   each. That changes for 7b(ii), which retrains.
-
-   **The top sites hold up.** HA 544 is rank 1 on all three measures, costing 0.0288 AUC. NA 284
-   and NA 244 cost 0.0219 and 0.0218. SHAP and permutation share 12 of the top 15 sites for HA and
-   11 of 15 for NA.
-
-   Their rank correlation over all 1,037 columns is only +0.555 (HA) and +0.536 (NA), against
-   +0.97 between SHAP and gain -- but that is a fact about the tail, not the head. Most columns
-   have no measurable drop, so their permutation ranks are noise, and a whole-list Spearman is
-   dominated by it. Read the top overlap.
-
-   **No single position is load-bearing, and the signal is redundant.** Against a clean AUC-ROC of
-   0.9547, i.e. 0.4547 above chance:
-
-   | | value |
-   |---|---|
-   | sites whose shuffle costs > 0.001 AUC | 43 of 1,037 |
-   | sites whose shuffle costs > 0.005 AUC | 10 |
-   | largest single-site cost | 0.0288 (6.3% of the signal) |
-   | all single-site costs added up | 0.2523 (55.5%) |
-   | top 10 by SHAP, added up | 0.1388 (30.5%) |
-
-   Scrambling the single most important position costs 6.3% of what the model knows. Every
-   single-site cost added together reaches 55.5%, so nearly half the signal is invisible to
-   one-at-a-time removal -- positions cover for each other. That gap is what a group ablation
-   measures and this pass cannot, which is the case for 7b(ii).
-
-   It also bears on memorisation. A model identifying sequences would lean hard on a few
-   high-resolution positions; this one does not lean hard on any.
-
-   **7b(ii). The top N shuffled together, no retrain — DONE (2026-09-02).**
-   `src/analysis/plot_site_group_permutation.py`. Same idea as 7b(i) but N whole columns at once,
-   still with the fitted model. Two arms at every N: the top N by SHAP, and N sites drawn at
-   random as the control. 10 set sizes x 2 arms x 4 folds x 5 repeats, on test and on train.
-   Reported as share of the signal lost, `(clean AUC - shuffled AUC) / (clean AUC - 0.5)`, so
-   train and test sit on one scale despite different clean scores (test 0.9547, train 0.9859).
+   **7b(ii). Shuffle the top N sites together, no retraining — DONE (2026-09-02).**
+   - `src/analysis/plot_site_group_permutation.py`. Same idea as 7b(i), but N columns are shuffled together instead of one at a time; the model still is not retrained.
+   - Two groups compared at every N: the top N sites by SHAP, and N sites drawn at random (the control).
+   - 10 set sizes x 2 arms x 4 folds x 5 repeats, measured on both test and train.
+   - Reported as "share of the signal lost" = (clean AUC − shuffled AUC) / (clean AUC − 0.5), which puts test (clean AUC 0.9547) and train (clean AUC 0.9859) on the same scale.
 
    | N | top, test | random, test | top, train | random, train |
    |---|---|---|---|---|
@@ -581,38 +389,19 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    | 500 | 1.002 | 0.532 | 0.998 | 0.541 |
    | 1,037 | 0.980 | 1.000 | 1.003 | 0.999 |
 
-   The anchor holds: shuffling every column loses 0.98-1.00 of the signal, i.e. AUC-ROC 0.5. Both
-   arms meet there, since "top 1,037" and "random 1,037" are the same set.
+   - Sanity check: shuffling every column (N=1,037) removes 0.98-1.00 of the signal, i.e. AUC-ROC ~0.5, in both arms — expected, since at N=1,037 "top" and "random" are the same set of columns.
+   - **The top sites are far more important as a group than random sites.** 10 well-chosen sites remove about half the signal; 10 random sites remove essentially none (0.008). It takes roughly 500 random sites — about half of all 1,037 columns — to lose as much signal as just the top 10.
+   - **Shuffling sites together costs more than shuffling them one at a time and adding it up — this is the answer to whether sites substitute for each other.** From 7b(i), adding up the individual costs of the top 10 sites gives 30.5% of the signal. Shuffling all 10 together gives **49.5%** — 1.6x more. So the top sites were substituting for each other, and testing them one at a time understated every one of them. The redundancy the single-site test exposed is therefore partly INSIDE the top set, not only spread across the rest of the sites.
+   - **This does not look like memorisation.** If the model had learned training-specific detail through these positions, shuffling them should hurt the training score more than the test score. Instead it hurts training LESS at every N tested. In raw AUC terms the top 10 sites are worth almost the same on both splits — 0.225 on test, 0.222 on train — so the model's higher score on training data (0.9859 vs. 0.9547 on test) is not coming from these particular sites.
+   - **Shuffling disables a column more thoroughly than filling it with a constant value.** Replacing a column with its single most common value, instead of shuffling it, loses 0.08-0.15 less signal at N=10 and N=50, on both splits — filling with the most common value still lets most rows go down the tree branch they would normally take, while shuffling actively puts wrong values everywhere. Measured directly, not assumed.
 
-   **The top sites are special, by a wide margin.** Ten well-chosen sites cost half the signal;
-   ten random sites cost nothing (0.008). It takes about 500 random sites -- half of all columns --
-   to reach what the top 10 do.
-
-   **The group is worth more than the sum of its parts, which settles the masking question.**
-   Shuffling the top 10 one at a time and adding up the drops gives 30.5% of the signal (7b(i)).
-   Shuffling the same 10 together gives **49.5%** -- 1.6x more. So the top sites were covering for
-   each other and single-site permutation understated every one of them. The redundancy the
-   single-site pass exposed is therefore partly INSIDE the top set, not only spread across the
-   tail.
-
-   **Nothing here looks like memorisation.** If the model had fitted those positions to
-   training-specific detail, shuffling them would hurt train more than test. It hurts train
-   *less* at every N. In absolute AUC the two are the same: the top 10 are worth 0.225 on test and
-   0.222 on train. The model's train-to-test gap (0.9859 against 0.9547) is not located in the
-   sites it leans on.
-
-   **Constant fill understates, so shuffling is the right choice.** Replacing a column with its
-   most common value instead of scrambling it loses 0.08-0.15 less signal at both N=10 and N=50,
-   on both splits. Filling with the mode sends every row down the branch most rows already take;
-   shuffling actively puts wrong values in, which disables the column more thoroughly. Measured
-   rather than argued.
-
-   **7b(iii). Corrupt, then refit — DONE (2026-09-02).**
-   `src/analysis/plot_site_retrain_ablation.py`. N columns are corrupted in train, val and test
-   alike and the model is fitted from scratch on them, using the same estimator and fit as the
-   baselines. Two corruption modes and two arms, 7 set sizes, 4 folds; 116 refits in about 6
-   minutes. The anchor holds in both modes: corrupting all 1,037 columns loses 0.99-1.01 of the
-   signal.
+   **7b(iii). Shuffle the top N sites together, then RETRAIN — DONE (2026-09-02).**
+   - `src/analysis/plot_site_retrain_ablation.py`. Same idea as 7b(ii), but the model is refit from scratch on the corrupted data (same settings as the normal baseline), instead of staying fixed.
+   - Two ways to corrupt the columns, because they test different things:
+     - **row** — shuffle values across rows independently in each split, so a single sequence can end up with different values at the same site in different rows.
+     - **sequence** — shuffle values across UNIQUE sequences, so each sequence gets one consistent (but wrong) value everywhere it appears, in train, val and test alike.
+   - Both modes corrupt train, val and test together. Corrupting only train would leave test with real values the model was trained to ignore, which would confound the result.
+   - 7 set sizes x 2 modes x 2 arms x 4 folds; 116 model fits total, about 6 minutes.
 
    | N | row, top | row, random | sequence, top | sequence, random |
    |---|---|---|---|---|
@@ -624,69 +413,33 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    | 100 | 0.892 | 0.020 | 0.865 | 0.017 |
    | 1,037 | 1.007 | - | 0.994 | - |
 
-   **The signal is redundant: a fresh model recovers most of what the top sites carried.** Take
-   the top 10. With the model fixed, scrambling them costs 49.5% of the signal (7b(ii)). Refit
-   afterwards and the cost falls to **15.9%** -- two thirds of the loss comes back from the other
-   1,027 columns. The same holds at 25 and 50. Only by N=100 do the two agree (0.892 against
-   0.892): once a hundred positions are gone there is nothing left to recover from.
+   - Sanity check: corrupting all 1,037 columns still removes essentially all the signal in both modes (1.007 and 0.994, i.e. AUC-ROC ~0.5).
+   - **The information is recoverable elsewhere — a retrained model can partly work around losing the top sites.** With the ORIGINAL fitted model (7b-ii), shuffling the top 10 sites cost 49.5% of the signal. After retraining on the corrupted data, the cost falls to **15.9%** — about two-thirds of that loss is recovered from the other 1,027 columns. The same pattern holds at N=25 and N=50. Only at N=100 do the fixed-model and retrained-model results agree (0.892 both ways): once 100 positions are gone, there is nothing left elsewhere to recover from.
+   - This means "the top 10 sites hold half the signal" (from step 6 / 7b-ii) is a statement about THAT fitted model, not about where the information lives. The information is spread widely; a boosted tree concentrates on a few positions because that is a cheap way to fit the data, not because the rest are uninformative.
+   - The random-site control stays flat after retraining too: 100 random sites cost only 1.7-2.0%, against 86-89% for the top 100. The ranking is still picking out something real.
+   - **Sequence-level corruption is consistently milder than row-level corruption** — 0.126 vs. 0.159 at N=10, 0.409 vs. 0.561 at N=50, converging by N=100. A plausible reading: row-level corruption turns a column into pure noise within one sequence, so a retrained model can learn to drop it; sequence-level corruption still gives the model one consistent (if wrong) value per sequence, which it can still use to tell that sequence apart from others.
+   - **That gap between the two corruption modes is smaller than the framing this plan used to give it, and it does not, by itself, separate memorisation from real signal.** Two explanations both fit: (1) the model is recognising specific training sequences, or (2) the corrupted column still correlates with which sequence it is, and sequence identity itself correlates with lineage, which is real signal. This test alone cannot choose between them. 7c is the check that can — it is directly bounded already by the numbers in step 5: only 7-10% of test rows have both slots seen in training, and `pair_key` overlap is 0.
 
-   So "the top 10 sites hold half the signal" is a statement about THIS fitted model, not about
-   where the information lives. The information is spread widely; the model concentrates on a few
-   positions because a boosted tree is greedy, not because the rest are uninformative.
+   **7c. Compare scores on sequences seen in training vs. never seen — DONE (2026-09-02). Memorisation is not what carries the result.**
+   - `src/analysis/plot_seen_sequence_effect.py`. The model is left completely alone; the test rows are split instead, by whether each slot's sequence also appears somewhere in that fold's training split.
+   - Reads the already-saved `test_predicted.csv` files, so any feature source (k-mer, per-site nt, per-site codon) can be compared on the exact same rows.
+   - Checked first, before anything else: zero `pair_key` overlap between train and test in every fold. So this test is strictly about whether the INDIVIDUAL SEQUENCES were seen before, never about whether the exact PAIR (the answer) was seen before.
 
-   **The random control stays flat.** Corrupting 100 random sites costs 1.7-2.0% after refitting,
-   against 86-89% for the top 100. The ranking picks out something real.
-
-   **Sequence-level corruption is consistently gentler than row-level** -- 0.126 against 0.159 at
-   N=10, 0.409 against 0.561 at N=50, converging by N=100. Row-level makes a column noise within a
-   sequence, so a refit model discards it; sequence-level leaves each sequence one consistent
-   wrong value, which a refit model can still read as a (re-coded) property of that sequence.
-
-   That gap is smaller than the framing this plan used to give it, and it does not cleanly separate
-   memorisation from signal. Two readings fit: the model recovers by identifying sequences it saw
-   in training, or the corrupted column still correlates with sequence identity and so, indirectly,
-   with lineage. Nothing here chooses between them. The seen-versus-unseen test is what would --
-   split the test rows by whether their sequences appear in training and compare scores. Only
-   7-10% of test rows have both slots seen and pair_key overlap is 0 (step 5), which already bounds
-   how much memorisation could be worth.
-
-   **7c. Seen against unseen sequences — DONE (2026-09-02), memorisation is not what carries the
-   result.** `src/analysis/plot_seen_sequence_effect.py`. The model is left alone; the test rows
-   are split instead, by whether each slot's sequence also appears in that fold's training split.
-   Reads the saved `test_predicted.csv`, so any feature source can be compared on the same rows.
-   `pair_key` overlap between train and test is 0 in every fold, checked before anything else, so
-   this is about sequences and never about repeated answers.
-
-   | arm | all | neither seen | slot a seen | slot b seen | both seen |
+   | arm | all rows | neither seen | slot a seen | slot b seen | both seen |
    |---|---|---|---|---|---|
    | k-mer k=6 | 0.9564 | 0.9493 | 0.9608 | 0.9528 | 0.9769 |
    | per-site nt | 0.9597 | **0.9544** | 0.9620 | 0.9594 | 0.9746 |
    | per-site codon | 0.9547 | 0.9489 | 0.9622 | 0.9511 | 0.9701 |
    | rows, all folds | 7,160 | 2,953 | 1,348 | 2,261 | 598 |
 
-   **The result holds on sequences the model has never seen.** On the 2,953 rows where neither
-   sequence appears in training, per-site nt scores 0.9544 against its overall 0.9597 -- a
-   difference of 0.005. Nothing collapses when recall is impossible.
+   - **The result holds even when neither sequence was ever seen during training.** On those 2,953 rows, per-site nt scores 0.9544 AUC-ROC against its overall average of 0.9597 — only 0.005 lower. Nothing collapses when recall is impossible.
+   - **Per-site features rely on having seen a sequence before LESS than k-mers do, not more.** The gap between "both sequences seen" and "neither seen" is +0.0276 for k-mer, +0.0202 for per-site nt, and +0.0213 for per-site codon. The concern flagged earlier in this plan was the opposite — that a per-site vector could almost identify its exact sequence while a k-mer count could not, so per-site should be MORE prone to relying on recall. That is not what was measured: k-mer shows the largest seen-advantage of the three.
+   - **The per-site advantage over k-mer from step 5 is not explained by memorisation.** Per-site nt (0.9544) still leads k-mer (0.9493) and per-site codon (0.9489) on the hardest rows, where neither sequence was ever seen in training.
+   - Caveat on how to read the "both seen" numbers: having seen HA_x paired with NA_y in training helps the model correctly reject a test negative that wrongly pairs HA_x with some other NA — but it works against the model on a test positive where HA_x's real partner is different from what it saw in training. So +0.02 to +0.03 is the net of both effects pulling in different directions, not a clean measure of memorisation alone.
 
-   **Per-site features memorise LESS than k-mers, not more.** The gap between "both seen" and
-   "neither seen" is +0.0276 for k-mer, +0.0202 for per-site nt and +0.0213 for per-site codon.
-   The risk this plan flagged was that a per-site vector nearly names its sequence while k-mer
-   counts do not, so per-site would lean on recall. Measured, the k-mer baseline shows the larger
-   seen-advantage of the three.
-
-   **The ranking survives on the hardest rows.** per-site nt (0.9544) still leads k-mer (0.9493)
-   and codon (0.9489) where neither sequence was ever seen, so per-site's edge in step 5 is not
-   bought with recall.
-
-   Caveat on direction: having seen HA_x with NA_y helps reject a test negative pairing HA_x with
-   something else, but works against a test positive where HA_x has a different true partner. The
-   +0.02 to +0.03 is the net of the two, not a pure memorisation term.
-
-8. **Interactions** (only if steps 5-7 look sound). Pairwise interaction strength needs SHAP
-   interaction values or LightGBM split-pair statistics. Main-effect SHAP is already cheap --
-   step 6 measures it in 0.3 s per fold through `pred_contrib` -- but interaction values are
-   `n_features` times more work per row, so at 1,037 codon features that is a different scale.
-   Budget for it as its own piece of work.
+8. **Interactions** (only if steps 5-7 look sound).
+   - Needs either SHAP interaction values or LightGBM's split-pair statistics.
+   - Computing every feature's main-effect SHAP value together is already cheap — step 6 measures it at about 0.3 seconds per fold, via `pred_contrib` — but computing INTERACTION values costs `n_features` times more work per row. At 1,037 codon features that is a different order of magnitude, so this should be budgeted and planned as its own piece of work.
 
 ## Open questions for Jamie
 
