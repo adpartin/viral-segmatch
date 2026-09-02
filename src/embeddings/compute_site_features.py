@@ -62,6 +62,7 @@ from src.utils.config_hydra import (  # noqa: E402
     print_config_summary,
 )
 from src.utils.path_utils import build_embeddings_paths  # noqa: E402
+from src.utils.site_utils import sequences_to_byte_matrix  # noqa: E402
 from src.utils.timer_utils import Timer  # noqa: E402
 
 UNITS = ('nt', 'codon', 'aa')
@@ -122,29 +123,6 @@ def load_genslm_codon_codes(tokenizer_config: Path) -> dict:
             f"load_genslm_codon_codes: expected 64 codons in {tokenizer_config}, found "
             f"{len(codes)}.")
     return codes
-
-
-def sequences_to_byte_matrix(sequences: list[str]) -> np.ndarray:
-    """Stack equal-length sequences into an (n, L) array of upper-cased ASCII bytes.
-
-    Args:
-      sequences: equal-length sequences.
-
-    Returns:
-      uint8 array of shape (n sequences, L characters).
-
-    Raises:
-      ValueError: the list is empty or the sequences are not all one length.
-    """
-    if not sequences:
-        raise ValueError("sequences_to_byte_matrix: no sequences given.")
-    lengths = {len(s) for s in sequences}
-    if len(lengths) != 1:
-        raise ValueError(
-            f"sequences_to_byte_matrix: {len(lengths)} different lengths {sorted(lengths)}; "
-            f"per-site features need one length.")
-    flat = ''.join(sequences).upper().encode('ascii', 'replace')
-    return np.frombuffer(flat, dtype=np.uint8).reshape(len(sequences), lengths.pop())
 
 
 def _char_lookup_table(alphabet: str, other_code: int, extra: dict = None) -> np.ndarray:

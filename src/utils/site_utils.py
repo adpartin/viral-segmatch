@@ -1,7 +1,11 @@
-"""Read the per-site feature cache and turn it into pair feature matrices.
+"""Per-site feature primitives: build the site matrix, read the cache, make pair features.
 
 Sibling of `kmer_utils.py`, for the cache `src/embeddings/compute_site_features.py` writes: one
 uint8 matrix per (protein, site unit), one row per unique CDS, keyed by `cds_dna_hash`.
+
+`sequences_to_byte_matrix` and `column_entropy` live here rather than in either caller because
+three places need them -- the builder, the entropy map and the importance map -- and per-site
+entropy must mean one thing across all of them.
 
 Per-site features are the one feature source where slot A and slot B live in different spaces --
 slot A is HA position 1..1701, slot B is NA position 1..1410. HA position 500 and NA position 500
@@ -23,6 +27,62 @@ import numpy as np
 import pandas as pd
 
 ENCODINGS = ('ordinal', 'onehot')
+
+
+def sequences_to_byte_matrix(sequences: list[str]) -> np.ndarray:
+    """Stack equal-length sequences into an (n, L) array of upper-cased ASCII bytes.
+
+    Args:
+      sequences: equal-length sequences.
+
+    Returns:
+      uint8 array of shape (n sequences, L characters).
+
+    Raises:
+      ValueError: the list is empty or the sequences are not all one length.
+    """
+    if not sequences:
+        raise ValueError("sequences_to_byte_matrix: no sequences given.")
+    lengths = {len(s) for s in sequences}
+    if len(lengths) != 1:
+        raise ValueError(
+            f"sequences_to_byte_matrix: {len(lengths)} different lengths {sorted(lengths)}; "
+            f"per-site features need one length.")
+    flat = ''.join(sequences).upper().encode('ascii', 'replace')
+    return np.frombuffer(flat, dtype=np.uint8).reshape(len(sequences), lengths.pop())
+
+
+def column_entropy(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Shannon entropy in bits down each column of a matrix of small integer values.
+
+    Works on either representation of a site matrix -- ASCII bytes from
+    `sequences_to_byte_matrix`, or the integer codes from the feature cache -- so the entropy of
+    a position means the same thing wherever it is computed. Note the unit sets the ceiling: 2
+    bits for 4 nucleotides, 6 for 64 codons, so entropies are comparable within a unit and not
+    across units.
+
+    Args:
+      matrix: (n rows, L columns) array of values in 0..255. Rows should be unique sequences, not
+          occurrences; a heavily sampled strain would otherwise decide the answer.
+
+    Returns:
+      `(entropy_bits, n_values)`, both length L. `n_values` is how many distinct values appear in
+      that column, which separates "one rare variant" from "genuinely mixed".
+
+    Raises:
+      ValueError: the matrix has no rows.
+    """
+    if matrix.shape[0] == 0:
+        raise ValueError("column_entropy: matrix has no rows.")
+    n = matrix.shape[0]
+    # One boolean pass per observed value. Site alphabets are small -- 5 codes for nt, 65 for
+    # codon -- so this is a handful of passes, not 256.
+    values = np.unique(matrix)
+    counts = np.stack([(matrix == v).sum(axis=0) for v in values]).astype(np.float64)
+    proportions = counts / n
+    terms = np.where(proportions > 0,
+                     -proportions * np.log2(proportions, where=proportions > 0), 0.0)
+    return terms.sum(axis=0), (counts > 0).sum(axis=0)
 
 
 class SiteCache(NamedTuple):

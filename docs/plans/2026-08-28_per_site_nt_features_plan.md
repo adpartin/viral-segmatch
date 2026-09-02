@@ -390,8 +390,37 @@ one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
    by recalling a combination. The `aa` result is consistent with memorisation and with real
    signal alike, since collapsing silent variants removes identities and signal together, so it
    does not separate the two. Step 7 is what does.
-6. **Importance map.** Per-position importance along each CDS, read against the entropy map from
-   step 2.
+6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, on the `codon`
+   arm: 1,037 columns, statistically indistinguishable from `nt` at a third of the width, and one
+   column per amino-acid position, so a site number is a residue number. Writes
+   `site_importance_codon.png` and `site_importance_codon.csv` (column, slot, protein, site,
+   gain_frac, gain_frac_std, folds_used, split_count, entropy_bits, n_values, rank).
+
+   Score is LightGBM gain, normalised per fold before averaging -- early stopping gives the folds
+   411 to 998 trees, so raw gain is not comparable across them. A site's number is its share of
+   the model's total gain.
+
+   **The model uses few positions.** Slot A (HA) holds 57.2% of total gain, slot B (NA) 42.8%.
+   Within each, the top 10 sites hold 46.4% (HA) and 53.6% (NA) of that protein's gain, and the
+   top 50 hold 79.5% and 86.6%. Only 344 of 567 HA sites and 253 of 470 NA sites get any gain at
+   all, against 97.5% and 96.6% that vary.
+
+   **The ranking is stable enough to read.** Fold-to-fold Spearman on gain is 0.730 for HA
+   (0.711-0.746 across the six fold pairs) and 0.701 for NA; 8 of the top 15 HA sites and 7 of 15
+   NA sites are in every fold's top 15, and every site in both top-15 lists is used by all four
+   folds. Individual ranks past the top few move, so read the head of the list, not its order.
+
+   Top sites: HA 544, 36, 129, 239, 286, 87, 531; NA 310, 244, 284, 24, 462, 223.
+
+   **Variability is necessary, not sufficient.** Spearman(gain, entropy) over varying sites is
+   +0.485 (HA) and +0.529 (NA) -- positive, since an invariant column cannot separate anything,
+   but far from 1. The scatter shows the shape: every top site sits at 0.5-1.0 bits, while most
+   sites in that same range contribute nothing. So conservation bounds importance and does not
+   predict it, which is what makes the map worth having.
+
+   **What this does not yet say.** A handful of sites holding half the gain is equally consistent
+   with those positions carrying real lineage signal and with their being the most efficient way
+   to identify a sequence -- the memorisation risk. Step 7 separates them.
 7. **Masking and shuffling.** Retrain with the top-ranked positions removed, and separately with
    their values shuffled between isolates. If the score is unchanged, the model was not using those
    positions. If it drops sharply, those positions carry the signal. Shuffling is the better control

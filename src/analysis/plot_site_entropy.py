@@ -45,6 +45,7 @@ if str(PROJ) not in sys.path:
 
 from src.utils.config_hydra import get_function_short_name_map, get_virus_config_hydra  # noqa: E402
 from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
+from src.utils.site_utils import column_entropy, sequences_to_byte_matrix  # noqa: E402
 
 # Sampled from tmp/score/h3n2_f1_macro_within_fold.png so the per-site figures read as one series
 # with the score plots.
@@ -100,9 +101,12 @@ def collect_slot_hashes(dataset_dir: Path, n_folds: int) -> dict:
 def site_entropy(sequences: list[str]) -> tuple[np.ndarray, np.ndarray]:
     """Shannon entropy in bits at each position of a set of equal-length sequences.
 
+    Thin wrapper over `site_utils.column_entropy`, which the importance map also uses, so the
+    entropy of a position means the same thing in both places.
+
     Args:
-      sequences: equal-length sequences, one per unique CDS. Case is normalised here, so a
-          lowercase store and an uppercase one give the same answer.
+      sequences: equal-length sequences, one per unique CDS. Case is normalised, so a lowercase
+          store and an uppercase one give the same answer.
 
     Returns:
       `(entropy_bits, n_symbols)`, both length L. `n_symbols` is how many distinct characters
@@ -111,28 +115,8 @@ def site_entropy(sequences: list[str]) -> tuple[np.ndarray, np.ndarray]:
     Raises:
       ValueError: the sequences are not all the same length, or the list is empty.
     """
-    if not sequences:
-        raise ValueError("site_entropy: no sequences given.")
-    lengths = {len(s) for s in sequences}
-    if len(lengths) != 1:
-        raise ValueError(
-            f"site_entropy: sequences have {len(lengths)} different lengths {sorted(lengths)}; "
-            f"per-site entropy needs one length. Build the dataset with "
-            f"dataset.require_complete_cds_at_pinned_length=true.")
-
-    n, length = len(sequences), lengths.pop()
-    flat = ''.join(sequences).upper().encode('ascii')
-    matrix = np.frombuffer(flat, dtype=np.uint8).reshape(n, length)
-
-    # One boolean pass per observed character. The alphabet is ACGT plus rare IUPAC ambiguity
-    # codes, so this is a handful of passes, not 256.
-    symbols = np.unique(matrix)
-    counts = np.stack([(matrix == s).sum(axis=0) for s in symbols]).astype(np.float64)
-    proportions = counts / n
-    terms = np.where(proportions > 0, -proportions * np.log2(proportions, where=proportions > 0), 0.0)
-    entropy = terms.sum(axis=0)
-    n_symbols = (counts > 0).sum(axis=0)
-    return entropy, n_symbols
+    matrix = sequences_to_byte_matrix(sequences)
+    return column_entropy(matrix)
 
 
 def summarize(short: str, entropy: np.ndarray, n_seqs: int) -> pd.DataFrame:
