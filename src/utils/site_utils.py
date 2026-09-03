@@ -53,7 +53,8 @@ def sequences_to_byte_matrix(sequences: list[str]) -> np.ndarray:
             f"sequences_to_byte_matrix: {len(lengths)} different lengths {sorted(lengths)}; "
             f"per-site features need one length.")
     flat = ''.join(sequences).upper().encode('ascii', 'replace')
-    return np.frombuffer(flat, dtype=np.uint8).reshape(len(sequences), lengths.pop())
+    arr = np.frombuffer(flat, dtype=np.uint8).reshape(len(sequences), lengths.pop())
+    return arr
 
 
 def column_entropy(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
