@@ -442,18 +442,52 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
      93/95/96, `<unk>` = 3.
 
 4. **Loader and training — DONE (2026-09-02).**
-   - `src/utils/site_utils.py` reads the cache (a sibling of `kmer_utils.py`).
-   - `src/models/_pair_features.py` gained a `site` branch — it used to reject `feature_source: site`.
-   - `train_pair_baselines.py` now resolves the cache directory and figures out which protein is in which slot.
-   - `baselines/lgbm.py` now accepts a `categorical_feature` argument.
-   - New bundle `flu_ha_na_h3n2_2024_random_cv4_site_nt`: inherits the pinned-length dataset bundle and only swaps the feature source, so any difference from the k-mer result is due to the features, not the underlying population.
 
-   - **Categorical columns are declared.** Ordinal codes are labels, not numbers with meaning — code 7 is not "more" than code 3. Without telling LightGBM this, it would split on `<=` and read an order into the codes that is not really there. Under `encoding: ordinal`, every column is one site, so every column is declared categorical; checked against the fitted model directly — all 3,111 columns confirmed. One-hot columns are already 0/1, so they are left as ordinary numeric columns. Every other feature source (k-mer, ESM-2) passes `None`, which LightGBM treats as `'auto'`.
-   - **Column counts match the table in step 3, confirmed on fold 0:** nt 3,111 ordinal / 15,555 one-hot; codon 1,037 / 67,405; aa 1,037 / 22,814. One-hot rows always sum to the site count, so exactly one code fires per site. One-hot width comes from the code map the cache declares, not from which values happen to appear in a given split, so train, val and test always come out with identical widths.
-   - **A file records which column is which position:** `site_feature_columns_{unit}_{encoding}.csv`, written at load time. Columns: `column`, `slot`, `protein`, `site`, and (for one-hot) `code`. Example: column 0 = HA site 1, column 1700 = HA site 1701, column 1701 = NA site 1. Step 6 reads this file instead of re-deriving the layout.
-   - **Twelve error checks, all tested and confirmed to fire:** `interaction` other than `concat`, `slot_transform` other than `none`, `feature_scaling` other than `none`, missing `site_dir`, missing or malformed `site_proteins`, slots given in the wrong order, a protein with no cache, an unrecognized `feature_source`, a `cds_dna_hash` not in the cache, the two slots built with different units, a pair table missing the hash columns, and an unrecognized encoding. The wrong-order check matters most: nothing else confirms that the cache addressed by short name (e.g. "HA") actually matches the full function name the pair table carries in that slot — without it, a run could silently featurize NA into slot A.
-   - **Regression check.** The k-mer baseline on fold 0 reproduces to six decimal places after this change, so the shared loader and the new `categorical_feature` argument have no effect on the other feature sources.
-   - Quick smoke test on fold 0 only: site nt F1 macro 0.9246 vs. k-mer 0.9219 on the same fold. One fold proves nothing by itself — step 5 is the real comparison.
+   **Goal.** Wire the per-site cache into the pair-feature builder and training pipeline, and
+   confirm the change does not affect other feature sources.
+
+   **Implementation.**
+   - `src/utils/site_utils.py` reads the cache, as a sibling of `kmer_utils.py`.
+   - `src/models/_pair_features.py` gained a `site` branch. It used to reject
+     `feature_source: site`.
+   - `train_pair_baselines.py` now resolves the cache directory and figures out which protein
+     is in which slot.
+   - `baselines/lgbm.py` now accepts a `categorical_feature` argument.
+   - New bundle `flu_ha_na_h3n2_2024_random_cv4_site_nt` inherits the pinned-length dataset
+     bundle and only swaps the feature source, so any difference from the k-mer result comes
+     from the features, not the underlying population.
+   - Ordinal codes are labels, not numbers with meaning: code 7 is not "more" than code 3.
+     Without telling LightGBM this, it would split on `<=` and read an order into the codes
+     that is not really there. Under `encoding: ordinal`, every column is one site, so every
+     column is declared categorical, checked against the fitted model directly, with all 3,111
+     columns confirmed. One-hot columns are already 0/1, so they are left as ordinary numeric
+     columns. Every other feature source (k-mer, ESM-2) passes `None`, which LightGBM treats as
+     `'auto'`.
+   - A file records which column is which position: `site_feature_columns_{unit}_{encoding}.csv`,
+     written at load time. Columns: `column`, `slot`, `protein`, `site`, and (for one-hot)
+     `code`. For example, column 0 is HA site 1, column 1700 is HA site 1701, and column 1701
+     is NA site 1. Step 6 reads this file instead of re-deriving the layout.
+
+   **Verification.**
+   - Column counts match the table in step 3, confirmed on fold 0: nt 3,111 ordinal / 15,555
+     one-hot; codon 1,037 / 67,405; aa 1,037 / 22,814. One-hot rows always sum to the site
+     count, so exactly one code fires per site. One-hot width comes from the code map the cache
+     declares, not from which values happen to appear in a given split, so train, val, and test
+     always come out with identical widths.
+   - Twelve error checks all fire as expected: `interaction` other than `concat`,
+     `slot_transform` other than `none`, `feature_scaling` other than `none`, missing
+     `site_dir`, missing or malformed `site_proteins`, slots given in the wrong order, a
+     protein with no cache, an unrecognized `feature_source`, a `cds_dna_hash` not in the
+     cache, the two slots built with different units, a pair table missing the hash columns,
+     and an unrecognized encoding. The wrong-order check matters most, because nothing else
+     confirms that the cache addressed by short name (e.g. "HA") actually matches the full
+     function name the pair table carries in that slot. Without it, a run could silently
+     featurize NA into slot A.
+   - Regression check. The k-mer baseline on fold 0 reproduces to six decimal places after this
+     change, so the shared loader and the new `categorical_feature` argument have no effect on
+     the other feature sources.
+   - Quick smoke test on fold 0 only: site nt F1 macro 0.9246 vs. k-mer 0.9219 on the same fold.
+     One fold proves nothing by itself; step 5 is the real comparison.
 
 5. **Train and compare — DONE (2026-09-02).** LGBM trained on all four pinned-length folds; every arm uses the same folds, so the comparisons are paired.
 
