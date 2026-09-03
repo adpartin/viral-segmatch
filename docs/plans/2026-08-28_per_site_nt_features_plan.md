@@ -221,22 +221,57 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
 ## Steps
 
 0. **Preprocessing prerequisite — DONE (2026-09-01).**
-   - Result: `protein_final` went from 1,793,563 to 1,793,572 rows (+9 rows, one new column). Every pre-existing row is byte-identical on every column it already had.
-   - `ctg_dna_final`: unchanged.
-   - `cds_dna_final`: still 868,240 rows, four new columns added; 855,695 rows (98.56%) are complete.
-   - The +9 new rows are exactly the rows an old duplicate-key bug used to remove (see the last bullet below).
-   - Added `starts_with_m` in Stage 1 (`src/utils/protein_utils.py`), next to the existing `has_terminal_stop` and `has_internal_stop`. This is the one completeness fact nothing recorded before. It is computed from the protein, not the DNA, because the protein version is more reliable (see Background).
-   - Copied all three flags into `cds_dna_final` in Stage 1.5. That file already holds `prot_seq`, so this copies a value instead of recomputing it — same rule the repo already uses for hashes.
-   - Added one derived column in Stage 1.5:
+   **Implementation.**
+   - Stage 1 now records `starts_with_m` in `protein_final`, next to the existing
+     `has_terminal_stop` and `has_internal_stop` flags.
+   - Stage 1.5 copies those three flags into `cds_dna_final` and adds:
 
          is_complete_cds = starts_with_m & has_terminal_stop & ~has_internal_stop
 
-     Kept the three underlying flags too, so an experiment can combine them differently. Per-site features strictly need only the first two — an internal stop does not shift positions — but step 1 filters on the combined column.
-   - **Flag, don't drop.** Preprocessing is shared by every experiment, so dropping a record here would remove it from experiments that don't care about completeness (k-mer features never need positions to line up, for example). Recording a fact and letting each experiment apply its own rule is also what Stage 1 already does with `has_terminal_stop`, `has_ambiguities`, `x_count_ratio`, and the rest — the drops that already exist in `extract_cds_dna.py` are a different case and stay, because those rows failed extraction and there is nothing to record. The rule: drop only when there is no data to record; flag when there is. Don't name a column "invalid" — that is a judgment about use, not a fact about the record.
-   - Re-ran both stages and diffed the output against the pre-change archive (`data/processed/flu/July_2025/archive_09_01_2026/`): same row count, same columns plus the new flag, every other value identical. Do not proceed past this step until that check passes.
-   - Output layout: top level still keeps five files — `protein_final`, `ctg_dna_final`, `cds_dna_final`, and the two GTO aggregates `protein_agg_from_GTOs` / `genome_agg_from_GTOs` (read back by fixed path, so their names and location cannot change). The ~13 other report files moved to `preprocess_qc_20260901/`; the analysis scripts that read them were updated to match.
-   - Kept `extract_cds_dna.py` separate from `preprocess_flu.py`, and kept the two aggregate file names as they are, so the archive diff stays a plain file-for-file comparison.
-   - **Where the +9 rows come from:** `handle_assembly_duplicates` used to key on `[prot_seq, assembly_id]` only, which could merge two different proteins from one segment when they happened to share a sequence. `function` is now part of the key. This did not touch any of the 8 major proteins this plan uses — only auxiliary proteins were affected.
+   - The three source flags are retained so that later experiments can choose their own
+     completeness rule.
+   - `handle_assembly_duplicates` now uses `[prot_seq, assembly_id, function]` as its key.
+     The previous key omitted `function` and could collapse two different protein annotations
+     from the same assembly when their sequences were identical.
+
+   **Regenerated outputs.**
+   - `protein_final`: 1,793,563 -> 1,793,572 rows, with one new column. The 1,793,563
+     retained rows have identical values in all 28 pre-existing columns.
+   - The 9 recovered rows are exactly the rows listed as removed in the archived duplicate
+     report. They are all NEP or NS3 annotations; none of the 8 selected major proteins is
+     affected.
+   - `ctg_dna_final`: unchanged. Its CSV and parquet files are byte-identical to the archive.
+   - `cds_dna_final`: unchanged at 868,240 rows, with four new boolean columns. All 11
+     pre-existing columns are unchanged. The completeness counts are:
+     `starts_with_m` 864,444; `has_terminal_stop` 858,776; `has_internal_stop` 0; and
+     `is_complete_cds` 855,695 (98.56%).
+   - Every CDS flag matches its source value in `protein_final`, and every
+     `is_complete_cds` value matches the formula above. The start flag agrees with the 1st DNA
+     codon on all rows after normalizing the stored lowercase DNA. The terminal-stop flag
+     also agrees after translating the final codon; six final codons are the unambiguous IUPAC
+     stop `TAR` rather than a literal `TAA`, `TAG`, or `TGA`.
+   - The two GTO aggregate parquets are byte-identical to the pre-change archive at
+     `data/processed/flu/July_2025/archive_09_01_2026/`.
+
+   **Filtering policy.** Preprocessing records completeness but does not filter on it. A later
+   experiment may need different inclusion rules, and k-mer features do not require positions
+   to align. Rows are still dropped when CDS extraction or translate-back validation fails,
+   because those rows have no validated CDS to retain.
+
+   **Output organization.** The aggregate and final-data artifacts remain at their fixed paths.
+   Reports from this run were moved manually to `preprocess_qc_20260901/`. This is not an
+   implemented output-path change: rerunning `preprocess_flu.py` will write the reports to the
+   top-level processed-data directory again.
+
+   **Audit findings (2026-09-02) — RESOLVED (2026-09-03).**
+   - Stage 1.5 now accepts only boolean values or the exact strings `True` and `False`.
+     Missing or unrecognized values raise `ValueError`.
+   - New regression tests cover `starts_with_m`, flag parsing and propagation,
+     `is_complete_cds`, the function-aware duplicate key, and both duplicate strategies.
+   - `handle_assembly_duplicates` now documents its full key and rejects invalid strategies.
+   - `extract_cds_dna.py` now documents the correct `cds_dna_seq` and `ctg_dna_seq`
+     column names and describes the six `TAR` terminal codons accurately.
+   - All 28 focused preprocessing tests pass.
 
 1. **Filter — DONE (2026-09-01).** Two conditions are needed, not one.
    - `is_complete_cds` alone does not guarantee equal length: 5 NA sequences are complete but the wrong length (1407 nt x3, 1413, 1416).
@@ -381,14 +416,14 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    **What this step alone cannot tell you.** A handful of sites carrying most of the model's decision is equally consistent with those positions carrying real lineage signal and with their being the most efficient way to identify a sequence — the memorisation risk. Step 7 is what separates them.
 
 7. **Masking and shuffling — DONE (2026-09-02), in four passes.**
-   - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the first attempts kept answering a narrower question than the one asked:
+   - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the 1st attempts kept answering a narrower question than the one asked:
      - **7a** — can one side alone predict anything?
      - **7b(i)** — does the fitted model depend on one site at a time?
      - **7b(ii)** — does it depend on a group of top sites together, still without retraining?
      - **7b(iii)** — same as 7b(ii), but the model is retrained on the corrupted data.
      - **7c** — does the score depend on having seen a sequence before?
 
-   **7a. One side alone — DONE (2026-09-02), passes.** Run first, because a failure here would mean the importance map in step 6 is not worth interpreting.
+   **7a. One side alone — DONE (2026-09-02), passes.** Run 1st, because a failure here would mean the importance map in step 6 is not worth interpreting.
    - New config option `site.slots: a | b | both` (`conf/site/default.yaml`, default `both`) keeps one slot's columns and drops the other. New bundles `flu_ha_na_h3n2_2024_random_cv4_site_codon_slot_a` and `..._slot_b`.
 
    | arm | columns | F1 macro | AUC-ROC | precision |
@@ -470,7 +505,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    **7c. Compare scores on sequences seen in training vs. never seen — DONE (2026-09-02). Memorisation is not what carries the result.**
    - `src/analysis/plot_seen_sequence_effect.py`. The model is left completely alone; the test rows are split instead, by whether each slot's sequence also appears somewhere in that fold's training split.
    - Reads the already-saved `test_predicted.csv` files, so any feature source (k-mer, per-site nt, per-site codon) can be compared on the exact same rows.
-   - Checked first, before anything else: zero `pair_key` overlap between train and test in every fold. So this test is strictly about whether the INDIVIDUAL SEQUENCES were seen before, never about whether the exact PAIR (the answer) was seen before.
+   - Checked 1st, before anything else: zero `pair_key` overlap between train and test in every fold. So this test is strictly about whether the INDIVIDUAL SEQUENCES were seen before, never about whether the exact PAIR (the answer) was seen before.
 
    | arm | all rows | neither seen | slot a seen | slot b seen | both seen |
    |---|---|---|---|---|---|
@@ -547,7 +582,7 @@ than the whole CDS has.
 A stop in the MIDDLE is a different problem, not a version of this one. A short record shifts every
 position after the cut, which is exactly what breaks per-site features. A mid-sequence stop shifts
 nothing — it means the read is bad or that copy of the CDS is non-functional. In this data version
-there are zero of them: 0 of 868,240 rows in `cds_dna_final` and 0 of 1,793,563 in `protein_final`.
+there are zero of them: 0 of 868,240 rows in `cds_dna_final` and 0 of 1,793,572 in `protein_final`.
 Keeping the flag therefore removes no rows today and will catch the case in a future data version,
 but it is not what makes the positions line up. If one ever appears, drop the record.
 
@@ -555,7 +590,7 @@ Confirmed: for every one of these, the DNA length exactly matches the protein le
 Our extraction never disagrees with its source. So nothing is corrupted.
 
 It matters here because per-site features number the positions 1, 2, 3... and compare position 200
-across sequences. If one record is missing the first 20 letters, its position 200 is a different
+across sequences. If one record is missing the 1st 20 letters, its position 200 is a different
 place than everyone else's, and the comparison is meaningless.
 
 ### Do the protein check and the DNA check agree?
@@ -566,15 +601,16 @@ rows of `cds_dna_final`:
 | question | asked of the protein | asked of the DNA | agree |
 |---|---|---|---|
 | does it have a proper start? | starts with `M` | starts with `ATG` | **100%** |
-| does it have a proper end? | ends with `*` | ends with a stop group | 99.999% |
+| does it have a proper end? | ends with `*` | ends with `TAA`, `TAG`, or `TGA` | 99.999% |
 | is there a stop in the middle? | `*` in the middle | stop group in the middle | **100%** |
 
-Same answer essentially always. The six exceptions are worth knowing about: their last DNA group is
-`TAR`, where `R` means "this letter is either A or G — the sequencing wasn't sure". Either way it is
-a stop, so the protein correctly says `*`, but a literal DNA text match does not recognise it.
+The literal DNA check misses six final `TAR` codons. In the IUPAC alphabet, `R` means A or G,
+so `TAR` represents either `TAA` or `TAG`; both are stop codons. A translation-aware DNA check
+therefore agrees with the protein flag on all 868,240 rows.
 
-So the two checks mean the same thing, and **the protein version is the more reliable one** — it
-copes with uncertain letters, the DNA text match does not.
+Stage 1.5 reuses the protein flags because Stage 1 already computed them and translate-back
+validation checks the protein against the extracted DNA. This also avoids implementing a 2nd
+IUPAC-aware stop-codon check.
 
 ---
 
@@ -593,7 +629,7 @@ that key and would otherwise overwrite silently.
 
 - **The minus-strand path is never exercised.** All 2,070,209 features in the corpus are on the `+`
   strand, so `extract_cds_dna`'s reverse-complement branch has never run on real data. If it ever
-  does with a multi-exon feature, check the exon order first: reverse-complementing a concatenation
+  does with a multi-exon feature, check the exon order 1st: reverse-complementing a concatenation
   reverses exon order, and the code assumes the order in `location` is already correct. Single-exon
   minus-strand is unambiguous and safe.
 - **`genetic_code` is 11 on every row, but translation uses NCBI table 1.** This is correct —
@@ -610,7 +646,7 @@ that key and would otherwise overwrite silently.
   ESM-2-specific rule is deciding the contents of a shared artifact.
 - **Dead code.** The "drop unassigned replicons" filter in `apply_protein_basic_filters` removes 0
   rows and cannot fire: canonical-segment assignment already requires a mapped replicon, and that
-  filter runs first. It still writes an empty CSV.
+  filter runs 1st. It still writes an empty CSV.
 - **Module globals in functions.** `validate_protein_counts` reads `core_functions` and
   `analyze_protein_counts_per_file` reads `output_dir` from module scope rather than taking them as
   parameters.
