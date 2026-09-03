@@ -198,14 +198,14 @@ def main() -> None:
                         'n_seqs': len(sequences), 'codon_summary': codon_summary})
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    for r in results:
+    for rs in results:
         table = pd.DataFrame({
-            'position': np.arange(1, len(r['entropy']) + 1),
-            'codon_position': [_CODON_POSITION_LABELS[i % 3] for i in range(len(r['entropy']))],
-            'entropy_bits': r['entropy'],
-            'n_symbols': r['n_symbols'],
+            'position': np.arange(1, len(rs['entropy']) + 1),
+            'codon_position': [_CODON_POSITION_LABELS[i % 3] for i in range(len(rs['entropy']))],
+            'entropy_bits': rs['entropy'],
+            'n_symbols': rs['n_symbols'],
         })
-        out_csv = args.out_dir / f"site_entropy_{r['short']}.csv"
+        out_csv = args.out_dir / f"site_entropy_{rs['short']}.csv"
         table.to_csv(out_csv, index=False)
         print(f"Wrote {out_csv}")
 
@@ -213,18 +213,18 @@ def main() -> None:
     fig, axes = plt.subplots(len(results), 2, figsize=(15, 3.4 * len(results)),
                              gridspec_kw={'width_ratios': [3.2, 1]}, squeeze=False)
 
-    for row, r in enumerate(results):
-        entropy = r['entropy']
+    for row, rs in enumerate(results):
+        entropy = rs['entropy']
         ax_trace, ax_codon = axes[row][0], axes[row][1]
 
         positions = np.arange(1, len(entropy) + 1)
         ax_trace.plot(positions, entropy, color=TRACE_COLOR, linewidth=0.7)
         ax_trace.set_xlim(1, len(entropy))
         ax_trace.set_ylim(0, max(0.5, float(entropy.max()) * 1.08))
-        ax_trace.set_xlabel(f"position along the {r['short']} CDS (nt)")
+        ax_trace.set_xlabel(f"position along the {rs['short']} CDS (nt)")
         ax_trace.set_ylabel('entropy (bits)')
-        ax_trace.set_title(f"{r['short']}: {len(entropy):,} positions, "
-                           f"{r['n_seqs']:,} unique CDS")
+        ax_trace.set_title(f"{rs['short']}: {len(entropy):,} positions, "
+                           f"{rs['n_seqs']:,} unique CDS")
         ax_trace.grid(axis='y', alpha=0.3)
 
         codon_position = np.arange(len(entropy)) % 3
