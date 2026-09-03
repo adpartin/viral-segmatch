@@ -51,7 +51,7 @@ All experiments used H3N2 HA–NA pairs collected in 2024, four random-split fol
 
 **Codon features retained similar performance with fewer features.** The codon model used 1,037 features and obtained an F1 macro of 0.9159. Its performance did not differ significantly from the nucleotide-site model (p=0.509). This makes codon features the smaller representation among the two tested per-site nucleotide representations, although the experiment has limited power to detect a difference.
 
-**Nucleotide identity provided information that amino-acid identity did not preserve.** Codon and amino-acid features represent the same 1,037 positions, but codons retain nucleotide changes that do not alter the translated amino acid. The codon model obtained an F1 macro of 0.9159, compared with 0.8091 for the amino-acid model. The mean difference was 0.107, occurred in the same direction in every fold, and had p=0.002. This result shows that information discarded during translation contributes substantially to prediction. It does not show that amino-acid sequence contains no useful information or evaluate ESM-2 features.
+**Nucleotide identity provided information that amino-acid identity did not preserve.** Codon and amino-acid (aa) features represent the same 1,037 positions, but codons retain nucleotide changes that do not alter the translated amino acid. The codon model obtained an F1 macro of 0.9159, compared with 0.8091 for the aa model. The mean difference was 0.107, occurred in the same direction in every fold, and had p=0.002. This result shows that information discarded during translation contributes substantially to prediction. It does not show that aa sequence contains no useful information or evaluate ESM-2 features.
 
 **The fitted model concentrated importance on a small number of sites, but other sites contained overlapping predictive information.** The top-10 codon sites (ranked by importance) accounted for 34% of total mean absolute SHAP importance. Shuffling these sites without re-fitting removed 49.5% of the model’s above-chance AUC-ROC. When a new model was trained after the same sites were corrupted, the loss was 15.9%. The smaller loss after re-fitting indicates that the remaining sites contain information that can partly replace the corrupted sites.
 
@@ -91,10 +91,10 @@ The three units preserve different levels of sequence information:
 | `codon` | CDS DNA | 1,037 | 65 | 1,037 | 67,405 |
 | `aa` | protein | 1,037 | 22 | 1,037 | 22,814 |
 
-HA contributes 1,701 nucleotide sites or 567 codon/amino-acid sites. NA contributes 1,410
-nucleotide sites or 470 codon/amino-acid sites.
+HA contributes 1,701 nucleotide sites or 567 codon/aa sites. NA contributes 1,410
+nucleotide sites or 470 codon/aa sites.
 
-Codon and amino-acid features describe the same 1,037 translated positions. Codon features retain
+Codon and aa features describe the same 1,037 translated positions. Codon features retain
 the nucleotide identity of each codon, including synonymous differences. Amino-acid features retain
 only the translated residue. Nucleotide features represent each of the 3 positions within a
 codon separately.
@@ -203,7 +203,7 @@ The completeness and pinned-length filter changes the HA-NA pair population. The
 folds were built before this filter and cannot provide a matched comparison.
 
 A new 4-fold dataset was therefore built after filtering. The nucleotide-site, codon,
-amino-acid, and k-mer models use the same pair rows and fold assignments. The matched k-mer baseline
+aa, and k-mer models use the same pair rows and fold assignments. The matched k-mer baseline
 has an F1 macro of 0.9094 ± 0.0145. The earlier value of 0.9177 ± 0.0086 was measured on the
 unfiltered population and is not used for comparison with the per-site models.
 
@@ -221,6 +221,9 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
 ## Steps
 
 0. **Preprocessing prerequisite — DONE (2026-09-01).**
+
+   **Goal.** Record CDS completeness (one combined flag and the 3 components it's built from).
+
    **Implementation.**
    - Stage 1 now records `starts_with_m` in `protein_final`, next to the existing
      `has_terminal_stop` and `has_internal_stop` flags.
@@ -263,7 +266,10 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    implemented output-path change: rerunning `preprocess_flu.py` will write the reports to the
    top-level processed-data directory again.
 
-1. **Filter — DONE (2026-09-01).** The filter applies two conditions, not one.
+1. **Filter — DONE (2026-09-01).**
+
+   **Goal.** Keep only complete CDS sequences that are the pinned length.
+
    - Completeness alone does not guarantee equal length. 5 NA sequences are complete but the
      different length from the rest: 3 at 1,407 nt, 1 at 1,413 nt, and 1 at 1,416 nt.
    - Length is a property of the population, not of a single record, so it cannot be decided
@@ -321,44 +327,64 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    code reproduced the existing run byte-for-byte across all 12 fold splits.
 
 2. **Entropy map — DONE (2026-09-01).** `src/analysis/plot_site_entropy.py`.
-   - The script stacks complete, same length sequences into a matrix (rows: unique CDS; columns:
-     positions) and computes Shannon entropy down each column.
+
+   **Goal.** Compute per-position entropy on the CDS nucleotide sequence, as a conservation map
+   and as a check that positions are aligned across sequences.
+
+   - The script stacks complete, same-length nucleotide sequences (`cds_dna_seq`) into a matrix
+     (rows: unique CDS; columns: positions) and computes Shannon entropy down each column.
    - Output: `site_entropy.png` and one `site_entropy_{protein}.csv` per protein, written to
      `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/site_entropy/`.
      Step 6 reads the CSV against the importance map.
    - It uses unique CDS (not pair rows) across all splits (train, val, and test).
+   - Nucleotide only. `column_entropy` (the underlying function) also works on the codon and
+     aa site caches from step 3, but this script has only ever been run on nucleotides;
+     no codon- or aa-level entropy has been computed.
 
-   **Conservation.**
+   **Conservation.** Entropy at a position is `H = −Σᵥ p_v · log2(p_v)`, summed over each
+   value `v` seen at that position across the `n` unique CDS sequences, where `p_v` is the
+   fraction of those sequences carrying value `v` there. H is in bits and ranges from 0 (every
+   sequence agrees at that position) to log2(k), where `k` is the alphabet size (4 for a
+   nucleotide: A, C, G, T).
    - `HA`: 2,732 unique CDS, mean entropy 0.0577 bits. 550 of 1,701 positions never vary
      (32.3%).
    - `NA`: 2,298 unique CDS, mean entropy 0.0580 bits. 506 of 1,410 positions never vary
      (35.9%).
-   - The maximum possible entropy for 4 bases is 2 bits, so both proteins are strongly
-     conserved with a few variable spots.
+   - The observed means are under 3% of the 2-bit ceiling given above, so on average positions
+     are nowhere near random: both proteins are strongly conserved, and what variation exists is
+     concentrated in a few spots rather than spread evenly.
 
-   **Checking the positions really line up.** Two checks confirm this. The 2nd is the sharper
-   test.
+   **Checking the positions really line up.** "Line up" means position `i` is the same physical
+   base in the gene in every sequence, e.g. position 200 in one HA record is the same base as
+   position 200 in every other HA record, not just the 200th character of whatever string that
+   record happens to hold. Per-site features assume this once every sequence is the same length;
+   the two checks below test whether that assumption actually holds on this data. The 2nd check
+   is the sharper test.
+
+   The `1st`/`2nd`/`3rd` columns below are the position WITHIN a codon (base 1, 2, or 3 of
+   every codon), averaged over all codons in the sequence, not the 1st/2nd/3rd codon of the
+   sequence.
 
    | | mean bits | 1st codon pos. | 2nd | 3rd | 3rd/1st ratio |
    |---|---|---|---|---|---|
    | HA, as built | 0.0577 | 0.0383 | 0.0283 | 0.1065 | 2.78x |
    | NA, as built | 0.0580 | 0.0376 | 0.0281 | 0.1084 | 2.88x |
-   | HA, each sequence shifted 0-2 nt | 1.0971 | 1.0970 | 1.0981 | 1.0963 | 1.00x |
+   | HA, each seq. shifted 0-2 nt | 1.0971 | 1.0970 | 1.0981 | 1.0963 | 1.00x |
 
-   - 3rd codon positions are the most variable and 2nd the least, in both proteins. This is
-     the expected pattern, since most changes at the 3rd position of a codon do not change
-     the amino acid, and most changes at the 2nd position do. The pattern shows the reading
-     frame is correct; a flat entropy trace would not.
+   - The 3rd position within a codon is the most variable and the 2nd position the least, in
+     both proteins. This is the expected pattern, since most changes at the 3rd position of a
+     codon do not change the amino acid, and most changes at the 2nd position do. The pattern
+     shows the reading frame is correct; a flat entropy trace would not.
    - The last row is the negative control. Each sequence is shifted by a random 0, 1, or 2
      nucleotides, so positions no longer line up. Mean entropy jumps 19-fold and the
-     codon-position pattern flattens to 1.00x, showing that the check would actually catch a
-     misalignment if one existed.
+     codon-position pattern flattens to 1.00x, showing that the check would actually catch
+     a misalignment if one existed.
    - A separate sanity check confirms the metric itself: shuffling each column's values
-     independently, instead of shifting sequences, leaves the entropy numbers identical to 4
-     decimals. This is expected, since entropy is computed per column.
-   - This check catches wholesale misalignment, not one or two shifted sequences. The
-     completeness-and-length filter from step 1 rules those out, since an internal shift
-     would need an insertion and a deletion that exactly cancel.
+     independently, instead of shifting sequences, leaves the entropy numbers identical to
+     4 decimals. This is expected, since entropy is computed per column.
+   - This check catches wholesale misalignment, not a small subset of shifted sequences.
+     The completeness-and-length filter from step 1 rules those out, since an internal
+     shift would need an insertion and a deletion that exactly cancel.
 
 3. **Feature builder — DONE (2026-09-01).** `src/embeddings/compute_site_features.py`, alongside `compute_esm2_embeddings.py` and `compute_kmer_features.py`.
    - New config group `conf/site/default.yaml` (`unit`, `encoding`), registered in `conf/bundles/flu_base.yaml` next to `/kmer`. The four new terms are defined in `docs/methods/glossary.md`.
@@ -370,7 +396,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
 
    - **One matrix per protein, not one for the corpus.** The matrix width is the CDS length, which differs by protein, so one matrix cannot hold every protein. Only complete CDS at the pinned length take part.
    - **The cache stores ordinal codes only.** `site.encoding: onehot` is expanded later, at load time (step 4), so switching encoding does not require rebuilding the cache. Storing one-hot directly would make the cache 5-65x larger for no benefit.
-   - **Keyed by `cds_dna_hash` in every unit, `aa` included.** Two different DNA sequences that translate to the same protein get two separate (but identical) `aa` rows. That costs a little extra space and buys one join key and one row order shared across all three units — so codon site *i* and amino-acid site *i* are guaranteed to be the same position, by construction rather than by convention.
+   - **Keyed by `cds_dna_hash` in every unit, `aa` included.** Two different DNA sequences that translate to the same protein get two separate (but identical) `aa` rows. That costs a little extra space and buys one join key and one row order shared across all three units — so codon site *i* and aa site *i* are guaranteed to be the same position, by construction rather than by convention.
 
    **Built for HA and NA in all three units:**
 
@@ -386,7 +412,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - Every build decodes a sample of rows back to the source sequence and fails on any mismatch, so a wrong code map cannot reach a model silently. Positions on the catch-all code are checked the other way round, since those cannot round-trip exactly.
    - Three further checks, run once:
      - The `nt` codes rebuild the correct codon IDs exactly — 0 mismatches over 400 rows per protein.
-     - Each codon translates to the correct amino-acid code (NCBI translation table 1) — 0 mismatches. This is an independent check: codon IDs come from GenSLM's tokenizer, amino-acid codes come from `prot_seq`, and the translation rule comes from `cds_utils._CODON_TABLE_1` — three separate sources, all agreeing.
+     - Each codon translates to the correct aa code (NCBI translation table 1) — 0 mismatches. This is an independent check: codon IDs come from GenSLM's tokenizer, aa codes come from `prot_seq`, and the translation rule comes from `cds_utils._CODON_TABLE_1` — three separate sources, all agreeing.
      - The three units share one index, and site counts line up: nt sites = 3 x codon sites = 3 x aa sites.
    - Codon IDs come from GenSLM's own vocabulary (`genslm_vocab/tokenizer_config.json`, read at build time, not hand-copied): GGC=33, GCC=34, ATC=35, GAC=36, the three stop codons = 93/95/96, `<unk>` = 3.
 
@@ -424,11 +450,11 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
 
    - **Per-site features at least match k-mers.** `nt` wins on every fold, but with only 4 folds the difference is not statistically significant (p=0.128), so the fair claim is "matches", not "beats" — and it does that with 3,111 columns instead of 8,192. `codon` (1,037 columns, a third of `nt`'s width) is statistically indistinguishable from `nt` (p=0.509).
    - **Silent (synonymous) changes carry most of the signal.** `codon` and `aa` cover the exact same 1,037 positions in the exact same records — the only difference is whether a DNA change that does not change the amino acid is visible to the model. Removing that information costs **0.107 F1 macro**, on every fold, p=0.002 — by far the largest effect measured, roughly an order of magnitude above the k-mer-vs-per-site gap.
-     - One interpretation, not separately tested: synonymous changes are close to neutral, so they drift with lineage and can act like a lineage marker, while amino-acid changes are shaped by selection and can end up similar across different lineages. Under that reading, the matching signal is carried mostly in the DNA rather than the protein — at least at the level of detail a per-site categorical feature can capture.
+     - One interpretation, not separately tested: synonymous changes are close to neutral, so they drift with lineage and can act like a lineage marker, while aa changes are shaped by selection and can end up similar across different lineages. Under that reading, the matching signal is carried mostly in the DNA rather than the protein — at least at the level of detail a per-site categorical feature can capture.
      - **This has not been tested for ESM-2**, which reads 1,280 continuous dimensions rather than 22 categories per site. It should not be assumed to hold there.
    - **The memorisation risk is bounded here, but not yet ruled out at this step.** Under a random split, some sequences appear in both train and test, and a per-site vector could in principle almost identify which exact sequence it is. Measured: 18-21% of test HA sequences and 22-26% of test NA sequences also appear somewhere in training, but only **7-10% of test rows have BOTH sequences already seen in training**, and `pair_key` overlap between train and test is 0 in every fold — no test pair was trained on. So recalling a specific pairing could explain at most about a tenth of the test set. The `aa` result by itself cannot separate "the model is relying on memory" from "removing synonymous positions removes real signal", because both would look the same here. Step 7 is what separates them.
 
-6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the `codon` arm (1,037 columns — statistically the same as `nt` at a third of the width, and one column per amino-acid position, so a site number IS a residue number).
+6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the `codon` arm (1,037 columns — statistically the same as `nt` at a third of the width, and one column per aa position, so a site number IS a residue number).
 
    Four output files:
    - `site_importance_codon.png` — importance plotted along the CDS, and importance plotted against entropy.
