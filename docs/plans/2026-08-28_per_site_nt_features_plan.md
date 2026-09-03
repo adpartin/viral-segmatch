@@ -386,17 +386,31 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
      The completeness-and-length filter from step 1 rules those out, since an internal
      shift would need an insertion and a deletion that exactly cancel.
 
-3. **Feature builder — DONE (2026-09-01).** `src/embeddings/compute_site_features.py`, alongside `compute_esm2_embeddings.py` and `compute_kmer_features.py`.
-   - New config group `conf/site/default.yaml` (`unit`, `encoding`), registered in `conf/bundles/flu_base.yaml` next to `/kmer`. The four new terms are defined in `docs/methods/glossary.md`.
-   - For each protein and unit, writes three files to the embeddings directory:
-     - `site_features_{unit}_{SHORT}.npz` — the codes (uint8)
-     - `_index.parquet` — maps `cds_dna_hash` to a row number
-     - `_metadata.json` — code map, site count, kept/dropped counts
-   - Caching is existence-check based, per protein; `--force_recompute` rebuilds.
+3. **Feature builder — DONE (2026-09-01).** `src/embeddings/compute_site_features.py`.
 
-   - **One matrix per protein, not one for the corpus.** The matrix width is the CDS length, which differs by protein, so one matrix cannot hold every protein. Only complete CDS at the pinned length take part.
-   - **The cache stores ordinal codes only.** `site.encoding: onehot` is expanded later, at load time (step 4), so switching encoding does not require rebuilding the cache. Storing one-hot directly would make the cache 5-65x larger for no benefit.
-   - **Keyed by `cds_dna_hash` in every unit, `aa` included.** Two different DNA sequences that translate to the same protein get two separate (but identical) `aa` rows. That costs a little extra space and buys one join key and one row order shared across all three units — so codon site *i* and aa site *i* are guaranteed to be the same position, by construction rather than by convention.
+   **Goal.** Build one per-site feature cache per protein and per unit (`nt`, `codon`, `aa`), so
+   training and analysis can look up an ordinal code for every site of every complete,
+   pinned-length CDS.
+
+   **Implementation.**
+   - New config group `conf/site/default.yaml` (`unit`, `encoding`), registered in
+     `conf/bundles/flu_base.yaml` next to `/kmer`. The 4 new terms are defined in
+     `docs/methods/glossary.md`.
+   - For each protein and unit, the builder writes 3 files to the embeddings directory:
+     `site_features_{unit}_{protein}.npz` (the codes, uint8), `_index.parquet` (maps
+     `cds_dna_hash` to a row number), and `_metadata.json` (code map, site count, kept/dropped
+     counts).
+   - Caching is existence-check based, per protein. `--force_recompute` rebuilds.
+   - Only complete CDS at the pinned length take part in the cache. The matrix width equals the
+     CDS length, which differs by protein, so the builder writes one matrix per protein rather
+     than one for the whole corpus.
+   - The cache stores ordinal codes only. `site.encoding: onehot` is expanded later, at load
+     time (step 4), so switching encoding does not require rebuilding the cache. Storing
+     one-hot directly would make the cache 5-65x larger for no benefit.
+   - Every unit, `aa` included, is keyed by `cds_dna_hash`. Two different DNA sequences that
+     translate to the same protein get two separate but identical `aa` rows. This provides one join key and one row order shared across all three
+     units, so codon site *i* and aa site *i* are guaranteed to be the same position by
+     construction.
 
    **Built for HA and NA in all three units:**
 
@@ -405,16 +419,27 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | HA | 65,414 | 64,125 | 44,202 | 1,701 | 567 |
    | NA | 58,887 | 57,278 | 46,175 | 1,410 | 470 |
 
-   - 37 MB on disk for all six matrices, against 140 MB if `nt` alone were stored uncompressed. About 15 seconds to build both proteins for one unit.
-   - HA loses 19,923 complete CDS (31%) to the length filter, because the full corpus spans subtypes the pin does not cover — H5N1 HA is 1704 nt, H9 and H7 are 1683 nt. That is expected, not a bug: those sequences cannot be lined up position-by-position against a 1,701-nt reference. A per-site run on those subtypes would need its own pinned length. The H3N2 2024 dataset itself is unaffected — the cache holds every one of the 2,732 HA and 2,298 NA hashes it needs.
+   - The builder reads `cds_dna_final`, the shared preprocessed file for all subtypes and
+     years, not a file scoped to H3N2 2024. The pinned length (1,701 nt for HA) only covers
+     H3N2 and H1N1, so HA from other subtypes fails the length filter: H5N1 HA is 1,704 nt, and
+     H9 and H7 HA is 1,683 nt. That is why HA loses 19,923 of its 64,125 complete CDS (31%) to
+     the length filter. Those sequences are complete, but a different length from this pin, so
+     they cannot be lined up position-by-position against a 1,701-nt reference. This loss is
+     expected, not a bug; a per-site run on those other subtypes would need its own pinned
+     length for their HA. It also does not affect the H3N2 2024 experiment itself: the cache
+     still holds every one of the 2,732 HA and 2,298 NA hashes that experiment needs.
 
    **Verification.**
-   - Every build decodes a sample of rows back to the source sequence and fails on any mismatch, so a wrong code map cannot reach a model silently. Positions on the catch-all code are checked the other way round, since those cannot round-trip exactly.
-   - Three further checks, run once:
-     - The `nt` codes rebuild the correct codon IDs exactly — 0 mismatches over 400 rows per protein.
-     - Each codon translates to the correct aa code (NCBI translation table 1) — 0 mismatches. This is an independent check: codon IDs come from GenSLM's tokenizer, aa codes come from `prot_seq`, and the translation rule comes from `cds_utils._CODON_TABLE_1` — three separate sources, all agreeing.
-     - The three units share one index, and site counts line up: nt sites = 3 x codon sites = 3 x aa sites.
-   - Codon IDs come from GenSLM's own vocabulary (`genslm_vocab/tokenizer_config.json`, read at build time, not hand-copied): GGC=33, GCC=34, ATC=35, GAC=36, the three stop codons = 93/95/96, `<unk>` = 3.
+   - Every build decodes a sample of rows back to the source sequence and fails on any
+     mismatch, so a wrong code map cannot reach a model silently.
+   - Three one-time checks also passed: codon IDs rebuilt from the `nt` codes matched exactly
+     on 400 rows per protein; codon-to-aa translation matched NCBI translation table 1 exactly,
+     checked against three independent sources (GenSLM's tokenizer, `prot_seq`, and
+     `cds_utils._CODON_TABLE_1`); and site counts line up across units (nt sites = 3 x codon
+     sites = 3 x aa sites).
+   - Codon IDs come from GenSLM's own vocabulary (`genslm_vocab/tokenizer_config.json`, read at
+     build time, not hand-copied): GGC=33, GCC=34, ATC=35, GAC=36, the three stop codons =
+     93/95/96, `<unk>` = 3.
 
 4. **Loader and training — DONE (2026-09-02).**
    - `src/utils/site_utils.py` reads the cache (a sibling of `kmer_utils.py`).
