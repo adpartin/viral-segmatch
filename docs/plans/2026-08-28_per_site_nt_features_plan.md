@@ -1,16 +1,13 @@
-# Per-site nucleotide features for HA-NA segment matching
+# Per-site feature importance for HA-NA segment matching
 
 **Status: IN PROGRESS**
 
 ## Goal
 
-Find out which parts of the sequence the model uses to decide match or no-match. A k-mer count
-records how many times a subsequence occurs but not where, so a k-mer importance score cannot be
-traced back to a place in the CDS. One feature per position keeps the position, so importance can
-be reported per position along the CDS.
+Find out which sequence positions the model uses to make predictions. K-mer counts record how often a subsequence occurs, but not where it occurs. Using one feature per nucleotide, codon, or amino acid preserves position, so feature importance can be mapped directly along the sequence.
 
 Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes.md`, chat of
-2026-05-12), who used the same features with a random forest to predict collection date.
+2026-05-12), who used a very similar approach with a RF regressor to predict collection date.
 
 ## Files touched
 
@@ -48,162 +45,178 @@ Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`
 
 ## What we found (steps 0-7 done; step 8 open)
 
-Scope throughout: HA-NA, H3N2, collected 2024, four random-split folds, LGBM. Every arm runs on
-the same folds, so the comparisons are paired.
+All experiments used H3N2 HA–NA pairs collected in 2024, four random-split folds, and LightGBM. Each feature representation used the same folds. Reported values are the mean and std across folds.
 
-**Per-site features work, at a third of the width.** F1 macro 0.9192 +/- 0.0134 for `nt` (3,111
-columns) against 0.9094 +/- 0.0145 for k-mer k=6 (8,192). `nt` wins all four folds but at k=4 that
-is p=0.128, so the honest claim is "matches", not "beats". `codon` is indistinguishable from `nt`
-(p=0.509) at 1,037 columns and is the efficient choice. [step 5]
+**Per-site nucleotide features performed similarly to k-mer features.** The nucleotide-site model obtained an F1 macro of 0.9192 ± 0.0134 using 3,111 features. The k-mer model obtained 0.9094 ± 0.0145 using 8,192 features. The nucleotide-site model scored higher in all 4 folds, but the difference was not statistically significant (p=0.128). With only 4 folds, this result does not establish either superiority or equivalence.
 
-**Silent changes carry most of the signal — the largest effect in the whole study.** `codon` and
-`aa` are the same 1,037 positions on the same records and differ only in whether a change that
-leaves the protein unchanged is visible. Removing those costs **0.107 F1 macro**, every fold,
-p=0.002. The matching signal lives in the DNA, not the protein. That says nothing about ESM-2,
-which reads 1,280 continuous dimensions rather than 22 categories per site. [step 5]
+**Codon features retained similar performance with fewer features.** The codon model used 1,037 features and obtained an F1 macro of 0.9159. Its performance did not differ significantly from the nucleotide-site model (p=0.509). This makes codon features the smaller representation among the two tested per-site nucleotide representations, although the experiment has limited power to detect a difference.
 
-**The model leans on few positions, but the information is spread widely.** The top 10 codon sites
-hold 34% of SHAP and, with the model fixed, half the signal. Refit after corrupting them and the
-cost falls from 49.5% to 15.9% -- two thirds comes back from the other 1,027 columns. So "the top
-10 hold half the signal" describes this fitted model, not where the information lives: a boosted
-tree is greedy. [steps 6, 7b(ii), 7b(iii)]
+**Nucleotide identity provided information that amino-acid identity did not preserve.** Codon and amino-acid features represent the same 1,037 positions, but codons retain nucleotide changes that do not alter the translated amino acid. The codon model obtained an F1 macro of 0.9159, compared with 0.8091 for the amino-acid model. The mean difference was 0.107, occurred in the same direction in every fold, and had p=0.002. This result shows that information discarded during translation contributes substantially to prediction. It does not show that amino-acid sequence contains no useful information or evaluate ESM-2 features.
 
-**Three checks that could have invalidated the interpretation, all passed.**
-- One side alone scores at chance: AUC-ROC 0.5007 (HA only) and 0.4979 (NA only) against 0.9547
-  with both. No one-sided shortcut in how pairs were built, so the mixed HA/NA top-15 is
-  meaningful. [7a]
-- Corrupting random sites costs nothing: 1.7-2.0% at N=100 against 86-89% for the top 100. The
-  ranking picks out something real. [7b(ii), 7b(iii)]
-- Memorisation is not carrying the result, and per-site leans on recall LESS than k-mers do. On
-  the 2,953 test rows whose sequences never appear in training, per-site `nt` scores 0.9544
-  against its overall 0.9597. The seen-minus-unseen gap is +0.0202 for per-site `nt` and +0.0276
-  for k-mer. [7c]
+**The fitted model concentrated importance on a small number of sites, but other sites contained overlapping predictive information.** The top-10 codon sites (ranked by importance) accounted for 34% of total mean absolute SHAP importance. Shuffling these sites without re-fitting removed 49.5% of the model’s above-chance AUC-ROC. When a new model was trained after the same sites were corrupted, the loss was 15.9%. The smaller loss after re-fitting indicates that the remaining sites contain information that can partly replace the corrupted sites.
 
-**The positions genuinely line up**, which everything above depends on. 3rd codon positions are
-2.8x more variable than 1st and 3.8x more than 2nd, the expected order under selection.
-Shifting each sequence by a random 0-2 nt destroys that ordering and raises mean entropy 19-fold,
-so the check has teeth. [step 2]
+The following checks support this interpretation:
+- Models using only HA or only NA produced mean AUC-ROC values of 0.5007 and 0.4979, respectively, compared with 0.9547 when both proteins were used. Thus, neither slot alone predicted the pair label in this dataset.
+- Shuffling 100 randomly selected sites removed 1.7–2.0% of above-chance AUC-ROC, compared with 86–89% when the top-100 ranked sites were shuffled. This supports the importance ranking.
+- On 2,953 test pairs for which neither exact sequence occurred in training, the nucleotide-site model obtained an AUC-ROC of 0.9544, compared with 0.9597 over all test pairs. The AUC-ROC difference between pairs with two previously seen sequences and pairs with no previously seen sequences was 0.0202 for nucleotide-site features and 0.0276 for k-mer features. These results do not support exact sequence reuse as the main explanation for performance. They do not rule out effects from closely related sequences or population structure.
 
-**Three importance measures agree at the top.** SHAP and gain correlate at +0.97 with 12 of 15 top
-sites shared; permutation shares 12 of 15 with SHAP. Split count -- what `lightgbm.plot_importance`
-shows by default -- ranks differently and is reported for contrast, not used. [step 6]
+**The entropy results support consistent reading frames.** 3rd codon positions were 2.8 times more variable than 1st positions and 3.8 times more variable than 2nd positions. Randomly shifting each sequence by 0 to 2 nucleotides removed this codon-position pattern and increased mean entropy by a factor of 19. These checks show that the method can detect reading-frame disruption and that the retained sequences have the expected codon-phase pattern. They do not by themselves prove that every site is homologously aligned.
+
+**The main importance measures produced similar top rankings.** SHAP and gain importance had a correlation of 0.97 and shared 12 of their 15 top-N sites. Permutation importance also shared 12 of its 15 top-N sites with SHAP. Split-count importance produced a different ranking and was not used for the biological interpretation.
 
 ## Naming
 
-Not "positional encoding" — in ML that means the sinusoidal position signal added to token
-embeddings in a transformer, which is a different thing. Published work splits this into two
-choices, and we follow that split:
+These are called **per-site features**, not *positional encodings*. A *positional encoding* represents
+token order within a model (like transformers). Here, the sequence values at fixed positions are the input features.
 
-- `feature_source: site` — one feature per position. A position in an alignment is a **site**;
-  "per-site" is the standard term (also used as "column" in the MSA literature).
-- `site.unit: nt | codon | aa` — what one site is.
-- `site.encoding: ordinal | onehot` — how each site's value is coded. Both names are standard.
+- `feature_source: site` selects per-site features.
+- `site.unit: nt | codon | aa` specifies what each site contains.
+- `site.encoding: ordinal | onehot` specifies how site values are represented.
+  - `ordinal` uses one integer-coded categorical column per site. The integers are category labels,
+    not ordered measurements.
+  - `onehot` uses one binary column for each possible value at each site.
+- `site.slots: both | a | b` selects whether features are loaded from both proteins or from only
+  one protein.
 
-The config block is `site:` at top level, matching the existing `kmer:` block that goes with
-`feature_source: kmer`. Same word in both places.
+The settings are grouped under the top-level `site:` configuration block, parallel to the existing
+`kmer:` block. The corresponding terms are defined in `docs/methods/glossary.md`.
 
-Add the terms to `docs/methods/glossary.md` before using them anywhere else.
+### Feature units
 
-### Which unit to use
+The three units preserve different levels of sequence information:
 
-`codon` and `aa` are the SAME positions, not just the same count: 3 x protein length = CDS length
-exactly (HA 1,701 nt = 567 codons = 567 protein characters; NA 1,410 = 470 = 470). Codon site 200
-and amino-acid site 200 are the same place. Only the value differs — the 3-letter DNA group (64
-possible) or the protein letter it becomes (21). So the choice between them is one thing: **codon
-keeps silent changes, aa discards them.**
-
-| unit | reads | sites per pair | codes | ordinal width | one-hot width |
-|---|---|---|---|---|---|
+| unit | source sequence | sites per HA-NA pair | possible codes | ordinal width | one-hot width |
+|---|---|---:|---:|---:|---:|
 | `nt` | CDS DNA | 3,111 | 5 | 3,111 | 15,555 |
-| `codon` | CDS DNA | 1,037 | 65 | 1,037 | **67,405** |
+| `codon` | CDS DNA | 1,037 | 65 | 1,037 | 67,405 |
 | `aa` | protein | 1,037 | 22 | 1,037 | 22,814 |
 
-(Current k-mer setup is 8,192 wide.) Note codon is narrower than nt only under `ordinal`; under
-`onehot` it is the widest of the three, because each site needs one column per codon.
+HA contributes 1,701 nucleotide sites or 567 codon/amino-acid sites. NA contributes 1,410
+nucleotide sites or 470 codon/amino-acid sites.
 
-The code counts include one catch-all, which the plain alphabet sizes (4 / 64 / 21) leave out: a
-site whose character is an IUPAC ambiguity code has no clean value. Rare -- 0.006% of nt sites and
-0.010% of aa sites on the built cache -- but it is a real code, and a one-hot expansion needs a
-column for it. The aa count is 22, not 21, for the same reason: 20 residues, the stop character,
-and `X` (residue unknown) sharing the catch-all.
+Codon and amino-acid features describe the same 1,037 translated positions. Codon features retain
+the nucleotide identity of each codon, including synonymous differences. Amino-acid features retain
+only the translated residue. Nucleotide features represent each of the 3 positions within a
+codon separately.
 
-`nt_ctg` (contig DNA) is not a valid source for any unit: contigs include the untranslated ends and
-vary in length, so positions do not line up. Measured on H3N2 2024 segment 4, contigs span
-1,672-1,762 with the most common length covering 58%, against 99.7% for the CDS.
+Each unit includes one catch-all code:
 
-Order of work: start with `nt` (finest view, and the direct comparison to Jamie's results), then
-add `codon` and `aa` on the same positions. Comparing those two says whether silent changes carry
-any signal, and needs only a second feature cache once the loader exists.
+- `nt`: 4 standard bases plus `other`;
+- `codon`: 64 standard codons plus `unk`;
+- `aa`: 20 standard amino acids, the terminal stop character, and `other`.
 
-**Answered (step 5): they carry most of it.** `codon` scores 0.9159 F1 macro against `aa`'s
-0.8091 -- same positions, same records, +0.107 on every fold, p=0.002. `nt` and `codon` are
-indistinguishable (p=0.509), so `codon` is the efficient choice at a third of `nt`'s width.
+Only CDS DNA is supported. Contig DNA (`nt_ctg`) is excluded because contigs include untranslated
+regions and have variable lengths, so the same index does not consistently represent the same CDS
+position.
 
-### Codon numbering
+### Codon codes
 
-Use GenSLM's codon-to-integer map. `genslm_vocab/tokenizer_config.json` has all 64
-codons at ids 33-96, five special tokens (`<cls>` 0, `<pad>` 1, `<eos>` 2, `<unk>` 3, `<mask>` 32),
-tokenizer class `EsmTokenizer`, max length 2,048 tokens. The order is NOT alphabetical — it starts
-GGC, GCC, ATC, GAC and puts the three stops last (93, 95, 96), which looks like frequency order.
+Codon features use the 64 codon IDs from `genslm_vocab/tokenizer_config.json`. A codon containing a
+non-ACGT character uses GenSLM's `<unk>` ID.
 
-For our own models the numbering does not matter, since the column is declared categorical and the
-model treats the values as unordered labels. It matters only if we later feed sequences to GenSLM
-for embeddings, where the ids must be theirs. Adopting their map now avoids
-rebuilding the feature cache later. Two things to confirm against their loader first: whether each
-sequence needs the `<cls>` / `<eos>` wrappers, and whether input must be upper-cased (ours is stored
-lowercase). Length is not a constraint — 567 and 470 codons against GenSLM's 2,048 context window.
+The feature builder does not add `<cls>`, `<eos>`, `<pad>`, or `<mask>` tokens. Those tokens are
+relevant to GenSLM model input, not to the per-site LightGBM features. Input sequences are converted
+to uppercase before encoding.
 
-## What we already know (measured 2026-08-28)
+The numerical order of the codon IDs does not affect the current models because every site column
+is declared categorical. The IDs identify categories; they do not represent numerical magnitudes.
 
-Counts are unique CDS in H3N2 + 2024 from `cds_dna_final.parquet`.
+## CDS completeness and length before filtering
 
-**The sequences are nearly all one length per segment, once incomplete records are removed.**
+These measurements were made on unique CDS sequences from H3N2 HA and NA records collected in
+2024. The source was `cds_dna_final.parquet`.
 
-| | unique CDS | complete CDS | complete and at the pinned length |
-|---|---|---|---|
-| HA | 2,792 | 2,785 | 2,785 (length 1701) |
-| NA | 2,415 | 2,306 | 2,301 (length 1410) |
+| protein | unique CDS | complete CDS | complete CDS at the pinned length |
+|---|---:|---:|---:|
+| HA | 2,792 | 2,785 | 2,785 at 1,701 nt |
+| NA | 2,415 | 2,306 | 2,301 at 1,410 nt |
 
-"Complete" means: starts `ATG`, ends in a stop group, no stop in the middle. (A 4th test,
-length divisible by 3, passes on 100% of rows and so is dropped — see Background.)
+A CDS is classified as complete when its corresponding protein starts with `M`, ends with `*`,
+and has no internal `*`. These conditions are stored as `starts_with_m`, `has_terminal_stop`,
+and `has_internal_stop`; `is_complete_cds` is their conjunction. The protein markers correspond
+to the CDS start and stop codons, as described in the Background section.
 
-The off-length sequences are almost all incomplete records, not real length variation. Of 7
-off-length HA, none is a complete CDS (6 missing the stop, 1 missing both ends). Of 114
-off-length NA, only 5 are (90 missing the stop, 17 missing the start, 2 missing both). No sequence in either
-segment has an internal stop, so nothing is frameshifted.
+All the HA sequences outside the pinned length (7 in this case; 2,792-2,785) were incomplete: 6
+lacked the terminal stop marker, and one lacked both the start and terminal stop markers.
 
-**Filter yield.** Keeping only pairs where both slots are complete and at the pinned length leaves
-**3,580 of 3,723 positive pairs (96.2%)**.
+NA had 114 sequences outside the pinned length. Of these, 109 were incomplete: 90 lacked the
+terminal stop marker, 17 lacked the start marker, and 2 lacked both. The remaining 5 passed
+the completeness check but had lengths of 1,407 nt (3 sequences), 1,413 nt, or 1,416 nt.
+Completeness and length must therefore be checked separately.
 
-**Codons.** Across all 8 proteins in `cds_dna_final`, 98.6-99.8% of unique CDS start with `ATG`,
-and all three standard stop codons are used. Each segment prefers one stop codon (e.g. M1 is 98%
-`TGA`, PA is 97% `TAG`), so the filter must accept all three.
+No HA or NA sequence in this population contained an internal stop marker. This observation does
+not by itself rule out every possible frameshift or alignment error.
 
-**Only 8 of the 18 functions in `protein_final` appear in `cds_dna_final`** — the 8 majors, one per
-segment.
+Filtering both proteins for completeness and pinned length retained 3,580 of 3,723 unique positive
+HA-NA pairs, or 96.2%.
+
+Across all 8 protein functions in `cds_dna_final`, 98.6-99.8% of unique CDS sequences began
+with `ATG`. All 3 standard stop codons occurred, although one stop codon predominated for each
+protein—for example, 98% of M1 sequences ended with `TGA`, while 97% of PA sequences ended with
+`TAG`. The completeness check must therefore accept all 3 standard stop codons.
+
+The regenerated `protein_final` contains 18 protein functions. `cds_dna_final` contains the 8
+selected modeling functions, one primary protein product per segment.
 
 ## Design decisions
 
-**Only `interaction: concat` is valid.** The two slots live in different spaces: slot A is HA
-position 1..1701, slot B is NA position 1..1410. HA position 500 and NA position 500 have nothing
-to do with each other, and the vectors are not even the same length. `diff`, `unit_diff` and `prod`
-are therefore meaningless here and must be rejected, not silently allowed. `slot_transform` must be
-`none` for the same reason — normalising a vector of category codes has no meaning.
+### Pair representation
 
-**Start with LGBM and declared categoricals.** Ordinal codes are nominal, not ordered, so the model
-must be told. LightGBM supports this through `categorical_feature`; sklearn's random forest does
-not, which is why Jamie's ordinal codes were treated as ordered. Keep `onehot` as the fallback if
-declared categoricals underperform.
+HA and NA have different sequence lengths and different biological positions. HA site 500 and NA
+site 500 do not represent corresponding variables. Elementwise interactions such as `diff`,
+`unit_diff`, and `prod` would therefore compare unrelated positions and, because the slot vectors
+have different lengths, cannot be computed directly.
 
-**Rebuild the dataset, then re-run the k-mer baseline on it.** The 2024 folds
-(`dataset_ha_na_h3n2_2024_random_cv4`) were built before the filter existed, so they contain pairs
-this plan drops — nothing about them can be reused. Once rebuilt, the old k-mer number describes a
-different population, so it has to be re-run on the new folds for the comparison to mean anything.
-Done in step 1: the rebuild takes ~55 s and the four LGBM folds ~5 s each.
+The HA and NA feature vectors are concatenated in a fixed order: all HA sites followed by all NA
+sites. For per-site features, the configuration must use:
 
-**The split stays random.** A cluster-disjoint split is not available for a single year: at t099
-one NA cluster holds 94.6% of the pairs, so `max_balanced_k` is 1
-(`cc_nt_cds_cm0_h3n2_2024/HA-NA/t099/cc_summary.json`).
+```yaml
+training:
+  interaction: concat
+  slot_transform: none
+  feature_scaling: none
+```
+
+The loader validates these settings and rejects unsupported combinations.
+
+Ordinal site values are category labels. Their numerical values do not represent magnitudes, so
+normalization or standard scaling would change arbitrary code values without adding biological
+meaning. One-hot features also do not need these transformations; each sequence has one active
+value per site, giving every fixed-length sequence the same number of active columns.
+
+### Model and categorical features
+
+The experiments use LightGBM with ordinal site encoding. Every ordinal site column is passed to
+LightGBM through `categorical_feature`, so nt, codon, and aa codes are treated as
+unordered categories.
+
+The one-hot encoding path is implemented but was not evaluated in these experiments. The reported
+results therefore apply only to ordinal encoding with categorical LightGBM features.
+
+A standard scikit-learn RF was not used for the primary comparison because it does not
+natively treat integer-coded predictors as unordered categories. Without one-hot encoding, it
+would split the category codes numerically.
+
+### Comparable k-mer baseline
+
+The completeness and pinned-length filter changes the HA-NA pair population. The existing 2024
+folds were built before this filter and cannot provide a matched comparison.
+
+A new 4-fold dataset was therefore built after filtering. The nucleotide-site, codon,
+amino-acid, and k-mer models use the same pair rows and fold assignments. The matched k-mer baseline
+has an F1 macro of 0.9094 ± 0.0145. The earlier value of 0.9177 ± 0.0086 was measured on the
+unfiltered population and is not used for comparison with the per-site models.
+
+### Split strategy
+
+The experiments use 4-fold CV. A balanced 4-fold cluster-disjoint split is not
+feasible for this H3N2 2024 HA-NA population at `t099`: one NA cluster contains 94.6% of the
+positive-pair mass, and the reported `max_balanced_k` is 1.
+
+Random splitting allows the same sequence, or a closely related sequence, to occur in both training
+and test data. The results therefore measure prediction within the H3N2 2024 population; they do not
+establish performance on cluster-disjoint, future-year, or other-subtype data. The step 7c analysis
+evaluates reuse of exact sequences but does not remove this broader limitation.
 
 ## Steps
 
