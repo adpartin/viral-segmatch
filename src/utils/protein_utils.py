@@ -49,11 +49,12 @@ def analyze_protein_ambiguities(
         - 'has_terminal_stop': Bool indicating if sequence ends with '*'
         - 'has_internal_stop': Bool indicating if sequence has internal '*'
         - 'internal_stop_positions': List of positions of internal stop codons
-        - 'starts_with_m': Bool indicating if sequence starts with 'M'. ATG is the only
-          codon for M, so this is equivalent to the CDS starting with ATG. A record that
-          covers the whole CDS starts with M; one that does not was cut short at the 5'
-          end. Together with has_terminal_stop and has_internal_stop it says whether the
-          record covers the whole coding sequence.
+        - 'starts_with_m': True if the sequence starts with 'M'. M only comes from
+          the DNA codon ATG, so this also tells us if the DNA starts at ATG. If a
+          record does NOT start with M, part of the beginning is missing —
+          sequencing never reached the true start of the gene. Used together with
+          has_terminal_stop and has_internal_stop to say whether a record covers
+          the whole protein or part of it.
     """
     prot_df = prot_df.copy()
 
@@ -66,7 +67,7 @@ def analyze_protein_ambiguities(
         positions = {}  # Positions of ambiguous residues
         internal_stop_positions = []  # Premature Stop Codon
         has_terminal_stop = seq.endswith('*')  # Terminal Stop Codon
-        starts_with_m = seq.startswith('M')  # Start Codon (ATG is the only codon for M)
+        starts_with_m = seq.startswith('M')
 
         for i, aa in enumerate(seq):
             if aa not in STANDARD_AMINO_ACIDS:

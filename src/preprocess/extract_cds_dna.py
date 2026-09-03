@@ -6,11 +6,9 @@
 
 Important flags carried from Stage 1:
 
-- starts_with_m — ATG is the only triplet (i.e., codon) that gives M. So if the
-  protein's first letter is M, the first DNA codon must be ATG. A record that
-  covers the whole CDS starts with M. The ones that don't are records where the
-  sequencing never reached the start. So M is what we expect, not what we always
-  get — which is exactly why it's worth recording.
+- starts_with_m — the stored protein begins with M. In this data version, this
+  agrees with ATG as the 1st codon in every extracted CDS. It is used as the
+  5'-completeness marker.
 
 - has_internal_stop — a stop marker turns up somewhere in the middle instead of
   only at the end. The record is still full length, so the positions do not
@@ -20,11 +18,9 @@ Important flags carried from Stage 1:
   to show up as a * in the middle of the protein. There are none in this data
   version: 0 of 868,240 rows.
 
-- has_terminal_stop — measured, not guaranteed. This one is different, and worth
-  knowing. The validation strips a trailing * off both sides before comparing,
-  so it would not notice if one side had a final stop and the other didn't. Here
-  the agreement is empirical: 99.999% across 868,240 rows, with the 6 exceptions
-  being the TAR case where the protein side is the more correct one.
+- has_terminal_stop — the stored protein ends with a stop marker. It agrees with
+  the translated final DNA codon in every extracted CDS. Six final codons are
+  the unambiguous IUPAC stop TAR rather than a literal TAA, TAG, or TGA.
 
 For every selected protein row in `protein_final.csv`, reconstruct the
 coding DNA from `ctg_dna_final.csv` using the `location` field (per
@@ -53,12 +49,12 @@ Outputs:
     data/processed/<virus>/<data_version>/cds_dna_final.parquet
 
     One row per (isolate, function): each row contains the coding sequence
-    (`cds_dna`) of one selected protein along with its hash (`cds_dna_hash`,
+    (`cds_dna_seq`) of one selected protein along with its hash (`cds_dna_hash`,
     used as the nt-level cluster key). UTRs, introns, and intergenic DNA
     are NOT included — only the CDS. For spliced proteins (M2, NEP, M42,
     etc.) exons are joined in the order they appear in `location`. The
     full genome contig (not consumed downstream by clustering) lives
-    separately in `ctg_dna_final.csv` under the `dna_seq` column.
+    separately in `ctg_dna_final.csv` under the `ctg_dna_seq` column.
 
 TODO (over-specified `--config_bundle`):
     This script reads only three fields from the bundle config —
@@ -130,6 +126,56 @@ _OUTPUT_COLUMNS = [
     'has_internal_stop',
     'is_complete_cds',    # starts_with_m & has_terminal_stop & ~has_internal_stop
 ]
+
+
+def _coerce_boolean_flag(series: pd.Series, flag_name: str) -> pd.Series:
+    """Return a strict boolean series; reject missing or unrecognized values."""
+    if pd.api.types.is_bool_dtype(series.dtype):
+        if series.isna().any():
+            raise ValueError(f'{flag_name} contains missing values')
+        return series.astype(bool)
+
+    def parse(value):
+        if pd.isna(value):
+            raise ValueError(f'{flag_name} contains a missing value')
+        if isinstance(value, bool):
+            return value
+        if value == 'True':
+            return True
+        if value == 'False':
+            return False
+        raise ValueError(
+            f'{flag_name} contains invalid boolean value {value!r}; '
+            "expected True or False"
+        )
+
+    return series.map(parse).astype(bool)
+
+
+def _build_output_frame(
+    prot: pd.DataFrame,
+    keep_idx: list[int],
+    cds_list: list[str],
+    cds_hashes: list[str],
+) -> pd.DataFrame:
+    """Build the Stage 1.5 output and preserve the Stage 1 completeness flags."""
+    if not (len(keep_idx) == len(cds_list) == len(cds_hashes)):
+        raise ValueError('keep_idx, cds_list, and cds_hashes must have equal lengths')
+
+    out = prot.iloc[keep_idx].copy().reset_index(drop=True)
+    out['cds_dna_seq'] = cds_list
+    out['cds_dna_hash'] = cds_hashes
+    out['cds_length'] = out['cds_dna_seq'].map(len)
+    # is_complete_cds checks 3 things: does it start with M, does it end with a
+    # stop, is there no stop in the middle. It does NOT check length.
+    #
+    # Length can't be judged from one record by itself — length needs to be compared
+    # against other records to know what "normal" looks like. That comparison is a job
+    # for the experiment that uses the data, not for this shared preprocessing step.
+    out['is_complete_cds'] = (out['starts_with_m']
+                              & out['has_terminal_stop']
+                              & ~out['has_internal_stop'])
+    return out[_OUTPUT_COLUMNS]
 
 
 def _validate_row(prot_seq: str, cds_dna: str) -> tuple[bool, str]:
@@ -207,10 +253,9 @@ def main():
                  'canonical_segment', 'prot_seq', 'prot_hash', 'location', 'length',
                  'starts_with_m', 'has_terminal_stop', 'has_internal_stop'],
     )
-    # CSV round-trips booleans as text; coerce so the derived column is boolean, not string.
+    # CSV may return booleans or their text representation. Reject anything else.
     for _flag in ('starts_with_m', 'has_terminal_stop', 'has_internal_stop'):
-        prot[_flag] = prot[_flag].map({True: True, False: False,
-                                       'True': True, 'False': False}).astype(bool)
+        prot[_flag] = _coerce_boolean_flag(prot[_flag], _flag)
     # prot_hash is produced + persisted at Stage 1 (protein_final); read it, don't recompute.
     print(f'  protein_final rows: {len(prot):,}')
     print(f'\nFiltering to selected functions ...')
@@ -324,17 +369,7 @@ def main():
             print(f'    {line}')
 
     print(f'\nBuilding output frame ...')
-    out = prot.iloc[keep_idx].copy().reset_index(drop=True)
-    out['cds_dna_seq'] = cds_list
-    out['cds_dna_hash'] = cds_hashes
-    out['cds_length'] = out['cds_dna_seq'].apply(len)
-    # A record covers the whole CDS when it has both end markers and no stop in the middle.
-    # Modal length is deliberately NOT part of this: it is a property of a population, not of a
-    # record, so a length filter belongs in the per-experiment stage.
-    out['is_complete_cds'] = (out['starts_with_m']
-                              & out['has_terminal_stop']
-                              & ~out['has_internal_stop'])
-    out = out[_OUTPUT_COLUMNS]
+    out = _build_output_frame(prot, keep_idx, cds_list, cds_hashes)
     print(f'  is_complete_cds: {int(out["is_complete_cds"].sum()):,} of {len(out):,} '
           f'({100 * out["is_complete_cds"].mean():.2f}%)')
     print(f'  output rows:  {len(out):,}')

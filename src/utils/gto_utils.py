@@ -136,13 +136,10 @@ def handle_assembly_duplicates(
     seq_col_name: str = 'prot_seq',
     strategy: str = 'keep_first'
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Handle duplicate protein sequences within the same assembly_id.
+    """Remove duplicate annotations with the same sequence, assembly, and function.
 
-    Three types of duplicates:
-    1. Same seq, same assembly_id, different files → Keep one file (GCA/GCF logic)
-    2. Same seq, same assembly_id, same file → Keep one record (intra-file duplicates)
-    3. Different seq, same assembly_id → Keep all (not duplicates)
+    Records with the same sequence and assembly but different functions are retained.
+    For duplicates in different files, prefer a GCF file. Otherwise, apply ``strategy``.
 
     Args:
         df: DataFrame with protein data
@@ -151,7 +148,15 @@ def handle_assembly_duplicates(
 
     Returns:
         tuple: (cleaned_df, removed_duplicates_df)
+
+    Raises:
+        ValueError: If strategy is not 'keep_first' or 'keep_last'.
     """
+    if strategy not in {'keep_first', 'keep_last'}:
+        raise ValueError(
+            f"Invalid duplicate strategy {strategy!r}; "
+            "expected 'keep_first' or 'keep_last'"
+        )
     
     # Find all duplicates. `function` is part of the key so that two DIFFERENT products of the
     # same segment that happen to share a sequence are never collapsed into one. That happens for
@@ -190,10 +195,7 @@ def handle_assembly_duplicates(
             keep_idx = grp[grp['file'] == chosen_file].index[0]  # Get the index of the chosen file
         else:
             # Same file: use strategy
-            if strategy == 'keep_first':
-                keep_idx = grp.index[0]
-            else:  # keep_last
-                keep_idx = grp.index[-1]
+            keep_idx = grp.index[0] if strategy == 'keep_first' else grp.index[-1]
 
         # Record the index to keep
         keep_indices.add(keep_idx)
