@@ -1,4 +1,4 @@
-# Per-site feature importance for HA-NA segment matching
+# Per-site nucleotide features for HA-NA segment matching
 
 **Status: IN PROGRESS**
 
@@ -263,16 +263,6 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    implemented output-path change: rerunning `preprocess_flu.py` will write the reports to the
    top-level processed-data directory again.
 
-   **Audit findings (2026-09-02) — RESOLVED (2026-09-03).**
-   - Stage 1.5 now accepts only boolean values or the exact strings `True` and `False`.
-     Missing or unrecognized values raise `ValueError`.
-   - New regression tests cover `starts_with_m`, flag parsing and propagation,
-     `is_complete_cds`, the function-aware duplicate key, and both duplicate strategies.
-   - `handle_assembly_duplicates` now documents its full key and rejects invalid strategies.
-   - `extract_cds_dna.py` now documents the correct `cds_dna_seq` and `ctg_dna_seq`
-     column names and describes the six `TAR` terminal codons accurately.
-   - All 28 focused preprocessing tests pass.
-
 1. **Filter — DONE (2026-09-01).** Two conditions are needed, not one.
    - `is_complete_cds` alone does not guarantee equal length: 5 NA sequences are complete but the wrong length (1407 nt x3, 1413, 1416).
    - Length is a property of the whole population, not of one record, so it cannot be decided during preprocessing. Both conditions — complete AND at the pinned length — are applied together, on the protein rows, before pairs are built.
@@ -416,14 +406,14 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    **What this step alone cannot tell you.** A handful of sites carrying most of the model's decision is equally consistent with those positions carrying real lineage signal and with their being the most efficient way to identify a sequence — the memorisation risk. Step 7 is what separates them.
 
 7. **Masking and shuffling — DONE (2026-09-02), in four passes.**
-   - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the 1st attempts kept answering a narrower question than the one asked:
+   - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the first attempts kept answering a narrower question than the one asked:
      - **7a** — can one side alone predict anything?
      - **7b(i)** — does the fitted model depend on one site at a time?
      - **7b(ii)** — does it depend on a group of top sites together, still without retraining?
      - **7b(iii)** — same as 7b(ii), but the model is retrained on the corrupted data.
      - **7c** — does the score depend on having seen a sequence before?
 
-   **7a. One side alone — DONE (2026-09-02), passes.** Run 1st, because a failure here would mean the importance map in step 6 is not worth interpreting.
+   **7a. One side alone — DONE (2026-09-02), passes.** Run first, because a failure here would mean the importance map in step 6 is not worth interpreting.
    - New config option `site.slots: a | b | both` (`conf/site/default.yaml`, default `both`) keeps one slot's columns and drops the other. New bundles `flu_ha_na_h3n2_2024_random_cv4_site_codon_slot_a` and `..._slot_b`.
 
    | arm | columns | F1 macro | AUC-ROC | precision |
@@ -505,7 +495,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    **7c. Compare scores on sequences seen in training vs. never seen — DONE (2026-09-02). Memorisation is not what carries the result.**
    - `src/analysis/plot_seen_sequence_effect.py`. The model is left completely alone; the test rows are split instead, by whether each slot's sequence also appears somewhere in that fold's training split.
    - Reads the already-saved `test_predicted.csv` files, so any feature source (k-mer, per-site nt, per-site codon) can be compared on the exact same rows.
-   - Checked 1st, before anything else: zero `pair_key` overlap between train and test in every fold. So this test is strictly about whether the INDIVIDUAL SEQUENCES were seen before, never about whether the exact PAIR (the answer) was seen before.
+   - Checked first, before anything else: zero `pair_key` overlap between train and test in every fold. So this test is strictly about whether the INDIVIDUAL SEQUENCES were seen before, never about whether the exact PAIR (the answer) was seen before.
 
    | arm | all rows | neither seen | slot a seen | slot b seen | both seen |
    |---|---|---|---|---|---|
@@ -590,7 +580,7 @@ Confirmed: for every one of these, the DNA length exactly matches the protein le
 Our extraction never disagrees with its source. So nothing is corrupted.
 
 It matters here because per-site features number the positions 1, 2, 3... and compare position 200
-across sequences. If one record is missing the 1st 20 letters, its position 200 is a different
+across sequences. If one record is missing the first 20 letters, its position 200 is a different
 place than everyone else's, and the comparison is meaningless.
 
 ### Do the protein check and the DNA check agree?
@@ -629,7 +619,7 @@ that key and would otherwise overwrite silently.
 
 - **The minus-strand path is never exercised.** All 2,070,209 features in the corpus are on the `+`
   strand, so `extract_cds_dna`'s reverse-complement branch has never run on real data. If it ever
-  does with a multi-exon feature, check the exon order 1st: reverse-complementing a concatenation
+  does with a multi-exon feature, check the exon order first: reverse-complementing a concatenation
   reverses exon order, and the code assumes the order in `location` is already correct. Single-exon
   minus-strand is unambiguous and safe.
 - **`genetic_code` is 11 on every row, but translation uses NCBI table 1.** This is correct —
@@ -646,7 +636,7 @@ that key and would otherwise overwrite silently.
   ESM-2-specific rule is deciding the contents of a shared artifact.
 - **Dead code.** The "drop unassigned replicons" filter in `apply_protein_basic_filters` removes 0
   rows and cannot fire: canonical-segment assignment already requires a mapped replicon, and that
-  filter runs 1st. It still writes an empty CSV.
+  filter runs first. It still writes an empty CSV.
 - **Module globals in functions.** `validate_protein_counts` reads `core_functions` and
   `analyze_protein_counts_per_file` reads `output_dir` from module scope rather than taking them as
   parameters.
