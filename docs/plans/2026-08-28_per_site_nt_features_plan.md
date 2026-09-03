@@ -491,6 +491,10 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
 
 5. **Train and compare — DONE (2026-09-02).** LGBM trained on all four pinned-length folds; every arm uses the same folds, so the comparisons are paired.
 
+   **Goal.** Compare per-site `nt`/`codon`/`aa` features against the k-mer baseline, and against
+   each other, under matched folds, so any difference in score comes from the features rather
+   than the split.
+
    | arm | columns | F1 macro | F1 | AUC-ROC |
    |---|---|---|---|---|
    | k-mer k=6 (nt_cds) | 8,192 | 0.9094 +/- 0.0145 | 0.9159 +/- 0.0122 | 0.9564 +/- 0.0064 |
@@ -507,11 +511,32 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | `codon` vs `aa` | **+0.1067** | 4 of 4 | **0.002** |
    | `nt` vs `codon` | +0.0033 | 3 of 4 | 0.509 |
 
-   - **Per-site features at least match k-mers.** `nt` wins on every fold, but with only 4 folds the difference is not statistically significant (p=0.128), so the fair claim is "matches", not "beats" — and it does that with 3,111 columns instead of 8,192. `codon` (1,037 columns, a third of `nt`'s width) is statistically indistinguishable from `nt` (p=0.509).
-   - **Silent (synonymous) changes carry most of the signal.** `codon` and `aa` cover the exact same 1,037 positions in the exact same records — the only difference is whether a DNA change that does not change the amino acid is visible to the model. Removing that information costs **0.107 F1 macro**, on every fold, p=0.002 — by far the largest effect measured, roughly an order of magnitude above the k-mer-vs-per-site gap.
-     - One interpretation, not separately tested: synonymous changes are close to neutral, so they drift with lineage and can act like a lineage marker, while aa changes are shaped by selection and can end up similar across different lineages. Under that reading, the matching signal is carried mostly in the DNA rather than the protein — at least at the level of detail a per-site categorical feature can capture.
-     - **This has not been tested for ESM-2**, which reads 1,280 continuous dimensions rather than 22 categories per site. It should not be assumed to hold there.
-   - **The memorisation risk is bounded here, but not yet ruled out at this step.** Under a random split, some sequences appear in both train and test, and a per-site vector could in principle almost identify which exact sequence it is. Measured: 18-21% of test HA sequences and 22-26% of test NA sequences also appear somewhere in training, but only **7-10% of test rows have BOTH sequences already seen in training**, and `pair_key` overlap between train and test is 0 in every fold — no test pair was trained on. So recalling a specific pairing could explain at most about a tenth of the test set. The `aa` result by itself cannot separate "the model is relying on memory" from "removing synonymous positions removes real signal", because both would look the same here. Step 7 is what separates them.
+   - **Per-site features at least match k-mers.** `nt` wins on every fold, but with only 4 folds
+     the difference is not statistically significant (p=0.128), so the fair claim is "matches,"
+     not "beats." It does that with 3,111 columns instead of 8,192. `codon` (1,037 columns, a
+     third of `nt`'s width) is statistically indistinguishable from `nt` (p=0.509).
+   - **Silent (synonymous) changes carry most of the signal.** `codon` and `aa` cover the exact
+     same 1,037 positions in the exact same records. The only difference is whether a DNA
+     change that does not change the amino acid is visible to the model. Removing that
+     information costs **0.107 F1 macro** on every fold (p=0.002). This is by far the largest
+     effect measured, roughly an order of magnitude above the k-mer-vs-per-site gap.
+     - One interpretation, not separately tested: synonymous changes are close to neutral, so
+       they drift with lineage and can act like a lineage marker, while aa changes are shaped
+       by selection and can end up similar across different lineages. Under that reading, the
+       matching signal is carried mostly in the DNA rather than the protein, at least at the
+       level of detail a per-site categorical feature can capture.
+     - **This has not been tested for ESM-2**, which reads 1,280 continuous dimensions rather
+       than 22 categories per site. It should not be assumed to hold there.
+   - **The memorisation risk is bounded here, but not yet ruled out at this step.** Under a
+     random split, some sequences appear in both train and test, and a per-site vector could in
+     principle almost identify which exact sequence it is. Measured: 18-21% of test HA
+     sequences and 22-26% of test NA sequences also appear somewhere in training, but only
+     **7-10% of test rows have BOTH sequences already seen in training**, and `pair_key`
+     overlap between train and test is 0 in every fold, so no test pair was trained on. So
+     recalling a specific pairing could explain at most about a tenth of the test set. The `aa`
+     result by itself cannot separate "the model is relying on memory" from "removing
+     synonymous positions removes real signal," because both would look the same here. Step 7
+     is what separates them.
 
 6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the `codon` arm (1,037 columns — statistically the same as `nt` at a third of the width, and one column per aa position, so a site number IS a residue number).
 
