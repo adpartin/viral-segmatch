@@ -255,12 +255,11 @@ def filter_complete_cds_at_pinned_length(
     """Keep only the protein rows whose CDS is complete and at the length pinned for its protein.
 
     Per-site features give every position in the CDS its own column, so position 200 must be the
-    same place in every sequence. Two conditions make that true, and they are different kinds of
-    statement. `is_complete_cds` (written by Stage 1.5) is a fact about one record: it starts
-    ATG, ends in a stop, and has no internal stop, so it covers the whole CDS. The pinned length
-    is a fact about the population, which is why it comes from `conf/virus/flu.yaml` `cds_length`
-    rather than being re-derived per run -- a per-run value can differ between populations and
-    make two runs non-comparable without anything failing.
+    same place in every sequence. Two conditions make that true. `is_complete_cds` (written by
+    Stage 1.5) is a fact about one record: it starts ATG, ends in a stop, and has no internal stop,
+    so it covers the whole CDS. The pinned length is a fact about the population, so it comes from
+    `conf/virus/flu.yaml` `cds_length` rather than being re-derived per run -- a per-run value can
+    differ between populations and make two runs non-comparable without anything failing.
 
     Both conditions are applied even where one is redundant. On H3N2 2024 every HA at 1701 nt and
     every NA at 1410 nt is already complete, so the length test alone would give the same answer;
