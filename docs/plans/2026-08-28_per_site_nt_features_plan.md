@@ -228,7 +228,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
 
          is_complete_cds = starts_with_m & has_terminal_stop & ~has_internal_stop
 
-   - The three source flags are retained so that later experiments can choose their own
+   - The 3 source flags are retained so that later experiments can choose their own
      completeness rule.
    - `handle_assembly_duplicates` now uses `[prot_seq, assembly_id, function]` as its key.
      The previous key omitted `function` and could collapse two different protein annotations
@@ -263,39 +263,81 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    implemented output-path change: rerunning `preprocess_flu.py` will write the reports to the
    top-level processed-data directory again.
 
-1. **Filter — DONE (2026-09-01).** Two conditions are needed, not one.
-   - `is_complete_cds` alone does not guarantee equal length: 5 NA sequences are complete but the wrong length (1407 nt x3, 1413, 1416).
-   - Length is a property of the whole population, not of one record, so it cannot be decided during preprocessing. Both conditions — complete AND at the pinned length — are applied together, on the protein rows, before pairs are built.
+1. **Filter — DONE (2026-09-01).** The filter applies two conditions, not one.
+   - Completeness alone does not guarantee equal length. 5 NA sequences are complete but the
+     different length from the rest: 3 at 1,407 nt, 1 at 1,413 nt, and 1 at 1,416 nt.
+   - Length is a property of the population, not of a single record, so it cannot be decided
+     during preprocessing. Thus, the filter checks both conditions together, on the protein
+     rows, before pairs are built: 1) a record must be complete, 2) it must be at the pinned
+     length.
 
-   **Result on H3N2 2024:**
-   - HA: 2,792 unique CDS → 2,785 kept (7 dropped for incomplete, 0 for wrong length).
-   - NA: 2,415 → 2,301 kept (109 incomplete, 5 complete but wrong length).
-   - Protein rows: 10,964 → 10,787.
-   - Unique positive pairs: 3,723 → 3,580 (96.2% kept).
-   - Every CDS in the built folds is now exactly one length: HA went from 5 different lengths to 1, NA from 15 to 1, and both are 100% complete. That is what this step exists to guarantee.
-   - The folds end up with 2,732 unique HA and 2,298 unique NA (fewer than the 2,785 / 2,301 kept above), because 169 isolates carry only one of the two proteins and so never form a pair.
+   **Result on H3N2 2024.**
+   - `HA`: 2,792 unique CDS -> 2,785 kept. 7 were dropped because they were incomplete; none were
+     dropped for being a different length.
+   - `NA`: 2,415 unique CDS -> 2,301 kept. 114 were dropped: 109 were incomplete, and
+     another 5 were complete but different length (3 at 1,407 nt, 1 at 1,413 nt, and 1
+     at 1,416 nt).
+   - Protein rows: 10,964 -> 10,787, counting one row per isolate per protein (not unique sequences).
+   - Unique positive pairs (HA-NA): 3,723 -> 3,580, or 96.2%.
+   - The CV folds contain `2,732` unique HA sequences and `2,298` unique NA sequences, fewer than the
+     2,785 and 2,301 kept above. The difference is 169 isolates that carry only one of the two
+     proteins that meet the filtering criteria.
 
-   **K-mer baseline re-run on the filtered folds:** F1 macro 0.9094 +/- 0.0145, against 0.9177 +/- 0.0086 on the unfiltered folds. The 0.008 drop is smaller than the normal spread across folds, so the filter itself does not change what k-mers can do on this population — the wider spread is the cost of having 4% fewer pairs. **0.9094 is the number per-site features have to beat.**
+   **Matched k-mer baseline.** The k-mer model was re-run on the filtered folds and obtained
+   an F1 macro of 0.9094 ± 0.0145. The earlier value of 0.9177 ± 0.0086 was measured on the
+   unfiltered population (0.008 difference). 0.9094 is the baseline that per-site features are
+   compared against in step 5.
 
-   - **Config.** New setting `dataset.require_complete_cds_at_pinned_length` in `conf/dataset/default.yaml`, off by default. Off by default because turning it on changes which rows survive; leaving it on would silently change every nt_cds dataset built before it existed and make old results impossible to reproduce.
-   - **Naming.** Not called "canonical" in code. That word is already used for two other things in this repo — `canonical_segment` (the segment label) and `canonical_pair_key` (the order-invariant dedup key, `'__'.join(sorted([hash_a, hash_b]))`). A 3rd meaning as an identifier would be ambiguous. The word used here is "pinned" (`check_cds_length(..., pinned_nt)`, and the comment in `flu.yaml`). In plain sentences "canonical length" is still fine and is still used in `flu.yaml` and in `check_cds_length`'s error text — the naming rule is about identifiers, not prose.
-   - **Implementation.** `_pair_helpers.filter_complete_cds_at_pinned_length`, called from `dataset_segment_pairs.py` right before the `cds_dna_hash` attach step. It checks `(assembly_id, function)` membership rather than doing a merge, so a duplicate key in `cds_dna_final` cannot silently multiply protein rows. `dataset_pairs_cc.py` (the 2D-CD builder) does NOT read this flag yet.
-   - **Where the target length comes from.** `conf/virus/flu.yaml` `cds_length` (HA 1701, NA 1410) — not "the most common length in this run", because that value can drift between different populations and quietly make two importance maps impossible to compare. `src.utils.cds_utils.check_cds_length` re-derives the most common length from the complete CDS this run actually loaded and fails if it disagrees with the pinned value, or if fewer than 90% of records hit that length. Both failure cases were tested and do fire: PB1 (no pinned length exists for it) and H5N1 HA (real length 1704, against the H3N2/H1N1 pin of 1701). The pinned-length table only covers H3N2 and H1N1; PB1 and NS1 are left out because neither has one fixed length across subtypes and years.
-   - **Bundle.** `flu_ha_na_h3n2_2024_random_cv4_pinned_length` — a new bundle that inherits the unfiltered one and adds the flag, rather than editing the unfiltered bundle in place. This keeps the 0.9177 result reproducible from its own unchanged recipe.
-   - **Regression check.** Rebuilding the unfiltered dataset with the modified code reproduces the existing run byte-for-byte across all 12 fold splits — so the change has no effect when the flag is off.
+   **Config.** The filter is controlled by `dataset.require_complete_cds_at_pinned_length` in
+   `conf/dataset/default.yaml`, and defaults to `off`. If it were `on` by default, every existing
+   nt_cds dataset would change the next time it was rebuilt, and previously reported results would no longer be reproducible.
+
+   **Naming.** For the length, we use the word "pinned" (`check_cds_length(..., pinned_nt)`, and
+   the comment in `flu.yaml`) rather than "canonical" in code, because that word already names
+   `canonical_segment` (the segment label) and `canonical_pair_key`. In plain sentences, we may
+   still use "canonical length".
+
+   **Implementation.** The filter is implemented in
+   `_pair_helpers.filter_complete_cds_at_pinned_length` and is called from
+   `dataset_segment_pairs.py` immediately before the `cds_dna_hash` attach step.
+   `dataset_pairs_cc.py` (2D-CD builder) does not read this flag yet.
+
+   **Source of the target length.** The target length is read from `conf/virus/flu.yaml`
+   `cds_length` (HA 1,701 nt, NA 1,410 nt), not computed as the most common length in the current
+   run, because a per-run value can drift between populations and make two importance maps
+   impossible to compare without raising any error. `src.utils.cds_utils.check_cds_length`
+   re-derives the most common length from the complete CDS actually loaded and raises an error if
+   that value disagrees with the pinned value, or if fewer than 90% of records reach that length.
+   Both failure conditions were tested and do fire: PB1 has no pinned length, and H5N1 HA's real
+   length (1,704 nt) does not match the H3N2/H1N1 pin of 1,701 nt. The pinned-length table
+   currently covers H3N2 and H1N1 only; PB1 and NS1 are excluded because neither has one fixed
+   length across subtypes and years.
+
+   **Bundle.** The filtered config bundle lives in `flu_ha_na_h3n2_2024_random_cv4_pinned_length.yaml`,
+   which inherits the unfiltered bundle and adds the flag. This keeps the 0.9177 result reproducible
+   from its own, unchanged bundle.
+
+   **Regression check.** Rebuilding the unfiltered dataset (i.e., the flag is `off`) with the modified
+   code reproduced the existing run byte-for-byte across all 12 fold splits.
 
 2. **Entropy map — DONE (2026-09-01).** `src/analysis/plot_site_entropy.py`.
-   - What it does: stacks the kept sequences into a matrix (rows = unique CDS, columns = positions) and computes Shannon entropy down each column.
-   - Output: `site_entropy.png` and one `site_entropy_{SHORT}.csv` per protein, written to `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/site_entropy/`. Step 6 reads the CSV against the importance map.
-   - Uses unique CDS, not pair rows — a heavily sampled strain would otherwise dominate the answer.
-   - Uses all splits (train + val + test), because nothing is being fit here. If entropy is ever used to select which positions to keep, it must be recomputed on the training split only.
+   - The script stacks complete, same length sequences into a matrix (rows: unique CDS; columns:
+     positions) and computes Shannon entropy down each column.
+   - Output: `site_entropy.png` and one `site_entropy_{protein}.csv` per protein, written to
+     `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/site_entropy/`.
+     Step 6 reads the CSV against the importance map.
+   - It uses unique CDS (not pair rows) across all splits (train, val, and test).
 
    **Conservation.**
-   - HA: 2,732 unique CDS, mean entropy 0.0577 bits, 550 of 1,701 positions never vary (32.3%).
-   - NA: 2,298 unique CDS, mean entropy 0.0580 bits, 506 of 1,410 positions never vary (35.9%).
-   - The maximum possible entropy for 4 bases is 2 bits, so both proteins are strongly conserved with a few variable spots.
+   - `HA`: 2,732 unique CDS, mean entropy 0.0577 bits. 550 of 1,701 positions never vary
+     (32.3%).
+   - `NA`: 2,298 unique CDS, mean entropy 0.0580 bits. 506 of 1,410 positions never vary
+     (35.9%).
+   - The maximum possible entropy for 4 bases is 2 bits, so both proteins are strongly
+     conserved with a few variable spots.
 
-   **Checking the positions really line up.** Two checks; the 2nd is the sharper one.
+   **Checking the positions really line up.** Two checks confirm this. The 2nd is the sharper
+   test.
 
    | | mean bits | 1st codon pos. | 2nd | 3rd | 3rd/1st ratio |
    |---|---|---|---|---|---|
@@ -303,10 +345,20 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | NA, as built | 0.0580 | 0.0376 | 0.0281 | 0.1084 | 2.88x |
    | HA, each sequence shifted 0-2 nt | 1.0971 | 1.0970 | 1.0981 | 1.0963 | 1.00x |
 
-   - 3rd codon positions are the most variable and 2nd the least, in both proteins — the expected pattern, since most changes at the 3rd position of a codon do not change the amino acid, and most changes at the 2nd position do. This pattern is what shows the reading frame is correct; a flat entropy trace would not.
-   - The last row is the negative control: shift each sequence by a random 0, 1, or 2 nucleotides, so positions no longer line up. Mean entropy jumps 19-fold and the codon-position pattern flattens to 1.00x. This shows the check would actually catch a misalignment if one existed.
-   - Separate sanity check: shuffling each column's values independently (instead of shifting sequences) leaves the entropy numbers identical to four decimals, as it must — entropy is computed per column.
-   - This check catches wholesale misalignment, not one or two shifted sequences. The completeness-and-length filter from step 1 is what rules those out, since an internal shift would need an insertion and a deletion that exactly cancel.
+   - 3rd codon positions are the most variable and 2nd the least, in both proteins. This is
+     the expected pattern, since most changes at the 3rd position of a codon do not change
+     the amino acid, and most changes at the 2nd position do. The pattern shows the reading
+     frame is correct; a flat entropy trace would not.
+   - The last row is the negative control. Each sequence is shifted by a random 0, 1, or 2
+     nucleotides, so positions no longer line up. Mean entropy jumps 19-fold and the
+     codon-position pattern flattens to 1.00x, showing that the check would actually catch a
+     misalignment if one existed.
+   - A separate sanity check confirms the metric itself: shuffling each column's values
+     independently, instead of shifting sequences, leaves the entropy numbers identical to 4
+     decimals. This is expected, since entropy is computed per column.
+   - This check catches wholesale misalignment, not one or two shifted sequences. The
+     completeness-and-length filter from step 1 rules those out, since an internal shift
+     would need an insertion and a deletion that exactly cancel.
 
 3. **Feature builder — DONE (2026-09-01).** `src/embeddings/compute_site_features.py`, alongside `compute_esm2_embeddings.py` and `compute_kmer_features.py`.
    - New config group `conf/site/default.yaml` (`unit`, `encoding`), registered in `conf/bundles/flu_base.yaml` next to `/kmer`. The four new terms are defined in `docs/methods/glossary.md`.
