@@ -84,9 +84,17 @@ def column_entropy(matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     values = np.unique(matrix)
     counts = np.stack([(matrix == v).sum(axis=0) for v in values]).astype(np.float64)
     proportions = counts / n
-    terms = np.where(proportions > 0,
-                     -proportions * np.log2(proportions, where=proportions > 0), 0.0)
-    return terms.sum(axis=0), (counts > 0).sum(axis=0)
+
+    # Shannon entropy term per value: -p * log2(p), with the standard convention that a value
+    # that never appears (p=0) contributes 0, not NaN. `where=has_proportion` on log2 also stops
+    # numpy warning about log2(0), since that entry is overwritten by np.where regardless.
+    has_proportion = proportions > 0
+    log2_proportions = np.log2(proportions, where=has_proportion)
+    terms = np.where(has_proportion, -proportions * log2_proportions, 0.0)
+
+    entropy_bits = terms.sum(axis=0)
+    n_values = (counts > 0).sum(axis=0)
+    return entropy_bits, n_values
 
 
 class SiteCache(NamedTuple):
