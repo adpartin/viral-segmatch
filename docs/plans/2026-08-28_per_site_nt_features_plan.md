@@ -729,11 +729,15 @@ Note what the negative label means. It means "recombined and not observed co-occ
 "biologically incompatible". Sequence proximity makes compatibility plausible, but nothing here
 supplies biological ground truth.
 
-**The measurement.** For each negative pair, `distance_to_nearest_positive` is the smallest number
-of differing sites between that pair and any TP pair, counted on the one slot that
-differs. The minimum of the two slots is used, because the pair looks positive if either side is
-nearly right. `src/analysis/plot_negative_pair_ambiguity.py` computes this from the saved
-`test_predicted.csv` files. It retrains nothing and corrupts no features.
+**The measurement.** Each slot of a negative pair gets its own distance to that slot's nearest
+observed partner, written out as `distance_slot_a` and `distance_slot_b`. A sequence can co-occur
+with several partners, so there is no single correct partner to compare against. The two are then
+reduced to one number for binning: `distance_min` by default, with `distance_mean` and
+`distance_max` available. The summary is part of the column name and of every output filename,
+because only `min` is a distance to the NEAREST positive and a `mean` run must not be mistaken for
+a `min` run. Distances are measured against every observed co-occurrence, which is the set the
+negative sampler blocks against. `src/analysis/plot_negative_pair_ambiguity.py` computes this from
+the saved `test_predicted.csv` files. It retrains nothing and corrupts no features.
 
 **Result**, pooled over the 4 random-CV folds of the per-site `nt` arm (3,580 negatives):
 
@@ -755,9 +759,14 @@ FPs may simply be holding most of the negatives, which is exactly what happens h
 | 10 nt | 77.4% | 96.6% | 1.25x |
 
 So "96.6% of the FPs sit within 10 nt" mostly restates that 77.4% of the negatives already do.
-The 5 nt row is the honest headline: 28.6% of the negatives carry 69.2% of the FPs. The k-mer
-arm gives the same shape on the same negatives, so this is a property of the data rather than of
-one feature source.
+The 5 nt row is the honest headline: 28.6% of the negatives carry 69.2% of the FPs.
+
+Note which column belongs to which. The distances and the bin sizes describe the sampler and the
+population, and are identical for every model scored on these negatives. The FPRs and the
+enrichment describe one fitted model at a 0.5 threshold. The k-mer arm gives the same shape on the
+same negatives, which shows the effect is not specific to one feature representation. It does not
+make the errors model-independent, because a different model or a different threshold would move
+the rates.
 
 No negatives sit at distance 0. A distance-0 substitution would produce the same `pair_key` as a
 real TP pair, and the negative sampler rejects any candidate whose `pair_key` is a known co-occurrence.

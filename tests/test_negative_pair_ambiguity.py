@@ -9,7 +9,8 @@ Covers:
   6. positive_universe reads the co-occurrence file, recovers which hash belongs to which slot
      regardless of the sorted pair_key order, skips rows outside the caches, and raises when the
      file is missing or nothing maps
-  7. bin_false_positive_rate counts negatives and false positives per bin
+  7. distance_column names each summary distinctly, so a mean run cannot pose as a min run
+  8. bin_false_positive_rate counts negatives and false positives per bin
 
 Run: python tests/test_negative_pair_ambiguity.py
 """
@@ -29,6 +30,7 @@ from src.analysis.plot_negative_pair_ambiguity import (  # noqa: E402
     bin_false_positive_rate,
     bin_labels,
     check_bin_edges,
+    distance_column,
     positive_universe,
     site_distance,
     slot_distances,
@@ -160,12 +162,20 @@ def test_positive_universe_raises_when_unusable():
             positive_universe(dataset_dir, cache_a, cache_b)
 
 
+def test_distance_column_names_the_summary():
+    # The summary is in the name so a mean run cannot be read as, or overwrite, a min run.
+    assert distance_column('min') == 'distance_min'
+    assert distance_column('mean') == 'distance_mean'
+    assert distance_column('max') == 'distance_max'
+    assert len({distance_column(h) for h in ('min', 'mean', 'max')}) == 3
+
+
 def test_bin_false_positive_rate():
     negatives = pd.DataFrame({
-        'distance_to_nearest_positive': [0, 1, 4, 4, 7, 30],
+        'distance_min': [0, 1, 4, 4, 7, 30],
         'is_false_positive': [True, True, True, False, False, False],
     })
-    bins = bin_false_positive_rate(negatives, EDGES, 'run0')
+    bins = bin_false_positive_rate(negatives, EDGES, 'run0', 'distance_min')
 
     assert list(bins['bin_label']) == ['0-2', '3-5', '6-10', '>10']
     assert list(bins['n_negatives']) == [2, 2, 1, 1]
@@ -182,6 +192,7 @@ if __name__ == '__main__':
         test_slot_distances_reports_each_slot_independently,
         test_slot_distances_takes_the_closest_of_several_partners,
         test_summarize_slots,
+        test_distance_column_names_the_summary,
         test_positive_universe_recovers_slots_from_sorted_pair_keys,
         test_positive_universe_raises_when_unusable,
         test_bin_false_positive_rate,

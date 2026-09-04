@@ -34,7 +34,10 @@
 # dataset_segment_pairs.py's single-split split_dataset_v2 call, which did not thread
 # negative_scope and so silently fell back to the 'coverage' sampler. That produced 492 test
 # negatives against 358 requested (1.374 neg:pos) and depressed precision by about 0.039 through
-# class balance alone, with no effect on AUC-ROC.
+# class balance alone. Prevalence on its own cannot move AUC-ROC, because AUC-ROC is a ranking
+# measure, so that 0.039 is a pure precision artifact. Rebuilding is a different matter: it drew a
+# different set of negatives and refit the model, which did move AUC-ROC (k-mer 0.9546 -> 0.9438,
+# site nt 0.9598 -> 0.9512). Do not read the first fact as predicting the second.
 defaults:
   - flu_ha_na_h3n2_2024_random_cv4_pinned_length
   - _self_
