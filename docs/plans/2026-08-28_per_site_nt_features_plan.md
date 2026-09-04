@@ -739,23 +739,23 @@ nearly right. `src/analysis/plot_negative_pair_ambiguity.py` computes this from 
 
 | distance to nearest positive pair | negatives | FPR (=FP/N) |
 |---|---:|---:|
-| 0-2 nt | 155 | 0.832 |
-| 3-5 nt | 775 | 0.258 |
-| 6-10 nt | 1,821 | 0.081 |
-| 11-20 nt | 566 | 0.030 |
-| >20 nt | 263 | 0.008 |
+| 0-2 nt | 176 | 0.824 |
+| 3-5 nt | 847 | 0.234 |
+| 6-10 nt | 1,748 | 0.078 |
+| 11-20 nt | 547 | 0.027 |
+| >20 nt | 262 | 0.008 |
 
 Read the concentration as enrichment, not as a raw share of the FPs. A bin that holds most of the
 FPs may simply be holding most of the negatives, which is exactly what happens here:
 
 | within | share of negatives | share of FPs | enrichment |
 |---|---:|---:|---:|
-| 2 nt | 4.3% | 26.0% | 6.01x |
-| 5 nt | 26.0% | 66.3% | 2.55x |
-| 10 nt | 76.8% | 96.2% | 1.25x |
+| 2 nt | 4.9% | 29.2% | 5.95x |
+| 5 nt | 28.6% | 69.2% | 2.42x |
+| 10 nt | 77.4% | 96.6% | 1.25x |
 
-So "96% of the FPs sit within 10 nt" mostly restates that 76.8% of the negatives already do. The
-5 nt row is the honest headline: a quarter of the negatives carry two thirds of the FPs. The k-mer
+So "96.6% of the FPs sit within 10 nt" mostly restates that 77.4% of the negatives already do.
+The 5 nt row is the honest headline: 28.6% of the negatives carry 69.2% of the FPs. The k-mer
 arm gives the same shape on the same negatives, so this is a property of the data rather than of
 one feature source.
 
@@ -765,8 +765,8 @@ The near-duplicate negatives are therefore distinct sequences that happen to be 
 duplicate sequences. Per-side sequence deduplication would not remove them.
 
 **What this does and does not establish.** These rows are hard, not unlabelable. Even in the
-nearest bin the per-site `nt` model classifies 26 of the 155 negatives correctly, and k-mer
-classifies 24 of them. At 3-5 nt the model gets 74% of them right. No negative sits at distance 0,
+nearest bin the per-site `nt` model classifies 31 of the 176 negatives correctly, and k-mer
+classifies 29 of them. At 3-5 nt the model gets 77% of them right. No negative sits at distance 0,
 so no identical feature vector ever carries both labels, and a pair differing by 1-2 nt is still a
 different input to a per-site model. Saying these pairs cannot be separated would go beyond the
 measurement.
@@ -780,8 +780,9 @@ surprising on its own. The size of the effect is the informative part, not its d
 
 The distance definition is one choice among several. Taking the minimum over the two slots answers
 "how close is this pair to a positive after changing whichever single slot needs less change", and
-it is slot-sensitive, since the shorter NA supplies the minimum far more often than HA. Every site
-also counts equally, which is not how the model weights them.
+it is slot-sensitive, since the shorter NA supplies it for 75% of the negatives against 25% for
+HA. Every site also counts equally, which is not how the model weights them. Both per-slot
+distances are written to the CSV so the summary can be recomputed.
 
 The distance is nt identity over aligned CDS positions. It is not a phylogenetic
 assignment, so "near-duplicate" here means sequence-similar and not confirmed same-clade.

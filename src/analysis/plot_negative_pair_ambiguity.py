@@ -16,7 +16,7 @@ supplies biological ground truth, so a near-duplicate negative should not be tre
 mislabelled row.
 
 These rows are hard, not unlabelable. On H3N2 2024 HA-NA the per-site `nt` model still classifies
-26 of the 155 closest negatives (0-2 nt) correctly, and k-mer classifies 24 of them. No negative
+31 of the 176 closest negatives (0-2 nt) correctly, and k-mer classifies 29 of them. No negative
 sits at distance 0, so no identical feature vector ever carries contradictory labels. Claiming
 these rows cannot be separated goes beyond what this measurement supports.
 
@@ -26,20 +26,25 @@ compared. That gap is also threshold-dependent: on the pooled random-CV folds th
 near a 0.5 threshold shifted to about 0.70 (312 false positives against 310 false negatives), which
 a concentration measured only over negatives cannot account for.
 
-The measure. For a negative pair `(a, b)`, `distance_to_nearest_positive` is the smallest number of
-differing sites between that pair and any true positive pair, counted on the one slot that differs:
-the distance from `b` to a true partner of `a`, or from `a` to a true partner of `b`, whichever is
-smaller. Taking the minimum answers one specific question, "how close is this pair to a positive
-after changing whichever single slot needs less change", and it is not the only defensible
-summary. It is also slot-sensitive, since the shorter NA supplies the minimum far more often than
-HA. Mean or maximum over the two slots are reasonable alternatives that weight the slots evenly.
-Distance is measured in sites of `--unit`, on the per-site cache, which is aligned by construction
-and so makes a position-by-position comparison meaningful. Every site counts equally, which is not
-how the model weights them.
+The measure. For a negative pair `(a, b)` each slot gets its own distance. `distance_slot_b` is the
+fewest differing sites between `b` and a true partner of `a`, and `distance_slot_a` is the mirror.
+Both are written out. `distance_to_nearest_positive` is the summary used for binning, chosen with
+`--distance_summary` and defaulting to the minimum. Taking the minimum answers one specific
+question, "how close is this pair to a positive after changing whichever single slot needs less
+change", and it is not the only defensible summary. It is slot-sensitive, since the shorter NA
+supplies it far more often than HA, so `mean` and `max` are offered as alternatives that weight the
+slots evenly. Distance is measured in sites of `--unit`, on the per-site cache, which is aligned by
+construction and so makes a position-by-position comparison meaningful. Every site counts equally,
+which is not how the model weights them.
+
+The positive universe is every observed co-occurrence, read from the dataset's
+`cooccurring_sequence_pairs.csv`. That is the same set the negative sampler blocks against, so it
+is what "nearest true pair" should be measured against. Using only the run's own test positives
+would miss real pairs that live in the other splits and would understate closeness.
 
 Read concentration as enrichment, not as a raw share. A bin holding most of the false positives may
-simply be holding most of the negatives. On H3N2 2024 HA-NA the enrichment is 6.0x within 2 nt,
-2.55x within 5 nt and only 1.25x within 10 nt, so the near bins are what carry the signal.
+simply be holding most of the negatives. On H3N2 2024 HA-NA the enrichment is 5.95x within 2 nt,
+2.42x within 5 nt and only 1.25x within 10 nt, so the near bins are what carry the signal.
 
 Read the output as a diagnostic of the negative sampler and the population, not of the model.
 
@@ -55,7 +60,8 @@ Outputs (to `--out_dir`, by default derived from the first run dir):
                                              distance distribution for false positives vs
                                              true negatives
     negative_pair_ambiguity_{unit}.csv       one row per negative test pair: run, pair_key,
-                                             distance_to_nearest_positive, differing_slot,
+                                             distance_slot_a, distance_slot_b,
+                                             distance_to_nearest_positive, nearer_slot,
                                              pred_prob, pred_label, is_false_positive
     negative_pair_ambiguity_{unit}_bins.csv  run, bin_label, n_negatives, n_false_positives,
                                              false_positive_rate
@@ -68,6 +74,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -123,24 +130,62 @@ def assign_bin(distances: np.ndarray, edges: tuple) -> np.ndarray:
     return index
 
 
-def true_partner_map(positives: pd.DataFrame, key_col: str, partner_col: str) -> dict:
-    """Map each sequence hash to the hashes it truly pairs with.
+def positive_universe(dataset_dir: Path, cache_a, cache_b) -> tuple:
+    """Read every observed co-occurrence and index it by each slot's hash.
 
-    A hash can carry more than one true partner when the same sequence occurs in several
-    isolates, so the values are lists rather than single hashes.
+    Reads `cooccurring_sequence_pairs.csv`, which the dataset builder writes with one row per
+    sequence pair seen together in at least one isolate. That file is the same set the negative
+    sampler blocks against, so it is the right universe to measure "nearest true pair" against.
+    Building the map from one split's positives instead would miss real pairs that live in the
+    other splits.
+
+    Its `pair_key` is the two hashes sorted lexicographically, so which side is which is recovered
+    by testing membership in each slot's cache. The two proteins differ in length and so never
+    share a cache row.
 
     Args:
-      positives: the label==1 rows of one test split.
-      key_col: hash column to key on.
-      partner_col: hash column holding that key's true partner.
+      dataset_dir: dataset run directory holding `cooccurring_sequence_pairs.csv`.
+      cache_a: per-site cache for the slot-A protein.
+      cache_b: per-site cache for the slot-B protein.
 
     Returns:
-      `{hash: [partner hash, ...]}`.
+      `(partners_of_a, partners_of_b)`, each `{hash: [partner hash, ...]}`.
+
+    Raises:
+      FileNotFoundError: the co-occurrence file is absent.
+      ValueError: no row could be assigned to the two slots, which means the caches and the
+          dataset describe different proteins.
     """
-    partners: dict = {}
-    for key, partner in zip(positives[key_col], positives[partner_col]):
-        partners.setdefault(key, []).append(partner)
-    return partners
+    cooccur_path = dataset_dir / 'cooccurring_sequence_pairs.csv'
+    if not cooccur_path.exists():
+        raise FileNotFoundError(
+            f"missing {cooccur_path}. It is written by src/datasets/dataset_segment_pairs.py; "
+            f"pass --dataset_dir if the run directory does not record its dataset.")
+    cooccur = pd.read_csv(cooccur_path, keep_default_na=False, na_values=[''])
+
+    partners_of_a: dict = {}
+    partners_of_b: dict = {}
+    n_unassigned = 0
+    for pair_key in cooccur['pair_key']:
+        left, _, right = str(pair_key).partition('__')
+        if left in cache_a.hash_to_row and right in cache_b.hash_to_row:
+            hash_a, hash_b = left, right
+        elif right in cache_a.hash_to_row and left in cache_b.hash_to_row:
+            hash_a, hash_b = right, left
+        else:
+            n_unassigned += 1
+            continue
+        partners_of_a.setdefault(hash_a, []).append(hash_b)
+        partners_of_b.setdefault(hash_b, []).append(hash_a)
+
+    if not partners_of_a:
+        raise ValueError(
+            f"{cooccur_path}: no co-occurrence row maps onto the {cache_a.protein} and "
+            f"{cache_b.protein} caches. The caches and the dataset describe different proteins.")
+    if n_unassigned:
+        print(f"WARNING: {n_unassigned:,} of {len(cooccur):,} co-occurrence rows have a sequence "
+              f"outside the per-site caches (off-length or incomplete CDS); skipped.")
+    return partners_of_a, partners_of_b
 
 
 def site_distance(cache, hash_left: str, hash_right: str) -> int:
@@ -163,13 +208,17 @@ def site_distance(cache, hash_left: str, hash_right: str) -> int:
     return n_differing
 
 
-def nearest_positive_distance(hash_a: str, hash_b: str, partners_of_a: dict, partners_of_b: dict,
-                              cache_a, cache_b) -> tuple:
-    """Distance from one negative pair to the closest true positive pair.
+def slot_distances(hash_a: str, hash_b: str, partners_of_a: dict, partners_of_b: dict,
+                   cache_a, cache_b) -> tuple:
+    """Per-slot distance from one negative pair to the closest true positive pair.
 
-    Measured on the single slot that differs. Substituting slot B gives the distance from `hash_b`
-    to a true partner of `hash_a`; substituting slot A gives the mirror. The smaller of the two is
-    returned, because the pair resembles a positive if either side is nearly right.
+    Two independent numbers, one per slot, because either substitution can be the one that makes
+    the pair resemble a positive. Holding slot A fixed and asking how far slot B sits from a true
+    partner of A gives the slot-B distance; the mirror gives the slot-A distance.
+
+    Both are returned rather than only their minimum. The minimum is slot-sensitive, since the
+    shorter protein supplies it far more often, so a caller that summarizes should be able to see
+    what it is summarizing.
 
     Args:
       hash_a: slot-A `cds_dna_hash` of the negative pair.
@@ -180,22 +229,67 @@ def nearest_positive_distance(hash_a: str, hash_b: str, partners_of_a: dict, par
       cache_b: per-site cache for the slot-B protein.
 
     Returns:
-      `(distance, differing_slot)`, or `(None, None)` when neither sequence appears in a positive
-      of this split. `differing_slot` is 'b' when slot B was the substituted side, else 'a'.
+      `(distance_slot_a, distance_slot_b)`, either of which is None when that slot's sequence
+      appears in no observed co-occurrence.
     """
-    candidates = []
+    distance_b = None
     if hash_a in partners_of_a:
         distance_b = min(site_distance(cache_b, hash_b, true) for true in partners_of_a[hash_a])
-        candidates.append((distance_b, 'b'))
+    distance_a = None
     if hash_b in partners_of_b:
         distance_a = min(site_distance(cache_a, hash_a, true) for true in partners_of_b[hash_b])
-        candidates.append((distance_a, 'a'))
-    if not candidates:
-        return None, None
-    return min(candidates)
+    return distance_a, distance_b
 
 
-def analyze_run(run_dir: Path, cache_a, cache_b, run_label: str) -> pd.DataFrame:
+def summarize_slots(distance_a, distance_b, how: str):
+    """Reduce the two per-slot distances to the single value used for binning.
+
+    None of these is uniquely correct. `min` asks how close the pair is after changing whichever
+    one slot needs less change, and is the most direct reading of "resembles a positive", but it
+    is dominated by whichever slot is easier to match. `mean` and `max` weight the slots evenly.
+
+    Args:
+      distance_a: slot-A distance, or None.
+      distance_b: slot-B distance, or None.
+      how: 'min', 'mean' or 'max'.
+
+    Returns:
+      The summarized distance, or None when neither slot could be measured.
+
+    Raises:
+      ValueError: `how` is not one of the three supported summaries.
+    """
+    available = [d for d in (distance_a, distance_b) if d is not None]
+    if not available:
+        return None
+    if how == 'min':
+        return min(available)
+    if how == 'max':
+        return max(available)
+    if how == 'mean':
+        return sum(available) / len(available)
+    raise ValueError(f"summarize_slots: how must be 'min', 'mean' or 'max'; got {how!r}.")
+
+
+def check_bin_edges(edges: tuple) -> None:
+    """Reject bin edges that cannot describe a usable set of bins.
+
+    Args:
+      edges: the upper edges, in sites.
+
+    Raises:
+      ValueError: the edges are empty, negative, or not strictly increasing.
+    """
+    if not edges:
+        raise ValueError('--bin_edges needs at least one upper edge.')
+    if any(edge < 0 for edge in edges):
+        raise ValueError(f'--bin_edges must be non-negative; got {list(edges)}.')
+    if any(later <= earlier for earlier, later in zip(edges, edges[1:])):
+        raise ValueError(f'--bin_edges must be strictly increasing; got {list(edges)}.')
+
+
+def analyze_run(run_dir: Path, cache_a, cache_b, run_label: str, partners_of_a: dict,
+                partners_of_b: dict, summary: str) -> pd.DataFrame:
     """Score every negative test pair of one run by its distance to the nearest positive.
 
     Args:
@@ -203,14 +297,19 @@ def analyze_run(run_dir: Path, cache_a, cache_b, run_label: str) -> pd.DataFrame
       cache_a: per-site cache for the slot-A protein.
       cache_b: per-site cache for the slot-B protein.
       run_label: name recorded in the `run` column.
+      partners_of_a: slot-A hash -> its true slot-B partners, over the whole positive universe.
+      partners_of_b: slot-B hash -> its true slot-A partners.
+      summary: how the two per-slot distances are reduced for binning ('min', 'mean', 'max').
 
     Returns:
-      One row per negative pair, with `distance_to_nearest_positive`, `differing_slot`,
-      `pred_prob`, `pred_label` and `is_false_positive`.
+      One row per negative pair, with `distance_slot_a`, `distance_slot_b`,
+      `distance_to_nearest_positive` (the summary), `nearer_slot`, `pred_prob`, `pred_label` and
+      `is_false_positive`.
 
     Raises:
       FileNotFoundError: the run has no `test_predicted.csv`.
-      ValueError: no negative pair could be scored, which means the caches and the run disagree.
+      ValueError: `pred_label` is not binary, or no negative pair could be scored, which means the
+          caches and the run disagree.
     """
     predictions_path = run_dir / 'test_predicted.csv'
     if not predictions_path.exists():
@@ -221,37 +320,46 @@ def analyze_run(run_dir: Path, cache_a, cache_b, run_label: str) -> pd.DataFrame
     predictions = pd.read_csv(predictions_path, keep_default_na=False, na_values=[''],
                               low_memory=False)
     labels = predictions['label'].astype(int)
-    predicted = predictions['pred_label'].astype(float).round().astype(int)
-
-    positives = predictions[labels == 1]
-    partners_of_a = true_partner_map(positives, 'cds_dna_hash_a', 'cds_dna_hash_b')
-    partners_of_b = true_partner_map(positives, 'cds_dna_hash_b', 'cds_dna_hash_a')
+    # Validated rather than rounded: a non-binary pred_label would mean the run wrote something
+    # other than a hard decision, and silently rounding it would invent one.
+    predicted = predictions['pred_label'].astype(float)
+    unexpected = set(predicted.unique()) - {0.0, 1.0}
+    if unexpected:
+        raise ValueError(
+            f"{predictions_path}: pred_label must be 0 or 1; found {sorted(unexpected)[:5]}.")
+    predicted = predicted.astype(int)
 
     negatives = predictions[labels == 0].copy()
     negatives['pred_label'] = predicted[labels == 0]
-    distances, slots = [], []
+    distances_a, distances_b, summarized = [], [], []
     for hash_a, hash_b in zip(negatives['cds_dna_hash_a'], negatives['cds_dna_hash_b']):
-        distance, slot = nearest_positive_distance(hash_a, hash_b, partners_of_a, partners_of_b,
-                                                   cache_a, cache_b)
-        distances.append(distance)
-        slots.append(slot)
-    negatives['distance_to_nearest_positive'] = distances
-    negatives['differing_slot'] = slots
+        distance_a, distance_b = slot_distances(hash_a, hash_b, partners_of_a, partners_of_b,
+                                                cache_a, cache_b)
+        distances_a.append(distance_a)
+        distances_b.append(distance_b)
+        summarized.append(summarize_slots(distance_a, distance_b, summary))
+    negatives['distance_slot_a'] = distances_a
+    negatives['distance_slot_b'] = distances_b
+    negatives['distance_to_nearest_positive'] = summarized
+    negatives['nearer_slot'] = np.where(
+        pd.isna(negatives['distance_slot_a']), 'b',
+        np.where(pd.isna(negatives['distance_slot_b']), 'a',
+                 np.where(negatives['distance_slot_a'] <= negatives['distance_slot_b'], 'a', 'b')))
     negatives['is_false_positive'] = negatives['pred_label'] == 1
     negatives['run'] = run_label
 
     n_unscored = int(negatives['distance_to_nearest_positive'].isna().sum())
     if n_unscored == len(negatives):
         raise ValueError(
-            f"{run_dir}: no negative pair could be matched to a positive of the same split. "
+            f"{run_dir}: no negative pair could be matched to an observed co-occurrence. "
             f"The per-site caches and this run's pair tables do not describe the same population.")
     if n_unscored > 0:
         print(f"WARNING: {run_label}: {n_unscored:,} of {len(negatives):,} negatives have neither "
-              f"sequence in a positive of this split; dropped.")
+              f"sequence in an observed co-occurrence; dropped.")
     scored = negatives.dropna(subset=['distance_to_nearest_positive']).copy()
-    scored['distance_to_nearest_positive'] = scored['distance_to_nearest_positive'].astype(int)
 
-    columns = ['run', 'pair_key', 'distance_to_nearest_positive', 'differing_slot',
+    columns = ['run', 'pair_key', 'distance_slot_a', 'distance_slot_b',
+               'distance_to_nearest_positive', 'nearer_slot',
                'pred_prob', 'pred_label', 'is_false_positive']
     return scored[columns]
 
@@ -355,19 +463,34 @@ def main() -> None:
     parser.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
     parser.add_argument('--bin_edges', type=int, nargs='+', default=list(DEFAULT_BIN_EDGES),
                         help='ascending upper edges of the distance bins, in sites')
+    parser.add_argument('--dataset_dir', type=Path, default=None,
+                        help='dataset run dir holding cooccurring_sequence_pairs.csv; read from '
+                             'each run\'s training_info.json when absent')
+    parser.add_argument('--distance_summary', default='min', choices=['min', 'mean', 'max'],
+                        help='how the two per-slot distances are reduced for binning; both slot '
+                             'distances are written to the CSV regardless')
     parser.add_argument('--out_dir', type=Path, default=None)
     parser.add_argument('--dpi', type=int, default=200)
     args = parser.parse_args()
 
+    check_bin_edges(tuple(args.bin_edges))
     config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
     function_to_short = get_function_short_name_map(config)
     edges = tuple(args.bin_edges)
 
-    # Both slots' proteins come from the first run's pair table, so the caches match the runs
-    # rather than a bundle default that may name a different schema pair.
-    first = pd.read_csv(args.run_dirs[0] / 'test_predicted.csv', keep_default_na=False,
-                        na_values=[''], low_memory=False, nrows=1)
-    function_a, function_b = first['func_a'].iloc[0], first['func_b'].iloc[0]
+    # Every run must describe the same schema pair, otherwise one pair of caches cannot serve all
+    # of them and the pooled table would silently mix two different populations.
+    schema_pairs = {}
+    for run_dir in args.run_dirs:
+        head = pd.read_csv(run_dir / 'test_predicted.csv', keep_default_na=False,
+                           na_values=[''], low_memory=False, nrows=1)
+        schema_pairs[run_dir.name] = (head['func_a'].iloc[0], head['func_b'].iloc[0])
+    distinct = set(schema_pairs.values())
+    if len(distinct) > 1:
+        raise ValueError(
+            f"--run_dirs mix schema pairs, so one set of caches cannot serve them: "
+            f"{ {name: pair for name, pair in schema_pairs.items()} }.")
+    function_a, function_b = distinct.pop()
     protein_a = function_to_short.get(function_a, function_a)
     protein_b = function_to_short.get(function_b, function_b)
     cache_a = load_site_cache(args.site_dir, args.unit, protein_a)
@@ -375,13 +498,39 @@ def main() -> None:
     print(f"Slots: a={protein_a} ({cache_a.codes.shape[1]:,} sites), "
           f"b={protein_b} ({cache_b.codes.shape[1]:,} sites), unit={args.unit}")
 
+    # The positive universe is every observed co-occurrence, which is what the negative sampler
+    # blocked against. Each run records the dataset it was trained on, so the runs must agree.
+    dataset_dir = args.dataset_dir
+    if dataset_dir is None:
+        recorded = []
+        for run_dir in args.run_dirs:
+            info_path = run_dir / 'training_info.json'
+            if not info_path.exists():
+                raise FileNotFoundError(
+                    f"missing {info_path}, so the dataset cannot be located. Pass --dataset_dir.")
+            with open(info_path) as f:
+                recorded.append(json.load(f)['dataset_dir'])
+        # A CV run records its own fold_k directory, and each fold carries a copy of the
+        # co-occurrence file because the CV generator builds the set once and reuses it. Compare
+        # the parents so folds of one dataset are accepted, then read from a recorded directory.
+        runs_of = {str(Path(d).parent) if Path(d).name.startswith('fold_') else str(d)
+                   for d in recorded}
+        if len(runs_of) > 1:
+            raise ValueError(f"--run_dirs come from different datasets: {sorted(runs_of)}. "
+                             f"Pass --dataset_dir to state which positive universe to use.")
+        dataset_dir = PROJ / recorded[0]
+    partners_of_a, partners_of_b = positive_universe(dataset_dir, cache_a, cache_b)
+    print(f"Positive universe: {dataset_dir}, {len(partners_of_a):,} slot-a and "
+          f"{len(partners_of_b):,} slot-b sequences with a known partner")
+
     if args.out_dir is None:
         args.out_dir = args.run_dirs[0] / 'negative_pair_ambiguity'
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     per_run, bin_tables = [], []
     for run_dir in args.run_dirs:
-        scored = analyze_run(run_dir, cache_a, cache_b, run_dir.name)
+        scored = analyze_run(run_dir, cache_a, cache_b, run_dir.name, partners_of_a, partners_of_b,
+                             args.distance_summary)
         per_run.append(scored)
         bin_tables.append(bin_false_positive_rate(scored, edges, run_dir.name))
         n_false = int(scored['is_false_positive'].sum())
