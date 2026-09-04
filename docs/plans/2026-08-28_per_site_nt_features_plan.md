@@ -511,15 +511,10 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | `codon` vs `aa` | **+0.1067** | 4 of 4 | **0.002** |
    | `nt` vs `codon` | +0.0033 | 3 of 4 | 0.509 |
 
-   - **Per-site features at least match k-mers.** `nt` wins on every fold, but with only 4 folds
-     the difference is not statistically significant (p=0.128), so the fair claim is "matches,"
-     not "beats." It does that with 3,111 columns instead of 8,192. `codon` (1,037 columns, a
-     third of `nt`'s width) is statistically indistinguishable from `nt` (p=0.509).
-   - **Silent (synonymous) changes carry most of the signal.** `codon` and `aa` cover the exact
+   - **Synonymous variation carries most of the signal.** `codon` and `aa` cover the exact
      same 1,037 positions in the exact same records. The only difference is whether a DNA
-     change that does not change the amino acid is visible to the model. Removing that
-     information costs **0.107 F1 macro** on every fold (p=0.002). This is by far the largest
-     effect measured, roughly an order of magnitude above the k-mer-vs-per-site gap.
+     change that does not change the aa is visible to the model. Removing that
+     information costs **0.107 F1 macro** on every fold (p=0.002).
      - One interpretation, not separately tested: synonymous changes are close to neutral, so
        they drift with lineage and can act like a lineage marker, while aa changes are shaped
        by selection and can end up similar across different lineages. Under that reading, the
@@ -528,15 +523,21 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
      - **This has not been tested for ESM-2**, which reads 1,280 continuous dimensions rather
        than 22 categories per site. It should not be assumed to hold there.
    - **The memorisation risk is bounded here, but not yet ruled out at this step.** Under a
-     random split, some sequences appear in both train and test, and a per-site vector could in
-     principle almost identify which exact sequence it is. Measured: 18-21% of test HA
-     sequences and 22-26% of test NA sequences also appear somewhere in training, but only
-     **7-10% of test rows have BOTH sequences already seen in training**, and `pair_key`
-     overlap between train and test is 0 in every fold, so no test pair was trained on. So
-     recalling a specific pairing could explain at most about a tenth of the test set. The `aa`
-     result by itself cannot separate "the model is relying on memory" from "removing
-     synonymous positions removes real signal," because both would look the same here. Step 7
-     is what separates them.
+     random split, the same sequence can appear in both train and test. A per-site vector could
+     in principle let the model recognize that exact sequence, instead of learning a pattern
+     that generalizes.
+     - First, 18-21% of test HA sequences and 22-26% of test NA sequences already appear
+       somewhere in training.
+     - Second, a test pair only benefits from full recognition if both of its sequences were
+       already seen, and that is rarer: only **7-10% of test rows have BOTH sequences already
+       seen in training**.
+     - Third, `pair_key` overlap between train and test is 0 in every fold, so no test pair
+       itself was trained on.
+     - So memorisation of a specific pairing could explain at most about a tenth of the test
+       set, not more.
+     - This still does not separate two explanations for the `aa` result in step 5: the model
+       relying on memorized sequences, or removing synonymous positions removing real signal.
+       Both would look the same here. Step 7 is what separates them.
 
 6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the `codon` arm (1,037 columns — statistically the same as `nt` at a third of the width, and one column per aa position, so a site number IS a residue number).
 
