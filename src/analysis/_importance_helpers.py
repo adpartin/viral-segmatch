@@ -156,3 +156,41 @@ def plot_importance_trace(importance: pd.DataFrame, measure: str, unit: str, out
              fontsize=7, color='#666666')
     fig.tight_layout()
     return savefig(out_path, dpi=dpi)
+
+
+def permutation_curve(csv_path: Path, split: str = 'test',
+                      method: str = 'shuffle') -> pd.DataFrame:
+    """Read a group-permutation table and average the folds and repeats for one split.
+
+    Exists because the raw table is easy to aggregate wrongly. It carries a `method` column with
+    both `shuffle` and `constant` rows, so a `groupby` that forgets to filter silently averages
+    two different experiments and reports a number that is neither. The N values where a
+    constant-fill run exists are the only ones that come out wrong, so the mistake also looks
+    plausible: most of the curve is unaffected.
+
+    Args:
+      csv_path: `site_group_permutation_{unit}_{measure}.csv`.
+      split: which split to read, `test` or `train`.
+      method: `shuffle` for the permutation curve, `constant` for the fill comparison.
+
+    Returns:
+      One row per `(arm, n_sites)` with the mean and std of `signal_lost` over folds and repeats.
+
+    Raises:
+      FileNotFoundError: the table has not been produced yet.
+      ValueError: the requested split or method is absent from the table.
+    """
+    if not Path(csv_path).exists():
+        raise FileNotFoundError(
+            f"missing {csv_path}. Run `python -m src.analysis.plot_site_group_permutation` first.")
+    table = pd.read_csv(csv_path)
+    for column, wanted in (('split', split), ('method', method)):
+        present = set(table[column].unique())
+        if wanted not in present:
+            raise ValueError(
+                f"{csv_path}: {column}={wanted!r} is absent; the table has {sorted(present)}.")
+    selected = table[(table['split'] == split) & (table['method'] == method)]
+    curve = (selected.groupby(['arm', 'n_sites'])['signal_lost']
+             .agg(['mean', 'std'])
+             .reset_index())
+    return curve
