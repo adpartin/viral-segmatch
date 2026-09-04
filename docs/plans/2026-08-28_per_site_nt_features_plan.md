@@ -731,13 +731,12 @@ supplies biological ground truth.
 
 **The measurement.** Each slot of a negative pair gets its own distance to that slot's nearest
 observed partner, written out as `distance_slot_a` and `distance_slot_b`. A sequence can co-occur
-with several partners, so there is no single correct partner to compare against. The two are then
-reduced to one number for binning: `distance_min` by default, with `distance_mean` and
-`distance_max` available. The summary is part of the column name and of every output filename,
-because only `min` is a distance to the NEAREST positive and a `mean` run must not be mistaken for
-a `min` run. Distances are measured against every observed co-occurrence, which is the set the
-negative sampler blocks against. `src/analysis/plot_negative_pair_ambiguity.py` computes this from
-the saved `test_predicted.csv` files. It retrains nothing and corrupts no features.
+with several partners, so there is no single correct partner to compare against. `distance_min`,
+the smaller of the two slot distances, is used for binning. Both slot distances remain in the CSV,
+so other summaries can be calculated without rerunning the analysis. Distances are measured against
+every observed co-occurrence, which is the set the negative sampler blocks against.
+`src/analysis/plot_negative_pair_ambiguity.py` computes this from the saved
+`test_predicted.csv` files. It retrains nothing and corrupts no features.
 
 **Result**, pooled over the 4 random-CV folds of the per-site `nt` arm (3,580 negatives):
 

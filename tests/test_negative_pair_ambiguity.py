@@ -1,19 +1,4 @@
-"""Tests for `src/analysis/plot_negative_pair_ambiguity.py`.
-
-Covers:
-  1. Bin labels and bin assignment, including the boundaries and the open-ended last bin
-  2. check_bin_edges rejects empty, negative and non-increasing edges
-  3. site_distance counts differing sites
-  4. slot_distances returns one distance per slot, and None for a slot with no known partner
-  5. summarize_slots handles min / mean / max, a single available slot, and an unknown summary
-  6. positive_universe reads the co-occurrence file, recovers which hash belongs to which slot
-     regardless of the sorted pair_key order, skips rows outside the caches, and raises when the
-     file is missing or nothing maps
-  7. distance_column names each summary distinctly, so a mean run cannot pose as a min run
-  8. bin_false_positive_rate counts negatives and false positives per bin
-
-Run: python tests/test_negative_pair_ambiguity.py
-"""
+"""Tests for the negative-pair ambiguity analysis."""
 import sys
 import tempfile
 from pathlib import Path
@@ -26,15 +11,12 @@ PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.analysis.plot_negative_pair_ambiguity import (  # noqa: E402
-    assign_bin,
     bin_false_positive_rate,
     bin_labels,
     check_bin_edges,
-    distance_column,
     positive_universe,
     site_distance,
     slot_distances,
-    summarize_slots,
 )
 from src.utils.site_utils import SiteCache  # noqa: E402
 
@@ -61,12 +43,8 @@ def _caches():
     return cache_a, cache_b
 
 
-def test_bin_labels_and_assignment():
+def test_bin_labels():
     assert bin_labels(EDGES) == ['0-2', '3-5', '6-10', '>10']
-    # Boundaries land in the bin whose upper edge they equal, and anything past the last edge
-    # falls in the trailing open-ended bin.
-    assigned = assign_bin(np.array([0, 2, 3, 5, 6, 10, 11, 999]), EDGES)
-    assert list(assigned) == [0, 0, 1, 1, 2, 2, 3, 3]
 
 
 def test_check_bin_edges_rejects_bad_input():
@@ -118,18 +96,6 @@ def test_slot_distances_takes_the_closest_of_several_partners():
     assert distance_b == 1  # na2 vs na3 differs at 1 site, vs na1 at 2
 
 
-def test_summarize_slots():
-    assert summarize_slots(2, 8, 'min') == 2
-    assert summarize_slots(2, 8, 'max') == 8
-    assert summarize_slots(2, 8, 'mean') == 5
-    # One slot missing: summarize over what is available rather than treating it as zero.
-    assert summarize_slots(None, 8, 'min') == 8
-    assert summarize_slots(3, None, 'mean') == 3
-    assert summarize_slots(None, None, 'min') is None
-    with pytest.raises(ValueError, match="'min', 'mean' or 'max'"):
-        summarize_slots(1, 2, 'median')
-
-
 def test_positive_universe_recovers_slots_from_sorted_pair_keys():
     cache_a, cache_b = _caches()
     with tempfile.TemporaryDirectory() as tmp:
@@ -162,51 +128,15 @@ def test_positive_universe_raises_when_unusable():
             positive_universe(dataset_dir, cache_a, cache_b)
 
 
-def test_distance_column_names_the_summary():
-    # The summary is in the name so a mean run cannot be read as, or overwrite, a min run.
-    assert distance_column('min') == 'distance_min'
-    assert distance_column('mean') == 'distance_mean'
-    assert distance_column('max') == 'distance_max'
-    assert len({distance_column(h) for h in ('min', 'mean', 'max')}) == 3
-
-
 def test_bin_false_positive_rate():
     negatives = pd.DataFrame({
-        'distance_min': [0, 1, 4, 4, 7, 30],
-        'is_false_positive': [True, True, True, False, False, False],
+        'distance_min': [0, 2, 3, 5, 6, 10, 11, 999],
+        'is_false_positive': [True, False, True, False, True, False, True, False],
     })
-    bins = bin_false_positive_rate(negatives, EDGES, 'run0', 'distance_min')
+    bins = bin_false_positive_rate(negatives, EDGES, 'run0')
 
     assert list(bins['bin_label']) == ['0-2', '3-5', '6-10', '>10']
-    assert list(bins['n_negatives']) == [2, 2, 1, 1]
-    assert list(bins['n_false_positives']) == [2, 1, 0, 0]
-    assert list(bins['false_positive_rate']) == [1.0, 0.5, 0.0, 0.0]
+    assert list(bins['n_negatives']) == [2, 2, 2, 2]
+    assert list(bins['n_false_positives']) == [1, 1, 1, 1]
+    assert list(bins['false_positive_rate']) == [0.5, 0.5, 0.5, 0.5]
     assert set(bins['run']) == {'run0'}
-
-
-if __name__ == '__main__':
-    tests = [
-        test_bin_labels_and_assignment,
-        test_check_bin_edges_rejects_bad_input,
-        test_site_distance_counts_differing_sites,
-        test_slot_distances_reports_each_slot_independently,
-        test_slot_distances_takes_the_closest_of_several_partners,
-        test_summarize_slots,
-        test_distance_column_names_the_summary,
-        test_positive_universe_recovers_slots_from_sorted_pair_keys,
-        test_positive_universe_raises_when_unusable,
-        test_bin_false_positive_rate,
-    ]
-    failed = 0
-    for t in tests:
-        try:
-            print(f'... {t.__name__}')
-            t()
-            print('    OK')
-        except Exception as e:
-            failed += 1
-            print(f'    FAIL: {e}')
-    if failed:
-        print(f'\n{failed} test(s) failed')
-        sys.exit(1)
-    print(f'\nAll {len(tests)} tests passed.')
