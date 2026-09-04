@@ -557,7 +557,6 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
      entropy_bits, n_values, shap_rank, gain_rank`.
    - `site_importance_codon_per_fold.csv`: each fold's own numbers separately, so
      fold-to-fold agreement can be recomputed.
-   - Both figures record the script that made them and the run name.
 
    **Three importance measures, for three different reasons.**
    - **Split count** counts how often a feature was used to split. This is what
