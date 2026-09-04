@@ -1,34 +1,47 @@
-"""How many false positives are negatives that are near-copies of a real positive pair?
+"""Where do a model's false positives sit relative to the nearest real positive pair?
 
 Post-hoc error analysis on an already-trained run. Nothing is retrained and no feature is
 corrupted: the saved `test_predicted.csv` is read back and each NEGATIVE row is scored by how far
 its assigned partner sits from the partner it should have had.
 
-The question this answers. Precision sits below recall in these runs, which means the model makes
-more false positives than false negatives. That asymmetry has to come from somewhere, because at a
-1:1 ratio and a 0.5 threshold there is no built-in reason to favour one class.
-
 The mechanism it tests. A negative pair is built by giving a slot-A sequence the slot-B sequence of
 a different isolate. The sampler rejects exact co-occurrences, so the pair is never a relabelled
-positive. It cannot reject NEAR co-occurrences. When the substituted partner differs from the real
-partner by a handful of nucleotides, the resulting pair is a near-copy of a true positive, and no
-model can separate the two. Those rows are labelled negative for a reason that is invisible in the
-sequence, so calling them positive is the reasonable answer rather than an error.
+positive. It does not reject NEAR co-occurrences. When the substituted partner differs from the
+real partner by a handful of nucleotides, the resulting pair resembles a true positive, and the
+model is measurably more likely to call it positive.
 
-There is no matching contamination on the positive side, since every positive is a real
-same-isolate pairing. Errors therefore concentrate on the negative class, which is what drives
-precision below recall.
+What the negative label actually means. It means "recombined and not observed co-occurring", not
+"biologically incompatible". Sequence proximity makes compatibility plausible, but nothing here
+supplies biological ground truth, so a near-duplicate negative should not be treated as a
+mislabelled row.
+
+These rows are hard, not unlabelable. On H3N2 2024 HA-NA the per-site `nt` model still classifies
+26 of the 155 closest negatives (0-2 nt) correctly, and k-mer classifies 24 of them. No negative
+sits at distance 0, so no identical feature vector ever carries contradictory labels. Claiming
+these rows cannot be separated goes beyond what this measurement supports.
+
+What this does NOT explain. It does not establish why precision reads lower than recall. Only
+negative rows are analysed here, so the false-positive and false-negative mechanisms are never
+compared. That gap is also threshold-dependent: on the pooled random-CV folds the errors balance
+near a 0.5 threshold shifted to about 0.70 (312 false positives against 310 false negatives), which
+a concentration measured only over negatives cannot account for.
 
 The measure. For a negative pair `(a, b)`, `distance_to_nearest_positive` is the smallest number of
 differing sites between that pair and any true positive pair, counted on the one slot that differs:
 the distance from `b` to a true partner of `a`, or from `a` to a true partner of `b`, whichever is
-smaller. The minimum is the right choice because the pair looks positive if EITHER side is nearly
-right. Distance is measured in sites of `--unit`, on the per-site cache, which is aligned by
-construction and so makes a position-by-position comparison meaningful.
+smaller. Taking the minimum answers one specific question, "how close is this pair to a positive
+after changing whichever single slot needs less change", and it is not the only defensible
+summary. It is also slot-sensitive, since the shorter NA supplies the minimum far more often than
+HA. Mean or maximum over the two slots are reasonable alternatives that weight the slots evenly.
+Distance is measured in sites of `--unit`, on the per-site cache, which is aligned by construction
+and so makes a position-by-position comparison meaningful. Every site counts equally, which is not
+how the model weights them.
 
-Read the output as a diagnostic of the negative sampler and the population, not of the model. A
-high false-positive rate in the nearest bins says the negative class holds rows that cannot be
-labelled from sequence alone. It does not say the model is wrong about them.
+Read concentration as enrichment, not as a raw share. A bin holding most of the false positives may
+simply be holding most of the negatives. On H3N2 2024 HA-NA the enrichment is 6.0x within 2 nt,
+2.55x within 5 nt and only 1.25x within 10 nt, so the near bins are what carry the signal.
+
+Read the output as a diagnostic of the negative sampler and the population, not of the model.
 
 Scope. Distance is nucleotide (or codon / amino-acid) identity, which stands in for how closely two
 sequences are related. It is not a phylogenetic assignment, so "near-duplicate" here means
@@ -393,14 +406,21 @@ def main() -> None:
     print(pooled[['bin_label', 'n_negatives', 'n_false_positives',
                   'false_positive_rate']].to_string(index=False))
 
-    near = negatives[negatives['distance_to_nearest_positive'] <= edges[2]]
+    # Enrichment, not the raw share of false positives. A wide bin can hold most of the false
+    # positives simply because it holds most of the negatives, so the share alone overstates how
+    # concentrated the errors are.
     n_false_total = int(negatives['is_false_positive'].sum())
-    n_false_near = int(near['is_false_positive'].sum())
-    share_of_negatives = len(near) / len(negatives)
-    share_of_false = n_false_near / n_false_total if n_false_total else float('nan')
-    print(f"\nNegatives within {edges[2]} sites of a true pair: {len(near):,} "
-          f"({share_of_negatives:.1%} of negatives), carrying {n_false_near:,}/{n_false_total:,} "
-          f"= {share_of_false:.0%} of all false positives.")
+    print(f"\n{'within':>8s} {'negatives':>19s} {'false positives':>19s} {'enrichment':>11s}")
+    for edge in edges:
+        near = negatives[negatives['distance_to_nearest_positive'] <= edge]
+        share_of_negatives = len(near) / len(negatives)
+        n_false_near = int(near['is_false_positive'].sum())
+        if not n_false_total or not share_of_negatives:
+            continue
+        share_of_false = n_false_near / n_false_total
+        enrichment = share_of_false / share_of_negatives
+        print(f"{edge:6,d} {'sites':<2s} {len(near):9,d} ({share_of_negatives:6.1%}) "
+              f"{n_false_near:9,d} ({share_of_false:6.1%}) {enrichment:10.2f}x")
 
     print(f"\nWrote {negatives_path}")
     print(f"Wrote {bins_path}")

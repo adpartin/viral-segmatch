@@ -18,11 +18,15 @@
 #
 # Checked on this population before running (2026-09-04): at hash_key=cds, LPT-greedy hits the
 # 80/10/10 target almost exactly (0/0/0.02pp deviation across ratios tried), but train and
-# test/val end up compositionally different -- every val/test pair comes from a "singleton" atom
-# (a sequence observed exactly once anywhere in the corpus); every duplicated/prevalent sequence
-# lands in train. So this is not a random subsample of the same population as the CV runs; it is
-# specifically "generalization to singly-observed sequences." Read the result with that in mind,
-# not as a like-for-like replacement for the random-CV table in step 5.
+# test/val end up compositionally different -- every val/test pair comes from a singleton
+# component (a CC holding exactly one pair_key; see docs/methods/glossary.md), while every
+# multi-pair component lands in train. So this is not a random subsample of the same population as
+# the CV runs; it is specifically generalization to component-isolated pairs. Read the result with
+# that in mind, not as a like-for-like replacement for the random-CV table in step 5.
+#
+# A singleton component is NOT a singly-observed sequence. It means one unique pair_key after
+# dedup, not one isolate occurrence: 58 of the 716 val/test pair_keys were observed in more than
+# one isolate, up to 5. The two were conflated in an earlier version of this comment.
 #
 # negative_scope: within_fold is inherited from the random-CV parent, so negatives use the same
 # ratio-driven primitive as the random-CV arms and every split lands exactly on
