@@ -539,34 +539,80 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
        relying on memorized sequences, or removing synonymous positions removing real signal.
        Both would look the same here. Step 7 is what separates them.
 
-6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the `codon` arm (1,037 columns — statistically the same as `nt` at a third of the width, and one column per aa position, so a site number IS a residue number).
+6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the
+   `codon` arm (1,037 columns, one column per aa position, so a site number IS a residue
+   number).
 
-   Four output files:
-   - `site_importance_codon.png` — importance plotted along the CDS, and importance plotted against entropy.
-   - `site_importance_codon_barplot.png` — LightGBM's own `plot_importance` bar charts (`split` and `gain`) next to the SHAP ranking.
-   - `site_importance_codon.csv` — one row per column: `column, slot, protein, site, shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count, entropy_bits, n_values, shap_rank, gain_rank`.
-   - `site_importance_codon_per_fold.csv` — each fold's own numbers separately, so fold-to-fold agreement can be recomputed.
+   **Goal.** Rank which codon sites the fitted model relies on most, using importance measures
+   that agree with each other and hold up across folds, so the ranking is trustworthy enough to
+   test with masking in step 7.
+
+   **Implementation.** Four output files:
+   - `site_importance_codon.png`: importance plotted along the CDS, and importance plotted
+     against entropy.
+   - `site_importance_codon_barplot.png`: LightGBM's own `plot_importance` bar charts (`split`
+     and `gain`) next to the SHAP ranking.
+   - `site_importance_codon.csv`: one row per column, with columns `column, slot, protein,
+     site, shap_frac, shap_frac_std, gain_frac, gain_frac_std, folds_used, split_count,
+     entropy_bits, n_values, shap_rank, gain_rank`.
+   - `site_importance_codon_per_fold.csv`: each fold's own numbers separately, so
+     fold-to-fold agreement can be recomputed.
    - Both figures record the script that made them and the run name.
 
    **Three importance measures, for three different reasons.**
-   - **Split count** — how often a feature was used to split. This is what `lightgbm.plot_importance` shows by default. On fold 0, its top list (NA 154, HA 162, HA 325, NA 233, NA 349) does not overlap at all with the gain or SHAP top-15 lists. A feature used in many shallow splits scores high here even if none of those splits mattered much. Shown for comparison only, not used to rank sites.
-   - **Gain** — total reduction in loss from every split that used a feature. Read directly off the fitted trees, so on its own it describes what the trees were built on, not necessarily what they are worth on new data.
-   - **SHAP** — exact TreeSHAP, computed via LightGBM's own `pred_contrib` (no extra library needed), on each fold's **held-out test split**. The script checks that SHAP values plus the base value reconstruct the model's raw margin score, rather than assuming this holds. Where gain and SHAP disagree, SHAP is treated as correct, because it is measured on data the model did not fit.
-   - **The two agree closely, so the ranking survives an out-of-sample check.** Spearman +0.971 (HA) and +0.974 (NA), with 12 of the top 15 sites shared between them.
-   - Two known differences: gain overstates how concentrated the signal is (HA top 10 = 34.1% of SHAP but 46.4% of gain; top 50 = 65.3% vs 79.5%), and gain undervalues sites with many possible codon values — e.g. HA site 161 (10 codon values) ranks 35th by gain but 9th by SHAP; HA 363 ranks 69th and 13th; NA 400 (11 values) ranks 22nd and 3rd; NA 385 (10 values) ranks 116th and 11th. This is the opposite of the usual warning that gain favours high-cardinality features — measured here, it does the reverse. Gain also splits credit between HA and NA slightly differently than SHAP does (57.2%/42.8% vs 52.3%/47.7%).
-   - Both gain and SHAP are normalised to sum to 1 within each fold before averaging, because early stopping gives each fold a different number of trees (411 to 998), so raw totals are not comparable across folds.
+   - **Split count** counts how often a feature was used to split. This is what
+     `lightgbm.plot_importance` shows by default. On fold 0, its top list (NA 154, HA 162, HA
+     325, NA 233, NA 349) does not overlap at all with the gain or SHAP top-15 lists. A feature
+     used in many shallow splits scores high here even if none of those splits mattered much.
+     Shown for comparison only, not used to rank sites.
+   - **Gain** is the total reduction in loss from every split that used a feature. It is read
+     directly off the fitted trees, so on its own it describes what the trees were built on,
+     not necessarily what they are worth on new data.
+   - **SHAP** is exact TreeSHAP, computed via LightGBM's own `pred_contrib` (no extra library
+     needed), on each fold's **held-out test split**. The script checks that SHAP values plus
+     the base value reconstruct the model's raw margin score, rather than assuming this holds.
+     Where gain and SHAP disagree, SHAP is treated as correct, because it is measured on data
+     the model did not fit.
+   - **The two agree closely, so the ranking survives an out-of-sample check.** Spearman +0.971
+     (HA) and +0.974 (NA), with 12 of the top 15 sites shared between them.
+   - Two known differences: gain overstates how concentrated the signal is (HA top 10 = 34.1%
+     of SHAP but 46.4% of gain; top 50 = 65.3% vs 79.5%), and gain undervalues sites with many
+     possible codon values. For example, HA site 161 (10 codon values) ranks 35th by gain but
+     9th by SHAP; HA 363 ranks 69th and 13th; NA 400 (11 values) ranks 22nd and 3rd; NA 385 (10
+     values) ranks 116th and 11th. This is the opposite of the usual warning that gain favours
+     high-cardinality features. Measured here, it does the reverse. Gain also splits credit
+     between HA and NA slightly differently than SHAP does (57.2%/42.8% vs 52.3%/47.7%).
+   - Both gain and SHAP are normalised to sum to 1 within each fold before averaging, because
+     early stopping gives each fold a different number of trees (411 to 998), so raw totals are
+     not comparable across folds.
 
    **The model concentrates on a small number of positions.**
-   - HA: top 10 sites hold 34.1% of HA's total SHAP; top 50 hold 65.3%. Only 344 of 567 HA sites get any gain at all, though 97.5% of HA sites vary at least somewhat.
-   - NA: top 10 hold 47.8%; top 50 hold 75.4%. Only 253 of 470 NA sites get any gain, though 96.6% vary at all.
+   - HA: top 10 sites hold 34.1% of HA's total SHAP; top 50 hold 65.3%. Only 344 of 567 HA
+     sites get any gain at all, though 97.5% of HA sites vary at least somewhat.
+   - NA: top 10 hold 47.8%; top 50 hold 75.4%. Only 253 of 470 NA sites get any gain, though
+     96.6% vary at all.
 
-   **The ranking is consistent enough across folds to trust.** Fold-to-fold Spearman on SHAP is 0.715 for HA (range 0.699-0.731 across the six fold pairs) and 0.681 for NA. 9 of the top-15 sites for each protein are in every single fold's top 15, and every site on both top-15 lists is used by all four folds. Ranks further down the list move around more, so treat the top list as a group of important sites rather than a precise ordering.
+   **The ranking is consistent enough across folds to trust.** Fold-to-fold Spearman on SHAP is
+   0.715 for HA (range 0.699-0.731 across the six fold pairs) and 0.681 for NA. 9 of the top-15
+   sites for each protein are in every single fold's top 15, and every site on both top-15
+   lists is used by all four folds. Ranks further down the list move around more, so treat the
+   top list as a group of important sites rather than a precise ordering.
 
-   Top sites by SHAP: HA 544, 36, 129, 239, 531, 286, 87, 451, 161; NA 284, 310, 400, 244, 223, 24, 140.
+   Top sites by SHAP: HA 544, 36, 129, 239, 531, 286, 87, 451, 161; NA 284, 310, 400, 244, 223,
+   24, 140.
 
-   **A site has to vary to matter, but varying is not enough on its own.** Spearman correlation between SHAP and entropy, restricted to sites that vary at all, is +0.516 (HA) and +0.579 (NA) — positive, since a site that never changes cannot help the model decide anything, but far from a perfect correlation. Looking at the scatter: every top site sits at entropy 0.5-1.0 bits, while most sites in that same range contribute nothing. So conservation sets an upper bound on how important a site could be, without predicting which variable sites actually matter — that gap is what makes the importance map worth having.
+   **A site has to vary to matter, but varying is not enough on its own.** Spearman correlation
+   between SHAP and entropy, restricted to sites that vary at all, is +0.516 (HA) and +0.579
+   (NA). This is positive, since a site that never changes cannot help the model decide
+   anything, but it is far from a perfect correlation. Looking at the scatter: every top site
+   sits at entropy 0.5-1.0 bits, while most sites in that same range contribute nothing. So
+   conservation sets an upper bound on how important a site could be, without predicting which
+   variable sites actually matter. That gap is what makes the importance map worth having.
 
-   **What this step alone cannot tell you.** A handful of sites carrying most of the model's decision is equally consistent with those positions carrying real lineage signal and with their being the most efficient way to identify a sequence — the memorisation risk. Step 7 is what separates them.
+   **What this step alone cannot tell you.** A handful of sites carrying most of the model's
+   decision is consistent with two different explanations: those positions carry real lineage
+   signal, or they are simply the most efficient way to identify a specific sequence (the
+   memorisation risk). Step 7 is what separates them.
 
 7. **Masking and shuffling — DONE (2026-09-02), in four passes.**
    - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the first attempts kept answering a narrower question than the one asked:
