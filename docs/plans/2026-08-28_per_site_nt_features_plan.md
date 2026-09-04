@@ -147,7 +147,7 @@ Completeness and length must therefore be checked separately.
 No HA or NA sequence in this population contained an internal stop marker. This observation does
 not by itself rule out every possible frameshift or alignment error.
 
-Filtering both proteins for completeness and pinned length retained 3,580 of 3,723 unique positive
+Filtering both proteins for completeness and pinned length retained `3,580` of 3,723 unique positive
 HA-NA pairs, or 96.2%.
 
 Across all 8 protein functions in `cds_dna_final`, 98.6-99.8% of unique CDS sequences began
@@ -539,13 +539,13 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
        relying on memorized sequences, or removing synonymous positions removing real signal.
        Both would look the same here. Step 7 is what separates them.
 
-6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the
-   `codon` arm (1,037 columns, one column per aa position, so a site number IS a residue
-   number).
+6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on
+   the `codon` arm (1,037 columns, with one categorical feature per codon position). Because
+   each codon corresponds to one residue, the site numbers also match the residue positions.
 
-   **Goal.** Rank which codon sites the fitted model relies on most, using importance measures
-   that agree with each other and hold up across folds, so the ranking is trustworthy enough to
-   test with masking in step 7.
+   **Goal.** Rank the codon positions used by the fitted model, measure agreement between
+   importance methods, and check whether the most important positions are stable across folds.
+   Step 7 then tests these positions by masking or shuffling them.
 
    **Implementation.** Four output files:
    - `site_importance_codon.png`: importance plotted along the CDS, and importance plotted
@@ -558,67 +558,38 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - `site_importance_codon_per_fold.csv`: each fold's own numbers separately, so
      fold-to-fold agreement can be recomputed.
 
-   **Three importance measures, for three different reasons.**
-   - **Split count** counts how often a feature was used to split. This is what
-     `lightgbm.plot_importance` shows by default. On fold 0, its top list (NA 154, HA 162, HA
-     325, NA 233, NA 349) does not overlap at all with the gain or SHAP top-15 lists. A feature
-     used in many shallow splits scores high here even if none of those splits mattered much.
-     Shown for comparison only, not used to rank sites.
-   - **Gain** is the total reduction in loss from every split that used a feature. It is read
-     directly off the fitted trees, so on its own it describes what the trees were built on,
-     not necessarily what they are worth on new data.
-   - **SHAP** is exact TreeSHAP, computed via LightGBM's own `pred_contrib` (no extra library
-     needed), on each fold's **held-out test split**. The script checks that SHAP values plus
-     the base value reconstruct the model's raw margin score, rather than assuming this holds.
-     Where gain and SHAP disagree, SHAP is treated as correct, because it is measured on data
-     the model did not fit.
-   - **The two agree closely, so the ranking survives an out-of-sample check.** Spearman +0.971
-     (HA) and +0.974 (NA), with 12 of the top 15 sites shared between them.
-   - Two known differences: gain overstates how concentrated the signal is (HA top 10 = 34.1%
-     of SHAP but 46.4% of gain; top 50 = 65.3% vs 79.5%), and gain undervalues sites with many
-     possible codon values. For example, HA site 161 (10 codon values) ranks 35th by gain but
-     9th by SHAP; HA 363 ranks 69th and 13th; NA 400 (11 values) ranks 22nd and 3rd; NA 385 (10
-     values) ranks 116th and 11th. This is the opposite of the usual warning that gain favours
-     high-cardinality features. Measured here, it does the reverse. Gain also splits credit
-     between HA and NA slightly differently than SHAP does (57.2%/42.8% vs 52.3%/47.7%).
+   **For the importance descriptions:**
+   - `split` counts how many fitted-tree splits use a feature. On fold 0, its top-15 list does
+     not overlap with the gain or SHAP top-15 lists. A feature can receive a high split count
+     from many low-gain splits, so split count is less informative here than gain or SHAP.
+   - `gain` is the total LightGBM split gain assigned to a feature across the fitted trees.
+     It describes which features were useful while fitting the model, but not necessarily how
+     strongly they affect predictions on new data.
+   - For this analysis, SHAP was computed on each fold's test split. The script uses LightGBM's
+     `pred_contrib` and verifies that the feature contributions plus the base value reconstruct
+     the raw model score. Mean absolute SHAP describes how strongly each feature affects
+     held-out predictions, without retaining the direction of the effect. When gain and SHAP
+     disagree, SHAP is more relevant to the model's behavior on the test data, but neither
+     measure establishes biological importance.
    - Both gain and SHAP are normalised to sum to 1 within each fold before averaging, because
      early stopping gives each fold a different number of trees (411 to 998), so raw totals are
      not comparable across folds.
 
-   **The model concentrates on a small number of positions.**
-   - HA: top 10 sites hold 34.1% of HA's total SHAP; top 50 hold 65.3%. Only 344 of 567 HA
-     sites get any gain at all, though 97.5% of HA sites vary at least somewhat.
-   - NA: top 10 hold 47.8%; top 50 hold 75.4%. Only 253 of 470 NA sites get any gain, though
-     96.6% vary at all.
+   For the high-cardinality result:
+   - Several sites with many observed codons rank substantially higher by SHAP than by gain.
+     These examples show that gain and SHAP allocate importance differently at those sites;
+     they do not show that high cardinality caused the difference.
 
-   **The ranking is consistent enough across folds to trust.** Fold-to-fold Spearman on SHAP is
-   0.715 for HA (range 0.699-0.731 across the six fold pairs) and 0.681 for NA. 9 of the top-15
-   sites for each protein are in every single fold's top 15, and every site on both top-15
-   lists is used by all four folds. Ranks further down the list move around more, so treat the
-   top list as a group of important sites rather than a precise ordering.
-
-   Top sites by SHAP: HA 544, 36, 129, 239, 531, 286, 87, 451, 161; NA 284, 310, 400, 244, 223,
-   24, 140.
-
-   **A site has to vary to matter, but varying is not enough on its own.** Spearman correlation
-   between SHAP and entropy, restricted to sites that vary at all, is +0.516 (HA) and +0.579
-   (NA). This is positive, since a site that never changes cannot help the model decide
-   anything, but it is far from a perfect correlation. Looking at the scatter: every top site
-   sits at entropy 0.5-1.0 bits, while most sites in that same range contribute nothing. So
-   conservation sets an upper bound on how important a site could be, without predicting which
-   variable sites actually matter. That gap is what makes the importance map worth having.
-
-   **What this step alone cannot tell you.** A handful of sites carrying most of the model's
-   decision is consistent with two different explanations: those positions carry real lineage
-   signal, or they are simply the most efficient way to identify a specific sequence (the
-   memorisation risk). Step 7 is what separates them.
+   **What this step alone cannot tell you.** Step 7 tests whether predictions actually depend
+   on these positions, but it cannot by itself prove that the signal is biological rather than
+   lineage or sequence identification.
 
 7. **Masking and shuffling — DONE (2026-09-02), in four passes.**
-   - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the first attempts kept answering a narrower question than the one asked:
+   - The original plan was one check: re-train with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the first attempts kept answering a narrower question than the one asked:
      - **7a** — can one side alone predict anything?
      - **7b(i)** — does the fitted model depend on one site at a time?
      - **7b(ii)** — does it depend on a group of top sites together, still without retraining?
-     - **7b(iii)** — same as 7b(ii), but the model is retrained on the corrupted data.
+     - **7b(iii)** — same as 7b(ii), but the model is re-trained on the corrupted data.
      - **7c** — does the score depend on having seen a sequence before?
 
    **7a. One side alone — DONE (2026-09-02), passes.** Run first, because a failure here would mean the importance map in step 6 is not worth interpreting.
@@ -634,7 +605,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - Why this matters: the label describes a PAIR, and the negative sampler deliberately pairs one isolate's segment with a different isolate's segment, so the same HA sequence shows up in both correct and incorrect pairings across the dataset. One sequence alone therefore cannot answer the question — unless something in how the pairs were built leaked information one-sidedly, for instance if common strains ended up disproportionately in positive pairs. This test shows that did not happen: essentially all of the 0.9159 score comes from relating the two sides, which is also why the mixed HA/NA top-15 list in step 6 (8 HA sites, 7 NA sites) is meaningful rather than a coincidence.
    - This test does NOT rule out memorisation — a model recalling "this exact HA goes with this exact NA" also needs both sides to do that. It rules out a one-sided shortcut only.
 
-   **7b(i). Shuffle one site at a time, no retraining — DONE (2026-09-02).**
+   **7b(i). Shuffle one site at a time, no re-training — DONE (2026-09-02).**
    - Method: in each fold's held-out test split, shuffle one column's values across the rows, keep the already-fitted model unchanged, re-predict, and record the AUC-ROC drop. Repeated 5 times per column and averaged; 1,037 columns x 4 folds runs in about 1.5 minutes. Row-level shuffling is correct here because the model is fixed and scores one row at a time — it has no way to notice that the same sequence now carries different values in different rows. (That changes once the model is retrained — see 7b(iii).)
    - Added to `plot_site_importance.py`, so gain, SHAP, and this permutation score all sit in one table.
    - The top-ranked sites hold up under this test too: HA site 544 is rank 1 on all three measures, costing 0.0288 AUC when shuffled. NA sites 284 and 244 cost 0.0219 and 0.0218. SHAP and permutation share 12 of the top 15 sites for HA and 11 of 15 for NA.
@@ -652,7 +623,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - Shuffling the single most important site removes only 6.3% of what the model knows. Adding up every site's individual cost reaches only 55.5% — meaning almost half of what the model uses is invisible when sites are tested one at a time, because sites can substitute for each other. That gap is exactly what the group test in 7b(ii) measures.
    - This also bears on memorisation: a model that was memorising specific sequences would be expected to depend heavily on a small number of very informative positions. This model does not depend heavily on any single position.
 
-   **7b(ii). Shuffle the top N sites together, no retraining — DONE (2026-09-02).**
+   **7b(ii). Shuffle the top N sites together, no re-training — DONE (2026-09-02).**
    - `src/analysis/plot_site_group_permutation.py`. Same idea as 7b(i), but N columns are shuffled together instead of one at a time; the model still is not retrained.
    - Two groups compared at every N: the top N sites by SHAP, and N sites drawn at random (the control).
    - 10 set sizes x 2 arms x 4 folds x 5 repeats, measured on both test and train.
@@ -675,7 +646,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - **This does not look like memorisation.** If the model had learned training-specific detail through these positions, shuffling them should hurt the training score more than the test score. Instead it hurts training LESS at every N tested. In raw AUC terms the top 10 sites are worth almost the same on both splits — 0.225 on test, 0.222 on train — so the model's higher score on training data (0.9859 vs. 0.9547 on test) is not coming from these particular sites.
    - **Shuffling disables a column more thoroughly than filling it with a constant value.** Replacing a column with its single most common value, instead of shuffling it, loses 0.08-0.15 less signal at N=10 and N=50, on both splits — filling with the most common value still lets most rows go down the tree branch they would normally take, while shuffling actively puts wrong values everywhere. Measured directly, not assumed.
 
-   **7b(iii). Shuffle the top N sites together, then RETRAIN — DONE (2026-09-02).**
+   **7b(iii). Shuffle the top N sites together, then RE-TRAIN — DONE (2026-09-02).**
    - `src/analysis/plot_site_retrain_ablation.py`. Same idea as 7b(ii), but the model is refit from scratch on the corrupted data (same settings as the normal baseline), instead of staying fixed.
    - Two ways to corrupt the columns, because they test different things:
      - **row** — shuffle values across rows independently in each split, so a single sequence can end up with different values at the same site in different rows.
