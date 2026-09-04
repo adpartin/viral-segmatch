@@ -136,7 +136,8 @@ def permutation_auc_drops(booster, X: np.ndarray, y: np.ndarray, repeats: int,
 
 def fold_importances(model_root: Path, run_stem: str, n_folds: int, n_columns: int,
                      fold_features, fold_labels, permutation_repeats: int, seed: int) -> dict:
-    """Read each fold's booster and score every column three ways.
+    """Read each fold's booster and compute 4 importance measures per column: gain, split
+    count, SHAP, and permutation.
 
     Args:
       model_root: directory holding the per-fold run dirs.
@@ -150,17 +151,21 @@ def fold_importances(model_root: Path, run_stem: str, n_folds: int, n_columns: i
       seed: seeds the permutations.
 
     Returns:
-      `{'gain', 'shap', 'split', 'permutation', 'baseline_auc'}`. The first four are
-      (n_folds, n_columns) arrays; `gain` and `shap` rows each sum to 1, `shap` is the mean
-      absolute SHAP value per column, and `permutation` is the AUC-ROC drop per column (all zeros
-      when the pass is skipped). `baseline_auc` is one clean AUC per fold.
+      Dict containing arrays with shape `(n_folds, n_columns)`:
+      - `gain`: each feature's fraction of total split gain within the fold.
+      - `split`: number of tree splits using each feature.
+      - `shap`: each feature's fraction of total mean absolute SHAP contribution
+           on the supplied evaluation data. Direction is not retained.
+      - `permutation`: change in AUC-ROC after shuffling each feature.
+           These values are not normalized.
+      - `baseline_auc`: unpermuted AUC-ROC for each fold.
 
     Raises:
       FileNotFoundError: a fold's model file is missing.
       ValueError: a booster has a different feature count than expected, one contributed no gain
           at all, or its SHAP contributions do not reconstruct its own predictions.
     """
-    gains, shaps, splits, perms, baselines = [], [], [], [], []
+    gains, splits, shaps, perms, baselines = [], [], [], [], []
     for fold in range(n_folds):
         model_path = model_root / f'{run_stem}_fold{fold}' / 'best_model.joblib'
         if not model_path.exists():
@@ -173,17 +178,18 @@ def fold_importances(model_root: Path, run_stem: str, n_folds: int, n_columns: i
                 f"{model_path} was fitted on {booster.num_feature():,} features but the cache "
                 f"and encoding give {n_columns:,}. The model and the site cache disagree.")
 
+        # 1) Gain: total loss reduction from splits on each feature, normalized to sum to 1.
         gain = np.asarray(booster.feature_importance(importance_type='gain'), dtype=np.float64)
         if gain.sum() <= 0:
-            raise ValueError(f"{model_path}: every feature has zero gain, so there is nothing "
-                             f"to rank.")
+            raise ValueError(f"{model_path}: sum of gains across features is zero, so nothing to rank.")
         gains.append(gain / gain.sum())
-        splits.append(np.asarray(booster.feature_importance(importance_type='split'),
-                                 dtype=np.int64))
 
-        # Exact TreeSHAP: the last column is the base value, and contributions plus base must
-        # reconstruct the raw margin. Checked rather than assumed -- a silent mismatch here would
-        # make the whole ranking wrong in a way nothing else would catch.
+        # 2) Split count: how many times each feature was used to split. Not normalized.
+        splits.append(np.asarray(booster.feature_importance(importance_type='split'), dtype=np.int64))
+
+        # 3) SHAP: exact TreeSHAP, mean absolute contribution per column, normalized to sum to 1.
+        # The last column of pred_contrib is the base value; contributions plus base must
+        # reconstruct the raw margin.
         X = fold_features[fold]
         contributions = booster.predict(X, pred_contrib=True)
         reconstructed = contributions[:, :-1].sum(axis=1) + contributions[:, -1]
@@ -195,6 +201,8 @@ def fold_importances(model_root: Path, run_stem: str, n_folds: int, n_columns: i
         mean_abs = np.abs(contributions[:, :-1]).mean(axis=0)
         shaps.append(mean_abs / mean_abs.sum())
 
+        # 4) Permutation: AUC-ROC drop when a column's values are shuffled, averaged over
+        # `permutation_repeats` shuffles per column. Skipped (all zeros) when repeats is 0.
         if permutation_repeats > 0:
             drops, baseline = permutation_auc_drops(booster, X, fold_labels[fold],
                                                     permutation_repeats, seed + fold)
