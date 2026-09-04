@@ -59,6 +59,11 @@ from src.analysis.plot_site_entropy import collect_slot_hashes  # noqa: E402
 from src.models.baselines import lgbm  # noqa: E402
 from src.utils.config_hydra import get_function_short_name_map, get_virus_config_hydra  # noqa: E402
 from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
+from src.analysis._importance_helpers import (  # noqa: E402
+    IMPORTANCE_MEASURES,
+    load_importance,
+    rank_columns,
+)
 from src.utils.seed_utils import resolve_process_seed  # noqa: E402
 from src.utils.site_utils import SiteCache, get_site_pair_features, load_site_cache  # noqa: E402
 
@@ -159,6 +164,8 @@ def main() -> None:
     p.add_argument('--config_bundle', default='flu_ha_na_h3n2_2024_random_cv4_site_codon')
     p.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
     p.add_argument('--importance_csv', type=Path, default=None)
+    p.add_argument('--rank_by', default='shap', choices=list(IMPORTANCE_MEASURES),
+                   help='importance measure the top-N sets are ordered by')
     p.add_argument('--n_folds', type=int, default=4)
     p.add_argument('--n_sites', type=int, nargs='+', default=[1, 5, 10, 25, 50, 100],
                    help='set sizes to corrupt; the all-columns anchor is added automatically')
@@ -190,9 +197,8 @@ def main() -> None:
     n_sites_a = caches[0].codes.shape[1]
     n_columns = n_sites_a + caches[1].codes.shape[1]
 
-    # keep_default_na: the `protein` column holds the literal string NA (Neuraminidase).
-    importance = pd.read_csv(args.importance_csv, keep_default_na=False, na_values=[''])
-    ranked = importance.sort_values('shap_rank')['column'].to_numpy()
+    importance = load_importance(args.importance_csv)
+    ranked = rank_columns(importance, args.rank_by)
     sizes = sorted({min(int(n), n_columns) for n in args.n_sites} | {n_columns})
 
     pair_tables = {}
@@ -246,7 +252,7 @@ def main() -> None:
 
     table = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = args.out_dir / f'site_retrain_ablation_{args.unit}.csv'
+    out_csv = args.out_dir / f'site_retrain_ablation_{args.unit}_{args.rank_by}.csv'
     table.to_csv(out_csv, index=False)
     print(f"\nWrote {out_csv}")
 
@@ -287,7 +293,7 @@ def main() -> None:
     fig.tight_layout()
     fig.text(0.995, 0.002, f'src/analysis/{Path(__file__).name}', ha='right', va='bottom',
              fontsize=7, color='0.45')
-    out_png = savefig(args.out_dir / f'site_retrain_ablation_{args.unit}.png', dpi=args.dpi)
+    out_png = savefig(args.out_dir / f'site_retrain_ablation_{args.unit}_{args.rank_by}.png', dpi=args.dpi)
     print(f"\nDone. Wrote {out_png}")
 
 
