@@ -693,6 +693,74 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - Needs either SHAP interaction values or LightGBM's split-pair statistics.
    - Computing every feature's main-effect SHAP value together is already cheap — step 6 measures it at about 0.3 seconds per fold, via `pred_contrib` — but computing INTERACTION values costs `n_features` times more work per row. At 1,037 codon features that is a different order of magnitude, so this should be budgeted and planned as its own piece of work.
 
+## Post-hoc: why precision reads lower than recall
+
+**Goal.** Explain a pattern that shows up in every arm of step 5, and decide whether it's a
+problem with the model or a property of the data.
+
+**The observation.** Precision is lower than recall in all four random-CV folds and in both
+feature sources. Averaged over the folds, per-site `nt` scores 0.8760 precision against 0.9776
+recall, and k-mer scores 0.8600 against 0.9798. The model therefore makes more FPs 
+than FNs. On fold 0 of the per-site `nt` arm the counts are 127 FPs and 9
+FNs.
+
+This is not caused by the decision threshold. `training.threshold_metric` is unset, so
+`train_pair_baselines.py` uses a plain 0.5 and never tunes it on validation. The splits are also
+exactly balanced at `neg_to_pos_ratio`=1.0, so neither the threshold nor the class ratio favours
+the positive class.
+
+**The cause.** A negative pair is built by taking one isolate's slot-A sequence and giving it the
+slot-B sequence of a different isolate. Both samplers reject exact co-occurrences, so a negative is
+never a relabelled positive. **Neither sampler rejects near co-occurrences**. When the substituted
+partner differs from the real partner by only a few nucleotides, the resulting pair is a near-copy
+of a TP, and the two cannot be classified correctly using the sequence alone. These rows are called
+**near-duplicate negatives**, defined in `docs/methods/glossary.md`.
+
+There is no matching problem in the positive class, because every positive is a real same-isolate
+pairing. The errors therefore fall on the negative side, which is what pushes precision below
+recall.
+
+**The measurement.** For each negative pair, `distance_to_nearest_positive` is the smallest number
+of differing sites between that pair and any TP pair, counted on the one slot that
+differs. The minimum of the two slots is used, because the pair looks positive if either side is
+nearly right. `src/analysis/plot_negative_pair_ambiguity.py` computes this from the saved
+`test_predicted.csv` files. It retrains nothing and corrupts no features.
+
+**Result**, pooled over the 4 random-CV folds of the per-site `nt` arm (3,580 negatives):
+
+| distance to nearest positive pair | negatives | FPR (=FP/N) |
+|---|---:|---:|
+| 0-2 nt | 155 | 0.832 |
+| 3-5 nt | 775 | 0.258 |
+| 6-10 nt | 1,821 | 0.081 |
+| 11-20 nt | 566 | 0.030 |
+| >20 nt | 263 | 0.008 |
+
+Negatives within 10 nt of a TP pair are 76.8% of all negatives and carry 96% of the FPs. The k-mer
+arm gives the same shape on the same negatives, with 94% of its FPs inside 10 nt, so this is a
+property of the data rather than of one feature source.
+
+No negatives sit at distance 0. A distance-0 substitution would produce the same `pair_key` as a
+real TP pair, and the negative sampler rejects any candidate whose `pair_key` is a known co-occurrence.
+The near-duplicate negatives are therefore distinct sequences that happen to be close, not retained
+duplicate sequences. Per-side sequence deduplication would not remove them.
+
+**What this does and does not establish.** The reading is strongest in the nearest bin, where 83%
+of negatives are called positive and the pairs are near-identical to real ones. It weakens quickly
+with distance. At 3-5 nt the model still classifies 74% of the negatives correctly, so those rows
+are hard rather than impossible, and it would be wrong to describe the whole effect as label noise.
+
+The association may also be partly expected by construction. The model appears to work from
+sequence similarity, and this distance measures sequence similarity, so some link between the two
+is not surprising on its own. The size of the effect is the informative part, not its direction.
+
+The distance is nt identity over aligned CDS positions. It is not a phylogenetic
+assignment, so "near-duplicate" here means sequence-similar and not confirmed same-clade.
+
+Read the result as a diagnostic of the negative sampler and of this population's low sequence
+diversity. It puts a floor under precision that no model can lift. It does not show that the model
+is wrong about these rows.
+
 ## Open questions for Jamie
 
 Checked against the 2026-05-12 chat in `notes.md`.
