@@ -1,0 +1,42 @@
+# STATUS: experimental -- flu_ha_na_h3n2_2024_random_cv4_pinned_length, but routed
+# seq_disjoint (single split) instead of random (4-fold CV).
+#
+# Why: the random-CV runs measured 18-21% of test HA sequences and 22-26% of test NA sequences
+# also appearing in training (docs/plans/2026-08-28_per_site_nt_features_plan.md step 5,
+# "memorisation risk"). seq_disjoint guarantees zero sequence overlap between splits by
+# construction (CC routing over the exact-hash bigraph; see _pair_helpers.seq_disjoint_route_pos_df),
+# so this checks whether the model still performs well when that overlap is structurally impossible
+# rather than just empirically rare.
+#
+# hash_key: cds, not the flu_ha_na default 'seq' (protein-level) -- this population's
+# pair_key_alphabet is nt_cds and the per-site nt/codon features read cds_dna_hash, so
+# disjointness should be enforced at the same alphabet the features are built on.
+#
+# n_folds: null -- seq_disjoint is single-split-only (dataset_segment_pairs_v2.py:3130-3136
+# raises NotImplementedError for n_folds > 1). One split, no fold-to-fold variance, unlike the
+# 4-fold random-CV comparison this plan otherwise uses.
+#
+# Checked on this population before running (2026-09-04): at hash_key=cds, LPT-greedy hits the
+# 80/10/10 target almost exactly (0/0/0.02pp deviation across ratios tried), but train and
+# test/val end up compositionally different -- every val/test pair comes from a "singleton" atom
+# (a sequence observed exactly once anywhere in the corpus); every duplicated/prevalent sequence
+# lands in train. So this is not a random subsample of the same population as the CV runs; it is
+# specifically "generalization to singly-observed sequences." Read the result with that in mind,
+# not as a like-for-like replacement for the random-CV table in step 5.
+#
+# negative_scope: within_fold is inherited from the random-CV parent, so negatives use the same
+# ratio-driven primitive as the random-CV arms and every split lands exactly on
+# neg_to_pos_ratio. The first run of this bundle (2026-09-04) predated the fix at
+# dataset_segment_pairs.py's single-split split_dataset_v2 call, which did not thread
+# negative_scope and so silently fell back to the 'coverage' sampler. That produced 492 test
+# negatives against 358 requested (1.374 neg:pos) and depressed precision by about 0.039 through
+# class balance alone, with no effect on AUC-ROC.
+defaults:
+  - flu_ha_na_h3n2_2024_random_cv4_pinned_length
+  - _self_
+
+dataset:
+  n_folds: null
+  split_strategy:
+    mode: seq_disjoint
+    hash_key: cds

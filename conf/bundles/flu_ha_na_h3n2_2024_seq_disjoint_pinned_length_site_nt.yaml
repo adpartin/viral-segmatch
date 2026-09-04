@@ -1,0 +1,19 @@
+# STATUS: experimental -- per-site nucleotide features on the seq_disjoint (single-split) H3N2
+# 2024 population. Same relationship to flu_ha_na_h3n2_2024_seq_disjoint_pinned_length as
+# flu_ha_na_h3n2_2024_random_cv4_site_nt has to its random-CV parent: only the feature source
+# differs, so any difference from the k-mer arm on this split is the features, not the population.
+#
+# See docs/plans/2026-08-28_per_site_nt_features_plan.md step 5 and the seq_disjoint follow-up
+# discussion for why this split exists.
+defaults:
+  - flu_ha_na_h3n2_2024_seq_disjoint_pinned_length
+  - _self_
+
+site:
+  unit: nt
+  encoding: ordinal
+
+training:
+  feature_source: site
+  interaction: concat
+  slot_transform: none

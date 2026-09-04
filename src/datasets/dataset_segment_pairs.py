@@ -857,6 +857,7 @@ if PAIR_BUILDER_VERSION == 'v2':
             val_isolates_override=holdout_val_ids,
             test_isolates_override=holdout_test_ids,
             pair_key_alphabet=PAIR_KEY_ALPHABET,
+            negative_scope=NEGATIVE_SCOPE,
         )
         print(f"stage3 v2: split_dataset_v2 (done in {time.time()-_t:.2f}s)", flush=True)
 
