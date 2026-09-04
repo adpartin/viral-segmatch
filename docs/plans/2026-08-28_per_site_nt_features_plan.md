@@ -22,6 +22,7 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/analysis/plot_site_group_permutation.py` | 7b(ii) | shuffle the top N sites together, no retrain |
 | `src/analysis/plot_site_retrain_ablation.py` | 7b(iii) | corrupt the top N sites, then refit from scratch |
 | `src/analysis/plot_seen_sequence_effect.py` | 7c | test AUC split by whether a sequence was seen in training |
+| `src/analysis/plot_negative_pair_ambiguity.py` | Post-hoc | Error analysis: what share of the false positives are near-duplicate negatives, scored by each negative's distance to the nearest true pair |
 
 Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), and 6 new experiment bundles (`..._pinned_length`, `..._site_nt`, `..._site_codon`, `..._site_aa`, `..._site_codon_slot_a`, `..._site_codon_slot_b`).
 
