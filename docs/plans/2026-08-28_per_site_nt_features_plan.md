@@ -22,7 +22,8 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/analysis/plot_site_group_permutation.py` | 7b(ii) | shuffle the top N sites together, no retrain |
 | `src/analysis/plot_site_retrain_ablation.py` | 7b(iii) | corrupt the top N sites, then refit from scratch |
 | `src/analysis/plot_seen_sequence_effect.py` | 7c | test AUC split by whether a sequence was seen in training |
-| `src/analysis/plot_negative_pair_ambiguity.py` | Post-hoc | Error analysis: what share of the false positives are near-duplicate negatives, scored by each negative's distance to the nearest true pair |
+| `src/analysis/plot_negative_pair_ambiguity.py` | Post-hoc | Relates false-positive rate to the minimum single-slot Hamming distance from an observed positive |
+| `src/analysis/compare_negative_pair_distances.py` | Post-hoc | Compares the single-slot distance with unrestricted whole-pair distance and reports FPR jointly by both slot distances |
 | `src/analysis/_importance_helpers.py` | 6, 7b | shared readers for the importance table: load, rank by a chosen measure, average a permutation curve |
 | `src/analysis/plot_site_importance_trace.py` | 6 | one importance measure along the CDS, drawn from the saved table |
 | `src/analysis/plot_confusion_folds.py` | Post-hoc | confusion matrix pooled over the CV folds, with the per-fold spread |
@@ -762,6 +763,37 @@ that distance.
 Interpret the two quantities separately. Distances and bin sizes describe the sampler and
 population. FPR and enrichment also depend on the fitted model and its 0.5 threshold. The k-mer arm
 shows the same trend, so the association is not specific to one feature representation.
+
+**Sensitivity to the distance definition.** `distance_min` searches only observed positives that
+share HA or NA exactly with the negative. It is therefore an upper bound on the unrestricted
+nearest-positive distance
+
+`min[Hamming(HA, HA') + Hamming(NA, NA')]`
+
+over all observed positive pairs `(HA', NA')`.
+`src/analysis/compare_negative_pair_distances.py` computed both measures for all 3,580 negatives.
+The unrestricted distance is smaller for 757 negatives (21.1%). The median gap is 0 nt over all
+negatives and 1 nt among the 757 that change; the median distance is 7 nt under both definitions.
+Per-negative distances, summary tables, and the slot-distance heatmap are in
+`results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/negative_pair_distance_comparison/`.
+
+The unrestricted search changes true negatives more often than false positives (22.4% versus
+13.5%), so the near-distance enrichment becomes slightly weaker:
+
+| distance measure | within 2 nt | within 5 nt | within 10 nt |
+|---|---:|---:|---:|
+| `distance_min` | 5.95x | 2.42x | 1.25x |
+| unrestricted whole-pair distance | 5.84x | 2.33x | 1.23x |
+
+The conclusion does not change. Under the unrestricted measure, FPR still decreases monotonically
+from 0.810 at 0-2 nt to 0.008 beyond 20 nt.
+
+**Both slot distances matter.** The two-dimensional table retains information hidden by
+`distance_min`. All 56 negatives with both slot distances at 0-2 nt are false positives. When
+only one slot is at 0-2 nt and the other is at 3-10 nt, 85 of 108 are false positives (78.7%).
+FPR falls to 0.560 when both slots are at 3-5 nt and to 0.122 when both are at 6-10 nt. Thus, the
+minimum distance captures the main trend, while the pair of slot distances describes its strength
+more completely.
 
 **Limits.** No negative has distance 0: an exact match would reproduce an observed `pair_key` and
 would be rejected by the sampler. Near-duplicate negatives are therefore distinct sequences, not
