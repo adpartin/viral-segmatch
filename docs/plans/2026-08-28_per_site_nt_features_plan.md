@@ -738,8 +738,10 @@ supplies biological ground truth.
 observed partner, written out as `distance_slot_a` and `distance_slot_b`. A sequence can co-occur
 with several partners, so there is no single correct partner to compare against. `distance_min`,
 the smaller of the two slot distances, is used for binning. Both slot distances remain in the CSV,
-so other summaries can be calculated without rerunning the analysis. Distances are measured against
-every observed co-occurrence, which is the set the negative sampler blocks against.
+so other summaries can be calculated without rerunning the analysis. Each sequence distance is the
+Hamming distance: the number of mismatched sites between two equal-length, aligned sequences.
+Distances are measured against every observed co-occurrence, which is the set the negative sampler
+blocks against.
 `src/analysis/plot_negative_pair_ambiguity.py` computes this from the saved
 `test_predicted.csv` files. It retrains nothing and corrupts no features.
 

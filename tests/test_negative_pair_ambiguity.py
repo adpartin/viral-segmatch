@@ -15,8 +15,8 @@ from src.analysis.plot_negative_pair_ambiguity import (  # noqa: E402
     bin_labels,
     check_bin_edges,
     positive_universe,
-    site_distance,
-    slot_distances,
+    site_hamming_distance,
+    slot_hamming_distances,
 )
 from src.utils.site_utils import SiteCache  # noqa: E402
 
@@ -59,40 +59,41 @@ def test_check_bin_edges_rejects_bad_input():
         check_bin_edges((2, 2))
 
 
-def test_site_distance_counts_differing_sites():
+def test_site_hamming_distance_counts_differing_sites():
     cache_a, cache_b = _caches()
-    assert site_distance(cache_a, 'ha1', 'ha1') == 0
-    assert site_distance(cache_a, 'ha1', 'ha2') == 1
-    assert site_distance(cache_a, 'ha1', 'ha3') == 4
-    assert site_distance(cache_b, 'na1', 'na2') == 2
+    assert site_hamming_distance(cache_a, 'ha1', 'ha1') == 0
+    assert site_hamming_distance(cache_a, 'ha1', 'ha2') == 1
+    assert site_hamming_distance(cache_a, 'ha1', 'ha3') == 4
+    assert site_hamming_distance(cache_b, 'na1', 'na2') == 2
 
 
-def test_slot_distances_reports_each_slot_independently():
+def test_slot_hamming_distances_reports_each_slot_independently():
     cache_a, cache_b = _caches()
     partners_of_a = {'ha1': ['na1']}          # ha1 truly pairs with na1
     partners_of_b = {'na1': ['ha1']}
 
     # Negative (ha1, na2): slot B was substituted, na2 is 2 sites from ha1's true partner na1.
     # Slot A cannot be scored, because na2 has no known true partner.
-    distance_a, distance_b = slot_distances('ha1', 'na2', partners_of_a, partners_of_b,
-                                            cache_a, cache_b)
+    distance_a, distance_b = slot_hamming_distances(
+        'ha1', 'na2', partners_of_a, partners_of_b, cache_a, cache_b)
     assert (distance_a, distance_b) == (None, 2)
 
     # Negative (ha2, na1): the mirror. ha2 is 1 site from na1's true partner ha1.
-    distance_a, distance_b = slot_distances('ha2', 'na1', partners_of_a, partners_of_b,
-                                            cache_a, cache_b)
+    distance_a, distance_b = slot_hamming_distances(
+        'ha2', 'na1', partners_of_a, partners_of_b, cache_a, cache_b)
     assert (distance_a, distance_b) == (1, None)
 
     # Neither sequence known: both sides are unmeasurable rather than zero.
-    assert slot_distances('ha3', 'na3', partners_of_a, partners_of_b,
-                          cache_a, cache_b) == (None, None)
+    assert slot_hamming_distances(
+        'ha3', 'na3', partners_of_a, partners_of_b, cache_a, cache_b) == (None, None)
 
 
-def test_slot_distances_takes_the_closest_of_several_partners():
+def test_slot_hamming_distances_takes_the_closest_of_several_partners():
     cache_a, cache_b = _caches()
     # ha1 pairs with both na1 and na3, so the distance is to whichever is closer to the given na2.
     partners_of_a = {'ha1': ['na1', 'na3']}
-    _, distance_b = slot_distances('ha1', 'na2', partners_of_a, {}, cache_a, cache_b)
+    _, distance_b = slot_hamming_distances(
+        'ha1', 'na2', partners_of_a, {}, cache_a, cache_b)
     assert distance_b == 1  # na2 vs na3 differs at 1 site, vs na1 at 2
 
 

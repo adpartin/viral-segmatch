@@ -99,22 +99,27 @@ def positive_universe(dataset_dir: Path, cache_a, cache_b) -> tuple:
     return partners_of_a, partners_of_b
 
 
-def site_distance(cache, hash_left: str, hash_right: str) -> int:
-    """Count differing sites between two aligned sequences in the same cache."""
+def site_hamming_distance(cache, hash_left: str, hash_right: str) -> int:
+    """Count mismatched sites between two aligned, equal-length sequences in a per-site cache.
+
+    This is Hamming distance, not an edit distance such as Levenshtein distance.
+    """
     codes_left = cache.codes[cache.hash_to_row[hash_left]]
     codes_right = cache.codes[cache.hash_to_row[hash_right]]
     return int((codes_left != codes_right).sum())
 
 
-def slot_distances(hash_a: str, hash_b: str, partners_of_a: dict, partners_of_b: dict,
-                   cache_a, cache_b) -> tuple:
-    """Return each slot's distance to its nearest observed partner sequence."""
+def slot_hamming_distances(hash_a: str, hash_b: str, partners_of_a: dict,
+                           partners_of_b: dict, cache_a, cache_b) -> tuple:
+    """Return each slot's minimum Hamming distance to an observed partner."""
     distance_b = None
     if hash_a in partners_of_a:
-        distance_b = min(site_distance(cache_b, hash_b, true) for true in partners_of_a[hash_a])
+        distance_b = min(
+            site_hamming_distance(cache_b, hash_b, true) for true in partners_of_a[hash_a])
     distance_a = None
     if hash_b in partners_of_b:
-        distance_a = min(site_distance(cache_a, hash_a, true) for true in partners_of_b[hash_b])
+        distance_a = min(
+            site_hamming_distance(cache_a, hash_a, true) for true in partners_of_b[hash_b])
     return distance_a, distance_b
 
 
@@ -154,8 +159,8 @@ def analyze_run(run_dir: Path, cache_a, cache_b, run_label: str, partners_of_a: 
     negatives['pred_label'] = predicted[labels == 0]
     distances = []
     for hash_a, hash_b in zip(negatives['cds_dna_hash_a'], negatives['cds_dna_hash_b']):
-        distances.append(slot_distances(hash_a, hash_b, partners_of_a, partners_of_b,
-                                        cache_a, cache_b))
+        distances.append(slot_hamming_distances(
+            hash_a, hash_b, partners_of_a, partners_of_b, cache_a, cache_b))
     negatives[['distance_slot_a', 'distance_slot_b']] = distances
     negatives[DISTANCE_COLUMN] = negatives[['distance_slot_a', 'distance_slot_b']].min(axis=1)
     negatives['nearer_slot'] = np.where(
