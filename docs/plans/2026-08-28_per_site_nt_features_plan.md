@@ -700,54 +700,45 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
 
 ## Post-hoc: where the false positives sit
 
-**Goal.** Explain a pattern that shows up in every arm of step 5, and decide whether it's a
-problem with the model or a property of the data.
+**Goal.** Determine whether false positives are concentrated among negative pairs that closely
+resemble observed positive pairs.
 
-**The observation.** Precision is lower than recall in all four random-CV folds and in both
-feature sources. Averaged over the folds, per-site `nt` scores 0.8760 precision against 0.9776
-recall, and k-mer scores 0.8600 against 0.9798. The model therefore makes more false positives 
-than false negatives. On fold 0 of the per-site `nt` arm the counts are 127 false positives and 9
-false negatives.
+**The observation.** In every fold, precision is lower than recall for both per-site `nt` and
+k-mer features. Averaged over the folds, precision/recall is 0.8760/0.9776 for per-site `nt` and
+0.8600/0.9798 for k-mer. On fold 0 of the per-site `nt` arm, this corresponds to 127 false
+positives and 9 false negatives.
 
-The threshold is never tuned. `training.threshold_metric` is unset, so
-`train_pair_baselines.py` uses a plain 0.5 and never selects it on validation. The splits are also
-exactly balanced at `neg_to_pos_ratio`=1.0, so the class ratio does not favour the positive class
-either.
+The decision threshold is 0.5 because `training.threshold_metric` is unset; it is not tuned on the
+validation split. The folds are balanced at `neg_to_pos_ratio=1.0`, but neither balance nor a 0.5
+threshold requires symmetric errors. For illustration, a threshold of about 0.70 gives 312 false
+positives and 310 false negatives when the per-site `nt` predictions are pooled across folds. That
+threshold was found from the test predictions and must not be used operationally. It only shows
+that the precision-recall asymmetry depends on the threshold.
 
-That said, the error asymmetry is still threshold-dependent, and this section does not explain it.
-A balanced dataset and a 0.5 threshold do not require symmetric errors, because 0.5 need not be
-where this model's scores balance. Pooled over the folds, moving the threshold to about 0.70 gives
-312 false positives against 310 false negatives, with precision 0.9129 and recall 0.9134. That threshold was found on the
-test predictions and must not be used operationally. It is quoted only to show that the gap moves
-with the threshold. Everything below analyses negative rows only, so it locates the false positives and never
-compares the false-positive and false-negative mechanisms.
+**Near-duplicate negatives.** Negative pairs combine slot-A and slot-B sequences that were not
+observed together. Both samplers reject exact observed co-occurrences, but neither rejects pairs
+that are close to them in sequence. These are called **near-duplicate negatives**; see
+`docs/methods/glossary.md`. Their label means "recombined and not observed co-occurring", not
+"biologically incompatible".
 
-**Where the false positives sit.** A negative pair is built by taking one isolate's slot-A sequence
-and giving it the slot-B sequence of a different isolate. Both samplers reject exact
-co-occurrences, so a negative is never a relabelled positive. **Neither sampler rejects near
-co-occurrences**. When the substituted partner differs from the real partner by only a few
-nucleotides, the resulting pair resembles a true positive, and the model is measurably likelier to call it
-positive. These rows are called **near-duplicate negatives**, defined in
-`docs/methods/glossary.md`.
+**The measurement.** For a negative pair `(A, B)`:
 
-Note what the negative label means. It means "recombined and not observed co-occurring", not
-"biologically incompatible". Sequence proximity makes compatibility plausible, but nothing here
-supplies biological ground truth.
+- `distance_slot_b` is the minimum Hamming distance between B and any slot-B sequence observed
+  with A.
+- `distance_slot_a` is the minimum Hamming distance between A and any slot-A sequence observed
+  with B.
+- `distance_min` is the smaller of those two distances and is used for binning.
 
-**The measurement.** Each slot of a negative pair gets its own distance to that slot's nearest
-observed partner, written out as `distance_slot_a` and `distance_slot_b`. A sequence can co-occur
-with several partners, so there is no single correct partner to compare against. `distance_min`,
-the smaller of the two slot distances, is used for binning. Both slot distances remain in the CSV,
-so other summaries can be calculated without rerunning the analysis. Each sequence distance is the
-Hamming distance: the number of mismatched sites between two equal-length, aligned sequences.
-Distances are measured against every observed co-occurrence, which is the set the negative sampler
-blocks against.
-`src/analysis/plot_negative_pair_ambiguity.py` computes this from the saved
-`test_predicted.csv` files. It retrains nothing and corrupts no features.
+Hamming distance counts mismatched sites between equal-length, aligned sequences. Thus,
+`distance_min` is the distance to the nearest observed positive that shares one sequence with the
+negative pair; it is not a search over all positive pairs. Both slot distances remain in the CSV.
+The comparison uses every observed co-occurrence, not only test positives.
+`src/analysis/plot_negative_pair_ambiguity.py` reads the saved `test_predicted.csv` files and
+does not retrain the model.
 
 **Result**, pooled over the 4 random-CV folds of the per-site `nt` arm (3,580 negatives):
 
-| distance to nearest positive pair | negatives | FPR (=FP/N) |
+| minimum single-slot Hamming distance | negatives | FPR (=FP/N) |
 |---|---:|---:|
 | 0-2 nt | 176 | 0.824 |
 | 3-5 nt | 847 | 0.234 |
@@ -755,8 +746,8 @@ blocks against.
 | 11-20 nt | 547 | 0.027 |
 | >20 nt | 262 | 0.008 |
 
-Read the concentration as enrichment, not as a raw share of the false positives. A bin that holds most of the
-false positives may simply be holding most of the negatives, which is exactly what happens here:
+The raw share of false positives depends on how many negatives fall within each distance.
+Enrichment accounts for that:
 
 | within | share of negatives | share of FPs | enrichment |
 |---|---:|---:|---:|
@@ -764,46 +755,27 @@ false positives may simply be holding most of the negatives, which is exactly wh
 | 5 nt | 28.6% | 69.2% | 2.42x |
 | 10 nt | 77.4% | 96.6% | 1.25x |
 
-So "96.6% of the false positives sit within 10 nt" mostly restates that 77.4% of the negatives already do.
-The 5 nt row is the honest headline: 28.6% of the negatives carry 69.2% of the false positives.
+Within 5 nt, 28.6% of negatives account for 69.2% of false positives, corresponding to 2.42x
+enrichment. The 10 nt result is less informative because 77.4% of all negatives are already within
+that distance.
 
-Note which column belongs to which. The distances and the bin sizes describe the sampler and the
-population, and are identical for every model scored on these negatives. The FPRs and the
-enrichment describe one fitted model at a 0.5 threshold. The k-mer arm gives the same shape on the
-same negatives, which shows the effect is not specific to one feature representation. It does not
-make the errors model-independent, because a different model or a different threshold would move
-the rates.
+Interpret the two quantities separately. Distances and bin sizes describe the sampler and
+population. FPR and enrichment also depend on the fitted model and its 0.5 threshold. The k-mer arm
+shows the same trend, so the association is not specific to one feature representation.
 
-No negatives sit at distance 0. A distance-0 substitution would produce the same `pair_key` as a
-real positive pair, and the negative sampler rejects any candidate whose `pair_key` is a known co-occurrence.
-The near-duplicate negatives are therefore distinct sequences that happen to be close, not retained
-duplicate sequences. Per-side sequence deduplication would not remove them.
+**Limits.** No negative has distance 0: an exact match would reproduce an observed `pair_key` and
+would be rejected by the sampler. Near-duplicate negatives are therefore distinct sequences, not
+retained duplicates, and per-side sequence deduplication would not remove them.
 
-**What this does and does not establish.** These rows are hard, not unlabelable. Even in the
-nearest bin the per-site `nt` model classifies 31 of the 176 negatives correctly, and k-mer
-classifies 29 of them. At 3-5 nt the model gets 77% of them right. No negative sits at distance 0,
-so no identical feature vector ever carries both labels, and a pair differing by 1-2 nt is still a
-different input to a per-site model. Saying these pairs cannot be separated would go beyond the
-measurement.
+These negatives are hard, not demonstrably unlabelable. The per-site `nt` model correctly rejects
+31 of the 176 negatives in the 0-2 nt bin and 77% of those in the 3-5 nt bin. This analysis also
+cannot explain why precision is lower than recall because it examines only negative rows.
 
-It does not explain why precision reads lower than recall. Only negative rows are analysed, so the
-false-positive and false-negative mechanisms are never compared, and the gap moves with the threshold as shown above.
-
-The association is also partly expected by construction. The model appears to work from sequence
-similarity, and this distance measures sequence similarity, so some link between the two is not
-surprising on its own. The size of the effect is the informative part, not its direction.
-
-The distance definition is one choice among several. Taking the minimum over the two slots answers
-"how close is this pair to a positive after changing whichever single slot needs less change", and
-it is slot-sensitive, since the shorter NA supplies it for 75% of the negatives against 25% for
-HA. Every site also counts equally, which is not how the model weights them. Both per-slot
-distances are written to the CSV so the summary can be recomputed.
-
-The distance is nt identity over aligned CDS positions. It is not a phylogenetic
-assignment, so "near-duplicate" here means sequence-similar and not confirmed same-clade.
-
-Read the result as a diagnostic of the negative sampler and of this population's low sequence
-diversity. It does not show that the model is wrong about these rows.
+`distance_min` is slot-sensitive: NA supplies the minimum for 75% of negatives and HA for 25%.
+Different sequence lengths may contribute, but sequence diversity also matters. Hamming distance
+weights every site equally, unlike the fitted model, and measures sequence similarity rather than
+phylogeny. The result therefore shows an association between short sequence distance and false
+positives; it does not establish biological compatibility or show that the model is wrong.
 
 ## Open questions for Jamie
 
