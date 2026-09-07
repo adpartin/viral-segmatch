@@ -495,18 +495,19 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - Quick smoke test on fold 0 only: site nt F1 macro 0.9246 vs. k-mer 0.9219 on the same fold.
      One fold proves nothing by itself; step 5 is the real comparison.
 
-5. **Train and compare — DONE (2026-09-02).** LGBM trained on all four pinned-length folds; every arm uses the same folds, so the comparisons are paired.
+5. **Train and compare — DONE (2026-09-02).** LightGBM was trained and evaluated on all four
+   pinned-length folds. Every arm uses the same folds, so the comparisons are paired.
 
    **Goal.** Compare per-site `nt`/`codon`/`aa` features against the k-mer baseline, and against
    each other, under matched folds, so any difference in score comes from the features rather
    than the split.
 
-   | arm | columns | F1 macro | F1 | AUC-ROC |
-   |---|---|---|---|---|
-   | k-mer k=6 (nt_cds) | 8,192 | 0.9094 +/- 0.0145 | 0.9159 +/- 0.0122 | 0.9564 +/- 0.0064 |
-   | per-site `nt` | 3,111 | **0.9192 +/- 0.0134** | 0.9239 +/- 0.0121 | 0.9597 +/- 0.0087 |
-   | per-site `codon` | 1,037 | 0.9159 +/- 0.0087 | 0.9211 +/- 0.0077 | 0.9547 +/- 0.0056 |
-   | per-site `aa` | 1,037 | 0.8091 +/- 0.0228 | 0.8257 +/- 0.0185 | 0.8842 +/- 0.0200 |
+   | arm | columns | F1 macro | AUC-ROC |
+   |---|---|---|---|
+   | k-mer k=6 (`nt_cds`) | 8,192 | 0.9094 ± 0.0145 | 0.9564 ± 0.0064 |
+   | per-site `nt` | 3,111 | **0.9192 ± 0.0134** | 0.9597 ± 0.0087 |
+   | per-site `codon` | 1,037 | 0.9159 ± 0.0087 | 0.9547 ± 0.0056 |
+   | per-site `aa` | 1,037 | 0.8091 ± 0.0228 | 0.8842 ± 0.0200 |
 
    **Paired comparison, F1 macro, across the four folds:**
 
@@ -517,124 +518,117 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | `codon` vs `aa` | **+0.1067** | 4 of 4 | **0.002** |
    | `nt` vs `codon` | +0.0033 | 3 of 4 | 0.509 |
 
-   - **Synonymous variation carries most of the signal.** `codon` and `aa` cover the exact
-     same 1,037 positions in the exact same records. The only difference is whether a DNA
-     change that does not change the aa is visible to the model. Removing that
-     information costs **0.107 F1 macro** on every fold (p=0.002).
-     - One interpretation, not separately tested: synonymous changes are close to neutral, so
-       they drift with lineage and can act like a lineage marker, while aa changes are shaped
-       by selection and can end up similar across different lineages. Under that reading, the
-       matching signal is carried mostly in the DNA rather than the protein, at least at the
-       level of detail a per-site categorical feature can capture.
-     - **This has not been tested for ESM-2**, which reads 1,280 continuous dimensions rather
-       than 22 categories per site. It should not be assumed to hold there.
-   - **The memorisation risk is bounded here, but not yet ruled out at this step.** Under a
-     random split, the same sequence can appear in both train and test. A per-site vector could
-     in principle let the model recognize that exact sequence, instead of learning a pattern
-     that generalizes.
-     - First, 18-21% of test HA sequences and 22-26% of test NA sequences already appear
-       somewhere in training.
-     - Second, a test pair only benefits from full recognition if both of its sequences were
-       already seen, and that is rarer: only **7-10% of test rows have BOTH sequences already
-       seen in training**.
-     - Third, `pair_key` overlap between train and test is 0 in every fold, so no test pair
-       itself was trained on.
-     - So memorisation of a specific pairing could explain at most about a tenth of the test
-       set, not more.
-     - This still does not separate two explanations for the `aa` result in step 5: the model
-       relying on memorized sequences, or removing synonymous positions removing real signal.
-       Both would look the same here. Step 7 is what separates them.
+   The p-values are from two-sided paired t-tests over the four fold scores. With only four
+   folds, they are descriptive and provide limited statistical evidence.
 
-6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on
-   the `codon` arm (1,037 columns, with one categorical feature per codon position). Because
-   each codon corresponds to one residue, the site numbers also match the residue positions.
+   **Codon features outperform amino-acid features.** Both representations cover the same
+   1,037 positions in the same records, but the amino-acid representation removes synonymous
+   codon differences. Codon features increase mean F1 macro by 0.1067 and outperform
+   amino-acid features on all four folds (p=0.002). This shows that synonymous nucleotide
+   variation contributes substantial predictive signal. One possible explanation is that
+   synonymous changes retain lineage information, but this experiment does not test that
+   explanation. This result applies to the per-site amino-acid representation, not ESM-2
+   embeddings.
 
-   **Goal.** Rank the codon positions used by the fitted model, measure agreement between
-   importance methods, and check whether the most important positions are stable across folds.
-   Step 7 then tests these positions by masking or shuffling them.
+   **Per-site nucleotide and codon features perform similarly to or slightly better than the
+   k-mer baseline.** Per-site nucleotide features have the highest mean F1 macro and win on all
+   four folds, but the four-fold comparison provides limited statistical evidence (mean
+   difference +0.0098; p=0.128).
 
-   **Implementation.** Four output files:
-   - `site_importance_codon.png`: importance plotted along the CDS, and importance plotted
-     against entropy.
-   - `site_importance_codon_barplot.png`: LightGBM's own `plot_importance` bar charts (`split`
-     and `gain`) next to the SHAP ranking.
-   - `site_importance_codon.csv`: one row per column, with columns `column, slot, protein,
-     site, shap_frac, shap_frac_std, gain_frac, gain_frac_std, perm_auc_drop,
-     perm_auc_drop_std, folds_used, split_count, entropy_bits, n_values, shap_rank,
-     gain_rank, perm_rank`.
-   - `site_importance_codon_per_fold.csv`: each fold's own numbers separately, so
-     fold-to-fold agreement can be recomputed.
+   **Random CV permits individual-sequence overlap.** Depending on the fold, 18-21% of test HA
+   sequences and 22-26% of test NA sequences also occur in training; both sequences were seen
+   for 7-10% of test rows. Exact `pair_key` overlap is zero. Step 7 directly tests whether this
+   overlap explains the results.
 
-   **The three measures answer different questions:**
-   - `split` counts how many fitted-tree splits use a feature. On fold 0, its top-15 list does
-     not overlap with the gain or SHAP top-15 lists. A feature can receive a high split count
-     from many low-gain splits, so split count is less informative here than gain or SHAP.
-   - `gain` is the total LightGBM split gain assigned to a feature across the fitted trees.
-     It describes which features were useful while fitting the model, but not necessarily how
-     strongly they affect predictions on new data.
-   - For this analysis, SHAP was computed on each fold's test split. The script uses LightGBM's
-     `pred_contrib` and verifies that the feature contributions plus the base value reconstruct
-     the raw model score. Mean absolute SHAP describes how strongly each feature affects
-     held-out predictions, without retaining the direction of the effect. When gain and SHAP
-     disagree, SHAP is more relevant to the model's behavior on the test data, but neither
-     measure establishes biological importance.
-   - Both gain and SHAP are normalised to sum to 1 within each fold before averaging, because
-     early stopping gives each fold a different number of trees (411 to 998), so raw totals are
-     not comparable across folds.
+6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the
+   `codon` model. Each of its 1,037 categorical features represents one codon position and
+   therefore one residue position.
 
-   On high-cardinality sites:
-   - Several sites with many observed codons rank substantially higher by SHAP than by gain.
-     These examples show that gain and SHAP allocate importance differently at those sites;
-     they do not show that high cardinality caused the difference.
+   **Goal.** Rank the positions used by the fitted model and check whether the ranking agrees
+   across importance measures and folds. Step 7 tests whether predictions actually depend on
+   the highest-ranked positions.
 
-   **What this step alone cannot tell you.** Step 7 tests whether predictions actually depend
-   on these positions, but it cannot by itself prove that the signal is biological rather than
-   lineage or sequence identification.
+   **Outputs.** Four files:
+   - `site_importance_codon.png`: importance by CDS position and against entropy.
+   - `site_importance_codon_barplot.png`: split-count, gain, and SHAP rankings.
+   - `site_importance_codon.csv`: mean importance, variability, rank, and site metadata.
+   - `site_importance_codon_per_fold.csv`: importance values for each fold.
 
-7. **Masking and shuffling — DONE (2026-09-02), in four passes.**
-   - The original plan was one check: retrain with the top-ranked positions removed, and separately with their values shuffled. It grew into four checks, because the first attempts kept answering a narrower question than the one asked:
-     - **7a** — can one side alone predict anything?
-     - **7b(i)** — does the fitted model depend on one site at a time?
-     - **7b(ii)** — does it depend on a group of top sites together, still without retraining?
-     - **7b(iii)** — same as 7b(ii), but the model is retrained on the corrupted data.
-     - **7c** — does the score depend on having seen a sequence before?
+   **Importance measures.** The script computes four:
+   - **Gain** is the total reduction in training loss from tree splits using a feature. It comes
+     directly from the fitted trees and describes what the model found useful during training.
+   - **SHAP** is computed on each fold's held-out test rows. Mean absolute SHAP measures how
+     strongly a feature affects those predictions, without retaining the direction of the
+     effect. The script verifies that the SHAP contributions reconstruct the model's raw score.
+   - **Split count** records how often a feature is used. It produced a substantially different
+     ranking and is retained only as a diagnostic.
+   - **Permutation importance** measures the test AUC-ROC loss after shuffling a feature. It is
+     discussed in step 7b(i).
 
-   **7a. One side alone — DONE (2026-09-02), passes.** Run first, because a failure here would mean the importance map in step 6 is not worth interpreting.
-   - New config option `site.slots: a | b | both` (`conf/site/default.yaml`, default `both`) keeps one slot's columns and drops the other. New bundles `flu_ha_na_h3n2_2024_random_cv4_site_codon_slot_a` and `..._slot_b`.
+   Gain and SHAP are normalised within each fold before averaging because the folds contain
+   different numbers of fitted trees.
 
-   | arm | columns | F1 macro | AUC-ROC | precision |
-   |---|---|---|---|---|
-   | both slots (HA+NA) | 1,037 | 0.9159 +/- 0.0087 | 0.9547 +/- 0.0056 | 0.8708 |
-   | slot a only (HA) | 567 | 0.4942 +/- 0.0086 | **0.5007 +/- 0.0076** | 0.4996 |
-   | slot b only (NA) | 470 | 0.4819 +/- 0.0214 | **0.4979 +/- 0.0084** | 0.4992 |
+   **Results.** Gain and SHAP rankings were strongly correlated (Spearman 0.971 for HA and
+   0.974 for NA), and 12 of their top 15 sites overlapped. SHAP rankings were also reasonably
+   stable across folds: mean fold-to-fold Spearman correlation was 0.715 for HA and 0.681 for
+   NA, and 9 of each protein's top 15 sites appeared in every fold's top 15.
 
-   - Both one-sided models score at chance, to three decimal places: per-fold AUC-ROC never leaves 0.4914-0.5113, and precision sits on the 0.50 base rate. Read AUC-ROC here, not F1. F1 is not centred on 0.5, so a model that just guesses "match" can still score 0.50-0.59 on binary F1 while having learned nothing.
-   - Why this matters: the label describes a PAIR, and the negative sampler deliberately pairs one isolate's segment with a different isolate's segment, so the same HA sequence shows up in both correct and incorrect pairings across the dataset. One sequence alone therefore cannot answer the question, unless something in how the pairs were built leaked information one-sidedly, for instance if common strains ended up disproportionately in positive pairs. This test shows that did not happen: essentially all of the 0.9159 score comes from relating the two sides, which is also why the top-15 sites split across both proteins (8 HA, 7 NA) rather than favouring one.
-   - This test does NOT rule out memorisation. A model recalling "this exact HA goes with this exact NA" also needs both sides to do that. It rules out a one-sided shortcut only.
+   The top three sites overall were HA 544, NA 310, and NA 244 by gain, and NA 284, HA 544,
+   and NA 310 by SHAP.
 
-   **7b(i). Shuffle one site at a time, no retraining — DONE (2026-09-02).**
-   - Method: in each fold's held-out test split, shuffle one column's values across the rows, keep the already-fitted model unchanged, re-predict, and record the AUC-ROC drop. Repeated 5 times per column and averaged; 1,037 columns x 4 folds runs in about 1.5 minutes. Row-level shuffling is correct here because the model is fixed and scores one row at a time, so it has no way to notice that the same sequence now carries different values in different rows. (That changes once the model is retrained — see 7b(iii).)
-   - Added to `plot_site_importance.py`, so gain, SHAP, and this permutation score all sit in one table.
-   - The top-ranked sites hold up under this test too: HA site 544 is rank 1 by gain and by permutation and rank 2 by SHAP, costing 0.0288 AUC when shuffled. NA sites 284 and 244 cost 0.0219 and 0.0217. SHAP and permutation share 12 of the top 15 sites for HA and 11 of 15 for NA.
-   - Rank correlation between SHAP and permutation over ALL 1,037 columns is only +0.555 (HA) / +0.536 (NA), much weaker than the +0.97 between SHAP and gain, but this is a fact about the tail of the list, not the head. Most columns have no measurable effect when shuffled, so their permutation ranks are noise, and a whole-list correlation is dominated by that noise. The overlap at the top of the list is the number that matters.
-   - **No single site is essential on its own, and the signal is spread across many sites.** Baseline AUC-ROC is 0.9547, i.e. 0.4547 above the chance level of 0.5.
+   These measures identify positions used by the model; they do not establish biological
+   importance or distinguish biological signal from lineage or sequence identification. Step 7
+   tests the model's dependence on these positions.
 
-     | | value |
-     |---|---|
-     | sites whose shuffle costs more than 0.001 AUC | 43 of 1,037 |
-     | sites whose shuffle costs more than 0.005 AUC | 10 |
-     | largest single-site cost | 0.0288 (6.3% of the total signal) |
-     | sum of every single-site cost | 0.2523 (55.5% of the total signal) |
-     | sum of just the top 10 sites' costs (ranked by SHAP) | 0.1388 (30.5%) |
+7. **Masking and shuffling — DONE (2026-09-02).** Five analyses test different possible
+   explanations for the model's performance:
 
-   - Shuffling the single most important site removes only 6.3% of what the model knows. Adding up every site's individual cost reaches only 55.5%, meaning almost half of what the model uses is invisible when sites are tested one at a time, because sites can substitute for each other. That gap is exactly what the group test in 7b(ii) measures.
-   - This also bears on memorisation: a model that was memorising specific sequences would be expected to depend heavily on a small number of very informative positions. This model does not depend heavily on any single position.
+   | analysis | question | model retrained? |
+   |---|---|---|
+   | 7a | Can either protein predict the label alone? | yes |
+   | 7b(i) | Does the fitted model depend on individual sites? | no |
+   | 7b(ii) | Does it depend on groups of top sites? | no |
+   | 7b(iii) | Can a new model compensate after those sites are corrupted? | yes |
+   | 7c | Does performance depend on exact sequences seen in training? | no |
+
+   **7a. One side alone — DONE (2026-09-02).** Models were trained with HA alone, NA alone,
+   or both proteins.
+
+   | input | columns | AUC-ROC |
+   |---|---|---|
+   | HA + NA | 1,037 | 0.9547 ± 0.0056 |
+   | HA only | 567 | 0.5007 ± 0.0076 |
+   | NA only | 470 | 0.4979 ± 0.0084 |
+
+   HA alone and NA alone perform at chance. Prediction therefore requires information from both
+   slots. This test rules out a one-sided shortcut; by itself, it does not rule out recognition
+   based on both sequences.
+
+   **7b(i). Shuffle one site at a time, no retraining — DONE (2026-09-02).** In
+   `src/analysis/plot_site_importance.py`, each site is shuffled across held-out test rows five
+   times. The fitted model is not changed, and permutation importance is the mean AUC-ROC loss.
+
+   SHAP and permutation importance share 12 of the top 15 HA sites and 11 of the top 15 NA
+   sites. The whole-ranking correlations are lower (0.555 for HA and 0.536 for NA), largely
+   because most sites have little measurable individual effect. Baseline AUC-ROC is 0.9547, or
+   0.4547 above chance.
+
+   | | value |
+   |---|---|
+   | sites with AUC-ROC loss greater than 0.001 | 43 of 1,037 |
+   | sites with AUC-ROC loss greater than 0.005 | 10 |
+   | largest single-site loss | 0.0288 (6.3% of above-chance AUC-ROC) |
+   | sum of all individual-site losses | 0.2523 (55.5% of above-chance AUC-ROC) |
+   | sum of top-10 individual-site losses, ranked by SHAP | 0.1388 (30.5%) |
+
+   The largest individual-site loss is 6.3% of above-chance AUC-ROC. Individual permutation
+   losses are not additive because sites may be correlated or substitute for one another.
+   Section 7b(ii) therefore tests groups of sites directly.
 
    **7b(ii). Shuffle the top N sites together, no retraining — DONE (2026-09-02).**
-   - `src/analysis/plot_site_group_permutation.py`. Same idea as 7b(i), but N columns are shuffled together instead of one at a time; the model still is not retrained.
-   - Two groups compared at every N: the top N sites by SHAP, and N sites drawn at random (the control).
-   - 10 set sizes x 2 arms x 4 folds x 5 repeats, measured on both test and train.
-   - Reported as "share of the signal lost" = (clean AUC − shuffled AUC) / (clean AUC − 0.5), which puts test (clean AUC 0.9547) and train (clean AUC 0.9859) on the same scale.
+   `src/analysis/plot_site_group_permutation.py` compares the top N sites by SHAP with N random
+   sites. The fitted model is unchanged. Results are reported as
+   `(clean AUC − shuffled AUC) / (clean AUC − 0.5)`, the share of above-chance AUC-ROC lost.
 
    | N | top, test | random, test | top, train | random, train |
    |---|---|---|---|---|
@@ -647,23 +641,26 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | 500 | 1.002 | 0.532 | 0.998 | 0.541 |
    | 1,037 | 0.980 | 1.000 | 1.003 | 0.999 |
 
-   - Sanity check: shuffling every column (N=1,037) removes 0.98-1.00 of the signal, i.e. AUC-ROC ~0.5, in both arms. That is expected, since at N=1,037 "top" and "random" are the same set of columns.
-   - **The top sites are far more important as a group than random sites.** 10 well-chosen sites remove about half the signal; 10 random sites remove essentially none (0.008). It takes roughly 500 random sites, about half of all 1,037 columns, to lose as much signal as just the top 10.
-   - **Shuffling sites together costs more than shuffling them one at a time and adding it up. This is the answer to whether sites substitute for each other.** From 7b(i), adding up the individual costs of the top 10 sites gives 30.5% of the signal. Shuffling all 10 together gives **49.5%**, 1.6x more. So the top sites were substituting for each other, and testing them one at a time understated every one of them. The redundancy the single-site test exposed is therefore partly INSIDE the top set, not only spread across the rest of the sites.
-   - **This does not look like memorisation.** If the model had learned training-specific detail through these positions, shuffling them should hurt the training score more than the test score. Instead it hurts training LESS at every N tested. In raw AUC terms the top 10 sites are worth almost the same on both splits (0.225 on test, 0.222 on train), so the model's higher score on training data (0.9859 vs. 0.9547 on test) is not coming from these particular sites.
-   - **Shuffling disables a column more thoroughly than filling it with a constant value.** Replacing a column with its single most common value, instead of shuffling it, loses 0.08-0.15 less signal at N=10 and N=50, on both splits. Filling with the most common value still lets most rows go down the tree branch they would normally take, while shuffling actively puts wrong values everywhere. Measured directly, not assumed.
+   Shuffling all 1,037 sites reduces AUC-ROC to approximately 0.5, as expected. On test data,
+   shuffling the top 10 sites removes 49.5% of above-chance AUC-ROC, compared with 0.8% for 10
+   random sites. About 500 random sites are needed to produce a similar loss.
 
-   **7b(iii). Shuffle the top N sites together, then RE-TRAIN — DONE (2026-09-02).**
-   - `src/analysis/plot_site_retrain_ablation.py`. Same idea as 7b(ii), but the model is refit from scratch on the corrupted data (same settings as the normal baseline), instead of staying fixed.
-   - Two ways to corrupt the columns, because they test different things:
-     - **row**: shuffle values across rows independently in each split, so a single sequence can end up with different values at the same site in different rows.
-     - **sequence**: shuffle values across UNIQUE sequences, so each sequence gets one consistent (but wrong) value everywhere it appears, in train, val and test alike.
-   - Both modes corrupt train, val and test together. Corrupting only train would leave test with real values the model was trained to ignore, which would confound the result.
-   - 7 set sizes x 2 modes x 2 arms x 4 folds, minus the random arm at N=1,037 where both arms are the same set; 108 model fits total, about 6 minutes.
+   The summed individual losses of the top 10 sites are 30.5%, compared with 49.5% when those
+   sites are shuffled together. Although individual permutation losses are not additive, this
+   difference is consistent with correlated or substitutable information among the top sites.
+
+   **7b(iii). Shuffle the top N sites together, then retrain — DONE (2026-09-02).**
+   `src/analysis/plot_site_retrain_ablation.py` refits the model after corrupting the selected
+   sites in train, validation, and test data. It compares two corruption units:
+
+   - **Row-level:** values are shuffled independently across pair rows. The same sequence may
+     receive different corrupted values in different rows.
+   - **Sequence-level:** each unique sequence receives one corrupted value at each selected
+     site, used consistently wherever that sequence appears.
 
    | N | row, top | row, random | sequence, top | sequence, random |
    |---|---|---|---|---|
-   | 1 | 0.004 | 0.000 | 0.006 | -0.000 |
+   | 1 | 0.004 | 0.000 | 0.006 | 0.000 |
    | 5 | 0.042 | -0.004 | 0.035 | 0.003 |
    | 10 | **0.158** | 0.008 | **0.126** | 0.005 |
    | 25 | 0.333 | 0.004 | 0.255 | 0.002 |
@@ -671,17 +668,23 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | 100 | 0.892 | 0.020 | 0.865 | 0.017 |
    | 1,037 | 1.007 | - | 0.994 | - |
 
-   - Sanity check: corrupting all 1,037 columns still removes essentially all the signal in both modes (1.007 and 0.994, i.e. AUC-ROC ~0.5).
-   - **The information is recoverable elsewhere. A retrained model can partly work around losing the top sites.** With the ORIGINAL fitted model (7b-ii), shuffling the top 10 sites cost 49.5% of the signal. After retraining on the corrupted data, the cost falls to **15.8%**, about two-thirds of that loss is recovered from the other 1,027 columns. The same pattern holds at N=25 and N=50. Only at N=100 do the fixed-model and retrained-model results agree (0.892 both ways): once 100 positions are gone, there is nothing left elsewhere to recover from.
-   - This means "the top 10 sites hold half the signal" (from 7b-ii) is a statement about THAT fitted model, not about where the information lives. The information is spread widely; a boosted tree concentrates on a few positions because that is a cheap way to fit the data, not because the rest are uninformative.
-   - The random-site control stays flat after retraining too: 100 random sites cost only 1.7-2.0%, against 86-89% for the top 100. The ranking is still picking out something real.
-   - **Sequence-level corruption is consistently milder than row-level corruption**: 0.126 vs. 0.158 at N=10, 0.409 vs. 0.561 at N=50, converging by N=100. A plausible reading: row-level corruption turns a column into pure noise within one sequence, so a retrained model can learn to drop it; sequence-level corruption still gives the model one consistent (if wrong) value per sequence, which it can still use to tell that sequence apart from others.
-   - **That gap between the two corruption modes is smaller than the framing this plan used to give it, and it does not, by itself, separate memorisation from real signal.** Two explanations both fit: (1) the model is recognising specific training sequences, or (2) the corrupted column still correlates with which sequence it is, and sequence identity itself correlates with lineage, which is real signal. This test alone cannot choose between them. 7c is the check that can, and it is directly bounded already by the numbers in step 5: only 7-10% of test rows have both slots seen in training, and `pair_key` overlap is 0.
+   Corrupting all 1,037 sites reduces AUC-ROC to approximately 0.5 in both modes. For the top
+   10 sites under row-level corruption, retraining reduces the loss from 49.5% in the fixed
+   model to 15.8%. Sequence-level corruption followed by retraining produces a 12.6% loss. The
+   remaining sites therefore contain information that a new model can use. At 100 sites,
+   row-level corruption produces the same 89.2% loss with or without retraining, so little
+   additional performance can be recovered. In contrast, corrupting 100 random sites costs
+   only 1.7-2.0%.
 
-   **7c. Compare scores on sequences seen in training vs. never seen — DONE (2026-09-02). Memorisation is not what carries the result.**
-   - `src/analysis/plot_seen_sequence_effect.py`. The model is left completely alone; the test rows are split instead, by whether each slot's sequence also appears somewhere in that fold's training split.
-   - Reads the already-saved `test_predicted.csv` files, so any feature source (k-mer, per-site nt, per-site codon) can be compared on the exact same rows.
-   - Checked first, before anything else: zero `pair_key` overlap between train and test in every fold. So this test is strictly about whether the INDIVIDUAL SEQUENCES were seen before, never about whether the exact PAIR (the answer) was seen before.
+   Sequence-level corruption is milder than row-level corruption at N=10 and N=50. This is
+   consistent with a sequence retaining a stable identifier after sequence-level corruption,
+   but the difference does not distinguish exact-sequence recognition from lineage or other
+   population structure.
+
+   **7c. Performance by exact-sequence reuse — DONE (2026-09-02).**
+   `src/analysis/plot_seen_sequence_effect.py` groups test rows according to whether each exact
+   sequence also appears in that fold's training split. Train-test `pair_key` overlap is zero in
+   every fold, so no exact test pair was used for training.
 
    | arm | all rows | neither seen | slot a seen | slot b seen | both seen |
    |---|---|---|---|---|---|
@@ -690,14 +693,36 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    | per-site codon | 0.9547 | 0.9489 | 0.9622 | 0.9511 | 0.9701 |
    | rows, all folds | 7,160 | 2,953 | 1,348 | 2,261 | 598 |
 
-   - **The result holds even when neither sequence was ever seen during training.** On those 2,953 rows, per-site nt scores 0.9544 AUC-ROC against its overall average of 0.9597, only 0.005 lower. Nothing collapses when recall is impossible.
-   - **Per-site features rely on having seen a sequence before LESS than k-mers do, not more.** The gap between "both sequences seen" and "neither seen" is +0.0276 for k-mer, +0.0202 for per-site nt, and +0.0213 for per-site codon. The concern flagged earlier in this plan was the opposite: that a per-site vector could almost identify its exact sequence while a k-mer count could not, so per-site should be MORE prone to relying on recall. That is not what was measured: k-mer shows the largest seen-advantage of the three.
-   - **The per-site advantage over k-mer from step 5 is not explained by memorisation.** Per-site nt (0.9544) still leads k-mer (0.9493) and per-site codon (0.9489) on the hardest rows, where neither sequence was ever seen in training.
-   - Caveat on how to read the "both seen" numbers: having seen HA_x paired with NA_y in training helps the model correctly reject a test negative that wrongly pairs HA_x with some other NA, but it works against the model on a test positive where HA_x's real partner is different from what it saw in training. So +0.02 to +0.03 is the net of both effects pulling in different directions, not a clean measure of memorisation alone.
+   On the 2,953 test pairs for which neither exact sequence appeared in training, per-site
+   nucleotide AUC-ROC is 0.9544, compared with 0.9597 overall. The difference between the
+   "both seen" and "neither seen" groups is 0.0276 for k-mer, 0.0202 for per-site nucleotide,
+   and 0.0213 for per-site codon features. The seen-sequence advantage is therefore not larger
+   for per-site features than for k-mers.
 
-8. **Interactions** (only if steps 5-7 look sound).
-   - Needs either SHAP interaction values or LightGBM's split-pair statistics.
-   - Computing every feature's main-effect SHAP value together is already cheap (step 6 measures it at about 0.3 seconds per fold, via `pred_contrib`), but computing INTERACTION values costs `n_features` times more work per row. At 1,037 codon features that is a different order of magnitude, so this should be budgeted and planned as its own piece of work.
+   These results do not support exact-sequence reuse as the main explanation for performance.
+   They do not rule out effects from related sequences, lineage, or population structure.
+   Subgroup differences are descriptive because label composition and difficulty may also
+   differ among the seen-status groups.
+
+8. **Cross-protein interactions — OPEN.** HA alone and NA alone perform at chance, while the
+   combined model reaches 0.9547 AUC-ROC. This motivates testing which HA and NA sites the model
+   uses together.
+
+   **Plan.**
+   1. Screen all HA–NA site pairs using LightGBM split/path co-occurrence statistics. Use this
+      only to select candidates, because frequently used features have more opportunities to
+      occur together.
+   2. Compute TreeSHAP interaction values on a manageable sample of held-out test rows in each
+      fold, then retain the cross-protein candidate pairs from step 1.
+   3. Report each candidate's interaction strength by fold and compare its stability with random
+      HA–NA pairs matched on individual feature importance.
+   4. Validate the strongest stable pairs by shuffling or ablating both sites together on held-out
+      data and comparing the result with the corresponding single-site perturbations.
+
+   These results would describe interactions used by the model, not biological epistasis or
+   coevolution. Random CV does not remove effects from related sequences, lineage, or population
+   structure; stronger biological interpretation requires a sequence-disjoint or
+   uniqueness-controlled evaluation.
 
 ## Post-hoc: where the false positives sit
 
@@ -834,7 +859,7 @@ features with high importance value".
   so per-site leans on recall LESS than k-mers do, the opposite of the concern.
 - **Filter changes the population.** The filter drops 3.8% of pairs, so no earlier 2024 number
   is directly comparable. Settled in step 1: the k-mer baseline was re-run on the filtered folds
-  and scores 0.9094 +/- 0.0145. Compare against that, not against 0.9177.
+  and scores 0.9094 ± 0.0145. Compare against that, not against 0.9177.
 - **One year, one subtype.** Nothing here shows the importance map generalises to other years or
   subtypes. Treat it as a description of H3N2 2024.
 
