@@ -12,9 +12,9 @@ appears once per isolate carrying it.
 `min`, `max`, `median` and `mode` describe COMPLETE sequences only. A sequence is complete when
 `is_complete_cds` holds, which is `starts_with_m & has_terminal_stop & ~has_internal_stop`.
 
-`distinct lengths` is the column that answers the viability question fastest. A protein with a
-handful of lengths has a dominant form; one with many is a mixture, and `min`/`max` alone will not
-tell the two apart.
+`frac at mode` is the column that answers the viability question. `distinct lengths` does not:
+PB2 and PB1 both have 23 distinct lengths but sit at 0.998 and 0.927, and HA has fewer distinct
+lengths than PB2 yet reaches only 0.689. Count of lengths says nothing about whether one dominates.
 
 SCOPE. This reads the whole corpus, which spans every subtype and year. HA is 1,701 nt in H3N2 but
 1,704 in H5N1 and 1,683 in H9/H7, so a corpus-wide mode is a mixture rather than a fact about any
