@@ -199,6 +199,35 @@ def translate_dna(cds_dna: str) -> str:
                    for i in range(0, len(cds_dna), 3))
 
 
+def modal_length(observed_lengths) -> dict:
+    """Most common CDS length in a population, and how much of the population sits there.
+
+    Ties are broken by taking the shortest of the tied lengths, and reported rather than
+    hidden, because pandas would otherwise settle a tie by encounter order and the answer
+    could move between runs of the same data.
+
+    Args:
+        observed_lengths: CDS lengths in nucleotides, one per UNIQUE sequence. Passing one
+            per row instead would let a heavily sampled strain decide the mode on its own.
+
+    Returns:
+        `{'mode', 'n_at_mode', 'frac_at_mode', 'tied', 'n'}`. `tied` is True when more than
+        one length shares the highest count.
+
+    Raises:
+        ValueError: no lengths were given.
+    """
+    lengths = pd.Series(list(observed_lengths))
+    if lengths.empty:
+        raise ValueError('modal_length: no sequences given.')
+    counts = lengths.value_counts()
+    highest = int(counts.max())
+    tied_lengths = sorted(int(value) for value in counts[counts == highest].index)
+    return {'mode': tied_lengths[0], 'n_at_mode': highest,
+            'frac_at_mode': highest / len(lengths), 'tied': len(tied_lengths) > 1,
+            'n': int(len(lengths))}
+
+
 def check_cds_length(
     observed_lengths,
     pinned_nt: int,
@@ -234,15 +263,16 @@ def check_cds_length(
     lengths = pd.Series(list(observed_lengths))
     if lengths.empty:
         raise ValueError(f"check_cds_length: no sequences given for {protein}.")
-    counts = lengths.value_counts()
-    observed_mode = int(counts.index[0])
+    # Shared with the length survey, so the two cannot compute "most common length" differently.
+    summary = modal_length(lengths)
+    observed_mode = summary['mode']
     seq_frac = float((lengths == pinned_nt).mean())
 
     if observed_mode != pinned_nt:
         raise ValueError(
             f"{protein}: config pins cds_length {pinned_nt} nt, but the most common length in "
-            f"this population is {observed_mode} nt ({100 * counts.iloc[0] / len(lengths):.1f}% "
-            f"of {len(lengths):,} unique sequences; the pinned length holds for "
+            f"this population is {observed_mode} nt ({100 * summary['frac_at_mode']:.1f}% "
+            f"of {summary['n']:,} unique sequences; the pinned length holds for "
             f"{100 * seq_frac:.1f}%). The pin is for H3N2 and H1N1 only -- other subtypes "
             f"differ (H5N1 HA is 1704, H9/H7 HA 1683, N8/N6/N9 NA 1413), and PB1 and NS1 have "
             f"no single canonical length. Either narrow the population or add a per-subtype "
@@ -251,7 +281,7 @@ def check_cds_length(
     if seq_frac < min_seq_frac:
         raise ValueError(
             f"{protein}: cds_length {pinned_nt} nt is the most common length but holds for only "
-            f"{100 * seq_frac:.1f}% of {len(lengths):,} unique sequences, below the "
+            f"{100 * seq_frac:.1f}% of {summary['n']:,} unique sequences, below the "
             f"{100 * min_seq_frac:.0f}% floor. A per-site run would drop the rest, so the "
             f"population is probably a mix of forms rather than one canonical length."
         )
