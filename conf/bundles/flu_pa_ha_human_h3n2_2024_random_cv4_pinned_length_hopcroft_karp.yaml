@@ -1,0 +1,9 @@
+# Human H3N2 2024 PA-HA dataset for the equal-count four-pair experiment.
+defaults:
+  - flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp
+  - _self_
+
+dataset:
+  schema_pair:
+    - 'RNA-dependent RNA polymerase PA subunit'
+    - 'Hemagglutinin precursor'

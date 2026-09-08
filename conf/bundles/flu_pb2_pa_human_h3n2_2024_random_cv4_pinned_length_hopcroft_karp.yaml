@@ -1,0 +1,7 @@
+# Human H3N2 2024 PB2-PA dataset for the equal-count four-pair experiment.
+defaults:
+  - flu_pb2_pa_h3n2_2024_random_cv4_pinned_length_hopcroft_karp
+  - _self_
+
+dataset:
+  host: [Human]

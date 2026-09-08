@@ -28,9 +28,11 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/analysis/plot_site_importance_trace.py` | 6 | one importance measure along the CDS, drawn from the saved table |
 | `src/analysis/plot_confusion_folds.py` | Post-hoc | confusion matrix pooled over the CV folds, with the per-fold spread |
 | `src/datasets/_positive_pair_selection.py` | 8 | selects unique-sequence positives and audits the resulting CV splits |
+| `src/analysis/build_equal_count_pair_datasets.py` | Four-pair experiment | samples a fixed number of Hopcroft-Karp positives before the existing CV and negative-generation pipeline runs |
 
 Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), 10
-per-site experiment bundles, and 4 step-8 positive-selection bundles.
+per-site experiment bundles, 4 step-8 positive-selection bundles, and 4 Human H3N2 2024
+four-pair experiment bundles.
 
 ### Updated (existing files, extended for this plan)
 
@@ -861,18 +863,28 @@ Related: `docs/results/2026-09-08_cds_pair_capacity.md`.
         at 1,698 positives, so it sets the common sample size. The common six-protein cohort is not
         used here; under that restriction, HA-NA would retain 1,686 positives.
 
-  2. Build and audit equal-count datasets — OPEN.
-      - Run Hopcroft–Karp first.
-      - Randomly retain 1,698 matched positives with a fixed seed.
-      - Sample before CV assignment and negative generation.
-      - At this point, use a small experiment driver rather than adding a production `max_positives` option.
-      - Save pair-key manifests, checksums, seed, pre-sampling counts, and isolate counts.
-      - Keep the full observed-positive universe for blocking negatives!
-      - Run the existing audits for unique positive endpoints, exact one-time test coverage across
-        folds, zero cross-split sequence-hash overlap, negative endpoints confined to their split's
-        positive sequence pool, no observed positives labeled as negatives, no duplicate pair keys,
-        and exact 1:1 class balance. This uses the ratio-driven `within_fold` negative sampler, not
-        the coverage-first sampler.
+  2. Build and audit equal-count datasets — DONE (2026-09-08).
+      - `src/analysis/build_equal_count_pair_datasets.py` wraps the existing selector for this
+        experiment. It runs Hopcroft-Karp, samples without replacement using seed 42, and then
+        returns control to the existing CV and negative-generation pipeline. No production
+        configuration option was added.
+      - Sampling occurs before CV assignment and negative generation. The full observed-positive
+        universe remains the negative-blocking set. The selected pair-key manifest and audit record
+        both the pre-sampling and final checksums.
+
+        | pair | observed positives | Hopcroft-Karp | retained |
+        |---|---:|---:|---:|
+        | HA-NA | 3,466 | 1,698 | 1,698 |
+        | PB2-PA | 3,837 | 2,030 | 1,698 |
+        | PB2-NA | 3,532 | 1,745 | 1,698 |
+        | PA-HA | 3,805 | 1,944 | 1,698 |
+
+      - All 16 fold audits passed: unique positive endpoints, exact one-time test coverage, zero
+        cross-split sequence-hash overlap, negative endpoints confined to their split's positive
+        sequence pool, no observed positives labeled as negatives, no duplicate pair keys, and
+        exact 1:1 class balance. The datasets use the ratio-driven `within_fold` negative sampler,
+        not the coverage-first sampler.
+      - The focused test run passed 18 tests, and Ruff passed for the driver and its tests.
 
   3. Train the four feature representations — OPEN.
       - Nucleotide 6-mers.
