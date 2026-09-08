@@ -112,16 +112,17 @@ Only 2,958 of 5,346 isolates have a complete PB1. Of the 2,388 incomplete record
 terminal stop and 2,339 are 2,274 nt. The mode among complete records is 2,277 nt, one codon
 longer.
 
-The 2,274-nt records are 3'-truncated assemblies, not short annotations. Reading the contig past
-the end of each CDS, 99.7% of the 2,352 records at 2,274 nt have no bases left at all: the contig
-ends exactly where the CDS ends. The 2,945 records at 2,277 nt carry a median of 27 further bases.
-Of 2,339 tested, none had a stop codon downstream, because for all but one there was nothing
-downstream to read. The CDS cannot be extended, so PB1 stays excluded.
+The 2,274-nt records appear to be truncated at the contig boundary rather than merely annotated
+too short. Of 2,352 records at this length, 99.7% have no downstream contig sequence. Among the
+2,339 incomplete records tested, none has a downstream stop codon; all but one has no downstream
+bases to examine. By comparison, the 2,945 records at 2,277 nt have a median of 27 downstream
+bases. The 2,274-nt records therefore cannot be extended from the current assemblies, so PB1
+remains excluded.
 
-This is sequencing coverage rather than annotation practice or evolution alone. Recent H3N2 PB1 is
-genuinely 2,277 nt, one codon longer than the 2,274 nt form that is complete in 95.7% of the
-corpus. Layered on that, about 44% of human H3N2 2024 records come from contigs that stop three
-bases short of the terminal stop. The apparent 2023-to-2024 turnover mixes the two.
+In human H3N2 2024, 2,277 nt is the dominant length among complete PB1 records. About 44% of PB1
+records are incomplete because their contigs end three bases before the expected terminal stop.
+This assembly truncation complicates interpretation of the observed change from 2,274 to 2,277 nt
+across years.
 
 ### Pin stability by year
 
@@ -141,7 +142,7 @@ Share of each year's Human H3N2 isolates with a complete CDS at the 2024 pin:
 | 2024 | 5,346 | 0.998 | 0.998 | 0.999 | 0.996 | 0.968 | 1.000 | 0.996 |
 | 2025 | 3,434 | 0.999 | 0.998 | 1.000 | 0.999 | 0.999 | 1.000 | 0.999 |
 
-For the years shown, all 6 length existing pins retain at least 90% of isolates. NP is lowest in 2019 and
+For the years shown, all six existing pins retain at least 90% of isolates. NP is lowest in 2019 and
 2020, and NA is lowest in 2023. Adding NS1 limits a contiguous recent range to 2021-2025 because
 NS1 falls below 90% in 2019 and 2020. PB1 is omitted because it has no stable pin.
 
@@ -152,7 +153,8 @@ whether failures come from incomplete records or length variation. In human H3N2
 existing pins pass, NS1 passes with a population-specific 693-nt pin, and PB1 fails.
 
 Passing this screen means that fixed-length site features are feasible. It does not guarantee
-enough training pairs. Among the 15 pairs formed from the 6 pinned proteins, human H3N2 2024 has
+enough training pairs. `docs/results/2026-09-08_cds_pair_capacity.md` measures that per pair, on a
+cohort built from the proteins this screen passes. Among the 15 pairs formed from the 6 pinned proteins, human H3N2 2024 has
 2,293-3,723 positives before unique-sequence matching and 616-1,987 afterward.
 
 ## Metadata filtering
