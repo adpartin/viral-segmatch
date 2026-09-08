@@ -15,7 +15,7 @@ depends_on:     [src/utils/cds_utils.py, src/utils/config_hydra.py]
 
 ## Why this was measured
 
-The current per-site implementation does not align or pad sequences. It therefore retains one
+The current implementation of per-site features does not align or pad sequences. It therefore retains one
 pinned CDS length per protein so that a column has the same index in every sequence. A dominant
 length is a necessary screen for this implementation, but it does not establish that equal-index
 positions are homologous. This survey reports the length distributions used to screen the 28
@@ -28,11 +28,18 @@ python -m src.analysis.summarize_cds_lengths
 python -m src.analysis.summarize_cds_lengths --hn_subtype H3N2 --host Human --year 2024
 ```
 
-The survey reports two different fractions and they can disagree sharply. `frac at mode` is the
-share of distinct complete sequences at the modal length. `frac isolates at mode` is the share of
-isolates whose CDS is complete and at that length. A dataset is built from isolates, so the isolate
-column is the one that decides whether a protein can be pinned. The human H3N2 2024 section below
-shows a case where the two differ by 0.44.
+Every count is of CDS DNA, never protein. The `protein` column names which gene the CDS belongs
+to; the sequences counted are nucleotide, keyed on `cds_dna_hash`.
+
+Sequence statistics count each distinct CDS once. Isolate statistics count isolates, and the two
+are far apart because many isolates share a sequence: on human H3N2 2024, 5,346 isolates carry
+only 815 distinct M1 sequences.
+
+The survey reports three fractions. `frac at mode` is the share of complete CDS at the modal
+length. `frac isolates complete` is the share of isolates with a complete CDS. `frac isolates at
+mode` is the share of isolates with a complete CDS at the modal length, and it is the one to
+screen on. The difference between the first and the last is the denominator: `frac at mode`
+divides by the complete CDS, so it cannot see a gene whose records are mostly incomplete.
 
 Every statistic counts each distinct CDS sequence once. The script currently deduplicates on
 `cds_dna_hash` before grouping by protein; no hash occurs under more than one protein in this
@@ -44,18 +51,20 @@ complete sequences only. A sequence is complete when `is_complete_cds` holds, wh
 
 ## Results: whole corpus
 
-| Segment ID | protein | unique seqs | complete seqs | min | max | median | mode | seqs at mode | frac at mode | distinct lengths |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 67,341 | 66,356 | 2,199 | 2,283 | 2,280 | 2,280 | 66,210 | 0.998 | 23 |
-| 2 | PB1 | 67,034 | 63,574 | 2,193 | 2,292 | 2,274 | 2,274 | 58,925 | 0.927 | 23 |
-| 3 | PA | 65,242 | 64,670 | 2,073 | 2,163 | 2,151 | 2,151 | 64,576 | 0.999 | 18 |
-| 4 | HA | 65,414 | 64,125 | 1,659 | 1,713 | 1,701 | 1,701 | 44,202 | 0.689 | 17 |
-| 5 | NP | 52,800 | 51,749 | 1,446 | 1,500 | 1,497 | 1,497 | 51,681 | 0.999 | 7 |
-| 6 | NA | 58,887 | 57,278 | 1,341 | 1,428 | 1,410 | 1,410 | 46,175 | 0.806 | 29 |
-| 7 | M1 | 32,413 | 32,119 | 726 | 762 | 759 | 759 | 32,117 | 1.000 | 3 |
-| 8 | NS1 | 38,039 | 37,843 | 609 | 717 | 693 | 693 | 21,576 | 0.570 | 25 |
+All 108,530 isolates carry a record for every gene.
 
-The median equals the mode for all eight proteins. No protein had a tie for the most common
+| Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates at mode |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 67,341 | 66,356 | 2,199 | 2,283 | 2,280 | 2,280 | 66,210 | 0.998 | 0.989 |
+| 2 | PB1 | 67,034 | 63,574 | 2,193 | 2,292 | 2,274 | 2,274 | 58,925 | 0.927 | 0.882 |
+| 3 | PA | 65,242 | 64,670 | 2,073 | 2,163 | 2,151 | 2,151 | 64,576 | 0.999 | 0.993 |
+| 4 | HA | 65,414 | 64,125 | 1,659 | 1,713 | 1,701 | 1,701 | 44,202 | 0.689 | 0.659 |
+| 5 | NP | 52,800 | 51,749 | 1,446 | 1,500 | 1,497 | 1,497 | 51,681 | 0.999 | 0.987 |
+| 6 | NA | 58,887 | 57,278 | 1,341 | 1,428 | 1,410 | 1,410 | 46,175 | 0.806 | 0.826 |
+| 7 | M1 | 32,413 | 32,119 | 726 | 762 | 759 | 759 | 32,117 | 1.000 | 0.996 |
+| 8 | NS1 | 38,039 | 37,843 | 609 | 717 | 693 | 693 | 21,576 | 0.570 | 0.600 |
+
+The median equals the mode for all 8 proteins. No protein had a tie for the most common
 length, so the tie-breaking rule in `modal_length` was never exercised on this population.
 
 ## Completeness, counted two ways
@@ -88,8 +97,9 @@ different lengths. H5N1 HA is 1,704 nt, H9 and H7 HA are 1,683 nt, and N8, N6 an
 1,413 nt. This survey therefore supports the selected lengths as corpus-wide modes but cannot
 confirm the population-specific `seq_frac` floors.
 
-The same limit applies to the two proteins that carry no pin. PB1 sits at 0.927 corpus-wide, which
-would pass a 0.90 floor, so its exclusion is not explained by any corpus-wide share. The reason
+The same limit applies to the two proteins that carry no pin. PB1 sits at 0.927 corpus-wide over
+complete CDS and 0.882 over isolates, so it clears a 0.90 floor on the first measure and misses it
+on the second. Neither number explains its exclusion. The reason
 recorded in `conf/virus/flu.yaml` is that H3N2 switched from 2,274 to 2,277 nt between the 2023 and
 2024 seasons, with 2023 mid-turnover at 68%, so no single value is right for every year. NS1 sits
 at 0.570 and does fail a 0.90 floor corpus-wide, but its recorded reason is also population-specific:
@@ -97,21 +107,24 @@ H1N1 is 660 nt, H5N1 is 693 nt, and H3N2 moved from 660 to 693 around 2021. Neit
 derived from this table. Both need a population-specific breakdown; the required restrictions
 depend on the population being studied.
 
-## Results: human H3N2 2024
+## Results: Human H3N2 2024
 
 This is the population the current runs are built on. It holds 5,346 isolates. Every isolate has a
 record for all 8 proteins, so nothing here is caused by a missing segment.
 
-| Segment ID | protein | isolates | complete seqs | mode | frac at mode | frac isolates at mode |
-|---:|---|---:|---:|---:|---:|---:|
-| 1 | PB2 | 5,346 | 2,821 | 2,280 | 0.997 | 0.998 |
-| 2 | PB1 | 5,346 | 1,800 | 2,277 | 0.994 | **0.551** |
-| 3 | PA | 5,346 | 2,721 | 2,151 | 0.998 | 0.998 |
-| 4 | HA | 5,346 | 2,687 | 1,701 | 1.000 | 0.999 |
-| 5 | NP | 5,346 | 1,834 | 1,497 | 1.000 | 0.996 |
-| 6 | NA | 5,346 | 2,211 | 1,410 | 0.998 | 0.968 |
-| 7 | M1 | 5,346 | 814 | 759 | 1.000 | 1.000 |
-| 8 | NS1 | 5,346 | 1,132 | 693 | 0.991 | 0.996 |
+| Segment ID | protein | isolates | unique CDS | complete CDS | mode | frac at mode | frac isolates complete | frac isolates at mode |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 5,346 | 2,826 | 2,821 | 2,280 | 0.997 | 0.999 | 0.998 |
+| 2 | PB1 | 5,346 | 3,061 | 1,800 | 2,277 | 0.994 | **0.553** | **0.551** |
+| 3 | PA | 5,346 | 2,726 | 2,721 | 2,151 | 0.998 | 0.999 | 0.998 |
+| 4 | HA | 5,346 | 2,694 | 2,687 | 1,701 | 1.000 | 0.999 | 0.999 |
+| 5 | NP | 5,346 | 1,851 | 1,834 | 1,497 | 1.000 | 0.996 | 0.996 |
+| 6 | NA | 5,346 | 2,320 | 2,211 | 1,410 | 0.998 | 0.969 | 0.968 |
+| 7 | M1 | 5,346 | 815 | 814 | 759 | 1.000 | 1.000 | 1.000 |
+| 8 | NS1 | 5,346 | 1,141 | 1,132 | 693 | 0.991 | 0.998 | 0.996 |
+
+The `isolates` and `unique CDS` columns show how far apart the two units are. M1 has 5,346 isolates
+carrying 815 distinct sequences.
 
 Every pin in `conf/virus/flu.yaml` holds on this population, and `check_cds_length` passes for all
 six pinned proteins. NS1 also reaches 0.996 by isolate here, so it can be pinned at 693 nt for this
@@ -119,26 +132,43 @@ population even though it carries no corpus-wide pin.
 
 ### PB1 cannot be pinned, and the sequence column hides it
 
-PB1 reads 0.994 by sequence and 0.551 by isolate. Read on the sequence column alone it looks like
-one of the better proteins in the set. It is the worst.
+PB1 reads 0.994 at mode over complete CDS and 0.551 over isolates. On the first column alone it
+looks like one of the better genes in the set. It is the worst.
 
-The cause is not length and not duplication. Of the 5,346 isolates, only 2,958 have a complete PB1.
-Of the 2,388 incomplete records, 2,386 fail `has_terminal_stop` and 2,339 of those sit at 2,274 nt.
-The usable length is 2,277 nt. The difference is exactly one codon, and that codon is the stop.
+The two columns differ because of their denominators, not because one counts sequences and the
+other counts isolates. `frac at mode` divides by the complete CDS, so an incomplete record is
+invisible to it. Deduplication contributes almost nothing here: among the isolates that DO have a
+complete PB1, 0.996 are at the mode, against the 0.994 the sequence column reports.
+`frac isolates complete` is 0.553, which locates the failure.
+
+The cause is incompleteness. Of the 5,346 isolates, only 2,958 have a complete PB1. Of the 2,388
+incomplete records, 2,386 fail `has_terminal_stop`, and 2,339 of those sit at 2,274 nt. The length
+carried by the complete records is 2,277 nt. The difference is one codon, and that codon is the
+stop.
+
+This is specific to the population, not a property of PB1. Corpus-wide, 2,274 nt is the dominant
+PB1 length and 95.7% of the 100,042 isolates carrying it have a complete CDS. `frac isolates
+complete` is 0.949 across the corpus against 0.553 on human H3N2 2024. So a 2,274 nt PB1 is
+normally complete, and in this population it is normally not.
+
+What that means is not settled, and two readings survive the evidence. Recent H3N2 PB1 may genuinely
+be 2,277 nt, with some records annotated three bases short so that the stop falls outside the
+annotated CDS. Or the 2,274 nt records here may be truncated for an unrelated reason. The measured
+facts do not separate these.
 
 `has_terminal_stop` is set at Stage 1 from whether `prot_seq` ends in `*`, and Stage 1.5 cuts the
-CDS at the coordinates the protein record supplies. So these records are a faithful copy of an
-upstream annotation that excludes the stop codon. This is not a defect in the extraction code.
+CDS at the coordinates the protein record supplies. Whichever reading is right, the extraction code
+is copying its input faithfully and is not at fault.
 
-Whether the annotation is merely short is not yet known. The check is to take a 2,274 nt record and
-read the next three bases from `ctg_dna_final`. If they are a stop codon, the CDS can be extended
-and PB1 becomes pinnable at roughly 0.99, which would open 13 further schema pairs. If they are
-not, the record is truncated and cannot be recovered. Until that is settled, PB1 stays excluded.
+The check is to take the 2,274 nt records in this population and read the next three bases from
+`ctg_dna_final`. If they are a stop codon, the annotation is short, the CDS can be extended, PB1
+becomes pinnable at roughly 0.99, and 13 further schema pairs open up. If they are not, the records
+are truncated and cannot be recovered. Until that is settled, PB1 stays excluded.
 
-The same question applies to the comment in `conf/virus/flu.yaml`, which attributes the 2,274 to
-2,277 shift to H3N2 gaining one codon between the 2023 and 2024 seasons. The share of isolates with
-PB1 complete at 2,277 rises from 0.000 in 2010 to 0.619 in 2025, which is consistent with a change
-in annotation practice rather than with viral evolution. The contig check settles this too.
+The same check bears on the comment in `conf/virus/flu.yaml`, which attributes the 2,274 to 2,277
+shift to H3N2 gaining one codon between the 2023 and 2024 seasons. The share of isolates with PB1
+complete at 2,277 rises from 0.000 in 2010 to 0.619 in 2025. That is consistent with the config's
+account, and also with a change in annotation practice. It does not settle which.
 
 ### Pin stability by year
 
@@ -168,13 +198,9 @@ PB1 is omitted from this table because it has no pin. Its column would read 0.00
 
 ## Reading the table as a screen
 
-Screen on `frac isolates at mode`. PB1 is the reason: it reads 0.994 by sequence and 0.551 by
-isolate, so the sequence column ranks it second-best when it is in fact the only protein in the set
-that cannot be pinned.
-
-`distinct lengths` screens nothing. PB2 and PB1 both show 23 distinct lengths corpus-wide but sit
-at 0.998 and 0.927, and HA has fewer distinct lengths than PB2 while reaching only 0.689. A count
-of lengths says nothing about whether one of them dominates.
+Screen on `frac isolates at mode`, and read `frac isolates complete` beside it to see which of the
+two failures is happening. PB1 is the reason: at 0.994 over complete CDS it ranks second-best,
+while at 0.553 complete and 0.551 at mode it is the only gene in the set that cannot be pinned.
 
 On human H3N2 2024, seven of the eight proteins pass: PB2, PA, HA, NP, NA and M1 on their existing
 pins, and NS1 on a population-specific pin at 693 nt. PB1 fails. Corpus-wide, PB2, PA, NP and M1

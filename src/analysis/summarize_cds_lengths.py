@@ -5,23 +5,27 @@ features need every sequence at one length, so a pair is only viable when both o
 have a dominant length. This reports what each protein's length distribution actually looks like
 so that question can be answered before a run is attempted.
 
-Every statistic counts each distinct CDS sequence once, keyed on `cds_dna_hash`. Counting rows
-instead would let a heavily sampled strain decide the answer on its own, since one sequence
-appears once per isolate carrying it.
+Every count here is of CDS DNA, never protein. The `protein` column names which gene the CDS
+belongs to; the sequences counted are nucleotide, keyed on `cds_dna_hash`.
 
-`min`, `max`, `median` and `mode` describe COMPLETE sequences only. A sequence is complete when
-`is_complete_cds` holds, which is `starts_with_m & has_terminal_stop & ~has_internal_stop`.
+Sequence statistics count each distinct CDS once. Counting rows instead would let a heavily
+sampled strain decide the answer on its own, since one sequence appears once per isolate carrying
+it. Isolate statistics count isolates, and the two differ a lot: on human H3N2 2024, 5,346 isolates
+carry only 815 distinct M1 sequences.
 
-Two columns answer the viability question, and they can disagree sharply. `frac at mode` is the
-share of distinct COMPLETE sequences at the modal length. `frac isolates at mode` is the share of
-ISOLATES whose CDS is complete and at that length, which is what a dataset is actually built from.
-On human H3N2 2024, PB1 reads 0.942 by sequence but 0.551 by isolate, because 45% of its records
-have no terminal stop and so are unusable however common they are. Read the isolate column before
-concluding that a protein can be pinned.
+`min`, `max`, `median`, `mode` and `complete CDS at mode` describe COMPLETE sequences only. A sequence is complete when `is_complete_cds` holds, which is
+`starts_with_m & has_terminal_stop & ~has_internal_stop`.
 
-`distinct lengths` answers neither. PB2 and PB1 both have 23 distinct lengths corpus-wide but sit
-at 0.998 and 0.927, and HA has fewer distinct lengths than PB2 yet reaches only 0.689. A count of
-lengths says nothing about whether one of them dominates.
+Screen on `frac isolates at mode`, not on `frac at mode`. The difference between them is the
+DENOMINATOR, not sequences versus isolates. `frac at mode` divides by the complete sequences, so
+it cannot see a gene whose records are mostly incomplete. `frac isolates at mode` divides by every
+isolate carrying the gene, so it can.
+
+PB1 on human H3N2 2024 is the case that matters. It reads 0.994 at mode over complete sequences
+and 0.551 over isolates, because only 2,958 of its 5,346 isolates have a complete CDS at all.
+Deduplication is not the cause: among isolates that DO have a complete PB1, 0.996 are at the mode.
+`frac isolates complete` reports that first failure on its own, so the two isolate columns say
+which of the two problems a gene has.
 
 SCOPE. This reads the whole corpus, which spans every subtype and year. HA is 1,701 nt in H3N2 but
 1,704 in H5N1 and 1,683 in H9/H7, so a corpus-wide mode is a mixture rather than a fact about any
@@ -54,9 +58,9 @@ from src.utils.cds_utils import modal_length  # noqa: E402
 from src.utils.config_hydra import get_function_short_name_map, get_virus_config_hydra  # noqa: E402
 from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata  # noqa: E402
 
-COLUMNS = ['population', 'Segment ID', 'protein', 'isolates', 'unique seqs', 'complete seqs',
-           'min', 'max', 'median', 'mode', 'seqs at mode', 'frac at mode',
-           'frac isolates at mode', 'distinct lengths', 'mode tie']
+COLUMNS = ['population', 'Segment ID', 'protein', 'isolates', 'unique CDS', 'complete CDS',
+           'min', 'max', 'median', 'mode', 'complete CDS at mode', 'frac at mode',
+           'frac isolates complete', 'frac isolates at mode', 'mode tie']
 
 
 def population_label(hn_subtype, host, year, year_range) -> str:
@@ -143,9 +147,10 @@ def summarize_cds_lengths(cds: pd.DataFrame, function_to_short: dict,
         lengths = complete['cds_length']
         mode = modal_length(lengths)
 
-        # The share of ISOLATES usable at the modal length, which is what a dataset is built
-        # from. It can sit far below `frac at mode`: a length carried by few distinct sequences
-        # may still cover many isolates, and an incomplete CDS is unusable however common it is.
+        # Isolate shares, over EVERY isolate carrying this gene. `frac at mode` cannot see an
+        # incomplete record, because its denominator is the complete sequences. These two can,
+        # and the pair separates the two ways a gene fails: no complete CDS, or the wrong length.
+        isolates_complete = records.loc[records['is_complete_cds'], 'assembly_id'].nunique()
         at_mode = records['is_complete_cds'] & (records['cds_length'] == mode['mode'])
         isolates_at_mode = records.loc[at_mode, 'assembly_id'].nunique()
 
@@ -154,16 +159,17 @@ def summarize_cds_lengths(cds: pd.DataFrame, function_to_short: dict,
             'Segment ID': segment_number(group['canonical_segment'].iloc[0]),
             'protein': function_to_short.get(function, function),
             'isolates': n_isolates,
-            'unique seqs': len(group),
-            'complete seqs': len(complete),
+            'unique CDS': len(group),
+            'complete CDS': len(complete),
             'min': int(lengths.min()),
             'max': int(lengths.max()),
             'median': float(lengths.median()),
             'mode': mode['mode'],
-            'seqs at mode': mode['n_at_mode'],
+            'complete CDS at mode': mode['n_at_mode'],
             'frac at mode': mode['frac_at_mode'],
+            'frac isolates complete':
+                isolates_complete / n_isolates if n_isolates else float('nan'),
             'frac isolates at mode': isolates_at_mode / n_isolates if n_isolates else float('nan'),
-            'distinct lengths': int(lengths.nunique()),
             'mode tie': mode['tied'],
         })
     table = pd.DataFrame(rows, columns=COLUMNS).sort_values('Segment ID').reset_index(drop=True)
@@ -221,15 +227,16 @@ def main() -> None:
     table.to_csv(out_path, index=False)
 
     shown = table.copy()
-    for column in ('frac at mode', 'frac isolates at mode'):
+    for column in ('frac at mode', 'frac isolates complete', 'frac isolates at mode'):
         shown[column] = shown[column].map(lambda v: f'{v:.3f}')
     print()
     print(shown.to_string(index=False))
     if not filtered:
         print("\nThis population spans every subtype, host and year. A mode taken across subtypes"
               "\nis a mixture, so read it as a screen rather than as a length to pin.")
-    print("\n'frac at mode' counts distinct sequences; 'frac isolates at mode' counts isolates."
-          "\nThe isolate column is the one a dataset is built from, and it can be far lower.")
+    print("\nScreen on 'frac isolates at mode'. 'frac at mode' divides by the complete CDS, so it"
+          "\ncannot see a gene whose records are mostly incomplete; 'frac isolates complete'"
+          "\nreports that failure on its own. All counts are CDS DNA, not protein.")
     print(f"\nWrote {out_path}")
     print('Done.')
 

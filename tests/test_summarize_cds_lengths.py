@@ -8,7 +8,8 @@ Covers:
   5. summarize_cds_lengths counts each distinct sequence once, so repeated rows cannot move the
      mode, the median or any count
   6. Length statistics use complete sequences only
-  7. Isolate coverage counts isolates, not sequences, so it can fall far below `frac at mode`
+  7. `frac isolates at mode` divides by every isolate, so an incomplete-heavy gene falls far
+     below `frac at mode`, which divides by the complete sequences and cannot see the problem
   8. population_label describes the filters, or says 'all'
   9. Missing columns and a protein with no complete sequence both raise
 
@@ -85,11 +86,10 @@ def test_each_distinct_sequence_counts_once():
     table = summarize_cds_lengths(cds, SHORT, population='test')
     assert list(table.columns) == COLUMNS
     row = table.iloc[0]
-    assert row['unique seqs'] == 3 and row['complete seqs'] == 3
-    assert row['mode'] == 903 and row['seqs at mode'] == 2
+    assert row['unique CDS'] == 3 and row['complete CDS'] == 3
+    assert row['mode'] == 903 and row['complete CDS at mode'] == 2
     assert row['median'] == 903
     assert row['frac at mode'] == pytest.approx(2 / 3)
-    assert row['distinct lengths'] == 2
     assert row['Segment ID'] == 4 and row['protein'] == 'HA'
     assert row['population'] == 'test'
     # 5 isolates; only i4 and i5 are at the modal 903, so the isolate share is 2/5 while the
@@ -107,21 +107,34 @@ def test_length_statistics_use_complete_sequences_only():
         _row('Neuraminidase protein', 'S6', 'n3', 906),
     ])
     row = summarize_cds_lengths(cds, SHORT).iloc[0]
-    assert row['unique seqs'] == 3 and row['complete seqs'] == 2
+    assert row['unique CDS'] == 3 and row['complete CDS'] == 2
     assert row['min'] == 900 and row['max'] == 906 and row['median'] == 903
 
 
-def test_isolate_coverage_falls_below_the_sequence_share():
-    # The PB1 case: one length dominates the distinct sequences, but most isolates carry an
-    # incomplete record and are unusable. Reading only `frac at mode` would call this pinnable.
+def test_isolate_coverage_sees_incompleteness_that_frac_at_mode_cannot():
+    # The PB1 case. `frac at mode` divides by the complete sequences, so it reads a perfect 1.0
+    # while 80% of isolates carry an unusable record. Only the isolate columns show that.
     rows = [_row('Neuraminidase protein', 'S6', f'n{i}', 900, assembly_id=f'ok{i}')
             for i in range(4)]
     rows += [_row('Neuraminidase protein', 'S6', 'bad', 897, complete=False,
                   assembly_id=f'no{i}') for i in range(16)]
     row = summarize_cds_lengths(pd.DataFrame(rows), SHORT).iloc[0]
-    assert row['frac at mode'] == pytest.approx(1.0)        # every COMPLETE sequence is at 900
+    assert row['frac at mode'] == pytest.approx(1.0)
     assert row['isolates'] == 20
+    assert row['frac isolates complete'] == pytest.approx(4 / 20)
     assert row['frac isolates at mode'] == pytest.approx(4 / 20)
+
+
+def test_the_two_isolate_columns_separate_incompleteness_from_wrong_length():
+    # All 6 isolates have a complete CDS, but 2 are off the modal length. `frac isolates complete`
+    # stays at 1.0 while `frac isolates at mode` drops, which is the other way a gene fails.
+    rows = [_row('Neuraminidase protein', 'S6', f'n{i}', 900, assembly_id=f'm{i}')
+            for i in range(4)]
+    rows += [_row('Neuraminidase protein', 'S6', f'x{i}', 897, assembly_id=f'off{i}')
+             for i in range(2)]
+    row = summarize_cds_lengths(pd.DataFrame(rows), SHORT).iloc[0]
+    assert row['frac isolates complete'] == pytest.approx(1.0)
+    assert row['frac isolates at mode'] == pytest.approx(4 / 6)
 
 
 def test_population_label():
@@ -147,7 +160,8 @@ if __name__ == '__main__':
         test_segment_number,
         test_each_distinct_sequence_counts_once,
         test_length_statistics_use_complete_sequences_only,
-        test_isolate_coverage_falls_below_the_sequence_share,
+        test_isolate_coverage_sees_incompleteness_that_frac_at_mode_cannot,
+        test_the_two_isolate_columns_separate_incompleteness_from_wrong_length,
         test_population_label,
         test_rejects_missing_columns_and_a_protein_with_no_complete_sequence,
     ]
