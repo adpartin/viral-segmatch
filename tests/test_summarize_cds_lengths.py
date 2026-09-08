@@ -8,7 +8,9 @@ Covers:
   5. summarize_cds_lengths counts each distinct sequence once, so repeated rows cannot move the
      mode, the median or any count
   6. Length statistics use complete sequences only
-  7. Missing columns and a protein with no complete sequence both raise
+  7. Isolate coverage counts isolates, not sequences, so it can fall far below `frac at mode`
+  8. population_label describes the filters, or says 'all'
+  9. Missing columns and a protein with no complete sequence both raise
 
 Run: python tests/test_summarize_cds_lengths.py
 """
@@ -23,6 +25,7 @@ sys.path.insert(0, str(PROJ))
 
 from src.analysis.summarize_cds_lengths import (  # noqa: E402
     COLUMNS,
+    population_label,
     segment_number,
     summarize_cds_lengths,
 )
@@ -31,8 +34,9 @@ from src.utils.cds_utils import modal_length  # noqa: E402
 SHORT = {'Hemagglutinin precursor': 'HA', 'Neuraminidase protein': 'NA'}
 
 
-def _row(function, segment, hash_, length, complete=True):
-    return {'function': function, 'canonical_segment': segment, 'cds_dna_hash': hash_,
+def _row(function, segment, hash_, length, complete=True, assembly_id=None):
+    return {'assembly_id': assembly_id or f'iso_{hash_}', 'function': function,
+            'canonical_segment': segment, 'cds_dna_hash': hash_,
             'cds_length': length, 'is_complete_cds': complete}
 
 
@@ -72,11 +76,11 @@ def test_each_distinct_sequence_counts_once():
     # 'h1' appears three times, which is what a heavily sampled strain looks like. If rows were
     # counted, 900 would become the mode and the median would follow it.
     cds = pd.DataFrame([
-        _row('Hemagglutinin precursor', 'S4', 'h1', 900),
-        _row('Hemagglutinin precursor', 'S4', 'h1', 900),
-        _row('Hemagglutinin precursor', 'S4', 'h1', 900),
-        _row('Hemagglutinin precursor', 'S4', 'h2', 903),
-        _row('Hemagglutinin precursor', 'S4', 'h3', 903),
+        _row('Hemagglutinin precursor', 'S4', 'h1', 900, assembly_id='i1'),
+        _row('Hemagglutinin precursor', 'S4', 'h1', 900, assembly_id='i2'),
+        _row('Hemagglutinin precursor', 'S4', 'h1', 900, assembly_id='i3'),
+        _row('Hemagglutinin precursor', 'S4', 'h2', 903, assembly_id='i4'),
+        _row('Hemagglutinin precursor', 'S4', 'h3', 903, assembly_id='i5'),
     ])
     table = summarize_cds_lengths(cds, SHORT, population='test')
     assert list(table.columns) == COLUMNS
@@ -88,6 +92,10 @@ def test_each_distinct_sequence_counts_once():
     assert row['distinct lengths'] == 2
     assert row['Segment ID'] == 4 and row['protein'] == 'HA'
     assert row['population'] == 'test'
+    # 5 isolates; only i4 and i5 are at the modal 903, so the isolate share is 2/5 while the
+    # sequence share is 2/3. The two columns are answering different questions.
+    assert row['isolates'] == 5
+    assert row['frac isolates at mode'] == pytest.approx(2 / 5)
 
 
 def test_length_statistics_use_complete_sequences_only():
@@ -101,6 +109,25 @@ def test_length_statistics_use_complete_sequences_only():
     row = summarize_cds_lengths(cds, SHORT).iloc[0]
     assert row['unique seqs'] == 3 and row['complete seqs'] == 2
     assert row['min'] == 900 and row['max'] == 906 and row['median'] == 903
+
+
+def test_isolate_coverage_falls_below_the_sequence_share():
+    # The PB1 case: one length dominates the distinct sequences, but most isolates carry an
+    # incomplete record and are unusable. Reading only `frac at mode` would call this pinnable.
+    rows = [_row('Neuraminidase protein', 'S6', f'n{i}', 900, assembly_id=f'ok{i}')
+            for i in range(4)]
+    rows += [_row('Neuraminidase protein', 'S6', 'bad', 897, complete=False,
+                  assembly_id=f'no{i}') for i in range(16)]
+    row = summarize_cds_lengths(pd.DataFrame(rows), SHORT).iloc[0]
+    assert row['frac at mode'] == pytest.approx(1.0)        # every COMPLETE sequence is at 900
+    assert row['isolates'] == 20
+    assert row['frac isolates at mode'] == pytest.approx(4 / 20)
+
+
+def test_population_label():
+    assert population_label(None, None, None, None) == 'all'
+    assert population_label(['H3N2'], ['Human'], [2024], None) == 'H3N2 Human 2024'
+    assert population_label(['H3N2'], None, None, [2021, 2025]) == 'H3N2 2021-2025'
 
 
 def test_rejects_missing_columns_and_a_protein_with_no_complete_sequence():
@@ -120,6 +147,8 @@ if __name__ == '__main__':
         test_segment_number,
         test_each_distinct_sequence_counts_once,
         test_length_statistics_use_complete_sequences_only,
+        test_isolate_coverage_falls_below_the_sequence_share,
+        test_population_label,
         test_rejects_missing_columns_and_a_protein_with_no_complete_sequence,
     ]
     failed = 0
