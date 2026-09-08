@@ -511,6 +511,21 @@ if PAIR_BUILDER_VERSION == 'v2':
     REQUIRE_COMPLETE_CDS_AT_PINNED_LENGTH = bool(
         getattr(config.dataset, 'require_complete_cds_at_pinned_length', False))
 
+    POSITIVE_SELECTION_CFG = getattr(
+        config.dataset,
+        'positive_pair_selection',
+        None,
+    )
+    POSITIVE_SELECTION_METHOD = 'all'
+    POSITIVE_SELECTION_ORDERING = 'pair_key'
+    if POSITIVE_SELECTION_CFG is not None:
+        POSITIVE_SELECTION_METHOD = str(
+            getattr(POSITIVE_SELECTION_CFG, 'method', 'all')
+        )
+        POSITIVE_SELECTION_ORDERING = str(
+            getattr(POSITIVE_SELECTION_CFG, 'ordering', 'pair_key')
+        )
+
     NEG_SAMPLING_CFG = getattr(config.dataset, 'negative_sampling', None)
     AXIS_QUOTAS = None
     SAMPLING_AXES = None
@@ -722,6 +737,11 @@ if PAIR_BUILDER_VERSION == 'v2':
             'pair_builder_version': 'v2',
             'code': get_git_info(),
         }
+        if POSITIVE_SELECTION_METHOD != 'all':
+            cv_info['positive_pair_selection'] = {
+                'method': POSITIVE_SELECTION_METHOD,
+                'ordering': POSITIVE_SELECTION_ORDERING,
+            }
         with open(output_dir / 'cv_info.json', 'w') as f:
             json.dump(cv_info, f, indent=2)
         print(f"Saved CV metadata to: {output_dir / 'cv_info.json'}")
@@ -785,11 +805,34 @@ if PAIR_BUILDER_VERSION == 'v2':
                 regime_aware_coverage=REGIME_AWARE_COVERAGE,
                 pair_key_alphabet=PAIR_KEY_ALPHABET,
                 negative_scope=NEGATIVE_SCOPE,
+                positive_selection_method=POSITIVE_SELECTION_METHOD,
+                positive_selection_ordering=POSITIVE_SELECTION_ORDERING,
             )
 
         # Stream each fold to disk as it's produced (reduces peak memory; lets
         # progress show up on disk while later folds are still computing).
+        positive_selection_artifacts_written = False
         for fold_data in cv_gen:
+            if (
+                not positive_selection_artifacts_written
+                and 'positive_selection_audit' in fold_data
+            ):
+                audit_path = output_dir / 'positive_pair_selection.json'
+                with open(audit_path, 'w') as f:
+                    json.dump(
+                        fold_data['positive_selection_audit'],
+                        f,
+                        indent=2,
+                    )
+                manifest_path = output_dir / 'positive_pair_selection.csv'
+                fold_data['positive_selection_manifest'].to_csv(
+                    manifest_path,
+                    index=False,
+                )
+                print(f"Saved positive-pair selection audit to: {audit_path}")
+                print(f"Saved positive-pair selection manifest to: {manifest_path}")
+                positive_selection_artifacts_written = True
+
             fold_dir = output_dir / f"fold_{fold_data['fold_id']}"
             print(f"\nSaving fold {fold_data['fold_id'] + 1}/{N_FOLDS} to: {fold_dir}")
             save_split_output_v2(

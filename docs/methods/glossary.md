@@ -65,6 +65,14 @@ Terms that map to a NetworkX function note it in parentheses (`nx....`), and pro
 
 - **Pair universe** — The set of unique canonical positive pairs for a schema pair, deduped by `canonical_pair_key` under the chosen **pair_key alphabet** (`aa`: protein `prot_hash`; `nt_cds`: CDS-DNA `cds_dna_hash` — see `splits.md` §2.2), derived from isolate co-occurrence in `cds_dna_final.parquet` (which carries both the protein `prot_hash` and the `cds_dna_hash`, so the same file sources both alphabets). One row per unique canonical pair; it is the splitter's INPUT and the multigraph edge set of the cluster-level bigraph. **Alphabet-specific**: the `aa` universe for HA-NA = 58,826 pairs; the `nt_cds` universe is larger (silent codon variants become distinct positives).
 
+- **Unique-sequence positive matching** (project-specific) — A population-selection step that
+  retains positive pairs with no repeated slot-A sequence and no repeated slot-B sequence, then
+  assigns those pairs to random CV folds. Sequential deduplication provides two order-dependent
+  comparisons; Hopcroft-Karp gives a maximum-cardinality matching. This is not
+  **seq_disjoint**: it drops positive pairs before routing instead of keeping connected components
+  together. The uniqueness constraint applies to retained positives; negative rows may reuse an
+  in-split sequence. Config: `dataset.positive_pair_selection.method`.
+
 - **Cluster pair** — A unique `(cluster_a, cluster_b)` tuple after mapping each pair-universe row to its clusters via the cluster parquet. One row per unique cluster-cluster co-occurrence. For HA-NA aa t095: 10,756 cluster pairs total (10,141 of them inside the mega-CC). This is the simple-graph edge set of the cluster-level bigraph (one simple-graph edge per cluster pair).
 
 - **Atom element (or Atom)** (project-specific) — The indivisible unit of a routing decision. Defined per routing mode: one pair (`random`), one unique sequence (`seq_disjoint`), one cluster (`1D-CD`), or one CC (`2D-CD`). Not a standard graph-theory term.

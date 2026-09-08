@@ -1,0 +1,9 @@
+# H3N2 2024 HA-NA pinned-length population with one retained positive per
+# sequence in each slot. Sequential deduplication removes NA duplicates first.
+defaults:
+  - flu_ha_na_h3n2_2024_random_cv4_pinned_length
+  - _self_
+
+dataset:
+  positive_pair_selection:
+    method: dedup_b_then_a

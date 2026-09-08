@@ -94,6 +94,17 @@ repeat what these already say:
   k-fold needs the heaviest single-side cluster's pair mass `<= 1/k`. HA-NA nt_cds cm0: 8.8% at t099
   rising to 25.8% at t095 — so k=4 is unreachable at t095 whatever the router does. Check the floor
   before choosing k. Detail: `docs/results/2026-08-09_2d_cd_fold_balance.md`.
+- **CDS length screen for per-site features**: corpus-wide share of unique complete CDS at the
+  single most common length — PB2/PA/NP/M1 >=0.998, PB1 0.927, HA 0.689, NA 0.806, NS1 0.570. The
+  corpus-wide mode matches the `conf/virus/flu.yaml` pin for all six pinned proteins. This is not
+  independent confirmation because H3N2 and H1N1 make up much of the corpus. The corpus-wide
+  *share* cannot justify the pins or the PB1/NS1 exclusions. Breakdown by subtype/year has not been
+  run. Detail: `docs/results/2026-09-07_cds_length_survey.md`.
+- **Unique-sequence positive matching CV**: stage 1 is implemented for the v2 random-CV path.
+  `dataset.positive_pair_selection.method` supports `all`, both sequential-dedup orders, and
+  `hopcroft_karp`. Active selection keeps the full observed-positive blocking set and writes a
+  selection manifest plus per-fold invariants. The saved H3N2 2024 HA-NA population reproduces
+  1,687 / 1,703 / 1,782 retained positives. The three datasets and models have not been run.
 - **Best-model finding** (slot_norm + unit_diff for ESM-2 on HA/NA): see `docs/architecture.md`
   § Key Experimental Findings. The bundle that produced it is gone; the finding stands.
 - **2D-CD builder** (`src/datasets/dataset_pairs_cc.py`): Stage-3 builder for bilateral
@@ -119,10 +130,12 @@ repeat what these already say:
   2015-2024 -> 2025 keeps 2,600 of the 2,663 2025 positives (2.4% lost) at 1.11 neg:pos, and only 139
   pair_keys (5.2% of the 2025 universe) occur in both spans. On aa pair_keys recurrence is ~2x higher
   (10.5%), which may be what the old figure described. K-mer beats ESM-2 here (AUC 0.941 vs 0.891).
-- **Preprocessing outputs moved (2026-09-01)**: `protein_final`, `ctg_dna_final` and
-  `cds_dna_final` are NOT at `data/processed/flu/July_2025/` right now — they were moved to
-  `archive_09_01_2026/` before re-running Stage 1 / 1.5 with the new completeness flag. Read them
-  from the archive until the re-run lands, and diff new output against it. Plan:
+- **Preprocessing outputs, completeness re-run (landed)**: `protein_final`, `ctg_dna_final` and
+  `cds_dna_final` are at `data/processed/flu/July_2025/` and carry the completeness flags.
+  `cds_dna_final` holds the 8 modelled proteins at 108,530 rows each, 868,240 rows in total, with
+  `starts_with_m` / `has_terminal_stop` / `has_internal_stop` / `is_complete_cds` added. The
+  pre-re-run copies are kept at `data/processed/flu/July_2025/archive_09_01_2026/` for diffing;
+  read the live files, not the archive. Plan:
   `docs/plans/2026-08-28_per_site_nt_features_plan.md` step 0.
 - **Plot helpers**: don't split by slot when the data is per-pair. `cluster_size_barplot.py` writes
   PNGs to `<out_dir>/plots/` while `umap_cc.py` writes to `<out_dir>` itself, so figures for one
@@ -145,7 +158,7 @@ items that need context beyond their title.
 | 1D cluster-disjoint single-slot (HA held out vs each partner) | `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md` |
 | Task 11 / 28-pair sweep; throughput fix lives on the unmerged branch `fix/mpiexec-cpu-binding` | `polaris_plan.md`, `docs/project_changelog.md` |
 | H3N2 segment matching for the PIs: 2D-CD is infeasible on one-year populations, so random 4-fold CV + a 2024->2025 temporal split answer the two questions instead. Results are in the commit messages only; no results doc yet | `docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md` |
-| Per-site nucleotide features: one feature per position instead of k-mer counts, so importance maps to a place in the CDS. Blocked on step 0, a Stage 1 completeness flag + preprocessing re-run | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
+| Per-site nucleotide features: HA-NA H3N2 2024 site runs are done. Unique-sequence matching CV code and tests are complete; building and auditing its three datasets is next. | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
 
 - **Stage-4 training is GATED** — no launch without explicit OK.
 

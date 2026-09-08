@@ -670,7 +670,7 @@ Per current code dispatch (`dataset_segment_pairs_v2.py:2865-2960`):
 
 | `split_mode` | `single_slot` | Holdout (`n_folds=null`/`1`) | k-fold (`n_folds≥2`) | Where |
 |---|---|---|---|---|
-| `random` | n/a | random isolate split | sklearn `KFold` on isolates | `generate_all_cv_folds_v2` (line 1883) |
+| `random` | n/a | random isolate split | sklearn `KFold` on isolates, or on selected positive pairs when unique-sequence positive matching is active | `generate_all_cv_folds_v2` |
 | `seq_disjoint` (`hash_key=seq`/`dna`) | n/a | bipartite-CC LPT-greedy | **not built** — raises `NotImplementedError` (line 2911) | seq_disjoint plan OoS |
 | `cluster_disjoint` bilateral | `None` | bipartite-CC LPT-greedy on `(cluster_id_a, cluster_id_b)` | **not built** — raises `NotImplementedError` (line 2924, requires `single_slot`) | k-fold plan OoS #5 |
 | `cluster_disjoint` single-slot | `'a'` or `'b'` | per-cluster atom LPT-greedy on the constrained slot | sklearn `GroupKFold` on constrained slot's `cluster_id`, then LPT-greedy on remaining k-1 atoms for train/val | `generate_all_cluster_disjoint_cv_folds_v2` (line 1976) → `cluster_disjoint_route_pos_df(n_folds=k)` |
@@ -680,6 +680,12 @@ A second builder sits outside that dispatch. `cluster_disjoint_cc` is served by
 `src/datasets/dataset_pairs_cc.py`, which requires `n_folds ≥ 2` (no holdout) and routes with
 sklearn `GroupKFold` on `atom_id` — the CC, or the post-edge-cut fragment when
 `split_strategy.edge_cut` is enabled — followed by a group-aware val carve that takes whole atoms.
+
+Under random CV, `dataset.positive_pair_selection.method` can select one positive per sequence
+in both slots before fold assignment. Active selection supports both sequential-dedup orders and
+Hopcroft-Karp matching. The full observed-positive set remains blocked during negative sampling,
+including positives discarded by selection. Active selection is not supported for holdout or
+cluster-disjoint routing.
 
 **Two k-fold routers, one guarantee.** 1D-CD (above) and 2D-CD (`dataset_pairs_cc.py`) both keep
 whole atoms in one split, in all three bins, and both draw within-fold negatives from the same

@@ -43,6 +43,14 @@ pair_mode: schema_ordered
 # Example: ["HA", "NA"]
 schema_pair: null
 
+# Optional positive-population selection for random cross-validation.
+# Active methods retain at most one positive per slot-A sequence and at most
+# one per slot-B sequence before folds are assigned. The full observed-positive
+# set remains the negative-blocking universe.
+positive_pair_selection:
+  method: all  # all | dedup_a_then_b | dedup_b_then_a | hopcroft_karp
+  ordering: pair_key
+
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs

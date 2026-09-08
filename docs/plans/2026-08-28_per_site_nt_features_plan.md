@@ -27,8 +27,10 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/analysis/_importance_helpers.py` | 6, 7b | shared readers for the importance table: load, rank by a chosen measure, average a permutation curve |
 | `src/analysis/plot_site_importance_trace.py` | 6 | one importance measure along the CDS, drawn from the saved table |
 | `src/analysis/plot_confusion_folds.py` | Post-hoc | confusion matrix pooled over the CV folds, with the per-fold spread |
+| `src/datasets/_positive_pair_selection.py` | 8 | selects unique-sequence positives and audits the resulting CV splits |
 
-Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), and 6 new experiment bundles (`..._pinned_length`, `..._site_nt`, `..._site_codon`, `..._site_aa`, `..._site_codon_slot_a`, `..._site_codon_slot_b`).
+Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), 6
+per-site experiment bundles, and 3 step-8 positive-selection bundles.
 
 ### Updated (existing files, extended for this plan)
 
@@ -39,9 +41,10 @@ Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`
 | `src/preprocess/extract_cds_dna.py` | carries `starts_with_m` / `has_terminal_stop` / `has_internal_stop` / `is_complete_cds` into `cds_dna_final` |
 | `src/utils/cds_utils.py` | added `check_cds_length` |
 | `conf/virus/flu.yaml` | added the `cds_length` pin table |
-| `conf/dataset/default.yaml` | added `require_complete_cds_at_pinned_length` |
+| `conf/dataset/default.yaml` | added `require_complete_cds_at_pinned_length` and `positive_pair_selection` |
 | `src/datasets/_pair_helpers.py` | added `filter_complete_cds_at_pinned_length` |
-| `src/datasets/dataset_segment_pairs.py` | wired the filter in |
+| `src/datasets/dataset_segment_pairs.py` | wired the CDS filter and positive selection into the v2 builder |
+| `src/datasets/dataset_segment_pairs_v2.py` | added selected-positive random CV and its fold audits |
 | `conf/bundles/flu_base.yaml` | registered the `/site` config group |
 | `docs/methods/glossary.md` | added the Site / Site unit / Site encoding / Pinned CDS length terms |
 | `src/models/_pair_features.py` | added the `site` feature-source branch |
@@ -49,7 +52,7 @@ Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`
 | `src/models/baselines/lgbm.py` | added `categorical_feature` |
 | `src/analysis/plot_site_group_permutation.py`, `src/analysis/plot_site_retrain_ablation.py` | added `--rank_by`, so the top-N sets can be ordered by gain, SHAP or permutation |
 
-## What we found (steps 0-7 done; step 8 open)
+## What we found (steps 0-7 done; step 8 in progress; step 9 open)
 
 All experiments used H3N2 HA–NA pairs collected in 2024, four random-split folds, and LightGBM. Each feature representation used the same folds. Reported values are the mean and std across folds.
 
@@ -495,7 +498,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    - Quick smoke test on fold 0 only: site nt F1 macro 0.9246 vs. k-mer 0.9219 on the same fold.
      One fold proves nothing by itself; step 5 is the real comparison.
 
-5. **Train and compare — DONE (2026-09-02).** LightGBM was trained and evaluated on all four
+5. **Train and Compare — DONE (2026-09-02).** LightGBM was trained and evaluated on all four
    pinned-length folds. Every arm uses the same folds, so the comparisons are paired.
 
    **Goal.** Compare per-site `nt`/`codon`/`aa` features against the k-mer baseline, and against
@@ -540,7 +543,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    for 7-10% of test rows. Exact `pair_key` overlap is zero. Step 7 directly tests whether this
    overlap explains the results.
 
-6. **Importance map — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the
+6. **Feature Importance — DONE (2026-09-02).** `src/analysis/plot_site_importance.py`, run on the
    `codon` model. Each of its 1,037 categorical features represents one codon position and
    therefore one residue position.
 
@@ -580,7 +583,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    importance or distinguish biological signal from lineage or sequence identification. Step 7
    tests the model's dependence on these positions.
 
-7. **Masking and shuffling — DONE (2026-09-02).** Five analyses test different possible
+7. **Masking and Shuffling based on Feature Importance  — DONE (2026-09-02).** Five analyses test different possible
    explanations for the model's performance:
 
    | analysis | question | model retrained? |
@@ -704,7 +707,51 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    Subgroup differences are descriptive because label composition and difficulty may also
    differ among the seen-status groups.
 
-8. **Cross-protein interactions — OPEN.** HA alone and NA alone perform at chance, while the
+8. **Unique-sequence positive matching with CV — IN PROGRESS.** Test whether performance
+   remains high after each CDS is used in at most one retained positive pair. This removes exact
+   sequence reuse from both slots while preserving cross-validation. It is different from the
+   current `seq_disjoint` split: the positive graph is matched before random folds are assigned,
+   rather than grouped into sequence-connected components and routed by LPT-greedy.
+
+   **Population.** Start with HA-NA H3N2 2024. Do not widen the metadata range for the first run.
+   The saved population has 3,580 deduplicated positives, 2,732 HA sequences and 2,298 NA
+   sequences. Preliminary selection retained 1,687 or 1,703 positives with sequential
+   deduplication and 1,782 with Hopcroft-Karp, about 445 test positives per fold in 4-fold CV.
+   The sequential-dedup methods are order-dependent and need not produce a maximal matching;
+   only Hopcroft-Karp gives the maximum number of retained positive pairs. This is enough for the
+   initial comparison.
+
+   **Implementation requirements.** Add three configurable selectors:
+   `drop_duplicates(HA)` then `drop_duplicates(NA)`, the reverse order, and maximum-cardinality
+   Hopcroft-Karp matching. Apply selection before fold assignment. Keep the full observed-positive
+   set as the negative exclusion universe, so discarded positives can never be sampled as
+   negatives. Generate negatives within each fold and allow each endpoint to use only sequences
+   assigned to that fold. Audit one-use-per-slot, exact 4-fold test coverage, zero train-test CDS
+   hash overlap, zero positive-negative overlap, and class balance.
+
+   **Run in stages.**
+   1. **DONE (2026-09-07):** implemented the selectors, selected-positive CV routing, run-level
+      manifest, and fold audits. The selectors reproduce the measured counts of 1,687, 1,703 and
+      1,782 positives. The full test suite passes (236 passed; 2 production tests deselected).
+   2. **OPEN:** build all three HA-NA datasets and compare their retained populations and fold
+      audits before training.
+   3. **OPEN:** train the nucleotide k-mer baseline on all three selectors. If the conclusion is
+      consistent, use the Hopcroft-Karp folds for the paired k-mer, per-site nt, codon and aa
+      comparison.
+
+   Scores from different selectors describe different retained positive populations and are not
+   paired fold comparisons. Feature representations trained on the same Hopcroft-Karp folds are
+   paired. Before the new training runs, also stratify the existing false-positive rate by the
+   collection-date gap between the two sequences; this is a cheap check for a temporal shortcut,
+   not a substitute for uniqueness-controlled evaluation.
+
+   If the 2024 result is too uncertain, widen the years while keeping subtype fixed and report the
+   year composition. For a second schema, screen matching size first. PB2-PB1 is useful for testing
+   whether the high k-mer result generalizes; PB2-PA is cleaner for a per-site comparison because
+   both proteins have stable pinned lengths. Detailed implementation notes are in
+   `positive_pair_matching_cv_design.md`; this section defines the experiment order.
+
+9. **Cross-protein interactions — OPEN.** HA alone and NA alone perform at chance, while the
    combined model reaches 0.9547 AUC-ROC. This motivates testing which HA and NA sites the model
    uses together.
 

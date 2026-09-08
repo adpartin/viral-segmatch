@@ -1,0 +1,10 @@
+# H3N2 2024 HA-NA pinned-length population with the largest possible number
+# of positives whose HA and NA sequences each occur once.
+defaults:
+  - flu_ha_na_h3n2_2024_random_cv4_pinned_length
+  - _self_
+
+dataset:
+  positive_pair_selection:
+    method: hopcroft_karp
+

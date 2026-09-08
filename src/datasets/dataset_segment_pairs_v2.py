@@ -77,6 +77,13 @@ from src.datasets._pair_helpers import (
     canonical_pair_key,
     get_metadata_distributions,
 )
+from src.datasets._positive_pair_selection import (
+    POSITIVE_PAIR_SELECTION_METHODS,
+    POSITIVE_PAIR_SELECTION_ORDERINGS,
+    audit_positive_pair_selection_fold,
+    positive_pair_selection_manifest,
+    select_positive_pairs,
+)
 from src.utils import schema
 
 # Pair columns (kept identical to v1's positive/negative output) so downstream
@@ -1368,7 +1375,7 @@ def split_dataset_v2(
     cluster_alphabet: str = 'aa',
     cds_final_path: Optional[str] = None,
     single_slot: Optional[str] = None,
-    routed_pos_override: Optional[dict] = None,
+    prepartitioned_pos_override: Optional[dict] = None,
     pair_key_alphabet: str = 'aa',
     negative_scope: str = 'coverage',
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, dict]:
@@ -1472,14 +1479,42 @@ def split_dataset_v2(
             f"{pair_key_alphabet!r} requires {_cooccur_hash_col!r}."
         )
 
-    # Build the global positive pair dataframe once, deduped to one row per unique
-    # pair_key with a deterministic representative assembly_id. The split is then
-    # a partition of this table -- train/val/test are pair_key-disjoint by
-    # construction, so no post-hoc cross-split overlap removal is needed.
-    print("\nsplit_dataset_v2: Build global positive pairs (one call across full df)...", flush=True)
-    pos_df, pos_dedup_stats = create_positive_pairs_v2(
-        df, schema_pair=schema_pair, pair_key_alphabet=pair_key_alphabet,
-    )
+    if prepartitioned_pos_override is None:
+        # Build one global, deduplicated positive table. The ordinary split
+        # paths partition this table, so pair keys cannot cross splits.
+        print(
+            "\nsplit_dataset_v2: Build global positive pairs "
+            "(one call across full df)...",
+            flush=True,
+        )
+        pos_df, pos_dedup_stats = create_positive_pairs_v2(
+            df,
+            schema_pair=schema_pair,
+            pair_key_alphabet=pair_key_alphabet,
+        )
+    else:
+        required_override = {
+            'train_pos',
+            'val_pos',
+            'test_pos',
+            'pos_dedup_stats',
+        }
+        missing_override = required_override - set(prepartitioned_pos_override)
+        if missing_override:
+            raise ValueError(
+                "split_dataset_v2: prepartitioned_pos_override is missing "
+                f"keys {sorted(missing_override)}."
+            )
+        pos_df = pd.concat(
+            [
+                prepartitioned_pos_override['train_pos'],
+                prepartitioned_pos_override['val_pos'],
+                prepartitioned_pos_override['test_pos'],
+            ],
+            ignore_index=True,
+        )
+        pos_dedup_stats = prepartitioned_pos_override['pos_dedup_stats']
+
     if len(pos_df) == 0:
         raise ValueError(
             f"No positive pairs generated from df. Verify schema_pair={schema_pair} "
@@ -1506,27 +1541,28 @@ def split_dataset_v2(
     # docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
     seq_disjoint_audit: Optional[dict] = None
     cluster_disjoint_audit: Optional[dict] = None
-    if routed_pos_override is not None:
-        # k-fold path: pre-routed positives provided by the generator
-        # (`generate_all_cluster_disjoint_cv_folds_v2`). Skip the routing
-        # dispatch entirely; use the override's train_pos / val_pos /
-        # test_pos / cluster_disjoint_audit / pos_dedup_stats. pos_df was
-        # built above (wasted work for the override case; acceptable cost
-        # ~few seconds per fold on Flu A — avoids restructuring the build
-        # block). See Phase 3 of
-        # docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md.
-        if split_strategy_mode != 'cluster_disjoint':
+    positive_selection_audit: Optional[dict] = None
+    if prepartitioned_pos_override is not None:
+        # CV generators can route positive rows before calling this function.
+        # The split-specific negative samplers and final audits remain shared.
+        if split_strategy_mode not in {'random', 'cluster_disjoint'}:
             raise ValueError(
-                f"split_dataset_v2: routed_pos_override requires "
-                f"split_strategy_mode='cluster_disjoint'; got {split_strategy_mode!r}."
+                f"split_dataset_v2: prepartitioned_pos_override requires "
+                f"split_strategy_mode='random' or 'cluster_disjoint'; "
+                f"got {split_strategy_mode!r}."
             )
-        train_pos = routed_pos_override['train_pos']
-        val_pos = routed_pos_override['val_pos']
-        test_pos = routed_pos_override['test_pos']
-        cluster_disjoint_audit = routed_pos_override['cluster_disjoint_audit']
-        pos_dedup_stats = routed_pos_override['pos_dedup_stats']
-        print(f"split_dataset_v2: using routed_pos_override (k-fold fold_id="
-              f"{routed_pos_override.get('fold_id', '?')}); "
+        train_pos = prepartitioned_pos_override['train_pos']
+        val_pos = prepartitioned_pos_override['val_pos']
+        test_pos = prepartitioned_pos_override['test_pos']
+        cluster_disjoint_audit = prepartitioned_pos_override.get(
+            'cluster_disjoint_audit'
+        )
+        positive_selection_audit = prepartitioned_pos_override.get(
+            'positive_selection_audit'
+        )
+        pos_dedup_stats = prepartitioned_pos_override['pos_dedup_stats']
+        print(f"split_dataset_v2: using prepartitioned_pos_override (fold_id="
+              f"{prepartitioned_pos_override.get('fold_id', '?')}); "
               f"train={len(train_pos):,} val={len(val_pos):,} test={len(test_pos):,}",
               flush=True)
     elif train_isolates_override is not None:
@@ -1861,6 +1897,19 @@ def split_dataset_v2(
     assert not (train_set & val_set or train_set & test_set or val_set & test_set), \
         "v2 invariant violated: isolate overlap across train/val/test"
 
+    positive_selection_fold_audit = None
+    if positive_selection_audit is not None:
+        hash_col_a, hash_col_b = schema.hash_col_ab(pair_key_alphabet)
+        positive_selection_fold_audit = audit_positive_pair_selection_fold(
+            train_pairs,
+            val_pairs,
+            test_pairs,
+            hash_col_a,
+            hash_col_b,
+            cooccur_pairs,
+            neg_to_pos_ratio,
+        )
+
     duplicate_stats = {
         'cooccur_stats': cooccur_stats,
         'train_reject_stats': train_reject_stats,
@@ -1895,6 +1944,11 @@ def split_dataset_v2(
             'test': _coverage_substats(test_reject_stats),
         },
     }
+    if positive_selection_audit is not None:
+        duplicate_stats['positive_pair_selection'] = positive_selection_audit
+        duplicate_stats['positive_pair_selection_fold_audit'] = (
+            positive_selection_fold_audit
+        )
     if isolate_to_cell is not None:
         duplicate_stats['regime_manifest'] = {
             'config': train_reject_stats.get('regime_config'),
@@ -2070,17 +2124,17 @@ def generate_all_cv_folds_v2(
     regime_aware_coverage: bool = False,
     pair_key_alphabet: str = 'aa',
     negative_scope: str = 'coverage',
+    positive_selection_method: str = 'all',
+    positive_selection_ordering: str = 'pair_key',
     ) -> Iterator[dict]:
     """Generate all N CV fold splits, yielding each as a dict containing
     fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats, and
     exposure_tables.
 
-    Folds are KFold over unique isolates, so the k test sets are disjoint and each
-    fold's split is a random partition of the population (no sequence, cluster or CC
-    constraint). `negative_scope` selects the sampler `split_dataset_v2` uses:
-    'coverage' (the coverage-first default) or 'within_fold' (ratio-driven random
-    pairing inside each split, the same primitive the 2D-CD builder uses -- pass it to
-    make a random-split run comparable to a 2D-CD run).
+    With `positive_selection_method='all'`, folds use the existing KFold over
+    unique isolates. Active selection first retains positive pairs with unique
+    endpoints in both slots, then applies KFold to those selected pairs.
+    `negative_scope` selects the sampler used inside each split.
 
     v2 hard-codes pair_mode='schema_ordered' and hard_partition_isolates=True.
 
@@ -2097,12 +2151,123 @@ def generate_all_cv_folds_v2(
     print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
     print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
 
-    unique_isolates = np.array(sorted(df['assembly_id'].unique()))
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
 
     val_frac = val_ratio / (1.0 - 1.0 / n_folds)
     val_frac = min(val_frac, 0.5)
 
+    if positive_selection_method != 'all':
+        pos_df, pos_dedup_stats = create_positive_pairs_v2(
+            df,
+            schema_pair=schema_pair,
+            pair_key_alphabet=pair_key_alphabet,
+        )
+        if len(pos_df) == 0:
+            raise ValueError(
+                f"No positive pairs generated from df. Verify schema_pair={schema_pair} "
+                f"matches the function values present in df."
+            )
+        hash_col_a, hash_col_b = schema.hash_col_ab(pair_key_alphabet)
+        selected_pos, selection_audit = select_positive_pairs(
+            pos_df,
+            method=positive_selection_method,
+            hash_col_a=hash_col_a,
+            hash_col_b=hash_col_b,
+            ordering=positive_selection_ordering,
+        )
+        if len(selected_pos) < n_folds:
+            raise ValueError(
+                f"positive-pair selection retained {len(selected_pos)} pairs, "
+                f"fewer than dataset.n_folds={n_folds}."
+            )
+        selection_audit['pair_key_alphabet'] = pair_key_alphabet
+        selection_manifest = positive_pair_selection_manifest(
+            selected_pos,
+            hash_col_a,
+            hash_col_b,
+        )
+
+        selected_indices = np.arange(len(selected_pos))
+        test_pair_keys_seen: set = set()
+        for fold_i, (trainval_idx, test_idx) in enumerate(
+            kf.split(selected_indices)
+        ):
+            print(f"\n{'='*60}")
+            print(f"CV (v2): generating fold {fold_i + 1}/{n_folds}  "
+                  f"(test={len(test_idx)}, trainval={len(trainval_idx)} selected pairs)")
+            print(f"{'='*60}")
+
+            trainval_pos = selected_pos.iloc[trainval_idx]
+            test_pos = selected_pos.iloc[test_idx].reset_index(drop=True)
+            if len(trainval_pos) < 2:
+                train_pos = trainval_pos.reset_index(drop=True)
+                val_pos = trainval_pos.iloc[0:0].copy()
+            else:
+                train_pos, val_pos = train_test_split(
+                    trainval_pos,
+                    test_size=val_frac,
+                    random_state=seed + fold_i,
+                )
+                train_pos = train_pos.reset_index(drop=True)
+                val_pos = val_pos.reset_index(drop=True)
+
+            fold_test_keys = set(test_pos['pair_key'])
+            if fold_test_keys & test_pair_keys_seen:
+                raise RuntimeError(
+                    "a selected positive pair appears in more than one CV test fold"
+                )
+            test_pair_keys_seen |= fold_test_keys
+
+            train_pairs, val_pairs, test_pairs, dup_stats, exposure_tables = split_dataset_v2(
+                df=df,
+                schema_pair=schema_pair,
+                neg_to_pos_ratio=neg_to_pos_ratio,
+                train_ratio=0.8,
+                val_ratio=val_ratio,
+                seed=seed + fold_i,
+                max_attempts_per_seq=max_attempts_per_seq,
+                max_attempts_multiplier=max_attempts_multiplier,
+                axes_for_flags=axes_for_flags,
+                axis_quotas=axis_quotas,
+                sampling_axes=sampling_axes,
+                year_match=year_match,
+                year_bin_edges=year_bin_edges,
+                on_shortfall=on_shortfall,
+                regime_aware_coverage=regime_aware_coverage,
+                cooccur_pairs=cooccur_pairs,
+                cooccur_stats=cooccur_stats,
+                split_strategy_mode='random',
+                prepartitioned_pos_override={
+                    'fold_id': fold_i,
+                    'train_pos': train_pos,
+                    'val_pos': val_pos,
+                    'test_pos': test_pos,
+                    'pos_dedup_stats': pos_dedup_stats,
+                    'positive_selection_audit': selection_audit,
+                },
+                pair_key_alphabet=pair_key_alphabet,
+                negative_scope=negative_scope,
+            )
+            yield {
+                'fold_id': fold_i,
+                'train_pairs': train_pairs,
+                'val_pairs': val_pairs,
+                'test_pairs': test_pairs,
+                'duplicate_stats': dup_stats,
+                'exposure_tables': exposure_tables,
+                'positive_selection_audit': selection_audit,
+                'positive_selection_manifest': selection_manifest,
+            }
+
+        selected_pair_keys = set(selected_pos['pair_key'])
+        if test_pair_keys_seen != selected_pair_keys:
+            raise RuntimeError(
+                "CV test folds do not cover every selected positive pair exactly once"
+            )
+        return
+
+    # Preserve the existing isolate-KFold path when selection is disabled.
+    unique_isolates = np.array(sorted(df['assembly_id'].unique()))
     for fold_i, (trainval_idx, test_idx) in enumerate(kf.split(unique_isolates)):
         print(f"\n{'='*60}")
         print(f"CV (v2): generating fold {fold_i + 1}/{n_folds}  "
@@ -2134,7 +2299,7 @@ def generate_all_cv_folds_v2(
             year_match=year_match,
             year_bin_edges=year_bin_edges,
             on_shortfall=on_shortfall,
-        regime_aware_coverage=regime_aware_coverage,
+            regime_aware_coverage=regime_aware_coverage,
             train_isolates_override=train_ids,
             val_isolates_override=val_ids,
             test_isolates_override=test_ids,
@@ -2389,7 +2554,7 @@ def generate_all_cluster_disjoint_cv_folds_v2(
             cluster_alphabet=cluster_alphabet,
             cds_final_path=cds_final_path,
             single_slot=single_slot,
-            routed_pos_override={
+            prepartitioned_pos_override={
                 'fold_id':                fold_id,
                 'train_pos':              train_pos,
                 'val_pos':                val_pos,
@@ -2721,6 +2886,13 @@ def save_split_output_v2(
         'pos_dedup': duplicate_stats['pos_dedup_global'],
         'coverage': duplicate_stats['coverage_stats'],
     }
+    if 'positive_pair_selection' in duplicate_stats:
+        duplicate_summary['positive_pair_selection'] = duplicate_stats[
+            'positive_pair_selection'
+        ]
+        duplicate_summary['positive_pair_selection_fold_audit'] = duplicate_stats[
+            'positive_pair_selection_fold_audit'
+        ]
     with open(output_dir / 'duplicate_stats.json', 'w') as f:
         json.dump(duplicate_summary, f, indent=2, default=_jsonable)
     print(f"Saved duplicate stats to: {output_dir / 'duplicate_stats.json'}")
@@ -3127,6 +3299,40 @@ def _validate_v2_config(config) -> None:
                 f"else 'aa'); got {pair_key_alphabet!r}."
             )
     n_folds = OmegaConf.select(config, "dataset.n_folds")
+    positive_selection_method = OmegaConf.select(
+        config,
+        "dataset.positive_pair_selection.method",
+        default="all",
+    )
+    positive_selection_ordering = OmegaConf.select(
+        config,
+        "dataset.positive_pair_selection.ordering",
+        default="pair_key",
+    )
+    if positive_selection_method not in POSITIVE_PAIR_SELECTION_METHODS:
+        raise ValueError(
+            f"dataset.positive_pair_selection.method must be one of "
+            f"{sorted(POSITIVE_PAIR_SELECTION_METHODS)}; "
+            f"got {positive_selection_method!r}."
+        )
+    if positive_selection_ordering not in POSITIVE_PAIR_SELECTION_ORDERINGS:
+        raise ValueError(
+            f"dataset.positive_pair_selection.ordering must be one of "
+            f"{sorted(POSITIVE_PAIR_SELECTION_ORDERINGS)}; "
+            f"got {positive_selection_ordering!r}."
+        )
+    if positive_selection_method != 'all':
+        if n_folds is None or int(n_folds) < 2:
+            raise NotImplementedError(
+                "active dataset.positive_pair_selection requires "
+                "dataset.n_folds >= 2."
+            )
+        if split_mode != 'random':
+            raise NotImplementedError(
+                "active dataset.positive_pair_selection requires "
+                "dataset.split_strategy.mode='random'; "
+                f"got {split_mode!r}."
+            )
     if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:
         raise NotImplementedError(
             f"dataset.split_strategy.mode='seq_disjoint' is not yet compatible with "
