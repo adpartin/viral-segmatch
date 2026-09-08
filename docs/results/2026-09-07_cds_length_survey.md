@@ -112,7 +112,12 @@ Only 2,958 of 5,346 isolates have a complete PB1. Of the 2,388 incomplete record
 terminal stop and 2,339 are 2,274 nt. The mode among complete records is 2,277 nt, one codon
 longer.
 
-A potential `TODO`is to examine the 3 bases immediately after the 2,274-nt records in
+Corpus-wide, 2,274 nt is the dominant PB1 length and 95.7% of the 100,042 isolates carrying it have
+a complete CDS. `frac isolates complete` is 0.949 across the corpus against 0.553 here. A 2,274-nt
+PB1 is therefore normally complete, and the incompleteness is specific to this population rather
+than a property of how PB1 is annotated.
+
+A potential `TODO` is to examine the 3 bases immediately after the 2,274-nt records in
 `ctg_dna_final`. A stop codon would indicate a short CDS annotation that may be extendable;
 otherwise the records are truncated. Until this is resolved, PB1 should remain excluded. These
 results alone cannot distinguish a biological length change from a change in annotation practice.
