@@ -112,15 +112,16 @@ Only 2,958 of 5,346 isolates have a complete PB1. Of the 2,388 incomplete record
 terminal stop and 2,339 are 2,274 nt. The mode among complete records is 2,277 nt, one codon
 longer.
 
-Corpus-wide, 2,274 nt is the dominant PB1 length and 95.7% of the 100,042 isolates carrying it have
-a complete CDS. `frac isolates complete` is 0.949 across the corpus against 0.553 here. A 2,274-nt
-PB1 is therefore normally complete, and the incompleteness is specific to this population rather
-than a property of how PB1 is annotated.
+The 2,274-nt records are 3'-truncated assemblies, not short annotations. Reading the contig past
+the end of each CDS, 99.7% of the 2,352 records at 2,274 nt have no bases left at all: the contig
+ends exactly where the CDS ends. The 2,945 records at 2,277 nt carry a median of 27 further bases.
+Of 2,339 tested, none had a stop codon downstream, because for all but one there was nothing
+downstream to read. The CDS cannot be extended, so PB1 stays excluded.
 
-A potential `TODO` is to examine the 3 bases immediately after the 2,274-nt records in
-`ctg_dna_final`. A stop codon would indicate a short CDS annotation that may be extendable;
-otherwise the records are truncated. Until this is resolved, PB1 should remain excluded. These
-results alone cannot distinguish a biological length change from a change in annotation practice.
+This is sequencing coverage rather than annotation practice or evolution alone. Recent H3N2 PB1 is
+genuinely 2,277 nt, one codon longer than the 2,274 nt form that is complete in 95.7% of the
+corpus. Layered on that, about 44% of human H3N2 2024 records come from contigs that stop three
+bases short of the terminal stop. The apparent 2023-to-2024 turnover mixes the two.
 
 ### Pin stability by year
 
