@@ -22,6 +22,10 @@ such set; the sequential-dedup selectors in `_positive_pair_selection` retain fe
 its own bigraph, so two pairs sharing a protein do not keep the same isolates. On human H3N2 2024,
 PA-NP and NP-NA overlap on only 0.470 of the isolates they retain.
 
+`Pair ID` names a pair by its two segment numbers, so PB2-HA is `1-4`. `ID` is a row counter over
+the table as sorted, which is by descending matched count, so it is a rank rather than a stable
+identifier and it moves when the population changes.
+
 Outputs (to `--out_dir`):
     pair_capacity.csv           one row per schema pair, with the columns in `CAPACITY_COLUMNS`
     pair_isolate_overlap.csv    one row per pair of schema pairs: shared isolates and Jaccard
@@ -42,6 +46,7 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.analysis.summarize_cds_lengths import segment_number  # noqa: E402
 from src.datasets._pair_helpers import filter_complete_cds_at_pinned_length  # noqa: E402
 from src.datasets._positive_pair_selection import select_positive_pairs  # noqa: E402
 from src.datasets.dataset_pairs_cc import build_frontend  # noqa: E402
@@ -54,7 +59,7 @@ from src.utils.config_hydra import (  # noqa: E402
 
 DEFAULT_PROTEINS = ['PB2', 'PA', 'HA', 'NP', 'NA', 'M1']
 
-CAPACITY_COLUMNS = ['Pair ID', 'pair', 'population', 'cohort isolates', 'positives',
+CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'cohort isolates', 'positives',
                     'distinct A', 'distinct B', 'matched', 'matched share']
 OVERLAP_COLUMNS = ['pair A', 'pair B', 'isolates A', 'isolates B', 'shared', 'isolate jaccard']
 
@@ -81,6 +86,29 @@ def common_isolate_cohort(cds: pd.DataFrame, proteins: list, function_to_short: 
     carried = cds.assign(short=short).groupby('assembly_id')['short'].agg(set)
     wanted = set(proteins)
     return set(carried[carried.map(lambda held: wanted <= held)].index)
+
+
+def segment_numbers(cds: pd.DataFrame, function_to_short: dict) -> dict:
+    """Map each short protein name to its segment number.
+
+    Args:
+      cds: rows carrying `function` and `canonical_segment`.
+      function_to_short: full function name -> short protein name.
+
+    Returns:
+      Short protein name -> segment number, 1 through 8.
+
+    Raises:
+      ValueError: one protein carries more than one `canonical_segment`.
+    """
+    seen = {}
+    for function, group in cds.groupby('function'):
+        labels = set(group['canonical_segment'])
+        if len(labels) != 1:
+            raise ValueError(
+                f"segment_numbers: {function!r} spans several segments {sorted(labels)}.")
+        seen[function_to_short.get(function, function)] = segment_number(labels.pop())
+    return seen
 
 
 def isolate_overlap(retained_isolates: dict) -> pd.DataFrame:
@@ -128,6 +156,7 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
     full_of = {short: full for full, short in function_to_short.items()}
     hash_col_a, hash_col_b = schema.hash_col_ab(pair_key_alphabet)
     n_cohort = cohort['assembly_id'].nunique()
+    segment_of = segment_numbers(cohort, function_to_short)
 
     rows = []
     retained_isolates = {}
@@ -141,6 +170,8 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
 
         retained_isolates[label] = set(matched['assembly_id_a'])
         rows.append({
+            # Segment numbers follow the pair order, so `Pair ID` and `pair` always agree.
+            'Pair ID': f'{segment_of[protein_a]}-{segment_of[protein_b]}',
             'pair': label,
             'population': population,
             'cohort isolates': n_cohort,
@@ -152,7 +183,7 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
         })
 
     table = pd.DataFrame(rows).sort_values('matched', ascending=False).reset_index(drop=True)
-    table.insert(0, 'Pair ID', range(1, len(table) + 1))
+    table.insert(0, 'ID', range(1, len(table) + 1))
     return table[CAPACITY_COLUMNS], isolate_overlap(retained_isolates)
 
 

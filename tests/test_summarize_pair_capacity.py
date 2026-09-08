@@ -5,7 +5,8 @@ Covers:
   2. It rejects a protein that appears in no row, rather than returning an empty cohort
   3. isolate_overlap reports shared counts and Jaccard, and orders by descending Jaccard
   4. Disjoint matchings give Jaccard 0, identical ones give 1
-  5. The column lists are what the CSVs promise
+  5. segment_numbers maps each protein to its segment, and rejects one spanning two segments
+  6. The column lists are what the CSVs promise
 
 Run: python tests/test_summarize_pair_capacity.py
 """
@@ -23,6 +24,7 @@ from src.analysis.summarize_pair_capacity import (  # noqa: E402
     OVERLAP_COLUMNS,
     common_isolate_cohort,
     isolate_overlap,
+    segment_numbers,
 )
 
 SHORT = {'Hemagglutinin precursor': 'HA', 'Neuraminidase protein': 'NA',
@@ -30,8 +32,12 @@ SHORT = {'Hemagglutinin precursor': 'HA', 'Neuraminidase protein': 'NA',
 HA, NA, M1 = 'Hemagglutinin precursor', 'Neuraminidase protein', 'Matrix protein 1'
 
 
+SEGMENT_OF = {HA: 'S4', NA: 'S6', M1: 'S7'}
+
+
 def _cds(pairs):
-    return pd.DataFrame([{'assembly_id': iso, 'function': fn} for iso, fn in pairs])
+    return pd.DataFrame([{'assembly_id': iso, 'function': fn,
+                          'canonical_segment': SEGMENT_OF[fn]} for iso, fn in pairs])
 
 
 def test_cohort_keeps_only_isolates_carrying_every_protein():
@@ -79,9 +85,21 @@ def test_isolate_overlap_endpoints():
     assert isolate_overlap(apart).iloc[0]['isolate jaccard'] == pytest.approx(0.0)
 
 
+def test_segment_numbers():
+    cds = _cds([('i1', HA), ('i1', NA), ('i1', M1)])
+    assert segment_numbers(cds, SHORT) == {'HA': 4, 'NA': 6, 'M1': 7}
+
+    # A protein under two segment labels would silently give one pair two different Pair IDs.
+    mixed = _cds([('i1', HA), ('i2', HA)])
+    mixed.loc[1, 'canonical_segment'] = 'S5'
+    with pytest.raises(ValueError, match='spans several segments'):
+        segment_numbers(mixed, SHORT)
+
+
 def test_column_lists():
-    assert CAPACITY_COLUMNS[0] == 'Pair ID'
-    for name in ('pair', 'positives', 'matched', 'matched share', 'cohort isolates'):
+    # `ID` is a rank over the sorted table; `Pair ID` is the segment pair, e.g. 1-4 for PB2-HA.
+    assert CAPACITY_COLUMNS[:3] == ['ID', 'Pair ID', 'pair']
+    for name in ('positives', 'matched', 'matched share', 'cohort isolates'):
         assert name in CAPACITY_COLUMNS
     for name in ('pair A', 'pair B', 'shared', 'isolate jaccard'):
         assert name in OVERLAP_COLUMNS
@@ -93,6 +111,7 @@ if __name__ == '__main__':
         test_cohort_rejects_a_protein_with_no_rows,
         test_isolate_overlap_counts_and_orders,
         test_isolate_overlap_endpoints,
+        test_segment_numbers,
         test_column_lists,
     ]
     failed = 0
