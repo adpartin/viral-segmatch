@@ -98,13 +98,22 @@ repeat what these already say:
   single most common length — PB2/PA/NP/M1 >=0.998, PB1 0.927, HA 0.689, NA 0.806, NS1 0.570. The
   corpus-wide mode matches the `conf/virus/flu.yaml` pin for all six pinned proteins. This is not
   independent confirmation because H3N2 and H1N1 make up much of the corpus. The corpus-wide
-  *share* cannot justify the pins or the PB1/NS1 exclusions. Breakdown by subtype/year has not been
-  run. Detail: `docs/results/2026-09-07_cds_length_survey.md`.
-- **Unique-sequence positive matching CV**: stage 1 is implemented for the v2 random-CV path.
+  *share* cannot justify the pins or the PB1/NS1 exclusions. The human H3N2 2024 breakdown is in the
+  same doc: seven of eight proteins pin there, and PB1 fails at 0.551 of isolates because 99.7% of
+  its 2274 nt records are 3'-truncated assemblies. Per-pair capacity:
+  `docs/results/2026-09-08_cds_pair_capacity.md`. Detail:
+  `docs/results/2026-09-07_cds_length_survey.md`.
+- **Unique-sequence positive matching CV**: complete for the v2 random-CV path.
   `dataset.positive_pair_selection.method` supports `all`, both sequential-dedup orders, and
   `hopcroft_karp`. Active selection keeps the full observed-positive blocking set and writes a
-  selection manifest plus per-fold invariants. The saved H3N2 2024 HA-NA population reproduces
-  1,687 / 1,703 / 1,782 retained positives. The three datasets and models have not been run.
+  selection manifest plus per-fold invariants. The H3N2 2024 HA-NA selectors retained 1,687 /
+  1,703 / 1,782 positives; all 12 fold audits passed. On Hopcroft-Karp folds, k-mer F1 macro was
+  0.8768, per-site nt 0.8894, codon 0.8716 and aa 0.7331. Exact sequence reuse is therefore not
+  required for strong performance, but selection also changes sample size and population.
+  PB2-PA retained 3,958 observed positives and a maximum matching of 2,127; all four fold audits
+  passed. K-mer and per-site nt were nearly tied (F1 macro 0.8147 vs 0.8123; AUC-ROC 0.9045 vs
+  0.8977), and both were weaker than HA-NA. Precision remained substantially lower than recall.
+  Detail: `docs/plans/2026-08-28_per_site_nt_features_plan.md` step 8.
 - **Best-model finding** (slot_norm + unit_diff for ESM-2 on HA/NA): see `docs/architecture.md`
   § Key Experimental Findings. The bundle that produced it is gone; the finding stands.
 - **2D-CD builder** (`src/datasets/dataset_pairs_cc.py`): Stage-3 builder for bilateral

@@ -1,0 +1,13 @@
+# Per-site amino-acid features on the Hopcroft-Karp selected-positive folds.
+defaults:
+  - flu_ha_na_h3n2_2024_random_cv4_pinned_length_hopcroft_karp
+  - _self_
+
+site:
+  unit: aa
+  encoding: ordinal
+
+training:
+  feature_source: site
+  interaction: concat
+  slot_transform: none

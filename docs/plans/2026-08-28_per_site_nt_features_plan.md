@@ -29,8 +29,8 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/analysis/plot_confusion_folds.py` | Post-hoc | confusion matrix pooled over the CV folds, with the per-fold spread |
 | `src/datasets/_positive_pair_selection.py` | 8 | selects unique-sequence positives and audits the resulting CV splits |
 
-Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), 6
-per-site experiment bundles, and 3 step-8 positive-selection bundles.
+Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), 10
+per-site experiment bundles, and 4 step-8 positive-selection bundles.
 
 ### Updated (existing files, extended for this plan)
 
@@ -52,15 +52,32 @@ per-site experiment bundles, and 3 step-8 positive-selection bundles.
 | `src/models/baselines/lgbm.py` | added `categorical_feature` |
 | `src/analysis/plot_site_group_permutation.py`, `src/analysis/plot_site_retrain_ablation.py` | added `--rank_by`, so the top-N sets can be ordered by gain, SHAP or permutation |
 
-## What we found (steps 0-7 done; step 8 in progress; step 9 open)
+## What we found (steps 0-8 done; step 9 open)
 
-All experiments used H3N2 HA–NA pairs collected in 2024, four random-split folds, and LightGBM. Each feature representation used the same folds. Reported values are the mean and std across folds.
+Steps 0-7 used H3N2 HA–NA pairs collected in 2024. Step 8 also includes PB2–PA with the same metadata filters, four random-split folds and LightGBM. Within each feature comparison, the models used the same folds and positive population. Reported values are the mean and std across folds.
 
 **Per-site nucleotide features performed similarly to k-mer features.** The nucleotide-site model obtained an F1 macro of 0.9192 ± 0.0134 using 3,111 features. The k-mer model obtained 0.9094 ± 0.0145 using 8,192 features. The nucleotide-site model scored higher in all 4 folds, but the difference was not statistically significant (p=0.128). With only 4 folds, this result does not establish either superiority or equivalence.
 
 **Codon features retained similar performance with fewer features.** The codon model used 1,037 features and obtained an F1 macro of 0.9159. Its performance did not differ significantly from the nucleotide-site model (p=0.509). Codon features therefore match nucleotide-site performance at a third of the width, although the experiment has limited power to detect a difference.
 
 **Nucleotide identity provided information that amino-acid identity did not preserve.** Codon and amino-acid (aa) features represent the same 1,037 positions, but codons retain nucleotide changes that do not alter the translated amino acid. The codon model obtained an F1 macro of 0.9159, compared with 0.8091 for the aa model. The mean difference was 0.107, occurred in the same direction in every fold, and had p=0.002. This result shows that information discarded during translation contributes substantially to prediction. It does not show that aa sequence contains no useful information or evaluate ESM-2 features.
+
+**High performance persisted when every retained positive used each CDS only once.** On the
+maximum-cardinality Hopcroft-Karp population, the k-mer model obtained F1 macro 0.8768 ± 0.0070
+and AUC-ROC 0.9376 ± 0.0069. Per-site nt features remained slightly higher at 0.8894 ± 0.0100
+and 0.9427 ± 0.0101. Per-site codon features obtained 0.8716 ± 0.0240 and 0.9276 ± 0.0227,
+while per-site aa fell to 0.7331 ± 0.0068 and 0.8173 ± 0.0100. Thus, exact sequence reuse is not
+required for strong performance, and the codon-aa gap remains when exact sequence reuse is
+removed. The uniqueness-controlled datasets contain about half as many positives as the original
+dataset and represent selected populations, so their lower scores cannot be attributed solely to
+the removal of sequence reuse.
+
+**PB2–PA was less predictable than HA–NA under the same uniqueness-controlled design.**
+With Hopcroft-Karp matching, PB2–PA obtained F1 macro 0.8147 ± 0.0236 and AUC-ROC
+0.9045 ± 0.0205 with k-mers. Per-site nt obtained 0.8123 ± 0.0545 and 0.8977 ± 0.0447.
+Neither representation consistently outperformed the other: each won 2 of 4 folds. Both remained
+predictive, but their AUC-ROC was 0.03-0.05 lower than for HA–NA under the same design. Precision
+also remained substantially lower than recall with both representations.
 
 **The fitted model concentrated importance on a small number of sites, but other sites contained overlapping predictive information.** The top-10 codon sites (ranked by importance) accounted for 28% of total mean absolute SHAP importance. Shuffling these sites without re-fitting removed 49.5% of the model’s above-chance AUC-ROC. When a new model was trained after the same sites were corrupted, the loss was 15.8%. The smaller loss after re-fitting indicates that the remaining sites contain information that can partly replace the corrupted sites.
 
@@ -707,7 +724,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    Subgroup differences are descriptive because label composition and difficulty may also
    differ among the seen-status groups.
 
-8. **Unique-sequence positive matching with CV — IN PROGRESS.** Test whether performance
+8. **Unique-sequence positive matching with CV — DONE (2026-09-07).** Test whether performance
    remains high after each CDS is used in at most one retained positive pair. This removes exact
    sequence reuse from both slots while preserving cross-validation. It is different from the
    current `seq_disjoint` split: the positive graph is matched before random folds are assigned,
@@ -733,23 +750,81 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    1. **DONE (2026-09-07):** implemented the selectors, selected-positive CV routing, run-level
       manifest, and fold audits. The selectors reproduce the measured counts of 1,687, 1,703 and
       1,782 positives. The full test suite passes (236 passed; 2 production tests deselected).
-   2. **OPEN:** build all three HA-NA datasets and compare their retained populations and fold
-      audits before training.
-   3. **OPEN:** train the nucleotide k-mer baseline on all three selectors. If the conclusion is
-      consistent, use the Hopcroft-Karp folds for the paired k-mer, per-site nt, codon and aa
-      comparison.
+   2. **DONE (2026-09-07):** built and audited all three HA-NA datasets. Sequential deduplication
+      retained 1,687 pairs in HA-then-NA order and 1,703 in NA-then-HA order; Hopcroft-Karp
+      retained 1,782. Pair-key Jaccard overlap was 0.920 between the two dedup populations and
+      0.922-0.925 between each dedup population and Hopcroft-Karp. All 12 fold audits found unique
+      sequences in both slots, exact one-time test coverage, zero cross-split CDS-hash overlap,
+      zero out-of-split negative endpoints, zero observed positives labeled as negatives, and
+      exact 1:1 class balance.
+   3. **DONE (2026-09-07):** trained the nucleotide k-mer baseline on all three selectors, then
+      trained k-mer, per-site nt, codon and aa models on the same Hopcroft-Karp folds. All 24
+      model fits completed successfully. Summaries are in
+      `results/flu/July_2025/positive_pair_matching_cv/`.
+
+   **K-mer comparison across positive populations.** These rows are descriptive, not paired,
+   because each selector retains a different population.
+
+   | positive population | positives | F1 macro | AUC-ROC | precision | recall |
+   |---|---:|---:|---:|---:|---:|
+   | original | 3,580 | 0.9094 ± 0.0145 | 0.9564 ± 0.0064 | 0.8600 ± 0.0220 | 0.9798 ± 0.0083 |
+   | dedup HA then NA | 1,687 | 0.8577 ± 0.0116 | 0.9335 ± 0.0083 | 0.8048 ± 0.0169 | 0.9484 ± 0.0102 |
+   | dedup NA then HA | 1,703 | 0.8750 ± 0.0203 | 0.9284 ± 0.0099 | 0.8191 ± 0.0261 | 0.9665 ± 0.0137 |
+   | Hopcroft-Karp | 1,782 | 0.8768 ± 0.0070 | 0.9376 ± 0.0069 | 0.8244 ± 0.0133 | 0.9602 ± 0.0079 |
+
+   All three uniqueness-controlled populations remain highly predictive, but score below the
+   original population. This experiment changes three things together: exact sequence reuse,
+   training-set size and which positive pairs are retained. It therefore shows that exact reuse
+   is not required, but does not measure how much of the score decrease is caused by removing
+   reuse. A size-matched random-positive control would be needed to separate the reuse effect from
+   the smaller training population.
+
+   **TODO:** Compare Hopcroft-Karp with size-matched random subsets of the original HA-NA
+   positives. This secondary control does not block the next schema experiment.
+
+   **Paired feature comparison on the Hopcroft-Karp folds.**
+
+   | feature representation | columns | F1 macro | AUC-ROC |
+   |---|---:|---:|---:|
+   | k-mer k=6 (`nt_cds`) | 8,192 | 0.8768 ± 0.0070 | 0.9376 ± 0.0069 |
+   | per-site `nt` | 3,111 | **0.8894 ± 0.0100** | **0.9427 ± 0.0101** |
+   | per-site `codon` | 1,037 | 0.8716 ± 0.0240 | 0.9276 ± 0.0227 |
+   | per-site `aa` | 1,037 | 0.7331 ± 0.0068 | 0.8173 ± 0.0100 |
+
+   Per-site nt exceeded k-mer by 0.0126 mean F1 macro and won 3 of 4 folds (p=0.182). Codon was
+   0.0052 below k-mer on average despite winning 3 folds, because codon fold 2 was much weaker;
+   its validation AUC was also low, and all 1,037 categorical columns were configured correctly.
+   Codon exceeded aa in all four folds by 0.1385 mean F1 macro (p=0.0009). As above, paired
+   t-test p-values over four folds are descriptive and provide limited statistical evidence.
+
+   **PB2-PA replication — DONE (2026-09-07).** Complete-CDS and pinned-length filtering retained
+   3,958 observed positive pairs, with 2,915 unique PB2 and 2,814 unique PA sequences. The
+   maximum-cardinality matching retained 2,127 positives (53.7%). All four fold audits found no
+   sequence reuse within the retained positives, no cross-split CDS-hash overlap, no out-of-split
+   negative endpoints, no observed positive labeled as negative, no duplicate pair keys and exact
+   1:1 class balance.
+
+   | feature representation | columns | F1 macro | AUC-ROC | precision | recall |
+   |---|---:|---:|---:|---:|---:|
+   | k-mer k=6 (`nt_cds`) | 8,192 | 0.8147 ± 0.0236 | 0.9045 ± 0.0205 | 0.7674 ± 0.0262 | 0.9093 ± 0.0085 |
+   | per-site `nt` | 4,431 | 0.8123 ± 0.0545 | 0.8977 ± 0.0447 | 0.7634 ± 0.0533 | 0.9149 ± 0.0416 |
+
+   PB2-PA was less predictable than HA-NA under the same filters and matching design. Per-site nt
+   was 0.0024 lower in mean F1 macro and 0.0069 lower in AUC-ROC than k-mer; each representation
+   won 2 of 4 folds (paired p=0.947 for F1 macro and p=0.812 for AUC-ROC). Per-site nt also varied
+   more across folds. The precision-recall gap remained large for both representations. These
+   results provide a schema-specific weakening, not a complete failure, and four folds cannot
+   establish equivalence between the feature representations.
 
    Scores from different selectors describe different retained positive populations and are not
    paired fold comparisons. Feature representations trained on the same Hopcroft-Karp folds are
-   paired. Before the new training runs, also stratify the existing false-positive rate by the
-   collection-date gap between the two sequences; this is a cheap check for a temporal shortcut,
-   not a substitute for uniqueness-controlled evaluation.
+   paired. The proposed collection-date-gap false-positive check could not be run: predictions
+   retain assembly IDs, but the local parsed metadata retains only collection year, and every
+   sequence in this experiment is from 2024. Restore the exact collection date upstream before
+   attempting that diagnostic; a year-gap calculation would be identically zero.
 
-   If the 2024 result is too uncertain, widen the years while keeping subtype fixed and report the
-   year composition. For a second schema, screen matching size first. PB2-PB1 is useful for testing
-   whether the high k-mer result generalizes; PB2-PA is cleaner for a per-site comparison because
-   both proteins have stable pinned lengths. Detailed implementation notes are in
-   `positive_pair_matching_cv_design.md`; this section defines the experiment order.
+   If the one-year results remain uncertain, widen the years while keeping subtype fixed and report
+   the year composition. Detailed implementation notes are in `positive_pair_matching_cv_design.md`.
 
 9. **Cross-protein interactions — OPEN.** HA alone and NA alone perform at chance, while the
    combined model reaches 0.9547 AUC-ROC. This motivates testing which HA and NA sites the model
