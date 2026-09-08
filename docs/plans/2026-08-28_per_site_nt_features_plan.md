@@ -886,19 +886,120 @@ Related: `docs/results/2026-09-08_cds_pair_capacity.md`.
         not the coverage-first sampler.
       - The focused test run passed 18 tests, and Ruff passed for the driver and its tests.
 
-  3. Train the four feature representations — OPEN.
-      - Nucleotide 6-mers.
-      - Per-site nucleotide.
-      - Per-site codon.
-      - Per-site amino acid.
-      - Reuse the same dataset and folds across all four representations within each schema.
-      - Define matching identity using nucleotide CDS. Note that distinct nucleotide sequences can collapse to identical amino-acid sequences.
+  3. Train the four feature representations — DONE (2026-09-08).
+      - LightGBM was trained on nucleotide 6-mers and per-site nucleotide, codon, and amino-acid
+        features. Each arm has four folds, for 64 fitted models in total.
+      - All four arms within a schema use the same dataset rows and folds. Matching identity remains
+        nucleotide CDS, so distinct nucleotide sequences can have identical amino-acid features.
+      - The existing HA and NA site caches were reused. Missing PB2 and PA codon and amino-acid
+        caches were built and passed their decode checks.
 
-  4. Compare schemas and representations — OPEN.
-      - Report F1 macro, AUC-ROC, precision, and recall across four folds.
-      - Report eligible-isolate counts and isolate overlap among schemas.
-      - Treat cross-schema differences as descriptive: equal positive counts do not equalize sequence diversity, negative difficulty, feature width, or isolate membership.
-      - If an interesting difference appears, we should later (not now) consider repeating the sampling with additional seeds and consider adding a production `max_positives` option.
+        | pair | representation | columns | F1 macro | AUC-ROC | precision | recall |
+        |---|---|---:|---:|---:|---:|---:|
+        | HA-NA | nt 6-mer | 8,192 | 0.8635 ± 0.0158 | 0.9250 ± 0.0113 | 0.8059 ± 0.0184 | 0.9617 ± 0.0071 |
+        | HA-NA | site nt | 3,111 | 0.8713 ± 0.0037 | 0.9358 ± 0.0061 | 0.8199 ± 0.0033 | 0.9541 ± 0.0103 |
+        | HA-NA | site codon | 1,037 | 0.8777 ± 0.0134 | 0.9349 ± 0.0068 | 0.8288 ± 0.0152 | 0.9541 ± 0.0152 |
+        | HA-NA | site aa | 1,037 | 0.7605 ± 0.0116 | 0.8321 ± 0.0175 | 0.7174 ± 0.0070 | 0.8687 ± 0.0306 |
+        | PB2-PA | nt 6-mer | 8,192 | 0.7673 ± 0.0345 | 0.8642 ± 0.0261 | 0.7183 ± 0.0313 | 0.8928 ± 0.0202 |
+        | PB2-PA | site nt | 4,431 | 0.8300 ± 0.0332 | 0.9093 ± 0.0233 | 0.7818 ± 0.0353 | 0.9217 ± 0.0137 |
+        | PB2-PA | site codon | 1,477 | 0.8122 ± 0.0283 | 0.9036 ± 0.0196 | 0.7598 ± 0.0291 | 0.9211 ± 0.0112 |
+        | PB2-PA | site aa | 1,477 | 0.4526 ± 0.0214 | 0.5263 ± 0.0132 | 0.5028 ± 0.0200 | 0.7001 ± 0.3315 |
+        | PB2-NA | nt 6-mer | 8,192 | 0.8580 ± 0.0167 | 0.9244 ± 0.0124 | 0.8035 ± 0.0199 | 0.9517 ± 0.0079 |
+        | PB2-NA | site nt | 3,690 | 0.8819 ± 0.0167 | 0.9331 ± 0.0149 | 0.8370 ± 0.0206 | 0.9505 ± 0.0112 |
+        | PB2-NA | site codon | 1,230 | 0.8726 ± 0.0192 | 0.9277 ± 0.0163 | 0.8240 ± 0.0239 | 0.9505 ± 0.0190 |
+        | PB2-NA | site aa | 1,230 | 0.5751 ± 0.0392 | 0.6467 ± 0.0312 | 0.5725 ± 0.0307 | 0.7850 ± 0.0852 |
+        | PA-HA | nt 6-mer | 8,192 | 0.8113 ± 0.0191 | 0.8979 ± 0.0113 | 0.7581 ± 0.0193 | 0.9217 ± 0.0135 |
+        | PA-HA | site nt | 3,852 | 0.8438 ± 0.0235 | 0.9179 ± 0.0162 | 0.7946 ± 0.0285 | 0.9323 ± 0.0180 |
+        | PA-HA | site codon | 1,284 | 0.8296 ± 0.0177 | 0.9120 ± 0.0166 | 0.7826 ± 0.0215 | 0.9175 ± 0.0086 |
+        | PA-HA | site aa | 1,284 | 0.5353 ± 0.0248 | 0.5591 ± 0.0393 | 0.5337 ± 0.0214 | 0.6438 ± 0.1058 |
+
+      Values are mean ± sample standard deviation across four test folds at threshold 0.5. The
+      model directories are under `models/flu/July_2025/runs/` and include
+      `human_h3n2_2024_n1698_seed42` in their names.
+
+  4. Compare schemas and representations — DONE (2026-09-08).
+
+      **Within each schema.** These are paired comparisons because the representations use the
+      same rows and folds.
+
+      | pair | site nt minus nt 6-mer, F1 macro | AUC-ROC | site codon minus site aa, F1 macro | AUC-ROC |
+      |---|---:|---:|---:|---:|
+      | HA-NA | +0.0078 (2/4 folds) | +0.0108 (3/4) | +0.1171 (4/4) | +0.1028 (4/4) |
+      | PB2-PA | +0.0627 (4/4) | +0.0451 (4/4) | +0.3596 (4/4) | +0.3773 (4/4) |
+      | PB2-NA | +0.0240 (4/4) | +0.0087 (3/4) | +0.2975 (4/4) | +0.2810 (4/4) |
+      | PA-HA | +0.0325 (4/4) | +0.0200 (4/4) | +0.2944 (4/4) | +0.3528 (4/4) |
+
+      Site nucleotide features outperform nucleotide 6-mers on average for every schema, although
+      the HA-NA fold results are mixed. Codon and nucleotide features remain strong, while amino
+      acid is worse on every fold for every schema. With only four folds, the differences and fold
+      counts are descriptive rather than strong statistical evidence.
+
+      **Across schemas.** HA-NA and PB2-NA are strongest with nucleotide and codon features. PA-HA
+      is intermediate and PB2-PA is weakest. PB2-PA is not uniformly poor: site nucleotide reaches
+      F1 macro 0.8300 and AUC-ROC 0.9093, compared with 0.7673 and 0.8642 for 6-mers. Thus, the
+      unique-sequence experiment finds schema and representation dependence rather than uniformly
+      near-perfect performance. PB2-NA performing about as well as HA-NA also shows that the
+      result is not specific to the HA-NA pair.
+
+      Amino acid provides the clearest failure mode. HA-NA retains moderate signal (AUC-ROC
+      0.8321), PB2-NA is weak (0.6467), and PA-HA (0.5591) and PB2-PA (0.5263) are near chance.
+      PB2-PA recall also varies from 0.21 to 0.90 across folds at threshold 0.5, so its mean
+      precision and recall are not stable summaries; AUC-ROC gives the clearer result.
+
+      **The input populations overlap strongly; the retained samples do not.**
+
+      | pair | eligible isolates |
+      |---|---:|
+      | HA-NA | 5,173 |
+      | PB2-PA | 5,324 |
+      | PB2-NA | 5,167 |
+      | PA-HA | 5,329 |
+
+      Eligible means that an isolate carries both proteins as complete CDS at their pinned lengths.
+      Of the 5,346 Human H3N2 2024 isolates, 5,156 are eligible for all four schemas. Pairwise
+      isolate overlap is:
+
+      | schemas | eligible-isolate Jaccard | retained-isolate Jaccard |
+      |---|---:|---:|
+      | HA-NA / PB2-PA | 0.965 | 0.292 |
+      | HA-NA / PB2-NA | 0.998 | 0.524 |
+      | HA-NA / PA-HA | 0.967 | 0.422 |
+      | PB2-PA / PB2-NA | 0.967 | 0.388 |
+      | PB2-PA / PA-HA | 0.998 | 0.427 |
+      | PB2-NA / PA-HA | 0.966 | 0.327 |
+
+      After independent matching and seed-42 sampling, only 519 isolates occur in all four retained
+      sets. Equal positive counts therefore control sample size, but not isolate membership,
+      sequence diversity, negative difficulty, or feature width. Cross-schema score differences
+      remain descriptive.
+
+      **Amino-acid identity collapses many nucleotide-unique pairs.**
+
+      | pair | unique aa sequences in slot A / B | unique aa pairs among 1,698 positives | test negatives matching an observed positive aa pair |
+      |---|---:|---:|---:|
+      | HA-NA | 1,005 / 856 | 1,440 | 8.2% |
+      | PB2-PA | 579 / 655 | 1,137 | 49.7% |
+      | PB2-NA | 609 / 862 | 1,269 | 28.0% |
+      | PA-HA | 665 / 1,003 | 1,376 | 28.8% |
+
+      Selection and negative blocking use nucleotide CDS identity. Two nucleotide-distinct pairs
+      can therefore translate to the same amino-acid pair while carrying different labels. The
+      last column is the mean across folds of the fraction of test negatives whose amino-acid pair
+      occurs in the full observed-positive set. These exact feature-space label collisions are most
+      common for PB2-PA and contribute to its near-chance amino-acid result. They do not explain the
+      whole codon-to-amino-acid drop, and this experiment does not separate collision effects from
+      other synonymous nucleotide signal.
+
+      At threshold 0.5, mean precision is below mean recall for every schema and representation.
+      The asymmetry is therefore not specific to HA-NA. It remains consistent with difficult or
+      ambiguous generated negatives and with an untuned threshold; it is not, by itself, evidence
+      that positives are biologically valid and negatives are not.
+
+      This experiment uses one random subsample (seed 42). If these differences drive a main
+      conclusion, repeat the sampling with additional seeds before adding a production
+      `max_positives` option. An amino-acid-specific follow-up would need to define positive
+      selection and negative blocking in amino-acid space; it would answer a different question
+      from the nucleotide-identity experiment reported here.
 
 
 ## Post-hoc: where the false positives sit
