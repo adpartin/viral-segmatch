@@ -14,16 +14,17 @@ pair collapse into one positive, and how often that happens depends on the prote
 2024 the fifteen pairs over the six pinned proteins run from 2,293 to 3,723 positives despite
 drawing on the same isolates.
 
-`hopcroft_karp` reports how many positives survive the unique-sequence constraint, where no slot-A
-sequence and no slot-B sequence is used twice. That is a maximum matching, so it is the largest
-such set; the sequential-dedup selectors in `_positive_pair_selection` retain fewer.
+`HK matched` is how many positives survive the unique-sequence constraint, where no slot-A sequence
+and no slot-B sequence is used twice. HK is Hopcroft-Karp, which returns a maximum matching, so it
+is the largest such set; the sequential-dedup selectors in `_positive_pair_selection` retain fewer.
+This script runs only that selector, so the column needs no qualifier beyond naming it.
 
 `isolate_jaccard` records how comparable two schema pairs really are. Each matching is solved on
 its own bigraph, so two pairs sharing a protein do not keep the same isolates. On human H3N2 2024,
 PA-NP and NP-NA overlap on only 0.470 of the isolates they retain.
 
 `Pair ID` names a pair by its two segment numbers, so PB2-HA is `1-4`. `ID` is a row counter over
-the table as sorted, which is by descending matched count, so it is a rank rather than a stable
+the table as sorted, which is by descending `HK matched`, so it is a rank rather than a stable
 identifier and it moves when the population changes.
 
 Outputs (to `--out_dir`):
@@ -60,7 +61,7 @@ from src.utils.config_hydra import (  # noqa: E402
 DEFAULT_PROTEINS = ['PB2', 'PA', 'HA', 'NP', 'NA', 'M1']
 
 CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'cohort isolates', 'positives',
-                    'distinct A', 'distinct B', 'matched', 'matched share']
+                    'distinct A', 'distinct B', 'HK matched', 'HK share']
 OVERLAP_COLUMNS = ['pair A', 'pair B', 'isolates A', 'isolates B', 'shared', 'isolate jaccard']
 
 
@@ -151,7 +152,7 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
       population: label describing what `cohort` was filtered to.
 
     Returns:
-      The capacity table, ordered by descending matched count, and the isolate-overlap table.
+      The capacity table, ordered by descending `HK matched`, and the isolate-overlap table.
     """
     full_of = {short: full for full, short in function_to_short.items()}
     hash_col_a, hash_col_b = schema.hash_col_ab(pair_key_alphabet)
@@ -178,11 +179,11 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
             'positives': len(positives),
             'distinct A': int(positives[hash_col_a].nunique()),
             'distinct B': int(positives[hash_col_b].nunique()),
-            'matched': len(matched),
-            'matched share': len(matched) / len(positives) if len(positives) else float('nan'),
+            'HK matched': len(matched),
+            'HK share': len(matched) / len(positives) if len(positives) else float('nan'),
         })
 
-    table = pd.DataFrame(rows).sort_values('matched', ascending=False).reset_index(drop=True)
+    table = pd.DataFrame(rows).sort_values('HK matched', ascending=False).reset_index(drop=True)
     table.insert(0, 'ID', range(1, len(table) + 1))
     return table[CAPACITY_COLUMNS], isolate_overlap(retained_isolates)
 
@@ -249,12 +250,13 @@ def main() -> None:
     overlap.to_csv(overlap_path, index=False)
 
     shown = capacity.copy()
-    shown['matched share'] = shown['matched share'].map('{:.1%}'.format)
+    shown['HK share'] = shown['HK share'].map('{:.1%}'.format)
     print()
     print(shown.to_string(index=False))
-    print(f"\nMatched positives: min {capacity['matched'].min():,}, "
-          f"median {int(capacity['matched'].median()):,}, max {capacity['matched'].max():,}. "
-          f"Equalizing the count across every pair would cap it at {capacity['matched'].min():,}.")
+    print(f"\nHopcroft-Karp matched positives: min {capacity['HK matched'].min():,}, "
+          f"median {int(capacity['HK matched'].median()):,}, "
+          f"max {capacity['HK matched'].max():,}. Equalizing the count across every pair would "
+          f"cap it at {capacity['HK matched'].min():,}.")
     print(f"Isolate overlap between matchings: median Jaccard "
           f"{overlap['isolate jaccard'].median():.3f}. Two pairs are less comparable than a shared "
           f"cohort suggests, because each matching keeps its own isolates.")

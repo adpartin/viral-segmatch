@@ -99,7 +99,7 @@ def test_segment_numbers():
 def test_column_lists():
     # `ID` is a rank over the sorted table; `Pair ID` is the segment pair, e.g. 1-4 for PB2-HA.
     assert CAPACITY_COLUMNS[:3] == ['ID', 'Pair ID', 'pair']
-    for name in ('positives', 'matched', 'matched share', 'cohort isolates'):
+    for name in ('positives', 'HK matched', 'HK share', 'cohort isolates'):
         assert name in CAPACITY_COLUMNS
     for name in ('pair A', 'pair B', 'shared', 'isolate jaccard'):
         assert name in OVERLAP_COLUMNS
