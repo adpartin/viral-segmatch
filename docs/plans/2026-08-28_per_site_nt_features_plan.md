@@ -846,6 +846,49 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    structure; stronger biological interpretation requires a sequence-disjoint or
    uniqueness-controlled evaluation.
 
+
+## Human-H3N2-2024 four pairs experiment
+
+Related: `docs/results/2026-09-08_cds_pair_capacity.md`.
+
+  1. Define the comparison — DONE.
+      - HA–NA, PB2–PA, PB2–NA, and PA–HA.
+      - Human H3N2 collected in 2024.
+      - Each pair schema is filtered independently to keep complete CDS at the pair's pinned lengths.
+      - No common (six-protein) cohort is imposed. Therefore, eligible isolates can differ among schemas.
+      - Target: 1,698 positives per schema. After independent Human H3N2 2024 completeness and
+        pinned-length filtering, HA-NA has the smallest Hopcroft-Karp matching of the four schemas
+        at 1,698 positives, so it sets the common sample size. The common six-protein cohort is not
+        used here; under that restriction, HA-NA would retain 1,686 positives.
+
+  2. Build and audit equal-count datasets — OPEN.
+      - Run Hopcroft–Karp first.
+      - Randomly retain 1,698 matched positives with a fixed seed.
+      - Sample before CV assignment and negative generation.
+      - At this point, use a small experiment driver rather than adding a production `max_positives` option.
+      - Save pair-key manifests, checksums, seed, pre-sampling counts, and isolate counts.
+      - Keep the full observed-positive universe for blocking negatives!
+      - Run the existing audits for unique positive endpoints, exact one-time test coverage across
+        folds, zero cross-split sequence-hash overlap, negative endpoints confined to their split's
+        positive sequence pool, no observed positives labeled as negatives, no duplicate pair keys,
+        and exact 1:1 class balance. This uses the ratio-driven `within_fold` negative sampler, not
+        the coverage-first sampler.
+
+  3. Train the four feature representations — OPEN.
+      - Nucleotide 6-mers.
+      - Per-site nucleotide.
+      - Per-site codon.
+      - Per-site amino acid.
+      - Reuse the same dataset and folds across all four representations within each schema.
+      - Define matching identity using nucleotide CDS. Note that distinct nucleotide sequences can collapse to identical amino-acid sequences.
+
+  4. Compare schemas and representations — OPEN.
+      - Report F1 macro, AUC-ROC, precision, and recall across four folds.
+      - Report eligible-isolate counts and isolate overlap among schemas.
+      - Treat cross-schema differences as descriptive: equal positive counts do not equalize sequence diversity, negative difficulty, feature width, or isolate membership.
+      - If an interesting difference appears, we should later (not now) consider repeating the sampling with additional seeds and consider adding a production `max_positives` option.
+
+
 ## Post-hoc: where the false positives sit
 
 **Goal.** Determine whether false positives are concentrated among negative pairs that closely
