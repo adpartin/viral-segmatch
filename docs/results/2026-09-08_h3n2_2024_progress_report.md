@@ -39,20 +39,50 @@ Four schema pairs over four proteins, arranged so that each protein appears twic
 | **PB2** | PB2-PA | PB2-NA |
 | **HA** | PA-HA | HA-NA |
 
-Each schema pair was processed independently. We selected the largest subset of positive pairs in which every nucleotide CDS occurs at most once on each side (using Hopcroft-Karp). This retained 1,698 HA-NA, 2,030 PB2-PA, 1,745 PB2-NA, and 1,944 PA-HA positives. Each population was then sampled to the smallest count, 1,698 positives.
+### Population sizes
 
-Within a schema pair, all four feature representations use the same dataset rows and the same four
+Table columns:
+* **Eligible isolates**: isolates satisfying the metadata filters (Human, H3N2, 2024) with both required segments represented by complete CDS sequences at their pinned lengths.
+* **Unique positive pairs**: eligible isolates after deduplicating isolates containing the same exact pair of nucleotide sequences (i.e., sequence pair deduplication).
+* **HK-selected positives**: a maximum-size subset in which each nucleotide sequence occurs in at most one positive pair on each side. Hopcroft–Karp (HK) finds the maximum possible count under this constraint.
+* **Min-count sample**: the HK-selected population randomly sampled to 1,698 positives, the smallest HK count across the four schemas. HA–NA already has 1,698 and therefore is not reduced further.
+
+```
+                                              PB2-PA
+  [ Human, H3N2, 2024 + complete CDS at pinned length ]
+                      ↓
+  Eligible isolates                            5,324
+                      ↓  dedup identical nucleotide sequence pairs
+  Unique positive pairs                        3,837
+                      ↓  Hopcroft-Karp: each sequence at most once per side
+  HK-selected positives                        2,030
+                      ↓  sample to the smallest HK count across schemas
+  Min-count sampled                            1,698
+```
+
+| Schema pair | Eligible isolates | Unique positive pairs | HK-selected positives | Min-count sampled |
+|---|---:|---:|---:|---:|
+| HA-NA | 5,173 | 3,466 | 1,698 | 1,698 |
+| PB2-PA | 5,324 | 3,837 | 2,030 | 1,698 |
+| PB2-NA | 5,167 | 3,532 | 1,745 | 1,698 |
+| PA-HA | 5,329 | 3,805 | 1,944 | 1,698 |
+
+HA-NA has the smallest HK-selected count, so it set the min-count sample size of 1,698. Eligible isolates span 5,167 to 5,329, a spread of about 3%.
+
+### Setup
+
+**Datasets**: Within a schema pair, all four feature representations use the SAME dataset rows and the SAME
 CV folds.
 
-All models use LightGBM classifier with threshold 0.5, and a 1:1 negative-to-positive ratio. The experiment comprises 64 model fits.
+**Models**: LightGBM classifier with threshold 0.5, and a 1:1 neg-to-pos ratio. A total of 64 model trainings across schemas and folds.
 
 ### Results
 
 Mean ± std across four test folds.
 
-_"Per-site features"_ in this experiment use one feature column for each aligned position of a fixed-length CDS: a nucleotide, codon, or translated amino acid, depending on the feature type.
+_"Per-site features"_ in this experiment use one feature column for each aligned position of a fixed-length CDS: a nucleotide, codon, or translated amino acid (aa), depending on the feature type.
 
-We avoid the term _"positional encoding"_ because it usually means adding position information to sequence tokens in transformer architectures; here, position (or site) is represented directly by the feature column itself.
+We avoid the term _"positional encoding"_ because it usually means adding positional information to sequence tokens in transformer architectures; here, position (or site) is represented directly by the feature column itself.
 
 | Schema pair | Feature type | Features | F1 macro | AUC-ROC | Precision | Recall |
 |---|---|---:|---:|---:|---:|---:|
@@ -75,64 +105,13 @@ We avoid the term _"positional encoding"_ because it usually means adding positi
 
 ### What the table shows
 
-**Within-season performance for Human-H3N2-2024 depends on the schema pair.** With per-site nucleotide features, F1
-macro ranges: 0.8300 for PB2-PA to 0.8819 for PB2-NA.
+* Performance for Human-H3N2-2024 varies across schema pairs. With per-site nucleotide features, F1 macro ranges: 0.8300 for PB2-PA to 0.8819 for PB2-NA.
 
-**Per-site nucleotide has a higher mean than 6-mers for every schema pair**, It outperforms all 4 folds for PB2-PA, PB2-NA, and PA-HA, but only two of four for
-HA-NA.
-* `TODO`: More folds should be tested further
+* Per-site nucleotide has a higher mean than 6-mers for every schema pair. `TODO`: Use more folds
 
-**Amino-acid (aa) performance is lower and varies by pair.** Some schema pairs fall to near-chance performance. However, this is not a clean comparison of nucleotide and amino-acid feature! The dataset was constructed using nucleotide identity, so different nucleotide pairs can become identical after translation. Consequently, the same amino-acid pair can appear with both positive and negative labels. These label collisions likely explain part of the performance loss and demonstrate how dataset construction affects the result; they should not be interpreted solely as loss of biological signal.
-* `TODO`: For a fair amino-acid experiment, rebuild the dataset using amino-acid identity for positive-pair deduplication, and negative-pair blocking. Report this as a separate population because it cannot use exactly the same rows as the nucleotide experiments.
+* Amino-acid (aa) performance is lower and varies by pair, and the comparison is not clean. Some schema pairs fall to near-chance. The aa arm likely violates two constraints that the nucleotide arm satisfies: (a) no sequence is reused across pairs, and (b) no negative pair matches a positive pair. Both were enforced when the dataset was built, but enforced on nucleotide sequences, and translation collapses synonymous variants, so there is no guarantee either constraint should carry into aa space. Part of the performance loss therefore likely reflects how the dataset was constructed rather than biological signal lost in translation. `TODO`: For a fair aa experiment, rebuild the dataset using aa identity for positive-pair deduplication, and negative-pair blocking. Report this as a separate population because it cannot use exactly the same rows as the nucleotide experiments.
 
-**Mean precision is below mean recall in all 16 cells.** See §5.
-
-### Population sizes
-
-* **Eligible isolates**: isolates satisfying the metadata filters (Human, H3N2, 2024) with both required segments represented by complete CDS sequences at their pinned lengths.
-* **Unique positive pairs**: eligible isolates after collapsing isolates containing the same exact pair of nucleotide sequences (i.e., sequence pair deduplication).
-* **HK-selected positives**: a maximum-size subset in which each nucleotide sequence occurs in at most one positive pair on each side. Hopcroft–Karp (HK) finds the maximum possible count under this constraint.
-* **Min-count sample**: the HK-selected population randomly sampled to 1,698 positives, the smallest HK count across the four schemas. HA–NA already has 1,698 and therefore is not reduced further.
-
-```
-                                              PB2-PA
-  [ Human, H3N2, 2024 + complete CDS at pinned length ]
-                      ↓
-  Eligible isolates                            5,324
-                      ↓  collapse identical nucleotide sequence pairs
-  Unique positive pairs                        3,837
-                      ↓  Hopcroft-Karp: each sequence at most once per side
-  HK-selected positives                        2,030
-                      ↓  sample to the smallest HK count across schemas
-  Min-count sampled                            1,698
-```
-
-PB2-PA is shown because it is the only schema where all four counts differ; HA-NA reads 1,698 twice
-and makes the sampling step look like a no-op.
-
-| Schema pair | Eligible isolates | Unique positive pairs | HK-selected positives | Min-count sampled |
-|---|---:|---:|---:|---:|
-| HA-NA | 5,173 | 3,466 | 1,698 | 1,698 |
-| PB2-PA | 5,324 | 3,837 | 2,030 | 1,698 |
-| PB2-NA | 5,167 | 3,532 | 1,745 | 1,698 |
-| PA-HA | 5,329 | 3,805 | 1,944 | 1,698 |
-
-HA-NA has the smallest HK-selected count, so it set the min-count sample size of 1,698. Eligible isolates span 5,167 to 5,329, a spread of about 3%, and the two schemas containing NA sit at the bottom because NA loses more isolates to the complete-CDS and pinned-length filter. The eligible populations therefore overlap strongly. The min-count samples do not: HK selection and sampling run independently per schema, so only 519 isolates survive into all four. Cross-schema comparisons are descriptive for that reason.
-
-HK selection is defined on nucleotide-sequence identity, so translation can collapse pairs that
-selection deliberately kept apart. Among the 1,698 min-count sampled positives:
-
-| Schema pair | Unique aa pairs | Test negatives whose aa pair is an observed positive |
-|---|---:|---:|
-| HA-NA | 1,440 | 8.2% |
-| PB2-NA | 1,269 | 28.0% |
-| PA-HA | 1,376 | 28.8% |
-| PB2-PA | 1,137 | 49.7% |
-
-Rows are ordered by collision rate, which is also the order of the amino-acid AUC-ROC results in
-§2. The amino-acid results therefore reflect two things at once: information lost in translation,
-and exact label collisions in amino-acid feature space, where the same amino-acid pair carries both
-labels.
+* Mean precision is below mean recall in all 16 cells. See §5.
 
 ---
 
