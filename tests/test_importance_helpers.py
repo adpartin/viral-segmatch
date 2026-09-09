@@ -98,7 +98,7 @@ def _permutation_table():
 
 def test_permutation_curve_excludes_the_other_method():
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / 'site_group_permutation_codon_gain.csv'
+        path = Path(tmp) / 'site_shuffle_fixed_codon_gain.csv'
         table = _permutation_table()
         table.to_csv(path, index=False)
 
@@ -123,7 +123,7 @@ def test_permutation_curve_raises_on_an_absent_split_or_method():
             permutation_curve(path, method='bogus')
         with pytest.raises(ValueError, match="split='val' is absent"):
             permutation_curve(path, split='val')
-        with pytest.raises(FileNotFoundError, match='plot_site_group_permutation'):
+        with pytest.raises(FileNotFoundError, match='plot_site_shuffle_fixed'):
             permutation_curve(Path(tmp) / 'absent.csv')
 
 

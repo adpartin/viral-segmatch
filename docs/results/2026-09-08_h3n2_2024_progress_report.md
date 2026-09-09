@@ -317,7 +317,7 @@ Datasets `data/datasets/flu/July_2025/runs/dataset_{ha_na,pb2_pa,pb2_na,pa_ha}_h
 Models under `models/flu/July_2025/runs/` with `human_h3n2_2024_n1698_seed42` in their names.
 Figures under `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/`:
 `site_importance/site_importance_codon_gain_trace.png`,
-`site_importance/site_retrain_ablation_codon_shap.png`,
+`site_importance/site_shuffle_refit_codon_shap.png`,
 `negative_pair_ambiguity_site_nt/negative_pair_ambiguity_nt_min.png`.
 Method detail in `docs/plans/2026-08-28_per_site_nt_features_plan.md`, capacity in
 `docs/results/2026-09-08_cds_pair_capacity.md`, population definition in

@@ -1,7 +1,7 @@
 """Corrupt the top N sites, refit from scratch, and see whether the model can do without them.
 
 Step 7b(iii) of docs/plans/2026-08-28_per_site_nt_features_plan.md. The permutation passes in
-`plot_site_importance.py` and `plot_site_group_permutation.py` leave a fitted model in place, so
+`plot_site_importance.py` and `plot_site_shuffle_fixed.py` leave a fitted model in place, so
 they can only say what THAT model depends on -- it has already committed to those positions and
 scrambling them gives it no chance to look elsewhere. Refitting is what answers whether the
 information is available at all.
@@ -31,11 +31,11 @@ Hyperparameters come from `src.models.baselines.lgbm`, the same estimator and fi
 use, so the only thing that differs from a normal run is the corrupted columns.
 
 Outputs (to `--out_dir`, by default derived from the dataset dir):
-    site_retrain_ablation_{unit}.png   share of signal lost against N, per mode and arm
-    site_retrain_ablation_{unit}.csv   mode, arm, n_sites, fold, auc, clean_auc, signal_lost
+    site_shuffle_refit_{unit}.png   share of signal lost against N, per mode and arm
+    site_shuffle_refit_{unit}.csv   mode, arm, n_sites, fold, auc, clean_auc, signal_lost
 
 CLI:
-    python -m src.analysis.plot_site_retrain_ablation \\
+    python -m src.analysis.plot_site_shuffle_refit \\
         --dataset_dir data/datasets/flu/July_2025/runs/dataset_ha_na_h3n2_2024_random_cv4_pinned_length \\
         --unit codon
 """
@@ -252,7 +252,7 @@ def main() -> None:
 
     table = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = args.out_dir / f'site_retrain_ablation_{args.unit}_{args.rank_by}.csv'
+    out_csv = args.out_dir / f'site_shuffle_refit_{args.unit}_{args.rank_by}.csv'
     table.to_csv(out_csv, index=False)
     print(f"\nWrote {out_csv}")
 
@@ -293,7 +293,7 @@ def main() -> None:
     fig.tight_layout()
     fig.text(0.995, 0.002, f'src/analysis/{Path(__file__).name}', ha='right', va='bottom',
              fontsize=7, color='0.45')
-    out_png = savefig(args.out_dir / f'site_retrain_ablation_{args.unit}_{args.rank_by}.png', dpi=args.dpi)
+    out_png = savefig(args.out_dir / f'site_shuffle_refit_{args.unit}_{args.rank_by}.png', dpi=args.dpi)
     print(f"\nDone. Wrote {out_png}")
 
 

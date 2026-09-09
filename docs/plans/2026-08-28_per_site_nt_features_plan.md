@@ -19,8 +19,8 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/embeddings/compute_site_features.py` | 3 | builds the per-site feature cache (nt / codon / aa) |
 | `src/utils/site_utils.py` | 3-4, 7a | reads the cache, builds pair feature matrices, entropy helper, one-side slot selection |
 | `src/analysis/plot_site_importance.py` | 6, 7b(i) | gain / SHAP / permutation importance, plus the conventional `plot_importance` bar charts |
-| `src/analysis/plot_site_group_permutation.py` | 7b(ii) | shuffle the top N sites together, no retrain |
-| `src/analysis/plot_site_retrain_ablation.py` | 7b(iii) | corrupt the top N sites, then refit from scratch |
+| `src/analysis/plot_site_shuffle_fixed.py` | 7b(ii) | shuffle the top N sites together, no retrain |
+| `src/analysis/plot_site_shuffle_refit.py` | 7b(iii) | corrupt the top N sites, then refit from scratch |
 | `src/analysis/plot_seen_sequence_effect.py` | 7c | test AUC split by whether a sequence was seen in training |
 | `src/analysis/plot_negative_pair_ambiguity.py` | Post-hoc | Relates false-positive rate to the minimum single-slot Hamming distance from an observed positive |
 | `src/analysis/compare_negative_pair_distances.py` | Post-hoc | Compares the single-slot distance with unrestricted whole-pair distance and reports FPR jointly by both slot distances |
@@ -52,7 +52,7 @@ four-pair experiment bundles.
 | `src/models/_pair_features.py` | added the `site` feature-source branch |
 | `src/models/train_pair_baselines.py` | resolves the site cache dir and slot proteins |
 | `src/models/baselines/lgbm.py` | added `categorical_feature` |
-| `src/analysis/plot_site_group_permutation.py`, `src/analysis/plot_site_retrain_ablation.py` | added `--rank_by`, so the top-N sets can be ordered by gain, SHAP or permutation |
+| `src/analysis/plot_site_shuffle_fixed.py`, `src/analysis/plot_site_shuffle_refit.py` | added `--rank_by`, so the top-N sets can be ordered by gain, SHAP or permutation |
 
 ## What we found (steps 0-8 done; step 9 open)
 
@@ -648,7 +648,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    Section 7b(ii) therefore tests groups of sites directly.
 
    **7b(ii). Shuffle the top N sites together, no retraining — DONE (2026-09-02).**
-   `src/analysis/plot_site_group_permutation.py` compares the top N sites by SHAP with N random
+   `src/analysis/plot_site_shuffle_fixed.py` compares the top N sites by SHAP with N random
    sites. The fitted model is unchanged. Results are reported as
    `(clean AUC − shuffled AUC) / (clean AUC − 0.5)`, the share of above-chance AUC-ROC lost.
 
@@ -672,7 +672,7 @@ evaluates reuse of exact sequences but does not remove this broader limitation.
    difference is consistent with correlated or substitutable information among the top sites.
 
    **7b(iii). Shuffle the top N sites together, then retrain — DONE (2026-09-02).**
-   `src/analysis/plot_site_retrain_ablation.py` refits the model after corrupting the selected
+   `src/analysis/plot_site_shuffle_refit.py` refits the model after corrupting the selected
    sites in train, validation, and test data. It compares two corruption units:
 
    - **Row-level:** values are shuffled independently across pair rows. The same sequence may

@@ -36,11 +36,11 @@ plausible for that column, but for a tree the difference may not matter and this
 does rather than arguing about it.
 
 Outputs (to `--out_dir`, by default derived from the dataset dir):
-    site_group_permutation_{unit}.png   share of signal lost against N, per arm and split
-    site_group_permutation_{unit}.csv   split, arm, n_sites, fold, repeat, auc, clean_auc, ...
+    site_shuffle_fixed_{unit}.png   share of signal lost against N, per arm and split
+    site_shuffle_fixed_{unit}.csv   split, arm, n_sites, fold, repeat, auc, clean_auc, ...
 
 CLI:
-    python -m src.analysis.plot_site_group_permutation \\
+    python -m src.analysis.plot_site_shuffle_fixed \\
         --model_run_template lgbm_ha_na_h3n2_2024_random_cv4_site_codon \\
         --dataset_dir data/datasets/flu/July_2025/runs/dataset_ha_na_h3n2_2024_random_cv4_pinned_length \\
         --unit codon
@@ -230,7 +230,7 @@ def main() -> None:
 
     table = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = args.out_dir / f'site_group_permutation_{args.unit}_{args.rank_by}.csv'
+    out_csv = args.out_dir / f'site_shuffle_fixed_{args.unit}_{args.rank_by}.csv'
     table.to_csv(out_csv, index=False)
     print(f"\nWrote {out_csv}  ({len(table):,} measurements)")
 
@@ -283,7 +283,7 @@ def main() -> None:
     fig.tight_layout()
     fig.text(0.995, 0.002, f'src/analysis/{Path(__file__).name}', ha='right', va='bottom',
              fontsize=7, color='0.45')
-    out_png = savefig(args.out_dir / f'site_group_permutation_{args.unit}_{args.rank_by}.png', dpi=args.dpi)
+    out_png = savefig(args.out_dir / f'site_shuffle_fixed_{args.unit}_{args.rank_by}.png', dpi=args.dpi)
     print(f"\nDone. Wrote {out_png}")
 
 

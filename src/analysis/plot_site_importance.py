@@ -246,63 +246,73 @@ def _stamp(fig) -> None:
              fontsize=7, color='0.45')
 
 
-def lgbm_plot_importance(model_root: Path, run_stem: str, fold: int, columns, table,
-                         top_n: int, out_png: Path, unit: str, dpi: int) -> Path:
-    """Draw LightGBM's own ranked bar charts beside the held-out SHAP ranking.
+# Each measure names its own value column, because the three are not the same kind of quantity:
+# gain and SHAP are shares of a total, permutation is an absolute AUC-ROC drop. `share_column`
+# in `_importance_helpers` covers only the two share measures, so the mapping lives here.
+MEASURE_PANEL = {
+    'gain': ('gain_frac', 'gain_frac_std', 'share of gain'),
+    'shap': ('shap_frac', 'shap_frac_std', 'share of SHAP'),
+    'perm': ('perm_auc_drop', 'perm_auc_drop_std', 'AUC-ROC drop when shuffled'),
+}
 
-    `lightgbm.plot_importance` is the conventional view and calls the same
-    `booster.feature_importance` this module does, so the split and gain panels are LightGBM's
-    output unmodified except for the tick labels: the boosters were fitted on plain arrays, so
-    their features are named `Column_0..`, and those are rewritten to the site they stand for.
 
-    Both LightGBM panels show ONE fold, since `plot_importance` takes one booster. The SHAP panel
-    is the average over all folds, which is why its order differs -- a single fold's ranking is
-    noisier than the average, and that difference is itself worth seeing.
+def plot_measure_panel(ax, table: pd.DataFrame, measure: str, top_n: int) -> None:
+    """Draw one importance measure's highest-ranked sites onto one axis.
+
+    Every measure is drawn the same way, from the fold-averaged table, so panels placed side by
+    side are comparable. An earlier version drew the LightGBM measures from a single fold's
+    booster and SHAP from all folds, which put two different fold scopes in one figure.
 
     Args:
-      model_root: directory holding the per-fold run dirs.
-      run_stem: run dir name minus the `_fold{k}` suffix.
-      fold: which fold's booster the two LightGBM panels use.
-      columns: the site layout from `site_feature_columns`.
-      table: the per-site table, for the fold-averaged SHAP panel.
-      top_n: features per panel.
+      ax: the axis to draw on.
+      table: the per-site table, carrying the columns named in `MEASURE_PANEL`.
+      measure: one of `MEASURE_PANEL`.
+      top_n: how many sites to show.
+
+    Raises:
+      ValueError: the measure is unknown, or the table lacks its column.
+    """
+    if measure not in MEASURE_PANEL:
+        raise ValueError(
+            f"measure must be one of {sorted(MEASURE_PANEL)}; got {measure!r}.")
+    value_col, std_col, xlabel = MEASURE_PANEL[measure]
+    if value_col not in table.columns:
+        raise ValueError(f"table has no {value_col!r} column for measure {measure!r}.")
+
+    top = table.nlargest(top_n, value_col).iloc[::-1]
+    errors = top[std_col] if std_col in table.columns else None
+    ax.barh(range(len(top)), top[value_col], xerr=errors,
+            color=ACCENT_COLOR, edgecolor=MARKER_EDGE, linewidth=0.7,
+            error_kw={'ecolor': MARKER_EDGE, 'elinewidth': 0.8})
+    ax.set_yticks(range(len(top)))
+    ax.set_yticklabels([f"{r.protein} {int(r.site)}" for r in top.itertuples()])
+    ax.set_xlabel(xlabel)
+    ax.set_title(f'{measure} (all folds, mean +/- std)')
+    ax.grid(axis='x', alpha=0.3)
+
+
+def plot_importance_panels(table: pd.DataFrame, run_stem: str, unit: str, top_n: int,
+                           out_png: Path, dpi: int,
+                           measures: tuple = tuple(MEASURE_PANEL)) -> Path:
+    """Arrange one `plot_measure_panel` per measure into a single figure.
+
+    Args:
+      table: the per-site table.
+      run_stem: run dir name minus the `_fold{k}` suffix, for the title.
+      unit: site unit, for the title.
+      top_n: sites per panel.
       out_png: where to write.
-      unit: site unit, for the titles.
       dpi: figure resolution.
+      measures: which measures to draw, one panel each.
 
     Returns:
       The path written.
     """
-    import lightgbm as lgb
-
-    booster = joblib.load(model_root / f'{run_stem}_fold{fold}' / 'best_model.joblib').booster_
-    site_label = {int(r.column): f"{r.protein} {int(r.site)}" for r in columns.itertuples()}
-
     setup_plot_style()
-    fig, axes = plt.subplots(1, 3, figsize=(16, 0.34 * top_n + 2.2))
-    for ax, importance_type in zip(axes[:2], ('split', 'gain')):
-        lgb.plot_importance(booster, ax=ax, importance_type=importance_type,
-                            max_num_features=top_n, color=TRACE_COLOR,
-                            title=f'LightGBM {importance_type} (fold {fold})',
-                            xlabel=f'{importance_type} importance', ylabel='')
-        # 'Column_123' -> 'HA 124'. The number LightGBM prints is the column index, which means
-        # nothing on its own; the site is the point of per-site features.
-        ax.set_yticklabels([site_label.get(int(t.get_text().removeprefix('Column_')),
-                                           t.get_text())
-                            for t in ax.get_yticklabels()])
-        ax.grid(axis='x', alpha=0.3)
-
-    top = table.nlargest(top_n, 'shap_frac').iloc[::-1]
-    labels = [f"{r.protein} {int(r.site)}" for r in top.itertuples()]
-    ax = axes[2]
-    ax.barh(range(len(top)), top['shap_frac'], xerr=top['shap_frac_std'],
-            color=ACCENT_COLOR, edgecolor=MARKER_EDGE, linewidth=0.7,
-            error_kw={'ecolor': MARKER_EDGE, 'elinewidth': 0.8})
-    ax.set_yticks(range(len(top)))
-    ax.set_yticklabels(labels)
-    ax.set_xlabel('share of SHAP')
-    ax.set_title('held-out SHAP (all folds, mean +/- std)')
-    ax.grid(axis='x', alpha=0.3)
+    fig, axes = plt.subplots(1, len(measures), figsize=(5.4 * len(measures),
+                                                        0.34 * top_n + 2.2))
+    for ax, measure in zip(np.atleast_1d(axes), measures):
+        plot_measure_panel(ax, table, measure, top_n)
 
     fig.suptitle(f'{run_stem}  |  unit={unit}, top {top_n} sites', fontsize=10, y=1.01)
     fig.tight_layout()
@@ -329,9 +339,6 @@ def main() -> None:
                    help='shuffles per column for permutation importance; 0 skips the pass')
     p.add_argument('--seed', type=int, default=0, help='seeds the permutations')
     p.add_argument('--top_n', type=int, default=15, help='sites listed per protein')
-    p.add_argument('--barplot_fold', type=int, default=0,
-                   help="fold whose booster the LightGBM bar charts use; plot_importance "
-                        "takes one booster")
     p.add_argument('--out_dir', type=Path, default=None,
                    help='default: results/<virus>/<version>/<run name>/site_importance')
     p.add_argument('--dpi', type=int, default=200)
@@ -532,9 +539,9 @@ def main() -> None:
     out_png = savefig(args.out_dir / f'site_importance_{args.unit}.png', dpi=args.dpi)
     print(f"\nDone. Wrote {out_png}")
 
-    lgbm_plot_importance(
-        args.models_root, args.model_run_template, args.barplot_fold, columns, table,
-        args.top_n, args.out_dir / f'site_importance_{args.unit}_barplot.png', args.unit,
+    plot_importance_panels(
+        table, args.model_run_template, args.unit, args.top_n,
+        args.out_dir / f'site_importance_{args.unit}_barplot.png',
         args.dpi)
 
 

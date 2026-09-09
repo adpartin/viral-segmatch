@@ -169,7 +169,7 @@ def permutation_curve(csv_path: Path, split: str = 'test',
     plausible: most of the curve is unaffected.
 
     Args:
-      csv_path: `site_group_permutation_{unit}_{measure}.csv`.
+      csv_path: `site_shuffle_fixed_{unit}_{measure}.csv`.
       split: which split to read, `test` or `train`.
       method: `shuffle` for the permutation curve, `constant` for the fill comparison.
 
@@ -182,7 +182,7 @@ def permutation_curve(csv_path: Path, split: str = 'test',
     """
     if not Path(csv_path).exists():
         raise FileNotFoundError(
-            f"missing {csv_path}. Run `python -m src.analysis.plot_site_group_permutation` first.")
+            f"missing {csv_path}. Run `python -m src.analysis.plot_site_shuffle_fixed` first.")
     table = pd.read_csv(csv_path)
     for column, wanted in (('split', split), ('method', method)):
         present = set(table[column].unique())
