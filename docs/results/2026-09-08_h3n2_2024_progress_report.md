@@ -26,28 +26,37 @@ Two dataset populations appear below. They are not interchangeable, so each resu
 
 Population B enforces that **no nucleotide CDS is used in more than one retained positive pair**.
 Generating negatives within each fold then gives zero exact sequence overlap between training and
-test. Population B has about half as many HA-NA positives as population A, but that difference
-cannot be attributed to one control: host filtering, matching, and equal-count sampling all change
-the population.
+test. Population B has about half as many HA-NA positives as population A.
 
 ---
 
 ## 2. Four-pair experiment (population B)
 
-Four schema pairs over four proteins, arranged so that each protein appears twice:
+Four schema pairs over four proteins, arranged so that each protein appears twice (HA and NA: variable surface proteins; PB2 and PA: conserved polymerase proteins).
 
 |  | PA | NA |
 |---|---|---|
 | **PB2** | PB2-PA | PB2-NA |
 | **HA** | PA-HA | HA-NA |
 
-Each pair was filtered independently, matched with Hopcroft-Karp, then sampled to 1,698 positives
-with seed 42. Within a pair, all four feature representations use the same rows and the same four
-cross-validation folds. LightGBM throughout, threshold 0.5, 1:1 class balance. 64 fits in total.
+Each schema pair was processed independently. We selected the largest subset of positive pairs in which every nucleotide CDS occurs at most once on each side (using Hopcroft-Karp). This retained 1,698 HA-NA, 2,030 PB2-PA, 1,745 PB2-NA, and 1,944 PA-HA positives. Each population was then sampled to the smallest count, 1,698 positives.
+
+Within a schema pair, all four feature representations use the same dataset rows and the same four
+CV folds.
+
+All models use LightGBM classifier with threshold 0.5, and a 1:1 negative-to-positive ratio. The experiment comprises 64 model fits.
 
 ### Results
 
-| pair | representation | columns | F1 macro | AUC-ROC | mean precision | mean recall |
+Mean ± std across four test folds.
+
+Per-site features refer
+
+_"Per-site features"_ in this experiment use one feature column for each aligned position of a fixed-length CDS: a nucleotide, codon, or translated amino acid, depending on the feature type.
+
+We avoid the term _"positional encoding"_ because it usually means adding position information to sequence tokens in transformer architectures; here, position (or site) is represented directly by the feature column itself.
+
+| Schema pair | Feature type | Features | F1 macro | AUC-ROC | Precision | Recall |
 |---|---|---:|---:|---:|---:|---:|
 | HA-NA | nt 6-mer | 8,192 | 0.8635 ± 0.0158 | 0.9250 ± 0.0113 | 0.8059 | 0.9617 |
 | HA-NA | site nt | 3,111 | 0.8713 ± 0.0037 | 0.9358 ± 0.0061 | 0.8199 | 0.9541 |
@@ -66,22 +75,17 @@ cross-validation folds. LightGBM throughout, threshold 0.5, 1:1 class balance. 6
 | PA-HA | site codon | 1,284 | 0.8296 ± 0.0177 | 0.9120 ± 0.0166 | 0.7826 | 0.9175 |
 | PA-HA | site aa | 1,284 | 0.5353 ± 0.0248 | 0.5591 ± 0.0393 | 0.5337 | 0.6438 |
 
-Mean ± sample standard deviation across four test folds.
-
 ### What the table shows
 
-**Within-season performance depends on the schema pair.** With per-site nucleotide features, F1
-macro ranges from 0.8300 for PB2-PA to 0.8819 for PB2-NA. HA-NA is not the only pair with strong
-performance.
+**Within-season performance for Human-H3N2-2024 depends on the schema pair.** With per-site nucleotide features, F1
+macro ranges: 0.8300 for PB2-PA to 0.8819 for PB2-NA.
 
-**Per-site nucleotide has a higher mean than 6-mers for every pair**, by +0.008 on HA-NA up to
-+0.063 on PB2-PA. It wins all four folds for PB2-PA, PB2-NA, and PA-HA, but only two of four for
-HA-NA. Four folds provide limited evidence about small differences.
+**Per-site nucleotide has a higher mean than 6-mers for every schema pair**, It outperforms all 4 folds for PB2-PA, PB2-NA, and PA-HA, but only two of four for
+HA-NA.
+* `TODO`: More folds should be tested further
 
-**Amino-acid performance is lower and varies by pair.** AUC-ROC is 0.8321 for HA-NA, 0.6467 for
-PB2-NA, 0.5591 for PA-HA, and 0.5263 for PB2-PA. The last two are near chance. This should not be
-described as a polymerase-count effect: there are only four pairs, and the amino-acid representation
-contains exact label collisions because matching and negative blocking used nucleotide identity.
+**Amino-acid (aa) performance is lower and varies by pair.** Some schema pairs fall to near-chance performance. However, this is not a clean comparison of nucleotide and amino-acid feature! The dataset was constructed using nucleotide identity, so different nucleotide pairs can become identical after translation. Consequently, the same amino-acid pair can appear with both positive and negative labels. These label collisions likely explain part of the performance loss and demonstrate how dataset construction affects the result; they should not be interpreted solely as loss of biological signal.
+* `TODO`: For a fair amino-acid experiment, rebuild the dataset using amino-acid identity for positive-pair deduplication, and negative-pair blocking. Report this as a separate population because it cannot use exactly the same rows as the nucleotide experiments.
 
 **Mean precision is below mean recall in all 16 cells.** See §5.
 
