@@ -67,7 +67,9 @@ Table columns:
 | PB2-NA | 5,167 | 3,532 | 1,745 | 1,698 |
 | PA-HA | 5,329 | 3,805 | 1,944 | 1,698 |
 
-HA-NA has the smallest HK-selected count, so it set the min-count sample size of 1,698. Eligible isolates span 5,167 to 5,329, a spread of about 3%.
+* HA-NA has the smallest HK-selected count, so it set the min-count sample size of 1,698. Eligible isolates span 5,167 to 5,329, a spread of about 3%.
+
+*  Note that while the final positive count is the same across the four schema pairs (Min-count sampled), the underlying isolates do not necessarily match, because filtering, HK selection, and sampling are each done independently per schema.
 
 ### Setup
 
