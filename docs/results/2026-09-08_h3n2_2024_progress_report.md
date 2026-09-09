@@ -50,8 +50,6 @@ All models use LightGBM classifier with threshold 0.5, and a 1:1 negative-to-pos
 
 Mean ± std across four test folds.
 
-Per-site features refer
-
 _"Per-site features"_ in this experiment use one feature column for each aligned position of a fixed-length CDS: a nucleotide, codon, or translated amino acid, depending on the feature type.
 
 We avoid the term _"positional encoding"_ because it usually means adding position information to sequence tokens in transformer architectures; here, position (or site) is represented directly by the feature column itself.
@@ -91,24 +89,50 @@ HA-NA.
 
 ### Population sizes
 
-| pair | eligible isolates | observed positives | after matching | sampled |
+* **Eligible isolates**: isolates satisfying the metadata filters (Human, H3N2, 2024) with both required segments represented by complete CDS sequences at their pinned lengths.
+* **Unique positive pairs**: eligible isolates after collapsing isolates containing the same exact pair of nucleotide sequences (i.e., sequence pair deduplication).
+* **HK-selected positives**: a maximum-size subset in which each nucleotide sequence occurs in at most one positive pair on each side. Hopcroft–Karp (HK) finds the maximum possible count under this constraint.
+* **Min-count sample**: the HK-selected population randomly sampled to 1,698 positives, the smallest HK count across the four schemas. HA–NA already has 1,698 and therefore is not reduced further.
+
+```
+                                              PB2-PA
+  [ Human, H3N2, 2024 + complete CDS at pinned length ]
+                      ↓
+  Eligible isolates                            5,324
+                      ↓  collapse identical nucleotide sequence pairs
+  Unique positive pairs                        3,837
+                      ↓  Hopcroft-Karp: each sequence at most once per side
+  HK-selected positives                        2,030
+                      ↓  sample to the smallest HK count across schemas
+  Min-count sampled                            1,698
+```
+
+PB2-PA is shown because it is the only schema where all four counts differ; HA-NA reads 1,698 twice
+and makes the sampling step look like a no-op.
+
+| Schema pair | Eligible isolates | Unique positive pairs | HK-selected positives | Min-count sampled |
 |---|---:|---:|---:|---:|
 | HA-NA | 5,173 | 3,466 | 1,698 | 1,698 |
 | PB2-PA | 5,324 | 3,837 | 2,030 | 1,698 |
 | PB2-NA | 5,167 | 3,532 | 1,745 | 1,698 |
 | PA-HA | 5,329 | 3,805 | 1,944 | 1,698 |
 
-HA-NA has the smallest matching, so it set the common size. Eligible isolates differ by about 3%.
-The schemas containing NA lose more isolates during the complete-CDS and pinned-length filter.
-Although the eligible populations overlap strongly, independent matching and sampling leave only
-519 isolates in all four retained sets. Cross-schema differences are therefore descriptive.
+HA-NA has the smallest HK-selected count, so it set the min-count sample size of 1,698. Eligible isolates span 5,167 to 5,329, a spread of about 3%, and the two schemas containing NA sit at the bottom because NA loses more isolates to the complete-CDS and pinned-length filter. The eligible populations therefore overlap strongly. The min-count samples do not: HK selection and sampling run independently per schema, so only 519 isolates survive into all four. Cross-schema comparisons are descriptive for that reason.
 
-The matching constraint is defined by nucleotide-sequence identity. Translation collapses some
-distinct nucleotide pairs: the 1,698 retained positives become 1,440 unique amino-acid pairs for
-HA-NA, 1,137 for PB2-PA, 1,269 for PB2-NA, and 1,376 for PA-HA. In the test sets, the fraction of
-generated negatives whose amino-acid pair is also an observed positive amino-acid pair is 8.2%,
-49.7%, 28.0%, and 28.8%, respectively. The amino-acid results therefore reflect both information
-lost during translation and exact label collisions in amino-acid feature space.
+HK selection is defined on nucleotide-sequence identity, so translation can collapse pairs that
+selection deliberately kept apart. Among the 1,698 min-count sampled positives:
+
+| Schema pair | Unique aa pairs | Test negatives whose aa pair is an observed positive |
+|---|---:|---:|
+| HA-NA | 1,440 | 8.2% |
+| PB2-NA | 1,269 | 28.0% |
+| PA-HA | 1,376 | 28.8% |
+| PB2-PA | 1,137 | 49.7% |
+
+Rows are ordered by collision rate, which is also the order of the amino-acid AUC-ROC results in
+§2. The amino-acid results therefore reflect two things at once: information lost in translation,
+and exact label collisions in amino-acid feature space, where the same amino-acid pair carries both
+labels.
 
 ---
 
