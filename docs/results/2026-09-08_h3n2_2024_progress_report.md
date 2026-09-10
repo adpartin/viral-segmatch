@@ -8,29 +8,28 @@ a) **Within-season matching**: Train and test on disjoint pairs from the same ye
 
 b) **One-season-ahead matching**: Train on year T and test on year T+1, without using year T+1 data for model training or fine-tuning. This represents the beginning of a new season, before existing paired sequences have accumulated.
 
-**Purpose of this report.** Summarize the completed Human H3N2 2024 work and decide whether three
+**Purpose of this report.** Summarize the completed Human H3N2 2024 work and decide whether two
 bounded follow-ups justify a publication, or whether the project should be archived as a technical
 report. The within-season setting has now been tested with unique nucleotide sequences on both
-sides. The one-season-ahead result predates those controls and remains preliminary.
+sides. The one-season-ahead setting remains open.
 
 ---
 
-## 1. Dataset populations used
+## 1. Dataset population
 
-Two dataset populations appear below. They are not interchangeable, so each result names its own.
+The completed experiments in sections 2 and 3 use the following population.
 
-| label | filter | positives | used for |
-|---|---|---:|---|
-| **A. Original** | H3N2 2024, all hosts, complete CDS at pinned length | 3,580 | feature importance, shuffling, false-positive analysis |
-| **B. Equal-count** | Human H3N2 2024, complete CDS at pinned length, Hopcroft-Karp matched, sampled to a common size | 1,698 per pair | the four-pair experiment |
+| filter | positives | used for |
+|---|---:|---|
+| Human H3N2 2024, complete CDS at pinned length, Hopcroft-Karp matched, sampled to a common size | 1,698 per pair | four-pair comparison, feature importance, shuffling and refitting |
 
-Population B enforces that **no nucleotide CDS is used in more than one retained positive pair**.
+The dataset construction enforces that **no nucleotide CDS is used in more than one retained positive pair**.
 Generating negatives within each fold then gives zero exact sequence overlap between training and
-test. Population B has about half as many HA-NA positives as population A.
+test.
 
 ---
 
-## 2. Four-pair experiment (population B)
+## 2. Four-pair experiment
 
 Four schema pairs over four proteins, arranged so that each protein appears twice (HA and NA: variable surface proteins; PB2 and PA: conserved polymerase proteins).
 
@@ -117,155 +116,104 @@ We avoid the term _"positional encoding"_ because it usually means adding positi
 
 ---
 
-## 3. Where the signal sits
+## 3. Where the codon-site signal sits
 
-Measured on Human-H3N2-2024, HA-NA, codon features. Each of the 1,037 features is one codon
-position: 567 in HA and 470 in NA. Sites are ranked by **gain**, the reduction in training loss
-attributed to every tree split that uses a feature, read from each fitted model, normalized within
-fold, and averaged across the four folds.
+Gain importance was computed for all four schema pairs. Each codon position is one feature. Gain is
+the total reduction in training loss from tree splits using that feature. Gain was normalized
+within each fold and then averaged across the four folds.
 
-Figures: `site_importance_codon_barplot.png`, `site_importance_codon_gain_trace.png`,
-`site_shuffle_refit_codon_gain.png`, under
-`results/flu/July_2025/dataset_ha_na_human_h3n2_2024_..._n1698_seed42/site_importance/`.
+| Schema pair | Gain by protein | Gain in top 25 sites |
+|---|---:|---:|
+| HA-NA | HA 55.5%; NA 44.5% | 59.1% |
+| PB2-PA | PB2 50.8%; PA 49.2% | 50.1% |
+| PB2-NA | PB2 52.9%; NA 47.1% | 60.8% |
+| PA-HA | PA 42.5%; HA 57.5% | 46.2% |
 
-### Which positions the model uses
+Both proteins contribute in every schema, while a relatively small set of sites carries much of
+the total gain.
 
-| rank | protein | position | share of total gain |
-|---:|---|---:|---:|
-| 1 | HA | 544 | 4.9% |
-| 2 | HA | 36 | 4.5% |
-| 3 | NA | 24 | 3.7% |
-| 4 | NA | 284 | 3.5% |
-| 5 | NA | 310 | 3.5% |
+The same protein also receives a similar site ranking when paired with a different protein.
+Across the four proteins, cross-partner Spearman correlations are 0.79-0.80, and 6-8 of each
+protein's top 10 sites are shared between its two schema pairs. The important sites are therefore
+largely protein-specific rather than unique to one schema pair.
 
-* The top-12 positions hold 39.9% of the total gain, and the top-25 hold 59.1%.
+### HA-NA shuffle and refit
 
-* Both segments contribute. The top-12 split 6 HA and 6 NA, and the top-25 split 13 HA and 12 NA.
+For HA-NA, sites were ranked by gain. The selected values were shuffled across pair rows in the
+training, validation, and test splits, and the model was then trained again. Results are reported
+as the fraction of above-chance AUC-ROC lost:
 
-* Most positions exhibit zero gain feature importance. Only 207 of 567 HA positions and 162 of 470 NA positions receive non-zero.
+`(baseline AUC - refit AUC) / (baseline AUC - 0.5)`
 
-* The used positions are isolated, not clustered. In the trace figure they appear as separate spikes rather than as contiguous blocks.
-
-### Whether the model depends on them
-
-Take a set of positions and shuffle their values among the rows, in train, validation and test
-alike, then fit a new model from scratch. Shuffling keeps the values but detaches them from the
-rows they belong to, so the position no longer tells the model anything about the sequence in front
-of it. The loss is reported as a share of the signal:
-
-```
-signal lost = (baseline AUC - refit AUC) / (baseline AUC - 0.5)
-```
-
-The denominator is what the uncorrupted model achieved above chance, here 0.9349 - 0.5 = 0.4349.
-A value of 1.0 means AUC-ROC fell to 0.5.
-
-| positions shuffled | top-ranked | random |
+| Sites shuffled | Top-ranked sites | Random sites |
 |---:|---:|---:|
-| 1 | 0.031 | 0.003 |
-| 5 | 0.122 | -0.001 |
 | 10 | 0.287 | 0.006 |
 | 25 | 0.749 | 0.000 |
 | 50 | 0.954 | 0.026 |
 | 100 | 1.008 | 0.031 |
-| all 1,037 | 1.012 | 1.012 |
 
-* Shuffling 100 random positions and refitting costs 0.031 of the signal, so the model recovers almost all of its performance. Shuffling the top 100 costs 1.008, which is chance. The same number of positions produces opposite outcomes depending on which ones they are.
+A retrained model recovers most of the signal after the top 10 sites are shuffled. Shuffling the
+top 50 removes almost all above-chance performance, whereas shuffling 100 random sites removes
+only 3.1%.
 
-* The dependence is not on a small handful. The top 10 cost 0.287, so a refitted model rebuilds most of the signal from the remaining positions. It takes roughly 25 positions to lose three quarters of it and roughly 50 to lose almost all.
-
-* Ranking by gain identifies positions the model can use but that other positions can replace. Ranking identifies the top 100 as sufficient to destroy the signal; it does not show that those 100 are the only positions that could carry it.
-
-**What this does not establish.** These positions are what the fitted trees used. The analysis does not assign biological meaning, and it does not separate positions that matter for segment compatibility from positions that identify a lineage or clade. A sequence-level shuffle, which gives each unique sequence one consistent wrong value instead of redrawing per row, is the experiment that would separate those two; it was computed and is in the CSV but is not shown here.
-
----
-
-## 4. Open question 1: predicting the next season
-
-Run on an earlier population (H3N2, HA-NA, nucleotide 6-mers), **before** the unique-sequence
-controls in population B. Treat as indicative.
-
-| training window | test | F1 macro | precision |
-|---|---|---:|---:|
-| 2024 | 2025 | 0.8940 | 0.837 |
-| 2015-2024 | 2025 | 0.8240 | 0.736 |
-
-Within-season results on the same setup, for reference: 2022 0.9065, 2023 0.8847, 2024 0.9177,
-2025 0.8872. PB2-PB1 on 2024 gives 0.9236.
-
-The earlier run suggests that one recent season may be sufficient, but it does not yet answer the
-PI's prospective question under the current controls. It used all hosts, allowed exact sequences
-to occur across periods, and used a different population size. The 0.8940 result is therefore not
-directly comparable with §2.
-
-**Open.** Repeat HA-NA with Human H3N2, complete pinned-length CDS, and nucleotide-unique endpoints.
-Train on 2024 and test on 2025, remove exact train-test sequence overlap, and generate negatives
-within each year so year alone cannot separate the classes. Compare it with a size-matched
-within-2024 control. Start with site nucleotide and nucleotide 6-mer features; expand only if the
-result is informative.
+These results identify sites used by the classifier, but they do not establish biological
+importance or distinguish segment compatibility from lineage or population structure. The ranking
+was averaged across all folds, so the shuffle/refit result should be treated as descriptive. A
+fully held-out estimate would rank sites independently within each training fold.
 
 ---
 
-## 5. Open question 2: why so many false positives
+## 4. Open question 1: one-season-ahead matching
 
-Precision is below recall in every configuration measured. On population A, HA-NA, per-site
-nucleotide features, pooled over four folds:
+Can a classifier trained on Human H3N2 sequences from 2024 match segments collected in 2025?
 
-| | predicted positive | predicted negative |
-|---|---:|---:|
-| **actual positive** | 3,500 | 80 |
-| **actual negative** | 496 | 3,084 |
+Build the 2024 and 2025 populations using the same complete-CDS, pinned-length, and
+nucleotide-uniqueness controls used in the within-season experiment. Remove exact sequence overlap
+between years,
+generate negatives within each year, and use only 2024 data for training, validation, threshold
+selection, and model tuning. Evaluate the final model on 2025.
 
-Precision 0.876, recall 0.978. False positives outnumber false negatives 6.2 to 1.
-
-### Where they sit
-
-Each negative pair was scored by its Hamming distance to the nearest observed positive pair, in
-nucleotides:
-
-| distance to nearest positive | negatives | false positives | false-positive rate |
-|---|---:|---:|---:|
-| 0-2 nt | 176 | 145 | **0.824** |
-| 3-5 nt | 847 | 198 | 0.234 |
-| 6-10 nt | 1,748 | 136 | 0.078 |
-| 11-20 nt | 547 | 15 | 0.027 |
-| >20 nt | 262 | 2 | 0.008 |
-
-**False positives are concentrated on negatives that are nearly identical to real positives.** The
-closest 4.9% of negatives produce 29.2% of the false positives, a 5.95-fold enrichment, and the rate
-falls monotonically with distance.
-
-### What this means, and what it does not
-
-This says the errors are not spread randomly: they are enriched among generated negatives close
-to an observed positive. The distance is based on the same aligned sequences available to the
-model, so this association is not independent evidence that the negative labels are wrong.
-
-It does **not** establish that these pairs are unlabelable. A substantial minority of the closest
-negatives are still classified correctly. The precision-recall asymmetry is also threshold
-dependent: at 0.70 the counts are 312 false positives against 310 false negatives.
-
-**Open.** First, tune the operating threshold on validation data only and report its test
-precision-recall tradeoff. Second, repeat the distance analysis on the uniqueness-controlled
-four-pair datasets to test whether the same pattern holds by schema. If it does, redraw negatives
-within narrow collection-time windows and controlled distance bins, retrain, and determine whether
-performance changes. These steps separate a threshold effect from a sampler effect; they still
-cannot establish biological compatibility without external labels.
+Compare this result with a size-matched within-2024 experiment to measure the effect of transferring
+to a new season. Start with per-site nucleotide and nucleotide 6-mer features.
 
 ---
 
-## 6. Relation to the collection-date study
+## 5. Open question 2: why is precision lower than recall?
 
-The useful analogy with Jamie's draft is the experimental structure, not the prediction target.
-That work compares segments, nucleotide and amino-acid representations, importance-guided
-retraining, and transfer across populations. Its weaker representations and transfer failures help
-define where collection-date prediction works.
+At the default threshold of 0.5, mean precision is lower than mean recall for all 16 configurations
+in the four-pair experiment. Determine whether this is primarily an operating-threshold effect or
+a consequence of how negative pairs are generated.
 
-The analogous segmatch results are the four schema pairs, the nucleotide/codon/amino-acid
-comparison, importance-guided corruption and retraining, and the proposed 2024-to-2025 test. The
-important difference is that segmatch negatives are generated rather than externally observed
-incompatible pairs. Negative construction is therefore part of the scientific question, not only
-a technical detail.
+First, select the classification threshold using validation data only and report the test
+precision-recall tradeoff. Second, stratify false positives by their sequence distance from
+observed positive pairs in each schema pair. If the pattern persists, generate negatives
+within controlled collection-time and distance ranges, retrain the models, and measure the effect
+on performance.
+
+The current datasets have a 1:1 class ratio. Precision in an application will also depend on the
+prevalence of true matches in that setting.
+
+---
+
+## 6. Internal framing note: lessons from the collection-date study
+
+**Do not include this section in the shared report.**
+
+Jamie's collection-date study is used only as an example of a project whose scope and experimental
+evidence were considered sufficient to proceed toward publication. Its prediction target is
+different, and its results do not provide evidence for segment matching.
+
+The useful lessons for designing the segmatch study are:
+
+- Define a narrow biological population and prediction setting.
+- Compare multiple segment pairs and sequence representations.
+- Include controlled tests outside the training population, such as one-season-ahead matching.
+- Report informative performance losses and failure modes, not only high average scores.
+- Separate predictive performance from biological interpretation.
+- Treat dataset construction, especially generated negatives, as part of the scientific design.
+
+These principles motivate the completed four-pair comparison and the two open questions. They do
+not require the segmatch experiments to reproduce the collection-date experiments.
 
 ---
 
@@ -279,15 +227,15 @@ a technical detail.
   while amino-acid features weaken sharply for three pairs.
 - Top-ranked positions matter, but a retrained model can recover from corruption of a small number
   of them by using other positions.
-- False positives are strongly enriched among negatives close to observed positives.
 
 ### What is not established
 
 The ranked positions have no biological validation. Section 3 shows which positions the model
 depends on, not what they mean, and it does not separate segment compatibility from lineage or
-population structure. The prospective result predates the current controls. The amino-acid comparison also contains label
-collisions created by defining identity in nucleotide space. The equal-count experiment uses one
-sampling seed and four folds.
+population structure. One-season-ahead performance has not been evaluated under the current
+controls, and the cause of the precision-recall difference remains unknown. The amino-acid
+comparison also contains label collisions created by defining identity in nucleotide space. The
+equal-count experiment uses one sampling seed and four folds.
 
 ### Candidate scope
 
@@ -309,9 +257,9 @@ This is an evaluation result, not a claim of biological compatibility or coevolu
    diagnostic on the four uniqueness-controlled schemas, and run a controlled negative-sampling
    experiment only if the same distance pattern remains.
 
-The gain-ranked retraining experiment that used to head this list is done and is reported in
-section 3. If these results are intended for a paper, repeat the equal-count sample with
-additional seeds after the two remaining analyses define the final design. Do not expand now to a 28-pair sweep, ESM-2, or
+The gain-ranked shuffle/refit experiment is complete and reported in section 3. If these results
+are intended for a paper, repeat the equal-count sample with additional seeds after the two
+remaining analyses define the final design. Do not expand now to a 28-pair sweep, ESM-2, or
 additional metadata axes.
 
 ### The question for the PIs
@@ -328,10 +276,10 @@ project.
 
 Datasets `data/datasets/flu/July_2025/runs/dataset_{ha_na,pb2_pa,pb2_na,pa_ha}_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_n1698_seed42`.
 Models under `models/flu/July_2025/runs/` with `human_h3n2_2024_n1698_seed42` in their names.
-Figures under `results/flu/July_2025/dataset_ha_na_h3n2_2024_random_cv4_pinned_length/`:
-`site_importance/site_importance_codon_gain_trace.png`,
-`site_importance/site_shuffle_refit_codon_shap.png`,
-`negative_pair_ambiguity_site_nt/negative_pair_ambiguity_nt_min.png`.
+Codon-site importance maps are under
+`results/flu/July_2025/dataset_{ha_na,pb2_pa,pb2_na,pa_ha}_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_n1698_seed42/site_importance/`.
+The HA-NA figures used in section 3 are `site_importance_codon_gain_trace.png` and
+`site_shuffle_refit_codon_gain.png`.
 Method detail in `docs/plans/2026-08-28_per_site_nt_features_plan.md`, capacity in
 `docs/results/2026-09-08_cds_pair_capacity.md`, population definition in
 `docs/results/2026-09-07_cds_length_survey.md`.
