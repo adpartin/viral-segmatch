@@ -119,13 +119,10 @@ We avoid the term _"positional encoding"_ because it usually means adding positi
 
 ## 3. Where the signal sits
 
-Measured on **population B**, HA-NA, codon features. Each of the 1,037 features is one codon
+Measured on Human-H3N2-2024, HA-NA, codon features. Each of the 1,037 features is one codon
 position: 567 in HA and 470 in NA. Sites are ranked by **gain**, the reduction in training loss
 attributed to every tree split that uses a feature, read from each fitted model, normalized within
 fold, and averaged across the four folds.
-
-Gain is read from training alone. Ranking by SHAP would use held-out test inputs to choose which
-sites to perturb, which makes the perturbation experiment below partly circular. Gain avoids that.
 
 Figures: `site_importance_codon_barplot.png`, `site_importance_codon_gain_trace.png`,
 `site_shuffle_refit_codon_gain.png`, under
@@ -141,22 +138,20 @@ Figures: `site_importance_codon_barplot.png`, `site_importance_codon_gain_trace.
 | 4 | NA | 284 | 3.5% |
 | 5 | NA | 310 | 3.5% |
 
-* The top 12 positions hold 39.9% of the total gain, and the top 25 hold 59.1%.
+* The top-12 positions hold 39.9% of the total gain, and the top-25 hold 59.1%.
 
-* Both segments contribute. The top 12 split 6 HA and 6 NA, and the top 25 split 13 HA and 12 NA.
-  The model is not reading one side and ignoring the other.
+* Both segments contribute. The top-12 split 6 HA and 6 NA, and the top-25 split 13 HA and 12 NA.
 
-* Most positions are never used. Only 207 of 567 HA positions and 162 of 470 NA positions receive
-  any gain at all, so about two thirds of the sequence is never split on.
+* Most positions exhibit zero gain feature importance. Only 207 of 567 HA positions and 162 of 470 NA positions receive non-zero.
 
-* The used positions are isolated, not clustered. In the trace figure they appear as separate
-  spikes rather than as blocks, so no contiguous region carries the signal.
+* The used positions are isolated, not clustered. In the trace figure they appear as separate spikes rather than as contiguous blocks.
 
 ### Whether the model depends on them
 
-The selected positions are shuffled in train, validation and test, and a new model is fitted from
-scratch. The value is redrawn independently for each row, which makes the column noise and is
-effectively deleting the feature. The loss is reported as a share of the signal the model had:
+Take a set of positions and shuffle their values among the rows, in train, validation and test
+alike, then fit a new model from scratch. Shuffling keeps the values but detaches them from the
+rows they belong to, so the position no longer tells the model anything about the sequence in front
+of it. The loss is reported as a share of the signal:
 
 ```
 signal lost = (baseline AUC - refit AUC) / (baseline AUC - 0.5)
@@ -175,23 +170,13 @@ A value of 1.0 means AUC-ROC fell to 0.5.
 | 100 | 1.008 | 0.031 |
 | all 1,037 | 1.012 | 1.012 |
 
-* Shuffling 100 random positions and refitting costs 0.031 of the signal, so the model recovers
-  almost all of its performance. Shuffling the top 100 costs 1.008, which is chance. The same
-  number of positions produces opposite outcomes depending on which ones they are.
+* Shuffling 100 random positions and refitting costs 0.031 of the signal, so the model recovers almost all of its performance. Shuffling the top 100 costs 1.008, which is chance. The same number of positions produces opposite outcomes depending on which ones they are.
 
-* The dependence is not on a small handful. The top 10 cost 0.287, so a refitted model rebuilds
-  most of the signal from the remaining positions. It takes roughly 25 positions to lose three
-  quarters of it and roughly 50 to lose almost all.
+* The dependence is not on a small handful. The top 10 cost 0.287, so a refitted model rebuilds most of the signal from the remaining positions. It takes roughly 25 positions to lose three quarters of it and roughly 50 to lose almost all.
 
-* Ranking by gain identifies positions the model can use but that other positions can replace.
-  Ranking identifies the top 100 as sufficient to destroy the signal; it does not show that those
-  100 are the only positions that could carry it.
+* Ranking by gain identifies positions the model can use but that other positions can replace. Ranking identifies the top 100 as sufficient to destroy the signal; it does not show that those 100 are the only positions that could carry it.
 
-**What this does not establish.** These positions are what the fitted trees used. The analysis does
-not assign biological meaning, and it does not separate positions that matter for segment
-compatibility from positions that identify a lineage or clade. A sequence-level shuffle, which
-gives each unique sequence one consistent wrong value instead of redrawing per row, is the
-experiment that would separate those two; it was computed and is in the CSV but is not shown here.
+**What this does not establish.** These positions are what the fitted trees used. The analysis does not assign biological meaning, and it does not separate positions that matter for segment compatibility from positions that identify a lineage or clade. A sequence-level shuffle, which gives each unique sequence one consistent wrong value instead of redrawing per row, is the experiment that would separate those two; it was computed and is in the CSV but is not shown here.
 
 ---
 
