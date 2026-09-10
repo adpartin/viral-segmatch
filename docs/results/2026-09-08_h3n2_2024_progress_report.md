@@ -195,7 +195,7 @@ experiment that would separate those two; it was computed and is in the CSV but 
 
 ---
 
-## 4. Open question 2: predicting the next season
+## 4. Open question 1: predicting the next season
 
 Run on an earlier population (H3N2, HA-NA, nucleotide 6-mers), **before** the unique-sequence
 controls in population B. Treat as indicative.
@@ -221,7 +221,7 @@ result is informative.
 
 ---
 
-## 5. Open question 3: why so many false positives
+## 5. Open question 2: why so many false positives
 
 Precision is below recall in every configuration measured. On population A, HA-NA, per-site
 nucleotide features, pooled over four folds:
@@ -298,9 +298,9 @@ a technical detail.
 
 ### What is not established
 
-The ranked positions have no biological validation. The model may be recognizing lineage,
-population structure, or collection-time proximity rather than segment compatibility. The
-prospective result predates the current controls. The amino-acid comparison also contains label
+The ranked positions have no biological validation. Section 3 shows which positions the model
+depends on, not what they mean, and it does not separate segment compatibility from lineage or
+population structure. The prospective result predates the current controls. The amino-acid comparison also contains label
 collisions created by defining identity in nucleotide space. The equal-count experiment uses one
 sampling seed and four folds.
 
@@ -318,23 +318,21 @@ This is an evaluation result, not a claim of biological compatibility or coevolu
 
 ### Bounded work needed to decide
 
-1. **Importance and retraining:** rerun the top-site retraining experiment using gain-ranked sites
-   on the uniqueness-controlled HA-NA population. This aligns the importance measure and the
-   perturbed positions in one clean experiment.
-2. **Prospective prediction:** run the controlled Human H3N2 2024-to-2025 experiment described in
+1. **Prospective prediction:** run the controlled Human H3N2 2024-to-2025 experiment described in
    section 4, with a size-matched within-2024 reference.
-3. **False positives:** calibrate the threshold using validation data, repeat the distance
+2. **False positives:** calibrate the threshold using validation data, repeat the distance
    diagnostic on the four uniqueness-controlled schemas, and run a controlled negative-sampling
    experiment only if the same distance pattern remains.
 
-If these results are intended for a paper, repeat the equal-count sample with additional seeds
-after the three analyses define the final design. Do not expand now to a 28-pair sweep, ESM-2, or
+The gain-ranked retraining experiment that used to head this list is done and is reported in
+section 3. If these results are intended for a paper, repeat the equal-count sample with
+additional seeds after the two remaining analyses define the final design. Do not expand now to a 28-pair sweep, ESM-2, or
 additional metadata axes.
 
 ### The question for the PIs
 
 Is a careful evaluation of when segment co-assignment is predictable, and when it fails, a
-publication contribution for this group? If yes, complete only the three bounded analyses above and
+publication contribution for this group? If yes, complete only the two bounded analyses above and
 then write. If biological interpretation of individual sites is required, these experiments are
 unlikely to provide it; summarize the existing results as a technical report and archive the
 project.
