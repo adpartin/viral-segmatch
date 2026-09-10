@@ -32,7 +32,8 @@ use, so the only thing that differs from a normal run is the corrupted columns.
 
 Outputs (to `--out_dir`, by default derived from the dataset dir):
     site_shuffle_refit_{unit}.png   share of signal lost against N, per mode and arm
-    site_shuffle_refit_{unit}.csv   mode, arm, n_sites, fold, auc, clean_auc, signal_lost
+    site_shuffle_refit_{unit}.csv   mode, arm, n_sites, fold, refit_auc, baseline_auc,
+                                    signal_lost
 
 CLI:
     python -m src.analysis.plot_site_shuffle_refit \\
@@ -135,6 +136,35 @@ def split_columns(columns: np.ndarray, n_sites_a: int) -> list:
     return [(0, int(c)) if c < n_sites_a else (1, int(c) - n_sites_a) for c in columns]
 
 
+def style_log_xaxis(ax, style: str) -> None:
+    """Write the log x-axis ticks as plain integers or as powers of ten.
+
+    Args:
+      ax: the axis to restyle.
+      style: `plain` for 1, 10, 100; `power` for 10^0, 10^1, 10^2.
+
+    Raises:
+      ValueError: the style is neither.
+    """
+    from matplotlib.ticker import (
+        LogFormatterSciNotation,
+        LogLocator,
+        NullFormatter,
+        ScalarFormatter,
+    )
+
+    if style not in ('plain', 'power'):
+        raise ValueError(f"xtick_style must be 'plain' or 'power'; got {style!r}.")
+    ax.xaxis.set_major_locator(LogLocator(base=10))
+    ax.xaxis.set_minor_formatter(NullFormatter())
+    if style == 'plain':
+        formatter = ScalarFormatter()
+        formatter.set_scientific(False)
+    else:
+        formatter = LogFormatterSciNotation(base=10)
+    ax.xaxis.set_major_formatter(formatter)
+
+
 def fit_and_score(config, seed: int, matrices: dict, n_columns: int) -> float:
     """Fit the baseline LightGBM on the given matrices and return test AUC-ROC.
 
@@ -172,6 +202,10 @@ def main() -> None:
     p.add_argument('--modes', nargs='+', default=list(MODES), choices=list(MODES))
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--out_dir', type=Path, default=None)
+    p.add_argument('--xtick_style', default='plain', choices=['plain', 'power'],
+                   help="log x-axis ticks as 1, 10, 100 or as 10^0, 10^1, 10^2")
+    p.add_argument('--legend_loc', default='lower right',
+                   help='matplotlib legend location, e.g. lower right, best')
     p.add_argument('--dpi', type=int, default=200)
     args = p.parse_args()
 
@@ -225,7 +259,7 @@ def main() -> None:
         signal = clean - 0.5
         print(f"fold {fold}: clean test AUC {clean:.4f}")
         rows.append({'mode': 'none', 'arm': 'none', 'n_sites': 0, 'fold': fold,
-                     'auc': clean, 'clean_auc': clean, 'signal_lost': 0.0})
+                     'refit_auc': clean, 'baseline_auc': clean, 'signal_lost': 0.0})
 
         rng = np.random.default_rng(args.seed + 1000 * fold)
         for mode in args.modes:
@@ -242,7 +276,7 @@ def main() -> None:
                                     for split, (X, y) in clean_matrices.items()}
                     auc = fit_and_score(config, fit_seed, matrices, n_columns)
                     rows.append({'mode': mode, 'arm': arm, 'n_sites': n, 'fold': fold,
-                                 'auc': auc, 'clean_auc': clean,
+                                 'refit_auc': auc, 'baseline_auc': clean,
                                  'signal_lost': (clean - auc) / signal})
                     print(f"  {mode:8s} {arm:6s} N={n:>5,d}  AUC {auc:.4f}  "
                           f"lost {(clean - auc) / signal:+.3f}  "
@@ -285,11 +319,15 @@ def main() -> None:
     ax.annotate('all signal lost (AUC 0.5)', (sizes[0], 1.0), textcoords='offset points',
                 xytext=(2, 4), fontsize=8, color=MARKER_EDGE)
     ax.set_xscale('log')
+    style_log_xaxis(ax, args.xtick_style)
     ax.set_xlabel('number of sites corrupted before refitting')
     ax.set_ylabel('share of the signal lost')
-    ax.set_title(f'{args.config_bundle}\nrefit on corrupted features, {args.n_folds} folds')
+    # The dataset names the population this refits on. The config bundle does not: it only
+    # supplies protein names and ordering, so its default titled every run the same.
+    ax.set_title(f'{args.dataset_dir.name}\n'
+                 f'refit on corrupted features, mean of {args.n_folds} folds')
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=9, loc=args.legend_loc)
     fig.tight_layout()
     fig.text(0.995, 0.002, f'src/analysis/{Path(__file__).name}', ha='right', va='bottom',
              fontsize=7, color='0.45')

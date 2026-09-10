@@ -101,7 +101,7 @@ def rank_columns(importance: pd.DataFrame, measure: str) -> np.ndarray:
 
 
 def plot_importance_trace(importance: pd.DataFrame, measure: str, unit: str, out_path,
-                          dpi: int = 200, n_label: int = 5):
+                          dpi: int = 200, n_label: int = 5, title: str = ''):
     """Draw one importance measure along each protein's CDS, one panel per protein.
 
     Deliberately shows a single measure. Overlaying several invites the reader to compare curves
@@ -149,9 +149,12 @@ def plot_importance_trace(importance: pd.DataFrame, measure: str, unit: str, out
         ax.set_xlim(1, int(of_protein['site'].max()))
         ax.set_xlabel(f'{protein} {unit} site')
         ax.set_ylabel(f'share of {measure}')
-        ax.set_title(f"{protein}: {len(of_protein):,} sites, {n_used:,} with non-zero {measure}")
+        ax.set_title(f"{protein}: {len(of_protein):,} sites "
+                     f"({n_used:,} with non-zero {measure})")
         ax.grid(axis='y', alpha=0.3)
 
+    if title:
+        fig.suptitle(title, fontsize=10, y=1.005)
     fig.text(0.995, 0.002, 'src/analysis/_importance_helpers.py', ha='right', va='bottom',
              fontsize=7, color='#666666')
     fig.tight_layout()

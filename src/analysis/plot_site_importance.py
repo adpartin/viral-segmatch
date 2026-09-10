@@ -338,7 +338,7 @@ def main() -> None:
     p.add_argument('--permutation_repeats', type=int, default=5,
                    help='shuffles per column for permutation importance; 0 skips the pass')
     p.add_argument('--seed', type=int, default=0, help='seeds the permutations')
-    p.add_argument('--top_n', type=int, default=15, help='sites listed per protein')
+    p.add_argument('--top_n', type=int, default=12, help='sites listed per protein')
     p.add_argument('--out_dir', type=Path, default=None,
                    help='default: results/<virus>/<version>/<run name>/site_importance')
     p.add_argument('--dpi', type=int, default=200)
@@ -518,8 +518,8 @@ def main() -> None:
         ax_trace.set_xlim(1, int(of_protein['site'].max()))
         ax_trace.set_xlabel(f"{cache.protein} {args.unit} site")
         ax_trace.set_ylabel('share of importance')
-        ax_trace.set_title(f"{cache.protein}: {len(of_protein):,} sites, "
-                           f"{int((of_protein['gain_frac'] > 0).sum()):,} used")
+        ax_trace.set_title(f"{cache.protein}: {len(of_protein):,} sites "
+                           f"({int((of_protein['gain_frac'] > 0).sum()):,} with non-zero gain)")
         ax_trace.legend(fontsize=8, loc='upper left', framealpha=0.9)
         ax_trace.grid(axis='y', alpha=0.3)
 
@@ -532,7 +532,7 @@ def main() -> None:
         ax_scatter.set_title('a site must vary to be used', fontsize=10)
         ax_scatter.grid(alpha=0.3)
 
-    fig.suptitle(f"{args.model_run_template}  |  unit={args.unit}, {args.n_folds} folds, "
+    fig.suptitle(f"{args.model_run_template}  |  unit={args.unit}, mean of {args.n_folds} folds, "
                  f"SHAP on {args.shap_split}", fontsize=10, y=1.005)
     fig.tight_layout()
     _stamp(fig)

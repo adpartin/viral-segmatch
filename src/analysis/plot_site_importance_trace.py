@@ -53,8 +53,15 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f'site_importance_{args.unit}_{args.measure}_trace.png'
 
+    # The run is named by the dataset directory the table sits under, so the figure carries
+    # the same identification as the other site_importance outputs beside it.
+    run_name = args.importance_csv.resolve().parent.parent.name
+    n_folds = int(importance['folds_used'].max()) if 'folds_used' in importance else 0
+    caption = f"{run_name}  |  unit={args.unit}, measure={args.measure}"
+    if n_folds:
+        caption += f", mean of {n_folds} folds"
     written = plot_importance_trace(importance, args.measure, args.unit, out_path,
-                                    dpi=args.dpi, n_label=args.n_label)
+                                    dpi=args.dpi, n_label=args.n_label, title=caption)
 
     share = f'{args.measure}_frac'
     top = importance.nlargest(10, share)[['protein', 'site', share]]

@@ -37,7 +37,8 @@ does rather than arguing about it.
 
 Outputs (to `--out_dir`, by default derived from the dataset dir):
     site_shuffle_fixed_{unit}.png   share of signal lost against N, per arm and split
-    site_shuffle_fixed_{unit}.csv   split, arm, n_sites, fold, repeat, auc, clean_auc, ...
+    site_shuffle_fixed_{unit}.csv   split, arm, n_sites, fold, repeat, shuffled_auc,
+                                    baseline_auc, signal_lost, ...
 
 CLI:
     python -m src.analysis.plot_site_shuffle_fixed \\
@@ -75,6 +76,35 @@ from src.utils.site_utils import get_site_pair_features, load_site_cache  # noqa
 ARM_COLOR = {'top': '#CF8793', 'random': '#4C7CAB'}
 SPLIT_STYLE = {'test': '-', 'train': '--'}
 MARKER_EDGE = '#222222'
+
+
+def style_log_xaxis(ax, style: str) -> None:
+    """Write the log x-axis ticks as plain integers or as powers of ten.
+
+    Args:
+      ax: the axis to restyle.
+      style: `plain` for 1, 10, 100; `power` for 10^0, 10^1, 10^2.
+
+    Raises:
+      ValueError: the style is neither.
+    """
+    from matplotlib.ticker import (
+        LogFormatterSciNotation,
+        LogLocator,
+        NullFormatter,
+        ScalarFormatter,
+    )
+
+    if style not in ('plain', 'power'):
+        raise ValueError(f"xtick_style must be 'plain' or 'power'; got {style!r}.")
+    ax.xaxis.set_major_locator(LogLocator(base=10))
+    ax.xaxis.set_minor_formatter(NullFormatter())
+    if style == 'plain':
+        formatter = ScalarFormatter()
+        formatter.set_scientific(False)
+    else:
+        formatter = LogFormatterSciNotation(base=10)
+    ax.xaxis.set_major_formatter(formatter)
 
 
 def shuffled_auc(booster, X: np.ndarray, y: np.ndarray, columns: np.ndarray,
@@ -161,6 +191,10 @@ def main() -> None:
                    help='set sizes to also disable by constant fill, as a spot check')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--out_dir', type=Path, default=None)
+    p.add_argument('--xtick_style', default='plain', choices=['plain', 'power'],
+                   help="log x-axis ticks as 1, 10, 100 or as 10^0, 10^1, 10^2")
+    p.add_argument('--legend_loc', default='lower right',
+                   help='matplotlib legend location, e.g. lower right, best')
     p.add_argument('--dpi', type=int, default=200)
     args = p.parse_args()
 
@@ -215,7 +249,7 @@ def main() -> None:
                         auc = shuffled_auc(booster, X, y, chosen, rng)
                         rows.append({'split': split, 'arm': arm, 'method': 'shuffle',
                                      'n_sites': n, 'fold': fold, 'repeat': repeat,
-                                     'auc': auc, 'clean_auc': clean,
+                                     'shuffled_auc': auc, 'baseline_auc': clean,
                                      'signal_lost': (clean - auc) / signal})
                         if arm == 'top' and n == len(ranked_columns):
                             break  # every column shuffled: the two arms are the same set
@@ -225,7 +259,7 @@ def main() -> None:
                 auc = constant_filled_auc(booster, X, y, ranked_columns[:n])
                 rows.append({'split': split, 'arm': 'top', 'method': 'constant',
                              'n_sites': n, 'fold': fold, 'repeat': 0,
-                             'auc': auc, 'clean_auc': clean,
+                             'shuffled_auc': auc, 'baseline_auc': clean,
                              'signal_lost': (clean - auc) / signal})
 
     table = pd.DataFrame(rows)
@@ -274,12 +308,13 @@ def main() -> None:
     ax.annotate('all signal lost (AUC 0.5)', (sizes[0], 1.0), textcoords='offset points',
                 xytext=(2, 4), fontsize=8, color=MARKER_EDGE)
     ax.set_xscale('log')
+    style_log_xaxis(ax, args.xtick_style)
     ax.set_xlabel('number of sites shuffled together')
     ax.set_ylabel('share of the signal lost')
     ax.set_title(f'{args.model_run_template}\ngroup permutation, no retraining, '
                  f'{args.n_folds} folds x {args.repeats} repeats')
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=9, loc=args.legend_loc)
     fig.tight_layout()
     fig.text(0.995, 0.002, f'src/analysis/{Path(__file__).name}', ha='right', va='bottom',
              fontsize=7, color='0.45')
