@@ -117,51 +117,81 @@ We avoid the term _"positional encoding"_ because it usually means adding positi
 
 ---
 
-## 3. Open question 1: where the signal sits
+## 3. Where the signal sits
 
-Measured on **population A**, HA-NA, codon features, 1,037 positions.
+Measured on **population B**, HA-NA, codon features. Each of the 1,037 features is one codon
+position: 567 in HA and 470 in NA. Sites are ranked by **gain**, the reduction in training loss
+attributed to every tree split that uses a feature, read from each fitted model, normalized within
+fold, and averaged across the four folds.
 
-### Which positions the model uses (gain)
+Gain is read from training alone. Ranking by SHAP would use held-out test inputs to choose which
+sites to perturb, which makes the perturbation experiment below partly circular. Gain avoids that.
 
-Gain is the reduction in training loss attributed to every tree split using a feature. It is read
-from each fitted model, normalized within fold, and then averaged across the four folds. It measures
-what the fitted trees used; it does not establish biological importance.
+Figures: `site_importance_codon_barplot.png`, `site_importance_codon_gain_trace.png`,
+`site_shuffle_refit_codon_gain.png`, under
+`results/flu/July_2025/dataset_ha_na_human_h3n2_2024_..._n1698_seed42/site_importance/`.
+
+### Which positions the model uses
 
 | rank | protein | position | share of total gain |
 |---:|---|---:|---:|
-| 1 | HA | 544 | 6.25% |
-| 2 | NA | 310 | 4.81% |
-| 3 | NA | 244 | 4.00% |
-| 4 | HA | 36 | 3.70% |
-| 5 | NA | 284 | 3.16% |
+| 1 | HA | 544 | 4.9% |
+| 2 | HA | 36 | 4.5% |
+| 3 | NA | 24 | 3.7% |
+| 4 | NA | 284 | 3.5% |
+| 5 | NA | 310 | 3.5% |
 
-Cumulative gain: top 10 positions hold **35.2%**, top 25 hold 54.1%, top 100 hold 82.7%.
+* The top 12 positions hold 39.9% of the total gain, and the top 25 hold 59.1%.
 
-### Whether a retrained model can compensate after top sites are corrupted
+* Both segments contribute. The top 12 split 6 HA and 6 NA, and the top 25 split 13 HA and 12 NA.
+  The model is not reading one side and ignoring the other.
 
-The completed retraining experiment used sites ranked by **SHAP**, not gain. Gain and SHAP were
-strongly correlated (Spearman 0.97) and shared 12 of their top 15 sites, but the two top-N sets are
-not identical. The selected positions are shuffled in train, validation and test, and a new model
-is fitted from scratch. AUC-ROC loss relative to the uncorrupted baseline:
+* Most positions are never used. Only 207 of 567 HA positions and 162 of 470 NA positions receive
+  any gain at all, so about two thirds of the sequence is never split on.
 
-| positions corrupted | top-ranked | random |
+* The used positions are isolated, not clustered. In the trace figure they appear as separate
+  spikes rather than as blocks, so no contiguous region carries the signal.
+
+### Whether the model depends on them
+
+The selected positions are shuffled in train, validation and test, and a new model is fitted from
+scratch. The value is redrawn independently for each row, which makes the column noise and is
+effectively deleting the feature. The loss is reported as a share of the signal the model had:
+
+```
+signal lost = (baseline AUC - refit AUC) / (baseline AUC - 0.5)
+```
+
+The denominator is what the uncorrupted model achieved above chance, here 0.9349 - 0.5 = 0.4349.
+A value of 1.0 means AUC-ROC fell to 0.5.
+
+| positions shuffled | top-ranked | random |
 |---:|---:|---:|
-| 10 | 15.8% | 0.8% |
-| 25 | 33.3% | 0.4% |
-| 50 | 56.1% | 1.5% |
-| 100 | 89.2% | 2.0% |
-| all 1,037 | 100.7% | — |
+| 1 | 0.031 | 0.003 |
+| 5 | 0.122 | -0.001 |
+| 10 | 0.287 | 0.006 |
+| 25 | 0.749 | 0.000 |
+| 50 | 0.954 | 0.026 |
+| 100 | 1.008 | 0.031 |
+| all 1,037 | 1.012 | 1.012 |
 
-The SHAP-ranked top 10 cost a retrained model 15.8% of above-chance AUC-ROC, compared with 49.5%
-when the fitted model is tested without retraining. The model can therefore recover much of the
-lost performance from other positions. Corrupting the top 100 removes 89.2%, while 100 random sites
-remove only 2.0%.
+* Shuffling 100 random positions and refitting costs 0.031 of the signal, so the model recovers
+  almost all of its performance. Shuffling the top 100 costs 1.008, which is chance. The same
+  number of positions produces opposite outcomes depending on which ones they are.
 
-**Open.** The current result is exploratory because held-out test inputs contributed to the SHAP
-ranking used to choose the perturbed sites. Test labels were not used, but test features still
-influenced experiment selection. Repeat the experiment with gain-ranked sites on the
-uniqueness-controlled HA-NA population. The ranked sites may identify lineage or clade rather than
-segment compatibility; this analysis alone cannot assign biological meaning.
+* The dependence is not on a small handful. The top 10 cost 0.287, so a refitted model rebuilds
+  most of the signal from the remaining positions. It takes roughly 25 positions to lose three
+  quarters of it and roughly 50 to lose almost all.
+
+* Ranking by gain identifies positions the model can use but that other positions can replace.
+  Ranking identifies the top 100 as sufficient to destroy the signal; it does not show that those
+  100 are the only positions that could carry it.
+
+**What this does not establish.** These positions are what the fitted trees used. The analysis does
+not assign biological meaning, and it does not separate positions that matter for segment
+compatibility from positions that identify a lineage or clade. A sequence-level shuffle, which
+gives each unique sequence one consistent wrong value instead of redrawing per row, is the
+experiment that would separate those two; it was computed and is in the CSV but is not shown here.
 
 ---
 
