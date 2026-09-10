@@ -235,7 +235,7 @@ depends on, not what they mean, and it does not separate segment compatibility f
 population structure. One-season-ahead performance has not been evaluated under the current
 controls, and the cause of the precision-recall difference remains unknown. The amino-acid
 comparison also contains label collisions created by defining identity in nucleotide space. The
-equal-count experiment uses one sampling seed and four folds.
+four-pair experiment uses one min-count sample (seed 42) and four folds.
 
 ### Candidate scope
 
@@ -258,7 +258,7 @@ This is an evaluation result, not a claim of biological compatibility or coevolu
    experiment only if the same distance pattern remains.
 
 The gain-ranked shuffle/refit experiment is complete and reported in section 3. If these results
-are intended for a paper, repeat the equal-count sample with additional seeds after the two
+are intended for a paper, repeat the min-count sampling with additional seeds after the two
 remaining analyses define the final design. Do not expand now to a 28-pair sweep, ESM-2, or
 additional metadata axes.
 
