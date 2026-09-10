@@ -250,9 +250,9 @@ def _stamp(fig) -> None:
 # gain and SHAP are shares of a total, permutation is an absolute AUC-ROC drop. `share_column`
 # in `_importance_helpers` covers only the two share measures, so the mapping lives here.
 MEASURE_PANEL = {
-    'gain': ('gain_frac', 'gain_frac_std', 'share of gain'),
-    'shap': ('shap_frac', 'shap_frac_std', 'share of SHAP'),
-    'perm': ('perm_auc_drop', 'perm_auc_drop_std', 'AUC-ROC drop when shuffled'),
+    'gain': ('gain_frac', 'gain_frac_std', 'share of gain', 'Gain'),
+    'shap': ('shap_frac', 'shap_frac_std', 'share of SHAP', 'SHAP'),
+    'perm': ('perm_auc_drop', 'perm_auc_drop_std', 'AUC-ROC drop when shuffled', 'Permutation'),
 }
 
 
@@ -275,7 +275,7 @@ def plot_measure_panel(ax, table: pd.DataFrame, measure: str, top_n: int) -> Non
     if measure not in MEASURE_PANEL:
         raise ValueError(
             f"measure must be one of {sorted(MEASURE_PANEL)}; got {measure!r}.")
-    value_col, std_col, xlabel = MEASURE_PANEL[measure]
+    value_col, std_col, xlabel, display = MEASURE_PANEL[measure]
     if value_col not in table.columns:
         raise ValueError(f"table has no {value_col!r} column for measure {measure!r}.")
 
@@ -287,7 +287,7 @@ def plot_measure_panel(ax, table: pd.DataFrame, measure: str, top_n: int) -> Non
     ax.set_yticks(range(len(top)))
     ax.set_yticklabels([f"{r.protein} {int(r.site)}" for r in top.itertuples()])
     ax.set_xlabel(xlabel)
-    ax.set_title(f'{measure} (all folds, mean +/- std)')
+    ax.set_title(f'{display} (mean of all folds +/- std)')
     ax.grid(axis='x', alpha=0.3)
 
 
@@ -314,7 +314,8 @@ def plot_importance_panels(table: pd.DataFrame, run_stem: str, unit: str, top_n:
     for ax, measure in zip(np.atleast_1d(axes), measures):
         plot_measure_panel(ax, table, measure, top_n)
 
-    fig.suptitle(f'{run_stem}  |  unit={unit}, top {top_n} sites', fontsize=10, y=1.01)
+    fig.suptitle(f'{run_stem}  |  feature importance, unit={unit}, top {top_n} sites',
+                 fontsize=10, y=1.01)
     fig.tight_layout()
     _stamp(fig)
     written = savefig(out_png, dpi=dpi)
@@ -518,7 +519,7 @@ def main() -> None:
         ax_trace.set_xlim(1, int(of_protein['site'].max()))
         ax_trace.set_xlabel(f"{cache.protein} {args.unit} site")
         ax_trace.set_ylabel('share of importance')
-        ax_trace.set_title(f"{cache.protein}: {len(of_protein):,} sites "
+        ax_trace.set_title(f"Feature importance | {cache.protein}: {len(of_protein):,} sites "
                            f"({int((of_protein['gain_frac'] > 0).sum()):,} with non-zero gain)")
         ax_trace.legend(fontsize=8, loc='upper left', framealpha=0.9)
         ax_trace.grid(axis='y', alpha=0.3)

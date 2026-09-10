@@ -149,7 +149,7 @@ def plot_importance_trace(importance: pd.DataFrame, measure: str, unit: str, out
         ax.set_xlim(1, int(of_protein['site'].max()))
         ax.set_xlabel(f'{protein} {unit} site')
         ax.set_ylabel(f'share of {measure}')
-        ax.set_title(f"{protein}: {len(of_protein):,} sites "
+        ax.set_title(f"Feature importance | {protein}: {len(of_protein):,} sites "
                      f"({n_used:,} with non-zero {measure})")
         ax.grid(axis='y', alpha=0.3)
 

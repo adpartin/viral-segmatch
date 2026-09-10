@@ -199,15 +199,27 @@ def main() -> None:
     p.add_argument('--n_folds', type=int, default=4)
     p.add_argument('--n_sites', type=int, nargs='+', default=[1, 5, 10, 25, 50, 100],
                    help='set sizes to corrupt; the all-columns anchor is added automatically')
-    p.add_argument('--modes', nargs='+', default=list(MODES), choices=list(MODES))
+    p.add_argument('--modes', nargs='+', default=list(MODES), choices=list(MODES),
+                   help='corruption modes to COMPUTE; every one runs a full refit sweep')
+    p.add_argument('--plot_modes', nargs='+', default=None, choices=list(MODES),
+                   help='corruption modes to DRAW; defaults to --modes. Narrowing this simplifies\n'
+                        'the figure while the CSV keeps every mode that was computed.')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--out_dir', type=Path, default=None)
     p.add_argument('--xtick_style', default='plain', choices=['plain', 'power'],
                    help="log x-axis ticks as 1, 10, 100 or as 10^0, 10^1, 10^2")
-    p.add_argument('--legend_loc', default='lower right',
+    p.add_argument('--legend_loc', default='upper left',
                    help='matplotlib legend location, e.g. lower right, best')
     p.add_argument('--dpi', type=int, default=200)
     args = p.parse_args()
+
+    # Checked before any refitting: a full sweep costs minutes per mode, so an
+    # unplottable request must fail now rather than after the work is done.
+    plot_modes = args.plot_modes or args.modes
+    unknown = [m for m in plot_modes if m not in args.modes]
+    if unknown:
+        p.error(f"--plot_modes {unknown} were not computed; "
+                f"--modes is {args.modes}.")
 
     if args.out_dir is None:
         parts = args.dataset_dir.resolve().parts
@@ -308,7 +320,7 @@ def main() -> None:
 
     setup_plot_style()
     fig, ax = plt.subplots(figsize=(9, 5.6))
-    for mode in args.modes:
+    for mode in plot_modes:
         for arm in ('top', 'random'):
             part = summary[(summary['mode'] == mode) & (summary.arm == arm)].sort_values('n_sites')
             ax.errorbar(part['n_sites'], part['mean'], yerr=part['std'],
