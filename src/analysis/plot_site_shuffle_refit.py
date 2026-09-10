@@ -326,18 +326,18 @@ def main() -> None:
             ax.errorbar(part['n_sites'], part['mean'], yerr=part['std'],
                         color=MODE_COLOR[mode], linestyle=ARM_STYLE[arm], marker='o',
                         markersize=5, markeredgecolor=MARKER_EDGE, markeredgewidth=0.6,
-                        capsize=3, linewidth=1.3, label=f'{mode} corruption, {arm} sites')
+                        capsize=3, linewidth=1.3, label=f'{arm} sites (new value per {mode})')
     ax.axhline(1.0, color=MARKER_EDGE, linewidth=0.8, linestyle=':')
     ax.annotate('all signal lost (AUC 0.5)', (sizes[0], 1.0), textcoords='offset points',
                 xytext=(2, 4), fontsize=8, color=MARKER_EDGE)
     ax.set_xscale('log')
     style_log_xaxis(ax, args.xtick_style)
-    ax.set_xlabel('number of sites corrupted before refitting')
+    ax.set_xlabel('number of sites shuffled before refitting')
     ax.set_ylabel('share of the signal lost')
     # The dataset names the population this refits on. The config bundle does not: it only
     # supplies protein names and ordering, so its default titled every run the same.
     ax.set_title(f'{args.dataset_dir.name}\n'
-                 f'refit on corrupted features, mean of {args.n_folds} folds')
+                 f'refit on shuffled features, mean of {args.n_folds} folds')
     ax.grid(alpha=0.3)
     ax.legend(fontsize=9, loc=args.legend_loc)
     fig.tight_layout()
