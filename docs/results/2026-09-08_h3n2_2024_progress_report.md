@@ -76,7 +76,7 @@ CV folds.
 
 ### Results
 
-The table show mean ± std across four test folds.
+The table shows mean ± std across four test folds.
 
 A _"per-site feature"_ in this experiment refers to one feature column for each aligned position of a fixed-length CDS: a nucleotide, codon, or translated amino acid (aa), depending on the feature type.
 
@@ -115,7 +115,7 @@ We avoid the term _"positional encoding"_ because it usually refers to adding po
 
 ## 3. Where the codon-site signal sits
 
-Gain feature importance was computed for all four schema pairs. Each codon position is one feature. Gain is the total reduction in training loss from tree splits using that feature (highger reduction -> more important feature). Gain was normalized within each fold and then averaged across the four folds.
+Gain feature importance was computed for all four schema pairs. Each codon position is one feature. Gain is the total reduction in training loss from tree splits using that feature (higher reduction -> more important feature). Gain was normalized within each fold and then averaged across the four folds.
 
 For HA-NA, three barplots are shown. Left: gain feature importance; Middle: SHAP values; Right: permutation importance (test set features shuffled before prediction).
 
