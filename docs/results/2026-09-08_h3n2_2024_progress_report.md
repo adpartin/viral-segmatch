@@ -4,11 +4,11 @@
 
 **Research Question.** Given two influenza A gene-segment sequences, can a classifier distinguish an observed same-isolate pair from a generated pair that was not observed together?
 
-a) **Within-season matching**: Train and test on disjoint pairs from the same year. This represents an established season with existing paired sequences for training.
+(a) **Within-season matching**: Train and test on disjoint pairs from the same year. This represents an established season with existing paired sequences for training.
 
-b) **One-season-ahead matching**: Train on year T and test on year T+1, without using year T+1 data for model training or fine-tuning. This represents the beginning of a new season, before existing paired sequences are available.
+(b) **One-season-ahead matching**: Train on year T and test on year T+1, without using year T+1 data for model training or fine-tuning. This represents the beginning of a new season, before existing paired sequences are available.
 
-**Purpose of this report.** Summarize the work done on Human H3N2 2024 and decide a potential scope for publication. The within-season setting has now been tested with unique nucleotide and codon sequences. The one-season-ahead setting remains open.
+**Purpose of this report.** Summarize the work done on Human-H3N2-2024 and decide a potential scope for publication. The within-season setting (a) has now been tested with unique nucleotide and codon sequences, as well as k-mers. The one-season-ahead setting remains open.
 
 ---
 
@@ -26,7 +26,7 @@ test.
 
 ---
 
-## 2. Four-pair experiment
+## 2. Four schema pairs experiment
 
 Four schema pairs over four proteins, arranged so that each protein appears twice (HA and NA: variable surface proteins; PB2 and PA: conserved polymerase proteins).
 
@@ -39,7 +39,7 @@ Four schema pairs over four proteins, arranged so that each protein appears twic
 
 Explanation of columns for the table below:
 * **Eligible isolates**: isolates satisfying the metadata filters (Human, H3N2, 2024) with both required segments represented by complete CDS sequences at their pinned lengths.
-* **Unique positive pairs**: eligible isolates after deduplicating isolates containing the same exact pair of nucleotide sequences (i.e., sequence pair deduplication; deduplication is done per schema pair).
+* **Unique positive pairs**: eligible isolates after deduplicating exact pairs of nucleotide sequences (i.e., sequence pair deduplication per schema pair).
 * **HK-selected positives**: a maximum-size subset in which each nucleotide sequence occurs in at most one positive pair on each side. Hopcroft–Karp (HK) finds the maximum possible count under this constraint.
 * **Min-count sample**: the HK-selected population randomly sampled to 1,698 positives, the smallest HK count across the four schemas. HA–NA already has 1,698 and therefore is not reduced further.
 
@@ -69,18 +69,18 @@ Explanation of columns for the table below:
 
 ### Setup
 
-**Datasets**: Within a schema pair, all four feature representations use the SAME dataset rows and the SAME
+**Datasets**: Within a schema pair, all four feature representations (k-mers, per-site nucleotides, per-site codon, amino-acids) use the SAME dataset rows and the SAME
 CV folds.
 
 **Models**: LightGBM classifier with threshold 0.5, and a 1:1 neg-to-pos ratio.
 
 ### Results
 
-Mean ± std across four test folds.
+The table show mean ± std across four test folds.
 
-A _"per-site feature"_ in this experiment refer to one feature column for each aligned position of a fixed-length CDS: a nucleotide, codon, or translated amino acid (aa), depending on the feature type.
+A _"per-site feature"_ in this experiment refers to one feature column for each aligned position of a fixed-length CDS: a nucleotide, codon, or translated amino acid (aa), depending on the feature type.
 
-We avoid the term _"positional encoding"_ because it usually means adding positional information to sequence tokens in transformer architectures.
+We avoid the term _"positional encoding"_ because it usually refers to adding positional information to sequence tokens in transformer architectures.
 
 | Schema pair | Feature type | Features | F1 macro | AUC-ROC | Precision | Recall |
 |---|---|---:|---:|---:|---:|---:|
@@ -103,22 +103,21 @@ We avoid the term _"positional encoding"_ because it usually means adding positi
 
 ### What the table shows
 
-* Performance for Human-H3N2-2024 varies across schema pairs. With per-site nucleotide features, F1 macro ranges: 0.8300 for PB2-PA to 0.8819 for PB2-NA.
+* Performance for Human-H3N2-2024 varies across the schema pairs. With per-site nucleotide features, F1 macro ranges: 0.8300 for PB2-PA to 0.8819 for PB2-NA.
 
 * Per-site nucleotides and codons has a higher mean score than 6-mers for every schema pair. `TODO`: need more folds
 
-* Amino-acid (aa) performance is lower and varies by pair, and the comparison is not clean. Some schema pairs fall to near-chance. The aa arm likely violates two constraints that the nucleotide and codon arm satisfy: (a) no sequence is reused across pairs, and (b) no negative pair matches a positive pair (label collision). Both were enforced when the dataset was built, but enforced on nucleotide sequences, and translation collapses synonymous variants, so there is no guarantee either constraint should carry into aa space. Part of the performance loss therefore likely reflects how the dataset was constructed. `TODO`: For a fair aa experiment, rebuild the dataset using aa identity for positive-pair deduplication, and negative-pair collision blocking. Report this as a separate population because it cannot use exactly the same rows as the nucleotide experiments.
+* Amino-acid (aa) performance is lower and varies by pair. Some schema pairs fall to near-chance. The aa arm likely violates two constraints that the nucleotide and codon arm satisfy: (a) no sequence is reused across pairs, and (b) no negative pair matches a positive pair (label collision). Both criteria were enforced when the dataset was built on nucleotide sequences, and translation collapses synonymous variants, so there is no guarantee either constraint actually carries into aa space. Part of the performance loss with aa therefore likely reflects how the dataset was constructed. `TODO`: For a fair aa experiment, rebuild the dataset using aa sequences for positive-pair deduplication, and negative-pair collision blocking. Report this as a separate population because it cannot use exactly the same rows as the nucleotide experiments.
 
-* Mean precision is significantly below mean recall in all 16 cells. See §5.
+* Mean precision is significantly below mean recall in all 16 cells. See section 5.
 
 ---
 
 ## 3. Where the codon-site signal sits
 
-Gain feature importance was computed for all four schema pairs. Each codon position is one feature. Gain is the total reduction in training loss from tree splits using that feature. Gain was normalized
-within each fold and then averaged across the four folds.
+Gain feature importance was computed for all four schema pairs. Each codon position is one feature. Gain is the total reduction in training loss from tree splits using that feature (highger reduction -> more important feature). Gain was normalized within each fold and then averaged across the four folds.
 
-For HA-NA, the barplot also shows SHAP and single-site permutation importance for comparison.
+For HA-NA, three barplots are shown. Left: gain feature importance; Middle: SHAP values; Right: permutation importance (test set features shuffled before prediction).
 
 ![Gain, SHAP, and permutation importance for HA-NA codon sites](figs/2026-09-08_ha_na_codon_importance_barplot.png)
 
@@ -132,18 +131,13 @@ For HA-NA, the barplot also shows SHAP and single-site permutation importance fo
 Both sides contribute in every schema pair, and a relatively small set of sites carries much of
 the total gain.
 
-The same protein also receives a similar site ranking when paired with a different protein.
-Across the four proteins, cross-partner Spearman correlations are 0.79-0.80, and 6-8 of each
-protein's top 10 sites are shared between its two schema pairs. The important sites are therefore
-largely protein-specific rather than unique to one schema pair.
-
 The HA-NA gain trace illustrates how the important sites are distributed along both proteins.
 
 ![Gain importance along HA and NA codon positions](figs/2026-09-08_ha_na_codon_gain_trace.png)
 
 ### HA-NA shuffle and refit
 
-For HA-NA, sites were ranked by gain. The selected values were shuffled across pair rows in the training, validation, and test splits, and the model was then trained again. The ranking was averaged across all folds. Results are reported as the fraction of above-chance AUC-ROC lost:
+For HA-NA, site codon features were ranked by gain. The selected values were shuffled across pair rows in the training, validation, and test splits, and the model was then re-trained. The ranking was averaged across all folds. Results are reported as the fraction of above-chance AUC-ROC lost:
 
 `(baseline AUC - refit AUC) / (baseline AUC - 0.5)`
 
@@ -154,17 +148,17 @@ For HA-NA, sites were ranked by gain. The selected values were shuffled across p
 | 50 | 0.954 | 0.026 |
 | 100 | 1.008 | 0.031 |
 
-![HA-NA gain-ranked codon-site shuffling followed by refitting](figs/2026-09-08_ha_na_codon_shuffle_refit_gain.png)
+* Shuffling the top 10 sites, and then refitting recovers most of the above-chance performance.
+* Shuffling the top 50 sites, and then refitting removes 95.4% of above-chance AUC-ROC.
+* Shuffling 100 random sites, and then refitting removes only 3.1%.
 
-* After shuffling the top 10 sites, refitting recovers most of the above-chance performance.
-* Shuffling the top 50 sites before refitting removes 95.4% of above-chance AUC-ROC.
-* Shuffling 100 random sites before refitting removes only 3.1%.
+![HA-NA gain-ranked codon-site shuffling followed by refitting](figs/2026-09-08_ha_na_codon_shuffle_refit_gain.png)
 
 ---
 
 ## 4. Open question 1. One-season-ahead matching.
 
-Can a classifier trained on Human H3N2 sequences from 2024 match segments collected in 2025?
+Can a classifier trained on Human-H3N2-2024 sequences make accurate prediction on Human-H3N2-2025?
 
 * Build the 2024 and 2025 populations using the same complete-CDS, pinned-length, and sequence-deduplication protocol used in the within-season experiment.
 * Remove exact sequence overlap between years.
