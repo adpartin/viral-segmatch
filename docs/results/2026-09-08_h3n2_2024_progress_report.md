@@ -118,6 +118,10 @@ We avoid the term _"positional encoding"_ because it usually means adding positi
 Gain feature importance was computed for all four schema pairs. Each codon position is one feature. Gain is the total reduction in training loss from tree splits using that feature. Gain was normalized
 within each fold and then averaged across the four folds.
 
+For HA-NA, the barplot also shows SHAP and single-site permutation importance for comparison.
+
+![Gain, SHAP, and permutation importance for HA-NA codon sites](figs/2026-09-08_ha_na_codon_importance_barplot.png)
+
 | Schema pair | Gain by protein | Gain in top 25 sites |
 |---|---:|---:|
 | HA-NA | HA 55.5%; NA 44.5% | 59.1% |
@@ -133,6 +137,10 @@ Across the four proteins, cross-partner Spearman correlations are 0.79-0.80, and
 protein's top 10 sites are shared between its two schema pairs. The important sites are therefore
 largely protein-specific rather than unique to one schema pair.
 
+The HA-NA gain trace illustrates how the important sites are distributed along both proteins.
+
+![Gain importance along HA and NA codon positions](figs/2026-09-08_ha_na_codon_gain_trace.png)
+
 ### HA-NA shuffle and refit
 
 For HA-NA, sites were ranked by gain. The selected values were shuffled across pair rows in the training, validation, and test splits, and the model was then trained again. The ranking was averaged across all folds. Results are reported as the fraction of above-chance AUC-ROC lost:
@@ -145,6 +153,8 @@ For HA-NA, sites were ranked by gain. The selected values were shuffled across p
 | 25 | 0.749 | 0.000 |
 | 50 | 0.954 | 0.026 |
 | 100 | 1.008 | 0.031 |
+
+![HA-NA gain-ranked codon-site shuffling followed by refitting](figs/2026-09-08_ha_na_codon_shuffle_refit_gain.png)
 
 * After shuffling the top 10 sites, refitting recovers most of the above-chance performance.
 * Shuffling the top 50 sites before refitting removes 95.4% of above-chance AUC-ROC.
@@ -190,8 +200,10 @@ Datasets `data/datasets/flu/July_2025/runs/dataset_{ha_na,pb2_pa,pb2_na,pa_ha}_h
 Models under `models/flu/July_2025/runs/` with `human_h3n2_2024_n1698_seed42` in their names.
 Codon-site importance maps are under
 `results/flu/July_2025/dataset_{ha_na,pb2_pa,pb2_na,pa_ha}_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_n1698_seed42/site_importance/`.
-The HA-NA figures used in section 3 are `site_importance_codon_gain_trace.png` and
-`site_shuffle_refit_codon_gain.png`.
+The committed figures embedded in section 3 are
+`figs/2026-09-08_ha_na_codon_importance_barplot.png`,
+`figs/2026-09-08_ha_na_codon_gain_trace.png`, and
+`figs/2026-09-08_ha_na_codon_shuffle_refit_gain.png`.
 Method detail in `docs/plans/2026-08-28_per_site_nt_features_plan.md`, capacity in
 `docs/results/2026-09-08_cds_pair_capacity.md`, population definition in
 `docs/results/2026-09-07_cds_length_survey.md`.
