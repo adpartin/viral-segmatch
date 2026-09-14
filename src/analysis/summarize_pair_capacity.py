@@ -54,6 +54,7 @@ from src.datasets.dataset_pairs_cc import build_frontend  # noqa: E402
 from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2  # noqa: E402
 from src.utils import schema  # noqa: E402
 from src.utils.config_hydra import (  # noqa: E402
+    canonical_protein_pairs,
     get_function_short_name_map,
     get_virus_config_hydra,
 )
@@ -140,7 +141,8 @@ def isolate_overlap(retained_isolates: dict) -> pd.DataFrame:
 
 
 def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_short: dict,
-                            pair_key_alphabet: str, population: str = 'all',
+                            canonical_order: list, pair_key_alphabet: str,
+                            population: str = 'all',
                             ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Positive and matched-positive counts for every schema pair over `proteins`.
 
@@ -148,6 +150,7 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
       cohort: front-end rows restricted to the common isolate cohort.
       proteins: short protein names to pair up, taken two at a time.
       function_to_short: full function name -> short protein name.
+      canonical_order: short names in canonical order, fixing each pair's slot A / slot B.
       pair_key_alphabet: alphabet the positive dedup keys on, e.g. `nt_cds`.
       population: label describing what `cohort` was filtered to.
 
@@ -161,7 +164,7 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
 
     rows = []
     retained_isolates = {}
-    for protein_a, protein_b in itertools.combinations(proteins, 2):
+    for protein_a, protein_b in canonical_protein_pairs(proteins, canonical_order):
         label = f'{protein_a}-{protein_b}'
         positives, _ = create_positive_pairs_v2(
             cohort, schema_pair=(full_of[protein_a], full_of[protein_b]),
@@ -212,6 +215,7 @@ def main() -> None:
     config.dataset.year_range = args.year_range
 
     function_to_short = get_function_short_name_map(config)
+    canonical_order = [function_to_short[f] for f in config.virus.protein_order]
     full_of = {short: full for full, short in function_to_short.items()}
     unknown = [p for p in args.proteins if p not in full_of]
     if unknown:
@@ -241,7 +245,8 @@ def main() -> None:
     population = args.population or ' '.join(
         str(v) for values in (args.hn_subtype, args.host, args.year) if values for v in values)
     capacity, overlap = summarize_pair_capacity(
-        cohort, args.proteins, function_to_short, pair_key_alphabet, population=population or 'all')
+        cohort, args.proteins, function_to_short, canonical_order, pair_key_alphabet,
+        population=population or 'all')
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     capacity_path = args.out_dir / 'pair_capacity.csv'

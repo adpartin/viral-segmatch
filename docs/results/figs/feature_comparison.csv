@@ -1,0 +1,321 @@
+pair,features,fold,metric,value
+HA-NA,k-mer nt_cds k=6,0,f1,0.8888888888888888
+HA-NA,k-mer nt_cds k=6,0,f1_macro,0.8778208998131378
+HA-NA,k-mer nt_cds k=6,0,precision,0.8207171314741036
+HA-NA,k-mer nt_cds k=6,0,recall,0.9694117647058823
+HA-NA,k-mer nt_cds k=6,0,auc_roc,0.9340678200692041
+HA-NA,k-mer nt_cds k=6,1,f1,0.871413390010627
+HA-NA,k-mer nt_cds k=6,1,f1_macro,0.8559965500777773
+HA-NA,k-mer nt_cds k=6,1,precision,0.7945736434108527
+HA-NA,k-mer nt_cds k=6,1,recall,0.9647058823529412
+HA-NA,k-mer nt_cds k=6,1,auc_roc,0.9105439446366781
+HA-NA,k-mer nt_cds k=6,2,f1,0.8857453754080522
+HA-NA,k-mer nt_cds k=6,2,f1_macro,0.8753051201364586
+HA-NA,k-mer nt_cds k=6,2,precision,0.8222222222222222
+HA-NA,k-mer nt_cds k=6,2,recall,0.9599056603773585
+HA-NA,k-mer nt_cds k=6,2,auc_roc,0.9339511391954433
+HA-NA,k-mer nt_cds k=6,3,f1,0.8614072494669509
+HA-NA,k-mer nt_cds k=6,3,f1_macro,0.8449516458416548
+HA-NA,k-mer nt_cds k=6,3,precision,0.7859922178988327
+HA-NA,k-mer nt_cds k=6,3,recall,0.9528301886792453
+HA-NA,k-mer nt_cds k=6,3,auc_roc,0.9215968761124955
+HA-NA,site nt,0,f1,0.8809523809523809
+HA-NA,site nt,0,f1_macro,0.8695999018163967
+HA-NA,site nt,0,precision,0.8156312625250501
+HA-NA,site nt,0,recall,0.9576470588235294
+HA-NA,site nt,0,auc_roc,0.9320996539792388
+HA-NA,site nt,1,f1,0.8859934853420195
+HA-NA,site nt,1,f1_macro,0.8756026476774282
+HA-NA,site nt,1,precision,0.8225806451612904
+HA-NA,site nt,1,recall,0.96
+HA-NA,site nt,1,auc_roc,0.932393079584775
+HA-NA,site nt,2,f1,0.8766519823788547
+HA-NA,site nt,2,f1_macro,0.8672600013417116
+HA-NA,site nt,2,precision,0.8223140495867769
+HA-NA,site nt,2,recall,0.9386792452830188
+HA-NA,site nt,2,auc_roc,0.9339594829120682
+HA-NA,site nt,3,f1,0.8838219326818675
+HA-NA,site nt,3,f1_macro,0.8728787082764176
+HA-NA,site nt,3,precision,0.8189134808853119
+HA-NA,site nt,3,recall,0.9599056603773585
+HA-NA,site nt,3,auc_roc,0.944878626735493
+HA-NA,site codon,0,f1,0.8769230769230769
+HA-NA,site codon,0,f1_macro,0.8675754625121714
+HA-NA,site codon,0,precision,0.822680412371134
+HA-NA,site codon,0,recall,0.9388235294117647
+HA-NA,site codon,0,auc_roc,0.9329826989619378
+HA-NA,site codon,1,f1,0.8817204301075269
+HA-NA,site codon,1,f1_macro,0.869431643625192
+HA-NA,site codon,1,precision,0.8118811881188119
+HA-NA,site codon,1,recall,0.9647058823529412
+HA-NA,site codon,1,auc_roc,0.92880276816609
+HA-NA,site codon,2,f1,0.8849557522123894
+HA-NA,site codon,2,f1_macro,0.8768213104496291
+HA-NA,site codon,2,precision,0.8333333333333334
+HA-NA,site codon,2,recall,0.9433962264150944
+HA-NA,site codon,2,auc_roc,0.9333225792096831
+HA-NA,site codon,3,f1,0.9042904290429042
+HA-NA,site codon,3,f1_macro,0.8968720251948956
+HA-NA,site codon,3,precision,0.8474226804123711
+HA-NA,site codon,3,recall,0.9693396226415094
+HA-NA,site codon,3,auc_roc,0.9446032840868637
+HA-NA,site aa,0,f1,0.776824034334764
+HA-NA,site aa,0,f1_macro,0.7529953505007153
+HA-NA,site aa,0,precision,0.7140039447731755
+HA-NA,site aa,0,recall,0.851764705882353
+HA-NA,site aa,0,auc_roc,0.8252401384083046
+HA-NA,site aa,1,f1,0.799575821845175
+HA-NA,site aa,1,f1_macro,0.774953036417964
+HA-NA,site aa,1,precision,0.7277992277992278
+HA-NA,site aa,1,recall,0.8870588235294118
+HA-NA,site aa,1,auc_roc,0.8557979238754324
+HA-NA,site aa,2,f1,0.7704026115342764
+HA-NA,site aa,2,f1_macro,0.7494226699885024
+HA-NA,site aa,2,precision,0.7151515151515152
+HA-NA,site aa,2,recall,0.8349056603773585
+HA-NA,site aa,2,auc_roc,0.8328531060875757
+HA-NA,site aa,3,f1,0.7958333333333333
+HA-NA,site aa,3,f1_macro,0.7647644927536232
+HA-NA,site aa,3,precision,0.7126865671641791
+HA-NA,site aa,3,recall,0.9009433962264151
+HA-NA,site aa,3,auc_roc,0.8145859291562833
+PB2-PA,k-mer nt_cds k=6,0,f1,0.8123011664899258
+PB2-PA,k-mer nt_cds k=6,0,f1_macro,0.7892417325184107
+PB2-PA,k-mer nt_cds k=6,0,precision,0.7393822393822393
+PB2-PA,k-mer nt_cds k=6,0,recall,0.9011764705882352
+PB2-PA,k-mer nt_cds k=6,0,auc_roc,0.8823750865051903
+PB2-PA,k-mer nt_cds k=6,1,f1,0.8220338983050848
+PB2-PA,k-mer nt_cds k=6,1,f1_macro,0.7999058380414312
+PB2-PA,k-mer nt_cds k=6,1,precision,0.7475915221579962
+PB2-PA,k-mer nt_cds k=6,1,recall,0.9129411764705883
+PB2-PA,k-mer nt_cds k=6,1,auc_roc,0.8865439446366783
+PB2-PA,k-mer nt_cds k=6,2,f1,0.7883211678832117
+PB2-PA,k-mer nt_cds k=6,2,f1_macro,0.7564400954748487
+PB2-PA,k-mer nt_cds k=6,2,precision,0.7065420560747664
+PB2-PA,k-mer nt_cds k=6,2,recall,0.8915094339622641
+PB2-PA,k-mer nt_cds k=6,2,auc_roc,0.8577896938412247
+PB2-PA,k-mer nt_cds k=6,3,f1,0.7614107883817427
+PB2-PA,k-mer nt_cds k=6,3,f1_macro,0.7236015690542593
+PB2-PA,k-mer nt_cds k=6,3,precision,0.6796296296296296
+PB2-PA,k-mer nt_cds k=6,3,recall,0.8655660377358491
+PB2-PA,k-mer nt_cds k=6,3,auc_roc,0.8299995550017799
+PB2-PA,site nt,0,f1,0.8540305010893247
+PB2-PA,site nt,0,f1_macro,0.8413375011840485
+PB2-PA,site nt,0,precision,0.795131845841785
+PB2-PA,site nt,0,recall,0.9223529411764706
+PB2-PA,site nt,0,auc_roc,0.9165508650519031
+PB2-PA,site nt,1,f1,0.8552774755168662
+PB2-PA,site nt,1,f1_macro,0.842491490639355
+PB2-PA,site nt,1,precision,0.7955465587044535
+PB2-PA,site nt,1,recall,0.9247058823529412
+PB2-PA,site nt,1,auc_roc,0.9184664359861591
+PB2-PA,site nt,2,f1,0.8071654373024236
+PB2-PA,site nt,2,f1_macro,0.7810927588118544
+PB2-PA,site nt,2,precision,0.7295238095238096
+PB2-PA,site nt,2,recall,0.9033018867924528
+PB2-PA,site nt,2,auc_roc,0.8750389373442506
+PB2-PA,site nt,3,f1,0.8668122270742358
+PB2-PA,site nt,3,f1_macro,0.8552009853319897
+PB2-PA,site nt,3,precision,0.806910569105691
+PB2-PA,site nt,3,recall,0.9363207547169812
+PB2-PA,site nt,3,auc_roc,0.9271982912068352
+PB2-PA,site codon,0,f1,0.8283898305084746
+PB2-PA,site codon,0,f1_macro,0.8070520581113801
+PB2-PA,site codon,0,precision,0.7533718689788054
+PB2-PA,site codon,0,recall,0.92
+PB2-PA,site codon,0,auc_roc,0.8999861591695503
+PB2-PA,site codon,1,f1,0.8458244111349036
+PB2-PA,site codon,1,f1_macro,0.8289174274995667
+PB2-PA,site codon,1,precision,0.7760314341846758
+PB2-PA,site codon,1,recall,0.9294117647058824
+PB2-PA,site codon,1,auc_roc,0.9180705882352941
+PB2-PA,site codon,2,f1,0.803347280334728
+PB2-PA,site codon,2,f1_macro,0.774646613140337
+PB2-PA,site codon,2,precision,0.7218045112781954
+PB2-PA,site codon,2,recall,0.9056603773584906
+PB2-PA,site codon,2,auc_roc,0.8773084282662869
+PB2-PA,site codon,3,f1,0.8528138528138528
+PB2-PA,site codon,3,f1_macro,0.8383240248525223
+PB2-PA,site codon,3,precision,0.788
+PB2-PA,site codon,3,recall,0.9292452830188679
+PB2-PA,site codon,3,auc_roc,0.9189574804200783
+PB2-PA,site aa,0,f1,0.6261510128913443
+PB2-PA,site aa,0,f1_macro,0.4824566139375288
+PB2-PA,site aa,0,precision,0.5143721633888049
+PB2-PA,site aa,0,recall,0.8
+PB2-PA,site aa,0,auc_roc,0.5398975778546713
+PB2-PA,site aa,1,f1,0.6479113384484229
+PB2-PA,site aa,1,f1_macro,0.43211506201358524
+PB2-PA,site aa,1,precision,0.5080213903743316
+PB2-PA,site aa,1,recall,0.8941176470588236
+PB2-PA,site aa,1,auc_roc,0.5172456747404844
+PB2-PA,site aa,2,f1,0.28852459016393445
+PB2-PA,site aa,2,f1_macro,0.4444464571445823
+PB2-PA,site aa,2,precision,0.4731182795698925
+PB2-PA,site aa,2,recall,0.20754716981132076
+PB2-PA,site aa,2,auc_roc,0.5129550106799572
+PB2-PA,site aa,3,f1,0.6552020636285468
+PB2-PA,site aa,3,f1_macro,0.45142842393434846
+PB2-PA,site aa,3,precision,0.5155615696887687
+PB2-PA,site aa,3,recall,0.8985849056603774
+PB2-PA,site aa,3,auc_roc,0.5349879850480598
+PB2-NA,k-mer nt_cds k=6,0,f1,0.8833693304535637
+PB2-NA,k-mer nt_cds k=6,0,f1_macro,0.8719172233663167
+PB2-NA,k-mer nt_cds k=6,0,precision,0.8163672654690619
+PB2-NA,k-mer nt_cds k=6,0,recall,0.9623529411764706
+PB2-NA,k-mer nt_cds k=6,0,auc_roc,0.9386297577854671
+PB2-NA,k-mer nt_cds k=6,1,f1,0.855026455026455
+PB2-NA,k-mer nt_cds k=6,1,f1_macro,0.8367847506920354
+PB2-NA,k-mer nt_cds k=6,1,precision,0.7769230769230769
+PB2-NA,k-mer nt_cds k=6,1,recall,0.9505882352941176
+PB2-NA,k-mer nt_cds k=6,1,auc_roc,0.908467820069204
+PB2-NA,k-mer nt_cds k=6,2,f1,0.8658008658008658
+PB2-NA,k-mer nt_cds k=6,2,f1_macro,0.8525895520714173
+PB2-NA,k-mer nt_cds k=6,2,precision,0.8
+PB2-NA,k-mer nt_cds k=6,2,recall,0.9433962264150944
+PB2-NA,k-mer nt_cds k=6,2,auc_roc,0.9235938056247774
+PB2-NA,k-mer nt_cds k=6,3,f1,0.8808743169398907
+PB2-NA,k-mer nt_cds k=6,3,f1_macro,0.8706548281242348
+PB2-NA,k-mer nt_cds k=6,3,precision,0.8207739307535642
+PB2-NA,k-mer nt_cds k=6,3,recall,0.9504716981132075
+PB2-NA,k-mer nt_cds k=6,3,auc_roc,0.9267310430758278
+PB2-NA,site nt,0,f1,0.8930131004366813
+PB2-NA,site nt,0,f1_macro,0.8840065502183406
+PB2-NA,site nt,0,precision,0.8329938900203666
+PB2-NA,site nt,0,recall,0.9623529411764706
+PB2-NA,site nt,0,auc_roc,0.933849134948097
+PB2-NA,site nt,1,f1,0.8755458515283843
+PB2-NA,site nt,1,f1_macro,0.8650688441315391
+PB2-NA,site nt,1,precision,0.8167006109979633
+PB2-NA,site nt,1,recall,0.9435294117647058
+PB2-NA,site nt,1,auc_roc,0.9142256055363323
+PB2-NA,site nt,2,f1,0.9092945128779395
+PB2-NA,site nt,2,f1_macro,0.9042113909346111
+PB2-NA,site nt,2,precision,0.8656716417910447
+PB2-NA,site nt,2,recall,0.9575471698113207
+PB2-NA,site nt,2,auc_roc,0.950747040761837
+PB2-NA,site nt,3,f1,0.8824833702882483
+PB2-NA,site nt,3,f1_macro,0.8744910554212022
+PB2-NA,site nt,3,precision,0.8326359832635983
+PB2-NA,site nt,3,recall,0.9386792452830188
+PB2-NA,site nt,3,auc_roc,0.9334727661089356
+PB2-NA,site codon,0,f1,0.9070796460176991
+PB2-NA,site codon,0,f1_macro,0.9007760039133721
+PB2-NA,site codon,0,precision,0.8559498956158664
+PB2-NA,site codon,0,recall,0.9647058823529412
+PB2-NA,site codon,0,auc_roc,0.9447252595155708
+PB2-NA,site codon,1,f1,0.874468085106383
+PB2-NA,site codon,1,f1_macro,0.859602463605823
+PB2-NA,site codon,1,precision,0.7980582524271844
+PB2-NA,site codon,1,recall,0.9670588235294117
+PB2-NA,site codon,1,auc_roc,0.9083598615916956
+PB2-NA,site codon,2,f1,0.8781558726673985
+PB2-NA,site codon,2,f1_macro,0.8683772993910241
+PB2-NA,site codon,2,precision,0.8213552361396304
+PB2-NA,site codon,2,recall,0.9433962264150944
+PB2-NA,site codon,2,auc_roc,0.9368936899252404
+PB2-NA,site codon,3,f1,0.8704318936877077
+PB2-NA,site codon,3,f1_macro,0.8614454550405751
+PB2-NA,site codon,3,precision,0.8204592901878914
+PB2-NA,site codon,3,recall,0.9268867924528302
+PB2-NA,site codon,3,auc_roc,0.9208236917052331
+PB2-NA,site aa,0,f1,0.6572864321608041
+PB2-NA,site aa,0,f1_macro,0.5867992444491963
+PB2-NA,site aa,0,precision,0.5736842105263158
+PB2-NA,site aa,0,recall,0.7694117647058824
+PB2-NA,site aa,0,auc_roc,0.6681854671280276
+PB2-NA,site aa,1,f1,0.6623012160898035
+PB2-NA,site aa,1,f1_macro,0.5450967253190697
+PB2-NA,site aa,1,precision,0.5496894409937888
+PB2-NA,site aa,1,recall,0.8329411764705882
+PB2-NA,site aa,1,auc_roc,0.6154712802768166
+PB2-NA,site aa,2,f1,0.673394495412844
+PB2-NA,site aa,2,f1_macro,0.5429678747691282
+PB2-NA,site aa,2,precision,0.551051051051051
+PB2-NA,site aa,2,recall,0.8655660377358491
+PB2-NA,site aa,2,auc_roc,0.6246773762904948
+PB2-NA,site aa,3,f1,0.6426155580608793
+PB2-NA,site aa,3,f1_macro,0.6253868890428006
+PB2-NA,site aa,3,precision,0.6155507559395248
+PB2-NA,site aa,3,recall,0.6721698113207547
+PB2-NA,site aa,3,auc_roc,0.6783135679957281
+PA-HA,k-mer nt_cds k=6,0,f1,0.8266384778012685
+PA-HA,k-mer nt_cds k=6,0,f1_macro,0.8045659232507669
+PA-HA,k-mer nt_cds k=6,0,precision,0.7504798464491362
+PA-HA,k-mer nt_cds k=6,0,recall,0.92
+PA-HA,k-mer nt_cds k=6,0,auc_roc,0.8945937716262976
+PA-HA,k-mer nt_cds k=6,1,f1,0.834051724137931
+PA-HA,k-mer nt_cds k=6,1,f1_macro,0.8172849294264785
+PA-HA,k-mer nt_cds k=6,1,precision,0.7693836978131213
+PA-HA,k-mer nt_cds k=6,1,recall,0.9105882352941177
+PA-HA,k-mer nt_cds k=6,1,auc_roc,0.9032193771626298
+PA-HA,k-mer nt_cds k=6,2,f1,0.8516542155816436
+PA-HA,k-mer nt_cds k=6,2,f1_macro,0.8342592553534041
+PA-HA,k-mer nt_cds k=6,2,precision,0.7777777777777778
+PA-HA,k-mer nt_cds k=6,2,recall,0.9410377358490566
+PA-HA,k-mer nt_cds k=6,2,auc_roc,0.9099379227483092
+PA-HA,k-mer nt_cds k=6,3,f1,0.8151260504201681
+PA-HA,k-mer nt_cds k=6,3,f1_macro,0.7892834553176109
+PA-HA,k-mer nt_cds k=6,3,precision,0.7348484848484849
+PA-HA,k-mer nt_cds k=6,3,recall,0.9150943396226415
+PA-HA,k-mer nt_cds k=6,3,auc_roc,0.8837442150231399
+PA-HA,site nt,0,f1,0.8317256162915327
+PA-HA,site nt,0,f1_macro,0.8135160024091301
+PA-HA,site nt,0,precision,0.7637795275590551
+PA-HA,site nt,0,recall,0.9129411764705883
+PA-HA,site nt,0,auc_roc,0.901364705882353
+PA-HA,site nt,1,f1,0.8672566371681416
+PA-HA,site nt,1,f1_macro,0.8582514341619603
+PA-HA,site nt,1,precision,0.8183716075156576
+PA-HA,site nt,1,recall,0.9223529411764706
+PA-HA,site nt,1,auc_roc,0.9235044982698961
+PA-HA,site nt,2,f1,0.8759604829857299
+PA-HA,site nt,2,f1_macro,0.8660057191998713
+PA-HA,site nt,2,precision,0.8193018480492813
+PA-HA,site nt,2,recall,0.9410377358490566
+PA-HA,site nt,2,auc_roc,0.9378448736205055
+PA-HA,site nt,3,f1,0.8559322033898306
+PA-HA,site nt,3,f1_macro,0.8375405697800217
+PA-HA,site nt,3,precision,0.7769230769230769
+PA-HA,site nt,3,recall,0.9528301886792453
+PA-HA,site nt,3,auc_roc,0.9088782707369171
+PA-HA,site codon,0,f1,0.824654622741764
+PA-HA,site codon,0,f1_macro,0.803631659196969
+PA-HA,site codon,0,precision,0.751937984496124
+PA-HA,site codon,0,recall,0.9129411764705883
+PA-HA,site codon,0,auc_roc,0.8896083044982699
+PA-HA,site codon,1,f1,0.8491379310344828
+PA-HA,site codon,1,f1_macro,0.8338953903877078
+PA-HA,site codon,1,precision,0.7833001988071571
+PA-HA,site codon,1,recall,0.9270588235294117
+PA-HA,site codon,1,auc_roc,0.9184359861591694
+PA-HA,site codon,2,f1,0.8546448087431694
+PA-HA,site codon,2,f1_macro,0.8421751572525066
+PA-HA,site codon,2,precision,0.7963340122199593
+PA-HA,site codon,2,recall,0.9221698113207547
+PA-HA,site codon,2,auc_roc,0.9289282217871129
+PA-HA,site codon,3,f1,0.8498896247240618
+PA-HA,site codon,3,f1_macro,0.8388688629949423
+PA-HA,site codon,3,precision,0.7987551867219918
+PA-HA,site codon,3,recall,0.9080188679245284
+PA-HA,site codon,3,auc_roc,0.9108668565325738
+PA-HA,site aa,0,f1,0.49821215733015495
+PA-HA,site aa,0,f1_macro,0.504622919547772
+PA-HA,site aa,0,precision,0.5048309178743962
+PA-HA,site aa,0,recall,0.49176470588235294
+PA-HA,site aa,0,auc_roc,0.5110837370242215
+PA-HA,site aa,1,f1,0.6196891191709845
+PA-HA,site aa,1,f1_macro,0.560184695639914
+PA-HA,site aa,1,precision,0.5537037037037037
+PA-HA,site aa,1,recall,0.7035294117647058
+PA-HA,site aa,1,auc_roc,0.6072719723183391
+PA-HA,site aa,2,f1,0.5944206008583691
+PA-HA,site aa,2,f1_macro,0.5498281014763049
+PA-HA,site aa,2,precision,0.5452755905511811
+PA-HA,site aa,2,recall,0.6533018867924528
+PA-HA,site aa,2,auc_roc,0.5598272294410822
+PA-HA,site aa,3,f1,0.6135458167330677
+PA-HA,site aa,3,f1_macro,0.5264260875572853
+PA-HA,site aa,3,precision,0.5310344827586206
+PA-HA,site aa,3,recall,0.7264150943396226
+PA-HA,site aa,3,auc_roc,0.558311454254183

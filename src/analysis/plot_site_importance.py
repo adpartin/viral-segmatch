@@ -287,7 +287,7 @@ def plot_measure_panel(ax, table: pd.DataFrame, measure: str, top_n: int) -> Non
     ax.set_yticks(range(len(top)))
     ax.set_yticklabels([f"{r.protein} {int(r.site)}" for r in top.itertuples()])
     ax.set_xlabel(xlabel)
-    ax.set_title(f'{display} (mean of all folds +/- std)')
+    ax.set_title(f'{display} (mean of all folds ± std)')
     ax.grid(axis='x', alpha=0.3)
 
 

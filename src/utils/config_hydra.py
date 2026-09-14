@@ -6,6 +6,7 @@ hierarchical configuration management with easy switching between different
 virus configurations and training parameters.
 """
 
+import itertools
 import warnings
 from pathlib import Path
 from pprint import pprint
@@ -414,6 +415,31 @@ def load_function_metadata(virus_yaml: Path) -> SimpleNamespace:
         short_canonical_order=short_canonical_order,
         selected_short_names=selected_short_names,
     )
+
+
+# Pair order is derived from `protein_order` rather than listed in config, so a protein added to
+# the virus YAML reorders its pairs without a second list having to be kept in step.
+def canonical_protein_pairs(proteins: list, canonical_order: list) -> list:
+    """Unordered protein pairs, both within and between pairs ordered by `canonical_order`.
+
+    Args:
+      proteins: short protein names to pair up, taken two at a time.
+      canonical_order: short names in canonical order, e.g. the `short_canonical_order`
+          returned by `load_function_metadata`.
+
+    Returns:
+      `(protein_a, protein_b)` tuples, each ordered by `canonical_order`, the list itself
+      ordered by slot A's position then slot B's.
+
+    Raises:
+      ValueError: a name in `proteins` is absent from `canonical_order`.
+    """
+    unknown = [p for p in proteins if p not in canonical_order]
+    if unknown:
+        raise ValueError(
+            f"canonical_protein_pairs: proteins absent from canonical_order: {unknown}")
+    ordered = sorted(set(proteins), key=canonical_order.index)
+    return list(itertools.combinations(ordered, 2))
 
 
 def _get_replicon_type_for_segment(virus_name: str, segment: str) -> Optional[str]:
