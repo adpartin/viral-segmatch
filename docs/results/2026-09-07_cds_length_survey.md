@@ -26,17 +26,22 @@ python -m src.analysis.summarize_cds_lengths --hn_subtype H3N2 --host Human --ye
 
 All counts refer to CDS DNA, keyed by `cds_dna_hash`. Sequence statistics count each unique CDS once; isolate statistics count every isolate carrying it. These can differ greatly: 5,346 human H3N2 isolates from 2024 carry only 815 unique M1 sequences.
 
-The main fractions are:
-
-- `frac at mode`: fraction of complete, unique CDS at the modal length. `complete CDS at mode` / `complete CDS`
-- `frac isolates complete`: fraction of isolates whose record for that protein is complete. Isolates with a complete record / isolates.
-- `frac isolates at mode`: fraction of isolates with a complete CDS at the modal length. This is the primary screening measure because it includes incomplete records in the denominator.
-
-A CDS is complete if: `starts_with_m & has_terminal_stop & ~has_internal_stop`.
-
 ## Results: whole corpus
 
 All 108,530 isolates carry a record for every protein.
+
+A CDS is complete if: `starts_with_m & has_terminal_stop & ~has_internal_stop`.
+
+Columns:
+
+- `unique CDS`: how many different CDS sequences the protein has. Records carrying the same sequence count once.
+- `complete CDS`: how many of those sequences are complete.
+- `min`, `max`, `median`: the shortest, longest and median CDS length, in nucleotides. These cover complete sequences only, and count each different sequence once.
+- `mode`: the most common CDS length, over the same sequences as `min`, `max` and `median`.
+- `complete CDS at mode`: how many complete sequences are at the mode.
+- `frac at mode`: the share of complete sequences that are at the mode. `complete CDS at mode` / `complete CDS`.
+- `frac isolates complete`: the share of isolates whose record for this protein is complete. Isolates with a complete record / isolates carrying the protein.
+- `frac isolates at mode`: the share of isolates whose record is complete and at the mode. This is the primary screening measure, because an isolate with an incomplete record stays in the denominator.
 
 | Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -54,10 +59,10 @@ length, so the tie-breaking rule in `modal_length` was never exercised on this p
 
 ## Completeness, counted two ways
 
-The corpus contains 868,240 rows: 8 proteins for each of 108,530 isolates (8 x 108,530 = 868,240).
+The corpus in cds_dna_final.parquet contains 868,240 rows (8 major proteins x 108,530 isolates = 868,240 records).
 
 1) Out of 868,240 records, 855,695 are complete CDS based on bool column `is_complete_cds` in cds_dna_final.parquet (98.56%).
-2) Out of 868,240 records, 437,714 are unique. Out of 437,714 unique, 447,170 are complete CDS (97.89%).
+2) Out of 868,240 records, 447,170 are unique. Out of 447,170 unique, 437,714 are complete CDS (97.89%).
 
 ## What the results say about the pinned lengths
 
