@@ -1,4 +1,4 @@
-# Per-protein CDS completeness and length, corpus-wide and for human H3N2 2024
+# Per-protein CDS completeness and length, corpus-wide and for Human-H3N2-2024
 
 ```yaml
 # Provenance. status: current | at-risk (inputs changed, not rebuilt) | superseded (replaced)
@@ -15,10 +15,7 @@ depends_on:     [src/utils/cds_utils.py, src/utils/config_hydra.py]
 
 ## Why this was measured
 
-Per-site features use one column per sequence position and do not align or pad sequences. Each
-protein therefore needs a fixed CDS length. A dominant length is necessary, but equal-length
-sequences are not necessarily aligned at homologous positions. This survey checks CDS completeness
-and length before schema-pair experiments.
+Per-site features use one column per sequence position and do not align or pad sequences. Each protein therefore needs a single CDS length shared by every record. A dominant length is necessary, but equal-length sequences are not necessarily aligned at homologous positions. This survey checks CDS completeness and length before schema-pair experiments.
 
 ## What was done
 
@@ -27,63 +24,48 @@ python -m src.analysis.summarize_cds_lengths
 python -m src.analysis.summarize_cds_lengths --hn_subtype H3N2 --host Human --year 2024
 ```
 
-All counts refer to CDS DNA, keyed by `cds_dna_hash`. Sequence statistics count each distinct CDS
-once; isolate statistics count every isolate carrying it. These can differ greatly: 5,346 human
-H3N2 isolates from 2024 carry only 815 distinct M1 sequences.
+All counts refer to CDS DNA, keyed by `cds_dna_hash`. Sequence statistics count each unique CDS once; isolate statistics count every isolate carrying it. These can differ greatly: 5,346 human H3N2 isolates from 2024 carry only 815 unique M1 sequences.
 
 The main fractions are:
 
-- `frac at mode`: fraction of complete, distinct CDS at the modal length. `complete CDS at mode` / `complete CDS`
-- `frac isolates complete`: fraction of isolates with a complete CDS.
-- `frac isolates at mode`: fraction of isolates with a complete CDS at the modal length. This is
-  the primary screening measure because it includes incomplete records in the denominator.
+- `frac at mode`: fraction of complete, unique CDS at the modal length. `complete CDS at mode` / `complete CDS`
+- `frac isolates complete`: fraction of isolates whose record for that protein is complete. Isolates with a complete record / isolates.
+- `frac isolates at mode`: fraction of isolates with a complete CDS at the modal length. This is the primary screening measure because it includes incomplete records in the denominator.
 
-Length summaries use complete CDS only. A CDS is complete when
-`starts_with_m & has_terminal_stop & ~has_internal_stop`.
+A CDS is complete if: `starts_with_m & has_terminal_stop & ~has_internal_stop`.
 
 ## Results: whole corpus
 
 All 108,530 isolates carry a record for every protein.
 
-| Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates at mode |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 67,341 | 66,356 | 2,199 | 2,283 | 2,280 | 2,280 | 66,210 | 0.998 | 0.989 |
-| 2 | PB1 | 67,034 | 63,574 | 2,193 | 2,292 | 2,274 | 2,274 | 58,925 | 0.927 | 0.882 |
-| 3 | PA | 65,242 | 64,670 | 2,073 | 2,163 | 2,151 | 2,151 | 64,576 | 0.999 | 0.993 |
-| 4 | HA | 65,414 | 64,125 | 1,659 | 1,713 | 1,701 | 1,701 | 44,202 | 0.689 | 0.659 |
-| 5 | NP | 52,800 | 51,749 | 1,446 | 1,500 | 1,497 | 1,497 | 51,681 | 0.999 | 0.987 |
-| 6 | NA | 58,887 | 57,278 | 1,341 | 1,428 | 1,410 | 1,410 | 46,175 | 0.806 | 0.826 |
-| 7 | M1 | 32,413 | 32,119 | 726 | 762 | 759 | 759 | 32,117 | 1.000 | 0.996 |
-| 8 | NS1 | 38,039 | 37,843 | 609 | 717 | 693 | 693 | 21,576 | 0.570 | 0.600 |
+| Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 67,341 | 66,356 | 2,199 | 2,283 | 2,280 | 2,280 | 66,210 | 0.998 | 0.990 | 0.989 |
+| 2 | PB1 | 67,034 | 63,574 | 2,193 | 2,292 | 2,274 | 2,274 | 58,925 | 0.927 | 0.949 | 0.882 |
+| 3 | PA | 65,242 | 64,670 | 2,073 | 2,163 | 2,151 | 2,151 | 64,576 | 0.999 | 0.994 | 0.993 |
+| 4 | HA | 65,414 | 64,125 | 1,659 | 1,713 | 1,701 | 1,701 | 44,202 | 0.689 | 0.987 | 0.659 |
+| 5 | NP | 52,800 | 51,749 | 1,446 | 1,500 | 1,497 | 1,497 | 51,681 | 0.999 | 0.988 | 0.987 |
+| 6 | NA | 58,887 | 57,278 | 1,341 | 1,428 | 1,410 | 1,410 | 46,175 | 0.806 | 0.983 | 0.826 |
+| 7 | M1 | 32,413 | 32,119 | 726 | 762 | 759 | 759 | 32,117 | 1.000 | 0.996 | 0.996 |
+| 8 | NS1 | 38,039 | 37,843 | 609 | 717 | 693 | 693 | 21,576 | 0.570 | 0.998 | 0.600 |
 
 The median equals the mode for all 8 proteins. No protein had a tie for the most common
 length, so the tie-breaking rule in `modal_length` was never exercised on this population.
 
 ## Completeness, counted two ways
 
-The corpus contains 868,240 rows: 8 proteins for each of 108,530 isolates.
+The corpus contains 868,240 rows: 8 proteins for each of 108,530 isolates (8 x 108,530 = 868,240).
 
-- Rows: 855,695 of 868,240 are complete (98.56%). Step 0 of
-  `docs/plans/2026-08-28_per_site_nt_features_plan.md` also reports `starts_with_m` for 864,444
-  rows, `has_terminal_stop` for 858,776, and no internal stops.
-- Distinct CDS: 437,714 of 447,170 are complete (97.89%). This is the denominator used in the
-  whole-corpus table.
-
-The row fraction is higher because frequently observed sequences are more often complete.
+1) Out of 868,240 records, 855,695 are complete CDS based on bool column `is_complete_cds` in cds_dna_final.parquet (98.56%).
+2) Out of 868,240 records, 437,714 are unique. Out of 437,714 unique, 447,170 are complete CDS (97.89%).
 
 ## What the results say about the pinned lengths
 
-The corpus-wide modes match all 6 pins in `conf/virus/flu.yaml`: PB2 2,280, PA 2,151, HA 1,701,
-NP 1,497, NA 1,410, M1 759 nt. This confirms that the pins are corpus-wide modes, but it is not
-independent validation: H3N2 and H1N1 together make up 61.5% of the corpus and can determine those
-modes.
+The corpus-wide mode values (i.e., regardless of the metadata) match all 6 length pins in `conf/virus/flu.yaml`: PB2 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, M1 759 nt. Note that variation in terms of mode length might be observed across different metadata (e.g., H3N2 and H1N1 together make up 61.5% of the corpus and can determine those modes).
 
-The corpus-wide fractions do not validate population-specific thresholds. HA and NA have lower
-fractions because their lengths differ among subtypes. PB1 and NS1 have no global pins because
-their dominant lengths change across the populations and years of interest. They require a
-population-specific check.
+PB1 and NS1 have no global pins because their dominant lengths change across the populations and years.
 
-## Results: Human H3N2 2024
+## Results: Human-H3N2-2024
 
 This is the population used by the current experiments. It contains 5,346 isolates, each with a
 record for all 8 proteins.
