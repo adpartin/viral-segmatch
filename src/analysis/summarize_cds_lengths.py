@@ -35,7 +35,13 @@ is a matter of filtering before the call and passing a `population` label; the s
 no change.
 
 Outputs (to `--out_dir`):
-    cds_length_survey.csv   one row per protein, with the columns in `COLUMNS`
+    cds_length_survey.csv   one row per protein per population, with the columns in `COLUMNS`
+
+One run surveys one population, and the file accumulates them: a run adds its rows to whatever is
+already there and replaces the rows of any population it recomputes, keyed on the `population`
+column. Populations therefore share one file instead of each taking its own, which keeps a
+comparison across populations a groupby rather than a join. Reading that file back needs
+`keep_default_na=False, na_values=['']`, since the `protein` column holds the literal string `NA`.
 
 CLI:
     python -m src.analysis.summarize_cds_lengths
@@ -176,6 +182,34 @@ def summarize_cds_lengths(cds: pd.DataFrame, function_to_short: dict,
     return table
 
 
+def merge_population_rows(table: pd.DataFrame, out_path: Path) -> pd.DataFrame:
+    """Combine `table` with the rows already on disk, replacing the populations it carries.
+
+    One survey covers one population, and the populations of interest accumulate over time, so
+    they share a file keyed on the `population` column rather than each taking a file of their
+    own. Re-running a population replaces its rows, so the file never carries a population twice.
+
+    The read uses `keep_default_na=False, na_values=['']` because the `protein` column holds the
+    literal string `NA` (Neuraminidase), which a default read parses as NaN and so drops.
+
+    Args:
+      table: the survey rows for the population just computed.
+      out_path: CSV holding the populations surveyed so far; need not exist.
+
+    Returns:
+      The combined rows, ordered by population then segment, which makes the file content
+      independent of the order the populations were run in.
+    """
+    if out_path.exists():
+        existing = pd.read_csv(out_path, keep_default_na=False, na_values=[''])
+        kept = existing[~existing['population'].isin(table['population'])]
+        combined = pd.concat([kept, table], ignore_index=True)
+    else:
+        combined = table
+    ordered = combined.sort_values(['population', 'Segment ID']).reset_index(drop=True)
+    return ordered
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--cds_final', type=Path,
@@ -224,7 +258,8 @@ def main() -> None:
     table = summarize_cds_lengths(cds, function_to_short, population=population)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out_dir / 'cds_length_survey.csv'
-    table.to_csv(out_path, index=False)
+    combined = merge_population_rows(table, out_path)
+    combined.to_csv(out_path, index=False)
 
     shown = table.copy()
     for column in ('frac at mode', 'frac isolates complete', 'frac isolates at mode'):
@@ -237,7 +272,9 @@ def main() -> None:
     print("\nScreen on 'frac isolates at mode'. 'frac at mode' divides by the complete CDS, so it"
           "\ncannot see a gene whose records are mostly incomplete; 'frac isolates complete'"
           "\nreports that failure on its own. All counts are CDS DNA, not protein.")
-    print(f"\nWrote {out_path}")
+    populations = combined['population'].nunique()
+    print(f"\nWrote {out_path} ({len(combined)} rows, {populations} "
+          f"population{'s' if populations != 1 else ''})")
     print('Done.')
 
 
