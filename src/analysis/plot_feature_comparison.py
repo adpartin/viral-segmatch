@@ -70,7 +70,7 @@ FEATURE_COLORS = ['#4C7CAB', '#5B9E6E', '#CF8793', '#B98B4A', '#7E6BA8', '#4E9DA
 FEATURE_MARKERS = ['o', 's', '^', 'D', 'v', 'P']
 
 FOLD_DOT_SIZE = 14
-MEAN_DOT_SIZE = 44
+MEAN_DOT_SIZE = 35
 MARKER_EDGE = '#222222'
 
 
@@ -244,7 +244,7 @@ def plot_metric_panel(ax, table: pd.DataFrame, metric: str, pair_order: list,
             ax.errorbar(center, mean, yerr=std, color=MARKER_EDGE, elinewidth=0.9,
                         capsize=3, capthick=0.9, zorder=3, linestyle='none')
             ax.scatter(center, mean, s=MEAN_DOT_SIZE, color=color, marker=marker,
-                       edgecolor=MARKER_EDGE, linewidths=0.7, zorder=4,
+                       alpha=0.7, edgecolor=MARKER_EDGE, linewidths=0.7, zorder=4,
                        label=features if x == 0 else None)
 
     if chance is not None:
