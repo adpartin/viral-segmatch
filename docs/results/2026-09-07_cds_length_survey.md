@@ -43,16 +43,20 @@ Columns:
 - `frac isolates complete`: share of isolates whose record for this protein is complete. Isolates with a complete record / isolates carrying the protein.
 - `frac isolates at mode`: share of isolates whose record is complete AND at the mode. This is the primary screening measure, because an isolate with an incomplete record stays in the denominator.
 
-Clarifying `frac isolates complete` and `frac isolates at mode` with PB2 on the whole corpus. Both fractions share the same denominator — isolates, not sequences.
+Clarifying `frac isolates complete` and `frac isolates at mode` with PB1 on the whole corpus. Both fractions share the same denominator — isolates, not sequences:
 
 ```
-isolates carrying PB2:                     108,530 (denominator for both)
-isolates whose PB2 is complete:            107,472
-isolates complete AND at mode (2,280 nt):  107,320
+isolates carrying PB1:                     108,530 (denominator for both)
+isolates whose PB1 is complete:            102,943
+isolates complete AND at mode (2,274 nt):   95,768
 
-frac isolates complete = 107,472 / 108,530 = 0.990252  ->  0.990
-frac isolates at mode  = 107,320 / 108,530 = 0.988851  ->  0.989
+frac isolates complete = 102,943 / 108,530 = 0.948521  ->  0.949
+frac isolates at mode  =  95,768 / 108,530 = 0.882410  ->  0.882
 ```
+
+The two fractions separate two different failures. 5,587 isolates have no complete PB1 at all, and
+a further 7,175 have a complete PB1 at a length other than 2,274 nt. `frac at mode` sees only the
+second of these, because its denominator is the complete sequences.
 
 | Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -83,8 +87,22 @@ PB1 and NS1 have no global pins because their dominant lengths change across the
 
 ## Results: Human-H3N2-2024
 
-This is the population used by the current experiments. It contains 5,346 isolates, each with a
-record for all 8 proteins.
+This is the population used by the current experiments. It contains 5,346 isolates, each with a record for all 8 proteins.
+
+Clarifying `frac isolates complete` and `frac isolates at mode` with PB1 on this population. Both fractions share the same denominator — isolates, not sequences:
+
+```
+isolates carrying PB1:                     5,346 (denominator for both)
+isolates whose PB1 is complete:            2,958
+isolates complete AND at mode (2,277 nt):  2,945
+
+frac isolates complete = 2,958 / 5,346 = 0.553311  ->  0.553
+frac isolates at mode  = 2,945 / 5,346 = 0.550879  ->  0.551
+```
+
+The two fractions are nearly equal because only 13 isolates have a complete PB1 at a length other
+than 2,277 nt. Almost all of the loss is the 2,388 isolates with no complete PB1 at all, which is
+a different failure from the one `frac at mode` reports.
 
 | Segment ID | protein | isolates | unique CDS | complete CDS | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
