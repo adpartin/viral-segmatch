@@ -99,19 +99,9 @@ For each pair, report these counts in order:
 4. positives retained by Hopcroft-Karp;
 5. positives and negatives in each CV fold.
 
-### Pinned-length and aligned site features
+### Pinned-length site features
 
-Pinned-length site features assign one feature column to each nucleotide, codon, or amino-acid (aa) position after retaining one configured CDS length. This is the current production method.
-
-Aligned site features assign one feature column to each homologous alignment position. Coding sequences must be aligned in a way that preserves the reading frame. The proposed pilot translates each CDS, aligns the proteins, and projects protein gaps back to codon triplets. An unrestricted nucleotide alignment is not acceptable because it can introduce frame-breaking gaps.
-
-An alignment gap, an unknown base, and unobserved sequence are different states:
-
-- a gap represents an inferred biological insertion or deletion relative to other sequences;
-- an unknown base is present in the record but unresolved;
-- unobserved sequence is absent because the assembly or CDS is truncated.
-
-These states must not be encoded as the same category. In particular, a truncated PB1 record must not be presented as evidence of a biological deletion.
+Pinned-length site features assign one feature column to each nucleotide, codon, or amino-acid (aa) position after retaining one configured CDS length. This is the current production method and the one experiments 1 to 3 use.
 
 ### What the model predicts
 
@@ -294,6 +284,18 @@ separate by using a new bundle tag and output namespace.
 ### Question
 
 Does alignment add enough valid site-feature data to justify new production-pipeline support?
+
+### Aligned site features
+
+Aligned site features assign one feature column to each homologous alignment position. Coding sequences must be aligned in a way that preserves the reading frame. The proposed pilot translates each CDS, aligns the proteins, and projects protein gaps back to codon triplets. An unrestricted nucleotide alignment is not acceptable because it can introduce frame-breaking gaps.
+
+An alignment gap, an unknown base, and unobserved sequence are different states:
+
+- a gap represents an inferred biological insertion or deletion relative to other sequences;
+- an unknown base is present in the record but unresolved;
+- unobserved sequence is absent because the assembly or CDS is truncated.
+
+These states must not be encoded as the same category. In particular, a truncated PB1 record must not be presented as evidence of a biological deletion.
 
 ### Audit before alignment
 
