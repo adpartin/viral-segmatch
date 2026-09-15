@@ -1,4 +1,4 @@
-# Cross-year site importance, 28-pairs, and aligned CDS features
+# Cross-year site feature importance, 28-pairs, and aligned CDS features
 
 **Status: IN PROGRESS**
 
@@ -8,20 +8,16 @@ Follow up questions/tasks following the `docs/results/2026-09-08_h3n2_2024_progr
 
 1. Are the same sequence sites dominate in terms of feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-{2023,2025}.
 2. Extend the prediction performance and feature imparance analysis to 28-pairs; the 8 major proteins, c(8,2).
-3. Can codon-preserving sequence alignment retain useful records that pinned-length filtering drops? We need to understand if we really need this. Consider `2026-09-07_cds_length_survey.md` in general, and specifically table 3 which focuses on years 2015-2025. We need to determine whether alignment effort worth it.
+3. Can codon-preserving sequence alignment retain records that pinned-length filtering drops? We need to determine whether alignment effort worth it. Consider `2026-09-07_cds_length_survey.md` in general, and specifically table 3 which focuses on years 2015-2025.
 
-These tasks are related but do not need to be answered in one experiment. The cross-year comparison and the initial 28-pairs screen will use the current pinned-length pipeline.
+The cross-year comparison and the initial 28-pairs screen can use the existing pinned-length pipeline.
 
-Alignment will be evaluated separately and will enter the production pipeline only if it retains meaningful data without making site coordinates ambiguous.
+Alignment will be evaluated separately and will enter the production pipeline only if it retains meaningful data.
 
-Alignment is not required to have a coordinate system, and is not required for Experiment 1: HA and
-NA keep the same pin in 2023, 2024 and 2025, so the site indices already refer to the same position
-in all three years by construction. What alignment would add is the guarantee that a shared index is
+Alignment is not required for Experiment 1 because HA and
+NA keep the same pin in 2023, 2024 and 2025. What alignment would add is the guarantee that a shared site is
 a shared *homologous* position. `docs/results/2026-09-07_cds_length_survey.md` states that equal CDS
-length does not prove positional homology, and nothing in the current pipeline checks it, so today's
-importance maps are interpretable conditional on an assumption that has not been tested. Alignment
-is required outright only where the pin itself differs between the populations being compared, which
-is PB1.
+length does not prove positional homology, and nothing in the current pipeline checks it.
 
 Alignment tools to consider:
 - pyhmmer: https://github.com/althonos/pyhmmer; https://pyhmmer.readthedocs.io/en/stable/

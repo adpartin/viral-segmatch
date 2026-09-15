@@ -70,22 +70,6 @@ Table columns below:
 - `frac isolates complete`: share of isolates (the 108,530) whose CDS for the protein passes the completeness check: isolates with a complete CDS / isolates carrying the protein.
 - `frac isolates at mode`: share of isolates (the 108,530) whose CDS is complete and has the modal length: isolates with a complete CDS at the mode / isolates carrying the protein. This is the share of the isolate population retained by pinning the protein to its modal length.
 
-Clarifying `frac isolates complete` and `frac isolates at mode` columns with PB1 on the whole corpus. Both fractions share the same denominator — isolates, not sequences:
-
-```
-isolates carrying PB1:                     108,530 (denominator for both)
-isolates whose PB1 is complete:            102,943 (is_complete_cds==True)
-isolates complete AND at mode (2,274 nt):   95,768
-
-frac isolates complete = 102,943 / 108,530 = 0.948521  ->  0.949
-frac isolates at mode  =  95,768 / 108,530 = 0.882410  ->  0.882
-```
-
-The two isolate fractions separate two sources of data loss. Of the 108,530 isolates, 5,587 have no
-complete PB1, and a further 7,175 have a complete PB1 at a length other than 2,274 nt. `frac at
-mode` is not another view of these isolate counts: it excludes incomplete CDS and counts each
-unique complete CDS once. It measures how concentrated the complete sequence set is at one length.
-
 | Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 67,341 | 66,356 | 2,199 | 2,283 | 2,280 | 2,280 | 66,210 | 0.998 | 0.990 | 0.989 |
@@ -97,35 +81,34 @@ unique complete CDS once. It measures how concentrated the complete sequence set
 | 7 | M1 | 32,413 | 32,119 | 726 | 762 | 759 | 759 | 32,117 | 1.000 | 0.996 | 0.996 |
 | 8 | NS1 | 38,039 | 37,843 | 609 | 717 | 693 | 693 | 21,576 | 0.570 | 0.998 | 0.600 |
 
-The median equals the mode for all 8 proteins. No protein had a tie for the most common
-length, so the tie-breaking rule in `modal_length` was never exercised on this population.
+Clarifying `frac isolates complete` and `frac isolates at mode` columns with PB1. Both fractions share the same denominator — isolates, not sequences:
+
+```
+isolates carrying PB1:                     108,530 (denominator for both)
+isolates whose PB1 is complete:            102,943 (is_complete_cds==True)
+isolates complete AND at mode (2,274 nt):   95,768
+
+frac isolates complete = 102,943 / 108,530 = 0.948521  ->  0.949
+frac isolates at mode  =  95,768 / 108,530 = 0.882410  ->  0.882
+```
 
 ## What the results say about the pinned lengths
 
-Shows complete CDS at more than one length. This is why PB1 and NS1 have no corpus-wide pin.
+This section concerns P2. A validated codon-aware alignment could allow complete CDS of different lengths to share one coordinate system and be retained together. It would not recover incomplete CDS or establish that combining different subtypes or years is scientifically appropriate.
 
-The corpus-wide modes match the 6 lengths currently configured in `conf/virus/flu.yaml`: PB2
-2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, and M1 759 nt. These corpus-wide modes are
-descriptive, not universal pins: the corpus mixes subtypes, hosts, and years, and some proteins have
-different dominant lengths in narrower populations.
+The corpus-wide modes match the 6 lengths configured in `conf/virus/flu.yaml`: PB2 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, and M1 759 nt. This agreement does not make the lengths universal. The whole corpus combines subtypes, hosts, and years, so a pin must be validated in the population where it will be used.
 
-No corpus-wide pin is configured for PB1 or NS1, but the two are absent for different reasons.
+`PB1` and `NS1` have no configured pins, but the source of the length variation differs:
 
-Within Human-H3N2, the modal complete-CDS length of NS1 is 693 nt in every year from 2015 through
-2025. In a broader H3N2 data, 3,120 of the 3,276 isolates with a complete 660-nt NS1 are labelled
-`Pig`. The available data therefore do not support a year-specific NS1 mode change within
-Human-H3N2; the absence of a global pin reflects population mixing rather than instability within
-this filter.
+- **NS1 varies mainly across subtypes.** H1N1 is dominated by 660 nt and H3N2 by 693 nt. Because `cds_length` is keyed only by protein, one configured `NS1` length cannot represent both subtypes. Within Human-H3N2, the mode remains 693 nt from 2015 through 2025, although other complete lengths reduce retention to 72.3% in 2019 and 68.8% in 2020.
 
-Among the 8 proteins surveyed, PB1 is the only one whose modal complete-CDS length changes
-within Human-H3N2 from 2015 through 2025: 2,274 nt through 2023 and 2,277 nt in 2024 and 2025.
-These are properties of the records in this corpus, so neither value should be treated as a
-universal pin length.
+- **PB1 varies across years within Human-H3N2.** Its modal length is 2,274 nt through 2023 and 2,277 nt in 2024-2025, with both lengths common in 2023. Neither length provides one `PB1` pin for the full period.
 
 ## Results: Human-H3N2-2024
 
-Shows incomplete CDS in PB1 and low sequence diversity in M1 and NS1. Complete CDS at more than one
-length nearly disappears here, because the population is restricted to one host, subtype and year.
+This section concerns P1 and P3: incomplete CDS in PB1, and low sequence diversity in M1 and NS1.
+Complete CDS at more than one length (i.e., P2) nearly disappears here, because the population is restricted to
+one host-subtype-year.
 
 This is the population used by the current experiments. It contains 5,346 isolates, each with a record for all 8 proteins.
 
@@ -163,7 +146,7 @@ reported.
 
 ## Why PB1 requires a population-specific pin
 
-Shows incomplete CDS. This is the largest single loss in the survey.
+This section concerns P1. It is the largest single loss in the survey.
 
 PB1 has `frac at mode = 0.994` among unique complete CDS, but only 55.3% of isolates have a
 complete PB1 and 55.1% have a complete CDS at the mode. The sequence-level fraction establishes a
@@ -187,7 +170,7 @@ establish why the sequence is absent or measure the biological prevalence of the
 
 ## Pin stability by year (additional measurement)
 
-Shows complete CDS at more than one length, and where it does not occur. For seven proteins, the modal complete-CDS length is unchanged in every Human-H3N2 year from 2015
+This section concerns P2, including where it does not occur. For seven proteins, the modal complete-CDS length is unchanged in every Human-H3N2 year from 2015
 through 2025: PB2 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, M1 759, and NS1 693 nt. The
 table reports the share of each year's isolates with a complete CDS at that length:
 
