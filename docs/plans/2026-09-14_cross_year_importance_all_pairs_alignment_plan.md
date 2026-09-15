@@ -118,59 +118,61 @@ The label records whether two segment sequences were observed together in one is
 
 ### Question
 
-Do models trained separately on Human-H3N2 data from 2024 and 2025 rely on similar HA and NA codon sites?
+Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
+codon sites?
 
 ### Design
 
-`conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` is the dataset
-reference. It sets the population and splitting but nothing about features or models, which the
-four-pair experiment supplied as run-time overrides. The model and importance reference is
-therefore the saved `resolved_config.yaml` of the existing 2024 codon runs. Those runs and their
-per-fold gain are reused, not rerun. Both are the HA-NA arm of
-`docs/results/2026-09-08_h3n2_2024_progress_report.md`, which is a summary rather than a
-protocol.
+Use `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` as the
+2024 dataset reference. Use the saved `resolved_config.yaml` files from the existing 2024 HA-NA
+codon and nucleotide 6-mer runs as the feature and model references. Reuse the 2024 results. These
+runs are summarized in `docs/results/2026-09-08_h3n2_2024_progress_report.md`.
 
-Differences from that reference:
+For 2025:
 
-- 2025 gets a sibling bundle changing only the year filter;
-- per-site codon is the primary representation, nucleotide 6-mers the performance reference;
-- each year keeps its full Hopcroft-Karp population, 1,698 positives in 2024 and 1,337 in 2025,
-  with no subsampling to a common count. The 1.27x difference stays a candidate explanation for any
-  difference in the gain rankings;
-- 2025 is a partial season in the July 2025 corpus;
-- the cross-year comparison below is new.
+- create a sibling dataset bundle that changes only the year;
+- train per-site codon models for the importance comparison;
+- train nucleotide 6-mer models as a performance reference;
+- keep the full Hopcroft-Karp population.
 
-Gain is computed from splits in the fitted trees. It is derived from training and is not test-set importance. SHAP on held-out rows and
-permutation importance can confirm it if the rankings are unstable or if the top sites drive a
-biological claim.
+The 2024 and 2025 populations contain 1,698 and 1,337 positives, respectively. They will not be
+downsampled to the same size, so sample size may contribute to differences in their gain rankings.
+The July 2025 corpus contains only a partial 2025 season.
+
+Gain is computed from splits in the fitted trees and is therefore derived from training, not
+held-out data. If the rankings are unstable or support a biological claim, confirm them with SHAP
+or permutation importance on held-out rows.
 
 ### Comparisons
 
-Compare 2024 against 2025. Report HA and NA separately:
+Compare 2024 with 2025, reporting HA and NA separately:
 
 - Spearman correlation across all sites;
-- overlap and Jaccard similarity of the top 10 and top 25 sites;
+- overlap and Jaccard similarity for the top 10 and top 25 sites;
 - each protein's share of total gain;
-- fold-to-fold variation within each year.
+- variation among folds within each year.
 
-Also plot both gain traces on shared coordinates. Label sites by 1-based residue number, as in the current importance outputs.
+Plot the 2024 and 2025 gain traces on the same coordinates and label sites using 1-based residue
+numbers.
 
-Correlated sites can substitute for each other in tree models. A low exact top-site overlap does not necessarily mean that the underlying sequence signal changed. If exact ranks differ, inspect whether importance moved among nearby or strongly correlated sites before interpreting the change.
+Correlated sites may carry the same signal, so models from different years may select different
+members of the same group. Low top-site overlap therefore does not by itself show that the
+underlying signal changed. If ranks differ, check nearby and correlated sites before interpreting
+the difference.
 
 ### Required outputs
 
-- one annual dataset audit per year;
-- one per-fold importance CSV per year;
-- one annual mean importance CSV per year;
-- one cross-year comparison CSV;
-- an overlaid gain trace for each protein;
+- a dataset audit for each year;
+- per-fold and fold-averaged importance CSVs for each year;
+- a cross-year comparison CSV;
+- overlaid gain traces for HA and NA;
 - a top-site overlap plot or table;
-- a short results note that separates measured results from interpretation.
+- a results note that separates measurements from interpretation.
 
 ### Acceptance checks
 
-Beyond the shared checks: HA and NA site counts and coordinates are identical across years, and
-every retained sequence is complete and at the configured pin.
+In addition to the shared checks, HA and NA must have identical site counts and coordinates in both
+years. Every retained sequence must be complete and at its configured pin.
 
 ## Experiment 2: capacity audit for 28-pairs
 
