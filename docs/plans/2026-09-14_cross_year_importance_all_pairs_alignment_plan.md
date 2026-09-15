@@ -110,111 +110,79 @@ Pinned-length site features assign one feature column to each nucleotide, codon,
 
 The label records whether two segment sequences were observed together in one isolate. Strong performance does not by itself establish biochemical compatibility, coevolution, or reassortment fitness. Shared lineage, time, geography, and sampling structure can all contribute to the signal.
 
-## Experiment 1: cross-year HA-NA importance
+## Experiment 1: cross-year HA-NA importance — DONE (2026-09-15)
 
 ### Question
 
 Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
 codon sites?
 
-### Design
+### Methods
 
-Use `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` as the
-2024 dataset reference. Use the saved `resolved_config.yaml` files from the existing 2024 HA-NA
-codon runs as the feature and model references. Reuse the 2024 results. These
-runs are summarized in `docs/results/2026-09-08_h3n2_2024_progress_report.md`.
-
-For 2025:
-
-- create a sibling dataset bundle that changes only the year
-- train per-site codon models for the performance and importance comparison
-- keep the full Hopcroft-Karp population
-
-The 2024 and 2025 populations contain 1,698 and 1,337 positives, respectively. They will not be
-downsampled to the same size, so sample size may contribute to differences in their gain rankings.
+The 2024 analysis used
+`conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` and the saved
+`resolved_config.yaml` files from its codon runs. The 2025 analysis used a sibling bundle that
+changed only the year and otherwise reused the same feature and model settings. Both analyses kept
+their full Hopcroft-Karp populations: 1,698 positives in 2024 and 1,337 in 2025. They were not
+downsampled to the same size.
 The July 2025 corpus contains only a partial 2025 season.
 
-### Comparisons
+`src/analysis/plot_site_importance.py` computed gain, SHAP, and permutation importance. The
+cross-year ranking uses fold-averaged, normalized gain. The comparison was run three ways:
 
-Produce for 2025 year the figures as section 3 of
-`docs/results/2026-09-08_h3n2_2024_progress_report.md`, so that 2024 and 2025 can be read side by side:
-the 3-panel importance barplot of gain, SHAP and permutation, and the gain trace along HA and
-NA. `src/analysis/plot_site_importance.py` writes both. The shuffle-and-refit figure from that
-section is out of scope here (computationally expensive).
+- `combined`: HA and NA compete for the same top-N positions;
+- `HA`: sites are ranked within HA only;
+- `NA`: sites are ranked within NA only.
 
-Report the share of total gain as a two-row table, 2024 and 2025, giving the HA and NA shares and
-the share falling in the top 25 sites (check first table in section 3). Fold-to-fold variation is the error bar on the barplot,
-which covers the sites shown; the per-fold CSV carries it for every site.
+The null comparison treats a site as eligible when it has more than one observed value
+(`n_values > 1`). If `V_2024` and `V_2025` are the eligible sets, two independent random top-N
+lists have expected overlap
+`|V_2024 ∩ V_2025| × (N / |V_2024|) × (N / |V_2025|)`.
+This is a descriptive baseline, not a significance test: it treats eligible sites as independent
+and equally likely to be selected, which is not true for correlated sites.
 
-Then compare the years directly, reporting HA and NA separately:
-
-- Spearman correlation across all sites
-- Overlap and Jaccard similarity for the top 12 and top 25 sites
-
-### Required outputs
-
-Beyond the figures and tables named above:
-
-- a dataset audit for each year;
-- a cross-year comparison CSV;
-- a results note that separates measurements from interpretation.
-
-### Acceptance checks
-
-In addition to the shared checks, HA and NA must have identical site counts and coordinates in both
-years. Every retained sequence must be complete and at its configured pin.
+Both datasets contain complete sequences at the same pins and use the same feature coordinates:
+567 HA sites and 470 NA sites.
 
 ### Results
 
-Both populations use the same HA and NA pins, so the coordinates match: HA 567 sites, NA 470.
-
-Gain, SHAP and permutation importance. Human-H3N2-2024 above, Human-H3N2-2025 below.
+The barplots show gain, SHAP, and permutation importance for Human-H3N2-2024 and
+Human-H3N2-2025.
 
 ![HA-NA codon-site importance, Human-H3N2-2024](../results/figs/2026-09-08_ha_na_codon_importance_barplot.png)
 
 ![HA-NA codon-site importance, Human-H3N2-2025](../results/figs/2026-09-15_ha_na_2025_codon_importance_barplot.png)
 
-Gain along each protein. Human-H3N2-2024 above, Human-H3N2-2025 below.
+The gain traces show where gain falls along HA and NA.
 
 ![HA-NA codon-site gain trace, Human-H3N2-2024](../results/figs/2026-09-08_ha_na_codon_gain_trace.png)
 
 ![HA-NA codon-site gain trace, Human-H3N2-2025](../results/figs/2026-09-15_ha_na_2025_codon_gain_trace.png)
 
-| year | gain by protein | gain in top 25 sites |
+The division of gain between the two proteins changed modestly, while its concentration in the
+combined top 25 sites was similar.
+
+| year | gain by protein | gain in combined top 25 sites |
 |---|---|---:|
 | 2024 | HA 55.5%; NA 44.5% | 59.1% |
 | 2025 | HA 60.4%; NA 39.6% | 60.6% |
 
-Sites the two years share in their top-N lists. Each column ranks over a different set of
-candidates, so `top N` selects different sites in each. `combined` ranks HA and NA together over
-all 1,037 sites, so the two proteins compete for the same N slots and a shift in the gain balance
-costs shared sites on its own. `HA` ranks over its 567 sites and `NA` over its 470, so each of
-those columns compares N sites of that protein alone.
+The two years shared 13 of their combined top 25 sites, 15 of the top 25 HA sites, and 13 of the
+top 25 NA sites. All three overlaps were much larger than expected under the varying-site null.
 
-The three top-10 lists for 2024 show what that means. Entries are (protein, site) pairs, so HA239
-and NA239 are different sites.
+| ranking | eligible in 2024 | eligible in 2025 | eligible in both | shared top 25 | shared/N | expected | enrichment |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| combined | 987 | 946 | 931 | 13 | 52% | 0.62 | 20.9x |
+| HA | 542 | 519 | 511 | 15 | 60% | 1.14 | 13.2x |
+| NA | 445 | 427 | 420 | 13 | 52% | 1.38 | 9.4x |
 
-```
-combined top-10:  HA544, HA36, NA24, NA284, NA310, NA400, HA531, NA223, HA129, NA239
-HA       top-10:  HA544, HA36, HA531, HA129, HA239, HA87, HA286, HA95, HA390, HA14
-NA       top-10:  NA24, NA284, NA310, NA400, NA223, NA239, NA140, NA308, NA244, NA462
-```
+The complete top-10-to-top-50 comparison is in
+`results/flu/July_2025/cross_year_site_importance/ha_na_human_h3n2_2024_vs_2025/site_importance_comparison.csv`.
 
-The combined list holds 4 HA and 6 NA. The HA column adds six HA sites the combined list has no
-room for, and the NA column adds four. A row of the table therefore compares three separate
-questions at the same N, not one question three ways.
-
-| top N | combined | HA | NA |
-|---:|---:|---:|---:|
-| 10 | 4 | 6 | 6 |
-| 15 | 8 | 10 | 7 |
-| 20 | 11 | 12 | 10 |
-| 25 | 13 | 15 | 13 |
-| 30 | 16 | 18 | 17 |
-| 35 | 20 | 24 | 22 |
-| 40 | 22 | 27 | 24 |
-| 45 | 24 | 32 | 26 |
-| 50 | 29 | 37 | 28 |
+The leading sites therefore recur across the two annual fits more often than expected if varying
+sites were selected uniformly. This does not show that the full rankings are identical or that the
+difference is a biological year effect. The comparison does not control for the smaller 2025
+population, the partial 2025 season, or correlation among sites.
 
 ## Experiment 2 (rerequisite to Exp. 3): 28-pair capacity audit
 
