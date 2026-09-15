@@ -277,10 +277,14 @@ replicon_types:
 #        the expected terminal stop, and cannot be extended from the current assemblies.
 #        Measured 2026-09-08; see
 #        docs/results/2026-09-07_cds_length_survey.md.
-#   NS1  H1N1 is 660 (219 aa), H5N1 is 693 (230 aa), and H3N2 moved from 660 to 693 around
-#        2021. The two forms differ by 11 amino acids -- the known C-terminal truncation.
-# Both would need a (protein, subtype, year) key. A per-site run on either must pin its own
-# length for its own population and say so.
+#   NS1  H1N1 is 660 (219 aa) and H5N1 is 693 (230 aa). The two forms differ by 11 amino
+#        acids -- the known C-terminal truncation. H3N2 is 693 throughout: within human
+#        H3N2 it is the modal complete-CDS length in every year from 2015 to 2025, and the
+#        660 form in H3N2 is almost entirely swine, 3,120 isolates of 3,276. NS1 is
+#        therefore split by subtype, not by year, and 693 is a sound pin for a human H3N2
+#        population. Measured 2026-09-14.
+# PB1 would need a (protein, subtype, year) key; NS1 only a (protein, subtype) key. A
+# per-site run on either must pin its own length for its own population and say so.
 #
 # Verify, do not trust: `src.utils.cds_utils.check_cds_length` re-derives the most common
 # length from the population actually built and fails if it disagrees with the pin or if
