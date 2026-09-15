@@ -54,11 +54,18 @@ a default `pd.read_csv` parses as NaN and so silently drops every Neuraminidase 
 column.
 
 Outputs (to `--out_dir`, by default derived from the dataset dir):
-    site_importance_{unit}.png   importance along each CDS, plus importance against entropy
-    site_importance_{unit}.csv   column, slot, protein, site, shap_frac, shap_frac_std,
-                                 gain_frac, gain_frac_std, perm_auc_drop, perm_auc_drop_std,
-                                 split_count, folds_used, entropy_bits, n_values,
-                                 shap_rank, gain_rank, perm_rank
+    site_importance_{unit}.csv           column, slot, protein, site, shap_frac, shap_frac_std,
+                                         gain_frac, gain_frac_std, perm_auc_drop,
+                                         perm_auc_drop_std, split_count, folds_used,
+                                         entropy_bits, n_values, shap_rank, gain_rank, perm_rank
+    site_importance_{unit}_per_fold.csv  the same shares before they are averaged over folds
+    site_importance_{unit}_barplot.png   one panel per measure, highest-ranked sites
+    site_importance_{unit}.png           trace against entropy; written only with
+                                         `--entropy_figure`
+
+The per-measure trace along each CDS is a separate script, `plot_site_importance_trace.py`, which
+reads the CSV above and writes `site_importance_{unit}_{measure}_trace.png`. It re-plots without
+refitting or recomputing SHAP, which is why it is not part of this script.
 
 CLI:
     python -m src.analysis.plot_site_importance \\
@@ -343,6 +350,9 @@ def main() -> None:
     p.add_argument('--out_dir', type=Path, default=None,
                    help='default: results/<virus>/<version>/<run name>/site_importance')
     p.add_argument('--dpi', type=int, default=200)
+    p.add_argument('--entropy_figure', action='store_true',
+                   help='also write site_importance_{unit}.png, the trace against entropy; the '
+                        'entropy columns are in the CSV either way')
     args = p.parse_args()
 
     if args.out_dir is None:
@@ -537,8 +547,11 @@ def main() -> None:
                  f"SHAP on {args.shap_split}", fontsize=10, y=1.005)
     fig.tight_layout()
     _stamp(fig)
-    out_png = savefig(args.out_dir / f'site_importance_{args.unit}.png', dpi=args.dpi)
-    print(f"\nDone. Wrote {out_png}")
+    if args.entropy_figure:
+        out_png = savefig(args.out_dir / f'site_importance_{args.unit}.png', dpi=args.dpi)
+        print(f"\nDone. Wrote {out_png}")
+    else:
+        plt.close(fig)
 
     plot_importance_panels(
         table, args.model_run_template, args.unit, args.top_n,

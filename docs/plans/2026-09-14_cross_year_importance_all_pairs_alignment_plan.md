@@ -164,7 +164,59 @@ Beyond the figures and tables named above:
 In addition to the shared checks, HA and NA must have identical site counts and coordinates in both
 years. Every retained sequence must be complete and at its configured pin.
 
-## Experiment 2: capacity audit for 28-pairs
+### Results
+
+Both populations use the same HA and NA pins, so the coordinates match: HA 567 sites, NA 470.
+
+Gain, SHAP and permutation importance. Human-H3N2-2024 above, Human-H3N2-2025 below.
+
+![HA-NA codon-site importance, Human-H3N2-2024](../results/figs/2026-09-08_ha_na_codon_importance_barplot.png)
+
+![HA-NA codon-site importance, Human-H3N2-2025](../results/figs/2026-09-15_ha_na_2025_codon_importance_barplot.png)
+
+Gain along each protein. Human-H3N2-2024 above, Human-H3N2-2025 below.
+
+![HA-NA codon-site gain trace, Human-H3N2-2024](../results/figs/2026-09-08_ha_na_codon_gain_trace.png)
+
+![HA-NA codon-site gain trace, Human-H3N2-2025](../results/figs/2026-09-15_ha_na_2025_codon_gain_trace.png)
+
+| year | gain by protein | gain in top 25 sites |
+|---|---|---:|
+| 2024 | HA 55.5%; NA 44.5% | 59.1% |
+| 2025 | HA 60.4%; NA 39.6% | 60.6% |
+
+Sites the two years share in their top-N lists. Each column ranks over a different set of
+candidates, so `top N` selects different sites in each. `combined` ranks HA and NA together over
+all 1,037 sites, so the two proteins compete for the same N slots and a shift in the gain balance
+costs shared sites on its own. `HA` ranks over its 567 sites and `NA` over its 470, so each of
+those columns compares N sites of that protein alone.
+
+The three top-10 lists for 2024 show what that means. Entries are (protein, site) pairs, so HA239
+and NA239 are different sites.
+
+```
+combined top-10:  HA544, HA36, NA24, NA284, NA310, NA400, HA531, NA223, HA129, NA239
+HA       top-10:  HA544, HA36, HA531, HA129, HA239, HA87, HA286, HA95, HA390, HA14
+NA       top-10:  NA24, NA284, NA310, NA400, NA223, NA239, NA140, NA308, NA244, NA462
+```
+
+The combined list holds 4 HA and 6 NA. The HA column adds six HA sites the combined list has no
+room for, and the NA column adds four. A row of the table therefore compares three separate
+questions at the same N, not one question three ways.
+
+| top N | combined | HA | NA |
+|---:|---:|---:|---:|
+| 10 | 4 | 6 | 6 |
+| 15 | 8 | 10 | 7 |
+| 20 | 11 | 12 | 10 |
+| 25 | 13 | 15 | 13 |
+| 30 | 16 | 18 | 17 |
+| 35 | 20 | 24 | 22 |
+| 40 | 22 | 27 | 24 |
+| 45 | 24 | 32 | 26 |
+| 50 | 29 | 37 | 28 |
+
+## Experiment 2 (rerequisite to Exp. 3): 28-pair capacity audit
 
 ### Question
 
