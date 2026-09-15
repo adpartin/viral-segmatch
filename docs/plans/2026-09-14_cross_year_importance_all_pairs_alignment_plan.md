@@ -1,4 +1,4 @@
-# Cross-year site importance, all 28 pairs, and aligned CDS features
+# Cross-year site importance, 28-pairs, and aligned CDS features
 
 **Status: IN PROGRESS**
 
@@ -7,12 +7,21 @@
 Follow up questions/tasks following the `docs/results/2026-09-08_h3n2_2024_progress_report.md` report (Human-H3N2-2024):
 
 1. Are the same sequence sites dominate in terms of feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-{2023,2025}.
-2. Extend the prediction performance and feature imparance analysis to all 28 pairs; the 8 major proteins, c(8,2).
+2. Extend the prediction performance and feature imparance analysis to 28-pairs; the 8 major proteins, c(8,2).
 3. Can codon-preserving sequence alignment retain useful records that pinned-length filtering drops? We need to understand if we really need this. Consider `2026-09-07_cds_length_survey.md` in general, and specifically table 3 which focuses on years 2015-2025. We need to determine whether alignment effort worth it.
 
 These tasks are related but do not need to be answered in one experiment. The cross-year comparison and the initial 28-pairs screen will use the current pinned-length pipeline.
 
-Alignment will be evaluated separately and will enter the production pipeline only if it retains meaningful data without making site coordinates ambiguous. -> `Q:` isn't alignment required for feature importance if we want to do some interpretation with feature importance?
+Alignment will be evaluated separately and will enter the production pipeline only if it retains meaningful data without making site coordinates ambiguous.
+
+Alignment is not required to have a coordinate system, and is not required for Experiment 1: HA and
+NA keep the same pin in 2023, 2024 and 2025, so the site indices already refer to the same position
+in all three years by construction. What alignment would add is the guarantee that a shared index is
+a shared *homologous* position. `docs/results/2026-09-07_cds_length_survey.md` states that equal CDS
+length does not prove positional homology, and nothing in the current pipeline checks it, so today's
+importance maps are interpretable conditional on an assumption that has not been tested. Alignment
+is required outright only where the pin itself differs between the populations being compared, which
+is PB1.
 
 Alignment tools to consider:
 - pyhmmer: https://github.com/althonos/pyhmmer; https://pyhmmer.readthedocs.io/en/stable/
@@ -27,9 +36,28 @@ Alignment tools to consider:
 - Baseline cross-year schema pair: HA-NA.
 - Positive pairs: observed same-isolate pairs, deduplicated by `nt_cds` pair key.
 - Positive selection: Hopcroft-Karp, so each retained CDS occurs at most once in each slot.
-- Splitting: 5-fold random CV with negatives generated within each fold.
+- Splitting: 4-fold random CV with negatives generated within each fold.
 - Primary features: nucleotide 6-mers and per-site codons.
 - Primary importance measure: fold-averaged LightGBM gain.
+
+All three experiments share one pin table, so their site coordinates and importance maps stay
+comparable. A pin belongs to the set of populations being compared, not to a single population: if
+PB1 were pinned at 2,274 nt in 2023 and 2,277 nt in 2024, site 500 would not be the same place and
+the cross-year comparison would not measure what it claims.
+
+| protein | pin (nt) | scope |
+|---|---:|---|
+| PB2 | 2,280 | Human-H3N2, unchanged 2015-2025 |
+| PA | 2,151 | Human-H3N2, unchanged 2015-2025 |
+| HA | 1,701 | Human-H3N2, unchanged 2015-2025 |
+| NP | 1,497 | Human-H3N2, unchanged 2015-2025 |
+| NA | 1,410 | Human-H3N2, unchanged 2015-2025 |
+| M1 | 759 | Human-H3N2, unchanged 2015-2025 |
+| NS1 | 693 | Human-H3N2, unchanged 2015-2025; no corpus-wide pin because H1N1 is 660 nt |
+| PB1 | 2,277 | Human-H3N2 2024-2025 only; 2,274 nt through 2023 |
+
+The first six are the values already in `conf/virus/flu.yaml`. NS1 and PB1 are not in that file and
+must be set per experiment.
 
 Note that the "July 2025" corpus contains a partial 2025 season. We have to state in our results (we reserve this for final publication).
 
@@ -42,13 +70,15 @@ least 90% of Human-H3N2 isolates at their current pins in 2023-2025. NS1 also re
 99% at a population-specific length of 693 nt in those years.
 
 PB1 is different. In Human-H3N2-2024, 55.3% of isolates have a complete PB1. Most 2,274-nt PB1
-records are missing the terminal stop because the contig ends there. Alignment cannot reconstruct
-those missing bases or make the records complete. Complete 2024 PB1 records are predominantly
+records lack the terminal stop and end at the contig boundary. No downstream sequence is available
+in these assemblies, so the records cannot be completed from the current data, though the
+measurement does not establish why that sequence is absent. Alignment cannot reconstruct missing
+bases or make incomplete records complete. Complete 2024 PB1 records are predominantly
 2,277 nt and can still be analyzed as a smaller, explicitly selected population.
 
 ### Pair capacity differs even under the same metadata filters
 
-The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 15 pairs in Human-H3N2-2024. M1 pairs had the smallest populations because M1 has few distinct sequences. An 28-pairs experiment must therefore report native sample size and sequence diversity beside model performance.
+The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 15 pairs in Human-H3N2-2024. M1 pairs had the smallest populations because M1 has few distinct sequences. The 28-pairs experiment must therefore report native sample size and sequence diversity beside model performance.
 
 The primary 28-pairs analysis will not downsample every pair to the smallest pair. A global minimum would discard most observations from the larger pairs and would not equalize sequence diversity or negative difficulty. A fixed-count sensitivity analysis can be added within sensible capacity groups after the full capacity table is available.
 
@@ -62,7 +92,7 @@ The primary 28-pairs analysis will not downsample every pair to the smallest pai
 - `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit.
 - `src/analysis/summarize_pair_capacity.py` provides positive-pair and Hopcroft-Karp counts. Its
   current common-cohort design is useful for controlled comparisons but is not the primary
-  population definition for all 28 pairs.
+  population definition for the 28-pairs screen.
 - `src/analysis/plot_site_importance.py` already writes per-site gain, SHAP, and permutation
   importance by fold.
 
@@ -70,7 +100,7 @@ The primary 28-pairs analysis will not downsample every pair to the smallest pai
 
 ### Population for a schema pair
 
-Each schema pair will be built independently from Human H3N2 isolates in the specified year. An isolate is eligible for a pair when it has both required proteins as complete CDS records in the coordinate system used by that experiment. This holds host, subtype, and year fixed, but it does not force different schema pairs to retain the same isolates.
+Each schema pair will be built independently from Human-H3N2 isolates in the specified year. An isolate is eligible for a pair when it has both required proteins as complete CDS records in the coordinate system used by that experiment. This holds host, subtype, and year fixed, but it does not force different schema pairs to retain the same isolates.
 
 For each pair, report these counts in order:
 
@@ -80,9 +110,9 @@ For each pair, report these counts in order:
 4. positives retained by Hopcroft-Karp;
 5. positives and negatives in each CV fold.
 
-### Fixed-length and aligned site features
+### Pinned-length and aligned site features
 
-Fixed-length site features assign one feature column to each nucleotide, codon, or amino-acid (aa) position after retaining one CDS length. This is the current production method.
+Pinned-length site features assign one feature column to each nucleotide, codon, or amino-acid (aa) position after retaining one configured CDS length. This is the current production method.
 
 Aligned site features assign one feature column to each homologous alignment position. Coding sequences must be aligned in a way that preserves the reading frame. The proposed pilot translates each CDS, aligns the proteins, and projects protein gaps back to codon triplets. An unrestricted nucleotide alignment is not acceptable because it can introduce frame-breaking gaps.
 
@@ -102,7 +132,7 @@ The label records whether two segment sequences were observed together in one is
 
 ### Question
 
-When the same model and population definition are applied to Human H3N2 HA-NA data from 2023, 2024, and 2025, do the fitted models use the same codon sites?
+When the same model and population definition are applied to Human-H3N2 HA-NA data from 2023, 2024, and 2025, do the fitted models use the same codon sites?
 
 ### Dataset construction
 
@@ -169,11 +199,11 @@ Correlated sites can substitute for each other in tree models. A low exact top-s
 - No generated negative is an observed positive from the full pre-selection positive universe.
 - Every importance row can be traced to a model run, fold, protein, and site.
 
-## Experiment 2: capacity audit for all 28 pairs
+## Experiment 2: capacity audit for 28-pairs
 
 ### Question
 
-How much usable and sequence-unique Human H3N2 2024 data is available for each of the 28 pairs
+How much usable and sequence-unique Human-H3N2-2024 data is available for each of the 28 pairs
 formed from PB2, PB1, PA, HA, NP, NA, M1, and NS1?
 
 ### Population rules
@@ -182,9 +212,13 @@ Use the same metadata filters for every pair, but build each pair from its own e
 Do not require a common eight-protein isolate cohort for the primary analysis. Requiring PB1 from
 every isolate would remove about 45% of the population from pairs that do not contain PB1.
 
-Use the existing pins for PB2, PA, HA, NP, NA, and M1. Add experiment-specific 2024 pins for NS1
-(693 nt) and complete PB1 (2,277 nt), after rechecking them from the input data. PB1 pairs must be
-marked as completeness-selected because their eligible population is much smaller.
+Use the existing pins for PB2, PA, HA, NP, NA, and M1, and add the two the config does not carry.
+The two are not the same kind of addition. NS1 at 693 nt is population-specific but not
+year-specific: it is the modal complete-CDS length in every Human-H3N2 year from 2015 to 2025, and
+what prevents a corpus-wide value is the subtype split, since H1N1 is predominantly 660 nt. PB1 at
+2,277 nt is both population- and year-specific, because the Human-H3N2 mode is 2,274 nt through
+2023. Recheck both against the input data before use. PB1 pairs must be marked as
+completeness-selected because their eligible population is much smaller.
 
 For every pair, report the five population counts defined above. Also report the distribution of
 per-sequence reuse before matching and the retained-isolate overlap for pairs that share a protein.
@@ -205,9 +239,9 @@ choose a minimum count before measuring the 28 populations.
 - a readable capacity table sorted by segment number and a second view sorted by matched count;
 - a matrix of Hopcroft-Karp counts;
 - a short audit of PB1 and NS1 eligibility;
-- a list of pairs that need aligned rather than fixed-length coordinates.
+- a list of pairs that need aligned rather than pinned-length coordinates.
 
-## Experiment 3: fixed-length 28-pairs screen
+## Experiment 3: pinned-length 28-pairs screen
 
 ### Question
 
@@ -231,9 +265,9 @@ Per-site nucleotide models are deferred from the complete screen because codons 
 performance with one third as many columns in the four-pair experiment. Add nucleotide-site models
 for selected strong, weak, or discrepant pairs after the first screen.
 
-Amino-acid models are also deferred. Negatives built and blocked in nucleotide space can collapse
-to the same amino-acid pair with conflicting labels. A fair amino-acid experiment must construct,
-deduplicate, and block pairs in amino-acid space and must be reported as a different dataset
+aa models are also deferred. Negatives built and blocked in nucleotide space can collapse
+to the same aa pair with conflicting labels. A fair aa experiment must construct,
+deduplicate, and block pairs in aa space and must be reported as a different dataset
 population.
 
 ### Comparisons
@@ -269,7 +303,9 @@ Does alignment add enough valid site-feature data to justify new production-pipe
 
 ### Audit before alignment
 
-Extend the length survey by protein and year for 2023-2025. For every non-modal length, separate:
+Seven of the eight proteins already have a modal complete-CDS length that does not change across
+Human-H3N2 2015-2025, so this audit reduces to PB1. Extend the length survey by protein and year
+for 2023-2025 to confirm that, then, for every non-modal length, separate:
 
 1. complete CDS records with plausible biological insertions or deletions;
 2. incomplete CDS records caused by missing start or stop sequence;
@@ -284,7 +320,7 @@ completeness, or create new sequence diversity.
 
 Pilot the method on PB1 and NS1 because their lengths change across the years of interest. Use
 PB2-PB1 as the first paired modeling case if PB1 passes alignment validation; PB2 supplies a stable
-partner and the pair has a direct polymerase interpretation. Keep the existing fixed-length
+partner and the pair has a direct polymerase interpretation. Keep the existing pinned-length
 population as the control.
 
 ### Alignment method
@@ -292,9 +328,9 @@ population as the control.
 Prototype the alignment outside the dataset builder first:
 
 1. translate each complete CDS using the current translation rules;
-2. align amino-acid sequences with a reproducible tool and version, with MAFFT as the first tool to
+2. align aa sequences with a reproducible tool and version, with MAFFT as the first tool to
    evaluate;
-3. project each amino-acid gap back to a three-nucleotide codon gap;
+3. project each aa gap back to a three-nucleotide codon gap;
 4. retain an explicit mapping from alignment column to original residue/codon coordinate;
 5. encode gaps, unknown residues, and missing sequence separately;
 6. record the exact input sequence hashes and alignment command.
@@ -333,10 +369,10 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 
 ## Execution order
 
-1. Build and audit the fixed-length 2023, 2024, and 2025 HA-NA datasets.
+1. Build and audit the pinned-length 2023, 2024, and 2025 HA-NA datasets.
 2. Run the codon cross-year importance comparison at native and fixed counts.
 3. Produce the 2024 eight-protein, 28-pair capacity audit.
-4. Build and audit the 28 fixed-length datasets.
+4. Build and audit the 28 pinned-length datasets.
 5. Run the k-mer and codon 28-pairs screen and aggregate the results.
 6. Complete the PB1/NS1 alignment feasibility audit and prototype.
 7. Rerun only the pairs or years for which alignment materially improves eligibility.
@@ -344,7 +380,7 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
    negative/benchmark result.
 
 Steps 1-3 produce useful results without waiting for alignment. Steps 4-5 can proceed for pairs
-with validated fixed-length coordinates while the alignment pilot is being evaluated.
+with validated pinned-length coordinates while the alignment pilot is being evaluated.
 
 ## Reproducibility and reporting
 
