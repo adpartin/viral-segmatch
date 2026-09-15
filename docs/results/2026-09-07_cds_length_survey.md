@@ -159,7 +159,8 @@ or the biological prevalence of the 2,274- and 2,277-nt forms.
 
 ## Pin stability by year (additional measurement)
 
-This section concerns P2, including where it does not occur. For seven proteins, the modal complete-CDS length is unchanged in every Human-H3N2 year from 2015
+This section concerns P1 and P2. It asks whether the same pinned length can be used across
+Human-H3N2 years. For seven proteins, the modal complete-CDS length is unchanged in every Human-H3N2 year from 2015
 through 2025: PB2 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, M1 759, and NS1 693 nt. The
 table reports the share of each year's isolates with a complete CDS at that length:
 
@@ -181,14 +182,16 @@ For the years shown, the 6 configured pins retain at least 90% of isolates. At t
 NS1 passes in 2015-2018 and 2021-2025 but not in 2019-2020. A stable modal length therefore does
 not guarantee uniformly high isolate retention.
 
-The low cells do not all have the same cause, and the table alone does not separate them. NS1 in
-2019 and 2020 is P2: every isolate has a complete NS1, but 27.6% and 31.2% of them are at another
-length. The other low cells are P1: NP loses 7.4% of isolates in 2019 and 9.5% in 2020, and NA
-loses 6.4% in 2023, all to incomplete CDS, with no loss to length.
+The low cells do not all have the same cause, and the table alone does not separate them. For NS1,
+2,754 of 2,755 isolates in 2019 and all 189 isolates in 2020 have a complete CDS. Complete NS1 at a
+length other than 693 nt accounts for 27.6% of isolates in 2019 and 31.2% in 2020, so these are P2
+losses. By contrast, the lower NP values in 2019-2020 and the lower NA value in 2023 are caused by
+incomplete CDS (P1), not by other complete lengths.
 
 PB1 requires a separate view because both its modal length and its isolate retention change. The
 table starts at 2021 because PB1 holds 2,274 nt from 2015 through 2020, at 0.989 or above in every
-one of those years:
+one of those years. Each entry is the share of that year's isolates with a complete PB1 at the
+stated length.
 
 | year | isolates | complete at 2,274 nt | complete at 2,277 nt | complete at either length |
 |---:|---:|---:|---:|---:|
