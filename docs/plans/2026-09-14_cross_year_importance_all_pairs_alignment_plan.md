@@ -103,6 +103,13 @@ For each pair, report these counts in order:
 
 Pinned-length site features assign one feature column to each nucleotide, codon, or amino-acid (aa) position after retaining one configured CDS length. This is the current production method and the one experiments 1 to 3 use.
 
+### Dataset checks every experiment must pass
+
+- Positive pair keys are unique.
+- No CDS hash occurs in more than one CV split within a fold.
+- No generated negative is an observed positive from the full pre-selection positive universe.
+- Every importance row can be traced to a model run, fold, protein, and site.
+
 ### What the model predicts
 
 The label records whether two segment sequences were observed together in one isolate. Strong performance does not by itself establish biochemical compatibility, coevolution, or reassortment fitness. Shared lineage, time, geography, and sampling structure can all contribute to the signal.
@@ -115,34 +122,24 @@ When the same model and population definition are applied to Human-H3N2 HA-NA da
 
 ### Design
 
-The reference is the Human-H3N2-2024 HA-NA arm of
-`docs/results/2026-09-08_h3n2_2024_progress_report.md`, whose settings are
-`conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml`. Cite the
-bundle rather than the report for any setting, because the report is a summary and the bundle is
-what ran. It sets random 4-fold CV, `negative_scope: within_fold`, `pair_key_alphabet: nt_cds`,
-Hopcroft-Karp positive selection, `neg_to_pos_ratio: 1.0`,
-`require_complete_cds_at_pinned_length: true`, and `master_seed: 42`.
+The reference is `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml`,
+the bundle behind the HA-NA arm of `docs/results/2026-09-08_h3n2_2024_progress_report.md`. Cite the
+bundle for any setting, because the report is a summary and the bundle is what ran. The 2024 runs
+and their per-fold gain already exist and are reused, not rerun.
 
-The 2024 side is already built and is reused rather than rerun: the runs
-`lgbm_ha_na_human_h3n2_2024_n1698_seed42_{site_codon,kmer_nt_cds_k6}_fold{0..3}` and the per-fold
-gain in `site_importance_codon_per_fold.csv`.
+Differences from that reference:
 
-What is new for 2025:
-
-- a sibling bundle that changes only the year filter;
-- the same two model runs, per-site codon as the primary and nucleotide 6-mers as a performance
-  reference, with `src/analysis/plot_site_importance.py` producing the per-fold gain as it already
-  does for 2024;
-- the cross-year comparison below, which does not exist yet.
-
-Each year uses its full Hopcroft-Karp population: 1,698 positives in 2024 and 1,337 in 2025. The
-two are not subsampled to a common count. The counts differ by 1.27x, so sample size stays a
-candidate explanation for any difference in the gain rankings. 2025 is a partial season in the
-July 2025 corpus.
+- 2025 gets a sibling bundle changing only the year filter;
+- per-site codon is the primary representation, nucleotide 6-mers the performance reference;
+- each year keeps its full Hopcroft-Karp population, 1,698 positives in 2024 and 1,337 in 2025,
+  with no subsampling to a common count. The 1.27x difference stays a candidate explanation for any
+  difference in the gain rankings;
+- 2025 is a partial season in the July 2025 corpus;
+- the cross-year comparison below is new.
 
 Gain is read from the training process and is not test-set importance. SHAP on held-out rows and
-permutation importance can be used as confirmation if the gain results are unstable or if the top
-sites drive a biological claim.
+permutation importance can confirm it if the rankings are unstable or if the top sites drive a
+biological claim.
 
 ### Comparisons
 
@@ -169,12 +166,8 @@ Correlated sites can substitute for each other in tree models. A low exact top-s
 
 ### Acceptance checks
 
-- HA and NA site counts and coordinates are identical across years.
-- Each retained sequence is complete and at the configured pin.
-- Positive pair keys are unique.
-- No CDS hash occurs in more than one CV split within a fold.
-- No generated negative is an observed positive from the full pre-selection positive universe.
-- Every importance row can be traced to a model run, fold, protein, and site.
+Beyond the shared checks: HA and NA site counts and coordinates are identical across years, and
+every retained sequence is complete and at the configured pin.
 
 ## Experiment 2: capacity audit for 28-pairs
 
