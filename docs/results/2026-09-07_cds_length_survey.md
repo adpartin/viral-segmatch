@@ -34,14 +34,25 @@ A CDS is complete if: `starts_with_m & has_terminal_stop & ~has_internal_stop`.
 
 Columns:
 
-- `unique CDS`: how many different CDS sequences the protein has. Records carrying the same sequence count once.
-- `complete CDS`: how many of those sequences are complete.
-- `min`, `max`, `median`: the shortest, longest and median CDS length, in nucleotides. These cover complete sequences only, and count each different sequence once.
-- `mode`: the most common CDS length, over the same sequences as `min`, `max` and `median`.
+- `unique CDS`: how many unique CDS sequences the protein has. Records carrying the same sequence count once.
+- `complete CDS`: out of all the `unique CDS` sequences how many are complete.
+- `min`, `max`, `median`: considering `complete CDS` sequences, determine the min, max and median CDS length, in nucleotides.
+- `mode`: most common CDS length, over the `complete CDS` sequence set.
 - `complete CDS at mode`: how many complete sequences are at the mode.
-- `frac at mode`: the share of complete sequences that are at the mode. `complete CDS at mode` / `complete CDS`.
-- `frac isolates complete`: the share of isolates whose record for this protein is complete. Isolates with a complete record / isolates carrying the protein.
-- `frac isolates at mode`: the share of isolates whose record is complete and at the mode. This is the primary screening measure, because an isolate with an incomplete record stays in the denominator.
+- `frac at mode`: share of complete sequences that are at the mode. `complete CDS at mode` / `complete CDS`.
+- `frac isolates complete`: share of isolates whose record for this protein is complete. Isolates with a complete record / isolates carrying the protein.
+- `frac isolates at mode`: share of isolates whose record is complete AND at the mode. This is the primary screening measure, because an isolate with an incomplete record stays in the denominator.
+
+Clarifying `frac isolates complete` and `frac isolates at mode` with PB2 on the whole corpus. Both fractions share the same denominator — isolates, not sequences.
+
+```
+isolates carrying PB2:                     108,530 (denominator for both)
+isolates whose PB2 is complete:            107,472
+isolates complete AND at mode (2,280 nt):  107,320
+
+frac isolates complete = 107,472 / 108,530 = 0.990252  ->  0.990
+frac isolates at mode  = 107,320 / 108,530 = 0.988851  ->  0.989
+```
 
 | Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
