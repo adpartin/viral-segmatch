@@ -8,7 +8,7 @@ Follow up questions/tasks following the `docs/results/2026-09-08_h3n2_2024_progr
 
 1. Are the same sequence sites dominate in terms of feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-2025.
 2. Extend the prediction performance and feature imparance analysis to 28-pairs; the 8 major proteins, c(8,2).
-3. Can codon-preserving sequence alignment retain records that pinned-length filtering drops? We need to determine whether alignment effort worth it. Consider `2026-09-07_cds_length_survey.md` in general, and specifically table 3 which focuses on years 2015-2025.
+3. Can codon-preserving sequence alignment retain records that pinned-length filtering drops? We need to determine whether alignment effort worth it. Consider `2026-09-07_cds_length_survey.md` in general, and specifically its "Pin reach by year" section, which covers 2015-2025.
 
 The cross-year comparison and the initial 28-pairs screen can use the existing pinned-length pipeline.
 
@@ -37,23 +37,25 @@ Alignment tools to consider:
 - Primary importance measure: fold-averaged LightGBM gain.
 
 All three experiments share one pin table, so their site coordinates and importance maps stay
-comparable. A pin belongs to the set of populations being compared, not to a single population: if
-PB1 were pinned at 2,274 nt in 2023 and 2,277 nt in 2024, site 500 would not be the same place and
-the cross-year comparison would not measure what it claims.
+comparable. Every protein is pinned to its Human-H3N2-2024 modal complete-CDS length, and the same
+value is used in 2025. A pin that differed between the years compared would put site 500 in a
+different place in each, and the cross-year comparison would not measure what it claims.
 
-| Segment ID | protein | pin (nt) | scope |
+| Segment ID | protein | pin (nt) | source |
 | --- |---|---:|---|
-| 1 | PB2 | 2,280 | Human-H3N2, unchanged 2015-2025 |
-| 2 | PB1 | 2,277 | Human-H3N2 2024-2025 only; 2,274 nt through 2023 |
-| 3 | PA | 2,151 | Human-H3N2, unchanged 2015-2025 |
-| 4 | HA | 1,701 | Human-H3N2, unchanged 2015-2025 |
-| 5 | NP | 1,497 | Human-H3N2, unchanged 2015-2025 |
-| 6 | NA | 1,410 | Human-H3N2, unchanged 2015-2025 |
-| 7 | M1 | 759 | Human-H3N2, unchanged 2015-2025 |
-| 8 | NS1 | 693 | Human-H3N2, unchanged 2015-2025; no corpus-wide pin because H1N1 is 660 nt |
+| 1 | PB2 | 2,280 | `conf/virus/flu.yaml` |
+| 2 | PB1 | 2,277 | bundle override |
+| 3 | PA | 2,151 | `conf/virus/flu.yaml` |
+| 4 | HA | 1,701 | `conf/virus/flu.yaml` |
+| 5 | NP | 1,497 | `conf/virus/flu.yaml` |
+| 6 | NA | 1,410 | `conf/virus/flu.yaml` |
+| 7 | M1 | 759 | `conf/virus/flu.yaml` |
+| 8 | NS1 | 693 | bundle override |
 
-PB2, PA, HA, NP, NA and M1 are the values already in `conf/virus/flu.yaml`. PB1 and NS1 are not in
-that file and must be set per experiment.
+The six values in `conf/virus/flu.yaml` already equal the Human-H3N2-2024 mode, so that file needs
+no change. PB1 and NS1 come from a bundle-level `virus.cds_length` override, which merges with the
+six rather than replacing them. How far each pin reaches into earlier years is measured in the
+"Pin reach by year" section of `docs/results/2026-09-07_cds_length_survey.md`.
 
 Note that the "July 2025" corpus contains a partial 2025 season. We have to state in our results (we reserve this for final publication).
 
@@ -220,11 +222,11 @@ per-sequence reuse before matching and the retained-isolate overlap for pairs th
 
 ### Implementation
 
-The two added pins go in a bundle-level `virus.cds_length` override, not in
-`conf/virus/flu.yaml`. That file is per-virus and shared with H1N1 work, where NS1 is 660 nt and
-PB1 is 2,274 nt, so writing Human-H3N2 values there would make `check_cds_length` raise on those
-populations. A bundle override reaches both `summarize_pair_capacity.py:224` and
-`dataset_segment_pairs.py:694`, which read the same key.
+The override in Scope is used rather than an edit to `conf/virus/flu.yaml` because that file is
+per-virus and shared with H1N1 work, where NS1 is 660 nt and PB1 is 2,274 nt, so writing
+Human-H3N2 values there would make `check_cds_length` raise on those populations. The override
+reaches both `summarize_pair_capacity.py:224` and `dataset_segment_pairs.py:694`, which read the
+same key.
 
 Adapt `src/analysis/summarize_pair_capacity.py` so it can produce a pair-specific-cohort table for
 all eight proteins. Preserve its current common-cohort mode because that remains useful as a
