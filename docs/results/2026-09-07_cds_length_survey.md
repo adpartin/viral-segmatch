@@ -123,10 +123,6 @@ frac isolates complete = 2,958 / 5,346 = 0.553311  ->  0.553
 frac isolates at mode  = 2,945 / 5,346 = 0.550879  ->  0.551
 ```
 
-The two fractions are nearly equal because only 13 isolates have a complete PB1 at a length other
-than 2,277 nt. Almost all of the loss is the 2,388 isolates with no complete PB1 at all, which is
-a different failure from the one `frac at mode` reports.
-
 | Segment ID | protein | isolates | unique CDS | complete CDS | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 5,346 | 2,826 | 2,821 | 2,280 | 2,813 | 0.997 | 0.999 | 0.998 |
@@ -146,27 +142,20 @@ reported.
 
 ## Why PB1 retains about half its isolates
 
-This section concerns P1. It is the largest single loss in the survey.
+This section concerns P1. PB1 has the largest completeness loss in the Human-H3N2-2024 table. Only
+2,958 of 5,346 isolates have a complete PB1, and 2,945 have a complete PB1 at the 2,277-nt mode.
+Pinning therefore removes only 13 additional isolates after incomplete records have been excluded.
 
-PB1 has `frac at mode = 0.994` among unique complete CDS, but only 55.3% of isolates have a
-complete PB1 and 55.1% have a complete CDS at the mode. The sequence-level fraction establishes a
-clear modal length among complete sequences; it does not describe isolate retention.
+Of the 2,388 incomplete PB1 records, 2,386 lack a terminal stop and 2,339 are 2,274 nt. The
+2,274-nt records appear to end at the contig boundary: of the 2,352 records at this length, 99.7%
+have no downstream contig sequence. All but one of the 2,339 incomplete records have no downstream
+bases at all, so there is nothing to extend them with; the exception has 32 downstream bases whose
+first codon is unresolved. By comparison, the 2,945 records at 2,277 nt have a median of 27
+downstream bases. The incomplete 2,274-nt records therefore cannot be extended from the current
+assemblies.
 
-Only 2,958 of 5,346 isolates have a complete PB1. Of the 2,388 incomplete records, 2,386 lack a
-terminal stop and 2,339 are 2,274 nt. The mode among unique complete CDS is 2,277 nt, one codon
-longer.
-
-The 2,274-nt records appear to be truncated at the contig boundary rather than merely annotated
-too short. Of 2,352 records at this length, 99.7% have no downstream contig sequence. Among the
-2,339 incomplete records tested, none has a downstream stop codon; all but one has no downstream
-bases to examine. By comparison, the 2,945 records at 2,277 nt have a median of 27 downstream
-bases. The 2,274-nt records therefore cannot be extended from the current assemblies.
-
-In Human-H3N2-2024, 2,277 nt is the dominant length among complete PB1 records. About 44% are
-incomplete 2,274-nt records that end at the contig boundary and lack a terminal stop. The
-mixture of these incomplete records and complete length variants complicates interpretation of the
-apparent change across years. The measurement shows where the available sequence stops; it does not
-establish why the sequence is absent or measure the biological prevalence of the two forms.
+This measurement describes the available records. It does not establish why the bases are absent
+or the biological prevalence of the 2,274- and 2,277-nt forms.
 
 ## Pin stability by year (additional measurement)
 
