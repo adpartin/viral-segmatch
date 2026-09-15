@@ -113,37 +113,36 @@ The label records whether two segment sequences were observed together in one is
 
 When the same model and population definition are applied to Human-H3N2 HA-NA data from 2024 and 2025, do the fitted models use the same codon sites?
 
-### Dataset construction
+### Design
 
-Build one HA-NA dataset per year using:
+The reference is the Human-H3N2-2024 HA-NA arm of
+`docs/results/2026-09-08_h3n2_2024_progress_report.md`, whose settings are
+`conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml`. Cite the
+bundle rather than the report for any setting, because the report is a summary and the bundle is
+what ran. It sets random 4-fold CV, `negative_scope: within_fold`, `pair_key_alphabet: nt_cds`,
+Hopcroft-Karp positive selection, `neg_to_pos_ratio: 1.0`,
+`require_complete_cds_at_pinned_length: true`, and `master_seed: 42`.
 
-- complete CDS at the existing HA and NA pins;
-- `pair_key_alphabet: nt_cds`;
-- Hopcroft-Karp positive selection;
-- 4-fold random CV;
-- `negative_scope: within_fold`;
-- a 1:1 negative-to-positive ratio;
-- the same fold and sampling seeds in every year.
+The 2024 side is already built and is reused rather than rerun: the runs
+`lgbm_ha_na_human_h3n2_2024_n1698_seed42_{site_codon,kmer_nt_cds_k6}_fold{0..3}` and the per-fold
+gain in `site_importance_codon_per_fold.csv`.
 
-The current 2025 HA-NA bundle does not include all these controls. Add dedicated bundles rather
-than treating older results as directly comparable.
+What is new for 2025:
+
+- a sibling bundle that changes only the year filter;
+- the same two model runs, per-site codon as the primary and nucleotide 6-mers as a performance
+  reference, with `src/analysis/plot_site_importance.py` producing the per-fold gain as it already
+  does for 2024;
+- the cross-year comparison below, which does not exist yet.
 
 Each year uses its full Hopcroft-Karp population: 1,698 positives in 2024 and 1,337 in 2025. The
 two are not subsampled to a common count. The counts differ by 1.27x, so sample size stays a
-candidate explanation for any difference in the gain rankings.
+candidate explanation for any difference in the gain rankings. 2025 is a partial season in the
+July 2025 corpus.
 
-### Models and importance
-
-Train per-site codon LightGBM models first. Codons give one column per residue coordinate, retain synonymous nucleotide information, and are narrower than per-nucleotide features. Run nucleotide 6-mers as a performance reference; k-mer importance is not part of the positional comparison.
-
-For every fold:
-
-1. read LightGBM gain from the fitted trees;
-2. normalize gain to sum to 1 within the fold;
-3. retain the full per-fold table;
-4. average normalized gain across folds only for the descriptive annual map.
-
-Gain is computed from the training process. It is not test-set importance. SHAP on held-out rows and permutation importance can be used as confirmation if the gain results are unstable or if the top sites drive a biological claim.
+Gain is read from the training process and is not test-set importance. SHAP on held-out rows and
+permutation importance can be used as confirmation if the gain results are unstable or if the top
+sites drive a biological claim.
 
 ### Comparisons
 
