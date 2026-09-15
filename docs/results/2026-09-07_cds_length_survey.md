@@ -13,39 +13,27 @@ artifact:       results/flu/July_2025/cds_length_survey/cds_length_survey.csv
 depends_on:     [src/utils/cds_utils.py, src/utils/config_hydra.py]
 ```
 
-The `script` and `artifact` produce only the whole-corpus and Human-H3N2-2024 per-protein tables. The year-specific tables and PB1 downstream-contig analysis were rechecked directly against the processed data on 2026-09-14, but their commands and outputs have not been preserved as artifacts. They therefore need separate provenance before publication.
+The `script` and `artifact` produce only the whole-corpus and Human-H3N2-2024 per-protein tables. The year-specific tables and PB1 downstream contig analysis were rechecked directly against the processed data on 2026-09-14, but their commands and outputs have not been preserved as artifacts. They therefore need separate provenance before publication.
 
-## Problems and Solutions
+## Problems and possible solutions
 
-Per-site features need every retained record for a protein to be complete and at one length. Three
-problems prevent that. Each has a different solution.
+Per-site features need every retained record for a protein to be complete and at one length. This survey identifies 3 separate limitations that affect the construction of per-site datasets. Each requires a different response.
 
-1. **Incomplete CDS.** Part of the coding sequence (CDS) is absent, so the record fails the completeness
-   check. This affects `PB1`: in recent Human-H3N2 years most of its incomplete records end at the
-   contig boundary, before the expected terminal stop. There is no solution. Alignment cannot recover
-   bases that were never sequenced, so these records must be excluded.
+1. **Incomplete CDS.** A record is considered incomplete when its annotated CDS fails the completeness check: an initial methionine (start codon), a terminal stop, and no internal stop. Alignment cannot reconstruct bases that are absent. These records are therefore excluded. `PB1` is the main example in Human-H3N2-2024: most of its incomplete 2,274-nt records end at the contig boundary, before the expected terminal stop.
 
-2. **Complete CDS at more than one length.** The records contain complete CDS but have different lengths,
-   either from an insertion or deletion or because the length differs between populations. Pinning
-   keeps one length and drops the rest. Corpus-wide this is largest for `NS1`, `HA` and `NA`, whose
-   lengths differ by subtype. Restricting the population to specific Host-Subtype-Year removes
-   nearly all of it. What remains is a year in which the length is changing, which is `PB1` in 2023.
-   That is the one case a codon-preserving alignment can potentially recover, by putting homologous positions
-   in shared columns and writing indels as gaps.
+2. **Complete CDS at more than one length.** Complete CDS can have different lengths because of indels (insertions, deletions) or population-specific sequence forms. The current pinned-length method retains one length and excludes the others. In the whole corpus, length heterogeneity is most evident for `NS1`, `HA` and `NA`, partly because the corpus combines subtypes and hosts. Restricting the data to Human-H3N2-2024 largely removes this heterogeneity. `PB1` remains unusual: its modal Human-H3N2 length changes from 2,274 to 2,277 nt, with both forms common in 2023. **Possible solution:** a codon-aware alignment may allow complete sequences of different lengths to share a common coordinate system, with alignment gaps representing length differences. The alignment would need to be validated before using its columns as features.
 
-3. **Low sequence diversity.** Many isolates carry the same CDS, so there are far fewer distinct
-   sequences than isolates. `M1` and `NS1` are the main examples. This drops no isolate, so it does not
-   show up in the fractions below. It caps how many distinct pairs can be built, and is measured in
-   `docs/results/2026-09-08_cds_pair_capacity.md`. Alignment does not help, because it cannot create
-   diversity.
+3. **Low sequence diversity.** Many isolates can carry the same CDS, so there are far fewer unique CDS than isolates. `M1` and `NS1` are the main examples. This limitation is visible in the `unique CDS` counts, but not in the completeness or mode length fractions. It reduces the number of independent examples and limits how many positive pairs remain after requiring each CDS to appear at most once per side. Pair capacity is measured separately in
+`docs/results/2026-09-08_cds_pair_capacity.md`. Alignment cannot increase sequence diversity.
+**Response:** use Hopcroft–Karp selection to retain as many non-reused positive pairs as possible, report the resulting pair capacity, and treat small populations as a limitation of the experiment.
 
 ## Why this was measured
 
-Per-site features use one column per sequence position and do not align or pad sequences. Every retained sequence for a protein must therefore be complete and at the same configured *pinned length*. A dominant length is necessary for this method. This survey checks completeness and length; **it is NOT an alignment validation**.
+Per-site features use one column per CDS position and do not align or pad sequences. Every retained CDS for a protein must therefore be complete and have the same configured *pinned length*. This survey checks completeness and length; it does not validate positional alignment.
 
-A *pin*, or *pinned length*, is a protein-specific CDS length recorded in the config rather than chosen for each run. The configured `cds_length` values in `conf/virus/flu.yaml` provide these lengths. When `dataset.require_complete_cds_at_pinned_length` is enabled, the pipeline retains only complete CDS records whose length equals the pin. It also checks that the pin is the modal length and holds for the required share of unique complete CDS in the population being processed. A pin also has a scope, the set of populations it was measured over, and it is valid only inside it. See *Pinned CDS length* in `docs/methods/glossary.md` for the canonical definition.
+A *pin*, or *pinned length*, is a protein-specific CDS length recorded in the config rather than selected independently for each run. The `cds_length` values in `conf/virus/flu.yaml` provide these lengths. When `dataset.require_complete_cds_at_pinned_length` is enabled, the pipeline retains only complete CDS records whose length equals the pin. It also checks that the pin is the modal length and accounts for the required share of unique complete CDS in the population being processed. A pin has a scope: the population in which it was measured. It must be revalidated before being applied outside that scope. See *Pinned CDS length* in `docs/methods/glossary.md` for the canonical definition.
 
-Using a configured pin gives runs the same feature dimensions and sequence coordinates. Otherwise, populations with different modal lengths could produce incompatible feature matrices. Positions downstream of an insertion or deletion could also refer to different biological sites. A pin does not itself prove that corresponding positions are homologous; that requires separate validation or alignment.
+Using a configured pin gives comparable runs the same feature dimensions and consistent column numbering. A pin does not by itself establish that corresponding positions are homologous; that requires separate validation or alignment.
 
 ## What was done
 
@@ -60,23 +48,27 @@ All counts refer to CDS DNA, keyed by `cds_dna_hash`.
 
 The two statistics can differ greatly: 5,346 Human-H3N2-2024 isolates carry only 815 unique M1 sequences.
 
-## Results: whole corpus
+## Results: whole-corpus
 
 All 108,530 isolates carry a record for every protein.
 
 A CDS is complete if: `starts_with_m & has_terminal_stop & ~has_internal_stop`, and it's recorded in a column `is_complete_cds`.
 
+The 3 problems:
+- **Incomplete CDS (P1):** measured at the isolate level by `1 - frac isolates complete`. It is small in the whole corpus; `PB1` has the largest loss at 5.1%.
+- **Complete CDS at more than one length (P2):** measured among unique complete CDS by `1 - frac at mode`. It is most evident for `NS1`, `HA`, and `NA`. At the isolate level, `frac isolates complete - frac isolates at mode` gives the additional loss caused by retaining only the modal length.
+- **Low sequence diversity (P3):** indicated by the number of `unique CDS` relative to 108,530 isolates. `M1` and `NS1` show the greatest sequence reuse.
+
 Table columns below:
 
-- `unique CDS`: how many unique CDS sequences the protein has. Records carrying the same sequence count once.
-- `complete CDS`: out of all the `unique CDS`, how many are complete.
-- `min`, `max`, `median`: considering `complete CDS`, determine the min, max and median CDS length, in nucleotides.
-- `mode`: most common CDS length, over the `complete CDS` set.
-- `complete CDS at mode`: how many of the `complete CDS` are at the mode.
-- `frac at mode`: share of `complete CDS` that are at the mode. `complete CDS at mode` / `complete CDS`.
-- `frac isolates complete`: share of isolates (the 108,530) whose record for this protein is complete. Isolates with a complete record / isolates carrying the protein.
-- `frac isolates at mode`: share of isolates (the 108,530) whose record is complete and at the mode. It measures
-  how much of the isolate population a pin at the modal length would retain.
+- `unique CDS`: number of unique CDS sequences. Identical CDS are counted once.
+- `complete CDS`: number of `unique CDS` that pass the completeness check.
+- `min`, `max`, `median`: min, max, and median length, in nucleotides, among unique complete CDS.
+- `mode`: most common length among unique complete CDS.
+- `complete CDS at mode`: number of unique complete CDS whose length equals the mode.
+- `frac at mode`: share of unique complete CDS whose length equals the mode: `complete CDS at mode / complete CDS`.
+- `frac isolates complete`: share of isolates (the 108,530) whose CDS for the protein passes the completeness check: isolates with a complete CDS / isolates carrying the protein.
+- `frac isolates at mode`: share of isolates (the 108,530) whose CDS is complete and has the modal length: isolates with a complete CDS at the mode / isolates carrying the protein. This is the share of the isolate population retained by pinning the protein to its modal length.
 
 Clarifying `frac isolates complete` and `frac isolates at mode` columns with PB1 on the whole corpus. Both fractions share the same denominator — isolates, not sequences:
 
@@ -108,14 +100,9 @@ unique complete CDS once. It measures how concentrated the complete sequence set
 The median equals the mode for all 8 proteins. No protein had a tie for the most common
 length, so the tie-breaking rule in `modal_length` was never exercised on this population.
 
-## Completeness, counted two ways
-
-The corpus in cds_dna_final.parquet contains 868,240 rows (8 major proteins x 108,530 isolates = 868,240 records).
-
-1) Out of 868,240 records, 855,695 are complete CDS based on bool column `is_complete_cds` in cds_dna_final.parquet (98.56%).
-2) Out of 868,240 records, 447,170 are unique. Out of 447,170 unique, 437,714 are complete CDS (97.89%).
-
 ## What the results say about the pinned lengths
+
+Shows complete CDS at more than one length. This is why PB1 and NS1 have no corpus-wide pin.
 
 The corpus-wide modes match the 6 lengths currently configured in `conf/virus/flu.yaml`: PB2
 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, and M1 759 nt. These corpus-wide modes are
@@ -136,6 +123,9 @@ These are properties of the records in this corpus, so neither value should be t
 universal pin length.
 
 ## Results: Human-H3N2-2024
+
+Shows incomplete CDS in PB1 and low sequence diversity in M1 and NS1. Complete CDS at more than one
+length nearly disappears here, because the population is restricted to one host, subtype and year.
 
 This is the population used by the current experiments. It contains 5,346 isolates, each with a record for all 8 proteins.
 
@@ -171,7 +161,9 @@ passes as a Human-H3N2-2024-specific pin. This does not make 693 nt a corpus-wid
 large gap between isolate and unique-CDS counts, especially for M1, shows why both units are
 reported.
 
-### Why PB1 requires a population-specific pin
+## Why PB1 requires a population-specific pin
+
+Shows incomplete CDS. This is the largest single loss in the survey.
 
 PB1 has `frac at mode = 0.994` among unique complete CDS, but only 55.3% of isolates have a
 complete PB1 and 55.1% have a complete CDS at the mode. The sequence-level fraction establishes a
@@ -193,9 +185,9 @@ mixture of these incomplete records and complete length variants complicates int
 apparent change across years. The measurement shows where the available sequence stops; it does not
 establish why the sequence is absent or measure the biological prevalence of the two forms.
 
-### Pin stability by year (additional measurement)
+## Pin stability by year (additional measurement)
 
-For seven proteins, the modal complete-CDS length is unchanged in every Human-H3N2 year from 2015
+Shows complete CDS at more than one length, and where it does not occur. For seven proteins, the modal complete-CDS length is unchanged in every Human-H3N2 year from 2015
 through 2025: PB2 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, M1 759, and NS1 693 nt. The
 table reports the share of each year's isolates with a complete CDS at that length:
 
@@ -271,25 +263,18 @@ geography, passage, or other structure within the human population.
 
 ## Limitations
 
-- The corpus-wide table mixes subtypes, hosts, and years. Use a population-specific table to choose
-  a pin.
 - Equal CDS length does not prove positional homology or validate the annotation.
 - `is_complete_cds` is an operational check derived from the annotated protein: it requires an
   initial methionine, a terminal stop, and no internal stop. It is not independent evidence that the
   assembly contains every biologically expected base.
-- The PB1 contig-boundary check shows that the current assemblies provide no downstream bases for
-  most incomplete 2,274-nt records. It does not establish why those bases are absent.
 - The year-specific and PB1 contig-boundary measurements do not yet have saved scripts and output
   artifacts; see the provenance note above.
 
 ## Notes
 
-Read the CSV with `keep_default_na=False`; otherwise pandas interprets the protein name `NA` as a
+- Read the CSV with `keep_default_na=False`; otherwise pandas interprets the protein name `NA` as a
 missing value.
-
-The script deduplicates sequences using `cds_dna_hash`. No hash occurs under more than one protein
+- The script deduplicates sequences using `cds_dna_hash`. No hash occurs under more than one protein
 in this corpus, so this is currently safe. Deduplicating on `(function, cds_dna_hash)` would make
 that assumption explicit.
-
-Sequence statistics deduplicate by hash; isolate statistics do not. Report which denominator is
-used.
+- Sequence statistics deduplicate by hash; isolate statistics do not.
