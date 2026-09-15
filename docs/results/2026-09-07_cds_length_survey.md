@@ -86,16 +86,16 @@ PB1 and NS1 have no global pins because their dominant lengths change across the
 This is the population used by the current experiments. It contains 5,346 isolates, each with a
 record for all 8 proteins.
 
-| Segment ID | protein | isolates | unique CDS | complete CDS | mode | frac at mode | frac isolates complete | frac isolates at mode |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2 | 5,346 | 2,826 | 2,821 | 2,280 | 0.997 | 0.999 | 0.998 |
-| 2 | PB1 | 5,346 | 3,061 | 1,800 | 2,277 | 0.994 | **0.553** | **0.551** |
-| 3 | PA | 5,346 | 2,726 | 2,721 | 2,151 | 0.998 | 0.999 | 0.998 |
-| 4 | HA | 5,346 | 2,694 | 2,687 | 1,701 | 1.000 | 0.999 | 0.999 |
-| 5 | NP | 5,346 | 1,851 | 1,834 | 1,497 | 1.000 | 0.996 | 0.996 |
-| 6 | NA | 5,346 | 2,320 | 2,211 | 1,410 | 0.998 | 0.969 | 0.968 |
-| 7 | M1 | 5,346 | 815 | 814 | 759 | 1.000 | 1.000 | 1.000 |
-| 8 | NS1 | 5,346 | 1,141 | 1,132 | 693 | 0.991 | 0.998 | 0.996 |
+| Segment ID | protein | isolates | unique CDS | complete CDS | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 5,346 | 2,826 | 2,821 | 2,280 | 2,813 | 0.997 | 0.999 | 0.998 |
+| 2 | PB1 | 5,346 | 3,061 | 1,800 | 2,277 | 1,790 | 0.994 | **0.553** | **0.551** |
+| 3 | PA | 5,346 | 2,726 | 2,721 | 2,151 | 2,716 | 0.998 | 0.999 | 0.998 |
+| 4 | HA | 5,346 | 2,694 | 2,687 | 1,701 | 2,687 | 1.000 | 0.999 | 0.999 |
+| 5 | NP | 5,346 | 1,851 | 1,834 | 1,497 | 1,834 | 1.000 | 0.996 | 0.996 |
+| 6 | NA | 5,346 | 2,320 | 2,211 | 1,410 | 2,206 | 0.998 | 0.969 | 0.968 |
+| 7 | M1 | 5,346 | 815 | 814 | 759 | 814 | 1.000 | 1.000 | 1.000 |
+| 8 | NS1 | 5,346 | 1,141 | 1,132 | 693 | 1,122 | 0.991 | 0.998 | 0.996 |
 
 All 6 existing pins pass `check_cds_length` in this population. NS1 also reaches 0.996 by isolate,
 so 693 nt is a suitable population-specific pin. The large gap between isolate and unique-CDS
