@@ -1,0 +1,18 @@
+# Per-site codon features on the human H3N2 2025 Hopcroft-Karp selected-positive folds.
+#
+# The 2025 counterpart of
+# flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_site_codon. Both years declare
+# the same site and training settings from a bundle, which is what makes the cross-year importance
+# comparison in experiment 1 rest on a recipe a reader can check.
+defaults:
+  - flu_ha_na_human_h3n2_2025_random_cv4_pinned_length_hopcroft_karp
+  - _self_
+
+site:
+  unit: codon
+  encoding: ordinal
+
+training:
+  feature_source: site
+  interaction: concat
+  slot_transform: none

@@ -174,7 +174,7 @@ formed from PB2, PB1, PA, HA, NP, NA, M1, and NS1?
 ### Population rules
 
 Use the same metadata filters for every pair, but build each pair from its own eligible isolates.
-Do not require a common eight-protein isolate cohort for the primary analysis. Requiring PB1 from
+Do not require a common 8-protein isolate cohort for the primary analysis. Requiring PB1 from
 every isolate would remove about 45% of the population from pairs that do not contain PB1.
 
 Use the existing pins for PB2, PA, HA, NP, NA, and M1, and add the two the config does not carry.

@@ -1,0 +1,15 @@
+# Human H3N2 2025 HA-NA dataset, the 2025 half of experiment 1 in
+# docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md.
+#
+# Inherits the 2024 bundle and changes only the year, so every other setting is the same one the
+# four-pair experiment ran and cannot drift from it. HA and NA keep their pins in 2025, so the
+# site coordinates are the same in both years.
+#
+# The July 2025 corpus holds a partial 2025 season. This population is smaller than 2024's:
+# 1,337 Hopcroft-Karp positives against 1,698.
+defaults:
+  - flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp
+  - _self_
+
+dataset:
+  year: [2025]
