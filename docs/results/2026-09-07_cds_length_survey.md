@@ -81,7 +81,7 @@ Table columns below:
 | 7 | M1 | 32,413 | 32,119 | 726 | 762 | 759 | 759 | 32,117 | 1.000 | 0.996 | 0.996 |
 | 8 | NS1 | 38,039 | 37,843 | 609 | 717 | 693 | 693 | 21,576 | 0.570 | 0.998 | 0.600 |
 
-Clarifying `frac isolates complete` and `frac isolates at mode` columns with PB1. Both fractions share the same denominator — isolates, not sequences:
+Clarifying `frac isolates complete` and `frac isolates at mode` with PB1 on the whole corpus. Both fractions share the same denominator — isolates, not sequences:
 
 ```
 isolates carrying PB1:                     108,530 (denominator for both)
@@ -107,8 +107,8 @@ The corpus-wide modes match the 6 lengths configured in `conf/virus/flu.yaml`: P
 ## Results: Human-H3N2-2024
 
 This section concerns P1 and P3: incomplete CDS in PB1, and low sequence diversity in M1 and NS1.
-Complete CDS at more than one length (i.e., P2) nearly disappears here, because the population is restricted to
-one host-subtype-year.
+Complete CDS at more than one length (i.e., P2) nearly disappears here, because the population is
+restricted to one subtype, host and year.
 
 This is the population used by the current experiments. It contains 5,346 isolates, each with a record for all 8 proteins.
 
@@ -144,7 +144,7 @@ passes as a Human-H3N2-2024-specific pin. This does not make 693 nt a corpus-wid
 large gap between isolate and unique-CDS counts, especially for M1, shows why both units are
 reported.
 
-## Why PB1 requires a population-specific pin
+## Why PB1 retains about half its isolates
 
 This section concerns P1. It is the largest single loss in the survey.
 
@@ -163,7 +163,7 @@ bases to examine. By comparison, the 2,945 records at 2,277 nt have a median of 
 bases. The 2,274-nt records therefore cannot be extended from the current assemblies.
 
 In Human-H3N2-2024, 2,277 nt is the dominant length among complete PB1 records. About 44% are
-incomplete 2,274-nt records whose contigs end at the CDS boundary and lack a terminal stop. The
+incomplete 2,274-nt records that end at the contig boundary and lack a terminal stop. The
 mixture of these incomplete records and complete length variants complicates interpretation of the
 apparent change across years. The measurement shows where the available sequence stops; it does not
 establish why the sequence is absent or measure the biological prevalence of the two forms.
@@ -219,13 +219,13 @@ In Human-H3N2-2024, the 6 configured pins pass both checks, and NS1 passes with 
 population-specific 693-nt pin. PB1 at 2,277 nt passes the unique-sequence concentration check but
 retains only 55.1% of isolates. It therefore does not pass a 90% isolate-retention screen, but it
 can still be used as a smaller, explicitly completeness-selected population. This distinction
-allows PB1-containing pairs to remain in the 28-pairs capacity audit without implying that PB1 has
-the same coverage as the other proteins.
+allows PB1-containing pairs to enter the planned 28-pairs capacity audit without implying that PB1
+has the same coverage as the other proteins.
 
 Passing this screen means that per-site features on a single shared CDS length are feasible. It does
 not guarantee enough training pairs. The companion capacity audit
-(`docs/results/2026-09-08_cds_pair_capacity.md`) measures this per pair, including the smaller
-completeness-selected PB1 pairs.
+(`docs/results/2026-09-08_cds_pair_capacity.md`) measures it for the 15 pairs formed from the 6
+configured proteins. It does not yet cover PB1 or NS1.
 
 ## Metadata filtering
 
