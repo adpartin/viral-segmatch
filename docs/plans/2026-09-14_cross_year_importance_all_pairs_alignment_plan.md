@@ -61,24 +61,15 @@ Note that the "July 2025" corpus contains a partial 2025 season. We have to stat
 
 ## Current evidence
 
-### Pinned-length site features are already feasible for most proteins
+### PB1 is the one protein the pins cannot rescue
 
-`docs/results/2026-09-07_cds_length_survey.md` shows that PB2, PA, HA, NP, NA, and M1 retain at
-least 90% of Human-H3N2 isolates at their current pins in 2023-2025. NS1 also retains at least
-99% at a population-specific length of 693 nt in those years.
-
-PB1 is different. In Human-H3N2-2024, 55.3% of isolates have a complete PB1. Most 2,274-nt PB1
-records lack the terminal stop and end at the contig boundary. No downstream sequence is available
-in these assemblies, so the records cannot be completed from the current data, though the
-measurement does not establish why that sequence is absent. Alignment cannot reconstruct missing
-bases or make incomplete records complete. Complete 2024 PB1 records are predominantly
-2,277 nt and can still be analyzed as a smaller, explicitly selected population.
+In Human-H3N2-2024 only 55.3% of isolates have a complete PB1, and alignment cannot change that,
+because the missing bases are absent from the assemblies. See "Why PB1 retains about half its
+isolates" in `docs/results/2026-09-07_cds_length_survey.md`.
 
 ### Pair capacity differs even under the same metadata filters
 
 The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 15 pairs in Human-H3N2-2024. M1 pairs had the smallest populations because M1 has few distinct sequences. The 28-pairs experiment must therefore report native sample size and sequence diversity beside model performance.
-
-The primary 28-pairs analysis will not downsample every pair to the smallest pair. A global minimum would discard most observations from the larger pairs and would not equalize sequence diversity or negative difficulty. A fixed-count sensitivity analysis can be added within sensible capacity groups after the full capacity table is available.
 
 ### Existing code can be reused
 
