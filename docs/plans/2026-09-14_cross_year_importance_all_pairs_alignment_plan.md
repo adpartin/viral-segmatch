@@ -6,22 +6,18 @@
 
 Follow up questions/tasks following the `docs/results/2026-09-08_h3n2_2024_progress_report.md` report (Human-H3N2-2024):
 
-1. Are the same sequence sites dominate in terms of feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-2025.
-2. Extend the prediction performance and feature imparance analysis to 28-pairs; the 8 major proteins, c(8,2).
-3. Can codon-preserving sequence alignment retain records that pinned-length filtering drops? We need to determine whether alignment effort worth it. Consider `2026-09-07_cds_length_survey.md` in general, and specifically its "Pin reach by year" section, which covers 2015-2025.
+1. Do the same sequence sites dominate feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-2025.
+2. How do prediction performance, pair capacity, and the share of gain on each protein vary across 28-pairs; the 8 major proteins, c(8,2)?
+3. Can codon-preserving sequence alignment retain records that pinned-length filtering drops? We need to determine whether the alignment effort is worth it. Consider `2026-09-07_cds_length_survey.md` in general, and specifically its "Pin reach by year" section, which covers 2015-2025.
 
 The cross-year comparison and the initial 28-pairs screen can use the existing pinned-length pipeline.
 
 Alignment will be evaluated separately and will enter the production pipeline only if it retains meaningful data.
 
-Alignment is not required for Experiment 1 because HA and
-NA keep the same pin in 2024 and 2025. What alignment would add is the guarantee that a shared site is
-a shared *homologous* position. `docs/results/2026-09-07_cds_length_survey.md` states that equal CDS
-length does not prove positional homology, and nothing in the current pipeline checks it.
-
-Alignment tools to consider:
-- pyhmmer: https://github.com/althonos/pyhmmer; https://pyhmmer.readthedocs.io/en/stable/
-- pyfamsa: https://github.com/althonos/pyfamsa; https://pyfamsa.readthedocs.io/en/stable/
+Alignment is not required for Experiment 1, because HA and NA keep the same pin in 2024 and 2025.
+What a validated alignment would add is evidence that a shared site is a shared *homologous*
+position. `docs/results/2026-09-07_cds_length_survey.md` states that equal CDS length does not prove
+positional homology, and nothing in the current pipeline checks it.
 
 ## Scope
 
@@ -36,10 +32,10 @@ Alignment tools to consider:
 - Primary features: nucleotide 6-mers and per-site codons.
 - Primary importance measure: fold-averaged LightGBM gain.
 
-All three experiments share one pin table, so their site coordinates and importance maps stay
+Experiments 1 to 3 share one pin table, so their site coordinates and importance maps stay
 comparable. Every protein is pinned to its Human-H3N2-2024 modal complete-CDS length, and the same
-value is used in 2025. A pin that differed between the years compared would put site 500 in a
-different place in each, and the cross-year comparison would not measure what it claims.
+value is used in 2025. Pinning two compared years to lengths that differ by an indel would shift
+every position downstream of it, so a site index would not mean the same place in both.
 
 | Segment ID | protein | pin (nt) | source |
 | --- |---|---:|---|
@@ -125,48 +121,42 @@ codon sites?
 
 Use `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` as the
 2024 dataset reference. Use the saved `resolved_config.yaml` files from the existing 2024 HA-NA
-codon and nucleotide 6-mer runs as the feature and model references. Reuse the 2024 results. These
+codon runs as the feature and model references. Reuse the 2024 results. These
 runs are summarized in `docs/results/2026-09-08_h3n2_2024_progress_report.md`.
 
 For 2025:
 
-- create a sibling dataset bundle that changes only the year;
-- train per-site codon models for the importance comparison;
-- train nucleotide 6-mer models as a performance reference;
-- keep the full Hopcroft-Karp population.
+- create a sibling dataset bundle that changes only the year
+- train per-site codon models for the performance and importance comparison
+- keep the full Hopcroft-Karp population
 
 The 2024 and 2025 populations contain 1,698 and 1,337 positives, respectively. They will not be
 downsampled to the same size, so sample size may contribute to differences in their gain rankings.
 The July 2025 corpus contains only a partial 2025 season.
 
-Gain is computed from splits in the fitted trees and is therefore derived from training, not
-held-out data. If the rankings are unstable or support a biological claim, confirm them with SHAP
-or permutation importance on held-out rows.
-
 ### Comparisons
 
-Compare 2024 with 2025, reporting HA and NA separately:
+Produce for 2025 year the figures as section 3 of
+`docs/results/2026-09-08_h3n2_2024_progress_report.md`, so that 2024 and 2025 can be read side by side:
+the 3-panel importance barplot of gain, SHAP and permutation, and the gain trace along HA and
+NA. `src/analysis/plot_site_importance.py` writes both. The shuffle-and-refit figure from that
+section is out of scope here (computationally expensive).
 
-- Spearman correlation across all sites;
-- overlap and Jaccard similarity for the top 10 and top 25 sites;
-- each protein's share of total gain;
-- variation among folds within each year.
+Report the share of total gain as a two-row table, 2024 and 2025, giving the HA and NA shares and
+the share falling in the top 25 sites (check first table in section 3). Fold-to-fold variation is the error bar on the barplot,
+which covers the sites shown; the per-fold CSV carries it for every site.
 
-Plot the 2024 and 2025 gain traces on the same coordinates and label sites using 1-based residue
-numbers.
+Then compare the years directly, reporting HA and NA separately:
 
-Correlated sites may carry the same signal, so models from different years may select different
-members of the same group. Low top-site overlap therefore does not by itself show that the
-underlying signal changed. If ranks differ, check nearby and correlated sites before interpreting
-the difference.
+- Spearman correlation across all sites
+- Overlap and Jaccard similarity for the top 12 and top 25 sites
 
 ### Required outputs
 
+Beyond the figures and tables named above:
+
 - a dataset audit for each year;
-- per-fold and fold-averaged importance CSVs for each year;
 - a cross-year comparison CSV;
-- overlaid gain traces for HA and NA;
-- a top-site overlap plot or table;
 - a results note that separates measurements from interpretation.
 
 ### Acceptance checks
@@ -258,7 +248,14 @@ Report, for every pair and feature representation:
 - AUC-ROC, F1 macro, precision, recall, and Brier score as fold mean and standard deviation;
 - pooled confusion counts;
 - eligible, unique-positive, and Hopcroft-Karp counts;
-- the difference between codon and k-mer performance.
+- the difference between codon and k-mer performance;
+- each protein's share of total gain in the codon model, one number per slot.
+
+Save the normalized per-fold gain for every codon model. `src/analysis/plot_site_importance.py`
+already writes it, so this costs no extra model fits. The first screen reports the per-protein
+share of gain only. It does not interpret 56 per-site importance maps, because the pairs differ in
+population size, capacity and sequence diversity, and Experiment 1 is where importance is examined
+carefully.
 
 Plot symmetric 8 x 8 heatmaps for AUC-ROC, F1 macro, precision, and recall. Plot performance against
 Hopcroft-Karp count and against per-protein sequence diversity. Treat these as descriptive
@@ -321,8 +318,10 @@ population as the control.
 Prototype the alignment outside the dataset builder first:
 
 1. translate each complete CDS using the current translation rules;
-2. align aa sequences with a reproducible tool and version, with MAFFT as the first tool to
-   evaluate;
+2. align aa sequences with a reproducible tool and version. MAFFT and pyFAMSA
+   (https://github.com/althonos/pyfamsa) are the progressive-aligner candidates. pyHMMER
+   (https://github.com/althonos/pyhmmer) is a separate option if a profile-HMM alignment, which
+   gives a column space that does not shift as sequences are added, is under consideration;
 3. project each aa gap back to a three-nucleotide codon gap;
 4. retain an explicit mapping from alignment column to original residue/codon coordinate;
 5. encode gaps, unknown residues, and missing sequence separately;
