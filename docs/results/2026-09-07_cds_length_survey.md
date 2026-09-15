@@ -13,6 +13,11 @@ artifact:       results/flu/July_2025/cds_length_survey/cds_length_survey.csv
 depends_on:     [src/utils/cds_utils.py, src/utils/config_hydra.py]
 ```
 
+The `script` and `artifact` above produce the two per-protein tables only. Several further results
+here were measured ad hoc and have no recorded script or output artifact yet: the pin stability by
+year table, the PB1 downstream-contig analysis, and the per-year NS1 and PB1 length breakdowns
+quoted below. Treat those as measurements still to be given their own provenance.
+
 ## Why this was measured
 
 Per-site features use one column per sequence position and do not align or pad sequences. Each protein therefore needs a single CDS length shared by every record. A dominant length is necessary, but equal-length sequences are not necessarily aligned at homologous positions. This survey checks CDS completeness and length before schema-pair experiments.
@@ -83,7 +88,16 @@ The corpus in cds_dna_final.parquet contains 868,240 rows (8 major proteins x 10
 
 The corpus-wide mode values (i.e., regardless of the metadata) match all 6 length pins in `conf/virus/flu.yaml`: PB2 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, M1 759 nt. Note that variation in terms of mode length might be observed across different metadata (e.g., H3N2 and H1N1 together make up 61.5% of the corpus and can determine those modes).
 
-PB1 and NS1 have no global pins because their dominant lengths change across the populations and years.
+No corpus-wide pin is configured for PB1 or NS1, but the two are absent for different reasons.
+
+NS1 is split by subtype rather than by year. Within Human-H3N2 its modal complete-CDS length is
+693 nt in every year from 2015 through 2025, and the 660-nt form in H3N2 is almost entirely swine
+(3,120 of 3,276 isolates). H1N1 is predominantly 660 nt, which is what prevents one corpus-wide
+value.
+
+PB1 is the one protein whose modal length moves within Human-H3N2: 2,274 nt through 2023 and
+2,277 nt in 2024 and 2025. Broader populations can have different dominant lengths, so neither
+Human-H3N2 value should be treated as a universal influenza A pin.
 
 ## Results: Human-H3N2-2024
 
@@ -119,7 +133,7 @@ All 6 existing pins pass `check_cds_length` in this population. NS1 also reaches
 so 693 nt is a suitable population-specific pin. The large gap between isolate and unique-CDS
 counts, especially for M1, shows why both units are reported.
 
-### Why PB1 is excluded
+### Why PB1 requires a population-specific pin
 
 PB1 has `frac at mode = 0.994` among complete CDS, but only 55.3% of isolates have a complete PB1
 and 55.1% have a complete CDS at the mode. The first fraction alone is therefore misleading.
@@ -132,13 +146,13 @@ The 2,274-nt records appear to be truncated at the contig boundary rather than m
 too short. Of 2,352 records at this length, 99.7% have no downstream contig sequence. Among the
 2,339 incomplete records tested, none has a downstream stop codon; all but one has no downstream
 bases to examine. By comparison, the 2,945 records at 2,277 nt have a median of 27 downstream
-bases. The 2,274-nt records therefore cannot be extended from the current assemblies, so PB1
-remains excluded.
+bases. The 2,274-nt records therefore cannot be extended from the current assemblies.
 
 In Human-H3N2-2024, 2,277 nt is the dominant length among complete PB1 records. About 44% of PB1
 records are incomplete because their contigs end three bases before the expected terminal stop.
-This assembly truncation complicates interpretation of the observed change from 2,274 to 2,277 nt
-across years.
+Because so many records end at the contig boundary, the observed change from 2,274 to 2,277 nt
+across years is hard to interpret. The measurement shows where the sequence stops. It does not
+establish why the sequence is absent.
 
 ### Pin stability by year
 
@@ -158,7 +172,7 @@ Share of each year's Human-H3N2 isolates with a complete CDS at the 2024 pin:
 | 2024 | 5,346 | 0.998 | 0.998 | 0.999 | 0.996 | 0.968 | 1.000 | 0.996 |
 | 2025 | 3,434 | 0.999 | 0.998 | 1.000 | 0.999 | 0.999 | 1.000 | 0.999 |
 
-For the years shown, all 6 existing pins retain at least 90% of isolates. NP is lowest in 2019 and 2020, and NA is lowest in 2023. Adding NS1 limits a contiguous recent range to 2021-2025 because NS1 falls below 90% in 2019 and 2020. PB1 is omitted because it has no stable pin.
+For the years shown, all 6 existing pins retain at least 90% of isolates. NP is lowest in 2019 and 2020, and NA is lowest in 2023. Adding NS1 limits a contiguous recent range to 2021-2025 because NS1 falls below 90% in 2019 and 2020. PB1 is omitted because its modal length moves within this range, from 2,274 nt through 2023 to 2,277 nt in 2024 and 2025. A stable modal length is not the same as high completeness: NS1 sits at 693 nt in every year shown, yet only 0.723 and 0.688 of isolates are complete at it in 2019 and 2020.
 
 ## Using the survey as a screen
 
