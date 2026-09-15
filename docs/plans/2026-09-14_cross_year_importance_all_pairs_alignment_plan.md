@@ -45,19 +45,19 @@ comparable. A pin belongs to the set of populations being compared, not to a sin
 PB1 were pinned at 2,274 nt in 2023 and 2,277 nt in 2024, site 500 would not be the same place and
 the cross-year comparison would not measure what it claims.
 
-| protein | pin (nt) | scope |
-|---|---:|---|
-| PB2 | 2,280 | Human-H3N2, unchanged 2015-2025 |
-| PA | 2,151 | Human-H3N2, unchanged 2015-2025 |
-| HA | 1,701 | Human-H3N2, unchanged 2015-2025 |
-| NP | 1,497 | Human-H3N2, unchanged 2015-2025 |
-| NA | 1,410 | Human-H3N2, unchanged 2015-2025 |
-| M1 | 759 | Human-H3N2, unchanged 2015-2025 |
-| NS1 | 693 | Human-H3N2, unchanged 2015-2025; no corpus-wide pin because H1N1 is 660 nt |
-| PB1 | 2,277 | Human-H3N2 2024-2025 only; 2,274 nt through 2023 |
+| Segment ID | protein | pin (nt) | scope |
+| --- |---|---:|---|
+| 1 | PB2 | 2,280 | Human-H3N2, unchanged 2015-2025 |
+| 2 | PB1 | 2,277 | Human-H3N2 2024-2025 only; 2,274 nt through 2023 |
+| 3 | PA | 2,151 | Human-H3N2, unchanged 2015-2025 |
+| 4 | HA | 1,701 | Human-H3N2, unchanged 2015-2025 |
+| 5 | NP | 1,497 | Human-H3N2, unchanged 2015-2025 |
+| 6 | NA | 1,410 | Human-H3N2, unchanged 2015-2025 |
+| 7 | M1 | 759 | Human-H3N2, unchanged 2015-2025 |
+| 8 | NS1 | 693 | Human-H3N2, unchanged 2015-2025; no corpus-wide pin because H1N1 is 660 nt |
 
-The first six are the values already in `conf/virus/flu.yaml`. NS1 and PB1 are not in that file and
-must be set per experiment.
+PB2, PA, HA, NP, NA and M1 are the values already in `conf/virus/flu.yaml`. PB1 and NS1 are not in
+that file and must be set per experiment.
 
 Note that the "July 2025" corpus contains a partial 2025 season. We have to state in our results (we reserve this for final publication).
 
