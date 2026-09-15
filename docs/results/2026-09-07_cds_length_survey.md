@@ -157,30 +157,33 @@ assemblies.
 This measurement describes the available records. It does not establish why the bases are absent
 or the biological prevalence of the 2,274- and 2,277-nt forms.
 
-## Pin stability by year (additional measurement)
+## Pin reach by year (additional measurement)
 
-This section concerns P1 and P2. It asks whether the same pinned length can be used across
-Human-H3N2 years. For seven proteins, the modal complete-CDS length is unchanged in every Human-H3N2 year from 2015
-through 2025: PB2 2,280, PA 2,151, HA 1,701, NP 1,497, NA 1,410, M1 759, and NS1 693 nt. The
-table reports the share of each year's isolates with a complete CDS at that length:
+This section concerns P1 and P2. The experiments in
+`docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md` pin all 8 proteins to
+their Human-H3N2-2024 modal complete-CDS length: PB2 2,280, PB1 2,277, PA 2,151, HA 1,701,
+NP 1,497, NA 1,410, M1 759, and NS1 693 nt. Six are in `conf/virus/flu.yaml`; PB1 and NS1 come
+from a bundle-level `virus.cds_length` override. The table reports the share of each year's
+isolates with a complete CDS at that length, so it shows how far the 2024 pins reach:
 
-| year | isolates | PB2 | PA | HA | NP | NA | M1 | NS1 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| 2015 | 1,335 | 0.998 | 0.999 | 1.000 | 0.999 | 1.000 | 0.999 | 0.993 |
-| 2016 | 1,416 | 0.999 | 0.999 | 0.997 | 1.000 | 1.000 | 1.000 | 0.985 |
-| 2017 | 2,845 | 1.000 | 0.998 | 1.000 | 0.999 | 0.998 | 1.000 | 0.958 |
-| 2018 | 1,639 | 0.999 | 0.999 | 1.000 | 0.999 | 0.999 | 1.000 | 0.961 |
-| 2019 | 2,755 | 1.000 | 0.998 | 0.999 | 0.926 | 0.996 | 1.000 | 0.723 |
-| 2020 | 189 | 0.995 | 0.995 | 0.995 | 0.905 | 0.979 | 1.000 | 0.688 |
-| 2021 | 1,089 | 0.999 | 0.981 | 0.999 | 1.000 | 0.999 | 0.999 | 0.981 |
-| 2022 | 4,864 | 0.998 | 0.998 | 0.998 | 0.996 | 0.996 | 0.999 | 0.993 |
-| 2023 | 1,347 | 0.997 | 0.999 | 0.999 | 0.998 | 0.936 | 1.000 | 0.996 |
-| 2024 | 5,346 | 0.998 | 0.998 | 0.999 | 0.996 | 0.968 | 1.000 | 0.996 |
-| 2025 | 3,434 | 0.999 | 0.998 | 1.000 | 0.999 | 0.999 | 1.000 | 0.999 |
+| year | isolates | PB2 | PB1 | PA | HA | NP | NA | M1 | NS1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2015 | 1,335 | 0.998 | 0.001 | 0.999 | 1.000 | 0.999 | 1.000 | 0.999 | 0.993 |
+| 2016 | 1,416 | 0.999 | 0.004 | 0.999 | 0.997 | 1.000 | 1.000 | 1.000 | 0.985 |
+| 2017 | 2,845 | 1.000 | 0.000 | 0.998 | 1.000 | 0.999 | 0.998 | 1.000 | 0.958 |
+| 2018 | 1,639 | 0.999 | 0.001 | 0.999 | 1.000 | 0.999 | 0.999 | 1.000 | 0.961 |
+| 2019 | 2,755 | 1.000 | 0.001 | 0.998 | 0.999 | 0.926 | 0.996 | 1.000 | 0.723 |
+| 2020 | 189 | 0.995 | 0.000 | 0.995 | 0.995 | 0.905 | 0.979 | 1.000 | 0.688 |
+| 2021 | 1,089 | 0.999 | 0.042 | 0.981 | 0.999 | 1.000 | 0.999 | 0.999 | 0.981 |
+| 2022 | 4,864 | 0.998 | 0.067 | 0.998 | 0.998 | 0.996 | 0.996 | 0.999 | 0.993 |
+| 2023 | 1,347 | 0.997 | 0.391 | 0.999 | 0.999 | 0.998 | 0.936 | 1.000 | 0.996 |
+| 2024 | 5,346 | 0.998 | 0.551 | 0.998 | 0.999 | 0.996 | 0.968 | 1.000 | 0.996 |
+| 2025 | 3,434 | 0.999 | 0.619 | 0.998 | 1.000 | 0.999 | 0.999 | 1.000 | 0.999 |
 
-For the years shown, the 6 configured pins retain at least 90% of isolates. At the same threshold,
-NS1 passes in 2015-2018 and 2021-2025 but not in 2019-2020. A stable modal length therefore does
-not guarantee uniformly high isolate retention.
+PB2, PA, HA, NP, NA and M1 retain at least 90% of isolates in every year. The other two fail for
+different reasons. NS1 stays the modal length in every year and only retains fewer isolates in 2019
+and 2020. PB1 is a different length before 2024, so its pin does not apply to earlier years: 0.619
+in 2025 and 0.551 in 2024, 0.391 in 2023, and effectively zero before 2021.
 
 The low cells do not all have the same cause, and the table alone does not separate them. For NS1,
 2,754 of 2,755 isolates in 2019 and all 189 isolates in 2020 have a complete CDS. Complete NS1 at a
@@ -188,13 +191,17 @@ length other than 693 nt accounts for 27.6% of isolates in 2019 and 31.2% in 202
 losses. By contrast, the lower NP values in 2019-2020 and the lower NA value in 2023 are caused by
 incomplete CDS (P1), not by other complete lengths.
 
-PB1 requires a separate view because both its modal length and its isolate retention change. The
-table starts at 2021 because PB1 holds 2,274 nt from 2015 through 2020, at 0.989 or above in every
-one of those years. Each entry is the share of that year's isolates with a complete PB1 at the
-stated length.
+The next table separates the two PB1 lengths. Each entry is the share of that year's isolates with
+a complete PB1 at the stated length.
 
 | year | isolates | complete at 2,274 nt | complete at 2,277 nt | complete at either length |
 |---:|---:|---:|---:|---:|
+| 2015 | 1,335 | 0.999 | 0.001 | 1.000 |
+| 2016 | 1,416 | 0.996 | 0.004 | 1.000 |
+| 2017 | 2,845 | 0.999 | 0.000 | 0.999 |
+| 2018 | 1,639 | 0.998 | 0.001 | 0.998 |
+| 2019 | 2,755 | 0.996 | 0.001 | 0.997 |
+| 2020 | 189 | 0.989 | 0.000 | 0.989 |
 | 2021 | 1,089 | 0.956 | 0.042 | 0.998 |
 | 2022 | 4,864 | 0.905 | 0.067 | 0.972 |
 | 2023 | 1,347 | 0.432 | 0.391 | 0.823 |

@@ -6,7 +6,7 @@
 
 Follow up questions/tasks following the `docs/results/2026-09-08_h3n2_2024_progress_report.md` report (Human-H3N2-2024):
 
-1. Are the same sequence sites dominate in terms of feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-{2023,2025}.
+1. Are the same sequence sites dominate in terms of feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-2025.
 2. Extend the prediction performance and feature imparance analysis to 28-pairs; the 8 major proteins, c(8,2).
 3. Can codon-preserving sequence alignment retain records that pinned-length filtering drops? We need to determine whether alignment effort worth it. Consider `2026-09-07_cds_length_survey.md` in general, and specifically table 3 which focuses on years 2015-2025.
 
@@ -15,7 +15,7 @@ The cross-year comparison and the initial 28-pairs screen can use the existing p
 Alignment will be evaluated separately and will enter the production pipeline only if it retains meaningful data.
 
 Alignment is not required for Experiment 1 because HA and
-NA keep the same pin in 2023, 2024 and 2025. What alignment would add is the guarantee that a shared site is
+NA keep the same pin in 2024 and 2025. What alignment would add is the guarantee that a shared site is
 a shared *homologous* position. `docs/results/2026-09-07_cds_length_survey.md` states that equal CDS
 length does not prove positional homology, and nothing in the current pipeline checks it.
 
@@ -27,7 +27,7 @@ Alignment tools to consider:
 
 - Population (metadata filters): Human-H3N2.
 - Baseline year for the 28-pairs screen: 2024.
-- Years for the feature importance comparison: 2023, 2024, 2025.
+- Years for the feature importance comparison: 2024 and 2025.
 - Proteins: PB2, PB1, PA, HA, NP, NA, M1, NS1.
 - Baseline cross-year schema pair: HA-NA.
 - Positive pairs: observed same-isolate pairs, deduplicated by `nt_cds` pair key.
@@ -128,7 +128,7 @@ The label records whether two segment sequences were observed together in one is
 
 ### Question
 
-When the same model and population definition are applied to Human-H3N2 HA-NA data from 2023, 2024, and 2025, do the fitted models use the same codon sites?
+When the same model and population definition are applied to Human-H3N2 HA-NA data from 2024 and 2025, do the fitted models use the same codon sites?
 
 ### Dataset construction
 
@@ -142,12 +142,12 @@ Build one HA-NA dataset per year using:
 - a 1:1 negative-to-positive ratio;
 - the same fold and sampling seeds in every year.
 
-The current 2023 and 2025 HA-NA bundles do not include all these controls. Add dedicated bundles
-rather than treating their older results as directly comparable.
+The current 2025 HA-NA bundle does not include all these controls. Add dedicated bundles rather
+than treating older results as directly comparable.
 
-Use the native Hopcroft-Karp population as the primary analysis. Also sample every year to the
-smallest annual Hopcroft-Karp count as a sample-size sensitivity analysis. The fixed-count samples
-must be deterministic and recorded in their manifests.
+Each year uses its full Hopcroft-Karp population: 1,698 positives in 2024 and 1,337 in 2025. The
+two are not subsampled to a common count. The counts differ by 1.27x, so sample size stays a
+candidate explanation for any difference in the gain rankings.
 
 ### Models and importance
 
@@ -164,15 +164,14 @@ Gain is computed from the training process. It is not test-set importance. SHAP 
 
 ### Comparisons
 
-Compare 2023 against 2024, 2024 against 2025, and 2023 against 2025. Report HA and NA separately:
+Compare 2024 against 2025. Report HA and NA separately:
 
 - Spearman correlation across all sites;
 - overlap and Jaccard similarity of the top 10 and top 25 sites;
 - each protein's share of total gain;
-- fold-to-fold variation within each year;
-- native-count and fixed-count results side by side.
+- fold-to-fold variation within each year.
 
-Also plot the three gain traces on shared coordinates. Label sites by 1-based residue number, as in the current importance outputs.
+Also plot both gain traces on shared coordinates. Label sites by 1-based residue number, as in the current importance outputs.
 
 Correlated sites can substitute for each other in tree models. A low exact top-site overlap does not necessarily mean that the underlying sequence signal changed. If exact ranks differ, inspect whether importance moved among nearby or strongly correlated sites before interpreting the change.
 
@@ -220,6 +219,12 @@ For every pair, report the five population counts defined above. Also report the
 per-sequence reuse before matching and the retained-isolate overlap for pairs that share a protein.
 
 ### Implementation
+
+The two added pins go in a bundle-level `virus.cds_length` override, not in
+`conf/virus/flu.yaml`. That file is per-virus and shared with H1N1 work, where NS1 is 660 nt and
+PB1 is 2,274 nt, so writing Human-H3N2 values there would make `check_cds_length` raise on those
+populations. A bundle override reaches both `summarize_pair_capacity.py:224` and
+`dataset_segment_pairs.py:694`, which read the same key.
 
 Adapt `src/analysis/summarize_pair_capacity.py` so it can produce a pair-specific-cohort table for
 all eight proteins. Preserve its current common-cohort mode because that remains useful as a
@@ -365,8 +370,8 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 
 ## Execution order
 
-1. Build and audit the pinned-length 2023, 2024, and 2025 HA-NA datasets.
-2. Run the codon cross-year importance comparison at native and fixed counts.
+1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets.
+2. Run the codon cross-year importance comparison.
 3. Produce the 2024 eight-protein, 28-pair capacity audit.
 4. Build and audit the 28 pinned-length datasets.
 5. Run the k-mer and codon 28-pairs screen and aggregate the results.
