@@ -178,10 +178,17 @@ table reports the share of each year's isolates with a complete CDS at that leng
 | 2025 | 3,434 | 0.999 | 0.998 | 1.000 | 0.999 | 0.999 | 1.000 | 0.999 |
 
 For the years shown, the 6 configured pins retain at least 90% of isolates. At the same threshold,
-NS1 passes in 2015-2018 and 2021-2025 but not in 2019-2020. This illustrates that a stable modal
-length does not guarantee uniformly high isolate retention.
+NS1 passes in 2015-2018 and 2021-2025 but not in 2019-2020. A stable modal length therefore does
+not guarantee uniformly high isolate retention.
 
-PB1 requires a separate view because both its modal length and its isolate retention change:
+The low cells do not all have the same cause, and the table alone does not separate them. NS1 in
+2019 and 2020 is P2: every isolate has a complete NS1, but 27.6% and 31.2% of them are at another
+length. The other low cells are P1: NP loses 7.4% of isolates in 2019 and 9.5% in 2020, and NA
+loses 6.4% in 2023, all to incomplete CDS, with no loss to length.
+
+PB1 requires a separate view because both its modal length and its isolate retention change. The
+table starts at 2021 because PB1 holds 2,274 nt from 2015 through 2020, at 0.989 or above in every
+one of those years:
 
 | year | isolates | complete at 2,274 nt | complete at 2,277 nt | complete at either length |
 |---:|---:|---:|---:|---:|
