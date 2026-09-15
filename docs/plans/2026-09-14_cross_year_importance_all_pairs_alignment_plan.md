@@ -118,14 +118,17 @@ The label records whether two segment sequences were observed together in one is
 
 ### Question
 
-When the same model and population definition are applied to Human-H3N2 HA-NA data from 2024 and 2025, do the fitted models use the same codon sites?
+Do models trained separately on Human-H3N2 data from 2024 and 2025 rely on similar HA and NA codon sites?
 
 ### Design
 
-The reference is `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml`,
-the bundle behind the HA-NA arm of `docs/results/2026-09-08_h3n2_2024_progress_report.md`. Cite the
-bundle for any setting, because the report is a summary and the bundle is what ran. The 2024 runs
-and their per-fold gain already exist and are reused, not rerun.
+`conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` is the dataset
+reference. It sets the population and splitting but nothing about features or models, which the
+four-pair experiment supplied as run-time overrides. The model and importance reference is
+therefore the saved `resolved_config.yaml` of the existing 2024 codon runs. Those runs and their
+per-fold gain are reused, not rerun. Both are the HA-NA arm of
+`docs/results/2026-09-08_h3n2_2024_progress_report.md`, which is a summary rather than a
+protocol.
 
 Differences from that reference:
 
@@ -137,7 +140,7 @@ Differences from that reference:
 - 2025 is a partial season in the July 2025 corpus;
 - the cross-year comparison below is new.
 
-Gain is read from the training process and is not test-set importance. SHAP on held-out rows and
+Gain is computed from splits in the fitted trees. It is derived from training and is not test-set importance. SHAP on held-out rows and
 permutation importance can confirm it if the rankings are unstable or if the top sites drive a
 biological claim.
 
