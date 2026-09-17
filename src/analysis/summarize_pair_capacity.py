@@ -11,19 +11,18 @@ How?
 - Pairs are enumerated in canonical protein order, so `Pair ID` reads as segment numbers: PB2-HA
   is `1-4`.
 - `positives` counts observed same-isolate pairs after deduplicating on the `nt_cds` pair key.
-- `HK matched` counts the positives left once no slot-A and no slot-B sequence is used twice.
+- `HK selected` counts the positives left once no slot-A and no slot-B sequence is used twice.
   Hopcroft-Karp returns a maximum matching, so it is the largest such set; the sequential-dedup
-  selectors in `_positive_pair_selection` retain fewer.
-- `pair_sequence_reuse.csv` records how often each distinct sequence recurs across a pair's
-  positives. The two slots' distinct-sequence counts set a hard ceiling on `HK matched`, because
-  the matching keeps at most one positive per distinct sequence and so cannot exceed the smaller
-  count. Reuse describes how concentrated the observed positives are and helps explain a low
-  `HK share`, since many edges then compete for the one a sequence can keep. How close the
-  matching comes to its ceiling depends on the whole bigraph, not on the reuse distribution alone.
+  selectors in `_positive_pair_selection` retain fewer. One positive per unique sequence also
+  means `HK selected` cannot exceed the smaller of `Unique slot-A` and `Unique slot-B`.
+- `pair_sequence_reuse.csv` records how often each unique sequence recurs across a pair's
+  positives. Reuse says how concentrated the positives are and helps explain a low `HK share`,
+  since many edges compete for the one a sequence can keep. How close the matching comes to its
+  ceiling depends on the whole bigraph, not on reuse alone.
 - `pair_isolate_overlap.csv` records how far two pairs' retained isolates agree, because each
   matching is solved on its own bigraph and keeps its own isolates. `shares protein` marks the
   combinations whose two schema pairs have a protein in common.
-- `pair_capacity_matrix.csv` and its heatmap lay `HK matched` out protein by protein.
+- `pair_capacity_matrix.csv` and its heatmap lay `HK selected` out protein by protein.
 
 CLI:
     python -m src.analysis.summarize_pair_capacity
@@ -36,20 +35,19 @@ Notes:
   it lacks.
 - A metadata filter given on the command line overrides the bundle; otherwise the bundle's own
   population stands.
-- `min-count sample` is the smallest `HK matched` in the table, so it moves when the set of pairs
+- `min-count sample` is the smallest `HK selected` in the table, so it moves when the set of pairs
   changes. It reports the floor, not what any experiment trains on.
-- `ID` is a row counter over the table as sorted, which is by descending `HK matched`. It is a
+- `ID` is a row counter over the table as sorted, which is by descending `HK selected`. It is a
   rank rather than a stable identifier and it moves when the population changes.
-- Reuse is counted after the positives are deduplicated on the pair key, so a sequence's reuse
-  count is the number of distinct partner sequences it was observed with. It is not the number of
-  isolates the sequence occurs in, which is larger wherever one sequence pair recurs.
+- Reuse is counted after the pair-key dedup, so a sequence's reuse count is the number of unique
+  partner sequences it was observed with, not the number of isolates it occurs in.
 
 Outputs (to `--out_dir`):
     pair_capacity.csv            one row per schema pair, with the columns in `CAPACITY_COLUMNS`
     pair_capacity_by_segment.csv the same rows in segment order rather than by matched count
     pair_sequence_reuse.csv      two rows per schema pair, one per slot, with `REUSE_COLUMNS`
     pair_isolate_overlap.csv     one row per pair of schema pairs: shared isolates and Jaccard
-    pair_capacity_matrix.csv     `HK matched` as a symmetric protein-by-protein table
+    pair_capacity_matrix.csv     `HK selected` as a symmetric protein-by-protein table
     pair_capacity_matrix.png     that table as a heatmap
 """
 from __future__ import annotations
@@ -81,7 +79,8 @@ from src.utils.config_hydra import (  # noqa: E402
 from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
 
 CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'eligible isolates', 'positives',
-                    'Unique slot-A', 'Unique slot-B', 'HK matched', 'HK share', 'min-count sample']
+                    'Unique slot-A', 'Unique slot-B', 'HK selected', 'HK share',
+                    'min-count sample']
 OVERLAP_COLUMNS = ['pair A', 'pair B', 'shares protein', 'isolates A', 'isolates B', 'shared',
                    'isolate jaccard']
 REUSE_COLUMNS = ['pair', 'slot', 'protein', 'positives', 'unique sequences', 'reuse mean',
@@ -166,10 +165,10 @@ def isolate_overlap(retained_isolates: dict) -> pd.DataFrame:
 
 def sequence_reuse(positives: pd.DataFrame, hash_col: str, label: str, slot: str,
                    protein: str) -> dict:
-    """How often each distinct sequence in one slot recurs across a pair's positives.
+    """How often each unique sequence in one slot recurs across a pair's positives.
 
-    `positives` is already deduplicated on the pair key, so one row is one distinct pair of
-    sequences and a sequence's count is the number of distinct partner sequences it was observed
+    `positives` is already deduplicated on the pair key, so one row is one unique pair of
+    sequences and a sequence's count is the number of unique partner sequences it was observed
     with. That is smaller than the number of isolates it occurs in wherever one sequence pair
     recurs across isolates.
 
@@ -211,7 +210,7 @@ def sort_by_segment(capacity: pd.DataFrame) -> pd.DataFrame:
 
     Returns:
       The same rows ordered by the two segment numbers in `Pair ID`. `ID` still carries the
-      matched-count rank, so it runs out of order in this view.
+      selected-count rank, so it runs out of order in this view.
     """
     segment_numbers = capacity['Pair ID'].str.split('-').map(
         lambda parts: tuple(int(number) for number in parts))
@@ -219,8 +218,9 @@ def sort_by_segment(capacity: pd.DataFrame) -> pd.DataFrame:
     return ordered.drop(columns='segment_key').reset_index(drop=True)
 
 
-def hk_matrix(capacity: pd.DataFrame, proteins: list, canonical_order: list) -> pd.DataFrame:
-    """`HK matched` laid out as a symmetric protein-by-protein table.
+def hk_selected_matrix(capacity: pd.DataFrame, proteins: list,
+                       canonical_order: list) -> pd.DataFrame:
+    """`HK selected` laid out as a symmetric protein-by-protein table.
 
     Args:
       capacity: the table `summarize_pair_capacity` returns.
@@ -228,29 +228,29 @@ def hk_matrix(capacity: pd.DataFrame, proteins: list, canonical_order: list) -> 
       canonical_order: short names in canonical order, fixing the row and column order.
 
     Returns:
-      A square table of matched counts in canonical order. The diagonal is left empty, because a
+      A square table of selected counts in canonical order. The diagonal is left empty, because a
       protein is not paired with itself.
 
     Raises:
       KeyError: `capacity` has no row for a pair drawn from `proteins`.
     """
-    matched_of = dict(zip(capacity['pair'], capacity['HK matched']))
+    selected_of = dict(zip(capacity['pair'], capacity['HK selected']))
     ordered = sorted(set(proteins), key=canonical_order.index)
     matrix = pd.DataFrame(float('nan'), index=ordered, columns=ordered)
     # Labels are rebuilt the way summarize_pair_capacity built them rather than split on '-',
     # because several short protein names contain a hyphen (PA-X, PB1-F2).
     for protein_a, protein_b in canonical_protein_pairs(proteins, canonical_order):
-        matched_count = matched_of[f'{protein_a}-{protein_b}']
-        matrix.loc[protein_a, protein_b] = matched_count
-        matrix.loc[protein_b, protein_a] = matched_count
+        selected_count = selected_of[f'{protein_a}-{protein_b}']
+        matrix.loc[protein_a, protein_b] = selected_count
+        matrix.loc[protein_b, protein_a] = selected_count
     return matrix
 
 
-def plot_hk_matrix(matrix: pd.DataFrame, out_path: Path, population: str) -> None:
-    """Draw the matched-count matrix as an annotated heatmap.
+def plot_hk_selected_matrix(matrix: pd.DataFrame, out_path: Path, population: str) -> None:
+    """Draw the selected-count matrix as an annotated heatmap.
 
     Args:
-      matrix: the square table `hk_matrix` returns.
+      matrix: the square table `hk_selected_matrix` returns.
       out_path: PNG file to write.
       population: population label for the title.
 
@@ -258,14 +258,19 @@ def plot_hk_matrix(matrix: pd.DataFrame, out_path: Path, population: str) -> Non
       None. Writes `out_path`.
     """
     setup_plot_style()
-    fig, ax = plt.subplots(figsize=(8, 6.5))
-    sns.heatmap(matrix, annot=True, fmt='.0f', cmap='YlGnBu', mask=matrix.isna(), square=True,
-                linewidths=0.5, ax=ax, cbar_kws={'label': 'Hopcroft-Karp matched positives'})
-    ax.set_title(f'Pair capacity, {population}')
+    # Small on purpose. The matrix is nearly square, so at the width GitHub gives a figure it
+    # would otherwise run about 750 px tall and crowd out the table beside it.
+    fig, ax = plt.subplots(figsize=(6.5, 5.3))
+    sns.heatmap(matrix, annot=True, fmt='.0f', annot_kws={'size': 9}, cmap='YlGnBu',
+                mask=matrix.isna(), square=True, linewidths=0.5, ax=ax,
+                cbar_kws={'label': 'Hopcroft-Karp selected positives'})
+    ax.set_title(f'Pair capacity, {population}', fontsize=12)
+    ax.tick_params(labelsize=10)
     for position in range(len(matrix)):
-        ax.text(position + 0.5, position + 0.5, '--', ha='center', va='center', color='gray')
+        ax.text(position + 0.5, position + 0.5, '--', ha='center', va='center', color='gray',
+                fontsize=9)
     fig.tight_layout()
-    savefig(out_path)
+    savefig(out_path, dpi=110)
 
 
 def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_short: dict,
@@ -286,7 +291,7 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
           `common` builds every pair from the isolates carrying all of `proteins`.
 
     Returns:
-      The capacity table ordered by descending `HK matched`, the isolate-overlap table, and the
+      The capacity table ordered by descending `HK selected`, the isolate-overlap table, and the
       sequence-reuse table.
 
     Raises:
@@ -315,10 +320,10 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
         positives, _ = create_positive_pairs_v2(
             cohort, schema_pair=(full_of[protein_a], full_of[protein_b]),
             pair_key_alphabet=pair_key_alphabet)
-        matched, _ = select_positive_pairs(
+        selected, _ = select_positive_pairs(
             positives, 'hopcroft_karp', hash_col_a, hash_col_b)
 
-        retained_isolates[(protein_a, protein_b)] = set(matched['assembly_id_a'])
+        retained_isolates[(protein_a, protein_b)] = set(selected['assembly_id_a'])
         reuse_rows.append(sequence_reuse(positives, hash_col_a, label, 'A', protein_a))
         reuse_rows.append(sequence_reuse(positives, hash_col_b, label, 'B', protein_b))
         rows.append({
@@ -330,15 +335,15 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
             'positives': len(positives),
             'Unique slot-A': int(positives[hash_col_a].nunique()),
             'Unique slot-B': int(positives[hash_col_b].nunique()),
-            'HK matched': len(matched),
-            'HK share': len(matched) / len(positives) if len(positives) else float('nan'),
+            'HK selected': len(selected),
+            'HK share': len(selected) / len(positives) if len(positives) else float('nan'),
         })
 
-    table = pd.DataFrame(rows).sort_values('HK matched', ascending=False).reset_index(drop=True)
+    table = pd.DataFrame(rows).sort_values('HK selected', ascending=False).reset_index(drop=True)
     # The smallest HK count is the largest sample every pair could supply. Experiment 3 of
     # docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md trains on each
     # pair's own HK population instead, so this column reports the floor rather than what is run.
-    table['min-count sample'] = table['HK matched'].min()
+    table['min-count sample'] = table['HK selected'].min()
     table.insert(0, 'ID', range(1, len(table) + 1))
     reuse = pd.DataFrame(reuse_rows, columns=REUSE_COLUMNS)
     return table[CAPACITY_COLUMNS], isolate_overlap(retained_isolates), reuse
@@ -431,18 +436,18 @@ def main() -> None:
     sort_by_segment(capacity).to_csv(segment_path, index=False)
     reuse.to_csv(reuse_path, index=False)
     overlap.to_csv(overlap_path, index=False)
-    matrix = hk_matrix(capacity, args.proteins, canonical_order)
+    matrix = hk_selected_matrix(capacity, args.proteins, canonical_order)
     matrix.to_csv(matrix_path)
-    plot_hk_matrix(matrix, figure_path, population or 'all')
+    plot_hk_selected_matrix(matrix, figure_path, population or 'all')
 
     shown = capacity.copy()
     shown['HK share'] = shown['HK share'].map('{:.1%}'.format)
     print()
     print(shown.to_string(index=False))
-    print(f"\nHopcroft-Karp matched positives: min {capacity['HK matched'].min():,}, "
-          f"median {int(capacity['HK matched'].median()):,}, "
-          f"max {capacity['HK matched'].max():,}. Equalizing the count across every pair would "
-          f"cap it at {capacity['HK matched'].min():,}.")
+    print(f"\nHopcroft-Karp selected positives: min {capacity['HK selected'].min():,}, "
+          f"median {int(capacity['HK selected'].median()):,}, "
+          f"max {capacity['HK selected'].max():,}. Equalizing the count across every pair would "
+          f"cap it at {capacity['HK selected'].min():,}.")
     with_shared_protein = overlap[overlap['shares protein']]
     print(f"Isolate overlap between matchings: median Jaccard "
           f"{overlap['isolate jaccard'].median():.3f} over all {len(overlap):,} combinations, and "
@@ -454,9 +459,9 @@ def main() -> None:
     # are observed once, so the median is 1 for nearly every pair and slot.
     heaviest = reuse.loc[reuse['reuse mean'].idxmax()]
     print(f"Sequence reuse before matching is heaviest for {heaviest['protein']} in "
-          f"{heaviest['pair']}: {heaviest['unique sequences']:,} distinct sequences over "
+          f"{heaviest['pair']}: {heaviest['unique sequences']:,} unique sequences over "
           f"{heaviest['positives']:,} positives, so each pairs with {heaviest['reuse mean']:.1f} "
-          f"distinct partner sequences on average and the widest-used one pairs with "
+          f"unique partner sequences on average and the widest-used one pairs with "
           f"{heaviest['reuse max']:,}.")
     for written in (capacity_path, segment_path, reuse_path, overlap_path, matrix_path,
                     figure_path):

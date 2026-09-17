@@ -14,7 +14,7 @@ artifacts:      results/flu/July_2025/pair_capacity/{pair_capacity.csv,pair_isol
 depends_on:     [docs/results/2026-09-07_cds_length_survey.md]
 ```
 
-## Why this was measured
+## Question
 
 `docs/results/2026-09-07_cds_length_survey.md` says which proteins can be pinned. It works per
 protein, and it says nothing about how many training pairs a schema pair built from them would
@@ -24,7 +24,7 @@ It also fixes a comparability problem. Two schema pairs trained on different iso
 host, subtype and year as well as in their proteins, so a score difference cannot be attributed.
 Every row here is built on one common cohort, defined below.
 
-## What was done
+## Methods
 
 ```bash
 python -m src.analysis.summarize_pair_capacity --hn_subtype H3N2 --host Human --year 2024
@@ -35,17 +35,22 @@ proteins at once. On this population that is **5,143 of 5,346 isolates**, so the
 3.8%. Every pair is then built from those same isolates, which holds host, subtype and year fixed
 by construction.
 
-`HK matched` is how many positives survive the unique-sequence constraint, where no slot-A sequence
-and no slot-B sequence is used twice. It comes from Hopcroft-Karp, a maximum matching, so it is the
-largest such set. The sequential-dedup selectors retain fewer.
+`HK selected` is how many positives survive the unique-sequence constraint, where no slot-A
+sequence and no slot-B sequence is used twice. It comes from Hopcroft-Karp, a maximum matching, so
+it is the largest such set. The sequential-dedup selectors retain fewer.
 
-PB1 and NS1 are absent. PB1 cannot be pinned on this population at all, and NS1 would need a
-population-specific pin that `conf/virus/flu.yaml` does not carry. Both are covered in the length
-survey.
+PB1 and NS1 are absent, because `conf/virus/flu.yaml` carries pins for the other six and not for
+these two. Both were pinned later, on 2026-09-14, in
+`conf/bundles/flu_8_major_proteins_human_h3n2_2024_pinned_length.yaml`: NS1 at 693 nt and PB1 at
+2,277 nt. Neither value belongs in the per-virus file, which is shared with H1N1 work where NS1 is
+660 nt and PB1 is 2,274 nt. The NS1 pin costs almost no isolates, while the PB1 pin retains 55.1%
+of them, so PB1 pairs are completeness-selected rather than unpinnable. The 28-pair audit in
+`docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md` covers all eight
+proteins.
 
 ## Results
 
-| ID | Pair ID | pair | positives | distinct A | distinct B | HK matched | HK share |
+| ID | Pair ID | pair | positives | distinct A | distinct B | HK selected | HK share |
 |---:|---|---|---:|---:|---:|---:|---:|
 | 1 | 1-4 | PB2-HA | 3,693 | 2,727 | 2,615 | 1,987 | 53.8% |
 | 2 | 1-3 | PB2-PA | 3,723 | 2,727 | 2,636 | 1,972 | 53.0% |
@@ -63,12 +68,12 @@ survey.
 | 14 | 6-7 | NA-M1 | 2,602 | 2,189 | 793 | 650 | 25.0% |
 | 15 | 5-7 | NP-M1 | 2,293 | 1,787 | 793 | 616 | 26.9% |
 
-`ID` ranks the table as sorted, by descending `HK matched`, so it moves when the population
+`ID` ranks the table as sorted, by descending `HK selected`, so it moves when the population
 changes. `Pair ID` is the two segment numbers and is stable.
 
-## A shared cohort does not give equal counts
+### A shared cohort does not give equal counts
 
-Every row draws on the same 5,143 isolates, yet positives range from 2,293 to 3,723 and matched
+Every row draws on the same 5,143 isolates, yet positives range from 2,293 to 3,723 and selected
 positives from 616 to 1,987. Two isolates that share both proteins of a pair collapse into one
 positive, and how often that happens depends on the proteins. M1 has only 793 distinct sequences
 across the cohort, so M1 pairs collapse hardest.
@@ -76,7 +81,7 @@ across the cohort, so M1 pairs collapse hardest.
 Holding the isolates fixed therefore removes the metadata confound. It does not remove the
 diversity difference, which is what drives both the dedup step and the matching step.
 
-## M1 sets the floor for any equal-count design
+### M1 sets the floor for any equal-count design
 
 Every M1 pair caps near 700, because a matching cannot exceed the 793 distinct M1 sequences.
 Downsampling all fifteen pairs to a common count would cap the experiment at **616**, which costs
@@ -87,10 +92,10 @@ the set to screen first, with M1 pairs run separately if they are wanted at all.
 
 HA-NA sits fifth of fifteen at 1,686. The pair with the most existing results is unremarkable in
 capacity, which matters when reading the weaker PB2-PA result as schema-specific rather than as a
-size effect. PB2-PA is second at 1,972, so it has 17% more matched positives than HA-NA and still
+size effect. PB2-PA is second at 1,972, so it has 17% more selected positives than HA-NA and still
 scored lower.
 
-## Two pairs sharing a protein do not share their isolates
+### Two pairs sharing a protein do not share their isolates
 
 `pair_isolate_overlap.csv` holds all 105 combinations. Each matching is solved on its own bigraph,
 so nothing forces two pairs to keep the same isolates, and they do not:
@@ -129,5 +134,5 @@ another year or subtype.
 The counts assume the `nt_cds` pair-key alphabet. Under `aa`, codon variants collapse and every
 count would be lower.
 
-`HK matched` is an upper bound on what the unique-sequence constraint allows, not a target. A run
+`HK selected` is an upper bound on what the unique-sequence constraint allows, not a target. A run
 may retain fewer for other reasons.

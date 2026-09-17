@@ -65,7 +65,7 @@ isolates" in `docs/results/2026-09-07_cds_length_survey.md`.
 
 ### Pair capacity differs even under the same metadata filters
 
-The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 15 pairs in Human-H3N2-2024. M1 pairs had the smallest populations because M1 has few distinct sequences. The 28-pairs experiment must therefore report native sample size and sequence diversity beside model performance.
+The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 15 pairs in Human-H3N2-2024. M1 pairs had the smallest populations because M1 has few unique sequences. The 28-pairs experiment must therefore report native sample size and sequence diversity beside model performance.
 
 ### Existing code can be reused
 
@@ -91,7 +91,7 @@ For each pair, report these counts in order:
 
 1. eligible isolates;
 2. unique observed positive pairs after `nt_cds` pair-key deduplication;
-3. distinct slot-A and slot-B sequences;
+3. unique slot-A and slot-B sequences;
 4. positives retained by Hopcroft-Karp;
 5. positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
    produces it and Experiment 2 does not.
@@ -192,7 +192,7 @@ population, the partial 2025 season, or correlation among sites.
 How much usable and sequence-unique Human-H3N2-2024 data is available for each of the 28 pairs
 formed from PB2, PB1, PA, HA, NP, NA, M1, and NS1?
 
-### Population rules
+### Methods
 
 Use the same metadata filters for every pair, but build each pair from its own eligible isolates.
 Do not require a common 8-protein isolate cohort for the primary analysis. Requiring PB1 from
@@ -208,22 +208,20 @@ completeness-selected because their eligible population is much smaller.
 
 For every pair, report counts 1 to 4 defined above. Also report the distribution of per-sequence
 reuse before matching, and the retained-isolate overlap with the combinations whose two schema
-pairs share a protein marked. The distinct-sequence counts and the reuse distribution answer
-different questions. Hopcroft-Karp keeps at most one positive per distinct sequence, so the
-smaller of a pair's two counts is a hard ceiling on its matched count. The reuse distribution
-describes how concentrated the observed positives are, which helps explain a low retained share,
-because a sequence with many distinct partners contributes only one of them. How close the
-matching comes to its ceiling depends on the whole bigraph rather than on the reuse distribution
-alone. Reuse is counted after the positives are deduplicated on the pair key, so a sequence's
-reuse count is the number of distinct partner sequences it was observed with rather than the
-number of isolates it occurs in.
-
-### Implementation
+pairs share a protein marked. The unique-sequence counts and the reuse distribution answer
+different questions. Hopcroft-Karp keeps at most one positive per unique sequence, so the
+smaller of a pair's two counts is a hard ceiling on its `HK selected` count. The reuse
+distribution describes how concentrated the observed positives are, which helps explain a low
+retained share, because a sequence with many unique partners contributes only one of them. How
+close the matching comes to its ceiling depends on the whole bigraph rather than on the reuse
+distribution alone. Reuse is counted after the positives are deduplicated on the pair key, so a
+sequence's reuse count is the number of unique partner sequences it was observed with rather than
+the number of isolates it occurs in.
 
 The override in Scope is used rather than an edit to `conf/virus/flu.yaml` because that file is
 per-virus and shared with H1N1 work, where NS1 is 660 nt and PB1 is 2,274 nt, so writing
 Human-H3N2 values there would make `check_cds_length` raise on those populations. The override
-reaches both `summarize_pair_capacity.py:224` and `dataset_segment_pairs.py:694`, which read the
+reaches both `summarize_pair_capacity.py:390` and `dataset_segment_pairs.py:694`, which read the
 same key.
 
 Adapt `src/analysis/summarize_pair_capacity.py` so it can produce a pair-specific-cohort table for
@@ -234,17 +232,14 @@ The capacity audit is a gate before training. Review the table before deciding w
 pairs should be trained, grouped into a low-capacity stratum, or reported as data-limited. Do not
 choose a minimum count before measuring the 28 populations.
 
-### Required outputs
+The experiment produces:
 
 - one 28-row pair-capacity CSV;
-- a readable capacity table sorted by segment number and a second view sorted by matched count;
+- a readable capacity table sorted by segment number and a second view sorted by selected count;
 - an 8 x 8 matrix of Hopcroft-Karp counts, written as a CSV and a heatmap;
 - a short audit of PB1 and NS1 eligibility that cites the length survey instead of restating it;
-- a check of whether any pair needs aligned rather than pinned-length coordinates.
-
-The last check is expected to return no pairs. Among complete CDS in Human-H3N2-2024 the lowest
-`frac at mode` is NS1 at 0.991, so the pins already retain almost every complete CDS. What PB1
-loses is incompleteness, which alignment cannot recover. Alignment is examined in Experiment 4.
+- a check of whether any pair needs aligned rather than pinned-length coordinates. Alignment
+  itself is examined in Experiment 4.
 
 `results/` is not tracked by git, so copy the heatmap into `docs/results/figs/` and record the
 capacity table in this plan.
@@ -271,7 +266,7 @@ Hopcroft-Karp kept 440 positives at the least (M1-NS1), 1,126 at the median, and
 
 ![28-pair Hopcroft-Karp capacity, Human-H3N2-2024](../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png)
 
-| Pair ID | pair | eligible isolates | positives | Unique slot-A | Unique slot-B | HK matched | HK share |
+| Pair ID | Schema pair | Eligible isolates | Unique positives | Unique slot-A | Unique slot-B | HK selected | HK share |
 |---|---|---:|---:|---:|---:|---:|---:|
 | 1-4 | PB2-HA | 5,329 | 3,796 | 2,810 | 2,681 | 2,042 | 53.8% |
 | 1-3 | PB2-PA | 5,324 | 3,837 | 2,808 | 2,712 | 2,030 | 52.9% |
@@ -303,15 +298,17 @@ Hopcroft-Karp kept 440 positives at the least (M1-NS1), 1,126 at the median, and
 | 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 | 23.9% |
 
 Sequence diversity explains the ordering better than the eligible count does. The smaller of a
-pair's two distinct-sequence counts is a hard ceiling on its matched count. Reuse describes how
-concentrated the observed positives are and helps explain the `HK share`. How close the matching
-comes to its ceiling depends on the whole bigraph, so neither number predicts it on its own.
+pair's two unique-sequence counts is a hard ceiling on its `HK selected` count. Reuse describes
+how concentrated the observed positives are and helps explain the `HK share`. How close the
+matching comes to its ceiling depends on the whole bigraph, so neither number predicts it on its
+own.
 Positives are deduplicated on the `nt_cds` pair key before reuse is counted, so a sequence's reuse
-count is the number of distinct partner sequences it was observed with, not the number of isolates
-it occurs in. The ranges below run over the 7 pairs each protein takes part in. The distribution is long-tailed, so the median is 1 for every protein and pair, and
-the mean and the maximum are what separate them.
+count is the number of unique partner sequences it was observed with, not the number of isolates
+it occurs in. The ranges below run over the 7 pairs each protein takes part in. The distribution
+is long-tailed, so the median is 1 for every protein and pair, and the mean and the maximum are
+what separate them.
 
-| protein | distinct sequences | mean reuse | max reuse | one partner only |
+| protein | unique sequences | mean reuse | max reuse | one partner only |
 |---|---:|---:|---:|---:|
 | PB2 | 1,788-2,813 | 1.11-1.37 | 108 | 87.6-94.5% |
 | PB1 | 1,786-1,790 | 1.11-1.31 | 51 | 87.7-94.0% |
@@ -323,13 +320,13 @@ the mean and the maximum are what separate them.
 | NS1 | 781-1,122 | 1.64-2.87 | 977 | 73.4-82.3% |
 
 The two bottlenecks act at different stages. M1 and NS1 limit the maximum matching, because they
-supply relatively few distinct sequences. Their high partner counts also contribute to low
-`HK share` values. The 13 pairs containing one of them are the 13 lowest matched counts in the
-table, and the first pair containing neither is PB1-NP at 1,041. M1-NS1 is
-the floor at 440, and the bound above it is loose, because the pair has 806 distinct M1 sequences
-and keeps 440 positives. PB1 limits eligibility instead, because 44.7% of 2024 isolates have no
-complete PB1 CDS. Among the isolates that remain, PB1 has low sequence reuse, so PB1-HA still
-keeps 1,392 positives from 2,945 isolates.
+supply relatively few unique sequences. Their high partner counts also contribute to low
+`HK share` values. The 13 pairs containing one of them are the 13 lowest `HK selected` counts in
+the table, and the first pair containing neither is PB1-NP at 1,041. M1-NS1 is the floor at 440,
+and the bound above it is loose, because the pair has 806 unique M1 sequences and keeps 440
+positives. PB1 limits eligibility instead, because 44.7% of 2024 isolates have no complete PB1
+CDS. Among the isolates that remain, PB1 has low sequence reuse, so PB1-HA still keeps 1,392
+positives from 2,945 isolates.
 
 The matchings do not retain the same isolates. Over all 378 combinations of two schema pairs,
 isolate Jaccard runs from 0.112 to 0.568 with a median of 0.234. Over the 168 combinations whose
@@ -437,7 +434,7 @@ for 2023-2025 to confirm that, then, for every non-modal length, separate:
 3. records with internal stops or unresolved bases;
 4. possible annotation inconsistencies.
 
-Report both isolates and distinct CDS sequences. Alignment can place complete biological length
+Report both isolates and unique CDS sequences. Alignment can place complete biological length
 variants into a common coordinate system. It cannot recover unsequenced bases, improve assembly
 completeness, or create new sequence diversity.
 

@@ -6,9 +6,9 @@ Covers:
   3. isolate_overlap reports shared counts and Jaccard, and orders by descending Jaccard
   4. Disjoint matchings give Jaccard 0, identical ones give 1
   5. isolate_overlap marks the combinations whose two schema pairs share a protein
-  6. sequence_reuse counts distinct partner sequences, and rejects an empty pair
+  6. sequence_reuse counts unique partner sequences, and rejects an empty pair
   7. sort_by_segment orders on the two segment numbers rather than on the label text
-  8. hk_matrix is symmetric, has an empty diagonal, and rejects a pair it has no row for
+  8. hk_selected_matrix is symmetric, has an empty diagonal, and rejects a pair it has no row for
   9. segment_numbers maps each protein to its segment, and rejects one spanning two segments
  10. The column lists are what the CSVs promise
 
@@ -28,7 +28,7 @@ from src.analysis.summarize_pair_capacity import (  # noqa: E402
     OVERLAP_COLUMNS,
     REUSE_COLUMNS,
     common_isolate_cohort,
-    hk_matrix,
+    hk_selected_matrix,
     isolate_overlap,
     segment_numbers,
     sequence_reuse,
@@ -108,8 +108,8 @@ def _positives(hashes_a, hashes_b):
     return pd.DataFrame({'cds_dna_hash_a': hashes_a, 'cds_dna_hash_b': hashes_b})
 
 
-def test_sequence_reuse_counts_distinct_partners():
-    # x pairs with three distinct partners; y and z pair with one each.
+def test_sequence_reuse_counts_unique_partners():
+    # x pairs with three unique partners; y and z pair with one each.
     positives = _positives(['x', 'x', 'x', 'y', 'z'], ['p', 'q', 'r', 'p', 'q'])
     row = sequence_reuse(positives, 'cds_dna_hash_a', 'HA-NA', 'A', 'HA')
     assert list(row) == REUSE_COLUMNS
@@ -138,7 +138,7 @@ def test_sequence_reuse_rejects_an_empty_pair():
 def test_sort_by_segment_orders_on_both_numbers():
     capacity = pd.DataFrame({'ID': [1, 2, 3, 4],
                              'Pair ID': ['7-8', '1-4', '4-6', '1-2'],
-                             'HK matched': [440, 2042, 1698, 1404]})
+                             'HK selected': [440, 2042, 1698, 1404]})
     assert list(sort_by_segment(capacity)['Pair ID']) == ['1-2', '1-4', '4-6', '7-8']
     # `ID` keeps the matched-count rank rather than being renumbered.
     assert list(sort_by_segment(capacity)['ID']) == [4, 2, 3, 1]
@@ -148,10 +148,10 @@ def test_sort_by_segment_orders_on_both_numbers():
     assert list(sort_by_segment(wide)['Pair ID']) == ['2-1', '10-1']
 
 
-def test_hk_matrix_is_symmetric_with_an_empty_diagonal():
+def test_hk_selected_matrix_is_symmetric_with_an_empty_diagonal():
     capacity = pd.DataFrame({'pair': ['HA-NA', 'HA-M1', 'NA-M1'],
-                             'HK matched': [1698, 720, 657]})
-    matrix = hk_matrix(capacity, ['NA', 'M1', 'HA'], CANONICAL)
+                             'HK selected': [1698, 720, 657]})
+    matrix = hk_selected_matrix(capacity, ['NA', 'M1', 'HA'], CANONICAL)
 
     # Rows and columns come out in canonical order whatever order `proteins` was given in.
     assert list(matrix.index) == ['HA', 'NA', 'M1']
@@ -161,11 +161,11 @@ def test_hk_matrix_is_symmetric_with_an_empty_diagonal():
     assert all(pd.isna(matrix.loc[protein, protein]) for protein in matrix.index)
 
 
-def test_hk_matrix_rejects_a_pair_it_has_no_row_for():
+def test_hk_selected_matrix_rejects_a_pair_it_has_no_row_for():
     # A silently empty cell would read as a pair with no capacity rather than a missing row.
-    capacity = pd.DataFrame({'pair': ['HA-NA'], 'HK matched': [1698]})
+    capacity = pd.DataFrame({'pair': ['HA-NA'], 'HK selected': [1698]})
     with pytest.raises(KeyError):
-        hk_matrix(capacity, ['HA', 'NA', 'M1'], CANONICAL)
+        hk_selected_matrix(capacity, ['HA', 'NA', 'M1'], CANONICAL)
 
 
 def test_segment_numbers():
@@ -182,7 +182,7 @@ def test_segment_numbers():
 def test_column_lists():
     # `ID` is a rank over the sorted table; `Pair ID` is the segment pair, e.g. 1-4 for PB2-HA.
     assert CAPACITY_COLUMNS[:3] == ['ID', 'Pair ID', 'pair']
-    for name in ('eligible isolates', 'positives', 'HK matched', 'HK share'):
+    for name in ('eligible isolates', 'positives', 'HK selected', 'HK share'):
         assert name in CAPACITY_COLUMNS
     for name in ('pair A', 'pair B', 'shares protein', 'shared', 'isolate jaccard'):
         assert name in OVERLAP_COLUMNS
@@ -197,11 +197,11 @@ if __name__ == '__main__':
         test_isolate_overlap_counts_and_orders,
         test_isolate_overlap_endpoints,
         test_isolate_overlap_marks_shared_protein,
-        test_sequence_reuse_counts_distinct_partners,
+        test_sequence_reuse_counts_unique_partners,
         test_sequence_reuse_rejects_an_empty_pair,
         test_sort_by_segment_orders_on_both_numbers,
-        test_hk_matrix_is_symmetric_with_an_empty_diagonal,
-        test_hk_matrix_rejects_a_pair_it_has_no_row_for,
+        test_hk_selected_matrix_is_symmetric_with_an_empty_diagonal,
+        test_hk_selected_matrix_rejects_a_pair_it_has_no_row_for,
         test_segment_numbers,
         test_column_lists,
     ]
