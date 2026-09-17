@@ -15,10 +15,10 @@ How?
   Hopcroft-Karp returns a maximum matching, so it is the largest such set; the sequential-dedup
   selectors in `_positive_pair_selection` retain fewer. One positive per unique sequence also
   means `HK selected` cannot exceed the smaller of `Unique slot-A` and `Unique slot-B`.
-- `pair_sequence_reuse.csv` records how often each unique sequence recurs across a pair's
-  positives. Reuse says how concentrated the positives are and helps explain a low `HK share`,
-  since many edges compete for the one a sequence can keep. How close the matching comes to its
-  ceiling depends on the whole bigraph, not on reuse alone.
+- `pair_sequence_reuse.csv` summarizes how often each unique sequence recurs across a pair's
+  positives, two rows per pair and one per slot. Reuse says how concentrated the positives are and
+  helps explain a low `HK share`, since many edges compete for the one a sequence can keep. How
+  close the matching comes to its ceiling depends on the whole bigraph, not on reuse alone.
 - `pair_isolate_overlap.csv` records how far two pairs' retained isolates agree, because each
   matching is solved on its own bigraph and keeps its own isolates. `shares protein` marks the
   combinations whose two schema pairs have a protein in common.

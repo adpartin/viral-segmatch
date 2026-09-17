@@ -194,43 +194,29 @@ formed from PB2, PB1, PA, HA, NP, NA, M1, and NS1?
 
 ### Methods
 
-Use the same metadata filters for every pair, but build each pair from its own eligible isolates.
-Do not require a common 8-protein isolate cohort for the primary analysis. Requiring PB1 from
-every isolate would remove about 45% of the population from pairs that do not contain PB1.
+Every pair uses the pin table in Scope, where PB1 at 2,277 nt and NS1 at 693 nt come from the
+Human-H3N2-2024 bundle override. They sit in a bundle rather than in `conf/virus/flu.yaml` because
+that file is per-virus and shared with H1N1 work, where NS1 is 660 nt and PB1 is 2,274 nt, so
+writing Human-H3N2 values there would make `check_cds_length` raise on those populations. Both the
+capacity script and `dataset_segment_pairs` read the same `virus.cds_length` key, so one override
+reaches each of them.
 
-Use the existing pins for PB2, PA, HA, NP, NA, and M1, and add the two the config does not carry.
-The two are not the same kind of addition. NS1 at 693 nt is population-specific but not
-year-specific: it is the modal complete-CDS length in every Human-H3N2 year from 2015 to 2025, and
-what prevents a corpus-wide value is the subtype split, since H1N1 is predominantly 660 nt. PB1 at
-2,277 nt is both population- and year-specific, because the Human-H3N2 mode is 2,274 nt through
-2023. Recheck both against the input data before use. PB1 pairs must be marked as
-completeness-selected because their eligible population is much smaller.
+Every pair holds the same metadata filters but is built from its own eligible isolates, not from a
+common 8-protein cohort. Requiring PB1 from every isolate would remove about 45% of the population
+from pairs that do not contain PB1. PB1 pairs are therefore completeness-selected, and are marked
+as such.
 
-For every pair, report counts 1 to 4 defined above. Also report the distribution of per-sequence
-reuse before matching, and the retained-isolate overlap with the combinations whose two schema
-pairs share a protein marked. The unique-sequence counts and the reuse distribution answer
-different questions. Hopcroft-Karp keeps at most one positive per unique sequence, so the
-smaller of a pair's two counts is a hard ceiling on its `HK selected` count. The reuse
-distribution describes how concentrated the observed positives are, which helps explain a low
-retained share, because a sequence with many unique partners contributes only one of them. How
-close the matching comes to its ceiling depends on the whole bigraph rather than on the reuse
-distribution alone. Reuse is counted after the positives are deduplicated on the pair key, so a
-sequence's reuse count is the number of unique partner sequences it was observed with rather than
-the number of isolates it occurs in.
+For every pair, report counts 1 to 4 defined above, summary statistics for per-sequence reuse
+before matching, and the retained-isolate overlap with the combinations whose two schema pairs
+share a protein marked. Reuse is counted after the positives are deduplicated on the pair key, so
+a sequence's reuse count is the number of unique partner sequences it was observed with rather
+than the number of isolates it occurs in. Hopcroft-Karp keeps at most one positive per unique sequence,
+so the smaller of a pair's two unique counts is a hard ceiling on its `HK selected` count, and how
+close the matching comes to that ceiling is a property of the whole bigraph.
 
-The override in Scope is used rather than an edit to `conf/virus/flu.yaml` because that file is
-per-virus and shared with H1N1 work, where NS1 is 660 nt and PB1 is 2,274 nt, so writing
-Human-H3N2 values there would make `check_cds_length` raise on those populations. The override
-reaches both `summarize_pair_capacity.py:390` and `dataset_segment_pairs.py:694`, which read the
-same key.
-
-Adapt `src/analysis/summarize_pair_capacity.py` so it can produce a pair-specific-cohort table for
-all eight proteins. Preserve its current common-cohort mode because that remains useful as a
-sensitivity analysis. Do not silently change the meaning of its existing results.
-
-The capacity audit is a gate before training. Review the table before deciding whether very small
-pairs should be trained, grouped into a low-capacity stratum, or reported as data-limited. Do not
-choose a minimum count before measuring the 28 populations.
+`src/analysis/summarize_pair_capacity.py` was extended to build pair-specific cohorts over all
+eight proteins, keeping its common-cohort mode as a sensitivity analysis. The audit is a gate
+before training, so no minimum count was chosen before the 28 populations were measured.
 
 The experiment produces:
 
@@ -241,16 +227,19 @@ The experiment produces:
 - a check of whether any pair needs aligned rather than pinned-length coordinates. Alignment
   itself is examined in Experiment 4.
 
-`results/` is not tracked by git, so copy the heatmap into `docs/results/figs/` and record the
-capacity table in this plan.
+`results/` is not tracked by git, so the heatmap is copied into `docs/results/figs/` and the
+capacity table is recorded below.
 
 ### Results
 
-One command produced every output, using the defaults in
-`src/analysis/summarize_pair_capacity.py`:
+One command produced every output. The flags are the script's current defaults, written out so
+the record survives a change of default:
 
 ```
 python -m src.analysis.summarize_pair_capacity \
+  --config_bundle flu_8_major_proteins_human_h3n2_2024_pinned_length \
+  --proteins PB2 PB1 PA HA NP NA M1 NS1 \
+  --cohort pair \
   --out_dir results/flu/July_2025/pair_capacity_8_proteins
 ```
 
@@ -297,16 +286,14 @@ Hopcroft-Karp kept 440 positives at the least (M1-NS1), 1,126 at the median, and
 | 2-7 | PB1-M1 | 2,945 | 1,992 | 1,790 | 582 | 517 | 26.0% |
 | 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 | 23.9% |
 
-Sequence diversity explains the ordering better than the eligible count does. The smaller of a
-pair's two unique-sequence counts is a hard ceiling on its `HK selected` count. Reuse describes
-how concentrated the observed positives are and helps explain the `HK share`. How close the
-matching comes to its ceiling depends on the whole bigraph, so neither number predicts it on its
-own.
-Positives are deduplicated on the `nt_cds` pair key before reuse is counted, so a sequence's reuse
-count is the number of unique partner sequences it was observed with, not the number of isolates
-it occurs in. The ranges below run over the 7 pairs each protein takes part in. The distribution
-is long-tailed, so the median is 1 for every protein and pair, and the mean and the maximum are
-what separate them.
+The eligible-isolate count alone does not determine pair capacity. The unique-sequence counts set
+the matching ceiling, and the positive-pair bigraph determines how much of that ceiling is
+reached. Reuse describes how concentrated the observed positives are and helps explain the
+`HK share`. Positives are deduplicated on the `nt_cds` pair key before reuse is counted, so a
+sequence's reuse count is the number of unique partner sequences it was observed with, not the
+number of isolates it occurs in. The ranges below run over the 7 pairs each protein takes part
+in. The distribution is long-tailed, so the median is 1 for every protein and pair, and the mean
+and the maximum are what separate them.
 
 | protein | unique sequences | mean reuse | max reuse | one partner only |
 |---|---:|---:|---:|---:|
@@ -340,9 +327,35 @@ Human-H3N2-2024 the lowest `frac at mode` is NS1 at 0.991 and PB1 is at 0.994, s
 almost every complete CDS. PB1's loss comes from incomplete assemblies, which alignment cannot
 recover.
 
-The six output files are in `results/flu/July_2025/pair_capacity_8_proteins/`, which is not
-tracked by git. The heatmap is copied to
-`docs/results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png`.
+`results/flu/July_2025/pair_capacity_8_proteins/` holds the six output files, and is not tracked
+by git:
+
+| file | contents |
+|---|---|
+| `pair_capacity.csv` | the 28-row table above, ordered by descending `HK selected` |
+| `pair_capacity_by_segment.csv` | the same rows in segment order |
+| `pair_sequence_reuse.csv` | two rows per pair, one per slot: mean, median, p90, maximum and singleton share of per-sequence reuse |
+| `pair_isolate_overlap.csv` | the 378 combinations, with `shares protein` marked |
+| `pair_capacity_matrix.csv` | `HK selected` as an 8 x 8 protein-by-protein table |
+| `pair_capacity_matrix.png` | that table as the heatmap above |
+
+`pair_capacity.csv` is the reference Experiment 3 checks its datasets against. The heatmap is
+copied to `docs/results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png`.
+
+#### Decision for Experiment 3
+
+All 28 pairs proceed on their native Hopcroft-Karp populations. They are not downsampled to the
+M1-NS1 floor of 440, which would cost PB2-HA 78% of its positives. `min-count sample` reports that
+floor and is not a target.
+
+All 28 are reported in one table, with `HK selected` shown beside the performance scores. The 13
+pairs containing M1 or NS1 are not split into a separate stratum, so any relation between capacity
+and performance has to be read off the column rather than assumed from the grouping.
+
+Before training, each production dataset must reproduce the counts this table gives for its pair:
+eligible isolates, unique positives, both unique slot counts, and `HK selected`. Experiment 3 then
+reports the positive and negative counts in every CV fold, which this experiment does not
+produce.
 
 ## Experiment 3: pinned-length 28-pairs screen
 
