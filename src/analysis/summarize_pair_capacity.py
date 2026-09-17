@@ -59,10 +59,8 @@ from src.utils.config_hydra import (  # noqa: E402
     get_virus_config_hydra,
 )
 
-DEFAULT_PROTEINS = ['PB2', 'PA', 'HA', 'NP', 'NA', 'M1']
-
-CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'cohort isolates', 'positives',
-                    'distinct A', 'distinct B', 'HK matched', 'HK share']
+CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'eligible isolates', 'positives',
+                    'Unique slot-A', 'Unique slot-B', 'HK matched', 'HK share', 'min-count sample']
 OVERLAP_COLUMNS = ['pair A', 'pair B', 'isolates A', 'isolates B', 'shared', 'isolate jaccard']
 
 
@@ -140,32 +138,48 @@ def isolate_overlap(retained_isolates: dict) -> pd.DataFrame:
     return table.sort_values('isolate jaccard', ascending=False).reset_index(drop=True)
 
 
-def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_short: dict,
+def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_short: dict,
                             canonical_order: list, pair_key_alphabet: str,
-                            population: str = 'all',
+                            population: str = 'all', cohort_mode: str = 'pair',
                             ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Positive and matched-positive counts for every schema pair over `proteins`.
 
     Args:
-      cohort: front-end rows restricted to the common isolate cohort.
+      kept: front-end rows already filtered to the population and to complete CDS at the pinned
+          length, before any cohort is taken.
       proteins: short protein names to pair up, taken two at a time.
       function_to_short: full function name -> short protein name.
       canonical_order: short names in canonical order, fixing each pair's slot A / slot B.
       pair_key_alphabet: alphabet the positive dedup keys on, e.g. `nt_cds`.
-      population: label describing what `cohort` was filtered to.
+      population: label describing what `kept` was filtered to.
+      cohort_mode: `pair` builds each pair from the isolates carrying its own two proteins;
+          `common` builds every pair from the isolates carrying all of `proteins`.
 
     Returns:
       The capacity table, ordered by descending `HK matched`, and the isolate-overlap table.
+
+    Raises:
+      ValueError: `cohort_mode` is not `pair` or `common`.
     """
+    if cohort_mode not in ('pair', 'common'):
+        raise ValueError(f"cohort_mode must be 'pair' or 'common'; got {cohort_mode!r}.")
     full_of = {short: full for full, short in function_to_short.items()}
     hash_col_a, hash_col_b = schema.hash_col_ab(pair_key_alphabet)
-    n_cohort = cohort['assembly_id'].nunique()
-    segment_of = segment_numbers(cohort, function_to_short)
+    segment_of = segment_numbers(kept, function_to_short)
+
+    # Under `common` every pair draws on the same isolates, which costs a pair the isolates that
+    # are missing a protein it does not contain. On human H3N2 2024 requiring all 8 proteins
+    # leaves 2,922 isolates against HA-NA's own 5,173, because only 2,945 have a complete PB1.
+    if cohort_mode == 'common':
+        shared = common_isolate_cohort(kept, proteins, function_to_short)
 
     rows = []
     retained_isolates = {}
     for protein_a, protein_b in canonical_protein_pairs(proteins, canonical_order):
         label = f'{protein_a}-{protein_b}'
+        eligible = (shared if cohort_mode == 'common'
+                    else common_isolate_cohort(kept, [protein_a, protein_b], function_to_short))
+        cohort = kept[kept['assembly_id'].isin(eligible)]
         positives, _ = create_positive_pairs_v2(
             cohort, schema_pair=(full_of[protein_a], full_of[protein_b]),
             pair_key_alphabet=pair_key_alphabet)
@@ -178,44 +192,61 @@ def summarize_pair_capacity(cohort: pd.DataFrame, proteins: list, function_to_sh
             'Pair ID': f'{segment_of[protein_a]}-{segment_of[protein_b]}',
             'pair': label,
             'population': population,
-            'cohort isolates': n_cohort,
+            'eligible isolates': len(eligible),
             'positives': len(positives),
-            'distinct A': int(positives[hash_col_a].nunique()),
-            'distinct B': int(positives[hash_col_b].nunique()),
+            'Unique slot-A': int(positives[hash_col_a].nunique()),
+            'Unique slot-B': int(positives[hash_col_b].nunique()),
             'HK matched': len(matched),
             'HK share': len(matched) / len(positives) if len(positives) else float('nan'),
         })
 
     table = pd.DataFrame(rows).sort_values('HK matched', ascending=False).reset_index(drop=True)
+    # The smallest HK count is the largest sample every pair could supply. Experiment 3 of
+    # docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md trains on each
+    # pair's own HK population instead, so this column reports the floor rather than what is run.
+    table['min-count sample'] = table['HK matched'].min()
     table.insert(0, 'ID', range(1, len(table) + 1))
     return table[CAPACITY_COLUMNS], isolate_overlap(retained_isolates)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--config_bundle', default='flu_ha_na_h3n2_2024_random_cv4_pinned_length',
+    parser.add_argument('--config_bundle',
+                        default='flu_8_major_proteins_human_h3n2_2024_pinned_length',
                         help='bundle supplying the pinned lengths and the pair_key alphabet')
-    parser.add_argument('--proteins', nargs='+', default=DEFAULT_PROTEINS,
-                        help='short protein names to pair up, taken two at a time')
-    parser.add_argument('--hn_subtype', nargs='+', default=['H3N2'])
-    parser.add_argument('--host', nargs='+', default=['Human'])
+    parser.add_argument('--proteins', nargs='+', default=None,
+                        help='short protein names to pair up, taken two at a time; '
+                             'default: the virus config\'s selected_functions')
+    parser.add_argument('--hn_subtype', nargs='+', default=None)
+    parser.add_argument('--host', nargs='+', default=None)
     parser.add_argument('--year', nargs='+', type=int, default=None)
     parser.add_argument('--year_range', nargs=2, type=int, default=None, metavar=('MIN', 'MAX'))
     parser.add_argument('--population', default=None,
                         help='label for the population; defaults to the filters applied')
+    parser.add_argument('--cohort', choices=['pair', 'common'], default='pair',
+                        help="'pair' builds each schema pair from the isolates carrying its own "
+                             "two proteins; 'common' builds every pair from the isolates carrying "
+                             "all --proteins")
     parser.add_argument('--out_dir', type=Path,
                         default=PROJ / 'results/flu/July_2025/pair_capacity')
     args = parser.parse_args()
 
     config = get_virus_config_hydra(args.config_bundle, config_path=str(PROJ / 'conf'))
     # build_frontend reads its metadata filters off the config, so set them there.
-    config.dataset.hn_subtype = args.hn_subtype
-    config.dataset.host = args.host
-    config.dataset.year = args.year
-    config.dataset.year_range = args.year_range
+    # Only a filter given on the command line overrides the bundle, so a bundle can carry the
+    # population it was written for. Setting them unconditionally cleared the bundle's year and
+    # made check_cds_length see every year at once.
+    for name in ('hn_subtype', 'host', 'year', 'year_range'):
+        given = getattr(args, name)
+        if given is not None:
+            setattr(config.dataset, name, given)
 
     function_to_short = get_function_short_name_map(config)
     canonical_order = [function_to_short[f] for f in config.virus.protein_order]
+    # The proteins default to the ones the virus config selects for modelling, which needs the
+    # config, so it cannot be an argparse default.
+    if args.proteins is None:
+        args.proteins = [function_to_short[f] for f in config.virus.selected_functions]
     full_of = {short: full for full, short in function_to_short.items()}
     unknown = [p for p in args.proteins if p not in full_of]
     if unknown:
@@ -237,16 +268,21 @@ def main() -> None:
                               tuple(full_of[p] for p in args.proteins), cds_final_path=cds_path)
     kept, _ = filter_complete_cds_at_pinned_length(frontend, cds_path, pins, function_to_short)
 
-    cohort_ids = common_isolate_cohort(kept, args.proteins, function_to_short)
-    cohort = kept[kept['assembly_id'].isin(cohort_ids)]
-    print(f"\nCommon cohort: {len(cohort_ids):,} of {kept['assembly_id'].nunique():,} isolates "
-          f"carry all {len(args.proteins)} proteins at their pinned length")
+    n_population = kept['assembly_id'].nunique()
+    if args.cohort == 'common':
+        shared = common_isolate_cohort(kept, args.proteins, function_to_short)
+        print(f"\nCommon cohort: {len(shared):,} of {n_population:,} isolates carry all "
+              f"{len(args.proteins)} proteins at their pinned length")
+    else:
+        print(f"\nPair-specific cohorts over {n_population:,} isolates: each pair keeps the "
+              f"isolates carrying its own two proteins at their pinned length")
 
     population = args.population or ' '.join(
-        str(v) for values in (args.hn_subtype, args.host, args.year) if values for v in values)
+        str(v) for values in (config.dataset.hn_subtype, config.dataset.host, config.dataset.year)
+        if values for v in values)
     capacity, overlap = summarize_pair_capacity(
-        cohort, args.proteins, function_to_short, canonical_order, pair_key_alphabet,
-        population=population or 'all')
+        kept, args.proteins, function_to_short, canonical_order, pair_key_alphabet,
+        population=population or 'all', cohort_mode=args.cohort)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     capacity_path = args.out_dir / 'pair_capacity.csv'
