@@ -4,11 +4,18 @@
 
 ## Goal
 
-Follow up questions/tasks following the `docs/results/2026-09-08_h3n2_2024_progress_report.md` report (Human-H3N2-2024):
+Follow up on questions raised by `docs/results/2026-09-08_h3n2_2024_progress_report.md`
+(Human-H3N2-2024):
 
-1. Do the same sequence sites dominate feature importance in different years? E.g., compare Human-H3N2-2024 vs Human-H3N2-2025.
-2. How do prediction performance, pair capacity, and the share of gain on each protein vary across 28-pairs; the 8 major proteins, c(8,2)?
-3. Can codon-preserving sequence alignment retain records that pinned-length filtering drops? We need to determine whether the alignment effort is worth it. Consider `2026-09-07_cds_length_survey.md` in general, and specifically its "Pin reach by year" section, which covers 2015-2025.
+1. Do models fitted separately to Human-H3N2-2024 and Human-H3N2-2025 assign high gain to similar
+   HA and NA codon sites?
+2. How do prediction performance, `HK selected` capacity, and each protein's share of gain vary
+   across the 28 pairs formed from the 8 major proteins?
+3. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while placing
+   homologous sites in shared coordinates? Alignment cannot recover incomplete records, so the
+   question is whether the effort is worth what it does retain. See
+   `docs/results/2026-09-07_cds_length_survey.md`, and its "Pin reach by year" section for
+   2015-2025.
 
 The cross-year comparison and the initial 28-pairs screen can use the existing pinned-length pipeline.
 
@@ -32,10 +39,12 @@ positional homology, and nothing in the current pipeline checks it.
 - Primary features: nucleotide 6-mers and per-site codons.
 - Primary importance measure: fold-averaged LightGBM gain.
 
-Experiments 1 to 3 share one pin table, so their site coordinates and importance maps stay
-comparable. Every protein is pinned to its Human-H3N2-2024 modal complete-CDS length, and the same
-value is used in 2025. Pinning two compared years to lengths that differ by an indel would shift
-every position downstream of it, so a site index would not mean the same place in both.
+Experiments 1 to 3 use the same pin table. For site-feature models this keeps the feature
+dimensions and site indices consistent across runs. It does not establish that corresponding
+positions are homologous, which needs separate alignment validation. Every protein is pinned to
+its Human-H3N2-2024 modal complete-CDS length, and the same value is used in 2025. Pinning two
+compared years to lengths that differ by an indel would shift every position downstream of it, so
+a site index would not mean the same place in both.
 
 | Segment ID | protein | pin (nt) | source |
 | --- |---|---:|---|
@@ -53,7 +62,8 @@ no change. PB1 and NS1 come from a bundle-level `virus.cds_length` override, whi
 six rather than replacing them. How far each pin reaches into earlier years is measured in the
 "Pin reach by year" section of `docs/results/2026-09-07_cds_length_survey.md`.
 
-Note that the "July 2025" corpus contains a partial 2025 season. We have to state in our results (we reserve this for final publication).
+The July 2025 corpus contains only a partial 2025 season, so every 2025 result must be labeled
+accordingly.
 
 ## Current evidence
 
@@ -63,9 +73,13 @@ In Human-H3N2-2024 only 55.3% of isolates have a complete PB1, and alignment can
 because the missing bases are absent from the assemblies. See "Why PB1 retains about half its
 isolates" in `docs/results/2026-09-07_cds_length_survey.md`.
 
-### Pair capacity differs even under the same metadata filters
+### Pair capacity differs under the same metadata filters
 
-The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 15 pairs in Human-H3N2-2024. M1 pairs had the smallest populations because M1 has few unique sequences. The 28-pairs experiment must therefore report native sample size and sequence diversity beside model performance.
+Experiment 2 found 440 to 2,042 `HK selected` positives across the 28 Human-H3N2-2024 pairs. The
+13 pairs containing M1 or NS1 hold the lowest counts, because those two proteins supply relatively
+few unique sequences. PB1 limits a different stage: its incomplete CDS records cut the eligible
+isolate population rather than the matching. Experiment 3 must therefore report native capacity
+and sequence diversity beside performance.
 
 ### Existing code can be reused
 
@@ -75,9 +89,8 @@ The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 1
 - `src/analysis/aggregate_allpairs_results.py` already builds a 28-pair summary and heatmaps. It
   should be extended only where the current LightGBM/site-feature outputs require it.
 - `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit.
-- `src/analysis/summarize_pair_capacity.py` provides positive-pair and Hopcroft-Karp counts. Its
-  current common-cohort design is useful for controlled comparisons but is not the primary
-  population definition for the 28-pairs screen.
+- `src/analysis/summarize_pair_capacity.py` builds pair-specific cohorts for the primary analysis
+  and a common cohort for sensitivity analysis. It produced Experiment 2's capacity reference.
 - `src/analysis/plot_site_importance.py` already writes per-site gain, SHAP, and permutation
   importance by fold.
 
@@ -85,14 +98,17 @@ The existing six-protein survey found 616-1,987 Hopcroft-Karp positives across 1
 
 ### Population for a schema pair
 
-Each schema pair will be built independently from Human-H3N2 isolates in the specified year. An isolate is eligible for a pair when it has both required proteins as complete CDS records in the coordinate system used by that experiment. This holds host, subtype, and year fixed, but it does not force different schema pairs to retain the same isolates.
+Each schema pair is built independently from Human-H3N2 isolates in the specified year. An
+isolate is eligible for a pair when it has both required proteins as complete CDS records in the
+coordinate system used by that experiment. This holds host, subtype, and year fixed, but it does
+not force different schema pairs to retain the same isolates.
 
 For each pair, report these counts in order:
 
 1. eligible isolates;
 2. unique observed positive pairs after `nt_cds` pair-key deduplication;
 3. unique slot-A and slot-B sequences;
-4. positives retained by Hopcroft-Karp;
+4. positives selected by Hopcroft-Karp (`HK selected`);
 5. positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
    produces it and Experiment 2 does not.
 
@@ -103,13 +119,23 @@ Pinned-length site features assign one feature column to each nucleotide, codon,
 ### Dataset checks every experiment must pass
 
 - Positive pair keys are unique.
+- Every retained CDS is complete and equals its configured pinned length.
 - No CDS hash occurs in more than one CV split within a fold.
 - No generated negative is an observed positive from the full pre-selection positive universe.
-- Every importance row can be traced to a model run, fold, protein, and site.
+- Before Experiment 3 trains, each production dataset reproduces the eligible-isolate,
+  unique-positive, unique-slot and `HK selected` counts its pair has in Experiment 2's
+  `pair_capacity.csv`.
+- Where importance is computed, every importance row can be traced to a model run, fold, protein,
+  and site.
 
 ### What the model predicts
 
-The label records whether two segment sequences were observed together in one isolate. Strong performance does not by itself establish biochemical compatibility, coevolution, or reassortment fitness. Shared lineage, time, geography, and sampling structure can all contribute to the signal.
+The label records whether two segment sequences were observed together in one isolate. Strong
+performance does not by itself establish biochemical compatibility, coevolution, or reassortment
+fitness. Shared lineage, time, geography, and sampling structure can all contribute to the signal.
+
+A generated negative is a sequence pair not observed in the full positive-pair universe. It is not
+evidence that the pair is biologically incompatible or could never occur.
 
 ## Experiment 1: cross-year HA-NA importance — DONE (2026-09-15)
 
