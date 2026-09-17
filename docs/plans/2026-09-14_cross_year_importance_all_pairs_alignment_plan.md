@@ -93,7 +93,8 @@ For each pair, report these counts in order:
 2. unique observed positive pairs after `nt_cds` pair-key deduplication;
 3. distinct slot-A and slot-B sequences;
 4. positives retained by Hopcroft-Karp;
-5. positives and negatives in each CV fold.
+5. positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
+   produces it and Experiment 2 does not.
 
 ### Pinned-length site features
 
@@ -184,7 +185,7 @@ sites were selected uniformly. This does not show that the full rankings are ide
 difference is a biological year effect. The comparison does not control for the smaller 2025
 population, the partial 2025 season, or correlation among sites.
 
-## Experiment 2 (rerequisite to Exp. 3): 28-pair capacity audit
+## Experiment 2 (prerequisite to Experiment 3): 28-pair capacity audit — DONE (2026-09-16)
 
 ### Question
 
@@ -205,8 +206,11 @@ what prevents a corpus-wide value is the subtype split, since H1N1 is predominan
 2023. Recheck both against the input data before use. PB1 pairs must be marked as
 completeness-selected because their eligible population is much smaller.
 
-For every pair, report the five population counts defined above. Also report the distribution of
-per-sequence reuse before matching and the retained-isolate overlap for pairs that share a protein.
+For every pair, report counts 1 to 4 defined above. Also report the distribution of per-sequence
+reuse before matching and the retained-isolate overlap for pairs that share a protein. The reuse
+distribution is what explains a low matched count: Hopcroft-Karp keeps at most one positive per
+distinct sequence, so a protein whose sequences are each observed in many isolates caps the pair
+regardless of how many isolates are eligible.
 
 ### Implementation
 
@@ -228,9 +232,105 @@ choose a minimum count before measuring the 28 populations.
 
 - one 28-row pair-capacity CSV;
 - a readable capacity table sorted by segment number and a second view sorted by matched count;
-- a matrix of Hopcroft-Karp counts;
-- a short audit of PB1 and NS1 eligibility;
-- a list of pairs that need aligned rather than pinned-length coordinates.
+- an 8 x 8 matrix of Hopcroft-Karp counts, written as a CSV and a heatmap;
+- a short audit of PB1 and NS1 eligibility that cites the length survey instead of restating it;
+- a check of whether any pair needs aligned rather than pinned-length coordinates.
+
+The last check is expected to return no pairs. Among complete CDS in Human-H3N2-2024 the lowest
+`frac at mode` is NS1 at 0.991, so the pins already retain almost every complete CDS. What PB1
+loses is incompleteness, which alignment cannot recover. Alignment is examined in Experiment 4.
+
+`results/` is not tracked by git, so copy the heatmap into `docs/results/figs/` and record the
+capacity table in this plan.
+
+### Results
+
+One command produced every output, using the defaults in
+`src/analysis/summarize_pair_capacity.py`:
+
+```
+python -m src.analysis.summarize_pair_capacity \
+  --out_dir results/flu/July_2025/pair_capacity_8_proteins
+```
+
+The 21 pairs without PB1 drew on 5,156 to 5,338 eligible isolates. The 7 pairs with PB1 drew on
+2,937 to 2,945, because only 55.1% of Human-H3N2-2024 isolates have a complete PB1 CDS at the
+2,277 nt pin. See "Why PB1 retains about half its isolates" in
+`docs/results/2026-09-07_cds_length_survey.md`. NS1 cost
+almost no isolates at the 693 nt pin, so its pairs kept full-size populations and lost their
+capacity at the matching step instead.
+
+Hopcroft-Karp kept 440 positives at the least (M1-NS1), 1,126 at the median, and 2,042 at the most
+(PB2-HA).
+
+![28-pair Hopcroft-Karp capacity, Human-H3N2-2024](../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png)
+
+| Pair ID | pair | eligible isolates | positives | Unique slot-A | Unique slot-B | HK matched | HK share |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 1-4 | PB2-HA | 5,329 | 3,796 | 2,810 | 2,681 | 2,042 | 53.8% |
+| 1-3 | PB2-PA | 5,324 | 3,837 | 2,808 | 2,712 | 2,030 | 52.9% |
+| 3-4 | PA-HA | 5,329 | 3,805 | 2,711 | 2,682 | 1,944 | 51.1% |
+| 1-6 | PB2-NA | 5,167 | 3,532 | 2,745 | 2,203 | 1,745 | 49.4% |
+| 4-6 | HA-NA | 5,173 | 3,466 | 2,634 | 2,203 | 1,698 | 49.0% |
+| 3-6 | PA-NA | 5,167 | 3,520 | 2,649 | 2,202 | 1,689 | 48.0% |
+| 1-5 | PB2-NP | 5,318 | 3,484 | 2,800 | 1,830 | 1,512 | 43.4% |
+| 4-5 | HA-NP | 5,323 | 3,382 | 2,673 | 1,830 | 1,482 | 43.8% |
+| 3-5 | PA-NP | 5,318 | 3,455 | 2,703 | 1,832 | 1,459 | 42.2% |
+| 1-2 | PB2-PB1 | 2,945 | 2,349 | 1,788 | 1,790 | 1,404 | 59.8% |
+| 2-4 | PB1-HA | 2,945 | 2,327 | 1,790 | 1,756 | 1,392 | 59.8% |
+| 2-3 | PB1-PA | 2,939 | 2,332 | 1,786 | 1,710 | 1,341 | 57.5% |
+| 5-6 | NP-NA | 5,162 | 3,091 | 1,794 | 2,197 | 1,287 | 41.6% |
+| 2-6 | PB1-NA | 2,939 | 2,237 | 1,786 | 1,480 | 1,212 | 54.2% |
+| 2-5 | PB1-NP | 2,942 | 2,162 | 1,787 | 1,227 | 1,041 | 48.1% |
+| 1-8 | PB2-NS1 | 5,313 | 3,204 | 2,800 | 1,120 | 995 | 31.1% |
+| 4-8 | HA-NS1 | 5,318 | 3,151 | 2,676 | 1,119 | 959 | 30.4% |
+| 3-8 | PA-NS1 | 5,315 | 3,214 | 2,705 | 1,121 | 952 | 29.6% |
+| 6-8 | NA-NS1 | 5,156 | 2,794 | 2,196 | 1,092 | 853 | 30.5% |
+| 5-8 | NP-NS1 | 5,307 | 2,540 | 1,824 | 1,114 | 806 | 31.7% |
+| 1-7 | PB2-M1 | 5,332 | 3,128 | 2,813 | 812 | 726 | 23.2% |
+| 4-7 | HA-M1 | 5,338 | 3,018 | 2,686 | 811 | 720 | 23.9% |
+| 3-7 | PA-M1 | 5,335 | 3,082 | 2,716 | 812 | 707 | 22.9% |
+| 2-8 | PB1-NS1 | 2,937 | 2,029 | 1,788 | 781 | 704 | 34.7% |
+| 6-7 | NA-M1 | 5,176 | 2,620 | 2,206 | 800 | 657 | 25.1% |
+| 5-7 | NP-M1 | 5,326 | 2,356 | 1,833 | 808 | 627 | 26.6% |
+| 2-7 | PB1-M1 | 2,945 | 1,992 | 1,790 | 582 | 517 | 26.0% |
+| 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 | 23.9% |
+
+Sequence reuse before matching explains the ordering better than the eligible count does. The
+ranges below run over the 7 pairs each protein takes part in. The reuse distribution is
+long-tailed, so the median is 1 for every protein and pair and the mean and the maximum are what
+separate them.
+
+| protein | distinct sequences | mean reuse | most reused sequence | sequences used once |
+|---|---:|---:|---:|---:|
+| PB2 | 1,788-2,813 | 1.11-1.37 | 108 | 87.6-94.5% |
+| PB1 | 1,786-1,790 | 1.11-1.31 | 51 | 87.7-94.0% |
+| PA | 1,710-2,716 | 1.13-1.41 | 117 | 86.1-93.6% |
+| HA | 1,756-2,686 | 1.12-1.42 | 136 | 84.7-93.5% |
+| NP | 1,227-1,833 | 1.29-1.90 | 398 | 80.1-88.8% |
+| NA | 1,480-2,206 | 1.19-1.60 | 138 | 84.0-92.1% |
+| M1 | 582-812 | 2.28-3.85 | 860 | 72.3-79.5% |
+| NS1 | 781-1,122 | 1.64-2.87 | 977 | 73.4-82.3% |
+
+M1 and NS1 are the two proteins whose sequences recur most. The 13 pairs containing one of them
+are the 13 lowest matched counts in the table, and the first pair containing neither is PB1-NP at
+1,041. M1-NS1 is the floor at 440, because both of its slots are drawn from a small
+set of heavily reused sequences. The matched count is bounded by the smaller of the two distinct
+counts, but the bound is loose: M1-NS1 has 806 distinct M1 sequences and keeps 440 positives.
+
+The matchings do not retain the same isolates. Isolate Jaccard between two pairs ranges from 0.112
+(M1-NS1 against PB1-PA) to 0.568 (PB1-HA against PB2-PB1), with a median of 0.234. Two pairs are
+therefore less comparable than the shared metadata filters suggest, and a performance difference
+between them is not measured on one population.
+
+No pair needs aligned rather than pinned-length coordinates for this screen. Among complete CDS in
+Human-H3N2-2024 the lowest `frac at mode` is NS1 at 0.991 and PB1 is at 0.994, so the pins retain
+almost every complete CDS. PB1's loss comes from incomplete assemblies, which alignment cannot
+recover.
+
+The six output files are in `results/flu/July_2025/pair_capacity_8_proteins/`, which is not
+tracked by git. The heatmap is copied to
+`docs/results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png`.
 
 ## Experiment 3: pinned-length 28-pairs screen
 

@@ -14,8 +14,13 @@ How?
 - `HK matched` counts the positives left once no slot-A and no slot-B sequence is used twice.
   Hopcroft-Karp returns a maximum matching, so it is the largest such set; the sequential-dedup
   selectors in `_positive_pair_selection` retain fewer.
+- `pair_sequence_reuse.csv` records how often each distinct sequence recurs across a pair's
+  positives. That is what caps `HK matched`, because the matching keeps at most one positive per
+  distinct sequence, so a slot whose sequences each recur in many isolates bounds the pair however
+  many isolates are eligible.
 - `pair_isolate_overlap.csv` records how far two pairs' retained isolates agree, because each
   matching is solved on its own bigraph and keeps its own isolates.
+- `pair_capacity_matrix.csv` and its heatmap lay `HK matched` out protein by protein.
 
 CLI:
     python -m src.analysis.summarize_pair_capacity
@@ -34,8 +39,12 @@ Notes:
   rank rather than a stable identifier and it moves when the population changes.
 
 Outputs (to `--out_dir`):
-    pair_capacity.csv           one row per schema pair, with the columns in `CAPACITY_COLUMNS`
-    pair_isolate_overlap.csv    one row per pair of schema pairs: shared isolates and Jaccard
+    pair_capacity.csv            one row per schema pair, with the columns in `CAPACITY_COLUMNS`
+    pair_capacity_by_segment.csv the same rows in segment order rather than by matched count
+    pair_sequence_reuse.csv      two rows per schema pair, one per slot, with `REUSE_COLUMNS`
+    pair_isolate_overlap.csv     one row per pair of schema pairs: shared isolates and Jaccard
+    pair_capacity_matrix.csv     `HK matched` as a symmetric protein-by-protein table
+    pair_capacity_matrix.png     that table as a heatmap
 """
 from __future__ import annotations
 
@@ -44,7 +53,9 @@ import itertools
 import sys
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import pandas as pd
+import seaborn as sns
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
@@ -61,10 +72,13 @@ from src.utils.config_hydra import (  # noqa: E402
     get_function_short_name_map,
     get_virus_config_hydra,
 )
+from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
 
 CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'eligible isolates', 'positives',
                     'Unique slot-A', 'Unique slot-B', 'HK matched', 'HK share', 'min-count sample']
 OVERLAP_COLUMNS = ['pair A', 'pair B', 'isolates A', 'isolates B', 'shared', 'isolate jaccard']
+REUSE_COLUMNS = ['pair', 'slot', 'protein', 'positives', 'unique sequences', 'reuse mean',
+                 'reuse median', 'reuse p90', 'reuse max', 'singleton share']
 
 
 def common_isolate_cohort(cds: pd.DataFrame, proteins: list, function_to_short: dict) -> set:
@@ -141,10 +155,109 @@ def isolate_overlap(retained_isolates: dict) -> pd.DataFrame:
     return table.sort_values('isolate jaccard', ascending=False).reset_index(drop=True)
 
 
+def sequence_reuse(positives: pd.DataFrame, hash_col: str, label: str, slot: str,
+                   protein: str) -> dict:
+    """How often each distinct sequence in one slot recurs across a pair's positives.
+
+    Args:
+      positives: the pair's deduplicated positive pairs, before matching.
+      hash_col: the slot's sequence-hash column in `positives`.
+      label: the pair label, e.g. `HA-NA`.
+      slot: `A` or `B`.
+      protein: the short protein name filling the slot.
+
+    Returns:
+      One row of `REUSE_COLUMNS`.
+
+    Raises:
+      ValueError: `positives` is empty, so there is no distribution to describe.
+    """
+    per_sequence = positives[hash_col].value_counts()
+    if per_sequence.empty:
+        raise ValueError(f"sequence_reuse: {label} slot {slot} has no positives.")
+    return {
+        'pair': label,
+        'slot': slot,
+        'protein': protein,
+        'positives': len(positives),
+        'unique sequences': len(per_sequence),
+        'reuse mean': per_sequence.mean(),
+        'reuse median': per_sequence.median(),
+        'reuse p90': per_sequence.quantile(0.9),
+        'reuse max': int(per_sequence.max()),
+        'singleton share': float((per_sequence == 1).mean()),
+    }
+
+
+def sort_by_segment(capacity: pd.DataFrame) -> pd.DataFrame:
+    """The capacity table reordered by segment number instead of by matched count.
+
+    Args:
+      capacity: the table `summarize_pair_capacity` returns.
+
+    Returns:
+      The same rows ordered by the two segment numbers in `Pair ID`. `ID` still carries the
+      matched-count rank, so it runs out of order in this view.
+    """
+    segment_numbers = capacity['Pair ID'].str.split('-').map(
+        lambda parts: tuple(int(number) for number in parts))
+    ordered = capacity.assign(segment_key=segment_numbers).sort_values('segment_key')
+    return ordered.drop(columns='segment_key').reset_index(drop=True)
+
+
+def hk_matrix(capacity: pd.DataFrame, proteins: list, canonical_order: list) -> pd.DataFrame:
+    """`HK matched` laid out as a symmetric protein-by-protein table.
+
+    Args:
+      capacity: the table `summarize_pair_capacity` returns.
+      proteins: short protein names indexing the rows and columns.
+      canonical_order: short names in canonical order, fixing the row and column order.
+
+    Returns:
+      A square table of matched counts in canonical order. The diagonal is left empty, because a
+      protein is not paired with itself.
+
+    Raises:
+      KeyError: `capacity` has no row for a pair drawn from `proteins`.
+    """
+    matched_of = dict(zip(capacity['pair'], capacity['HK matched']))
+    ordered = sorted(set(proteins), key=canonical_order.index)
+    matrix = pd.DataFrame(float('nan'), index=ordered, columns=ordered)
+    # Labels are rebuilt the way summarize_pair_capacity built them rather than split on '-',
+    # because several short protein names contain a hyphen (PA-X, PB1-F2).
+    for protein_a, protein_b in canonical_protein_pairs(proteins, canonical_order):
+        matched_count = matched_of[f'{protein_a}-{protein_b}']
+        matrix.loc[protein_a, protein_b] = matched_count
+        matrix.loc[protein_b, protein_a] = matched_count
+    return matrix
+
+
+def plot_hk_matrix(matrix: pd.DataFrame, out_path: Path, population: str) -> None:
+    """Draw the matched-count matrix as an annotated heatmap.
+
+    Args:
+      matrix: the square table `hk_matrix` returns.
+      out_path: PNG file to write.
+      population: population label for the title.
+
+    Returns:
+      None. Writes `out_path`.
+    """
+    setup_plot_style()
+    fig, ax = plt.subplots(figsize=(8, 6.5))
+    sns.heatmap(matrix, annot=True, fmt='.0f', cmap='YlGnBu', mask=matrix.isna(), square=True,
+                linewidths=0.5, ax=ax, cbar_kws={'label': 'Hopcroft-Karp matched positives'})
+    ax.set_title(f'Pair capacity, {population}')
+    for position in range(len(matrix)):
+        ax.text(position + 0.5, position + 0.5, '--', ha='center', va='center', color='gray')
+    fig.tight_layout()
+    savefig(out_path)
+
+
 def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_short: dict,
                             canonical_order: list, pair_key_alphabet: str,
                             population: str = 'all', cohort_mode: str = 'pair',
-                            ) -> tuple[pd.DataFrame, pd.DataFrame]:
+                            ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Positive and matched-positive counts for every schema pair over `proteins`.
 
     Args:
@@ -159,7 +272,8 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
           `common` builds every pair from the isolates carrying all of `proteins`.
 
     Returns:
-      The capacity table, ordered by descending `HK matched`, and the isolate-overlap table.
+      The capacity table ordered by descending `HK matched`, the isolate-overlap table, and the
+      sequence-reuse table.
 
     Raises:
       ValueError: `cohort_mode` is not `pair` or `common`.
@@ -177,6 +291,7 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
         shared = common_isolate_cohort(kept, proteins, function_to_short)
 
     rows = []
+    reuse_rows = []
     retained_isolates = {}
     for protein_a, protein_b in canonical_protein_pairs(proteins, canonical_order):
         label = f'{protein_a}-{protein_b}'
@@ -190,6 +305,8 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
             positives, 'hopcroft_karp', hash_col_a, hash_col_b)
 
         retained_isolates[label] = set(matched['assembly_id_a'])
+        reuse_rows.append(sequence_reuse(positives, hash_col_a, label, 'A', protein_a))
+        reuse_rows.append(sequence_reuse(positives, hash_col_b, label, 'B', protein_b))
         rows.append({
             # Segment numbers follow the pair order, so `Pair ID` and `pair` always agree.
             'Pair ID': f'{segment_of[protein_a]}-{segment_of[protein_b]}',
@@ -209,7 +326,8 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
     # pair's own HK population instead, so this column reports the floor rather than what is run.
     table['min-count sample'] = table['HK matched'].min()
     table.insert(0, 'ID', range(1, len(table) + 1))
-    return table[CAPACITY_COLUMNS], isolate_overlap(retained_isolates)
+    reuse = pd.DataFrame(reuse_rows, columns=REUSE_COLUMNS)
+    return table[CAPACITY_COLUMNS], isolate_overlap(retained_isolates), reuse
 
 
 def main() -> None:
@@ -283,15 +401,24 @@ def main() -> None:
     population = args.population or ' '.join(
         str(v) for values in (config.dataset.hn_subtype, config.dataset.host, config.dataset.year)
         if values for v in values)
-    capacity, overlap = summarize_pair_capacity(
+    capacity, overlap, reuse = summarize_pair_capacity(
         kept, args.proteins, function_to_short, canonical_order, pair_key_alphabet,
         population=population or 'all', cohort_mode=args.cohort)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     capacity_path = args.out_dir / 'pair_capacity.csv'
+    segment_path = args.out_dir / 'pair_capacity_by_segment.csv'
+    reuse_path = args.out_dir / 'pair_sequence_reuse.csv'
     overlap_path = args.out_dir / 'pair_isolate_overlap.csv'
+    matrix_path = args.out_dir / 'pair_capacity_matrix.csv'
+    figure_path = args.out_dir / 'pair_capacity_matrix.png'
     capacity.to_csv(capacity_path, index=False)
+    sort_by_segment(capacity).to_csv(segment_path, index=False)
+    reuse.to_csv(reuse_path, index=False)
     overlap.to_csv(overlap_path, index=False)
+    matrix = hk_matrix(capacity, args.proteins, canonical_order)
+    matrix.to_csv(matrix_path)
+    plot_hk_matrix(matrix, figure_path, population or 'all')
 
     shown = capacity.copy()
     shown['HK share'] = shown['HK share'].map('{:.1%}'.format)
@@ -304,8 +431,16 @@ def main() -> None:
     print(f"Isolate overlap between matchings: median Jaccard "
           f"{overlap['isolate jaccard'].median():.3f}. Two pairs are less comparable than a shared "
           f"cohort suggests, because each matching keeps its own isolates.")
-    print(f"\nWrote {capacity_path}")
-    print(f"Wrote {overlap_path}")
+    # The mean rather than the median, because the distribution is long-tailed: most sequences
+    # are observed once, so the median is 1 for nearly every pair and slot.
+    heaviest = reuse.loc[reuse['reuse mean'].idxmax()]
+    print(f"Sequence reuse before matching is heaviest for {heaviest['protein']} in "
+          f"{heaviest['pair']}: {heaviest['unique sequences']:,} distinct sequences over "
+          f"{heaviest['positives']:,} positives, a mean of {heaviest['reuse mean']:.1f} each and "
+          f"{heaviest['reuse max']:,} for the most reused one.")
+    for written in (capacity_path, segment_path, reuse_path, overlap_path, matrix_path,
+                    figure_path):
+        print(f"Wrote {written}")
     print('Done.')
 
 
