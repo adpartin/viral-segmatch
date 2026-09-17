@@ -50,7 +50,7 @@ proteins.
 
 ## Results
 
-| ID | Pair ID | pair | positives | distinct A | distinct B | HK selected | HK share |
+| ID | Pair ID | Schema pair | Unique positives | Unique slot-A | Unique slot-B | HK selected | HK share |
 |---:|---|---|---:|---:|---:|---:|---:|
 | 1 | 1-4 | PB2-HA | 3,693 | 2,727 | 2,615 | 1,987 | 53.8% |
 | 2 | 1-3 | PB2-PA | 3,723 | 2,727 | 2,636 | 1,972 | 53.0% |
@@ -73,17 +73,17 @@ changes. `Pair ID` is the two segment numbers and is stable.
 
 ### A shared cohort does not give equal counts
 
-Every row draws on the same 5,143 isolates, yet positives range from 2,293 to 3,723 and selected
-positives from 616 to 1,987. Two isolates that share both proteins of a pair collapse into one
-positive, and how often that happens depends on the proteins. M1 has only 793 distinct sequences
-across the cohort, so M1 pairs collapse hardest.
+Every row draws on the same 5,143 isolates, yet unique positives range from 2,293 to 3,723 and
+selected positives from 616 to 1,987. Two isolates that share both proteins of a pair collapse
+into one positive, and how often that happens depends on the proteins. M1 has only 793 unique
+sequences across the cohort, so M1 pairs collapse hardest.
 
 Holding the isolates fixed therefore removes the metadata confound. It does not remove the
 diversity difference, which is what drives both the dedup step and the matching step.
 
 ### M1 sets the floor for any equal-count design
 
-Every M1 pair caps near 700, because a matching cannot exceed the 793 distinct M1 sequences.
+Every M1 pair caps near 700, because a matching cannot exceed the 793 unique M1 sequences.
 Downsampling all fifteen pairs to a common count would cap the experiment at **616**, which costs
 PB2-HA 69% of its data and the median pair 58%.
 
