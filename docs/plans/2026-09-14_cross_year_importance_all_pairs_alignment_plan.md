@@ -77,10 +77,6 @@ For each pair, report these counts in order:
 5. positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
    produces it and Experiment 2 does not.
 
-### Pinned-length site features
-
-Pinned-length site features assign one feature column to each nucleotide, codon, or amino-acid (aa) position after retaining one configured CDS length. This is the current production method and the one experiments 1 to 3 use.
-
 ### Dataset checks every experiment must pass
 
 - Positive pair keys are unique.
@@ -192,10 +188,9 @@ writing Human-H3N2 values there would make `check_cds_length` raise on those pop
 capacity script and `dataset_segment_pairs` read the same `virus.cds_length` key, so one override
 reaches each of them.
 
-Every pair holds the same metadata filters but is built from its own eligible isolates, not from a
-common 8-protein cohort. Requiring PB1 from every isolate would remove about 45% of the population
-from pairs that do not contain PB1. PB1 pairs are therefore completeness-selected, and are marked
-as such.
+No common 8-protein cohort is taken, because requiring PB1 from every isolate would remove about
+45% of the population from pairs that do not contain PB1. PB1 pairs are therefore
+completeness-selected, and are marked as such.
 
 For every pair, report counts 1 to 4 defined above, summary statistics for per-sequence reuse
 before matching, and the retained-isolate overlap with the combinations whose two schema pairs
@@ -402,7 +397,7 @@ Does alignment add enough valid site-feature data to justify new production-pipe
 
 #### Aligned site features
 
-Aligned site features assign one feature column to each homologous alignment position. Coding sequences must be aligned in a way that preserves the reading frame. The proposed pilot translates each CDS, aligns the proteins, and projects protein gaps back to codon triplets. An unrestricted nucleotide alignment is not acceptable because it can introduce frame-breaking gaps.
+Aligned site features assign one feature column to each homologous alignment position. The alternative they are measured against is pinned-length site features, the current production method; see "Per-site features" and "Pinned CDS length" in `docs/methods/glossary.md`. Coding sequences must be aligned in a way that preserves the reading frame. The proposed pilot translates each CDS, aligns the proteins, and projects protein gaps back to codon triplets. An unrestricted nucleotide alignment is not acceptable because it can introduce frame-breaking gaps.
 
 An alignment gap, an unknown base, and unobserved sequence are different states:
 
