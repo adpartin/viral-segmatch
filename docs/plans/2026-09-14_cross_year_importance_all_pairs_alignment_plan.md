@@ -88,12 +88,8 @@ For each pair, report these counts in order:
 
 ### What the model predicts
 
-The label records whether two segment sequences were observed together in one isolate. Strong
-performance does not by itself establish biochemical compatibility, coevolution, or reassortment
-fitness. Shared lineage, time, geography, and sampling structure can all contribute to the signal.
-
-A generated negative is a sequence pair not observed in the full positive-pair universe. It is not
-evidence that the pair is biologically incompatible or could never occur.
+- The label records whether two segment sequences were observed together in one isolate. Strong performance does not by itself establish biological compatibility. 
+- A generated negative is a sequence pair not observed in the full positive-pair universe. It is not evidence that the pair is biologically incompatible or could never occur.
 
 ## Experiment 1: cross-year HA-NA importance — DONE (2026-09-15)
 
