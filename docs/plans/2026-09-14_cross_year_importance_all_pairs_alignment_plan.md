@@ -7,20 +7,13 @@
 Follow up on questions raised by `docs/results/2026-09-08_h3n2_2024_progress_report.md`
 (Human-H3N2-2024):
 
-1. Do models fitted separately to Human-H3N2-2024 and Human-H3N2-2025 assign high gain to similar HA and NA codon sites?
-2. Check CDS pair capacity for every schema pair.
-3. How do prediction performance, `HK selected` capacity, and each protein's share of gain vary across the 28 pairs formed from the 8 major proteins?
+1. Do models fitted separately on Human-H3N2-2024 and Human-H3N2-2025 assign high gain to similar HA and NA codon sites?
+2. Check complete CDS (and `HK selected`) pair capacity for all 28 schema pairs.
+3. Run prediction performance on the complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs.
 4. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
-5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while placing homologous sites in shared coordinates? Alignment cannot recover incomplete records, so the question is whether the effort is worth what it does retain. See `docs/results/2026-09-07_cds_length_survey.md`, and its "Pin reach by year" section for 2015-2025.
+5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while placing homologous sites in shared coordinates? Alignment cannot recover incomplete records, so the question is whether the effort is worth it. See `docs/results/2026-09-07_cds_length_survey.md`, and its "Pin reach by year" section for 2015-2025.
 
-The cross-year comparison and the initial 28-pairs screen can use the existing pinned-length pipeline.
-
-Alignment will be evaluated separately and will enter the production pipeline only if it retains meaningful data.
-
-Alignment is not required for Experiment 1, because HA and NA keep the same pin in 2024 and 2025.
-What a validated alignment would add is evidence that a shared site is a shared *homologous*
-position. `docs/results/2026-09-07_cds_length_survey.md` states that equal CDS length does not prove
-positional homology, and nothing in the current pipeline checks it.
+Experiments 1-4 should use the existing pinned-length pipeline.
 
 ## Scope
 
@@ -32,15 +25,10 @@ positional homology, and nothing in the current pipeline checks it.
 - Positive pairs: observed same-isolate pairs, deduplicated by `nt_cds` pair key.
 - Positive selection: Hopcroft-Karp, so each retained CDS occurs at most once in each slot.
 - Splitting: 4-fold random CV with negatives generated within each fold.
-- Primary features: nucleotide 6-mers and per-site codons.
-- Primary importance measure: fold-averaged LightGBM gain.
+- Features: nucleotide (nt) 6-mers, per-site codons, amino-acids (aa), GenSLM embedded codons.
+- Feature importance measure: fold-averaged LightGBM gain, SHAP, test set permutation.
 
-Experiments 1 to 3 use the same pin table. For site-feature models this keeps the feature
-dimensions and site indices consistent across runs. It does not establish that corresponding
-positions are homologous, which needs separate alignment validation. Every protein is pinned to
-its Human-H3N2-2024 modal complete-CDS length, and the same value is used in 2025. Pinning two
-compared years to lengths that differ by an indel would shift every position downstream of it, so
-a site index would not mean the same place in both.
+Experiments 1-3 (and maybe 4) use the same pin table. For site-feature models this keeps the feature dimensions and site indices consistent across runs. It does not establish that corresponding positions are homologous, which needs separate alignment validation. Every protein is pinned to its Human-H3N2-2024 complete-CDS length, and the same value is used in 2025.
 
 | Segment ID | protein | pin (nt) | source |
 | --- |---|---:|---|
@@ -55,49 +43,30 @@ a site index would not mean the same place in both.
 
 The six values in `conf/virus/flu.yaml` already equal the Human-H3N2-2024 mode, so that file needs
 no change. PB1 and NS1 come from a bundle-level `virus.cds_length` override, which merges with the
-six rather than replacing them. How far each pin reaches into earlier years is measured in the
-"Pin reach by year" section of `docs/results/2026-09-07_cds_length_survey.md`.
-
-The July 2025 corpus contains only a partial 2025 season, so every 2025 result must be labeled
-accordingly.
+six. How far each pin reaches into earlier years is measured in the "Pin reach by year" section of
+`docs/results/2026-09-07_cds_length_survey.md`.
 
 ## Current evidence
 
-### PB1 is the one protein the pins cannot rescue
+- For Human-H3N2-2024, only 55.3% of isolates have a complete PB1 (alignment cannot fix that). See `docs/results/2026-09-07_cds_length_survey.md` section "Results: Human-H3N2-2024".
+- From Experiment 2, the `HK selected` positives count ranges 440 to 2,042 across the 28 pairs for Human-H3N2-2024, with `M1` or `NS1` involved in the lowest counts.
 
-In Human-H3N2-2024 only 55.3% of isolates have a complete PB1, and alignment cannot change that,
-because the missing bases are absent from the assemblies. See "Why PB1 retains about half its
-isolates" in `docs/results/2026-09-07_cds_length_survey.md`.
-
-### Pair capacity differs under the same metadata filters
-
-Experiment 2 found 440 to 2,042 `HK selected` positives across the 28 Human-H3N2-2024 pairs. The
-13 pairs containing M1 or NS1 hold the lowest counts, because those two proteins supply relatively
-few unique sequences. PB1 limits a different stage: its incomplete CDS records cut the eligible
-isolate population rather than the matching. Experiment 3 must therefore report native capacity
-and sequence diversity beside performance.
-
-### Existing code can be reused
+## Existing code
 
 - `conf/bundles/flu_28_major_protein_pairs_master.yaml` and its 28 child bundles enumerate all
   protein pairs. Their current population and training settings are not the settings in this plan,
   so new experiment bundles must override them explicitly.
 - `src/analysis/aggregate_allpairs_results.py` already builds a 28-pair summary and heatmaps. It
   should be extended only where the current LightGBM/site-feature outputs require it.
-- `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit.
-- `src/analysis/summarize_pair_capacity.py` builds pair-specific cohorts for the primary analysis
-  and a common cohort for sensitivity analysis. It produced Experiment 2's capacity reference.
-- `src/analysis/plot_site_importance.py` already writes per-site gain, SHAP, and permutation
-  importance by fold.
+- `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit. Results in docs/results/2026-09-07_cds_length_survey.md.
+- `src/analysis/summarize_pair_capacity.py` builds pair-specific cohorts for the primary analysis and a common cohort for sensitivity analysis. It produced Experiment 2's capacity reference. Results in docs/results/2026-09-08_cds_pair_capacity.md.
+- `src/analysis/plot_site_importance.py` writes per-site gain, SHAP, and permutation importance by fold.
 
 ## Definitions and interpretation
 
 ### Population for a schema pair
 
-Each schema pair is built independently from Human-H3N2 isolates in the specified year. An
-isolate is eligible for a pair when it has both required proteins as complete CDS records in the
-coordinate system used by that experiment. This holds host, subtype, and year fixed, but it does
-not force different schema pairs to retain the same isolates.
+Each schema pair is built independently from Human-H3N2 isolates in the specified year. An isolate is eligible for a pair when it has both required proteins as complete CDS records in the coordinate system used by that experiment. This holds host, subtype, and year fixed, but it does not force different schema pairs to retain the same isolates.
 
 For each pair, report these counts in order:
 
