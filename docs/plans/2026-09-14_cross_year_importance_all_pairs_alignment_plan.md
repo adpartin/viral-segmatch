@@ -7,15 +7,11 @@
 Follow up on questions raised by `docs/results/2026-09-08_h3n2_2024_progress_report.md`
 (Human-H3N2-2024):
 
-1. Do models fitted separately to Human-H3N2-2024 and Human-H3N2-2025 assign high gain to similar
-   HA and NA codon sites?
-2. How do prediction performance, `HK selected` capacity, and each protein's share of gain vary
-   across the 28 pairs formed from the 8 major proteins?
-3. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while placing
-   homologous sites in shared coordinates? Alignment cannot recover incomplete records, so the
-   question is whether the effort is worth what it does retain. See
-   `docs/results/2026-09-07_cds_length_survey.md`, and its "Pin reach by year" section for
-   2015-2025.
+1. Do models fitted separately to Human-H3N2-2024 and Human-H3N2-2025 assign high gain to similar HA and NA codon sites?
+2. Check CDS pair capacity for every schema pair.
+3. How do prediction performance, `HK selected` capacity, and each protein's share of gain vary across the 28 pairs formed from the 8 major proteins?
+4. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
+5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while placing homologous sites in shared coordinates? Alignment cannot recover incomplete records, so the question is whether the effort is worth what it does retain. See `docs/results/2026-09-07_cds_length_survey.md`, and its "Pin reach by year" section for 2015-2025.
 
 The cross-year comparison and the initial 28-pairs screen can use the existing pinned-length pipeline.
 
@@ -387,64 +383,47 @@ produce.
 
 ### Question
 
-Does within-season segment-matching performance differ across the 28 schema pairs, and are weak
-pairs associated with particular proteins or limited pair capacity?
+Does within-season segment-matching performance differ across the 28 schema pairs, and are weak performance associated with particular proteins or limited pair capacity?
 
-### Dataset and model design
+### Methods
 
-For every pair that passes the capacity audit:
-
+For every schema pair:
 - use its native Hopcroft-Karp population;
 - use identical dataset rules and 4 CV folds;
-- train nucleotide 6-mer and per-site codon LightGBM models;
-- use threshold 0.5 and 1:1 class balance;
-- save raw test predictions and standard dataset audits.
+- train per-site codon LightGBM models (0.5 threshold and 1:1 class balance);
+- save raw test predictions;
+- don't run feature importance for this 28-pairs run yet.
 
-This is 28 pairs x 2 feature representations x 4 folds, or 224 model fits if all pairs pass.
+This is 28 pairs x 4 folds (112 model trainings).
 Run the dataset audits before starting the full training matrix.
 
-Per-site nucleotide models are deferred from the complete screen because codons retained similar
-performance with one third as many columns in the four-pair experiment. Add nucleotide-site models
-for selected strong, weak, or discrepant pairs after the first screen.
+### Results
 
-aa models are also deferred. Negatives built and blocked in nucleotide space can collapse
-to the same aa pair with conflicting labels. A fair aa experiment must construct,
-deduplicate, and block pairs in aa space and must be reported as a different dataset
-population.
+1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md. It should include the same columns (despite that "Feature type" will be the same for all rows). For each schema pair we use the native Hopcroft-Karp population population per schema, so we should add "HK selected" column.
 
-### Comparisons
-
-Report, for every pair and feature representation:
-
-- AUC-ROC, F1 macro, precision, recall, and Brier score as fold mean and standard deviation;
-- pooled confusion counts;
-- eligible, unique-positive, and Hopcroft-Karp counts;
-- the difference between codon and k-mer performance;
-- each protein's share of total gain in the codon model, one number per slot.
-
-Save the normalized per-fold gain for every codon model. `src/analysis/plot_site_importance.py`
-already writes it, so this costs no extra model fits. The first screen reports the per-protein
-share of gain only. It does not interpret 56 per-site importance maps, because the pairs differ in
-population size, capacity and sequence diversity, and Experiment 1 is where importance is examined
-carefully.
-
-Plot symmetric 8 x 8 heatmaps for AUC-ROC, F1 macro, precision, and recall. Plot performance against
-Hopcroft-Karp count and against per-protein sequence diversity. Treat these as descriptive
-associations, not explanations of performance.
+2. Plot symmetric 8 x 8 heatmaps for F1 macro (very similar to the 8 x 8 figure in Exp 2).
 
 Use `src/analysis/aggregate_allpairs_results.py` where possible. Keep the older 28-pair experiment
 separate by using a new bundle tag and output namespace.
 
-### Primary interpretation limits
+## Experiment 4: GenSLM embedded codons as features for LightGBM
 
-- Native pair counts make the screen representative of available data but do not isolate protein
-  identity from sample size or diversity.
-- A fixed-count sensitivity analysis can compare pairs within capacity strata. It cannot equalize
-  sequence diversity or negative difficulty.
-- Poor performance can reflect weak pairing signal, label ambiguity, limited diversity, or limited
-  sample size. The first heatmap will not distinguish these explanations by itself.
+### Question
 
-## Experiment 4: codon-preserving alignment pilot
+Do GenSLM embedded codons perform better as features for LightGBM than raw codon features? The benefit of GenSLM codon embeddings as features as opposed to raw codon features is that it allows to use varying CDS lengths (similar to k-mers).
+
+### Methods
+
+1. Compute and cache GenSLM embeddings for all unique complete CDS codons.
+2. Start with CV training on HA-NA, Human-H3N2-2024. Use the 1,698 "HK selected" positive pairs set.
+3. Expand to the 4 schema pairs as in 2026-09-08_h3n2_2024_progress_report.md: HA-NA, PB2-PA, PB2-NA, PA-HA.
+4. Optional. All 28-pairs.
+
+### Results
+
+1. Tasks 1-3 within methods should lead to the same table as the table under Results in 2026-09-08_h3n2_2024_progress_report.md. 
+
+## Experiment 5: codon-preserving alignment pilot
 
 ### Question
 
