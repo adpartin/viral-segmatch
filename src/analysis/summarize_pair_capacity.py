@@ -266,6 +266,9 @@ def plot_hk_selected_matrix(matrix: pd.DataFrame, out_path: Path, population: st
                 cbar_kws={'label': 'Hopcroft-Karp selected positives'})
     ax.set_title(f'Pair capacity, {population}', fontsize=12)
     ax.tick_params(labelsize=10)
+    # setup_plot_style turns axes.grid on, which draws a line through every cell of a heatmap.
+    ax.grid(False)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
     for position in range(len(matrix)):
         ax.text(position + 0.5, position + 0.5, '--', ha='center', va='center', color='gray',
                 fontsize=9)
