@@ -1,38 +1,41 @@
-"""How many positive pairs each schema pair can supply, on one shared isolate population.
+"""How many positive pairs each schema pair can supply, and how sequence-unique they are.
 
-Written to choose which schema pairs to train, after `summarize_cds_lengths` has said which
-proteins can be pinned. That survey works per protein; this one works per pair, which is the unit
-an experiment is actually built on.
+Run after `summarize_cds_lengths` has said which proteins can be pinned. That survey works per
+protein; this one works per pair, which is the unit an experiment is built on.
 
-Every pair is built on the same COMMON COHORT: the isolates carrying a complete CDS at the pinned
-length for every protein under comparison. Holding the isolates fixed means host, subtype and year
-are identical across pairs by construction, so a difference between two pairs is a difference
-between the proteins rather than between the populations.
+How?
 
-A common cohort does NOT give equal positive counts. Two isolates that share both proteins of a
-pair collapse into one positive, and how often that happens depends on the proteins. On human H3N2
-2024 the fifteen pairs over the six pinned proteins run from 2,293 to 3,723 positives despite
-drawing on the same isolates.
+- Each pair keeps the isolates carrying its own two proteins as a complete CDS at the pinned
+  length. `--cohort common` instead gives every pair the isolates carrying all `--proteins`, which
+  costs a pair the isolates missing a protein it does not contain.
+- Pairs are enumerated in canonical protein order, so `Pair ID` reads as segment numbers: PB2-HA
+  is `1-4`.
+- `positives` counts observed same-isolate pairs after deduplicating on the `nt_cds` pair key.
+- `HK matched` counts the positives left once no slot-A and no slot-B sequence is used twice.
+  Hopcroft-Karp returns a maximum matching, so it is the largest such set; the sequential-dedup
+  selectors in `_positive_pair_selection` retain fewer.
+- `pair_isolate_overlap.csv` records how far two pairs' retained isolates agree, because each
+  matching is solved on its own bigraph and keeps its own isolates.
 
-`HK matched` is how many positives survive the unique-sequence constraint, where no slot-A sequence
-and no slot-B sequence is used twice. HK is Hopcroft-Karp, which returns a maximum matching, so it
-is the largest such set; the sequential-dedup selectors in `_positive_pair_selection` retain fewer.
-This script runs only that selector, so the column needs no qualifier beyond naming it.
+CLI:
+    python -m src.analysis.summarize_pair_capacity
+    python -m src.analysis.summarize_pair_capacity --proteins HA NA PB2 PA --cohort common
 
-`isolate_jaccard` records how comparable two schema pairs really are. Each matching is solved on
-its own bigraph, so two pairs sharing a protein do not keep the same isolates. On human H3N2 2024,
-PA-NP and NP-NA overlap on only 0.470 of the isolates they retain.
+Notes:
 
-`Pair ID` names a pair by its two segment numbers, so PB2-HA is `1-4`. `ID` is a row counter over
-the table as sorted, which is by descending `HK matched`, so it is a rank rather than a stable
-identifier and it moves when the population changes.
+- The default bundle carries pins for all 8 major proteins, two of which are not in
+  `conf/virus/flu.yaml`. A bundle without a pin for every protein passed raises, naming the ones
+  it lacks.
+- A metadata filter given on the command line overrides the bundle; otherwise the bundle's own
+  population stands.
+- `min-count sample` is the smallest `HK matched` in the table, so it moves when the set of pairs
+  changes. It reports the floor, not what any experiment trains on.
+- `ID` is a row counter over the table as sorted, which is by descending `HK matched`. It is a
+  rank rather than a stable identifier and it moves when the population changes.
 
 Outputs (to `--out_dir`):
     pair_capacity.csv           one row per schema pair, with the columns in `CAPACITY_COLUMNS`
     pair_isolate_overlap.csv    one row per pair of schema pairs: shared isolates and Jaccard
-
-CLI:
-    python -m src.analysis.summarize_pair_capacity --hn_subtype H3N2 --host Human --year 2024
 """
 from __future__ import annotations
 
