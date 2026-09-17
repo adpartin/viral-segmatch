@@ -247,7 +247,7 @@ The experiment produces:
 - an 8 x 8 matrix of Hopcroft-Karp counts, written as a CSV and a heatmap;
 - a short audit of PB1 and NS1 eligibility that cites the length survey instead of restating it;
 - a check of whether any pair needs aligned rather than pinned-length coordinates. Alignment
-  itself is examined in Experiment 4.
+  itself is examined in Experiment 5.
 
 `results/` is not tracked by git, so the heatmap is copied into `docs/results/figs/` and the
 capacity table is recorded below.
@@ -429,7 +429,9 @@ Do GenSLM embedded codons perform better as features for LightGBM than raw codon
 
 Does alignment add enough valid site-feature data to justify new production-pipeline support?
 
-### Aligned site features
+### Methods
+
+#### Aligned site features
 
 Aligned site features assign one feature column to each homologous alignment position. Coding sequences must be aligned in a way that preserves the reading frame. The proposed pilot translates each CDS, aligns the proteins, and projects protein gaps back to codon triplets. An unrestricted nucleotide alignment is not acceptable because it can introduce frame-breaking gaps.
 
@@ -441,7 +443,7 @@ An alignment gap, an unknown base, and unobserved sequence are different states:
 
 These states must not be encoded as the same category. In particular, a truncated PB1 record must not be presented as evidence of a biological deletion.
 
-### Audit before alignment
+#### Audit before alignment
 
 Seven of the eight proteins already have a modal complete-CDS length that does not change across
 Human-H3N2 2015-2025, so this audit reduces to PB1. Extend the length survey by protein and year
@@ -456,14 +458,14 @@ Report both isolates and unique CDS sequences. Alignment can place complete biol
 variants into a common coordinate system. It cannot recover unsequenced bases, improve assembly
 completeness, or create new sequence diversity.
 
-### Pilot proteins
+#### Pilot proteins
 
 Pilot the method on PB1 and NS1 because their lengths change across the years of interest. Use
 PB2-PB1 as the first paired modeling case if PB1 passes alignment validation; PB2 supplies a stable
 partner and the pair has a direct polymerase interpretation. Keep the existing pinned-length
 population as the control.
 
-### Alignment method
+#### Alignment method
 
 Prototype the alignment outside the dataset builder first:
 
@@ -480,7 +482,7 @@ Prototype the alignment outside the dataset builder first:
 Do not add general alignment knobs to the production pipeline until the pilot passes its checks and
 shows a useful increase in eligible data.
 
-### Validation
+#### Validation
 
 - Removing alignment gaps reproduces the original input sequence exactly.
 - Every inserted CDS gap has a length divisible by three.
@@ -496,7 +498,13 @@ labeled as pooled. For a prospective train-on-year-T, test-on-year-T+1 experimen
 sequences must not determine the training feature coordinates. That setting needs a training-only
 reference/profile and a documented rule for insertions not represented in the training alignment.
 
-### Decision gate
+### Results
+
+1. The PB1 length audit by year, splitting every non-modal length into the four categories above.
+2. The prototype alignment and its outcome on each validation check.
+3. A PB2-PB1 comparison of aligned against pinned-length features, if PB1 passes validation.
+
+#### Decision gate
 
 Promote aligned features into the dataset pipeline only if:
 
@@ -511,17 +519,20 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 
 ## Execution order
 
-1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets.
-2. Run the codon cross-year importance comparison.
-3. Produce the 2024 eight-protein, 28-pair capacity audit.
-4. Build and audit the 28 pinned-length datasets.
-5. Run the k-mer and codon 28-pairs screen and aggregate the results.
-6. Complete the PB1/NS1 alignment feasibility audit and prototype.
-7. Rerun only the pairs or years for which alignment materially improves eligibility.
-8. Decide whether the evidence supports a publication scope, a narrower follow-up, or an archived
+1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 1)
+2. Run the codon cross-year importance comparison. (Experiment 1)
+3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 2)
+4. Build and audit the 28 pinned-length datasets. (Experiment 3)
+5. Run the k-mer and codon 28-pairs screen and aggregate the results. (Experiment 3)
+6. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
+   on the four progress-report pairs. (Experiment 4)
+7. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
+8. Rerun only the pairs or years for which alignment materially improves eligibility.
+   (Experiment 5)
+9. Decide whether the evidence supports a publication scope, a narrower follow-up, or an archived
    negative/benchmark result.
 
-Steps 1-3 produce useful results without waiting for alignment. Steps 4-5 can proceed for pairs
+Steps 1-3 produce useful results without waiting for alignment. Steps 4-6 can proceed for pairs
 with validated pinned-length coordinates while the alignment pilot is being evaluated.
 
 ## Reproducibility and reporting
