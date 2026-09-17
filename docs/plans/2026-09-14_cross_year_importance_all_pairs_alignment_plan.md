@@ -211,10 +211,12 @@ reuse before matching, and the retained-isolate overlap with the combinations wh
 pairs share a protein marked. The distinct-sequence counts and the reuse distribution answer
 different questions. Hopcroft-Karp keeps at most one positive per distinct sequence, so the
 smaller of a pair's two counts is a hard ceiling on its matched count. The reuse distribution
-explains how far below that ceiling the pair lands, because a sequence with many distinct partners
-contributes only one of them. Reuse is counted after the positives are deduplicated on the pair
-key, so a sequence's reuse count is the number of distinct partner sequences it was observed with
-rather than the number of isolates it occurs in.
+describes how concentrated the observed positives are, which helps explain a low retained share,
+because a sequence with many distinct partners contributes only one of them. How close the
+matching comes to its ceiling depends on the whole bigraph rather than on the reuse distribution
+alone. Reuse is counted after the positives are deduplicated on the pair key, so a sequence's
+reuse count is the number of distinct partner sequences it was observed with rather than the
+number of isolates it occurs in.
 
 ### Implementation
 
@@ -300,12 +302,13 @@ Hopcroft-Karp kept 440 positives at the least (M1-NS1), 1,126 at the median, and
 | 2-7 | PB1-M1 | 2,945 | 1,992 | 1,790 | 582 | 517 | 26.0% |
 | 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 | 23.9% |
 
-Sequence diversity explains the ordering better than the eligible count does, in two parts. The
-smaller of a pair's two distinct-sequence counts bounds its matched count, and reuse sets how much
-of that bound is reached. Positives are deduplicated on the `nt_cds` pair key before reuse is
-counted, so a sequence's reuse count is the number of distinct partner sequences it was observed
-with, not the number of isolates it occurs in. The ranges below run over the 7 pairs each protein
-takes part in. The distribution is long-tailed, so the median is 1 for every protein and pair, and
+Sequence diversity explains the ordering better than the eligible count does. The smaller of a
+pair's two distinct-sequence counts is a hard ceiling on its matched count. Reuse describes how
+concentrated the observed positives are and helps explain the `HK share`. How close the matching
+comes to its ceiling depends on the whole bigraph, so neither number predicts it on its own.
+Positives are deduplicated on the `nt_cds` pair key before reuse is counted, so a sequence's reuse
+count is the number of distinct partner sequences it was observed with, not the number of isolates
+it occurs in. The ranges below run over the 7 pairs each protein takes part in. The distribution is long-tailed, so the median is 1 for every protein and pair, and
 the mean and the maximum are what separate them.
 
 | protein | distinct sequences | mean reuse | max reuse | one partner only |
@@ -319,11 +322,10 @@ the mean and the maximum are what separate them.
 | M1 | 582-812 | 2.28-3.85 | 860 | 72.3-79.5% |
 | NS1 | 781-1,122 | 1.64-2.87 | 977 | 73.4-82.3% |
 
-The two bottlenecks act at different stages. M1 and NS1 limit the matching, because they supply
-relatively few distinct sequences and some of those pair with many distinct partners. The
-distinct-sequence count bounds the maximum matching, and the high partner count lowers the share
-of observed positives that can be kept. The 13 pairs containing one of them are the 13 lowest
-matched counts in the table, and the first pair containing neither is PB1-NP at 1,041. M1-NS1 is
+The two bottlenecks act at different stages. M1 and NS1 limit the maximum matching, because they
+supply relatively few distinct sequences. Their high partner counts also contribute to low
+`HK share` values. The 13 pairs containing one of them are the 13 lowest matched counts in the
+table, and the first pair containing neither is PB1-NP at 1,041. M1-NS1 is
 the floor at 440, and the bound above it is loose, because the pair has 806 distinct M1 sequences
 and keeps 440 positives. PB1 limits eligibility instead, because 44.7% of 2024 isolates have no
 complete PB1 CDS. Among the isolates that remain, PB1 has low sequence reuse, so PB1-HA still

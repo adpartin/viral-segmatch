@@ -17,8 +17,9 @@ How?
 - `pair_sequence_reuse.csv` records how often each distinct sequence recurs across a pair's
   positives. The two slots' distinct-sequence counts set a hard ceiling on `HK matched`, because
   the matching keeps at most one positive per distinct sequence and so cannot exceed the smaller
-  count. Reuse then explains how far below that ceiling a pair lands, because only one of a
-  sequence's edges survives however many distinct partners it has.
+  count. Reuse describes how concentrated the observed positives are and helps explain a low
+  `HK share`, since many edges then compete for the one a sequence can keep. How close the
+  matching comes to its ceiling depends on the whole bigraph, not on the reuse distribution alone.
 - `pair_isolate_overlap.csv` records how far two pairs' retained isolates agree, because each
   matching is solved on its own bigraph and keeps its own isolates. `shares protein` marks the
   combinations whose two schema pairs have a protein in common.
