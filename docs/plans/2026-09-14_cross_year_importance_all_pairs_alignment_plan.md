@@ -53,11 +53,8 @@ six. How far each pin reaches into earlier years is measured in the "Pin reach b
 
 ## Existing code
 
-- `conf/bundles/flu_28_major_protein_pairs_master.yaml` and its 28 child bundles enumerate all
-  protein pairs. Their current population and training settings are not the settings in this plan,
-  so new experiment bundles must override them explicitly.
-- `src/analysis/aggregate_allpairs_results.py` already builds a 28-pair summary and heatmaps. It
-  should be extended only where the current LightGBM/site-feature outputs require it.
+- `conf/bundles/flu_28_major_protein_pairs_master.yaml` and its 28 child bundles enumerate all protein pairs. Their current population and training settings are not the settings in this plan, so new experiment bundles must override them explicitly.
+- `src/analysis/aggregate_allpairs_results.py` already builds a 28-pair summary and heatmaps. It should be extended only where the current LightGBM/site-feature outputs require it.
 - `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit. Results in docs/results/2026-09-07_cds_length_survey.md.
 - `src/analysis/summarize_pair_capacity.py` builds pair-specific cohorts for the primary analysis and a common cohort for sensitivity analysis. It produced Experiment 2's capacity reference. Results in docs/results/2026-09-08_cds_pair_capacity.md.
 - `src/analysis/plot_site_importance.py` writes per-site gain, SHAP, and permutation importance by fold.
@@ -532,7 +529,6 @@ The final report should contain:
 - Building one alignment across subtypes in this first effort.
 - Running every feature representation over every pair and year before the screening results are
   known.
-- Claiming that a predicted observed pair is biologically compatible.
 
 ## Planned code and artifacts
 
