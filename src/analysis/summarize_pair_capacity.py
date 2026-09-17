@@ -16,10 +16,11 @@ How?
   selectors in `_positive_pair_selection` retain fewer.
 - `pair_sequence_reuse.csv` records how often each distinct sequence recurs across a pair's
   positives. That is what caps `HK matched`, because the matching keeps at most one positive per
-  distinct sequence, so a slot whose sequences each recur in many isolates bounds the pair however
-  many isolates are eligible.
+  distinct sequence, so a slot whose sequences each recur widely bounds the pair however many
+  isolates are eligible.
 - `pair_isolate_overlap.csv` records how far two pairs' retained isolates agree, because each
-  matching is solved on its own bigraph and keeps its own isolates.
+  matching is solved on its own bigraph and keeps its own isolates. `shares protein` marks the
+  combinations whose two schema pairs have a protein in common.
 - `pair_capacity_matrix.csv` and its heatmap lay `HK matched` out protein by protein.
 
 CLI:
@@ -37,6 +38,9 @@ Notes:
   changes. It reports the floor, not what any experiment trains on.
 - `ID` is a row counter over the table as sorted, which is by descending `HK matched`. It is a
   rank rather than a stable identifier and it moves when the population changes.
+- Reuse is counted after the positives are deduplicated on the pair key, so a sequence's reuse
+  count is the number of distinct partner sequences it was observed with. It is not the number of
+  isolates the sequence occurs in, which is larger wherever one sequence pair recurs.
 
 Outputs (to `--out_dir`):
     pair_capacity.csv            one row per schema pair, with the columns in `CAPACITY_COLUMNS`
@@ -76,7 +80,8 @@ from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
 
 CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'eligible isolates', 'positives',
                     'Unique slot-A', 'Unique slot-B', 'HK matched', 'HK share', 'min-count sample']
-OVERLAP_COLUMNS = ['pair A', 'pair B', 'isolates A', 'isolates B', 'shared', 'isolate jaccard']
+OVERLAP_COLUMNS = ['pair A', 'pair B', 'shares protein', 'isolates A', 'isolates B', 'shared',
+                   'isolate jaccard']
 REUSE_COLUMNS = ['pair', 'slot', 'protein', 'positives', 'unique sequences', 'reuse mean',
                  'reuse median', 'reuse p90', 'reuse max', 'singleton share']
 
@@ -132,20 +137,22 @@ def isolate_overlap(retained_isolates: dict) -> pd.DataFrame:
     """Shared-isolate counts and Jaccard for every combination of two schema pairs.
 
     Args:
-      retained_isolates: pair label -> the `assembly_id` values its matching kept.
+      retained_isolates: (protein A, protein B) -> the `assembly_id` values its matching kept.
 
     Returns:
       One row per unordered combination, with the columns in `OVERLAP_COLUMNS`, ordered by
-      descending Jaccard.
+      descending Jaccard. `shares protein` is True where the two schema pairs have a protein in
+      common, which is the subset whose matchings draw on overlapping sequences.
     """
     rows = []
-    for (label_a, isolates_a), (label_b, isolates_b) in itertools.combinations(
+    for (pair_a, isolates_a), (pair_b, isolates_b) in itertools.combinations(
             sorted(retained_isolates.items()), 2):
         shared = len(isolates_a & isolates_b)
         union = len(isolates_a | isolates_b)
         rows.append({
-            'pair A': label_a,
-            'pair B': label_b,
+            'pair A': '-'.join(pair_a),
+            'pair B': '-'.join(pair_b),
+            'shares protein': bool(set(pair_a) & set(pair_b)),
             'isolates A': len(isolates_a),
             'isolates B': len(isolates_b),
             'shared': shared,
@@ -158,6 +165,11 @@ def isolate_overlap(retained_isolates: dict) -> pd.DataFrame:
 def sequence_reuse(positives: pd.DataFrame, hash_col: str, label: str, slot: str,
                    protein: str) -> dict:
     """How often each distinct sequence in one slot recurs across a pair's positives.
+
+    `positives` is already deduplicated on the pair key, so one row is one distinct pair of
+    sequences and a sequence's count is the number of distinct partner sequences it was observed
+    with. That is smaller than the number of isolates it occurs in wherever one sequence pair
+    recurs across isolates.
 
     Args:
       positives: the pair's deduplicated positive pairs, before matching.
@@ -304,7 +316,7 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
         matched, _ = select_positive_pairs(
             positives, 'hopcroft_karp', hash_col_a, hash_col_b)
 
-        retained_isolates[label] = set(matched['assembly_id_a'])
+        retained_isolates[(protein_a, protein_b)] = set(matched['assembly_id_a'])
         reuse_rows.append(sequence_reuse(positives, hash_col_a, label, 'A', protein_a))
         reuse_rows.append(sequence_reuse(positives, hash_col_b, label, 'B', protein_b))
         rows.append({
@@ -384,7 +396,8 @@ def main() -> None:
     prot_path = PROJ / f'data/processed/{config.virus.virus_name}/{config.virus.data_version}'
     cds_path = prot_path / 'cds_dna_final.parquet'
 
-    # One front-end for every protein at once, so all pairs see the same isolates.
+    # One front-end for every protein at once, so all pairs are drawn from the same
+    # metadata-filtered source population before their own cohorts are taken.
     frontend = build_frontend(config, prot_path / 'protein_final.parquet',
                               tuple(full_of[p] for p in args.proteins), cds_final_path=cds_path)
     kept, _ = filter_complete_cds_at_pinned_length(frontend, cds_path, pins, function_to_short)
@@ -428,16 +441,21 @@ def main() -> None:
           f"median {int(capacity['HK matched'].median()):,}, "
           f"max {capacity['HK matched'].max():,}. Equalizing the count across every pair would "
           f"cap it at {capacity['HK matched'].min():,}.")
+    with_shared_protein = overlap[overlap['shares protein']]
     print(f"Isolate overlap between matchings: median Jaccard "
-          f"{overlap['isolate jaccard'].median():.3f}. Two pairs are less comparable than a shared "
-          f"cohort suggests, because each matching keeps its own isolates.")
+          f"{overlap['isolate jaccard'].median():.3f} over all {len(overlap):,} combinations, and "
+          f"{with_shared_protein['isolate jaccard'].median():.3f} over the "
+          f"{len(with_shared_protein):,} whose schema pairs share a protein. Two pairs are less "
+          f"comparable than a shared cohort suggests, because each matching keeps its own "
+          f"isolates.")
     # The mean rather than the median, because the distribution is long-tailed: most sequences
     # are observed once, so the median is 1 for nearly every pair and slot.
     heaviest = reuse.loc[reuse['reuse mean'].idxmax()]
     print(f"Sequence reuse before matching is heaviest for {heaviest['protein']} in "
           f"{heaviest['pair']}: {heaviest['unique sequences']:,} distinct sequences over "
-          f"{heaviest['positives']:,} positives, a mean of {heaviest['reuse mean']:.1f} each and "
-          f"{heaviest['reuse max']:,} for the most reused one.")
+          f"{heaviest['positives']:,} positives, so each pairs with {heaviest['reuse mean']:.1f} "
+          f"distinct partner sequences on average and the widest-used one pairs with "
+          f"{heaviest['reuse max']:,}.")
     for written in (capacity_path, segment_path, reuse_path, overlap_path, matrix_path,
                     figure_path):
         print(f"Wrote {written}")

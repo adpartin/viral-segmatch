@@ -207,10 +207,13 @@ what prevents a corpus-wide value is the subtype split, since H1N1 is predominan
 completeness-selected because their eligible population is much smaller.
 
 For every pair, report counts 1 to 4 defined above. Also report the distribution of per-sequence
-reuse before matching and the retained-isolate overlap for pairs that share a protein. The reuse
-distribution is what explains a low matched count: Hopcroft-Karp keeps at most one positive per
-distinct sequence, so a protein whose sequences are each observed in many isolates caps the pair
-regardless of how many isolates are eligible.
+reuse before matching, and the retained-isolate overlap with the combinations whose two schema
+pairs share a protein marked. The reuse distribution is what explains a low matched count.
+Hopcroft-Karp keeps at most one positive per distinct sequence, so a protein whose sequences each
+pair with many distinct partners caps the pair regardless of how many isolates are eligible. Reuse
+is counted after the positives are deduplicated on the pair key, so a sequence's reuse count is
+the number of distinct partner sequences it was observed with rather than the number of isolates
+it occurs in.
 
 ### Implementation
 
@@ -296,12 +299,14 @@ Hopcroft-Karp kept 440 positives at the least (M1-NS1), 1,126 at the median, and
 | 2-7 | PB1-M1 | 2,945 | 1,992 | 1,790 | 582 | 517 | 26.0% |
 | 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 | 23.9% |
 
-Sequence reuse before matching explains the ordering better than the eligible count does. The
-ranges below run over the 7 pairs each protein takes part in. The reuse distribution is
-long-tailed, so the median is 1 for every protein and pair and the mean and the maximum are what
-separate them.
+Sequence reuse before matching explains the ordering better than the eligible count does.
+Positives are deduplicated on the `nt_cds` pair key before reuse is counted, so a sequence's reuse
+count is the number of distinct partner sequences it was observed with, not the number of isolates
+it occurs in. The ranges below run over the 7 pairs each protein takes part in. The distribution
+is long-tailed, so the median is 1 for every protein and pair, and the mean and the maximum are
+what separate them.
 
-| protein | distinct sequences | mean reuse | most reused sequence | sequences used once |
+| protein | distinct sequences | mean reuse | max reuse | one partner only |
 |---|---:|---:|---:|---:|
 | PB2 | 1,788-2,813 | 1.11-1.37 | 108 | 87.6-94.5% |
 | PB1 | 1,786-1,790 | 1.11-1.31 | 51 | 87.7-94.0% |
@@ -312,16 +317,22 @@ separate them.
 | M1 | 582-812 | 2.28-3.85 | 860 | 72.3-79.5% |
 | NS1 | 781-1,122 | 1.64-2.87 | 977 | 73.4-82.3% |
 
-M1 and NS1 are the two proteins whose sequences recur most. The 13 pairs containing one of them
+The two bottlenecks act at different stages. M1 and NS1 limit the matching, because they have few
+distinct sequences and each of those pairs with many partners. The 13 pairs containing one of them
 are the 13 lowest matched counts in the table, and the first pair containing neither is PB1-NP at
-1,041. M1-NS1 is the floor at 440, because both of its slots are drawn from a small
-set of heavily reused sequences. The matched count is bounded by the smaller of the two distinct
-counts, but the bound is loose: M1-NS1 has 806 distinct M1 sequences and keeps 440 positives.
+1,041. M1-NS1 is the floor at 440, because both of its slots draw on a small set of widely reused
+sequences. PB1 limits eligibility instead, since 44.7% of 2024 isolates have no complete PB1
+CDS, and its
+sequences are then the most diverse of the eight, so PB1-HA still keeps 1,392 positives from 2,945
+isolates. The matched count is bounded by the smaller of the two distinct counts, but the bound is
+loose: M1-NS1 has 806 distinct M1 sequences and keeps 440 positives.
 
-The matchings do not retain the same isolates. Isolate Jaccard between two pairs ranges from 0.112
-(M1-NS1 against PB1-PA) to 0.568 (PB1-HA against PB2-PB1), with a median of 0.234. Two pairs are
-therefore less comparable than the shared metadata filters suggest, and a performance difference
-between them is not measured on one population.
+The matchings do not retain the same isolates. Over all 378 combinations of two schema pairs,
+isolate Jaccard runs from 0.112 to 0.568 with a median of 0.234. Over the 168 combinations whose
+schema pairs share a protein, it runs from 0.188 to 0.568 with a median of 0.353. The lowest of
+all is M1-NS1 against PB1-PA and the highest is PB1-HA against PB2-PB1. Two pairs are therefore
+less comparable than the shared metadata filters suggest, and a performance difference between
+them is not measured on one population.
 
 No pair needs aligned rather than pinned-length coordinates for this screen. Among complete CDS in
 Human-H3N2-2024 the lowest `frac at mode` is NS1 at 0.991 and PB1 is at 0.994, so the pins retain
