@@ -10,7 +10,8 @@ belongs to; the sequences counted are nucleotide, keyed on `cds_dna_hash`.
 
 Sequence statistics count each unique CDS once. Counting rows instead would let a heavily
 sampled strain decide the answer on its own, since one sequence appears once per isolate carrying
-it. Isolate statistics count isolates, and the two differ a lot: on human H3N2 2024, 5,346 isolates
+it. Isolate statistics count isolates, and the two differ a lot: on Human-H3N2-2024, 5,346
+isolates
 carry only 815 unique M1 sequences.
 
 `min`, `max`, `median`, `mode` and `complete CDS at mode` describe COMPLETE sequences only. A sequence is complete when `is_complete_cds` holds, which is
@@ -21,7 +22,7 @@ DENOMINATOR, not sequences versus isolates. `frac at mode` divides by the comple
 it cannot see a protein whose records are mostly incomplete. `frac isolates at mode` divides by
 every isolate carrying the protein, so it can.
 
-PB1 on human H3N2 2024 is the case that matters. It reads 0.994 at mode over complete sequences
+PB1 on Human-H3N2-2024 is the case that matters. It reads 0.994 at mode over complete sequences
 and 0.551 over isolates, because only 2,958 of its 5,346 isolates have a complete CDS at all.
 Deduplication is not the cause: among isolates that DO have a complete PB1, 0.996 are at the mode.
 `frac isolates complete` reports that first failure on its own, so the two isolate columns say
@@ -62,32 +63,15 @@ if str(PROJ) not in sys.path:
 
 from src.utils.cds_utils import modal_length  # noqa: E402
 from src.utils.config_hydra import get_function_short_name_map, get_virus_config_hydra  # noqa: E402
-from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata  # noqa: E402
+from src.utils.metadata_enrichment import (  # noqa: E402
+    attach_isolate_metadata,
+    filter_by_metadata,
+    population_label,
+)
 
 COLUMNS = ['population', 'Segment ID', 'protein', 'isolates', 'unique CDS', 'complete CDS',
            'min', 'max', 'median', 'mode', 'complete CDS at mode', 'frac at mode',
            'frac isolates complete', 'frac isolates at mode', 'mode tie']
-
-
-def population_label(hn_subtype, host, year, year_range) -> str:
-    """Describe a metadata filter in one string, for the `population` column.
-
-    Args:
-      hn_subtype: subtype filter, or None.
-      host: host filter, or None.
-      year: year filter, or None.
-      year_range: inclusive [min, max] year filter, or None.
-
-    Returns:
-      The filters joined by spaces, or 'all' when none was given.
-    """
-    parts = []
-    for value in (hn_subtype, host, year):
-        if value is not None:
-            parts.extend(str(v) for v in value)
-    if year_range is not None:
-        parts.append(f'{year_range[0]}-{year_range[1]}')
-    return ' '.join(parts) if parts else 'all'
 
 
 def segment_number(canonical_segment: str) -> int:
@@ -254,7 +238,8 @@ def main() -> None:
               f"{cds['assembly_id'].nunique():,} isolates")
 
     population = args.population or population_label(
-        args.hn_subtype, args.host, args.year, args.year_range)
+        host=args.host, hn_subtype=args.hn_subtype, year=args.year,
+        year_range=args.year_range)
     table = summarize_cds_lengths(cds, function_to_short, population=population)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out_dir / 'cds_length_survey.csv'

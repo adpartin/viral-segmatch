@@ -77,6 +77,7 @@ from src.utils.config_hydra import (  # noqa: E402
     get_function_short_name_map,
     get_virus_config_hydra,
 )
+from src.utils.metadata_enrichment import population_label  # noqa: E402
 from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
 
 CAPACITY_COLUMNS = ['ID', 'Pair ID', 'Schema pair', 'population', 'Eligible isolates',
@@ -308,7 +309,7 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
     segment_of = segment_numbers(kept, function_to_short)
 
     # Under `common` every pair draws on the same isolates, which costs a pair the isolates that
-    # are missing a protein it does not contain. On human H3N2 2024 requiring all 8 proteins
+    # are missing a protein it does not contain. On Human-H3N2-2024 requiring all 8 proteins
     # leaves 2,922 isolates against HA-NA's own 5,173, because only 2,945 have a complete PB1.
     if cohort_mode == 'common':
         shared = common_isolate_cohort(kept, proteins, function_to_short)
@@ -422,12 +423,15 @@ def main() -> None:
         print(f"\nPair-specific cohorts over {n_population:,} isolates: each pair keeps the "
               f"isolates carrying its own two proteins at their pinned length")
 
-    population = args.population or ' '.join(
-        str(v) for values in (config.dataset.hn_subtype, config.dataset.host, config.dataset.year)
-        if values for v in values)
+    # Built from the config rather than from `args`, so a bundle's own filters are named even when
+    # nothing was passed on the command line. `population_label` returns 'all' for no filter, so
+    # the result is never empty.
+    population = args.population or population_label(
+        host=config.dataset.host, hn_subtype=config.dataset.hn_subtype,
+        year=config.dataset.year, year_range=config.dataset.year_range)
     capacity, overlap, reuse = summarize_pair_capacity(
         kept, args.proteins, function_to_short, canonical_order, pair_key_alphabet,
-        population=population or 'all', cohort_mode=args.cohort)
+        population=population, cohort_mode=args.cohort)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     capacity_path = args.out_dir / 'pair_capacity.csv'
@@ -442,7 +446,7 @@ def main() -> None:
     overlap.to_csv(overlap_path, index=False)
     matrix = hk_selected_matrix(capacity, args.proteins, canonical_order)
     matrix.to_csv(matrix_path)
-    plot_hk_selected_matrix(matrix, figure_path, population or 'all')
+    plot_hk_selected_matrix(matrix, figure_path, population)
 
     shown = capacity.copy()
     shown['HK share'] = shown['HK share'].map('{:.1%}'.format)

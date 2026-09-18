@@ -1,4 +1,4 @@
-# Pins for all 8 major proteins on human H3N2 2024, for the 28-pair capacity audit
+# Pins for all 8 major proteins on Human-H3N2-2024, for the 28-pair capacity audit
 # (experiment 2 of docs/plans/2026-09-14_codon_site_features_plan.md).
 #
 # conf/virus/flu.yaml carries 6 of the 8. PB1 and NS1 are added here rather than there because
@@ -6,7 +6,7 @@
 # writing human H3N2 values into it would make check_cds_length raise on those populations. The
 # override merges with the six rather than replacing them.
 #
-# Both added values are the modal complete-CDS length in human H3N2 2024. NS1 at 693 nt holds in
+# Both added values are the modal complete-CDS length in Human-H3N2-2024. NS1 at 693 nt holds in
 # every human H3N2 year from 2015 to 2025; PB1 at 2,277 nt holds in 2024 and 2025 only, and
 # retains 55.1% of isolates, so PB1 pairs are completeness-selected. See the "Pin reach by year"
 # section of docs/results/2026-09-07_cds_length_survey.md.
@@ -21,5 +21,5 @@ dataset:
 
 virus:
   cds_length:
-    PB1: {nt: 2277, seq_frac: 0.994}   # 759 codons; human H3N2 2024-2025 only
+    PB1: {nt: 2277, seq_frac: 0.994}   # 759 codons; Human-H3N2-2024 and -2025 only
     NS1: {nt: 693,  seq_frac: 0.991}   # 231 codons; human H3N2, H1N1 is 660

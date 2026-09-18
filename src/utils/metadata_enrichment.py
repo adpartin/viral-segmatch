@@ -259,3 +259,56 @@ def filter_by_metadata(
     print(f"   Records: {n_before:,} -> {n_after:,} ({100*n_after/n_before:.1f}%)")
 
     return df
+
+
+def _filter_token(value) -> str:
+    """One filter axis as a token, with set values sorted and joined by `+`.
+
+    Args:
+      value: a scalar, a sequence of scalars, or None. OmegaConf's `ListConfig` is not a `list`
+          subclass, so the sequence test is `__iter__` rather than `isinstance(value, list)`.
+
+    Returns:
+      The token, or '' when `value` is None or an empty sequence.
+    """
+    if value is None:
+        return ''
+    if isinstance(value, str) or not hasattr(value, '__iter__'):
+        values = [value]
+    else:
+        values = list(value)
+    return '+'.join(sorted(str(v) for v in values))
+
+
+def population_label(*, host=None, hn_subtype=None, year=None, year_range=None) -> str:
+    """Name a metadata filter in one token, for the `population` column.
+
+    The argument shapes mirror `filter_by_metadata`: None is no constraint, a scalar is an exact
+    match, and a list or tuple is set membership. `year` and `year_range` are mutually exclusive,
+    which `filter_by_metadata` enforces; this builds a label for a filter that has already been
+    validated, and does not re-check it.
+
+    The parts run host, then subtype, then time, joined by `-`, so the label reads the way the
+    population is named in the docs: `Human-H3N2-2024`. Set values are sorted and joined by `+`,
+    so the label does not depend on the order a filter was written in. An inclusive range is
+    `yrMIN-MAX`, prefixed so its own `-` is not read as a part separator.
+
+    The result is a persisted key, not display text. `merge_population_rows` in
+    `src/analysis/summarize_cds_lengths.py` replaces a population's rows by matching this string,
+    so changing the format is a data migration: every accumulated output has to be rebuilt from an
+    empty destination, or the old and new spellings both survive in the file.
+
+    Args:
+      host: host filter, or None.
+      hn_subtype: subtype filter, or None.
+      year: year filter, or None.
+      year_range: inclusive [min, max] year filter, or None.
+
+    Returns:
+      The filter as one token, e.g. `Human-H3N2-2024`, or 'all' when no filter was given.
+    """
+    parts = [_filter_token(host), _filter_token(hn_subtype), _filter_token(year)]
+    if year_range is not None:
+        parts.append(f'yr{year_range[0]}-{year_range[1]}')
+    named = [part for part in parts if part]
+    return '-'.join(named) if named else 'all'

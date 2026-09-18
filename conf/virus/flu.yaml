@@ -272,7 +272,7 @@ replicon_types:
 # PB1 AND NS1 ARE DELIBERATELY ABSENT. Neither has one canonical length:
 #   PB1  H1N1 and H5N1 hold 2274 (99%), but H3N2 switched from 2274 to 2277 -- one extra
 #        codon -- between 2023 and 2024, with 2023 mid-turnover at 68%. Any single value is
-#        wrong for half the years. In human H3N2 2024, only 55% of isolates have a complete
+#        wrong for half the years. In Human-H3N2-2024, only 55% of isolates have a complete
 #        PB1. Of the records at 2274, 99.7% end at the contig boundary, three bases before
 #        the expected terminal stop, and cannot be extended from the current assemblies.
 #        Measured 2026-09-08; see

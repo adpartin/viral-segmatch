@@ -20,17 +20,18 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.analysis.summarize_cds_lengths import (  # noqa: E402
     COLUMNS,
-    population_label,
     segment_number,
     summarize_cds_lengths,
 )
 from src.utils.cds_utils import modal_length  # noqa: E402
+from src.utils.metadata_enrichment import population_label  # noqa: E402
 
 SHORT = {'Hemagglutinin precursor': 'HA', 'Neuraminidase protein': 'NA'}
 
@@ -138,9 +139,26 @@ def test_the_two_isolate_columns_separate_incompleteness_from_wrong_length():
 
 
 def test_population_label():
-    assert population_label(None, None, None, None) == 'all'
-    assert population_label(['H3N2'], ['Human'], [2024], None) == 'H3N2 Human 2024'
-    assert population_label(['H3N2'], None, None, [2021, 2025]) == 'H3N2 2021-2025'
+    assert population_label() == 'all'
+    assert population_label(host=['Human'], hn_subtype=['H3N2'],
+                           year=[2024]) == 'Human-H3N2-2024'
+
+    # A scalar and a one-element list mean the same filter, so they must label the same.
+    assert population_label(host='Human', hn_subtype='H3N2', year=2024) == 'Human-H3N2-2024'
+
+    # The range keeps its own '-' readable behind the 'yr' prefix.
+    assert population_label(hn_subtype=['H3N2'], year_range=[2021, 2025]) == 'H3N2-yr2021-2025'
+
+    # Set values are sorted, so the label does not depend on the order a filter was written in.
+    assert (population_label(host=['Swine', 'Human'], hn_subtype=['H3N2', 'H1N1'])
+            == population_label(host=['Human', 'Swine'], hn_subtype=['H1N1', 'H3N2'])
+            == 'Human+Swine-H1N1+H3N2')
+
+    # OmegaConf's ListConfig is not a list subclass, so a Hydra value must not be read as a
+    # scalar and stringified.
+    config = OmegaConf.create({'host': ['Human'], 'hn_subtype': ['H3N2'], 'year': [2024]})
+    assert population_label(host=config.host, hn_subtype=config.hn_subtype,
+                            year=config.year) == 'Human-H3N2-2024'
 
 
 def test_rejects_missing_columns_and_a_protein_with_no_complete_sequence():
