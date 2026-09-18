@@ -280,21 +280,29 @@ output namespace.
 
 ### Question
 
-Do GenSLM embedded codons perform better as features for LightGBM than raw codon features? The benefit of GenSLM codon embeddings as features as opposed to raw codon features is that it allows to use varying CDS lengths (similar to k-mers).
+Do GenSLM embedded codons perform better as features for LightGBM than per-site codon features?
 
 ### Methods
+
+GenSLM embeddings are also a route to sequences of varying length, since they do not need one
+column per pinned position. This experiment holds the length pinned and changes only the feature
+representation; varying length is a later question.
 
 1. Compute and cache GenSLM embeddings for all unique complete CDS codons.
 2. Start with CV training on HA-NA, Human-H3N2-2024. Reuse Experiment 3's built dataset rather
    than rebuilding it, so the 1,698 `HK selected` positives and the 4 fold assignments are
    identical and the only difference from the raw-codon run is the feature representation.
 3. Expand to the 4 schema pairs as in 2026-09-08_h3n2_2024_progress_report.md: HA-NA, PB2-PA,
-   PB2-NA, PA-HA.
-4. Optional. All 28-pairs.
+   PB2-NA, PA-HA, reusing Experiment 3's datasets for each.
+4. Optional. All 28 pairs, again on Experiment 3's datasets.
 
 ### Results
 
-1. Tasks 1-3 within methods should lead to the same table as the table under Results in 2026-09-08_h3n2_2024_progress_report.md. 
+1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md,
+   with the same columns and one row per pair per feature type, so GenSLM sits beside the
+   per-site codon scores from Experiment 3.
+
+2. If step 4 runs, plot the symmetric 8 x 8 F1 macro heatmap, as in Experiment 3.
 
 
 
