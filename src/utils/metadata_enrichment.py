@@ -280,7 +280,8 @@ def _filter_token(value) -> str:
     return '+'.join(sorted(str(v) for v in values))
 
 
-def population_label(*, host=None, hn_subtype=None, year=None, year_range=None) -> str:
+def population_label(*, host=None, hn_subtype=None, year=None, year_range=None,
+                     geo_location=None, passage=None) -> str:
     """Name a metadata filter in one token, for the `population` column.
 
     The argument shapes mirror `filter_by_metadata`: None is no constraint, a scalar is an exact
@@ -293,6 +294,13 @@ def population_label(*, host=None, hn_subtype=None, year=None, year_range=None) 
     so the label does not depend on the order a filter was written in. An inclusive range is
     `yrMIN-MAX`, prefixed so its own `-` is not read as a part separator.
 
+    `filter_by_metadata` also accepts `geo_location` and `passage`, and `build_frontend` forwards
+    both from the config, so a population can be narrowed on either. Neither can go in the label:
+    the values carry the separators it is built from. Of 1,497 `geo_location_clean` values 59 hold
+    a `-` and 249 a space, and `passage` is free text such as `1446/12; MDCK-SIAT1, passage no. 1`.
+    Writing a label that silently omitted them would give two different populations the same key,
+    so they are taken here only to be rejected: pass an explicit label instead.
+
     The result is a persisted key, not display text. `merge_population_rows` in
     `src/analysis/summarize_cds_lengths.py` replaces a population's rows by matching this string,
     so changing the format is a data migration: every accumulated output has to be rebuilt from an
@@ -303,10 +311,24 @@ def population_label(*, host=None, hn_subtype=None, year=None, year_range=None) 
       hn_subtype: subtype filter, or None.
       year: year filter, or None.
       year_range: inclusive [min, max] year filter, or None.
+      geo_location: must be None; accepted so that setting it raises rather than being ignored.
+      passage: must be None, for the same reason.
 
     Returns:
       The filter as one token, e.g. `Human-H3N2-2024`, or 'all' when no filter was given.
+
+    Raises:
+      ValueError: `geo_location` or `passage` is set, so no label can name the population.
     """
+    unlabelled = [name for name, value in (('geo_location', geo_location), ('passage', passage))
+                  if value is not None]
+    if unlabelled:
+        raise ValueError(
+            f"population_label: cannot name a population filtered on {unlabelled}, because those "
+            f"values carry the '-' and ' ' the label is built from. Omitting them would give two "
+            f"different populations the same key, so pass an explicit label instead "
+            f"(`--population` on the analysis scripts).")
+
     parts = [_filter_token(host), _filter_token(hn_subtype), _filter_token(year)]
     if year_range is not None:
         parts.append(f'yr{year_range[0]}-{year_range[1]}')

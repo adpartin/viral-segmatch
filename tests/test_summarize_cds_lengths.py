@@ -10,7 +10,7 @@ Covers:
   6. Length statistics use complete sequences only
   7. `frac isolates at mode` divides by every isolate, so an incomplete-heavy gene falls far
      below `frac at mode`, which divides by the complete sequences and cannot see the problem
-  8. population_label describes the filters, or says 'all'
+  8. population_label describes the filters, says 'all', and rejects geo/passage
   9. Missing columns and a protein with no complete sequence both raise
 
 Run: python tests/test_summarize_cds_lengths.py
@@ -160,6 +160,18 @@ def test_population_label():
     assert population_label(host=config.host, hn_subtype=config.hn_subtype,
                             year=config.year) == 'Human-H3N2-2024'
 
+def test_population_label_rejects_the_axes_it_cannot_encode():
+    # geo_location and passage values carry '-' and ' ', so no label can name them. Omitting
+    # them silently would give two different populations the same persisted key.
+    with pytest.raises(ValueError, match='geo_location'):
+        population_label(host=['Human'], geo_location=['Baden-Wurttemberg'])
+    with pytest.raises(ValueError, match='passage'):
+        population_label(host=['Human'], passage=['Original'])
+
+    # Both unset is the only case every current caller hits, and it must be untouched.
+    assert population_label(host=['Human'], hn_subtype=['H3N2'], year=[2024],
+                            geo_location=None, passage=None) == 'Human-H3N2-2024'
+
 
 def test_rejects_missing_columns_and_a_protein_with_no_complete_sequence():
     with pytest.raises(ValueError, match='missing columns'):
@@ -181,6 +193,7 @@ if __name__ == '__main__':
         test_isolate_coverage_sees_incompleteness_that_frac_at_mode_cannot,
         test_the_two_isolate_columns_separate_incompleteness_from_wrong_length,
         test_population_label,
+        test_population_label_rejects_the_axes_it_cannot_encode,
         test_rejects_missing_columns_and_a_protein_with_no_complete_sequence,
     ]
     failed = 0

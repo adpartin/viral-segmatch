@@ -426,9 +426,13 @@ def main() -> None:
     # Built from the config rather than from `args`, so a bundle's own filters are named even when
     # nothing was passed on the command line. `population_label` returns 'all' for no filter, so
     # the result is never empty.
+    # `geo_location` and `passage` are passed so that a bundle setting either raises here rather
+    # than writing a label that does not say so; `build_frontend` forwards both to the filter.
     population = args.population or population_label(
         host=config.dataset.host, hn_subtype=config.dataset.hn_subtype,
-        year=config.dataset.year, year_range=config.dataset.year_range)
+        year=config.dataset.year, year_range=config.dataset.year_range,
+        geo_location=getattr(config.dataset, 'geo_location', None),
+        passage=getattr(config.dataset, 'passage', None))
     capacity, overlap, reuse = summarize_pair_capacity(
         kept, args.proteins, function_to_short, canonical_order, pair_key_alphabet,
         population=population, cohort_mode=args.cohort)
