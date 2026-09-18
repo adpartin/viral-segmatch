@@ -1,0 +1,11 @@
+# PA-NS1 for the 28-pair per-site codon screen on Human-H3N2-2024.
+# Experiment 3 of docs/plans/2026-09-14_codon_site_features_plan.md.
+# Overrides only schema_pair; every other setting comes from the master.
+defaults:
+  - flu_28p_human_h3n2_2024_site_codon
+  - _self_
+
+dataset:
+  schema_pair:
+    - "RNA-dependent RNA polymerase PA subunit"
+    - "Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor"
