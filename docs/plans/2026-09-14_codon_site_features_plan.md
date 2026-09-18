@@ -74,14 +74,14 @@ For each schema pair, report these counts in order:
 - Positive pair keys are unique (no duplicate pairs).
 - Every retained CDS is complete and equals its configured pinned length.
 - No CDS occurs in more than one CV split within a fold (i.e., each CDS occurs once in a positive pair).
-- No generated negative is an observed positive from the full pre-selection positive universe (block conflicting negatives).
+- No generated negative is an observed positive from the pair universe (block conflicting negatives).
 - Before Experiment 3 trains, each production dataset reproduces the `Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected` counts its pair has in Experiment 2's `pair_capacity.csv`.
 - Where importance is computed, every importance row can be traced to a model run, fold, protein, and site.
 
 ### What the model predicts
 
 - The label records whether two segment sequences were observed together in one isolate. Strong performance does not by itself establish biological compatibility. 
-- A generated negative is a sequence pair not observed in the full positive-pair universe. It is not evidence that the pair is biologically incompatible or could never occur.
+- A generated negative is a sequence pair not observed in the pair universe. It is not evidence that the pair is biologically incompatible or could never occur.
 
 
 
@@ -399,11 +399,11 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 
 ## Execution order
 
-1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 1)
-2. Run the codon cross-year importance comparison. (Experiment 1)
-3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 2)
+1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 1, done)
+2. Run the codon cross-year importance comparison. (Experiment 1, done)
+3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 2, done)
 4. Build and audit the 28 pinned-length datasets. (Experiment 3)
-5. Run the k-mer and codon 28-pairs screen and aggregate the results. (Experiment 3)
+5. Run the codon 28-pairs screen and aggregate the results. (Experiment 3)
 6. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
    on the four progress-report pairs. (Experiment 4)
 7. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
@@ -412,8 +412,7 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 9. Decide whether the evidence supports a publication scope, a narrower follow-up, or an archived
    negative/benchmark result.
 
-Steps 1-3 produce useful results without waiting for alignment. Steps 4-6 can proceed for pairs
-with validated pinned-length coordinates while the alignment pilot is being evaluated.
+Steps 4-6 do not depend on the alignment pilot.
 
 ## Reproducibility and reporting
 
@@ -422,9 +421,9 @@ Every dataset and model run must record:
 - input corpus version and git commit;
 - metadata filters;
 - CDS completeness and coordinate rules;
-- pair-key alphabet and full positive-blocking universe;
+- pair-key alphabet and the pair universe used to block negatives;
 - positive-selection method and seed;
-- fold assignments and negative-generation scope;
+- fold assignments and `negative_scope`;
 - feature representation and alignment version, if used;
 - model configuration and output paths.
 
@@ -437,9 +436,10 @@ The final report should contain:
 1. cross-year HA and NA importance comparisons;
 2. the 28-pair capacity and performance matrices;
 3. a direct statement of which pairs fail or weaken;
-4. the alignment yield and validation results;
-5. limitations from sampling, partial 2025 coverage, correlated sites, and metadata shortcuts;
-6. a recommendation to continue, narrow the scope, or archive the project.
+4. GenSLM embedded codons against raw codon features, on the pairs it was run on;
+5. the alignment yield and validation results;
+6. limitations from sampling, partial 2025 coverage, correlated sites, and metadata shortcuts;
+7. a recommendation to continue, narrow the scope, or archive the project.
 
 ## Planned code and artifacts
 
