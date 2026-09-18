@@ -45,7 +45,7 @@ these two. Both were pinned later, on 2026-09-14, in
 2,277 nt. Neither value belongs in the per-virus file, which is shared with H1N1 work where NS1 is
 660 nt and PB1 is 2,274 nt. The NS1 pin costs almost no isolates, while the PB1 pin retains 55.1%
 of them, so PB1 pairs are completeness-selected rather than unpinnable. The 28-pair audit in
-`docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md` covers all eight
+`docs/plans/2026-09-14_codon_site_features_plan.md` covers all eight
 proteins.
 
 ## Results

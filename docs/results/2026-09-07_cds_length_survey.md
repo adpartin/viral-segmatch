@@ -160,7 +160,7 @@ or the biological prevalence of the 2,274- and 2,277-nt forms.
 ## Pin reach by year (additional measurement)
 
 This section concerns P1 and P2. The experiments in
-`docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md` pin all 8 proteins to
+`docs/plans/2026-09-14_codon_site_features_plan.md` pin all 8 proteins to
 their Human-H3N2-2024 modal complete-CDS length: PB2 2,280, PB1 2,277, PA 2,151, HA 1,701,
 NP 1,497, NA 1,410, M1 759, and NS1 693 nt. Six are in `conf/virus/flu.yaml`; PB1 and NS1 come
 from a bundle-level `virus.cds_length` override. The table reports the share of each year's

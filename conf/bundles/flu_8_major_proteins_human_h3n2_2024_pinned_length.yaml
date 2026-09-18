@@ -1,5 +1,5 @@
 # Pins for all 8 major proteins on human H3N2 2024, for the 28-pair capacity audit
-# (experiment 2 of docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md).
+# (experiment 2 of docs/plans/2026-09-14_codon_site_features_plan.md).
 #
 # conf/virus/flu.yaml carries 6 of the 8. PB1 and NS1 are added here rather than there because
 # that file is per-virus and shared with H1N1 work, where NS1 is 660 nt and PB1 is 2,274 nt, so

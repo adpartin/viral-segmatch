@@ -162,8 +162,7 @@ population, the partial 2025 season, or correlation among sites.
 
 ### Question
 
-How much usable and sequence-unique Human-H3N2-2024 data is available for each of the 28 pairs
-formed from PB2, PB1, PA, HA, NP, NA, M1, and NS1?
+Check complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs for Human-H3N2-2024.
 
 ### Methods
 

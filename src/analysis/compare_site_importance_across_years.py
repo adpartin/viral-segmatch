@@ -1,6 +1,6 @@
 """Compare per-site importance between two populations of the same schema pair.
 
-Step 1 of docs/plans/2026-09-14_cross_year_importance_all_pairs_alignment_plan.md asks whether
+Step 1 of docs/plans/2026-09-14_codon_site_features_plan.md asks whether
 models fitted on separate years lean on the same codon sites. Two importance maps are comparable
 only when both proteins keep the same pinned CDS length in both populations, because a site index
 is a position in that fixed coordinate system. The script checks that before comparing anything.
