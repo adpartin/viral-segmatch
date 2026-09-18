@@ -227,25 +227,14 @@ What the later experiments need from this:
 - **Experiment 4** runs GenSLM on the same data as Experiment 3, for the pairs it covers (same
   positive pairs, sequences and folds). Varying CDS length can be explored later, but it would
   not recover PB1's 44.7%, which stems from incomplete records rather than the pin.
-- **Experiment 5** has little to recover in this population. No pair needs aligned rather than
-  pinned-length coordinates here, since the lowest `frac at mode` among complete CDS is NS1 at
-  0.991 and PB1 at 0.994, and PB1's loss is incompleteness, which alignment cannot reconstruct.
-  Other years are not covered by this audit.
+- **Experiment 5** does not draw on this section. It addresses complete CDS at more than one
+  length, measured in `docs/results/2026-09-07_cds_length_survey.md` and worked through in
+  Experiment 5 itself.
 
-#### Decision for Experiment 3
+#### Decision for Experiments 3 and 4
 
-All 28 pairs proceed on their native Hopcroft-Karp populations. They are not downsampled to the
-M1-NS1 floor of 440, which would cost PB2-HA 78% of its positives. `min-count sample` reports that
-floor and is not a target.
-
-All 28 are reported in one table, with `HK selected` shown beside the performance scores. The 13
-pairs containing M1 or NS1 are not split into a separate stratum, so any relation between capacity
-and performance has to be read off the column rather than assumed from the grouping.
-
-Before training, each production dataset must reproduce the counts this table gives for its pair:
-`Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected`.
-Experiment 3 then reports the positive and negative counts in every CV fold, which this experiment
-does not produce.
+All 28 schema pairs proceed on their native Hopcroft-Karp populations. They are not downsampled to
+the M1-NS1 floor of 440.
 
 
 
@@ -269,7 +258,13 @@ Run the dataset audits before starting the full training matrix.
 
 ### Results
 
-1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md. It should include the same columns (despite that "Feature type" will be the same for all rows). For each schema pair we use the native Hopcroft-Karp population per schema, so we should add "HK selected" column.
+1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md.
+
+   - Same columns, though "Feature type" is the same for all rows.
+   - Add an `HK selected` column, since each schema pair uses its native population.
+   - All 28 pairs in one table, with `HK selected` beside the performance scores.
+   - No separate stratum for the 13 pairs containing M1 or NS1, so any relation between capacity
+     and performance is read off the column rather than assumed from the grouping.
 
 2. Plot symmetric 8 x 8 heatmaps for F1 macro (very similar to the 8 x 8 figure in Exp 2).
 
@@ -323,8 +318,11 @@ These states must not be encoded as the same category. In particular, a truncate
 #### Audit before alignment
 
 Seven of the eight proteins already have a modal complete-CDS length that does not change across
-Human-H3N2 2015-2025, so this audit reduces to PB1. Extend the length survey by protein and year
-for 2023-2025 to confirm that, then, for every non-modal length, separate:
+Human-H3N2 2015-2025, so this audit reduces to PB1. In Human-H3N2-2024 itself no pair needs aligned
+rather than pinned-length coordinates: the lowest `frac at mode` among complete CDS is NS1 at 0.991
+and PB1 at 0.994, and PB1's remaining loss is incompleteness, which alignment cannot reconstruct.
+Extend the length survey by protein and year for 2023-2025 to confirm that, then, for every
+non-modal length, separate:
 
 1. complete CDS records with plausible biological insertions or deletions;
 2. incomplete CDS records caused by missing start or stop sequence;
