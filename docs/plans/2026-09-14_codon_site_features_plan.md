@@ -51,7 +51,7 @@ The six values in `conf/virus/flu.yaml` already equal the Human-H3N2-2024 mode, 
 - `conf/bundles/flu_28_major_protein_pairs_master.yaml` and its 28 child bundles enumerate all protein pairs. Their current population and training settings are not the settings in this plan, so new experiment bundles must override them explicitly.
 - `src/analysis/aggregate_allpairs_results.py` already builds a 28-pair summary and heatmaps. It should be extended only where the current LightGBM/site-feature outputs require it.
 - `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit. Results in docs/results/2026-09-07_cds_length_survey.md.
-- `src/analysis/summarize_pair_capacity.py` builds pair-specific cohorts for the primary analysis and a common cohort for sensitivity analysis. It produced Experiment 2's capacity reference. Results in docs/results/2026-09-08_cds_pair_capacity.md.
+- `src/analysis/summarize_pair_capacity.py` builds pair-specific cohorts for the primary analysis and a common cohort for sensitivity analysis. Results in `docs/results/2026-09-08_cds_pair_capacity.md`, which is Experiment 2's reference.
 - `src/analysis/plot_site_importance.py` writes per-site gain, SHAP, and permutation importance by fold.
 
 ## Definitions and interpretation
@@ -166,45 +166,13 @@ Check complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs
 
 ### Methods
 
-Every schema pair uses the pin table in Scope, where PB1 at 2,277 nt and NS1 at 693 nt come from the
-Human-H3N2-2024 bundle override. They sit in a bundle rather than in `conf/virus/flu.yaml` because
-that file is per-virus and shared with H1N1 work, where NS1 is 660 nt and PB1 is 2,274 nt, so
-writing Human-H3N2 values there would make `check_cds_length` raise on those populations. Both the
-capacity script and `dataset_segment_pairs` read the same `virus.cds_length` key, so one override
-reaches each of them.
+Full method and discussion in `docs/results/2026-09-08_cds_pair_capacity.md`; per-protein
+completeness and the pins in `docs/results/2026-09-07_cds_length_survey.md`.
 
-No common 8-protein cohort is taken, because requiring PB1 from every isolate would remove about
-45% of the population from pairs that do not contain PB1. PB1 pairs are therefore
-completeness-selected, and are marked as such.
-
-For every pair, report counts 1 to 4 defined above, summary statistics for per-sequence reuse
-before matching, and the retained-isolate overlap with the combinations whose two schema pairs
-share a protein marked. Reuse is counted after the positives are deduplicated on the pair key, so
-a sequence's reuse count is the number of unique partner sequences it was observed with rather
-than the number of isolates it occurs in. Hopcroft-Karp keeps at most one positive per unique sequence,
-so the smaller of a pair's two unique counts is a hard ceiling on its `HK selected` count, and how
-close the matching comes to that ceiling is a property of the whole bigraph.
-
-`src/analysis/summarize_pair_capacity.py` was extended to build pair-specific cohorts over all
-eight proteins, keeping its common-cohort mode as a sensitivity analysis. The audit is a gate
-before training, so no minimum count was chosen before the 28 populations were measured.
-
-The experiment produces:
-
-- one 28-row pair-capacity CSV;
-- a readable capacity table sorted by segment number and a second view sorted by selected count;
-- an 8 x 8 matrix of Hopcroft-Karp counts, written as a CSV and a heatmap;
-- a short audit of PB1 and NS1 eligibility that cites the length survey instead of restating it;
-- a check of whether any pair needs aligned rather than pinned-length coordinates. Alignment
-  itself is examined in Experiment 5.
-
-`results/` is not tracked by git, so the heatmap is copied into `docs/results/figs/` and the
-capacity table is recorded below.
-
-### Results
-
-One command produced every output. The flags are the script's current defaults, written out so
-the record survives a change of default:
+- Population Human-H3N2-2024, the 8 major proteins, `nt_cds` pair key.
+- Each pair uses its own eligible isolates (`--cohort pair`): an isolate needs the pair's two
+  proteins as a complete CDS at the pinned length, not the other six.
+- Pins from the table in Scope; PB1 at 2,277 nt and NS1 at 693 nt come from the bundle override.
 
 ```
 python -m src.analysis.summarize_pair_capacity \
@@ -214,104 +182,61 @@ python -m src.analysis.summarize_pair_capacity \
   --out_dir results/flu/July_2025/pair_capacity_8_proteins
 ```
 
-The 21 pairs without PB1 drew on 5,156 to 5,338 eligible isolates. The 7 pairs with PB1 drew on
-2,937 to 2,945, because only 55.1% of Human-H3N2-2024 isolates have a complete PB1 CDS at the
-2,277 nt pin. See "Why PB1 retains about half its isolates" in
-`docs/results/2026-09-07_cds_length_survey.md`. NS1 cost
-almost no isolates at the 693 nt pin, so its pairs kept full-size populations and lost their
-capacity at the matching step instead.
+### Results
 
-Hopcroft-Karp kept 440 positives at the least (M1-NS1), 1,126 at the median, and 2,042 at the most
-(PB2-HA).
+Transcribed from `docs/results/2026-09-08_cds_pair_capacity.md`, which is the source; a re-run
+updates it first.
 
 <img src="../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png" width="550" alt="28-pair Hopcroft-Karp capacity, Human-H3N2-2024">
 
 | Pair ID | Schema pair | Eligible isolates | Unique positives | Unique slot-A | Unique slot-B | HK selected | HK share |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 1-4 | PB2-HA | 5,329 | 3,796 | 2,810 | 2,681 | 2,042 | 53.8% |
-| 1-3 | PB2-PA | 5,324 | 3,837 | 2,808 | 2,712 | 2,030 | 52.9% |
-| 3-4 | PA-HA | 5,329 | 3,805 | 2,711 | 2,682 | 1,944 | 51.1% |
-| 1-6 | PB2-NA | 5,167 | 3,532 | 2,745 | 2,203 | 1,745 | 49.4% |
-| 4-6 | HA-NA | 5,173 | 3,466 | 2,634 | 2,203 | 1,698 | 49.0% |
-| 3-6 | PA-NA | 5,167 | 3,520 | 2,649 | 2,202 | 1,689 | 48.0% |
-| 1-5 | PB2-NP | 5,318 | 3,484 | 2,800 | 1,830 | 1,512 | 43.4% |
-| 4-5 | HA-NP | 5,323 | 3,382 | 2,673 | 1,830 | 1,482 | 43.8% |
-| 3-5 | PA-NP | 5,318 | 3,455 | 2,703 | 1,832 | 1,459 | 42.2% |
 | 1-2 | PB2-PB1 | 2,945 | 2,349 | 1,788 | 1,790 | 1,404 | 59.8% |
-| 2-4 | PB1-HA | 2,945 | 2,327 | 1,790 | 1,756 | 1,392 | 59.8% |
-| 2-3 | PB1-PA | 2,939 | 2,332 | 1,786 | 1,710 | 1,341 | 57.5% |
-| 5-6 | NP-NA | 5,162 | 3,091 | 1,794 | 2,197 | 1,287 | 41.6% |
-| 2-6 | PB1-NA | 2,939 | 2,237 | 1,786 | 1,480 | 1,212 | 54.2% |
-| 2-5 | PB1-NP | 2,942 | 2,162 | 1,787 | 1,227 | 1,041 | 48.1% |
-| 1-8 | PB2-NS1 | 5,313 | 3,204 | 2,800 | 1,120 | 995 | 31.1% |
-| 4-8 | HA-NS1 | 5,318 | 3,151 | 2,676 | 1,119 | 959 | 30.4% |
-| 3-8 | PA-NS1 | 5,315 | 3,214 | 2,705 | 1,121 | 952 | 29.6% |
-| 6-8 | NA-NS1 | 5,156 | 2,794 | 2,196 | 1,092 | 853 | 30.5% |
-| 5-8 | NP-NS1 | 5,307 | 2,540 | 1,824 | 1,114 | 806 | 31.7% |
+| 1-3 | PB2-PA | 5,324 | 3,837 | 2,808 | 2,712 | 2,030 | 52.9% |
+| 1-4 | PB2-HA | 5,329 | 3,796 | 2,810 | 2,681 | 2,042 | 53.8% |
+| 1-5 | PB2-NP | 5,318 | 3,484 | 2,800 | 1,830 | 1,512 | 43.4% |
+| 1-6 | PB2-NA | 5,167 | 3,532 | 2,745 | 2,203 | 1,745 | 49.4% |
 | 1-7 | PB2-M1 | 5,332 | 3,128 | 2,813 | 812 | 726 | 23.2% |
-| 4-7 | HA-M1 | 5,338 | 3,018 | 2,686 | 811 | 720 | 23.9% |
-| 3-7 | PA-M1 | 5,335 | 3,082 | 2,716 | 812 | 707 | 22.9% |
-| 2-8 | PB1-NS1 | 2,937 | 2,029 | 1,788 | 781 | 704 | 34.7% |
-| 6-7 | NA-M1 | 5,176 | 2,620 | 2,206 | 800 | 657 | 25.1% |
-| 5-7 | NP-M1 | 5,326 | 2,356 | 1,833 | 808 | 627 | 26.6% |
+| 1-8 | PB2-NS1 | 5,313 | 3,204 | 2,800 | 1,120 | 995 | 31.1% |
+| 2-3 | PB1-PA | 2,939 | 2,332 | 1,786 | 1,710 | 1,341 | 57.5% |
+| 2-4 | PB1-HA | 2,945 | 2,327 | 1,790 | 1,756 | 1,392 | 59.8% |
+| 2-5 | PB1-NP | 2,942 | 2,162 | 1,787 | 1,227 | 1,041 | 48.1% |
+| 2-6 | PB1-NA | 2,939 | 2,237 | 1,786 | 1,480 | 1,212 | 54.2% |
 | 2-7 | PB1-M1 | 2,945 | 1,992 | 1,790 | 582 | 517 | 26.0% |
+| 2-8 | PB1-NS1 | 2,937 | 2,029 | 1,788 | 781 | 704 | 34.7% |
+| 3-4 | PA-HA | 5,329 | 3,805 | 2,711 | 2,682 | 1,944 | 51.1% |
+| 3-5 | PA-NP | 5,318 | 3,455 | 2,703 | 1,832 | 1,459 | 42.2% |
+| 3-6 | PA-NA | 5,167 | 3,520 | 2,649 | 2,202 | 1,689 | 48.0% |
+| 3-7 | PA-M1 | 5,335 | 3,082 | 2,716 | 812 | 707 | 22.9% |
+| 3-8 | PA-NS1 | 5,315 | 3,214 | 2,705 | 1,121 | 952 | 29.6% |
+| 4-5 | HA-NP | 5,323 | 3,382 | 2,673 | 1,830 | 1,482 | 43.8% |
+| 4-6 | HA-NA | 5,173 | 3,466 | 2,634 | 2,203 | 1,698 | 49.0% |
+| 4-7 | HA-M1 | 5,338 | 3,018 | 2,686 | 811 | 720 | 23.9% |
+| 4-8 | HA-NS1 | 5,318 | 3,151 | 2,676 | 1,119 | 959 | 30.4% |
+| 5-6 | NP-NA | 5,162 | 3,091 | 1,794 | 2,197 | 1,287 | 41.6% |
+| 5-7 | NP-M1 | 5,326 | 2,356 | 1,833 | 808 | 627 | 26.6% |
+| 5-8 | NP-NS1 | 5,307 | 2,540 | 1,824 | 1,114 | 806 | 31.7% |
+| 6-7 | NA-M1 | 5,176 | 2,620 | 2,206 | 800 | 657 | 25.1% |
+| 6-8 | NA-NS1 | 5,156 | 2,794 | 2,196 | 1,092 | 853 | 30.5% |
 | 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 | 23.9% |
 
-The eligible-isolate count alone does not determine pair capacity. The unique-sequence counts set
-the matching ceiling, and the positive-pair bigraph determines how much of that ceiling is
-reached. Reuse describes how concentrated the observed positives are and helps explain the
-`HK share`. Positives are deduplicated on the `nt_cds` pair key before reuse is counted, so a
-sequence's reuse count is the number of unique partner sequences it was observed with, not the
-number of isolates it occurs in. The ranges below run over the 7 pairs each protein takes part
-in. The distribution is long-tailed, so the median is 1 for every protein and pair, and the mean
-and the maximum are what separate them.
+What the later experiments need from this:
 
-| protein | unique sequences | mean reuse | max reuse | one partner only |
-|---|---:|---:|---:|---:|
-| PB2 | 1,788-2,813 | 1.11-1.37 | 108 | 87.6-94.5% |
-| PB1 | 1,786-1,790 | 1.11-1.31 | 51 | 87.7-94.0% |
-| PA | 1,710-2,716 | 1.13-1.41 | 117 | 86.1-93.6% |
-| HA | 1,756-2,686 | 1.12-1.42 | 136 | 84.7-93.5% |
-| NP | 1,227-1,833 | 1.29-1.90 | 398 | 80.1-88.8% |
-| NA | 1,480-2,206 | 1.19-1.60 | 138 | 84.0-92.1% |
-| M1 | 582-812 | 2.28-3.85 | 860 | 72.3-79.5% |
-| NS1 | 781-1,122 | 1.64-2.87 | 977 | 73.4-82.3% |
-
-The two bottlenecks act at different stages. M1 and NS1 limit the maximum matching, because they
-supply relatively few unique sequences. Their high partner counts also contribute to low
-`HK share` values. The 13 pairs containing one of them are the 13 lowest `HK selected` counts in
-the table, and the first pair containing neither is PB1-NP at 1,041. M1-NS1 is the floor at 440,
-and the bound above it is loose, because the pair has 806 unique M1 sequences and keeps 440
-positives. PB1 limits eligibility instead, because 44.7% of 2024 isolates have no complete PB1
-CDS. Among the isolates that remain, PB1 has low sequence reuse, so PB1-HA still keeps 1,392
-positives from 2,945 isolates.
-
-The matchings do not retain the same isolates. Over all 378 combinations of two schema pairs,
-isolate Jaccard runs from 0.112 to 0.568 with a median of 0.234. Over the 168 combinations whose
-schema pairs share a protein, it runs from 0.188 to 0.568 with a median of 0.353. The lowest of
-all is M1-NS1 against PB1-PA and the highest is PB1-HA against PB2-PB1. Two pairs are therefore
-less comparable than the shared metadata filters suggest, and a performance difference between
-them is not measured on one population.
-
-No pair needs aligned rather than pinned-length coordinates for this screen. Among complete CDS in
-Human-H3N2-2024 the lowest `frac at mode` is NS1 at 0.991 and PB1 is at 0.994, so the pins retain
-almost every complete CDS. PB1's loss comes from incomplete assemblies, which alignment cannot
-recover.
-
-`results/flu/July_2025/pair_capacity_8_proteins/` holds the six output files, and is not tracked
-by git:
-
-| file | contents |
-|---|---|
-| `pair_capacity.csv` | the 28-row table above, ordered by descending `HK selected` |
-| `pair_capacity_by_segment.csv` | the same rows in segment order |
-| `pair_sequence_reuse.csv` | two rows per pair, one per slot: mean, median, p90, maximum and singleton share of per-sequence reuse |
-| `pair_isolate_overlap.csv` | the 378 combinations, with `shares protein` marked |
-| `pair_capacity_matrix.csv` | `HK selected` as an 8 x 8 protein-by-protein table |
-| `pair_capacity_matrix.png` | that table as the heatmap above |
-
-`pair_capacity.csv` is the reference Experiment 3 checks its datasets against. The heatmap is
-copied to `docs/results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png`.
+- **Experiment 3** trains on the `HK selected` column: 440 (M1-NS1) to 2,042 (PB2-HA), median
+  1,126.5. The 13 pairs containing M1 or NS1 hold the 13 lowest counts, because those two proteins
+  supply the fewest unique sequences.
+- **Experiment 3** must read scores beside capacity. All 28 pairs share the population
+  Human-H3N2-2024, but each matching retains its own isolates: Jaccard between two pairs runs
+  0.112 to 0.568, median 0.234, and over the 168 combinations whose pairs share a protein 0.188 to
+  0.568, median 0.353.
+- **Experiment 4** starts from HA-NA at 1,698 and the four progress-report pairs, so it tests the
+  feature representation on a fixed population rather than a larger one. Varying CDS length does
+  not recover PB1's 44.7%: that loss is incomplete records, not the pin, which costs a further
+  0.2 percentage points.
+- **Experiment 5** has little to recover in this population. No pair needs aligned rather than
+  pinned-length coordinates here, since the lowest `frac at mode` among complete CDS is NS1 at
+  0.991 and PB1 at 0.994, and PB1's loss is incompleteness, which alignment cannot reconstruct.
+  Other years are not covered by this audit.
 
 #### Decision for Experiment 3
 
@@ -324,9 +249,9 @@ pairs containing M1 or NS1 are not split into a separate stratum, so any relatio
 and performance has to be read off the column rather than assumed from the grouping.
 
 Before training, each production dataset must reproduce the counts this table gives for its pair:
-`Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected`. Experiment 3 then
-reports the positive and negative counts in every CV fold, which this experiment does not
-produce.
+`Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected`.
+Experiment 3 then reports the positive and negative counts in every CV fold, which this experiment
+does not produce.
 
 
 
@@ -415,10 +340,12 @@ completeness, or create new sequence diversity.
 
 #### Pilot proteins
 
-Pilot the method on PB1 and NS1 because their lengths change across the years of interest. Use
-PB2-PB1 as the first paired modeling case if PB1 passes alignment validation; PB2 supplies a stable
-partner and the pair has a direct polymerase interpretation. Keep the existing pinned-length
-population as the control.
+Pilot the method on PB1 and NS1. PB1's modal complete-CDS length moves across the years of
+interest, from 2,274 nt through 2023 to 2,277 nt in 2024-2025. NS1 holds one mode of 693 nt
+throughout, but carries enough other complete lengths to drop retention to 0.723 in 2019 and 0.688
+in 2020. Use PB2-PB1 as the first paired modeling case if PB1 passes alignment validation; PB2
+supplies a stable partner and the pair has a direct polymerase interpretation. Keep the existing
+pinned-length population as the control.
 
 #### Alignment method
 

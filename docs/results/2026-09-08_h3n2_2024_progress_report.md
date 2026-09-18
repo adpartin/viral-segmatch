@@ -108,6 +108,8 @@ We avoid the term _"positional encoding"_ because it usually refers to adding po
 
 * Performance for Human-H3N2-2024 varies across the schema pairs. With per-site nucleotide features, F1 macro ranges: 0.8300 for PB2-PA to 0.8819 for PB2-NA.
 
+* PB2-PA sitting at the bottom is unexplained, and the two simplest explanations are not supported. Too few positives: PB2-PA has 2,030 `HK selected` against HA-NA's 1,698 (see `docs/results/2026-09-08_cds_pair_capacity.md`). Less sequence variation: PB2 and PA carry more per-position Shannon entropy than HA and NA, not less, at 137.0 and 128.1 bits against 97.2 and 81.8, and cross-slot coupling is comparable between the two pairs. Neither rules out a subtler capacity or diversity effect, and the entropy and coupling figures were measured on the all-host H3N2 2024 population, before the human-only restriction, so they are indicative rather than exact for this one.
+
 * Per-site nucleotides and codons has a higher mean score than 6-mers for every schema pair. `TODO`: need more folds
 
 * Amino-acid (aa) performance is lower and varies by pair. Some schema pairs fall to near-chance. The aa arm likely violates two constraints that the nucleotide and codon arm satisfy: (a) no sequence is reused across pairs, and (b) no negative pair matches a positive pair (label collision). Both criteria were enforced when the dataset was built on nucleotide sequences, and translation collapses synonymous variants, so there is no guarantee either constraint actually carries into aa space. Part of the performance loss with aa therefore likely reflects how the dataset was constructed. `TODO`: For a fair aa experiment, rebuild the dataset using aa sequences for positive-pair deduplication, and negative-pair collision blocking. Report this as a separate population because it cannot use exactly the same rows as the nucleotide experiments.
@@ -202,5 +204,5 @@ The committed figures embedded in section 3 are
 `figs/2026-09-08_ha_na_codon_gain_trace.png`, and
 `figs/2026-09-08_ha_na_codon_shuffle_refit_gain.png`.
 Method detail in `docs/plans/2026-08-28_per_site_nt_features_plan.md`, capacity in
-`docs/results/2026-09-08_cds_pair_capacity.md`, population definition in
-`docs/results/2026-09-07_cds_length_survey.md`.
+`docs/results/2026-09-08_cds_pair_capacity.md`, per-protein completeness and pins in
+`docs/results/2026-09-07_cds_length_survey.md`, and *Population* in `docs/methods/glossary.md`.

@@ -230,9 +230,8 @@ the same coverage as the other proteins.
 
 Passing this screen means that per-site features on a single shared CDS length are feasible. It does
 not guarantee enough training pairs. The companion capacity audit
-(`docs/results/2026-09-08_cds_pair_capacity.md`) measures it for the 15 pairs formed from the 6
-configured proteins. All 28 pairs, including those with PB1 and NS1, are measured in Experiment 2
-of `docs/plans/2026-09-14_codon_site_features_plan.md`.
+(`docs/results/2026-09-08_cds_pair_capacity.md`) measures that for all 28 pairs, including those
+with PB1 and NS1.
 
 ## Metadata filtering
 
