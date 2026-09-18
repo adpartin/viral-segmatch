@@ -113,8 +113,8 @@ def test_sequence_reuse_counts_unique_partners():
     positives = _positives(['x', 'x', 'x', 'y', 'z'], ['p', 'q', 'r', 'p', 'q'])
     row = sequence_reuse(positives, 'cds_dna_hash_a', 'HA-NA', 'A', 'HA')
     assert list(row) == REUSE_COLUMNS
-    assert row['pair'] == 'HA-NA' and row['slot'] == 'A' and row['protein'] == 'HA'
-    assert row['positives'] == 5
+    assert row['Schema pair'] == 'HA-NA' and row['slot'] == 'A' and row['protein'] == 'HA'
+    assert row['Unique positives'] == 5
     assert row['unique sequences'] == 3
     assert row['reuse mean'] == pytest.approx(5 / 3)
     assert row['reuse median'] == 1
@@ -149,7 +149,7 @@ def test_sort_by_segment_orders_on_both_numbers():
 
 
 def test_hk_selected_matrix_is_symmetric_with_an_empty_diagonal():
-    capacity = pd.DataFrame({'pair': ['HA-NA', 'HA-M1', 'NA-M1'],
+    capacity = pd.DataFrame({'Schema pair': ['HA-NA', 'HA-M1', 'NA-M1'],
                              'HK selected': [1698, 720, 657]})
     matrix = hk_selected_matrix(capacity, ['NA', 'M1', 'HA'], CANONICAL)
 
@@ -163,7 +163,7 @@ def test_hk_selected_matrix_is_symmetric_with_an_empty_diagonal():
 
 def test_hk_selected_matrix_rejects_a_pair_it_has_no_row_for():
     # A silently empty cell would read as a pair with no capacity rather than a missing row.
-    capacity = pd.DataFrame({'pair': ['HA-NA'], 'HK selected': [1698]})
+    capacity = pd.DataFrame({'Schema pair': ['HA-NA'], 'HK selected': [1698]})
     with pytest.raises(KeyError):
         hk_selected_matrix(capacity, ['HA', 'NA', 'M1'], CANONICAL)
 
@@ -181,12 +181,13 @@ def test_segment_numbers():
 
 def test_column_lists():
     # `ID` is a rank over the sorted table; `Pair ID` is the segment pair, e.g. 1-4 for PB2-HA.
-    assert CAPACITY_COLUMNS[:3] == ['ID', 'Pair ID', 'pair']
-    for name in ('eligible isolates', 'positives', 'HK selected', 'HK share'):
+    assert CAPACITY_COLUMNS[:3] == ['ID', 'Pair ID', 'Schema pair']
+    for name in ('Eligible isolates', 'Unique positives', 'HK selected', 'HK share'):
         assert name in CAPACITY_COLUMNS
     for name in ('pair A', 'pair B', 'shares protein', 'shared', 'isolate jaccard'):
         assert name in OVERLAP_COLUMNS
-    for name in ('pair', 'slot', 'protein', 'unique sequences', 'reuse mean', 'reuse max'):
+    for name in ('Schema pair', 'slot', 'protein', 'unique sequences', 'reuse mean',
+                 'reuse max'):
         assert name in REUSE_COLUMNS
 
 

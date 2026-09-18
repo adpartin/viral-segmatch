@@ -25,7 +25,7 @@ Per-site features need every retained record for a protein to be complete and at
 
 3. **Low sequence diversity.** Many isolates can carry the same CDS, so there are far fewer unique CDS than isolates. `M1` and `NS1` are the main examples. This limitation is visible in the `unique CDS` counts, but not in the completeness or mode length fractions. It reduces the number of independent examples and limits how many positive pairs remain after requiring each CDS to appear at most once per side. Pair capacity is measured separately in
 `docs/results/2026-09-08_cds_pair_capacity.md`. Alignment cannot increase sequence diversity.
-**Response:** use Hopcroft–Karp selection to retain as many non-reused positive pairs as possible, report the resulting pair capacity, and treat small populations as a limitation of the experiment.
+**Response:** use Hopcroft-Karp selection to retain as many positive pairs as possible under the constraint that no CDS appears twice in a slot, report the resulting pair capacity, and treat small populations as a limitation of the experiment.
 
 ## Why this was measured
 
@@ -57,7 +57,7 @@ A CDS is complete if: `starts_with_m & has_terminal_stop & ~has_internal_stop`, 
 The 3 problems:
 - **Incomplete CDS (P1):** measured at the isolate level by `1 - frac isolates complete`. It is small in the whole corpus; `PB1` has the largest loss at 5.1%.
 - **Complete CDS at more than one length (P2):** measured among unique complete CDS by `1 - frac at mode`. It is most evident for `NS1`, `HA`, and `NA`. At the isolate level, `frac isolates complete - frac isolates at mode` gives the additional loss caused by retaining only the modal length.
-- **Low sequence diversity (P3):** indicated by the number of `unique CDS` relative to 108,530 isolates. `M1` and `NS1` show the greatest sequence reuse.
+- **Low sequence diversity (P3):** indicated by the number of `unique CDS` relative to 108,530 isolates. `M1` and `NS1` have the fewest unique CDS per isolate. This is a different quantity from the per-sequence reuse reported in `pair_sequence_reuse.csv`, which counts a sequence's unique partner sequences in a schema pair's positives rather than the isolates carrying it.
 
 Table columns below:
 

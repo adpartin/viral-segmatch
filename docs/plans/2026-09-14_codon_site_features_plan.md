@@ -75,7 +75,7 @@ For each schema pair, report these counts in order:
 - Every retained CDS is complete and equals its configured pinned length.
 - No CDS occurs in more than one CV split within a fold (i.e., each CDS occurs once in a positive pair).
 - No generated negative is an observed positive from the full pre-selection positive universe (block conflicting negatives).
-- Before Experiment 3 trains, each production dataset reproduces the eligible-isolate, unique-positive, unique-slot and `HK selected` counts its pair has in Experiment 2's `pair_capacity.csv`.
+- Before Experiment 3 trains, each production dataset reproduces the `Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected` counts its pair has in Experiment 2's `pair_capacity.csv`.
 - Where importance is computed, every importance row can be traced to a model run, fold, protein, and site.
 
 ### What the model predicts
@@ -166,7 +166,7 @@ Check complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs
 
 ### Methods
 
-Every pair uses the pin table in Scope, where PB1 at 2,277 nt and NS1 at 693 nt come from the
+Every schema pair uses the pin table in Scope, where PB1 at 2,277 nt and NS1 at 693 nt come from the
 Human-H3N2-2024 bundle override. They sit in a bundle rather than in `conf/virus/flu.yaml` because
 that file is per-virus and shared with H1N1 work, where NS1 is 660 nt and PB1 is 2,274 nt, so
 writing Human-H3N2 values there would make `check_cds_length` raise on those populations. Both the
@@ -324,7 +324,7 @@ pairs containing M1 or NS1 are not split into a separate stratum, so any relatio
 and performance has to be read off the column rather than assumed from the grouping.
 
 Before training, each production dataset must reproduce the counts this table gives for its pair:
-eligible isolates, unique positives, both unique slot counts, and `HK selected`. Experiment 3 then
+`Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected`. Experiment 3 then
 reports the positive and negative counts in every CV fold, which this experiment does not
 produce.
 
@@ -350,7 +350,7 @@ Run the dataset audits before starting the full training matrix.
 
 ### Results
 
-1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md. It should include the same columns (despite that "Feature type" will be the same for all rows). For each schema pair we use the native Hopcroft-Karp population population per schema, so we should add "HK selected" column.
+1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md. It should include the same columns (despite that "Feature type" will be the same for all rows). For each schema pair we use the native Hopcroft-Karp population per schema, so we should add "HK selected" column.
 
 2. Plot symmetric 8 x 8 heatmaps for F1 macro (very similar to the 8 x 8 figure in Exp 2).
 

@@ -10,7 +10,8 @@ How?
   costs a pair the isolates missing a protein it does not contain.
 - Pairs are enumerated in canonical protein order, so `Pair ID` reads as segment numbers: PB2-HA
   is `1-4`.
-- `positives` counts observed same-isolate pairs after deduplicating on the `nt_cds` pair key.
+- `Unique positives` counts observed same-isolate pairs after deduplicating on the `nt_cds` pair
+  key.
 - `HK selected` counts the positives left once no slot-A and no slot-B sequence is used twice.
   Hopcroft-Karp returns a maximum matching, so it is the largest such set; the sequential-dedup
   selectors in `_positive_pair_selection` retain fewer. One positive per unique sequence also
@@ -78,13 +79,13 @@ from src.utils.config_hydra import (  # noqa: E402
 )
 from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
 
-CAPACITY_COLUMNS = ['ID', 'Pair ID', 'pair', 'population', 'eligible isolates', 'positives',
-                    'Unique slot-A', 'Unique slot-B', 'HK selected', 'HK share',
-                    'min-count sample']
+CAPACITY_COLUMNS = ['ID', 'Pair ID', 'Schema pair', 'population', 'Eligible isolates',
+                    'Unique positives', 'Unique slot-A', 'Unique slot-B', 'HK selected',
+                    'HK share', 'min-count sample']
 OVERLAP_COLUMNS = ['pair A', 'pair B', 'shares protein', 'isolates A', 'isolates B', 'shared',
                    'isolate jaccard']
-REUSE_COLUMNS = ['pair', 'slot', 'protein', 'positives', 'unique sequences', 'reuse mean',
-                 'reuse median', 'reuse p90', 'reuse max', 'singleton share']
+REUSE_COLUMNS = ['Schema pair', 'slot', 'protein', 'Unique positives', 'unique sequences',
+                 'reuse mean', 'reuse median', 'reuse p90', 'reuse max', 'singleton share']
 
 
 def common_isolate_cohort(cds: pd.DataFrame, proteins: list, function_to_short: dict) -> set:
@@ -189,10 +190,10 @@ def sequence_reuse(positives: pd.DataFrame, hash_col: str, label: str, slot: str
     if per_sequence.empty:
         raise ValueError(f"sequence_reuse: {label} slot {slot} has no positives.")
     return {
-        'pair': label,
+        'Schema pair': label,
         'slot': slot,
         'protein': protein,
-        'positives': len(positives),
+        'Unique positives': len(positives),
         'unique sequences': len(per_sequence),
         'reuse mean': per_sequence.mean(),
         'reuse median': per_sequence.median(),
@@ -234,7 +235,7 @@ def hk_selected_matrix(capacity: pd.DataFrame, proteins: list,
     Raises:
       KeyError: `capacity` has no row for a pair drawn from `proteins`.
     """
-    selected_of = dict(zip(capacity['pair'], capacity['HK selected']))
+    selected_of = dict(zip(capacity['Schema pair'], capacity['HK selected']))
     ordered = sorted(set(proteins), key=canonical_order.index)
     matrix = pd.DataFrame(float('nan'), index=ordered, columns=ordered)
     # Labels are rebuilt the way summarize_pair_capacity built them rather than split on '-',
@@ -330,12 +331,12 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
         reuse_rows.append(sequence_reuse(positives, hash_col_a, label, 'A', protein_a))
         reuse_rows.append(sequence_reuse(positives, hash_col_b, label, 'B', protein_b))
         rows.append({
-            # Segment numbers follow the pair order, so `Pair ID` and `pair` always agree.
+            # Segment numbers follow the pair order, so `Pair ID` and `Schema pair` always agree.
             'Pair ID': f'{segment_of[protein_a]}-{segment_of[protein_b]}',
-            'pair': label,
+            'Schema pair': label,
             'population': population,
-            'eligible isolates': len(eligible),
-            'positives': len(positives),
+            'Eligible isolates': len(eligible),
+            'Unique positives': len(positives),
             'Unique slot-A': int(positives[hash_col_a].nunique()),
             'Unique slot-B': int(positives[hash_col_b].nunique()),
             'HK selected': len(selected),
@@ -462,10 +463,10 @@ def main() -> None:
     # are observed once, so the median is 1 for nearly every pair and slot.
     heaviest = reuse.loc[reuse['reuse mean'].idxmax()]
     print(f"Sequence reuse before matching is heaviest for {heaviest['protein']} in "
-          f"{heaviest['pair']}: {heaviest['unique sequences']:,} unique sequences over "
-          f"{heaviest['positives']:,} positives, so each pairs with {heaviest['reuse mean']:.1f} "
-          f"unique partner sequences on average and the widest-used one pairs with "
-          f"{heaviest['reuse max']:,}.")
+          f"{heaviest['Schema pair']}: {heaviest['unique sequences']:,} unique sequences over "
+          f"{heaviest['Unique positives']:,} positives, so each pairs with "
+          f"{heaviest['reuse mean']:.1f} unique partner sequences on average and the widest-used "
+          f"one pairs with {heaviest['reuse max']:,}.")
     for written in (capacity_path, segment_path, reuse_path, overlap_path, matrix_path,
                     figure_path):
         print(f"Wrote {written}")
