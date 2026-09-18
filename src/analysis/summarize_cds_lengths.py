@@ -8,24 +8,24 @@ so that question can be answered before a run is attempted.
 Every count here is of CDS DNA, never protein. The `protein` column names which gene the CDS
 belongs to; the sequences counted are nucleotide, keyed on `cds_dna_hash`.
 
-Sequence statistics count each distinct CDS once. Counting rows instead would let a heavily
+Sequence statistics count each unique CDS once. Counting rows instead would let a heavily
 sampled strain decide the answer on its own, since one sequence appears once per isolate carrying
 it. Isolate statistics count isolates, and the two differ a lot: on human H3N2 2024, 5,346 isolates
-carry only 815 distinct M1 sequences.
+carry only 815 unique M1 sequences.
 
 `min`, `max`, `median`, `mode` and `complete CDS at mode` describe COMPLETE sequences only. A sequence is complete when `is_complete_cds` holds, which is
 `starts_with_m & has_terminal_stop & ~has_internal_stop`.
 
 Screen on `frac isolates at mode`, not on `frac at mode`. The difference between them is the
 DENOMINATOR, not sequences versus isolates. `frac at mode` divides by the complete sequences, so
-it cannot see a gene whose records are mostly incomplete. `frac isolates at mode` divides by every
-isolate carrying the gene, so it can.
+it cannot see a protein whose records are mostly incomplete. `frac isolates at mode` divides by
+every isolate carrying the protein, so it can.
 
 PB1 on human H3N2 2024 is the case that matters. It reads 0.994 at mode over complete sequences
 and 0.551 over isolates, because only 2,958 of its 5,346 isolates have a complete CDS at all.
 Deduplication is not the cause: among isolates that DO have a complete PB1, 0.996 are at the mode.
 `frac isolates complete` reports that first failure on its own, so the two isolate columns say
-which of the two problems a gene has.
+which of the two problems a protein has.
 
 SCOPE. This reads the whole corpus, which spans every subtype and year. HA is 1,701 nt in H3N2 but
 1,704 in H5N1 and 1,683 in H9/H7, so a corpus-wide mode is a mixture rather than a fact about any
@@ -116,7 +116,7 @@ def summarize_cds_lengths(cds: pd.DataFrame, function_to_short: dict,
     of filtering before the call. The `population` label is carried into the output so tables from
     several populations can be stacked and still be told apart.
 
-    Sequence statistics count each distinct `cds_dna_hash` once. Isolate statistics are taken
+    Sequence statistics count each unique `cds_dna_hash` once. Isolate statistics are taken
     from the rows as given, because deduplicating collapses the isolates that share a sequence.
 
     Args:
@@ -138,7 +138,7 @@ def summarize_cds_lengths(cds: pd.DataFrame, function_to_short: dict,
     if missing:
         raise ValueError(f"summarize_cds_lengths: missing columns {sorted(missing)}.")
 
-    # One row per distinct sequence, before any sequence statistic is taken. Isolate counts are
+    # One row per unique sequence, before any sequence statistic is taken. Isolate counts are
     # taken from `cds` itself, because deduplicating collapses the isolates that share a sequence.
     unique = cds.drop_duplicates('cds_dna_hash')
     rows = []
@@ -153,9 +153,9 @@ def summarize_cds_lengths(cds: pd.DataFrame, function_to_short: dict,
         lengths = complete['cds_length']
         mode = modal_length(lengths)
 
-        # Isolate shares, over EVERY isolate carrying this gene. `frac at mode` cannot see an
-        # incomplete record, because its denominator is the complete sequences. These two can,
-        # and the pair separates the two ways a gene fails: no complete CDS, or the wrong length.
+        # Isolate shares, over EVERY isolate carrying this protein. `frac at mode` cannot see an
+        # incomplete record, because its denominator is the complete sequences. These two can, and
+        # the pair separates the two ways a protein fails: no complete CDS, or the wrong length.
         isolates_complete = records.loc[records['is_complete_cds'], 'assembly_id'].nunique()
         at_mode = records['is_complete_cds'] & (records['cds_length'] == mode['mode'])
         isolates_at_mode = records.loc[at_mode, 'assembly_id'].nunique()
@@ -270,7 +270,7 @@ def main() -> None:
         print("\nThis population spans every subtype, host and year. A mode taken across subtypes"
               "\nis a mixture, so read it as a screen rather than as a length to pin.")
     print("\nScreen on 'frac isolates at mode'. 'frac at mode' divides by the complete CDS, so it"
-          "\ncannot see a gene whose records are mostly incomplete; 'frac isolates complete'"
+          "\ncannot see a protein whose records are mostly incomplete; 'frac isolates complete'"
           "\nreports that failure on its own. All counts are CDS DNA, not protein.")
     populations = combined['population'].nunique()
     print(f"\nWrote {out_path} ({len(combined)} rows, {populations} "

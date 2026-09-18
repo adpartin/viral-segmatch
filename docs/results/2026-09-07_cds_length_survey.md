@@ -211,8 +211,8 @@ a complete PB1 at the stated length.
 No single PB1 length retains at least 90% of Human-H3N2 isolates across 2023-2025. For a
 Human-H3N2-2024 analysis, 2,277 nt is nevertheless a clear population-specific pin among complete
 PB1 records. Analyses that use it retain about 55% of isolates and should describe the resulting
-PB1 population as completeness-selected. The 2025 values come from the partial 2025 season in the
-July 2025 corpus.
+set of retained PB1 isolates as completeness-selected. The 2025 values come from the partial 2025
+season in the July 2025 corpus.
 
 ## Using the survey as a screen
 

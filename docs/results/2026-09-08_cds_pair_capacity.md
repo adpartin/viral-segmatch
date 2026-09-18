@@ -121,8 +121,8 @@ against 97.2 and 81.8), so it is not a diversity deficit. Cross-slot coupling is
 between the two pairs. Those two measurements were taken on the all-host H3N2 2024 population,
 before the human-only restriction, so they are indicative rather than exact for this cohort.
 
-Matched counts here are not the ones the existing HA-NA and PB2-PA runs used. Those were built
-without the six-protein cohort and without the human-only filter, giving 1,782 and 2,127. The
+`HK selected` counts here are not the ones the existing HA-NA and PB2-PA runs used. Those were
+built without the six-protein cohort and without the human-only filter, giving 1,782 and 2,127. The
 cohort and host restrictions bring them to 1,686 and 1,972. Scores from the earlier runs cannot be
 compared directly against models trained on this cohort.
 
