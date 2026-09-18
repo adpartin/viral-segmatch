@@ -85,7 +85,7 @@ bearing factor.
 So **id099 is the strictest meaningful cluster-disjoint test on this
 corpus**, and id100 is by construction nearly identical to seq_disjoint.
 
-Each schema-pair therefore reduces to a **two-point comparison**:
+Each schema pair therefore reduces to a **two-point comparison**:
 seq_disjoint (≈ id100) versus cluster_disjoint id99. The threshold "sweep"
 collapses to a single delta, but that delta is informative — it directly
 quantifies the leakage seq_disjoint allowed.

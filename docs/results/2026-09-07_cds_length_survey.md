@@ -25,7 +25,7 @@ Per-site features need every retained record for a protein to be complete and at
 
 3. **Low sequence diversity.** Many isolates can carry the same CDS, so there are far fewer unique CDS than isolates. `M1` and `NS1` are the main examples. This limitation is visible in the `unique CDS` counts, but not in the completeness or mode length fractions. It reduces the number of independent examples and limits how many positive pairs remain after requiring each CDS to appear at most once per side. Pair capacity is measured separately in
 `docs/results/2026-09-08_cds_pair_capacity.md`. Alignment cannot increase sequence diversity.
-**Response:** use Hopcroft-Karp selection to retain as many positive pairs as possible under the constraint that no CDS appears twice in a slot, report the resulting pair capacity, and treat small populations as a limitation of the experiment.
+**Possible solution:** use Hopcroft-Karp selection to retain as many positive pairs as possible under the constraint that no CDS appears twice in a slot, report the resulting pair capacity, and treat small populations as a limitation of the experiment.
 
 ## Why this was measured
 
@@ -224,14 +224,15 @@ remain and whether losses come from incomplete records or other lengths.
 In Human-H3N2-2024, the 6 configured pins pass both checks, and NS1 passes with a
 population-specific 693-nt pin. PB1 at 2,277 nt passes the unique-sequence concentration check but
 retains only 55.1% of isolates. It therefore does not pass a 90% isolate-retention screen, but it
-can still be used as a smaller, explicitly completeness-selected population. This distinction
-allows PB1-containing pairs to enter the planned 28-pairs capacity audit without implying that PB1
-has the same coverage as the other proteins.
+can still be used as a smaller, explicitly completeness-selected set of isolates. This distinction
+allowed PB1-containing pairs to enter the 28-pairs capacity audit without implying that PB1 has
+the same coverage as the other proteins.
 
 Passing this screen means that per-site features on a single shared CDS length are feasible. It does
 not guarantee enough training pairs. The companion capacity audit
 (`docs/results/2026-09-08_cds_pair_capacity.md`) measures it for the 15 pairs formed from the 6
-configured proteins. It does not yet cover PB1 or NS1.
+configured proteins. All 28 pairs, including those with PB1 and NS1, are measured in Experiment 2
+of `docs/plans/2026-09-14_codon_site_features_plan.md`.
 
 ## Metadata filtering
 

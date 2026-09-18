@@ -1,6 +1,6 @@
 """Stage 2.5: persist the positive pair universe + per-t CC structure.
 
-Builds the positive pair universe ONCE (t-invariant) for a (alphabet, schema-pair), then
+Builds the positive pair universe ONCE (t-invariant) for a (alphabet, schema pair), then
 layers each threshold's cluster/CC assignment on top, persisting reusable artifacts so CC
 analysis no longer re-runs the front-end. (The Stage-3 builder `dataset_pairs_cc` still builds
 its own positives; only the analysis side reads this cache.)
@@ -70,7 +70,7 @@ def _universe_cache_key(
     pair: str,
     input_file: Path,
     cds_final_path: Path | None) -> dict:
-    """Everything the pair universe depends on: alphabet, schema-pair, the resolved front-end
+    """Everything the pair universe depends on: alphabet, schema pair, the resolved front-end
     filters, and the source-file mtimes (`pair` is the 'HA-NA' path label, not the schema_pair
     tuple). A cached universe is reused only when this matches, so a changed population/bundle is
     never silently loaded."""

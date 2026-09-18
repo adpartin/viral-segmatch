@@ -312,7 +312,7 @@ def create_negative_pairs_v2(
     Operates entirely on `pos_df` (the within-split positive table from
     `create_positive_pairs_v2` + the split partition). Under v2's strict
     invariant (`pos_df['assembly_id_a'].is_unique`), each row is one
-    isolate's full schema-pair record: slot-A fields in `_a` columns and
+    isolate's full schema pair record: slot-A fields in `_a` columns and
     slot-B fields in `_b` columns. Both the "self" side of a coverage pair
     and the "partner" side are sourced from these rows -- no original `df`
     is needed.

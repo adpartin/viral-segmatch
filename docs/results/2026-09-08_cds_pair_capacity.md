@@ -1,10 +1,10 @@
-# Positive-pair capacity of the 15 schema pairs, human H3N2 2024
+# Positive-pair capacity of the 15 schema pairs, Human-H3N2-2024
 
 ```yaml
 # Provenance. status: current | at-risk (inputs changed, not rebuilt) | superseded (replaced)
 status:         current
 date:           2026-09-08
-population:     human H3N2 2024
+population:     Human-H3N2-2024
 proteins:       PB2, PA, HA, NP, NA, M1
 alphabet:       nt_cds
 script:         src/analysis/summarize_pair_capacity.py

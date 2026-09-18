@@ -431,7 +431,7 @@ print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected
 if 'prot_hash' not in df.columns:
     df['prot_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
 
-# Schema-pair parsing. schema_ordered is the only pair_mode; _validate_v2_config
+# Schema pair parsing. schema_ordered is the only pair_mode; _validate_v2_config
 # rejects anything else.
 schema_pair: Optional[Tuple[str, str]] = None
 
