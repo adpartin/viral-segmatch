@@ -167,12 +167,12 @@ Check complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs
 ### Methods
 
 Full method and discussion in `docs/results/2026-09-08_cds_pair_capacity.md`; per-protein
-completeness and the pins in `docs/results/2026-09-07_cds_length_survey.md`.
+completeness and the length pins in `docs/results/2026-09-07_cds_length_survey.md`.
 
 - Population Human-H3N2-2024, the 8 major proteins, `nt_cds` pair key.
 - Each pair uses its own eligible isolates (`--cohort pair`): an isolate needs the pair's two
-  proteins as a complete CDS at the pinned length, not the other six.
-- Pins from the table in Scope; PB1 at 2,277 nt and NS1 at 693 nt come from the bundle override.
+  proteins as a complete CDS at the pinned length.
+- The table in Scope shows the length pins.
 
 ```
 python -m src.analysis.summarize_pair_capacity \
@@ -184,8 +184,7 @@ python -m src.analysis.summarize_pair_capacity \
 
 ### Results
 
-Transcribed from `docs/results/2026-09-08_cds_pair_capacity.md`, which is the source; a re-run
-updates it first.
+Transcribed from `docs/results/2026-09-08_cds_pair_capacity.md`.
 
 <img src="../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png" width="550" alt="28-pair Hopcroft-Karp capacity, Human-H3N2-2024">
 
@@ -222,17 +221,12 @@ updates it first.
 
 What the later experiments need from this:
 
-- **Experiment 3** trains on the `HK selected` column: 440 (M1-NS1) to 2,042 (PB2-HA), median
-  1,126.5. The 13 pairs containing M1 or NS1 hold the 13 lowest counts, because those two proteins
-  supply the fewest unique sequences.
-- **Experiment 3** must read scores beside capacity. All 28 pairs share the population
-  Human-H3N2-2024, but each matching retains its own isolates: Jaccard between two pairs runs
-  0.112 to 0.568, median 0.234, and over the 168 combinations whose pairs share a protein 0.188 to
-  0.568, median 0.353.
-- **Experiment 4** starts from HA-NA at 1,698 and the four progress-report pairs, so it tests the
-  feature representation on a fixed population rather than a larger one. Varying CDS length does
-  not recover PB1's 44.7%: that loss is incomplete records, not the pin, which costs a further
-  0.2 percentage points.
+- **Experiment 3** trains on the `HK selected` column: 440 (M1-NS1) to 2,042 (PB2-HA).
+  The 13 pairs containing M1 or NS1 hold the 13 lowest counts (M1 or NS1 supply the fewest unique
+  sequences).
+- **Experiment 4** runs GenSLM on the same data as Experiment 3, for the pairs it covers (same
+  positive pairs, sequences and folds). Varying CDS length can be explored later, but it would
+  not recover PB1's 44.7%, which stems from incomplete records rather than the pin.
 - **Experiment 5** has little to recover in this population. No pair needs aligned rather than
   pinned-length coordinates here, since the lowest `frac at mode` among complete CDS is NS1 at
   0.991 and PB1 at 0.994, and PB1's loss is incompleteness, which alignment cannot reconstruct.
@@ -293,8 +287,11 @@ Do GenSLM embedded codons perform better as features for LightGBM than raw codon
 ### Methods
 
 1. Compute and cache GenSLM embeddings for all unique complete CDS codons.
-2. Start with CV training on HA-NA, Human-H3N2-2024. Use the 1,698 "HK selected" positive pairs set.
-3. Expand to the 4 schema pairs as in 2026-09-08_h3n2_2024_progress_report.md: HA-NA, PB2-PA, PB2-NA, PA-HA.
+2. Start with CV training on HA-NA, Human-H3N2-2024. Reuse Experiment 3's built dataset rather
+   than rebuilding it, so the 1,698 `HK selected` positives and the 4 fold assignments are
+   identical and the only difference from the raw-codon run is the feature representation.
+3. Expand to the 4 schema pairs as in 2026-09-08_h3n2_2024_progress_report.md: HA-NA, PB2-PA,
+   PB2-NA, PA-HA.
 4. Optional. All 28-pairs.
 
 ### Results
