@@ -346,8 +346,8 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
 
     table = pd.DataFrame(rows).sort_values('HK selected', ascending=False).reset_index(drop=True)
     # The smallest HK count is the largest sample every pair could supply. Experiment 3 of
-    # docs/plans/2026-09-14_codon_site_features_plan.md trains on each
-    # pair's own HK population instead, so this column reports the floor rather than what is run.
+    # docs/plans/2026-09-14_codon_site_features_plan.md trains on each pair's own `HK selected`
+    # positives instead, so this column reports the floor rather than what is run.
     table['min-count sample'] = table['HK selected'].min()
     table.insert(0, 'ID', range(1, len(table) + 1))
     reuse = pd.DataFrame(reuse_rows, columns=REUSE_COLUMNS)

@@ -8,8 +8,8 @@ Follow up on questions raised following `docs/results/2026-09-08_h3n2_2024_progr
 
 1. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
 codon sites?
-2. Check complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs.
-3. Run LightGBM on the complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs.
+2. Check complete CDS (native `HK selected`) pair capacity for all 28 schema pairs.
+3. Run LightGBM on each pair's native `HK selected` positives, for all 28 schema pairs in Human-H3N2-2024.
 4. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
 5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while placing homologous sites in shared coordinates? Alignment cannot recover incomplete records, so the question is whether the effort is worth it. See `docs/results/2026-09-07_cds_length_survey.md`, and its "Pin reach by year" section for 2015-2025.
 
@@ -96,7 +96,7 @@ codon sites?
 
 - For the Human-H3N2-2024 analysis, we used `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` and the saved `resolved_config.yaml` from its earlier codon runs.
 - For the Human-H3N2-2025 analysis, we used `conf/bundles/flu_ha_na_human_h3n2_2025_random_cv4_pinned_length_hopcroft_karp.yaml` where only the year is different and otherwise reused the same settings.
-- Both analyses kept their full Hopcroft-Karp populations: 1,698 positives in 2024 and 1,337 in 2025 (i.e., we didn't downsample to the same size).
+- Both analyses kept all their `HK selected` positives: 1,698 in 2024 and 1,337 in 2025 (i.e., we didn't downsample to the same size).
 - The July 2025 corpus contains only a partial 2025 season.
 - `src/analysis/plot_site_importance.py` computed gain, SHAP, and permutation importance. The cross-year ranking uses fold-averaged, normalized gain. The comparison was run three ways:
   - `combined`: HA and NA compete for the same top-N positions;
@@ -162,7 +162,7 @@ population, the partial 2025 season, or correlation among sites.
 
 ### Question
 
-Check complete CDS (natural `HK selected`) pair capacity for all 28 schema pairs for Human-H3N2-2024.
+Check complete CDS (native `HK selected`) pair capacity for all 28 schema pairs for Human-H3N2-2024.
 
 ### Methods
 
@@ -233,7 +233,7 @@ What the later experiments need from this:
 
 #### Decision for Experiments 3 and 4
 
-All 28 schema pairs proceed on their native Hopcroft-Karp populations. They are not downsampled to
+All 28 schema pairs proceed on their native `HK selected` positives. They are not downsampled to
 the M1-NS1 floor of 440.
 
 
@@ -242,34 +242,37 @@ the M1-NS1 floor of 440.
 
 ### Question
 
-Run LightGBM on the complete CDS (natural HK selected) pair capacity for all 28 schema pairs.
+Run LightGBM on each pair's native `HK selected` positives, for all 28 schema pairs in
+Human-H3N2-2024.
 
 ### Methods
 
 For every schema pair:
-- use its native Hopcroft-Karp population;
+- use its native `HK selected` positives;
 - use identical dataset rules and 4 CV folds;
 - train per-site codon LightGBM models (0.5 threshold and 1:1 class balance);
 - save raw test predictions;
 - don't run feature importance for this 28-pairs run yet.
 
-This is 28 pairs x 4 folds (112 model trainings).
-Run the dataset audits before starting the full training matrix.
+This is 28 pairs x 4 folds (112 model trainings). Before starting the full training matrix, run
+the checks under "Dataset checks every experiment must pass", including the preflight against
+Experiment 2's `pair_capacity.csv`.
 
 ### Results
 
 1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md.
 
-   - Same columns, though "Feature type" is the same for all rows.
-   - Add an `HK selected` column, since each schema pair uses its native population.
-   - All 28 pairs in one table, with `HK selected` beside the performance scores.
-   - No separate stratum for the 13 pairs containing M1 or NS1, so any relation between capacity
-     and performance is read off the column rather than assumed from the grouping.
+   - Same columns, though "Feature type" is the same for all rows ("site codon").
+   - Add an `HK selected` column beside the performance scores, since each pair's count differs.
+   - All 28 pairs in one table, with no separate stratum for the 13 containing M1 or NS1, so any
+     relation between capacity and performance is read off that column rather than assumed from
+     the grouping.
 
 2. Plot symmetric 8 x 8 heatmaps for F1 macro (very similar to the 8 x 8 figure in Exp 2).
 
-Use `src/analysis/aggregate_allpairs_results.py` where possible. Keep the older 28-pair experiment
-separate by using a new bundle tag and output namespace.
+Use `src/analysis/aggregate_allpairs_results.py` where possible. Keep the older 28-pair run on
+`conf/bundles/flu_28_major_protein_pairs_master.yaml` separate by using a new bundle tag and
+output namespace.
 
 
 

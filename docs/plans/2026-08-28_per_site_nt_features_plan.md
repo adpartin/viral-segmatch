@@ -65,7 +65,7 @@ Steps 0-7 used H3N2 HA–NA pairs collected in 2024. Step 8 also includes PB2–
 **Nucleotide identity provided information that amino-acid identity did not preserve.** Codon and amino-acid (aa) features represent the same 1,037 positions, but codons retain nucleotide changes that do not alter the translated amino acid. The codon model obtained an F1 macro of 0.9159, compared with 0.8091 for the aa model. The mean difference was 0.107, occurred in the same direction in every fold, and had p=0.002. This result shows that information discarded during translation contributes substantially to prediction. It does not show that aa sequence contains no useful information or evaluate ESM-2 features.
 
 **High performance persisted when every retained positive used each CDS only once.** On the
-maximum-cardinality Hopcroft-Karp population, the k-mer model obtained F1 macro 0.8768 ± 0.0070
+maximum-cardinality Hopcroft-Karp selection, the k-mer model obtained F1 macro 0.8768 ± 0.0070
 and AUC-ROC 0.9376 ± 0.0069. Per-site nt features remained slightly higher at 0.8894 ± 0.0100
 and 0.9427 ± 0.0101. Per-site codon features obtained 0.8716 ± 0.0240 and 0.9276 ± 0.0227,
 while per-site aa fell to 0.7331 ± 0.0068 and 0.8173 ± 0.0100. Thus, exact sequence reuse is not
