@@ -238,7 +238,7 @@ the M1-NS1 floor of 440.
 
 
 
-## Experiment 3: pinned-length 28-pairs screen
+## Experiment 3: pinned-length 28-pairs screen — DONE (2026-09-20)
 
 ### Question
 
@@ -247,32 +247,115 @@ Human-H3N2-2024.
 
 ### Methods
 
-For every schema pair:
-- use its native `HK selected` positives;
-- use identical dataset rules and 4 CV folds;
-- train per-site codon LightGBM models (0.5 threshold and 1:1 class balance);
-- save raw test predictions;
-- don't run feature importance for this 28-pairs run yet.
+- One dataset per schema pair, built from `conf/bundles/flu_28p_codon_{pair}.yaml`. The 28
+  children inherit one master, `conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml`, and each
+  sets only `schema_pair`, so every pair runs under identical rules: Human-H3N2-2024, complete
+  CDS at the pinned length, the `nt_cds` pair key, Hopcroft-Karp positive selection with no cap,
+  4 random CV folds, and negatives drawn within each fold at a 1:1 ratio.
+- Each pair trains on its native `HK selected` positives, 440 for M1-NS1 to 2,042 for PB2-HA. No
+  pair is downsampled to a common size, as decided at the end of Experiment 2.
+- Features are one ordinal column per codon position, for both slots concatenated. The width is
+  the sum of the two proteins' codon counts, 484 for M1-NS1 to 1,519 for PB2-PB1. Every column is
+  a site rather than a magnitude, so all of them are declared categorical to LightGBM.
+- The model is LightGBM at a 0.5 decision threshold. Raw test predictions are saved. Feature
+  importance was not computed for this run.
+- Each test fold is balanced, since negatives are drawn within the fold at a 1:1 ratio. An
+  uninformative classifier therefore scores about 0.5 F1 macro.
+- Before training, all 28 datasets reproduced their `Eligible isolates`, `Unique positives`,
+  `Unique slot-A`, `Unique slot-B` and `HK selected` counts from Experiment 2's
+  `pair_capacity.csv`, as required by "Dataset checks every experiment must pass"
+  (`src/analysis/audit_pair_datasets.py`, 28 passed, 0 failed).
+- 28 pairs by 4 folds is 112 model fits. All 112 completed.
 
-This is 28 pairs x 4 folds (112 model trainings). Before starting the full training matrix, run
-the checks under "Dataset checks every experiment must pass", including the preflight against
-Experiment 2's `pair_capacity.csv`.
+```
+python scripts/run_allpairs_baselines.py \
+  --bundle_prefix flu_28p_codon_ --dataset_prefix exp3_28p_codon_ \
+  --baseline lgbm --cv_dir_bundle 'flu_28p_{pair}_codon'
+
+python -m src.analysis.aggregate_allpairs_results --tag codon \
+  --timestamp 20260919_225844 \
+  --output_dir results/flu/July_2025/all_pairs_human_h3n2_2024_codon
+```
 
 ### Results
 
-1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md.
+<img src="../results/figs/2026-09-20_h3n2_2024_codon_28pairs_f1_macro.png" width="560" alt="28-pair F1 macro, per-site codon LightGBM, Human-H3N2-2024">
 
-   - Same columns, though "Feature type" is the same for all rows ("site codon").
-   - Add an `HK selected` column beside the performance scores, since each pair's count differs.
-   - All 28 pairs in one table, with no separate stratum for the 13 containing M1 or NS1, so any
-     relation between capacity and performance is read off that column rather than assumed from
-     the grouping.
+Mean ± standard deviation across the 4 test folds. Precision and recall are means.
 
-2. Plot symmetric 8 x 8 heatmaps for F1 macro (very similar to the 8 x 8 figure in Exp 2).
+| Schema pair | HK selected | Features | F1 macro | AUC-ROC | Precision | Recall |
+|---|---:|---:|---:|---:|---:|---:|
+| PB2-HA | 2,042 | 1,327 | 0.909 ± 0.006 | 0.952 ± 0.007 | 0.871 | 0.961 |
+| PB1-NA | 1,212 | 1,229 | 0.893 ± 0.014 | 0.933 ± 0.010 | 0.852 | 0.954 |
+| PB1-HA | 1,392 | 1,326 | 0.883 ± 0.020 | 0.943 ± 0.009 | 0.840 | 0.949 |
+| PB2-PB1 | 1,404 | 1,519 | 0.882 ± 0.030 | 0.940 ± 0.017 | 0.834 | 0.957 |
+| HA-NA | 1,698 | 1,037 | 0.878 ± 0.013 | 0.935 ± 0.007 | 0.829 | 0.954 |
+| PB2-NA | 1,745 | 1,230 | 0.866 ± 0.018 | 0.923 ± 0.010 | 0.814 | 0.950 |
+| PA-HA | 1,944 | 1,284 | 0.850 ± 0.019 | 0.927 ± 0.009 | 0.805 | 0.927 |
+| PB1-PA | 1,341 | 1,476 | 0.849 ± 0.019 | 0.922 ± 0.007 | 0.803 | 0.929 |
+| PB2-NP | 1,512 | 1,259 | 0.840 ± 0.014 | 0.917 ± 0.012 | 0.783 | 0.946 |
+| PA-NA | 1,689 | 1,187 | 0.832 ± 0.009 | 0.909 ± 0.007 | 0.786 | 0.916 |
+| PB1-NP | 1,041 | 1,258 | 0.820 ± 0.021 | 0.904 ± 0.014 | 0.764 | 0.933 |
+| PA-NP | 1,459 | 1,216 | 0.802 ± 0.034 | 0.884 ± 0.033 | 0.753 | 0.908 |
+| HA-NP | 1,482 | 1,066 | 0.797 ± 0.056 | 0.887 ± 0.041 | 0.750 | 0.909 |
+| HA-M1 | 720 | 820 | 0.795 ± 0.022 | 0.855 ± 0.021 | 0.750 | 0.892 |
+| NP-NA | 1,287 | 969 | 0.793 ± 0.007 | 0.882 ± 0.004 | 0.739 | 0.915 |
+| PB2-PA | 2,030 | 1,477 | 0.790 ± 0.046 | 0.876 ± 0.039 | 0.749 | 0.878 |
+| PB1-M1 | 517 | 1,012 | 0.745 ± 0.089 | 0.816 ± 0.051 | 0.697 | 0.928 |
+| NA-M1 | 657 | 723 | 0.733 ± 0.043 | 0.801 ± 0.043 | 0.683 | 0.901 |
+| PB2-M1 | 726 | 1,013 | 0.702 ± 0.026 | 0.775 ± 0.037 | 0.671 | 0.810 |
+| PB2-NS1 | 995 | 991 | 0.697 ± 0.038 | 0.777 ± 0.035 | 0.660 | 0.842 |
+| HA-NS1 | 959 | 798 | 0.689 ± 0.052 | 0.772 ± 0.069 | 0.655 | 0.843 |
+| NA-NS1 | 853 | 701 | 0.685 ± 0.062 | 0.763 ± 0.071 | 0.648 | 0.857 |
+| PB1-NS1 | 704 | 990 | 0.671 ± 0.048 | 0.745 ± 0.066 | 0.639 | 0.827 |
+| PA-NS1 | 952 | 948 | 0.630 ± 0.064 | 0.700 ± 0.071 | 0.612 | 0.800 |
+| NP-NS1 | 806 | 730 | 0.615 ± 0.051 | 0.681 ± 0.060 | 0.597 | 0.811 |
+| NP-M1 | 627 | 752 | 0.611 ± 0.033 | 0.696 ± 0.034 | 0.594 | 0.817 |
+| PA-M1 | 707 | 970 | 0.602 ± 0.053 | 0.675 ± 0.058 | 0.588 | 0.779 |
+| M1-NS1 | 440 | 484 | 0.578 ± 0.061 | 0.676 ± 0.060 | 0.576 | 0.880 |
 
-Use `src/analysis/aggregate_allpairs_results.py` where possible. Keep the older 28-pair run on
-`conf/bundles/flu_28_major_protein_pairs_master.yaml` separate by using a new bundle tag and
-output namespace.
+- F1 macro runs from 0.578 for M1-NS1 to 0.909 for PB2-HA, with a median of 0.794. Test folds
+  are balanced, so every pair scores above the 0.5 an uninformative classifier would reach.
+- F1 macro correlates with `HK selected` at Spearman 0.757 and with feature width at 0.801.
+  Those two correlate with each other at 0.767, so this run cannot say which one limits the
+  weaker pairs. PB2-PA is the counterexample to reading performance off capacity: second largest
+  positive count at 2,030, and 16th at 0.790.
+- Twelve of the thirteen pairs containing M1 or NS1 hold the twelve lowest scores. HA-M1 is the
+  exception at 0.795, 14th of 28.
+- Recall exceeds precision in all 28 pairs, so every pair over-predicts the positive class at the
+  0.5 threshold.
+- HA-NA reproduces the `site codon` row of `docs/results/2026-09-08_h3n2_2024_progress_report.md`
+  at 0.8777 ± 0.0134, and its fold-0 test predictions are identical value for value, although
+  the two runs used different bundles and different dataset directories. The dataset builder and
+  the training path are therefore reproducible across bundles at a fixed seed.
+- AUC-PR, Brier score and the confusion counts for every pair are in
+  `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/allpairs_summary.csv`.
+
+What this does not settle:
+
+- Whether positive count or feature width limits the weaker pairs. The two are correlated across
+  these 28 pairs, and separating them needs a run that holds one fixed while varying the other.
+- How per-site codon features compare with k-mer, per-site nucleotide or amino-acid features on
+  the other 27 pairs. Only HA-NA has all four.
+- Which codon positions carry the signal, since feature importance was not computed here.
+
+Limitations:
+
+- One population: one year, one subtype, one host. Nothing here says whether the ordering holds
+  for another year or subtype.
+- Four folds. Differences smaller than the fold spread of the pairs being compared are not
+  resolved, and the spread is largest among the weakest pairs.
+- The pairs do not share their retained isolates. Isolate Jaccard between two pairs runs 0.112 to
+  0.568 with a median of 0.234, so a head-to-head difference is not measured on one set of
+  isolates.
+- PB1 pairs are completeness-selected, since only 55.1% of isolates have a complete PB1 CDS at
+  the 2,277 nt pin. Their populations are not comparable to the other pairs'.
+
+What the later experiments need from this:
+
+- **Experiment 4** compares GenSLM embedded codons against these per-site codon scores. It reuses
+  these datasets, so the comparison is against the F1 macro column above, pair by pair.
+- **Experiment 5** does not draw on this section.
 
 
 
@@ -410,8 +493,8 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 1, done)
 2. Run the codon cross-year importance comparison. (Experiment 1, done)
 3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 2, done)
-4. Build and audit the 28 pinned-length datasets. (Experiment 3)
-5. Run the codon 28-pairs screen and aggregate the results. (Experiment 3)
+4. Build and audit the 28 pinned-length datasets. (Experiment 3, done)
+5. Run the codon 28-pairs screen and aggregate the results. (Experiment 3, done)
 6. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
    on the four progress-report pairs. (Experiment 4)
 7. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
@@ -457,10 +540,11 @@ Names are provisional until implementation begins.
 |---|---|
 | `src/analysis/compare_site_importance_across_years.py` | compare annual per-fold importance tables and produce shared-coordinate plots |
 | `src/analysis/summarize_pair_capacity.py` | add an explicit pair-specific-cohort mode while preserving the current common-cohort mode |
-| `src/analysis/aggregate_allpairs_results.py` | support the new LightGBM k-mer/codon run naming and additional metric heatmaps |
+| `src/analysis/aggregate_allpairs_results.py` | report F1 macro and AUC-PR alongside the existing metrics, and plot an F1 macro heatmap |
+| `scripts/run_allpairs_baselines.py` | train a baseline over every fold of a set of built pair datasets, and aggregate each pair |
 | `src/preprocess/align_cds_by_protein.py` | alignment pilot; added only after its input/output contract is fixed |
 | `results/flu/July_2025/cross_year_site_importance/` | cross-year tables, audits, and figures |
 | `results/flu/July_2025/pair_capacity_8_proteins/` | 28-pair capacity audit |
-| `results/flu/July_2025/all_pairs_human_h3n2_2024/` | 28-pairs summaries and figures |
+| `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/` | 28-pairs codon summaries and figures |
 | `results/flu/July_2025/cds_alignment_pilot/` | alignment audit, mappings, and validation results |
 

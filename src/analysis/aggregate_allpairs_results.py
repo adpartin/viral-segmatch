@@ -26,6 +26,7 @@ Usage
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -39,9 +40,9 @@ PROTEINS = ["PB2", "PB1", "PA", "HA", "NP", "NA", "M1", "NS1"]
 PROTEIN_SHORT_TO_FULL = {p.lower(): p for p in PROTEINS}
 
 # Key metrics to include in cross-pair summary and heatmaps
-METRICS = ["auc_roc", "f1_binary", "precision", "recall", "brier",
+METRICS = ["auc_roc", "auc_pr", "f1_binary", "f1_macro", "precision", "recall", "brier",
            "tp", "fp", "tn", "fn", "fp_fn_ratio"]
-HEATMAP_METRICS = ["auc_roc", "f1_binary"]  # Generate heatmap plots for these
+HEATMAP_METRICS = ["auc_roc", "f1_binary", "f1_macro"]  # Generate heatmap plots for these
 
 
 def parse_pair_name(bundle_name: str) -> Optional[Tuple[str, str]]:
@@ -222,8 +223,18 @@ def build_heatmap_matrix(table, metric: str):
     return matrix
 
 
-def plot_heatmap(matrix, metric: str, output_path: Path) -> None:
-    """Generate and save a heatmap plot."""
+def plot_heatmap(matrix, metric: str, output_path: Path, n_folds: Optional[int] = None) -> None:
+    """Generate and save a heatmap plot.
+
+    Args:
+      matrix: the symmetric protein-by-protein matrix of mean values.
+      metric: metric name, e.g. `f1_macro`.
+      output_path: where to write the PNG.
+      n_folds: folds the runs used, named in the title. Omitted when the runs disagree.
+
+    Returns:
+      None. Writes `output_path`.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -235,7 +246,9 @@ def plot_heatmap(matrix, metric: str, output_path: Path) -> None:
 
     metric_labels = {
         "auc_roc": "AUC-ROC",
-        "f1_binary": "F1 Score",
+        "auc_pr": "AUC-PR",
+        "f1_binary": "F1 binary",
+        "f1_macro": "F1 macro",
         "precision": "Precision",
         "recall": "Recall",
         "brier": "Brier Score",
@@ -250,7 +263,10 @@ def plot_heatmap(matrix, metric: str, output_path: Path) -> None:
         vmin, vmax = 0.0, 0.2
     else:
         cmap = "YlGnBu"
-        vmin, vmax = 0.7, 1.0
+        # A fixed floor of 0.7 renders every pair below it in one colour. Start at the lowest
+        # cell instead, rounded down to the next 0.05, so the weakest pairs stay distinguishable.
+        lowest = float(matrix.min().min())
+        vmin, vmax = min(0.7, math.floor(lowest * 20) / 20), 1.0
 
     mask = matrix.isna()
     sns.heatmap(
@@ -259,7 +275,8 @@ def plot_heatmap(matrix, metric: str, output_path: Path) -> None:
         square=True, linewidths=0.5, ax=ax,
         cbar_kws={"label": label},
     )
-    ax.set_title(f"Protein Pair {label} (12-fold CV, mean)", fontsize=14)
+    fold_text = f"{n_folds}-fold CV" if n_folds else "CV"
+    ax.set_title(f"Protein Pair {label} ({fold_text}, mean)", fontsize=14)
     ax.set_xlabel("")
     ax.set_ylabel("")
 
@@ -483,6 +500,11 @@ def main():
         brier = f"{row['brier_mean']:.3f}±{row['brier_std']:.3f}" if row['brier_mean'] else "N/A"
         print(f"{pair_label:<20} {auc:>12} {f1:>12} {prec:>12} {rec:>12} {brier:>12}")
 
+    # Fold count for the figure titles. Runs that disagree leave it unnamed rather than
+    # labelling every pair with one pair's number.
+    fold_counts = set(complete["n_folds"].dropna().astype(int)) if "n_folds" in complete else set()
+    n_folds = fold_counts.pop() if len(fold_counts) == 1 else None
+
     # Generate heatmaps
     for metric in HEATMAP_METRICS:
         matrix = build_heatmap_matrix(table, metric)
@@ -493,7 +515,7 @@ def main():
 
         # Plot heatmap
         plot_path = output_dir / f"heatmap_{metric}.png"
-        plot_heatmap(matrix, metric, plot_path)
+        plot_heatmap(matrix, metric, plot_path, n_folds=n_folds)
 
         # Plot bar chart
         bar_path = output_dir / f"barplot_{metric}.png"
