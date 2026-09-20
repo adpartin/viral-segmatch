@@ -257,10 +257,11 @@ Human-H3N2-2024.
 - Features are one ordinal column per codon position, for both slots concatenated. The width is
   the sum of the two proteins' codon counts, 484 for M1-NS1 to 1,519 for PB2-PB1. Every column is
   a site rather than a magnitude, so all of them are declared categorical to LightGBM.
-- The model is LightGBM at a 0.5 decision threshold. Raw test predictions are saved. Feature
-  importance was not computed for this run.
-- Each test fold is balanced, since negatives are drawn within the fold at a 1:1 ratio. An
-  uninformative classifier therefore scores about 0.5 F1 macro.
+- The model is LightGBM at a 0.5 decision threshold. Raw test predictions are saved. No
+  feature-importance analysis was run.
+- Each test fold is balanced, since negatives are drawn within the fold at a 1:1 ratio. A
+  classifier guessing each class with equal probability has an expected F1 macro near 0.5 there.
+  A classifier predicting one class for every row scores about 0.33.
 - Before training, all 28 datasets reproduced their `Eligible isolates`, `Unique positives`,
   `Unique slot-A`, `Unique slot-B` and `HK selected` counts from Experiment 2's
   `pair_capacity.csv`, as required by "Dataset checks every experiment must pass"
@@ -314,47 +315,58 @@ Mean ± standard deviation across the 4 test folds. Precision and recall are mea
 | PA-M1 | 707 | 970 | 0.602 ± 0.053 | 0.675 ± 0.058 | 0.588 | 0.779 |
 | M1-NS1 | 440 | 484 | 0.578 ± 0.061 | 0.676 ± 0.060 | 0.576 | 0.880 |
 
-- F1 macro runs from 0.578 for M1-NS1 to 0.909 for PB2-HA, with a median of 0.794. Test folds
-  are balanced, so every pair scores above the 0.5 an uninformative classifier would reach.
-- F1 macro correlates with `HK selected` at Spearman 0.757 and with feature width at 0.801.
-  Those two correlate with each other at 0.767, so this run cannot say which one limits the
-  weaker pairs. PB2-PA is the counterexample to reading performance off capacity: second largest
-  positive count at 2,030, and 16th at 0.790.
+Pairs are ordered by mean F1 macro, from highest to lowest.
+
+- F1 macro runs from 0.578 for M1-NS1 to 0.909 for PB2-HA, with a median of 0.794. Every pair
+  scores above the 0.5 of an equal-probability guess on these balanced folds.
+- Across all 28 pairs, F1 macro is associated with `HK selected` at Spearman 0.757 and with
+  feature width at 0.801, and those two are associated with each other at 0.767. The association
+  is carried by the 13 pairs containing M1 or NS1, which are both the smallest and the
+  lowest-scoring. Among the other 15 pairs it nearly disappears: 0.071 against `HK selected` and
+  0.304 against feature width. These are associations across pairs that differ in many respects
+  at once, and they do not establish that either quantity limits performance.
+- PB2-PA shows that performance cannot be read off capacity. It has the second largest positive
+  count at 2,030 and ranks 16th at 0.790.
 - Twelve of the thirteen pairs containing M1 or NS1 hold the twelve lowest scores. HA-M1 is the
   exception at 0.795, 14th of 28.
 - Recall exceeds precision in all 28 pairs, so every pair over-predicts the positive class at the
   0.5 threshold.
-- HA-NA reproduces the `site codon` row of `docs/results/2026-09-08_h3n2_2024_progress_report.md`
-  at 0.8777 ± 0.0134, and its fold-0 test predictions are identical value for value, although
-  the two runs used different bundles and different dataset directories. The dataset builder and
-  the training path are therefore reproducible across bundles at a fixed seed.
+- HA-NA reproduces the earlier standalone run of the same pair. All four of its test prediction
+  files match value for value, although the two runs used different bundles and different dataset
+  directories, which confirms reproducibility for HA-NA across those two paths at a fixed seed.
+  Its F1 macro is the 0.8777 ± 0.0134 reported for `site codon` in
+  `docs/results/2026-09-08_h3n2_2024_progress_report.md`.
+- The other three pairs in that report were downsampled to 1,698 positives, so their codon rows
+  are not comparable to the counts used here.
 - AUC-PR, Brier score and the confusion counts for every pair are in
   `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/allpairs_summary.csv`.
 
 What this does not settle:
 
-- Whether positive count or feature width limits the weaker pairs. The two are correlated across
+- Whether positive count or feature width limits the weaker pairs. The two move together across
   these 28 pairs, and separating them needs a run that holds one fixed while varying the other.
 - How per-site codon features compare with k-mer, per-site nucleotide or amino-acid features on
-  the other 27 pairs. Only HA-NA has all four.
-- Which codon positions carry the signal, since feature importance was not computed here.
+  the remaining 24 pairs. Only HA-NA, PB2-PA, PB2-NA and PA-HA have all four, in
+  `docs/results/2026-09-08_h3n2_2024_progress_report.md`.
+- Which codon positions carry the signal, since no feature-importance analysis was run.
 
 Limitations:
 
 - One population: one year, one subtype, one host. Nothing here says whether the ordering holds
   for another year or subtype.
-- Four folds. Differences smaller than the fold spread of the pairs being compared are not
-  resolved, and the spread is largest among the weakest pairs.
+- Four folds. The reported standard deviations describe fold-to-fold variation. They are not
+  confidence intervals, and no test of the difference between two pairs was run.
 - The pairs do not share their retained isolates. Isolate Jaccard between two pairs runs 0.112 to
   0.568 with a median of 0.234, so a head-to-head difference is not measured on one set of
   isolates.
-- PB1 pairs are completeness-selected, since only 55.1% of isolates have a complete PB1 CDS at
-  the 2,277 nt pin. Their populations are not comparable to the other pairs'.
+- PB1 pairs have smaller, completeness-selected sets of eligible isolates, since only 55.1% of
+  isolates have a complete PB1 CDS at the 2,277 nt pin. Read them with that in view.
 
 What the later experiments need from this:
 
-- **Experiment 4** compares GenSLM embedded codons against these per-site codon scores. It reuses
-  these datasets, so the comparison is against the F1 macro column above, pair by pair.
+- **Experiment 4** compares GenSLM embedded codons against these per-site codon scores. For each
+  schema pair it covers, the comparison is against that pair's F1 macro above, on the same
+  dataset wherever its final design allows.
 - **Experiment 5** does not draw on this section.
 
 
