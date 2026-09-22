@@ -275,7 +275,7 @@ def plot_hk_selected_matrix(matrix: pd.DataFrame, out_path: Path, population: st
         ax.text(position + 0.5, position + 0.5, '--', ha='center', va='center', color='gray',
                 fontsize=9)
     fig.tight_layout()
-    savefig(out_path, dpi=110)
+    savefig(out_path, dpi=150)
 
 
 def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_short: dict,

@@ -255,7 +255,9 @@ def plot_heatmap(matrix, metric: str, output_path: Path, n_folds: Optional[int] 
     }
     label = metric_labels.get(metric, metric)
 
-    fig, ax = plt.subplots(figsize=(9, 7.5))
+    # Same figure size as the capacity matrix in summarize_pair_capacity.py, so the two
+    # 8x8 matrices sit side by side at one scale.
+    fig, ax = plt.subplots(figsize=(6.5, 5.3))
 
     # Use appropriate colormap (lower is better for Brier)
     if metric == "brier":
@@ -270,20 +272,22 @@ def plot_heatmap(matrix, metric: str, output_path: Path, n_folds: Optional[int] 
 
     mask = matrix.isna()
     sns.heatmap(
-        matrix, annot=True, fmt=".3f", cmap=cmap,
+        matrix, annot=True, fmt=".3f", annot_kws={"size": 8}, cmap=cmap,
         vmin=vmin, vmax=vmax, mask=mask,
         square=True, linewidths=0.5, ax=ax,
         cbar_kws={"label": label},
     )
     fold_text = f"{n_folds}-fold CV" if n_folds else "CV"
-    ax.set_title(f"Protein Pair {label} ({fold_text}, mean)", fontsize=14)
+    ax.set_title(f"Protein Pair {label} ({fold_text}, mean)", fontsize=12)
     ax.set_xlabel("")
     ax.set_ylabel("")
+    ax.tick_params(labelsize=10)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
 
     # Diagonal label
     for i in range(len(PROTEINS)):
         ax.text(i + 0.5, i + 0.5, "--", ha="center", va="center",
-                fontsize=10, color="gray")
+                fontsize=9, color="gray")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")

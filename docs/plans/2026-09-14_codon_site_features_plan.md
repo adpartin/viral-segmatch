@@ -111,15 +111,15 @@ Both datasets contain complete sequences at the same pins and use the same featu
 The barplots show gain, SHAP, and permutation importance for Human-H3N2-2024 and
 Human-H3N2-2025.
 
-<img src="../results/figs/2026-09-08_ha_na_codon_importance_barplot.png" width="650" alt="HA-NA codon-site importance, Human-H3N2-2024">
+<img src="../results/figs/2026-09-08_ha_na_codon_importance_barplot.png" width="700" alt="HA-NA codon-site importance, Human-H3N2-2024">
 
-<img src="../results/figs/2026-09-15_ha_na_2025_codon_importance_barplot.png" width="650" alt="HA-NA codon-site importance, Human-H3N2-2025">
+<img src="../results/figs/2026-09-15_ha_na_2025_codon_importance_barplot.png" width="700" alt="HA-NA codon-site importance, Human-H3N2-2025">
 
 The gain traces show where gain falls along HA and NA.
 
-<img src="../results/figs/2026-09-08_ha_na_codon_gain_trace.png" width="650" alt="HA-NA codon-site gain trace, Human-H3N2-2024">
+<img src="../results/figs/2026-09-08_ha_na_codon_gain_trace.png" width="700" alt="HA-NA codon-site gain trace, Human-H3N2-2024">
 
-<img src="../results/figs/2026-09-15_ha_na_2025_codon_gain_trace.png" width="650" alt="HA-NA codon-site gain trace, Human-H3N2-2025">
+<img src="../results/figs/2026-09-15_ha_na_2025_codon_gain_trace.png" width="700" alt="HA-NA codon-site gain trace, Human-H3N2-2025">
 
 The division of gain between the two proteins changed modestly, while its concentration in the
 combined top-25 sites was similar.
@@ -186,7 +186,7 @@ python -m src.analysis.summarize_pair_capacity \
 
 Transcribed from `docs/results/2026-09-08_cds_pair_capacity.md`.
 
-<img src="../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png" width="550" alt="28-pair Hopcroft-Karp capacity, Human-H3N2-2024">
+<img src="../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png" width="600" alt="28-pair Hopcroft-Karp capacity, Human-H3N2-2024">
 
 | Pair ID | Schema pair | Eligible isolates | Unique positives | Unique slot-A | Unique slot-B | HK selected | HK share |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -247,13 +247,15 @@ Human-H3N2-2024.
 
 ### Methods
 
+- The pinned lengths are listed in Scope above. Each pair uses the `HK selected` positive count from
+  Experiment 2. Per-protein CDS completeness is reported in `docs/results/2026-09-07_cds_length_survey.md`
 - One dataset per schema pair, built from `conf/bundles/flu_28p_codon_{pair}.yaml`. The 28
-  children yaml files inherit the master, `conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml`, and each
-  sets only `schema_pair`, so every pair runs under identical rules: Human-H3N2-2024, complete
-  CDS at the pinned length, the `nt_cds` pair key, Hopcroft-Karp to select positives (the `HK selected` positives set),
-  random 4-fold CV.
-- Each schema pair uses its native `HK selected` positives, ranging from 440 for M1-NS1 to 2,042 for PB2-HA (i.e., datasets
-  are not downsampled to a common size, as decided at the end of Experiment 2).
+  children yaml files inherit the master, `conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml`,
+  and each sets only `schema_pair`, so every pair runs under identical rules: Human-H3N2-2024,
+  complete CDS at the pinned length, the `nt_cds` pair key, Hopcroft-Karp to select positives (the
+  `HK selected` positives set), random 4-fold CV.
+- Each schema pair uses its native `HK selected` positives, ranging from 440 for M1-NS1 to 2,042 for
+  PB2-HA (i.e., datasets are not downsampled to a common size, as decided at the end of Experiment 2).
 - The negatives are drawn within each fold at a 1:1 ratio, so each test fold is balanced.
 - The model is LightGBM at a 0.5 threshold (raw test predictions are saved).
 - With balanced test folds, a classifier predicting each class randomly has expected F1 macro near 0.5.
@@ -277,44 +279,44 @@ python -m src.analysis.aggregate_allpairs_results --tag codon \
 
 ### Results
 
-<img src="../results/figs/2026-09-20_h3n2_2024_codon_28pairs_f1_macro.png" width="560" alt="28-pair F1 macro, per-site codon LightGBM, Human-H3N2-2024">
+<img src="../results/figs/2026-09-20_h3n2_2024_codon_28pairs_f1_macro.png" width="600" alt="28-pair F1 macro, per-site codon LightGBM, Human-H3N2-2024">
 
-- Mean ± STD across 4 folds. Precision and recall are means.
+- Mean ± STD across 4 folds.
 - Pairs are ranked by mean F1 macro.
 - All the scores are in
   `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/allpairs_summary.csv`.
 
 
-| Schema pair | HK selected | Features | F1 macro | AUC-ROC | Precision | Recall |
-|---|---:|---:|---:|---:|---:|---:|
-| PB2-HA | 2,042 | 1,327 | 0.909 ± 0.006 | 0.952 ± 0.007 | 0.871 | 0.961 |
-| PB1-NA | 1,212 | 1,229 | 0.893 ± 0.014 | 0.933 ± 0.010 | 0.852 | 0.954 |
-| PB1-HA | 1,392 | 1,326 | 0.883 ± 0.020 | 0.943 ± 0.009 | 0.840 | 0.949 |
-| PB2-PB1 | 1,404 | 1,519 | 0.882 ± 0.030 | 0.940 ± 0.017 | 0.834 | 0.957 |
-| HA-NA | 1,698 | 1,037 | 0.878 ± 0.013 | 0.935 ± 0.007 | 0.829 | 0.954 |
-| PB2-NA | 1,745 | 1,230 | 0.866 ± 0.018 | 0.923 ± 0.010 | 0.814 | 0.950 |
-| PA-HA | 1,944 | 1,284 | 0.850 ± 0.019 | 0.927 ± 0.009 | 0.805 | 0.927 |
-| PB1-PA | 1,341 | 1,476 | 0.849 ± 0.019 | 0.922 ± 0.007 | 0.803 | 0.929 |
-| PB2-NP | 1,512 | 1,259 | 0.840 ± 0.014 | 0.917 ± 0.012 | 0.783 | 0.946 |
-| PA-NA | 1,689 | 1,187 | 0.832 ± 0.009 | 0.909 ± 0.007 | 0.786 | 0.916 |
-| PB1-NP | 1,041 | 1,258 | 0.820 ± 0.021 | 0.904 ± 0.014 | 0.764 | 0.933 |
-| PA-NP | 1,459 | 1,216 | 0.802 ± 0.034 | 0.884 ± 0.033 | 0.753 | 0.908 |
-| HA-NP | 1,482 | 1,066 | 0.797 ± 0.056 | 0.887 ± 0.041 | 0.750 | 0.909 |
-| HA-M1 | 720 | 820 | 0.795 ± 0.022 | 0.855 ± 0.021 | 0.750 | 0.892 |
-| NP-NA | 1,287 | 969 | 0.793 ± 0.007 | 0.882 ± 0.004 | 0.739 | 0.915 |
-| PB2-PA | 2,030 | 1,477 | 0.790 ± 0.046 | 0.876 ± 0.039 | 0.749 | 0.878 |
-| PB1-M1 | 517 | 1,012 | 0.745 ± 0.089 | 0.816 ± 0.051 | 0.697 | 0.928 |
-| NA-M1 | 657 | 723 | 0.733 ± 0.043 | 0.801 ± 0.043 | 0.683 | 0.901 |
-| PB2-M1 | 726 | 1,013 | 0.702 ± 0.026 | 0.775 ± 0.037 | 0.671 | 0.810 |
-| PB2-NS1 | 995 | 991 | 0.697 ± 0.038 | 0.777 ± 0.035 | 0.660 | 0.842 |
-| HA-NS1 | 959 | 798 | 0.689 ± 0.052 | 0.772 ± 0.069 | 0.655 | 0.843 |
-| NA-NS1 | 853 | 701 | 0.685 ± 0.062 | 0.763 ± 0.071 | 0.648 | 0.857 |
-| PB1-NS1 | 704 | 990 | 0.671 ± 0.048 | 0.745 ± 0.066 | 0.639 | 0.827 |
-| PA-NS1 | 952 | 948 | 0.630 ± 0.064 | 0.700 ± 0.071 | 0.612 | 0.800 |
-| NP-NS1 | 806 | 730 | 0.615 ± 0.051 | 0.681 ± 0.060 | 0.597 | 0.811 |
-| NP-M1 | 627 | 752 | 0.611 ± 0.033 | 0.696 ± 0.034 | 0.594 | 0.817 |
-| PA-M1 | 707 | 970 | 0.602 ± 0.053 | 0.675 ± 0.058 | 0.588 | 0.779 |
-| M1-NS1 | 440 | 484 | 0.578 ± 0.061 | 0.676 ± 0.060 | 0.576 | 0.880 |
+| Rank | Schema pair | HK selected | Features | F1 macro | AUC-ROC | Precision | Recall |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | PB2-HA | 2,042 | 1,327 | 0.909 ± 0.006 | 0.952 ± 0.007 | 0.871 ± 0.013 | 0.961 ± 0.007 |
+| 2 | PB1-NA | 1,212 | 1,229 | 0.893 ± 0.014 | 0.933 ± 0.010 | 0.852 ± 0.023 | 0.954 ± 0.009 |
+| 3 | PB1-HA | 1,392 | 1,326 | 0.883 ± 0.020 | 0.943 ± 0.009 | 0.840 ± 0.021 | 0.949 ± 0.024 |
+| 4 | PB2-PB1 | 1,404 | 1,519 | 0.882 ± 0.030 | 0.940 ± 0.017 | 0.834 ± 0.039 | 0.957 ± 0.007 |
+| 5 | HA-NA | 1,698 | 1,037 | 0.878 ± 0.013 | 0.935 ± 0.007 | 0.829 ± 0.015 | 0.954 ± 0.015 |
+| 6 | PB2-NA | 1,745 | 1,230 | 0.866 ± 0.018 | 0.923 ± 0.010 | 0.814 ± 0.018 | 0.950 ± 0.017 |
+| 7 | PA-HA | 1,944 | 1,284 | 0.850 ± 0.019 | 0.927 ± 0.009 | 0.805 ± 0.024 | 0.927 ± 0.008 |
+| 8 | PB1-PA | 1,341 | 1,476 | 0.849 ± 0.019 | 0.922 ± 0.007 | 0.803 ± 0.022 | 0.929 ± 0.009 |
+| 9 | PB2-NP | 1,512 | 1,259 | 0.840 ± 0.014 | 0.917 ± 0.012 | 0.783 ± 0.016 | 0.946 ± 0.010 |
+| 10 | PA-NA | 1,689 | 1,187 | 0.832 ± 0.009 | 0.909 ± 0.007 | 0.786 ± 0.015 | 0.916 ± 0.011 |
+| 11 | PB1-NP | 1,041 | 1,258 | 0.820 ± 0.021 | 0.904 ± 0.014 | 0.764 ± 0.021 | 0.933 ± 0.011 |
+| 12 | PA-NP | 1,459 | 1,216 | 0.802 ± 0.034 | 0.884 ± 0.033 | 0.753 ± 0.035 | 0.908 ± 0.011 |
+| 13 | HA-NP | 1,482 | 1,066 | 0.797 ± 0.056 | 0.887 ± 0.041 | 0.750 ± 0.059 | 0.909 ± 0.016 |
+| 14 | HA-M1 | 720 | 820 | 0.795 ± 0.022 | 0.855 ± 0.021 | 0.750 ± 0.019 | 0.892 ± 0.054 |
+| 15 | NP-NA | 1,287 | 969 | 0.793 ± 0.007 | 0.882 ± 0.004 | 0.739 ± 0.006 | 0.915 ± 0.015 |
+| 16 | PB2-PA | 2,030 | 1,477 | 0.790 ± 0.046 | 0.876 ± 0.039 | 0.749 ± 0.041 | 0.878 ± 0.052 |
+| 17 | PB1-M1 | 517 | 1,012 | 0.745 ± 0.089 | 0.816 ± 0.051 | 0.697 ± 0.073 | 0.928 ± 0.043 |
+| 18 | NA-M1 | 657 | 723 | 0.733 ± 0.043 | 0.801 ± 0.043 | 0.683 ± 0.036 | 0.901 ± 0.020 |
+| 19 | PB2-M1 | 726 | 1,013 | 0.702 ± 0.026 | 0.775 ± 0.037 | 0.671 ± 0.027 | 0.810 ± 0.024 |
+| 20 | PB2-NS1 | 995 | 991 | 0.697 ± 0.038 | 0.777 ± 0.035 | 0.660 ± 0.032 | 0.842 ± 0.043 |
+| 21 | HA-NS1 | 959 | 798 | 0.689 ± 0.052 | 0.772 ± 0.069 | 0.655 ± 0.044 | 0.843 ± 0.016 |
+| 22 | NA-NS1 | 853 | 701 | 0.685 ± 0.062 | 0.763 ± 0.071 | 0.648 ± 0.045 | 0.857 ± 0.095 |
+| 23 | PB1-NS1 | 704 | 990 | 0.671 ± 0.048 | 0.745 ± 0.066 | 0.639 ± 0.040 | 0.827 ± 0.023 |
+| 24 | PA-NS1 | 952 | 948 | 0.630 ± 0.064 | 0.700 ± 0.071 | 0.612 ± 0.060 | 0.800 ± 0.026 |
+| 25 | NP-NS1 | 806 | 730 | 0.615 ± 0.051 | 0.681 ± 0.060 | 0.597 ± 0.040 | 0.811 ± 0.031 |
+| 26 | NP-M1 | 627 | 752 | 0.611 ± 0.033 | 0.696 ± 0.034 | 0.594 ± 0.024 | 0.817 ± 0.048 |
+| 27 | PA-M1 | 707 | 970 | 0.602 ± 0.053 | 0.675 ± 0.058 | 0.588 ± 0.042 | 0.779 ± 0.023 |
+| 28 | M1-NS1 | 440 | 484 | 0.578 ± 0.061 | 0.676 ± 0.060 | 0.576 ± 0.037 | 0.880 ± 0.057 |
 
 
 - F1 macro ranges [0.578, 0.909], with a median of 0.794. All pairs score above 0.5.
@@ -322,8 +324,6 @@ python -m src.analysis.aggregate_allpairs_results --tag codon \
 - The 13 pairs containing M1 or NS1 have the smallest `HK selected`; 12 of them also have the lowest F1 scores.
 - When considering the other 15 pairs, the correlations are much weaker: $\rho$=0.071 with `HK selected` and $\rho$=0.304 with feature width. So the >0.75 correlations between F1 and {`HK selected`, feature width} are driven by the 13 pairs containing M1 or NS1.
 - The pairs differ in several ways, so these correlation results do not establish that either `HK selected` or feature width limits performance.
-- PB2-PA shows that performance cannot be read off capacity. It has the second largest positive
-  count at 2,030 and ranks 16th at 0.790.
 - Recall > Precision in all 28 pairs, so the model over-predicts the positive class at
   0.5 threshold.
 
@@ -338,8 +338,8 @@ Reproducibility:
 Limitations:
 
 - One population: Human-H3N2-2024.
-- 4-fold CV. Do 10-fold next.
-- The datasets acorss the schema pairs do not necessarily share the same isolates.
+- Only 4 CV folds.
+- The datasets across the schema pairs do not necessarily share the same isolates.
 
 What the later experiments need from this:
 
