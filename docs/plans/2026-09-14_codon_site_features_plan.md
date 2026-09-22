@@ -233,7 +233,7 @@ What the later experiments need from this:
 
 #### Decision for Experiments 3 and 4
 
-All 28 schema pairs proceed on their native `HK selected` positives. They are not downsampled to
+All 28 schema pairs proceed with their native `HK selected` positives. They are not downsampled to
 the M1-NS1 floor of 440.
 
 
@@ -242,31 +242,28 @@ the M1-NS1 floor of 440.
 
 ### Question
 
-Run LightGBM on each pair's native `HK selected` positives, for all 28 schema pairs in
+Run LightGBM on each pair's *native* `HK selected` positives, for all 28 schema pairs in
 Human-H3N2-2024.
 
 ### Methods
 
 - One dataset per schema pair, built from `conf/bundles/flu_28p_codon_{pair}.yaml`. The 28
-  children inherit one master, `conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml`, and each
+  children yaml files inherit the master, `conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml`, and each
   sets only `schema_pair`, so every pair runs under identical rules: Human-H3N2-2024, complete
-  CDS at the pinned length, the `nt_cds` pair key, Hopcroft-Karp positive selection with no cap,
-  4 random CV folds, and negatives drawn within each fold at a 1:1 ratio.
-- Each pair trains on its native `HK selected` positives, 440 for M1-NS1 to 2,042 for PB2-HA. No
-  pair is downsampled to a common size, as decided at the end of Experiment 2.
+  CDS at the pinned length, the `nt_cds` pair key, Hopcroft-Karp to select positives (the `HK selected` positives set),
+  random 4-fold CV.
+- Each schema pair uses its native `HK selected` positives, ranging from 440 for M1-NS1 to 2,042 for PB2-HA (i.e., datasets
+  are not downsampled to a common size, as decided at the end of Experiment 2).
+- The negatives are drawn within each fold at a 1:1 ratio, so each test fold is balanced.
+- The model is LightGBM at a 0.5 threshold (raw test predictions are saved).
+- With balanced test folds, a classifier predicting each class randomly has expected F1 macro near 0.5.
 - Features are one ordinal column per codon position, for both slots concatenated. The width is
-  the sum of the two proteins' codon counts, 484 for M1-NS1 to 1,519 for PB2-PB1. Every column is
-  a site rather than a magnitude, so all of them are declared categorical to LightGBM.
-- The model is LightGBM at a 0.5 decision threshold. Raw test predictions are saved. No
-  feature-importance analysis was run.
-- Each test fold is balanced, since negatives are drawn within the fold at a 1:1 ratio. A
-  classifier guessing each class with equal probability has an expected F1 macro near 0.5 there.
-  A classifier predicting one class for every row scores about 0.33.
+  the sum of the two proteins' codon counts (484 for M1-NS1 to 1,519 for PB2-PB1).
 - Before training, all 28 datasets reproduced their `Eligible isolates`, `Unique positives`,
   `Unique slot-A`, `Unique slot-B` and `HK selected` counts from Experiment 2's
   `pair_capacity.csv`, as required by "Dataset checks every experiment must pass"
   (`src/analysis/audit_pair_datasets.py`, 28 passed, 0 failed).
-- 28 pairs by 4 folds is 112 model fits. All 112 completed.
+- 112 models trained (28 pairs x 4 folds).
 
 ```
 python scripts/run_allpairs_baselines.py \
@@ -282,7 +279,11 @@ python -m src.analysis.aggregate_allpairs_results --tag codon \
 
 <img src="../results/figs/2026-09-20_h3n2_2024_codon_28pairs_f1_macro.png" width="560" alt="28-pair F1 macro, per-site codon LightGBM, Human-H3N2-2024">
 
-Mean ± standard deviation across the 4 test folds. Precision and recall are means.
+- Mean ± STD across 4 folds. Precision and recall are means.
+- Pairs are ranked by mean F1 macro.
+- All the scores are in
+  `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/allpairs_summary.csv`.
+
 
 | Schema pair | HK selected | Features | F1 macro | AUC-ROC | Precision | Recall |
 |---|---:|---:|---:|---:|---:|---:|
@@ -315,58 +316,34 @@ Mean ± standard deviation across the 4 test folds. Precision and recall are mea
 | PA-M1 | 707 | 970 | 0.602 ± 0.053 | 0.675 ± 0.058 | 0.588 | 0.779 |
 | M1-NS1 | 440 | 484 | 0.578 ± 0.061 | 0.676 ± 0.060 | 0.576 | 0.880 |
 
-Pairs are ordered by mean F1 macro, from highest to lowest.
 
-- F1 macro runs from 0.578 for M1-NS1 to 0.909 for PB2-HA, with a median of 0.794. Every pair
-  scores above the 0.5 of an equal-probability guess on these balanced folds.
-- Across all 28 pairs, F1 macro is associated with `HK selected` at Spearman 0.757 and with
-  feature width at 0.801, and those two are associated with each other at 0.767. The association
-  is carried by the 13 pairs containing M1 or NS1, which are both the smallest and the
-  lowest-scoring. Among the other 15 pairs it nearly disappears: 0.071 against `HK selected` and
-  0.304 against feature width. These are associations across pairs that differ in many respects
-  at once, and they do not establish that either quantity limits performance.
+- F1 macro ranges [0.578, 0.909], with a median of 0.794. All pairs score above 0.5.
+- Across the 28 pairs, F1 macro correlates with `HK selected` at $\rho$=0.757 and with feature width at $\rho$=0.801 ($\rho$: Spearman correlation).
+- The 13 pairs containing M1 or NS1 have the smallest `HK selected`; 12 of them also have the lowest F1 scores.
+- When considering the other 15 pairs, the correlations are much weaker: $\rho$=0.071 with `HK selected` and $\rho$=0.304 with feature width. So the >0.75 correlations between F1 and {`HK selected`, feature width} are driven by the 13 pairs containing M1 or NS1.
+- The pairs differ in several ways, so these correlation results do not establish that either `HK selected` or feature width limits performance.
 - PB2-PA shows that performance cannot be read off capacity. It has the second largest positive
   count at 2,030 and ranks 16th at 0.790.
-- Twelve of the thirteen pairs containing M1 or NS1 hold the twelve lowest scores. HA-M1 is the
-  exception at 0.795, 14th of 28.
-- Recall exceeds precision in all 28 pairs, so every pair over-predicts the positive class at the
+- Recall > Precision in all 28 pairs, so the model over-predicts the positive class at
   0.5 threshold.
-- HA-NA reproduces the earlier standalone run of the same pair. All four of its test prediction
+
+Reproducibility:
+- HA-NA reproduces the earlier standalone run. All 4 of test set prediction
   files match value for value, although the two runs used different bundles and different dataset
-  directories, which confirms reproducibility for HA-NA across those two paths at a fixed seed.
-  Its F1 macro is the 0.8777 ± 0.0134 reported for `site codon` in
-  `docs/results/2026-09-08_h3n2_2024_progress_report.md`.
-- The other three pairs in that report were downsampled to 1,698 positives, so their codon rows
+  dirs. This confirms reproducibility for HA-NA at a fixed seed (reported in
+  `docs/results/2026-09-08_h3n2_2024_progress_report.md`).
+- The other 3 pairs in that report were downsampled to 1,698 positives, so their codon rows
   are not comparable to the counts used here.
-- AUC-PR, Brier score and the confusion counts for every pair are in
-  `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/allpairs_summary.csv`.
-
-What this does not settle:
-
-- Whether positive count or feature width limits the weaker pairs. The two move together across
-  these 28 pairs, and separating them needs a run that holds one fixed while varying the other.
-- How per-site codon features compare with k-mer, per-site nucleotide or amino-acid features on
-  the remaining 24 pairs. Only HA-NA, PB2-PA, PB2-NA and PA-HA have all four, in
-  `docs/results/2026-09-08_h3n2_2024_progress_report.md`.
-- Which codon positions carry the signal, since no feature-importance analysis was run.
 
 Limitations:
 
-- One population: one year, one subtype, one host. Nothing here says whether the ordering holds
-  for another year or subtype.
-- Four folds. The reported standard deviations describe fold-to-fold variation. They are not
-  confidence intervals, and no test of the difference between two pairs was run.
-- The pairs do not share their retained isolates. Isolate Jaccard between two pairs runs 0.112 to
-  0.568 with a median of 0.234, so a head-to-head difference is not measured on one set of
-  isolates.
-- PB1 pairs have smaller, completeness-selected sets of eligible isolates, since only 55.1% of
-  isolates have a complete PB1 CDS at the 2,277 nt pin. Read them with that in view.
+- One population: Human-H3N2-2024.
+- 4-fold CV. Do 10-fold next.
+- The datasets acorss the schema pairs do not necessarily share the same isolates.
 
 What the later experiments need from this:
 
-- **Experiment 4** compares GenSLM embedded codons against these per-site codon scores. For each
-  schema pair it covers, the comparison is against that pair's F1 macro above, on the same
-  dataset wherever its final design allows.
+- **Experiment 4** compares GenSLM codon embeddings with per-site codon features. For each schema pair included in Experiment 4, both feature types should use the same dataset whenever possible, and their F1 macro scores should be compared.
 - **Experiment 5** does not draw on this section.
 
 
@@ -502,11 +479,11 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 
 ## Execution order
 
-1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 1, done)
-2. Run the codon cross-year importance comparison. (Experiment 1, done)
-3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 2, done)
-4. Build and audit the 28 pinned-length datasets. (Experiment 3, done)
-5. Run the codon 28-pairs screen and aggregate the results. (Experiment 3, done)
+1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 1, DONE)
+2. Run the codon cross-year importance comparison. (Experiment 1, DONE)
+3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 2, DONE)
+4. Build and audit the 28 pinned-length datasets. (Experiment 3, DONE)
+5. Run the codon 28-pairs screen and aggregate the results. (Experiment 3, DONE)
 6. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
    on the four progress-report pairs. (Experiment 4)
 7. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
