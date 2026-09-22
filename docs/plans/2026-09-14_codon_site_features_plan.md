@@ -4,14 +4,19 @@
 
 ## Goal
 
-Follow up on questions raised following `docs/results/2026-09-08_h3n2_2024_progress_report.md` (focused on Human-H3N2-2024):
+Address questions raised following `docs/results/2026-09-08_h3n2_2024_progress_report.md` (focused on Human-H3N2-2024):
 
 1. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
 codon sites?
-2. Check complete CDS (native `HK selected`) pair capacity for all 28 schema pairs.
-3. Run LightGBM on each pair's native `HK selected` positives, for all 28 schema pairs in Human-H3N2-2024.
+2. Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
+using complete CDS at pinned lengths.
+3. Train and evaluate LightGBM for all 28 schema pairs in Human-H3N2-2024, using each pair’s
+native `HK selected` positives and a 1:1 ratio of negatives generated within each fold.
 4. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
-5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while placing homologous sites in shared coordinates? Alignment cannot recover incomplete records, so the question is whether the effort is worth it. See `docs/results/2026-09-07_cds_length_survey.md`, and its "Pin reach by year" section for 2015-2025.
+5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while
+placing homologous sites in shared coordinates? Alignment cannot recover incomplete records,
+so the question is whether the effort is worth it. See `docs/results/2026-09-07_cds_length_survey.md`,
+and its "Pin reach by year" section for 2015-2025.
 
 ## Scope
 
@@ -48,10 +53,9 @@ The six values in `conf/virus/flu.yaml` already equal the Human-H3N2-2024 mode, 
 
 ## Existing code
 
-- `conf/bundles/flu_28_major_protein_pairs_master.yaml` and its 28 child bundles enumerate all protein pairs. Their current population and training settings are not the settings in this plan, so new experiment bundles must override them explicitly.
 - `src/analysis/aggregate_allpairs_results.py` already builds a 28-pair summary and heatmaps. It should be extended only where the current LightGBM/site-feature outputs require it.
-- `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit. Results in docs/results/2026-09-07_cds_length_survey.md.
-- `src/analysis/summarize_pair_capacity.py` builds pair-specific cohorts for the primary analysis and a common cohort for sensitivity analysis. Results in `docs/results/2026-09-08_cds_pair_capacity.md`, which is Experiment 2's reference.
+- `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit. Results in `docs/results/2026-09-07_cds_length_survey.md`.
+- `src/analysis/summarize_pair_capacity.py` gives each schema pair its own eligible isolates. Results in `docs/results/2026-09-08_cds_pair_capacity.md`, which is Experiment 2's reference.
 - `src/analysis/plot_site_importance.py` writes per-site gain, SHAP, and permutation importance by fold.
 
 ## Definitions and interpretation
@@ -62,12 +66,12 @@ Each schema pair is built independently for Human-H3N2-YEAR. An isolate is eligi
 
 For each schema pair, report these counts in order:
 
-1. eligible isolates;
-2. unique observed positive pairs after `nt_cds` pair-key deduplication;
-3. unique slot-A and slot-B sequences;
-4. positives selected by Hopcroft-Karp (`HK selected`);
+1. eligible isolates
+2. unique observed positive pairs after `nt_cds` pair-key deduplication
+3. unique slot-A and slot-B sequences
+4. positives selected by Hopcroft-Karp (`HK selected`)
 5. positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
-   produces it and Experiment 2 does not.
+   produces it and Experiment 2 does not
 
 ### Dataset checks every experiment must pass
 
@@ -162,15 +166,16 @@ population, the partial 2025 season, or correlation among sites.
 
 ### Question
 
-Check complete CDS (native `HK selected`) pair capacity for all 28 schema pairs for Human-H3N2-2024.
+Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024, using
+complete CDS at pinned lengths.
 
 ### Methods
 
-Full method and discussion in `docs/results/2026-09-08_cds_pair_capacity.md`; per-protein
+Methods and discussion in `docs/results/2026-09-08_cds_pair_capacity.md`; per-protein
 completeness and the length pins in `docs/results/2026-09-07_cds_length_survey.md`.
 
-- Population Human-H3N2-2024, the 8 major proteins, `nt_cds` pair key.
-- Each pair uses its own eligible isolates (`--cohort pair`): an isolate needs the pair's two
+- Population: Human-H3N2-2024.
+- Each pair uses its own eligible isolates. An isolate needs the pair's two
   proteins as a complete CDS at the pinned length.
 - The table in Scope shows the length pins.
 
@@ -178,7 +183,6 @@ completeness and the length pins in `docs/results/2026-09-07_cds_length_survey.m
 python -m src.analysis.summarize_pair_capacity \
   --config_bundle flu_8_major_proteins_human_h3n2_2024_pinned_length \
   --proteins PB2 PB1 PA HA NP NA M1 NS1 \
-  --cohort pair \
   --out_dir results/flu/July_2025/pair_capacity_8_proteins
 ```
 
@@ -187,6 +191,8 @@ python -m src.analysis.summarize_pair_capacity \
 Transcribed from `docs/results/2026-09-08_cds_pair_capacity.md`.
 
 <img src="../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png" width="600" alt="28-pair Hopcroft-Karp capacity, Human-H3N2-2024">
+
+- `HK share` = `HK selected` / `Unique positives`. It runs from 22.9% (PA-M1) to 59.8% (PB2-PB1, PB1-HA).
 
 | Pair ID | Schema pair | Eligible isolates | Unique positives | Unique slot-A | Unique slot-B | HK selected | HK share |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -224,12 +230,11 @@ What the later experiments need from this:
 - **Experiment 3** trains on the `HK selected` column: 440 (M1-NS1) to 2,042 (PB2-HA).
   The 13 pairs containing M1 or NS1 hold the 13 lowest counts (M1 or NS1 supply the fewest unique
   sequences).
-- **Experiment 4** runs GenSLM on the same data as Experiment 3, for the pairs it covers (same
-  positive pairs, sequences and folds). Varying CDS length can be explored later, but it would
+- **Experiment 4** runs GenSLM on the same data as Experiment 3 (same
+  positives and negatives, sequences and folds). Varying CDS length can be explored later, but it would
   not recover PB1's 44.7%, which stems from incomplete records rather than the pin.
 - **Experiment 5** does not draw on this section. It addresses complete CDS at more than one
-  length, measured in `docs/results/2026-09-07_cds_length_survey.md` and worked through in
-  Experiment 5 itself.
+  length, measured in `docs/results/2026-09-07_cds_length_survey.md`.
 
 #### Decision for Experiments 3 and 4
 
@@ -242,8 +247,8 @@ the M1-NS1 floor of 440.
 
 ### Question
 
-Run LightGBM on each pair's *native* `HK selected` positives, for all 28 schema pairs in
-Human-H3N2-2024.
+Train and evaluate LightGBM for all 28 schema pairs in Human-H3N2-2024, using each pair’s
+native `HK selected` positives and a 1:1 ratio of negatives generated within each fold.
 
 ### Methods
 
@@ -352,7 +357,7 @@ What the later experiments need from this:
 
 ### Question
 
-Do GenSLM embedded codons perform better as features for LightGBM than per-site codon features?
+Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
 
 ### Methods
 
@@ -528,7 +533,7 @@ Names are provisional until implementation begins.
 | item | purpose |
 |---|---|
 | `src/analysis/compare_site_importance_across_years.py` | compare annual per-fold importance tables and produce shared-coordinate plots |
-| `src/analysis/summarize_pair_capacity.py` | add an explicit pair-specific-cohort mode while preserving the current common-cohort mode |
+| `src/analysis/summarize_pair_capacity.py` | decide eligibility per schema pair rather than over one shared set of isolates |
 | `src/analysis/aggregate_allpairs_results.py` | report F1 macro and AUC-PR alongside the existing metrics, and plot an F1 macro heatmap |
 | `scripts/run_allpairs_baselines.py` | train a baseline over every fold of a set of built pair datasets, and aggregate each pair |
 | `src/preprocess/align_cds_by_protein.py` | alignment pilot; added only after its input/output contract is fixed |

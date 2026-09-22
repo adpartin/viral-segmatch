@@ -857,11 +857,11 @@ Related: `docs/results/2026-09-08_cds_pair_capacity.md`.
       - HA–NA, PB2–PA, PB2–NA, and PA–HA.
       - Human H3N2 collected in 2024.
       - Each pair schema is filtered independently to keep complete CDS at the pair's pinned lengths.
-      - No common (six-protein) cohort is imposed. Therefore, eligible isolates can differ among schemas.
+      - Eligibility is decided per schema pair, so the four pairs keep different isolates.
       - Target: 1,698 positives per schema. After independent Human H3N2 2024 completeness and
         pinned-length filtering, HA-NA has the smallest Hopcroft-Karp matching of the four schemas
-        at 1,698 positives, so it sets the common sample size. The common six-protein cohort is not
-        used here; under that restriction, HA-NA would retain 1,686 positives.
+        at 1,698 positives, so it sets the common sample size. An earlier audit that instead gave
+        every pair the isolates carrying all six surveyed proteins left HA-NA with 1,686.
 
   2. Build and audit equal-count datasets — DONE (2026-09-08).
       - `src/analysis/build_equal_count_pair_datasets.py` wraps the existing selector for this

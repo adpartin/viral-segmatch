@@ -1,8 +1,8 @@
 """Tests for `src/analysis/summarize_pair_capacity.py`.
 
 Covers:
-  1. common_isolate_cohort keeps only isolates carrying every requested protein
-  2. It rejects a protein that appears in no row, rather than returning an empty cohort
+  1. isolates_carrying_all keeps only isolates carrying every requested protein
+  2. It rejects a protein that appears in no row, rather than returning an empty set
   3. isolate_overlap reports shared counts and Jaccard, and orders by descending Jaccard
   4. Disjoint matchings give Jaccard 0, identical ones give 1
   5. isolate_overlap marks the combinations whose two schema pairs share a protein
@@ -27,9 +27,9 @@ from src.analysis.summarize_pair_capacity import (  # noqa: E402
     CAPACITY_COLUMNS,
     OVERLAP_COLUMNS,
     REUSE_COLUMNS,
-    common_isolate_cohort,
     hk_selected_matrix,
     isolate_overlap,
+    isolates_carrying_all,
     segment_numbers,
     sequence_reuse,
     sort_by_segment,
@@ -50,21 +50,21 @@ def _cds(pairs):
                           'canonical_segment': SEGMENT_OF[fn]} for iso, fn in pairs])
 
 
-def test_cohort_keeps_only_isolates_carrying_every_protein():
+def test_isolates_carrying_all_keeps_only_isolates_with_every_protein():
     # i1 has all three; i2 is missing M1; i3 has only HA.
     cds = _cds([('i1', HA), ('i1', NA), ('i1', M1),
                 ('i2', HA), ('i2', NA),
                 ('i3', HA)])
-    assert common_isolate_cohort(cds, ['HA', 'NA', 'M1'], SHORT) == {'i1'}
-    assert common_isolate_cohort(cds, ['HA', 'NA'], SHORT) == {'i1', 'i2'}
-    assert common_isolate_cohort(cds, ['HA'], SHORT) == {'i1', 'i2', 'i3'}
+    assert isolates_carrying_all(cds, ['HA', 'NA', 'M1'], SHORT) == {'i1'}
+    assert isolates_carrying_all(cds, ['HA', 'NA'], SHORT) == {'i1', 'i2'}
+    assert isolates_carrying_all(cds, ['HA'], SHORT) == {'i1', 'i2', 'i3'}
 
 
-def test_cohort_rejects_a_protein_with_no_rows():
-    # Silently returning an empty cohort would look like a data problem rather than a typo.
+def test_isolates_carrying_all_rejects_a_protein_with_no_rows():
+    # Silently returning an empty set would look like a data problem rather than a typo.
     cds = _cds([('i1', HA), ('i1', NA)])
     with pytest.raises(ValueError, match=r"no rows for \['M1'\]"):
-        common_isolate_cohort(cds, ['HA', 'NA', 'M1'], SHORT)
+        isolates_carrying_all(cds, ['HA', 'NA', 'M1'], SHORT)
 
 
 def test_isolate_overlap_counts_and_orders():
@@ -193,8 +193,8 @@ def test_column_lists():
 
 if __name__ == '__main__':
     tests = [
-        test_cohort_keeps_only_isolates_carrying_every_protein,
-        test_cohort_rejects_a_protein_with_no_rows,
+        test_isolates_carrying_all_keeps_only_isolates_with_every_protein,
+        test_isolates_carrying_all_rejects_a_protein_with_no_rows,
         test_isolate_overlap_counts_and_orders,
         test_isolate_overlap_endpoints,
         test_isolate_overlap_marks_shared_protein,

@@ -14,8 +14,8 @@ artifacts:      results/flu/July_2025/pair_capacity_8_proteins/
 depends_on:     [docs/results/2026-09-07_cds_length_survey.md]
 ```
 
-Replaces the 2026-09-08 six-protein audit, which used a common cohort. This 28-pair audit uses
-pair-specific eligibility.
+Replaces the 2026-09-08 six-protein audit, which gave every pair one shared set of isolates.
+This 28-pair audit decides eligibility per pair.
 
 ## Question
 
@@ -29,13 +29,12 @@ pair-specific eligibility.
 python -m src.analysis.summarize_pair_capacity \
   --config_bundle flu_8_major_proteins_human_h3n2_2024_pinned_length \
   --proteins PB2 PB1 PA HA NP NA M1 NS1 \
-  --cohort pair \
   --out_dir results/flu/July_2025/pair_capacity_8_proteins
 ```
 
 - **Population**: Human-H3N2-2024, 5,346 isolates, each carrying a record for all 8 proteins.
-- **Eligible isolates**: each pair uses its own eligible isolates (`--cohort pair`) — an isolate
-  needs the pair's two proteins as a complete CDS at the pinned length, not the other six.
+- **Eligible isolates**: each pair uses its own eligible isolates. An isolate needs the pair's
+  two proteins as a complete CDS at the pinned length, not the other six.
 - **Pins**: the six in `conf/virus/flu.yaml`, plus PB1 at 2,277 nt and NS1 at 693 nt from the
   bundle. Reach by year is in the survey's "Pin reach by year" section.
 - **`Unique positives`**: observed same-isolate pairs, deduplicated on the `nt_cds` pair key.

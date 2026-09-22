@@ -6,8 +6,8 @@ protein; this one works per pair, which is the unit an experiment is built on.
 How?
 
 - Each pair keeps the isolates carrying its own two proteins as a complete CDS at the pinned
-  length. `--cohort common` instead gives every pair the isolates carrying all `--proteins`, which
-  costs a pair the isolates missing a protein it does not contain.
+  length. Requiring every pair to carry all `--proteins` instead would cost a pair the isolates
+  missing a protein it does not contain, so eligibility is decided per pair.
 - Pairs are enumerated in canonical protein order, so `Pair ID` reads as segment numbers: PB2-HA
   is `1-4`.
 - `Unique positives` counts observed same-isolate pairs after deduplicating on the `nt_cds` pair
@@ -27,7 +27,7 @@ How?
 
 CLI:
     python -m src.analysis.summarize_pair_capacity
-    python -m src.analysis.summarize_pair_capacity --proteins HA NA PB2 PA --cohort common
+    python -m src.analysis.summarize_pair_capacity --proteins HA NA PB2 PA
 
 Notes:
 
@@ -89,7 +89,7 @@ REUSE_COLUMNS = ['Schema pair', 'slot', 'protein', 'Unique positives', 'unique s
                  'reuse mean', 'reuse median', 'reuse p90', 'reuse max', 'singleton share']
 
 
-def common_isolate_cohort(cds: pd.DataFrame, proteins: list, function_to_short: dict) -> set:
+def isolates_carrying_all(cds: pd.DataFrame, proteins: list, function_to_short: dict) -> set:
     """Isolates carrying a record for every one of `proteins`.
 
     Args:
@@ -106,7 +106,7 @@ def common_isolate_cohort(cds: pd.DataFrame, proteins: list, function_to_short: 
     short = cds['function'].map(function_to_short)
     absent = [p for p in proteins if p not in set(short)]
     if absent:
-        raise ValueError(f"common_isolate_cohort: no rows for {absent}.")
+        raise ValueError(f"isolates_carrying_all: no rows for {absent}.")
 
     carried = cds.assign(short=short).groupby('assembly_id')['short'].agg(set)
     wanted = set(proteins)
@@ -280,50 +280,37 @@ def plot_hk_selected_matrix(matrix: pd.DataFrame, out_path: Path, population: st
 
 def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_short: dict,
                             canonical_order: list, pair_key_alphabet: str,
-                            population: str = 'all', cohort_mode: str = 'pair',
+                            population: str = 'all',
                             ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Positive and matched-positive counts for every schema pair over `proteins`.
 
     Args:
       kept: front-end rows already filtered to the population and to complete CDS at the pinned
-          length, before any cohort is taken.
+          length, before each pair's eligible isolates are taken.
       proteins: short protein names to pair up, taken two at a time.
       function_to_short: full function name -> short protein name.
       canonical_order: short names in canonical order, fixing each pair's slot A / slot B.
       pair_key_alphabet: alphabet the positive dedup keys on, e.g. `nt_cds`.
       population: label describing what `kept` was filtered to.
-      cohort_mode: `pair` builds each pair from the isolates carrying its own two proteins;
-          `common` builds every pair from the isolates carrying all of `proteins`.
 
     Returns:
       The capacity table ordered by descending `HK selected`, the isolate-overlap table, and the
       sequence-reuse table.
 
-    Raises:
-      ValueError: `cohort_mode` is not `pair` or `common`.
     """
-    if cohort_mode not in ('pair', 'common'):
-        raise ValueError(f"cohort_mode must be 'pair' or 'common'; got {cohort_mode!r}.")
     full_of = {short: full for full, short in function_to_short.items()}
     hash_col_a, hash_col_b = schema.hash_col_ab(pair_key_alphabet)
     segment_of = segment_numbers(kept, function_to_short)
-
-    # Under `common` every pair draws on the same isolates, which costs a pair the isolates that
-    # are missing a protein it does not contain. On Human-H3N2-2024 requiring all 8 proteins
-    # leaves 2,922 isolates against HA-NA's own 5,173, because only 2,945 have a complete PB1.
-    if cohort_mode == 'common':
-        shared = common_isolate_cohort(kept, proteins, function_to_short)
 
     rows = []
     reuse_rows = []
     retained_isolates = {}
     for protein_a, protein_b in canonical_protein_pairs(proteins, canonical_order):
         label = f'{protein_a}-{protein_b}'
-        eligible = (shared if cohort_mode == 'common'
-                    else common_isolate_cohort(kept, [protein_a, protein_b], function_to_short))
-        cohort = kept[kept['assembly_id'].isin(eligible)]
+        eligible = isolates_carrying_all(kept, [protein_a, protein_b], function_to_short)
+        eligible_rows = kept[kept['assembly_id'].isin(eligible)]
         positives, _ = create_positive_pairs_v2(
-            cohort, schema_pair=(full_of[protein_a], full_of[protein_b]),
+            eligible_rows, schema_pair=(full_of[protein_a], full_of[protein_b]),
             pair_key_alphabet=pair_key_alphabet)
         selected, _ = select_positive_pairs(
             positives, 'hopcroft_karp', hash_col_a, hash_col_b)
@@ -368,10 +355,6 @@ def main() -> None:
     parser.add_argument('--year_range', nargs=2, type=int, default=None, metavar=('MIN', 'MAX'))
     parser.add_argument('--population', default=None,
                         help='label for the population; defaults to the filters applied')
-    parser.add_argument('--cohort', choices=['pair', 'common'], default='pair',
-                        help="'pair' builds each schema pair from the isolates carrying its own "
-                             "two proteins; 'common' builds every pair from the isolates carrying "
-                             "all --proteins")
     parser.add_argument('--out_dir', type=Path,
                         default=PROJ / 'results/flu/July_2025/pair_capacity')
     args = parser.parse_args()
@@ -409,19 +392,14 @@ def main() -> None:
     cds_path = prot_path / 'cds_dna_final.parquet'
 
     # One front-end for every protein at once, so all pairs are drawn from the same
-    # metadata-filtered source population before their own cohorts are taken.
+    # metadata-filtered source population before each takes its own eligible isolates.
     frontend = build_frontend(config, prot_path / 'protein_final.parquet',
                               tuple(full_of[p] for p in args.proteins), cds_final_path=cds_path)
     kept, _ = filter_complete_cds_at_pinned_length(frontend, cds_path, pins, function_to_short)
 
     n_population = kept['assembly_id'].nunique()
-    if args.cohort == 'common':
-        shared = common_isolate_cohort(kept, args.proteins, function_to_short)
-        print(f"\nCommon cohort: {len(shared):,} of {n_population:,} isolates carry all "
-              f"{len(args.proteins)} proteins at their pinned length")
-    else:
-        print(f"\nPair-specific cohorts over {n_population:,} isolates: each pair keeps the "
-              f"isolates carrying its own two proteins at their pinned length")
+    print(f"\nEligible isolates over {n_population:,} in the population: each pair keeps the "
+          f"isolates carrying its own two proteins at their pinned length")
 
     # Built from the config rather than from `args`, so a bundle's own filters are named even when
     # nothing was passed on the command line. `population_label` returns 'all' for no filter, so
@@ -435,7 +413,7 @@ def main() -> None:
         passage=getattr(config.dataset, 'passage', None))
     capacity, overlap, reuse = summarize_pair_capacity(
         kept, args.proteins, function_to_short, canonical_order, pair_key_alphabet,
-        population=population, cohort_mode=args.cohort)
+        population=population)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     capacity_path = args.out_dir / 'pair_capacity.csv'
@@ -465,8 +443,8 @@ def main() -> None:
           f"{overlap['isolate jaccard'].median():.3f} over all {len(overlap):,} combinations, and "
           f"{with_shared_protein['isolate jaccard'].median():.3f} over the "
           f"{len(with_shared_protein):,} whose schema pairs share a protein. Two pairs are less "
-          f"comparable than a shared cohort suggests, because each matching keeps its own "
-          f"isolates.")
+          f"comparable than one shared set of isolates would suggest, because each matching keeps "
+          f"its own isolates.")
     # The mean rather than the median, because the distribution is long-tailed: most sequences
     # are observed once, so the median is 1 for nearly every pair and slot.
     heaviest = reuse.loc[reuse['reuse mean'].idxmax()]
