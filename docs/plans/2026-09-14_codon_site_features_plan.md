@@ -4,13 +4,13 @@
 
 ## Goal
 
-Address questions raised following `docs/results/2026-09-08_h3n2_2024_progress_report.md` (focused on Human-H3N2-2024):
+Address questions raised following `docs/results/2026-09-08_h3n2_2024_progress_report.md` (focus on Human-H3N2-2024):
 
 1. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
 codon sites?
 2. Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
-using complete CDS at pinned lengths.
-3. Train and evaluate LightGBM for all 28 schema pairs in Human-H3N2-2024, using each pair’s
+while considering only complete CDS at pinned lengths.
+3. Train and evaluate LightGBM for the 28 schema pairs in Human-H3N2-2024, using each pair’s
 native `HK selected` positives and a 1:1 ratio of negatives generated within each fold.
 4. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
 5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while
@@ -20,18 +20,15 @@ and its "Pin reach by year" section for 2015-2025.
 
 ## Scope
 
-- Population (metadata filters): Human-H3N2.
-- Baseline year for the 28-pairs screen: 2024.
-- Years for the feature importance comparison: 2024 and 2025.
-- Proteins: PB2, PB1, PA, HA, NP, NA, M1, NS1.
-- Baseline cross-year schema pair: HA-NA.
+- Population (metadata filters): Human-H3N2-2024.
+- 8 major Proteins: PB2, PB1, PA, HA, NP, NA, M1, NS1.
 - Positive pairs: observed same-isolate pairs, deduplicated by `nt_cds` pair key.
 - Positive selection: Hopcroft-Karp, so each retained CDS occurs at most once in each slot.
 - Splitting: 4-fold random CV with negatives generated within each fold.
-- Features: per-site codons and GenSLM embedded codons. Nucleotide (nt) 6-mers and amino-acids (aa) could be used later.
+- Features: per-site codons and GenSLM embedded codons. Nucleotide (nt) 6-mers and amino-acids
+  (aa) will be added later for the full analysis.
 - Feature importance measure: fold-averaged LightGBM gain, SHAP, test set permutation.
-
-Experiments 1-3 (and maybe 4) should use the same pin table. This keeps the feature dimensions and site indices consistent across runs. It does not establish that corresponding positions are homologous, which needs separate alignment validation. Every protein is pinned to its Human-H3N2-2024 complete-CDS length, and the same value is used in 2025.
+- Experiments 1-4 should use the same pin table (below). This keeps the feature dimensions and site indices consistent across runs. It does not establish that corresponding positions are homologous, which needs separate alignment validation or entropy analysis.
 
 | Segment ID | protein | pin (nt) | source |
 | --- |---|---:|---|
@@ -44,12 +41,22 @@ Experiments 1-3 (and maybe 4) should use the same pin table. This keeps the feat
 | 7 | M1 | 759 | `conf/virus/flu.yaml` |
 | 8 | NS1 | 693 | bundle override |
 
-The six values in `conf/virus/flu.yaml` already equal the Human-H3N2-2024 mode, so that file needs no change. PB1 and NS1 come from a bundle-level `virus.cds_length` override, which merges with the six. How far each pin reaches into earlier years is measured in the "Pin reach by year" section of `docs/results/2026-09-07_cds_length_survey.md`.
+Per-site features need one pinned CDS length for each protein. For PB2, PA, HA, NP, NA, and M1,
+the same length holds across H3N2 and H1N1. These six pins are stored in `conf/virus/flu.yaml`
+and match the most common complete-CDS lengths in Human-H3N2-2024. This experiment adds pins
+for PB1 (2,277 nt) and NS1 (693 nt) through a bundle-level `virus.cds_length` override. The
+override adds these two values to the six shared pins. PB1 and NS1 are kept out of `conf/virus/flu.yaml`
+because that file is shared across influenza A populations. Their Human-H3N2 pins do not apply
+to H1N1, where PB1 is typically 2,274 nt and NS1 is 660 nt. Using the Human-H3N2 values for H1N1
+would cause check_cds_length to fail. How many isolates each pin retains by year is reported
+under “Pin reach by year” in `docs/results/2026-09-07_cds_length_survey.md`.
 
-## Current evidence
+## Caveats
 
-- For Human-H3N2-2024, only 55.3% of isolates have a complete PB1 (alignment cannot fix that). See `docs/results/2026-09-07_cds_length_survey.md` section "Results: Human-H3N2-2024".
-- From Experiment 2, the `HK selected` positives count ranges 440 to 2,042 across the 28 pairs for Human-H3N2-2024, with `M1` or `NS1` involved in the lowest counts.
+- For Human-H3N2-2024, only 55.3% of isolates have a complete PB1 (alignment cannot fix that).
+See `docs/results/2026-09-07_cds_length_survey.md` section "Results: Human-H3N2-2024".
+- From Experiment 2, the `HK selected` positives count ranges 440 to 2,042 across the 28 pairs
+for Human-H3N2-2024, with `M1` or `NS1` involved in the lowest counts.
 
 ## Existing code
 
@@ -166,8 +173,8 @@ population, the partial 2025 season, or correlation among sites.
 
 ### Question
 
-Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024, using
-complete CDS at pinned lengths.
+Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
+while considering only complete CDS at pinned lengths.
 
 ### Methods
 
