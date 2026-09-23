@@ -41,15 +41,20 @@ and its "Pin reach by year" section for 2015-2025.
 | 7 | M1 | 759 | `conf/virus/flu.yaml` |
 | 8 | NS1 | 693 | bundle override |
 
-Per-site features need one pinned CDS length for each protein. For PB2, PA, HA, NP, NA, and M1,
-the same length holds across H3N2 and H1N1. These six pins are stored in `conf/virus/flu.yaml`
-and match the most common complete-CDS lengths in Human-H3N2-2024. This experiment adds pins
-for PB1 (2,277 nt) and NS1 (693 nt) through a bundle-level `virus.cds_length` override. The
-override adds these two values to the six shared pins. PB1 and NS1 are kept out of `conf/virus/flu.yaml`
-because that file is shared across influenza A populations. Their Human-H3N2 pins do not apply
-to H1N1, where PB1 is typically 2,274 nt and NS1 is 660 nt. Using the Human-H3N2 values for H1N1
-would cause check_cds_length to fail. How many isolates each pin retains by year is reported
-under “Pin reach by year” in `docs/results/2026-09-07_cds_length_survey.md`.
+- PB1 and NS1 are not pinned in `conf/virus/flu.yaml` because no single length works across
+all populations covered by that shared configuration.
+- NS1: Human-H3N2 uses a 693-nt pin. This is the modal complete-CDS length in every year from
+2015 through 2025. Other populations have different dominant lengths; for example, H1N1 is
+dominated by 660-nt records in the corpus.
+- PB1: Within Human-H3N2, the modal complete-CDS length is 2,274 nt from 2015 through 2023.
+However, its becomes 2,277 nt in 2024 and 2025. Both lengths are common in 2023, so no single
+PB1 pin works across the full period.
+- The Human-H3N2 experiments therefore add PB1 and NS1 pins through a bundle-level override:
+2,277 nt for PB1 and 693 nt for NS1.
+- Putting these population-specific values in the shared file could cause check_cds_length
+to fail when a run uses a population with a different modal length.
+- How many isolates each pin retains by year is reported under “Pin reach by year” in
+`docs/results/2026-09-07_cds_length_survey.md`.
 
 ## Caveats
 
@@ -57,13 +62,6 @@ under “Pin reach by year” in `docs/results/2026-09-07_cds_length_survey.md`.
 See `docs/results/2026-09-07_cds_length_survey.md` section "Results: Human-H3N2-2024".
 - From Experiment 2, the `HK selected` positives count ranges 440 to 2,042 across the 28 pairs
 for Human-H3N2-2024, with `M1` or `NS1` involved in the lowest counts.
-
-## Existing code
-
-- `src/analysis/aggregate_allpairs_results.py` already builds a 28-pair summary and heatmaps. It should be extended only where the current LightGBM/site-feature outputs require it.
-- `src/analysis/summarize_cds_lengths.py` provides the per-protein completeness and length audit. Results in `docs/results/2026-09-07_cds_length_survey.md`.
-- `src/analysis/summarize_pair_capacity.py` gives each schema pair its own eligible isolates. Results in `docs/results/2026-09-08_cds_pair_capacity.md`, which is Experiment 2's reference.
-- `src/analysis/plot_site_importance.py` writes per-site gain, SHAP, and permutation importance by fold.
 
 ## Definitions and interpretation
 
@@ -73,12 +71,14 @@ Each schema pair is built independently for Human-H3N2-YEAR. An isolate is eligi
 
 For each schema pair, report these counts in order:
 
-1. eligible isolates
-2. unique observed positive pairs after `nt_cds` pair-key deduplication
-3. unique slot-A and slot-B sequences
-4. positives selected by Hopcroft-Karp (`HK selected`)
-5. positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
+1. Eligible isolates
+2. Unique observed positive pairs after `nt_cds` pair-key deduplication
+3. Unique slot-A and slot-B sequences
+4. Positives selected by Hopcroft-Karp (`HK selected`)
+5. Positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
    produces it and Experiment 2 does not
+
+`Eligible isolates`	`Unique positives`	`Unique slot-A`	`Unique slot-B`	`HK selected`	`HK share`
 
 ### Dataset checks every experiment must pass
 
@@ -533,19 +533,24 @@ The final report should contain:
 6. limitations from sampling, partial 2025 coverage, correlated sites, and metadata shortcuts;
 7. a recommendation to continue, narrow the scope, or archive the project.
 
-## Planned code and artifacts
+## Code and artifacts
 
-Names are provisional until implementation begins.
+Every script this plan runs, and where its output lands. The purpose column also records what a
+caller has to know before using the script, not only what it does.
 
-| item | purpose |
-|---|---|
-| `src/analysis/compare_site_importance_across_years.py` | compare annual per-fold importance tables and produce shared-coordinate plots |
-| `src/analysis/summarize_pair_capacity.py` | decide eligibility per schema pair rather than over one shared set of isolates |
-| `src/analysis/aggregate_allpairs_results.py` | report F1 macro and AUC-PR alongside the existing metrics, and plot an F1 macro heatmap |
-| `scripts/run_allpairs_baselines.py` | train a baseline over every fold of a set of built pair datasets, and aggregate each pair |
-| `src/preprocess/align_cds_by_protein.py` | alignment pilot; added only after its input/output contract is fixed |
-| `results/flu/July_2025/cross_year_site_importance/` | cross-year tables, audits, and figures |
-| `results/flu/July_2025/pair_capacity_8_proteins/` | 28-pair capacity audit |
-| `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/` | 28-pairs codon summaries and figures |
-| `results/flu/July_2025/cds_alignment_pilot/` | alignment audit, mappings, and validation results |
-
+| item | status | purpose and contract |
+|---|---|---|
+| `src/analysis/summarize_cds_lengths.py` | built | per-protein CDS completeness and length survey; decides which proteins can be pinned. Results in `docs/results/2026-09-07_cds_length_survey.md` |
+| `src/analysis/summarize_pair_capacity.py` | built | the five capacity counts per schema pair, each pair on its own eligible isolates. Writes 6 files to `pair_capacity_8_proteins/`. Results in `docs/results/2026-09-08_cds_pair_capacity.md` |
+| `src/embeddings/compute_site_features.py` | built | builds the per-site caches `site_features_{unit}_{PROTEIN}.npz` + `_index.parquet` + `_metadata.json` under `data/embeddings/{virus}/{version}/`. Skips a protein already cached; `--force_recompute` rebuilds. A cache is corpus-wide but pin-specific, so a changed pin needs a rebuild |
+| `src/analysis/audit_pair_datasets.py` | built | preflight: checks built datasets against `pair_capacity.csv` and the settings they claim. Run between building and training |
+| `scripts/run_allpairs_baselines.py` | built | trains a baseline over every fold of a set of built datasets and aggregates each pair. Writes the CV layout `run_cv_lambda.py` writes, so the aggregators read it unchanged |
+| `src/models/train_pair_baselines.py` | built | trains one baseline on one fold directory. The LightGBM path; `train_pair_classifier.py` is the MLP path and cannot run a baseline |
+| `src/analysis/aggregate_allpairs_results.py` | built | rolls 28 pairs into one summary and 8x8 heatmaps. Globs `cv_flu_28p_*` under `models/{virus}/{version}/cv_runs/`, reads the pair from the two tokens after `flu_28p_`, and `--tag` selects a variant by the suffix after them |
+| `src/analysis/plot_site_importance.py` | built | per-site gain, SHAP and permutation importance. Writes fold-averaged shares with standard deviations, and the pre-average values in `site_importance_{unit}_per_fold.csv` |
+| `src/analysis/compare_site_importance_across_years.py` | built | compares two years' per-fold importance tables on shared coordinates |
+| `src/preprocess/align_cds_by_protein.py` | not written | alignment pilot; added only after its input/output contract is fixed |
+| `results/flu/July_2025/cross_year_site_importance/` | written | cross-year tables, audits, and figures |
+| `results/flu/July_2025/pair_capacity_8_proteins/` | written | 28-pair capacity audit |
+| `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/` | written | 28-pair codon summaries and figures |
+| `results/flu/July_2025/cds_alignment_pilot/` | not created | alignment audit, mappings, and validation results |
