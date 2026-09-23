@@ -26,7 +26,7 @@ CLI:
 Notes:
 
 - Exits non-zero if any check fails, so it can gate a training script.
-- `--capacity_csv` defaults to Experiment 2's output. Its `Schema pair` column is the join key.
+- `--capacity_csv` defaults to Experiment 1's output. Its `Schema pair` column is the join key.
 - Read that CSV with `keep_default_na=False, na_values=['']`, since `NA` is Neuraminidase.
 
 Outputs:
@@ -194,7 +194,7 @@ def audit_run(run_dir: Path, capacity: pd.DataFrame, expect: dict) -> tuple:
 
     failures.extend(check_caches(config, str(config.site.unit)))
 
-    notes = [f'{key}: run has {value!r}, Experiment 3 trains with {TRAINING_EXPECT[key]!r}'
+    notes = [f'{key}: run has {value!r}, Experiment 2 trains with {TRAINING_EXPECT[key]!r}'
              for key, value in read_settings(config, list(TRAINING_EXPECT)).items()
              if value != TRAINING_EXPECT[key]]
     return pair, failures, notes

@@ -1,5 +1,5 @@
 # Master bundle for the 28-pair per-site codon screen on Human-H3N2-2024.
-# Experiment 3 of docs/plans/2026-09-14_codon_site_features_plan.md.
+# Experiment 2 of docs/plans/2026-09-14_codon_site_features_plan.md.
 #
 # Do NOT run this bundle directly: schema_pair is null and each of the 28 children sets it.
 # Inheritance: flu_8_major_proteins_human_h3n2_2024_pinned_length -> this file -> 28 children.
@@ -9,7 +9,7 @@
 # overrides that conf/virus/flu.yaml does not carry, 4-fold random CV, the nt_cds pair key,
 # within_fold negatives at a 1:1 ratio, and require_complete_cds_at_pinned_length.
 #
-# What this file adds is the recipe Experiment 1 reached for HA-NA, in
+# What this file adds is the recipe Experiment 4 reached for HA-NA, in
 # flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_site_codon: Hopcroft-Karp
 # positive selection and per-site codon features. The parent inherits from the `_pinned_length`
 # bundle rather than its `_hopcroft_karp` sibling, so `method` has to be set here rather than

@@ -3,7 +3,7 @@
 # Mirrors flu_ha_na_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_site_codon on the
 # host-filtered population. The four-pair experiment
 # (docs/results/2026-09-08_h3n2_2024_progress_report.md) reached these settings through run-time
-# overrides, so its recipe lived only in each run's resolved_config.yaml. Experiment 1 of
+# overrides, so its recipe lived only in each run's resolved_config.yaml. Experiment 4 of
 # docs/plans/2026-09-14_codon_site_features_plan.md compares 2024 against
 # 2025, and both years have to be configured the same way from a bundle for that comparison to
 # rest on something a reader can check.

@@ -6,13 +6,13 @@
 
 Address questions raised following `docs/results/2026-09-08_h3n2_2024_progress_report.md` (focus on Human-H3N2-2024):
 
-1. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
-codon sites?
-2. Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
+1. Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
 while considering only complete CDS at pinned lengths.
-3. Train and evaluate LightGBM for the 28 schema pairs in Human-H3N2-2024, using each pair’s
+2. Train and evaluate LightGBM for the 28 schema pairs in Human-H3N2-2024, using each pair’s
 native `HK selected` positives and a 1:1 ratio of negatives generated within each fold.
-4. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
+3. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
+4. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
+codon sites?
 5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while
 placing homologous sites in shared coordinates? Alignment cannot recover incomplete records,
 so the question is whether the effort is worth it. See `docs/results/2026-09-07_cds_length_survey.md`,
@@ -60,116 +60,16 @@ to fail when a run uses a population with a different modal length.
 
 - For Human-H3N2-2024, only 55.3% of isolates have a complete PB1 (alignment cannot fix that).
 See `docs/results/2026-09-07_cds_length_survey.md` section "Results: Human-H3N2-2024".
-- From Experiment 2, the `HK selected` positives count ranges 440 to 2,042 across the 28 pairs
+- From Experiment 1, the `HK selected` positives count ranges 440 to 2,042 across the 28 pairs
 for Human-H3N2-2024, with `M1` or `NS1` involved in the lowest counts.
 
-## Definitions and interpretation
+## Dataset checks every experiment must pass
 
-### Population for a schema pair
-
-Each schema pair is built independently for Human-H3N2-YEAR. An isolate is eligible for a pair if it has both required proteins and complete CDS.
-
-For each schema pair, report these counts in order:
-
-1. Eligible isolates
-2. Unique observed positive pairs after `nt_cds` pair-key deduplication
-3. Unique slot-A and slot-B sequences
-4. Positives selected by Hopcroft-Karp (`HK selected`)
-5. Positives and negatives in each CV fold. This one needs built CV folds, so Experiment 3
-   produces it and Experiment 2 does not
-
-`Eligible isolates`	`Unique positives`	`Unique slot-A`	`Unique slot-B`	`HK selected`	`HK share`
-
-### Dataset checks every experiment must pass
-
-- Positive pair keys are unique (no duplicate pairs).
-- Every retained CDS is complete and equals its configured pinned length.
-- No CDS occurs in more than one CV split within a fold (i.e., each CDS occurs once in a positive pair).
 - No generated negative is an observed positive from the pair universe (block conflicting negatives).
-- Before Experiment 3 trains, each production dataset reproduces the `Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected` counts its pair has in Experiment 2's `pair_capacity.csv`.
-- Where importance is computed, every importance row can be traced to a model run, fold, protein, and site.
+- Before Experiment 2 trains, each production dataset reproduces the `Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected` counts its pair has in Experiment 1's `pair_capacity.csv`.
+- Where feature importance is computed, every importance row can be traced to a model run, fold, protein, and site.
 
-### What the model predicts
-
-- The label records whether two segment sequences were observed together in one isolate. Strong performance does not by itself establish biological compatibility. 
-- A generated negative is a sequence pair not observed in the pair universe. It is not evidence that the pair is biologically incompatible or could never occur.
-
-
-
-## Experiment 1: cross-year HA-NA importance — DONE (2026-09-15)
-
-### Question
-
-Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
-codon sites?
-
-### Methods
-
-- For the Human-H3N2-2024 analysis, we used `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` and the saved `resolved_config.yaml` from its earlier codon runs.
-- For the Human-H3N2-2025 analysis, we used `conf/bundles/flu_ha_na_human_h3n2_2025_random_cv4_pinned_length_hopcroft_karp.yaml` where only the year is different and otherwise reused the same settings.
-- Both analyses kept all their `HK selected` positives: 1,698 in 2024 and 1,337 in 2025 (i.e., we didn't downsample to the same size).
-- The July 2025 corpus contains only a partial 2025 season.
-- `src/analysis/plot_site_importance.py` computed gain, SHAP, and permutation importance. The cross-year ranking uses fold-averaged, normalized gain. The comparison was run three ways:
-  - `combined`: HA and NA compete for the same top-N positions;
-  - `HA`: sites are ranked within HA only;
-  - `NA`: sites are ranked within NA only.
-
-Both datasets contain complete sequences at the same pins and use the same feature coordinates:
-567 HA sites and 470 NA sites.
-
-### Results
-
-The barplots show gain, SHAP, and permutation importance for Human-H3N2-2024 and
-Human-H3N2-2025.
-
-<img src="../results/figs/2026-09-08_ha_na_codon_importance_barplot.png" width="700" alt="HA-NA codon-site importance, Human-H3N2-2024">
-
-<img src="../results/figs/2026-09-15_ha_na_2025_codon_importance_barplot.png" width="700" alt="HA-NA codon-site importance, Human-H3N2-2025">
-
-The gain traces show where gain falls along HA and NA.
-
-<img src="../results/figs/2026-09-08_ha_na_codon_gain_trace.png" width="700" alt="HA-NA codon-site gain trace, Human-H3N2-2024">
-
-<img src="../results/figs/2026-09-15_ha_na_2025_codon_gain_trace.png" width="700" alt="HA-NA codon-site gain trace, Human-H3N2-2025">
-
-The division of gain between the two proteins changed modestly, while its concentration in the
-combined top-25 sites was similar.
-
-| year | gain by protein | gain in combined top-25 sites |
-|---|---|---:|
-| 2024 | HA 55.5%; NA 44.5% | 59.1% |
-| 2025 | HA 60.4%; NA 39.6% | 60.6% |
-
-The two years share 13 of their combined top-25 sites, 15 of the top-25 HA sites, and 13 of the
-top-25 NA sites. All three overlaps were much larger than expected under the varying-site null.
-
-The null comparison treats a site as eligible when it has more than one observed value
-(`n_values > 1`). If `V_2024` and `V_2025` are the eligible sets, two independent random top-N
-lists have expected overlap
-`|V_2024 ∩ V_2025| × (N / |V_2024|) × (N / |V_2025|)`.
-This is a descriptive baseline, not a significance test: it treats eligible sites as independent
-and equally likely to be selected, which is not true for correlated sites. In the combined row
-below, `V_2024 ∩ V_2025` is "eligible in both" and each `V` is that year's "eligible" column, so
-the expected overlap at N = 25 is `931 × (25/987) × (25/946) = 0.62`.
-
-| ranking | eligible in 2024 | eligible in 2025 | eligible in both | shared top 25 | shared/N | expected | enrichment |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| combined | 987 | 946 | 931 | 13 | 52% | 0.62 | 20.9x |
-| HA | 542 | 519 | 511 | 15 | 60% | 1.14 | 13.2x |
-| NA | 445 | 427 | 420 | 13 | 52% | 1.38 | 9.4x |
-
-The complete top-10-to-top-50 comparison is in
-`results/flu/July_2025/cross_year_site_importance/ha_na_human_h3n2_2024_vs_2025/site_importance_comparison.csv`.
-
-- The leading sites therefore recur across the two annual fits more often than expected if varying
-sites were selected uniformly.
-- The comparison does not control for the smaller 2025
-population, the partial 2025 season, or correlation among sites.
-- `TODO`: repeast similar analysis with SHAP and permutation.
-
-
-
-## Experiment 2 (prerequisite to Experiment 3): 28-pair capacity audit — DONE (2026-09-16)
+## Experiment 1 (prerequisite to Experiment 2): 28-pair capacity audit — DONE (2026-09-16)
 
 ### Question
 
@@ -199,6 +99,11 @@ Transcribed from `docs/results/2026-09-08_cds_pair_capacity.md`.
 
 <img src="../results/figs/2026-09-16_h3n2_2024_pair_capacity_matrix.png" width="600" alt="28-pair Hopcroft-Karp capacity, Human-H3N2-2024">
 
+- `Pair ID` — the two segment numbers, so PB2-HA is `1-4`.
+- `Eligible isolates` — isolates carrying both of the pair's proteins as complete CDS at the pinned length.
+- `Unique positives` — observed same-isolate pairs after `nt_cds` pair-key deduplication.
+- `Unique slot-A` / `Unique slot-B` — unique sequences on each side of those positives.
+- `HK selected` — positives kept by Hopcroft-Karp, so no sequence is used twice in either slot.
 - `HK share` = `HK selected` / `Unique positives`. It runs from 22.9% (PA-M1) to 59.8% (PB2-PB1, PB1-HA).
 
 | Pair ID | Schema pair | Eligible isolates | Unique positives | Unique slot-A | Unique slot-B | HK selected | HK share |
@@ -234,23 +139,23 @@ Transcribed from `docs/results/2026-09-08_cds_pair_capacity.md`.
 
 What the later experiments need from this:
 
-- **Experiment 3** trains on the `HK selected` column: 440 (M1-NS1) to 2,042 (PB2-HA).
+- **Experiment 2** trains on the `HK selected` column: 440 (M1-NS1) to 2,042 (PB2-HA).
   The 13 pairs containing M1 or NS1 hold the 13 lowest counts (M1 or NS1 supply the fewest unique
   sequences).
-- **Experiment 4** runs GenSLM on the same data as Experiment 3 (same
+- **Experiment 3** runs GenSLM on the same data as Experiment 2 (same
   positives and negatives, sequences and folds). Varying CDS length can be explored later, but it would
   not recover PB1's 44.7%, which stems from incomplete records rather than the pin.
 - **Experiment 5** does not draw on this section. It addresses complete CDS at more than one
   length, measured in `docs/results/2026-09-07_cds_length_survey.md`.
 
-#### Decision for Experiments 3 and 4
+#### Decision for Experiments 2 and 3
 
 All 28 schema pairs proceed with their native `HK selected` positives. They are not downsampled to
 the M1-NS1 floor of 440.
 
 
 
-## Experiment 3: pinned-length 28-pairs screen — DONE (2026-09-20)
+## Experiment 2: pinned-length 28-pairs screen — DONE (2026-09-20)
 
 ### Question
 
@@ -260,21 +165,23 @@ native `HK selected` positives and a 1:1 ratio of negatives generated within eac
 ### Methods
 
 - The pinned lengths are listed in Scope above. Each pair uses the `HK selected` positive count from
-  Experiment 2. Per-protein CDS completeness is reported in `docs/results/2026-09-07_cds_length_survey.md`
+  Experiment 1. Per-protein CDS completeness is reported in `docs/results/2026-09-07_cds_length_survey.md`
 - One dataset per schema pair, built from `conf/bundles/flu_28p_codon_{pair}.yaml`. The 28
   children yaml files inherit the master, `conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml`,
   and each sets only `schema_pair`, so every pair runs under identical rules: Human-H3N2-2024,
   complete CDS at the pinned length, the `nt_cds` pair key, Hopcroft-Karp to select positives (the
   `HK selected` positives set), random 4-fold CV.
 - Each schema pair uses its native `HK selected` positives, ranging from 440 for M1-NS1 to 2,042 for
-  PB2-HA (i.e., datasets are not downsampled to a common size, as decided at the end of Experiment 2).
+  PB2-HA (i.e., datasets are not downsampled to a common size, as decided at the end of Experiment 1).
 - The negatives are drawn within each fold at a 1:1 ratio, so each test fold is balanced.
+- A generated negative is a pair not observed in the pair universe. It is not evidence that the pair
+  is biologically incompatible.
 - The model is LightGBM at a 0.5 threshold (raw test predictions are saved).
 - With balanced test folds, a classifier predicting each class randomly has expected F1 macro near 0.5.
 - Features are one ordinal column per codon position, for both slots concatenated. The width is
   the sum of the two proteins' codon counts (484 for M1-NS1 to 1,519 for PB2-PB1).
 - Before training, all 28 datasets reproduced their `Eligible isolates`, `Unique positives`,
-  `Unique slot-A`, `Unique slot-B` and `HK selected` counts from Experiment 2's
+  `Unique slot-A`, `Unique slot-B` and `HK selected` counts from Experiment 1's
   `pair_capacity.csv`, as required by "Dataset checks every experiment must pass"
   (`src/analysis/audit_pair_datasets.py`, 28 passed, 0 failed).
 - 112 models trained (28 pairs x 4 folds).
@@ -355,12 +262,12 @@ Limitations:
 
 What the later experiments need from this:
 
-- **Experiment 4** compares GenSLM codon embeddings with per-site codon features. For each schema pair included in Experiment 4, both feature types should use the same dataset whenever possible, and their F1 macro scores should be compared.
+- **Experiment 3** compares GenSLM codon embeddings with per-site codon features. For each schema pair included in Experiment 3, both feature types should use the same dataset whenever possible, and their F1 macro scores should be compared.
 - **Experiment 5** does not draw on this section.
 
 
 
-## Experiment 4: GenSLM embedded codons as features for LightGBM
+## Experiment 3: GenSLM embedded codons as features for LightGBM
 
 ### Question
 
@@ -373,20 +280,93 @@ column per pinned position. This experiment holds the length pinned and changes 
 representation; varying length is a later question.
 
 1. Compute and cache GenSLM embeddings for all unique complete CDS codons.
-2. Start with CV training on HA-NA, Human-H3N2-2024. Reuse Experiment 3's built dataset rather
+2. Start with CV training on HA-NA, Human-H3N2-2024. Reuse Experiment 2's built dataset rather
    than rebuilding it, so the 1,698 `HK selected` positives and the 4 fold assignments are
    identical and the only difference from the raw-codon run is the feature representation.
-3. Expand to the 4 schema pairs as in 2026-09-08_h3n2_2024_progress_report.md: HA-NA, PB2-PA,
-   PB2-NA, PA-HA, reusing Experiment 3's datasets for each.
-4. Optional. All 28 pairs, again on Experiment 3's datasets.
+3. Expand to the 4 schema pairs as in `2026-09-08_h3n2_2024_progress_report.md`: HA-NA, PB2-PA,
+   PB2-NA, PA-HA, reusing Experiment 2's datasets for each.
+4. Optional. All 28 pairs, again on Experiment 2's datasets.
 
 ### Results
 
 1. Generate a table similar to the table under Results in 2026-09-08_h3n2_2024_progress_report.md,
    with the same columns and one row per pair per feature type, so GenSLM sits beside the
-   per-site codon scores from Experiment 3.
+   per-site codon scores from Experiment 2.
 
-2. If step 4 runs, plot the symmetric 8 x 8 F1 macro heatmap, as in Experiment 3.
+2. If step 4 runs, plot the symmetric 8 x 8 F1 macro heatmap, as in Experiment 2.
+
+
+
+## Experiment 4: cross-year HA-NA importance — DONE (2026-09-15)
+
+### Question
+
+Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
+codon sites?
+
+### Methods
+
+- For the Human-H3N2-2024 analysis, we used `conf/bundles/flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml` and the saved `resolved_config.yaml` from its earlier codon runs.
+- For the Human-H3N2-2025 analysis, we used `conf/bundles/flu_ha_na_human_h3n2_2025_random_cv4_pinned_length_hopcroft_karp.yaml` where only the year is different and otherwise reused the same settings.
+- Both analyses kept all their `HK selected` positives: 1,698 in 2024 and 1,337 in 2025 (i.e., we didn't downsample to the same size).
+- The July 2025 corpus contains only a partial 2025 season.
+- `src/analysis/plot_site_importance.py` computed gain, SHAP, and permutation importance. The cross-year ranking uses fold-averaged, normalized gain. The comparison was run three ways:
+  - `combined`: HA and NA compete for the same top-N positions;
+  - `HA`: sites are ranked within HA only;
+  - `NA`: sites are ranked within NA only.
+
+Both datasets contain complete sequences at the same pins and use the same feature coordinates:
+567 HA sites and 470 NA sites.
+
+### Results
+
+The barplots show gain, SHAP, and permutation importance for Human-H3N2-2024 and
+Human-H3N2-2025.
+
+<img src="../results/figs/2026-09-08_ha_na_codon_importance_barplot.png" width="700" alt="HA-NA codon-site importance, Human-H3N2-2024">
+
+<img src="../results/figs/2026-09-15_ha_na_2025_codon_importance_barplot.png" width="700" alt="HA-NA codon-site importance, Human-H3N2-2025">
+
+The gain traces show where gain falls along HA and NA.
+
+<img src="../results/figs/2026-09-08_ha_na_codon_gain_trace.png" width="700" alt="HA-NA codon-site gain trace, Human-H3N2-2024">
+
+<img src="../results/figs/2026-09-15_ha_na_2025_codon_gain_trace.png" width="700" alt="HA-NA codon-site gain trace, Human-H3N2-2025">
+
+The division of gain between the two proteins changed modestly, while its concentration in the
+combined top-25 sites was similar.
+
+| year | gain by protein | gain in combined top-25 sites |
+|---|---|---:|
+| 2024 | HA 55.5%; NA 44.5% | 59.1% |
+| 2025 | HA 60.4%; NA 39.6% | 60.6% |
+
+The two years share 13 of their combined top-25 sites, 15 of the top-25 HA sites, and 13 of the
+top-25 NA sites. All three overlaps were much larger than expected under the varying-site null.
+
+The null comparison treats a site as eligible when it has more than one observed value
+(`n_values > 1`). If `V_2024` and `V_2025` are the eligible sets, two independent random top-N
+lists have expected overlap
+`|V_2024 ∩ V_2025| × (N / |V_2024|) × (N / |V_2025|)`.
+This is a descriptive baseline, not a significance test: it treats eligible sites as independent
+and equally likely to be selected, which is not true for correlated sites. In the combined row
+below, `V_2024 ∩ V_2025` is "eligible in both" and each `V` is that year's "eligible" column, so
+the expected overlap at N = 25 is `931 × (25/987) × (25/946) = 0.62`.
+
+| ranking | eligible in 2024 | eligible in 2025 | eligible in both | shared top 25 | shared/N | expected | enrichment |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| combined | 987 | 946 | 931 | 13 | 52% | 0.62 | 20.9x |
+| HA | 542 | 519 | 511 | 15 | 60% | 1.14 | 13.2x |
+| NA | 445 | 427 | 420 | 13 | 52% | 1.38 | 9.4x |
+
+The complete top-10-to-top-50 comparison is in
+`results/flu/July_2025/cross_year_site_importance/ha_na_human_h3n2_2024_vs_2025/site_importance_comparison.csv`.
+
+- The leading sites therefore recur across the two annual fits more often than expected if varying
+sites were selected uniformly.
+- The comparison does not control for the smaller 2025
+population, the partial 2025 season, or correlation among sites.
+- `TODO`: repeast similar analysis with SHAP and permutation.
 
 
 
@@ -491,13 +471,13 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 
 ## Execution order
 
-1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 1, DONE)
-2. Run the codon cross-year importance comparison. (Experiment 1, DONE)
-3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 2, DONE)
-4. Build and audit the 28 pinned-length datasets. (Experiment 3, DONE)
-5. Run the codon 28-pairs screen and aggregate the results. (Experiment 3, DONE)
+1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 4, DONE)
+2. Run the codon cross-year importance comparison. (Experiment 4, DONE)
+3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 1, DONE)
+4. Build and audit the 28 pinned-length datasets. (Experiment 2, DONE)
+5. Run the codon 28-pairs screen and aggregate the results. (Experiment 2, DONE)
 6. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
-   on the four progress-report pairs. (Experiment 4)
+   on the four progress-report pairs. (Experiment 3)
 7. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
 8. Rerun only the pairs or years for which alignment materially improves eligibility.
    (Experiment 5)
