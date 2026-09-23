@@ -41,6 +41,8 @@ and its "Pin reach by year" section for 2015-2025.
 | 7 | M1 | 759 | `conf/virus/flu.yaml` |
 | 8 | NS1 | 693 | bundle override |
 
+Detailed CDS length analysis: `results/docs/results/2026-09-07_cds_length_survey.md`.
+
 - PB1 and NS1 are not pinned in `conf/virus/flu.yaml` because no single length works across
 all populations covered by that shared configuration.
 - NS1: Human-H3N2 uses a 693-nt pin. This is the modal complete-CDS length in every year from
