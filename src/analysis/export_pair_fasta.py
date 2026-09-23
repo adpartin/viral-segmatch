@@ -41,18 +41,21 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.config_hydra import get_function_short_name_map, get_virus_config_hydra  # noqa: E402
+from src.utils.config_hydra import get_function_short_name_map  # noqa: E402
 
 LINE_WIDTH = 60
 SPLITS = ('train', 'test')
 
 # Pair-table column -> TSV column. The metadata is per slot, so each side keeps its own value.
+# `pair_key` is the dataset's own key for the row, so a leaf traces straight back to its source.
 ANNOTATION_COLUMNS = {
+    'pair_key': 'pair_key',
     'assembly_id_a': 'assembly_a', 'assembly_id_b': 'assembly_b',
     'host_a': 'host_a', 'host_b': 'host_b',
     'hn_subtype_a': 'subtype_a', 'hn_subtype_b': 'subtype_b',
@@ -65,7 +68,7 @@ def load_cds_sequences(config) -> dict:
     """CDS DNA sequence for every hash in the corpus.
 
     Args:
-      config: a resolved bundle config, naming the virus and data version.
+      config: a run's resolved config, naming the virus and data version.
 
     Returns:
       `cds_dna_hash` -> `cds_dna_seq`.
@@ -73,13 +76,29 @@ def load_cds_sequences(config) -> dict:
     cds_path = (PROJ / 'data/processed' / config.virus.virus_name / config.virus.data_version
                 / 'cds_dna_final.parquet')
     cds = pd.read_parquet(cds_path, columns=['cds_dna_hash', 'cds_dna_seq'])
-    # One sequence per hash: the same CDS recurs across isolates, and they are identical by
-    # definition of the hash.
+    # One row per hash. The same CDS recurs across isolates, and `cds_dna_hash` is the md5 of the
+    # sequence, so the duplicates hold identical sequences.
     unique = cds.drop_duplicates('cds_dna_hash')
     return dict(zip(unique['cds_dna_hash'], unique['cds_dna_seq']))
 
 
-def build_records(pairs: pd.DataFrame, pair_label: str, split: str, sequences: dict) -> pd.DataFrame:
+def slot_lengths(config, short_of: dict) -> tuple:
+    """The pinned CDS length each slot of the run's schema pair must have.
+
+    Args:
+      config: a run's resolved config.
+      short_of: full function name -> short protein name.
+
+    Returns:
+      `(protein_a, pin_a, protein_b, pin_b)`, the proteins in slot order.
+    """
+    pins = {str(k): int(v['nt']) for k, v in dict(config.virus.cds_length).items()}
+    protein_a, protein_b = (short_of[f] for f in config.dataset.schema_pair)
+    return protein_a, pins[protein_a], protein_b, pins[protein_b]
+
+
+def build_records(pairs: pd.DataFrame, pair_label: str, split: str, sequences: dict,
+                  schema_pair: tuple, pin_a: int, pin_b: int) -> pd.DataFrame:
     """One record per pair row, with its label and its concatenated sequence.
 
     Args:
@@ -87,13 +106,31 @@ def build_records(pairs: pd.DataFrame, pair_label: str, split: str, sequences: d
       pair_label: short pair name, e.g. `pb2_ha`.
       split: `train` or `test`.
       sequences: `cds_dna_hash` -> `cds_dna_seq`.
+      schema_pair: the run's (slot-A function, slot-B function), full names.
+      pin_a: pinned CDS length for slot A.
+      pin_b: pinned CDS length for slot B.
 
     Returns:
       The annotation columns plus `label`, `split`, `class` and `sequence`, positives first.
 
     Raises:
-      ValueError: a hash has no sequence, so the record would be written truncated.
+      ValueError: the table holds a label other than 0 or 1, its slot functions are not the run's
+          schema pair in that order, a hash has no sequence, or a slot is off its pin.
     """
+    labels = set(pairs['label'].dropna().unique())
+    if labels - {0, 1} or len(pairs['label'].dropna()) != len(pairs):
+        raise ValueError(
+            f"build_records: {pair_label} {split} must hold only labels 0 and 1; found "
+            f"{sorted(labels)} over {len(pairs):,} rows, {int(pairs['label'].isna().sum())} null.")
+
+    # Slot order decides which sequence is concatenated first, so it is read off the rows rather
+    # than assumed from the config, whose schema_pair order the builder may have canonicalized.
+    observed = (set(pairs['func_a'].unique()), set(pairs['func_b'].unique()))
+    if observed != ({schema_pair[0]}, {schema_pair[1]}):
+        raise ValueError(
+            f"build_records: {pair_label} {split} has func_a={sorted(observed[0])}, "
+            f"func_b={sorted(observed[1])}; the run's schema_pair is {list(schema_pair)}.")
+
     frames = []
     for class_name, label_value in (('pos', 1), ('neg', 0)):
         rows = pairs[pairs['label'] == label_value].reset_index(drop=True)
@@ -104,6 +141,14 @@ def build_records(pairs: pd.DataFrame, pair_label: str, split: str, sequences: d
             raise ValueError(
                 f"build_records: {pair_label} {split} {class_name} has {missing} hashes with no "
                 f"sequence in cds_dna_final.parquet.")
+        # Per slot, not on the total: lengths that are wrong in opposite directions would pass a
+        # check on the concatenation.
+        for slot, seq, pin in (('A', seq_a, pin_a), ('B', seq_b, pin_b)):
+            off_pin = seq.str.len()[seq.str.len() != pin]
+            if not off_pin.empty:
+                raise ValueError(
+                    f"build_records: {pair_label} {split} {class_name} slot {slot} expects "
+                    f"{pin:,} nt; {len(off_pin)} rows differ, e.g. {sorted(set(off_pin))[:5]}.")
 
         record = rows[list(ANNOTATION_COLUMNS)].rename(columns=ANNOTATION_COLUMNS)
         record.insert(0, 'label', [f'{pair_label}_{split}_{class_name}_{i:04d}'
@@ -112,29 +157,13 @@ def build_records(pairs: pd.DataFrame, pair_label: str, split: str, sequences: d
         record.insert(2, 'class', class_name)
         record['sequence'] = seq_a + seq_b
         frames.append(record)
-    return pd.concat(frames, ignore_index=True)
 
-
-def check_lengths(records: pd.DataFrame, expected_nt: int, pair_label: str) -> None:
-    """Fail when a concatenated record is not the sum of the pair's two pinned lengths.
-
-    Args:
-      records: the records for one pair.
-      expected_nt: slot-A pin plus slot-B pin.
-      pair_label: short pair name, used in the error text.
-
-    Returns:
-      None.
-
-    Raises:
-      ValueError: at least one record has another length.
-    """
-    lengths = records['sequence'].str.len()
-    wrong = lengths[lengths != expected_nt]
-    if not wrong.empty:
+    records = pd.concat(frames, ignore_index=True)
+    if len(records) != len(pairs):
         raise ValueError(
-            f"check_lengths: {pair_label} expects {expected_nt:,} nt per record; "
-            f"{len(wrong)} records differ, e.g. {sorted(set(wrong))[:5]}.")
+            f"build_records: {pair_label} {split} read {len(pairs):,} rows but built "
+            f"{len(records):,} records.")
+    return records
 
 
 def write_fasta(records: pd.DataFrame, out_path: Path) -> None:
@@ -159,39 +188,35 @@ def main() -> None:
     parser.add_argument('--pairs', nargs='+', default=['pb2_ha', 'pb2_np'],
                         help='pair tokens, matching the dataset directory suffixes')
     parser.add_argument('--fold', type=int, default=0)
-    parser.add_argument('--bundle_prefix', default='flu_28p_codon_')
     parser.add_argument('--dataset_prefix', default='exp3_28p_codon_')
+    parser.add_argument('--runs_dir', type=Path,
+                        default=PROJ / 'data/datasets/flu/July_2025/runs')
     parser.add_argument('--population', default='human_h3n2_2024',
                         help='population token for the output file names')
     parser.add_argument('--out_dir', type=Path,
                         default=PROJ / 'results/flu/July_2025/pair_fasta_human_h3n2_2024')
     args = parser.parse_args()
 
-    config = get_virus_config_hydra(f'{args.bundle_prefix}{args.pairs[0]}',
-                                    config_path=str(PROJ / 'conf'))
-    runs_dir = (PROJ / 'data/datasets' / config.virus.virus_name / config.virus.data_version
-                / 'runs')
     args.out_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f'Loading CDS sequences from {config.virus.data_version}...')
-    sequences = load_cds_sequences(config)
-    print(f'  {len(sequences):,} unique CDS sequences\n')
+    sequences = None
 
     for pair_label in args.pairs:
-        pair_config = get_virus_config_hydra(f'{args.bundle_prefix}{pair_label}',
-                                             config_path=str(PROJ / 'conf'))
-        short_of = get_function_short_name_map(pair_config)
-        pins = {str(k): int(v['nt']) for k, v in dict(pair_config.virus.cds_length).items()}
-        proteins = [short_of[f] for f in pair_config.dataset.schema_pair]
-        expected_nt = sum(pins[p] for p in proteins)
+        run_dir = args.runs_dir / f'{args.dataset_prefix}{pair_label}'
+        config = OmegaConf.load(run_dir / 'resolved_config.yaml')
+        short_of = get_function_short_name_map(config)
+        protein_a, pin_a, protein_b, pin_b = slot_lengths(config, short_of)
+        schema_pair = tuple(str(f) for f in config.dataset.schema_pair)
 
-        dataset_dir = runs_dir / f'{args.dataset_prefix}{pair_label}' / f'fold_{args.fold}'
-        frames = []
-        for split in SPLITS:
-            pairs = pd.read_parquet(dataset_dir / f'{split}_pairs.parquet')
-            frames.append(build_records(pairs, pair_label, split, sequences))
+        if sequences is None:
+            print(f'Loading CDS sequences from {config.virus.data_version}...')
+            sequences = load_cds_sequences(config)
+            print(f'  {len(sequences):,} unique CDS sequences\n')
+
+        fold_dir = run_dir / f'fold_{args.fold}'
+        frames = [build_records(pd.read_parquet(fold_dir / f'{split}_pairs.parquet'),
+                                pair_label, split, sequences, schema_pair, pin_a, pin_b)
+                  for split in SPLITS]
         records = pd.concat(frames, ignore_index=True)
-        check_lengths(records, expected_nt, pair_label)
 
         stem = f'{pair_label}_fold{args.fold}_{args.population}'
         fasta_path = args.out_dir / f'{stem}_all.fasta'
@@ -200,8 +225,11 @@ def main() -> None:
         records.drop(columns=['sequence']).to_csv(tsv_path, sep='\t', index=False)
 
         counts = records.groupby(['split', 'class']).size().to_dict()
-        print(f'{"-".join(proteins)}  {expected_nt:,} nt per record '
-              f'({" + ".join(f"{p} {pins[p]:,}" for p in proteins)})')
+        # The negative sampler decides whether negatives reuse the positives' own sequences, which
+        # is what the tree is read against, so it is named here rather than left to the config.
+        print(f'{protein_a}-{protein_b}  {pin_a + pin_b:,} nt per record '
+              f'({protein_a} {pin_a:,} + {protein_b} {pin_b:,})  '
+              f'negative_scope: {config.dataset.split_strategy.negative_scope}')
         for split in SPLITS:
             print(f'  {split:5s} pos {counts[(split, "pos")]:5,}  neg {counts[(split, "neg")]:5,}')
         print(f'  {fasta_path}')
