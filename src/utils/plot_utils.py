@@ -380,6 +380,43 @@ def select_categories_with_others(
     }
 
 
+def _draw_categories(ax, xy, categories, sel: dict, shape_of, *, point_size: float,
+                     other_size: float, others_color: str, alpha, cat_label, oth_label) -> None:
+    """Draw one category scatter into an existing axes.
+
+    Shared by `umap_scatter` and `umap_panels` so both place and label points identically, and a
+    panel grid can hold the same drawing a single-axes figure would.
+
+    Args:
+      ax: the axes to draw into.
+      xy: (N, 2) coordinates.
+      categories: per-point color category.
+      sel: from `select_categories_with_others`.
+      shape_of: (mask, marker, label) per shape, one entry when the shape channel is unused.
+      point_size / other_size: marker sizes for a colored point and for an 'Others' point.
+      others_color: color for the folded remainder.
+      alpha: point opacity.
+      cat_label / oth_label: legend text builders.
+
+    Returns:
+      None. Draws into `ax`, leaving the legend and the title to the caller.
+    """
+    other = ~sel['is_selected']
+    for shape_mask, shape, _ in shape_of:
+        m = other & shape_mask
+        if m.any():
+            ax.scatter(xy[m, 0], xy[m, 1], s=other_size, c=others_color, linewidths=0, marker=shape,
+                       rasterized=True, alpha=alpha,
+                       label=oth_label(sel['others_count'], sel['others_share']) if shape == 'o' else None)
+    for cat, color, cnt, share in sel['selected']:
+        for shape_mask, shape, _ in shape_of:
+            m = (categories == cat) & shape_mask
+            if m.any():
+                ax.scatter(xy[m, 0], xy[m, 1], s=point_size, color=color, linewidths=0, marker=shape,
+                           rasterized=True, alpha=alpha,
+                           label=cat_label(cat, cnt, share) if shape == shape_of[0][1] else None)
+
+
 def umap_scatter(
     X,
     categories: Sequence,
@@ -456,20 +493,9 @@ def umap_scatter(
         shape_of = [(markers == v, marker_shapes[i], str(v)) for i, v in enumerate(values)]
 
     fig, ax = plt.subplots(figsize=(9, 8))
-    other = ~sel['is_selected']
-    for shape_mask, shape, _ in shape_of:
-        m = other & shape_mask
-        if m.any():
-            ax.scatter(xy[m, 0], xy[m, 1], s=other_size, c=others_color, linewidths=0, marker=shape,
-                       rasterized=True, alpha=alpha,
-                       label=oth_label(sel['others_count'], sel['others_share']) if shape == 'o' else None)
-    for cat, color, cnt, share in sel['selected']:
-        for shape_mask, shape, _ in shape_of:
-            m = (categories == cat) & shape_mask
-            if m.any():
-                ax.scatter(xy[m, 0], xy[m, 1], s=point_size, color=color, linewidths=0, marker=shape,
-                           rasterized=True, alpha=alpha,
-                           label=cat_label(cat, cnt, share) if shape == shape_of[0][1] else None)
+    _draw_categories(ax, xy, categories, sel, shape_of, point_size=point_size,
+                     other_size=other_size, others_color=others_color, alpha=alpha,
+                     cat_label=cat_label, oth_label=oth_label)
     color_legend = ax.legend(loc='best', fontsize=7, framealpha=0.9, title=legend_title)
     if markers is not None:
         # Shape is a second, independent channel, so it needs its own key -- drawn in neutral gray
@@ -628,3 +654,88 @@ def annotated_heatmap(
     if cbar_label:
         cbar.set_label(cbar_label)
     savefig(out_png, dpi=dpi)
+
+
+def umap_panels(
+    X,
+    groups: Sequence,
+    *,
+    out_png: Union[str, Path],
+    title: str,
+    group_colors: Optional[dict] = None,
+    palette='tab10',
+    metric: str = 'cosine',
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    seed: int = 42,
+    background_color: str = '#d9d9d9',
+    point_size: float = 12.0,
+    background_size: float = 4.0,
+    alpha: Optional[float] = 0.6,
+    ncols: int = 2,
+    title_fontsize: int = 10,
+    dpi: int = 200,
+    ) -> dict:
+    """One panel per group, all on the same coordinates, each group against the others in gray.
+
+    A single scatter draws its groups in sequence, so wherever two groups coincide the later one
+    hides the earlier and the picture reports draw order as much as data. Giving each group its own
+    panel removes that: every point is visible in the panel that owns it, and the panels compare
+    directly because the embedding is fitted once and shared.
+
+    Args:
+      X: (N, D) features, or (N, 2) coordinates to use as they are.
+      groups: per-point group name; one panel per distinct value, ordered by `group_colors` when
+          given and by descending count otherwise.
+      out_png: file to write.
+      title: figure title, above the grid.
+      group_colors: group -> color, pinned so a group keeps its color across figures.
+      palette: colormap for groups `group_colors` does not name.
+      metric / n_neighbors / min_dist / seed: passed to UMAP when `X` needs reducing.
+      background_color / background_size: the other groups, drawn behind each panel's own.
+      point_size: marker size for the panel's own group.
+      alpha: point opacity.
+      ncols: panels per row.
+      title_fontsize / dpi: figure title size and output resolution.
+
+    Returns:
+      `{'n_points', 'n_panels', 'counts'}`, `counts` being the size of each group.
+    """
+    from .dim_reduction_utils import compute_umap_reduction  # lazy: pulls in umap/numba
+
+    X = np.asarray(X)
+    groups = np.asarray(groups)
+    xy = X if (X.ndim == 2 and X.shape[1] == 2) else compute_umap_reduction(
+        X, n_components=2, n_neighbors=n_neighbors, min_dist=min_dist,
+        metric=metric, random_state=seed)[0]
+
+    counts = pd.Series(groups).value_counts()
+    names = list(group_colors) if group_colors else list(counts.index)
+    names = [n for n in names if n in set(counts.index)]
+    cmap = plt.get_cmap(palette) if isinstance(palette, str) else None
+    colors = {n: (group_colors or {}).get(n, cmap(i % cmap.N) if cmap else '#4c72b0')
+              for i, n in enumerate(names)}
+
+    nrows = -(-len(names) // ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6.0 * ncols, 5.4 * nrows),
+                             sharex=True, sharey=True, squeeze=False)
+    flat = axes.ravel()
+    for ax, name in zip(flat, names):
+        own = groups == name
+        ax.scatter(xy[~own, 0], xy[~own, 1], s=background_size, c=background_color, linewidths=0,
+                   rasterized=True, alpha=alpha)
+        ax.scatter(xy[own, 0], xy[own, 1], s=point_size, color=colors[name], linewidths=0,
+                   rasterized=True, alpha=alpha)
+        ax.set_title(f'{name} (n={int(own.sum()):,})', fontsize=title_fontsize)
+    for ax in flat[len(names):]:
+        ax.set_visible(False)
+    for ax in axes[-1]:
+        ax.set_xlabel('UMAP-1')
+    for row in axes:
+        row[0].set_ylabel('UMAP-2')
+
+    fig.suptitle(title, fontsize=title_fontsize + 1)
+    fig.tight_layout()
+    savefig(out_png, dpi=dpi)
+    return {'n_points': int(len(groups)), 'n_panels': len(names),
+            'counts': {str(k): int(v) for k, v in counts.items()}}

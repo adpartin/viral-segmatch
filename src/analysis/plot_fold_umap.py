@@ -51,13 +51,22 @@ from src.analysis.umap_cc import cluster_vectors  # noqa: E402
 from src.datasets._pair_helpers import pair_key_to_metadata, seq_hash_to_metadata  # noqa: E402
 from src.utils import schema  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
-from src.utils.plot_utils import umap_scatter  # noqa: E402
+from src.utils.plot_utils import umap_panels, umap_scatter  # noqa: E402
 
 _SPLITS = ('train', 'val', 'test')
 
 # Split labels are semantic, so each is pinned to a color -- rank-assigned color would move with the
 # counts, and 'both' dominates the random arm while being absent from the 2D-CD one.
 _SPLIT_COLORS = {'train/val only': '#4c72b0', 'test only': '#d43d51', 'both': '#dd8452'}
+
+# Pinned for the same reason, and kept away from the split hues so the two colorings never read as
+# the same channel.
+_CLASS_COLORS = {'positive': '#2b8a3e', 'negative': '#8a2be2'}
+
+# One panel per split and class. The hue is the class, as in the single-axes figure, and the split
+# takes the lighter shade, so a panel reads without its title.
+_GROUP_COLORS = {'train positive': '#2b8a3e', 'test positive': '#74c476',
+                 'train negative': '#8a2be2', 'test negative': '#bc8ee8'}
 
 
 def load_fold_pairs(fold_dir: Path, hash_a: str, hash_b: str) -> dict:
@@ -125,8 +134,14 @@ def load_dataset_info(fold_dir: Path) -> dict:
     if run_dir is None:
         raise SystemExit(f'ERROR: no {" / ".join(known)} in {fold_dir} or {fold_dir.parent}.')
 
-    if (run_dir / 'cv_info.json').exists():
-        return json.loads((run_dir / 'cv_info.json').read_text())
+    # The CC builders record the schema pair in cv_info; `dataset_segment_pairs` does not, so a
+    # cv_info without it falls through to the config rather than returning a dict the caller
+    # cannot index.
+    cv_path = run_dir / 'cv_info.json'
+    if cv_path.exists():
+        cv_info = json.loads(cv_path.read_text())
+        if 'schema_pair' in cv_info:
+            return cv_info
 
     arm_path = run_dir / 'arm_info.json'
     if arm_path.exists():
@@ -135,6 +150,9 @@ def load_dataset_info(fold_dir: Path) -> dict:
             source = PROJ / source
         return json.loads((source / 'cv_info.json').read_text())
 
+    if not (run_dir / 'resolved_config.yaml').exists():
+        raise SystemExit(f'ERROR: {run_dir} has no schema_pair in cv_info.json and no '
+                         f'resolved_config.yaml to read it from.')
     cfg = OmegaConf.load(run_dir / 'resolved_config.yaml')
     # The config names the schema pair in full; cv_info records short names and the caller indexes
     # short_to_function with them, so convert to keep one contract.
@@ -190,6 +208,32 @@ def split_labels(keys, test_keys: set, trainval_keys: set) -> np.ndarray:
     for k in keys:
         in_test, in_trainval = k in test_keys, k in trainval_keys
         labels.append('both' if in_test and in_trainval else 'test only' if in_test else 'train/val only')
+    return np.asarray(labels)
+
+
+def split_of(keys, key_of: dict) -> np.ndarray:
+    """Name the split each key belongs to.
+
+    A key sits in exactly one split for the pair unit, and under 2D-CD for the slot unit, so this
+    is single-valued where it is used. `split_labels` answers the different question of whether a
+    key is shared across splits, which is what the split coloring reports.
+
+    Args:
+        keys: per-point key.
+        key_of: split name -> that split's keys.
+
+    Returns:
+        Array of split names, aligned to `keys`.
+
+    Raises:
+        ValueError: a key is in no split, or in more than one.
+    """
+    labels = []
+    for k in keys:
+        found = [name for name, ks in key_of.items() if k in ks]
+        if len(found) != 1:
+            raise ValueError(f"split_of: {k} is in {found or 'no split'}; expected exactly one.")
+        labels.append(found[0])
     return np.asarray(labels)
 
 
@@ -271,9 +315,18 @@ def _parse_args():
                    help="'slot' = one point per sequence, 'pair' = one point per pair (default slot).")
     p.add_argument('--slot', choices=('a', 'b'), default='a', help='which slot, for --unit slot (default a).')
     p.add_argument('--color_by', default='split',
-                   help="'split' or a metadata field (hn_subtype, host, year). Default split.")
+                   help="'split', 'class', or a metadata field (hn_subtype, host, year). "
+                        "'class' colors positive/negative and puts the split on point shape, for "
+                        "reading the two classes against each other; it needs --include_negatives. "
+                        "Default split.")
     p.add_argument('--include_negatives', action='store_true',
                    help='plot negatives too, as point shape; --unit pair only.')
+    p.add_argument('--drop_val', action='store_true',
+                   help='leave the val split out, so the figure holds train and test only.')
+    p.add_argument('--panels', action='store_true',
+                   help='one panel per split and class on shared coordinates, instead of one '
+                        'axes; needs --color_by class. Every point is visible in its own panel, '
+                        'which a single axes cannot show where the groups overlap.')
     p.add_argument('--alphabet', default='nt_cds', help='k-mer alphabet (default nt_cds).')
     p.add_argument('--alpha', type=float, default=0.5,
                    help='point opacity (default 0.5), so overlapping categories show through.')
@@ -295,14 +348,23 @@ def main() -> None:
     if args.include_negatives and args.unit != 'pair':
         raise SystemExit("--include_negatives needs --unit pair: one sequence carries both "
                          "positive and negative rows, so a slot point has no single label.")
+    if args.panels and args.color_by != 'class':
+        raise SystemExit('--panels needs --color_by class: the panels are the split-by-class '
+                         'groups, which is what that coloring names.')
+    if args.color_by == 'class' and not args.include_negatives:
+        raise SystemExit("--color_by class needs --include_negatives: without them the figure "
+                         "holds one class and the color channel says nothing.")
     if args.include_negatives:
         pos = load_fold_pairs(args.fold_dir, hash_a, hash_b)
         label_of = dict(zip(pd.concat(pos.values())['pair_key'], pd.concat(pos.values())['label']))
-        print('rows: ' + ' '.join(f'{n}={len(df):,}' for n, df in pos.items()))
+        kind = 'rows'
     else:
         pos = load_fold_positives(args.fold_dir, hash_a, hash_b)
         label_of = None
-        print('positives: ' + ' '.join(f'{n}={len(df):,}' for n, df in pos.items()))
+        kind = 'positives'
+    if args.drop_val:
+        pos.pop('val', None)
+    print(f'{kind}: ' + ' '.join(f'{n}={len(df):,}' for n, df in pos.items()))
 
     if args.unit == 'slot':
         hash_col = hash_a if args.slot == 'a' else hash_b
@@ -318,26 +380,37 @@ def main() -> None:
     print(f'{unit_label}: {len(keys):,} points, {X.shape[1]} dims')
 
     markers = None
-    if args.include_negatives:
+    trainval_keys = key_of['train'] | key_of.get('val', set())
+    classes = (np.asarray(['positive' if label_of[k] == '1' else 'negative' for k in keys])
+               if args.include_negatives else None)
+    if args.color_by == 'class':
+        # The question this coloring answers is whether the two classes occupy the same region, so
+        # the class takes the color channel, which reads at a glance, and the split takes shape.
+        # Every other figure gives color to the split; the title says which one this is.
+        categories, markers = classes, split_of(keys, key_of)
+        pinned, legend_title = _CLASS_COLORS, 'class'
+    elif args.include_negatives:
         # Split keeps the color channel it has in every other figure, so the colors mean the same
         # thing across the set; positive/negative takes the shape channel. Reading them together
         # shows whether the negatives sit where the positives do.
-        categories = split_labels(keys, key_of['test'], key_of['train'] | key_of['val'])
-        markers = np.asarray(['positive' if label_of[k] == '1' else 'negative' for k in keys])
+        categories = split_labels(keys, key_of['test'], trainval_keys)
+        markers = classes
         pinned, legend_title = _SPLIT_COLORS, 'split'
     elif args.color_by == 'split':
-        categories = split_labels(keys, key_of['test'], key_of['train'] | key_of['val'])
+        categories = split_labels(keys, key_of['test'], trainval_keys)
         pinned, legend_title = _SPLIT_COLORS, 'split'
     else:
         categories = metadata_labels(keys, args.unit, args.color_by, processed_base_of(cv_info),
                                      args.alphabet, funcs)
         pinned, legend_title = None, args.color_by
 
-    color_by = 'split' if args.include_negatives else args.color_by
+    color_by = args.color_by if args.color_by == 'class' else (
+        'split' if args.include_negatives else args.color_by)
     # The suffix names which rows are in the figure, so a positives-only and a pos+neg figure of
     # the same coloring cannot collide (both color by split).
     name = (f'umap_{args.unit}' + (f'_{slot_short}' if args.unit == 'slot' else '')
-            + f'_{color_by}' + ('_posneg' if args.include_negatives else '_pos'))
+            + f'_{color_by}' + ('_posneg' if args.include_negatives else '_pos')
+            + ('_panels' if args.panels else ''))
     out_png = args.out_png or (args.fold_dir / 'figures' / f'{name}.png')
     # The legends already name the color and shape channels, so the title carries only what they
     # cannot: which rows are in the figure.
@@ -345,15 +418,25 @@ def main() -> None:
     title = args.title or (f'{args.fold_dir.parent.name} · {args.fold_dir.name}\n'
                            f'{unit_label}, {content} ({args.alphabet} k-mer)')
 
-    stats = umap_scatter(X, categories, out_png=out_png, title=title, alpha=args.alpha,
-                         category_colors=pinned, legend_title=legend_title, markers=markers)
-    # Only the categories the figure colors; a metadata field can have a long tail (>100 subtypes)
-    # that the plot folds into 'Others' anyway.
-    counts = pd.Series(categories).value_counts().head(stats['n_selected'])
-    print('  ' + ' | '.join(f'{c}={n:,}' for c, n in counts.items()))
-    if stats['others_share']:
+    if args.panels:
+        # The two channels the single axes uses become one group per panel, so nothing is hidden
+        # behind a later-drawn group.
+        groups = np.asarray([f'{sp} {cl}' for sp, cl in zip(markers, categories)])
+        stats = umap_panels(X, groups, out_png=out_png, title=title, alpha=args.alpha,
+                            group_colors=_GROUP_COLORS)
+        print('  ' + ' | '.join(f'{g}={n:,}' for g, n in stats['counts'].items()))
+    else:
+        stats = umap_scatter(X, categories, out_png=out_png, title=title, alpha=args.alpha,
+                             category_colors=pinned, legend_title=legend_title, markers=markers)
+        # Only the categories the figure colors; a metadata field can have a long tail (>100
+        # subtypes) that the plot folds into 'Others' anyway.
+        counts = pd.Series(categories).value_counts().head(stats['n_selected'])
+        print('  ' + ' | '.join(f'{c}={n:,}' for c, n in counts.items()))
+    if stats.get('others_share'):
         print(f"  Others {stats['others_share']:.1%}")
-    print(f"Done. {stats['n_points']:,} points, {stats['n_selected']} colored -> {out_png}")
+    drawn = (f"{stats['n_panels']} panels" if args.panels
+             else f"{stats['n_selected']} colored")
+    print(f"Done. {stats['n_points']:,} points, {drawn} -> {out_png}")
 
 
 if __name__ == '__main__':
