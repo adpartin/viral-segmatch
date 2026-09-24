@@ -21,12 +21,15 @@ PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.datasets._pair_helpers import _SIDE_SRC, canonical_pair_key  # noqa: E402
-from src.datasets._negative_sampling import within_fold_negatives  # noqa: E402
+from src.datasets._negative_sampling import (  # noqa: E402
+    balanced_usage_negatives,
+    within_fold_negatives,
+)
 from src.datasets.dataset_pairs_cc import (  # noqa: E402
     _carve_val_atoms,
     compute_negative_infeasible_ccs,
     groupkfold_by_atom,
-    make_folds_within_fold,
+    make_folds_then_negatives,
     within_cc_negatives,
 )
 from src.datasets.dataset_segment_pairs_v2 import _PAIR_COLUMNS  # noqa: E402
@@ -191,14 +194,14 @@ def test_within_fold_negatives_shared_seen_stops_a_pair_being_drawn_twice():
     assert set(solo_a['pair_key']) & set(solo_b['pair_key']), 'fixture must produce collisions'
 
 
-# --- make_folds_within_fold: the production fold-maker ----------------------
+# --- make_folds_then_negatives: the production fold-maker ----------------------
 def _within_fold_folds(pos, k=4):
-    return make_folds_within_fold(pos, k, 0.1, seed=1, neg_to_pos_ratio=1.0,
+    return make_folds_then_negatives(pos, k, 0.1, seed=1, neg_to_pos_ratio=1.0,
                                   cooccur=_cooccur(pos), df=_front_end(pos),
                                   schema_pair_full=(FA, FB))
 
 
-def test_make_folds_within_fold_returns_k_folds_of_positives_plus_negatives():
+def test_make_folds_then_negatives_returns_k_folds_of_positives_plus_negatives():
     pos = _pos()
     folds = _within_fold_folds(pos)
     assert len(folds) == 4
@@ -238,7 +241,7 @@ def _pos_recurring_hashes(atom_sizes=(40, 30, 20, 6, 4)):
     return pos
 
 
-def test_make_folds_within_fold_draws_each_negative_at_most_once_per_fold():
+def test_make_folds_then_negatives_draws_each_negative_at_most_once_per_fold():
     """No pair may appear in two splits of a fold.
 
     Since val is carved at row level, train and val share atoms and therefore share sequences, so
@@ -255,7 +258,7 @@ def test_make_folds_within_fold_draws_each_negative_at_most_once_per_fold():
         assert not keys['val'] & keys['test'], 'a pair landed in both val and test'
 
 
-def test_make_folds_within_fold_partitions_positives_exactly_once():
+def test_make_folds_then_negatives_partitions_positives_exactly_once():
     """Positives are routed, not resampled: each appears in the test split of exactly one fold."""
     pos = _pos()
     tested = [k for _tr, _va, te in _within_fold_folds(pos)
@@ -263,7 +266,7 @@ def test_make_folds_within_fold_partitions_positives_exactly_once():
     assert sorted(tested) == sorted(pos['pair_key'])
 
 
-def test_make_folds_within_fold_negatives_stay_inside_their_split():
+def test_make_folds_then_negatives_negatives_stay_inside_their_split():
     """Cross-split negative leakage check: a negative's endpoints must belong to the split that
     holds it, which is what makes the whole fold cluster-disjoint."""
     pos = _pos()
@@ -322,3 +325,57 @@ def test_within_cc_negatives_stay_inside_their_cc():
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# --- balanced_usage_negatives: the usage-balancing negative sampler ---------
+def test_balanced_usage_negatives_spread_each_slot_evenly():
+    """The property the sampler exists for: within one slot, no sequence is used more than one
+    time above any other. `_pos` gives every row unique endpoints, so a slot's sequence count
+    equals the positive count and a 1:1 budget is exactly one use each."""
+    pos = _pos()
+    neg = balanced_usage_negatives(pos, _cooccur(pos), _front_end(pos), (FA, FB),
+                                   neg_to_pos_ratio=1.0, seed=1)
+    assert len(neg) == len(pos)
+    for col in ('prot_hash_a', 'prot_hash_b'):
+        counts = neg[col].value_counts()
+        assert set(counts.index) == set(pos[col]), f'{col}: a positive sequence was never used'
+        assert counts.max() - counts.min() <= 1, f'{col}: counts spread by {counts.max() - counts.min()}'
+
+
+def test_balanced_usage_negatives_never_reproduce_a_positive():
+    pos = _pos()
+    cooccur = _cooccur(pos)
+    neg = balanced_usage_negatives(pos, cooccur, _front_end(pos), (FA, FB),
+                                   neg_to_pos_ratio=1.0, seed=1)
+    drawn = {canonical_pair_key(a, b) for a, b in zip(neg['prot_hash_a'], neg['prot_hash_b'])}
+    assert not (drawn & cooccur), 'a sampled negative reconstructed an observed pair'
+    assert len(drawn) == len(neg), 'duplicate negatives were emitted'
+    assert (neg['label'] == 0).all()
+    assert list(neg.columns) == list(_PAIR_COLUMNS)
+
+
+def test_balanced_usage_negatives_shared_seen_stops_a_pair_being_drawn_twice():
+    """One `seen` set across two calls keeps a pair out of both; separate sets do not. Same
+    fixture and reasoning as the `within_fold_negatives` case above."""
+    pos = _pos_recurring_hashes(atom_sizes=(12,))
+    cooccur, df = _cooccur(pos), _front_end(pos)
+    first, second = pos.iloc[:6], pos.iloc[6:]
+    kwargs = dict(neg_to_pos_ratio=2.0, hash_col='prot_hash')
+
+    shared = set()
+    a = balanced_usage_negatives(first, cooccur, df, (FA, FB), seed=1, seen=shared, **kwargs)
+    b = balanced_usage_negatives(second, cooccur, df, (FA, FB), seed=2, seen=shared, **kwargs)
+    assert not set(a['pair_key']) & set(b['pair_key'])
+
+    solo_a = balanced_usage_negatives(first, cooccur, df, (FA, FB), seed=1, **kwargs)
+    solo_b = balanced_usage_negatives(second, cooccur, df, (FA, FB), seed=2, **kwargs)
+    assert set(solo_a['pair_key']) & set(solo_b['pair_key']), 'fixture must produce collisions'
+
+
+def test_balanced_usage_negatives_raise_when_the_budget_cannot_cover_a_slot():
+    """A budget below the bigger slot's sequence count cannot offer every sequence once, so the
+    sampler raises rather than returning a set it never balanced."""
+    pos = _pos()
+    with pytest.raises(ValueError, match='cannot offer every sequence once'):
+        balanced_usage_negatives(pos, _cooccur(pos), _front_end(pos), (FA, FB),
+                                 neg_to_pos_ratio=0.5, seed=1)

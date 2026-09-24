@@ -566,7 +566,7 @@ if PAIR_BUILDER_VERSION == 'v2':
     # idXX thresholds when bilateral cliffs into a mega-component — see
     # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.
     SINGLE_SLOT = None
-    NEGATIVE_SCOPE = 'coverage'  # 'coverage' (default) | 'within_fold' (cluster_disjoint single-slot)
+    NEGATIVE_SCOPE = 'coverage'  # 'coverage' (default) | 'within_fold' (cluster_disjoint single-slot) | 'balanced' (within_fold, least-used sequences first)
     if SPLIT_STRATEGY_CFG is not None:
         m = getattr(SPLIT_STRATEGY_CFG, 'mode', None)
         if m is not None:
@@ -597,10 +597,10 @@ if PAIR_BUILDER_VERSION == 'v2':
         ns = getattr(SPLIT_STRATEGY_CFG, 'negative_scope', None)
         if ns is not None:
             NEGATIVE_SCOPE = str(ns)
-            if NEGATIVE_SCOPE not in ('coverage', 'within_fold'):
+            if NEGATIVE_SCOPE not in ('coverage', 'within_fold', 'balanced'):
                 raise ValueError(
-                    f"dataset.split_strategy.negative_scope must be 'coverage' or "
-                    f"'within_fold'; got {NEGATIVE_SCOPE!r}"
+                    f"dataset.split_strategy.negative_scope must be 'coverage', "
+                    f"'within_fold' or 'balanced'; got {NEGATIVE_SCOPE!r}"
                 )
         # pair_key_alphabet: explicit override; default inferred from
         # cluster_alphabet (or 'aa' if no cluster routing). Inference happens

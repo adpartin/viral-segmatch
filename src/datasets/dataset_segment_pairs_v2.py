@@ -70,7 +70,10 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
-from src.datasets._negative_sampling import within_fold_negatives  # noqa: E402
+from src.datasets._negative_sampling import (  # noqa: E402
+    balanced_usage_negatives,
+    within_fold_negatives,
+)
 from src.datasets._pair_helpers import (
     HASH_FAMILY_ALPHABET,
     _validate_schema_pair,
@@ -1706,46 +1709,52 @@ def split_dataset_v2(
             f"expected 'random', 'seq_disjoint', or 'cluster_disjoint'."
         )
 
-    # Negatives: two samplers, selected by negative_scope.
+    # Negatives: three samplers, selected by negative_scope.
     #   'coverage' (default) -- coverage-first sampler (per-DNA coverage floor +
     #       optional regime targeting); forbidden_pair_keys threaded across splits.
     #   'within_fold' -- ratio-driven random pairing within each split's own
     #       positives (no coverage phase, no regime), reusing within_fold_negatives
     #       from _negative_sampling (the same primitive the 2D-CD builder uses). See
     #       docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
-    if negative_scope not in ('coverage', 'within_fold'):
+    #   'balanced' -- the same in-split pairing, but each slot's least-used sequences
+    #       are drawn first, so the per-slot use counts differ by at most one
+    #       (balanced_usage_negatives, also shared with the 2D-CD builder).
+    if negative_scope not in ('coverage', 'within_fold', 'balanced'):
         raise ValueError(
-            f"split_dataset_v2: negative_scope must be 'coverage' or 'within_fold'; "
+            f"split_dataset_v2: negative_scope must be 'coverage', 'within_fold' or 'balanced'; "
             f"got {negative_scope!r}."
         )
-    if negative_scope == 'within_fold':
+    if negative_scope in ('within_fold', 'balanced'):
         # Enrich each split's negatives from a df restricted to that split's isolates
         # so the synthesized assembly_ids stay in-split (satisfies the isolate-disjoint
         # tripwire below). One `seen` set spans the three splits, exactly as
-        # `make_folds_within_fold` does in the CC builder: under mode='random' the splits
+        # `make_folds_then_negatives` does in the CC builder: under mode='random' the splits
         # share a sequence pool, so two splits can otherwise draw the same negative pair_key
         # and trip the cross-split pair_key check below. Under single_slot cluster_disjoint
         # the constrained slot's cluster_ids -- hence its hashes -- are already disjoint
         # across splits, so sharing the set changes nothing there.
-        print("\nCreate negative pairs (within_fold, ratio-driven, no coverage/regime)...", flush=True)
-        _wf_hash = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash
-        _wf_seen: set = set()
-        _wf_neg = {}
+        _sampler = (within_fold_negatives if negative_scope == 'within_fold'
+                    else balanced_usage_negatives)
+        print(f"\nCreate negative pairs ({negative_scope}, ratio-driven, no coverage/regime)...",
+              flush=True)
+        _neg_hash = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash
+        _neg_seen: set = set()
+        _neg_draws = {}
         for _si, (_nm, _sp) in enumerate(
             (('train', train_pos), ('val', val_pos), ('test', test_pos))
         ):
             _iso = set(_sp['assembly_id_a']) | set(_sp['assembly_id_b'])
             _df_split = df[df['assembly_id'].isin(_iso)]
-            _wf_neg[_nm] = within_fold_negatives(
+            _neg_draws[_nm] = _sampler(
                 _sp, cooccur_pairs, _df_split, schema_pair,
                 neg_to_pos_ratio=neg_to_pos_ratio, seed=seed + _si,
-                hash_col=_wf_hash, seen=_wf_seen,
+                hash_col=_neg_hash, seen=_neg_seen,
             )
-        train_neg, val_neg, test_neg = _wf_neg['train'], _wf_neg['val'], _wf_neg['test']
-        train_reject_stats = _within_fold_reject_stats(len(train_pos), len(train_neg), neg_to_pos_ratio)
-        val_reject_stats = _within_fold_reject_stats(len(val_pos), len(val_neg), neg_to_pos_ratio)
-        test_reject_stats = _within_fold_reject_stats(len(test_pos), len(test_neg), neg_to_pos_ratio)
-        print(f"split_dataset_v2: within_fold negatives -- train={len(train_neg):,} "
+        train_neg, val_neg, test_neg = _neg_draws['train'], _neg_draws['val'], _neg_draws['test']
+        train_reject_stats = _reject_stats_from_counts(len(train_pos), len(train_neg), neg_to_pos_ratio, negative_scope)
+        val_reject_stats = _reject_stats_from_counts(len(val_pos), len(val_neg), neg_to_pos_ratio, negative_scope)
+        test_reject_stats = _reject_stats_from_counts(len(test_pos), len(test_neg), neg_to_pos_ratio, negative_scope)
+        print(f"split_dataset_v2: {negative_scope} negatives -- train={len(train_neg):,} "
               f"val={len(val_neg):,} test={len(test_neg):,}", flush=True)
     else:
         # Generate negatives with coverage-first sampler.
@@ -2079,14 +2088,27 @@ def _coverage_substats(reject_stats: dict) -> dict:
     }
 
 
-def _within_fold_reject_stats(n_pos_split: int, n_neg: int, neg_to_pos_ratio: float) -> dict:
-    """Minimal rejection_stats for the within_fold sampler, shaped like the
-    coverage-first sampler's output so save_split_output_v2 / _coverage_substats
-    consume it unchanged. within_fold_negatives does not expose per-reason counts,
-    so blocked_cooccur / *_attempts are 0 (not tracked) and the coverage fields are
-    inert (no coverage phase -- every negative is a fill-phase draw)."""
+def _reject_stats_from_counts(n_pos_split: int, n_neg: int, neg_to_pos_ratio: float,
+                              sampler: str) -> dict:
+    """Minimal rejection_stats for the in-split samplers, synthesized from counts.
+
+    Shaped like the coverage-first sampler's output so save_split_output_v2 /
+    _coverage_substats consume it unchanged. Neither in-split sampler exposes per-reason
+    counts, so blocked_cooccur / *_attempts are 0 (not tracked) and the coverage fields are
+    inert (no coverage phase -- every negative is a fill-phase draw).
+
+    Args:
+      n_pos_split: positives in this split, which sets the requested count.
+      n_neg: negatives the sampler actually placed.
+      neg_to_pos_ratio: the ratio the sampler was asked for.
+      sampler: the negative_scope that drew them, `within_fold` or `balanced`.
+
+    Returns:
+      A rejection_stats dict carrying the requested and achieved counts; every other field is
+      a zero or a constant.
+    """
     return {
-        'blocked_cooccur': 0,        # within_fold rejects cooccur internally; count not exposed
+        'blocked_cooccur': 0,        # the sampler rejects cooccur internally; count not exposed
         'duplicate_brc': 0,
         'duplicate_seq': 0,
         'cross_split_collision': 0,
@@ -2096,7 +2118,7 @@ def _within_fold_reject_stats(n_pos_split: int, n_neg: int, neg_to_pos_ratio: fl
         'coverage_phase_pairs': 0,   # no coverage phase
         'fill_phase_pairs': int(n_neg),
         'coverage_overrode_ratio': False,
-        'sampler': 'within_fold',
+        'sampler': sampler,
     }
 
 

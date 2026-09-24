@@ -52,7 +52,10 @@ if str(PROJ) not in sys.path:
 
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.datasets._megacc_cut import fragment_until, stop_at_n_atoms  # noqa: E402
-from src.datasets._negative_sampling import within_fold_negatives  # noqa: E402
+from src.datasets._negative_sampling import (  # noqa: E402
+    balanced_usage_negatives,
+    within_fold_negatives,
+)
 from src.datasets._pair_helpers import (  # noqa: E402
     _side_rep,
     attach_cds_dna_hash_to_prot_df,
@@ -380,7 +383,8 @@ def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed
     in-distribution, while test stays cluster-disjoint from train and val alike. Both negative
     scopes route through this. Under within_cc, `_partition_full` passes positives + pre-built
     negatives, which already carry their CC's `atom_id` and so travel with it; under within_fold,
-    `make_folds_within_fold` passes positives only and draws each split's negatives afterwards.
+    `make_folds_then_negatives` passes positives only and draws each split's negatives
+    afterwards.
 
     Args:
         pairs: rows to partition; must carry an `atom_id` column.
@@ -409,7 +413,7 @@ def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed
     return folds
 
 
-def make_folds_within_fold(
+def make_folds_then_negatives(
     pos_full: pd.DataFrame,
     k_folds: int,
     val_ratio: float,
@@ -418,13 +422,13 @@ def make_folds_within_fold(
     cooccur: set,
     df: pd.DataFrame,
     schema_pair_full: tuple,
-    hash_col: str = 'prot_hash'):
-    """Fold-maker for the within_fold scope: GroupKFold the POSITIVES by atom, then draw each
-    split's negatives from its own positives.
+    hash_col: str = 'prot_hash',
+    sampler=within_fold_negatives):
+    """Fold-maker for the scopes that draw in-split negatives: GroupKFold the POSITIVES by atom,
+    then draw each split's negatives from its own positives.
 
-    Negatives must come after the split, since `within_fold_negatives` samples from the split's
-    positives. Both endpoints stay in-split, so folds remain cluster-disjoint. Routing is
-    `groupkfold_by_atom`.
+    Negatives must come after the split, since both samplers draw from the split's positives. Both
+    endpoints stay in-split, so folds remain cluster-disjoint. Routing is `groupkfold_by_atom`.
 
     One `seen` set spans each fold's three splits, so a pair drawn for train is not drawn again
     for val or test. The splits are drawn train, val, test, and the first to draw a pair keeps it.
@@ -439,6 +443,8 @@ def make_folds_within_fold(
         df: front-end protein frame, used to enrich negatives.
         schema_pair_full: (slot-a function, slot-b function), full names.
         hash_col: the alphabet's per-slot hash column.
+        sampler: the negative sampler to call per split, `within_fold_negatives` (the default,
+            uniform draws) or `balanced_usage_negatives` (least-used sequences first).
 
     Returns:
         list of k (train, val, test) frames in `_PAIR_COLUMNS`, each positives + its own negatives.
@@ -451,7 +457,7 @@ def make_folds_within_fold(
         splits = []
         drawn = set()  # negatives drawn so far in THIS fold; shared so no pair lands in two splits
         for split_id, split_pos in enumerate(pos_splits):  # (train, val, test)
-            neg = within_fold_negatives(
+            neg = sampler(
                 split_pos, cooccur, df, schema_pair_full,
                 neg_to_pos_ratio=neg_to_pos_ratio,
                 seed=seed + fold_id * 100 + split_id, hash_col=hash_col, seen=drawn
@@ -561,9 +567,9 @@ def _resolve_spec(args, config) -> CCSpec:
                          f"got {drop_negative_infeasible_ccs!r}.")
 
     negative_scope = ss.negative_scope  # raises if absent
-    if negative_scope not in ('within_cc', 'within_fold'):
-        raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc' or "
-                         f"'within_fold'; got {negative_scope!r}.")
+    if negative_scope not in ('within_cc', 'within_fold', 'balanced'):
+        raise ValueError(f"dataset.split_strategy.negative_scope must be 'within_cc', "
+                         f"'within_fold' or 'balanced'; got {negative_scope!r}.")
 
     m_pos = ss.m_pos_per_cc  # raises if absent (a positive int, or null = no cap = keep all pairs per CC)
     if m_pos is not None and (not isinstance(m_pos, int) or m_pos < 1):
@@ -854,7 +860,8 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path) -> 
     within_cc: build the uncapped isolate pool, cap positives per CC, draw within-CC negatives,
         concat to one fixed `full` (writes cc_sampling_log.csv), then hand to `_partition_full`
         (groupkfold or leave_cc_out).
-    within_fold: cap positives, then `make_folds_within_fold` -- one arm, negatives per split.
+    within_fold and balanced: cap positives, then `make_folds_then_negatives` -- one arm,
+        negatives per split.
 
     Args:
         spec: resolved build knobs.
@@ -866,9 +873,9 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path) -> 
     Returns:
         {arm_name: [(train, val, test), ...]}; '' names the single unnamed arm.
     """
-    # Isolate pool: within_cc only (within_fold draws negatives from each split's own positives,
-    # no pool). Built from the FULL (uncapped) atom assignment so the pool covers every cluster
-    # of each CC even when positives are capped.
+    # Isolate pool: within_cc only (within_fold and balanced draw negatives from each split's own
+    # positives, no pool). Built from the FULL (uncapped) atom assignment so the pool covers every
+    # cluster of each CC even when positives are capped.
     iso = None
     if spec.negative_scope == 'within_cc':
         c2a = {**dict(zip(pos_ids['cluster_id_a'].astype(str), pos_ids['atom_id'])),
@@ -920,18 +927,22 @@ def _make_folds_for_scope(spec: CCSpec, df, pos_ids, cooccur, out_dir: Path) -> 
         cc_log.to_csv(out_dir / 'cc_sampling_log.csv', index=False)
         return _partition_full(full, spec)
 
-    # within_fold: split positives by atom, then draw each split's negatives from its own positives.
+    # within_fold and balanced: split positives by atom, then draw each split's negatives from its
+    # own positives. The two scopes differ only in which sampler draws them.
+    sampler = {'within_fold': within_fold_negatives,
+               'balanced': balanced_usage_negatives}[spec.negative_scope]
     pos_full = pos_ids.copy()
     pos_full['neg_regime'] = pd.NA            # negative-only field (which negative regime); NA on positive rows
     pos_full['metadata_match_count'] = pd.NA  # negative-only field (pos<->neg metadata overlap); NA on positive rows
     print(f"  positives: {len(pos_full):,} across {pos_full['atom_id'].nunique():,} atoms; "
-          f"within-fold negatives generated per split")
+          f"{spec.negative_scope} negatives generated per split")
 
     # One unnamed arm: `fold_assignment` is not consulted here because `_resolve_spec` rejects
-    # leave_cc_out under within_fold, leaving groupkfold as the only reachable value.
-    folds = make_folds_within_fold(
+    # leave_cc_out under both of these scopes, leaving groupkfold as the only reachable value.
+    folds = make_folds_then_negatives(
         pos_full, spec.k_folds, spec.val_ratio, spec.seed, neg_to_pos_ratio=spec.neg_to_pos_ratio,
-        cooccur=cooccur, df=df, schema_pair_full=(spec.fa, spec.fb), hash_col=_POS_HASH[spec.alphabet])
+        cooccur=cooccur, df=df, schema_pair_full=(spec.fa, spec.fb),
+        hash_col=_POS_HASH[spec.alphabet], sampler=sampler)
     return {'': folds}
 
 
