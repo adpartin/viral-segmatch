@@ -52,7 +52,9 @@ if str(PROJ) not in sys.path:
 
 from src.datasets._cc_helpers import build_cc_isolate_pool, sample_random_within_cc_negatives  # noqa: E402
 from src.datasets._megacc_cut import fragment_until, stop_at_n_atoms  # noqa: E402
+from src.datasets._negative_sampling import within_fold_negatives  # noqa: E402
 from src.datasets._pair_helpers import (  # noqa: E402
+    _side_rep,
     attach_cds_dna_hash_to_prot_df,
     attach_ctg_dna_to_prot_df,
     build_cooccurrence_set,
@@ -78,14 +80,6 @@ from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  
 # aa=protein, nt_cds=CDS, nt_ctg=contig — all md5 of the respective sequence.
 # Single source of truth: the schema registry.
 _POS_HASH = {a: s.hash_col for a, s in schema.SCHEMA.items()} # "a" for alphabet, "s" for schema
-
-# Per-protein source columns copied into each pair side (a/b) of _PAIR_COLUMNS.
-_SIDE_SRC = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq', 'ctg_dna_seq',
-             'canonical_segment', 'function', 'prot_hash', 'ctg_dna_hash']
-_SIDE_RENAME = {'assembly_id': 'assembly_id', 'brc_fea_id': 'brc', 'genbank_ctg_id': 'ctg',
-                'prot_seq': 'prot_seq', 'ctg_dna_seq': 'ctg_dna_seq', 'canonical_segment': 'seg',
-                'function': 'func', 'prot_hash': 'prot_hash', 'ctg_dna_hash': 'ctg_dna_hash'}
-
 
 def build_frontend(
     config,
@@ -203,22 +197,6 @@ def assign_atoms_prod(
     pos_ids['atom_id'] = pos_ids['cc_id']
     cc_summary['n_dropped_cluster_join'] = attach_audit['n_input'] - attach_audit['n_kept']
     return pos_ids, cc_summary
-
-
-def _side_rep(df: pd.DataFrame, func: str, suffix: str, key_col: str = 'prot_hash') -> pd.DataFrame:
-    """{one row per `key_col`} of per-side fields for `func`, renamed to *_<suffix>.
-
-    `key_col` is the alphabet's per-slot hash column the negative enrichment joins
-    on (aa: prot_hash, nt_ctg: ctg_dna_hash, nt_cds: cds_dna_hash). First occurrence
-    per key is the representative (matches v2's keep='first'). Within one function a
-    DNA hash maps to exactly one protein, so the rep's other columns are unambiguous.
-    """
-    cols = list(_SIDE_SRC) + (['cds_dna_hash'] if 'cds_dna_hash' in df.columns else [])
-    rep = df[df['function'] == func][cols].drop_duplicates(key_col, keep='first').copy()
-    ren = {k: f'{v}_{suffix}' for k, v in _SIDE_RENAME.items()}
-    if 'cds_dna_hash' in df.columns:
-        ren['cds_dna_hash'] = f'cds_dna_hash_{suffix}'
-    return rep.rename(columns=ren)
 
 
 def compute_negative_infeasible_ccs(
@@ -429,86 +407,6 @@ def groupkfold_by_atom(pairs: pd.DataFrame, k_folds: int, val_ratio: float, seed
         train, val, test = train.reset_index(drop=True), val.reset_index(drop=True), test.reset_index(drop=True)
         folds.append((train, val, test))
     return folds
-
-
-def within_fold_negatives(
-    split_pos: pd.DataFrame,
-    cooccur: set,
-    df: pd.DataFrame,
-    schema_pair_full: tuple, *,
-    neg_to_pos_ratio: float,
-    seed: int,
-    hash_col: str = 'prot_hash',
-    seen: set | None = None) -> pd.DataFrame:
-    """Draw within-fold negatives for ONE split: a random positive's slot-a sequence paired with
-    another positive's slot-b sequence, both taken from THIS split's positives.
-
-    Rejects true co-occurrences and duplicates. CC membership is not consulted, so a negative may
-    fall within one CC or across CCs; either way both endpoints stay in-split, so the fold remains
-    cluster-disjoint. Unlike a within-CC negative this does NOT remove the cluster shortcut.
-
-    Pass ONE `seen` set across a fold's three splits, as `make_folds_within_fold` does, or a pair
-    can be drawn twice: train and val share atoms, hence sequences, so their draw pools overlap.
-    A test fold's atoms are held out of both, so it cannot collide with either.
-
-    Args:
-        split_pos: this split's positive rows.
-        cooccur: canonical pair_keys of all observed positives; a draw hitting one is rejected.
-        df: front-end protein frame, used to enrich bare hashes to `_PAIR_COLUMNS`.
-        schema_pair_full: (slot-a function, slot-b function), full names.
-        neg_to_pos_ratio: budget = round(ratio * len(split_pos)).
-        seed: seeds the reject sampler.
-        hash_col: the alphabet's per-slot hash column (aa: `prot_hash`).
-        seen: pair_keys already drawn, extended in place. Defaults to a fresh set, which dedups
-            within this call only.
-
-    Returns:
-        negatives in `_PAIR_COLUMNS`, index reset; empty frame if none could be drawn.
-    """
-    fa, fb = schema_pair_full
-    ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'  # alphabet's per-slot hash (aa: prot_hash)
-    a = split_pos[ha_col].astype(str).to_numpy()
-    b = split_pos[hb_col].astype(str).to_numpy()
-    budget = int(round(neg_to_pos_ratio * len(split_pos))) # num negatives to sample
-    if len(a) < 2 or budget <= 0:
-        return pd.DataFrame(columns=list(_PAIR_COLUMNS))
-
-    rng = np.random.RandomState(seed)
-    na, nb = [], []               # neg slot-a, neg slot-b
-    if seen is None:
-        seen = set()              # drawn neg pair_keys; caller-supplied to span a fold's splits
-    placed, attempts, max_attempts = 0, 0, budget * 50 + 200 # reject-sampling ceiling: ~50 attempts + 200 floor for tiny budgets
-    while placed < budget and attempts < max_attempts:
-        attempts += 1
-        ha, nbh = a[rng.randint(len(a))], b[rng.randint(len(b))]
-        pk = canonical_pair_key(ha, nbh) # canonical pair_key --> used to reject sampled negatives that match existing positives
-        if pk in cooccur or pk in seen:
-            continue  # reject sampled positives and negative duplicates
-        seen.add(pk)
-        na.append(ha)
-        nb.append(nbh)
-        placed += 1
-    if not na:
-        return pd.DataFrame(columns=list(_PAIR_COLUMNS))
-    out = pd.DataFrame({ha_col: na, hb_col: nb})
-
-    ra = _side_rep(df, fa, 'a', hash_col) # side-a lookup (one row per hash) to enrich the bare hash_a negatives
-    rb = _side_rep(df, fb, 'b', hash_col) # side-b lookup (one row per hash) to enrich the bare hash_b negatives
-    out = out.merge(ra, on=ha_col, how='left').merge(rb, on=hb_col, how='left')
-    aa = out[ha_col].astype(str).to_numpy()
-    bb = out[hb_col].astype(str).to_numpy()
-    out['pair_key'] = np.where(aa <= bb, aa, bb) + '__' + np.where(aa <= bb, bb, aa)
-
-    out['label'] = 0  # neg label
-    out['neg_regime'] = pd.NA  # placeholder for regime-targeted negatives (not wired)
-    out['metadata_match_count'] = pd.NA  # TODO: a placeholder?
-
-    # Assign pd.NA to cds_dna_hash_a/b since ... [TODO]
-    for c in ('cds_dna_hash_a', 'cds_dna_hash_b'):
-        if c not in out.columns:
-            out[c] = pd.NA
-
-    return out[list(_PAIR_COLUMNS)].reset_index(drop=True)
 
 
 def make_folds_within_fold(

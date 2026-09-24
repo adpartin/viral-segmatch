@@ -70,6 +70,7 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.append(str(_project_root))
 
+from src.datasets._negative_sampling import within_fold_negatives  # noqa: E402
 from src.datasets._pair_helpers import (
     HASH_FAMILY_ALPHABET,
     _validate_schema_pair,
@@ -1710,7 +1711,7 @@ def split_dataset_v2(
     #       optional regime targeting); forbidden_pair_keys threaded across splits.
     #   'within_fold' -- ratio-driven random pairing within each split's own
     #       positives (no coverage phase, no regime), reusing within_fold_negatives
-    #       (the same primitive the 2D-CD builder uses). See
+    #       from _negative_sampling (the same primitive the 2D-CD builder uses). See
     #       docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
     if negative_scope not in ('coverage', 'within_fold'):
         raise ValueError(
@@ -1718,10 +1719,6 @@ def split_dataset_v2(
             f"got {negative_scope!r}."
         )
     if negative_scope == 'within_fold':
-        # within_fold_negatives lives in the CC builder; import lazily to avoid the
-        # dataset_pairs_cc <-> dataset_segment_pairs_v2 module import cycle (the CC
-        # builder imports create_positive_pairs_v2 / _PAIR_COLUMNS from this module).
-        from src.datasets.dataset_pairs_cc import within_fold_negatives
         # Enrich each split's negatives from a df restricted to that split's isolates
         # so the synthesized assembly_ids stay in-split (satisfies the isolate-disjoint
         # tripwire below). One `seen` set spans the three splits, exactly as

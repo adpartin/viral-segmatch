@@ -47,6 +47,30 @@ from src.utils.path_utils import load_dataframe
 HASH_FAMILY_ALPHABET = {'seq': 'aa', 'dna': 'nt_ctg', 'cds': 'nt_cds'}
 
 
+# Per-protein source columns copied into each pair side (a/b) of the pair-table schema.
+_SIDE_SRC = ['assembly_id', 'brc_fea_id', 'genbank_ctg_id', 'prot_seq', 'ctg_dna_seq',
+             'canonical_segment', 'function', 'prot_hash', 'ctg_dna_hash']
+_SIDE_RENAME = {'assembly_id': 'assembly_id', 'brc_fea_id': 'brc', 'genbank_ctg_id': 'ctg',
+                'prot_seq': 'prot_seq', 'ctg_dna_seq': 'ctg_dna_seq', 'canonical_segment': 'seg',
+                'function': 'func', 'prot_hash': 'prot_hash', 'ctg_dna_hash': 'ctg_dna_hash'}
+
+
+def _side_rep(df: pd.DataFrame, func: str, suffix: str, key_col: str = 'prot_hash') -> pd.DataFrame:
+    """{one row per `key_col`} of per-side fields for `func`, renamed to *_<suffix>.
+
+    `key_col` is the alphabet's per-slot hash column the negative enrichment joins
+    on (aa: prot_hash, nt_ctg: ctg_dna_hash, nt_cds: cds_dna_hash). First occurrence
+    per key is the representative (matches v2's keep='first'). Within one function a
+    DNA hash maps to exactly one protein, so the rep's other columns are unambiguous.
+    """
+    cols = list(_SIDE_SRC) + (['cds_dna_hash'] if 'cds_dna_hash' in df.columns else [])
+    rep = df[df['function'] == func][cols].drop_duplicates(key_col, keep='first').copy()
+    ren = {k: f'{v}_{suffix}' for k, v in _SIDE_RENAME.items()}
+    if 'cds_dna_hash' in df.columns:
+        ren['cds_dna_hash'] = f'cds_dna_hash_{suffix}'
+    return rep.rename(columns=ren)
+
+
 def canonical_pair_key(hash_a: str, hash_b: str) -> str:
     """Create a canonical pair key from two hashes.
 

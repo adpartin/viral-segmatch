@@ -20,15 +20,14 @@ import pytest
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
-from src.datasets._pair_helpers import canonical_pair_key  # noqa: E402
+from src.datasets._pair_helpers import _SIDE_SRC, canonical_pair_key  # noqa: E402
+from src.datasets._negative_sampling import within_fold_negatives  # noqa: E402
 from src.datasets.dataset_pairs_cc import (  # noqa: E402
-    _SIDE_SRC,
     _carve_val_atoms,
     compute_negative_infeasible_ccs,
     groupkfold_by_atom,
     make_folds_within_fold,
     within_cc_negatives,
-    within_fold_negatives,
 )
 from src.datasets.dataset_segment_pairs_v2 import _PAIR_COLUMNS  # noqa: E402
 
