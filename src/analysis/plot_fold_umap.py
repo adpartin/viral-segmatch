@@ -13,6 +13,12 @@ Units:
 Colorings:
   split                -- where the point's key appears: 'train/val only', 'test only', or 'both'.
   hn_subtype/host/year -- modal isolate metadata, top categories colored and the tail folded gray.
+  class                -- positive/negative, with the split on point shape (needs --include_negatives).
+
+Panel layouts for the class coloring, both on the one shared UMAP fit:
+  --panels       -- one panel per split and class, each against the other groups in gray.
+  --split_panels -- one panel per split, its positives and negatives colored; the other split is
+                    left out, or drawn in gray with --show_other_split.
 
 Comparability across figures is not arranged, it follows from the data: a 2D-CD dataset and its
 random arm hold the SAME rows (`build_random_arm` re-cuts each fold's own rows at that fold's own
@@ -65,8 +71,8 @@ _CLASS_COLORS = {'positive': '#2b8a3e', 'negative': '#8a2be2'}
 
 # One panel per split and class. The hue is the class, as in the single-axes figure, and the split
 # takes the lighter shade, so a panel reads without its title.
-_GROUP_COLORS = {'train positive': '#2b8a3e', 'test positive': '#74c476',
-                 'train negative': '#8a2be2', 'test negative': '#bc8ee8'}
+_GROUP_COLORS = {'Train Positives': '#2b8a3e', 'Test Positives': '#74c476',
+                 'Train Negatives': '#8a2be2', 'Test Negatives': '#bc8ee8'}
 
 
 def load_fold_pairs(fold_dir: Path, hash_a: str, hash_b: str) -> dict:
@@ -327,6 +333,11 @@ def _parse_args():
                    help='one panel per split and class on shared coordinates, instead of one '
                         'axes; needs --color_by class. Every point is visible in its own panel, '
                         'which a single axes cannot show where the groups overlap.')
+    p.add_argument('--split_panels', action='store_true',
+                   help='one panel per split on shared coordinates, each coloring its own '
+                        'positives and negatives; needs --color_by class.')
+    p.add_argument('--show_other_split', action='store_true',
+                   help='with --split_panels, draw the other split in gray behind each panel.')
     p.add_argument('--alphabet', default='nt_cds', help='k-mer alphabet (default nt_cds).')
     p.add_argument('--alpha', type=float, default=0.5,
                    help='point opacity (default 0.5), so overlapping categories show through.')
@@ -351,6 +362,13 @@ def main() -> None:
     if args.panels and args.color_by != 'class':
         raise SystemExit('--panels needs --color_by class: the panels are the split-by-class '
                          'groups, which is what that coloring names.')
+    if args.split_panels and args.color_by != 'class':
+        raise SystemExit('--split_panels needs --color_by class: each panel colors its split '
+                         'by class.')
+    if args.split_panels and args.panels:
+        raise SystemExit('--split_panels and --panels are two different layouts; pass one.')
+    if args.show_other_split and not args.split_panels:
+        raise SystemExit('--show_other_split needs --split_panels.')
     if args.color_by == 'class' and not args.include_negatives:
         raise SystemExit("--color_by class needs --include_negatives: without them the figure "
                          "holds one class and the color channel says nothing.")
@@ -410,7 +428,9 @@ def main() -> None:
     # the same coloring cannot collide (both color by split).
     name = (f'umap_{args.unit}' + (f'_{slot_short}' if args.unit == 'slot' else '')
             + f'_{color_by}' + ('_posneg' if args.include_negatives else '_pos')
-            + ('_panels' if args.panels else ''))
+            + ('_panels' if args.panels else '')
+            + ('_split_panels' if args.split_panels else '')
+            + ('_bg' if args.show_other_split else ''))
     out_png = args.out_png or (args.fold_dir / 'figures' / f'{name}.png')
     # The legends already name the color and shape channels, so the title carries only what they
     # cannot: which rows are in the figure.
@@ -421,9 +441,20 @@ def main() -> None:
     if args.panels:
         # The two channels the single axes uses become one group per panel, so nothing is hidden
         # behind a later-drawn group.
-        groups = np.asarray([f'{sp} {cl}' for sp, cl in zip(markers, categories)])
+        groups = np.asarray([f'{sp.capitalize()} {cl.capitalize()}s'
+                             for sp, cl in zip(markers, categories)])
         stats = umap_panels(X, groups, out_png=out_png, title=title, alpha=args.alpha,
                             group_colors=_GROUP_COLORS)
+        print('  ' + ' | '.join(f'{g}={n:,}' for g, n in stats['counts'].items()))
+    elif args.split_panels:
+        # One panel per split, each coloring its own rows by class, so the two classes are read
+        # against each other within a split.
+        splits = np.asarray([sp.capitalize() for sp in markers])
+        class_names = np.asarray([f'{cl.capitalize()}s' for cl in categories])
+        class_colors = {f'{cl.capitalize()}s': color for cl, color in _CLASS_COLORS.items()}
+        stats = umap_panels(X, splits, out_png=out_png, title=title, alpha=args.alpha,
+                            order=[sp.capitalize() for sp in _SPLITS], classes=class_names,
+                            class_colors=class_colors, show_background=args.show_other_split)
         print('  ' + ' | '.join(f'{g}={n:,}' for g, n in stats['counts'].items()))
     else:
         stats = umap_scatter(X, categories, out_png=out_png, title=title, alpha=args.alpha,
@@ -434,7 +465,7 @@ def main() -> None:
         print('  ' + ' | '.join(f'{c}={n:,}' for c, n in counts.items()))
     if stats.get('others_share'):
         print(f"  Others {stats['others_share']:.1%}")
-    drawn = (f"{stats['n_panels']} panels" if args.panels
+    drawn = (f"{stats['n_panels']} panels" if args.panels or args.split_panels
              else f"{stats['n_selected']} colored")
     print(f"Done. {stats['n_points']:,} points, {drawn} -> {out_png}")
 

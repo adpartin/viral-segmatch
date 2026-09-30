@@ -663,6 +663,10 @@ def umap_panels(
     out_png: Union[str, Path],
     title: str,
     group_colors: Optional[dict] = None,
+    order: Optional[Sequence] = None,
+    classes: Optional[Sequence] = None,
+    class_colors: Optional[dict] = None,
+    show_background: bool = True,
     palette='tab10',
     metric: str = 'cosine',
     n_neighbors: int = 15,
@@ -676,7 +680,7 @@ def umap_panels(
     title_fontsize: int = 10,
     dpi: int = 200,
     ) -> dict:
-    """One panel per group, all on the same coordinates, each group against the others in gray.
+    """One panel per group on shared UMAP coordinates, optionally with the other groups in gray.
 
     A single scatter draws its groups in sequence, so wherever two groups coincide the later one
     hides the earlier and the picture reports draw order as much as data. Giving each group its own
@@ -685,32 +689,47 @@ def umap_panels(
 
     Args:
       X: (N, D) features, or (N, 2) coordinates to use as they are.
-      groups: per-point group name; one panel per distinct value, ordered by `group_colors` when
-          given and by descending count otherwise.
+      groups: per-point group name; one panel per distinct value.
       out_png: file to write.
       title: figure title, above the grid.
-      group_colors: group -> color, pinned so a group keeps its color across figures.
+      group_colors: group -> color, pinned so a group keeps its color across figures. Unused
+          when `classes` is given.
+      order: panel order; a group it does not name gets no panel. Defaults to the `group_colors`
+          order when that is given, and to descending count otherwise.
+      classes: optional per-point second label. When given, each panel colors its own points by
+          class from `class_colors`, instead of in one group color.
+      class_colors: class -> color; required with `classes`, and it must name every class. The
+          classes are drawn in its order, so the last one is on top where points coincide.
+      show_background: draw the points outside the panel's group in gray, behind its own.
       palette: colormap for groups `group_colors` does not name.
       metric / n_neighbors / min_dist / seed: passed to UMAP when `X` needs reducing.
-      background_color / background_size: the other groups, drawn behind each panel's own.
-      point_size: marker size for the panel's own group.
+      background_color / background_size: color and marker size of the gray points.
+      point_size: marker size for the panel's own points.
       alpha: point opacity.
       ncols: panels per row.
       title_fontsize / dpi: figure title size and output resolution.
 
     Returns:
       `{'n_points', 'n_panels', 'counts'}`, `counts` being the size of each group.
+
+    Raises:
+      ValueError: `classes` holds a class that `class_colors` does not name.
     """
     from .dim_reduction_utils import compute_umap_reduction  # lazy: pulls in umap/numba
 
     X = np.asarray(X)
     groups = np.asarray(groups)
+    if classes is not None:
+        classes = np.asarray(classes)
+        unnamed = sorted(set(classes) - set(class_colors or {}))
+        if unnamed:
+            raise ValueError(f'umap_panels: class_colors does not name classes {unnamed}.')
     xy = X if (X.ndim == 2 and X.shape[1] == 2) else compute_umap_reduction(
         X, n_components=2, n_neighbors=n_neighbors, min_dist=min_dist,
         metric=metric, random_state=seed)[0]
 
     counts = pd.Series(groups).value_counts()
-    names = list(group_colors) if group_colors else list(counts.index)
+    names = list(order or group_colors or counts.index)
     names = [n for n in names if n in set(counts.index)]
     cmap = plt.get_cmap(palette) if isinstance(palette, str) else None
     colors = {n: (group_colors or {}).get(n, cmap(i % cmap.N) if cmap else '#4c72b0')
@@ -722,11 +741,25 @@ def umap_panels(
     flat = axes.ravel()
     for ax, name in zip(flat, names):
         own = groups == name
-        ax.scatter(xy[~own, 0], xy[~own, 1], s=background_size, c=background_color, linewidths=0,
-                   rasterized=True, alpha=alpha)
-        ax.scatter(xy[own, 0], xy[own, 1], s=point_size, color=colors[name], linewidths=0,
-                   rasterized=True, alpha=alpha)
+        background_handles = []
+        if show_background:
+            # A single other group is named; several are counted.
+            others = [n for n in names if n != name]
+            bg_label = others[0] if len(others) == 1 else f'Other {len(others)} groups'
+            background_handles.append(ax.scatter(xy[~own, 0], xy[~own, 1], s=background_size,
+                                                 c=background_color, linewidths=0,
+                                                 rasterized=True, alpha=alpha, label=bg_label))
+        if classes is None:
+            fills = [(own, colors[name], name)]
+        else:
+            fills = [(own & (classes == c), color, c) for c, color in class_colors.items()]
+        own_handles = [ax.scatter(xy[mask, 0], xy[mask, 1], s=point_size, color=color,
+                                  linewidths=0, rasterized=True, alpha=alpha, label=label)
+                       for mask, color, label in fills]
         ax.set_title(f'{name} (n={int(own.sum()):,})', fontsize=title_fontsize)
+        # The panel's own points first, so the legend reads in the order of the title.
+        ax.legend(handles=own_handles + background_handles, loc='upper right', fontsize=8,
+                  markerscale=2, framealpha=0.9)
     for ax in flat[len(names):]:
         ax.set_visible(False)
     for ax in axes[-1]:
