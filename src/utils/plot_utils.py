@@ -745,7 +745,8 @@ def umap_panels(
         if show_background:
             # A single other group is named; several are counted.
             others = [n for n in names if n != name]
-            bg_label = others[0] if len(others) == 1 else f'Other {len(others)} groups'
+            bg_name = others[0] if len(others) == 1 else f'Other {len(others)} groups'
+            bg_label = f'{bg_name} (n={int((~own).sum()):,})'
             background_handles.append(ax.scatter(xy[~own, 0], xy[~own, 1], s=background_size,
                                                  c=background_color, linewidths=0,
                                                  rasterized=True, alpha=alpha, label=bg_label))
@@ -754,7 +755,8 @@ def umap_panels(
         else:
             fills = [(own & (classes == c), color, c) for c, color in class_colors.items()]
         own_handles = [ax.scatter(xy[mask, 0], xy[mask, 1], s=point_size, color=color,
-                                  linewidths=0, rasterized=True, alpha=alpha, label=label)
+                                  linewidths=0, rasterized=True, alpha=alpha,
+                                  label=f'{label} (n={int(mask.sum()):,})')
                        for mask, color, label in fills]
         ax.set_title(f'{name} (n={int(own.sum()):,})', fontsize=title_fontsize)
         # The panel's own points first, so the legend reads in the order of the title.

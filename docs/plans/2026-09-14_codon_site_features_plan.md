@@ -248,6 +248,30 @@ python -m src.analysis.aggregate_allpairs_results --tag codon \
 - Recall > Precision in all 28 pairs, so the model over-predicts the positive class at
   0.5 threshold.
 
+2-D UMAPs:
+
+- These plots show whether positives and negatives overlap within a split.
+- Each point is one pair from fold 0, represented by the `nt_cds` k-mer vectors of its two CDS,
+  concatenated. This is not the per-site codon representation that LightGBM trains on.
+- The UMAP is fitted once on the train and test pairs, so both panels share coordinates. Val pairs
+  are left out.
+- Each panel colors its own split's positives (green) and negatives (purple), and draws the other
+  split in gray.
+
+```
+python -m src.analysis.plot_fold_umap \
+  --fold_dir data/datasets/flu/July_2025/runs/exp3_28p_codon_pb2_ha/fold_0 \
+  --unit pair --color_by class --include_negatives \
+  --split_panels --show_other_split --drop_val \
+  --out_png results/flu/July_2025/pair_umap_human_h3n2_2024/pb2_ha_umap_class_split_panels_bg.png
+```
+
+PB2-NP uses the same command with `pb2_np` in place of `pb2_ha`.
+
+<img src="../results/figs/2026-09-30_h3n2_2024_pb2_ha_umap_split_panels_bg.png" width="900" alt="PB2-HA pair UMAP, positives and negatives per split, Human-H3N2-2024">
+
+<img src="../results/figs/2026-09-30_h3n2_2024_pb2_np_umap_split_panels_bg.png" width="900" alt="PB2-NP pair UMAP, positives and negatives per split, Human-H3N2-2024">
+
 Reproducibility:
 - HA-NA reproduces the earlier standalone run. All 4 of test set prediction
   files match value for value, although the two runs used different bundles and different dataset
