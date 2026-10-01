@@ -1,9 +1,12 @@
 # Hamming 1-NN baseline on per-site codon features
 
-**Status: PROPOSED**
+**Status: IN PROGRESS**
 
 Run the 1-NN baseline on the per-site codon datasets with Hamming distance over the codon codes
 instead of cosine. One pilot, on PB2-HA fold 0.
+
+All six implementation items and the fold 0 pilot are complete; the three follow-up items are not
+started.
 
 ## Why
 
@@ -11,10 +14,10 @@ instead of cosine. One pilot, on PB2-HA fold 0.
 cluster-disjoint aa and nt routings, matching or beating LightGBM in all 8 pair-by-routing cells, and
 never on Hopcroft-Karp positives, pinned-length CDS, or per-site codon features.
 
-`knn1_margin` hardcodes cosine distance, built for k-mer counts. Per-site codon features are nominal
-codes, not magnitudes, so cosine over them measures nothing meaningful;
-`train_pair_baselines.py:553-560` already says so and declares every ordinal site column categorical
-for LightGBM. Hamming only tests
+`knn1_margin` offered cosine distance only, built for k-mer counts. Per-site codon features are
+nominal codes, not magnitudes, so cosine over them measures nothing meaningful; the
+`CATEGORICAL_FEATURES` block in `train_pair_baselines.main` already says so and declares every
+ordinal site column categorical for LightGBM. Hamming only tests
 whether two codes are equal, so it reads them the same way. One-hot plus cosine gives identical
 distances, verified to 1.8e-6, but needs 81,835 columns against 1,327.
 
@@ -78,10 +81,11 @@ Counts on the 1,022 test rows:
 ## What these numbers do not say
 
 They do not establish how LightGBM works. A small gap would show a simple neighbour baseline scoring
-similarly on the folds measured, not that LightGBM performs lookup. The ΔAUC < 0.02 bar in
-`docs/methods/leakage.md:74-80` does not apply here; it was set for an MLP against a cosine 1-NN in
-the same feature space. And nearly every test row has a training pair above 0.99 codon agreement, so
-a result here describes lookup under near-clone conditions, not performance on distant sequences.
+similarly on the folds measured, not that LightGBM performs lookup. The ΔAUC < 0.02 bar under
+"The 1-NN lookup gauge" in `docs/methods/leakage.md` does not apply here; it was set for an MLP
+against a cosine 1-NN in the same feature space. And nearly every test row has a training pair
+above 0.99 codon agreement, so a result here describes lookup under near-clone conditions, not
+performance on distant sequences.
 
 Where the gap between LightGBM and hard label transfer comes from is unknown, and these figures
 cannot answer it: LightGBM's cover all 1,022 rows and cannot be compared against a subset. Until both
@@ -91,17 +95,17 @@ models are scored on the same subsets, do not attribute the gap to the coarsenes
 
 All six items land before the pilot runs.
 
-1. **Configurable metric.** `knn1_margin.py:89` hardcodes `metric='cosine'`. Add a `metric` argument
-   to `__init__`, read it in `get_estimator` (line 125), default it to `cosine` so existing k-mer and
-   ESM-2 runs are unchanged, add it to the override table at line 34, and add `metric: cosine` to
-   `conf/baselines/default.yaml:60`, whose comment presents cosine as the only option.
+1. **Configurable metric.** `KNN1Margin.fit` passed `metric='cosine'` to both searches with no way
+   to change it. Add a `metric` argument to `KNN1Margin.__init__`, validate it against `METRICS`,
+   read it in `get_estimator`, default it to `cosine` so existing k-mer and ESM-2 runs are
+   unchanged, add it to the module docstring's override table, and add `metric: cosine` to the
+   `baseline_knn1_margin` block in `conf/baselines/default.yaml`.
    `feature_scaling` stays `none`: StandardScaler is injective per column, so it would leave Hamming
    distances unchanged at no benefit.
 
 
-2. **Bounded-metric margin.** Record the margin bullet above in the margin paragraph at
-   `knn1_margin.py:14-25`, including that a count tie maps to exactly 0.5. No code change beyond
-   item 4.
+2. **Bounded-metric margin.** Record the margin bullet above in `knn1_margin`'s module docstring,
+   including that a count tie maps to exactly 0.5. No code change beyond item 4.
 
 3. **Leave-one-out by training row index.** `_distances_pos_neg` skips any neighbour closer than
    `LOO_EPS` as a self-match, which discards two things it should keep: another training row at
@@ -110,7 +114,8 @@ All six items land before the pilot runs.
    training row index, since `nn_pos_` and `nn_neg_` are fitted on subsets of `X`; add a method for
    scoring training rows that excludes only the query's own index; leave
    `predict` and `predict_proba` excluding nothing; drop the `LOO_EPS` test.
-   `train_pair_baselines.py:291-293` scores all three splits, so it calls the new method for train.
+   `train_pair_baselines._run_one_baseline` scores all three splits, so it detects an estimator that
+   accepts `train_rows` and passes the training row indices for that split alone.
 
    No distance-0 case arises on PB2-HA fold 0, in either direction. It is reachable elsewhere:
    `flu_ha_na_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_site_aa.yaml` sets `site.unit: aa` and
@@ -120,7 +125,7 @@ All six items land before the pilot runs.
 4. **Integer counts for every Hamming comparison.** Under `metric='hamming'`, derive `k_pos` and
    `k_neg` as `round(distance * n_features_in_)`, decide the hard label on `k_pos < k_neg`, and
    compute the margin as `(k_neg - k_pos) / n_features_in_`. A count tie then yields a margin of
-   exactly 0, so `predict_proba` returns exactly 0.5 and `_pair_metrics.py:105`'s strict
+   exactly 0, so `predict_proba` returns exactly 0.5 and `compute_pair_metrics`'s strict
    `y_probs > threshold` assigns class 0 — the stated rule holding by construction rather than by
    luck. Leave cosine on the float path, which has no integer lattice. It matters because sklearn's
    fraction drifts off the lattice by up to 3.05e-05 here and the two distances come from separately
@@ -134,12 +139,26 @@ All six items land before the pilot runs.
    evaluation population, and do not break the tie with the second neighbour, which would change the
    baseline.
 
-5. **Neighbour export.** `train_pair_baselines.py:291-293` produces probabilities only, so this needs
-   its own write path: `neighbors_<split>.csv` beside each `<split>_predicted.csv`, one row per
-   scored pair, carrying `C(q)`'s representative (the lexicographically smallest `pair_key`,
-   following `dataset_segment_pairs_v2.py:1395`), that representative's label, the size of `C(q)`,
-   the positive and negative counts within it, the distance, and `A_pb2` and `A_ha` alongside
-   `A_pair`.
+5. **Neighbour export.** The prediction path produces probabilities only, so this needs its own
+   write path, `train_pair_baselines.write_neighbor_report`, fed by `KNN1Margin.co_nearest`. It
+   writes `neighbors_<split>.csv` beside each `<split>_predicted.csv`, one row per scored pair, with
+   these columns.
+
+   | column | meaning |
+   |---|---|
+   | `pair_key`, `label` | the scored pair and its true label |
+   | `distance` | `D(q, t)` at the minimum, the metric's own value |
+   | `n_co_nearest` | size of `C(q)` |
+   | `n_co_nearest_pos`, `n_co_nearest_neg` | its class split |
+   | `representative_pair_key` | the member with the lexicographically smallest `pair_key`, following `create_positive_pairs_v2`'s representative-isolate rule |
+   | `representative_label` | that member's label |
+   | `mismatch_count` | `k(q, t)` at the minimum; `hamming` only |
+   | `agreement_pooled` | `A_pair`, equal to `1 - distance`; `hamming` only |
+   | `agreement_slot_a`, `agreement_slot_b` | `A_pb2` and `A_ha` against the representative; per-site ordinal features only |
+
+   `distance` and `mismatch_count` are separate columns because they are different quantities: a
+   Hamming distance of 6 sites is `6 / 1327`, not 6. Reporting one number under one name would
+   invite reading a count as a distance.
 
    These are audit fields, not the prediction. On an unambiguous-decision row every member of `C(q)`
    carries the nearer class, so the representative's label equals the prediction; on a cross-class tie

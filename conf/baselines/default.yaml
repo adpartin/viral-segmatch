@@ -52,13 +52,18 @@ baseline_lgbm:
   early_stopping_rounds: 50   # val-metric plateau window
 
 # -------------------------------------------------------------------
-# 1-NN cosine margin baseline.
+# 1-NN distance-margin baseline.
 # Defaults read by src/models/baselines/knn1_margin.py.
-# 'cosine' distance via sklearn NearestNeighbors; cosine is scale-invariant
-# so feature_scaling stays 'none'.
+# Distance via sklearn NearestNeighbors. feature_scaling stays 'none' for both
+# metrics, for different reasons. Cosine is invariant to rescaling a whole vector,
+# NOT to StandardScaler's per-column centering and scaling, which moves cosine
+# distances substantially and would also destroy the non-negativity of k-mer counts.
+# Hamming only tests equality, which an injective per-column map preserves, so
+# scaling would leave its distances unchanged and cost time for nothing.
 # -------------------------------------------------------------------
 baseline_knn1_margin:
-  feature_scaling: none       # cosine is scale-invariant
+  feature_scaling: none       # see above; wrong for cosine, pointless for hamming
+  metric: cosine              # 'cosine' (k-mer, ESM-2) | 'hamming' (per-site ordinal codes)
   algorithm: brute            # 'brute' | 'ball_tree' | 'kd_tree' | 'auto'
   n_jobs: 16
 

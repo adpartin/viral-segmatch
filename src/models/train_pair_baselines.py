@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import inspect
 import json
 import sys
 import time
@@ -70,6 +71,7 @@ from src.utils.config_hydra import (
 from src.utils.experiment_utils import get_git_info
 from src.utils.path_utils import build_embeddings_paths, build_training_paths
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.site_utils import load_site_cache
 from src.utils.timer_utils import Timer
 
 BASELINE_REGISTRY = {
@@ -116,6 +118,70 @@ def _resolve_kmer_alphabet(config) -> str:
     if hasattr(config, 'kmer') and config.get('kmer') is not None:
         return str(config.kmer.get('alphabet', 'nt_ctg')).lower()
     return 'nt_ctg'
+
+
+def write_neighbor_report(estimator, X_split, X_train, y_train, train_pairs, split_pairs,
+                          out_csv: Path, *, train_rows=None,
+                          slot_a_width: Optional[int] = None) -> Path:
+    """Write one row per scored pair describing the training rows tied closest to it.
+
+    Audit output, not predictions. A query whose co-nearest set holds more than one training pair
+    has no single nearest neighbor, so the representative is the member with the lexicographically
+    smallest `pair_key` and `n_co_nearest` says how many it was chosen from. The same convention
+    picks a representative isolate in `dataset_segment_pairs_v2.py:1395`.
+
+    Args:
+      estimator: a fitted estimator exposing `co_nearest`.
+      X_split: the feature rows being scored.
+      X_train: the matrix the estimator was fitted on.
+      y_train: its labels.
+      train_pairs: the training pair table, for the representative's `pair_key` and label.
+      split_pairs: the scored split's pair table, for each query's own `pair_key`.
+      out_csv: where to write.
+      train_rows: training row index per query row when the queries are training rows, else None.
+      slot_a_width: how many leading feature columns belong to slot A. When given, per-slot
+          agreement against the representative is reported alongside the pooled value. None for
+          feature spaces where a column does not correspond to one site.
+
+    Returns:
+      The path written.
+    """
+    minimum, members, n_pos, n_neg = estimator.co_nearest(
+        X_split, X_train, y_train, train_rows=train_rows)
+
+    # `co_nearest` returns a Hamming minimum as an integer count of disagreeing features, so the
+    # metric's own value is that count over the feature width. Report both, under names that say
+    # which is which.
+    is_hamming = estimator.metric == 'hamming'
+    distance = minimum / estimator.n_features_in_ if is_hamming else minimum
+
+    train_keys = train_pairs['pair_key'].to_numpy()
+    train_labels = np.asarray(y_train).astype(int)
+    # Lexicographically smallest pair_key among the tied members, so the choice is reproducible
+    # rather than an artifact of the search's index order.
+    representative = np.array([m[np.argmin(train_keys[m])] for m in members])
+
+    report = pd.DataFrame({
+        'pair_key': split_pairs['pair_key'].to_numpy(),
+        'label': np.asarray(split_pairs['label']).astype(int),
+        'distance': distance,
+        'n_co_nearest': np.array([len(m) for m in members]),
+        'n_co_nearest_pos': n_pos,
+        'n_co_nearest_neg': n_neg,
+        'representative_pair_key': train_keys[representative],
+        'representative_label': train_labels[representative],
+    })
+
+    if is_hamming:
+        report['mismatch_count'] = minimum.astype(int)
+        report['agreement_pooled'] = 1.0 - distance
+    if slot_a_width is not None:
+        same = (X_split == X_train[representative])
+        report['agreement_slot_a'] = same[:, :slot_a_width].mean(axis=1)
+        report['agreement_slot_b'] = same[:, slot_a_width:].mean(axis=1)
+
+    report.to_csv(out_csv, index=False)
+    return out_csv
 
 
 def _resolve_feature_scaling(config, baseline_module) -> str:
@@ -235,6 +301,7 @@ def _run_one_baseline(
     FEATURE_SOURCE: str, KMER_K: int,
     INTERACTION: str, SLOT_TRANSFORM: str,
     CATEGORICAL_FEATURES, RANDOM_SEED, dataset_dir: Path,
+    SLOT_A_WIDTH: Optional[int] = None,
     ) -> dict:
     """Fit one baseline on the shared materialized features, write per-baseline
     artifacts, and run post-hoc analysis. Returns a small summary dict.
@@ -288,9 +355,16 @@ def _run_one_baseline(
 
     # ── Inference (predictions + per-split metrics + CSVs) ─────────────────
     per_timer.begin_phase('inference')
+    # A training row must not match itself. The estimator decides self-matches by row index, not
+    # by distance, so it needs to be told which rows the training queries are; validation and test
+    # pass nothing, because an exact match there is a real finding rather than an artifact.
+    takes_train_rows = 'train_rows' in inspect.signature(estimator.predict_proba).parameters
+    train_rows = np.arange(len(X_train)) if takes_train_rows else None
+    loo_kwargs = {'train_rows': train_rows} if takes_train_rows else {}
+
     val_probs   = estimator.predict_proba(X_val)[:, 1]
     test_probs  = estimator.predict_proba(X_test)[:, 1]
-    train_probs = estimator.predict_proba(X_train)[:, 1]
+    train_probs = estimator.predict_proba(X_train, **loo_kwargs)[:, 1]
 
     if hasattr(estimator, 'decision_function'):
         train_logits = np.asarray(estimator.decision_function(X_train), dtype=np.float32)
@@ -338,6 +412,16 @@ def _run_one_baseline(
               f'Precision: {metrics["precision"]:.4f}, Recall: {metrics["recall"]:.4f}')
         print(f'Saved predictions to: {out_csv}')
         summary[split_name] = metrics
+
+        if hasattr(estimator, 'co_nearest'):
+            X_split = {'train': X_train, 'val': X_val, 'test': X_test}[split_name]
+            rows_arg = train_rows if split_name == 'train' else None
+            neighbors_csv = write_neighbor_report(
+                estimator, X_split, X_train, y_train, train_pairs, pairs_df,
+                output_dir / f'neighbors_{split_name}.csv',
+                train_rows=rows_arg, slot_a_width=SLOT_A_WIDTH,
+            )
+            print(f'Saved neighbor audit to: {neighbors_csv}')
 
     with open(output_dir / 'metrics_summary.json', 'w') as f:
         json.dump(summary, f, indent=2)
@@ -560,6 +644,13 @@ def main() -> None:
         print(f'Declaring all {len(CATEGORICAL_FEATURES):,} columns categorical '
               f'(site.encoding=ordinal).')
 
+    # Where slot A's columns end, so a neighbour audit can report agreement per slot as well as
+    # pooled. Only this layout puts one site in one column, and only `both` keeps two slots.
+    SLOT_A_WIDTH = None
+    if FEATURE_SOURCE == 'site' and SITE_ENCODING == 'ordinal' and SITE_SLOTS == 'both':
+        SLOT_A_WIDTH = int(load_site_cache(site_dir, SITE_UNIT, site_proteins[0]).codes.shape[1])
+        print(f'Slot A occupies the first {SLOT_A_WIDTH:,} of {X_train_raw.shape[1]:,} columns.')
+
     # ── Per-baseline runs ───────────────────────────────────────────────────
     n_baselines = len(baselines)
     results = []
@@ -579,6 +670,7 @@ def main() -> None:
                 INTERACTION=INTERACTION, SLOT_TRANSFORM=SLOT_TRANSFORM,
                 CATEGORICAL_FEATURES=CATEGORICAL_FEATURES,
                 RANDOM_SEED=RANDOM_SEED, dataset_dir=dataset_dir,
+                SLOT_A_WIDTH=SLOT_A_WIDTH,
             )
             res['wall_seconds'] = time.time() - t0
             results.append(res)
