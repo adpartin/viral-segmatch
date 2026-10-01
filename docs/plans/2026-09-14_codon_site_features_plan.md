@@ -250,10 +250,11 @@ python -m src.analysis.aggregate_allpairs_results --tag codon \
 
 2-D UMAPs:
 
-- These plots show whether positives and negatives overlap within a split.
-- Each point is one pair from fold 0, represented by the `nt_cds` k-mer vectors of its two CDS,
-  concatenated. This is not the per-site codon representation that LightGBM trains on.
-- The UMAP is fitted once on the train and test pairs, so both panels share coordinates. Val pairs
+- The UMAPs aim to check if positives and negatives overlap within a train or test split.
+- Each point is a single sample pair (i.e., two concatenated nucleotide CDS). The UMAP
+  is computed on concatenated `nt_cds` k-mer vectors. This is not the per-site codon features
+  that LightGBM trains on.
+- The UMAP is fitted once on train and test pairs, so both panels share coordinates. Val pairs
   are left out.
 - Each panel colors its own split's positives (green) and negatives (purple), and draws the other
   split in gray.
