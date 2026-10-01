@@ -195,9 +195,10 @@ def balanced_usage_negatives(
     count then runs two ahead. When a slot-a sequence has no partner in either bag, it is retired
     unused and returns when its bag refills.
 
-    Balance is not the same as coverage. The two coincide here because the budget has to be at least
-    as large as the bigger slot's sequence count, so one complete pass over each slot fits inside it
-    and every sequence is normally used at least once. The retirement case above is the exception.
+    Balance holds at any budget. A budget smaller than a slot's sequence count leaves some of that
+    slot's sequences unused, and uses each of the rest once. The two slots refill separately, so
+    when they hold different numbers of sequences, the smaller slot's sequences are used more often
+    on average.
 
     Pass ONE `seen` set across a fold's three splits, as `make_folds_then_negatives` does, for the
     reason given in `within_fold_negatives`.
@@ -215,10 +216,6 @@ def balanced_usage_negatives(
 
     Returns:
         negatives in `_PAIR_COLUMNS`, index reset; empty frame if none could be drawn.
-
-    Raises:
-        ValueError: the budget is smaller than the larger slot's sequence count, so no complete
-            pass over that slot fits and the result could not be balanced.
     """
     ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'  # alphabet's per-slot hash (aa: prot_hash)
     uniq_a = sorted(set(split_pos[ha_col].astype(str)))  # sorted so the bag order depends on the seed alone
@@ -226,15 +223,6 @@ def balanced_usage_negatives(
     budget = int(round(neg_to_pos_ratio * len(split_pos)))  # num negatives to sample
     if not uniq_a or not uniq_b or budget <= 0:
         return pd.DataFrame(columns=list(_PAIR_COLUMNS))
-
-    one_pass = max(len(uniq_a), len(uniq_b))  # draws needed to offer every sequence in both slots once
-    if budget < one_pass:
-        raise ValueError(
-            f"balanced_usage_negatives: a budget of {budget:,} negatives cannot offer every "
-            f"sequence once, since this split holds {len(uniq_a):,} slot-a and {len(uniq_b):,} "
-            f"slot-b sequences. Raise dataset.neg_to_pos_ratio to at least "
-            f"{one_pass / len(split_pos):.4g}, or use negative_scope=within_fold, which places "
-            f"any budget but leaves the reuse of each sequence to chance.")
 
     rng = np.random.RandomState(seed)
     if seen is None:

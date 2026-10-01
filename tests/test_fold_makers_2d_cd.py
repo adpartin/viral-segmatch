@@ -20,11 +20,11 @@ import pytest
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
-from src.datasets._pair_helpers import _SIDE_SRC, canonical_pair_key  # noqa: E402
 from src.datasets._negative_sampling import (  # noqa: E402
     balanced_usage_negatives,
     within_fold_negatives,
 )
+from src.datasets._pair_helpers import _SIDE_SRC, canonical_pair_key  # noqa: E402
 from src.datasets.dataset_pairs_cc import (  # noqa: E402
     _carve_val_atoms,
     compute_negative_infeasible_ccs,
@@ -372,10 +372,13 @@ def test_balanced_usage_negatives_shared_seen_stops_a_pair_being_drawn_twice():
     assert set(solo_a['pair_key']) & set(solo_b['pair_key']), 'fixture must produce collisions'
 
 
-def test_balanced_usage_negatives_raise_when_the_budget_cannot_cover_a_slot():
-    """A budget below the bigger slot's sequence count cannot offer every sequence once, so the
-    sampler raises rather than returning a set it never balanced."""
+def test_balanced_usage_negatives_stay_balanced_below_one_use_each():
+    """A budget smaller than a slot's sequence count leaves some of that slot's sequences unused,
+    and uses each of the rest once. Counts include the unused sequences, at zero."""
     pos = _pos()
-    with pytest.raises(ValueError, match='cannot offer every sequence once'):
-        balanced_usage_negatives(pos, _cooccur(pos), _front_end(pos), (FA, FB),
-                                 neg_to_pos_ratio=0.5, seed=1)
+    neg = balanced_usage_negatives(pos, _cooccur(pos), _front_end(pos), (FA, FB),
+                                   neg_to_pos_ratio=0.5, seed=1)
+    assert len(neg) == round(0.5 * len(pos))
+    for col in ('prot_hash_a', 'prot_hash_b'):
+        counts = neg[col].value_counts().reindex(sorted(set(pos[col])), fill_value=0)
+        assert set(counts) == {0, 1}, f'{col}: use counts {sorted(set(counts))}'
