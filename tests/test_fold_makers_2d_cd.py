@@ -21,9 +21,11 @@ PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.datasets._negative_sampling import (  # noqa: E402
+    _repair_exact_one_use,
     balanced_usage_negatives,
     within_fold_negatives,
 )
+import src.datasets._negative_sampling as negative_sampling  # noqa: E402
 from src.datasets._pair_helpers import _SIDE_SRC, canonical_pair_key  # noqa: E402
 from src.datasets.dataset_pairs_cc import (  # noqa: E402
     _carve_val_atoms,
@@ -340,6 +342,61 @@ def test_balanced_usage_negatives_spread_each_slot_evenly():
         counts = neg[col].value_counts()
         assert set(counts.index) == set(pos[col]), f'{col}: a positive sequence was never used'
         assert counts.max() - counts.min() <= 1, f'{col}: counts spread by {counts.max() - counts.min()}'
+
+
+def test_balanced_usage_negatives_repair_blocked_greedy_last_partner():
+    """A valid one-use assignment survives a greedy last-row collision."""
+    pos = _pos(atom_sizes=(3,))
+    cooccur = _cooccur(pos) | {canonical_pair_key('a0_0', 'b0_1')}
+    seen = set()
+    neg = balanced_usage_negatives(pos, cooccur, _front_end(pos), (FA, FB),
+                                   neg_to_pos_ratio=1.0, seed=1, seen=seen)
+
+    assert len(neg) == len(pos)
+    for col in ('prot_hash_a', 'prot_hash_b'):
+        assert set(neg[col]) == set(pos[col])
+        assert (neg[col].value_counts() == 1).all()
+    assert not set(neg['pair_key']) & cooccur
+    assert seen == set(neg['pair_key'])
+
+
+def test_balanced_usage_negatives_direct_repair_avoids_dense_assignment(monkeypatch):
+    monkeypatch.setattr(negative_sampling, '_MAX_DENSE_REPAIR_SIZE', 2)
+    na, nb = ['a0', 'a1', 'a2'], ['b0', 'b1', 'b1']
+    seen = {canonical_pair_key(a, b) for a, b in zip(na, nb)}
+    fixed_a, fixed_b = _repair_exact_one_use(
+        na, nb, sorted(na), ['b0', 'b1', 'b2'], set(), seen)
+
+    assert fixed_a == ['a0', 'a1', 'a2']
+    assert set(fixed_b) == {'b0', 'b1', 'b2'}
+    assert seen == {canonical_pair_key(a, b) for a, b in zip(fixed_a, fixed_b)}
+
+
+def test_balanced_usage_negatives_skip_large_dense_repair(monkeypatch, capsys):
+    monkeypatch.setattr(negative_sampling, '_MAX_DENSE_REPAIR_SIZE', 2)
+    pos = _pos(atom_sizes=(3,))
+    cooccur = _cooccur(pos) | {canonical_pair_key('a0_0', 'b0_1')}
+    neg = balanced_usage_negatives(pos, cooccur, _front_end(pos), (FA, FB),
+                                   neg_to_pos_ratio=1.0, seed=1)
+
+    assert len(neg) == len(pos)
+    assert not set(neg['pair_key']) & cooccur
+    assert 'skipped dense one-use repair' in capsys.readouterr().out
+
+
+def test_balanced_usage_negatives_keep_valid_pairs_when_one_use_is_impossible(capsys):
+    pos = _pos(atom_sizes=(3,))
+    cooccur = _cooccur(pos) | {
+        canonical_pair_key('a0_0', 'b0_1'),
+        canonical_pair_key('a0_0', 'b0_2'),
+    }
+    neg = balanced_usage_negatives(pos, cooccur, _front_end(pos), (FA, FB),
+                                   neg_to_pos_ratio=1.0, seed=1)
+
+    assert len(neg) == len(pos)
+    assert not set(neg['pair_key']) & cooccur
+    assert neg['pair_key'].is_unique
+    assert 'could not give every sequence exactly one negative use' in capsys.readouterr().out
 
 
 def test_balanced_usage_negatives_never_reproduce_a_positive():
