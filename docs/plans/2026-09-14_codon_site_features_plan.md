@@ -6,17 +6,19 @@
 
 Address questions raised following `docs/results/2026-09-08_h3n2_2024_progress_report.md` (focus on Human-H3N2-2024):
 
-1. Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
+1. `DONE`. Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
 while considering only complete CDS at pinned lengths.
-2. Train and evaluate LightGBM for the 28 schema pairs in Human-H3N2-2024, using each pair’s
+2. `DONE`. Train and evaluate LightGBM for the 28 schema pairs in Human-H3N2-2024, using each pair’s
 native `HK selected` positives and a 1:1 ratio of balanced-usage negatives in each fold.
 3. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
-4. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
+4. `DONE`. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
 codon sites?
 5. Can codon-preserving alignment retain complete CDS records at non-pinned lengths while
 placing homologous sites in shared coordinates? Alignment cannot recover incomplete records,
 so the question is whether the effort is worth it. See `docs/results/2026-09-07_cds_length_survey.md`,
 and its "Pin reach by year" section for 2015-2025.
+6. `DONE`. When we redraw the negative training pairs, do predictions change more for positive or
+negative test pairs?
 
 ## Scope
 
@@ -71,7 +73,7 @@ for Human-H3N2-2024, with `M1` or `NS1` involved in the lowest counts.
 - Before Experiment 2 trains, each production dataset reproduces the `Eligible isolates`, `Unique positives`, `Unique slot-A`, `Unique slot-B` and `HK selected` counts its pair has in Experiment 1's `pair_capacity.csv`.
 - Where feature importance is computed, every importance row can be traced to a model run, fold, protein, and site.
 
-## Experiment 1 (prerequisite to Experiment 2): 28-pair capacity audit — DONE (2026-09-16)
+## Experiment 1: 28-pair capacity audit — DONE (2026-09-16)
 
 ### Question
 
@@ -537,8 +539,8 @@ python scripts/analyze_balanced_train_redraw.py --model-root models/flu/July_202
 
 How to read the table, using the PB2-HA fold 0 row:
 
-- `pair, fold`: the schema pair and the CV fold. Fold 0 has 10 models, and all 10 are scored on
-  the same 1,022 test pairs (511 positive, 511 negative).
+- `pair, fold`: the schema pair and the CV fold. Fold 0 has 10 models (10 draws), and all 10 are
+  scored on the same 1,022 test pairs (511 positive, 511 negative).
 - `F1 macro` = 0.898 ± 0.012: the mean ± SD of test F1 macro over the 10 models. Here the ± is the
   spread across negative draws, not across folds as in Experiment 2.
 - `prob SD pos / neg` = 0.051 / 0.054: each test pair gets one SD, computed from its 10 predicted
@@ -555,16 +557,16 @@ What the table shows:
   all 8 folds.
 - On the probability scale, the gap between the classes is small. The negative median SD is higher
   in 7 of 8 folds, and the two medians are equal in PB2-HA fold 1.
-- PB2-HA fold 3 and PB2-NP fold 0 have about twice the probability SD of the other folds of the
-  same pair.
+<!-- - PB2-HA fold 3 and PB2-NP fold 0 have about twice the probability SD of the other folds of the
+  same pair. -->
 
 <img src="../results/figs/2026-10-07_h3n2_2024_pb2_ha_fold0_redraw_per_pair_sd.png" width="600" alt="PB2-HA fold 0: per-pair SD of probability and raw score across 10 negative draws, positive vs negative test pairs">
 
 <img src="../results/figs/2026-10-07_h3n2_2024_pb2_np_fold0_redraw_per_pair_sd.png" width="600" alt="PB2-NP fold 0: per-pair SD of probability and raw score across 10 negative draws, positive vs negative test pairs">
 
-- Each value in a box is one test pair's SD across the 10 models. The left panel uses the
-  probability, and the right panel uses the raw score.
-- Each box spans the IQR of these SDs, and the line inside it is the median.
+- Each value in a box is one test pair's SD across the 10 models. Left panel:  probability; Right
+  panel: logits.
+- Each box spans the IQR of these SDs, and the line is the median.
 - In both figures, the negative box is taller than the positive box in both panels. So in fold 0,
   the SDs of negative test pairs are more spread out than those of positive test pairs.
 - The figures for folds 1-3, the per-draw probability boxplots (`draw_probability_boxplot.png`),
@@ -574,14 +576,9 @@ What the table shows:
 Limitations:
 
 - Two schema pairs, 4 folds, and 10 draws per fold.
-- No significance test was run. The 4 folds of a pair share training data, so they are not
-  independent replicates.
-- These SDs show how much these redraws move each class's scores on these folds. They do not show
-  that model uncertainty is equal, or unequal, between the classes in general. A claim of
-  equivalence would need an acceptable difference fixed in advance, and this design sets none.
-- The SDs describe how predictions move when training partners are reassigned, not how far apart
-  the paired sequences are. Item 2 of `plan-paragraph-10-2-26.pdf` asks about that distance, and
-  answering it needs a distance measurement such as `compare_negative_pair_distances.py`.
+- No significance test was run. The 4 folds of a pair share training data, so they are
+  not independent replicates.
+- These SDs show how much the redraws move each class's scores in the fold.
 
 ## Execution order
 
@@ -597,8 +594,6 @@ Limitations:
 8. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
 9. Rerun only the pairs or years for which alignment materially improves eligibility.
    (Experiment 5)
-10. Decide whether the evidence supports a publication scope, a narrower follow-up, or an archived
-   negative/benchmark result.
 
 Steps 4-7 do not depend on the alignment pilot.
 
