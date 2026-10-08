@@ -20,8 +20,8 @@ How?
   uses. A cache built against an earlier pin has the right file name and the wrong columns.
 
 CLI:
-    python -m src.analysis.audit_pair_datasets --runs_glob 'exp3_28p_codon_*'
-    python -m src.analysis.audit_pair_datasets --runs_glob 'exp3_28p_codon_*' --expect_pairs 28
+    python -m src.analysis.audit_pair_datasets --runs_glob 'exp2_28p_codon_balanced_*' --expect_pairs 28
+    python -m src.analysis.audit_pair_datasets --runs_glob 'exp3_28p_codon_*' --negative_scope within_fold
 
 Notes:
 
@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -64,7 +65,7 @@ DATASET_EXPECT = {
     'dataset.year': [2024],
     'dataset.n_folds': 4,
     'dataset.split_strategy.pair_key_alphabet': 'nt_cds',
-    'dataset.split_strategy.negative_scope': 'within_fold',
+    'dataset.split_strategy.negative_scope': 'balanced',
     'dataset.positive_pair_selection.method': 'hopcroft_karp',
     'dataset.require_complete_cds_at_pinned_length': True,
     'dataset.neg_to_pos_ratio': 1.0,
@@ -161,6 +162,44 @@ def check_caches(config, unit: str) -> list:
     return problems
 
 
+def check_balanced_usage(run_dir: Path, hash_col: str) -> list[str]:
+    """Check one negative use per positive sequence in every split.
+
+    Args:
+      run_dir: Dataset run holding four fold directories.
+      hash_col: Per-slot hash field before its `_a` or `_b` suffix.
+
+    Returns:
+      One failure message per broken split or pair exclusion.
+    """
+    failures = []
+    for fold_dir in sorted(run_dir.glob('fold_*')):
+        observed = set(pd.read_csv(fold_dir / 'cooccurring_sequence_pairs.csv',
+                                   usecols=['pair_key']).pair_key)
+        seen_neg = set()
+        for split in ('train', 'val', 'test'):
+            columns = ['pair_key', 'label', f'{hash_col}_a', f'{hash_col}_b']
+            pairs = pd.read_csv(fold_dir / f'{split}_pairs.csv', usecols=columns)
+            pos = pairs.loc[pairs.label == 1]
+            neg = pairs.loc[pairs.label == 0]
+            name = f'{fold_dir.name}/{split}'
+            if len(pos) != len(neg):
+                failures.append(f'{name}: {len(pos)} positives, {len(neg)} negatives')
+            for slot in ('a', 'b'):
+                col = f'{hash_col}_{slot}'
+                if Counter(pos[col]) != Counter(neg[col]):
+                    failures.append(f'{name}: {slot} sequence-use counts differ by class')
+            keys = set(neg.pair_key)
+            if len(keys) != len(neg):
+                failures.append(f'{name}: duplicate negative pair keys')
+            if keys & observed:
+                failures.append(f'{name}: {len(keys & observed)} observed pairs used as negatives')
+            if keys & seen_neg:
+                failures.append(f'{name}: {len(keys & seen_neg)} negative pairs reused across splits')
+            seen_neg.update(keys)
+    return failures
+
+
 def audit_run(run_dir: Path, capacity: pd.DataFrame, expect: dict) -> tuple:
     """Check one run's counts, settings and caches.
 
@@ -193,6 +232,12 @@ def audit_run(run_dir: Path, capacity: pd.DataFrame, expect: dict) -> tuple:
             failures.append(f'{key}: run has {value!r}, expected {expect[key]!r}')
 
     failures.extend(check_caches(config, str(config.site.unit)))
+    if (config.dataset.split_strategy.negative_scope == 'balanced'
+            and config.dataset.positive_pair_selection.method == 'hopcroft_karp'
+            and float(config.dataset.neg_to_pos_ratio) == 1.0):
+        hash_col = {'aa': 'prot_hash', 'nt_cds': 'cds_dna_hash',
+                    'nt_ctg': 'ctg_dna_hash'}[config.dataset.split_strategy.pair_key_alphabet]
+        failures.extend(check_balanced_usage(run_dir, hash_col))
 
     notes = [f'{key}: run has {value!r}, Experiment 2 trains with {TRAINING_EXPECT[key]!r}'
              for key, value in read_settings(config, list(TRAINING_EXPECT)).items()
@@ -211,6 +256,8 @@ def main() -> None:
                                        '/pair_capacity.csv')
     parser.add_argument('--expect_pairs', type=int, default=None,
                         help='fail unless exactly this many runs were audited')
+    parser.add_argument('--negative_scope', default='balanced',
+                        help='expected negative sampler (default: balanced)')
     args = parser.parse_args()
 
     capacity = pd.read_csv(args.capacity_csv, keep_default_na=False, na_values=[''])
@@ -220,6 +267,7 @@ def main() -> None:
             f"{list(capacity.columns)}. A table written before that column was renamed cannot be "
             f"joined on.")
     capacity = capacity.set_index('Schema pair')
+    expect = {**DATASET_EXPECT, 'dataset.split_strategy.negative_scope': args.negative_scope}
 
     run_dirs = sorted(d for d in args.runs_dir.glob(args.runs_glob) if d.is_dir())
     if not run_dirs:
@@ -230,7 +278,7 @@ def main() -> None:
         # One unreadable run must not abandon the rest, since the point of the audit is to see
         # every run before any training starts.
         try:
-            pair, failures, notes = audit_run(run_dir, capacity, DATASET_EXPECT)
+            pair, failures, notes = audit_run(run_dir, capacity, expect)
         except Exception as error:
             failed += 1
             print(f'FAIL {"?":<10} {run_dir.name}\n       {type(error).__name__}: {error}')

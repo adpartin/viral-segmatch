@@ -7,11 +7,11 @@
 # The parent already supplies the population and the pins: Human-H3N2-2024, all 8 major proteins in
 # virus.selected_functions, all 8 pinned lengths including the PB1 2,277 nt and NS1 693 nt
 # overrides that conf/virus/flu.yaml does not carry, 4-fold random CV, the nt_cds pair key,
-# within_fold negatives at a 1:1 ratio, and require_complete_cds_at_pinned_length.
+# a 1:1 negative ratio, and require_complete_cds_at_pinned_length.
 #
 # What this file adds is the recipe Experiment 4 reached for HA-NA, in
 # flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_site_codon: Hopcroft-Karp
-# positive selection and per-site codon features. The parent inherits from the `_pinned_length`
+# positive selection, balanced negatives, and per-site codon features. The parent inherits from the `_pinned_length`
 # bundle rather than its `_hopcroft_karp` sibling, so `method` has to be set here rather than
 # assumed. No positive count is capped, so every pair trains on its native `HK selected` positives.
 
@@ -22,8 +22,16 @@ defaults:
 dataset:
   schema_pair: null            # MUST be overridden by a child bundle
 
+  split_strategy:
+    negative_scope: balanced
+
   positive_pair_selection:
     method: hopcroft_karp      # each retained CDS occurs once per slot; no cap on the count
+
+baseline_lgbm:
+  # Row sampling lets greedy trees start on balanced 1:1 HK pairs.
+  subsample: 0.7
+  subsample_freq: 1
 
 site:
   unit: codon
