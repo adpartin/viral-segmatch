@@ -508,10 +508,13 @@ box is one test pair's SD across the 10 draws. Report each class's median and mi
 SDs, and the difference between the positive and negative mean SD in each fold. The spread across
 test pairs is not an error bar for the class mean.
 
-This plot and the second one below both group values by class on a shared x-axis, so add one
-`grouped_boxplot` to `src/utils/plot_utils.py` and call it from each. The pattern is already written
-3 times with no shared helper, at `analyze_stage4_train.py:502`, `analyze_embedding_similarity.py:755`
-and `analyze_stage1_preprocess.py:562`. Pass the category labels through matplotlib's `tick_labels`,
+The two figures of this section have different shapes, and one helper has to carry both. The main
+plot holds a single group of two class boxes. The second plot holds ten groups, one per draw, each
+with the same two class boxes, so twenty boxes per fold. Add one `grouped_boxplot` to
+`src/utils/plot_utils.py` that takes groups and categories, with the main plot as its single-group
+case, and call it from both. The pattern is already written 3 times with no shared helper, at
+`analyze_stage4_train.py:502`, `analyze_embedding_similarity.py:755` and
+`analyze_stage1_preprocess.py:562`. Pass the category labels through matplotlib's `tick_labels`,
 since `labels` is deprecated.
 
 A second plot shows the predicted probabilities themselves. For each fold and draw, show two boxes:
@@ -522,15 +525,38 @@ individual pairs, which these boxes cannot show.
 Also count how many of the 10 models classify each test pair as positive. This separates rare class
 changes from frequent ones.
 
-Similar variation in the two classes does not mean that positives and negatives phylogenetically
-distant.
+Report the two classes' SD distributions and their difference, and stop there. Similar SDs would
+show that these redraws move the two classes' scores by similar amounts on these folds. They would
+not show that the model's uncertainty is equal between the classes, because failing to detect a
+difference is not evidence of equivalence. A claim of practical equivalence needs an acceptable
+difference fixed before the results are seen, and this design does not set one.
 
-**A note on `logits`**. The raw score does not have to be predicted again. LightGBM's binary objective
-turns a raw score into a probability with `p = 1 / (1 + exp(-sigmoid * raw))`, in `BinaryLogloss::ConvertOutput` in `src/objective/binary_objective.hpp` of the LightGBM source.
-Inverting it gives `raw = logit(p) / sigmoid`, where `logit(p) = log(p / (1 - p))`. Our runs leave `sigmoid` at its default of 1.0, so `logit(p)` on its own recovers the raw score. Measured on the
-PB2-HA fold 0 model, `log(p / (1 - p))` matches `booster_.predict(X, raw_score=True)` to 9.8e-15.
-The ten saved `test_predicted.csv` files are therefore sufficient and no feature matrix has to be
-rebuilt. Read `sigmoid` off the fitted booster's parameters rather than assuming 1.0, so that a bundle setting it cannot silently produce a rescaled score.
+Nothing here speaks to phylogenetic distance either. The SDs describe how predictions move when
+partners are reassigned, not how far apart the paired sequences are. Item 2 of
+`plan-paragraph-10-2-26.pdf` raises that distance question, and answering it needs a distance
+measurement such as `compare_negative_pair_distances.py` rather than a redraw.
+
+**A note on `logits`**. Prefer the raw score the trainer saves. `train_pair_baselines` writes a
+`pred_logit` column for LightGBM from `booster_.predict(X, raw_score=True)`, taken while the feature
+matrices are still materialized, so it costs nothing and a run made after that change needs no
+reconstruction.
+
+Reconstruct it only for predictions saved earlier, such as the fold 0 pilot. LightGBM's binary
+objective turns a raw score into a probability with `p = 1 / (1 + exp(-sigmoid * raw))`, in
+`BinaryLogloss::ConvertOutput` in `src/objective/binary_objective.hpp` of the LightGBM source. That
+header is not shipped in the installed wheel, so the citation is to the upstream file. Inverting it
+gives `raw = logit(p) / sigmoid`, where `logit(p) = log(p / (1 - p))`. Our runs leave `sigmoid` at
+its default of 1.0, so `logit(p)` on its own recovers the raw score, and it matched
+`booster_.predict(X, raw_score=True)` to 9.8e-15 on the PB2-HA fold 0 model. The saved
+`test_predicted.csv` files are therefore sufficient and no feature matrix has to be rebuilt.
+
+Two details decide whether a reconstruction is trustworthy. `sigmoid` is not a key of
+`booster_.params`; it sits inside `booster_.dump_model()['objective']`, which reads
+`binary sigmoid:1`, so read it from there. And the inversion has a boundary: once a probability
+rounds to exactly 1.0 in float64, which happens above a raw score of about 37, its logit is
+infinite. Count probabilities at 0 or 1 and report the count rather than emitting infinities. The
+observed range on the PB2-HA fold 0 model is 0.000378 to 0.990473, so this is a guard and not an
+expected case.
 
 ## Execution order
 
