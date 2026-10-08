@@ -9,7 +9,7 @@ Address questions raised following `docs/results/2026-09-08_h3n2_2024_progress_r
 1. Measure each of the 28 schema pairs *native* `HK selected` positive count in Human-H3N2-2024,
 while considering only complete CDS at pinned lengths.
 2. Train and evaluate LightGBM for the 28 schema pairs in Human-H3N2-2024, using each pair’s
-native `HK selected` positives and a 1:1 ratio of negatives generated within each fold.
+native `HK selected` positives and a 1:1 ratio of balanced-usage negatives in each fold.
 3. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
 4. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
 codon sites?
@@ -24,7 +24,7 @@ and its "Pin reach by year" section for 2015-2025.
 - 8 major Proteins: PB2, PB1, PA, HA, NP, NA, M1, NS1.
 - Positive pairs: observed same-isolate pairs, deduplicated by `nt_cds` pair key.
 - Positive selection: Hopcroft-Karp, so each retained CDS occurs at most once in each slot.
-- Splitting: 4-fold random CV with negatives generated within each fold.
+- Splitting: 4-fold random CV with balanced-usage negatives generated in each fold.
 - Features: per-site codons and GenSLM embedded codons. Nucleotide (nt) 6-mers and amino-acids
   (aa) will be added later for the full analysis.
 - Feature importance measure: fold-averaged LightGBM gain, SHAP, test set permutation.
@@ -157,12 +157,12 @@ the M1-NS1 floor of 440.
 
 
 
-## Experiment 2: pinned-length 28-pairs screen — DONE (2026-09-20)
+## Experiment 2: pinned-length 28-pairs screen — DONE (2026-10-07 balanced rerun)
 
 ### Question
 
 Train and evaluate LightGBM for all 28 schema pairs in Human-H3N2-2024, using each pair’s
-native `HK selected` positives and a 1:1 ratio of negatives generated within each fold.
+native `HK selected` positives and a 1:1 ratio of balanced-usage negatives in each fold.
 
 ### Methods
 
@@ -175,111 +175,94 @@ native `HK selected` positives and a 1:1 ratio of negatives generated within eac
   `HK selected` positives set), random 4-fold CV.
 - Each schema pair uses its native `HK selected` positives, ranging from 440 for M1-NS1 to 2,042 for
   PB2-HA (i.e., datasets are not downsampled to a common size, as decided at the end of Experiment 1).
-- The negatives are drawn within each fold at a 1:1 ratio, so each test fold is balanced.
+- The negatives are drawn with `negative_scope: balanced` at a 1:1 ratio. Each sequence appears
+  once per slot in each split's negatives, as in its positives.
 - A generated negative is a pair not observed in the pair universe. It is not evidence that the pair
   is biologically incompatible.
-- The model is LightGBM at a 0.5 threshold (raw test predictions are saved).
+- The model is LightGBM with row sampling (`subsample: 0.7`, `subsample_freq: 1`) at a 0.5
+  threshold (test probabilities are saved). Row sampling lets trees grow when balanced
+  sequence-use counts make every individual site marginally equal across classes.
 - With balanced test folds, a classifier predicting each class randomly has expected F1 macro near 0.5.
 - Features are one ordinal column per codon position, for both slots concatenated. The width is
   the sum of the two proteins' codon counts (484 for M1-NS1 to 1,519 for PB2-PB1).
 - Before training, all 28 datasets reproduced their `Eligible isolates`, `Unique positives`,
   `Unique slot-A`, `Unique slot-B` and `HK selected` counts from Experiment 1's
-  `pair_capacity.csv`, as required by "Dataset checks every experiment must pass"
-  (`src/analysis/audit_pair_datasets.py`, 28 passed, 0 failed).
+  `pair_capacity.csv`. The audit also verified one negative use per sequence per slot and no
+  observed pair among negatives (`src/analysis/audit_pair_datasets.py`, 28 passed, 0 failed).
+- All positive pair keys and their fold, split, and row order match the 2026-09-20 screen.
 - 112 models trained (28 pairs x 4 folds).
 
 ```
-python scripts/run_allpairs_baselines.py \
-  --bundle_prefix flu_28p_codon_ --dataset_prefix exp3_28p_codon_ \
-  --baseline lgbm --cv_dir_bundle 'flu_28p_{pair}_codon'
+python scripts/run_allpairs_datasets.py \
+  --dataset-prefix exp2_28p_codon_balanced_20261007_180037_ --max-workers 4
 
-python -m src.analysis.aggregate_allpairs_results --tag codon \
-  --timestamp 20260919_225844 \
-  --output_dir results/flu/July_2025/all_pairs_human_h3n2_2024_codon
+python -m src.analysis.audit_pair_datasets \
+  --runs_glob 'exp2_28p_codon_balanced_20261007_180037_*' --expect_pairs 28
+
+python scripts/run_allpairs_baselines.py \
+  --bundle_prefix flu_28p_codon_ \
+  --dataset_prefix exp2_28p_codon_balanced_20261007_180037_ \
+  --baseline lgbm --cv_dir_bundle 'flu_28p_{pair}_codon_balanced' --max_workers 8
+
+python -m src.analysis.aggregate_allpairs_results --tag codon_balanced \
+  --timestamp 20261007_181555 \
+  --output_dir results/flu/July_2025/all_pairs_human_h3n2_2024_codon_balanced_20261007_181555
 ```
 
 ### Results
 
-<img src="../results/figs/2026-09-20_h3n2_2024_codon_28pairs_f1_macro.png" width="600" alt="28-pair F1 macro, per-site codon LightGBM, Human-H3N2-2024">
+<img src="../results/figs/2026-10-07_h3n2_2024_codon_balanced_28pairs_f1_macro_matrix.png" width="600" alt="28-pair balanced-negative F1 macro matrix, per-site codon LightGBM, Human-H3N2-2024">
 
 - Mean ± STD across 4 folds.
 - Pairs are ranked by mean F1 macro.
 - All the scores are in
-  `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/allpairs_summary.csv`.
+  `results/flu/July_2025/all_pairs_human_h3n2_2024_codon_balanced_20261007_181555/allpairs_summary.csv`.
 
 
 | Rank | Schema pair | HK selected | Features | F1 macro | AUC-ROC | Precision | Recall |
 |---:|---|---:|---:|---:|---:|---:|---:|
-| 1 | PB2-HA | 2,042 | 1,327 | 0.909 ± 0.006 | 0.952 ± 0.007 | 0.871 ± 0.013 | 0.961 ± 0.007 |
-| 2 | PB1-NA | 1,212 | 1,229 | 0.893 ± 0.014 | 0.933 ± 0.010 | 0.852 ± 0.023 | 0.954 ± 0.009 |
-| 3 | PB1-HA | 1,392 | 1,326 | 0.883 ± 0.020 | 0.943 ± 0.009 | 0.840 ± 0.021 | 0.949 ± 0.024 |
-| 4 | PB2-PB1 | 1,404 | 1,519 | 0.882 ± 0.030 | 0.940 ± 0.017 | 0.834 ± 0.039 | 0.957 ± 0.007 |
-| 5 | HA-NA | 1,698 | 1,037 | 0.878 ± 0.013 | 0.935 ± 0.007 | 0.829 ± 0.015 | 0.954 ± 0.015 |
-| 6 | PB2-NA | 1,745 | 1,230 | 0.866 ± 0.018 | 0.923 ± 0.010 | 0.814 ± 0.018 | 0.950 ± 0.017 |
-| 7 | PA-HA | 1,944 | 1,284 | 0.850 ± 0.019 | 0.927 ± 0.009 | 0.805 ± 0.024 | 0.927 ± 0.008 |
-| 8 | PB1-PA | 1,341 | 1,476 | 0.849 ± 0.019 | 0.922 ± 0.007 | 0.803 ± 0.022 | 0.929 ± 0.009 |
-| 9 | PB2-NP | 1,512 | 1,259 | 0.840 ± 0.014 | 0.917 ± 0.012 | 0.783 ± 0.016 | 0.946 ± 0.010 |
-| 10 | PA-NA | 1,689 | 1,187 | 0.832 ± 0.009 | 0.909 ± 0.007 | 0.786 ± 0.015 | 0.916 ± 0.011 |
-| 11 | PB1-NP | 1,041 | 1,258 | 0.820 ± 0.021 | 0.904 ± 0.014 | 0.764 ± 0.021 | 0.933 ± 0.011 |
-| 12 | PA-NP | 1,459 | 1,216 | 0.802 ± 0.034 | 0.884 ± 0.033 | 0.753 ± 0.035 | 0.908 ± 0.011 |
-| 13 | HA-NP | 1,482 | 1,066 | 0.797 ± 0.056 | 0.887 ± 0.041 | 0.750 ± 0.059 | 0.909 ± 0.016 |
-| 14 | HA-M1 | 720 | 820 | 0.795 ± 0.022 | 0.855 ± 0.021 | 0.750 ± 0.019 | 0.892 ± 0.054 |
-| 15 | NP-NA | 1,287 | 969 | 0.793 ± 0.007 | 0.882 ± 0.004 | 0.739 ± 0.006 | 0.915 ± 0.015 |
-| 16 | PB2-PA | 2,030 | 1,477 | 0.790 ± 0.046 | 0.876 ± 0.039 | 0.749 ± 0.041 | 0.878 ± 0.052 |
-| 17 | PB1-M1 | 517 | 1,012 | 0.745 ± 0.089 | 0.816 ± 0.051 | 0.697 ± 0.073 | 0.928 ± 0.043 |
-| 18 | NA-M1 | 657 | 723 | 0.733 ± 0.043 | 0.801 ± 0.043 | 0.683 ± 0.036 | 0.901 ± 0.020 |
-| 19 | PB2-M1 | 726 | 1,013 | 0.702 ± 0.026 | 0.775 ± 0.037 | 0.671 ± 0.027 | 0.810 ± 0.024 |
-| 20 | PB2-NS1 | 995 | 991 | 0.697 ± 0.038 | 0.777 ± 0.035 | 0.660 ± 0.032 | 0.842 ± 0.043 |
-| 21 | HA-NS1 | 959 | 798 | 0.689 ± 0.052 | 0.772 ± 0.069 | 0.655 ± 0.044 | 0.843 ± 0.016 |
-| 22 | NA-NS1 | 853 | 701 | 0.685 ± 0.062 | 0.763 ± 0.071 | 0.648 ± 0.045 | 0.857 ± 0.095 |
-| 23 | PB1-NS1 | 704 | 990 | 0.671 ± 0.048 | 0.745 ± 0.066 | 0.639 ± 0.040 | 0.827 ± 0.023 |
-| 24 | PA-NS1 | 952 | 948 | 0.630 ± 0.064 | 0.700 ± 0.071 | 0.612 ± 0.060 | 0.800 ± 0.026 |
-| 25 | NP-NS1 | 806 | 730 | 0.615 ± 0.051 | 0.681 ± 0.060 | 0.597 ± 0.040 | 0.811 ± 0.031 |
-| 26 | NP-M1 | 627 | 752 | 0.611 ± 0.033 | 0.696 ± 0.034 | 0.594 ± 0.024 | 0.817 ± 0.048 |
-| 27 | PA-M1 | 707 | 970 | 0.602 ± 0.053 | 0.675 ± 0.058 | 0.588 ± 0.042 | 0.779 ± 0.023 |
-| 28 | M1-NS1 | 440 | 484 | 0.578 ± 0.061 | 0.676 ± 0.060 | 0.576 ± 0.037 | 0.880 ± 0.057 |
+| 1 | PB1-HA | 1,392 | 1,326 | 0.909 ± 0.016 | 0.945 ± 0.008 | 0.871 ± 0.015 | 0.960 ± 0.014 |
+| 2 | PB2-PB1 | 1,404 | 1,519 | 0.906 ± 0.010 | 0.943 ± 0.005 | 0.874 ± 0.010 | 0.950 ± 0.015 |
+| 3 | PB2-HA | 2,042 | 1,327 | 0.904 ± 0.007 | 0.948 ± 0.005 | 0.863 ± 0.006 | 0.961 ± 0.009 |
+| 4 | PB1-NA | 1,212 | 1,229 | 0.897 ± 0.014 | 0.935 ± 0.017 | 0.861 ± 0.025 | 0.947 ± 0.006 |
+| 5 | HA-NA | 1,698 | 1,037 | 0.881 ± 0.023 | 0.931 ± 0.006 | 0.843 ± 0.012 | 0.938 ± 0.038 |
+| 6 | PB2-NA | 1,745 | 1,230 | 0.863 ± 0.014 | 0.924 ± 0.005 | 0.819 ± 0.017 | 0.935 ± 0.017 |
+| 7 | PB1-PA | 1,341 | 1,476 | 0.855 ± 0.018 | 0.922 ± 0.017 | 0.808 ± 0.026 | 0.936 ± 0.012 |
+| 8 | PA-HA | 1,944 | 1,284 | 0.842 ± 0.008 | 0.917 ± 0.007 | 0.799 ± 0.018 | 0.918 ± 0.015 |
+| 9 | PB2-PA | 2,030 | 1,477 | 0.837 ± 0.014 | 0.917 ± 0.008 | 0.793 ± 0.022 | 0.916 ± 0.015 |
+| 10 | HA-NP | 1,482 | 1,066 | 0.836 ± 0.008 | 0.912 ± 0.008 | 0.788 ± 0.015 | 0.924 ± 0.013 |
+| 11 | PB2-NP | 1,512 | 1,259 | 0.823 ± 0.019 | 0.901 ± 0.021 | 0.761 ± 0.025 | 0.951 ± 0.008 |
+| 12 | PB1-NP | 1,041 | 1,258 | 0.813 ± 0.026 | 0.890 ± 0.023 | 0.763 ± 0.021 | 0.912 ± 0.030 |
+| 13 | PA-NA | 1,689 | 1,187 | 0.809 ± 0.029 | 0.894 ± 0.019 | 0.764 ± 0.030 | 0.901 ± 0.045 |
+| 14 | PA-NP | 1,459 | 1,216 | 0.793 ± 0.018 | 0.884 ± 0.018 | 0.738 ± 0.020 | 0.923 ± 0.013 |
+| 15 | NP-NA | 1,287 | 969 | 0.789 ± 0.007 | 0.873 ± 0.012 | 0.733 ± 0.009 | 0.921 ± 0.010 |
+| 16 | HA-M1 | 720 | 820 | 0.737 ± 0.036 | 0.812 ± 0.028 | 0.695 ± 0.031 | 0.857 ± 0.036 |
+| 17 | PB2-M1 | 726 | 1,013 | 0.725 ± 0.032 | 0.808 ± 0.046 | 0.679 ± 0.023 | 0.880 ± 0.079 |
+| 18 | PB1-M1 | 517 | 1,012 | 0.714 ± 0.033 | 0.809 ± 0.019 | 0.665 ± 0.031 | 0.915 ± 0.028 |
+| 19 | NA-M1 | 657 | 723 | 0.699 ± 0.036 | 0.781 ± 0.042 | 0.655 ± 0.027 | 0.878 ± 0.034 |
+| 20 | PB1-NS1 | 704 | 990 | 0.697 ± 0.034 | 0.795 ± 0.035 | 0.659 ± 0.022 | 0.839 ± 0.076 |
+| 21 | PB2-NS1 | 995 | 991 | 0.692 ± 0.031 | 0.781 ± 0.035 | 0.653 ± 0.024 | 0.854 ± 0.032 |
+| 22 | NA-NS1 | 853 | 701 | 0.677 ± 0.066 | 0.769 ± 0.069 | 0.644 ± 0.046 | 0.828 ± 0.134 |
+| 23 | HA-NS1 | 959 | 798 | 0.661 ± 0.061 | 0.739 ± 0.064 | 0.628 ± 0.045 | 0.844 ± 0.055 |
+| 24 | NP-NS1 | 806 | 730 | 0.635 ± 0.032 | 0.730 ± 0.038 | 0.607 ± 0.023 | 0.854 ± 0.043 |
+| 25 | NP-M1 | 627 | 752 | 0.611 ± 0.052 | 0.683 ± 0.033 | 0.602 ± 0.037 | 0.759 ± 0.087 |
+| 26 | PA-NS1 | 952 | 948 | 0.599 ± 0.043 | 0.710 ± 0.025 | 0.586 ± 0.028 | 0.820 ± 0.054 |
+| 27 | M1-NS1 | 440 | 484 | 0.572 ± 0.076 | 0.681 ± 0.042 | 0.574 ± 0.037 | 0.889 ± 0.045 |
+| 28 | PA-M1 | 707 | 970 | 0.551 ± 0.055 | 0.667 ± 0.030 | 0.558 ± 0.029 | 0.859 ± 0.030 |
 
 
-- F1 macro ranges [0.578, 0.909], with a median of 0.794. All pairs score above 0.5.
-- Across the 28 pairs, F1 macro correlates with `HK selected` at $\rho$=0.757 and with feature width at $\rho$=0.801 ($\rho$: Spearman correlation).
-- The 13 pairs containing M1 or NS1 have the smallest `HK selected`; 12 of them also have the lowest F1 scores.
-- When considering the other 15 pairs, the correlations are much weaker: $\rho$=0.071 with `HK selected` and $\rho$=0.304 with feature width. So the >0.75 correlations between F1 and {`HK selected`, feature width} are driven by the 13 pairs containing M1 or NS1.
+- F1 macro ranges [0.551, 0.909], with a median of 0.791. All pairs score above 0.5.
+- Across the 28 pairs, F1 macro correlates with `HK selected` at $\rho$=0.770 and with feature width at $\rho$=0.853 ($\rho$: Spearman correlation).
+- The 13 pairs containing M1 or NS1 have the smallest `HK selected` and the lowest F1 scores.
+- Among the other 15 pairs, the correlations are $\rho$=0.146 with `HK selected` and $\rho$=0.529 with feature width.
 - The pairs differ in several ways, so these correlation results do not establish that either `HK selected` or feature width limits performance.
 - Recall > Precision in all 28 pairs, so the model over-predicts the positive class at
   0.5 threshold.
-
-2-D UMAPs:
-
-- The UMAPs aim to check if positives and negatives overlap within a train or test split.
-- Each point is a single sample pair (i.e., two concatenated nucleotide CDS). The UMAP
-  is computed on concatenated `nt_cds` k-mer vectors. This is not the per-site codon features
-  that LightGBM trains on.
-- The UMAP is fitted once on train and test pairs, so both panels share coordinates. Val pairs
-  are left out.
-- Each panel colors its own split's positives (green) and negatives (purple), and draws the other
-  split in gray.
-
-```
-python -m src.analysis.plot_fold_umap \
-  --fold_dir data/datasets/flu/July_2025/runs/exp3_28p_codon_pb2_ha/fold_0 \
-  --unit pair --color_by class --include_negatives \
-  --split_panels --show_other_split --drop_val \
-  --out_png results/flu/July_2025/pair_umap_human_h3n2_2024/pb2_ha_umap_class_split_panels_bg.png
-```
-
-PB2-NP uses the same command with `pb2_np` in place of `pb2_ha`.
-
-<img src="../results/figs/2026-09-30_h3n2_2024_pb2_ha_umap_split_panels_bg.png" width="900" alt="PB2-HA pair UMAP, positives and negatives per split, Human-H3N2-2024">
-
-<img src="../results/figs/2026-09-30_h3n2_2024_pb2_np_umap_split_panels_bg.png" width="900" alt="PB2-NP pair UMAP, positives and negatives per split, Human-H3N2-2024">
-
-Reproducibility:
-- HA-NA reproduces the earlier standalone run. All 4 of test set prediction
-  files match value for value, although the two runs used different bundles and different dataset
-  dirs. This confirms reproducibility for HA-NA at a fixed seed (reported in
-  `docs/results/2026-09-08_h3n2_2024_progress_report.md`).
-- The other 3 pairs in that report were downsampled to 1,698 positives, so their codon rows
-  are not comparable to the counts used here.
+- Relative to the 2026-09-20 `within_fold` screen, the median pair-level F1 macro change is
+  −0.005. PB2-HA changes from 0.909 to 0.904, and PB2-NP from 0.840 to 0.823. Both the negative
+  sampler and LightGBM row sampling changed, so these differences do not isolate either effect.
+  The earlier table and UMAPs remain in `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/`
+  and `docs/results/figs/`.
 
 Limitations:
 
@@ -496,6 +479,59 @@ Promote aligned features into the dataset pipeline only if:
 PB1 records truncated before the terminal stop remain excluded from the primary analysis even if
 they can be padded. They may be examined only in a clearly labeled missing-data sensitivity arm.
 
+## Experiment 6: prediction variation across balanced negative draws — PLANNED
+
+### Question
+
+When we redraw the negative training pairs, do predictions change more for positive or negative test
+pairs? Item 3 of `plan-paragraph-10-2-26.pdf` asks whether model-based uncertainty is the same for
+both classes. Here, we measure how much predictions vary with the negative draw.
+
+### Design
+
+Start with PB2-HA and PB2-NP. In each of 4 folds, make 10 balanced draws of the negative training
+pairs and train one model per draw. Keep the following fixed: training positives, validation and test
+pairs, features, LightGBM settings, and model seed. Check that each draw uses every training sequence
+once per slot and contains no observed pairs. Count how many negative pairs differ between draws.
+Match the 10 test outputs by `pair_key` and save every predicted score.
+
+### Measures and presentation
+
+For each fixed test pair, save its 10 predicted probabilities for class 1. Use their mean and sample
+SD to describe its score and how much that score changes across draws. Treat probabilities as model
+scores unless calibration has been performed. Also calculate the SD of LightGBM's raw scores, because
+probabilities compress score changes near zero and one.
+
+The main plot compares how much individual predictions change. Make one figure per fold, carrying two
+groups on the x-axis, one for positive test pairs and one for negative test pairs. Each value in a
+box is one test pair's SD across the 10 draws. Report each class's median and middle 50% of these
+SDs, and the difference between the positive and negative mean SD in each fold. The spread across
+test pairs is not an error bar for the class mean.
+
+This plot and the second one below both group values by class on a shared x-axis, so add one
+`grouped_boxplot` to `src/utils/plot_utils.py` and call it from each. The pattern is already written
+3 times with no shared helper, at `analyze_stage4_train.py:502`, `analyze_embedding_similarity.py:755`
+and `analyze_stage1_preprocess.py:562`. Pass the category labels through matplotlib's `tick_labels`,
+since `labels` is deprecated.
+
+A second plot shows the predicted probabilities themselves. For each fold and draw, show two boxes:
+one containing the class-1 probabilities for all positive test pairs, and one for all negative test
+pairs. This shows whether a draw shifts the scores for a whole class. The main plot shows changes to
+individual pairs, which these boxes cannot show.
+
+Also count how many of the 10 models classify each test pair as positive. This separates rare class
+changes from frequent ones.
+
+Similar variation in the two classes does not mean that positives and negatives phylogenetically
+distant.
+
+**A note on `logits`**. The raw score does not have to be predicted again. LightGBM's binary objective
+turns a raw score into a probability with `p = 1 / (1 + exp(-sigmoid * raw))`, in `BinaryLogloss::ConvertOutput` in `src/objective/binary_objective.hpp` of the LightGBM source.
+Inverting it gives `raw = logit(p) / sigmoid`, where `logit(p) = log(p / (1 - p))`. Our runs leave `sigmoid` at its default of 1.0, so `logit(p)` on its own recovers the raw score. Measured on the
+PB2-HA fold 0 model, `log(p / (1 - p))` matches `booster_.predict(X, raw_score=True)` to 9.8e-15.
+The ten saved `test_predicted.csv` files are therefore sufficient and no feature matrix has to be
+rebuilt. Read `sigmoid` off the fitted booster's parameters rather than assuming 1.0, so that a bundle setting it cannot silently produce a rescaled score.
+
 ## Execution order
 
 1. Build and audit the pinned-length 2024 and 2025 HA-NA datasets. (Experiment 4, DONE)
@@ -503,15 +539,17 @@ they can be padded. They may be examined only in a clearly labeled missing-data 
 3. Produce the 2024 eight-protein, 28-pair capacity audit. (Experiment 1, DONE)
 4. Build and audit the 28 pinned-length datasets. (Experiment 2, DONE)
 5. Run the codon 28-pairs screen and aggregate the results. (Experiment 2, DONE)
-6. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
+6. Pilot balanced training-negative redraws on PB2-HA and PB2-NP, holding each test set fixed.
+   (Experiment 6, PLANNED)
+7. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
    on the four progress-report pairs. (Experiment 3)
-7. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
-8. Rerun only the pairs or years for which alignment materially improves eligibility.
+8. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
+9. Rerun only the pairs or years for which alignment materially improves eligibility.
    (Experiment 5)
-9. Decide whether the evidence supports a publication scope, a narrower follow-up, or an archived
+10. Decide whether the evidence supports a publication scope, a narrower follow-up, or an archived
    negative/benchmark result.
 
-Steps 4-6 do not depend on the alignment pilot.
+Steps 4-7 do not depend on the alignment pilot.
 
 ## Reproducibility and reporting
 
@@ -534,11 +572,12 @@ The final report should contain:
 
 1. cross-year HA and NA importance comparisons;
 2. the 28-pair capacity and performance matrices;
-3. a direct statement of which pairs fail or weaken;
-4. GenSLM embedded codons against raw codon features, on the pairs it was run on;
-5. the alignment yield and validation results;
-6. limitations from sampling, partial 2025 coverage, correlated sites, and metadata shortcuts;
-7. a recommendation to continue, narrow the scope, or archive the project.
+3. class-conditional prediction variation under training-negative redraws for the piloted pairs;
+4. a direct statement of which pairs fail or weaken;
+5. GenSLM embedded codons against raw codon features, on the pairs it was run on;
+6. the alignment yield and validation results;
+7. limitations from sampling, partial 2025 coverage, correlated sites, and metadata shortcuts;
+8. a recommendation to continue, narrow the scope, or archive the project.
 
 ## Code and artifacts
 
@@ -550,7 +589,8 @@ caller has to know before using the script, not only what it does.
 | `src/analysis/summarize_cds_lengths.py` | built | per-protein CDS completeness and length survey; decides which proteins can be pinned. Results in `docs/results/2026-09-07_cds_length_survey.md` |
 | `src/analysis/summarize_pair_capacity.py` | built | the five capacity counts per schema pair, each pair on its own eligible isolates. Writes 6 files to `pair_capacity_8_proteins/`. Results in `docs/results/2026-09-08_cds_pair_capacity.md` |
 | `src/embeddings/compute_site_features.py` | built | builds the per-site caches `site_features_{unit}_{PROTEIN}.npz` + `_index.parquet` + `_metadata.json` under `data/embeddings/{virus}/{version}/`. Skips a protein already cached; `--force_recompute` rebuilds. A cache is corpus-wide but pin-specific, so a changed pin needs a rebuild |
-| `src/analysis/audit_pair_datasets.py` | built | preflight: checks built datasets against `pair_capacity.csv` and the settings they claim. Run between building and training |
+| `src/analysis/audit_pair_datasets.py` | built | preflight: checks capacity counts, resolved settings, and balanced negative use and exclusions. Run between building and training |
+| `scripts/run_allpairs_datasets.py` | built | builds the 28 child-bundle datasets under one timestamped prefix |
 | `scripts/run_allpairs_baselines.py` | built | trains a baseline over every fold of a set of built datasets and aggregates each pair. Writes the CV layout `run_cv_lambda.py` writes, so the aggregators read it unchanged |
 | `src/models/train_pair_baselines.py` | built | trains one baseline on one fold directory. The LightGBM path; `train_pair_classifier.py` is the MLP path and cannot run a baseline |
 | `src/analysis/aggregate_allpairs_results.py` | built | rolls 28 pairs into one summary and 8x8 heatmaps. Globs `cv_flu_28p_*` under `models/{virus}/{version}/cv_runs/`, reads the pair from the two tokens after `flu_28p_`, and `--tag` selects a variant by the suffix after them |
@@ -559,5 +599,6 @@ caller has to know before using the script, not only what it does.
 | `src/preprocess/align_cds_by_protein.py` | not written | alignment pilot; added only after its input/output contract is fixed |
 | `results/flu/July_2025/cross_year_site_importance/` | written | cross-year tables, audits, and figures |
 | `results/flu/July_2025/pair_capacity_8_proteins/` | written | 28-pair capacity audit |
-| `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/` | written | 28-pair codon summaries and figures |
+| `results/flu/July_2025/all_pairs_human_h3n2_2024_codon_balanced_20261007_181555/` | written | balanced-negative 28-pair codon summaries and figures |
+| `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/` | historical | 2026-09-20 within-fold summaries and figures |
 | `results/flu/July_2025/cds_alignment_pilot/` | not created | alignment audit, mappings, and validation results |
