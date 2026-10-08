@@ -21,8 +21,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.datasets._negative_sampling import balanced_usage_negatives
-from src.datasets._pair_helpers import canonical_pair_key
-
+from src.datasets.dataset_segment_pairs_v2 import compute_axis_flags
 
 _SIDE_FIELDS = {
     'assembly_id': 'assembly_id', 'brc': 'brc_fea_id',
@@ -47,6 +46,22 @@ def _front_from_positives(pos: pd.DataFrame) -> pd.DataFrame:
     for suffix in ('a', 'b'):
         sides.append(pd.DataFrame({dst: pos[f'{src}_{suffix}']
                                    for src, dst in _SIDE_FIELDS.items()}))
+    return pd.concat(sides, ignore_index=True)
+
+
+def _axis_lookup(pos: pd.DataFrame) -> pd.DataFrame:
+    """Build the per-isolate metadata table that `compute_axis_flags` reads.
+
+    Args:
+        pos: Positive rows from one frozen training split.
+
+    Returns:
+        One row per pair side, with `assembly_id` and one column per metadata axis.
+    """
+    sides = []
+    for suffix in ('a', 'b'):
+        sides.append(pd.DataFrame({col: pos[f'{col}_{suffix}']
+                                   for col in ('assembly_id', *_AXES)}))
     return pd.concat(sides, ignore_index=True)
 
 
@@ -88,23 +103,10 @@ def _redraw(train: pd.DataFrame, cooccur: set[str], fixed_keys: set[str],
             or sampled[a_col].nunique() != n or sampled[b_col].nunique() != n):
         raise ValueError(f'Seed {seed}: redraw failed the one-use or pair-exclusion audit')
 
-    partners = sampled.set_index(a_col)[b_col]
-    b_lookup = old_neg.set_index(b_col)
-    chosen_b = old_neg[a_col].map(partners)
-    if chosen_b.isna().any():
-        raise ValueError(f'Seed {seed}: missing partner')
-    new_neg = old_neg.copy()
-    for col in (c for c in train.columns if c.endswith('_b')):
-        new_neg[col] = (chosen_b.to_numpy() if col == b_col
-                        else chosen_b.map(b_lookup[col]).to_numpy())
-    new_neg['pair_key'] = [canonical_pair_key(a, b) for a, b
-                           in zip(new_neg[a_col], new_neg[b_col])]
-    for axis in _AXES:
-        a, b = new_neg[f'{axis}_a'], new_neg[f'{axis}_b']
-        same = pd.Series(pd.NA, index=new_neg.index, dtype='boolean')
-        present = a.notna() & b.notna()
-        same.loc[present] = (a == b).loc[present]
-        new_neg[f'same_{axis}'] = same
+    # Put each new negative in the row of the old negative with the same slot-A sequence.
+    new_neg = sampled.set_index(a_col, drop=False).loc[old_neg[a_col]]
+    new_neg.index = old_neg.index
+    new_neg = compute_axis_flags(new_neg, _axis_lookup(pos))
 
     out = pd.concat([pos, new_neg]).sort_index()[train.columns]
     pd.testing.assert_frame_equal(out.loc[train.label == 1], pos,
@@ -131,11 +133,14 @@ def main() -> None:
         parser.error(f'Output already exists: {args.output_root}')
 
     source = args.source_fold
-    train = pd.read_csv(source / 'train_pairs.csv', engine='python')
-    cooccur = set(pd.read_csv(source / 'cooccurring_sequence_pairs.csv', usecols=['pair_key']).pair_key)
+    train = pd.read_csv(source / 'train_pairs.csv', engine='python',
+                        keep_default_na=False, na_values=[''])
+    cooccur = set(pd.read_csv(source / 'cooccurring_sequence_pairs.csv', usecols=['pair_key'],
+                              keep_default_na=False, na_values=['']).pair_key)
     fixed_keys = set()
     for split in ('val', 'test'):
-        pairs = pd.read_csv(source / f'{split}_pairs.csv', usecols=['pair_key', 'label'])
+        pairs = pd.read_csv(source / f'{split}_pairs.csv', usecols=['pair_key', 'label'],
+                            keep_default_na=False, na_values=[''])
         fixed_keys.update(pairs.loc[pairs.label == 0, 'pair_key'])
 
     # Complete every audit before writing any variant.
