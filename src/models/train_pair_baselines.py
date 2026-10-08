@@ -366,10 +366,22 @@ def _run_one_baseline(
     test_probs  = estimator.predict_proba(X_test)[:, 1]
     train_probs = estimator.predict_proba(X_train, **loo_kwargs)[:, 1]
 
+    # Raw scores, before the link function maps them to probabilities. Two estimator families
+    # expose them differently, and LightGBM exposes neither as `decision_function`, so without the
+    # booster branch its `pred_logit` column is never written. Taking the raw score here costs
+    # nothing, because the feature matrices are already materialized. Reconstructing it later from
+    # a saved probability is possible but loses precision at the extremes: once a probability
+    # rounds to exactly 1.0 in float64, which happens above a raw score of about 37, its logit is
+    # infinite.
     if hasattr(estimator, 'decision_function'):
         train_logits = np.asarray(estimator.decision_function(X_train), dtype=np.float32)
         val_logits   = np.asarray(estimator.decision_function(X_val),   dtype=np.float32)
         test_logits  = np.asarray(estimator.decision_function(X_test),  dtype=np.float32)
+    elif hasattr(estimator, 'booster_'):
+        booster = estimator.booster_
+        train_logits = np.asarray(booster.predict(X_train, raw_score=True), dtype=np.float32)
+        val_logits   = np.asarray(booster.predict(X_val,   raw_score=True), dtype=np.float32)
+        test_logits  = np.asarray(booster.predict(X_test,  raw_score=True), dtype=np.float32)
     else:
         train_logits = val_logits = test_logits = None
 
