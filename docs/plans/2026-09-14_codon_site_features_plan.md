@@ -498,7 +498,11 @@ both classes. Here, we measure how much predictions vary with the negative draw.
   pair.
 - Fixed across the 10 draws: training positives, validation and test pairs, features, LightGBM
   settings, and model seed. Only the training negatives change.
-- The draws barely overlap. Any two draws of the same fold share at most 4 negative pairs (0.4%).
+- Within one draw, each negative pair appears once. Nothing stops the same negative pair from
+  appearing in more than one draw.
+- Each draw has 1,326-1,327 training negatives for PB2-HA and 982 for PB2-NP. Any two draws of
+  the same fold share at most 4 negative pairs (0.4% of 982). Across the 10 draws of a fold, 33-48
+  negative pairs appear in two draws, and none appears in three or more.
 - For each test pair, we compute the sample SD of its 10 class-1 probabilities and the SD of its 10
   logits (i.e., *raw scores*).
 - The table reports, for each fold and class, the median of these per-pair SDs. The boxplots show
