@@ -588,6 +588,66 @@ def histogram_panels(
             'bins': int(len(edges) - 1)}
 
 
+def grouped_boxplot(
+    ax,
+    values: dict,
+    *,
+    groups: Sequence[str],
+    categories: Sequence[str],
+    category_colors: Optional[dict] = None,
+    palette: Sequence[str] = ('#4c72b0', '#dd8452', '#55a868', '#d43d51'),
+    group_width: float = 0.7,
+    ) -> dict:
+    """Draw one box per (group, category) on `ax`, placing each group's category boxes side by side.
+
+    Each box's tick label is its category name. Each group name is printed once, centred below
+    its group's category labels, so a single group gives a plain row of category boxes.
+
+    Args:
+        ax: matplotlib axes to draw on.
+        values: {(group, category): 1-D numeric values}, one entry for every group and category.
+            NaNs are dropped.
+        groups: group order along the x-axis; group centres sit at 0, 1, 2, ...
+        categories: box order within every group.
+        category_colors: optional {category: color}; categories not present fall back to
+            `palette` in order.
+        palette: fallback box colors, indexed by category position.
+        group_width: x-axis width shared by one group's boxes.
+
+    Returns:
+        {(group, category): number of non-NaN values in that box}.
+    """
+    box_width = group_width / len(categories)
+    offsets = (np.arange(len(categories)) - (len(categories) - 1) / 2) * box_width
+
+    data, positions, tick_labels, colors, counts = [], [], [], [], {}
+    for g, group in enumerate(groups):
+        for c, category in enumerate(categories):
+            box = np.asarray(values[(group, category)], dtype=float)
+            box = box[~np.isnan(box)]
+            data.append(box)
+            positions.append(g + offsets[c])
+            tick_labels.append(str(category))
+            colors.append((category_colors or {}).get(category, palette[c % len(palette)]))
+            counts[(group, category)] = int(len(box))
+
+    artists = ax.boxplot(data, positions=positions, widths=box_width * 0.85,
+                         tick_labels=tick_labels, patch_artist=True,
+                         medianprops={'color': 'black'},
+                         flierprops={'markersize': 2, 'alpha': 0.5})
+    for patch, color in zip(artists['boxes'], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.8)
+
+    # A second x-axis at the same spine carries the group names, padded below the category labels.
+    group_axis = ax.secondary_xaxis('bottom')
+    group_axis.set_xticks(range(len(groups)), labels=[str(g) for g in groups])
+    group_axis.tick_params(length=0, pad=18)
+    group_axis.spines['bottom'].set_visible(False)
+    ax.grid(axis='y', alpha=0.3)
+    return counts
+
+
 def annotated_heatmap(
     matrix,
     *,
