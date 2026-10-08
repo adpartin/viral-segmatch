@@ -48,7 +48,7 @@ def compute_metrics(pred_df: pd.DataFrame, threshold: float = 0.5) -> dict:
     """Compute test metrics from a test_predicted.csv DataFrame."""
     y_true  = pred_df["label"].astype(int).values
     y_probs = pred_df["pred_prob"].astype(float).values
-    y_pred  = (y_probs >= threshold).astype(int)
+    y_pred  = (y_probs > threshold).astype(int)
 
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     fp_fn_ratio = float(fp) / float(fn) if fn > 0 else float("inf")
