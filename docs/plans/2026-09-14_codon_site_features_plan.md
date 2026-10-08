@@ -498,9 +498,9 @@ Match the 10 test outputs by `pair_key` and save every predicted score.
 ### Measures and presentation
 
 For each fixed test pair, save its 10 predicted probabilities for class 1. Use their mean and sample
-SD to describe its score and how much that score changes across draws. Treat probabilities as model
+SD to describe the score and how much that score changes across draws. Treat probabilities as model
 scores unless calibration has been performed. Also calculate the SD of LightGBM's raw scores, because
-probabilities compress score changes near zero and one.
+probabilities compress scores near zero and one.
 
 The main plot compares how much individual predictions change. Make one figure per fold, carrying two
 groups on the x-axis, one for positive test pairs and one for negative test pairs. Each value in a
@@ -509,7 +509,7 @@ SDs, and the difference between the positive and negative mean SD in each fold. 
 test pairs is not an error bar for the class mean.
 
 The two figures of this section have different shapes, and one helper has to carry both. The main
-plot holds a single group of two class boxes. The second plot holds ten groups, one per draw, each
+plot holds a single group of two class boxes. The 2nd plot holds ten groups, one per draw, each
 with the same two class boxes, so twenty boxes per fold. Add one `grouped_boxplot` to
 `src/utils/plot_utils.py` that takes groups and categories, with the main plot as its single-group
 case, and call it from both. The pattern is already written 3 times with no shared helper, at
@@ -517,7 +517,7 @@ case, and call it from both. The pattern is already written 3 times with no shar
 `analyze_stage1_preprocess.py:562`. Pass the category labels through matplotlib's `tick_labels`,
 since `labels` is deprecated.
 
-A second plot shows the predicted probabilities themselves. For each fold and draw, show two boxes:
+A 2nd plot shows the predicted probabilities themselves. For each fold and draw, show two boxes:
 one containing the class-1 probabilities for all positive test pairs, and one for all negative test
 pairs. This shows whether a draw shifts the scores for a whole class. The main plot shows changes to
 individual pairs, which these boxes cannot show.
