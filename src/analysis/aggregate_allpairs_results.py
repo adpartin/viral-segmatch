@@ -344,7 +344,9 @@ def plot_barplot(table, metric: str, output_path: Path) -> None:
     ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=9)
     ax.set_xlabel(label)
-    ax.set_title(f"Protein Pair {label} (12-fold CV, mean ± std)", fontsize=13)
+    folds = valid['n_folds'].dropna().unique() if 'n_folds' in valid else []
+    fold_text = f'{int(folds[0])}-fold CV' if len(folds) == 1 else 'CV'
+    ax.set_title(f"Protein Pair {label} ({fold_text}, mean ± std)", fontsize=13)
     ax.set_xlim(left=0.0, right=1.05)
     ax.invert_yaxis()
 
