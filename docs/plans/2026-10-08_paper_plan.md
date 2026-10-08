@@ -61,22 +61,28 @@ Experiments 1, 2, and 6 in `docs/plans/2026-09-14_codon_site_features_plan.md` c
 this on Human-H3N2-2024. Experiment 2 covered 28 schema pairs with 4-fold CV. Experiment 6 redrew **training** negatives with fixed test pairs for PB2-HA and PB2-NP.
 
 ### Code gaps
-The code covers the methods in `1A` and `1B`. These pieces are missing:
+The dataset builder and single-fold redraw code exist. Task 1 still needs:
 
-- `1A`: the schema-pair matrix (see `1A` Results).
-- `1A`: 5-fold CV. The 28-pair bundles set `n_folds: 4`, and `scripts/run_allpairs_datasets.py`
-  cannot override it, so the bundle must change. `src/analysis/audit_pair_datasets.py` expects
-  `dataset.n_folds: 4`, so it will fail every 5-fold dataset until that line changes.
-- `1A`: the detailed table. `src/analysis/aggregate_allpairs_results.py` writes the mean and std of
-  each metric to `allpairs_summary.csv`, but not the `HK selected` and `Features` columns.
+- `1A` matrix: `src/analysis/aggregate_allpairs_results.py` makes a symmetric matrix of means.
+  Change it to show only the lower triangle, with mean and ± std on separate lines.
+- `1A` 5-folds: the dataset builder accepts `dataset.n_folds=5`, but the 28-pair bundles set 4
+  and `scripts/run_allpairs_datasets.py` cannot pass an override. The training runner reads the
+  fold count from the bundle, so dataset generation and training need the same 5-fold config.
+  `src/analysis/audit_pair_datasets.py` also expects 4; make that expectation configurable.
+- `1A` table: extend `src/analysis/aggregate_allpairs_results.py` to add all eight columns in
+  Experiment 1's pair-capacity table to `allpairs_summary.csv`, alongside its metric means and stds.
+  Pass `pair_capacity.csv` explicitly and check the schema pairs and population before joining.
+  Add `Features` from the per-pair feature widths.
 - `1B`: a script that runs the redraws for all 28 pairs.
   `scripts/resample_balanced_train_negatives.py` and `scripts/run_balanced_train_redraw.py` run one
   pair and one fold per call. `scripts/analyze_balanced_train_redraw.py` runs one pair per call.
-- `1B`: the overlap counts. `redraw_summary.json` gives the number of distinct negative pairs and
-  the pairwise Jaccard. It does not give the most pairs that two draws share, or the number of pairs
-  that appear in more than one draw.
+- `1B` overlap counts: add both requested counts to `redraw_summary.json`. The maximum shared
+  count can be calculated from its maximum Jaccard because all draws have the same size. Counting
+  distinct negative pairs that appear in more than one draw requires a frequency tally.
 - `1B`: the detailed table. `scripts/analyze_balanced_train_redraw.py` writes one
   `per_pair_sd_by_class.csv` per schema pair, and nothing combines them into one table.
+
+The `1B` matrix still needs a chosen cell value before its output can be specified.
 
 
 
