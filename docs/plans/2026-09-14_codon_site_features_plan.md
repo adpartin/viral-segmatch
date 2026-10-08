@@ -479,7 +479,7 @@ Promote aligned features into the dataset pipeline only if:
 PB1 records truncated before the terminal stop remain excluded from the primary analysis even if
 they can be padded. They may be examined only in a clearly labeled missing-data sensitivity arm.
 
-## Experiment 6: prediction variation across balanced negative draws — PLANNED
+## Experiment 6: prediction variation across balanced negative draws — DONE (2026-10-07)
 
 ### Question
 
@@ -487,76 +487,101 @@ When we redraw the negative training pairs, do predictions change more for posit
 pairs? Item 3 of `plan-paragraph-10-2-26.pdf` asks whether model-based uncertainty is the same for
 both classes. Here, we measure how much predictions vary with the negative draw.
 
-### Design
+### Methods
 
-Start with PB2-HA and PB2-NP. In each of 4 folds, make 10 balanced draws of the negative training
-pairs and train one model per draw. Keep the following fixed: training positives, validation and test
-pairs, features, LightGBM settings, and model seed. Check that each draw uses every training sequence
-once per slot and contains no observed pairs. Count how many negative pairs differ between draws.
-Match the 10 test outputs by `pair_key` and save every predicted score.
+- Two schema pairs, PB2-HA and PB2-NP, using the 4 folds of their Experiment 2 balanced datasets
+  (`exp2_28p_codon_balanced_20261007_180037_pb2_{ha,np}`).
+- In each fold, the training negatives are redrawn 10 times (seeds 42-51) with the balanced negative
+  sampler, `balanced_usage_negatives`. One LightGBM model is trained per draw, so 40 models per schema
+  pair.
+- Fixed across the 10 draws: training positives, validation and test pairs, features, LightGBM
+  settings, and model seed. Only the training negatives change.
+- The draws barely overlap. Any two draws of the same fold share at most 4 negative pairs (0.4%).
+- For each test pair, we compute the sample SD of its 10 class-1 probabilities and the SD of its 10
+  logits (i.e., *raw scores*).
+- The table reports, for each fold and class, the median of these per-pair SDs. The boxplots show
+  the full distribution of these SDs for fold 0 of each pair.
 
-### Measures and presentation
+The first two commands run once per pair (`ha`, `np`) and fold (0-3):
 
-For each fixed test pair, save its 10 predicted probabilities for class 1. Use their mean and sample
-SD to describe the score and how much that score changes across draws. Treat probabilities as model
-scores unless calibration has been performed. Also calculate the SD of LightGBM's raw scores, because
-probabilities compress scores near zero and one.
+```
+python scripts/resample_balanced_train_negatives.py \
+  --source-fold data/datasets/flu/July_2025/runs/exp2_28p_codon_balanced_20261007_180037_pb2_ha/fold_0 \
+  --output-root data/datasets/flu/July_2025/runs/exp6_negative_redraw_20261007_224316_pb2_ha/fold_0 \
+  --seeds 42 43 44 45 46 47 48 49 50 51
 
-The main plot compares how much individual predictions change. Make one figure per fold, carrying two
-groups on the x-axis, one for positive test pairs and one for negative test pairs. Each value in a
-box is one test pair's SD across the 10 draws. Report each class's median and middle 50% of these
-SDs, and the difference between the positive and negative mean SD in each fold. The spread across
-test pairs is not an error bar for the class mean.
+python scripts/run_balanced_train_redraw.py \
+  --dataset-root data/datasets/flu/July_2025/runs/exp6_negative_redraw_20261007_224316_pb2_ha/fold_0 \
+  --config-bundle flu_28p_codon_pb2_ha \
+  --run-prefix lgbm_exp6_negdraw_20261007_224316_pb2_ha_fold0 \
+  --seeds 42 43 44 45 46 47 48 49 50 51
 
-The two figures of this section have different shapes, and one helper has to carry both. The main
-plot holds a single group of two class boxes. The 2nd plot holds ten groups, one per draw, each
-with the same two class boxes, so twenty boxes per fold. Add one `grouped_boxplot` to
-`src/utils/plot_utils.py` that takes groups and categories, with the main plot as its single-group
-case, and call it from both. The pattern is already written 3 times with no shared helper, at
-`analyze_stage4_train.py:502`, `analyze_embedding_similarity.py:755` and
-`analyze_stage1_preprocess.py:562`. Pass the category labels through matplotlib's `tick_labels`,
-since `labels` is deprecated.
+python scripts/analyze_balanced_train_redraw.py --model-root models/flu/July_2025/runs \
+  --run-prefix lgbm_exp6_negdraw_20261007_224316_pb2_ha --folds 0 1 2 3 \
+  --seeds 42 43 44 45 46 47 48 49 50 51 --label PB2-HA \
+  --output-dir results/flu/July_2025/exp6_negative_redraw_20261007_224316_pb2_ha
+```
 
-A 2nd plot shows the predicted probabilities themselves. For each fold and draw, show two boxes:
-one containing the class-1 probabilities for all positive test pairs, and one for all negative test
-pairs. This shows whether a draw shifts the scores for a whole class. The main plot shows changes to
-individual pairs, which these boxes cannot show.
+### Results
 
-Also count how many of the 10 models classify each test pair as positive. This separates rare class
-changes from frequent ones.
+| pair, fold | F1 macro | prob SD pos / neg | logit SD pos / neg |
+|---|---|---|---|
+| PB2-HA 0 | 0.898 ± 0.012 | 0.051 / 0.054 | 0.355 / 0.512 |
+| PB2-HA 1 | 0.892 ± 0.008 | 0.044 / 0.044 | 0.299 / 0.435 |
+| PB2-HA 2 | 0.899 ± 0.007 | 0.044 / 0.047 | 0.291 / 0.393 |
+| PB2-HA 3 | 0.902 ± 0.012 | 0.087 / 0.098 | 0.472 / 0.678 |
+| PB2-NP 0 | 0.790 ± 0.019 | 0.090 / 0.118 | 0.412 / 0.820 |
+| PB2-NP 1 | 0.790 ± 0.008 | 0.041 / 0.051 | 0.175 / 0.309 |
+| PB2-NP 2 | 0.842 ± 0.008 | 0.056 / 0.061 | 0.335 / 0.569 |
+| PB2-NP 3 | 0.834 ± 0.010 | 0.043 / 0.047 | 0.247 / 0.388 |
 
-Report the two classes' SD distributions and their difference, and stop there. Similar SDs would
-show that these redraws move the two classes' scores by similar amounts on these folds. They would
-not show that the model's uncertainty is equal between the classes, because failing to detect a
-difference is not evidence of equivalence. A claim of practical equivalence needs an acceptable
-difference fixed before the results are seen, and this design does not set one.
+How to read the table, using the PB2-HA fold 0 row:
 
-Nothing here speaks to phylogenetic distance either. The SDs describe how predictions move when
-partners are reassigned, not how far apart the paired sequences are. Item 2 of
-`plan-paragraph-10-2-26.pdf` raises that distance question, and answering it needs a distance
-measurement such as `compare_negative_pair_distances.py` rather than a redraw.
+- `pair, fold`: the schema pair and the CV fold. Fold 0 has 10 models, and all 10 are scored on
+  the same 1,022 test pairs (511 positive, 511 negative).
+- `F1 macro` = 0.898 ± 0.012: the mean ± SD of test F1 macro over the 10 models. Here the ± is the
+  spread across negative draws, not across folds as in Experiment 2.
+- `prob SD pos / neg` = 0.051 / 0.054: each test pair gets one SD, computed from its 10 predicted
+  probabilities. 0.051 is the median of these SDs over the 511 positive test pairs, and 0.054 is
+  the median over the 511 negative test pairs. For example, one positive pair with an SD of 0.051
+  had probabilities from 0.75 to 0.90 across the 10 models.
+- `logit SD pos / neg` = 0.355 / 0.512: the same medians, computed on LightGBM's raw score instead
+  of the probability. The raw score is `logit(p) = log(p / (1 - p))`.
 
-**A note on `logits`**. Prefer the raw score the trainer saves. `train_pair_baselines` writes a
-`pred_logit` column for LightGBM from `booster_.predict(X, raw_score=True)`, taken while the feature
-matrices are still materialized, so it costs nothing and a run made after that change needs no
-reconstruction.
+What the table shows:
 
-Reconstruct it only for predictions saved earlier, such as the fold 0 pilot. LightGBM's binary
-objective turns a raw score into a probability with `p = 1 / (1 + exp(-sigmoid * raw))`, in
-`BinaryLogloss::ConvertOutput` in `src/objective/binary_objective.hpp` of the LightGBM source. That
-header is not shipped in the installed wheel, so the citation is to the upstream file. Inverting it
-gives `raw = logit(p) / sigmoid`, where `logit(p) = log(p / (1 - p))`. Our runs leave `sigmoid` at
-its default of 1.0, so `logit(p)` on its own recovers the raw score, and it matched
-`booster_.predict(X, raw_score=True)` to 9.8e-15 on the PB2-HA fold 0 model. The saved
-`test_predicted.csv` files are therefore sufficient and no feature matrix has to be rebuilt.
+- Across draws, the SD of F1 macro is 0.007-0.012 for PB2-HA and 0.008-0.019 for PB2-NP.
+- On the raw-score scale, negative test pairs have a higher median SD than positive test pairs in
+  all 8 folds.
+- On the probability scale, the gap between the classes is small. The negative median SD is higher
+  in 7 of 8 folds, and the two medians are equal in PB2-HA fold 1.
+- PB2-HA fold 3 and PB2-NP fold 0 have about twice the probability SD of the other folds of the
+  same pair.
 
-Two details decide whether a reconstruction is trustworthy. `sigmoid` is not a key of
-`booster_.params`; it sits inside `booster_.dump_model()['objective']`, which reads
-`binary sigmoid:1`, so read it from there. And the inversion has a boundary: once a probability
-rounds to exactly 1.0 in float64, which happens above a raw score of about 37, its logit is
-infinite. Count probabilities at 0 or 1 and report the count rather than emitting infinities. The
-observed range on the PB2-HA fold 0 model is 0.000378 to 0.990473, so this is a guard and not an
-expected case.
+<img src="../results/figs/2026-10-07_h3n2_2024_pb2_ha_fold0_redraw_per_pair_sd.png" width="600" alt="PB2-HA fold 0: per-pair SD of probability and raw score across 10 negative draws, positive vs negative test pairs">
+
+<img src="../results/figs/2026-10-07_h3n2_2024_pb2_np_fold0_redraw_per_pair_sd.png" width="600" alt="PB2-NP fold 0: per-pair SD of probability and raw score across 10 negative draws, positive vs negative test pairs">
+
+- Each value in a box is one test pair's SD across the 10 models. The left panel uses the
+  probability, and the right panel uses the raw score.
+- Each box spans the IQR of these SDs, and the line inside it is the median.
+- In both figures, the negative box is taller than the positive box in both panels. So in fold 0,
+  the SDs of negative test pairs are more spread out than those of positive test pairs.
+- The figures for folds 1-3, the per-draw probability boxplots (`draw_probability_boxplot.png`),
+  the per-pair tables and the per-model metrics are in
+  `results/flu/July_2025/exp6_negative_redraw_20261007_224316_pb2_{ha,np}/`.
+
+Limitations:
+
+- Two schema pairs, 4 folds, and 10 draws per fold.
+- No significance test was run. The 4 folds of a pair share training data, so they are not
+  independent replicates.
+- These SDs show how much these redraws move each class's scores on these folds. They do not show
+  that model uncertainty is equal, or unequal, between the classes in general. A claim of
+  equivalence would need an acceptable difference fixed in advance, and this design sets none.
+- The SDs describe how predictions move when training partners are reassigned, not how far apart
+  the paired sequences are. Item 2 of `plan-paragraph-10-2-26.pdf` asks about that distance, and
+  answering it needs a distance measurement such as `compare_negative_pair_distances.py`.
 
 ## Execution order
 
@@ -566,7 +591,7 @@ expected case.
 4. Build and audit the 28 pinned-length datasets. (Experiment 2, DONE)
 5. Run the codon 28-pairs screen and aggregate the results. (Experiment 2, DONE)
 6. Pilot balanced training-negative redraws on PB2-HA and PB2-NP, holding each test set fixed.
-   (Experiment 6, PLANNED)
+   (Experiment 6, DONE)
 7. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
    on the four progress-report pairs. (Experiment 3)
 8. Complete the PB1/NS1 alignment feasibility audit and prototype. (Experiment 5)
