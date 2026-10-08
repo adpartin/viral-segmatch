@@ -46,6 +46,8 @@ baseline_lgbm:
   num_leaves: 31              # max leaves per tree
   min_child_samples: 20       # min samples per leaf; main overfitting brake
   colsample_bytree: 0.25      # feature subsample per tree
+  subsample: 1.0              # row fraction; active only when subsample_freq > 0
+  subsample_freq: 0           # 0 disables row sampling
   reg_alpha: 0.1              # L1 regularization
   reg_lambda: 0.1             # L2 regularization
   n_jobs: 16                  # threads per LGBM instance

@@ -19,6 +19,8 @@ listed for cross-reference if you read LightGBM docs / params.
 |                        |                       |         | overfitting regularizer for leaf-wise growth. |
 | colsample_bytree       | feature_fraction      | 0.25    | feature subsample per tree;            |
 |                        |                       |         | cheap regularizer for 8192-dim concat. |
+| subsample              | bagging_fraction      | 1.0     | row fraction; active when subsample_freq > 0. |
+| subsample_freq         | bagging_freq          | 0       | frequency of row sampling; 0 disables it. |
 | reg_alpha              | lambda_l1             | 0.1     |                                        |
 | reg_lambda             | lambda_l2             | 0.1     |                                        |
 | n_jobs                 | num_threads           | -1      |                                        |
@@ -55,6 +57,8 @@ def get_estimator(config, *, random_state: Optional[int] = None):
         num_leaves=int(cfg.get('num_leaves', 31)),
         min_child_samples=int(cfg.get('min_child_samples', 20)),
         colsample_bytree=float(cfg.get('colsample_bytree', 0.25)),
+        subsample=float(cfg.get('subsample', 1.0)),
+        subsample_freq=int(cfg.get('subsample_freq', 0)),
         reg_alpha=float(cfg.get('reg_alpha', 0.1)),
         reg_lambda=float(cfg.get('reg_lambda', 0.1)),
         objective='binary',
@@ -96,3 +100,9 @@ def fit(estimator, X_train, y_train, *, X_val=None, y_val=None, config=None,
         )
     else:
         estimator.fit(X_train, y_train, categorical_feature=categorical)
+
+    # A no-split fit can be the intended result of a shuffled-label control.
+    if not estimator.booster_.feature_importance(importance_type='split').any():
+        print("WARNING: LightGBM learned no feature splits; predictions are constant. For "
+              "balanced 1:1 HK pairs, enable row sampling with baseline_lgbm.subsample < 1 and "
+              "baseline_lgbm.subsample_freq > 0.")
