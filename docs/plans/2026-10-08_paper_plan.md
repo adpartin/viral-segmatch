@@ -24,16 +24,18 @@ incompatibility.
 - Positives: HK selection of positives (each sequence appears once)
 - Negatives: balanced-usage negatives (`split_strategy.negative_scope=balanced`). Each negative
   pairs a slot-A sequence and a slot-B sequence from the `HK selected` positives of the same split.
-  At a 1:1 ratio, each sequence is normally used once.
+  At a 1:1 ratio, the accepted datasets must use each selected sequence exactly once per slot in
+  each split's negatives.
 
 **Results.**
-- A detailed table as shown in `2026-09-14_codon_site_features_plan.md` Exp 2 with 28 rows.
-  Supp materials.
-- A schema-pair matrix: an 8-by-8 matrix that shows all 28 schema pairs with mean and std. Main
-  paper. It should be a strictly lower triangular matrix, where each cell shows the mean and, on
-  the next line, ± std. See Fig 5 in https://academic.oup.com/bib/article/27/1/bbaf667/8422735,
-  but with ± std instead of parentheses. We need to update the code that generates the matrix
-  (`src/analysis/aggregate_allpairs_results.py`).
+- A 28-row supplementary table with the Experiment 2 display columns: Rank, Schema pair,
+  HK selected, Features, F1 macro, AUC-ROC, Precision and Recall. Keep all eight Experiment 1
+  capacity columns in the underlying CSV.
+- An 8-by-8 F1 macro matrix for the main paper. Use the strictly lower triangle for the 28 schema
+  pairs. Each pair's cell shows its mean test F1 macro across the 5 folds. The next line shows
+  ± SD across those folds. Color the cell by the mean. See Fig 5 in
+  https://academic.oup.com/bib/article/27/1/bbaf667/8422735, but show ± SD on a separate line.
+  Update `src/analysis/aggregate_allpairs_results.py` to generate it.
 
 ### 1B. Measure sensitivity to the draw training negative pairs
 
@@ -52,8 +54,10 @@ training negative pairs.
   test pair.
 
 **Results.**
-- A detailed table as shown in `2026-09-14_codon_site_features_plan.md` Exp 6, with one row per
-  schema pair and fold: 28 × `k` rows (140 at `k` = 5). Supp materials.
+- A supplementary table with one row per schema pair and fold: 28 × `k` rows (140 at `k` = 5).
+  Show the mean ± SD of test F1 macro across draws, the median per-pair probability and logit SD
+  for each test class, and the two negative-pair overlap counts for that fold. These are the
+  Experiment 6 measures with the overlap counts added.
 - A schema-pair matrix as in `1A`. `todo`: decide what each cell shows.
 
 ### Existing materials
@@ -64,7 +68,8 @@ this on Human-H3N2-2024. Experiment 2 covered 28 schema pairs with 4-fold CV. Ex
 The dataset builder and single-fold redraw code exist. Task 1 still needs:
 
 - `1A` matrix: `src/analysis/aggregate_allpairs_results.py` makes a symmetric matrix of means.
-  Change it to show only the lower triangle, with mean and ± std on separate lines.
+  Change the F1 macro figure to show only the lower triangle, with the 5-fold mean and SD on
+  separate lines in each pair's cell.
 - `1A` 5-folds: the dataset builder accepts `dataset.n_folds=5`, but the 28-pair bundles set 4
   and `scripts/run_allpairs_datasets.py` cannot pass an override. The training runner reads the
   fold count from the bundle, so dataset generation and training need the same 5-fold config.
@@ -73,7 +78,7 @@ The dataset builder and single-fold redraw code exist. Task 1 still needs:
   20%, and train from 65% to 70%. Validation stays at 10% (`val_ratio: 0.1`).
 - `1A` dataset audit: `src/analysis/audit_pair_datasets.py` expects 4 folds; make the fold count
   configurable. `--expect_pairs 28` counts run directories, not distinct schema pairs, so two runs
-  of one pair plus a missing pair would still pass. Training settings such as `site.unit: codon`
+  of one pair plus a missing pair would still pass. Feature settings such as `site.unit: codon`
   are printed as notes and never fail the audit.
 - `1A` table: extend `src/analysis/aggregate_allpairs_results.py` to add all eight columns in
   Experiment 1's pair-capacity table to `allpairs_summary.csv`, alongside its metric means and stds.
@@ -92,9 +97,11 @@ The dataset builder and single-fold redraw code exist. Task 1 still needs:
 - `1B`: a script that runs the redraws for all 28 pairs.
   `scripts/resample_balanced_train_negatives.py` and `scripts/run_balanced_train_redraw.py` run one
   pair and one fold per call. `scripts/analyze_balanced_train_redraw.py` runs one pair per call.
-- `1B` overlap counts: add both requested counts to `redraw_summary.json`. The maximum shared
-  count can be calculated from its maximum Jaccard because all draws have the same size. Counting
-  distinct negative pairs that appear in more than one draw requires a frequency tally.
+- `1B` 5-folds: `run_balanced_train_redraw.py` does not pass the 5-fold config override to the
+  trainer, so a redraw fit currently resolves the bundle's 4-fold setting.
+- `1B` overlap counts: add both requested counts to `redraw_summary.json`. The redraw already
+  holds each draw's negative pair keys, so it can count the largest intersection between two draws
+  and the distinct negative pair keys used in at least two draws.
 - `1B`: the detailed table. `scripts/analyze_balanced_train_redraw.py` writes one
   `per_pair_sd_by_class.csv` per schema pair, and nothing combines them into one table.
 
@@ -102,51 +109,136 @@ The `1B` matrix still needs a chosen cell value before its output can be specifi
 
 ### Addressing code gaps
 
+#### Build and identify the 5-fold datasets
+
 Use the existing 28-pair build and training scripts. The dataset manifest already lists the pair
-bundles, dataset directories and build exit codes. Extend it to also record the capacity CSV, the
-`dataset.n_folds=5` override and the Git commit. The training runner reads it, applies the same
-override when planning and fitting, and records the exact model and CV directories it uses.
+bundles, dataset directories and build exit codes. Extend it with the capacity CSV, the config
+overrides, the fold count the builder used (`dataset.n_folds`), the Git commit, a checksum of each
+dataset's `resolved_config.yaml`, and checksums of each fold's `{train,val,test}_pairs.csv` and
+`cooccurring_sequence_pairs.csv`. Record the fold count itself, not only an override: the 4-fold
+regression rebuild below uses the bundle's setting and has no override. For each selected protein
+`P`, also hash the three files under `data/embeddings/flu/July_2025/`:
+`site_features_codon_{P}.npz`, `site_features_codon_{P}_index.parquet` and
+`site_features_codon_{P}_metadata.json`. Check these hashes before training and after all fits.
+Keep the dataset manifest unchanged after the build. The training runner reads it, applies the
+same overrides when planning and fitting, and writes a separate `training_run_manifest.json` with
+the dataset manifest path, code commit, and exact model and CV paths.
+
+The audit and both runners read the fold count from the dataset manifest. Each fails unless that
+count equals the fold count its check requires: 5 for Task 1 and 4 for the regression check.
+
+A fit's input checksums cover its fold's `{train,val,test}_pairs.csv` and
+`cooccurring_sequence_pairs.csv`, the dataset's `resolved_config.yaml`, and the codon cache files
+above. A `1B` fit reads the copies in its seed directory, where only `train_pairs.csv` differs from
+the source fold. A fit's required outputs are `best_model.joblib`, `resolved_config.yaml`,
+`metrics_summary.json`, `training_info.json` and `{train,val,test}_predicted.csv`.
 
 Use a new dataset prefix for Task 1. Model run IDs are built from the dataset directory name, and
 `run_allpairs_datasets.py` does not write into an existing dataset directory, so a new prefix keeps
 Task 1 apart from Experiment 2. Never run the trainer with `--force` on Experiment 2's dataset
 prefix.
 
+Save the input checksums in each fit's `training_info.json`. Before fitting or skipping a `1A`
+fold, require the current commit and the dataset files to match the dataset manifest. Before
+skipping, require the fit's saved resolved config to match the planned config, its input checksums
+and code commit to match the dataset manifest, and all required outputs to exist. Otherwise fail
+without overwriting the fit.
+
+`training_run_manifest.json` assigns one CV directory to each pair. A resume call must name the
+existing `training_run_manifest.json`, reuse its model and CV directories, and require the current
+commit to match its recorded commit. On resume, the runner rebuilds each CV directory's summary
+files (`cv_run_manifest.json`, `status.json` and the `aggregate_cv_results.py` outputs) from its
+folds. These summary files are the only outputs a resume overwrites; fits and redraw directories
+are never overwritten. A pilot with code edits must use a new dataset prefix.
+
+#### Audit the datasets and training settings
+
 Reuse `audit_pair_datasets.py` to check each dataset before fitting. It already checks the capacity
 counts, the population, the pinned length of each site-feature cache and the balanced-usage
-negatives. Add three checks: the expected fold count (5 for Task 1), that the audited runs cover the
-28 distinct schema pairs, and that the training config matches. The training-config check must
-fail, not print a note, when a codon setting differs. Require all 28 datasets to pass before the
-full screen. Check that each pair's selected positive pair keys match Experiment 2; only their fold
-assignment should change.
+negatives. Make its existing fold-count check read the fold count from the dataset manifest, and
+require exactly `fold_0` through `fold_4` for Task 1. Read the dataset runs from the dataset manifest, not a directory glob. Take the expected
+pair set from the selected child bundles; require exactly one run per selected pair, no extra runs,
+and exactly one matching row per pair in the capacity CSV. The full run must cover all 28 capacity
+pairs. Audit the dataset's resolved config, and make the training runner check its planned config
+before launching any fits. Fail if either has a `dataset.n_folds` different from the dataset
+manifest's fold count, or differs from the expected feature settings (`training.feature_source=site`, `site.unit=codon`,
+`site.encoding=ordinal`, `training.interaction=concat`, `training.slot_transform=none`) or LightGBM
+row-sampling settings (`baseline_lgbm.subsample=0.7`, `baseline_lgbm.subsample_freq=1`). Require
+every selected dataset to pass before fitting; the full screen requires all 28. For each pair,
+compare the positive pair-key sets across its 5 test folds and the 4 test folds in
+`exp2_28p_codon_balanced_20261007_180037_{pair}`. Require equality; fold assignments and sampled
+negative pairs may differ.
+
+#### Run the balanced negative redraws
 
 Add one `1B` coordinator that reads the dataset manifest and runs the existing redraw, fit and
-analysis steps for each pair and fold with bounded concurrency. The redraw already uses
-`balanced_usage_negatives` and `compute_axis_flags`; keep those implementations. Both training
-scripts launch `train_pair_baselines.py`, so share that launch code. Resume a job only when its
-saved config, source fold, seed, code revision and required outputs match the manifest.
+analysis steps for each pair and fold with bounded concurrency. Before any fit, check the planned
+config, current commit and source-fold file hashes against the dataset manifest and Task 1
+settings. Reuse the redraw's `balanced_usage_negatives` and `compute_axis_flags` implementations.
+Both training scripts launch `train_pair_baselines.py`, so share that launch code and pass
+`dataset.n_folds=5` to both `1A` and `1B` fits.
+
+The coordinator writes `redraw_run_manifest.json` with the dataset manifest path, redraw seeds,
+code commit, model directories and checksums of the redrawn `train_pairs.csv` files. Save each
+fit's `draw_seed` and input checksums in `training_info.json`. A resume call must name the existing
+`redraw_run_manifest.json`; reuse its run prefix without creating a new timestamped run, append
+missing job records and fail if the current commit differs from its recorded commit. Before
+skipping an existing redraw directory, require its seed directories to match the seed list in
+`redraw_run_manifest.json`, and require the checksums of all its files to match that manifest:
+each seed's `{train,val,test}_pairs.csv` and `cooccurring_sequence_pairs.csv`, and the fold's
+`redraw_summary.json`. Fail without overwriting a partial or mismatched redraw directory. Before
+skipping a fit, require its source fold's dataset files and its redrawn `train_pairs.csv` to match
+their manifests. Also require its saved config, input checksums, draw seed, code commit and
+required outputs to match the planned job. Otherwise fail without overwriting. If two seeds for the same fold produce
+identical sets of training negative pairs, record the seed pair in the manifest and fail without
+assuming why.
+
 Add a pair filter to the dataset builder and `1B` coordinator so a one-pair pilot uses the same
 path as the full screen; the training runner already has this filter.
 
-Build reports from the recorded run directories. Record the actual feature count at fit time and
-require it to agree across folds. Make `aggregate_allpairs_results.py` select the exact CV
-directories recorded by the trainer, require 28 distinct schema pairs with 5 completed folds each,
-check that every fit records the same code commit in its `training_info.json`, and join all eight
-Experiment 1 table columns from an explicit capacity CSV after checking pair and population
-matches. Split its `main` into discovery, table and output functions; compute each matrix once.
-Keep means and stds numeric in CSV. Color cells by mean and use separate text for the figure.
-Extend `plot_utils.annotated_heatmap` as needed for the lower-triangle mean and ± std display.
+#### Build the tables and figures
+
+Build reports from the recorded run directories. Save `estimator.n_features_in_` as `n_features`
+in each fit's `training_info.json`; require the value to agree across folds and use it for the
+`Features` column. Add an explicit run-manifest argument to `aggregate_allpairs_results.py` and
+select the CV directories listed in `training_run_manifest.json`. Require 5 completed folds
+for each selected pair. Require all 28 pairs for the final report, but allow the selected pair set
+for a pilot report. For the final report, require every fit's `training_info.json` to record the
+same `code.commit` as the dataset manifest and `code.is_dirty=false`. Apply the same check to every
+final `1B` fit. Join all eight Experiment 1 table columns from an explicit capacity CSV after
+checking pair and population matches. Split `main` into discovery, table and output functions;
+compute each matrix once.
+Keep the F1 macro fold means and SDs numeric in CSV. For the `1A` figure, color each pair's cell
+by its mean and annotate it with the mean and ± SD on separate lines. Extend
+`plot_utils.annotated_heatmap` as needed for this lower-triangle display.
 For `1B`, write the two overlap counts during redraw and combine draw metrics and per-class
 prediction SDs into one row per pair and fold. Name SD columns by what varied: folds in `1A`,
 draws in `1B`.
 
-Check changed code paths against selected four-fold Experiment 2 and 6 outputs. Then run one
-five-fold pair through `1A` and `1B` before the full 28 × 5 datasets, 140 baseline fits and
-28 × 5 × `r` redraw fits. Verify that training positives, validation and test pairs, codon feature
-encoding and caches, and model seed remain fixed across a fold's redraws and match the source fold.
-Report overlap between negative draws and flag any identical draws.
-Use one Git commit with no uncommitted code changes for the reported run. Choose `r` (at least two),
-its seeds and the `1B` matrix value before running all redraws.
+#### Verify before the full screen
+
+Before the full run, rebuild PB2-HA and PB2-NP with the original 4-fold settings, and run the
+audit and runners with a required fold count of 4. Require their
+`{train,val,test}_pairs.csv` files to match the corresponding fold files under
+`exp2_28p_codon_balanced_20261007_180037_pb2_{ha,np}` byte-for-byte. Redraw seed 42 for fold 0
+of each pair and require `train_pairs.csv` to match the corresponding file under
+`exp6_negative_redraw_20261007_224316_pb2_{ha,np}/fold_0/seed_42/` byte-for-byte. Run one new fit
+twice on the same inputs and require identical test predictions. Compare a new refit with the
+historical Experiment 2 predictions, but treat that comparison as diagnostic: those fits recorded
+`code.is_dirty=true`, so a difference needs an explanation rather than an automatic failure.
+
+Run one 5-fold pair through `1A` and `1B` with at least two redraw seeds. The pilot audit and
+report must accept that one selected pair. Verify that training positives, validation and test
+pairs, codon feature settings and caches, and model seed remain fixed across each fold's redraws
+and match the source fold. Then build and audit all 28 datasets (5 folds each), run 140 baseline
+fits and 140 × `r` redraw fits, and produce the full report.
+
+Build all final datasets after the code changes are committed, so their manifest and every final
+fit record the same commit. Make no tracked edits during the reported run. Require empty output
+from `git status --porcelain --untracked-files=all -- src scripts conf` before and after it; this
+checks the code and config directories used by Task 1. The development pilot may record a dirty
+worktree, but its outputs must not enter the final report. Choose `r` (at least two), its seeds and
+the `1B` matrix value before running all redraws.
 
 
 
