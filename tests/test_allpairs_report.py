@@ -5,9 +5,13 @@ Covers:
   2. It rejects an unknown protein, a pair of one protein, and slot A after slot B
   3. plot_lower_triangle writes a figure with a blank upper triangle and two-line cell text
   4. annotated_heatmap rejects a blank mask or cell text of the wrong shape
+  5. write_report_info records the current commit, and run_manifest_inputs each manifest's
+     path and checksum
 
 Run: python -m pytest tests/test_allpairs_report.py
 """
+import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -21,7 +25,10 @@ from src.analysis.aggregate_allpairs_results import (  # noqa: E402
     PROTEINS,
     lower_triangle_matrix,
     plot_lower_triangle,
+    run_manifest_inputs,
+    write_report_info,
 )
+from src.utils.experiment_utils import file_sha256, get_git_info  # noqa: E402
 from src.utils.plot_utils import annotated_heatmap  # noqa: E402
 
 
@@ -60,3 +67,18 @@ def test_annotated_heatmap_shape_checks(tmp_path):
     with pytest.raises(ValueError, match='cell_text'):
         annotated_heatmap(matrix, row_labels=['a', 'b'], col_labels=['x', 'y', 'z'],
                           out_png=tmp_path / 'b.png', title='t', cell_text=[['']])
+
+
+def test_report_info(tmp_path):
+    manifest = tmp_path / 'training_run_manifest.json'
+    manifest.write_text('{}')
+    args = argparse.Namespace(training_run_manifest=str(manifest), redraw_run_manifest=None)
+    inputs = run_manifest_inputs(args)
+    assert inputs['training_run_manifest'] == {'path': str(manifest.resolve()),
+                                               'sha256': file_sha256(manifest)}
+    assert inputs['redraw_run_manifest'] is None
+
+    write_report_info(tmp_path, inputs)
+    info = json.loads((tmp_path / 'report_info.json').read_text())
+    assert info['code']['commit'] == get_git_info()['commit']
+    assert info['inputs'] == inputs

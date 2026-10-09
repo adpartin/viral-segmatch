@@ -43,6 +43,9 @@ check stops the report before anything is written:
 - `--final` also requires all 28 pairs, and every fit at the datasets' commit with a clean
   worktree.
 
+Both modes write `report_info.json` in the output directory: the code commit the report ran at,
+its command line, and its inputs.
+
   python src/analysis/aggregate_allpairs_results.py \
       --training_run_manifest models/flu/July_2025/training_runs/<name>/training_run_manifest.json \
       --redraw_run_manifest models/flu/July_2025/training_runs/<name>/redraw_run_manifest.json \
@@ -54,6 +57,7 @@ import json
 import math
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -771,6 +775,47 @@ def write_redraw_report(table, output_dir: Path) -> None:
     print(f"Saved the redraw-run table and matrix in {output_dir}")
 
 
+def write_report_info(output_dir: Path, inputs: dict) -> None:
+    """Write `report_info.json`: the code commit, command line and inputs of this report.
+
+    Args:
+      output_dir: the report directory.
+      inputs: what the report read, as JSON-ready values.
+
+    Returns:
+      None. Writes `output_dir / "report_info.json"`.
+    """
+    from src.utils.experiment_utils import get_git_info
+    info = {
+        "code": get_git_info(),
+        "command": sys.argv,
+        "written_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "inputs": inputs,
+    }
+    (output_dir / "report_info.json").write_text(json.dumps(info, indent=2) + "\n")
+
+
+def run_manifest_inputs(args) -> dict:
+    """The path and SHA-256 of each run manifest on the command line.
+
+    Args:
+      args: the parsed command line.
+
+    Returns:
+      {"training_run_manifest": {"path", "sha256"} or None, "redraw_run_manifest": the same}.
+    """
+    from src.utils.experiment_utils import file_sha256
+    inputs = {}
+    for key in ("training_run_manifest", "redraw_run_manifest"):
+        given = getattr(args, key)
+        if given is None:
+            inputs[key] = None
+            continue
+        path = Path(given).resolve()
+        inputs[key] = {"path": str(path), "sha256": file_sha256(path)}
+    return inputs
+
+
 def run_manifest_mode(args) -> None:
     """Build the reports a training run manifest and/or a redraw run manifest name.
 
@@ -799,6 +844,7 @@ def run_manifest_mode(args) -> None:
         sys.exit(1)
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_report_info(output_dir, run_manifest_inputs(args))
     if training is not None:
         write_training_report(*training, output_dir)
     if redraw is not None:
@@ -882,6 +928,8 @@ def main():
     else:
         output_dir = PROJECT_ROOT / "models" / "flu" / "July_2025" / "allpairs_summary"
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_report_info(output_dir, {"cv_dirs": {bundle: str(cv_dir)
+                                               for bundle, cv_dir in cv_dirs.items()}})
 
     # Save cross-pair summary CSV
     csv_path = output_dir / "allpairs_summary.csv"
