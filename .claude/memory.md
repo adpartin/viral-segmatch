@@ -169,7 +169,9 @@ items that need context beyond their title.
 | H3N2 segment matching for the PIs: 2D-CD is infeasible on one-year populations, so random 4-fold CV + a 2024->2025 temporal split answer the two questions instead. Results are in the commit messages only; no results doc yet | `docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md` |
 | Per-site nucleotide features: HA-NA H3N2 2024 site runs are done. Unique-sequence matching CV code and tests are complete; building and auditing its three datasets is next. | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
 
-- **Stage-4 training is GATED** — no launch without explicit OK.
+- **Stage-4 training is GATED** — no launch without explicit OK. An OK covers the jobs in the
+  approved command or plan, including resuming them. A rerun after a code or config change needs a
+  new OK.
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered and triaged; the single source of truth). Bigger experiments:
@@ -205,8 +207,9 @@ rebuild from `environment.yml`.
 - CLAUDE.md is the authoritative project context; .claude/memory.md is the compact working memory
 - Both files are in the repo — update them when decisions change
 - **One script per purpose**: follow the existing pattern in `src/analysis/` — propose a dedicated
-  script with a clear name rather than stretching an existing script to cover a second job. Pick the
-  obvious answer rather than offering several.
+  script with a clear name rather than stretching an existing script to cover a second job. Extend
+  an existing script when its purpose is unchanged, and share code through functions rather than
+  copies. Pick the obvious answer rather than offering several.
 - **Code priority order**: correctness > readability > efficiency. Optimise for the next person
   reading the code, not for run time. Make a performance change only when it is measured, or when
   speed is required for the result to be correct.
@@ -214,7 +217,8 @@ rebuild from `environment.yml`.
   term doesn't. Don't cut technical content; cut hedges and filler. Concrete numbers, file:line refs,
   and observed data are better than hedged adjectives. When explaining, assume the reader does not
   already know the codebase — give the plain-language answer first, then the evidence.
-- **Terminology**: use canonical terms from `docs/methods/glossary.md`; add new terms there first.
+- **Terminology**: use canonical terms from `docs/methods/glossary.md`; add new technical or
+  project-specific terms there first.
   (Enforced as CLAUDE.md Conventions § Wording.)
 - **Accuracy over confidence**: state only what is verified against a source actually checked in this
   session (paper passage, code at file:line, observed command output). When uncertain, say so with
