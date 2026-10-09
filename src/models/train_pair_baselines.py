@@ -38,6 +38,8 @@ Output (one run dir PER baseline):
         ├── optimal_threshold.txt
         ├── metrics_summary.json
         ├── training_info.json
+        ├── runtime.json                 # this baseline's fit and predictions
+        ├── process_runtime.json         # the whole trainer process, with data loading
         └── resolved_config.yaml
 """
 from __future__ import annotations
@@ -758,6 +760,11 @@ def main() -> None:
                   f"AUC-ROC={test_m['auc_roc']:.4f}  ({r['wall_seconds']:.1f}s)  "
                   f"-> {r['output_dir']}")
     total_timer.display_timer()
+    # runtime.json covers only one baseline's fit and predictions. The whole process, with data
+    # loading and feature building, is saved next to it as process_runtime.json.
+    for r in results:
+        if 'output_dir' in r:
+            total_timer.save_timer(Path(r['output_dir']), filename='process_runtime.json')
     # Every requested baseline has run by now, so one failure did not stop the others; the exit
     # status still has to say a fit failed, or a launcher records it as finished.
     failed = [r['baseline'] for r in results if 'error' in r]
