@@ -444,17 +444,19 @@ how well it predicts for each of them.
 **Methods.**
 - Metadata-aware negative sampling: each negative should pair sequences from two isolates with the
   same host, subtype and year. This is the `host_subtype_year` regime in
-  `src/datasets/_negative_regime_sampling.py`, requested with
+  `src/datasets/_negative_regime_sampling.py`. The coverage sampler takes it through
   `dataset.negative_sampling.regime_targets`.
 - Only the default sampler (`negative_scope: coverage`) takes regime targets. The `balanced`
   sampler does not: `src/datasets/_negative_sampling.py` sets `neg_regime` to a placeholder marked
-  "not wired". Balanced-usage negatives that also match on metadata need new sampler code.
+  "not wired". Balanced-usage negatives that also match on metadata need new sampler code. The
+  design is under "Matched balanced-usage negatives" below.
 - Regime targets do not guarantee matched negatives. The coverage sampler's coverage phase ignores
   regimes unless its `regime_aware_coverage` option is on. With that option on, it still falls back
   to a uniform draw when no regime yields a partner. Audit the achieved regime of every negative
   before reporting that the negatives are matched.
 - Regime comparisons use year bins by default (`<=2015`, `2016-2020`, `2021+`), not the exact year.
-  `dataset.negative_sampling.year_match: exact` compares exact years.
+  `dataset.negative_sampling.year_match: exact` compares exact years. Matched balanced-usage
+  negatives use exact years.
 - Determine largest groups, and experiment with them. For example: host=[Human, Pig],
 subtype=[H3N2, H5N1], year_range=[2015, 2025].
 
@@ -462,6 +464,60 @@ subtype=[H3N2, H5N1], year_range=[2015, 2025].
 - The schema-pair matrix
 - Report F1 scores over metadata categories in test set (HN-type, host, year)
 - Show performance for different populations.
+
+### Matched balanced-usage negatives
+
+A matched balanced-usage negative pairs a slot-A sequence and a slot-B sequence from positives of
+the same split whose isolates share the same host, HN subtype and exact year. This section calls
+the positives that share these three values a metadata group. The sampler never pairs sequences
+from two different metadata groups.
+
+Matching on the exact year, rather than the default year bins, gives every negative one host, one
+subtype and one year. Positives already have one of each, because both of their sequences come
+from one isolate. This settles the question Task 1 left to Task 2: how to assign a test pair to a
+metadata category when its two sides differ.
+
+Steps, in order:
+
+1. Reject the unsupported combination. Today the builder accepts
+   `split_strategy.negative_scope: balanced` together with
+   `dataset.negative_sampling.regime_targets`, parses the targets, and does not use them. The
+   build then produces unmatched negatives without any error. Make that combination raise an
+   error.
+2. Measure feasibility before writing the sampler. Within one split and metadata group, the
+   `HK selected` positives use each slot-A sequence and each slot-B sequence once. At a 1:1 ratio,
+   each of those sequences must then be used in exactly one negative, avoiding observed pairs and
+   pairs already drawn. Group size alone does not decide whether such an assignment exists. A
+   metadata group with one positive in a split has no allowed partner, because its only slot-B
+   sequence belongs to its own positive. A metadata group with two positives works only if the
+   swapped pair was never observed. For each candidate eligibility rule (step 3), apply the rule,
+   build the folds, and check every split and metadata group. Check the folds produced after the
+   rule is applied, because removing positives can change how the remaining positives fall into
+   folds.
+3. Choose and record an eligibility rule, applied before folding. The rule states how isolates
+   with a missing host, subtype or year are handled; the proposed rule excludes them. It may also
+   set a minimum metadata group size. Record the rule and how many positives each schema pair
+   loses. If schema pairs keep different populations, report that next to their scores. Never drop
+   positives from a single split after folding. A positive sits in exactly one test fold, so
+   dropping it there removes it from the CV result while it remains in the training data of other
+   folds. The CC builder's `drop_negative_infeasible_ccs` likewise removes infeasible components
+   before folding.
+4. Write the sampler. For each split and metadata group, it either finds the one-use assignment or
+   raises an error that names the split and metadata group. `_repair_exact_one_use` in
+   `src/datasets/_negative_sampling.py` already solves this assignment with
+   `scipy.optimize.linear_sum_assignment`, treating observed and already-drawn pairs as forbidden.
+   It is not yet a strict check. When no assignment exists, it prints a WARNING and keeps uneven
+   usage. Above 2,000 pairs it skips the assignment, also with a WARNING. On the matched path both
+   cases must raise. `src/datasets/_positive_pair_selection.py` has a Hopcroft-Karp implementation
+   if a metadata group in one split exceeds the 2,000-pair limit.
+
+An eligibility rule applied before folding cannot guarantee that every split is feasible. A CC
+falls entirely in one split, but a metadata group's positives spread across splits. A metadata
+group of 7 positives can fall 5/1/1 across train, val and test, which leaves one positive in its
+val group and one in its test group. The sampler's error is therefore the final guard. If it
+fires, change the eligibility rule, for example to a larger minimum metadata group size, and
+rebuild. Do not patch individual splits. Check whether the fold builder can stratify folds by
+metadata group, which would make each split's group sizes predictable.
 
 
 
@@ -477,6 +533,11 @@ from future years?
   `dataset.positive_pair_selection` requires `dataset.n_folds >= 2`, and `dataset.metadata_holdout`
   allows only a single split (`n_folds` null or 1). Using Task 1's `HK selected` positives in Task 3
   needs a builder change.
+- Balanced-usage negatives draw both sequences of a negative from the same split. With a single
+  test year, every test negative therefore pairs two sequences from that year. Training negatives
+  from a multi-year training filter can pair different years. The matched sampler from Task 2
+  ("Matched balanced-usage negatives") would match training negatives on year as well. Decide
+  whether to use it before Task 3 runs.
 - E.g., `train: {year_range: [2015, 2024]}` and `test: {year: [2025]}`; `year_range` is inclusive.
   The bundle `conf/bundles/flu_ha_na_h3n2_nt_cds_temporal_2025.yaml` already does this for HA-NA in
   H3N2.
