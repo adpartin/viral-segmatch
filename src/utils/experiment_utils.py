@@ -1,5 +1,6 @@
 """Utilities for experiment tracking and metadata management."""
 
+import hashlib
 import json
 import subprocess
 from datetime import datetime
@@ -11,6 +12,23 @@ from omegaconf import DictConfig, OmegaConf
 # git is queried against the repo, not the caller's cwd -- a launcher that runs from elsewhere
 # would otherwise get the 'unknown' fallback and silently lose provenance.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def file_sha256(path: Path) -> str:
+    """SHA-256 of a file's bytes, as a hex string.
+
+    Args:
+        path: the file to hash.
+
+    Returns:
+        The 64-character hex digest.
+    """
+    digest = hashlib.sha256()
+    with open(path, 'rb') as handle:
+        for block in iter(lambda: handle.read(1 << 20), b''):
+            digest.update(block)
+    hex_digest = digest.hexdigest()
+    return hex_digest
 
 
 def get_git_info() -> Dict[str, str]:

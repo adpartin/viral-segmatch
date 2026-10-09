@@ -668,6 +668,10 @@ def annotated_heatmap(
     nan_color: str = '#dcdcdc',
     dpi: int = 180,
     figsize: Optional[tuple] = None,
+    cell_text=None,
+    blank_mask=None,
+    blank_color: str = 'white',
+    cell_fontsize: int = 7,
     ) -> None:
     """Annotated 2-D heatmap (imshow + per-cell value text + colorbar) for a labeled metric grid.
 
@@ -677,11 +681,30 @@ def annotated_heatmap(
     NaN cells are drawn in `nan_color` and left un-annotated (the metric is undefined there). Cell
     text color adapts to the cell's luminance so values stay legible on dark and light cells.
     Saves to `out_png` (parent dirs created).
+
+    Two options serve a triangular matrix, such as one cell per unordered pair. `cell_text`
+    replaces each cell's formatted value with caller-written text (for example a mean and, on the
+    next line, its SD), while the cell is still colored by `matrix`. `blank_mask` marks cells that
+    are not part of the grid at all: they are painted `blank_color` with no text, which keeps them
+    apart from NaN cells, whose value exists but is undefined.
+
+    Args:
+        cell_text: same shape as `matrix`, one string per cell; an empty string leaves the cell
+            without text. None writes `value_fmt` of each value.
+        blank_mask: same shape as `matrix`, True for cells to leave blank; None for none.
+        blank_color: fill of the blank cells.
+        cell_fontsize: font size of the cell text.
     """
     m = np.asarray(matrix, dtype=float)
     if m.shape != (len(row_labels), len(col_labels)):
         raise ValueError(f"annotated_heatmap: matrix shape {m.shape} != "
                          f"(rows={len(row_labels)}, cols={len(col_labels)}).")
+    blank = np.zeros(m.shape, dtype=bool) if blank_mask is None else np.asarray(blank_mask, bool)
+    if blank.shape != m.shape:
+        raise ValueError(f"annotated_heatmap: blank_mask shape {blank.shape} != {m.shape}.")
+    if cell_text is not None and np.asarray(cell_text, dtype=object).shape != m.shape:
+        raise ValueError(f"annotated_heatmap: cell_text shape "
+                         f"{np.asarray(cell_text, dtype=object).shape} != {m.shape}.")
     nrow, ncol = m.shape
     if figsize is None:
         figsize = (max(4.0, 1.15 * ncol + 2.5), max(3.0, 0.52 * nrow + 1.6))
@@ -699,16 +722,24 @@ def annotated_heatmap(
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontsize=title_fontsize)
 
+    # Blank cells are painted over, so whatever value or NaN sits under them is never shown.
+    for i, j in zip(*np.nonzero(blank)):
+        ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, facecolor=blank_color,
+                                   edgecolor='none', zorder=2))
+
     if annotate:
         rgba = cmap_obj(im.norm(masked))  # per-cell colors -> luminance-based text color
         for i in range(nrow):
             for j in range(ncol):
-                if np.isnan(m[i, j]):
+                if np.isnan(m[i, j]) or blank[i, j]:
+                    continue
+                text = value_fmt.format(m[i, j]) if cell_text is None else cell_text[i][j]
+                if not text:
                     continue
                 r, g, b = rgba[i, j, :3]
                 lum = 0.299 * r + 0.587 * g + 0.114 * b
-                ax.text(j, i, value_fmt.format(m[i, j]), ha='center', va='center',
-                        fontsize=7, color='black' if lum > 0.55 else 'white')
+                ax.text(j, i, text, ha='center', va='center', zorder=3,
+                        fontsize=cell_fontsize, color='black' if lum > 0.55 else 'white')
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
     if cbar_label:

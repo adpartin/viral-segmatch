@@ -215,6 +215,30 @@ def get_virus_config_hydra(
 
     return flattened
 
+
+def compose_config(config_bundle: str, overrides: Optional[list] = None,
+                   config_path: Optional[str] = None) -> DictConfig:
+    """Load a bundle and merge dotlist overrides on top, the way the builder and trainer do.
+
+    The overrides are merged after `get_virus_config_hydra` returns, so they are not seen by its
+    `dataset.molecule` resolution.
+
+    Args:
+        config_bundle: bundle name, e.g. `flu_28p_codon_pb2_ha`.
+        overrides: dotlist entries such as `dataset.n_folds=5`, applied in order; None or empty
+            for none.
+        config_path: config directory; None uses the project's `conf/`.
+
+    Returns:
+        The composed config.
+    """
+    if config_path is None:
+        config_path = str(Path(__file__).resolve().parents[2] / 'conf')
+    config = get_virus_config_hydra(config_bundle, config_path=config_path)
+    if overrides:
+        config = OmegaConf.merge(config, OmegaConf.from_dotlist(list(overrides)))
+    return config
+
 # =============================================================================
 # CONVENIENCE FUNCTIONS
 # =============================================================================

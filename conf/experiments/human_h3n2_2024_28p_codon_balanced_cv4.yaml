@@ -1,0 +1,35 @@
+# Experiment spec: the 28-pair per-site codon screen on Human-H3N2-2024 with the bundles' own
+# 4-fold CV. Used to rebuild datasets that must match the 4-fold datasets under
+# exp2_28p_codon_balanced_20261007_180037_ file for file. Bundles:
+# conf/bundles/flu_28p_codon_*.yaml. Design: docs/plans/2026-10-08_paper_plan.md.
+# Identical to human_h3n2_2024_28p_codon_balanced_cv5.yaml except for the fold count.
+
+# Nothing differs from the bundles.
+overrides: []
+
+# Every dataset's resolved_config.yaml and every planned fit config must have these values.
+expect:
+  # Population
+  dataset.host: [Human]
+  dataset.hn_subtype: [H3N2]
+  dataset.year: [2024]
+  # Positive selection
+  dataset.positive_pair_selection.method: hopcroft_karp
+  dataset.split_strategy.pair_key_alphabet: nt_cds
+  # Negative sampler and ratio
+  dataset.split_strategy.negative_scope: balanced
+  dataset.neg_to_pos_ratio: 1.0
+  dataset.negative_sampling: null
+  # Pinned-length requirement
+  dataset.require_complete_cds_at_pinned_length: true
+  # Fold count
+  dataset.n_folds: 4
+  # Feature settings
+  training.feature_source: site
+  site.unit: codon
+  site.encoding: ordinal
+  training.interaction: concat
+  training.slot_transform: none
+  # LightGBM row sampling
+  baseline_lgbm.subsample: 0.7
+  baseline_lgbm.subsample_freq: 1

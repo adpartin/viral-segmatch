@@ -14,6 +14,7 @@ import argparse
 import json
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -116,6 +117,29 @@ def _redraw(train: pd.DataFrame, cooccur: set[str], fixed_keys: set[str],
     return out, keys
 
 
+def draw_overlap_counts(draws: list) -> dict:
+    """Count how the negative pairs of one fold's draws overlap.
+
+    The sampler keeps each negative pair unique within a draw; nothing stops a pair from being
+    drawn again under another seed, so these counts measure how often that happens.
+
+    Args:
+        draws: one set of negative pair keys per draw.
+
+    Returns:
+        `max_negative_pairs_shared_by_two_draws`: the largest intersection between any two draws
+        (None with fewer than two draws), and `negative_pairs_in_multiple_draws`: how many
+        distinct negative pair keys appear in at least two draws.
+    """
+    shared = [len(a & b) for i, a in enumerate(draws) for b in draws[i + 1:]]
+    uses = Counter(key for draw in draws for key in draw)
+    counts = {
+        'max_negative_pairs_shared_by_two_draws': max(shared) if shared else None,
+        'negative_pairs_in_multiple_draws': sum(1 for n in uses.values() if n >= 2),
+    }
+    return counts
+
+
 def main() -> None:
     """Write audited training redraws and a pair-overlap summary.
 
@@ -167,6 +191,7 @@ def main() -> None:
         'pairwise_negative_jaccard_min': min(comparisons) if comparisons else None,
         'pairwise_negative_jaccard_median': float(pd.Series(comparisons).median()) if comparisons else None,
         'pairwise_negative_jaccard_max': max(comparisons) if comparisons else None,
+        **draw_overlap_counts(sets),
     }
     (args.output_root / 'redraw_summary.json').write_text(json.dumps(summary, indent=2) + '\n')
     print('Done.', json.dumps(summary, sort_keys=True))

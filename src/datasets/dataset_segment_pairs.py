@@ -113,7 +113,7 @@ from src.datasets._pair_helpers import (
     attach_ctg_dna_to_prot_df,
     select_balanced_isolate_pool,
 )
-from src.utils.config_hydra import get_virus_config_hydra, print_config_summary, save_config
+from src.utils.config_hydra import compose_config, print_config_summary, save_config
 from src.utils.experiment_utils import get_git_info
 from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata
 from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
@@ -165,11 +165,10 @@ config_path = str(project_root / 'conf')  # Pass the config path explicitly
 config_bundle = args.config_bundle
 if config_bundle is None:
     raise ValueError("Must provide --config_bundle")
-config = get_virus_config_hydra(config_bundle, config_path=config_path)
-# Apply CLI dotlist overrides (e.g., dataset.hn_subtype=H3N2)
+# Apply CLI dotlist overrides (e.g., dataset.hn_subtype=H3N2) with the same function the runners
+# use to plan a build, so the planned and the saved config are composed the same way.
+config = compose_config(config_bundle, args.override, config_path=config_path)
 if args.override:
-    from omegaconf import OmegaConf
-    config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.override))
     print(f"Applied CLI overrides: {args.override}")
 print_config_summary(config)
 

@@ -115,6 +115,23 @@ class SiteCache(NamedTuple):
     metadata: dict
 
 
+def site_cache_paths(site_dir: Path, unit: str, protein: str) -> dict:
+    """The three files of one protein's per-site feature cache.
+
+    Args:
+      site_dir: directory holding the cache, normally the embeddings output dir.
+      unit: `nt`, `codon` or `aa`.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      Suffix (`.npz`, `_index.parquet`, `_metadata.json`) -> path.
+    """
+    stem = f'site_features_{unit}_{protein}'
+    paths = {suffix: Path(site_dir) / f'{stem}{suffix}'
+             for suffix in ('.npz', '_index.parquet', '_metadata.json')}
+    return paths
+
+
 def load_site_cache(site_dir: Path, unit: str, protein: str) -> SiteCache:
     """Load one protein's per-site feature cache.
 
@@ -130,10 +147,8 @@ def load_site_cache(site_dir: Path, unit: str, protein: str) -> SiteCache:
       FileNotFoundError: any of the three cache files is missing.
       ValueError: the matrix and the index disagree on how many rows there are.
     """
-    site_dir = Path(site_dir)
     stem = f'site_features_{unit}_{protein}'
-    paths = {suffix: site_dir / f'{stem}{suffix}'
-             for suffix in ('.npz', '_index.parquet', '_metadata.json')}
+    paths = site_cache_paths(site_dir, unit, protein)
     missing = [str(p) for p in paths.values() if not p.exists()]
     if missing:
         raise FileNotFoundError(
