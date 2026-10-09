@@ -20,7 +20,7 @@ incompatibility.
 **Goal.** Show how performance changes between different schema pairs.
 
 **Methods.**
-- 5-fold CV (try larger `k` for the final paper)
+- 5-fold CV
 - LightGBM
 - Positives: HK selection of positives (each sequence appears once)
 - Negatives: balanced-usage negatives (`split_strategy.negative_scope=balanced`). Each negative
