@@ -309,15 +309,23 @@ and the representative `assembly_id`. Include the selection summary in each fold
 
 ## Bundles
 
-Keep the existing pinned-length bundle unchanged and add three bundles that inherit it:
+Keep the existing pinned-length bundle unchanged and add one bundle that inherits it:
 
 ```text
-flu_ha_na_h3n2_2024_random_cv4_pinned_length_dedup_a_then_b.yaml
-flu_ha_na_h3n2_2024_random_cv4_pinned_length_dedup_b_then_a.yaml
 flu_ha_na_h3n2_2024_random_cv4_pinned_length_hopcroft_karp.yaml
 ```
 
-Each bundle should change only `dataset.positive_pair_selection.method`. All feature comparisons
+The two sequential-deduplication selections have no bundle. Select them with the builder's
+`--override` on the pinned-length bundle:
+
+```text
+python src/datasets/dataset_segment_pairs.py \
+  --config_bundle flu_ha_na_h3n2_2024_random_cv4_pinned_length \
+  --override dataset.positive_pair_selection.method=dedup_a_then_b
+```
+
+Use `dedup_b_then_a` for the other order. The bundle and each override should change only
+`dataset.positive_pair_selection.method`. All feature comparisons
 within one selected dataset must reuse its saved folds.
 
 Scores obtained from different selection methods describe different positive populations. They
