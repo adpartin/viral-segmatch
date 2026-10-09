@@ -71,7 +71,8 @@ Experiments 1, 2, and 6 in `docs/plans/2026-09-14_codon_site_features_plan.md` c
 this on Human-H3N2-2024. Experiment 2 covered 28 schema pairs with 4-fold CV. Experiment 6 redrew **training** negatives with fixed test pairs for PB2-HA and PB2-NP.
 
 ### Code gaps
-The dataset builder and single-fold redraw code exist. Task 1 still needs:
+Commits 30b6cd2 and b6fca0b close these gaps; see "Implementation" below. Before them, the
+dataset builder and single-fold redraw code existed, and Task 1 needed:
 
 - `1A` matrix: `src/analysis/aggregate_allpairs_results.py` makes a symmetric matrix of means.
   Change the F1 macro figure to show only the lower triangle, with the 5-fold mean and SD on
@@ -372,6 +373,66 @@ the code and config directories used by Task 1.
 
 Then build and audit all 28 datasets (5 folds each), run 140 baseline fits and 1,400 redraw fits
 (140 × 10 draws), and produce the full report.
+
+### Implementation
+
+Commits 30b6cd2 and b6fca0b on `feature/paper-task1` implement the code changes above. This section
+records the interfaces and the decisions the sections above leave open.
+
+#### Commands
+
+- Build: `scripts/run_allpairs_datasets.py --dataset-prefix <prefix>_ --experiment-spec <spec>
+  --capacity-csv <csv>`, with optional `--bundle-prefix` (default `flu_28p_codon_`) and `--pairs`.
+  It writes `data/datasets/flu/July_2025/runs/{prefix minus the trailing _}_manifest.json`.
+- Audit: `python -m src.analysis.audit_pair_datasets --dataset_manifest <manifest>
+  --experiment_spec <spec>`, with optional `--reference_dataset_prefix
+  exp2_28p_codon_balanced_20261007_180037_` for the positive test pair key comparison.
+- `1A` fits: `scripts/run_allpairs_baselines.py --dataset_manifest <manifest> --experiment_spec
+  <spec> --cv_dir_bundle 'flu_28p_{pair}_<variant>'`, with optional `--pairs`. A resume call passes
+  only `--resume <training_run_manifest.json>`.
+- `1B` redraws: `scripts/run_allpairs_balanced_redraws.py --dataset_manifest <manifest>
+  --experiment_spec <spec> --seeds 42 43 44 45 46 47 48 49 50 51`, with optional `--pairs`. A
+  resume call passes only `--resume <redraw_run_manifest.json>`.
+- Reports: `src/analysis/aggregate_allpairs_results.py --training_run_manifest <file>
+  --redraw_run_manifest <file> --output_dir <dir>`. Without `--final`, the report accepts the
+  selected pairs, as a pilot needs. `--final` requires all 28 pairs, and every fit at the datasets'
+  commit with a clean worktree.
+
+#### Output locations
+
+- Run manifests: `models/flu/July_2025/training_runs/{dataset prefix}{baseline}_{timestamp}/
+  training_run_manifest.json` and `models/flu/July_2025/training_runs/{dataset
+  prefix}negredraw_{timestamp}_{baseline}/redraw_run_manifest.json`.
+- Redraws: `data/datasets/flu/July_2025/runs/{dataset prefix}negredraw_{timestamp}_{pair}/
+  fold_{k}/seed_{s}/`. Their fits go to `models/flu/July_2025/runs/{baseline}_{dataset
+  prefix}negredraw_{timestamp}_{pair}_fold{k}_seed{s}/`, and each pair's summary to
+  `results/flu/July_2025/{dataset prefix}negredraw_{timestamp}_{pair}/`.
+- Report files: `allpairs_summary.csv` (numeric), `allpairs_display.csv` (`mean ± SD` text),
+  `matrix_f1_macro_mean.csv`, `matrix_f1_macro_sd_folds.csv` and `matrix_f1_macro.png` for `1A`;
+  `redraw_by_pair_fold.csv`, `matrix_f1_macro_sd_draws.csv` and `matrix_f1_macro_sd_draws.png`
+  for `1B`.
+
+#### Decisions beyond the sections above
+
+- `scripts/run_allpairs_baselines.py` reads its datasets only from a dataset manifest; its
+  `--bundle_prefix` and `--dataset_prefix` options are gone. The audit no longer has
+  `--runs_glob`, `--expect_pairs` or `--negative_scope`. The Experiment 2 and 3 commands in
+  `docs/plans/2026-09-14_codon_site_features_plan.md` no longer run as written.
+- `scripts/run_balanced_train_redraw.py` keeps its command line and gains `--override`,
+  `--dataset-resolved-config` and `--baseline`. It now skips an existing fit only when that fit is
+  the finished planned fit, so an Experiment 6 fit directory stops it instead of being skipped.
+- The trainer gains `--dataset_resolved_config`. The shared launcher passes the dataset's
+  `resolved_config.yaml`, so a `1B` fit records the checksum of its source dataset's config.
+- The `1B` coordinator also requires `dataset.split_strategy.pair_key_alphabet=nt_cds`, because
+  the redraw script reads the `cds_dna_hash` columns. It requires at least two seeds, because the
+  summary step reports SDs across draws and fails with one draw. The 4-fold regression check
+  therefore redraws seeds 42 and 43 and compares both with Experiment 6.
+- `scripts/analyze_balanced_train_redraw.py` keeps its output keys, since renaming persisted keys
+  needs approval. The combined tables name their SD columns `_sd_folds` and `_sd_draws`.
+- `compose_config` in `src/utils/config_hydra.py` composes every planned config, and the builder
+  and the trainer compose their configs with it too.
+- `scripts/run_allpairs_datasets.py` no longer skips bundles whose names contain `balanced`. No such
+  bundle exists.
 
 
 
