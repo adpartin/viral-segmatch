@@ -111,21 +111,37 @@ The `1B` matrix still needs a chosen cell value before its output can be specifi
 
 #### Build and identify the 5-fold datasets
 
-Use the existing 28-pair build and training scripts. The dataset manifest already lists the pair
-bundles, dataset directories and build exit codes. Extend it with the capacity CSV, the config
-overrides, the fold count the builder used (`dataset.n_folds`), the Git commit, a checksum of each
-dataset's `resolved_config.yaml`, and checksums of each fold's `{train,val,test}_pairs.csv` and
-`cooccurring_sequence_pairs.csv`. Record the fold count itself, not only an override: the 4-fold
-regression rebuild below uses the bundle's setting and has no override. For each selected protein
-`P`, also hash the three files under `data/embeddings/flu/July_2025/`:
-`site_features_codon_{P}.npz`, `site_features_codon_{P}_index.parquet` and
-`site_features_codon_{P}_metadata.json`. Check these hashes before training and after all fits.
+Use the existing 28-pair build and training scripts. Before the build, write an experiment
+specification file with the expected dataset and training settings: population, positive
+selection, negative sampler and ratio, pinned-length requirement, fold count, feature settings and
+LightGBM row sampling. Write it independently of any dataset, so the audit never checks a dataset
+against settings copied from that dataset. The 4-fold regression check below gets its own
+specification, identical to Task 1's except for 4 folds.
+
+The dataset manifest already lists the pair bundles, dataset directories and build exit codes.
+Extend it with:
+
+- Settings: the experiment specification's path and checksum, the capacity CSV, the config
+  overrides, the fold count the builder used (`dataset.n_folds`) and the Git commit. Record the fold
+  count itself, not only an override: the 4-fold regression rebuild uses the bundle's setting and
+  has no override.
+- Split files: each dataset's split directories, relative to the dataset directory (`fold_0` to
+  `fold_4` for Task 1; `.` for a single holdout split, such as Task 3's temporal holdout, which
+  writes its files at the dataset root). Add a checksum of each dataset's `resolved_config.yaml`,
+  and checksums of each split directory's `{train,val,test}_pairs.csv` and
+  `cooccurring_sequence_pairs.csv`.
+- Cache files: for each selected protein `P`, checksums of `site_features_codon_{P}.npz`,
+  `site_features_codon_{P}_index.parquet` and `site_features_codon_{P}_metadata.json` under
+  `data/embeddings/flu/July_2025/`. Check these before training and after all fits.
+
 Keep the dataset manifest unchanged after the build. The training runner reads it, applies the
 same overrides when planning and fitting, and writes a separate `training_run_manifest.json` with
 the dataset manifest path, code commit, and exact model and CV paths.
 
-The audit and both runners read the fold count from the dataset manifest. Each fails unless that
-count equals the fold count its check requires: 5 for Task 1 and 4 for the regression check.
+The audit and both runners read the split directories and fold count from the dataset manifest,
+and the required fold count from the experiment specification. Each fails unless they match: 5
+folds under the Task 1 specification and 4 under the regression specification. A single holdout
+split is not cross-validation and must never be reported as 5-fold CV.
 
 A fit's input checksums cover its fold's `{train,val,test}_pairs.csv` and
 `cooccurring_sequence_pairs.csv`, the dataset's `resolved_config.yaml`, and the codon cache files
@@ -155,15 +171,18 @@ are never overwritten. A pilot with code edits must use a new dataset prefix.
 
 Reuse `audit_pair_datasets.py` to check each dataset before fitting. It already checks the capacity
 counts, the population, the pinned length of each site-feature cache and the balanced-usage
-negatives. Make its existing fold-count check read the fold count from the dataset manifest, and
-require exactly `fold_0` through `fold_4` for Task 1. Read the dataset runs from the dataset manifest, not a directory glob. Take the expected
-pair set from the selected child bundles; require exactly one run per selected pair, no extra runs,
-and exactly one matching row per pair in the capacity CSV. The full run must cover all 28 capacity
-pairs. Audit the dataset's resolved config, and make the training runner check its planned config
-before launching any fits. Fail if either has a `dataset.n_folds` different from the dataset
-manifest's fold count, or differs from the expected feature settings (`training.feature_source=site`, `site.unit=codon`,
-`site.encoding=ordinal`, `training.interaction=concat`, `training.slot_transform=none`) or LightGBM
-row-sampling settings (`baseline_lgbm.subsample=0.7`, `baseline_lgbm.subsample_freq=1`). Require
+negatives. Replace its hard-coded `DATASET_EXPECT` and `TRAINING_EXPECT` values with the
+experiment specification. Check that every split directory in the dataset manifest exists, and
+for Task 1 require exactly `fold_0` through `fold_4`. Read the dataset runs from the dataset
+manifest, not a directory glob. Take the expected pair set from the selected child bundles; require
+exactly one run per selected pair, no extra runs, and exactly one matching row per population and
+pair in the capacity CSV. The audit now indexes that CSV by `Schema pair` alone, which works only
+while it holds one population. The full run must cover all 28 capacity pairs. Audit the dataset's
+resolved config, and make the training runner check its planned config before launching any fits.
+Fail if either differs from the experiment specification. For Task 1 the specification sets 5
+folds, the feature settings (`training.feature_source=site`, `site.unit=codon`,
+`site.encoding=ordinal`, `training.interaction=concat`, `training.slot_transform=none`) and the
+LightGBM row-sampling settings (`baseline_lgbm.subsample=0.7`, `baseline_lgbm.subsample_freq=1`). Require
 every selected dataset to pass before fitting; the full screen requires all 28. For each pair,
 compare the positive pair-key sets across its 5 test folds and the 4 test folds in
 `exp2_28p_codon_balanced_20261007_180037_{pair}`. Require equality; fold assignments and sampled
@@ -175,6 +194,12 @@ Add one `1B` coordinator that reads the dataset manifest and runs the existing r
 analysis steps for each pair and fold with bounded concurrency. Before any fit, check the planned
 config, current commit and source-fold file hashes against the dataset manifest and Task 1
 settings. Reuse the redraw's `balanced_usage_negatives` and `compute_axis_flags` implementations.
+Before redrawing, require the dataset to meet the redraw's assumptions: Hopcroft-Karp positives
+(`dataset.positive_pair_selection.method=hopcroft_karp`), balanced-usage negatives
+(`dataset.split_strategy.negative_scope=balanced`) at a 1:1 ratio (`dataset.neg_to_pos_ratio=1.0`),
+`dataset.negative_sampling: null`, and a passed one-use audit. Fail otherwise. The redraw always
+uses `balanced_usage_negatives`, so on a metadata-matched dataset it could produce unmatched
+negatives.
 Both training scripts launch `train_pair_baselines.py`, so share that launch code and pass
 `dataset.n_folds=5` to both `1A` and `1B` fits.
 
@@ -198,7 +223,10 @@ path as the full screen; the training runner already has this filter.
 
 #### Build the tables and figures
 
-Build reports from the recorded run directories. Save `estimator.n_features_in_` as `n_features`
+Build reports from the recorded run directories. Recompute each fold's test metrics from its
+`test_predicted.csv` and require them to match its `metrics_summary.json`. Leave per-category
+reporting to Task 2, which must first decide how to assign a pair whose two sides differ in host,
+subtype or year, or lack that metadata. Save `estimator.n_features_in_` as `n_features`
 in each fit's `training_info.json`; require the value to agree across folds and use it for the
 `Features` column. Add an explicit run-manifest argument to `aggregate_allpairs_results.py` and
 select the CV directories listed in `training_run_manifest.json`. Require 5 completed folds
@@ -248,12 +276,19 @@ the `1B` matrix value before running all redraws.
 how well it predicts for each of them.
 
 **Methods.**
-- Metadata-aware negative sampling: each negative pairs sequences from two isolates with the same
-  host, subtype and year. This is the `host_subtype_year` regime in
-  `src/datasets/_negative_regime_sampling.py`, set with `dataset.negative_sampling.regime_targets`.
-  The code exists, but we have not checked that it works with balanced-usage negatives.
-- By default the sampler matches the year bin (`<=2015`, `2016-2020`, `2021+`), not the exact year.
-  `dataset.negative_sampling.year_match: exact` matches the exact year.
+- Metadata-aware negative sampling: each negative should pair sequences from two isolates with the
+  same host, subtype and year. This is the `host_subtype_year` regime in
+  `src/datasets/_negative_regime_sampling.py`, requested with
+  `dataset.negative_sampling.regime_targets`.
+- Only the default sampler (`negative_scope: coverage`) takes regime targets. The `balanced`
+  sampler does not: `src/datasets/_negative_sampling.py` sets `neg_regime` to a placeholder marked
+  "not wired". Balanced-usage negatives that also match on metadata need new sampler code.
+- Regime targets do not guarantee matched negatives. The coverage sampler's coverage phase ignores
+  regimes unless its `regime_aware_coverage` option is on. With that option on, it still falls back
+  to a uniform draw when no regime yields a partner. Audit the achieved regime of every negative
+  before reporting that the negatives are matched.
+- Regime comparisons use year bins by default (`<=2015`, `2016-2020`, `2021+`), not the exact year.
+  `dataset.negative_sampling.year_match: exact` compares exact years.
 - Determine largest groups, and experiment with them. For example: host=[Human, Pig],
 subtype=[H3N2, H5N1], year_range=[2015, 2025].
 
@@ -272,10 +307,17 @@ from future years?
 **Methods.**
 - Temporal holdout: keep future-year pairs out of model training. Set with
   `dataset.metadata_holdout`, which takes a `train` and a `test` year filter.
-- E.g., train_years=[2015, 2024], test_years=[2025]. The bundle
-  `conf/bundles/flu_ha_na_h3n2_nt_cds_temporal_2025.yaml` already does this for HA-NA in H3N2.
-- Compare the above with a random split within 2025: train_years=[2025], test_years=[2025].
-- E.g., train_years=[2015, 2020], test_years=[2021, 2022, 2023, 2024, 2025].
+- Hopcroft-Karp selection and the temporal holdout cannot be combined today. Active
+  `dataset.positive_pair_selection` requires `dataset.n_folds >= 2`, and `dataset.metadata_holdout`
+  allows only a single split (`n_folds` null or 1). Using Task 1's `HK selected` positives in Task 3
+  needs a builder change.
+- E.g., `train: {year_range: [2015, 2024]}` and `test: {year: [2025]}`; `year_range` is inclusive.
+  The bundle `conf/bundles/flu_ha_na_h3n2_nt_cds_temporal_2025.yaml` already does this for HA-NA in
+  H3N2.
+- Compare the above with a random split within 2025: filter the population to 2025
+  (`dataset.year: [2025]`) and split it at random. Do not give `metadata_holdout` the same train and
+  test years: it requires disjoint train and test isolate sets and fails otherwise.
+- E.g., `train: {year_range: [2015, 2020]}` and `test: {year_range: [2021, 2025]}`.
   Break down performance by test year.
 - Does prediction uncertainty increase as we predict further into the future?
 
