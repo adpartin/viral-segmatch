@@ -1,8 +1,8 @@
 """Tests for the run-manifest report pieces of `src/analysis/aggregate_allpairs_results.py`.
 
 Covers:
-  1. lower_triangle_matrix puts each pair below the diagonal whichever slot order it is written in
-  2. It rejects an unknown protein, a pair of one protein, and two labels for one unordered pair
+  1. lower_triangle_matrix puts each pair in the slot-B row and the slot-A column
+  2. It rejects an unknown protein, a pair of one protein, and slot A after slot B
   3. plot_lower_triangle writes a figure with a blank upper triangle and two-line cell text
   4. annotated_heatmap rejects a blank mask or cell text of the wrong shape
 
@@ -26,8 +26,8 @@ from src.utils.plot_utils import annotated_heatmap  # noqa: E402
 
 
 def test_lower_triangle_placement():
-    matrix = lower_triangle_matrix({'PB2-HA': 0.9, 'NS1-M1': 0.6})
-    assert matrix.loc['HA', 'PB2'] == 0.9      # HA comes after PB2 in segment order
+    matrix = lower_triangle_matrix({'PB2-HA': 0.9, 'M1-NS1': 0.6})
+    assert matrix.loc['HA', 'PB2'] == 0.9      # row is slot B, column is slot A
     assert matrix.loc['NS1', 'M1'] == 0.6
     values = matrix.to_numpy()
     assert np.isnan(values[np.triu_indices(len(PROTEINS))]).all()
@@ -37,7 +37,7 @@ def test_lower_triangle_placement():
 @pytest.mark.parametrize('values', [
     {'PB2-XX': 0.5},
     {'HA-HA': 0.5},
-    {'PB2-HA': 0.5, 'HA-PB2': 0.6},
+    {'HA-PB2': 0.5},
 ])
 def test_lower_triangle_rejects(values):
     with pytest.raises(ValueError):

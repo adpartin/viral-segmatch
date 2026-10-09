@@ -491,29 +491,31 @@ def lower_triangle_matrix(values: Dict[str, float]):
       values: pair label (`{slot A}-{slot B}`, e.g. `PB2-HA`) -> value.
 
     Returns:
-      A `PROTEINS` x `PROTEINS` frame: each pair's value sits in the row of whichever of its two
-      proteins comes later in segment order and the column of the earlier one. Every other cell
-      is NaN.
+      A `PROTEINS` x `PROTEINS` frame: each pair's value sits in the row of its slot-B protein and
+      the column of its slot-A protein. Every other cell is NaN.
 
     Raises:
-      ValueError: a label names a protein outside `PROTEINS`, or two labels name the same
-          unordered pair.
+      ValueError: a label names a protein outside `PROTEINS`, or its slot-A protein does not come
+          before its slot-B protein in segment order, which would put the pair on or above the
+          diagonal.
     """
     np, pd = _import_data_libs()
     matrix = pd.DataFrame(np.nan, index=PROTEINS, columns=PROTEINS)
     for label, value in values.items():
-        a, b = label.split("-")
-        if a not in PROTEINS or b not in PROTEINS or a == b:
+        slot_a, slot_b = label.split("-")
+        if slot_a not in PROTEINS or slot_b not in PROTEINS:
             raise ValueError(f"lower_triangle_matrix: {label} is not a pair of two of {PROTEINS}")
-        row, col = sorted((a, b), key=PROTEINS.index, reverse=True)
-        if not np.isnan(matrix.loc[row, col]):
-            raise ValueError(f"lower_triangle_matrix: two labels name the pair {row}-{col}")
-        matrix.loc[row, col] = value
+        if PROTEINS.index(slot_a) >= PROTEINS.index(slot_b):
+            raise ValueError(f"lower_triangle_matrix: in {label}, slot A must come before slot B "
+                             f"in the order {PROTEINS}")
+        matrix.loc[slot_b, slot_a] = value
     return matrix
 
 
 def plot_lower_triangle(mean, sd, title: str, cbar_label: str, output_path: Path) -> None:
     """Draw a lower-triangle pair matrix colored by `mean`, with the SD on a second line.
+
+    Columns are slot A and rows are slot B, as `lower_triangle_matrix` places them.
 
     Args:
       mean: from `lower_triangle_matrix`; colors the cells.
@@ -538,10 +540,11 @@ def plot_lower_triangle(mean, sd, title: str, cbar_label: str, output_path: Path
             text[i][j] = f"{value:.3f}" if sd is None else f"{value:.3f}\n± {sd.iat[i, j]:.3f}"
     finite = mean.to_numpy()[~np.isnan(mean.to_numpy())]
     annotated_heatmap(mean.to_numpy(), row_labels=PROTEINS, col_labels=PROTEINS,
-                      out_png=output_path, title=title, cbar_label=cbar_label, cmap="YlGnBu",
+                      out_png=output_path, title=title, xlabel="Slot A", ylabel="Slot B",
+                      cbar_label=cbar_label, cmap="YlGnBu",
                       vmin=float(finite.min()) if finite.size else None,
                       vmax=float(finite.max()) if finite.size else None,
-                      cell_text=text, blank_mask=upper, figsize=(7.5, 6.2), cell_fontsize=7,
+                      cell_text=text, blank_mask=upper, figsize=(7.5, 6.2), cell_fontsize=9,
                       row_fontsize=10)
     print(f"Saved matrix figure: {output_path}")
 
