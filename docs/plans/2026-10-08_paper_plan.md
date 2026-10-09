@@ -30,7 +30,7 @@ incompatibility.
 
 **Results.**
 - A 28-row supplementary table with the Experiment 2 display columns: Rank, Schema pair,
-  HK selected, Features, F1 macro, AUC-ROC, Precision and Recall. Keep all eight Experiment 1
+  HK selected, Features, F1 macro, AUC-ROC, Precision and Recall. Keep all 8 Experiment 1
   capacity columns in the underlying CSV.
 - An 8-by-8 F1 macro matrix for the main paper. Use the strictly lower triangle for the 28 schema
   pairs. Each pair's cell shows its mean test F1 macro across the 5 folds. The next line shows
@@ -87,7 +87,7 @@ The dataset builder and single-fold redraw code exist. Task 1 still needs:
   `--expect_pairs 28` counts run directories, not distinct schema pairs, so two runs of one pair
   plus a missing pair would still pass. Feature settings such as `site.unit: codon`
   are printed as notes and never fail the audit.
-- `1A` table: extend `src/analysis/aggregate_allpairs_results.py` to add all eight columns in
+- `1A` table: extend `src/analysis/aggregate_allpairs_results.py` to add all 8 columns in
   Experiment 1's pair-capacity table to `allpairs_summary.csv`, alongside its metric means and stds.
   Pass `pair_capacity.csv` explicitly and check the schema pairs and population before joining.
   Add `Features` from the per-pair feature widths.
@@ -310,7 +310,7 @@ For `1A`:
   allow the selected pair set for a pilot report.
 - Save `estimator.n_features_in_` as `n_features` in each fit's `training_info.json`. Require the
   value to agree across folds and use it for the `Features` column.
-- Join all eight Experiment 1 table columns from an explicit capacity CSV after checking pair and
+- Join all 8 Experiment 1 table columns from an explicit capacity CSV after checking pair and
   population matches.
 - Keep the F1 macro fold means and SDs numeric in CSV.
 - In the figure, color each pair's cell by its mean and annotate it with the mean and ± SD on
