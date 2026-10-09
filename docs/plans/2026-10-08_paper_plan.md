@@ -101,6 +101,11 @@ The dataset builder and single-fold redraw code exist. Task 1 still needs:
 - Resume: `scripts/run_allpairs_baselines.py` skips a fold when its `test_predicted.csv` exists,
   and `scripts/run_balanced_train_redraw.py` skips a run when its `metrics_summary.json` exists.
   Neither checks the config, seed or code commit of the existing output.
+- Failures: `src/models/train_pair_baselines.py` catches an error from a baseline, prints it and
+  exits 0. `scripts/run_allpairs_baselines.py` marks a fold failed only on a non-zero exit, so it
+  records that fit as complete and aggregates the pair. `scripts/aggregate_cv_results.py` then
+  prints a warning for the fold without `test_predicted.csv` and aggregates the other folds. If
+  aggregation fails, the runner prints an error but does not count it in its exit status.
 - `1B`: a script that runs the redraws for all 28 pairs.
   `scripts/resample_balanced_train_negatives.py` and `scripts/run_balanced_train_redraw.py` run one
   pair and one fold per call. `scripts/analyze_balanced_train_redraw.py` runs one pair per call.
@@ -220,7 +225,20 @@ Save the input checksums in each fit's `training_info.json`. Before fitting or s
 fold, require the current commit and the dataset files to match the dataset manifest. Before
 skipping, require the fit's saved resolved config to match the planned config, its input checksums
 and code commit to match the dataset manifest, and all required outputs to exist. Otherwise fail
-without overwriting the fit.
+without overwriting the fit. The runner must make this check before it launches the trainer,
+because the trainer reuses an existing run directory and overwrites its files. The runner creates
+each fit's directory and `train.log` before launching the trainer, so a fit that crashes leaves a
+partial directory, and a resume stops there. Removing that directory is a deletion and needs the
+user's approval. A pilot can use a new dataset prefix instead.
+
+A failed fit or aggregation must end with a non-zero exit status:
+
+- The trainer runs every requested baseline, then exits non-zero if any of them failed. One failed
+  baseline still does not stop the others.
+- `scripts/aggregate_cv_results.py` gets a strict mode that fails when a fold has no
+  `test_predicted.csv`. Task 1 uses it. Its other callers, `scripts/run_cv_lambda.py` and
+  `scripts/run_cv_polaris.pbs`, keep the current behaviour, which aggregates the folds that exist.
+- The training runner exits non-zero when aggregation fails.
 
 `training_run_manifest.json` assigns one CV directory to each pair. A resume call must name the
 existing `training_run_manifest.json`, reuse its model and CV directories, and require the current
@@ -274,9 +292,11 @@ its files to match that manifest: each seed's `{train,val,test}_pairs.csv` and
 partial or mismatched redraw directory. Before skipping a fit, require its source fold's files to
 match the dataset manifest and its redrawn `train_pairs.csv` to match `redraw_run_manifest.json`.
 Also require its saved config, input checksums, `neg_redraw_seed`, code commit and required outputs
-to match the planned job. Otherwise fail without overwriting. If two seeds for the same fold
-produce identical sets of training negative pairs, record the seed pair in the manifest and fail
-without assuming why.
+to match the planned job. Otherwise fail without overwriting. As for `1A`, make these checks before
+launching the trainer; a crashed fit leaves a partial directory that stops a resume. The
+coordinator exits non-zero when any redraw, fit or analysis step fails. If two seeds for the same
+fold produce identical sets of training negative pairs, record the seed pair in the manifest and
+fail without assuming why.
 
 Add a pair filter to `scripts/run_allpairs_datasets.py` and the `1B` coordinator so a one-pair pilot
 uses the same path as the full screen; the training runner already has this filter (`--pairs`).
