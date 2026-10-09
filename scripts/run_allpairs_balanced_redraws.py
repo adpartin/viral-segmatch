@@ -382,6 +382,9 @@ def main() -> None:
         parser.error('a first call needs --dataset_manifest, --experiment_spec and --seeds')
     if args.seeds and len(args.seeds) != len(set(args.seeds)):
         parser.error('--seeds must be distinct')
+    if args.seeds and len(args.seeds) < 2:
+        # The summary step reports SDs across draws, which one draw cannot give.
+        parser.error('--seeds needs at least two seeds')
 
     run_manifest, dataset_manifest, spec, run_manifest_path = load_run_inputs(args)
     seeds = run_manifest['seeds']
