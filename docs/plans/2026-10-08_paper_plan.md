@@ -434,92 +434,97 @@ records the interfaces and the decisions the sections above leave open.
 - `scripts/run_allpairs_datasets.py` no longer skips bundles whose names contain `balanced`. No such
   bundle exists.
 
-
-
 ## 2. Evaluate across years, hosts, and HN subtypes
 
-**Goal.** Build one model (or several) that covers several hosts, subtypes and years, and check
-how well it predicts for each of them.
+**Goal.** Train on a population containing several hosts, HN subtypes or years, and measure
+performance within each of them.
+
+Here, *population* means all isolates selected by the dataset filters. A *metadata group* is the
+subset with one exact `(host, HN subtype, year)` combination. One population can contain many
+metadata groups. Keep these names distinct in the results.
 
 **Methods.**
-- Metadata-aware negative sampling: each negative should pair sequences from two isolates with the
-  same host, subtype and year. This is the `host_subtype_year` regime in
-  `src/datasets/_negative_regime_sampling.py`. The coverage sampler takes it through
-  `dataset.negative_sampling.regime_targets`.
-- Only the default sampler (`negative_scope: coverage`) takes regime targets. The `balanced`
-  sampler does not: `src/datasets/_negative_sampling.py` sets `neg_regime` to a placeholder marked
-  "not wired". Balanced-usage negatives that also match on metadata need new sampler code. The
-  design is under "Matched balanced-usage negatives" below.
-- Regime targets do not guarantee matched negatives. The coverage sampler's coverage phase ignores
-  regimes unless its `regime_aware_coverage` option is on. With that option on, it still falls back
-  to a uniform draw when no regime yields a partner. Audit the achieved regime of every negative
-  before reporting that the negatives are matched.
-- Regime comparisons use year bins by default (`<=2015`, `2016-2020`, `2021+`), not the exact year.
-  `dataset.negative_sampling.year_match: exact` compares exact years. Matched balanced-usage
-  negatives use exact years.
-- Determine largest groups, and experiment with them. For example: host=[Human, Pig],
-subtype=[H3N2, H5N1], year_range=[2015, 2025].
+- Use balanced-usage negatives whose two sequences come from different positives in the same
+  metadata group and split. The `host_subtype_year` regime in
+  `src/datasets/_negative_regime_sampling.py` names this match. The matched balanced sampler does
+  not exist yet; its design is below.
+- Match exact years. The existing regime sampler uses year bins by default (`<=2015`,
+  `2016-2020`, `2021+`); `dataset.negative_sampling.year_match: exact` selects exact years.
+- Before training, check every saved negative in train, validation and test: both sides must have
+  nonmissing, equal host, HN subtype and exact year. Count and report any failures; a matched
+  dataset fails the audit if there is one. This is a required new check. Today the coverage sampler
+  can write `neg_regime`, but it can also fall back to an unmatched draw; the balanced sampler
+  writes `neg_regime` as missing. Do not infer the achieved match from `regime_targets` alone.
+- Choose the population after measuring group sizes and matching feasibility. For example, a
+  dataset might include Human and Pig, H3N2 and H5N1, and 2015–2025. The values here are examples,
+  not the selected Task 2 population.
 
 **Results.**
-- The schema-pair matrix
-- Report F1 scores over metadata categories in test set (HN-type, host, year)
-- Show performance for different populations.
+- Keep `allpairs_summary.csv` at one row per schema pair and dataset population. It already has a
+  `population` column. Do not put one host, subtype or year in that row when the dataset contains
+  several values; save group results separately.
+- Save `metadata_group_counts_by_fold.csv`: one row per schema pair, fold, split and exact
+  `(host, hn_subtype, year)` group, with `n_positive` and `n_negative` from the actual train,
+  validation and test pair files. The counts should sum to each split's totals. Save the number of
+  positives each group lost to the eligibility rule in a separate eligibility summary.
+- Save `metadata_test_metrics_by_fold.csv` from `test_predicted.csv`. Each row names the schema
+  pair, fold and `group_by` (`joint`, `host`, `hn_subtype` or `year`), the group values, both class
+  counts and F1 macro at the fitted model's decision threshold. A host-only or year-only row pools
+  the relevant joint groups within that fold. Aggregate the per-fold scores as mean ± SD, showing
+  the test counts and number of folds behind each value.
+- Show the schema-pair matrix for the whole dataset population, then compare group performance
+  and counts. If separate datasets use different population filters, label each result with its
+  dataset population.
 
 ### Matched balanced-usage negatives
 
-A matched balanced-usage negative pairs a slot-A sequence and a slot-B sequence from positives of
-the same split whose isolates share the same host, HN subtype and exact year. This section calls
-the positives that share these three values a metadata group. The sampler never pairs sequences
-from two different metadata groups.
+A matched balanced-usage negative pairs a slot-A sequence and a slot-B sequence from two selected
+positives in the same split and metadata group. At a 1:1 ratio, every selected sequence appears
+once in the negatives of its split. Task 1 deferred per-category reporting because an ordinary
+balanced negative can join isolates with different metadata on its two sides. With strict matching,
+each pair belongs to one metadata group. Check whether a deduplicated positive pair was observed
+in more than one group before relying on its saved representative isolate for group assignment.
 
-Matching on the exact year, rather than the default year bins, gives every negative one host, one
-subtype and one year. Positives already have one of each, because both of their sequences come
-from one isolate. This settles the question Task 1 left to Task 2: how to assign a test pair to a
-metadata category when its two sides differ.
+Steps:
 
-Steps, in order:
+1. **Reject the unsupported configuration now.** Today `negative_scope: balanced` silently ignores
+   `dataset.negative_sampling.regime_targets`; make it raise until the matched sampler is ready.
+   Then let the Task 2 master bundle request strict matching with all eight regime targets listed,
+   `host_subtype_year: 1.0`, every other target `0`, `year_match: exact` and
+   `on_shortfall: error`. Accept this profile for balanced sampling and reject other target mixes
+   until implemented. Do not change the Task 1 master bundle. A target of `1.0` requests the
+   behavior; the saved-negative audit above verifies that it happened.
+2. **Check feasibility.** For each candidate eligibility rule, create the planned folds and test
+   whether every split and metadata group permits one negative use per selected sequence. An
+   observed pair or a negative already drawn in that fold cannot be used again. Record the group
+   sizes and the result of each check.
 
-1. Reject the unsupported combination. Today the builder accepts
-   `split_strategy.negative_scope: balanced` together with
-   `dataset.negative_sampling.regime_targets`, parses the targets, and does not use them. The
-   build then produces unmatched negatives without any error. Make that combination raise an
-   error.
-2. Measure feasibility before writing the sampler. Within one split and metadata group, the
-   `HK selected` positives use each slot-A sequence and each slot-B sequence once. At a 1:1 ratio,
-   each of those sequences must then be used in exactly one negative, avoiding observed pairs and
-   pairs already drawn. Group size alone does not decide whether such an assignment exists. A
-   metadata group with one positive in a split has no allowed partner, because its only slot-B
-   sequence belongs to its own positive. A metadata group with two positives works only if the
-   swapped pair was never observed. For each candidate eligibility rule (step 3), apply the rule,
-   build the folds, and check every split and metadata group. Check the folds produced after the
-   rule is applied, because removing positives can change how the remaining positives fall into
-   folds.
-3. Choose and record an eligibility rule, applied before folding. The rule states how isolates
-   with a missing host, subtype or year are handled; the proposed rule excludes them. It may also
-   set a minimum metadata group size. Record the rule and how many positives each schema pair
-   loses. If schema pairs keep different populations, report that next to their scores. Never drop
-   positives from a single split after folding. A positive sits in exactly one test fold, so
-   dropping it there removes it from the CV result while it remains in the training data of other
-   folds. The CC builder's `drop_negative_infeasible_ccs` likewise removes infeasible components
-   before folding.
-4. Write the sampler. For each split and metadata group, it either finds the one-use assignment or
-   raises an error that names the split and metadata group. `_repair_exact_one_use` in
-   `src/datasets/_negative_sampling.py` already solves this assignment with
-   `scipy.optimize.linear_sum_assignment`, treating observed and already-drawn pairs as forbidden.
-   It is not yet a strict check. When no assignment exists, it prints a WARNING and keeps uneven
-   usage. Above 2,000 pairs it skips the assignment, also with a WARNING. On the matched path both
-   cases must raise. `src/datasets/_positive_pair_selection.py` has a Hopcroft-Karp implementation
-   if a metadata group in one split exceeds the 2,000-pair limit.
+   - One positive in a split's group has no possible negative partner.
+   - With two positives `(A1, B1)` and `(A2, B2)`, both cross-pairs `(A1, B2)` and `(A2, B1)`
+     must be unobserved.
 
-An eligibility rule applied before folding cannot guarantee that every split is feasible. A CC
-falls entirely in one split, but a metadata group's positives spread across splits. A metadata
-group of 7 positives can fall 5/1/1 across train, val and test, which leaves one positive in its
-val group and one in its test group. The sampler's error is therefore the final guard. If it
-fires, change the eligibility rule, for example to a larger minimum metadata group size, and
-rebuild. Do not patch individual splits. Check whether the fold builder can stratify folds by
-metadata group, which would make each split's group sizes predictable.
+   Repeat the checks after changing eligibility because that changes the fold assignments.
+3. **Choose the eligibility rule before creating the folds.** State how missing host, HN subtype
+   or year is handled; excluding such isolates is the proposed rule. If small groups are removed,
+   record the lost positives by schema pair and metadata group. Never remove positives from just
+   one split: each positive has only one test fold, so that would change test coverage. The CC
+   builder likewise removes infeasible components before generating its splits.
+4. **Create the negatives within each group.** For the two positives in the example above, use
+   the two cross-pairs only if both are allowed. For a larger group, find a one-to-one assignment
+   from its slot-A sequences to its slot-B sequences. Never substitute a sequence from another
+   group. Keep each endpoint's metadata from its selected positive, rather than taking an
+   arbitrary representative with the same sequence hash. If no assignment exists, raise an error
+   naming the split and group. `_repair_exact_one_use` in `src/datasets/_negative_sampling.py`
+   has assignment code to reuse, but currently warns and keeps uneven usage when it cannot repair
+   a draw, and skips dense repair above 2,000 pairs. The matched path must not do either; use a
+   sparse matching method for larger groups or fail with an explicit size error. Save
+   `neg_regime: host_subtype_year` and `metadata_match_count: 3` on these negatives, and verify
+   the match independently from their saved endpoint metadata.
 
-
+Removing groups before creating the folds still may leave a group with only one positive in a
+validation or test split. If the final feasibility check fails, change the eligibility or split
+rule and rebuild; do not patch one split. Check whether stratifying the folds by metadata group
+would avoid these small split groups.
 
 ## 3. Test on future-year pairs
 
