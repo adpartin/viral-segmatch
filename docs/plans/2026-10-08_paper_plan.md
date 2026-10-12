@@ -452,9 +452,9 @@ metadata groups. Keep these names distinct in the results.
   `2016-2020`, `2021+`); `dataset.negative_sampling.year_match: exact` selects exact years.
 - Before training, check every saved negative in train, validation and test: both sides must have
   nonmissing, equal host, HN subtype and exact year. Count and report any failures; a matched
-  dataset fails the audit if there is one. This is a required new check. Today the coverage sampler
-  can write `neg_regime`, but it can also fall back to an unmatched draw; the balanced sampler
-  writes `neg_regime` as missing. Do not infer the achieved match from `regime_targets` alone.
+  dataset fails the audit if there is one. This is a required new check. The coverage sampler
+  can write `neg_regime`, but it can also fall back to an unmatched draw; the existing balanced
+  sampler writes `neg_regime` as missing. Do not infer the achieved match from `regime_targets` alone.
 - Choose the population after measuring group sizes and matching feasibility. For example, a
   dataset might include Human and Pig, H3N2 and H5N1, and 2015–2025. The values here are examples,
   not the selected Task 2 population.
@@ -467,7 +467,7 @@ metadata groups. Keep these names distinct in the results.
   `(host, hn_subtype, year)` group, with `n_positive` and `n_negative` from the actual train,
   validation and test pair files. The counts should sum to each split's totals. Save the number of
   positives each group lost to the eligibility rule in a separate eligibility summary.
-- Save `metadata_test_metrics_by_fold.csv` from `test_predicted.csv`. Each row names the schema
+- Save `metrics_test_by_metadata_fold.csv` from `test_predicted.csv`. Each row names the schema
   pair, fold and `group_by` (`joint`, `host`, `hn_subtype` or `year`), the group values, both class
   counts and F1 macro at the fitted model's decision threshold. A host-only or year-only row pools
   the relevant joint groups within that fold. Aggregate the per-fold scores as mean ± SD, showing
@@ -478,30 +478,31 @@ metadata groups. Keep these names distinct in the results.
 
 ### Matched balanced-usage negatives
 
-A matched balanced-usage negative pairs a slot-A sequence and a slot-B sequence from two selected
-positives in the same split and metadata group. At a 1:1 ratio, every selected sequence appears
-once in the negatives of its split. Task 1 deferred per-category reporting because an ordinary
-balanced negative can join isolates with different metadata on its two sides. With strict matching,
-each pair belongs to one metadata group. Check whether a deduplicated positive pair was observed
-in more than one group before relying on its saved representative isolate for group assignment.
+A matched balanced-usage approach pairs a slot-A sequence and a slot-B sequence from two
+HK-selected positives in the same split and metadata group. At a 1:1 ratio, each selected sequence
+must appear exactly once in the negatives of its split. Task 1 deferred per-category reporting
+because an ordinary balanced negative can join isolates with different metadata on its two sides.
+With strict matching, each pair belongs to one metadata group. Check whether a deduplicated
+positive pair was observed in more than one group before relying on its saved representative
+isolate for group assignment.
 
 Steps:
 
-1. **Reject the unsupported configuration now.** Today `negative_scope: balanced` silently ignores
-   `dataset.negative_sampling.regime_targets`; make it raise until the matched sampler is ready.
-   Then let the Task 2 master bundle request strict matching with all eight regime targets listed,
-   `host_subtype_year: 1.0`, every other target `0`, `year_match: exact` and
-   `on_shortfall: error`. Accept this profile for balanced sampling and reject other target mixes
-   until implemented. Do not change the Task 1 master bundle. A target of `1.0` requests the
-   behavior; the saved-negative audit above verifies that it happened.
+1. **Guard the unsupported configuration.** Before the matched sampler is implemented,
+   `negative_scope: balanced` ignores `dataset.negative_sampling.regime_targets`; make that
+   combination raise an error. Then let the Task 2 master bundle request strict matching: list
+   all eight regime targets with `host_subtype_year: 1.0` and every other target `0`, and set
+   `year_match: exact` and `on_shortfall: error`. Accept only this profile for balanced sampling.
+   Keep the Task 1 master bundle unchanged. A target of `1.0` requests the behavior; the
+   saved-negative audit above verifies that it happened.
 2. **Check feasibility.** For each candidate eligibility rule, create the planned folds and test
    whether every split and metadata group permits one negative use per selected sequence. An
    observed pair or a negative already drawn in that fold cannot be used again. Record the group
    sizes and the result of each check.
 
    - One positive in a split's group has no possible negative partner.
-   - With two positives `(A1, B1)` and `(A2, B2)`, both cross-pairs `(A1, B2)` and `(A2, B1)`
-     must be unobserved.
+   - With two positives `(A1, B1)` and `(A2, B2)`, one-to-one matching leaves only
+     `(A1, B2)` and `(A2, B1)`. If either cross-pair was observed, the group is infeasible.
 
    Repeat the checks after changing eligibility because that changes the fold assignments.
 3. **Choose the eligibility rule before creating the folds.** State how missing host, HN subtype
@@ -509,9 +510,9 @@ Steps:
    record the lost positives by schema pair and metadata group. Never remove positives from just
    one split: each positive has only one test fold, so that would change test coverage. The CC
    builder likewise removes infeasible components before generating its splits.
-4. **Create the negatives within each group.** For the two positives in the example above, use
-   the two cross-pairs only if both are allowed. For a larger group, find a one-to-one assignment
-   from its slot-A sequences to its slot-B sequences. Never substitute a sequence from another
+4. **Create the negatives within each group.** Find a one-to-one assignment from the group's
+   slot-A sequences to its slot-B sequences, regardless of group size. The two-positive swap above
+   follows automatically; it needs no special rule. Never substitute a sequence from another
    group. Keep each endpoint's metadata from its selected positive, rather than taking an
    arbitrary representative with the same sequence hash. If no assignment exists, raise an error
    naming the split and group. `_repair_exact_one_use` in `src/datasets/_negative_sampling.py`
