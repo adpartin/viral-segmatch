@@ -434,6 +434,8 @@ records the interfaces and the decisions the sections above leave open.
 - `scripts/run_allpairs_datasets.py` no longer skips bundles whose names contain `balanced`. No such
   bundle exists.
 
+
+
 ## 2. Evaluate across years, hosts, and HN subtypes
 
 **Goal.** Train on a *population* containing several hosts, HN subtypes or years, and measure
@@ -442,72 +444,41 @@ performance within each *metadata group*.
 * *Population*: a dataset containing all the isolates selected by the dataset filters.
 * *Metadata group*: a dataset subset with one exact `(host, HN subtype, year)` combination.
 
-In Task 1, we applied the following dataset filters: (Human, H3N2, 2024). In this case population
-and metadata group represent the same set of isolates. However, a population can contain many
-metadata groups. Keep these names distinct in the results.
+Task 1 set the dataset filters to (Human, H3N2, 2024), so its population held one metadata group.
+A Task 2 population holds several metadata groups. Keep the two terms distinct in the results.
 
 **Methods.**
-- Use balanced-usage negatives, but pair sequences only within one metadata group and split. Each
-  negative takes its slot-A sequence from one positive and its slot-B sequence from a different
-  positive. Both positives must come from the same metadata group and the same split. The existing
-  regime code in `src/datasets/_negative_regime_sampling.py` calls this match `host_subtype_year`.
-  We do not have a matched balanced sampler yet. Its design is in the section below.
-- Match exact years. By default, the existing regime code groups years into bins (`<=2015`,
-  `2016-2020`, `2021+`), so 2021 and 2024 count as the same year. Set
-  `dataset.negative_sampling.year_match: exact` to compare exact years instead.
-- We must confirm that slots A and B have the same host, HN subtype and exact year for every saved
-  negative. This is a required new check. We cannot use the `neg_regime` column for this check.
-  The *balanced* sampler leaves this column empty. The *coverage* sampler fills it when
-  `regime_targets` is set, but by default it compares year bins, not exact years. The
-  `regime_targets` setting itself only says which matches we asked for, not which matches the
-  sampler produced.
+- Choose a population where each of host, HN subtype and year takes 2 values. This is the first
+  implementation of per-group reporting, so it does not have to handle every case this metadata
+  allows. The chosen population and what it costs are in "The Task 2 population" below.
 - Drop isolates that are missing any of host, HN subtype or year. The dataset filters already do
-  this when all three fields are set. `filter_by_metadata` in `src/utils/metadata_enrichment.py`
+  this when all metadata fields are set. `filter_by_metadata` in `src/utils/metadata_enrichment.py`
   keeps only isolates whose value is in the filter list, so an isolate with a missing value never
-  passes. No new code is needed as long as the population sets all three filters.
-- Use 5-fold cross-validation, the same count as Task 1, and set it the same way. The fold count
+  passes. No new code is needed as long as the population sets these 3 filters.
+- Use 5-fold CV, the same count as Task 1, and set it the same way. The fold count
   stays out of the Task 2 bundles. A Task 2 experiment spec carries `dataset.n_folds=5` as its only
   override, as `conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml` does for Task 1. The
   dataset build and every fit pass that override, so both use the same fold count.
-- For the first implementation of this approach, we should not address every edge case that we might
-  encounter in this (metadata-rich) dataset. Instead, we should choose a relatively simple population
-  where each metadata field contains two values.
-
-#### The Task 2 population
-
-Use `[Human, Pig]`, `[H3N2, H1N1]`, `[2022, 2023]`. All eight metadata groups have isolates:
-10,992 in total, from 4,864 in Human-H3N2-2022 down to 157 in Pig-H3N2-2022.
-
-This population supports the 21 schema pairs among PB2, PB1, PA, HA, NP, NA and M1. It does not
-support the 7 pairs that contain NS1. Per-site codon features need one pinned CDS length per
-protein, and NS1 has two lengths here: 693 nt in Human-H3N2 and 660 nt in the other three host and
-subtype combinations. The split is nearly even, at 1,552 against 1,485 unique complete sequences,
-so neither length holds for the 90% of unique sequences that `check_cds_length` requires. The two
-lengths are 231 and 220 codons, so this is a difference in the protein itself rather than a
-difference in sequence quality. No pin covers both, and excluding NS1 is therefore the consequence
-of keeping Human-H3N2 in the population.
-
-The years are what make PB1 work. Human-H3N2 PB1 is 2,274 nt through 2023 and 2,277 nt in 2024 and
-2025, while every other population stays at 2,274 nt in all years. Over 2022-2023 all eight groups
-have 2,274 nt as their own modal length and the pooled share is 0.912, so the pin holds. Adding
-2024 drops that share to 0.782 and the pin fails. Using 2021-2022 instead raises it to 0.944, but
-Human-H1N1-2021 has only 11 isolates.
-
-The pins for this population are PB2 2,280, PB1 2,274, PA 2,151, HA 1,701, NP 1,497, NA 1,410 and
-M1 759 nt. Six of the seven are already in `conf/virus/flu.yaml`. PB1 is not in that file and
-needs a bundle-level `virus.cds_length` override at 2,274 nt, as
-`conf/bundles/flu_8_major_proteins_human_h3n2_2024_pinned_length.yaml` does at 2,277 nt for
-Task 1. The measurements behind this choice are in
-`results/flu/July_2025/pair_capacity_task2_2x2x2/cds_length_survey_grid/`.
-
-Task 1 already reports all 28 pairs on one population, so Task 2 does not repeat that. State in
-the results that NS1 is excluded and why.
+- Use balanced-usage negatives, but pair negative sequences only within one metadata group and split.
+  Each negative takes its slot-A sequence from one positive and its slot-B sequence from a different
+  positive. Both positives must come from the same metadata group and the same split. The existing
+  regime code in `src/datasets/_negative_regime_sampling.py` calls this match `host_subtype_year`.
+  We do not have a matched balanced sampler yet. Its design is in "Matched balanced-usage
+  negatives" below.
+- Match exact years. By default, the existing regime code groups years into bins (`<=2015`,
+  `2016-2020`, `2021+`), so 2021 and 2024 count as the same year. Set
+  `dataset.negative_sampling.year_match: exact` to compare exact years instead.
+- Confirm for every saved negative that its slot-A and slot-B isolates have the same host, HN
+  subtype and exact year (i.e., the same metadata group). This check is new, and no existing
+  column answers it. The *balanced* sampler leaves `neg_regime` empty. The *coverage* sampler fills `neg_regime` when `regime_targets` is set, but by default it compares year bins rather than exact
+  years. The `regime_targets` setting itself records which matches we asked for, not which matches
+  the sampler produced.
 
 **Results.**
 - Report the whole population as in Task 1. `allpairs_summary.csv` keeps one row per schema pair
   and dataset population, and it already has a `population` column. When the population contains
   several metadata groups, this row covers all of them together. Save the per-group results in the
-  separate files (explained below).
+  two files described in the next two bullets.
 - Count the pairs in each metadata group. Save `metadata_group_counts.csv` with one row per
   schema pair, fold, split and metadata group. Each row gives `n_pos` and `n_neg`, counted from
   the saved train, validation and test pair files. Within each split, the group counts must add up
@@ -518,58 +489,116 @@ the results that NS1 is excluded and why.
   (`group_by`), the group values, `n_pos`, `n_neg`, `tp`, `tn`, `fp`, `fn`, `f1_macro`,
   `auc_roc`, `precision` and `recall`. The metric names are the ones `allpairs_summary.csv` uses.
   - `group_by` is one of `joint`, `host`, `hn_subtype` or `year`. A `joint` row is one metadata
-    group, for example (Human, H3N2, 2024). A `host` row pools all metadata groups with that host
+    group, for example (Human, H3N2, 2022). A `host` row pools all metadata groups with that host
     in the fold, for example every Human group. `hn_subtype` and `year` rows pool the same way.
   - Use the same model's decision threshold for the metrics that require it.
   - Across folds, report each group's metrics as mean ± SD. A group can be missing from some test
     folds, so also report the number of folds and the test counts behind each value.
-- Show the schema-pair matrix for the whole population. In addition, compare the scores and counts
-  of the metadata groups. If we build several datasets with different population filters, label
-  each result with its population.
+- Compare the metadata groups with four figures per population. Draw all four with
+  `annotated_heatmap` in `src/utils/plot_utils.py`.
+  - `matrix_f1_macro.png`: the schema-pair matrix for the whole population, as in Task 1.
+  - `metrics_by_group_f1_macro.png`: the 8 metadata groups as rows, the 21 schema pairs as
+    columns, each cell the fold mean with the fold SD on a second line. Read the
+    `group_by == joint` rows of `test_metrics_by_metadata.csv`. Fix `vmin` and `vmax` so rows are
+    comparable by eye.
+  - `metrics_by_axis_f1_macro.png`: the same columns with the 6 marginal values as rows (Human,
+    Pig, H3N2, H1N1, 2022, 2023), from the `host`, `hn_subtype` and `year` rows. Keep this
+    separate from the figure above, so a pooled row is never read as a metadata group.
+  - `counts_by_group.png`: the grid of `metrics_by_group_f1_macro.png` with test positives summed
+    over folds, from `metadata_group_counts.csv`. This is what makes a weak metric cell readable.
+- Aggregate across folds as the fold mean of each group's metric, never by pooling the predictions
+  of several folds. A group with no test positives in a fold is NaN there and is left out of its
+  own mean.
+- Mask cells below the minimum group size (Open Question 1) with `blank_mask`, and state the
+  threshold in the caption.
+- Use F1 macro for the figures above. Other metrics reuse the same code with a metric argument, as
+  `src/analysis/regime_metric_heatmap.py` does.
+- Put the population in every figure title, in the output directory name and in the `population`
+  column of both CSVs. Never show two populations in one figure.
+- State that NS1 and its 7 schema pairs are excluded, with the reason given in "The Task 2
+  population" below.
+
+### The Task 2 population
+
+Use `[Human, Pig]`, `[H3N2, H1N1]`, `[2022, 2023]`. All eight metadata groups have isolates:
+10,992 in total, from 4,864 in Human-H3N2-2022 down to 157 in Pig-H3N2-2022. The measurements
+behind this choice are in `results/flu/July_2025/pair_capacity_task2_2x2x2/`, under
+`cds_length_survey_grid/` for each group on its own and `cds_length_survey_candidates/` for the
+pooled population.
+
+This population supports the 21 schema pairs among PB2, PB1, PA, HA, NP, NA and M1. It does not
+support the 7 pairs that contain NS1. Per-site codon features need one pinned CDS length per
+protein, and NS1 has two lengths here: 693 nt in Human-H3N2 and 660 nt in the other three host and
+subtype combinations. The two counts are close, at 1,552 of the 3,062 unique complete sequences on
+693 nt and 1,485 on 660 nt, so neither length reaches the 0.90 share of unique complete sequences
+that `check_cds_length` requires. The lengths are 231 and 220 codons, so they differ in the protein
+itself rather than in sequence quality, and no single pin covers both. Excluding NS1 is the cost of
+keeping Human-H3N2 in the population. Task 1 reports all 28 pairs on its own population, so Task 2
+does not repeat that.
+
+The year choice is what allows a single PB1 pin. Human-H3N2 PB1 is 2,274 nt through 2023 and
+2,277 nt in 2024 and 2025, while every other population in the survey stays at 2,274 nt in every
+year measured. Over 2022-2023, all eight groups have 2,274 nt as their own modal length and the
+pooled share at that length is 0.912, so the pin holds. Adding 2024 drops that share to 0.782,
+which fails the check. Using 2021-2022 instead raises it to 0.944, but Human-H1N1-2021 has only
+11 isolates.
+
+The pins for this population are PB2 2,280, PB1 2,274, PA 2,151, HA 1,701, NP 1,497, NA 1,410 and
+M1 759 nt. Six of the seven are already in `conf/virus/flu.yaml`. PB1 is not, and needs a
+bundle-level `virus.cds_length` override at 2,274 nt, as
+`conf/bundles/flu_8_major_proteins_human_h3n2_2024_pinned_length.yaml` does at 2,277 nt for Task 1.
+
+Split the Task 2 configuration over two bundles, as Task 1 does. The lower bundle holds the three
+dataset filters and the PB1 pin, and the pair-capacity run uses that bundle on its own. The master
+bundle above it adds the positive selection, the feature settings and the matched negative profile
+from step 1 of the next section. Task 1's two bundles are
+`conf/bundles/flu_8_major_proteins_human_h3n2_2024_pinned_length.yaml` and
+`conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml`.
 
 ### Matched balanced-usage negatives
 
-A `matched balanced-usage` approach for negatives pairs a slot-A sequence and a slot-B sequence
-from two HK-selected positives in the same split and metadata group. At a 1:1 ratio, each selected
-sequence must appear exactly once in the negatives of its split.
-Task 1 deferred per-category reporting because an ordinary balanced negative can join isolates with different metadata on its two sides.
-With strict matching, each pair belongs to one metadata group. Check whether a deduplicated
-positive pair was observed in more than one group before relying on its saved representative
-isolate for group assignment.
+Task 1 deferred per-group reporting because an ordinary balanced negative can join two isolates
+with different metadata. A `matched balanced-usage` negative instead takes its slot-A sequence and
+its slot-B sequence from two HK-selected positives in the same split and the same metadata group.
+At a 1:1 ratio, each selected sequence must appear exactly once in the negatives of its split.
+Every negative then belongs to one metadata group, which is what per-group scoring needs. A
+deduplicated positive pair can have been observed in more than one group, so check that before
+taking a pair's group from its saved representative isolate.
 
 Steps:
 
-1. **Guard the unsupported configuration.** Before the matched sampler is implemented,
-   `negative_scope: balanced` ignores `dataset.negative_sampling.regime_targets`; make that
-   combination raise an error. Then let the Task 2 master bundle request strict matching: list
-   all eight regime targets with `host_subtype_year: 1.0` and the rest with `0`, and set
-   `year_match: exact` and `on_shortfall: error`. Accept only this profile for balanced sampling.
-   Keep the Task 1 master bundle unchanged. A target of `1.0` requests the behavior; the
-   saved-negative check above verifies that it happened.
+1. **Guard the unsupported configuration.** Currently, `negative_scope: balanced` ignores
+   `dataset.negative_sampling.regime_targets`. Make that combination raise an error. Then let the
+   Task 2 master bundle ask for matched negatives: list all 8 regime targets with
+   `host_subtype_year: 1.0` and the other 7 with `0`, and set `year_match: exact` and
+   `on_shortfall: error`. The config validator requires a complete dict over the 8 regime names
+   summing to 1.0, so the 7 zeros have to be written out. Accept only this profile for balanced
+   sampling, and keep the Task 1 master bundle unchanged. The `1.0` target only asks for the
+   behavior. The saved-negative check in Methods above is what confirms it happened.
 2. **Check feasibility.** After creating the folds, check that every split and metadata group
    permits one negative use per selected sequence. A positive pair or a negative already drawn in
    that fold cannot be used again. Record the group sizes and the result of each check. If a group
-   fails, raise an error naming the split and group.
+   fails, raise an error naming the split and group. Two cases make a group infeasible:
 
    - One positive in a split's group has no possible negative partner.
    - With two positives `(A1, B1)` and `(A2, B2)`, one-to-one matching leaves only
      `(A1, B2)` and `(A2, B1)`. If either cross-pair was observed, the group is infeasible.
 3. **Create the negatives within each group.** Find a one-to-one assignment from the group's
    slot-A sequences to its slot-B sequences, regardless of group size. The two-positive swap above
-   follows automatically; it needs no special rule. Never substitute a sequence from another
+   follows automatically and needs no special rule. Never substitute a sequence from another
    group. Keep each endpoint's metadata from its selected positive, rather than taking an
    arbitrary representative with the same sequence hash. If no assignment exists, raise an error
    naming the split and group. `_repair_exact_one_use` in `src/datasets/_negative_sampling.py`
    has assignment code to reuse, but currently warns and keeps uneven usage when it cannot repair
-   a draw, and skips dense repair above 2,000 pairs. The matched path must not do either; use a
-   sparse matching method for larger groups or fail with an explicit size error. Save
+   a draw, and skips dense repair above 2,000 pairs. The matched path must not do either. Use a
+   sparse matching method for larger groups, or fail with an explicit size error. Save
    `neg_regime: host_subtype_year` and `metadata_match_count: 3` on these negatives, and verify
    the match independently from their saved endpoint metadata.
 
 ### Open questions
 
-The steps above assume that every metadata group is large enough. These questions cover the
-groups that are not.
+The steps above assume that every metadata group is large enough to supply one negative per
+selected sequence and to be scored on its own. These questions cover the groups that are not.
 
 1. **Small groups in the test split.** Folds are assigned by positive, not by metadata group. A
    group with a few positives can have all of them in one fold's test split, so the model in that
@@ -598,6 +627,8 @@ groups that are not.
    paper reports performance over human, avian, environmental, sea-mammal, lab-derived and
    nonhuman-mammal samples, plus unknown and other. Jamie's paper uses human, swine, duck, chicken
    and other. We have no host-grouping map in the repo yet.
+
+
 
 ## 3. Test on future-year pairs
 
