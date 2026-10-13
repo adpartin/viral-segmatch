@@ -436,28 +436,36 @@ records the interfaces and the decisions the sections above leave open.
 
 ## 2. Evaluate across years, hosts, and HN subtypes
 
-**Goal.** Train on a population containing several hosts, HN subtypes or years, and measure
-performance within each of them.
+**Goal.** Train on a *population* containing several hosts, HN subtypes or years, and measure
+performance within each *metadata group*.
 
-Here, *population* means all isolates selected by the dataset filters. A *metadata group* is the
-subset with one exact `(host, HN subtype, year)` combination. One population can contain many
+* *Population*: a dataset containing all the isolates selected by the dataset filters.
+* *Metadata group*: a dataset subset with one exact `(host, HN subtype, year)` combination.
+
+In Task 1, we applied the following dataset filters: (Human, H3N2, 2024). In this case population
+and metadata group represent the same set of isolates. However, a population can contain many
 metadata groups. Keep these names distinct in the results.
 
 **Methods.**
-- Use balanced-usage negatives whose two sequences come from different positives in the same
-  metadata group and split. The `host_subtype_year` regime in
-  `src/datasets/_negative_regime_sampling.py` names this match. The matched balanced sampler does
-  not exist yet; its design is below.
-- Match exact years. The existing regime sampler uses year bins by default (`<=2015`,
-  `2016-2020`, `2021+`); `dataset.negative_sampling.year_match: exact` selects exact years.
-- Before training, check every saved negative in train, validation and test: both sides must have
-  nonmissing, equal host, HN subtype and exact year. Count and report any failures; a matched
-  dataset fails the audit if there is one. This is a required new check. The coverage sampler
-  can write `neg_regime`, but it can also fall back to an unmatched draw; the existing balanced
-  sampler writes `neg_regime` as missing. Do not infer the achieved match from `regime_targets` alone.
-- Choose the population after measuring group sizes and matching feasibility. For example, a
-  dataset might include Human and Pig, H3N2 and H5N1, and 2015–2025. The values here are examples,
-  not the selected Task 2 population.
+- Use balanced-usage negatives, but pair sequences only within one metadata group and split. Each
+  negative takes its slot-A sequence from one positive and its slot-B sequence from a different
+  positive. Both positives must come from the same metadata group and the same split. The existing
+  regime code in `src/datasets/_negative_regime_sampling.py` calls this match `host_subtype_year`.
+  We do not have a matched balanced sampler yet. Its design is in the section below.
+- Match exact years. By default, the existing regime code groups years into bins (`<=2015`,
+  `2016-2020`, `2021+`), so 2021 and 2024 count as the same year. Set
+  `dataset.negative_sampling.year_match: exact` to compare exact years instead.
+- We must confirm that slots A and B have the same host, HN subtype and exact year for every saved
+  negative. This is a required new check. We cannot use the `neg_regime` column for this check.
+  The *balanced* sampler leaves this column empty. The *coverage* sampler fills it when
+  `regime_targets` is set, but by default it compares year bins, not exact years. The
+  `regime_targets` setting itself only says which matches we asked for, not which matches the
+  sampler produced.
+- For the first implementation of this approach, we should not address every edge case that we might
+  encounter in this (metadata-rich) dataset. Instead, we should choose a relatively simple population
+  where each metadata field contains two values. For example: [Human, Pig], [H3N2, H1N1], [2024, 2025].
+  It is ok if not every combination across the metadata fields has enough isolates. For example: it's
+  fine if there are no isolates in the Pig-H3N2-2025 metadata group.
 
 **Results.**
 - Keep `allpairs_summary.csv` at one row per schema pair and dataset population. It already has a
@@ -478,10 +486,10 @@ metadata groups. Keep these names distinct in the results.
 
 ### Matched balanced-usage negatives
 
-A matched balanced-usage approach pairs a slot-A sequence and a slot-B sequence from two
-HK-selected positives in the same split and metadata group. At a 1:1 ratio, each selected sequence
-must appear exactly once in the negatives of its split. Task 1 deferred per-category reporting
-because an ordinary balanced negative can join isolates with different metadata on its two sides.
+A `matched balanced-usage` approach for negatives pairs a slot-A sequence and a slot-B sequence
+from two HK-selected positives in the same split and metadata group. At a 1:1 ratio, each selected
+sequence must appear exactly once in the negatives of its split.
+Task 1 deferred per-category reporting because an ordinary balanced negative can join isolates with different metadata on its two sides.
 With strict matching, each pair belongs to one metadata group. Check whether a deduplicated
 positive pair was observed in more than one group before relying on its saved representative
 isolate for group assignment.
@@ -491,7 +499,7 @@ Steps:
 1. **Guard the unsupported configuration.** Before the matched sampler is implemented,
    `negative_scope: balanced` ignores `dataset.negative_sampling.regime_targets`; make that
    combination raise an error. Then let the Task 2 master bundle request strict matching: list
-   all eight regime targets with `host_subtype_year: 1.0` and every other target `0`, and set
+   all eight regime targets with `host_subtype_year: 1.0` and the rest with `0`, and set
    `year_match: exact` and `on_shortfall: error`. Accept only this profile for balanced sampling.
    Keep the Task 1 master bundle unchanged. A target of `1.0` requests the behavior; the
    saved-negative audit above verifies that it happened.
