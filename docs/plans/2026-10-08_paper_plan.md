@@ -465,11 +465,43 @@ metadata groups. Keep these names distinct in the results.
   this when all three fields are set. `filter_by_metadata` in `src/utils/metadata_enrichment.py`
   keeps only isolates whose value is in the filter list, so an isolate with a missing value never
   passes. No new code is needed as long as the population sets all three filters.
+- Use 5-fold cross-validation, the same count as Task 1, and set it the same way. The fold count
+  stays out of the Task 2 bundles. A Task 2 experiment spec carries `dataset.n_folds=5` as its only
+  override, as `conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml` does for Task 1. The
+  dataset build and every fit pass that override, so both use the same fold count.
 - For the first implementation of this approach, we should not address every edge case that we might
   encounter in this (metadata-rich) dataset. Instead, we should choose a relatively simple population
-  where each metadata field contains two values. For example: [Human, Pig], [H3N2, H1N1], [2024, 2025].
-  It is ok if not every combination across the metadata fields has enough isolates. For example: it's
-  fine if there are no isolates in the Pig-H3N2-2025 metadata group.
+  where each metadata field contains two values.
+
+#### The Task 2 population
+
+Use `[Human, Pig]`, `[H3N2, H1N1]`, `[2022, 2023]`. All eight metadata groups have isolates:
+10,992 in total, from 4,864 in Human-H3N2-2022 down to 157 in Pig-H3N2-2022.
+
+This population supports the 21 schema pairs among PB2, PB1, PA, HA, NP, NA and M1. It does not
+support the 7 pairs that contain NS1. Per-site codon features need one pinned CDS length per
+protein, and NS1 has two lengths here: 693 nt in Human-H3N2 and 660 nt in the other three host and
+subtype combinations. The split is nearly even, at 1,552 against 1,485 unique complete sequences,
+so neither length holds for the 90% of unique sequences that `check_cds_length` requires. The two
+lengths are 231 and 220 codons, so this is a difference in the protein itself rather than a
+difference in sequence quality. No pin covers both, and excluding NS1 is therefore the consequence
+of keeping Human-H3N2 in the population.
+
+The years are what make PB1 work. Human-H3N2 PB1 is 2,274 nt through 2023 and 2,277 nt in 2024 and
+2025, while every other population stays at 2,274 nt in all years. Over 2022-2023 all eight groups
+have 2,274 nt as their own modal length and the pooled share is 0.912, so the pin holds. Adding
+2024 drops that share to 0.782 and the pin fails. Using 2021-2022 instead raises it to 0.944, but
+Human-H1N1-2021 has only 11 isolates.
+
+The pins for this population are PB2 2,280, PB1 2,274, PA 2,151, HA 1,701, NP 1,497, NA 1,410 and
+M1 759 nt. Six of the seven are already in `conf/virus/flu.yaml`. PB1 is not in that file and
+needs a bundle-level `virus.cds_length` override at 2,274 nt, as
+`conf/bundles/flu_8_major_proteins_human_h3n2_2024_pinned_length.yaml` does at 2,277 nt for
+Task 1. The measurements behind this choice are in
+`results/flu/July_2025/pair_capacity_task2_2x2x2/cds_length_survey_grid/`.
+
+Task 1 already reports all 28 pairs on one population, so Task 2 does not repeat that. State in
+the results that NS1 is excluded and why.
 
 **Results.**
 - Report the whole population as in Task 1. `allpairs_summary.csv` keeps one row per schema pair
