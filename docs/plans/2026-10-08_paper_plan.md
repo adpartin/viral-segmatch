@@ -461,6 +461,10 @@ metadata groups. Keep these names distinct in the results.
   `regime_targets` is set, but by default it compares year bins, not exact years. The
   `regime_targets` setting itself only says which matches we asked for, not which matches the
   sampler produced.
+- Drop isolates that are missing any of host, HN subtype or year. The dataset filters already do
+  this when all three fields are set. `filter_by_metadata` in `src/utils/metadata_enrichment.py`
+  keeps only isolates whose value is in the filter list, so an isolate with a missing value never
+  passes. No new code is needed as long as the population sets all three filters.
 - For the first implementation of this approach, we should not address every edge case that we might
   encounter in this (metadata-rich) dataset. Instead, we should choose a relatively simple population
   where each metadata field contains two values. For example: [Human, Pig], [H3N2, H1N1], [2024, 2025].
@@ -468,21 +472,28 @@ metadata groups. Keep these names distinct in the results.
   fine if there are no isolates in the Pig-H3N2-2025 metadata group.
 
 **Results.**
-- Keep `allpairs_summary.csv` at one row per schema pair and dataset population. It already has a
-  `population` column. Do not put one host, subtype or year in that row when the dataset contains
-  several values; save group results separately.
-- Save `metadata_group_counts_by_fold.csv`: one row per schema pair, fold, split and exact
-  `(host, hn_subtype, year)` group, with `n_positive` and `n_negative` from the actual train,
-  validation and test pair files. The counts should sum to each split's totals. Save the number of
-  positives each group lost to the eligibility rule in a separate eligibility summary.
-- Save `metrics_test_by_metadata_fold.csv` from `test_predicted.csv`. Each row names the schema
-  pair, fold and `group_by` (`joint`, `host`, `hn_subtype` or `year`), the group values, both class
-  counts and F1 macro at the fitted model's decision threshold. A host-only or year-only row pools
-  the relevant joint groups within that fold. Aggregate the per-fold scores as mean ± SD, showing
-  the test counts and number of folds behind each value.
-- Show the schema-pair matrix for the whole dataset population, then compare group performance
-  and counts. If separate datasets use different population filters, label each result with its
-  dataset population.
+- Report the whole population as in Task 1. `allpairs_summary.csv` keeps one row per schema pair
+  and dataset population, and it already has a `population` column. When the population contains
+  several metadata groups, this row covers all of them together. Save the per-group results in the
+  separate files (explained below).
+- Count the pairs in each metadata group. Save `metadata_group_counts.csv` with one row per
+  schema pair, fold, split and metadata group. Each row gives `n_pos` and `n_neg`, counted from
+  the saved train, validation and test pair files. Within each split, the group counts must add up
+  to the split's totals. For example: if the fold-0 test split has 400 positives, the `n_pos`
+  values of its groups add up to 400.
+- Score each metadata group on the test set. Save `test_metrics_by_metadata.csv`, computed
+  from each fold's `test_predicted.csv`. Each row gives the schema pair, the fold, the grouping
+  (`group_by`), the group values, `n_pos`, `n_neg`, `tp`, `tn`, `fp`, `fn`, `f1_macro`,
+  `auc_roc`, `precision` and `recall`. The metric names are the ones `allpairs_summary.csv` uses.
+  - `group_by` is one of `joint`, `host`, `hn_subtype` or `year`. A `joint` row is one metadata
+    group, for example (Human, H3N2, 2024). A `host` row pools all metadata groups with that host
+    in the fold, for example every Human group. `hn_subtype` and `year` rows pool the same way.
+  - Use the same model's decision threshold for the metrics that require it.
+  - Across folds, report each group's metrics as mean ± SD. A group can be missing from some test
+    folds, so also report the number of folds and the test counts behind each value.
+- Show the schema-pair matrix for the whole population. In addition, compare the scores and counts
+  of the metadata groups. If we build several datasets with different population filters, label
+  each result with its population.
 
 ### Matched balanced-usage negatives
 
@@ -502,23 +513,16 @@ Steps:
    all eight regime targets with `host_subtype_year: 1.0` and the rest with `0`, and set
    `year_match: exact` and `on_shortfall: error`. Accept only this profile for balanced sampling.
    Keep the Task 1 master bundle unchanged. A target of `1.0` requests the behavior; the
-   saved-negative audit above verifies that it happened.
-2. **Check feasibility.** For each candidate eligibility rule, create the planned folds and test
-   whether every split and metadata group permits one negative use per selected sequence. An
-   observed pair or a negative already drawn in that fold cannot be used again. Record the group
-   sizes and the result of each check.
+   saved-negative check above verifies that it happened.
+2. **Check feasibility.** After creating the folds, check that every split and metadata group
+   permits one negative use per selected sequence. A positive pair or a negative already drawn in
+   that fold cannot be used again. Record the group sizes and the result of each check. If a group
+   fails, raise an error naming the split and group.
 
    - One positive in a split's group has no possible negative partner.
    - With two positives `(A1, B1)` and `(A2, B2)`, one-to-one matching leaves only
      `(A1, B2)` and `(A2, B1)`. If either cross-pair was observed, the group is infeasible.
-
-   Repeat the checks after changing eligibility because that changes the fold assignments.
-3. **Choose the eligibility rule before creating the folds.** State how missing host, HN subtype
-   or year is handled; excluding such isolates is the proposed rule. If small groups are removed,
-   record the lost positives by schema pair and metadata group. Never remove positives from just
-   one split: each positive has only one test fold, so that would change test coverage. The CC
-   builder likewise removes infeasible components before generating its splits.
-4. **Create the negatives within each group.** Find a one-to-one assignment from the group's
+3. **Create the negatives within each group.** Find a one-to-one assignment from the group's
    slot-A sequences to its slot-B sequences, regardless of group size. The two-positive swap above
    follows automatically; it needs no special rule. Never substitute a sequence from another
    group. Keep each endpoint's metadata from its selected positive, rather than taking an
@@ -530,10 +534,38 @@ Steps:
    `neg_regime: host_subtype_year` and `metadata_match_count: 3` on these negatives, and verify
    the match independently from their saved endpoint metadata.
 
-Removing groups before creating the folds still may leave a group with only one positive in a
-validation or test split. If the final feasibility check fails, change the eligibility or split
-rule and rebuild; do not patch one split. Check whether stratifying the folds by metadata group
-would avoid these small split groups.
+### Open questions
+
+The steps above assume that every metadata group is large enough. These questions cover the
+groups that are not.
+
+1. **Small groups in the test split.** Folds are assigned by positive, not by metadata group. A
+   group with a few positives can have all of them in one fold's test split, so the model in that
+   fold never trained on the group. Its test score then measures how well the model handles an
+   unseen group, which is a different question from the other groups' scores. The feasibility
+   check in step 2 does not catch this case, because a group with no positives in a training split
+   needs no negatives there. Options:
+   - Stratify the folds by metadata group.
+   - Set a minimum group size and do not score groups below it. `analyze_level2_by_axis` in
+     `src/analysis/analyze_stage4_train.py` already merges strata with fewer than 20 pairs into
+     one `other` stratum.
+   - Score every group, but report the unseen-group scores separately.
+     `metadata_group_counts.csv` gives each group's training positives per fold, so these scores
+     can be flagged.
+2. **A rule for removing small groups.** If we remove groups that are too small, the rule must be
+   set before creating the folds. Record the positives each group lost, by schema pair and metadata
+   group. Never remove positives from just one split, because each positive has only one test
+   fold. The CC builder likewise removes infeasible components before generating its splits.
+   Removing groups can still leave a group with one positive in a validation or test split. If the
+   feasibility check then fails, change the rule or the split and rebuild; do not patch one split.
+   Do not call this rule an eligibility rule. In the glossary, *eligible isolates* are the isolates
+   that carry a schema pair's required sequences, such as complete CDS at the pinned length.
+3. **Coarser host labels.** Our metadata carries one host string per isolate, such as `Chicken`
+   or `Mallard`, and most non-human hosts have too few isolates. Grouping them into a coarser label
+   (especially `Avian`) would give a host group large enough to compare against `Human`. Marcus's
+   paper reports performance over human, avian, environmental, sea-mammal, lab-derived and
+   nonhuman-mammal samples, plus unknown and other. Jamie's paper uses human, swine, duck, chicken
+   and other. We have no host-grouping map in the repo yet.
 
 ## 3. Test on future-year pairs
 
