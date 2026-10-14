@@ -1,0 +1,56 @@
+# Experiment spec: the 21-pair per-site codon screen on the Task 2 population, with 5-fold CV and
+# matched balanced-usage negatives.
+# Bundles: the 21 children of conf/bundles/flu_21p_human_pig_h3n2_h1n1_2022_2023_site_codon.yaml.
+# Design: docs/plans/2026-10-08_paper_plan.md section 2.
+#
+# Written from the plan, not copied from a built dataset; see "Experiment spec" in
+# docs/methods/glossary.md. The `dataset.negative_sampling` keys below are not in any bundle yet.
+# Step 1 of "Matched balanced-usage negatives" adds the guard and the master bundle gains the
+# block, so a build checked against this spec fails until both land. That is the intended
+# behavior: Task 2 scores per metadata group only mean something once every negative matches on
+# host, HN subtype and exact year.
+
+# Applied on top of every child bundle, in order. Only what differs from the bundles.
+overrides:
+  - dataset.n_folds=5
+
+# Every dataset's resolved_config.yaml and every planned fit config must have these values.
+expect:
+  # Population
+  dataset.host: [Human, Pig]
+  dataset.hn_subtype: [H3N2, H1N1]
+  dataset.year: [2022, 2023]
+  # Positive selection
+  dataset.positive_pair_selection.method: hopcroft_karp
+  dataset.split_strategy.pair_key_alphabet: nt_cds
+  # Negative sampler and ratio
+  dataset.split_strategy.negative_scope: balanced
+  dataset.neg_to_pos_ratio: 1.0
+  # Matched negatives: both sides share host, HN subtype and exact year
+  dataset.negative_sampling.axes: [host, hn_subtype, year]
+  dataset.negative_sampling.year_match: exact
+  dataset.negative_sampling.on_shortfall: error
+  dataset.negative_sampling.regime_targets:
+    none_match: 0.0
+    host_only: 0.0
+    subtype_only: 0.0
+    year_only: 0.0
+    host_subtype_only: 0.0
+    host_year_only: 0.0
+    subtype_year_only: 0.0
+    host_subtype_year: 1.0
+  # Pinned-length requirement. The PB1 pin is asserted because the population fails at the 2,277 nt
+  # value Task 1 uses.
+  dataset.require_complete_cds_at_pinned_length: true
+  virus.cds_length.PB1.nt: 2274
+  # Fold count
+  dataset.n_folds: 5
+  # Feature settings
+  training.feature_source: site
+  site.unit: codon
+  site.encoding: ordinal
+  training.interaction: concat
+  training.slot_transform: none
+  # LightGBM row sampling
+  baseline_lgbm.subsample: 0.7
+  baseline_lgbm.subsample_freq: 1

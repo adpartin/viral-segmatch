@@ -1,0 +1,53 @@
+# Master bundle for the 21-pair per-site codon screen on the Task 2 population.
+# Task 2 of docs/plans/2026-10-08_paper_plan.md.
+#
+# Do NOT run this bundle directly: schema_pair is null and each of the 21 children sets it.
+# Inheritance: flu_7_major_proteins_human_pig_h3n2_h1n1_2022_2023_pinned_length -> this file ->
+# 21 children.
+#
+# The parent already supplies the population ([Human, Pig] x [H3N2, H1N1] x [2022, 2023]), the 7
+# proteins in virus.selected_functions, all 7 pins including the PB1 2,274 nt override that
+# conf/virus/flu.yaml does not carry, the nt_cds pair key, a 1:1 negative ratio and
+# require_complete_cds_at_pinned_length. The fold count stays inherited at 4 here; the experiment
+# spec conf/experiments/human_pig_h3n2_h1n1_2022_2023_21p_codon_matched_cv5.yaml overrides it to 5.
+#
+# What this file adds is the Task 1 recipe, so the two tasks' scores are comparable: Hopcroft-Karp
+# positive selection, balanced negatives, and per-site codon features. These are the same values
+# conf/bundles/flu_28p_human_h3n2_2024_site_codon.yaml sets for Task 1. The parent chain reaches
+# the `_pinned_length` bundle rather than its `_hopcroft_karp` sibling, so `method` has to be set
+# here rather than assumed. No positive count is capped, so every pair trains on its native
+# `HK selected` positives.
+#
+# THE MATCHED NEGATIVE PROFILE IS NOT HERE YET. Task 2 needs negatives whose two sides share host,
+# HN subtype and exact year, which is `dataset.negative_sampling` with `host_subtype_year: 1.0`,
+# `year_match: exact` and `on_shortfall: error`. Step 1 of "Matched balanced-usage negatives" in
+# the plan first makes `negative_scope: balanced` reject that setting instead of ignoring it; this
+# file gains the block then. The experiment spec already requires it, so a dataset built from this
+# bundle today fails its audit against that spec.
+
+defaults:
+  - flu_7_major_proteins_human_pig_h3n2_h1n1_2022_2023_pinned_length
+  - _self_
+
+dataset:
+  schema_pair: null            # MUST be overridden by a child bundle
+
+  split_strategy:
+    negative_scope: balanced
+
+  positive_pair_selection:
+    method: hopcroft_karp      # each retained CDS occurs once per slot; no cap on the count
+
+baseline_lgbm:
+  # Row sampling lets greedy trees start on balanced 1:1 HK pairs.
+  subsample: 0.7
+  subsample_freq: 1
+
+site:
+  unit: codon
+  encoding: ordinal
+
+training:
+  feature_source: site
+  interaction: concat
+  slot_transform: none
