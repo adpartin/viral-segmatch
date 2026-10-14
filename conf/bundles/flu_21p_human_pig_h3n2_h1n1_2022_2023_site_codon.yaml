@@ -18,12 +18,13 @@
 # here rather than assumed. No positive count is capped, so every pair trains on its native
 # `HK selected` positives.
 #
-# THE MATCHED NEGATIVE PROFILE IS NOT HERE YET. Task 2 needs negatives whose two sides share host,
-# HN subtype and exact year, which is `dataset.negative_sampling` with `host_subtype_year: 1.0`,
-# `year_match: exact` and `on_shortfall: error`. Step 1 of "Matched balanced-usage negatives" in
-# the plan first makes `negative_scope: balanced` reject that setting instead of ignoring it; this
-# file gains the block then. The experiment spec already requires it, so a dataset built from this
-# bundle today fails its audit against that spec.
+# The `negative_sampling` block below asks for matched negatives: both sides of every negative come
+# from positives of one metadata group, so they share host, HN subtype and exact year.
+# `matched_balanced_usage_negatives` draws them, and config validation accepts no other profile
+# under `negative_scope: balanced`, because the balanced sampler cannot produce a mix of regimes.
+# The seven zeros are required: the validator wants a complete dict over the 8 regime names summing
+# to 1.0. `on_shortfall: error` is what makes a metadata group that cannot give each of its
+# sequences one negative use stop the build, naming the split and the group.
 
 defaults:
   - flu_7_major_proteins_human_pig_h3n2_h1n1_2022_2023_pinned_length
@@ -37,6 +38,20 @@ dataset:
 
   positive_pair_selection:
     method: hopcroft_karp      # each retained CDS occurs once per slot; no cap on the count
+
+  negative_sampling:
+    axes: [host, hn_subtype, year]
+    year_match: exact          # 2022 and 2023 are different years, not one bin
+    on_shortfall: error
+    regime_targets:
+      none_match:         0.0
+      host_only:          0.0
+      subtype_only:       0.0
+      year_only:          0.0
+      host_subtype_only:  0.0
+      host_year_only:     0.0
+      subtype_year_only:  0.0
+      host_subtype_year:  1.0
 
 baseline_lgbm:
   # Row sampling lets greedy trees start on balanced 1:1 HK pairs.
