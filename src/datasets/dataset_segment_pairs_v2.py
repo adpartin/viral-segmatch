@@ -72,6 +72,7 @@ if str(_project_root) not in sys.path:
 
 from src.datasets._negative_sampling import (  # noqa: E402
     balanced_usage_negatives,
+    matched_balanced_usage_negatives,
     within_fold_negatives,
 )
 from src.datasets._pair_helpers import (
@@ -1719,6 +1720,7 @@ def split_dataset_v2(
     #   'balanced' -- the same in-split pairing, but each slot's least-used sequences
     #       are drawn first, so the per-slot use counts differ by at most one
     #       (balanced_usage_negatives, also shared with the 2D-CD builder).
+    matched_negative_audit: Optional[dict] = None
     if negative_scope not in ('coverage', 'within_fold', 'balanced'):
         raise ValueError(
             f"split_dataset_v2: negative_scope must be 'coverage', 'within_fold' or 'balanced'; "
@@ -1733,16 +1735,32 @@ def split_dataset_v2(
         # and trip the cross-split pair_key check below. Under single_slot cluster_disjoint
         # the constrained slot's cluster_ids -- hence its hashes -- are already disjoint
         # across splits, so sharing the set changes nothing there.
+        # `balanced` with regime targets is the matched sampler: it pairs sequences only inside one
+        # metadata group, so it needs the per-isolate cells rather than a per-split front-end df.
+        # Config validation has already restricted those targets to the matched profile.
+        _matched = negative_scope == 'balanced' and isolate_to_cell is not None
         _sampler = (within_fold_negatives if negative_scope == 'within_fold'
                     else balanced_usage_negatives)
-        print(f"\nCreate negative pairs ({negative_scope}, ratio-driven, no coverage/regime)...",
-              flush=True)
+        if _matched:
+            print("\nCreate negative pairs (matched balanced usage: both sides of a negative "
+                  "share host, HN subtype and exact year)...", flush=True)
+        else:
+            print(f"\nCreate negative pairs ({negative_scope}, ratio-driven, no "
+                  f"coverage/regime)...", flush=True)
         _neg_hash = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash
         _neg_seen: set = set()
         _neg_draws = {}
+        if _matched:
+            matched_negative_audit = {}
         for _si, (_nm, _sp) in enumerate(
             (('train', train_pos), ('val', val_pos), ('test', test_pos))
         ):
+            if _matched:
+                _neg_draws[_nm], matched_negative_audit[_nm] = matched_balanced_usage_negatives(
+                    _sp, cooccur_pairs, isolate_to_cell, seed=seed + _si,
+                    hash_col=_neg_hash, seen=_neg_seen, split_name=_nm,
+                )
+                continue
             _iso = set(_sp['assembly_id_a']) | set(_sp['assembly_id_b'])
             _df_split = df[df['assembly_id'].isin(_iso)]
             _neg_draws[_nm] = _sampler(
@@ -1955,7 +1973,14 @@ def split_dataset_v2(
         duplicate_stats['positive_pair_selection_fold_audit'] = (
             positive_selection_fold_audit
         )
-    if isolate_to_cell is not None:
+    if matched_negative_audit is not None:
+        duplicate_stats['matched_negatives'] = {
+            'regime': 'host_subtype_year',
+            'axes': list(resolved_sampling_axes or []),
+            'year_match': year_match,
+            'splits': matched_negative_audit,
+        }
+    if isolate_to_cell is not None and matched_negative_audit is None:
         duplicate_stats['regime_manifest'] = {
             'config': train_reject_stats.get('regime_config'),
             'splits': {
@@ -2912,6 +2937,8 @@ def save_split_output_v2(
         duplicate_summary['positive_pair_selection_fold_audit'] = duplicate_stats[
             'positive_pair_selection_fold_audit'
         ]
+    if duplicate_stats.get('matched_negatives') is not None:
+        duplicate_summary['matched_negatives'] = duplicate_stats['matched_negatives']
     with open(output_dir / 'duplicate_stats.json', 'w') as f:
         json.dump(duplicate_summary, f, indent=2, default=_jsonable)
     print(f"Saved duplicate stats to: {output_dir / 'duplicate_stats.json'}")
@@ -3243,6 +3270,40 @@ def _validate_v2_config(config) -> None:
                 f"(or absent — defaults to False); got {rac!r} of type {type(rac).__name__}. "
                 f"See docs/plans/2026-05-14_regime_aware_coverage_plan.md."
             )
+
+        # negative_scope: balanced supports exactly one profile, the matched one: every negative
+        # pairs two sequences whose isolates share host, HN subtype and exact year, one negative
+        # use per sequence, and a group that cannot supply that is an error rather than a
+        # shortfall to redistribute. The balanced sampler cannot produce a mix of regimes, so any
+        # other profile would be accepted here and then have no effect.
+        scope = OmegaConf.select(config, "dataset.split_strategy.negative_scope")
+        if scope == 'balanced':
+            matched_targets = {name: 1.0 if name == 'host_subtype_year' else 0.0
+                               for name in REGIME_NAMES}
+            found_targets = {name: float(regime_targets[name]) for name in REGIME_NAMES}
+            ratio = OmegaConf.select(config, "dataset.neg_to_pos_ratio")
+            problems = []
+            if found_targets != matched_targets:
+                problems.append(
+                    f"regime_targets must put 1.0 on 'host_subtype_year' and 0 on the other "
+                    f"seven; got {found_targets}")
+            if ym != 'exact':
+                problems.append(f"year_match must be 'exact'; got {ym!r}")
+            if os != 'error':
+                problems.append(f"on_shortfall must be 'error'; got {os!r}")
+            if axes is not None and set(axes) != set(DEFAULT_AXES):
+                problems.append(f"axes must cover {sorted(DEFAULT_AXES)}; got {sorted(axes)}")
+            if rac:
+                problems.append("regime_aware_coverage applies to negative_scope='coverage' only")
+            if ratio is not None and float(ratio) != 1.0:
+                problems.append(
+                    f"dataset.neg_to_pos_ratio must be 1.0, because one negative use per "
+                    f"sequence gives one negative per positive; got {ratio!r}")
+            if problems:
+                raise ValueError(
+                    "dataset.negative_sampling with dataset.split_strategy.negative_scope="
+                    "'balanced' must request matched negatives: " + "; ".join(problems) + "."
+                )
 
     # legacy axis_quotas key (was a NotImplementedError placeholder); keep
     # rejection so old bundles error explicitly and migrate to negative_sampling.
