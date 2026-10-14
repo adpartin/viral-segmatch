@@ -597,6 +597,16 @@ Steps:
 
 ### Open questions
 
+Every question in this section is deferred until the first implementation has produced results on
+the population above. None of them is a prerequisite for writing that code. Each one states what
+we might change afterwards, not what the first run does.
+
+So the first run keeps the fold assignment the builder already makes, without stratifying by
+metadata group. It removes no group, it masks no figure cell, and it scores every metadata group
+that has test pairs. The one case that cannot wait is the feasibility check in step 2 of the
+matched negatives: if it raises on this population, record the split and group it named and decide
+question 2 then, because no dataset exists until that passes.
+
 The steps above assume that every metadata group is large enough to supply one negative per
 selected sequence and to be scored on its own. These questions cover the groups that are not.
 
