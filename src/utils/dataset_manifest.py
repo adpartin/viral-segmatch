@@ -101,9 +101,11 @@ def site_cache_files(config) -> list:
         project_root=PROJECT_ROOT, virus_name=config.virus.virus_name,
         data_version=config.virus.data_version, run_suffix='', config=config)['output_dir']
     short_of = get_function_short_name_map(config)
+    pins = {str(protein): int(pin['nt']) for protein, pin in dict(config.virus.cds_length).items()}
     paths = []
     for function in config.dataset.schema_pair:
-        cache = site_cache_paths(cache_dir, str(config.site.unit), short_of[function])
+        protein = short_of[function]
+        cache = site_cache_paths(cache_dir, str(config.site.unit), protein, pins[protein])
         paths.extend(path.resolve() for path in cache.values())
     return paths
 

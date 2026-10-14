@@ -224,6 +224,9 @@ def main() -> None:
     parser.add_argument('--run_dirs', type=Path, nargs='+', required=True)
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
+    parser.add_argument('--pinned_nt', type=int, default=None,
+                        help='pinned CDS length of the cache to read; needed only for a '
+                             'protein with caches at several pins')
     parser.add_argument('--protein_a', default='HA')
     parser.add_argument('--protein_b', default='NA')
     parser.add_argument('--bin_edges', type=int, nargs='+', default=list(DEFAULT_BIN_EDGES))
@@ -233,8 +236,8 @@ def main() -> None:
 
     edges = tuple(args.bin_edges)
     check_bin_edges(edges)
-    cache_a = load_site_cache(args.site_dir, 'nt', args.protein_a)
-    cache_b = load_site_cache(args.site_dir, 'nt', args.protein_b)
+    cache_a = load_site_cache(args.site_dir, 'nt', args.protein_a, args.pinned_nt)
+    cache_b = load_site_cache(args.site_dir, 'nt', args.protein_b, args.pinned_nt)
     partners_of_a, partners_of_b = positive_universe(args.dataset_dir, cache_a, cache_b)
 
     negatives = load_negatives(args.run_dirs)

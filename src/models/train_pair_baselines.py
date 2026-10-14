@@ -112,7 +112,8 @@ def _resolve_site_settings(config) -> tuple:
 
 
 def input_checksums(dataset_dir: Path, site_dir: Optional[Path], site_unit: str,
-                    site_proteins: Optional[tuple], dataset_resolved_config: Optional[Path]) -> dict:
+                    site_proteins: Optional[tuple], site_pins: Optional[dict],
+                    dataset_resolved_config: Optional[Path]) -> dict:
     """SHA-256 of every file a fit reads its pairs and site features from.
 
     Args:
@@ -120,6 +121,7 @@ def input_checksums(dataset_dir: Path, site_dir: Optional[Path], site_unit: str,
       site_dir: the site-feature cache directory, or None when the fit uses other features.
       site_unit: site unit of the caches, e.g. `codon`.
       site_proteins: the slot-A and slot-B protein short names, or None without site features.
+      site_pins: protein short name -> pinned CDS length, which names the caches to read.
       dataset_resolved_config: the dataset's `resolved_config.yaml`, or None to leave it out.
 
     Returns:
@@ -130,7 +132,8 @@ def input_checksums(dataset_dir: Path, site_dir: Optional[Path], site_unit: str,
         paths.append(dataset_resolved_config)
     if site_dir is not None:
         for protein in dict.fromkeys(site_proteins):
-            paths.extend(site_cache_paths(site_dir, site_unit, protein).values())
+            paths.extend(site_cache_paths(site_dir, site_unit, protein,
+                                          site_pins[protein]).values())
     checksums = {str(path.resolve()): file_sha256(path) for path in paths}
     return checksums
 
@@ -640,7 +643,7 @@ def main() -> None:
     print(f'  train: {len(train_pairs):,} | val: {len(val_pairs):,} | test: {len(test_pairs):,}')
 
     kmer_dir = site_dir = embeddings_file = None
-    site_proteins = None
+    site_proteins = SITE_PINS = None
     if FEATURE_SOURCE in ('kmer', 'site'):
         cache_dir = build_embeddings_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
@@ -656,6 +659,11 @@ def main() -> None:
             short_map = get_function_short_name_map(config)
             slot_functions = (train_pairs['func_a'].iloc[0], train_pairs['func_b'].iloc[0])
             site_proteins = tuple(short_map.get(f, f) for f in slot_functions)
+            # The pin names the cache, because the same protein takes a different pinned length
+            # in a different population.
+            all_pins = {str(protein): int(pin['nt'])
+                        for protein, pin in dict(config.virus.cds_length).items()}
+            SITE_PINS = {protein: all_pins[protein] for protein in site_proteins}
             print(f'Site cache dir:  {site_dir}')
             print(f'Site slots:      {site_proteins[0]} (a) / {site_proteins[1]} (b), '
                   f'unit={SITE_UNIT}, encoding={SITE_ENCODING}, slots={SITE_SLOTS}')
@@ -678,7 +686,7 @@ def main() -> None:
             kmer_dir=kmer_dir, kmer_k=KMER_K, kmer_alphabet=KMER_ALPHABET,
             embeddings_file=embeddings_file,
             site_dir=site_dir, site_unit=SITE_UNIT, site_encoding=SITE_ENCODING,
-            site_proteins=site_proteins, site_slots=SITE_SLOTS,
+            site_proteins=site_proteins, site_pins=SITE_PINS, site_slots=SITE_SLOTS,
             interaction=INTERACTION,
             slot_transform=SLOT_TRANSFORM,
             output_dir=default_output_dir,
@@ -702,7 +710,8 @@ def main() -> None:
     # pooled. Only this layout puts one site in one column, and only `both` keeps two slots.
     SLOT_A_WIDTH = None
     if FEATURE_SOURCE == 'site' and SITE_ENCODING == 'ordinal' and SITE_SLOTS == 'both':
-        SLOT_A_WIDTH = int(load_site_cache(site_dir, SITE_UNIT, site_proteins[0]).codes.shape[1])
+        SLOT_A_WIDTH = int(load_site_cache(site_dir, SITE_UNIT, site_proteins[0],
+                                           SITE_PINS[site_proteins[0]]).codes.shape[1])
         print(f'Slot A occupies the first {SLOT_A_WIDTH:,} of {X_train_raw.shape[1]:,} columns.')
 
     # Checksums of what this fit read, so a runner can tell a finished fit from one trained on
@@ -710,7 +719,7 @@ def main() -> None:
     dataset_resolved_config = (Path(args.dataset_resolved_config)
                                if args.dataset_resolved_config else None)
     INPUT_CHECKSUMS = input_checksums(dataset_dir, site_dir, SITE_UNIT, site_proteins,
-                                      dataset_resolved_config)
+                                      SITE_PINS, dataset_resolved_config)
 
     # ── Per-baseline runs ───────────────────────────────────────────────────
     n_baselines = len(baselines)

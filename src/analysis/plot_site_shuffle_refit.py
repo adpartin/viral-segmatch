@@ -191,6 +191,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument('--dataset_dir', type=Path, required=True)
     p.add_argument('--unit', default='codon', choices=['nt', 'codon', 'aa'])
+    p.add_argument('--pinned_nt', type=int, default=None, help='pinned CDS length of the cache to read; needed only for a protein with caches at several pins')
     p.add_argument('--config_bundle', default='flu_ha_na_h3n2_2024_random_cv4_site_codon')
     p.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
     p.add_argument('--importance_csv', type=Path, default=None)
@@ -236,7 +237,8 @@ def main() -> None:
 
     hashes_by_function = collect_slot_hashes(args.dataset_dir, args.n_folds)
     functions = sorted(hashes_by_function, key=protein_order.index)
-    caches = [load_site_cache(args.site_dir, args.unit, function_to_short.get(f, f))
+    caches = [load_site_cache(args.site_dir, args.unit, function_to_short.get(f, f),
+                              args.pinned_nt)
               for f in functions]
     used_rows = [np.array(sorted(cache.hash_to_row[h] for h in hashes_by_function[fn]))
                  for cache, fn in zip(caches, functions)]

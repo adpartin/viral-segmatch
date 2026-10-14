@@ -23,9 +23,12 @@ protein. Only records that are a complete CDS at the protein's pinned length tak
 purpose because neither has one length across subtypes and years.
 
 Outputs (per protein and unit, to the embeddings dir alongside the k-mer cache):
-  site_features_{unit}_{SHORT}.npz            uint8 codes, one row per unique CDS
-  site_features_{unit}_{SHORT}_index.parquet  cds_dna_hash -> row
-  site_features_{unit}_{SHORT}_metadata.json  code map, site count, kept/dropped counts
+  site_features_{unit}_{SHORT}_{PIN}nt.npz            uint8 codes, one row per unique CDS
+  site_features_{unit}_{SHORT}_{PIN}nt_index.parquet  cds_dna_hash -> row
+  site_features_{unit}_{SHORT}_{PIN}nt_metadata.json  code map, site count, kept/dropped counts
+
+The pinned length is in the name because it decides the contents, and one protein takes different
+pins in different populations: human H3N2 PB1 is 2,277 nt from 2024 and 2,274 nt before it.
 
 Keyed by `cds_dna_hash` for every unit, including `aa`. Two different CDS that translate to the
 same protein therefore get two identical aa rows, which costs a little space and buys one join key
@@ -62,7 +65,7 @@ from src.utils.config_hydra import (  # noqa: E402
     print_config_summary,
 )
 from src.utils.path_utils import build_embeddings_paths  # noqa: E402
-from src.utils.site_utils import sequences_to_byte_matrix  # noqa: E402
+from src.utils.site_utils import sequences_to_byte_matrix, site_cache_stem  # noqa: E402
 from src.utils.timer_utils import Timer  # noqa: E402
 
 UNITS = ('nt', 'codon', 'aa')
@@ -331,7 +334,7 @@ def build_protein(cds: pd.DataFrame, short: str, function: str, pinned_nt: int, 
           f"({100 * n_other / codes.size:.4f}%)")
     print(f"  decode check passed on {n_checked} rows")
 
-    stem = f'site_features_{unit}_{short}'
+    stem = site_cache_stem(unit, short, pinned_nt)
     np.savez_compressed(output_dir / f'{stem}.npz', codes=codes)
     index = pd.DataFrame({'cds_dna_hash': kept['cds_dna_hash'].values,
                           'row': np.arange(len(kept))})
@@ -428,7 +431,8 @@ def main() -> None:
     to_build = list(proteins)
     if not args.force_recompute:
         cached = [p for p in to_build
-                  if all((output_dir / f'site_features_{unit}_{p}{suffix}').exists()
+                  if all((output_dir / f'{site_cache_stem(unit, p, pinned_lengths[p])}{suffix}')
+                         .exists()
                          for suffix in ('.npz', '_index.parquet', '_metadata.json'))]
         if cached:
             print(f"\nAlready cached (use --force_recompute to rebuild): {cached}")

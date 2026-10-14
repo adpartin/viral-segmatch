@@ -83,7 +83,8 @@ def test_fit_inputs_match_trainer(tmp_path):
     root = _make_dataset(tmp_path / 'ds', 2)
     entry = {'dataset_dir': str(root), 'files': dataset_file_checksums(root, ['fold_0', 'fold_1'])}
     expected = fit_input_checksums(entry, 'fold_1', {})
-    recorded = input_checksums(root / 'fold_1', None, 'codon', None, root / 'resolved_config.yaml')
+    recorded = input_checksums(root / 'fold_1', None, 'codon', None, None,
+                               root / 'resolved_config.yaml')
     assert recorded == expected
 
 

@@ -77,6 +77,7 @@ from src.utils.experiment_spec import (  # noqa: E402
 )
 from src.utils.experiment_utils import file_sha256  # noqa: E402
 from src.utils.metadata_enrichment import population_label  # noqa: E402
+from src.utils.site_utils import site_cache_paths  # noqa: E402
 
 DATASET_RUNS = PROJ / 'data/datasets/flu/July_2025/runs'
 
@@ -144,8 +145,9 @@ def run_pair_and_population(config) -> tuple[str, str]:
 def check_caches(config, unit: str) -> list:
     """Site-feature caches that are absent or built at a different pinned length.
 
-    A cache keeps its file name when a pin changes, so a run can load columns that no longer mean
-    the position they are indexed by. The pin is recorded in each cache's metadata.
+    The pin is part of a cache's file name, so a run whose pin has no cache finds none rather than
+    one holding another population's positions. The name and the metadata are checked against each
+    other as well, since only the metadata is written from the build itself.
 
     Args:
       config: the run's loaded `resolved_config.yaml`.
@@ -162,14 +164,16 @@ def check_caches(config, unit: str) -> list:
     problems = []
     for function in config.dataset.schema_pair:
         protein = short_of[function]
-        metadata_path = cache_dir / f'site_features_{unit}_{protein}_metadata.json'
+        metadata_path = site_cache_paths(cache_dir, unit, protein,
+                                         pins[protein])['_metadata.json']
         if not metadata_path.exists():
             problems.append(f'{protein}: no {unit} cache at {metadata_path.name}')
             continue
         cached_nt = json.loads(metadata_path.read_text())['pinned_nt']
         if cached_nt != pins[protein]:
             problems.append(
-                f'{protein}: cache built at {cached_nt} nt, run pins {pins[protein]} nt')
+                f'{protein}: {metadata_path.name} records {cached_nt} nt, run pins '
+                f'{pins[protein]} nt')
     return problems
 
 

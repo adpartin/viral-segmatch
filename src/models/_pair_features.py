@@ -373,6 +373,7 @@ def load_pair_features_for_baselines(
     site_encoding: str = 'ordinal',
     site_slots: str = 'both',
     site_proteins: Optional[tuple] = None,
+    site_pins: Optional[dict] = None,
     # Interaction & slot transform (apply to either source where supported)
     interaction: str = "concat",
     slot_transform: str = "none",
@@ -405,6 +406,10 @@ def load_pair_features_for_baselines(
             checked against the cache metadata and the pair table's
             ``func_a``/``func_b``, so a mismatch raises rather than
             silently featurizing the wrong protein.
+        site_pins: protein short name -> pinned CDS length, which picks the
+            cache to read when a protein has one per population. Leaving a
+            protein out takes the only cache on disk for it, which is what
+            the exploratory scripts do; it raises when there are several.
         site_slots: ``'both'`` (default), or ``'a'`` / ``'b'`` to keep one
             side's columns only. The one-side form is an ablation that
             should score near chance; see
@@ -444,8 +449,9 @@ def load_pair_features_for_baselines(
         if site_slots != 'both':
             print(f"  ABLATION: slot {site_slots} only. The label is a fact about a pair, so one "
                   f"side alone should score near chance.")
-        cache_a = load_site_cache(Path(site_dir), site_unit, short_a)
-        cache_b = load_site_cache(Path(site_dir), site_unit, short_b)
+        pins = site_pins or {}
+        cache_a = load_site_cache(Path(site_dir), site_unit, short_a, pins.get(short_a))
+        cache_b = load_site_cache(Path(site_dir), site_unit, short_b, pins.get(short_b))
         _check_site_slots_match_pairs(train_pairs, cache_a, cache_b)
         print(f"  {short_a}: {cache_a.codes.shape[1]:,} sites over "
               f"{cache_a.codes.shape[0]:,} unique CDS; "

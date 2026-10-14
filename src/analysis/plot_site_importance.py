@@ -337,6 +337,7 @@ def main() -> None:
     p.add_argument('--dataset_dir', type=Path, required=True,
                    help='dataset run dir holding fold_*/, used to scope entropy and the slots')
     p.add_argument('--unit', default='codon', choices=['nt', 'codon', 'aa'])
+    p.add_argument('--pinned_nt', type=int, default=None, help='pinned CDS length of the cache to read; needed only for a protein with caches at several pins')
     p.add_argument('--config_bundle', default='flu_ha_na_h3n2_2024_random_cv4_site_codon')
     p.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
     p.add_argument('--models_root', type=Path, default=PROJ / 'models/flu/July_2025/runs')
@@ -368,7 +369,8 @@ def main() -> None:
     functions = sorted(hashes_by_function, key=protein_order.index)
     if len(functions) != 2:
         raise ValueError(f"expected two slot functions, found {functions}.")
-    caches = [load_site_cache(args.site_dir, args.unit, function_to_short.get(f, f))
+    caches = [load_site_cache(args.site_dir, args.unit, function_to_short.get(f, f),
+                              args.pinned_nt)
               for f in functions]
 
     # Ordinal encoding: one column per site, slot A's sites then slot B's.

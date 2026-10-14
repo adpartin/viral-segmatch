@@ -260,6 +260,7 @@ def main() -> None:
                         help='model run directories, each holding test_predicted.csv')
     parser.add_argument('--config_bundle', required=True,
                         help='bundle the runs were trained with; supplies the protein short names')
+    parser.add_argument('--pinned_nt', type=int, default=None, help='pinned CDS length of the cache to read; needed only for a protein with caches at several pins')
     parser.add_argument('--unit', default='nt', choices=['nt', 'codon', 'aa'],
                         help='per-site cache the distance is measured on')
     parser.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
@@ -292,8 +293,8 @@ def main() -> None:
     function_a, function_b = distinct.pop()
     protein_a = function_to_short.get(function_a, function_a)
     protein_b = function_to_short.get(function_b, function_b)
-    cache_a = load_site_cache(args.site_dir, args.unit, protein_a)
-    cache_b = load_site_cache(args.site_dir, args.unit, protein_b)
+    cache_a = load_site_cache(args.site_dir, args.unit, protein_a, args.pinned_nt)
+    cache_b = load_site_cache(args.site_dir, args.unit, protein_b, args.pinned_nt)
     print(f"Slots: a={protein_a} ({cache_a.codes.shape[1]:,} sites), "
           f"b={protein_b} ({cache_b.codes.shape[1]:,} sites), unit={args.unit}")
 
