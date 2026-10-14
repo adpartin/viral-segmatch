@@ -448,9 +448,9 @@ Task 1 set the dataset filters to (Human, H3N2, 2024), so its population held on
 A Task 2 population holds several metadata groups. Keep the two terms distinct in the results.
 
 **Methods.**
-- Choose a population where each of host, HN subtype and year takes 2 values. This is the first
-  implementation of per-group reporting, so it does not have to handle every case this metadata
-  allows. The chosen population and what it costs are in "The Task 2 population" below.
+- Use the population in "The Task 2 population" below, which takes 2 values for each of host, HN
+  subtype and year. This first implementation has to handle that population. The open questions
+  cover the other cases.
 - Drop isolates that are missing any of host, HN subtype or year. The dataset filters already do
   this when all metadata fields are set. `filter_by_metadata` in `src/utils/metadata_enrichment.py`
   keeps only isolates whose value is in the filter list, so an isolate with a missing value never
@@ -492,8 +492,10 @@ A Task 2 population holds several metadata groups. Keep the two terms distinct i
     group, for example (Human, H3N2, 2022). A `host` row pools all metadata groups with that host
     in the fold, for example every Human group. `hn_subtype` and `year` rows pool the same way.
   - Use the same model's decision threshold for the metrics that require it.
-  - Across folds, report each group's metrics as mean ± SD. A group can be missing from some test
-    folds, so also report the number of folds and the test counts behind each value.
+  - Across folds, report the mean ± SD of each group's per-fold metric, the number of
+    contributing folds, and the test counts behind each value. Never pool predictions across
+    folds. A fold with no test positives for a group contributes NaN and is left out of that
+    group's mean.
 - Compare the metadata groups with four figures per population. Draw all four with
   `annotated_heatmap` in `src/utils/plot_utils.py`.
   - `matrix_f1_macro.png`: the schema-pair matrix for the whole population, as in Task 1.
@@ -506,11 +508,6 @@ A Task 2 population holds several metadata groups. Keep the two terms distinct i
     separate from the figure above, so a pooled row is never read as a metadata group.
   - `counts_by_group.png`: the grid of `metrics_by_group_f1_macro.png` with test positives summed
     over folds, from `metadata_group_counts.csv`. This is what makes a weak metric cell readable.
-- Aggregate across folds as the fold mean of each group's metric, never by pooling the predictions
-  of several folds. A group with no test positives in a fold is NaN there and is left out of its
-  own mean.
-- Mask cells below the minimum group size (Open Question 1) with `blank_mask`, and state the
-  threshold in the caption.
 - Use F1 macro for the figures above. Other metrics reuse the same code with a metric argument, as
   `src/analysis/regime_metric_heatmap.py` does.
 - Put the population in every figure title, in the output directory name and in the `population`
@@ -561,9 +558,10 @@ Task 1 deferred per-group reporting because an ordinary balanced negative can jo
 with different metadata. A `matched balanced-usage` negative instead takes its slot-A sequence and
 its slot-B sequence from two HK-selected positives in the same split and the same metadata group.
 At a 1:1 ratio, each selected sequence must appear exactly once in the negatives of its split.
-Every negative then belongs to one metadata group, which is what per-group scoring needs. A
-deduplicated positive pair can have been observed in more than one group, so check that before
-taking a pair's group from its saved representative isolate.
+Every negative then belongs to one metadata group, which is what per-group scoring needs. Keep the
+existing global pair-key dedup and assign each selected positive to its retained source isolate's
+metadata group. If the same sequence pair was observed in several groups before dedup, it
+contributes only to the retained isolate's group. The retained isolate depends on input row order.
 
 Steps:
 
@@ -578,7 +576,9 @@ Steps:
 2. **Check feasibility.** After creating the folds, check that every split and metadata group
    permits one negative use per selected sequence. A positive pair or a negative already drawn in
    that fold cannot be used again. Record the group sizes and the result of each check. If a group
-   fails, raise an error naming the split and group. Two cases make a group infeasible:
+   fails, raise an error naming the split and group. The general test is whether the one-to-one
+   assignment in step 3 exists, because a group can fail that while every sequence still has an
+   available partner. Two examples:
 
    - One positive in a split's group has no possible negative partner.
    - With two positives `(A1, B1)` and `(A2, B2)`, one-to-one matching leaves only
@@ -609,7 +609,8 @@ selected sequence and to be scored on its own. These questions cover the groups 
    - Stratify the folds by metadata group.
    - Set a minimum group size and do not score groups below it. `analyze_level2_by_axis` in
      `src/analysis/analyze_stage4_train.py` already merges strata with fewer than 20 pairs into
-     one `other` stratum.
+     one `other` stratum. With a minimum set, mask the cells below it with `blank_mask` in the
+     figures above and state the threshold in the caption.
    - Score every group, but report the unseen-group scores separately.
      `metadata_group_counts.csv` gives each group's training positives per fold, so these scores
      can be flagged.
