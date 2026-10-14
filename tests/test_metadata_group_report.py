@@ -141,3 +141,72 @@ def test_fit_metrics_use_the_fits_threshold(tmp_path):
     assert sum(row['fn'] for row in loose) == 0
     assert sum(row['tp'] for row in loose) > 0
 
+
+
+def make_metrics(folds=3, missing=()):
+    """A metrics table for two pairs and the three groups, with `missing` folds blanked out."""
+    rows = []
+    for pair in ('PB2-PB1', 'NP-M1'):
+        for host, subtype, year in GROUPS:
+            for fold in range(folds):
+                value = np.nan if (host, fold) in missing else 0.8
+                rows.append({'population': 'p', 'pair': pair, 'fold': f'fold_{fold}',
+                             'group_by': 'joint', 'host': host, 'hn_subtype': subtype,
+                             'year': year, 'n_pos': 10, 'n_neg': 10, 'f1_macro': value})
+    for axis, value in (('host', 'Human'), ('host', 'Pig'), ('hn_subtype', 'H3N2'),
+                        ('hn_subtype', 'H1N1'), ('year', '2022'), ('year', '2023')):
+        for pair in ('PB2-PB1', 'NP-M1'):
+            for fold in range(folds):
+                rows.append({'population': 'p', 'pair': pair, 'fold': f'fold_{fold}',
+                             'group_by': axis, 'host': '', 'hn_subtype': '', 'year': '',
+                             axis: value, 'n_pos': 20, 'n_neg': 20, 'f1_macro': 0.75})
+    return pd.DataFrame(rows)
+
+
+def test_pair_columns_follow_canonical_protein_order():
+    from src.analysis.metadata_group_report import pair_columns
+    assert pair_columns({'NA-M1', 'PB2-PB1', 'HA-NA'}) == ['PB2-PB1', 'HA-NA', 'NA-M1']
+    # A label that is not two known proteins sorts after the ones that are.
+    assert pair_columns({'NP-M1', 'something-else'}) == ['NP-M1', 'something-else']
+
+
+def test_fold_summary_leaves_missing_folds_out_of_the_mean():
+    from src.analysis.metadata_group_report import fold_summary
+    metrics = make_metrics(folds=3, missing={('Pig', 0), ('Pig', 1)})
+    joint = metrics[metrics['group_by'] == 'joint'].copy()
+    joint['row'] = joint[list(GROUP_AXES)].apply(lambda values: '-'.join(values), axis=1)
+    mean, sd, folds = fold_summary(joint, 'f1_macro')
+
+    assert mean.loc['Human-H3N2-2022', 'PB2-PB1'] == pytest.approx(0.8)
+    assert folds.loc['Human-H3N2-2022', 'PB2-PB1'] == 3
+    # The Pig group kept one fold, so it has a mean but no SD.
+    assert folds.loc['Pig-H3N2-2022', 'PB2-PB1'] == 1
+    assert mean.loc['Pig-H3N2-2022', 'PB2-PB1'] == pytest.approx(0.8)
+    assert np.isnan(sd.loc['Pig-H3N2-2022', 'PB2-PB1'])
+
+
+def test_metric_figures_are_written(tmp_path):
+    from src.analysis.metadata_group_report import write_metric_figures
+    write_metric_figures(make_metrics(), tmp_path, 'f1_macro')
+    assert (tmp_path / 'metrics_by_group_f1_macro.png').exists()
+    assert (tmp_path / 'metrics_by_axis_f1_macro.png').exists()
+
+
+def test_masking_drops_only_the_thin_cells(tmp_path):
+    from src.analysis.metadata_group_report import write_metric_figures
+    # Every joint cell holds 3 folds x 20 pairs, so a 100-pair floor masks all of them and a
+    # 10-pair floor masks none; both must still draw.
+    write_metric_figures(make_metrics(), tmp_path / 'all_masked', 'f1_macro', min_test_pairs=100)
+    write_metric_figures(make_metrics(), tmp_path / 'none_masked', 'f1_macro', min_test_pairs=10)
+    assert (tmp_path / 'all_masked' / 'metrics_by_group_f1_macro.png').exists()
+    assert (tmp_path / 'none_masked' / 'metrics_by_group_f1_macro.png').exists()
+
+
+def test_count_figure_is_written(tmp_path):
+    from src.analysis.metadata_group_report import plot_count_grid
+    counts = pd.DataFrame([
+        {'population': 'p', 'pair': 'PB2-PB1', 'fold': 'fold_0', 'split': split,
+         'host': host, 'hn_subtype': subtype, 'year': year, 'n_pos': 5, 'n_neg': 5}
+        for split in ('train', 'val', 'test') for host, subtype, year in GROUPS])
+    plot_count_grid(counts, out_png=tmp_path / 'counts_by_group.png', title='counts')
+    assert (tmp_path / 'counts_by_group.png').exists()

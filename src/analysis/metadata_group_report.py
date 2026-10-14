@@ -29,8 +29,14 @@ CLI:
         --out_dir results/flu/July_2025/<dir>
 
 Outputs (to `--out_dir`):
-    metadata_group_counts.csv      with `--dataset_manifest`
-    test_metrics_by_metadata.csv   with `--run_manifest`
+    metadata_group_counts.csv          with `--dataset_manifest`
+    counts_by_group.png                the same counts as a (group x schema pair) grid
+    test_metrics_by_metadata.csv       with `--run_manifest`
+    metrics_by_group_<metric>.png      one row per metadata group
+    metrics_by_axis_<metric>.png       one row per host, HN subtype and year value
+
+The schema-pair matrix for the whole population is the fourth figure Task 2 reports, and
+`aggregate_allpairs_results.py` already writes it as `matrix_f1_macro.png`.
 """
 from __future__ import annotations
 
@@ -273,8 +279,201 @@ def test_metrics_by_metadata(run_manifest_path: Path) -> pd.DataFrame:
     return ordered[METRIC_COLUMNS]
 
 
+def group_label(values) -> str:
+    """One metadata group's axis values as a row label, e.g. `Human-H3N2-2022`.
+
+    Args:
+        values: the group's values, in `GROUP_AXES` order.
+
+    Returns:
+        The values joined by `-`, which is how `population_label` names a population.
+    """
+    return '-'.join(str(value) for value in values)
+
+
+def pair_columns(pairs) -> list:
+    """Schema pair labels in canonical protein order, so a figure's columns read as segments.
+
+    Args:
+        pairs: the pair labels present, e.g. `{'PB2-PB1', 'NP-M1'}`.
+
+    Returns:
+        The labels sorted by their two proteins' positions in `PROTEINS`, with any label whose
+        proteins are not both known sorted after them by name.
+    """
+    from src.analysis.aggregate_allpairs_results import PROTEINS
+
+    def position(label: str):
+        parts = label.split('-')
+        if len(parts) == 2 and all(part in PROTEINS for part in parts):
+            return (0, PROTEINS.index(parts[0]), PROTEINS.index(parts[1]))
+        return (1, 0, 0)
+
+    return sorted(pairs, key=lambda label: (position(label), label))
+
+
+def fold_summary(metrics: pd.DataFrame, metric: str) -> tuple:
+    """Each (row, pair) cell's fold mean, fold SD and contributing fold count.
+
+    A fold where the metric is NaN, which is a group with one class in that fold's test split,
+    is left out of its own cell rather than counted as a zero.
+
+    Args:
+        metrics: rows of `test_metrics_by_metadata.csv` for one grouping, with a `row` column
+            holding the label to use.
+        metric: the metric column to summarize.
+
+    Returns:
+        (mean, sd, folds) as DataFrames indexed by row label with one column per schema pair.
+    """
+    grouped = metrics.groupby(['row', 'pair'])[metric]
+    mean = grouped.mean().unstack('pair')
+    sd = grouped.std(ddof=1).unstack('pair')
+    folds = grouped.count().unstack('pair')
+    columns = pair_columns(mean.columns)
+    return mean[columns], sd[columns], folds[columns]
+
+
+def plot_metric_grid(mean: pd.DataFrame, sd: pd.DataFrame, folds: pd.DataFrame, *,
+                     out_png: Path, title: str, ylabel: str, cbar_label: str,
+                     scale: tuple, blank: pd.DataFrame = None) -> None:
+    """Draw a (row x schema pair) metric grid, each cell the fold mean over the fold SD.
+
+    Args:
+        mean: fold means, from `fold_summary`.
+        sd: fold SDs, same layout.
+        folds: contributing fold counts, same layout. A cell with one fold has no SD and says so
+            instead; a cell resting on fewer folds than the grid's best-covered one says how many.
+
+        out_png: where to write the PNG.
+        title: figure title, which carries the population.
+        ylabel: what the rows are.
+        cbar_label: color bar label.
+        scale: (vmin, vmax) shared with the figure's sibling, so the two are comparable by eye.
+        blank: True where a cell is masked out, or None to draw every cell.
+
+    Returns:
+        None. Writes `out_png`.
+    """
+    from src.utils.plot_utils import annotated_heatmap
+
+    values = mean.to_numpy(dtype=float)
+    most_folds = int(np.nanmax(folds.to_numpy(dtype=float))) if folds.size else 0
+    text = [['' for _ in mean.columns] for _ in mean.index]
+    for i in range(len(mean.index)):
+        for j in range(len(mean.columns)):
+            if np.isnan(values[i, j]):
+                continue
+            n_folds = int(folds.iat[i, j])
+            lines = [f'{values[i, j]:.3f}']
+            lines.append(f'± {sd.iat[i, j]:.3f}' if n_folds > 1 else '1 fold')
+            if 1 < n_folds < most_folds:
+                lines.append(f'{n_folds}/{most_folds} folds')
+            text[i][j] = '\n'.join(lines)
+    annotated_heatmap(
+        values, row_labels=[str(label) for label in mean.index],
+        col_labels=[str(label) for label in mean.columns], out_png=out_png, title=title,
+        xlabel='Schema pair', ylabel=ylabel, cbar_label=cbar_label, cmap='YlGnBu',
+        vmin=scale[0], vmax=scale[1], cell_text=text,
+        blank_mask=None if blank is None else blank.to_numpy(bool),
+        figsize=(1.6 + 0.70 * len(mean.columns), 2.2 + 0.52 * len(mean.index)),
+        cell_fontsize=7, row_fontsize=9, col_rotation=45)
+    print(f'Saved {out_png}')
+
+
+def plot_count_grid(counts: pd.DataFrame, *, out_png: Path, title: str) -> None:
+    """Draw the (metadata group x schema pair) grid of test positives summed over folds.
+
+    Args:
+        counts: `metadata_group_counts.csv` rows.
+        out_png: where to write the PNG.
+        title: figure title, which carries the population.
+
+    Returns:
+        None. Writes `out_png`.
+    """
+    from src.utils.plot_utils import annotated_heatmap
+
+    test = counts[counts['split'] == 'test'].copy()
+    test['row'] = test[list(GROUP_AXES)].apply(group_label, axis=1)
+    table = test.groupby(['row', 'pair'])['n_pos'].sum().unstack('pair')
+    table = table[pair_columns(table.columns)]
+    values = table.to_numpy(dtype=float)
+    text = [[('' if np.isnan(values[i, j]) else f'{int(values[i, j]):,}')
+             for j in range(values.shape[1])] for i in range(values.shape[0])]
+    annotated_heatmap(
+        values, row_labels=[str(label) for label in table.index],
+        col_labels=[str(label) for label in table.columns], out_png=out_png, title=title,
+        xlabel='Schema pair', ylabel='Metadata group', cbar_label='Test positives, all folds',
+        cmap='YlGnBu', cell_text=text,
+        figsize=(1.6 + 0.70 * len(table.columns), 2.2 + 0.52 * len(table.index)),
+        cell_fontsize=7, row_fontsize=9, col_rotation=45)
+    print(f'Saved {out_png}')
+
+
+def write_metric_figures(metrics: pd.DataFrame, out_dir: Path, metric: str,
+                         min_test_pairs: int = 0) -> None:
+    """Write the per-group and per-axis metric figures for one population.
+
+    The two share one color scale, so a group's score can be read against its host's or its
+    year's. `min_test_pairs` masks the cells too thin to read, which Open Question 1 of
+    docs/plans/2026-10-08_paper_plan.md has to settle before it is used; at 0 nothing is masked.
+
+    Args:
+        metrics: a `test_metrics_by_metadata.csv` table.
+        out_dir: where the PNGs go.
+        metric: the metric to draw, e.g. `f1_macro`.
+        min_test_pairs: mask a cell whose test pairs, summed over folds, fall below this.
+
+    Returns:
+        None. Writes `metrics_by_group_<metric>.png` and `metrics_by_axis_<metric>.png`.
+    """
+    population = ', '.join(sorted(set(metrics['population'])))
+    joint = metrics[metrics['group_by'] == 'joint'].copy()
+    joint['row'] = joint[list(GROUP_AXES)].apply(group_label, axis=1)
+    axis_rows = metrics[metrics['group_by'].isin(GROUP_AXES)].copy()
+    # An axis row carries its value in its own axis column and blanks in the others.
+    axis_rows['row'] = axis_rows.apply(lambda row: str(row[row['group_by']]), axis=1)
+
+    group_mean, group_sd, group_folds = fold_summary(joint, metric)
+    axis_mean, axis_sd, axis_folds = fold_summary(axis_rows, metric)
+    # Keep the axis rows in GROUP_AXES order, so hosts sit together, then subtypes, then years.
+    axis_order = [value for axis in GROUP_AXES
+                  for value in sorted(set(axis_rows.loc[axis_rows['group_by'] == axis, 'row']))]
+    axis_mean = axis_mean.reindex(axis_order)
+    axis_sd = axis_sd.reindex(axis_order)
+    axis_folds = axis_folds.reindex(axis_order)
+    finite = np.concatenate([group_mean.to_numpy(dtype=float).ravel(),
+                             axis_mean.to_numpy(dtype=float).ravel()])
+    finite = finite[~np.isnan(finite)]
+    scale = (float(finite.min()), float(finite.max())) if finite.size else (None, None)
+
+    blank = None
+    masked = 0
+    if min_test_pairs > 0:
+        pairs_per_cell = (joint.assign(n=joint['n_pos'] + joint['n_neg'])
+                          .groupby(['row', 'pair'])['n'].sum().unstack('pair'))
+        blank = pairs_per_cell.reindex(index=group_mean.index,
+                                       columns=group_mean.columns) < min_test_pairs
+        masked = int(blank.to_numpy(bool).sum())
+    threshold_note = (f'; cells under {min_test_pairs} test pairs left blank ({masked})'
+                      if min_test_pairs > 0 else '')
+    display = metric.replace('_', ' ')
+
+    plot_metric_grid(
+        group_mean, group_sd, group_folds, out_png=out_dir / f'metrics_by_group_{metric}.png',
+        title=f'{display} per metadata group, {population}\nfold mean over fold SD'
+              f'{threshold_note}',
+        ylabel='Metadata group', cbar_label=f'{display} (fold mean)', scale=scale, blank=blank)
+    plot_metric_grid(
+        axis_mean, axis_sd, axis_folds, out_png=out_dir / f'metrics_by_axis_{metric}.png',
+        title=f'{display} per host, HN subtype and year, {population}\n'
+              f'each row pools every metadata group with that value',
+        ylabel='Metadata value', cbar_label=f'{display} (fold mean)', scale=scale)
+
+
 def main() -> None:
-    """Write the per-group counts, the per-group test metrics, or both.
+    """Write the per-group counts, the per-group test metrics, or both, and their figures.
 
     Returns:
         None. Exits non-zero when neither manifest is given or a table cannot be built.
@@ -285,6 +484,11 @@ def main() -> None:
     parser.add_argument('--run_manifest', type=Path, default=None,
                         help='training run manifest whose fits to score per metadata group')
     parser.add_argument('--out_dir', type=Path, required=True)
+    parser.add_argument('--metric', default='f1_macro', choices=list(GROUP_METRICS),
+                        help='the metric the figures draw (default: f1_macro)')
+    parser.add_argument('--min_test_pairs', type=int, default=0,
+                        help='mask figure cells with fewer test pairs than this, summed over '
+                             'folds (default: 0, mask nothing)')
     args = parser.parse_args()
     if args.dataset_manifest is None and args.run_manifest is None:
         parser.error('give --dataset_manifest, --run_manifest, or both')
@@ -296,6 +500,10 @@ def main() -> None:
         counts.to_csv(path, index=False)
         print(f"Wrote {path} ({len(counts):,} rows, "
               f"{counts[list(GROUP_AXES)].drop_duplicates().shape[0]} metadata groups)")
+        population = ', '.join(sorted(set(counts['population'])))
+        plot_count_grid(counts, out_png=args.out_dir / 'counts_by_group.png',
+                        title=f'Test positives per metadata group, {population}\n'
+                              f'summed over folds')
     if args.run_manifest is not None:
         metrics = test_metrics_by_metadata(args.run_manifest)
         path = args.out_dir / 'test_metrics_by_metadata.csv'
@@ -303,6 +511,8 @@ def main() -> None:
         joint = metrics[metrics['group_by'] == 'joint']
         print(f"Wrote {path} ({len(metrics):,} rows, "
               f"{joint[list(GROUP_AXES)].drop_duplicates().shape[0]} metadata groups)")
+        write_metric_figures(metrics, args.out_dir, args.metric,
+                             min_test_pairs=args.min_test_pairs)
     print('Done.')
 
 

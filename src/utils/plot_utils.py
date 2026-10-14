@@ -672,6 +672,7 @@ def annotated_heatmap(
     blank_mask=None,
     blank_color: str = 'white',
     cell_fontsize: int = 7,
+    col_rotation: float = 0,
     ) -> None:
     """Annotated 2-D heatmap (imshow + per-cell value text + colorbar) for a labeled metric grid.
 
@@ -692,6 +693,8 @@ def annotated_heatmap(
         cell_text: same shape as `matrix`, one string per cell; an empty string leaves the cell
             without text. None writes `value_fmt` of each value.
         blank_mask: same shape as `matrix`, True for cells to leave blank; None for none.
+        col_rotation: degrees to rotate the column labels by; 0 leaves them horizontal. A grid
+            with many columns needs it, because long labels otherwise run into each other.
         blank_color: fill of the blank cells.
         cell_fontsize: font size of the cell text.
     """
@@ -715,7 +718,9 @@ def annotated_heatmap(
     masked = np.ma.masked_invalid(m)
     im = ax.imshow(masked, cmap=cmap_obj, vmin=vmin, vmax=vmax, aspect='auto')
     ax.set_xticks(range(ncol))
-    ax.set_xticklabels(col_labels)
+    ax.set_xticklabels(col_labels, rotation=col_rotation,
+                       ha='right' if col_rotation else 'center',
+                       rotation_mode='anchor' if col_rotation else None)
     ax.set_yticks(range(nrow))
     ax.set_yticklabels(row_labels, fontsize=row_fontsize)
     ax.set_xlabel(xlabel)
