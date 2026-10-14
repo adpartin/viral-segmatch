@@ -87,6 +87,7 @@ def test_split_dir_names():
 @pytest.mark.parametrize('name, n_folds, overrides', [
     ('human_h3n2_2024_28p_codon_balanced_cv5.yaml', 5, ['dataset.n_folds=5']),
     ('human_h3n2_2024_28p_codon_balanced_cv4.yaml', 4, []),
+    ('human_pig_h3n2_h1n1_2022_2023_21p_codon_matched_cv5.yaml', 5, ['dataset.n_folds=5']),
 ])
 def test_committed_specs_load(name, n_folds, overrides):
     spec = load_experiment_spec(PROJ / 'conf' / 'experiments' / name)

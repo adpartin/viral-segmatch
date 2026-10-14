@@ -2,11 +2,14 @@
 
 How?
 
-- The bundles are the 28 child bundles `conf/bundles/{bundle_prefix}*.yaml`, and each pair token
-  is the bundle name after the prefix. `--pairs` builds only the listed pairs, so a one-pair pilot
-  runs the same path as the full screen.
+- The bundles are the child bundles `conf/bundles/{bundle_prefix}*.yaml`, and each pair token is
+  the bundle name after the prefix. `--expected-pairs` is how many must exist, 28 for the 28-pair
+  screen and 21 for a population that cannot pin every protein. The count is checked before
+  `--pairs` narrows the set, so a one-pair pilot still confirms the whole set is there and runs
+  the same path as the full screen.
 - Every build receives the experiment spec's override list as `--override`. The spec's `expect`
-  section is not checked here; `src/analysis/audit_pair_datasets.py` checks it.
+  section is checked against every planned build's composed config before the first build starts,
+  and `src/analysis/audit_pair_datasets.py` checks it again against the datasets that were built.
 - An existing dataset directory or manifest stops the script before anything is built, and the
   manifest is written once, after every build has finished. Its contents are described in
   `src/utils/dataset_manifest.py`.
@@ -40,37 +43,42 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.utils.config_hydra import get_function_short_name_map  # noqa: E402
+from src.utils.config_hydra import compose_config, get_function_short_name_map  # noqa: E402
 from src.utils.dataset_manifest import (  # noqa: E402
     dataset_file_checksums,
     pair_token,
     read_split_dirs,
     site_cache_files,
 )
-from src.utils.experiment_spec import load_experiment_spec  # noqa: E402
+from src.utils.experiment_spec import (  # noqa: E402
+    expected_setting_failures,
+    load_experiment_spec,
+)
 from src.utils.experiment_utils import file_sha256, get_git_info  # noqa: E402
 
 DATASET_RUNS = PROJECT_ROOT / 'data/datasets/flu/July_2025/runs'
-N_PAIRS = 28
+DEFAULT_EXPECTED_PAIRS = 28
 
 
-def select_bundles(bundle_prefix: str, pairs: Optional[list]) -> dict:
+def select_bundles(bundle_prefix: str, pairs: Optional[list], expected_pairs: int) -> dict:
     """The child bundles to build, keyed by pair token.
 
     Args:
         bundle_prefix: bundle name minus the pair token, e.g. `flu_28p_codon_`.
         pairs: pair tokens to keep, or None for all of them.
+        expected_pairs: how many child bundles the prefix must match, checked before `pairs`
+            narrows the set.
 
     Returns:
         Pair token -> bundle name, sorted by pair token.
 
     Raises:
-        ValueError: the prefix does not match exactly 28 bundles, or a requested pair has no
-            bundle.
+        ValueError: the prefix does not match exactly `expected_pairs` bundles, or a requested
+            pair has no bundle.
     """
     bundles = sorted(p.stem for p in (PROJECT_ROOT / 'conf/bundles').glob(f'{bundle_prefix}*.yaml'))
-    if len(bundles) != N_PAIRS:
-        raise ValueError(f'select_bundles: expected {N_PAIRS} child bundles matching '
+    if len(bundles) != expected_pairs:
+        raise ValueError(f'select_bundles: expected {expected_pairs} child bundles matching '
                          f'{bundle_prefix}*.yaml; found {len(bundles)}')
     by_pair = {bundle[len(bundle_prefix):]: bundle for bundle in bundles}
     if pairs:
@@ -79,6 +87,28 @@ def select_bundles(bundle_prefix: str, pairs: Optional[list]) -> dict:
             raise ValueError(f'select_bundles: no {bundle_prefix}* bundle for pairs {unknown}')
         by_pair = {pair: by_pair[pair] for pair in sorted(set(pairs))}
     return by_pair
+
+
+def check_planned_configs(by_pair: dict, spec: dict) -> list:
+    """Messages for every planned build whose config lacks a setting the experiment spec requires.
+
+    Composes each child bundle with the spec's overrides, the way the builder will, and compares
+    the result against the spec's `expect` section. Run before the first build, so a bundle set
+    that cannot satisfy the spec costs nothing.
+
+    Args:
+        by_pair: pair token -> child bundle name, from `select_bundles`.
+        spec: from `load_experiment_spec`.
+
+    Returns:
+        One message per pair and mismatched key, empty when every planned build matches.
+    """
+    failures = []
+    for pair, bundle in by_pair.items():
+        planned_config = compose_config(bundle, spec['overrides'])
+        failures.extend(f'{pair}: {message}'
+                        for message in expected_setting_failures(planned_config, spec['expect']))
+    return failures
 
 
 def _build_one(bundle: str, output_dir: Path, overrides: list) -> tuple[str, int]:
@@ -158,8 +188,11 @@ def main() -> None:
                         help='pair-capacity table the audit will check these datasets against')
     parser.add_argument('--bundle-prefix', default='flu_28p_codon_',
                         help='bundle name minus the pair token (default: flu_28p_codon_)')
+    parser.add_argument('--expected-pairs', type=int, default=DEFAULT_EXPECTED_PAIRS,
+                        help=f'child bundles the prefix must match '
+                             f'(default: {DEFAULT_EXPECTED_PAIRS})')
     parser.add_argument('--pairs', nargs='+', default=None,
-                        help='pair tokens to build, e.g. pb2_ha; default all 28')
+                        help='pair tokens to build, e.g. pb2_ha; default every matched bundle')
     parser.add_argument('--max-workers', type=int, default=4)
     args = parser.parse_args()
     if args.max_workers < 1:
@@ -170,7 +203,7 @@ def main() -> None:
         parser.error(f'--capacity-csv {args.capacity_csv} does not exist')
 
     spec = load_experiment_spec(args.experiment_spec)
-    by_pair = select_bundles(args.bundle_prefix, args.pairs)
+    by_pair = select_bundles(args.bundle_prefix, args.pairs, args.expected_pairs)
     jobs = {pair: (bundle, DATASET_RUNS / f'{args.dataset_prefix}{pair}')
             for pair, bundle in by_pair.items()}
     manifest_path = DATASET_RUNS / f'{args.dataset_prefix.rstrip("_")}_manifest.json'
@@ -179,6 +212,12 @@ def main() -> None:
         existing.append(str(manifest_path))
     if existing:
         raise FileExistsError(f'Dataset outputs already exist: {existing}')
+
+    setting_failures = check_planned_configs(by_pair, spec)
+    if setting_failures:
+        listed = '\n  '.join(setting_failures)
+        raise ValueError(f'The planned builds do not match {args.experiment_spec.name}:\n  '
+                         f'{listed}')
 
     code = get_git_info()
     print(f'Building {len(jobs)} datasets with {args.max_workers} workers at commit '

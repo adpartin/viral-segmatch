@@ -6,9 +6,11 @@
 # Written from the plan, not copied from a built dataset; see "Experiment spec" in
 # docs/methods/glossary.md. The `dataset.negative_sampling` keys below are not in any bundle yet.
 # Step 1 of "Matched balanced-usage negatives" adds the guard and the master bundle gains the
-# block, so a build checked against this spec fails until both land. That is the intended
-# behavior: Task 2 scores per metadata group only mean something once every negative matches on
-# host, HN subtype and exact year.
+# block. Until both land, every stage that reads this spec rejects the work: the build preflight
+# in scripts/run_allpairs_datasets.py, the dataset audit in src/analysis/audit_pair_datasets.py,
+# and the fit check in scripts/run_allpairs_baselines.py. That is the intended behavior, because
+# Task 2 scores per metadata group only mean something once every negative matches on host, HN
+# subtype and exact year.
 
 # Applied on top of every child bundle, in order. Only what differs from the bundles.
 overrides:
