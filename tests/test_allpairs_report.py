@@ -82,3 +82,19 @@ def test_report_info(tmp_path):
     info = json.loads((tmp_path / 'report_info.json').read_text())
     assert info['code']['commit'] == get_git_info()['commit']
     assert info['inputs'] == inputs
+
+
+@pytest.mark.parametrize('n_datasets, n_run_pairs, built_pairs, n_failures', [
+    (21, 21, None, 0),     # the 21-pair screen
+    (28, 28, None, 0),     # the 28-pair screen
+    (28, 21, None, 1),     # a run missing pairs the datasets cover
+    (1, 1, ['np_m1'], 1),  # a pilot build cannot carry a final report
+])
+def test_final_report_needs_every_built_pair(n_datasets, n_run_pairs, built_pairs, n_failures):
+    from src.analysis.aggregate_allpairs_results import final_pair_coverage_failures
+    dataset_manifest = {'datasets': {f'bundle{i}': {} for i in range(n_datasets)},
+                        'pairs': built_pairs}
+    run_manifest = {'pairs': {f'pair{i}': {} for i in range(n_run_pairs)}}
+    assert len(final_pair_coverage_failures(run_manifest, dataset_manifest, True)) == n_failures
+    # Without --final the pair count is not checked at all.
+    assert final_pair_coverage_failures(run_manifest, dataset_manifest, False) == []

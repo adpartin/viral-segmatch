@@ -40,8 +40,9 @@ check stops the report before anything is written:
   draws, the median per-pair probability and raw-score SD across draws for each test class, and
   the two negative-pair overlap counts. The lower-triangle matrix shows, per pair, the mean over
   folds of the within-fold SD of F1 macro across draws.
-- `--final` also requires all 28 pairs, and every fit at the datasets' commit with a clean
-  worktree.
+- `--final` also requires every pair the datasets cover, and every fit at the datasets' commit
+  with a clean worktree. How many pairs that is comes from the dataset manifest, so a 21-pair
+  screen is held to 21 and a 28-pair screen to 28.
 
 Both modes write `report_info.json` in the output directory: the code commit the report ran at,
 its command line, and its inputs.
@@ -440,7 +441,6 @@ CAPACITY_TABLE_COLUMNS = ['Pair ID', 'Schema pair', 'Eligible isolates', 'Unique
 FIT_TEST_METRICS = ['f1', 'f1_macro', 'precision', 'recall', 'auc_roc']
 DISPLAY_METRICS = {'f1_macro': 'F1 macro', 'auc_roc': 'AUC-ROC', 'precision': 'Precision',
                    'recall': 'Recall'}
-N_PAIRS = 28
 
 
 def recomputed_test_metrics(model_dir: Path) -> Tuple[dict, List[str]]:
@@ -593,6 +593,36 @@ def _pair_labels(dataset_manifest: dict) -> Dict[str, Tuple[str, str]]:
     return labels
 
 
+def final_pair_coverage_failures(run_manifest: dict, dataset_manifest: dict,
+                                 final: bool) -> List[str]:
+    """Reasons a run does not cover every pair a final report needs.
+
+    The pair count comes from the datasets rather than from a constant, because it is the screen
+    that fixes it: 28 pairs over 8 proteins, or 21 when a population cannot pin all 8. A dataset
+    build that itself covered only some pairs cannot carry a final report either.
+
+    Args:
+      run_manifest: the training or redraw run manifest.
+      dataset_manifest: the dataset manifest it was built from.
+      final: whether a final report was asked for; nothing is checked otherwise.
+
+    Returns:
+      One message per problem; empty when the run covers every pair, or when `final` is False.
+    """
+    if not final:
+        return []
+    failures = []
+    built_pairs = dataset_manifest.get("pairs")
+    if built_pairs:
+        failures.append(f"a final report needs datasets for every pair; these were built with "
+                        f"--pairs {sorted(built_pairs)}")
+    expected = len(dataset_manifest["datasets"])
+    if len(run_manifest["pairs"]) != expected:
+        failures.append(f"a final report needs the {expected} pairs the datasets cover; the run "
+                        f"has {len(run_manifest['pairs'])}")
+    return failures
+
+
 def training_run_table(run_manifest_path: Path, final: bool):
     """The training-run table: one row per schema pair, with its capacity columns.
 
@@ -614,9 +644,7 @@ def training_run_table(run_manifest_path: Path, final: bool):
     capacity = pd.read_csv(capacity_path, keep_default_na=False, na_values=[""])
 
     failures, rows = [], []
-    if final and len(run_manifest["pairs"]) != N_PAIRS:
-        failures.append(f"a final report needs {N_PAIRS} pairs; the run has "
-                        f"{len(run_manifest['pairs'])}")
+    failures.extend(final_pair_coverage_failures(run_manifest, dataset_manifest, final))
     for pair, plan in sorted(run_manifest["pairs"].items()):
         label, population = labels[pair]
         fold_metrics, widths = [], set()
@@ -678,9 +706,7 @@ def redraw_run_table(run_manifest_path: Path, final: bool):
     seeds = run_manifest["seeds"]
 
     failures, rows = [], []
-    if final and len(run_manifest["pairs"]) != N_PAIRS:
-        failures.append(f"a final report needs {N_PAIRS} pairs; the run has "
-                        f"{len(run_manifest['pairs'])}")
+    failures.extend(final_pair_coverage_failures(run_manifest, dataset_manifest, final))
     for pair, plan in sorted(run_manifest["pairs"].items()):
         label, _ = labels[pair]
         analysis_dir = Path(plan["analysis_dir"])
