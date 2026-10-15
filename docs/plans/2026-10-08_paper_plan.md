@@ -609,31 +609,86 @@ or for interpreting thin cells in this one.
 
 ## 3. Test on future-year pairs
 
-**Goal.** Using model(s) trained on prior years, how well can we predict pairs
-from future years?
+**Goal.** Train on past-year pairs and test on future-year pairs whose endpoint sequences were not
+selected for training or validation. Report performance separately for each test year.
 
-**Methods.**
-- Temporal holdout: keep future-year pairs out of model training. Set with
-  `dataset.metadata_holdout`, which takes a `train` and a `test` year filter.
-- Hopcroft-Karp selection and the temporal holdout cannot be combined today. Active
-  `dataset.positive_pair_selection` requires `dataset.n_folds >= 2`, and `dataset.metadata_holdout`
-  allows only a single split (`n_folds` null or 1). Using Task 1's `HK selected` positives in Task 3
-  needs a builder change.
-- Balanced-usage negatives draw both sequences of a negative from the same split. With a single
-  test year, every test negative therefore pairs two sequences from that year. Training negatives
-  from a multi-year training filter can pair different years. The matched sampler from Task 2
-  ("Matched balanced-usage negatives") would match training negatives on year as well. Decide
-  whether to use it before Task 3 runs.
-- E.g., `train: {year_range: [2015, 2024]}` and `test: {year: [2025]}`; `year_range` is inclusive.
-  The bundle `conf/bundles/flu_ha_na_h3n2_nt_cds_temporal_2025.yaml` already does this for HA-NA in
-  H3N2.
-- Compare the above with a random split within 2025: filter the population to 2025
-  (`dataset.year: [2025]`) and split it at random. Do not give `metadata_holdout` the same train and
-  test years: it requires disjoint train and test isolate sets and fails otherwise.
-- E.g., `train: {year_range: [2015, 2020]}` and `test: {year_range: [2021, 2025]}`.
-  Break down performance by test year.
-- Does prediction uncertainty increase as we predict further into the future?
+**Example run.** For one schema pair, use 2011–2013 as the past pool and 2014–2015 as the future
+pool. Set `dataset.metadata_holdout.train: {year_range: [2011, 2013]}` and
+`dataset.metadata_holdout.test: {year_range: [2014, 2015]}`. These are example years; choose a
+population with enough selected positives in each split before fixing the experiment bundle. Use
+the same sequence filters and `pair_key_alphabet` in both pools. The Task 1/2 codon setting uses
+`nt_cds`.
 
-**Results.**
-- Plot of F1 vs Year.
-- ...
+1. Build positive candidates from the past pool only. Deduplicate by `pair_key`, then run
+   Hopcroft–Karp (HK) once on those candidates. Randomly assign `dataset.val_ratio` of the selected
+   positives to validation with a recorded seed; the rest go to training. Freeze both sets.
+2. Build positive candidates from both future years. Drop a candidate if its slot-A sequence was
+   selected in past training or validation, or if its slot-B sequence was selected there. Compare
+   hashes in the configured `pair_key_alphabet`. Deduplicate the remaining future candidates by
+   `pair_key`, then run HK once across both future years. These selected pairs form the test set;
+   future selection cannot change the frozen past positives.
+3. Assert that no selected `pair_key`, slot-A hash or slot-B hash occurs in more than one split.
+   Record candidate, deduplicated, excluded-for-past-overlap and HK-selected counts by period.
+   Also report HK-selected counts by test year. Use the source year of each retained positive for
+   its test-year group.
+4. Draw 1:1 balanced-usage negatives separately in each split. Use Task 2's matched profile so
+   both endpoints of each negative share host, HN subtype and exact year. Fail with the split and
+   group named if a one-use matching cannot be made. Train one model on the past training set,
+   select its settings on past validation, and evaluate it once on the combined future test set.
+
+**Required code changes.**
+- Add a single-split temporal HK path and allow active `positive_pair_selection` with
+  `metadata_holdout` and `dataset.n_folds: 1`. The current validator requires at least two folds
+  for active selection. The current holdout path divides past isolates into train and validation
+  before positive selection, so it must instead divide the past HK-selected pairs afterward.
+- Build and select past positives before examining future candidates. Do not globally deduplicate
+  positive pairs across both periods or rerun HK on their union. Reuse the positive selector and
+  the existing prepartitioned-positive input to `split_dataset_v2` for negative sampling and
+  audits. Save the period-specific selection counts and cross-split overlap checks.
+- Negatives are already blocked in every split against a corpus-wide co-occurrence set, so this
+  needs no Task 3 work. `_pair_helpers.build_corpus_cooccurrence_set` builds it on the two
+  proteins of the schema pair and the configured `pair_key_alphabet`, reading the alphabet's own
+  `*_final` table, so neither the population filters nor the pinned-length filter narrow it. A
+  sequence pair observed together anywhere in the corpus never receives a negative label, in the
+  test split as well as in training. The set spans both periods, so a co-occurrence first seen in
+  a future isolate can reject a past training negative. That is accepted here: it only removes
+  candidate negatives and corrects labels, and it never puts information about a test pair into a
+  training row. The scope and size are recorded with the dataset statistics as
+  `co_occurrence_blocking.scope` and `total_cooccur_pairs`, and the audit count of observed
+  positives labeled negative is measured against this set.
+- Add a bundle and experiment spec for the chosen years and pair. Exercise the single-split
+  dataset audit, fit runner and aggregator end to end; adjust any fold-count assumptions or
+  figure labels that call a single holdout `CV`. The existing temporal HA-NA bundle uses a
+  different year window and does not select HK positives.
+- Use the existing year rows in `test_metrics_by_metadata.csv` for per-test-year scores. Add a
+  plot of F1 macro against test year from this one held-out model; `plot_year_sweep.py` reads
+  separate random-split runs and does not draw this result.
+
+**Results.** Report test positives, negatives, F1 macro and AUC-ROC for 2014 and 2015, alongside
+the combined test score. Plot F1 macro by test year with the counts visible. This single split
+has no across-fold SD. A difference between the two years describes this held-out test set; it
+does not isolate elapsed time from changes in the sampled sequences or metadata groups.
+
+**Notes.**
+- The corpus-wide blocking set changes few labels. Checked directly against the Task 2 run
+  `task2_21p_codon_matched_20261014_090208_*`, 6 of 382,885 saved negatives across 21 pairs and 5
+  folds are corpus co-occurrences, and in the Task 1 run
+  `h3n2_2024_28p_codon_cv5_20261009_141504_*`, 6 of 164,705 across 28 pairs and 5 folds, with
+  per-pair counts of 0 or 1. On the Task 2 population, the sequence pairs that co-occur outside
+  that population while both of their sequences are present inside it number 68 for PB2-NP, 129
+  for NP-M1, 69 for HA-NA and 47 for PB2-PB1, against slot universes of 12 to 33 million candidate
+  cells. Under uniform draws that is 0.01 to 0.06 expected mislabeled negatives per split. These
+  counts use complete CDS at the modal length per protein in place of the pin, so they are
+  candidate counts rather than counts from a build.
+- A single split is `dataset.n_folds: null` in both existing holdout bundles. The validator
+  accepts null or 1, so the Task 3 bundle should state which one it uses.
+- Validation drives LightGBM early stopping on AUC, over 50 rounds by default. The decision
+  threshold stays at 0.5, because `conf/training/base.yaml` sets `threshold_metric: null`. A fixed
+  threshold is what lets F1 macro drift when the score distribution shifts between years while
+  AUC-ROC holds, which is the reason to report both.
+- `dataset.val_ratio` is 0.1 and currently means a fraction of the train isolates. Step 1 above
+  reuses it as a fraction of the selected past pairs.
+- Two temporal HA-NA bundles already exist:
+  `conf/bundles/flu_ha_na_h3n2_nt_cds_temporal_2025.yaml` (train 2015-2024, test 2025) and
+  `conf/bundles/flu_ha_na_h3n2_temporal_2024_to_2025.yaml` (train 2024, test 2025). Both leave
+  `dataset.positive_pair_selection.method` at `all`.
