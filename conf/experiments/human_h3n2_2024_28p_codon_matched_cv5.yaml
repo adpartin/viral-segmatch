@@ -1,0 +1,58 @@
+# Experiment spec: the 28-pair per-site codon screen on Human-H3N2-2024 with 5-fold CV and
+# matched balanced-usage negatives.
+# Bundles: conf/bundles/flu_28p_codon_*.yaml. Design: docs/plans/2026-10-08_paper_plan.md section 1.
+# Written from the plan, not copied from a built dataset; see "Experiment spec" in
+# docs/methods/glossary.md.
+#
+# This spec replaces human_h3n2_2024_28p_codon_balanced_cv5.yaml, which expects no
+# `dataset.negative_sampling` block and so rejects the master bundle from 2026-10-15 onwards. The
+# older spec stays in place because the dataset and training manifests of the runs built with it
+# record it by path and checksum.
+#
+# The population is one metadata group, Human-H3N2-2024, so the matched sampler's constraint rules
+# nothing out here. The block is what selects that sampler, and it is the same block
+# conf/experiments/human_pig_h3n2_h1n1_2022_2023_21p_codon_matched_cv5.yaml expects for Task 2, so
+# both screens draw their negatives the same way.
+
+# Applied on top of every child bundle, in order. Only what differs from the bundles.
+overrides:
+  - dataset.n_folds=5
+
+# Every dataset's resolved_config.yaml and every planned fit config must have these values.
+expect:
+  # Population
+  dataset.host: [Human]
+  dataset.hn_subtype: [H3N2]
+  dataset.year: [2024]
+  # Positive selection
+  dataset.positive_pair_selection.method: hopcroft_karp
+  dataset.split_strategy.pair_key_alphabet: nt_cds
+  # Negative sampler and ratio
+  dataset.split_strategy.negative_scope: balanced
+  dataset.neg_to_pos_ratio: 1.0
+  # Matched negatives: both sides share host, HN subtype and exact year
+  dataset.negative_sampling.axes: [host, hn_subtype, year]
+  dataset.negative_sampling.year_match: exact
+  dataset.negative_sampling.on_shortfall: error
+  dataset.negative_sampling.regime_targets:
+    none_match: 0.0
+    host_only: 0.0
+    subtype_only: 0.0
+    year_only: 0.0
+    host_subtype_only: 0.0
+    host_year_only: 0.0
+    subtype_year_only: 0.0
+    host_subtype_year: 1.0
+  # Pinned-length requirement
+  dataset.require_complete_cds_at_pinned_length: true
+  # Fold count
+  dataset.n_folds: 5
+  # Feature settings
+  training.feature_source: site
+  site.unit: codon
+  site.encoding: ordinal
+  training.interaction: concat
+  training.slot_transform: none
+  # LightGBM row sampling
+  baseline_lgbm.subsample: 0.7
+  baseline_lgbm.subsample_freq: 1
