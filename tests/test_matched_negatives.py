@@ -1,8 +1,11 @@
-"""Unit tests for the matched balanced-usage negative sampler and the config it requires.
+"""Unit tests for the matched balanced-usage negative sampler, its config, and its redraw.
 
 The sampler is in src/datasets/_negative_sampling.py; the profile check is in
 `_validate_v2_config` in src/datasets/dataset_segment_pairs_v2.py. Together they are what makes a
 negative belong to exactly one metadata group, which is what per-group scoring reads.
+`balanced_sampler_name` is how a script reads that choice back off a built dataset's config, and
+`scripts/resample_balanced_train_negatives.py` redraws a frozen fold's training negatives with
+whichever sampler the config names.
 
 Run: python -m pytest tests/test_matched_negatives.py
 """
@@ -15,11 +18,18 @@ from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
+sys.path.insert(0, str(PROJ / 'scripts'))
+
+from resample_balanced_train_negatives import _matched_isolate_groups, _redraw
 
 from src.datasets._negative_regime_sampling import REGIME_NAMES
 from src.datasets._negative_sampling import matched_balanced_usage_negatives
 from src.datasets._pair_helpers import canonical_pair_key
-from src.datasets.dataset_segment_pairs_v2 import _validate_v2_config
+from src.datasets.dataset_segment_pairs_v2 import (
+    _validate_v2_config,
+    balanced_sampler_name,
+    compute_axis_flags,
+)
 from src.utils import schema
 
 PAIR_COLUMNS = schema.build_pair_columns()
@@ -59,6 +69,16 @@ def make_positives(group_sizes=GROUP_SIZES):
             row.update({'assembly_id_a': assembly_id, 'assembly_id_b': assembly_id,
                         f'{HASH_COL}_a': f'a-{assembly_id}', f'{HASH_COL}_b': f'b-{assembly_id}',
                         'label': 1})
+            # The other per-side fields let the plain balanced sampler enrich a drawn hash back
+            # to its isolate, which is how `balanced_usage_negatives` fills its output rows.
+            for suffix, function in zip(('a', 'b'), SCHEMA_PAIR):
+                side = f'{suffix}-{assembly_id}'
+                row.update({f'brc_{suffix}': f'{side}.1', f'ctg_{suffix}': f'{side}.ctg',
+                            f'prot_seq_{suffix}': f'M{side}',
+                            f'ctg_dna_seq_{suffix}': f'ATG{side}',
+                            f'seg_{suffix}': function, f'func_{suffix}': function,
+                            f'prot_hash_{suffix}': f'prot-{side}',
+                            f'ctg_dna_hash_{suffix}': f'ctg-{side}'})
             row['pair_key'] = canonical_pair_key(row[f'{HASH_COL}_a'], row[f'{HASH_COL}_b'])
             rows.append(row)
     return pd.DataFrame(rows)[PAIR_COLUMNS], isolate_to_group
@@ -189,3 +209,105 @@ def test_coverage_keeps_a_spread_profile():
         'negative_sampling': spread,
     }})
     _validate_v2_config(config)
+
+
+def test_balanced_sampler_name_reads_the_choice_off_a_config():
+    assert (balanced_sampler_name(balanced_config(MATCHED_PROFILE))
+            == 'matched_balanced_usage_negatives')
+    # The bundles that draw plain balanced negatives carry the key with a null value.
+    explicit_null = OmegaConf.create({'dataset': {'negative_sampling': None,
+                                                  'split_strategy': {'negative_scope': 'balanced'}}})
+    assert balanced_sampler_name(explicit_null) == 'balanced_usage_negatives'
+    assert balanced_sampler_name(balanced_config()) == 'balanced_usage_negatives'
+
+
+def test_balanced_sampler_name_is_none_for_every_other_scope():
+    coverage = OmegaConf.create({'dataset': {'negative_sampling': MATCHED_PROFILE,
+                                             'split_strategy': {'negative_scope': 'coverage'}}})
+    assert balanced_sampler_name(coverage) is None
+    assert balanced_sampler_name(OmegaConf.create({'dataset': {}})) is None
+
+
+def isolate_metadata(isolate_to_group):
+    """One metadata row per isolate, holding every axis `compute_axis_flags` reads.
+
+    Args:
+        isolate_to_group: assembly_id -> metadata group tuple.
+
+    Returns:
+        One row per isolate, with the three matched axes from its group and one constant value for
+        `geo_location` and `passage`, the two axes the matched sampler does not use.
+    """
+    rows = [{'assembly_id': assembly_id, 'host': host, 'hn_subtype': subtype, 'year': year,
+             'geo_location': 'USA', 'passage': 'original'}
+            for assembly_id, (host, subtype, year) in isolate_to_group.items()]
+    return pd.DataFrame(rows)
+
+
+def make_train_split(group_sizes=GROUP_SIZES):
+    """A frozen training split shaped like the `train_pairs.csv` of a matched dataset.
+
+    Args:
+        group_sizes: metadata group tuple -> how many positives it holds.
+
+    Returns:
+        (the split's positives and matched negatives with their metadata columns,
+         assembly_id -> metadata group, the observed pair keys the negatives avoid).
+    """
+    positives, isolate_to_group = make_positives(group_sizes)
+    cooccur = set(positives['pair_key'])
+    negatives, _ = draw(positives, isolate_to_group, cooccur=cooccur)
+    rows = pd.concat([positives, negatives], ignore_index=True)
+    train = compute_axis_flags(rows, isolate_metadata(isolate_to_group))
+    return train, isolate_to_group, cooccur
+
+
+def test_redraw_keeps_matched_negatives_inside_one_group():
+    train, isolate_to_group, cooccur = make_train_split()
+    frozen = set(train.loc[train['label'] == 0, 'pair_key'])
+
+    out, keys = _redraw(train, cooccur, set(), seed=7, isolate_to_group=isolate_to_group)
+
+    negatives = out.loc[out['label'] == 0]
+    assert list(out.columns) == list(train.columns)
+    assert len(negatives) == int((train['label'] == 1).sum())
+    assert set(negatives['pair_key']) == keys
+    assert not keys & cooccur
+    assert negatives[f'{HASH_COL}_a'].is_unique
+    assert negatives[f'{HASH_COL}_b'].is_unique
+    group_a = negatives['assembly_id_a'].map(isolate_to_group)
+    group_b = negatives['assembly_id_b'].map(isolate_to_group)
+    assert (group_a == group_b).all()
+    assert keys != frozen
+    assert (negatives['same_host'] & negatives['same_hn_subtype'] & negatives['same_year']).all()
+
+
+def test_redraw_without_matching_crosses_metadata_groups():
+    train, isolate_to_group, cooccur = make_train_split()
+
+    out, keys = _redraw(train, cooccur, set(), seed=7, isolate_to_group=None)
+
+    negatives = out.loc[out['label'] == 0]
+    assert len(negatives) == int((train['label'] == 1).sum())
+    assert not keys & cooccur
+    group_a = negatives['assembly_id_a'].map(isolate_to_group)
+    group_b = negatives['assembly_id_b'].map(isolate_to_group)
+    assert (group_a != group_b).any()
+
+
+def test_matched_isolate_groups_follows_the_config():
+    train, isolate_to_group, _ = make_train_split()
+    positives = train.loc[train['label'] == 1]
+
+    assert _matched_isolate_groups(balanced_config(), positives) is None
+    groups = _matched_isolate_groups(balanced_config(MATCHED_PROFILE), positives)
+    assert groups == {assembly_id: tuple(group)
+                      for assembly_id, group in isolate_to_group.items()}
+
+    binned = {**MATCHED_PROFILE, 'year_match': 'binned'}
+    with pytest.raises(ValueError, match="'exact' years only"):
+        _matched_isolate_groups(balanced_config(binned), positives)
+    coverage = OmegaConf.create({'dataset': {'negative_sampling': MATCHED_PROFILE,
+                                             'split_strategy': {'negative_scope': 'coverage'}}})
+    with pytest.raises(ValueError, match='negative_scope'):
+        _matched_isolate_groups(coverage, positives)

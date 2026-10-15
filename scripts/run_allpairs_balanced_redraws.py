@@ -15,10 +15,10 @@ How?
 - The current commit must equal the dataset manifest's, and every dataset file and site-feature
   cache file must still have its recorded checksum.
 - Before redrawing, each dataset must meet the redraw script's assumptions: Hopcroft-Karp
-  positives keyed on the CDS hash, balanced-usage negatives at a 1:1 ratio, no metadata-matched
-  negative sampling, and a passed one-use audit (`check_balanced_usage` in
-  `src/analysis/audit_pair_datasets.py`). The redraw always draws balanced-usage negatives, so on
-  a metadata-matched dataset it would produce unmatched ones.
+  positives keyed on the CDS hash, balanced-usage negatives at a 1:1 ratio, and a passed one-use
+  audit (`check_balanced_usage` in `src/analysis/audit_pair_datasets.py`). The redraw uses the
+  sampler the dataset was built with, plain or metadata-matched; a matched dataset must match on
+  exact years, since that is what the redraw can rebuild from the saved positives.
 - The first call writes `redraw_run_manifest.json` with the dataset manifest, the seeds, the
   commit and every redraw, model and analysis directory. As each fold's redraw finishes, the
   checksums of its files are added. A resume call names that file with `--resume`, reuses its run
@@ -35,7 +35,7 @@ How?
 CLI:
     python scripts/run_allpairs_balanced_redraws.py \
         --dataset_manifest data/datasets/flu/July_2025/runs/<prefix>_manifest.json \
-        --experiment_spec conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml \
+        --experiment_spec conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml \
         --seeds 42 43 --pairs pb2_ha --dry_run
 
     python scripts/run_allpairs_balanced_redraws.py \
@@ -65,6 +65,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.analysis.audit_pair_datasets import check_balanced_usage  # noqa: E402
+from src.datasets.dataset_segment_pairs_v2 import balanced_sampler_name  # noqa: E402
 from src.models.baseline_fits import (  # noqa: E402
     concurrent_fits,
     existing_fit_problems,
@@ -106,8 +107,11 @@ def redraw_assumption_failures(dataset_dir: Path, split_dirs: list) -> list:
         'dataset.split_strategy.pair_key_alphabet': 'nt_cds',
         'dataset.split_strategy.negative_scope': 'balanced',
         'dataset.neg_to_pos_ratio': 1.0,
-        'dataset.negative_sampling': None,
     }
+    if balanced_sampler_name(config) == 'matched_balanced_usage_negatives':
+        # The redraw rebuilds the sampler's metadata groups from the saved positives, which gives
+        # the builder's groups for exact years only.
+        required['dataset.negative_sampling.year_match'] = 'exact'
     failures = expected_setting_failures(config, required)
     if not failures:
         failures = check_balanced_usage(dataset_dir, split_dirs, 'cds_dna_hash')

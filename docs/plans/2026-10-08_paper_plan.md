@@ -45,8 +45,9 @@ training negative pairs.
 
 **Methods.**
 - Same as in `1A`.
-- For every fold, redraw the balanced-usage training negatives `r` times, each time with a
-  different random seed, and train one model per draw. The training positives, the val and test
+- For every fold, redraw the training negatives `r` times, each time with a different random seed,
+  and train one model per draw. Each redraw uses the sampler the dataset was built with, which for
+  these datasets is `matched_balanced_usage_negatives`. The training positives, the val and test
   pairs, and the model seed stay the same. This results in `r` models per fold.
 - Use `r` = 10 draws with seeds 42–51, the seeds Experiment 6 used. This is subject to the pilot's
   runtime: the full screen needs 1,400 redraw fits (28 pairs × 5 folds × 10 draws).
@@ -259,18 +260,26 @@ source fold, into each seed directory, and writes a new `train_pairs.csv` there.
 the files in its seed directory, and its input checksums cover those files instead of the source
 fold's. Before any fit, check the planned config, current commit and source-fold file hashes
 against the dataset manifest and the experiment spec. Reuse the functions the redraw script already
-calls: `balanced_usage_negatives` from `src/datasets/_negative_sampling.py` and
-`compute_axis_flags` from `src/datasets/dataset_segment_pairs_v2.py`.
+calls: `balanced_usage_negatives` and `matched_balanced_usage_negatives` from
+`src/datasets/_negative_sampling.py`, and `balanced_sampler_name` and `compute_axis_flags` from
+`src/datasets/dataset_segment_pairs_v2.py`.
+
+The redraw draws with the sampler the source dataset was built with. `balanced_sampler_name` reads
+that choice off the dataset's `resolved_config.yaml`, which is how the redraw script tells the two
+apart without a new argument. On a matched dataset the script rebuilds the metadata groups from the
+frozen positives with `build_isolate_cells`, so a redrawn negative joins two sequences of one
+group, and it checks that property on the drawn rows before writing them.
 
 Before redrawing, require the dataset to meet the redraw script's assumptions: Hopcroft-Karp
 positives (`dataset.positive_pair_selection.method=hopcroft_karp`), balanced-usage negatives
 (`dataset.split_strategy.negative_scope=balanced`) at a 1:1 ratio (`dataset.neg_to_pos_ratio=1.0`),
-`dataset.negative_sampling: null`, and a passed one-use audit. The one-use audit is
-`check_balanced_usage` in `audit_pair_datasets.py`. In every split of every fold, it requires each
-slot's sequences to appear as often among the negatives as among the positives (once each, for
-`HK selected` positives), and no negative to be duplicated, observed as a co-occurrence or reused
-across splits. Fail otherwise. The redraw script always uses `balanced_usage_negatives`, so on a
-metadata-matched dataset it could produce unmatched negatives.
+and a passed one-use audit. A dataset that matches its negatives must match on exact years
+(`dataset.negative_sampling.year_match=exact`), which is the only year handling the redraw rebuilds
+from the saved positives, and which is also the only one `_validate_v2_config` accepts under this
+negative scope. The one-use audit is `check_balanced_usage` in `audit_pair_datasets.py`. In every
+split of every fold, it requires each slot's sequences to appear as often among the negatives as
+among the positives (once each, for `HK selected` positives), and no negative to be duplicated,
+observed as a co-occurrence or reused across splits. Fail otherwise.
 
 `scripts/run_allpairs_baselines.py` and `scripts/run_balanced_train_redraw.py` both launch
 `train_pair_baselines.py`. Move that launch code into one shared function, which the coordinator

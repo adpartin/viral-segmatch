@@ -3141,6 +3141,34 @@ def _axis_flag_summary(pairs: pd.DataFrame, axes: list) -> dict:
 # ---------------------------------------------------------------------------
 # 5. v2 config validation
 # ---------------------------------------------------------------------------
+def balanced_sampler_name(config) -> Optional[str]:
+    """Which balanced negative sampler a config selects.
+
+    `split_dataset_v2` makes the same choice from its arguments rather than from the config: it
+    calls the matched sampler when `negative_scope='balanced'` and `axis_quotas` is non-empty,
+    and that is where `dataset.negative_sampling.regime_targets` arrives. A script that redraws
+    a built dataset's negatives has the dataset's config and not those arguments, so it asks here.
+
+    Args:
+        config: a composed config or a loaded `resolved_config.yaml`.
+
+    Returns:
+        `'matched_balanced_usage_negatives'` when `dataset.split_strategy.negative_scope` is
+        `'balanced'` and `dataset.negative_sampling.regime_targets` holds targets,
+        `'balanced_usage_negatives'` when that block is null or absent, and None for every other
+        `negative_scope`, absent included.
+    """
+    from omegaconf import OmegaConf
+
+    scope = OmegaConf.select(config, "dataset.split_strategy.negative_scope")
+    if scope != 'balanced':
+        return None
+    regime_targets = OmegaConf.select(config, "dataset.negative_sampling.regime_targets")
+    if regime_targets is None or len(regime_targets) == 0:
+        return 'balanced_usage_negatives'
+    return 'matched_balanced_usage_negatives'
+
+
 def _validate_v2_config(config) -> None:
     """Validate that the loaded config is compatible with v2's hard-coded
     constraints. Raises ValueError / NotImplementedError with messages that
