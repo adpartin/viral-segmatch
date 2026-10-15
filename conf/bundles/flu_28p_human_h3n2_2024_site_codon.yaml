@@ -14,6 +14,18 @@
 # positive selection, balanced negatives, and per-site codon features. The parent inherits from the `_pinned_length`
 # bundle rather than its `_hopcroft_karp` sibling, so `method` has to be set here rather than
 # assumed. No positive count is capped, so every pair trains on its native `HK selected` positives.
+#
+# The `negative_sampling` block below asks for matched negatives, the same request
+# conf/bundles/flu_21p_human_pig_h3n2_h1n1_2022_2023_site_codon.yaml makes, so both screens of
+# docs/plans/2026-10-08_paper_plan.md draw negatives with `matched_balanced_usage_negatives`.
+# The population here is one metadata group, Human-H3N2-2024, so every in-split pairing already
+# shares host, HN subtype and year and the matching itself rules nothing out. What the block
+# changes is the sampler. The per-split least-used bags of `balanced_usage_negatives` give way to a
+# one-to-one assignment inside each metadata group, every negative row carries `neg_regime` and
+# `metadata_match_count`, and a group that cannot give each of its sequences one negative use stops
+# the build rather than warning. Config validation accepts no other profile under
+# `negative_scope: balanced`, and it requires the 1:1 ratio the parent already sets, because one
+# negative use per sequence gives one negative per positive.
 
 defaults:
   - flu_8_major_proteins_human_h3n2_2024_pinned_length
@@ -27,6 +39,20 @@ dataset:
 
   positive_pair_selection:
     method: hopcroft_karp      # each retained CDS occurs once per slot; no cap on the count
+
+  negative_sampling:
+    axes: [host, hn_subtype, year]
+    year_match: exact          # the validator requires it; 2024 is the only year in this population
+    on_shortfall: error
+    regime_targets:            # the validator wants all 8 regime names, summing to 1.0
+      none_match:         0.0
+      host_only:          0.0
+      subtype_only:       0.0
+      year_only:          0.0
+      host_subtype_only:  0.0
+      host_year_only:     0.0
+      subtype_year_only:  0.0
+      host_subtype_year:  1.0
 
 baseline_lgbm:
   # Row sampling lets greedy trees start on balanced 1:1 HK pairs.
