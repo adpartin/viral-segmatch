@@ -438,8 +438,16 @@ records the interfaces and the decisions the sections above leave open.
 
 ## 2. Evaluate across years, hosts, and HN subtypes
 
-**Status: IMPLEMENTED (2026-10-14).** The 21 datasets were built and audited. All 105 five-fold
-LightGBM fits completed at commit `7d7b3b6`. The final report is in
+**Status: IMPLEMENTED (2026-10-15).** The 21 datasets were built and audited. All 105 five-fold
+LightGBM fits completed at commit `8b604ed`. The final report is in
+`results/flu/July_2025/task2_21p_codon_matched_20261015_151826/`.
+
+This run replaced a first one built on 2026-10-14 at commit `7d7b3b6`, so that Task 2 and Task 1
+share both the negative sampler and the corpus-wide co-occurrence blocking set. The rebuild used
+the same population, seed, sampler and spec, and the audit confirmed each pair's pooled positive
+test pair keys against the earlier build. It changed no positive and 1,795 of the 382,885 saved
+negatives, in 6 of the 21 pairs. Those 6 pairs are the only ones whose scores moved, by at most
+0.0042 F1 macro, which is inside every pair's fold SD. The earlier run's outputs are kept in
 `results/flu/July_2025/task2_21p_codon_matched_20261014_090208/`.
 
 **Goal.** Train on a *population* containing several hosts, HN subtypes or years, and measure
@@ -527,8 +535,11 @@ isolate depends on input row order.
 The Task 2 master sets all eight regime targets, with `host_subtype_year: 1.0` and the others zero,
 plus `year_match: exact` and `on_shortfall: error`. The config guard accepts this profile with
 `negative_scope: balanced`, three matching axes and a 1:1 negative ratio. It rejects other
-`negative_sampling` profiles with balanced scope. Task 1's balanced configuration has no
-`negative_sampling` block and remains valid.
+`negative_sampling` profiles with balanced scope. Task 1's master bundle sets the same block since
+2026-10-15, so both screens draw their negatives with this sampler. Task 1's population is one
+metadata group, so the matching rules nothing out there; what it changes is the sampler, the
+`neg_regime` and `metadata_match_count` columns on each negative row, and the build stopping rather
+than warning when a group cannot give each of its sequences one negative use.
 
 For each group and split, the sampler finds a one-to-one assignment from selected slot-A sequences
 to selected slot-B sequences. It excludes observed positive pairs and negatives already drawn in
@@ -542,7 +553,7 @@ metadata was checked independently for equal host, HN subtype and exact year.
 ### Observed results
 
 The final report covers all 21 pairs and 105 completed fits, with no failed fits. The whole
-population's fold-mean F1 macro ranged from 0.887 ± 0.014 for PB2-PA to 0.782 ± 0.012 for NA-M1.
+population's fold-mean F1 macro ranged from 0.889 ± 0.013 for PB2-PA to 0.782 ± 0.012 for NA-M1.
 All six M1 pairs ranked below the other 15. M1 also had the fewest unique slot sequences and the
 smallest HK-selected sets; these results do not isolate sequence capacity as the cause of their
 lower scores.
@@ -555,19 +566,20 @@ descriptive means, not fitted comparisons among groups.
 |---|---:|---:|---:|
 | Human-H3N2-2022 | 0.862 | 0.907 | 28,745 |
 | Human-H1N1-2023 | 0.847 | 0.901 | 19,204 |
-| Pig-H1N1-2022 | 0.839 | 0.901 | 3,239 |
-| Human-H3N2-2023 | 0.836 | 0.888 | 8,441 |
-| Human-H1N1-2022 | 0.824 | 0.872 | 5,711 |
-| Pig-H1N1-2023 | 0.818 | 0.877 | 4,784 |
+| Pig-H1N1-2022 | 0.840 | 0.900 | 3,239 |
+| Human-H3N2-2023 | 0.837 | 0.889 | 8,441 |
+| Human-H1N1-2022 | 0.825 | 0.872 | 5,711 |
 | Pig-H3N2-2023 | 0.818 | 0.883 | 4,761 |
-| Pig-H3N2-2022 | 0.812 | 0.887 | 1,692 |
+| Pig-H1N1-2023 | 0.818 | 0.878 | 4,784 |
+| Pig-H3N2-2022 | 0.815 | 0.888 | 1,692 |
 
-The largest and smallest group means differ by 0.050 F1 macro. The marginal means were Human
-0.850 versus Pig 0.823, H3N2 0.850 versus H1N1 0.839, and 2022 0.852 versus 2023 0.839.
-Group size did not order the scores: Pig-H1N1-2022 scored 0.839 on 3,239 test positives, while
-Human-H1N1-2022 scored 0.824 on 5,711. The thinnest cell was Pig-H3N2-2022 on NA-M1, with about
-seven test positives per fold. Small cells remain visible with their counts; the Pig-H3N2-2022
-fold SD reached ±0.125 for PB1-M1. No group was single-class in a test fold.
+The largest and smallest group means differ by 0.047 F1 macro. The marginal means were Human
+0.851 versus Pig 0.823, H3N2 0.851 versus H1N1 0.840, and 2022 0.852 versus 2023 0.840.
+Group size did not order the scores: Pig-H1N1-2022 scored 0.840 on 3,239 test positives, while
+Human-H1N1-2022 scored 0.825 on 5,711. The thinnest cells were Pig-H3N2-2022 on the six M1 pairs,
+averaging 12.2 to 12.4 test positives per fold. The lowest single fold held 7 test positives, on
+NP-M1. Small cells remain visible with their counts; the Pig-H3N2-2022 fold SD reached ±0.125 for
+PB1-M1. No group was single-class in a test fold.
 
 ### Open questions
 
@@ -577,9 +589,10 @@ feasible in all saved splits. The questions below concern possible changes for l
 or for interpreting thin cells in this one.
 
 1. **Small groups in the test split.** Folds are assigned by positive, not by metadata group. In
-   this run Pig-H3N2-2022 had roughly seven NA-M1 test positives per fold, although all eight
-   groups appeared in the test metrics. In another population, a group could have test positives
-   but no training positives in a fold. That score would measure performance on an unseen group.
+   this run Pig-H3N2-2022 averaged 12.2 NA-M1 test positives per fold, with 8 in its lowest fold,
+   although all eight groups appeared in the test metrics. In another population, a group could
+   have test positives but no training positives in a fold. That score would measure performance
+   on an unseen group.
    The matching check does not catch this case because a training split with no positives in a
    group needs no negatives there. Options for a later run:
    - Stratify the folds by metadata group.
