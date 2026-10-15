@@ -111,6 +111,7 @@ sys.path.append(str(project_root))
 
 from src.datasets._pair_helpers import (
     attach_ctg_dna_to_prot_df,
+    build_corpus_cooccurrence_set,
     select_balanced_isolate_pool,
 )
 from src.utils.config_hydra import compose_config, print_config_summary, save_config
@@ -714,6 +715,14 @@ if PAIR_BUILDER_VERSION == 'v2':
               f'from {cds_path}')
         df = attach_cds_dna_hash_to_prot_df(df, cds_path)
 
+    # Co-occurrence blocking set, built once per dataset and reused by every split. It is
+    # read from the corpus files rather than from df, so the metadata filter, the subtype
+    # balancing and the isolate cap above do not narrow it: a negative is a pair never
+    # observed together in any isolate of the corpus, not just in the modelled population.
+    cooccur_pairs, cooccur_stats = build_corpus_cooccurrence_set(
+        input_file, schema_pair, alphabet=PAIR_KEY_ALPHABET, cds_final_path=cds_path,
+    )
+
     # Per-run artifact: written once after df is finalized and before split /
     # CV branching. The launcher (run_cv_lambda.py) needs no changes -- the
     # file simply lands in the parent of fold_*/ in CV mode.
@@ -768,6 +777,8 @@ if PAIR_BUILDER_VERSION == 'v2':
                 neg_to_pos_ratio=NEG_TO_POS_RATIO,
                 val_ratio=VAL_RATIO,
                 schema_pair=schema_pair,
+                cooccur_pairs=cooccur_pairs,
+                cooccur_stats=cooccur_stats,
                 single_slot=SINGLE_SLOT,
                 cluster_id_path=CLUSTER_ID_PATH,
                 cluster_id_threshold=CLUSTER_ID_THRESHOLD,
@@ -794,6 +805,8 @@ if PAIR_BUILDER_VERSION == 'v2':
                 neg_to_pos_ratio=NEG_TO_POS_RATIO,
                 val_ratio=VAL_RATIO,
                 schema_pair=schema_pair,
+                cooccur_pairs=cooccur_pairs,
+                cooccur_stats=cooccur_stats,
                 max_attempts_per_seq=MAX_ATTEMPTS_PER_SEQ,
                 axes_for_flags=AXES_FOR_FLAGS,
                 axis_quotas=AXIS_QUOTAS,
@@ -876,6 +889,8 @@ if PAIR_BUILDER_VERSION == 'v2':
         train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables = split_dataset_v2(
             df=df,
             schema_pair=schema_pair,
+            cooccur_pairs=cooccur_pairs,
+            cooccur_stats=cooccur_stats,
             neg_to_pos_ratio=NEG_TO_POS_RATIO,
             train_ratio=TRAIN_RATIO,
             val_ratio=VAL_RATIO,

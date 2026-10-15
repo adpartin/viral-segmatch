@@ -78,7 +78,6 @@ from src.datasets._negative_sampling import (  # noqa: E402
 from src.datasets._pair_helpers import (
     HASH_FAMILY_ALPHABET,
     _validate_schema_pair,
-    build_cooccurrence_set,
     canonical_pair_key,
     get_metadata_distributions,
 )
@@ -1355,6 +1354,8 @@ def _ensure_cds_dna_hash(pos_df, cds_final_path, schema_pair, *, requested_by: s
 def split_dataset_v2(
     df: pd.DataFrame,
     schema_pair: Tuple[str, str],
+    cooccur_pairs: set,
+    cooccur_stats: dict,
     neg_to_pos_ratio: float = 3.0,
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
@@ -1371,8 +1372,6 @@ def split_dataset_v2(
     train_isolates_override: Optional[list] = None,
     val_isolates_override: Optional[list] = None,
     test_isolates_override: Optional[list] = None,
-    cooccur_pairs: Optional[set] = None,
-    cooccur_stats: Optional[dict] = None,
     split_strategy_mode: str = 'random',
     split_strategy_hash_key: str = 'seq',
     cluster_id_path: Optional[str] = None,
@@ -1421,6 +1420,11 @@ def split_dataset_v2(
     drop_within_split_pos_duplicates=True; config validation rejects any setting that
     contradicts these.
 
+    `cooccur_pairs` and `cooccur_stats` are required and come from
+    `build_corpus_cooccurrence_set`. A candidate negative whose pair key is in
+    `cooccur_pairs` is rejected, so the blocking set covers the whole corpus and one set is
+    built per dataset rather than per split.
+
     Returns:
         (train_pairs, val_pairs, test_pairs, duplicate_stats, exposure_tables)
         where exposure_tables is `{'train': df, 'val': df, 'test': df}`.
@@ -1458,28 +1462,17 @@ def split_dataset_v2(
               f'year_match={year_match}, on_shortfall={on_shortfall}, '
               f'cells={len(set(isolate_to_cell.values())):,}.')
 
-    # Build co-occurrence (or accept pre-computed for CV reuse).
     # cooccur_pairs: set of canonical pair-key strings, each of the form
     # "<prot_hash>__<prot_hash>" with the two hashes sorted lexicographically.
     # One entry per sequence pair that appears together in at least one isolate.
     # Used to block candidate negatives that would actually be positives somewhere.
-    # Cooccur set must use the same alphabet as pair_key (mismatched alphabets
-    # would block / allow the wrong pairs as negatives). For pair_key_alphabet=
-    # 'nt_cds' the df must have cds_dna_hash attached (orchestrator's
-    # responsibility — see attach_cds_dna_hash_to_prot_df).
+    # The caller builds it with build_corpus_cooccurrence_set, which covers the whole
+    # corpus rather than the population df models, and the two must agree on alphabet
+    # (mismatched alphabets would block / allow the wrong pairs as negatives).
     _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
-    if cooccur_pairs is None:
-        print(f"\nsplit_dataset_v2: Build co-occurrence set on {_cooccur_hash_col} "
-              f"(pair_key_alphabet={pair_key_alphabet!r})...")
-        cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
-        print(f"   Total co-occurring pairs: {cooccur_stats['total_cooccur_pairs']:,}")
-        print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
-        print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
-    elif cooccur_stats is None:
-        raise ValueError("cooccur_stats must be provided together with cooccur_pairs")
-    elif cooccur_stats.get('hash_col') != _cooccur_hash_col:
+    if cooccur_stats.get('hash_col') != _cooccur_hash_col:
         raise ValueError(
-            f"split_dataset_v2: pre-computed cooccur_stats hash_col="
+            f"split_dataset_v2: cooccur_stats hash_col="
             f"{cooccur_stats.get('hash_col')!r} but pair_key_alphabet="
             f"{pair_key_alphabet!r} requires {_cooccur_hash_col!r}."
         )
@@ -2157,6 +2150,8 @@ def generate_all_cv_folds_v2(
     neg_to_pos_ratio: float,
     val_ratio: float,
     schema_pair: Tuple[str, str],
+    cooccur_pairs: set,
+    cooccur_stats: dict,
     max_attempts_per_seq: int = 50,
     max_attempts_multiplier: int = 100,
     axes_for_flags: list = _DEFAULT_AXES,
@@ -2182,18 +2177,11 @@ def generate_all_cv_folds_v2(
 
     v2 hard-codes pair_mode='schema_ordered' and hard_partition_isolates=True.
 
-    cooccur_pairs is built once at the dataset level and reused across folds
-    (matches v1's CV behavior).
+    `cooccur_pairs` and `cooccur_stats` are required and come from
+    `build_corpus_cooccurrence_set`. The caller builds them once per dataset, so every fold
+    blocks negatives against the same corpus-wide set.
     """
     from sklearn.model_selection import KFold
-
-    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
-    print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
-          f"(pair_key_alphabet={pair_key_alphabet!r})...")
-    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
-    print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
-    print(f"   Pairs appearing in multiple isolates: {cooccur_stats['pairs_in_multiple_isolates']:,}")
-    print(f"   Max isolates for a single pair: {cooccur_stats['max_isolates_per_pair']}")
 
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
 
@@ -2372,6 +2360,8 @@ def generate_all_cluster_disjoint_cv_folds_v2(
     neg_to_pos_ratio: float,
     val_ratio: float,
     schema_pair: Tuple[str, str],
+    cooccur_pairs: set,
+    cooccur_stats: dict,
     single_slot: str,
     cluster_id_path: str,
     cluster_id_threshold: Optional[float],
@@ -2409,6 +2399,10 @@ def generate_all_cluster_disjoint_cv_folds_v2(
         {'fold_id', 'train_pairs', 'val_pairs', 'test_pairs',
          'duplicate_stats', 'exposure_tables'}.
 
+    `cooccur_pairs` and `cooccur_stats` are required and come from
+    `build_corpus_cooccurrence_set`. The caller builds them once per dataset, so every fold
+    blocks negatives against the same corpus-wide set.
+
     See `docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md` Phase 3.
     """
     from src.datasets._pair_helpers import attach_cds_dna_hash_to_pos_df
@@ -2416,13 +2410,6 @@ def generate_all_cluster_disjoint_cv_folds_v2(
         cluster_disjoint_route_pos_df,
         load_cluster_lookup,
     )
-
-    # ----- Build co-occurrence set once -----
-    _cooccur_hash_col = schema.hash_col(pair_key_alphabet)  # aa->prot_hash, nt_cds->cds_dna_hash, nt_ctg->ctg_dna_hash
-    print(f"\nBuilding co-occurrence set on {_cooccur_hash_col} "
-          f"(pair_key_alphabet={pair_key_alphabet!r})...")
-    cooccur_pairs, cooccur_stats = build_cooccurrence_set(df, hash_col=_cooccur_hash_col)
-    print(f"   Total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
 
     # ----- Build global pos_df once -----
     print("\nBuilding global positive pairs (one call for all folds)...")
@@ -2810,6 +2797,11 @@ def save_split_output_v2(
             'test':  get_metadata_distributions(df, test_iso),
         },
         'co_occurrence_blocking': {
+            # scope: the isolates the three counts below are taken over. 'corpus' means every
+            # isolate in the Stage-1/1.5 tables, which is what build_corpus_cooccurrence_set
+            # reads. Runs built before that function label the same counts over the filtered
+            # population instead, and carry no scope key.
+            'scope':                      duplicate_stats['cooccur_stats']['scope'],
             'total_cooccur_pairs':        duplicate_stats['cooccur_stats']['total_cooccur_pairs'],
             'pairs_in_multiple_isolates': duplicate_stats['cooccur_stats']['pairs_in_multiple_isolates'],
             'max_isolates_per_pair':      duplicate_stats['cooccur_stats']['max_isolates_per_pair'],
