@@ -13,6 +13,10 @@ incompatibility.
 
 ## 1. Establish and demonstrate the method on `Human-H3N2-2024`
 
+**Status: IMPLEMENTED (2026-10-15).** The 28 datasets were built and audited. All 140 `1A` fits and
+all 1,400 `1B` redraw fits completed at commit `ba9b108`, with no failed fits. The final report is
+in `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`.
+
 **Goal.** Establish the method on one narrow population.
 
 ### 1A. Performance for all 28 schema pairs
@@ -23,20 +27,62 @@ incompatibility.
 - 5-fold CV
 - LightGBM
 - Positives: HK selection of positives (each sequence appears once)
-- Negatives: balanced-usage negatives (`split_strategy.negative_scope=balanced`). Each negative
-  pairs a slot-A sequence and a slot-B sequence from the `HK selected` positives of the same split.
-  At a 1:1 ratio, the accepted datasets must use each selected sequence exactly once per slot in
-  each split's negatives.
+- Negatives: matched balanced-usage negatives, `matched_balanced_usage_negatives`
+  (`split_strategy.negative_scope=balanced` with a `dataset.negative_sampling` block). Each
+  negative pairs a slot-A sequence and a slot-B sequence from the `HK selected` positives of the
+  same split, and the two sides must share host and HN subtype and have the same year. At a 1:1
+  ratio, the accepted datasets must use each selected sequence exactly once per slot in each
+  split's negatives.
+- The Task 1 population is a single metadata group, so the matching requirement removes no
+  candidate negative here. Across the 28 `1A` datasets and the 28 redraw datasets, all 329,410
+  saved rows carry `Human`, `H3N2` and 2024 on both sides, and every negative is drawn in the
+  `host_subtype_year` regime. Matching binds in Task 2, which spans eight metadata groups.
 
-**Results.**
-- A 28-row supplementary table with the Experiment 2 display columns: Rank, Schema pair,
-  HK selected, Features, F1 macro, AUC-ROC, Precision and Recall. Keep all 8 Experiment 1
-  capacity columns in the underlying CSV.
-- An 8-by-8 F1 macro matrix for the main paper. Use the strictly lower triangle for the 28 schema
-  pairs. Each pair's cell shows its mean test F1 macro across the 5 folds. The next line shows
-  ± SD across those folds. Color the cell by the mean. See Fig 5 in
-  https://academic.oup.com/bib/article/27/1/bbaf667/8422735, but show ± SD on a separate line.
-  Update `src/analysis/aggregate_allpairs_results.py` to generate it.
+**Results.** The run used the experiment spec
+`conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml`, the dataset prefix
+`task1_28p_codon_matched_20261015_194607_` and the training run
+`task1_28p_codon_matched_20261015_194607_lgbm_20261015_195321`. The report is in
+`results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`.
+
+<img src="../results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_matrix.png" width="600" alt="28-pair matched-negative F1 macro matrix, per-site codon LightGBM, Human-H3N2-2024">
+
+- The strictly lower triangle holds the 28 schema pairs. Each cell shows that pair's mean test F1
+  macro across the 5 folds, with ± SD across those folds on the next line, and the cell is colored
+  by the mean. The layout follows Fig 5 in
+  https://academic.oup.com/bib/article/27/1/bbaf667/8422735, with the ± SD on a separate line.
+- In the table below, mean ± SD is across the 5 folds, and pairs are ranked by mean F1 macro.
+- All 8 Experiment 1 capacity columns sit beside these metrics in `allpairs_summary.csv`.
+
+| Rank | Schema pair | HK selected | Features | F1 macro | AUC-ROC | Precision | Recall |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | PB2-PB1 | 1,404 | 1,519 | 0.895 ± 0.009 | 0.944 ± 0.007 | 0.859 ± 0.012 | 0.947 ± 0.015 |
+| 2 | PB1-HA | 1,392 | 1,326 | 0.895 ± 0.016 | 0.948 ± 0.007 | 0.858 ± 0.010 | 0.948 ± 0.038 |
+| 3 | PB2-HA | 2,042 | 1,327 | 0.893 ± 0.022 | 0.941 ± 0.014 | 0.847 ± 0.028 | 0.963 ± 0.012 |
+| 4 | HA-NA | 1,698 | 1,037 | 0.886 ± 0.012 | 0.940 ± 0.012 | 0.843 ± 0.011 | 0.950 ± 0.013 |
+| 5 | PB1-NA | 1,212 | 1,229 | 0.885 ± 0.033 | 0.929 ± 0.023 | 0.849 ± 0.037 | 0.938 ± 0.027 |
+| 6 | PB2-NA | 1,745 | 1,230 | 0.874 ± 0.018 | 0.933 ± 0.012 | 0.831 ± 0.023 | 0.942 ± 0.017 |
+| 7 | PB2-PA | 2,030 | 1,477 | 0.850 ± 0.023 | 0.929 ± 0.013 | 0.810 ± 0.033 | 0.919 ± 0.008 |
+| 8 | PB1-PA | 1,341 | 1,476 | 0.850 ± 0.021 | 0.918 ± 0.017 | 0.800 ± 0.020 | 0.936 ± 0.026 |
+| 9 | PA-HA | 1,944 | 1,284 | 0.842 ± 0.025 | 0.917 ± 0.016 | 0.798 ± 0.030 | 0.919 ± 0.016 |
+| 10 | PA-NA | 1,689 | 1,187 | 0.827 ± 0.009 | 0.905 ± 0.004 | 0.782 ± 0.010 | 0.911 ± 0.011 |
+| 11 | PB2-NP | 1,512 | 1,259 | 0.823 ± 0.017 | 0.901 ± 0.015 | 0.759 ± 0.018 | 0.954 ± 0.003 |
+| 12 | PB1-NP | 1,041 | 1,258 | 0.818 ± 0.019 | 0.900 ± 0.016 | 0.769 ± 0.018 | 0.916 ± 0.024 |
+| 13 | HA-NP | 1,482 | 1,066 | 0.817 ± 0.019 | 0.898 ± 0.011 | 0.765 ± 0.021 | 0.923 ± 0.016 |
+| 14 | PA-NP | 1,459 | 1,216 | 0.813 ± 0.022 | 0.902 ± 0.016 | 0.765 ± 0.021 | 0.907 ± 0.019 |
+| 15 | NP-NA | 1,287 | 969 | 0.806 ± 0.029 | 0.888 ± 0.021 | 0.751 ± 0.031 | 0.927 ± 0.011 |
+| 16 | HA-M1 | 720 | 820 | 0.778 ± 0.020 | 0.855 ± 0.020 | 0.727 ± 0.023 | 0.904 ± 0.029 |
+| 17 | NA-M1 | 657 | 723 | 0.746 ± 0.035 | 0.842 ± 0.030 | 0.698 ± 0.041 | 0.901 ± 0.042 |
+| 18 | PB2-M1 | 726 | 1,013 | 0.729 ± 0.027 | 0.812 ± 0.013 | 0.680 ± 0.024 | 0.894 ± 0.028 |
+| 19 | PB1-NS1 | 704 | 990 | 0.728 ± 0.039 | 0.823 ± 0.032 | 0.687 ± 0.039 | 0.859 ± 0.027 |
+| 20 | PB1-M1 | 517 | 1,012 | 0.709 ± 0.058 | 0.799 ± 0.055 | 0.666 ± 0.047 | 0.897 ± 0.045 |
+| 21 | HA-NS1 | 959 | 798 | 0.699 ± 0.055 | 0.789 ± 0.044 | 0.657 ± 0.043 | 0.891 ± 0.014 |
+| 22 | PB2-NS1 | 995 | 991 | 0.691 ± 0.060 | 0.789 ± 0.052 | 0.657 ± 0.053 | 0.851 ± 0.054 |
+| 23 | NA-NS1 | 853 | 701 | 0.656 ± 0.041 | 0.760 ± 0.042 | 0.626 ± 0.033 | 0.826 ± 0.032 |
+| 24 | NP-NS1 | 806 | 730 | 0.628 ± 0.022 | 0.719 ± 0.037 | 0.602 ± 0.015 | 0.846 ± 0.031 |
+| 25 | PA-M1 | 707 | 970 | 0.601 ± 0.076 | 0.710 ± 0.058 | 0.591 ± 0.044 | 0.894 ± 0.046 |
+| 26 | PA-NS1 | 952 | 948 | 0.594 ± 0.050 | 0.701 ± 0.051 | 0.581 ± 0.030 | 0.868 ± 0.025 |
+| 27 | NP-M1 | 627 | 752 | 0.589 ± 0.056 | 0.694 ± 0.046 | 0.581 ± 0.040 | 0.850 ± 0.070 |
+| 28 | M1-NS1 | 440 | 484 | 0.564 ± 0.058 | 0.683 ± 0.064 | 0.564 ± 0.034 | 0.848 ± 0.055 |
 
 ### 1B. Measure sensitivity to the draw of training negative pairs
 
@@ -57,15 +103,75 @@ training negative pairs.
 - Each of the `r` models predicts the same test pairs. This results in `r` predictions for each
   test pair.
 
-**Results.**
-- A supplementary table with one row per schema pair and fold: 28 × `k` rows (140 at `k` = 5).
-  Show the mean ± SD of test F1 macro across draws, the median per-pair probability and logit SD
-  for each test class, and the two negative-pair overlap counts for that fold. These are the
-  Experiment 6 measures with the overlap counts added.
-- A schema-pair matrix laid out as in `1A`. Each pair's cell shows one value: the mean across
-  folds of the within-fold SD of test F1 macro across draws. Label the figure with that definition.
-  It measures the variation from redrawing the training negatives, which is a different source of
-  variation from the SD across folds in `1A`.
+**Results.** The redraws used the same datasets as `1A`, under the run prefix
+`task1_28p_codon_matched_20261015_194607_negredraw_20261015_200417_`, fitted as
+`task1_28p_codon_matched_20261015_194607_negredraw_20261015_200417_lgbm`. Each redraw drew its
+negatives with `matched_balanced_usage_negatives`, the sampler the source datasets were built with.
+The report is in `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`.
+
+<img src="../results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_sd_draws_matrix.png" width="600" alt="28-pair matrix of the mean across folds of the within-fold SD of test F1 macro across 10 negative draws, Human-H3N2-2024">
+
+- The matrix is laid out as in `1A`. Each cell shows one value: the mean across the 5 folds of the
+  within-fold SD of test F1 macro across the 10 draws. It measures the variation from redrawing the
+  training negatives, which is a different source of variation from the SD across folds in `1A`.
+- The table below holds fold 0 of each of the 28 pairs, sorted by F1 macro. The other four folds
+  are in `redraw_by_pair_fold.csv`, which has all 140 rows. How to average these measures across
+  folds is not yet decided.
+
+| Schema pair | F1 macro | prob SD pos / neg | logit SD pos / neg | Max shared by two draws | In >1 draw |
+|---|---:|---:|---:|---:|---:|
+| PB1-HA | 0.909 ± 0.007 | 0.051 / 0.057 | 0.370 / 0.615 | 5 | 40 |
+| PB2-HA | 0.894 ± 0.010 | 0.059 / 0.061 | 0.397 / 0.652 | 3 | 37 |
+| PB1-NA | 0.894 ± 0.009 | 0.061 / 0.068 | 0.365 / 0.498 | 4 | 50 |
+| PB2-PB1 | 0.885 ± 0.015 | 0.071 / 0.079 | 0.361 / 0.445 | 4 | 35 |
+| HA-NA | 0.868 ± 0.020 | 0.072 / 0.086 | 0.335 / 0.453 | 5 | 39 |
+| PB2-PA | 0.863 ± 0.007 | 0.045 / 0.048 | 0.273 / 0.340 | 4 | 50 |
+| PB2-NA | 0.858 ± 0.007 | 0.058 / 0.070 | 0.300 / 0.451 | 4 | 44 |
+| PA-HA | 0.857 ± 0.024 | 0.064 / 0.080 | 0.355 / 0.582 | 3 | 42 |
+| PB1-PA | 0.836 ± 0.020 | 0.053 / 0.056 | 0.323 / 0.366 | 4 | 37 |
+| PA-NA | 0.831 ± 0.009 | 0.046 / 0.048 | 0.252 / 0.397 | 3 | 43 |
+| HA-NP | 0.824 ± 0.008 | 0.057 / 0.055 | 0.350 / 0.548 | 4 | 47 |
+| NP-NA | 0.815 ± 0.006 | 0.039 / 0.047 | 0.184 / 0.331 | 3 | 42 |
+| PB1-NP | 0.814 ± 0.020 | 0.045 / 0.054 | 0.226 / 0.344 | 3 | 33 |
+| PB2-NP | 0.813 ± 0.014 | 0.066 / 0.090 | 0.312 / 0.641 | 5 | 49 |
+| HA-M1 | 0.795 ± 0.009 | 0.026 / 0.035 | 0.117 / 0.167 | 3 | 43 |
+| PA-NP | 0.770 ± 0.023 | 0.055 / 0.077 | 0.232 / 0.330 | 4 | 42 |
+| HA-NS1 | 0.759 ± 0.018 | 0.040 / 0.050 | 0.175 / 0.313 | 4 | 51 |
+| PB2-M1 | 0.737 ± 0.031 | 0.036 / 0.049 | 0.147 / 0.204 | 3 | 45 |
+| PB2-NS1 | 0.732 ± 0.023 | 0.030 / 0.042 | 0.120 / 0.176 | 3 | 40 |
+| NA-M1 | 0.703 ± 0.018 | 0.030 / 0.033 | 0.122 / 0.135 | 5 | 51 |
+| PB1-NS1 | 0.696 ± 0.016 | 0.026 / 0.030 | 0.107 / 0.124 | 5 | 52 |
+| PB1-M1 | 0.678 ± 0.023 | 0.028 / 0.028 | 0.112 / 0.115 | 3 | 44 |
+| NA-NS1 | 0.662 ± 0.032 | 0.030 / 0.033 | 0.122 / 0.134 | 5 | 58 |
+| M1-NS1 | 0.651 ± 0.041 | 0.011 / 0.016 | 0.044 / 0.064 | 3 | 45 |
+| NP-NS1 | 0.630 ± 0.030 | 0.021 / 0.025 | 0.085 / 0.100 | 5 | 42 |
+| PA-NS1 | 0.597 ± 0.031 | 0.019 / 0.022 | 0.076 / 0.089 | 3 | 47 |
+| NP-M1 | 0.567 ± 0.031 | 0.012 / 0.013 | 0.048 / 0.052 | 3 | 49 |
+| PA-M1 | 0.507 ± 0.015 | 0.014 / 0.014 | 0.055 / 0.055 | 4 | 35 |
+
+How to read the table, using the PB1-HA row:
+
+- Every row is fold 0 of that schema pair. Fold 0 has 10 models, one per draw with seeds 42-51, and
+  all 10 are scored on the same test pairs. PB1-HA fold 0 has 558 test pairs, 279 positive and 279
+  negative, and 973 training positives and 973 training negatives per draw.
+- `F1 macro` = 0.909 ± 0.007: the mean ± SD of test F1 macro over the 10 models. Here the ± is the
+  spread across negative draws, not across folds as in `1A`.
+- `prob SD pos / neg` = 0.051 / 0.057: each test pair gets one SD, computed from its 10 predicted
+  probabilities. 0.051 is the median of these SDs over the 279 positive test pairs, and 0.057 is
+  the median over the 279 negative test pairs.
+- `logit SD pos / neg` = 0.370 / 0.615: the same medians, computed on LightGBM's raw score instead
+  of the probability. The raw score is `logit(p) = log(p / (1 - p))`.
+- `Max shared by two draws` = 5 and `In >1 draw` = 40: the most negative pairs that any two of the
+  10 draws share, and the number of distinct negative pairs that appear in more than one draw. The
+  10 draws of this fold use 9,690 distinct negative pairs out of 9,730 drawn, so each of the 40
+  repeated pairs appears in exactly two draws.
+
+Relative to the 2026-10-09 balanced-negative 5-fold run (`h3n2_2024_28p_codon_cv5_20261009_141504_`),
+the per-pair mean over folds of the draw mean changes by 0.0074 on average in absolute value, with a
+mean change of −0.0006 and a range of −0.0218 to +0.0278. 12 of the 28 pairs change by more than
+twice the standard error of the difference. That run differs from this one in both the negative
+sampler and the co-occurrence blocking set, which was population-scoped there and corpus-wide here,
+so these differences do not isolate either change.
 
 ### Existing materials
 Experiments 1, 2, and 6 in `docs/plans/2026-09-14_codon_site_features_plan.md` cover a lot of
