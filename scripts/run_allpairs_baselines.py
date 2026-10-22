@@ -40,7 +40,7 @@ How?
 CLI:
     python scripts/run_allpairs_baselines.py \
         --dataset_manifest data/datasets/flu/July_2025/runs/<prefix>_manifest.json \
-        --experiment_spec conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml \
+        --experiment_spec conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml \
         --cv_dir_bundle 'flu_28p_{pair}_codon' --pairs pb2_ha --dry_run
 
     python scripts/run_allpairs_baselines.py \

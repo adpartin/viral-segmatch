@@ -4,10 +4,10 @@
 # Written from the plan, not copied from a built dataset; see "Experiment spec" in
 # docs/methods/glossary.md.
 #
-# This spec replaces human_h3n2_2024_28p_codon_balanced_cv5.yaml, which expects no
-# `dataset.negative_sampling` block and so rejects the master bundle from 2026-10-15 onwards. The
-# older spec stays in place because the dataset and training manifests of the runs built with it
-# record it by path and checksum.
+# This spec replaces conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml, which expects
+# no `dataset.negative_sampling` block and so rejects the master bundle from 2026-10-15 onwards.
+# The older spec stays in place because the dataset and training manifests of the runs built with
+# it record it by path and checksum.
 #
 # The population is one metadata group, Human-H3N2-2024, so the matched sampler's constraint rules
 # nothing out here. The block is what selects that sampler, and it is the same block

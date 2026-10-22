@@ -34,7 +34,7 @@ How?
 CLI:
     python -m src.analysis.audit_pair_datasets \
         --dataset_manifest data/datasets/flu/July_2025/runs/<prefix>_manifest.json \
-        --experiment_spec conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml \
+        --experiment_spec conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml \
         --reference_dataset_prefix exp2_28p_codon_balanced_20261007_180037_
 
 Notes:

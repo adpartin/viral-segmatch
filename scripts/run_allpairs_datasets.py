@@ -19,7 +19,7 @@ How?
 CLI:
     python scripts/run_allpairs_datasets.py \
         --dataset-prefix h3n2_2024_28p_codon_cv5_20261010_120000_ \
-        --experiment-spec conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml \
+        --experiment-spec conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml \
         --capacity-csv results/flu/July_2025/pair_capacity_8_proteins/pair_capacity.csv \
         --pairs pb2_ha
 

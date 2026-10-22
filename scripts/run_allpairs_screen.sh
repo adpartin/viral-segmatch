@@ -1,42 +1,46 @@
 #!/bin/bash
-# Run one all-pairs screen end to end: build, audit, fit, optionally redraw, and report.
-#
-# Each step is an existing command, run in this order:
-#   1. build    scripts/run_allpairs_datasets.py          (writes the dataset manifest)
+# Run one all-pairs screen end-to-end. Each step is an existing command:
+#   1. build    scripts/run_allpairs_datasets.py          writes the dataset manifest
 #   2. audit    src/analysis/audit_pair_datasets.py
-#   3. fit      scripts/run_allpairs_baselines.py         (writes training_run_manifest.json)
-#   4. redraw   scripts/run_allpairs_balanced_redraws.py  (only with --redraw-seeds)
+#   3. fit      scripts/run_allpairs_baselines.py         writes training_run_manifest.json
+#   4. redraw   scripts/run_allpairs_balanced_redraws.py  redraws the training negatives and fits
+#                                                         them; only with --redraw-seeds
 #   5. report   src/analysis/aggregate_allpairs_results.py
-# A failed step stops the script, so no later step reads an incomplete result. To continue after
-# a failure, run the remaining steps by hand; the fit and redraw steps resume with --resume and the
-# run manifest each one printed.
 #
-# Each step runs under GNU time (/usr/bin/time -v). Its wall time and peak memory go to
-# timings.tsv in the run directory. The peak memory is that of the largest single process in the
-# step, not the sum over processes running at the same time.
+# A failed step stops the script. To continue, run the remaining steps by hand. The fit and redraw
+# steps each print a `Run manifest: <path>` line. Pass that path to --resume, on its own, to finish
+# that step.
 #
-# With --final, the report requires all 28 pairs and every fit at the datasets' commit with a
-# clean worktree, and this script also requires
-# `git status --porcelain --untracked-files=all -- src scripts conf` to be empty before step 1 and
-# after step 5.
+# Each step runs under /usr/bin/time -v. Wall time and peak memory go to timings.tsv in the run
+# directory named under Output below. Peak memory is the largest single process in a step, not the
+# sum of concurrent ones.
+#
+# --final makes the report require three things: the build must not have used --pairs, the run must
+# cover every pair the datasets cover (28 over 8 proteins, 21 when a population cannot pin all 8),
+# and every fit must record the dataset manifest's commit with a clean worktree. This script also
+# requires `git status --porcelain --untracked-files=all -- src scripts conf` to be empty before
+# step 1 and after step 5.
 #
 # Usage:
 #   bash scripts/run_allpairs_screen.sh \
-#       --experiment-spec conf/experiments/human_h3n2_2024_28p_codon_balanced_cv5.yaml \
-#       --dataset-prefix h3n2_2024_28p_codon_cv5_20261010_090000_ \
+#       --experiment-spec conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml \
+#       --dataset-prefix task1_28p_codon_matched_20261021_090000_ \
 #       --capacity-csv results/flu/July_2025/pair_capacity_8_proteins/pair_capacity.csv \
-#       --cv-dir-bundle 'flu_28p_{pair}_codon_cv5' \
-#       --reference-dataset-prefix exp2_28p_codon_balanced_20261007_180037_ \
+#       --cv-dir-bundle '{bundle}' \
 #       --redraw-seeds "42 43 44 45 46 47 48 49 50 51" --final
 #
 # Options:
 #   --experiment-spec PATH            required
 #   --dataset-prefix PREFIX_          required; ends in _ and includes YYYYMMDD_HHMMSS
 #   --capacity-csv PATH               required
-#   --cv-dir-bundle PATTERN           required; CV directory name with {pair} and {bundle}
+#   --cv-dir-bundle PATTERN           required; {pair} and {bundle} expand to ha_m1 and
+#                                     flu_28p_codon_ha_m1. The fit step writes the CV directory to
+#                                     models/{virus}/{version}/cv_runs/cv_{pattern}_{timestamp}
 #   --bundle-prefix PREFIX            default flu_28p_codon_
-#   --pairs "a b"                     default all 28
-#   --reference-dataset-prefix PREFIX passed to the audit
+#   --pairs "a b"                     limits the build; later steps follow through the dataset
+#                                     manifest. Rules out --final. Default all 28
+#   --reference-dataset-prefix PREFIX the audit compares each pair's positive test pair keys,
+#                                     pooled over folds, against this build
 #   --redraw-seeds "s1 s2 ..."        run the redraw step with these seeds (at least two)
 #   --report-dir DIR                  default results/flu/July_2025/{dataset prefix}report
 #   --build-workers N                 concurrent dataset builds (default 4)
