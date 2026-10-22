@@ -438,8 +438,9 @@ def show_progress(cv_dirs: Dict[str, Path]) -> None:
 CAPACITY_TABLE_COLUMNS = ['Pair ID', 'Schema pair', 'Eligible isolates', 'Unique positives',
                           'Unique slot-A', 'Unique slot-B', 'HK selected', 'HK share']
 # Test metrics the trainer writes to metrics_summary.json, all recomputed from test_predicted.csv.
-FIT_TEST_METRICS = ['f1', 'f1_macro', 'precision', 'recall', 'auc_roc']
-DISPLAY_METRICS = {'f1_macro': 'F1 macro', 'auc_roc': 'AUC-ROC', 'precision': 'Precision',
+FIT_TEST_METRICS = ['f1', 'f1_macro', 'precision', 'recall', 'auc_roc', 'auc_pr']
+DISPLAY_METRICS = {'f1_macro': 'F1 macro', 'auc_roc': 'AUC-ROC', 'auc_pr': 'AUC-PR',
+                   'precision': 'Precision',
                    'recall': 'Recall'}
 
 
@@ -451,7 +452,8 @@ def recomputed_test_metrics(model_dir: Path) -> Tuple[dict, List[str]]:
 
     Returns:
       The recomputed metrics (`FIT_TEST_METRICS`) and one message per metric that differs from
-      `metrics_summary.json` by more than 1e-9.
+      `metrics_summary.json` by more than 1e-9. A metric the fit did not save is recomputed but
+      not compared, so fits from before that metric was added still pass.
     """
     np, pd = _import_data_libs()
     from src.models._pair_metrics import compute_pair_metrics
@@ -462,9 +464,10 @@ def recomputed_test_metrics(model_dir: Path) -> Tuple[dict, List[str]]:
                                       float(info["optimal_threshold"]), pred,
                                       print_classification_report=False)
     saved = json.loads((model_dir / "metrics_summary.json").read_text())["test"]
+    compared = [key for key in FIT_TEST_METRICS if key in saved]
     failures = [f"{model_dir.name}: {key} recomputed {metrics[key]:.12f}, saved {saved[key]:.12f}"
-                for key in FIT_TEST_METRICS if not np.isclose(metrics[key], saved[key], rtol=0,
-                                                               atol=1e-9)]
+                for key in compared if not np.isclose(metrics[key], saved[key], rtol=0,
+                                                      atol=1e-9)]
     recomputed = {key: float(metrics[key]) for key in FIT_TEST_METRICS}
     return recomputed, failures
 

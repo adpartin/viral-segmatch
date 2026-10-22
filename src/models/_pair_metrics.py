@@ -10,6 +10,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
+    average_precision_score,
     classification_report,
     f1_score,
     precision_recall_curve,
@@ -99,7 +100,7 @@ def compute_pair_metrics(
             (per-epoch eval) don't want the noise.
 
     Returns:
-        metrics: dict with keys f1, f1_macro, precision, recall, auc_roc.
+        metrics: dict with keys f1, f1_macro, precision, recall, auc_roc, auc_pr.
         res_df:  copy of ``pairs_df`` with prediction columns appended.
     """
     pred_labels = (y_probs > threshold).astype(np.float32)
@@ -116,6 +117,9 @@ def compute_pair_metrics(
         # Degenerate predictions (all same class) break roc_auc_score; fall
         # back to chance.
         auc_roc = 0.5
+    # average_precision_score needs no such guard: on single-class labels it returns 0.0 or 1.0
+    # rather than raising. Its chance level is the positive rate, not 0.5.
+    auc_pr = average_precision_score(y_true, y_probs)
 
     if print_classification_report:
         print('\nClassification Report:')
@@ -133,6 +137,7 @@ def compute_pair_metrics(
         'precision': precision,
         'recall': recall,
         'auc_roc': auc_roc,
+        'auc_pr': auc_pr,
     }
     return metrics, res_df
 
