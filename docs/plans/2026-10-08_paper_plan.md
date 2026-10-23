@@ -135,7 +135,7 @@ The flowchart shows the order of operations (the counts are for PB1-HA).
    is regardless of the population that we defined for the experiment).
    This results in 82,657 unique keys. This is used to exclude pairs when
    drawing negatives in step 7.
-2. **Population.** Filters records to retrain specific host, HN subtype and
+2. **Population.** Filters records to retain specific host, HN subtype and
    year. This results in 5,346 isolate candidates for PB1-HA.
 3. **Eligibility.** Keep isolates that include both PB1 and HA, each with
    complete CDS at its pinned length (2,277 nt and 1,701 nt, respectively).
@@ -143,7 +143,7 @@ The flowchart shows the order of operations (the counts are for PB1-HA).
 4. **Deduplication.** Collapse identical CDS pair keys across those isolates.
    This drops 618 rows and keeps 2,327 distinct observed positives.
 5. **HK selection.** Find a maximum-size set of positives with one use per CDS
-   sequence in each slot. This is means sequence appears at most once in a
+   sequence in each slot. This means a sequence appears at most once in a
    positive pair per slot across the dataset. This results in 1,392 positives
    for PB1-HA.
 6. **CV split.** Assign selected positives to 5 test folds, then split the
@@ -156,10 +156,46 @@ The flowchart shows the order of operations (the counts are for PB1-HA).
 
 
 ### Dataset construction (results).
-`TODO.` Show dataset results. Check `2026-09-14_codon_site_features_plan.md`
-Experiment 1.
-- 8x8 only cells.
-- table with count numbers.
+
+The matrix shows the final positive count for each of the 28 schema pairs
+(right before CV splitting). The table gives earlier construction counts from
+`allpairs_summary.csv` in the Task 1 report.
+
+<img src="../results/figs/2026-10-23_h3n2_2024_hk_selected_counts_lower_triangle.png" width="600" alt="HK-selected positive counts for all 28 Human-H3N2-2024 schema pairs, shown in the lower triangle">
+
+`Unique positives` counts distinct `nt_cds` pair keys. `Unique A` and
+`Unique B` count distinct CDS sequences among those pairs, before HK selection.
+
+| Pair ID | Schema pair | Eligible isolates | Unique positives | Unique A | Unique B | HK selected |
+|---|---|---:|---:|---:|---:|---:|
+| 1-2 | PB2-PB1 | 2,945 | 2,349 | 1,788 | 1,790 | 1,404 |
+| 1-3 | PB2-PA | 5,324 | 3,837 | 2,808 | 2,712 | 2,030 |
+| 1-4 | PB2-HA | 5,329 | 3,796 | 2,810 | 2,681 | 2,042 |
+| 1-5 | PB2-NP | 5,318 | 3,484 | 2,800 | 1,830 | 1,512 |
+| 1-6 | PB2-NA | 5,167 | 3,532 | 2,745 | 2,203 | 1,745 |
+| 1-7 | PB2-M1 | 5,332 | 3,128 | 2,813 | 812 | 726 |
+| 1-8 | PB2-NS1 | 5,313 | 3,204 | 2,800 | 1,120 | 995 |
+| 2-3 | PB1-PA | 2,939 | 2,332 | 1,786 | 1,710 | 1,341 |
+| 2-4 | PB1-HA | 2,945 | 2,327 | 1,790 | 1,756 | 1,392 |
+| 2-5 | PB1-NP | 2,942 | 2,162 | 1,787 | 1,227 | 1,041 |
+| 2-6 | PB1-NA | 2,939 | 2,237 | 1,786 | 1,480 | 1,212 |
+| 2-7 | PB1-M1 | 2,945 | 1,992 | 1,790 | 582 | 517 |
+| 2-8 | PB1-NS1 | 2,937 | 2,029 | 1,788 | 781 | 704 |
+| 3-4 | PA-HA | 5,329 | 3,805 | 2,711 | 2,682 | 1,944 |
+| 3-5 | PA-NP | 5,318 | 3,455 | 2,703 | 1,832 | 1,459 |
+| 3-6 | PA-NA | 5,167 | 3,520 | 2,649 | 2,202 | 1,689 |
+| 3-7 | PA-M1 | 5,335 | 3,082 | 2,716 | 812 | 707 |
+| 3-8 | PA-NS1 | 5,315 | 3,214 | 2,705 | 1,121 | 952 |
+| 4-5 | HA-NP | 5,323 | 3,382 | 2,673 | 1,830 | 1,482 |
+| 4-6 | HA-NA | 5,173 | 3,466 | 2,634 | 2,203 | 1,698 |
+| 4-7 | HA-M1 | 5,338 | 3,018 | 2,686 | 811 | 720 |
+| 4-8 | HA-NS1 | 5,318 | 3,151 | 2,676 | 1,119 | 959 |
+| 5-6 | NP-NA | 5,162 | 3,091 | 1,794 | 2,197 | 1,287 |
+| 5-7 | NP-M1 | 5,326 | 2,356 | 1,833 | 808 | 627 |
+| 5-8 | NP-NS1 | 5,307 | 2,540 | 1,824 | 1,114 | 806 |
+| 6-7 | NA-M1 | 5,176 | 2,620 | 2,206 | 800 | 657 |
+| 6-8 | NA-NS1 | 5,156 | 2,794 | 2,196 | 1,092 | 853 |
+| 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 |
 
 
 

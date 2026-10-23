@@ -519,17 +519,19 @@ def lower_triangle_matrix(values: Dict[str, float]):
     return matrix
 
 
-def plot_lower_triangle(mean, sd, title: str, cbar_label: str, output_path: Path) -> None:
-    """Draw a lower-triangle pair matrix colored by `mean`, with the SD on a second line.
+def plot_lower_triangle(mean, sd, title: str, cbar_label: str, output_path: Path,
+                        value_format: str = ".3f") -> None:
+    """Draw a lower-triangle pair matrix, optionally with SD on a second line.
 
     Columns are slot A and rows are slot B, as `lower_triangle_matrix` places them.
 
     Args:
-      mean: from `lower_triangle_matrix`; colors the cells.
+      mean: values from `lower_triangle_matrix`; colors the cells.
       sd: a matrix of the same layout written under each mean as `± SD`, or None for one line.
       title: figure title.
       cbar_label: color bar label.
       output_path: where to write the PNG.
+      value_format: format for the cell value; use `,.0f` for integer counts.
 
     Returns:
       None. Writes `output_path`.
@@ -544,7 +546,8 @@ def plot_lower_triangle(mean, sd, title: str, cbar_label: str, output_path: Path
             value = mean.iat[i, j]
             if np.isnan(value):
                 continue
-            text[i][j] = f"{value:.3f}" if sd is None else f"{value:.3f}\n± {sd.iat[i, j]:.3f}"
+            shown = format(value, value_format)
+            text[i][j] = shown if sd is None else f"{shown}\n± {sd.iat[i, j]:.3f}"
     finite = mean.to_numpy()[~np.isnan(mean.to_numpy())]
     annotated_heatmap(mean.to_numpy(), row_labels=PROTEINS, col_labels=PROTEINS,
                       out_png=output_path, title=title, xlabel="Slot A", ylabel="Slot B",
