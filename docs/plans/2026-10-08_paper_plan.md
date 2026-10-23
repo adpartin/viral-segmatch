@@ -78,7 +78,7 @@ subsection that states it. The outline's open `TODO` is under Open questions bel
 
 **Goal.** Demonstrate performance across all schema pairs.
 
-### Dataset construction.
+### Dataset construction (methods).
 
 Build one dataset for each of the 28 pairs of the 8 selected proteins. For a
 given pair, keep `Human-H3N2-2024` isolates with complete CDS for both proteins
@@ -91,63 +91,101 @@ in each slot. Each schema pair retains all of its HK-selected positives; pairs
 are not downsampled to a common size. The selected counts range from 440 for
 M1-NS1 to 2,042 for PB2-HA.
 
-In addition, we build a set of all `nt_cds` pairs that co-occur in any isolate
-in the corpus (regardless of the population that we defined for the experiment).
-A candidate negative whose pair key is in the co-occurence set is rejected.
-
-The flowchart shows the order of operations (the counts are for PB1-HA). Its
-blocking set contains 82,657 corpus-wide pair keys.
+The flowchart shows the order of operations (the counts are for PB1-HA).
 
 ```text
-Negative blocker: PB1-HA co-occurrences across the corpus = 82,657 pair keys
-
-PB1-HA: Human-H3N2-2024, complete CDS at pinned lengths
-  Eligible isolates                       2,945
-         deduplicate observed CDS
-         pair keys
-         ↓
-
-  Unique positive pairs                   2,327
-         HK: each CDS sequence at
-         most once per slot
-         ↓
-
-  Selected positives                      1,392
-         five-fold CV; fold 0 shown
-         ↓
-
-  Train / val / test positives            973 / 140 / 279
-         one matched negative per
-         positive, excluding corpus
-         co-occurrences
-         ↓
-
-  Train / val / test negatives            973 / 140 / 279
+[1] Build the negative blocker from the whole corpus
+    Input:  217,060 PB1/HA CDS records from 108,530 isolates
+    Action: collect same-isolate nt_cds pair keys
+    Output: 82,657 observed pair keys ────────────────────────────────┐
+                                                                      │
+[2] Filter the population                                             │
+    Input:  1,793,572 protein records                                 │
+    Action: keep Human, H3N2, 2024                                    │
+    Output: 5,346 isolates                                            │
+              ↓                                                       │
+[3] Require an eligible PB1-HA pair                                   │
+    Input:  5,346 isolates                                            │
+    Action: require both proteins with complete CDS at pinned lengths │
+    Output: 2,945 eligible isolates                                   │
+              ↓                                                       │
+[4] Deduplicate positives                                             │
+    Input:  2,945 eligible isolates                                   │
+    Action: keep one row per nt_cds pair key                          │
+    Output: 2,327 unique positive pairs                               │
+              ↓                                                       │
+[5] Select positives with HK                                          │
+    Input:  2,327 unique positive pairs                               │
+    Action: use each CDS sequence at most once per slot               │
+    Output: 1,392 selected positives                                  │
+              ↓                                                       │
+[6] Make 5 CV folds (fold 0 shown)                                    │
+    Input:  1,392 selected positives                                  │
+    Action: assign test pairs; split the remainder into train/val     │
+    Output: train/val/test = 973/140/279 positives                    │
+              ↓                                                       │
+[7] Draw negatives                                                    │
+    Input:  split positives + [1] observed pair keys <────────────────┘
+    Action: one matched, one-use negative per positive
+    Output: train/val/test = 973/140/279 negatives
 ```
 
-Assign the HK-selected positives to 5 test folds. Within each fold, split the
-other positives into train and val sets. Because of the HK selection, a
-sequence appears at most once in a positive pair per slot across the full
-dataset.
+1. **Blocker.** Read PB1 and HA CDS hashes from the whole corpus, and build a
+   set of all `nt_cds` pairs that co-occur in any isolate in the corpus (this
+   is regardless of the population that we defined for the experiment).
+   This results in 82,657 unique keys. This is used to exclude pairs when
+   drawing negatives in step 7.
+2. **Population.** Filters records to retrain specific host, HN subtype and
+   year. This results in 5,346 isolate candidates for PB1-HA.
+3. **Eligibility.** Keep isolates that include both PB1 and HA, each with
+   complete CDS at its pinned length (2,277 nt and 1,701 nt, respectively).
+   This results in 2,945 isolates and one observed PB1-HA pair from each.
+4. **Deduplication.** Collapse identical CDS pair keys across those isolates.
+   This drops 618 rows and keeps 2,327 distinct observed positives.
+5. **HK selection.** Find a maximum-size set of positives with one use per CDS
+   sequence in each slot. This is means sequence appears at most once in a
+   positive pair per slot across the dataset. This results in 1,392 positives
+   for PB1-HA.
+6. **CV split.** Assign selected positives to 5 test folds, then split the
+   remaining positives into train and val sets for each fold. This results in
+   train/val/test = 973/140/279 positives.
+7. **Negative draw.** Draw separately inside each split, using only sequences
+   from that split's positives. Reject corpus co-occurrences and negatives
+   already drawn in the fold. The 1:1 ratio gives fold 0 the same negative
+   counts as its positive counts.
 
-For each split, the flag `matched_balanced_usage_negatives` pairs its selected
-slot-A and slot-B sequences within the same host, HN subtype and exact-year
-group. It finds a one-to-one assignment: each sequence is used once per slot
-in the negatives, giving a 1:1 negative to positive ratio. It excludes corpus
-co-occurrences and negatives already drawn in that fold. Task 1 has only the
-`Human-H3N2-2024` group, so every possible in-split pairing already matches on
-those axes. Across the 28 `1A` datasets and 28 redraw datasets, all 329,410
-saved rows carry that group on both sides, and every negative is in the
-`host_subtype_year` regime.
 
+### Dataset construction (results).
+`TODO.` Show dataset results. Check `2026-09-14_codon_site_features_plan.md`
+Experiment 1.
+- 8x8 only cells.
+- table with count numbers.
+
+
+
+### Features (methods).
+
+Site-encoding on nt_cds codons:
 The fitted arm encodes each CDS as ordinal codons at aligned sites and
 concatenates the two slot vectors. Feature width is the sum of their codon
 counts, from 484 for M1-NS1 to 1,519 for PB2-PB1. An `nt_cds` k-mer feature
 arm is planned for the report but has not been run.
 
-`TODO.` Show dataset results (table and 8x8 matrix with count numbers).
+K-mers on nt_cds codons:
+...
 
-#### Model development and evaluation
+**Note on the negative sampler.** Tasks 1 and 2 both use
+`matched_balanced_usage_negatives`. Within each host, HN subtype and exact-year
+group, it finds a one-to-one pairing of slot-A and slot-B sequences, giving
+each sequence one negative use per slot. Task 1 has only the
+`Human-H3N2-2024` group, so every in-split pairing already matches on these
+axes. The group restriction matters in Task 2, which contains multiple groups.
+Across the 28 `1A` datasets and 28 redraw datasets, all 329,410 saved rows
+carry `Human-H3N2-2024` on both sides, and every negative is in the
+`host_subtype_year` regime.
+
+
+### Model development and evaluation
 
 - LightGBM.
 
