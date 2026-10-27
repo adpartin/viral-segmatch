@@ -24,7 +24,7 @@ Main parts:
         Slot A CDS                Slot B CDS
             |                         |
             v                         v
-     extract features          extract features
+    generate features         generate features
             |                         |
             v                         v
            x_A                       x_B
@@ -35,7 +35,7 @@ Main parts:
               concatenate: [x_A, x_B]
                          |
                          v
-                      LightGBM
+                LightGBM classifier
                          |
                          v
            probability of a positive pair
@@ -199,9 +199,10 @@ The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
 
 ### Dataset construction (results).
 
-The matrix shows the final positive count for each of the 28 schema pairs
-(right before CV splitting). The table gives earlier construction counts from
-`allpairs_summary.csv` in the Task 1 report.
+The numbers below show the final positive count for each of the 28 schema pairs
+(right before CV splitting). The table gives the counts from the dataset
+construction steps: `Eligible isolates` is step 3, `Unique positives` is step 4,
+and `HK selected` is step 5 (aggregated in `allpairs_summary.csv`).
 
 <img src="../results/figs/2026-10-23_h3n2_2024_hk_selected_counts_lower_triangle.png" width="600" alt="HK-selected positive counts for all 28 Human-H3N2-2024 schema pairs, shown in the lower triangle">
 
