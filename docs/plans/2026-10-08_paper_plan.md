@@ -190,7 +190,7 @@ The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
    positives into train and val sets for each fold.
    This results in train/val/test = 973/140/279 positives.
 7. **Negative draw.** Draw negatives inside each split, using only sequences
-   from that split's positives.
+   from that split's positives (sampler: `matched_balanced_usage_negatives`).
    - Reject:
       - observed corpus co-occurrences (the negative blocker set)
       - negatives already drawn in the fold
@@ -254,17 +254,16 @@ Sources:
 
 **HK selection.** For each schema pair, we deduplicate the positives and then
 keep the largest subset in which no CDS sequence appears twice in the same slot.
-To do this we build a bipartite graph. One side has the unique slot-A sequences,
-the other side has the unique slot-B sequences, and each positive is an edge
-between its two sequences (PB1-HA: 1,790 slot-A nodes, 1,756 slot-B nodes, 2,327
-edges).
+To do this we build a bigraph (bipartite graph). One side has the unique slot-A
+sequences, the other side has the unique slot-B sequences, and each positive is
+an edge between its two sequences (PB1-HA: 1,790 slot-A nodes, 1,756 slot-B
+nodes, 2,327 edges).
 A set of edges with no shared node is a matching, and it corresponds exactly to
 a set of positives with no sequence reused in either slot. The Hopcroft-Karp (HK)
 algorithm finds a maximum matching, meaning one with as many edges as possible.
 For PB1-HA it keeps 1,392 positives. More than one maximum matching can exist,
 but they all have the same size, so the number kept depends only on the data and
-not on row order. We use
-`networkx.algorithms.bipartite.matching.hopcroft_karp_matching`.
+not on row order. We use networkx's `matching.hopcroft_karp_matching`.
 Sequences and edges are sorted before the call, so the same matching is returned
 on every run.
 
@@ -272,35 +271,26 @@ on every run.
 
 ### Features (methods).
 
-**Nucleotide (nt) codon-encoding CDS (`nt_cds`):**
+**Codon-encoding CDS (`nt_cds`):**
 
-- The CDS sequences are encoded as ordinal codons and then concatenated.
-- GenSLM's vocab is used for potential future work.
-- The width of the concatenated vectors is the sum of their codon counts (from
-  484 for M1-NS1 to 1,519 for PB2-PB1).
-- `TODO` Elaborate on why we start with codon encoding: option to explore GenSLM, option to explore feature importance, limited experiments showed that nt site encoding that outperforms k-mers.
-
-Relevant sources:
-- docs/plans/2026-08-28_per_site_nt_features_plan.md:98-135
-- docs/methods/glossary.md:130-136
-- docs/plans/2026-09-14_codon_site_features_plan.md:188-189
-
-`TODO` Additional arms for the full 28-pair comparison:
-
-* nt site-encoding CDS (`site nt`)
-* nt k-mers CDS (`k-mer nt`)
-* nt codon-encoding CDS (`site codon`): stride=3, k divisible by 3.
+- Split each complete CDS into codons and encode one integer ID per codon site.
+  Concatenate the slot A and B vectors.
+- The IDs come from `genslm_vocab/tokenizer_config.json`.
+- LightGBM treats every site column as categorical (with `categorical_feature`
+  IDs have no numeric order).
+- The width of the concatenated vectors is the sum of their codon counts.
+- Why codon-encoding:
+  - GenSLM
+  - feature importance `docs/plans/2026-09-14_codon_site_features_plan.md`
+  - site-encoding outperformed k-mers on a subset of pairs that we explored `docs/results/2026-09-08_h3n2_2024_progress_report.md`
 
 
-**`Note` on the negative sampler.** Tasks 1 and 2 both use
-`matched_balanced_usage_negatives`. Within each host, HN subtype and exact-year
-group, it finds a one-to-one pairing of slot-A and slot-B sequences, giving
-each sequence one negative use per slot. Task 1 has only the
-`Human-H3N2-2024` group, so every in-split pairing already matches on these
-axes. The group restriction matters in Task 2, which contains multiple groups.
-Across the 28 `1A` datasets and 28 redraw datasets, all 329,410 saved rows
-carry `Human-H3N2-2024` on both sides, and every negative is in the
-`host_subtype_year` regime.
+**Other features to compare (`TODO`):**
+
+* nt encoding
+* nt k-mers
+* codon k-mers: stride=3, k divisible by 3.
+
 
 
 ### Model development and evaluation (methods).
