@@ -207,6 +207,8 @@ and `HK selected` is step 5 (aggregated in `allpairs_summary.csv`).
 
 <img src="../results/figs/2026-10-23_h3n2_2024_hk_selected_counts_lower_triangle.png" width="600" alt="HK-selected positive counts for all 28 Human-H3N2-2024 schema pairs, shown in the lower triangle">
 
+**Table:**
+
 `Unique positives` counts distinct `nt_cds` pair keys. `Unique A` and
 `Unique B` count distinct CDS sequences among those pairs, before HK selection.
 The `HK selected` is the set of positives for each schema pair.
@@ -287,15 +289,14 @@ on every run.
 
 **Other features to compare (`TODO`):**
 
-* nt encoding
-* nt k-mers
-* codon k-mers: stride=3, k divisible by 3.
+* Site-level nucleotide encoding of CDS.
+* Nucleotide k-mer counts from CDS.
 
 
 
 ### Model development and evaluation (methods).
 
-- LightGBM.
+- LightGBM classifier.
 
 ### Model development and evaluation (results).
 
