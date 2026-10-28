@@ -197,6 +197,7 @@ The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
    - Every sequence appears both in a positive and negative pair.
 
 
+
 ### Dataset construction (results).
 
 The numbers below show the final positive count for each of the 28 schema pairs
@@ -241,25 +242,33 @@ The `HK selected` is the set of positives for each schema pair.
 | 27 | 6-8 | NA-NS1 | 5,156 | 2,794 | 2,196 | 1,092 | 853 |
 | 28 | 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 |
 
-The 7 pairs that contain PB1 have around 3K eligible isolates, while the
-other 21 have 5K. The difference arises at step 3. Only 55% of the 5,346
-isolates carry a complete PB1 CDS at the 2,277-nt pin. Almost all of the
-roughly 2,400 incomplete PB1 records are 2,274 nt and end at the contig
-boundary without a terminal stop, so there are no downstream bases to extend
-them. Pinning itself removes only 13 isolates beyond that. The PB1 pairs
-therefore draw on a smaller population, not a less diverse one: those that
-avoid M1 and NS1 retain 48% to 60% of their positives at HK selection, which
-is the same band as the rest of the table.
+- All pairs have around 5K eligible isolates, except the 7 pairs that contain
+  PB1, which have around 3K
+- Only 55% of the isolates carry a complete PB1 CDS (at 2,277-nt length); step 3
+- Almost all of the incomplete PB1 CDS are 2,274-nt. This is one codon short of
+  the 2,277-nt length. Is the terminal stop just missing?
 
 Sources:
-- `docs/results/2026-09-07_cds_length_survey.md`, section "Why PB1 retains
-  about half its isolates"
-- `docs/results/2026-09-08_cds_pair_capacity.md`, section "Eligibility and
-  capacity are separate limits"
+- `docs/results/2026-09-07_cds_length_survey.md`
+- `docs/results/2026-09-08_cds_pair_capacity.md`
 
-`TODO`
+**HK selection.** For each schema pair, we deduplicate the positives and then
+keep the largest subset in which no CDS sequence appears twice in the same slot.
+To do this we build a bipartite graph. One side has the unique slot-A sequences,
+the other side has the unique slot-B sequences, and each positive is an edge
+between its two sequences (PB1-HA: 1,790 slot-A nodes, 1,756 slot-B nodes, 2,327
+edges).
+A set of edges with no shared node is a matching, and it corresponds exactly to
+a set of positives with no sequence reused in either slot. The Hopcroft-Karp (HK)
+algorithm finds a maximum matching, meaning one with as many edges as possible.
+For PB1-HA it keeps 1,392 positives. More than one maximum matching can exist,
+but they all have the same size, so the number kept depends only on the data and
+not on row order. We use
+`networkx.algorithms.bipartite.matching.hopcroft_karp_matching`.
+Sequences and edges are sorted before the call, so the same matching is returned
+on every run.
 
-- Explain HK algorithm. Explain why HK selection as opposed to the obvious alternative where we can dedup on one side and then the other. Show examples for better understanding (if possible from actual dataset). 
+
 
 ### Features (methods).
 
@@ -450,6 +459,11 @@ and corpus-wide here, so these differences do not isolate either change.
 ### Open questions
 
 - Should the redraw seeds start at 0, so that they match the fold ids, instead of running 42-51?
+- The 2,274-nt PB1 records end exactly where their contig ends, with no contig
+  bases after the CDS in all but one case, so the bases that would complete the
+  CDS were never assembled. Ask whoever produced the GTO annotations whether
+  such a record should count as the same PB1 form as a 2,277-nt one, which
+  would recover around 2,400 isolates.
 
 ### Implementation record
 
