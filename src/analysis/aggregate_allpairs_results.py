@@ -438,10 +438,11 @@ def show_progress(cv_dirs: Dict[str, Path]) -> None:
 CAPACITY_TABLE_COLUMNS = ['Pair ID', 'Schema pair', 'Eligible isolates', 'Unique positives',
                           'Unique slot-A', 'Unique slot-B', 'HK selected', 'HK share']
 # Test metrics the trainer writes to metrics_summary.json, all recomputed from test_predicted.csv.
-FIT_TEST_METRICS = ['f1', 'f1_macro', 'precision', 'recall', 'auc_roc', 'auc_pr']
-DISPLAY_METRICS = {'f1_macro': 'F1 macro', 'auc_roc': 'AUC-ROC', 'auc_pr': 'AUC-PR',
-                   'precision': 'Precision',
-                   'recall': 'Recall'}
+FIT_TEST_METRICS = ['f1', 'f1_macro', 'precision', 'recall', 'auc_roc', 'auc_pr', 'brier']
+# Column order of the display table: the threshold-dependent metrics, then the ranking metrics,
+# then Brier, which reads the probabilities themselves.
+DISPLAY_METRICS = {'f1_macro': 'F1 macro', 'precision': 'Precision', 'recall': 'Recall',
+                   'auc_roc': 'AUC-ROC', 'auc_pr': 'AUC-PR', 'brier': 'Brier'}
 
 
 def recomputed_test_metrics(model_dir: Path) -> Tuple[dict, List[str]]:

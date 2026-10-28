@@ -110,12 +110,13 @@ Each bullet names one item and the bracket gives the subsection that covers it.
 
 
 
+
 ## 1A. Performance for all 28 schema pairs
 
 **Goal.** Describe the dataset construction method and evaluate performance
 across all schema pairs.
 
-### Dataset construction (methods).
+### Dataset Construction (methods).
 
 Build one dataset for each of the 28 pairs. For a each pair, we keep
 `Human-H3N2-2024` isolates with complete CDS at their pinned lengths.
@@ -195,10 +196,13 @@ The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
       - observed corpus co-occurrences (the negative blocker set)
       - negatives already drawn in the fold
    - Every sequence appears both in a positive and negative pair.
+8. **Combine pairs.** Add the negatives from step 7 to the positives in each
+   split. Label positives 1 and negatives 0. For PB1–HA fold 0, this gives
+   1,946 training, 280 validation, and 558 test pairs.
 
 
 
-### Dataset construction (results).
+### Dataset Construction (results).
 
 The numbers below show the final positive count for each of the 28 schema pairs
 (right before CV splitting). The table gives the counts from the dataset
@@ -271,34 +275,31 @@ on every run.
 
 
 
-### Features (methods).
+### Model Development and Evaluation.
 
-**Codon-encoding CDS (`nt_cds`):**
+#### Feature Representation
+
+##### Codon-encoding CDS (`nt_cds`):
 
 - Split each complete CDS into codons and encode one integer ID per codon site.
   Concatenate the slot A and B vectors.
 - The IDs come from `genslm_vocab/tokenizer_config.json`.
-- LightGBM treats every site column as categorical (with `categorical_feature`
-  IDs have no numeric order).
+- LightGBM treats each codon site as categorical nominal (with `categorical_feature`).
 - The width of the concatenated vectors is the sum of their codon counts.
 - Why codon-encoding:
   - GenSLM
   - feature importance `docs/plans/2026-09-14_codon_site_features_plan.md`
-  - site-encoding outperformed k-mers on a subset of pairs that we explored `docs/results/2026-09-08_h3n2_2024_progress_report.md`
+  - Nucleotide site-encoding outperformed k-mers on a subset of schema pairs that we explored `docs/results/2026-09-08_h3n2_2024_progress_report.md`
+
+#### Training and Evaluation
+
+- 28 pairs x 5 folds --> 140 model trainings
+- LightGBM classifier (classification threshold of 0.5)
+- F1 macro, Precision, Recall, AUC-ROC, AUC-PR, Brier
 
 
-**Other features to compare (`TODO`):**
 
-* Site-level nucleotide encoding of CDS.
-* Nucleotide k-mer counts from CDS.
-
-
-
-### Model development and evaluation (methods).
-
-- LightGBM classifier.
-
-### Model development and evaluation (results).
+#### Results
 
 - experiment spec `conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml`
 - dataset prefix `task1_28p_codon_matched_20261015_194607_`
@@ -313,48 +314,53 @@ on every run.
 - The dataset size per schema pair is 2 x `Positives`; `Positives` is the
 `HK selected` column from the previous table (i.e., after filtering and dedup)
 
-| Rank | Schema pair | Positives | Features | F1 macro | AUC-ROC | AUC-PR | Precision | Recall |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| 1 | PB2-PB1 | 1,404 | 1,519 | 0.895 ± 0.009 | 0.944 ± 0.007 | 0.923 ± 0.018 | 0.859 ± 0.012 | 0.947 ± 0.015 |
-| 2 | PB1-HA | 1,392 | 1,326 | 0.895 ± 0.016 | 0.948 ± 0.007 | 0.928 ± 0.009 | 0.858 ± 0.010 | 0.948 ± 0.038 |
-| 3 | PB2-HA | 2,042 | 1,327 | 0.893 ± 0.022 | 0.941 ± 0.014 | 0.918 ± 0.020 | 0.847 ± 0.028 | 0.963 ± 0.012 |
-| 4 | HA-NA | 1,698 | 1,037 | 0.886 ± 0.012 | 0.940 ± 0.012 | 0.918 ± 0.019 | 0.843 ± 0.011 | 0.950 ± 0.013 |
-| 5 | PB1-NA | 1,212 | 1,229 | 0.885 ± 0.033 | 0.929 ± 0.023 | 0.900 ± 0.018 | 0.849 ± 0.037 | 0.938 ± 0.027 |
-| 6 | PB2-NA | 1,745 | 1,230 | 0.874 ± 0.018 | 0.933 ± 0.012 | 0.913 ± 0.020 | 0.831 ± 0.023 | 0.942 ± 0.017 |
-| 7 | PB2-PA | 2,030 | 1,477 | 0.850 ± 0.023 | 0.929 ± 0.013 | 0.914 ± 0.018 | 0.810 ± 0.033 | 0.919 ± 0.008 |
-| 8 | PB1-PA | 1,341 | 1,476 | 0.850 ± 0.021 | 0.918 ± 0.017 | 0.896 ± 0.025 | 0.800 ± 0.020 | 0.936 ± 0.026 |
-| 9 | PA-HA | 1,944 | 1,284 | 0.842 ± 0.025 | 0.917 ± 0.016 | 0.892 ± 0.014 | 0.798 ± 0.030 | 0.919 ± 0.016 |
-| 10 | PA-NA | 1,689 | 1,187 | 0.827 ± 0.009 | 0.905 ± 0.004 | 0.877 ± 0.013 | 0.782 ± 0.010 | 0.911 ± 0.011 |
-| 11 | PB2-NP | 1,512 | 1,259 | 0.823 ± 0.017 | 0.901 ± 0.015 | 0.880 ± 0.017 | 0.759 ± 0.018 | 0.954 ± 0.003 |
-| 12 | PB1-NP | 1,041 | 1,258 | 0.818 ± 0.019 | 0.900 ± 0.016 | 0.886 ± 0.024 | 0.769 ± 0.018 | 0.916 ± 0.024 |
-| 13 | HA-NP | 1,482 | 1,066 | 0.817 ± 0.019 | 0.898 ± 0.011 | 0.875 ± 0.020 | 0.765 ± 0.021 | 0.923 ± 0.016 |
-| 14 | PA-NP | 1,459 | 1,216 | 0.813 ± 0.022 | 0.902 ± 0.016 | 0.889 ± 0.016 | 0.765 ± 0.021 | 0.907 ± 0.019 |
-| 15 | NP-NA | 1,287 | 969 | 0.806 ± 0.029 | 0.888 ± 0.021 | 0.864 ± 0.023 | 0.751 ± 0.031 | 0.927 ± 0.011 |
-| 16 | HA-M1 | 720 | 820 | 0.778 ± 0.020 | 0.855 ± 0.020 | 0.833 ± 0.024 | 0.727 ± 0.023 | 0.904 ± 0.029 |
-| 17 | NA-M1 | 657 | 723 | 0.746 ± 0.035 | 0.842 ± 0.030 | 0.809 ± 0.030 | 0.698 ± 0.041 | 0.901 ± 0.042 |
-| 18 | PB2-M1 | 726 | 1,013 | 0.729 ± 0.027 | 0.812 ± 0.013 | 0.790 ± 0.016 | 0.680 ± 0.024 | 0.894 ± 0.028 |
-| 19 | PB1-NS1 | 704 | 990 | 0.728 ± 0.039 | 0.823 ± 0.032 | 0.815 ± 0.030 | 0.687 ± 0.039 | 0.859 ± 0.027 |
-| 20 | PB1-M1 | 517 | 1,012 | 0.709 ± 0.058 | 0.799 ± 0.055 | 0.770 ± 0.055 | 0.666 ± 0.047 | 0.897 ± 0.045 |
-| 21 | HA-NS1 | 959 | 798 | 0.699 ± 0.055 | 0.789 ± 0.044 | 0.776 ± 0.040 | 0.657 ± 0.043 | 0.891 ± 0.014 |
-| 22 | PB2-NS1 | 995 | 991 | 0.691 ± 0.060 | 0.789 ± 0.052 | 0.781 ± 0.055 | 0.657 ± 0.053 | 0.851 ± 0.054 |
-| 23 | NA-NS1 | 853 | 701 | 0.656 ± 0.041 | 0.760 ± 0.042 | 0.749 ± 0.043 | 0.626 ± 0.033 | 0.826 ± 0.032 |
-| 24 | NP-NS1 | 806 | 730 | 0.628 ± 0.022 | 0.719 ± 0.037 | 0.714 ± 0.040 | 0.602 ± 0.015 | 0.846 ± 0.031 |
-| 25 | PA-M1 | 707 | 970 | 0.601 ± 0.076 | 0.710 ± 0.058 | 0.698 ± 0.056 | 0.591 ± 0.044 | 0.894 ± 0.046 |
-| 26 | PA-NS1 | 952 | 948 | 0.594 ± 0.050 | 0.701 ± 0.051 | 0.694 ± 0.051 | 0.581 ± 0.030 | 0.868 ± 0.025 |
-| 27 | NP-M1 | 627 | 752 | 0.589 ± 0.056 | 0.694 ± 0.046 | 0.681 ± 0.044 | 0.581 ± 0.040 | 0.850 ± 0.070 |
-| 28 | M1-NS1 | 440 | 484 | 0.564 ± 0.058 | 0.683 ± 0.064 | 0.684 ± 0.062 | 0.564 ± 0.034 | 0.848 ± 0.055 |
+| Rank | Schema pair | Positives | Features | F1 macro | Precision | Recall | AUC-ROC | AUC-PR | Brier |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2-PB1 | 1,404 | 1,519 | 0.895 ± 0.009 | 0.859 ± 0.012 | 0.947 ± 0.015 | 0.944 ± 0.007 | 0.923 ± 0.018 | 0.121 ± 0.034 |
+| 2 | PB1-HA | 1,392 | 1,326 | 0.895 ± 0.016 | 0.858 ± 0.010 | 0.948 ± 0.038 | 0.948 ± 0.007 | 0.928 ± 0.009 | 0.104 ± 0.029 |
+| 3 | PB2-HA | 2,042 | 1,327 | 0.893 ± 0.022 | 0.847 ± 0.028 | 0.963 ± 0.012 | 0.941 ± 0.014 | 0.918 ± 0.020 | 0.099 ± 0.029 |
+| 4 | HA-NA | 1,698 | 1,037 | 0.886 ± 0.012 | 0.843 ± 0.011 | 0.950 ± 0.013 | 0.940 ± 0.012 | 0.918 ± 0.019 | 0.099 ± 0.015 |
+| 5 | PB1-NA | 1,212 | 1,229 | 0.885 ± 0.033 | 0.849 ± 0.037 | 0.938 ± 0.027 | 0.929 ± 0.023 | 0.900 ± 0.018 | 0.125 ± 0.039 |
+| 6 | PB2-NA | 1,745 | 1,230 | 0.874 ± 0.018 | 0.831 ± 0.023 | 0.942 ± 0.017 | 0.933 ± 0.012 | 0.913 ± 0.020 | 0.108 ± 0.015 |
+| 7 | PB2-PA | 2,030 | 1,477 | 0.850 ± 0.023 | 0.810 ± 0.033 | 0.919 ± 0.008 | 0.929 ± 0.013 | 0.914 ± 0.018 | 0.118 ± 0.013 |
+| 8 | PB1-PA | 1,341 | 1,476 | 0.850 ± 0.021 | 0.800 ± 0.020 | 0.936 ± 0.026 | 0.918 ± 0.017 | 0.896 ± 0.025 | 0.121 ± 0.015 |
+| 9 | PA-HA | 1,944 | 1,284 | 0.842 ± 0.025 | 0.798 ± 0.030 | 0.919 ± 0.016 | 0.917 ± 0.016 | 0.892 ± 0.014 | 0.122 ± 0.014 |
+| 10 | PA-NA | 1,689 | 1,187 | 0.827 ± 0.009 | 0.782 ± 0.010 | 0.911 ± 0.011 | 0.905 ± 0.004 | 0.877 ± 0.013 | 0.134 ± 0.010 |
+| 11 | PB2-NP | 1,512 | 1,259 | 0.823 ± 0.017 | 0.759 ± 0.018 | 0.954 ± 0.003 | 0.901 ± 0.015 | 0.880 ± 0.017 | 0.138 ± 0.020 |
+| 12 | PB1-NP | 1,041 | 1,258 | 0.818 ± 0.019 | 0.769 ± 0.018 | 0.916 ± 0.024 | 0.900 ± 0.016 | 0.886 ± 0.024 | 0.159 ± 0.026 |
+| 13 | HA-NP | 1,482 | 1,066 | 0.817 ± 0.019 | 0.765 ± 0.021 | 0.923 ± 0.016 | 0.898 ± 0.011 | 0.875 ± 0.020 | 0.143 ± 0.018 |
+| 14 | PA-NP | 1,459 | 1,216 | 0.813 ± 0.022 | 0.765 ± 0.021 | 0.907 ± 0.019 | 0.902 ± 0.016 | 0.889 ± 0.016 | 0.136 ± 0.010 |
+| 15 | NP-NA | 1,287 | 969 | 0.806 ± 0.029 | 0.751 ± 0.031 | 0.927 ± 0.011 | 0.888 ± 0.021 | 0.864 ± 0.023 | 0.144 ± 0.020 |
+| 16 | HA-M1 | 720 | 820 | 0.778 ± 0.020 | 0.727 ± 0.023 | 0.904 ± 0.029 | 0.855 ± 0.020 | 0.833 ± 0.024 | 0.188 ± 0.020 |
+| 17 | NA-M1 | 657 | 723 | 0.746 ± 0.035 | 0.698 ± 0.041 | 0.901 ± 0.042 | 0.842 ± 0.030 | 0.809 ± 0.030 | 0.184 ± 0.013 |
+| 18 | PB2-M1 | 726 | 1,013 | 0.729 ± 0.027 | 0.680 ± 0.024 | 0.894 ± 0.028 | 0.812 ± 0.013 | 0.790 ± 0.016 | 0.198 ± 0.020 |
+| 19 | PB1-NS1 | 704 | 990 | 0.728 ± 0.039 | 0.687 ± 0.039 | 0.859 ± 0.027 | 0.823 ± 0.032 | 0.815 ± 0.030 | 0.193 ± 0.011 |
+| 20 | PB1-M1 | 517 | 1,012 | 0.709 ± 0.058 | 0.666 ± 0.047 | 0.897 ± 0.045 | 0.799 ± 0.055 | 0.770 ± 0.055 | 0.214 ± 0.021 |
+| 21 | HA-NS1 | 959 | 798 | 0.699 ± 0.055 | 0.657 ± 0.043 | 0.891 ± 0.014 | 0.789 ± 0.044 | 0.776 ± 0.040 | 0.197 ± 0.012 |
+| 22 | PB2-NS1 | 995 | 991 | 0.691 ± 0.060 | 0.657 ± 0.053 | 0.851 ± 0.054 | 0.789 ± 0.052 | 0.781 ± 0.055 | 0.198 ± 0.019 |
+| 23 | NA-NS1 | 853 | 701 | 0.656 ± 0.041 | 0.626 ± 0.033 | 0.826 ± 0.032 | 0.760 ± 0.042 | 0.749 ± 0.043 | 0.216 ± 0.012 |
+| 24 | NP-NS1 | 806 | 730 | 0.628 ± 0.022 | 0.602 ± 0.015 | 0.846 ± 0.031 | 0.719 ± 0.037 | 0.714 ± 0.040 | 0.221 ± 0.009 |
+| 25 | PA-M1 | 707 | 970 | 0.601 ± 0.076 | 0.591 ± 0.044 | 0.894 ± 0.046 | 0.710 ± 0.058 | 0.698 ± 0.056 | 0.222 ± 0.018 |
+| 26 | PA-NS1 | 952 | 948 | 0.594 ± 0.050 | 0.581 ± 0.030 | 0.868 ± 0.025 | 0.701 ± 0.051 | 0.694 ± 0.051 | 0.224 ± 0.012 |
+| 27 | NP-M1 | 627 | 752 | 0.589 ± 0.056 | 0.581 ± 0.040 | 0.850 ± 0.070 | 0.694 ± 0.046 | 0.681 ± 0.044 | 0.229 ± 0.009 |
+| 28 | M1-NS1 | 440 | 484 | 0.564 ± 0.058 | 0.564 ± 0.034 | 0.848 ± 0.055 | 0.683 ± 0.064 | 0.684 ± 0.062 | 0.231 ± 0.007 |
 
-**Notes**:
+**Results Summary**:
 
-- Mean F1 macro on test set ranges: 0.564 for M1–NS1 to 0.895 for PB2–PB1
-- The SD across folds ranges: 0.009 for PB2–PB1 to 0.076 for PA–M1 (0.9 to 7.6
-  percentage points).
-- The 13 pairs that contains NS1 or M1 lower than other pairs, with M1-NS1 the
-  lowest.
-- All 13 pairs that include M1 or NS1 are the bottom of F1 macro tanks.
-- AUC-ROC and AUC-PR rank the pairs similarly (Spearman 0.99). AUC-PR is lower
-  for 27 of 28 pairs.
+- Mean F1 macro on test set ranges: **0.564** for M1–NS1 (row 28) to **0.895**
+  for PB2–PB1 (row 1)
+- The SD across folds ranges: **0.009** for PB2–PB1 (row 1) to **0.076** for
+  PA–M1 (row 25) (0.9 to 7.6 percentage points).
+- All 13 pairs that include M1 or NS1 are the bottom of F1 macro scores.
+- AUC-ROC and AUC-PR rank the pairs similarly (Spearman 0.99).
 - Recall consistently higher than precision (threshold dependent) ... `TODO` explore this further!
+
+**`TODO`**:
+
+* Other features:
+  * Site-level nucleotide encoding of CDS.
+  * Nucleotide k-mer counts from CDS.
+
 
 
 ## 1B. Measure sensitivity to the draw of training negative pairs
@@ -447,6 +453,8 @@ mean change of −0.0006 and a range of −0.0218 to +0.0278. That run differs f
 both the negative sampler and the co-occurrence blocking set, which was population-scoped there
 and corpus-wide here, so these differences do not isolate either change.
 
+
+
 ### Open questions
 
 - Should the redraw seeds start at 0, so that they match the fold ids, instead of running 42-51?
@@ -455,6 +463,8 @@ and corpus-wide here, so these differences do not isolate either change.
   CDS were never assembled. Ask whoever produced the GTO annotations whether
   such a record should count as the same PB1 form as a 2,277-nt one, which
   would recover around 2,400 isolates.
+
+
 
 ### Implementation record
 
