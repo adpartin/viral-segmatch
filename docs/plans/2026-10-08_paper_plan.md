@@ -241,9 +241,24 @@ The `HK selected` is the set of positives for each schema pair.
 | 27 | 6-8 | NA-NS1 | 5,156 | 2,794 | 2,196 | 1,092 | 853 |
 | 28 | 7-8 | M1-NS1 | 5,323 | 1,840 | 806 | 1,122 | 440 |
 
+The 7 pairs that contain PB1 have around 3K eligible isolates, while the
+other 21 have 5K. The difference arises at step 3. Only 55% of the 5,346
+isolates carry a complete PB1 CDS at the 2,277-nt pin. Almost all of the
+roughly 2,400 incomplete PB1 records are 2,274 nt and end at the contig
+boundary without a terminal stop, so there are no downstream bases to extend
+them. Pinning itself removes only 13 isolates beyond that. The PB1 pairs
+therefore draw on a smaller population, not a less diverse one: those that
+avoid M1 and NS1 retain 48% to 60% of their positives at HK selection, which
+is the same band as the rest of the table.
+
+Sources:
+- `docs/results/2026-09-07_cds_length_survey.md`, section "Why PB1 retains
+  about half its isolates"
+- `docs/results/2026-09-08_cds_pair_capacity.md`, section "Eligibility and
+  capacity are separate limits"
+
 `TODO`
 
-- Comment why PB1 sample size is much smaller (most are 5K positives, while all pairs containing PB1 are 3K positives)
 - Explain HK algorithm. Explain why HK selection as opposed to the obvious alternative where we can dedup on one side and then the other. Show examples for better understanding (if possible from actual dataset). 
 
 ### Features (methods).
