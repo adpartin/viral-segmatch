@@ -351,9 +351,20 @@ on every run.
   for PB2–PB1 (row 1)
 - The SD across folds ranges: **0.009** for PB2–PB1 (row 1) to **0.076** for
   PA–M1 (row 25) (0.9 to 7.6 percentage points).
-- All 13 pairs that include M1 or NS1 are the bottom of F1 macro scores.
+- At the fixed 0.5 threshold, Recall exceeds Precision for all 28 pairs.
+- All 13 pairs that contain M1 or NS1 are the bottom of F1 macro scores.
 - AUC-ROC and AUC-PR rank the pairs similarly (Spearman 0.99).
-- Recall consistently higher than precision (threshold dependent) ... `TODO` explore this further!
+- Brier measures the error in the predicted probabilities. It depends on the
+  probabilities themselves, not on the classification threshold (F1, precision,
+  recall) or on the ranking (AUC-ROC, AUC-PR). A model that predicts 0.5 for
+  every pair scores 0.25 on a balanced test set.
+- Mean Brier and F1 macro are strongly inversely correlated (Spearman -0.97).
+  M1-NS1 scores 0.231 (close to that 0.25 reference) and its test predictions
+  cluster near 0.5. Brier alone cannot distinguish weak discrimination from
+  miscalibration.
+- A high Brier does not by itself mean weak classification. A model that
+  predicted 0.51 for every positive and 0.49 for every negative would score 1.0
+  on the other five metrics at the 0.5 threshold, and 0.24 on Brier.
 
 **`TODO`**:
 
