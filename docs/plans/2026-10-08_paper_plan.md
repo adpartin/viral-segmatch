@@ -59,61 +59,10 @@ metadata group. This will help to decide which feature representations and
 models to carry forward into Parts 2 and 3.
 
 
-## Outline for Part 1
-
-Each bullet names one item and the bracket gives the subsection that covers it.
-
-**Scope.** One narrow population, 8 proteins, all 28 schema pairs, 5 fold CV.
-
-**Dataset construction**
-
-- [1A Methods] **Co-occurrence set**. Every sequence pair observed
-  together in any isolate, corpus-wide. This set is used to block negatives.
-- [1A Methods] **Deduplication**. The observed pairs are deduplicated on the
-  `nt_cds` pair key, which is built from the two CDS nucleotide hashes. Two
-  pairs with the same amino-acid (aa) sequences but different CDS sequences
-  therefore count as two pairs, where an aa key would have counted them as one
-  and dropped one of them.
-- [1A Methods] **Positives**. Hopcroft-Karp (HK) selection on the deduplicated
-  positives of the population, so no sequence appears more than once.
-- [1A Methods] **CV**. 5-fold CV, assigned on positives.
-- [1A Methods] **Negative sampling**. One matched, balanced-usage negative per
-  positive in each split, with corpus co-occurrences blocked.
-- [1A Methods] **Features**. Per-site codon, ordinal encoding, two slots
-  concatenated. Width is the sum of the two sequences' codon counts.
-- [1A Methods] For the report, not yet run: k-mer features on `nt_cds`, as
-  a second arm. `TODO`
-
-**Model development and evaluation**
-
-- [1A Methods] LightGBM, 140 fits (28 pairs x 5 folds).
-- [1A Results] The matrix reports F1 macro ± SD across the 5 folds.
-- [1A Results] Table with all schema pairs and performance metrics.
-- [1B Methods] Sensitivity from the draw of training negatives. For every fold,
-  redraw the training negatives 10 times with seeds 42-51 and fit one model per
-  draw: 1,400 fits (28 pairs x 5 folds x 10 redraws).
-  - Fixed: training positives, val and test pairs, model seed
-  - Changes: training negatives
-- [1B Results] The per-pair within-fold SD of F1 macro across draws runs
-  from 0.008 (PB2-NA) to 0.034 (M1-NS1).
-- [1A Methods] Deferred for the paper: naive baselines, HPO, and whether
-  the best HP settings shift across schema pairs.
-
-**Post-hoc analysis**
-
-- [Post-hoc, optional] Correlation of prediction performance (e.g., F1
-  macro) with sample size (`HK selected`) and with sequence length (`Features`,
-  the sum of the two proteins' codon counts). Both columns are already in
-  `allpairs_summary.csv`. For the precedent, see Experiment 2 of
-  `docs/plans/2026-09-14_codon_site_features_plan.md`, after its table.
-- [Post-hoc, optional] Feature importance.
-
-
-
 
 ## 1A. Performance for All 28 Schema Pairs
 
-**Goal.** Describe the dataset construction method and evaluate performance
+**Goal.** Describe the dataset construction process and evaluate performance
 across the 28 schema pairs.
 
 ### Dataset Construction (methods).
@@ -134,7 +83,7 @@ The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
 ```text
 [1] Build the negative blocker from the whole corpus (co-occurrence set)
     Input:  108,530 corpus isolates
-    Action: collect the same-isolate nt_cds pair key from each
+    Action: collect the same-isolate nt_cds pair key from each isolate
     Output: 82,657 distinct observed pair keys ───────────────────────┐
                                                                       │
 [2] Filter the population                                             │
@@ -144,7 +93,7 @@ The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
               ↓                                                       │
 [3] Require an eligible PB1-HA pair                                   │
     Input:  5,346 isolates                                            │
-    Action: require both proteins with complete CDS at pinned lengths │
+    Action: require both segments with complete CDS at pinned lengths │
     Output: 2,945 eligible isolates                                   │
               ↓                                                       │
 [4] Deduplicate positives                                             │
@@ -368,7 +317,14 @@ on every run.
 * Other features:
   * Site-level nucleotide encoding of CDS.
   * Nucleotide k-mer counts from CDS.
-
+* [Post-hoc, optional] Feature importance.
+* [Post-hoc, optional] Correlation of prediction performance (e.g., F1
+  macro) with sample size (`HK selected`) and with sequence length (`Features`,
+  the sum of the two proteins' codon counts). Both columns are already in
+  `allpairs_summary.csv`. For the precedent, see Experiment 2 of
+  `docs/plans/2026-09-14_codon_site_features_plan.md`, after its table.
+* [1A Methods] Deferred for the paper: naive baselines, HPO, and whether
+  the best HP settings shift across schema pairs.
 
 
 ## 1B. Sensitivity to the Sampling of Training Negatives
@@ -391,8 +347,28 @@ trained on different sets of negatives and evaluated on the same test pairs.
   predictions for each test pair.
 
 **Results.** The table shows **fold 0** for each pair, sorted by mean F1 macro.
+
+`F1 macro`:
 Each F1 value is the mean ± SD of the 10 test scores, one from each negative
 draw (other folds are in `redraw_by_pair_fold.csv`).
+
+
+`Median $s_i$ (true pos)` and `Median $s_i$ (true neg)`:
+- $i$ is one test pair, and $m$ is one model. There are 10 models, one per negative draw, so $m = 1, …, 10$. 
+- $p_{im}$ is the predicted probability by model $m$.
+<!-- - $\bar p_i$ is the mean of 10 probabilities. -->
+- $s_i$ is the sample SD of the 10 probabilities.
+
+<!-- For test pair $i$, let $p_{im}$ be its predicted probability from model $m$.
+Its sample SD across the $r = 10$ models is
+
+$$
+\bar p_i = \frac{1}{r}\sum_{m=1}^{r}p_{im}, \qquad
+s_i = \sqrt{\frac{1}{r-1}\sum_{m=1}^{r}(p_{im}-\bar p_i)^2}.
+$$ -->
+
+<!-- The two probability SD columns report $\operatorname{median}_{i:y_i=1}(s_i)$
+and $\operatorname{median}_{i:y_i=0}(s_i)$, where $y_i$ is the true label. -->
 
 How to read the table:
 
@@ -403,42 +379,39 @@ How to read the table:
   negatives change?
   E.g., 0.909 ± 0.007 is the F1 mean ± SD over the 10 models.
   The ± is the spread across negative draws (not across folds as in `1A`).
-- Column `prob SD pos / neg`. How much does test set probability change 
-  in each class?
-  E.g., 0.051 / 0.057. Here, each test pair gets one SD value, computed
-  from its 10 probabilities. 0.051 is the median of these SDs over the
-  positive test pairs, and 0.057 is the median over the negative test pairs.
+- Columns `Median $s_i$ (true pos)` and `Median $s_i$ (true neg)`. How
+  much does predicted probability deviate across the 10 models?
 
-| # | Pair ID | Schema pair | F1 macro | prob SD pos / neg |
-|---:|---|---|---:|---:|
-| 1 | 2-4 | PB1-HA | 0.909 ± 0.007 | 0.051 / 0.057 |
-| 2 | 1-4 | PB2-HA | 0.894 ± 0.010 | 0.059 / 0.061 |
-| 3 | 2-6 | PB1-NA | 0.894 ± 0.009 | 0.061 / 0.068 |
-| 4 | 1-2 | PB2-PB1 | 0.885 ± 0.015 | 0.071 / 0.079 |
-| 5 | 4-6 | HA-NA | 0.868 ± 0.020 | 0.072 / 0.086 |
-| 6 | 1-3 | PB2-PA | 0.863 ± 0.007 | 0.045 / 0.048 |
-| 7 | 1-6 | PB2-NA | 0.858 ± 0.007 | 0.058 / 0.070 |
-| 8 | 3-4 | PA-HA | 0.857 ± 0.024 | 0.064 / 0.080 |
-| 9 | 2-3 | PB1-PA | 0.836 ± 0.020 | 0.053 / 0.056 |
-| 10 | 3-6 | PA-NA | 0.831 ± 0.009 | 0.046 / 0.048 |
-| 11 | 4-5 | HA-NP | 0.824 ± 0.008 | 0.057 / 0.055 |
-| 12 | 5-6 | NP-NA | 0.815 ± 0.006 | 0.039 / 0.047 |
-| 13 | 2-5 | PB1-NP | 0.814 ± 0.020 | 0.045 / 0.054 |
-| 14 | 1-5 | PB2-NP | 0.813 ± 0.014 | 0.066 / 0.090 |
-| 15 | 4-7 | HA-M1 | 0.795 ± 0.009 | 0.026 / 0.035 |
-| 16 | 3-5 | PA-NP | 0.770 ± 0.023 | 0.055 / 0.077 |
-| 17 | 4-8 | HA-NS1 | 0.759 ± 0.018 | 0.040 / 0.050 |
-| 18 | 1-7 | PB2-M1 | 0.737 ± 0.031 | 0.036 / 0.049 |
-| 19 | 1-8 | PB2-NS1 | 0.732 ± 0.023 | 0.030 / 0.042 |
-| 20 | 6-7 | NA-M1 | 0.703 ± 0.018 | 0.030 / 0.033 |
-| 21 | 2-8 | PB1-NS1 | 0.696 ± 0.016 | 0.026 / 0.030 |
-| 22 | 2-7 | PB1-M1 | 0.678 ± 0.023 | 0.028 / 0.028 |
-| 23 | 6-8 | NA-NS1 | 0.662 ± 0.032 | 0.030 / 0.033 |
-| 24 | 7-8 | M1-NS1 | 0.651 ± 0.041 | 0.011 / 0.016 |
-| 25 | 5-8 | NP-NS1 | 0.630 ± 0.030 | 0.021 / 0.025 |
-| 26 | 3-8 | PA-NS1 | 0.597 ± 0.031 | 0.019 / 0.022 |
-| 27 | 5-7 | NP-M1 | 0.567 ± 0.031 | 0.012 / 0.013 |
-| 28 | 3-7 | PA-M1 | 0.507 ± 0.015 | 0.014 / 0.014 |
+| # | Pair ID | Schema pair | F1 macro | Median $s_i$ (true pos) | Median $s_i$ (true neg) |
+|---:|---|---|---:|---:|---:|
+| 1 | 2-4 | PB1-HA | 0.909 ± 0.007 | 0.051 | 0.057 |
+| 2 | 1-4 | PB2-HA | 0.894 ± 0.010 | 0.059 | 0.061 |
+| 3 | 2-6 | PB1-NA | 0.894 ± 0.009 | 0.061 | 0.068 |
+| 4 | 1-2 | PB2-PB1 | 0.885 ± 0.015 | 0.071 | 0.079 |
+| 5 | 4-6 | HA-NA | 0.868 ± 0.020 | 0.072 | 0.086 |
+| 6 | 1-3 | PB2-PA | 0.863 ± 0.007 | 0.045 | 0.048 |
+| 7 | 1-6 | PB2-NA | 0.858 ± 0.007 | 0.058 | 0.070 |
+| 8 | 3-4 | PA-HA | 0.857 ± 0.024 | 0.064 | 0.080 |
+| 9 | 2-3 | PB1-PA | 0.836 ± 0.020 | 0.053 | 0.056 |
+| 10 | 3-6 | PA-NA | 0.831 ± 0.009 | 0.046 | 0.048 |
+| 11 | 4-5 | HA-NP | 0.824 ± 0.008 | 0.057 | 0.055 |
+| 12 | 5-6 | NP-NA | 0.815 ± 0.006 | 0.039 | 0.047 |
+| 13 | 2-5 | PB1-NP | 0.814 ± 0.020 | 0.045 | 0.054 |
+| 14 | 1-5 | PB2-NP | 0.813 ± 0.014 | 0.066 | 0.090 |
+| 15 | 4-7 | HA-M1 | 0.795 ± 0.009 | 0.026 | 0.035 |
+| 16 | 3-5 | PA-NP | 0.770 ± 0.023 | 0.055 | 0.077 |
+| 17 | 4-8 | HA-NS1 | 0.759 ± 0.018 | 0.040 | 0.050 |
+| 18 | 1-7 | PB2-M1 | 0.737 ± 0.031 | 0.036 | 0.049 |
+| 19 | 1-8 | PB2-NS1 | 0.732 ± 0.023 | 0.030 | 0.042 |
+| 20 | 6-7 | NA-M1 | 0.703 ± 0.018 | 0.030 | 0.033 |
+| 21 | 2-8 | PB1-NS1 | 0.696 ± 0.016 | 0.026 | 0.030 |
+| 22 | 2-7 | PB1-M1 | 0.678 ± 0.023 | 0.028 | 0.028 |
+| 23 | 6-8 | NA-NS1 | 0.662 ± 0.032 | 0.030 | 0.033 |
+| 24 | 7-8 | M1-NS1 | 0.651 ± 0.041 | 0.011 | 0.016 |
+| 25 | 5-8 | NP-NS1 | 0.630 ± 0.030 | 0.021 | 0.025 |
+| 26 | 3-8 | PA-NS1 | 0.597 ± 0.031 | 0.019 | 0.022 |
+| 27 | 5-7 | NP-M1 | 0.567 ± 0.031 | 0.012 | 0.013 |
+| 28 | 3-7 | PA-M1 | 0.507 ± 0.015 | 0.014 | 0.014 |
 
 <!-- **Matrix**. For each fold, compute the SD of test F1 macro across the 10
 negative draws. Each matrix cell is the mean of those 5 SDs. This shows how
@@ -491,6 +464,14 @@ datasets were built with.
 **Status: IMPLEMENTED (2026-10-15).** The 21 datasets were built and audited. All 105 five-fold
 LightGBM fits completed at commit `8b604ed`. The final report is in
 `results/flu/July_2025/task2_21p_codon_matched_20261015_151826/`.
+
+## Outline for Part 2
+
+Each bullet names one item and the bracket gives the subsection that covers it.
+
+**Scope.** Expand the population, 8 proteins, all 28 schema pairs, 5 fold CV.
+
+## 2A. Will we have 2A and 2B??
 
 This run replaced a first one built on 2026-10-14 at commit `7d7b3b6`, so that Task 2 and Task 1
 share both the negative sampler and the corpus-wide co-occurrence blocking set. The rebuild used
