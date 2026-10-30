@@ -301,11 +301,6 @@ on every run.
 
 #### Results
 
-- experiment spec `conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml`
-- dataset prefix `task1_28p_codon_matched_20261015_194607_`
-- training run `task1_28p_codon_matched_20261015_194607_lgbm_20261015_195321`
-- report `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`
-
 <img src="../results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_matrix.png" width="600" alt="28-pair matched-negative F1 macro matrix, per-site codon LightGBM, Human-H3N2-2024">
 
 
@@ -395,13 +390,7 @@ trained on different sets of negatives and evaluated on the same test pairs.
 - Each of the `r` models predicts the same test pairs. This results in `r`=10
   predictions for each test pair.
 
-**Results.** The redraws used the same datasets as `1A`, under the run prefix
-`task1_28p_codon_matched_20261015_194607_negredraw_20261015_200417_`, fitted as
-`task1_28p_codon_matched_20261015_194607_negredraw_20261015_200417_lgbm`. Each redraw drew its
-negatives with `matched_balanced_usage_negatives`, the sampler the source datasets were built with.
-The report is in `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`.
-
-**Table**. The table shows **fold 0** for each pair, sorted by mean F1 macro.
+**Results.** The table shows **fold 0** for each pair, sorted by mean F1 macro.
 Each F1 value is the mean ± SD of the 10 test scores, one from each negative
 draw (other folds are in `redraw_by_pair_fold.csv`).
 
@@ -469,7 +458,7 @@ In 1A, the SD is across folds, where the training and test pairs also change.
 
 
 
-### Implementation record
+## Implementation record
 
 Experiments 1, 2 and 6 in `docs/plans/2026-09-14_codon_site_features_plan.md` supplied the
 initial 28-pair screen and training-negative redraws. Task 1 added 5-fold experiment specs,
@@ -483,8 +472,16 @@ report, and a redraw coordinator. The final matched-negative spec is
 `scripts/run_allpairs_balanced_redraws.py` ran `1B`; and
 `src/analysis/aggregate_allpairs_results.py --final` produced the report. The dataset, training
 and redraw manifests record the selected runs, settings, code commit and input checksums. The
-reported datasets and all fits used commit `ba9b108`. The full output locations and results are
-identified above.
+reported datasets and all fits used commit `ba9b108`.
+
+- dataset prefix `task1_28p_codon_matched_20261015_194607_`
+- `1A` training run `task1_28p_codon_matched_20261015_194607_lgbm_20261015_195321`
+- `1B` redraw dataset prefix `task1_28p_codon_matched_20261015_194607_negredraw_20261015_200417_`
+- `1B` redraw training run `task1_28p_codon_matched_20261015_194607_negredraw_20261015_200417_lgbm`
+- report for `1A` and `1B`: `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`
+
+Each redraw drew its negatives with `matched_balanced_usage_negatives`, the sampler the source
+datasets were built with.
 
 
 
