@@ -173,6 +173,7 @@ def main() -> None:
                    help='run dir name minus the _fold{k} suffix')
     p.add_argument('--dataset_dir', type=Path, required=True)
     p.add_argument('--unit', default='codon', choices=['nt', 'codon', 'aa'])
+    p.add_argument('--pinned_nt', type=int, default=None, help='pinned CDS length of the cache to read; needed only for a protein with caches at several pins')
     p.add_argument('--config_bundle', default='flu_ha_na_h3n2_2024_random_cv4_site_codon')
     p.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
     p.add_argument('--models_root', type=Path, default=PROJ / 'models/flu/July_2025/runs')
@@ -211,7 +212,8 @@ def main() -> None:
     protein_order = list(config.virus.protein_order)
     hashes_by_function = collect_slot_hashes(args.dataset_dir, args.n_folds)
     functions = sorted(hashes_by_function, key=protein_order.index)
-    caches = [load_site_cache(args.site_dir, args.unit, function_to_short.get(f, f))
+    caches = [load_site_cache(args.site_dir, args.unit, function_to_short.get(f, f),
+                              args.pinned_nt)
               for f in functions]
 
     if not args.importance_csv.exists():

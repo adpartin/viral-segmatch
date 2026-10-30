@@ -38,6 +38,8 @@ Output (one run dir PER baseline):
         ├── optimal_threshold.txt
         ├── metrics_summary.json
         ├── training_info.json
+        ├── runtime.json                 # this baseline's fit and predictions
+        ├── process_runtime.json         # the whole trainer process, with data loading
         └── resolved_config.yaml
 """
 from __future__ import annotations
@@ -63,15 +65,16 @@ sys.path.append(str(project_root))
 from src.models._pair_features import load_pair_features_for_baselines
 from src.models._pair_metrics import compute_pair_metrics, find_optimal_threshold_pr
 from src.utils.config_hydra import (
+    compose_config,
     get_function_short_name_map,
-    get_virus_config_hydra,
     print_config_summary,
     save_config,
 )
-from src.utils.experiment_utils import get_git_info
+from src.utils.dataset_manifest import SPLIT_FILES
+from src.utils.experiment_utils import file_sha256, get_git_info
 from src.utils.path_utils import build_embeddings_paths, build_training_paths
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.site_utils import load_site_cache
+from src.utils.site_utils import load_site_cache, site_cache_paths
 from src.utils.timer_utils import Timer
 
 BASELINE_REGISTRY = {
@@ -106,6 +109,33 @@ def _resolve_site_settings(config) -> tuple:
     site_cfg = site_cfg or {}
     return (str(site_cfg.get('unit', 'nt')), str(site_cfg.get('encoding', 'ordinal')),
             str(site_cfg.get('slots', 'both')))
+
+
+def input_checksums(dataset_dir: Path, site_dir: Optional[Path], site_unit: str,
+                    site_proteins: Optional[tuple], site_pins: Optional[dict],
+                    dataset_resolved_config: Optional[Path]) -> dict:
+    """SHA-256 of every file a fit reads its pairs and site features from.
+
+    Args:
+      dataset_dir: the split directory holding the pair CSVs.
+      site_dir: the site-feature cache directory, or None when the fit uses other features.
+      site_unit: site unit of the caches, e.g. `codon`.
+      site_proteins: the slot-A and slot-B protein short names, or None without site features.
+      site_pins: protein short name -> pinned CDS length, which names the caches to read.
+      dataset_resolved_config: the dataset's `resolved_config.yaml`, or None to leave it out.
+
+    Returns:
+      Absolute file path -> hex digest. A pair file absent from `dataset_dir` is left out.
+    """
+    paths = [dataset_dir / name for name in SPLIT_FILES if (dataset_dir / name).exists()]
+    if dataset_resolved_config is not None:
+        paths.append(dataset_resolved_config)
+    if site_dir is not None:
+        for protein in dict.fromkeys(site_proteins):
+            paths.extend(site_cache_paths(site_dir, site_unit, protein,
+                                          site_pins[protein]).values())
+    checksums = {str(path.resolve()): file_sha256(path) for path in paths}
+    return checksums
 
 
 def _resolve_kmer_k(config) -> int:
@@ -301,6 +331,7 @@ def _run_one_baseline(
     FEATURE_SOURCE: str, KMER_K: int,
     INTERACTION: str, SLOT_TRANSFORM: str,
     CATEGORICAL_FEATURES, RANDOM_SEED, dataset_dir: Path,
+    INPUT_CHECKSUMS: dict,
     SLOT_A_WIDTH: Optional[int] = None,
     ) -> dict:
     """Fit one baseline on the shared materialized features, write per-baseline
@@ -450,7 +481,14 @@ def _run_one_baseline(
         'threshold_metric': THRESHOLD_METRIC,
         'threshold_metric_score': float(threshold_score) if threshold_score is not None else None,
         'estimator': repr(estimator),
+        # Feature width the estimator was fitted on; every fold of one pair should agree.
+        'n_features': int(estimator.n_features_in_) if hasattr(estimator, 'n_features_in_') else None,
         'seed': RANDOM_SEED,
+        # Recorded only: the redraw that wrote this fit's training negatives already ran. None
+        # when the training negatives are the dataset builder's own.
+        'neg_redraw_seed': args.neg_redraw_seed,
+        'overrides': list(args.override or []),
+        'input_checksums': INPUT_CHECKSUMS,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'interaction': INTERACTION,
         'slot_transform': SLOT_TRANSFORM,
@@ -525,14 +563,21 @@ def main() -> None:
                         help='Hydra dotlist overrides on top of the bundle.')
     parser.add_argument('--skip_post_hoc', action='store_true',
                         help='Skip the post-hoc analysis (analyze_stage4_train.py).')
+    parser.add_argument('--neg_redraw_seed', type=int, default=None,
+                        help='Seed of the redraw that wrote this dataset directory\'s training '
+                             'negatives. Recorded in training_info.json; the trainer does not '
+                             'redraw anything.')
+    parser.add_argument('--dataset_resolved_config', type=str, default=None,
+                        help='The dataset\'s resolved_config.yaml, whose checksum is recorded '
+                             'with the other input checksums.')
     args = parser.parse_args()
 
     # ── Config ──────────────────────────────────────────────────────────────
+    # Composed by the same function the runners use to plan a fit, so the planned config and the
+    # saved resolved_config.yaml come from the same steps.
     config_path = str(project_root / 'conf')
-    config = get_virus_config_hydra(args.config_bundle, config_path=config_path)
+    config = compose_config(args.config_bundle, args.override, config_path=config_path)
     if args.override:
-        from omegaconf import OmegaConf
-        config = OmegaConf.merge(config, OmegaConf.from_dotlist(args.override))
         print(f"Applied CLI overrides: {args.override}")
     print_config_summary(config)
 
@@ -598,7 +643,7 @@ def main() -> None:
     print(f'  train: {len(train_pairs):,} | val: {len(val_pairs):,} | test: {len(test_pairs):,}')
 
     kmer_dir = site_dir = embeddings_file = None
-    site_proteins = None
+    site_proteins = SITE_PINS = None
     if FEATURE_SOURCE in ('kmer', 'site'):
         cache_dir = build_embeddings_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
@@ -614,6 +659,11 @@ def main() -> None:
             short_map = get_function_short_name_map(config)
             slot_functions = (train_pairs['func_a'].iloc[0], train_pairs['func_b'].iloc[0])
             site_proteins = tuple(short_map.get(f, f) for f in slot_functions)
+            # The pin names the cache, because the same protein takes a different pinned length
+            # in a different population.
+            all_pins = {str(protein): int(pin['nt'])
+                        for protein, pin in dict(config.virus.cds_length).items()}
+            SITE_PINS = {protein: all_pins[protein] for protein in site_proteins}
             print(f'Site cache dir:  {site_dir}')
             print(f'Site slots:      {site_proteins[0]} (a) / {site_proteins[1]} (b), '
                   f'unit={SITE_UNIT}, encoding={SITE_ENCODING}, slots={SITE_SLOTS}')
@@ -636,7 +686,7 @@ def main() -> None:
             kmer_dir=kmer_dir, kmer_k=KMER_K, kmer_alphabet=KMER_ALPHABET,
             embeddings_file=embeddings_file,
             site_dir=site_dir, site_unit=SITE_UNIT, site_encoding=SITE_ENCODING,
-            site_proteins=site_proteins, site_slots=SITE_SLOTS,
+            site_proteins=site_proteins, site_pins=SITE_PINS, site_slots=SITE_SLOTS,
             interaction=INTERACTION,
             slot_transform=SLOT_TRANSFORM,
             output_dir=default_output_dir,
@@ -660,8 +710,16 @@ def main() -> None:
     # pooled. Only this layout puts one site in one column, and only `both` keeps two slots.
     SLOT_A_WIDTH = None
     if FEATURE_SOURCE == 'site' and SITE_ENCODING == 'ordinal' and SITE_SLOTS == 'both':
-        SLOT_A_WIDTH = int(load_site_cache(site_dir, SITE_UNIT, site_proteins[0]).codes.shape[1])
+        SLOT_A_WIDTH = int(load_site_cache(site_dir, SITE_UNIT, site_proteins[0],
+                                           SITE_PINS[site_proteins[0]]).codes.shape[1])
         print(f'Slot A occupies the first {SLOT_A_WIDTH:,} of {X_train_raw.shape[1]:,} columns.')
+
+    # Checksums of what this fit read, so a runner can tell a finished fit from one trained on
+    # other inputs.
+    dataset_resolved_config = (Path(args.dataset_resolved_config)
+                               if args.dataset_resolved_config else None)
+    INPUT_CHECKSUMS = input_checksums(dataset_dir, site_dir, SITE_UNIT, site_proteins,
+                                      SITE_PINS, dataset_resolved_config)
 
     # ── Per-baseline runs ───────────────────────────────────────────────────
     n_baselines = len(baselines)
@@ -682,6 +740,7 @@ def main() -> None:
                 INTERACTION=INTERACTION, SLOT_TRANSFORM=SLOT_TRANSFORM,
                 CATEGORICAL_FEATURES=CATEGORICAL_FEATURES,
                 RANDOM_SEED=RANDOM_SEED, dataset_dir=dataset_dir,
+                INPUT_CHECKSUMS=INPUT_CHECKSUMS,
                 SLOT_A_WIDTH=SLOT_A_WIDTH,
             )
             res['wall_seconds'] = time.time() - t0
@@ -710,6 +769,17 @@ def main() -> None:
                   f"AUC-ROC={test_m['auc_roc']:.4f}  ({r['wall_seconds']:.1f}s)  "
                   f"-> {r['output_dir']}")
     total_timer.display_timer()
+    # runtime.json covers only one baseline's fit and predictions. The whole process, with data
+    # loading and feature building, is saved next to it as process_runtime.json.
+    for r in results:
+        if 'output_dir' in r:
+            total_timer.save_timer(Path(r['output_dir']), filename='process_runtime.json')
+    # Every requested baseline has run by now, so one failure did not stop the others; the exit
+    # status still has to say a fit failed, or a launcher records it as finished.
+    failed = [r['baseline'] for r in results if 'error' in r]
+    if failed:
+        print(f'\nERROR: {len(failed)} of {len(results)} baselines failed: {failed}')
+        sys.exit(1)
     print(f'\nFinished {Path(__file__).name}!')
 
 

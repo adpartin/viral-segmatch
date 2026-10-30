@@ -22,6 +22,35 @@ Usage
 
   # Specify output directory:
   python src/analysis/aggregate_allpairs_results.py --output_dir results/allpairs/
+
+Run-manifest mode
+-----------------
+With `--training_run_manifest` and/or `--redraw_run_manifest`, the report covers exactly the
+directories those manifests record instead of the latest CV directory per bundle, and any failed
+check stops the report before anything is written:
+
+- From a training run: every fold of every pair must hold all required fit outputs, and its test
+  metrics, recomputed from `test_predicted.csv`, must match `metrics_summary.json`. The folds of
+  a pair must agree on `n_features`, which becomes the `Features` column. Eight columns of the
+  pair-capacity table (`src/analysis/summarize_pair_capacity.py`) are joined from the capacity
+  CSV the dataset manifest records, by population and pair. Outputs: `allpairs_summary.csv` (numeric), `allpairs_display.csv`
+  (`mean ± SD` text), and the lower-triangle F1 macro matrix colored by the mean over folds with
+  the SD over folds on a second line.
+- From a redraw run: one row per pair and fold, with the mean and SD of test F1 macro across
+  draws, the median per-pair probability and raw-score SD across draws for each test class, and
+  the two negative-pair overlap counts. The lower-triangle matrix shows, per pair, the mean over
+  folds of the within-fold SD of F1 macro across draws.
+- `--final` also requires every pair the datasets cover, and every fit at the datasets' commit
+  with a clean worktree. How many pairs that is comes from the dataset manifest, so a 21-pair
+  screen is held to 21 and a 28-pair screen to 28.
+
+Both modes write `report_info.json` in the output directory: the code commit the report ran at,
+its command line, and its inputs.
+
+  python src/analysis/aggregate_allpairs_results.py \
+      --training_run_manifest models/flu/July_2025/training_runs/<name>/training_run_manifest.json \
+      --redraw_run_manifest models/flu/July_2025/training_runs/<name>/redraw_run_manifest.json \
+      --output_dir results/flu/July_2025/<report> --final
 """
 
 import argparse
@@ -29,6 +58,7 @@ import json
 import math
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -399,9 +429,474 @@ def show_progress(cv_dirs: Dict[str, Path]) -> None:
           f"Failed: {n_failed}  Unknown: {n_unknown}")
 
 
+# ── Manifest mode ──────────────────────────────────────────────────────────────────────────────
+# Reports built from the directories a training run manifest or a redraw run manifest records,
+# rather than from the latest CV directory per bundle. Every check below fails the report.
+
+# The pair-capacity table columns (src/analysis/summarize_pair_capacity.py) that the training-run
+# table carries.
+CAPACITY_TABLE_COLUMNS = ['Pair ID', 'Schema pair', 'Eligible isolates', 'Unique positives',
+                          'Unique slot-A', 'Unique slot-B', 'HK selected', 'HK share']
+# Test metrics the trainer writes to metrics_summary.json, all recomputed from test_predicted.csv.
+FIT_TEST_METRICS = ['f1', 'f1_macro', 'precision', 'recall', 'auc_roc', 'auc_pr', 'brier']
+# Column order of the display table: the threshold-dependent metrics, then the ranking metrics,
+# then Brier, which reads the probabilities themselves.
+DISPLAY_METRICS = {'f1_macro': 'F1 macro', 'precision': 'Precision', 'recall': 'Recall',
+                   'auc_roc': 'AUC-ROC', 'auc_pr': 'AUC-PR', 'brier': 'Brier'}
+
+
+def recomputed_test_metrics(model_dir: Path) -> Tuple[dict, List[str]]:
+    """A fit's test metrics recomputed from its predictions, and any disagreement with the saved ones.
+
+    Args:
+      model_dir: a finished fit's run directory.
+
+    Returns:
+      The recomputed metrics (`FIT_TEST_METRICS`) and one message per metric that differs from
+      `metrics_summary.json` by more than 1e-9. A metric the fit did not save is recomputed but
+      not compared, so fits from before that metric was added still pass.
+    """
+    np, pd = _import_data_libs()
+    from src.models._pair_metrics import compute_pair_metrics
+    info = json.loads((model_dir / "training_info.json").read_text())
+    pred = pd.read_csv(model_dir / "test_predicted.csv", usecols=["label", "pred_prob"],
+                       keep_default_na=False, na_values=[""])
+    metrics, _ = compute_pair_metrics(pred["label"].to_numpy(), pred["pred_prob"].to_numpy(),
+                                      float(info["optimal_threshold"]), pred,
+                                      print_classification_report=False)
+    saved = json.loads((model_dir / "metrics_summary.json").read_text())["test"]
+    compared = [key for key in FIT_TEST_METRICS if key in saved]
+    failures = [f"{model_dir.name}: {key} recomputed {metrics[key]:.12f}, saved {saved[key]:.12f}"
+                for key in compared if not np.isclose(metrics[key], saved[key], rtol=0,
+                                                      atol=1e-9)]
+    recomputed = {key: float(metrics[key]) for key in FIT_TEST_METRICS}
+    return recomputed, failures
+
+
+def final_fit_failures(model_dir: Path, commit: str) -> List[str]:
+    """Reasons a fit may not enter a final report: another commit, or a dirty worktree.
+
+    Args:
+      model_dir: a finished fit's run directory.
+      commit: the commit the datasets were built at.
+
+    Returns:
+      One message per problem; empty when the fit recorded `commit` and a clean worktree.
+    """
+    code = json.loads((model_dir / "training_info.json").read_text()).get("code", {})
+    failures = []
+    if code.get("commit") != commit:
+        failures.append(f"{model_dir.name}: fitted at commit {code.get('commit')}, datasets at {commit}")
+    if code.get("is_dirty") is not False:
+        failures.append(f"{model_dir.name}: code.is_dirty={code.get('is_dirty')}")
+    return failures
+
+
+def lower_triangle_matrix(values: Dict[str, float]):
+    """Place one value per schema pair in the strictly lower triangle of the protein grid.
+
+    Args:
+      values: pair label (`{slot A}-{slot B}`, e.g. `PB2-HA`) -> value.
+
+    Returns:
+      A `PROTEINS` x `PROTEINS` frame: each pair's value sits in the row of its slot-B protein and
+      the column of its slot-A protein. Every other cell is NaN.
+
+    Raises:
+      ValueError: a label names a protein outside `PROTEINS`, or its slot-A protein does not come
+          before its slot-B protein in segment order, which would put the pair on or above the
+          diagonal.
+    """
+    np, pd = _import_data_libs()
+    matrix = pd.DataFrame(np.nan, index=PROTEINS, columns=PROTEINS)
+    for label, value in values.items():
+        slot_a, slot_b = label.split("-")
+        if slot_a not in PROTEINS or slot_b not in PROTEINS:
+            raise ValueError(f"lower_triangle_matrix: {label} is not a pair of two of {PROTEINS}")
+        if PROTEINS.index(slot_a) >= PROTEINS.index(slot_b):
+            raise ValueError(f"lower_triangle_matrix: in {label}, slot A must come before slot B "
+                             f"in the order {PROTEINS}")
+        matrix.loc[slot_b, slot_a] = value
+    return matrix
+
+
+def plot_lower_triangle(mean, sd, title: str, cbar_label: str, output_path: Path,
+                        value_format: str = ".3f") -> None:
+    """Draw a lower-triangle pair matrix, optionally with SD on a second line.
+
+    Columns are slot A and rows are slot B, as `lower_triangle_matrix` places them.
+
+    Args:
+      mean: values from `lower_triangle_matrix`; colors the cells.
+      sd: a matrix of the same layout written under each mean as `± SD`, or None for one line.
+      title: figure title.
+      cbar_label: color bar label.
+      output_path: where to write the PNG.
+      value_format: format for the cell value; use `,.0f` for integer counts.
+
+    Returns:
+      None. Writes `output_path`.
+    """
+    np, _ = _import_data_libs()
+    from src.utils.plot_utils import annotated_heatmap
+    n = len(PROTEINS)
+    upper = ~np.tri(n, n, k=-1, dtype=bool)  # the diagonal and everything above it
+    text = [["" for _ in range(n)] for _ in range(n)]
+    for i in range(n):
+        for j in range(i):
+            value = mean.iat[i, j]
+            if np.isnan(value):
+                continue
+            shown = format(value, value_format)
+            text[i][j] = shown if sd is None else f"{shown}\n± {sd.iat[i, j]:.3f}"
+    finite = mean.to_numpy()[~np.isnan(mean.to_numpy())]
+    annotated_heatmap(mean.to_numpy(), row_labels=PROTEINS, col_labels=PROTEINS,
+                      out_png=output_path, title=title, xlabel="Slot A", ylabel="Slot B",
+                      cbar_label=cbar_label, cmap="YlGnBu",
+                      vmin=float(finite.min()) if finite.size else None,
+                      vmax=float(finite.max()) if finite.size else None,
+                      cell_text=text, blank_mask=upper, figsize=(7.5, 6.2), cell_fontsize=9,
+                      row_fontsize=10)
+    print(f"Saved matrix figure: {output_path}")
+
+
+def _load_run_manifests(run_manifest_path: Path) -> Tuple[dict, dict]:
+    """A run manifest and the dataset manifest it names, checked to be the one it recorded.
+
+    Args:
+      run_manifest_path: a `training_run_manifest.json` or `redraw_run_manifest.json`.
+
+    Returns:
+      The run manifest and the dataset manifest.
+
+    Raises:
+      ValueError: the dataset manifest changed since the run started.
+    """
+    from src.utils.dataset_manifest import load_dataset_manifest
+    run_manifest = json.loads(Path(run_manifest_path).read_text())
+    dataset_manifest = load_dataset_manifest(Path(run_manifest["dataset_manifest"]["path"]))
+    if dataset_manifest["manifest_sha256"] != run_manifest["dataset_manifest"]["sha256"]:
+        raise ValueError(f"{dataset_manifest['manifest_path']} changed since "
+                         f"{Path(run_manifest_path).name} was written")
+    return run_manifest, dataset_manifest
+
+
+def _pair_labels(dataset_manifest: dict) -> Dict[str, Tuple[str, str]]:
+    """Each manifest pair's label and population, read from its dataset's resolved config.
+
+    Args:
+      dataset_manifest: from `load_dataset_manifest`.
+
+    Returns:
+      Pair token -> (pair label, population label).
+    """
+    from omegaconf import OmegaConf
+
+    from src.analysis.audit_pair_datasets import run_pair_and_population
+    labels = {}
+    for entry in dataset_manifest["datasets"].values():
+        config = OmegaConf.load(Path(entry["dataset_dir"]) / "resolved_config.yaml")
+        labels[entry["pair"]] = run_pair_and_population(config)
+    return labels
+
+
+def final_pair_coverage_failures(run_manifest: dict, dataset_manifest: dict,
+                                 final: bool) -> List[str]:
+    """Reasons a run does not cover every pair a final report needs.
+
+    The pair count comes from the datasets rather than from a constant, because it is the screen
+    that fixes it: 28 pairs over 8 proteins, or 21 when a population cannot pin all 8. A dataset
+    build that itself covered only some pairs cannot carry a final report either.
+
+    Args:
+      run_manifest: the training or redraw run manifest.
+      dataset_manifest: the dataset manifest it was built from.
+      final: whether a final report was asked for; nothing is checked otherwise.
+
+    Returns:
+      One message per problem; empty when the run covers every pair, or when `final` is False.
+    """
+    if not final:
+        return []
+    failures = []
+    built_pairs = dataset_manifest.get("pairs")
+    if built_pairs:
+        failures.append(f"a final report needs datasets for every pair; these were built with "
+                        f"--pairs {sorted(built_pairs)}")
+    expected = len(dataset_manifest["datasets"])
+    if len(run_manifest["pairs"]) != expected:
+        failures.append(f"a final report needs the {expected} pairs the datasets cover; the run "
+                        f"has {len(run_manifest['pairs'])}")
+    return failures
+
+
+def training_run_table(run_manifest_path: Path, final: bool):
+    """The training-run table: one row per schema pair, with its capacity columns.
+
+    Args:
+      run_manifest_path: the run's `training_run_manifest.json`.
+      final: require all 28 pairs and, for every fit, the datasets' commit and a clean worktree.
+
+    Returns:
+      The table (numeric; one `{metric}_mean` and `{metric}_sd_folds` per test metric), the
+      failure messages, and the fold count.
+    """
+    np, pd = _import_data_libs()
+    from src.models.baseline_fits import REQUIRED_FIT_OUTPUTS
+    run_manifest, dataset_manifest = _load_run_manifests(run_manifest_path)
+    commit = dataset_manifest["code"]["commit"]
+    n_folds = dataset_manifest["n_folds"]
+    labels = _pair_labels(dataset_manifest)
+    capacity_path = Path(dataset_manifest["capacity_csv"]["path"])
+    capacity = pd.read_csv(capacity_path, keep_default_na=False, na_values=[""])
+
+    failures, rows = [], []
+    failures.extend(final_pair_coverage_failures(run_manifest, dataset_manifest, final))
+    for pair, plan in sorted(run_manifest["pairs"].items()):
+        label, population = labels[pair]
+        fold_metrics, widths = [], set()
+        if len(plan["folds"]) != n_folds:
+            failures.append(f"{label}: {len(plan['folds'])} folds, the datasets have {n_folds}")
+        for fold in plan["folds"].values():
+            model_dir = Path(fold["model_dir"])
+            missing = [name for name in REQUIRED_FIT_OUTPUTS if not (model_dir / name).exists()]
+            if missing:
+                failures.append(f"{model_dir.name}: missing {missing}")
+                continue
+            metrics, metric_failures = recomputed_test_metrics(model_dir)
+            failures.extend(metric_failures)
+            fold_metrics.append(metrics)
+            widths.add(json.loads((model_dir / "training_info.json").read_text()).get("n_features"))
+            if final:
+                failures.extend(final_fit_failures(model_dir, commit))
+        if len(widths) != 1 or None in widths:
+            failures.append(f"{label}: folds record n_features {sorted(widths, key=str)}")
+
+        matches = capacity[(capacity["population"] == population)
+                           & (capacity["Schema pair"] == label)]
+        if len(matches) != 1:
+            failures.append(f"{label}: the capacity table has {len(matches)} rows for "
+                            f"{population}, expected exactly 1")
+            continue
+        row = {column: matches.iloc[0][column] for column in CAPACITY_TABLE_COLUMNS}
+        row.update({"population": population, "Features": widths.pop() if len(widths) == 1 else None,
+                    "n_folds": len(fold_metrics), "bundle": plan["bundle"], "cv_dir": plan["cv_dir"]})
+        per_fold = pd.DataFrame(fold_metrics)
+        for metric in FIT_TEST_METRICS:
+            row[f"{metric}_mean"] = per_fold[metric].mean() if len(per_fold) else np.nan
+            row[f"{metric}_sd_folds"] = per_fold[metric].std(ddof=1) if len(per_fold) > 1 else np.nan
+        rows.append(row)
+
+    table = pd.DataFrame(rows)
+    if len(table):
+        table = table.sort_values("f1_macro_mean", ascending=False).reset_index(drop=True)
+        table.insert(0, "Rank", range(1, len(table) + 1))
+    return table, failures, n_folds
+
+
+def redraw_run_table(run_manifest_path: Path, final: bool):
+    """The redraw-run table: one row per schema pair and fold.
+
+    Args:
+      run_manifest_path: the run's `redraw_run_manifest.json`.
+      final: require all 28 pairs and, for every fit, the datasets' commit and a clean worktree.
+
+    Returns:
+      The table (numeric; SD columns named `_sd_draws`, since only the training negatives vary
+      between the fits of one row) and the failure messages.
+    """
+    _, pd = _import_data_libs()
+    from src.models.baseline_fits import REQUIRED_FIT_OUTPUTS
+    run_manifest, dataset_manifest = _load_run_manifests(run_manifest_path)
+    commit = dataset_manifest["code"]["commit"]
+    labels = _pair_labels(dataset_manifest)
+    seeds = run_manifest["seeds"]
+
+    failures, rows = [], []
+    failures.extend(final_pair_coverage_failures(run_manifest, dataset_manifest, final))
+    for pair, plan in sorted(run_manifest["pairs"].items()):
+        label, _ = labels[pair]
+        analysis_dir = Path(plan["analysis_dir"])
+        metrics_path = analysis_dir / "test_metrics_by_seed.csv"
+        sd_path = analysis_dir / "per_pair_sd_by_class.csv"
+        if not (metrics_path.exists() and sd_path.exists()):
+            failures.append(f"{label}: no analysis outputs in {analysis_dir}")
+            continue
+        by_seed = pd.read_csv(metrics_path)
+        sd_table = pd.read_csv(sd_path, keep_default_na=False, na_values=[""])
+        for fold_id, fold in sorted(plan["folds"].items(), key=lambda kv: int(kv[0])):
+            for paths in fold["seeds"].values():
+                model_dir = Path(paths["model_dir"])
+                missing = [name for name in REQUIRED_FIT_OUTPUTS if not (model_dir / name).exists()]
+                if missing:
+                    failures.append(f"{model_dir.name}: missing {missing}")
+                elif final:
+                    failures.extend(final_fit_failures(model_dir, commit))
+            draws = by_seed[by_seed["fold"] == int(fold_id)]
+            if sorted(draws["seed"]) != sorted(seeds):
+                failures.append(f"{label} fold {fold_id}: analysis covers seeds "
+                                f"{sorted(draws['seed'])}, the run has {sorted(seeds)}")
+                continue
+            summary = json.loads((Path(fold["redraw_dir"]) / "redraw_summary.json").read_text())
+            row = {"Schema pair": label, "fold": int(fold_id), "n_draws": len(draws),
+                   "f1_macro_mean_draws": draws["f1_macro"].mean(),
+                   "f1_macro_sd_draws": draws["f1_macro"].std(ddof=1)}
+            fold_sd = sd_table[sd_table["fold"] == int(fold_id)]
+            for score in ("prob", "logit"):
+                for name, short in (("positive", "pos"), ("negative", "neg")):
+                    cell = fold_sd[(fold_sd["score"] == score) & (fold_sd["class"] == name)]
+                    row[f"median_{score}_sd_draws_{short}"] = (float(cell["median_sd"].iloc[0])
+                                                              if len(cell) == 1 else None)
+            for key in ("max_negative_pairs_shared_by_two_draws", "negative_pairs_in_multiple_draws"):
+                if key not in summary:
+                    failures.append(f"{label} fold {fold_id}: redraw_summary.json has no {key}")
+                row[key] = summary.get(key)
+            rows.append(row)
+    table = pd.DataFrame(rows)
+    return table, failures
+
+
+def write_training_report(table, n_folds: int, output_dir: Path) -> None:
+    """Write the training-run table, its display version, and the F1 macro pair matrix.
+
+    Args:
+      table: from `training_run_table`.
+      n_folds: the datasets' fold count, named in the figure title.
+      output_dir: where the files go.
+
+    Returns:
+      None. Writes `allpairs_summary.csv`, `allpairs_display.csv`, `matrix_f1_macro_mean.csv`,
+      `matrix_f1_macro_sd_folds.csv` and `matrix_f1_macro.png`.
+    """
+    _, pd = _import_data_libs()
+    table.to_csv(output_dir / "allpairs_summary.csv", index=False)
+    display = table[["Rank", "Schema pair", "HK selected", "Features"]].copy()
+    for metric, name in DISPLAY_METRICS.items():
+        display[name] = [f"{m:.3f} ± {s:.3f}" for m, s in
+                         zip(table[f"{metric}_mean"], table[f"{metric}_sd_folds"])]
+    display.to_csv(output_dir / "allpairs_display.csv", index=False)
+
+    labels = table["Schema pair"]
+    mean = lower_triangle_matrix(dict(zip(labels, table["f1_macro_mean"])))
+    sd = lower_triangle_matrix(dict(zip(labels, table["f1_macro_sd_folds"])))
+    mean.to_csv(output_dir / "matrix_f1_macro_mean.csv")
+    sd.to_csv(output_dir / "matrix_f1_macro_sd_folds.csv")
+    plot_lower_triangle(mean, sd, f"Test F1 macro, mean ± SD across {n_folds} folds",
+                        "F1 macro (mean across folds)", output_dir / "matrix_f1_macro.png")
+    print(f"Saved the training-run tables and matrix in {output_dir}")
+
+
+def write_redraw_report(table, output_dir: Path) -> None:
+    """Write the redraw-run table and the matrix of the mean within-fold SD of F1 macro across draws.
+
+    Args:
+      table: from `redraw_run_table`.
+      output_dir: where the files go.
+
+    Returns:
+      None. Writes `redraw_by_pair_fold.csv`, `matrix_f1_macro_sd_draws.csv` and
+      `matrix_f1_macro_sd_draws.png`.
+    """
+    table.to_csv(output_dir / "redraw_by_pair_fold.csv", index=False)
+    per_pair = table.groupby("Schema pair")["f1_macro_sd_draws"].mean()
+    matrix = lower_triangle_matrix(per_pair.to_dict())
+    matrix.to_csv(output_dir / "matrix_f1_macro_sd_draws.csv")
+    plot_lower_triangle(matrix, None,
+                        "Test F1 macro: mean across folds of the within-fold SD across draws",
+                        "SD of F1 macro across draws (mean across folds)",
+                        output_dir / "matrix_f1_macro_sd_draws.png")
+    print(f"Saved the redraw-run table and matrix in {output_dir}")
+
+
+def write_report_info(output_dir: Path, inputs: dict) -> None:
+    """Write `report_info.json`: the code commit, command line and inputs of this report.
+
+    Args:
+      output_dir: the report directory.
+      inputs: what the report read, as JSON-ready values.
+
+    Returns:
+      None. Writes `output_dir / "report_info.json"`.
+    """
+    from src.utils.experiment_utils import get_git_info
+    info = {
+        "code": get_git_info(),
+        "command": sys.argv,
+        "written_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "inputs": inputs,
+    }
+    (output_dir / "report_info.json").write_text(json.dumps(info, indent=2) + "\n")
+
+
+def run_manifest_inputs(args) -> dict:
+    """The path and SHA-256 of each run manifest on the command line.
+
+    Args:
+      args: the parsed command line.
+
+    Returns:
+      {"training_run_manifest": {"path", "sha256"} or None, "redraw_run_manifest": the same}.
+    """
+    from src.utils.experiment_utils import file_sha256
+    inputs = {}
+    for key in ("training_run_manifest", "redraw_run_manifest"):
+        given = getattr(args, key)
+        if given is None:
+            inputs[key] = None
+            continue
+        path = Path(given).resolve()
+        inputs[key] = {"path": str(path), "sha256": file_sha256(path)}
+    return inputs
+
+
+def run_manifest_mode(args) -> None:
+    """Build the reports a training run manifest and/or a redraw run manifest name.
+
+    Args:
+      args: the parsed command line, with `training_run_manifest` and/or `redraw_run_manifest`.
+
+    Returns:
+      None. Exits non-zero, writing nothing, when any check fails.
+    """
+    output_dir = Path(args.output_dir) if args.output_dir else None
+    if output_dir is None:
+        raise SystemExit("ERROR: --output_dir is required with a run manifest")
+
+    failures, training, redraw = [], None, None
+    if args.training_run_manifest:
+        table, table_failures, n_folds = training_run_table(Path(args.training_run_manifest),
+                                                            args.final)
+        failures.extend(table_failures)
+        training = (table, n_folds)
+    if args.redraw_run_manifest:
+        table, table_failures = redraw_run_table(Path(args.redraw_run_manifest), args.final)
+        failures.extend(table_failures)
+        redraw = table
+    if failures:
+        print("\n".join(f"ERROR: {message}" for message in failures))
+        sys.exit(1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_report_info(output_dir, run_manifest_inputs(args))
+    if training is not None:
+        write_training_report(*training, output_dir)
+    if redraw is not None:
+        write_redraw_report(redraw, output_dir)
+    print(f"\nDone. All outputs in: {output_dir}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Aggregate all protein-pair CV results into cross-pair summary and heatmaps")
+    parser.add_argument("--training_run_manifest", type=str, default=None,
+                        help="training_run_manifest.json from run_allpairs_baselines.py: report "
+                             "exactly the CV directories it lists")
+    parser.add_argument("--redraw_run_manifest", type=str, default=None,
+                        help="redraw_run_manifest.json from run_allpairs_balanced_redraws.py: "
+                             "report the redraw run it records")
+    parser.add_argument("--final", action="store_true",
+                        help="with a run manifest: require all 28 pairs, and every fit at the "
+                             "datasets' commit with a clean worktree")
     parser.add_argument("--manifest", type=str, default=None,
                         help="Path to allpairs manifest.txt (optional; auto-discovers if not given)")
     parser.add_argument("--cv_base_dir", type=str, default=None,
@@ -418,6 +913,12 @@ def main():
     parser.add_argument("--progress", action="store_true",
                         help="Show live progress table from status.json files and exit")
     args = parser.parse_args()
+
+    if args.training_run_manifest or args.redraw_run_manifest:
+        run_manifest_mode(args)
+        return
+    if args.final:
+        parser.error("--final applies only with a run manifest")
 
     # Resolve cv_base_dir
     if args.cv_base_dir:
@@ -460,6 +961,8 @@ def main():
     else:
         output_dir = PROJECT_ROOT / "models" / "flu" / "July_2025" / "allpairs_summary"
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_report_info(output_dir, {"cv_dirs": {bundle: str(cv_dir)
+                                               for bundle, cv_dir in cv_dirs.items()}})
 
     # Save cross-pair summary CSV
     csv_path = output_dir / "allpairs_summary.csv"
@@ -482,7 +985,7 @@ def main():
             for _, r in incomplete.iterrows():
                 print(f"    {r['bundle']:40s}  {r['post_hoc_n_with']}/{r['post_hoc_n_total']}  "
                       f"missing folds: [{r['post_hoc_missing_folds']}]")
-            print(f"  Backfill with: bash scripts/run_allpairs_post_hoc.sh <TAG>")
+            print("  Backfill with: bash scripts/run_allpairs_post_hoc.sh <TAG>")
 
     # Save fp_fn sub-table (pairs ranked by FP/FN ratio — quick health check)
     if "fp_fn_ratio_mean" in table.columns:
@@ -511,9 +1014,9 @@ def main():
     fold_counts = set(complete["n_folds"].dropna().astype(int)) if "n_folds" in complete else set()
     n_folds = fold_counts.pop() if len(fold_counts) == 1 else None
 
-    # Generate heatmaps
-    for metric in HEATMAP_METRICS:
-        matrix = build_heatmap_matrix(table, metric)
+    # Generate heatmaps. Each matrix is built once and reused for the CSV, the figure and the JSON.
+    matrices = {metric: build_heatmap_matrix(table, metric) for metric in HEATMAP_METRICS}
+    for metric, matrix in matrices.items():
         # Save matrix CSV
         matrix_csv = output_dir / f"heatmap_{metric}.csv"
         matrix.to_csv(matrix_csv)
@@ -535,8 +1038,7 @@ def main():
         "pairs": table.to_dict(orient="records"),
     }
     # Add heatmap matrices
-    for metric in HEATMAP_METRICS:
-        matrix = build_heatmap_matrix(table, metric)
+    for metric, matrix in matrices.items():
         summary_json[f"heatmap_{metric}"] = matrix.where(matrix.notna(), None).to_dict()
 
     with open(json_path, "w") as f:

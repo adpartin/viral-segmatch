@@ -66,7 +66,11 @@ def bin_labels(edges: tuple) -> list:
 
 
 def positive_universe(dataset_dir: Path, cache_a, cache_b) -> tuple:
-    """Index every observed co-occurrence by its slot-A and slot-B sequence hashes."""
+    """Index every observed co-occurrence by its slot-A and slot-B sequence hashes.
+
+    The dataset's co-occurrence file covers the whole corpus, so most of its rows name
+    sequences the per-site caches do not hold; those rows are counted and skipped.
+    """
     cooccur_path = dataset_dir / 'cooccurring_sequence_pairs.csv'
     if not cooccur_path.exists():
         raise FileNotFoundError(
@@ -95,7 +99,8 @@ def positive_universe(dataset_dir: Path, cache_a, cache_b) -> tuple:
             f"{cache_b.protein} caches. The caches and the dataset describe different proteins.")
     if n_unassigned:
         print(f"WARNING: {n_unassigned:,} of {len(cooccur):,} co-occurrence rows have a sequence "
-              f"outside the per-site caches (off-length or incomplete CDS); skipped.")
+              f"outside the per-site caches (another population, off-length, or an incomplete "
+              f"CDS); skipped.")
     return partners_of_a, partners_of_b
 
 
@@ -260,6 +265,7 @@ def main() -> None:
                         help='model run directories, each holding test_predicted.csv')
     parser.add_argument('--config_bundle', required=True,
                         help='bundle the runs were trained with; supplies the protein short names')
+    parser.add_argument('--pinned_nt', type=int, default=None, help='pinned CDS length of the cache to read; needed only for a protein with caches at several pins')
     parser.add_argument('--unit', default='nt', choices=['nt', 'codon', 'aa'],
                         help='per-site cache the distance is measured on')
     parser.add_argument('--site_dir', type=Path, default=PROJ / 'data/embeddings/flu/July_2025')
@@ -292,8 +298,8 @@ def main() -> None:
     function_a, function_b = distinct.pop()
     protein_a = function_to_short.get(function_a, function_a)
     protein_b = function_to_short.get(function_b, function_b)
-    cache_a = load_site_cache(args.site_dir, args.unit, protein_a)
-    cache_b = load_site_cache(args.site_dir, args.unit, protein_b)
+    cache_a = load_site_cache(args.site_dir, args.unit, protein_a, args.pinned_nt)
+    cache_b = load_site_cache(args.site_dir, args.unit, protein_b, args.pinned_nt)
     print(f"Slots: a={protein_a} ({cache_a.codes.shape[1]:,} sites), "
           f"b={protein_b} ({cache_b.codes.shape[1]:,} sites), unit={args.unit}")
 

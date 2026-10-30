@@ -10,7 +10,9 @@ config, source files, findings, roadmap, HPC). Read it when you need orientation
 
 Predicts whether two viral protein segments co-occur in the same isolate (binary classification).
 Given embeddings of two protein segments from the same virus, the model distinguishes true
-co-occurring pairs (positive) from artificially mixed pairs (negative).
+co-occurring pairs (positive) from artificially mixed pairs (negative). A mixed pair counts as a
+negative only when its two sequences co-occur in no isolate of the corpus, which Stage 3 enforces
+with the **co-occurrence blocking set** (`docs/methods/glossary.md`).
 
 **Approach**: Frozen ESM-2 protein embeddings (1280-dim, `esm2_t33_650M_UR50D`) → pairwise
 interaction feature (e.g. `unit_diff`, `concat`) → MLP binary classifier. **Primary virus**:
@@ -94,7 +96,8 @@ src/
     dataset_segment_pairs.py        # Stage 3: pairs + train/val/test splits (CLI)
     dataset_segment_pairs_v2.py     # v2 builder (default; coverage-first + regime-aware)
     dataset_pairs_cc.py             # 2D-CD CC builder (cluster-disjoint CC K-fold; within-CC/fold negs)
-    _pair_helpers.py                # Shared helpers (seq_disjoint routing, filters, hash attach)
+    _pair_helpers.py                # Shared helpers (seq_disjoint routing, filters, hash attach,
+                                    #   corpus-wide co-occurrence blocking set)
     _split_helpers.py               # cluster_disjoint routing (mmseqs2-based)
     _cc_helpers.py                  # within-CC isolate pool + negative samplers (CC builder)
     _cv_sampling.py                 # atom assignment + per-unit positive sampling (CV harness)

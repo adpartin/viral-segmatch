@@ -36,8 +36,12 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
-    average_precision_score, f1_score, roc_auc_score, precision_score, recall_score,
+    average_precision_score,
     confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -99,8 +103,25 @@ def find_training_dirs_from_manifest(manifest_path: Path) -> tuple[list[Path], P
 
 
 def aggregate(training_dirs: list[Path], output_dir: Path,
-              dataset_run_dir: Optional[Path] = None) -> None:
-    """Load per-fold test_predicted.csv files, compute metrics, write summary."""
+              dataset_run_dir: Optional[Path] = None, strict: bool = False) -> None:
+    """Load per-fold test_predicted.csv files, compute metrics, write summary.
+
+    Args:
+        training_dirs: one training run directory per fold, in fold order.
+        output_dir: where `cv_summary.csv` and `cv_summary.json` are written.
+        dataset_run_dir: the dataset run directory holding `cv_info.json`, or None.
+        strict: exit non-zero when any fold lacks `test_predicted.csv`, instead of warning and
+            aggregating the folds that have one.
+
+    Returns:
+        None.
+    """
+    if strict:
+        missing = [str(tdir) for tdir in training_dirs if not (tdir / "test_predicted.csv").exists()]
+        if missing:
+            print(f"ERROR: test_predicted.csv not found in {len(missing)} of "
+                  f"{len(training_dirs)} folds: {missing}")
+            sys.exit(1)
     rows = []
     for fold_i, tdir in enumerate(training_dirs):
         pred_file = tdir / "test_predicted.csv"
@@ -128,6 +149,8 @@ def aggregate(training_dirs: list[Path], output_dir: Path,
 
     if not rows:
         print("ERROR: No per-fold results found. Nothing to aggregate.")
+        if strict:
+            sys.exit(1)
         return
 
     metric_cols = ["f1_binary", "f1_macro", "auc_roc", "auc_pr", "precision", "recall",
@@ -197,6 +220,9 @@ def main():
                    help="Explicit list of training run directories (one per fold, in fold order)")
     p.add_argument("--output_dir", type=str, default=None,
                    help="Where to write cv_summary.*  (default: parent of manifest / first training dir)")
+    p.add_argument("--strict", action="store_true",
+                   help="Exit non-zero when any fold lacks test_predicted.csv, instead of "
+                        "aggregating the folds that have one")
     args = p.parse_args()
 
     dataset_run_dir = None
@@ -210,7 +236,7 @@ def main():
 
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"\nAggregating {len(training_dirs)} CV folds → {output_dir}")
-    aggregate(training_dirs, output_dir, dataset_run_dir=dataset_run_dir)
+    aggregate(training_dirs, output_dir, dataset_run_dir=dataset_run_dir, strict=args.strict)
 
 
 if __name__ == "__main__":

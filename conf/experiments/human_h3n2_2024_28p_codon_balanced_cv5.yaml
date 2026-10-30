@@ -1,0 +1,35 @@
+# Experiment spec: the 28-pair per-site codon screen on Human-H3N2-2024 with 5-fold CV.
+# Bundles: conf/bundles/flu_28p_codon_*.yaml. Design: docs/plans/2026-10-08_paper_plan.md.
+# Written from the plan, not copied from a built dataset; see "Experiment spec" in
+# docs/methods/glossary.md.
+
+# Applied on top of every child bundle, in order. Only what differs from the bundles.
+overrides:
+  - dataset.n_folds=5
+
+# Every dataset's resolved_config.yaml and every planned fit config must have these values.
+expect:
+  # Population
+  dataset.host: [Human]
+  dataset.hn_subtype: [H3N2]
+  dataset.year: [2024]
+  # Positive selection
+  dataset.positive_pair_selection.method: hopcroft_karp
+  dataset.split_strategy.pair_key_alphabet: nt_cds
+  # Negative sampler and ratio
+  dataset.split_strategy.negative_scope: balanced
+  dataset.neg_to_pos_ratio: 1.0
+  dataset.negative_sampling: null
+  # Pinned-length requirement
+  dataset.require_complete_cds_at_pinned_length: true
+  # Fold count
+  dataset.n_folds: 5
+  # Feature settings
+  training.feature_source: site
+  site.unit: codon
+  site.encoding: ordinal
+  training.interaction: concat
+  training.slot_transform: none
+  # LightGBM row sampling
+  baseline_lgbm.subsample: 0.7
+  baseline_lgbm.subsample_freq: 1

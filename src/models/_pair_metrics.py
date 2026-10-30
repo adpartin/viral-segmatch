@@ -10,6 +10,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
+    average_precision_score,
     classification_report,
     f1_score,
     precision_recall_curve,
@@ -99,7 +100,9 @@ def compute_pair_metrics(
             (per-epoch eval) don't want the noise.
 
     Returns:
-        metrics: dict with keys f1, f1_macro, precision, recall, auc_roc.
+        metrics: dict with keys f1, f1_macro, precision, recall, auc_roc, auc_pr,
+            brier. The first four read the thresholded labels, the two AUCs read
+            the ranking of ``y_probs``, and Brier reads their values.
         res_df:  copy of ``pairs_df`` with prediction columns appended.
     """
     pred_labels = (y_probs > threshold).astype(np.float32)
@@ -116,6 +119,15 @@ def compute_pair_metrics(
         # Degenerate predictions (all same class) break roc_auc_score; fall
         # back to chance.
         auc_roc = 0.5
+    # average_precision_score needs no such guard: on single-class labels it returns 0.0 or 1.0
+    # rather than raising. Its chance level is the positive rate, not 0.5.
+    auc_pr = average_precision_score(y_true, y_probs)
+    # Mean squared error of the probabilities against the labels, so it reads how far each
+    # probability sits from its outcome and ignores `threshold`. A model that predicts the
+    # positive rate for every pair scores p * (1 - p), which is 0.25 on a balanced split.
+    squared_error = (np.asarray(y_probs, dtype=np.float64)
+                     - np.asarray(y_true, dtype=np.float64)) ** 2
+    brier = float(np.mean(squared_error))
 
     if print_classification_report:
         print('\nClassification Report:')
@@ -133,6 +145,8 @@ def compute_pair_metrics(
         'precision': precision,
         'recall': recall,
         'auc_roc': auc_roc,
+        'auc_pr': auc_pr,
+        'brier': brier,
     }
     return metrics, res_df
 

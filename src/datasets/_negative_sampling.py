@@ -1,14 +1,18 @@
 """Negative-pair samplers shared by the two dataset builders.
 
-Two samplers live here, each selected by `split_strategy.negative_scope`. `within_fold_negatives`
-(`within_fold`) draws both slots uniformly from the split's own positives. `balanced_usage_negatives`
-(`balanced`) draws from each slot's least-used sequences first, so one sequence is not reused far
-more often than another. Both builders reach both samplers: the 2D-CD builder
-(`dataset_pairs_cc.py`) and the v2 builder (`dataset_segment_pairs_v2.py`) for its random,
-seq_disjoint and single-slot cluster_disjoint modes. `within_fold_negatives` lived in the 2D-CD
-builder, which made the v2 builder import one of its peers and forced that import to be
-function-local to break a cycle. Nothing here imports either builder, so both can import this
-module plainly.
+Three samplers live here. `within_fold_negatives` (`within_fold`) draws both slots uniformly from
+the split's own positives. `balanced_usage_negatives` (`balanced`) draws from each slot's
+least-used sequences first, so one sequence is not reused far more often than another.
+`matched_balanced_usage_negatives` (`balanced` with `dataset.negative_sampling` set) pairs
+sequences only inside one metadata group, so both sides of every negative share host, HN subtype
+and exact year. The first two are selected by `split_strategy.negative_scope` alone.
+
+Both builders reach the first two samplers: the 2D-CD builder (`dataset_pairs_cc.py`) and the v2
+builder (`dataset_segment_pairs_v2.py`) for its random, seq_disjoint and single-slot
+cluster_disjoint modes. The matched sampler needs the per-isolate metadata cells that only v2
+builds. `within_fold_negatives` lived in the 2D-CD builder, which made the v2 builder import one
+of its peers and forced that import to be function-local to break a cycle. Nothing here imports
+either builder, so both can import this module plainly.
 
 The other two samplers stay where their own routing lives: `within_cc_negatives` needs the CC
 structure and belongs to the 2D-CD builder, and the coverage-first sampler belongs to v2.
@@ -16,10 +20,12 @@ structure and belongs to the 2D-CD builder, and the coverage-first sampler belon
 from __future__ import annotations
 
 from collections import Counter
+from itertools import chain
 
 import numpy as np
 import pandas as pd
 
+from src.datasets._negative_regime_sampling import DEFAULT_AXES
 from src.datasets._pair_helpers import _side_rep, canonical_pair_key
 from src.utils import schema
 
@@ -28,6 +34,13 @@ from src.utils import schema
 _PAIR_COLUMNS = schema.build_pair_columns()
 _MAX_DENSE_REPAIR_SIZE = 2000  # 2000^2 int32 costs take 16 MB; larger assignments grow quickly.
 _MAX_DIRECT_REPAIR_CHECKS = 100_000
+
+# The regime name `_negative_regime_sampling` gives a negative whose two sides match on every axis
+# in DEFAULT_AXES, which is what the matched sampler produces.
+_MATCHED_REGIME = 'host_subtype_year'
+# The matched assignment scans a group's partner candidates, so its cost grows with the square of
+# the group size. Above this, say so rather than appear to hang.
+_MAX_MATCHED_GROUP_SIZE = 5000
 
 
 def _enrich_negatives(
@@ -264,6 +277,218 @@ def _repair_exact_one_use(
           f"{sum(a != old_a or b != old_b for a, b, old_a, old_b in zip(new_a, new_b, original_a, original_b))} "
           "negative pairs to use each sequence once.")
     return new_a, new_b
+
+
+def _blocked_partners(cooccur: set, seen: set, a_hashes, b_hashes) -> dict:
+    """For each slot-a hash, the slot-b hashes it must not be paired with.
+
+    Walks `cooccur` and `seen` once and keeps the entries whose two hashes are both in this
+    group, so a later assignment tests a candidate with one set lookup instead of rebuilding a
+    pair key for every candidate.
+
+    Args:
+        cooccur: canonical pair_keys of all observed positives.
+        seen: canonical pair_keys already drawn as negatives.
+        a_hashes: the group's slot-a hashes.
+        b_hashes: the group's slot-b hashes.
+
+    Returns:
+        slot-a hash -> the set of slot-b hashes it cannot take; absent keys have none.
+    """
+    a_set, b_set = set(a_hashes), set(b_hashes)
+    blocked: dict = {}
+    for key in chain(cooccur, seen):
+        left, _, right = str(key).partition('__')
+        # A pair key is its two hashes in sorted order, so either hash can be the slot-a side.
+        for one, other in ((left, right), (right, left)):
+            if one in a_set and other in b_set:
+                blocked.setdefault(one, set()).add(other)
+    return blocked
+
+
+def _one_use_matching(a_hashes: list, b_hashes: list, blocked: dict,
+                      rng: np.random.RandomState) -> list | None:
+    """One distinct slot-b sequence for every slot-a sequence, avoiding blocked pairs.
+
+    Starts from a rotation of a shuffled order, which already avoids every positive of the group
+    itself, then repairs the rest with augmenting paths. The result is a perfect matching when one
+    exists, so a None return means no assignment exists rather than that the search gave up.
+
+    Args:
+        a_hashes: the group's slot-a hashes, one per positive.
+        b_hashes: the group's slot-b hashes, one per positive, in the same row order.
+        blocked: from `_blocked_partners`.
+        rng: the sampler's random state, which fixes the order candidates are offered in.
+
+    Returns:
+        `partner[i]` is the index into `b_hashes` that slot-a sequence `i` takes, or None when no
+        perfect matching exists.
+    """
+    n = len(a_hashes)
+    order = [int(j) for j in rng.permutation(n)]  # the candidate order every slot-a row scans
+    taken_by = [-1] * n                           # slot-b index -> slot-a index
+    partner = [-1] * n                            # slot-a index -> slot-b index
+
+    def allowed(i: int, j: int) -> bool:
+        return b_hashes[j] not in blocked.get(a_hashes[i], ())
+
+    # Rotating a shuffled order pairs row `order[k]` with row `order[k+1]`, so no row keeps its own
+    # positive partner and most groups are matched before any augmenting path runs.
+    for k, i in enumerate(order):
+        j = order[(k + 1) % n]
+        if taken_by[j] == -1 and allowed(i, j):
+            taken_by[j] = i
+            partner[i] = j
+
+    for start in range(n):
+        if partner[start] != -1:
+            continue
+        visited = [False] * n
+        # Each frame is [slot-a index, next position in `order`, the slot-b index it took].
+        stack = [[start, 0, -1]]
+        while stack:
+            frame = stack[-1]
+            row, position = frame[0], frame[1]
+            if position >= n:
+                stack.pop()
+                continue
+            frame[1] = position + 1
+            candidate = order[position]
+            if visited[candidate] or not allowed(row, candidate):
+                continue
+            visited[candidate] = True
+            frame[2] = candidate
+            holder = taken_by[candidate]
+            if holder == -1:
+                # The path ends on a free slot-b sequence, so every frame takes the one it chose.
+                for step in stack:
+                    taken_by[step[2]] = step[0]
+                    partner[step[0]] = step[2]
+                break
+            stack.append([holder, 0, -1])
+        if partner[start] == -1:
+            return None
+    return partner
+
+
+def matched_balanced_usage_negatives(
+    split_pos: pd.DataFrame,
+    cooccur: set,
+    isolate_to_group: dict, *,
+    seed: int,
+    hash_col: str = 'prot_hash',
+    seen: set | None = None,
+    split_name: str = '') -> tuple:
+    """Draw negatives for ONE split that match their two sides on host, HN subtype and exact year.
+
+    Each metadata group is handled on its own: the group's positives supply both slots, and a
+    one-to-one assignment gives every slot-a sequence one slot-b sequence from another positive of
+    the same group. So each sequence is used exactly once in the split's negatives, there are as
+    many negatives as positives, and every negative belongs to one metadata group. A sequence is
+    never taken from another group, which is what separates this from `balanced_usage_negatives`.
+
+    Each endpoint keeps the metadata of the positive it came from, rather than of some other
+    isolate carrying the same sequence, so the saved negative can be checked against the group it
+    is counted in.
+
+    Args:
+        split_pos: this split's positive rows, in `_PAIR_COLUMNS`.
+        cooccur: canonical pair_keys of all observed positives; an assignment avoids them.
+        isolate_to_group: assembly_id -> metadata group tuple, from `build_isolate_cells`.
+        seed: seeds the candidate order within each group.
+        hash_col: the alphabet's per-slot hash column (aa: `prot_hash`).
+        seen: pair_keys already drawn, extended in place. Defaults to a fresh set, which dedups
+            within this call only.
+        split_name: the split's name, used in error messages only.
+
+    Returns:
+        (negatives in `_PAIR_COLUMNS` with index reset, audit rows). Each audit row gives one
+        group's values, its positives and its negatives.
+
+    Raises:
+        ValueError: a positive's two sides are different isolates, an isolate has no metadata
+            group, a group's positives do not have one sequence per slot each, a group is too
+            small or too large to assign, or a group has no one-to-one assignment.
+    """
+    ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'
+    if seen is None:
+        seen = set()
+
+    aid_a = split_pos['assembly_id_a'].astype(str)
+    aid_b = split_pos['assembly_id_b'].astype(str)
+    crossed = aid_a != aid_b
+    if crossed.any():
+        examples = list(zip(aid_a[crossed].head(3), aid_b[crossed].head(3)))
+        raise ValueError(
+            f"matched_balanced_usage_negatives: the {split_name} split has {int(crossed.sum()):,} "
+            f"positives whose two sides are different isolates, for example {examples}. A "
+            f"positive's metadata group is the group of the isolate that carries both sequences.")
+    groups = aid_a.map(isolate_to_group)
+    ungrouped = groups.isna()
+    if ungrouped.any():
+        raise ValueError(
+            f"matched_balanced_usage_negatives: {int(ungrouped.sum()):,} positives of the "
+            f"{split_name} split have an isolate with no metadata group, for example "
+            f"{list(aid_a[ungrouped].head(3))}.")
+
+    rows_by_group: dict = {}
+    for position, group in enumerate(groups):
+        rows_by_group.setdefault(group, []).append(position)
+
+    rng = np.random.RandomState(seed)
+    a_all = split_pos[ha_col].astype(str).to_numpy()
+    b_all = split_pos[hb_col].astype(str).to_numpy()
+    rows_a, rows_b, audit = [], [], []
+    for group in sorted(rows_by_group, key=str):
+        positions = rows_by_group[group]
+        n = len(positions)
+        a_hashes = [a_all[p] for p in positions]
+        b_hashes = [b_all[p] for p in positions]
+        if n < 2:
+            raise ValueError(
+                f"matched_balanced_usage_negatives: group {group} has {n} positive in the "
+                f"{split_name} split, so it has no possible negative partner within its group.")
+        if n > _MAX_MATCHED_GROUP_SIZE:
+            raise ValueError(
+                f"matched_balanced_usage_negatives: group {group} has {n:,} positives in the "
+                f"{split_name} split, above the {_MAX_MATCHED_GROUP_SIZE:,} this assignment "
+                f"handles.")
+        if len(set(a_hashes)) != n or len(set(b_hashes)) != n:
+            raise ValueError(
+                f"matched_balanced_usage_negatives: group {group} has {n:,} positives in the "
+                f"{split_name} split but {len(set(a_hashes)):,} slot-a and "
+                f"{len(set(b_hashes)):,} slot-b sequences. One negative use per sequence needs "
+                f"one positive per sequence in each slot, which "
+                f"dataset.positive_pair_selection.method='hopcroft_karp' produces.")
+        blocked = _blocked_partners(cooccur, seen, a_hashes, b_hashes)
+        partner = _one_use_matching(a_hashes, b_hashes, blocked, rng)
+        if partner is None:
+            raise ValueError(
+                f"matched_balanced_usage_negatives: group {group} in the {split_name} split has "
+                f"no assignment that gives each of its {n:,} sequences one negative use without "
+                f"reproducing an observed pair or repeating a drawn negative.")
+        for i, j in enumerate(partner):
+            rows_a.append(positions[i])
+            rows_b.append(positions[j])
+            seen.add(canonical_pair_key(a_hashes[i], b_hashes[j]))
+        audit.append({'group': list(group), 'positives': n, 'negatives': n})
+
+    print(f"Done. matched_balanced_usage_negatives drew {len(rows_a):,} negatives over "
+          f"{len(audit):,} metadata groups of the {split_name} split.")
+    if not rows_a:
+        return pd.DataFrame(columns=list(_PAIR_COLUMNS)), audit
+
+    a_cols = [column for column in _PAIR_COLUMNS if column.endswith('_a')]
+    b_cols = [column for column in _PAIR_COLUMNS if column.endswith('_b')]
+    out = pd.concat([split_pos.iloc[rows_a][a_cols].reset_index(drop=True),
+                     split_pos.iloc[rows_b][b_cols].reset_index(drop=True)], axis=1)
+    aa = out[ha_col].astype(str).to_numpy()
+    bb = out[hb_col].astype(str).to_numpy()
+    out['pair_key'] = np.where(aa <= bb, aa, bb) + '__' + np.where(aa <= bb, bb, aa)
+    out['label'] = 0
+    out['neg_regime'] = _MATCHED_REGIME
+    out['metadata_match_count'] = len(DEFAULT_AXES)
+    return out[list(_PAIR_COLUMNS)].reset_index(drop=True), audit
 
 
 def balanced_usage_negatives(

@@ -16,11 +16,23 @@ from omegaconf import OmegaConf
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
+from src.datasets._pair_helpers import build_cooccurrence_set
 from src.datasets._positive_pair_selection import select_positive_pairs
 from src.datasets.dataset_segment_pairs_v2 import (
     _validate_v2_config,
     generate_all_cv_folds_v2,
 )
+
+
+def _cooccur_args(frame: pd.DataFrame) -> dict:
+    """The blocking-set arguments `generate_all_cv_folds_v2` requires, built from `frame`.
+
+    `frame` is every record these tests have, so a set built from it is corpus-wide, which
+    is what the builders pass in production (see `build_corpus_cooccurrence_set`).
+    """
+    cooccur_pairs, cooccur_stats = build_cooccurrence_set(frame, hash_col="cds_dna_hash")
+    cooccur_stats["scope"] = "corpus"
+    return {"cooccur_pairs": cooccur_pairs, "cooccur_stats": cooccur_stats}
 
 
 def _selection_frame() -> pd.DataFrame:
@@ -256,9 +268,11 @@ def _protein_frame(n_diagonal: int = 15) -> pd.DataFrame:
 
 
 def _selected_cv_folds(negative_scope: str = "within_fold") -> list[dict]:
+    frame = _protein_frame()
     return list(
         generate_all_cv_folds_v2(
-            df=_protein_frame(),
+            df=frame,
+            **_cooccur_args(frame),
             n_folds=3,
             seed=42,
             neg_to_pos_ratio=1.0,
@@ -388,8 +402,10 @@ def test_selected_cv_is_deterministic_for_fixed_seed():
 
 
 def test_method_all_keeps_existing_cv_output():
+    frame = _protein_frame()
     kwargs = {
-        "df": _protein_frame(),
+        "df": frame,
+        **_cooccur_args(frame),
         "n_folds": 3,
         "seed": 42,
         "neg_to_pos_ratio": 1.0,

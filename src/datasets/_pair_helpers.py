@@ -693,12 +693,165 @@ def compute_isolate_pair_counts(
     return isolate_pos_counts
 
 
+def _read_narrow(table_path: Path, columns: list) -> pd.DataFrame:
+    """Read only `columns` from one of the Stage-1/1.5 `*_final` tables.
+
+    Resolves parquet before CSV the way `load_dataframe` does, because the configured
+    protein path carries a `.csv` suffix while the parquet is what exists on disk. It
+    differs from `load_dataframe` by reading a column subset, which keeps the sequence
+    columns out of memory.
+
+    Args:
+        table_path: path to the table, with or without a file extension.
+        columns: the columns to read.
+
+    Returns:
+        The named columns of the table.
+    """
+    parquet_path = Path(table_path).with_suffix('.parquet')
+    csv_path = Path(table_path).with_suffix('.csv')
+    if parquet_path.exists():
+        return pd.read_parquet(parquet_path, columns=list(columns))
+    if csv_path.exists():
+        # keep_default_na=False: 'NA' is Neuraminidase in a short-name column, not a missing
+        # value. These tables carry full function names, so this only guards a future rename.
+        return pd.read_csv(csv_path, usecols=list(columns),
+                           keep_default_na=False, na_values=[''])
+    raise FileNotFoundError(
+        f"_read_narrow: neither parquet nor CSV found. Tried: {parquet_path} and {csv_path}."
+    )
+
+
+def load_corpus_hash_frame(
+    protein_input_path: Path,
+    functions,
+    *,
+    alphabet: str,
+    cds_final_path: Optional[Path] = None,
+    ) -> pd.DataFrame:
+    """Every corpus record of `functions`, as `[assembly_id, function, <alphabet hash>]`.
+
+    Reads the alphabet's own `*_final` table, so the frame covers the whole corpus: no
+    metadata filter, no subtype balancing, no isolate cap, and no completeness or pinned-length
+    filter. `build_corpus_cooccurrence_set` turns it into the blocking set, so that set does
+    not depend on which population a run models.
+
+    One rule per alphabet, with the hash and file names read from `src/utils/schema.py`:
+      - aa: `prot_hash` from protein_final, which Stage 1 writes into the file.
+      - nt_cds: `cds_dna_hash` from cds_dna_final, which carries `function` itself.
+      - nt_ctg: `ctg_dna_hash` from ctg_dna_final, joined to protein_final on
+        `(assembly_id, genbank_ctg_id)` because ctg_dna_final has no `function` column. The
+        stored hash is read as it is, while `attach_ctg_dna_to_prot_df` recomputes the same
+        md5 from `ctg_dna_seq`, a column this does not load.
+
+    Fails loudly on: an unknown alphabet, a missing file or column, a requested function with
+    no corpus records, join fan-out, or a null hash.
+
+    Args:
+        protein_input_path: path to protein_final, with or without a file extension.
+        functions: the full function names to keep, in practice the two of the schema pair.
+        alphabet: 'aa', 'nt_cds' or 'nt_ctg'.
+        cds_final_path: cds_dna_final to read when alphabet='nt_cds'; defaults to the sibling
+            of `protein_input_path`.
+
+    Returns:
+        One row per corpus record of `functions`, with columns `assembly_id`, `function` and
+        the alphabet's hash column.
+    """
+    hash_col = schema.hash_col(alphabet)  # raises on an unknown alphabet
+    protein_input_path = Path(protein_input_path)
+    wanted = list(functions)
+
+    if alphabet == 'nt_cds':
+        cds_path = (Path(cds_final_path) if cds_final_path is not None
+                    else protein_input_path.parent / f'{schema.require(alphabet).file_basename}.parquet')
+        obs = _read_narrow(cds_path, ['assembly_id', 'function', hash_col])
+        obs = obs[obs['function'].isin(wanted)].copy()
+    elif alphabet == 'aa':
+        obs = _read_narrow(protein_input_path, ['assembly_id', 'function', hash_col])
+        obs = obs[obs['function'].isin(wanted)].copy()
+    else:  # nt_ctg: the hash lives in ctg_dna_final, the function name in protein_final.
+        prot = _read_narrow(protein_input_path, ['assembly_id', 'function', 'genbank_ctg_id'])
+        prot = prot[prot['function'].isin(wanted)].copy()
+        prot['assembly_id'] = prot['assembly_id'].astype(str)
+        ctg_path = protein_input_path.parent / f'{schema.require(alphabet).file_basename}.parquet'
+        ctg = _read_narrow(ctg_path, ['assembly_id', 'genbank_ctg_id', hash_col])
+        ctg['assembly_id'] = ctg['assembly_id'].astype(str)
+        obs = prot.merge(ctg, on=['assembly_id', 'genbank_ctg_id'], how='left',
+                         validate='many_to_one')
+
+    obs['assembly_id'] = obs['assembly_id'].astype(str)
+    missing_functions = [f for f in wanted if f not in set(obs['function'].unique())]
+    if missing_functions:
+        raise ValueError(
+            f"load_corpus_hash_frame: no corpus records for {missing_functions!r} in "
+            f"{protein_input_path}. Check the function names against "
+            f"conf/virus/<virus>.yaml:selected_functions."
+        )
+    n_null = int(obs[hash_col].isna().sum())
+    if n_null:
+        raise RuntimeError(
+            f"load_corpus_hash_frame: {n_null:,} of {len(obs):,} records have no {hash_col}. "
+            f"For nt_ctg this means protein_final and ctg_dna_final came from different "
+            f"preprocess_flu.py runs."
+        )
+    return obs[['assembly_id', 'function', hash_col]].reset_index(drop=True)
+
+
+def build_corpus_cooccurrence_set(
+    protein_input_path: Path,
+    functions,
+    *,
+    alphabet: str,
+    cds_final_path: Optional[Path] = None,
+    ) -> tuple[set, dict]:
+    """The co-occurrence blocking set of `functions`, built over the whole corpus.
+
+    A candidate negative is rejected when its two sequences co-occur in any corpus isolate,
+    rather than in any isolate of the modelled population, so a negative is a pair that was
+    never observed together anywhere in the data. Both dataset builders
+    (`dataset_segment_pairs.py` and `dataset_pairs_cc.py`) call this, so one definition
+    covers every build.
+
+    Restricting the frame to two functions keeps the set to the pairs a run can draw: a
+    pair key sorts its two hashes and does not record which protein each came from, so a
+    set built over all selected functions would also block cross-protein combinations.
+
+    Args:
+        protein_input_path: path to protein_final, with or without a file extension.
+        functions: the full function names of the schema pair.
+        alphabet: the pair-key alphabet, 'aa', 'nt_cds' or 'nt_ctg'.
+        cds_final_path: cds_dna_final to read when alphabet='nt_cds'; defaults to the sibling
+            of `protein_input_path`.
+
+    Returns:
+        - cooccur_pairs: as `build_cooccurrence_set`.
+        - cooccur_stats: as `build_cooccurrence_set`, plus `scope='corpus'`, which records
+          the universe the three counts describe.
+    """
+    hash_col = schema.hash_col(alphabet)
+    print(f"\nBuild the corpus-wide co-occurrence blocking set on {hash_col} "
+          f"(alphabet={alphabet!r}).")
+    obs = load_corpus_hash_frame(protein_input_path, functions, alphabet=alphabet,
+                                 cds_final_path=cds_final_path)
+    print(f"  corpus records: {len(obs):,} over {obs['assembly_id'].nunique():,} isolates")
+    cooccur_pairs, cooccur_stats = build_cooccurrence_set(obs, hash_col=hash_col)
+    cooccur_stats['scope'] = 'corpus'
+    print(f"  total co-occurring sequence pairs: {cooccur_stats['total_cooccur_pairs']:,}")
+    print(f"  pairs in more than one isolate:    {cooccur_stats['pairs_in_multiple_isolates']:,}")
+    print(f"  max isolates for one pair:         {cooccur_stats['max_isolates_per_pair']:,}")
+    return cooccur_pairs, cooccur_stats
+
+
 def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'prot_hash') -> tuple[set, dict]:
     """Build a set of all hash pairs that co-occur in any isolate.
 
     Two sequences "co-occur" if they appear together in the same isolate (same
     assembly_id). Used to prevent contradictory labels: if (A, B) co-occur in
     isolate X (positive), they cannot also be sampled as a negative.
+
+    `df` fixes which isolates the set covers. The dataset builders pass the corpus frame
+    through `build_corpus_cooccurrence_set`, which is the only caller in the build paths.
 
     Args:
         df: row-per-(isolate, protein) DataFrame; must contain `assembly_id`
@@ -717,6 +870,7 @@ def build_cooccurrence_set(df: pd.DataFrame, hash_col: str = 'prot_hash') -> tup
           `max_isolates_per_pair`, `pairs_in_multiple_isolates`,
           `isolate_pair_counts` (full pair_key -> count mapping), and
           `hash_col` (the alphabet this set was built on).
+          `build_corpus_cooccurrence_set` adds `scope` to this dict.
     """
     if hash_col not in df.columns:
         raise ValueError(

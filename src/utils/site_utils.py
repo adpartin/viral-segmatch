@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -115,31 +115,111 @@ class SiteCache(NamedTuple):
     metadata: dict
 
 
-def load_site_cache(site_dir: Path, unit: str, protein: str) -> SiteCache:
+def site_cache_stem(unit: str, protein: str, pinned_nt: int) -> str:
+    """The file stem of one protein's per-site feature cache at one pinned length.
+
+    The pin is part of the name because it decides the contents: a cache holds one column per
+    site of a CDS of exactly `pinned_nt` nucleotides, and the same protein takes a different pin
+    in a different population. Human H3N2 PB1 is 2,277 nt from 2024 while every other population
+    measured is 2,274 nt, so the two caches have to be able to sit side by side.
+
+    Args:
+      unit: `nt`, `codon` or `aa`.
+      protein: short protein name, e.g. `HA`.
+      pinned_nt: the pinned CDS length the cache was built at.
+
+    Returns:
+      The stem, e.g. `site_features_codon_PB1_2274nt`.
+    """
+    return f'site_features_{unit}_{protein}_{pinned_nt}nt'
+
+
+def site_cache_paths(site_dir: Path, unit: str, protein: str, pinned_nt: int) -> dict:
+    """The three files of one protein's per-site feature cache.
+
+    Args:
+      site_dir: directory holding the cache, normally the embeddings output dir.
+      unit: `nt`, `codon` or `aa`.
+      protein: short protein name, e.g. `HA`.
+      pinned_nt: the pinned CDS length the cache was built at.
+
+    Returns:
+      Suffix (`.npz`, `_index.parquet`, `_metadata.json`) -> path.
+    """
+    stem = site_cache_stem(unit, protein, pinned_nt)
+    paths = {suffix: Path(site_dir) / f'{stem}{suffix}'
+             for suffix in ('.npz', '_index.parquet', '_metadata.json')}
+    return paths
+
+
+def resolve_site_cache_pin(site_dir: Path, unit: str, protein: str) -> int:
+    """The pinned length of the one cache on disk for this protein and unit.
+
+    For callers that have no config to read a pin from, such as the exploratory plotting scripts.
+    A protein with caches at two pins has no single answer, so this says which exist rather than
+    choosing one.
+
+    Args:
+      site_dir: directory holding the cache.
+      unit: `nt`, `codon` or `aa`.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      The pinned length.
+
+    Raises:
+      FileNotFoundError: no cache for this protein and unit.
+      ValueError: caches at more than one pin, so the caller has to name one.
+    """
+    pattern = f'site_features_{unit}_{protein}_*nt_metadata.json'
+    found = sorted(Path(site_dir).glob(pattern))
+    pins = sorted(int(path.name.rsplit('_', 2)[-2][:-2]) for path in found)
+    if not pins:
+        raise FileNotFoundError(
+            f"no per-site cache for {protein} ({unit}) in {site_dir}; looked for {pattern}. "
+            f"Build it with `python src/embeddings/compute_site_features.py --config_bundle "
+            f"<bundle> --unit {unit} --proteins {protein}`.")
+    if len(pins) > 1:
+        raise ValueError(
+            f"{protein} ({unit}) has caches at {pins} nt in {site_dir}; pass the pinned length "
+            f"to say which one to read.")
+    return pins[0]
+
+
+def load_site_cache(site_dir: Path, unit: str, protein: str,
+                    pinned_nt: Optional[int] = None) -> SiteCache:
     """Load one protein's per-site feature cache.
 
     Args:
       site_dir: directory holding the cache, normally the embeddings output dir.
       unit: `nt`, `codon` or `aa`.
       protein: short protein name, e.g. `HA`.
+      pinned_nt: the pinned CDS length to read. None takes the only cache on disk for this
+          protein and unit, and raises when there are several.
 
     Returns:
-      The `SiteCache` for that protein and unit.
+      The `SiteCache` for that protein, unit and pin.
 
     Raises:
       FileNotFoundError: any of the three cache files is missing.
-      ValueError: the matrix and the index disagree on how many rows there are.
+      ValueError: the matrix and the index disagree on how many rows there are, the cache's own
+          metadata records a different pin than its name, or `pinned_nt` is None and the protein
+          has caches at several pins.
     """
-    site_dir = Path(site_dir)
-    stem = f'site_features_{unit}_{protein}'
-    paths = {suffix: site_dir / f'{stem}{suffix}'
-             for suffix in ('.npz', '_index.parquet', '_metadata.json')}
+    if pinned_nt is None:
+        pinned_nt = resolve_site_cache_pin(site_dir, unit, protein)
+    stem = site_cache_stem(unit, protein, pinned_nt)
+    paths = site_cache_paths(site_dir, unit, protein, pinned_nt)
     missing = [str(p) for p in paths.values() if not p.exists()]
     if missing:
+        on_disk = sorted(int(path.name.rsplit('_', 2)[-2][:-2])
+                         for path in Path(site_dir).glob(
+                             f'site_features_{unit}_{protein}_*nt_metadata.json'))
+        have = f" Caches on disk for {protein} ({unit}): {on_disk} nt." if on_disk else ''
         raise FileNotFoundError(
-            f"per-site cache for {protein} ({unit}) is incomplete; missing {missing}. Build it "
-            f"with `python src/embeddings/compute_site_features.py --config_bundle <bundle> "
-            f"--unit {unit} --proteins {protein}`.")
+            f"per-site cache for {protein} ({unit}) at {pinned_nt} nt is incomplete; missing "
+            f"{missing}.{have} Build it with `python src/embeddings/compute_site_features.py "
+            f"--config_bundle <bundle> --unit {unit} --proteins {protein}`.")
 
     codes = np.load(paths['.npz'])['codes']
     index = pd.read_parquet(paths['_index.parquet'])
@@ -148,6 +228,10 @@ def load_site_cache(site_dir: Path, unit: str, protein: str) -> SiteCache:
         raise ValueError(
             f"{stem}: index has {len(index):,} rows but the matrix has {codes.shape[0]:,}. The "
             f"cache is inconsistent; rebuild it with --force_recompute.")
+    if int(metadata['pinned_nt']) != int(pinned_nt):
+        raise ValueError(
+            f"{stem}: the file name says {pinned_nt} nt but its metadata records "
+            f"{metadata['pinned_nt']} nt. Rebuild it with --force_recompute.")
     hash_to_row = dict(zip(index['cds_dna_hash'], index['row'].astype(int)))
     return SiteCache(protein=protein, unit=unit, codes=codes, hash_to_row=hash_to_row,
                      metadata=metadata)

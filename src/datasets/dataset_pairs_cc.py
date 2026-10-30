@@ -60,7 +60,7 @@ from src.datasets._pair_helpers import (  # noqa: E402
     _side_rep,
     attach_cds_dna_hash_to_prot_df,
     attach_ctg_dna_to_prot_df,
-    build_cooccurrence_set,
+    build_corpus_cooccurrence_set,
     canonical_pair_key,
     cluster_ccs,
     drop_ambiguous_hn_subtype,
@@ -686,7 +686,12 @@ def _build_positives(config, spec: CCSpec, args):
     print(f"  front-end: {len(df):,} protein rows / {df['assembly_id'].nunique():,} isolates ({spec.sa}+{spec.sb})")
 
     pos, _ = create_positive_pairs_v2(df, schema_pair=(spec.fa, spec.fb), pair_key_alphabet=spec.pair_key_alphabet)
-    cooccur, _ = build_cooccurrence_set(df, hash_col=_POS_HASH[spec.alphabet])
+    # Read from the corpus files, not from the front-end frame: build_frontend applies the
+    # metadata filter, so a frame-built set would block only co-occurrences inside the
+    # population. One definition, shared with dataset_segment_pairs.py.
+    cooccur, _ = build_corpus_cooccurrence_set(
+        input_file, (spec.fa, spec.fb), alphabet=spec.alphabet, cds_final_path=cds_final_path,
+    )
     lookup = load_cluster_lookup(spec.cluster_id_path) # load cluster_id_{a,b} lookup df
     pos_ids, cc_summary = assign_atoms_prod(pos, lookup, _POS_HASH[spec.alphabet], edge_cut=spec.edge_cut)
     print(f"  positives: {len(pos):,} -> {len(pos_ids):,} after cluster join; "
