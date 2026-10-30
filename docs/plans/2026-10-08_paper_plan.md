@@ -473,14 +473,6 @@ Each bullet names one item and the bracket gives the subsection that covers it.
 
 ## 2A. Will we have 2A and 2B??
 
-This run replaced a first one built on 2026-10-14 at commit `7d7b3b6`, so that Task 2 and Task 1
-share both the negative sampler and the corpus-wide co-occurrence blocking set. The rebuild used
-the same population, seed, sampler and spec, and the audit confirmed each pair's pooled positive
-test pair keys against the earlier build. It changed no positive and 1,795 of the 382,885 saved
-negatives, in 6 of the 21 pairs. Those 6 pairs are the only ones whose scores moved, by at most
-0.0042 F1 macro, which is inside every pair's fold SD. The earlier run's outputs are kept in
-`results/flu/July_2025/task2_21p_codon_matched_20261014_090208/`.
-
 **Goal.** Train on a *population* containing several hosts, HN subtypes or years, and measure
 performance within each *metadata group*.
 
@@ -648,6 +640,18 @@ or for interpreting thin cells in this one.
    paper reports performance over human, avian, environmental, sea-mammal, lab-derived and
    nonhuman-mammal samples, plus unknown and other. Jamie's paper uses human, swine, duck, chicken
    and other. We have no host-grouping map in the repo yet.
+
+
+
+## Implementation record
+
+The reported run replaced a first one built on 2026-10-14 at commit `7d7b3b6`, so that Task 2 and
+Task 1 share both the negative sampler and the corpus-wide co-occurrence blocking set. The rebuild
+used the same population, seed, sampler and spec, and the audit confirmed each pair's pooled
+positive test pair keys against the earlier build. It changed no positive and 1,795 of the 382,885
+saved negatives, in 6 of the 21 pairs. Those 6 pairs are the only ones whose scores moved, by at
+most 0.0042 F1 macro, which is inside every pair's fold SD. The earlier run's outputs are kept in
+`results/flu/July_2025/task2_21p_codon_matched_20261014_090208/`.
 
 
 
