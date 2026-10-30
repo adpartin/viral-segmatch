@@ -89,7 +89,7 @@ Each bullet names one item and the bracket gives the subsection that covers it.
 - [1A Methods] LightGBM, 140 fits (28 pairs x 5 folds).
 - [1A Results] The matrix reports F1 macro ± SD across the 5 folds.
 - [1A Results] Table with all schema pairs and performance metrics.
-- [1B Methods] Uncertainty from the draw of training negatives. For every fold,
+- [1B Methods] Sensitivity from the draw of training negatives. For every fold,
   redraw the training negatives 10 times with seeds 42-51 and fit one model per
   draw: 1,400 fits (28 pairs x 5 folds x 10 redraws).
   - Fixed: training positives, val and test pairs, model seed
@@ -111,10 +111,10 @@ Each bullet names one item and the bracket gives the subsection that covers it.
 
 
 
-## 1A. Performance for all 28 schema pairs
+## 1A. Performance for All 28 Schema Pairs
 
 **Goal.** Describe the dataset construction method and evaluate performance
-across all schema pairs.
+across the 28 schema pairs.
 
 ### Dataset Construction (methods).
 
@@ -310,7 +310,7 @@ on every run.
 
 
 **Table:**
-- The pairs are ranked by mean F1 macro across the folds
+- The pairs are ranked by F1 macro averaged across the 5 folds
 - The dataset size per schema pair is 2 x `Positives`; `Positives` is the
 `HK selected` column from the previous table (i.e., after filtering and dedup)
 
@@ -353,6 +353,9 @@ on every run.
   PA–M1 (row 25) (0.9 to 7.6 percentage points).
 - At the fixed 0.5 threshold, Recall exceeds Precision for all 28 pairs.
 - All 13 pairs that contain M1 or NS1 are the bottom of F1 macro scores.
+- All 13 pairs containing M1 or NS1 ranked below the other 15 pairs by F1 macro.
+  Subtype and collection date prediction tasks also show weaker results for
+  segments 7 and 8.
 - AUC-ROC and AUC-PR rank the pairs similarly (Spearman 0.99).
 - Brier measures the error in the predicted probabilities. It depends on the
   probabilities themselves, not on the classification threshold (F1, precision,
@@ -374,24 +377,23 @@ on every run.
 
 
 
-## 1B. Measure sensitivity to the draw of training negative pairs
+## 1B. Sensitivity to the Sampling of Training Negatives
 
-**Goal.** Measure how much model predictions vary on a fixed test set when we vary only the
-training negative pairs.
+**Goal.** The training positives of a split are determined by the data, but the
+training negatives are sampled from a much larger set of possible negative
+pairs. Measure how much test set prediction performance varies when models are
+trained on different sets of negatives and evaluated on the same test pairs.
 
 **Methods.**
-- Same as in `1A`.
-- For every fold, redraw the training negatives `r` times, each time with a
-  different random seed, and train one model per draw. Each redraw uses the
-  sampler the dataset was built with, which for these datasets is
-  `matched_balanced_usage_negatives`. The training positives, the val and test
-  pairs, and the model seed stay the same. This results in `r` models per fold.
-- Use `r = 10` draws with seeds 42–51, yielding 1,400 redraw fits
-  (28 pairs × 5 folds × 10 draws).
-- The same negative pair can appear in more than one draw. We allow this, and
-  we report how often it happens: the most negative pairs that any two draws of
-  a fold share, and how many negative pairs appear in more than one draw.
-- Each of the `r` models predicts the same test pairs. This results in `r`
+- We start with the 5-fold datasets generated in `1A`.
+- For every fold, redraw the training negatives `r`=10 times, each time with a
+  different random seed, and train one model per draw. What remains fixed:
+  training positives, val and test sets, LightGBM seed. This results in `r`
+  models per fold.
+- Across 28 pairs and 5-folds, `r = 10` draws per fold produce 1,400 sampled
+  training negative sets and 1,400 trained models (28 pairs × 5 folds × 10
+  draws).
+- Each of the `r` models predicts the same test pairs. This results in `r`=10
   predictions for each test pair.
 
 **Results.** The redraws used the same datasets as `1A`, under the run prefix
@@ -400,71 +402,62 @@ training negative pairs.
 negatives with `matched_balanced_usage_negatives`, the sampler the source datasets were built with.
 The report is in `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`.
 
-<img src="../results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_sd_draws_matrix.png" width="600" alt="28-pair matrix of the mean across folds of the within-fold SD of test F1 macro across 10 negative draws, Human-H3N2-2024">
+**Table**. The table shows **fold 0** for each pair, sorted by mean F1 macro.
+Each F1 value is the mean ± SD of the 10 test scores, one from each negative
+draw (other folds are in `redraw_by_pair_fold.csv`).
 
-- The matrix is laid out as in `1A`. Each cell shows one value: the mean across the 5 folds of the
-  within-fold SD of test F1 macro across the 10 draws. It measures the variation from redrawing the
-  training negatives, which is a different source of variation from the SD across folds in `1A`.
-- The table below holds fold 0 of each of the 28 pairs, sorted by F1 macro. The other four folds
-  are in `redraw_by_pair_fold.csv`, which has all 140 rows. The matrix averages the within-fold
-  draw SD across folds. How to summarize the other columns across folds is not yet decided, so the
-  table shows one fold rather than an average.
+How to read the table:
 
-| # | Pair ID | Schema pair | F1 macro | prob SD pos / neg | logit SD pos / neg | Max shared by two draws | In >1 draw |
-|---:|---|---|---:|---:|---:|---:|---:|
-| 1 | 2-4 | PB1-HA | 0.909 ± 0.007 | 0.051 / 0.057 | 0.370 / 0.615 | 5 | 40 |
-| 2 | 1-4 | PB2-HA | 0.894 ± 0.010 | 0.059 / 0.061 | 0.397 / 0.652 | 3 | 37 |
-| 3 | 2-6 | PB1-NA | 0.894 ± 0.009 | 0.061 / 0.068 | 0.365 / 0.498 | 4 | 50 |
-| 4 | 1-2 | PB2-PB1 | 0.885 ± 0.015 | 0.071 / 0.079 | 0.361 / 0.445 | 4 | 35 |
-| 5 | 4-6 | HA-NA | 0.868 ± 0.020 | 0.072 / 0.086 | 0.335 / 0.453 | 5 | 39 |
-| 6 | 1-3 | PB2-PA | 0.863 ± 0.007 | 0.045 / 0.048 | 0.273 / 0.340 | 4 | 50 |
-| 7 | 1-6 | PB2-NA | 0.858 ± 0.007 | 0.058 / 0.070 | 0.300 / 0.451 | 4 | 44 |
-| 8 | 3-4 | PA-HA | 0.857 ± 0.024 | 0.064 / 0.080 | 0.355 / 0.582 | 3 | 42 |
-| 9 | 2-3 | PB1-PA | 0.836 ± 0.020 | 0.053 / 0.056 | 0.323 / 0.366 | 4 | 37 |
-| 10 | 3-6 | PA-NA | 0.831 ± 0.009 | 0.046 / 0.048 | 0.252 / 0.397 | 3 | 43 |
-| 11 | 4-5 | HA-NP | 0.824 ± 0.008 | 0.057 / 0.055 | 0.350 / 0.548 | 4 | 47 |
-| 12 | 5-6 | NP-NA | 0.815 ± 0.006 | 0.039 / 0.047 | 0.184 / 0.331 | 3 | 42 |
-| 13 | 2-5 | PB1-NP | 0.814 ± 0.020 | 0.045 / 0.054 | 0.226 / 0.344 | 3 | 33 |
-| 14 | 1-5 | PB2-NP | 0.813 ± 0.014 | 0.066 / 0.090 | 0.312 / 0.641 | 5 | 49 |
-| 15 | 4-7 | HA-M1 | 0.795 ± 0.009 | 0.026 / 0.035 | 0.117 / 0.167 | 3 | 43 |
-| 16 | 3-5 | PA-NP | 0.770 ± 0.023 | 0.055 / 0.077 | 0.232 / 0.330 | 4 | 42 |
-| 17 | 4-8 | HA-NS1 | 0.759 ± 0.018 | 0.040 / 0.050 | 0.175 / 0.313 | 4 | 51 |
-| 18 | 1-7 | PB2-M1 | 0.737 ± 0.031 | 0.036 / 0.049 | 0.147 / 0.204 | 3 | 45 |
-| 19 | 1-8 | PB2-NS1 | 0.732 ± 0.023 | 0.030 / 0.042 | 0.120 / 0.176 | 3 | 40 |
-| 20 | 6-7 | NA-M1 | 0.703 ± 0.018 | 0.030 / 0.033 | 0.122 / 0.135 | 5 | 51 |
-| 21 | 2-8 | PB1-NS1 | 0.696 ± 0.016 | 0.026 / 0.030 | 0.107 / 0.124 | 5 | 52 |
-| 22 | 2-7 | PB1-M1 | 0.678 ± 0.023 | 0.028 / 0.028 | 0.112 / 0.115 | 3 | 44 |
-| 23 | 6-8 | NA-NS1 | 0.662 ± 0.032 | 0.030 / 0.033 | 0.122 / 0.134 | 5 | 58 |
-| 24 | 7-8 | M1-NS1 | 0.651 ± 0.041 | 0.011 / 0.016 | 0.044 / 0.064 | 3 | 45 |
-| 25 | 5-8 | NP-NS1 | 0.630 ± 0.030 | 0.021 / 0.025 | 0.085 / 0.100 | 5 | 42 |
-| 26 | 3-8 | PA-NS1 | 0.597 ± 0.031 | 0.019 / 0.022 | 0.076 / 0.089 | 3 | 47 |
-| 27 | 5-7 | NP-M1 | 0.567 ± 0.031 | 0.012 / 0.013 | 0.048 / 0.052 | 3 | 49 |
-| 28 | 3-7 | PA-M1 | 0.507 ± 0.015 | 0.014 / 0.014 | 0.055 / 0.055 | 4 | 35 |
+- Fold 0 has 10 models, one per negative draw with different seeds. All 10 are
+  scored on the same test pairs. E.g., PB1-HA fold 0 has 558 test pairs (279
+  pos and 279 neg), and 1946 train pairs (973 pos and 973 neg per draw).
+- Column `F1 macro`. How much does test performance change when the training
+  negatives change?
+  E.g., 0.909 ± 0.007 is the F1 mean ± SD over the 10 models.
+  The ± is the spread across negative draws (not across folds as in `1A`).
+- Column `prob SD pos / neg`. How much does test set probability change 
+  in each class?
+  E.g., 0.051 / 0.057. Here, each test pair gets one SD value, computed
+  from its 10 probabilities. 0.051 is the median of these SDs over the
+  positive test pairs, and 0.057 is the median over the negative test pairs.
 
-How to read the table, using the PB1-HA row:
+| # | Pair ID | Schema pair | F1 macro | prob SD pos / neg |
+|---:|---|---|---:|---:|
+| 1 | 2-4 | PB1-HA | 0.909 ± 0.007 | 0.051 / 0.057 |
+| 2 | 1-4 | PB2-HA | 0.894 ± 0.010 | 0.059 / 0.061 |
+| 3 | 2-6 | PB1-NA | 0.894 ± 0.009 | 0.061 / 0.068 |
+| 4 | 1-2 | PB2-PB1 | 0.885 ± 0.015 | 0.071 / 0.079 |
+| 5 | 4-6 | HA-NA | 0.868 ± 0.020 | 0.072 / 0.086 |
+| 6 | 1-3 | PB2-PA | 0.863 ± 0.007 | 0.045 / 0.048 |
+| 7 | 1-6 | PB2-NA | 0.858 ± 0.007 | 0.058 / 0.070 |
+| 8 | 3-4 | PA-HA | 0.857 ± 0.024 | 0.064 / 0.080 |
+| 9 | 2-3 | PB1-PA | 0.836 ± 0.020 | 0.053 / 0.056 |
+| 10 | 3-6 | PA-NA | 0.831 ± 0.009 | 0.046 / 0.048 |
+| 11 | 4-5 | HA-NP | 0.824 ± 0.008 | 0.057 / 0.055 |
+| 12 | 5-6 | NP-NA | 0.815 ± 0.006 | 0.039 / 0.047 |
+| 13 | 2-5 | PB1-NP | 0.814 ± 0.020 | 0.045 / 0.054 |
+| 14 | 1-5 | PB2-NP | 0.813 ± 0.014 | 0.066 / 0.090 |
+| 15 | 4-7 | HA-M1 | 0.795 ± 0.009 | 0.026 / 0.035 |
+| 16 | 3-5 | PA-NP | 0.770 ± 0.023 | 0.055 / 0.077 |
+| 17 | 4-8 | HA-NS1 | 0.759 ± 0.018 | 0.040 / 0.050 |
+| 18 | 1-7 | PB2-M1 | 0.737 ± 0.031 | 0.036 / 0.049 |
+| 19 | 1-8 | PB2-NS1 | 0.732 ± 0.023 | 0.030 / 0.042 |
+| 20 | 6-7 | NA-M1 | 0.703 ± 0.018 | 0.030 / 0.033 |
+| 21 | 2-8 | PB1-NS1 | 0.696 ± 0.016 | 0.026 / 0.030 |
+| 22 | 2-7 | PB1-M1 | 0.678 ± 0.023 | 0.028 / 0.028 |
+| 23 | 6-8 | NA-NS1 | 0.662 ± 0.032 | 0.030 / 0.033 |
+| 24 | 7-8 | M1-NS1 | 0.651 ± 0.041 | 0.011 / 0.016 |
+| 25 | 5-8 | NP-NS1 | 0.630 ± 0.030 | 0.021 / 0.025 |
+| 26 | 3-8 | PA-NS1 | 0.597 ± 0.031 | 0.019 / 0.022 |
+| 27 | 5-7 | NP-M1 | 0.567 ± 0.031 | 0.012 / 0.013 |
+| 28 | 3-7 | PA-M1 | 0.507 ± 0.015 | 0.014 / 0.014 |
 
-- Every row is fold 0 of that schema pair. Fold 0 has 10 models, one per draw with seeds 42-51, and
-  all 10 are scored on the same test pairs. PB1-HA fold 0 has 558 test pairs, 279 positive and 279
-  negative, and 973 training positives and 973 training negatives per draw.
-- `F1 macro` = 0.909 ± 0.007: the mean ± SD of test F1 macro over the 10 models. Here the ± is the
-  spread across negative draws, not across folds as in `1A`.
-- `prob SD pos / neg` = 0.051 / 0.057: each test pair gets one SD, computed from its 10 predicted
-  probabilities. 0.051 is the median of these SDs over the 279 positive test pairs, and 0.057 is
-  the median over the 279 negative test pairs.
-- `logit SD pos / neg` = 0.370 / 0.615: the same medians, computed on LightGBM's raw score instead
-  of the probability. The raw score is `logit(p) = log(p / (1 - p))`.
-- `Max shared by two draws` = 5 and `In >1 draw` = 40: the most negative pairs that any two of the
-  10 draws share, and the number of distinct negative pairs that appear in more than one draw. The
-  10 draws of this fold use 9,690 distinct negative pairs out of 9,730 drawn, so each of the 40
-  repeated pairs appears in exactly two draws.
+<!-- **Matrix**. For each fold, compute the SD of test F1 macro across the 10
+negative draws. Each matrix cell is the mean of those 5 SDs. This shows how
+much F1 changes when we sample different training negatives for the same fold.
+In 1A, the SD is across folds, where the training and test pairs also change.
 
-Relative to the 2026-10-09 balanced-negative 5-fold run (`h3n2_2024_28p_codon_cv5_20261009_141504_`),
-the per-pair mean over folds of the draw mean changes by 0.0074 on average in absolute value, with a
-mean change of −0.0006 and a range of −0.0218 to +0.0278. That run differs from this one in
-both the negative sampler and the co-occurrence blocking set, which was population-scoped there
-and corpus-wide here, so these differences do not isolate either change.
-
-
+<img src="../results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_sd_draws_matrix.png" width="600" alt="28-pair matrix of the mean across folds of the within-fold SD of test F1 macro across 10 negative draws, Human-H3N2-2024"> -->
 
 ### Open questions
 
