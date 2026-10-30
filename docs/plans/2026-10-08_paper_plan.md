@@ -352,7 +352,6 @@ on every run.
 - The SD across folds ranges: **0.009** for PB2–PB1 (row 1) to **0.076** for
   PA–M1 (row 25) (0.9 to 7.6 percentage points).
 - At the fixed 0.5 threshold, Recall exceeds Precision for all 28 pairs.
-- All 13 pairs that contain M1 or NS1 are the bottom of F1 macro scores.
 - All 13 pairs containing M1 or NS1 ranked below the other 15 pairs by F1 macro.
   Subtype and collection date prediction tasks also show weaker results for
   segments 7 and 8.
