@@ -317,6 +317,11 @@ on every run.
 * Other features:
   * Site-level nucleotide encoding of CDS.
   * Nucleotide k-mer counts from CDS.
+* [Post-hoc, required] Investigate why recall exceeds precision for all 28
+  pairs at the fixed 0.5 threshold. For each pair, compare FP and FN counts and
+  the fraction predicted positive across the 5 test folds. Plot test
+  probabilities by true label for representative high-, middle-, and low-F1
+  pairs to see where the threshold falls.
 * [Post-hoc, optional] Feature importance.
 * [Post-hoc, optional] Correlation of prediction performance (e.g., F1
   macro) with sample size (`HK selected`) and with sequence length (`Features`,
@@ -422,7 +427,13 @@ In 1A, the SD is across folds, where the training and test pairs also change.
 
 ### Open questions
 
-- Should the redraw seeds start at 0, so that they match the fold ids, instead of running 42-51?
+
+- Should the redraw seeds start at 0, so that they match the fold ids, instead
+  of running 42-51?
+- Feature scope. We plan to use per-site codon features in this paper. Our
+  question is whether a model can predict same-isolate segment pairs across the
+  planned settings. Comparing multiple feature types could distract from that
+  question.
 - The 2,274-nt PB1 records end exactly where their contig ends, with no contig
   bases after the CDS in all but one case, so the bases that would complete the
   CDS were never assembled. Ask whoever produced the GTO annotations whether
