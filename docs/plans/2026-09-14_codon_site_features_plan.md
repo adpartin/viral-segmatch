@@ -321,7 +321,7 @@ codon sites?
 - For the Human-H3N2-2025 analysis, we used `conf/bundles/flu_ha_na_human_h3n2_2025_random_cv4_pinned_length_hopcroft_karp.yaml` where only the year is different and otherwise reused the same settings.
 - Both analyses kept all their `HK selected` positives: 1,698 in 2024 and 1,337 in 2025 (i.e., we didn't downsample to the same size).
 - The July 2025 corpus contains only a partial 2025 season.
-- `src/analysis/plot_site_importance.py` computed gain, SHAP, and permutation importance. The cross-year ranking uses fold-averaged, normalized gain. The comparison was run three ways:
+- `src/analysis/plot_site_importance.py` computed gain, SHAP, and permutation importance. The cross-year ranking uses fold-averaged, normalized gain. The comparison was run 3 ways:
   - `combined`: HA and NA compete for the same top-N positions;
   - `HA`: sites are ranked within HA only;
   - `NA`: sites are ranked within NA only.
@@ -396,7 +396,7 @@ and the distinction between an estimated correspondence and an established evolu
 1. Select complete NS1 CDS from Human-H3N2-2024, retaining all observed lengths.
 2. Use `prot_seq` from `cds_dna_final.parquet`. For every selected unique CDS, check that it
    matches `cds_utils.translate_dna(cds_dna_seq)`, ends with exactly one `*`, has no internal
-   `*`, and has three nucleotides per protein symbol. Stop if a check fails. Remove the final
+   `*`, and has 3 nucleotides per protein symbol. Stop if a check fails. Remove the final
    `*` only from the protein sent to MAFFT; keep the original CDS unchanged. Keep `X` residues
    and report how many isolates, unique CDS and unique proteins contain them, by CDS length.
    Name each FASTA record by its original `prot_hash`, which hashes the protein with its final `*`.
@@ -447,7 +447,7 @@ their terminal `*`.
 
 **Step 3.** Implemented and run on 2026-11-05. MAFFT 7.526 aligned all 560
 proteins with `--auto`, which selected `FFT-NS-2` mode. The aligned sequences
-have 230 columns.
+have 230 columns (230 x 3 = 690).
 
 **Step 4.** Implemented and run on 2026-11-05. All 560 aligned protein IDs matched the inputs.
 Removing gaps recovered the exact input sequence for every protein.
@@ -467,11 +467,67 @@ There are no internal gaps.
 
 ### Next step
 
-Review these results before deciding how to map the original codons and terminal stops into
-model features. Then expand NS1 to the Task 2 population. HA and NA across subtypes can follow.
+The [downstream contig check](../results/2026-09-07_cds_length_survey.md#ns1-downstream-contig-check)
+supports placing each short CDS's stop codon at its own position: codon 218 for
+654 nt CDS and codon 220 for 660 nt CDS. The protein alignment alone cannot
+locate a stop codon.
 
-For later model evaluation, build columns from training sequences and map validation and test
-sequences into those fixed columns, with an explicit rule for new insertions.
+**Proposed feature mapping for this pilot:** put each original sense codon in
+its protein alignment column. Put the CDS's terminal stop in the next column
+after its last aligned amino acid. Add one column after the 230 protein columns
+for the 693-nt stop. MAFFT aligned the amino acids without their stop markers:
+
+```text
+Protein column:  1–217   218   219   220–230
+693-nt CDS:      aa...   aa    aa    aa...aa
+660-nt CDS:      aa...   aa    aa    - ... -
+654-nt CDS:      aa...   -     -     - ... -
+```
+
+Here `aa` means an amino acid; `-` means a protein alignment gap.
+
+The proposed codon features replace the first trailing protein gap with that
+CDS's stop codon. The 693-nt stop goes in the added column 231:
+
+```text
+Feature column:  1–217          218       219        220        221–230     231
+693-nt CDS:      sense codons   CAG       AAA        CGG        sense       TGA
+660-nt CDS:      sense codons   sense     sense      TGA        AFTER_STOP  AFTER_STOP
+654-nt CDS:      sense codons   TAG       AFTER_STOP AFTER_STOP AFTER_STOP  AFTER_STOP
+                                ^                    ^                      ^
+                            654-nt stop         660-nt stop            693-nt stop
+```
+
+The `CAG`, `AAA`, `CGG` and `TGA` shown in the 693-nt row are from the most
+frequent long CDS; other long sequences can differ. Give every empty column
+*after* a sequence's stop the `AFTER_STOP` state. Give any other empty column
+the `GAP` state. These states are defined in the
+[glossary](../methods/glossary.md#per-site-features). This pilot has no gaps
+before the stop, so it has no `GAP` features. For these NS1 sequences,
+`AFTER_STOP` gives the same feature layout as filling at the end. The CDS is
+the feature source, so do not use post-stop bases from the contig as codon
+features.
+
+If another alignment has an internal gap, it would use `GAP` rather than
+`AFTER_STOP` at that position:
+
+```text
+Protein column:  1   2   3   4   5
+Aligned protein: M   K   -   V   G
+Feature column:  1   2   3   4   5   6
+Codon features:  ATG AAA GAP GTT GGT TGA
+```
+
+Before using this mapping in a model, check that removing `GAP` and `AFTER_STOP`
+recovers every original CDS codon in order, that each sequence has exactly one
+terminal stop, and that its sense codons translate to the aligned protein after
+gaps are removed. Check that 693-nt sequences reproduce their current codon
+codes. Then expand NS1 to the Task 2 population; HA and NA across subtypes can
+follow after their own alignment checks.
+
+For later model evaluation, build columns from training sequences and map
+validation and test sequences into those fixed columns, with an explicit rule
+for new insertions.
 
 ## Experiment 6: prediction variation across balanced negative draws — DONE (2026-10-07)
 

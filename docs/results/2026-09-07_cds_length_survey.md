@@ -267,14 +267,42 @@ in alignment columns 205–230. Protein hash prefixes identify records in the sa
 The 654-nt example matches the first 217 amino acids of the `47566821` long protein. The
 terminal gap placement is consistent with the short CDS ending earlier. This alignment is an
 estimate of positional correspondence, not a recovered evolutionary history. We found no
-scattered or internal gaps that called for a second MAFFT strategy in this pilot. The next
-decision is how to map the original codons and stop codons into model features.
+scattered or internal gaps that called for a second MAFFT strategy in this pilot. The proposed
+codon and stop mapping is in [Experiment 5](../plans/2026-09-14_codon_site_features_plan.md#next-step).
 
 The saved inputs, aligned FASTA, validation report, per-protein `gap_locations.csv` and
 `inspection_manifest.json` are under
 `results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The manifests record file
 hashes, MAFFT settings and the code working-tree state for this run. The provenance block at the
 top of this document applies to the earlier length-survey tables, not this pilot.
+
+### NS1 downstream contig check
+
+The protein alignment shows where amino acids end, but it does not show where a stop codon
+belongs or whether bases remain in the segment after that stop. We checked the source contig
+for all 13 short-form isolates. We first verified that the annotated location recovers each
+short CDS exactly. We then compared the bases immediately after its stop with the same
+positions in the most frequent 693-nt CDS (2,095 isolates). The comparison assumes codons
+share a start position; matching downstream sequence provides evidence for this placement.
+
+| Short CDS | Isolates | Contig bases after stop | Compared with long CDS | Matching bases |
+|---|---:|---:|---:|---:|
+| 654 nt | 4 | 197 | 39 | 34–39 |
+| 660 nt | 9 | 178–191 | 33 | 25–27 |
+
+At the short CDS's terminal codon, all four 654-nt sequences have `TAG` where the long
+reference has `CAG` (codon 218); all nine 660-nt sequences have `TGA` where the reference
+has `CGG` (codon 220). The long reference ends with `TGA` at codon 231. That triplet remains
+`TGA` at the corresponding contig position for all nine 660-nt isolates and three of the
+four 654-nt isolates; it is `CGA` in the remaining 654-nt isolate. These findings support
+placing each short CDS stop at its own codon position rather than lining up all stop codons
+at the end. They do not establish the exact evolutionary history. Bases beyond a short CDS's
+stop belong to the contig, not to that annotated CDS.
+
+The reproducible check is `src/analysis/audit_ns1_downstream_contig.py`. Its per-isolate
+comparisons, summary and provenance manifest are `ns1_downstream_contig.csv`,
+`ns1_downstream_summary.csv` and `ns1_downstream_manifest.json` in the pilot artifact
+directory above. The manifest records the input hashes and code working-tree state.
 
 ## Metadata filtering
 
