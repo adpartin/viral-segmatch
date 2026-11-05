@@ -420,16 +420,9 @@ uses complete CDS; alignment cannot recover bases absent from a truncated record
 
 ### Outputs
 
-Save the pilot outputs under `results/flu/July_2025/cds_alignment_pilot/`.
-
-- Save the original and aligned protein sequences, their mapping to CDS records, and the
-  MAFFT version, command, selected strategy and log.
-- Report isolate, unique-CDS and unique-protein counts for each CDS length, counts of sequences
-  containing `X`, the alignment width, and gap locations for each aligned protein.
-- Report whether every selected unique CDS passes the translation check and every aligned
-  protein passes the sequence-recovery check.
-- Show a few sequences before and after alignment, including examples of uncommon lengths.
-- Record the findings and uncertain regions in `docs/results/2026-09-07_cds_length_survey.md`.
+The pilot artifacts are under
+`results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The sequence examples and
+interpretation are in the [NS1 protein alignment pilot results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-pilot-human-h3n2-2024).
 
 ### Progress
 
@@ -442,9 +435,6 @@ Save the pilot outputs under `results/flu/July_2025/cds_alignment_pilot/`.
 | 693 nt | 5,324 | 1,122 | 551 |
 | Total | 5,337 | 1,132 | 560 |
 
-The selected records, length summary and selection manifest are in
-`results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`.
-
 **Step 2.** Implemented and run on 2026-11-05. All 1,132 unique CDS passed the translation,
 terminal-stop, length and protein-hash checks. The FASTA contains 560 unique proteins without
 their terminal `*`.
@@ -455,15 +445,25 @@ their terminal `*`.
 | 660 nt | 0 | 0 | 0 |
 | 693 nt | 48 | 48 | 48 |
 
-The FASTA, `X` summary and updated manifest are in the same output directory.
-
 **Step 3.** Implemented and run on 2026-11-05. MAFFT 7.526 aligned all 560
 proteins with `--auto`, which selected `FFT-NS-2` mode. The aligned sequences
-have 230 columns, the same length as the longest input protein after removing
-its terminal stop *. The 230 corresponds to 690 / 3 codons. The aligned FASTA,
-MAFFT log, input sequence hashes, protein-to-CDS mapping and alignment manifest
-are in the same output directory. Step 4 will check whether removing the gaps
-recovers each input sequence.
+have 230 columns.
+
+**Step 4.** Implemented and run on 2026-11-05. All 560 aligned protein IDs matched the inputs.
+Removing gaps recovered the exact input sequence for every protein.
+
+**Step 5.** Implemented and run on 2026-11-05. Each CDS includes a terminal stop codon. We
+removed the final `*` from the protein before alignment but kept the stop codon in the CDS.
+The table counts gaps in the 230-column protein alignment. Every protein at a given CDS length
+has the gap placement shown.
+
+| CDS length | Codons including stop | Amino acids aligned | Gaps | Gap location |
+|---|---:|---:|---:|---|
+| 693 nt | 231 | 230 | 0 | — |
+| 660 nt | 220 | 219 | 11 | Columns 220–230, at the end |
+| 654 nt | 218 | 217 | 13 | Columns 218–230, at the end |
+
+There are no internal gaps.
 
 ### Next step
 
@@ -637,9 +637,9 @@ caller has to know before using the script, not only what it does.
 | `src/analysis/aggregate_allpairs_results.py` | built | rolls 28 pairs into one summary and 8x8 heatmaps. Globs `cv_flu_28p_*` under `models/{virus}/{version}/cv_runs/`, reads the pair from the two tokens after `flu_28p_`, and `--tag` selects a variant by the suffix after them |
 | `src/analysis/plot_site_importance.py` | built | per-site gain, SHAP and permutation importance. Writes fold-averaged shares with standard deviations, and the pre-average values in `site_importance_{unit}_per_fold.csv` |
 | `src/analysis/compare_site_importance_across_years.py` | built | compares two years' per-fold importance tables on shared coordinates |
-| `src/analysis/align_proteins.py` | steps 1–3 implemented | selects and validates complete CDS, prepares unique protein sequences, and runs MAFFT on the prepared FASTA with `--align_only`. Writes the aligned FASTA, log, input hashes, protein-to-CDS mapping and alignment manifest under `cds_alignment_pilot/<population>/<protein>/` |
+| `src/analysis/align_proteins.py` | steps 1–5 implemented | selects and validates complete CDS, prepares unique protein sequences, runs MAFFT with `--align_only`, checks exact input recovery with `--validate_only`, and records gap positions with `--inspect_only`. Writes the aligned FASTA, log, input hashes, protein-to-CDS mapping, manifests, validation report and gap locations under `cds_alignment_pilot/<population>/<protein>/` |
 | `results/flu/July_2025/cross_year_site_importance/` | written | cross-year tables, audits, and figures |
 | `results/flu/July_2025/pair_capacity_8_proteins/` | written | 28-pair capacity audit |
 | `results/flu/July_2025/all_pairs_human_h3n2_2024_codon_balanced_20261007_181555/` | written | balanced-negative 28-pair codon summaries and figures |
 | `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/` | historical | 2026-09-20 within-fold summaries and figures |
-| `results/flu/July_2025/cds_alignment_pilot/` | alignment written | `Human-H3N2-2024/NS1/` contains the selection and preparation outputs plus `aligned_proteins.fasta`, `mafft.log`, `protein_input_hashes.csv`, `protein_cds_map.csv` and `alignment_manifest.json` |
+| `results/flu/July_2025/cds_alignment_pilot/` | alignment inspected | `Human-H3N2-2024/NS1/` contains the selection, alignment and validation outputs plus `gap_locations.csv` and `inspection_manifest.json` |

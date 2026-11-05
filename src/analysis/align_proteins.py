@@ -14,10 +14,15 @@ Outputs under <out_dir>/<population>/<protein>/:
     protein_input_hashes.csv  hash of each stop-free input protein
     protein_cds_map.csv     protein-to-CDS mapping with isolate counts
     alignment_manifest.json  tool version, command, strategy and file hashes
+    alignment_validation.json  input recovery check for every aligned protein
+    gap_locations.csv      gap positions for every aligned protein
+    inspection_manifest.json  input and output hashes for the gap inspection
 
 Example:
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --align_only --mafft_bin /path/to/mafft
+    python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --validate_only
+    python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --inspect_only
 """
 from __future__ import annotations
 
@@ -58,6 +63,7 @@ ALIGNMENT_OUTPUT_NAMES = (
     'aligned_proteins.fasta', 'mafft.log', 'protein_input_hashes.csv',
     'protein_cds_map.csv', 'alignment_manifest.json',
 )
+INSPECTION_OUTPUT_NAMES = ('gap_locations.csv', 'inspection_manifest.json')
 
 
 def summarize_selected_lengths(selected: pd.DataFrame) -> pd.DataFrame:
@@ -109,10 +115,12 @@ def prepare_proteins(selected: pd.DataFrame) -> pd.DataFrame:
             raise ValueError(f'CDS {row.cds_dna_hash}: DNA length is not 3 x protein length.')
         if not row.prot_seq.endswith('*') or row.prot_seq.count('*') != 1:
             raise ValueError(f'CDS {row.cds_dna_hash}: expected one terminal stop marker.')
+
         try:
             translated = translate_dna(row.cds_dna_seq)
         except ValueError as exc:
             raise ValueError(f'CDS {row.cds_dna_hash}: translation failed: {exc}') from exc
+
         if translated != row.prot_seq:
             raise ValueError(f'CDS {row.cds_dna_hash}: stored protein differs from translation.')
         expected_hash = hashlib.md5(row.prot_seq.encode('utf-8')).hexdigest()
@@ -165,6 +173,7 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool) -> N
     selected_path = out_dir / 'selected_cds.parquet'
     fasta_path = out_dir / 'proteins_for_alignment.fasta'
     selection_manifest_path = out_dir / 'selection_manifest.json'
+
     for path in (selected_path, fasta_path, selection_manifest_path):
         if not path.is_file():
             raise FileNotFoundError(f'Required preparation output is missing: {path}')
@@ -223,6 +232,7 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool) -> N
     log_path.write_text(result.stderr)
     input_hashes.to_csv(out_dir / 'protein_input_hashes.csv', index=False)
     cds_map.to_csv(out_dir / 'protein_cds_map.csv', index=False)
+
     manifest = {
         'stage': 'protein_alignment',
         'selection_manifest': str(selection_manifest_path.resolve()),
@@ -246,8 +256,196 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool) -> N
     print(f'Wrote alignment outputs to {out_dir}')
 
 
+def read_protein_fasta(path: Path) -> dict[str, str]:
+    """Read protein FASTA records keyed by their first header token.
+
+    Args:
+        path: FASTA file containing one or more protein records.
+
+    Returns:
+        Protein sequences keyed by their FASTA IDs.
+
+    Raises:
+        ValueError: A record is empty, repeated or missing its header.
+    """
+    records = {}
+    current_id = None
+    chunks = []
+
+    for line in path.read_text().splitlines():
+        if line.startswith('>'):
+            if current_id is not None:
+                sequence = ''.join(chunks)
+                if not sequence:
+                    raise ValueError(f'Empty FASTA sequence for {current_id} in {path}.')
+                records[current_id] = sequence
+            current_id = line[1:].split()[0] if line[1:].split() else None
+            if current_id is None or current_id in records:
+                raise ValueError(f'Empty or repeated FASTA ID in {path}.')
+            chunks = []
+        elif line.strip():
+            if current_id is None:
+                raise ValueError(f'FASTA sequence before its header in {path}.')
+            chunks.append(line.strip())
+
+    if current_id is not None:
+        sequence = ''.join(chunks)
+        if not sequence:
+            raise ValueError(f'Empty FASTA sequence for {current_id} in {path}.')
+        records[current_id] = sequence
+    if not records:
+        raise ValueError(f'No FASTA records in {path}.')
+    return records
+
+
+def validate_alignment(out_dir: Path, overwrite: bool) -> None:
+    """Check that every aligned protein recovers its exact stop-free input.
+
+    Args:
+        out_dir: Directory containing the prepared and aligned protein FASTA files.
+        overwrite: Whether an existing validation report may be replaced.
+
+    Returns:
+        None.
+
+    Raises:
+        FileNotFoundError: An alignment input or output is missing.
+        ValueError: File hashes, protein IDs, widths or recovered sequences disagree.
+    """
+    input_path = out_dir / 'proteins_for_alignment.fasta'
+    aligned_path = out_dir / 'aligned_proteins.fasta'
+    manifest_path = out_dir / 'alignment_manifest.json'
+    report_path = out_dir / 'alignment_validation.json'
+
+    for path in (input_path, aligned_path, manifest_path):
+        if not path.is_file():
+            raise FileNotFoundError(f'Required alignment file is missing: {path}')
+    if report_path.exists() and not overwrite:
+        raise FileExistsError(f'Validation report already exists: {report_path}; '
+                              'pass --overwrite to replace it.')
+
+    manifest = json.loads(manifest_path.read_text())
+    for path, hash_key in ((input_path, 'input_fasta_sha256'),
+                           (aligned_path, 'aligned_fasta_sha256')):
+        if file_sha256(path) != manifest[hash_key]:
+            raise ValueError(f'{path} does not match the alignment manifest hash.')
+
+    inputs = read_protein_fasta(input_path)
+    aligned = read_protein_fasta(aligned_path)
+    if set(inputs) != set(aligned):
+        missing = sorted(set(inputs) - set(aligned))
+        extra = sorted(set(aligned) - set(inputs))
+        raise ValueError(f'Alignment protein IDs differ from inputs: missing={missing[:3]}, '
+                         f'extra={extra[:3]}.')
+
+    if len(inputs) != manifest['protein_count']:
+        raise ValueError('Protein count differs from the alignment manifest.')
+
+    widths = {len(sequence) for sequence in aligned.values()}
+    if len(widths) != 1:
+        raise ValueError(f'Aligned protein widths differ: {sorted(widths)}.')
+
+    for protein_hash, sequence in aligned.items():
+        if sequence.replace('-', '') != inputs[protein_hash]:
+            raise ValueError(f'Aligned protein {protein_hash} does not recover its input.')
+
+    report = {
+        'stage': 'alignment_validation',
+        'input_fasta': str(input_path.resolve()),
+        'input_fasta_sha256': manifest['input_fasta_sha256'],
+        'aligned_fasta': str(aligned_path.resolve()),
+        'aligned_fasta_sha256': manifest['aligned_fasta_sha256'],
+        'proteins_checked': len(inputs),
+        'proteins_recovered': len(inputs),
+        'aligned_width': next(iter(widths)),
+        'all_passed': True,
+        'code': get_git_info(),
+    }
+    report_path.write_text(json.dumps(report, indent=2) + '\n')
+    print(f'Validated {len(inputs):,} aligned proteins; every input sequence was recovered.')
+    print(f'Wrote validation report to {report_path}')
+
+
+def inspect_alignment(out_dir: Path, overwrite: bool) -> None:
+    """Record gap locations for every validated aligned protein.
+
+    Args:
+        out_dir: Directory containing selected CDS and validated alignment outputs.
+        overwrite: Whether existing inspection outputs may be replaced.
+
+    Returns:
+        None.
+
+    Raises:
+        FileNotFoundError: A required selection, alignment or validation file is absent.
+        ValueError: Input hashes or protein IDs disagree, or validation did not pass.
+    """
+    selected_path = out_dir / 'selected_cds.parquet'
+    aligned_path = out_dir / 'aligned_proteins.fasta'
+    validation_path = out_dir / 'alignment_validation.json'
+    for path in (selected_path, aligned_path, validation_path):
+        if not path.is_file():
+            raise FileNotFoundError(f'Required inspection input is missing: {path}')
+    existing = [name for name in INSPECTION_OUTPUT_NAMES if (out_dir / name).exists()]
+    if existing and not overwrite:
+        raise FileExistsError(f'Inspection outputs already exist in {out_dir}: {existing}; '
+                              'pass --overwrite to replace them.')
+
+    validation = json.loads(validation_path.read_text())
+    if not validation.get('all_passed') or validation['aligned_fasta_sha256'] != file_sha256(aligned_path):
+        raise ValueError('The alignment has no passing validation for its current FASTA.')
+    selected = pd.read_parquet(selected_path, columns=['prot_hash', 'cds_length'])
+    lengths_by_hash = selected.groupby('prot_hash')['cds_length'].nunique()
+    if lengths_by_hash.ne(1).any():
+        raise ValueError('A protein hash has more than one CDS length.')
+    cds_lengths = selected.drop_duplicates('prot_hash').set_index('prot_hash')['cds_length']
+    aligned = read_protein_fasta(aligned_path)
+    if set(aligned) != set(cds_lengths.index):
+        raise ValueError('Aligned protein IDs disagree with selected CDS records.')
+
+    rows = []
+    for protein_hash, sequence in sorted(aligned.items()):
+        leading = len(sequence) - len(sequence.lstrip('-'))
+        trailing = len(sequence) - len(sequence.rstrip('-'))
+        gap_count = sequence.count('-')
+        gaps = ';'.join(f'{match.start() + 1}-{match.end()}'
+                        for match in re.finditer(r'-+', sequence))
+        unknowns = ';'.join(str(i + 1) for i, residue in enumerate(sequence) if residue == 'X')
+        rows.append({
+            'prot_hash': protein_hash,
+            'cds_length': int(cds_lengths[protein_hash]),
+            'alignment_width': len(sequence),
+            'amino_acids': len(sequence) - gap_count,
+            'gap_count': gap_count,
+            'leading_gaps': leading,
+            'internal_gaps': gap_count - leading - trailing,
+            'trailing_gaps': trailing,
+            'gap_columns': gaps,
+            'x_columns': unknowns,
+        })
+    gap_locations = pd.DataFrame(rows)
+    if gap_locations['alignment_width'].nunique() != 1:
+        raise ValueError('Aligned proteins have different widths during inspection.')
+    gap_path = out_dir / 'gap_locations.csv'
+    gap_locations.to_csv(gap_path, index=False)
+    manifest = {
+        'stage': 'alignment_gap_inspection',
+        'selected_cds_sha256': file_sha256(selected_path),
+        'aligned_fasta_sha256': file_sha256(aligned_path),
+        'validation_report_sha256': file_sha256(validation_path),
+        'gap_locations_sha256': file_sha256(gap_path),
+        'proteins_inspected': len(gap_locations),
+        'alignment_width': int(gap_locations['alignment_width'].iloc[0]),
+        'code': get_git_info(),
+        'outputs': list(INSPECTION_OUTPUT_NAMES),
+    }
+    (out_dir / 'inspection_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    print(f'Inspected gap locations for {len(gap_locations):,} aligned proteins.')
+    print(f'Wrote inspection outputs to {out_dir}')
+
+
 def main() -> None:
-    """Prepare CDS inputs or align proteins already prepared for a population.
+    """Prepare CDS inputs, align proteins, validate them or inspect their gaps.
 
     Returns:
         None.
@@ -266,8 +464,13 @@ def main() -> None:
     years.add_argument('--year_range', nargs=2, type=int, default=None, metavar=('MIN', 'MAX'))
     parser.add_argument('--out_dir', type=Path,
                         default=PROJ / 'results/flu/July_2025/cds_alignment_pilot')
-    parser.add_argument('--align_only', action='store_true',
-                        help='run MAFFT on existing preparation outputs without selecting CDS again')
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument('--align_only', action='store_true',
+                         help='run MAFFT on existing preparation outputs without selecting CDS again')
+    actions.add_argument('--validate_only', action='store_true',
+                         help='validate an existing alignment without rerunning MAFFT')
+    actions.add_argument('--inspect_only', action='store_true',
+                         help='record gap positions in an existing validated alignment')
     parser.add_argument('--mafft_bin', default='mafft',
                         help='MAFFT executable path or command on PATH (with --align_only)')
     parser.add_argument('--overwrite', action='store_true',
@@ -277,25 +480,39 @@ def main() -> None:
     names = load_function_metadata(args.virus_config)
     if args.protein not in names.short_to_function:
         parser.error(f'Unknown protein {args.protein!r}; choose from {sorted(names.short_to_function)}')
-    label = population_label(host=args.host, hn_subtype=args.hn_subtype,
-                             year=args.year, year_range=args.year_range)
+    label = population_label(
+        host=args.host,
+        hn_subtype=args.hn_subtype,
+        year=args.year,
+        year_range=args.year_range)
     out_dir = args.out_dir / label / args.protein
+
     if args.align_only:
         align_prepared_proteins(out_dir, args.mafft_bin, args.overwrite)
         return
+    if args.validate_only:
+        validate_alignment(out_dir, args.overwrite)
+        return
+    if args.inspect_only:
+        inspect_alignment(out_dir, args.overwrite)
+        return
+
     function = names.short_to_function[args.protein]
     cds = pd.read_parquet(args.cds_final, columns=CDS_COLUMNS,
                           filters=[('function', '==', function)])
+
     population = filter_by_metadata(
         attach_isolate_metadata(cds, metadata_file=args.metadata_file),
         host=args.host, hn_subtype=args.hn_subtype,
         year=args.year, year_range=args.year_range)
     if population.empty:
         raise ValueError('No protein records match the requested population.')
+
     selected = population.loc[population['is_complete_cds'].eq(True)].copy()
     if selected.empty:
         raise ValueError('The requested protein and population have no complete CDS.')
     selected = selected.sort_values(['cds_length', 'cds_dna_hash', 'assembly_id']).reset_index(drop=True)
+
     summary = summarize_selected_lengths(selected)
     proteins = prepare_proteins(selected)
     x_summary = summarize_unknown_residues(selected)

@@ -233,6 +233,49 @@ not guarantee enough training pairs. The companion capacity audit
 (`docs/results/2026-09-08_cds_pair_capacity.md`) measures that for all 28 pairs, including those
 with PB1 and NS1.
 
+## NS1 protein alignment pilot: Human-H3N2-2024
+
+On 2026-11-05, `src/analysis/align_proteins.py` selected 5,337 complete NS1 CDS from 5,346
+isolates. These records contained 1,132 unique CDS and 560 unique proteins. MAFFT 7.526 used
+`--auto`, selected FFT-NS-2, and produced an alignment with 230 amino-acid columns. Removing
+alignment gaps recovered the exact input sequence for all 560 proteins.
+
+Each CDS includes a terminal stop codon. We removed the final `*` from the protein before
+alignment but kept the stop codon in the CDS. The table counts gaps in the protein alignment.
+
+| CDS length | Unique proteins | Codons including stop | Amino acids aligned | Gaps | Gap location |
+|---|---:|---:|---:|---:|---|
+| 693 nt | 551 | 231 | 230 | 0 | — |
+| 660 nt | 6 | 220 | 219 | 11 | Columns 220–230, at the end |
+| 654 nt | 3 | 218 | 217 | 13 | Columns 218–230, at the end |
+
+All 551 proteins at 693 nt have no gaps. Each shorter protein has one gap block at the end, with
+no internal gaps. No protein has an `X` in columns 218–230, where the shorter proteins have gaps.
+The 660-nt CDS end with a stop at codon 220; the 654-nt CDS end with a stop at codon 218.
+These stop codons are not represented by the protein alignment gaps.
+
+The examples show original protein residues from position 205 to the end and their placement
+in alignment columns 205–230. Protein hash prefixes identify records in the saved FASTA files.
+
+| CDS length | Protein hash prefix | Input residues 205–end | Aligned columns 205–230 |
+|---|---|---|---|
+| 693 nt | `47566821` | `SSHENGGPPLTPKQKQEMARTARSEV` | `SSHENGGPPLTPKQKQEMARTARSEV` |
+| 693 nt | `046b53e6` | `SSNENGGPPLTPKQKREMARTARSEV` | `SSNENGGPPLTPKQKREMARTARSEV` |
+| 660 nt | `40191b0e` | `SCDENGRPSLPPEQK` | `SCDENGRPSLPPEQK-----------` |
+| 654 nt | `6a1f0bc8` | `SSHENGGPPLTPK` | `SSHENGGPPLTPK-------------` |
+
+The 654-nt example matches the first 217 amino acids of the `47566821` long protein. The
+terminal gap placement is consistent with the short CDS ending earlier. This alignment is an
+estimate of positional correspondence, not a recovered evolutionary history. We found no
+scattered or internal gaps that called for a second MAFFT strategy in this pilot. The next
+decision is how to map the original codons and stop codons into model features.
+
+The saved inputs, aligned FASTA, validation report, per-protein `gap_locations.csv` and
+`inspection_manifest.json` are under
+`results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The manifests record file
+hashes, MAFFT settings and the code working-tree state for this run. The provenance block at the
+top of this document applies to the earlier length-survey tables, not this pilot.
+
 ## Metadata filtering
 
 The script accepts subtype, host, and year filters:
