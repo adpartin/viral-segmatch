@@ -157,9 +157,10 @@ assemblies.
 This measurement describes the available records. It does not establish why the bases are absent
 or the biological prevalence of the 2,274- and 2,277-nt forms.
 
-## Pin reach by year (additional measurement)
+## Pin reach by year in Human-H3N2 (additional measurement)
 
-This section concerns P1 and P2. The experiments in
+This table covers Human-H3N2 isolates from 2015 through 2025; it does not include other hosts or
+subtypes. This section concerns P1 and P2. The experiments in
 `docs/plans/2026-09-14_codon_site_features_plan.md` pin all 8 proteins to
 their Human-H3N2-2024 modal complete-CDS length: PB2 2,280, PB1 2,277, PA 2,151, HA 1,701,
 NP 1,497, NA 1,410, M1 759, and NS1 693 nt. Six are in `conf/virus/flu.yaml`; PB1 and NS1 come
@@ -303,6 +304,67 @@ The reproducible check is `src/analysis/audit_ns1_downstream_contig.py`. Its per
 comparisons, summary and provenance manifest are `ns1_downstream_contig.csv`,
 `ns1_downstream_summary.csv` and `ns1_downstream_manifest.json` in the pilot artifact
 directory above. The manifest records the input hashes and code working-tree state.
+
+## NS1 alignment for Task 2 candidate population
+
+Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025` (inclusive).
+This is separate from the reported 2022–2023 Task 2 run. Of 56,512 NS1 isolate records,
+56,417 had a complete CDS. They contained 16,540 unique CDS and 9,039 unique proteins
+across 63 host–subtype–year groups.
+
+A trailing protein-alignment gap is a `-` after that protein's last amino acid. Stop markers
+were removed before alignment, so these gaps are not stop codons.
+
+| CDS length | Isolates | Unique CDS | Unique proteins | Trailing protein-alignment gaps |
+|---|---:|---:|---:|---|
+| 654 nt | 339 | 219 | 192 | 221–240 |
+| 660 nt | 25,526 | 8,248 | 4,604 | 223–240 |
+| 672 nt | 806 | 235 | 144 | 227–240 |
+| 693 nt | 29,690 | 7,791 | 4,055 | 234–240 |
+| 714 nt | 15 | 10 | 10 | None |
+| Nine other lengths | 41 | 37 | 34 | Varies |
+
+The final columns of the 240-column protein alignment show the trailing gaps. Here `aa`
+means an amino acid:
+
+```text
+Column:          222   223–233     234–240
+660-nt CDS:      aa    - ... -     - ... -
+693-nt CDS:      aa    aa ... aa   - ... -
+714-nt CDS:      aa    aa ... aa   aa ... aa
+```
+
+The 660-nt and 693-nt CDS account for 55,216 of the 56,417 complete records (97.9%).
+The 672-nt form is concentrated in Human-H3N2 in 2019–2020 (753 of 806 records).
+The table below shows length by host and subtype. "Other lengths" includes 654 and 714 nt:
+
+| Host | Subtype | Complete NS1 isolates | 660 nt | 672 nt | 693 nt | Other lengths |
+|---|---|---:|---:|---:|---:|---:|
+| Human | H1N1 | 20,141 | 19,698 | 2 | 430 | 11 |
+| Human | H3N2 | 29,439 | 124 | 804 | 28,335 | 176 |
+| Pig | H1N1 | 3,662 | 2,746 | 0 | 752 | 164 |
+| Pig | H3N2 | 3,175 | 2,958 | 0 | 173 | 44 |
+
+- MAFFT 7.526 used `--auto` (FFT-NS-2). Removing gaps recovered every input protein.
+- Each of the five listed CDS lengths has one gap pattern. Some proteins at the nine
+  other lengths have additional leading or internal gaps.
+- All five listed length forms have gaps at internal columns 74, 112 and 132. Each column
+  holds a residue in just one protein (one isolate); all other proteins have a gap there.
+  Those three isolates are Human-H3N2 at 696 nt in 2017 and 2018, and Human-H1N1 at
+  663 nt in 2017. Only the 714-nt form occupies columns 234–240: 10 unique proteins
+  from 15 isolates.
+- The common trailing-gap pattern suggests the main length forms may share columns.
+  This single protein alignment does not prove positional correspondence. Review the
+  three singleton columns and uncommon gap patterns before defining codon features.
+  Stop codons were not aligned, so their placement remains to be checked. No codon
+  features or models were produced here.
+
+The inputs and outputs are under
+`results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/NS1/`.
+`src/analysis/align_proteins.py` generated the alignment, validation and gap locations.
+`src/analysis/summarize_protein_alignment.py` generated `group_length_summary.csv`,
+`gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file hashes
+and code state. The provenance block at the top of this document does not cover this audit.
 
 ## Metadata filtering
 

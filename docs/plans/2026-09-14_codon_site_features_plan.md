@@ -522,12 +522,29 @@ Before using this mapping in a model, check that removing `GAP` and `AFTER_STOP`
 recovers every original CDS codon in order, that each sequence has exactly one
 terminal stop, and that its sense codons translate to the aligned protein after
 gaps are removed. Check that 693-nt sequences reproduce their current codon
-codes. Then expand NS1 to the Task 2 population; HA and NA across subtypes can
-follow after their own alignment checks.
+codes. The protein alignment audit below does not implement this codon
+feature mapping. HA and NA across subtypes can follow after their own checks.
 
 For later model evaluation, build columns from training sequences and map
 validation and test sequences into those fixed columns, with an explicit rule
 for new insertions.
+
+### NS1 alignment for Task 2 candidate population
+
+Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025` (inclusive).
+This is separate from the reported 2022–2023 Task 2 run. The goal is to see whether
+complete NS1 proteins can share alignment columns and where gaps fall.
+
+Select complete NS1 CDS without pinning their length. Count isolates, unique CDS and unique
+proteins by length and by host, subtype and year. Align unique proteins with MAFFT `--auto`,
+check that removing gaps recovers every input, and inspect gap patterns and per-column residue
+support. The protein alignment does not establish where terminal stop codons belong or whether
+the inferred positional correspondence is biologically correct. Decide codon feature columns
+only after reviewing these results and any unusual gap placements.
+
+The [results](../results/2026-09-07_cds_length_survey.md#ns1-alignment-for-task-2-candidate-population)
+summarize the audit. The saved inputs, alignment, validation, gap report and summaries are under
+`results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/NS1/`.
 
 ## Experiment 6: prediction variation across balanced negative draws — DONE (2026-10-07)
 
