@@ -1,0 +1,10 @@
+name: mafft
+# Dedicated CLI-only environment for protein alignment.
+#   Build:  conda env create -f environment_mafft.yml
+#   Check:  conda run -n mafft mafft --version
+# The Python analysis runs in segmatch and calls the MAFFT binary from this env.
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - mafft=7.526
