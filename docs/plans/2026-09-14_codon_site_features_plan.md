@@ -385,8 +385,9 @@ population, the partial 2025 season, or correlation among sites.
 
 ### Goal
 
-Explore how complete NS1 sequences from Human-H3N2-2024 align, retaining all observed
-lengths. Inspect which positions *correspond* and where the alignment places gaps.
+Align the proteins recorded for complete Human-H3N2-2024 NS1 CDS, retaining every observed
+CDS length. Inspect the protein-alignment columns and gap symbols (`-`) in
+MAFFT's output as an estimate of which positions correspond.
 
 See [Alignment in the glossary](../methods/glossary.md#per-site-features) for the definition
 and the distinction between an estimated correspondence and an established evolutionary history.
@@ -396,10 +397,15 @@ and the distinction between an estimated correspondence and an established evolu
 1. Select complete NS1 CDS from Human-H3N2-2024, retaining all observed lengths.
 2. Use `prot_seq` from `cds_dna_final.parquet`. For every selected unique CDS, check that it
    matches `cds_utils.translate_dna(cds_dna_seq)`, ends with exactly one `*`, has no internal
-   `*`, and has 3 nucleotides per protein symbol. Stop if a check fails. Remove the final
-   `*` only from the protein sent to MAFFT; keep the original CDS unchanged. Keep `X` residues
-   and report how many isolates, unique CDS and unique proteins contain them, by CDS length.
-   Name each FASTA record by its original `prot_hash`, which hashes the protein with its final `*`.
+   `*`, and that the CDS length is three times the length of `prot_seq`, including its `*`.
+   Stop if a check fails. Remove the terminal `*` only from the protein sent
+   to MAFFT; keep the original CDS unchanged. With the options used here,
+   [MAFFT would also remove `*`](https://mafft.cbrc.jp/alignment/software/anysymbol.html)
+   by default. Removing it ourselves records the exact input sequence and lets us
+   compare it directly with the gap-stripped output.
+   Keep `X` symbols and report how many isolates, unique CDS and unique proteins contain them,
+   by CDS length. Name each FASTA record by its original `prot_hash`, which hashes the
+   protein with its terminal `*` marker.
    An `X` means the original codon does not resolve to one amino acid; it does not erase that
    codon or create a gap. Because `X` gives the aligner less information about that position,
    inspect any uncertain gap placements near it.
@@ -407,16 +413,17 @@ and the distinction between an estimated correspondence and an established evolu
    full command, selected alignment strategy and input sequence hashes. Save the MAFFT log.
    Keep a mapping from each protein to its original CDS records so that synonymous CDS
    variants remain available.
-4. Confirm that removing alignment gaps from each aligned protein recovers its input protein
-   without the terminal stop marker.
+4. Confirm that removing `-` from each aligned protein recovers the exact protein
+   sequence sent to MAFFT, which has no terminal `*` marker.
 5. Inspect the alignment, including sequences of the same length and examples of each
    observed CDS length. Examine where gaps fall and note uncertain placements.
 
 If a placement needs further checking, optionally run a second MAFFT strategy and compare
 the affected regions. Agreement between strategies does not establish that a placement is correct.
 
-An alignment gap, an unknown residue and unsequenced bases are different states. This pilot
-uses complete CDS; alignment cannot recover bases absent from a truncated record.
+A `-` in the protein alignment, an `X` in a protein sequence and bases absent from a
+truncated record are different. This pilot uses complete CDS; alignment cannot recover
+bases absent from a truncated record.
 
 ### Outputs
 
@@ -445,37 +452,39 @@ their terminal `*`.
 | 660 nt | 0 | 0 | 0 |
 | 693 nt | 48 | 48 | 48 |
 
-**Step 3.** Implemented and run on 2026-11-05. MAFFT 7.526 aligned all 560
-proteins with `--auto`, which selected `FFT-NS-2` mode. The aligned sequences
-have 230 columns (230 x 3 = 690).
+**Step 3.** Implemented and run on 2026-11-05. We ran MAFFT 7.526 on all 560
+proteins with `--auto`; it selected the FFT-NS-2 strategy. The protein
+alignment has 230 columns. The terminal CDS stop codons were not aligned.
 
 **Step 4.** Implemented and run on 2026-11-05. All 560 aligned protein IDs matched the inputs.
-Removing gaps recovered the exact input sequence for every protein.
+Removing `-` recovered the exact protein sequence sent to MAFFT for every protein.
 
-**Step 5.** Implemented and run on 2026-11-05. Each CDS includes a terminal stop codon. We
-removed the final `*` from the protein before alignment but kept the stop codon in the CDS.
-The table counts gaps in the 230-column protein alignment. Every protein at a given CDS length
-has the gap placement shown.
+**Step 5.** Implemented and run on 2026-11-05. Each CDS includes a terminal stop codon.
+The protein sent to MAFFT lacked its terminal `*` marker; the original CDS was unchanged.
+The table counts `-` symbols per protein in the 230-column alignment. Every protein
+from a given CDS length has the gap columns shown.
 
-| CDS length | Codons including stop | Amino acids aligned | Gaps | Gap location |
+| CDS length | Codons including stop | Protein symbols sent to MAFFT | `-` symbols | Gap columns |
 |---|---:|---:|---:|---|
 | 693 nt | 231 | 230 | 0 | — |
-| 660 nt | 220 | 219 | 11 | Columns 220–230, at the end |
-| 654 nt | 218 | 217 | 13 | Columns 218–230, at the end |
+| 660 nt | 220 | 219 | 11 | 220–230, trailing |
+| 654 nt | 218 | 217 | 13 | 218–230, trailing |
 
 There are no internal gaps.
 
 ### Next step
 
 The [downstream contig check](../results/2026-09-07_cds_length_survey.md#ns1-downstream-contig-check)
-supports placing each short CDS's stop codon at its own position: codon 218 for
-654 nt CDS and codon 220 for 660 nt CDS. The protein alignment alone cannot
-locate a stop codon.
+supports mapping the 654-nt CDS stop codon to column 218 and the 660-nt CDS
+stop codon to column 220, opposite the same-numbered codons in the 693-nt
+reference. Because the terminal `*` markers were removed, the protein alignment
+alone cannot place these stop codons.
 
-**Proposed feature mapping for this pilot:** put each original sense codon in
-its protein alignment column. Put the CDS's terminal stop in the next column
+**Proposed codon feature mapping for this pilot:** put each original sense codon in
+its protein-alignment column. Put the CDS's terminal stop codon in the next column
 after its last aligned amino acid. Add one column after the 230 protein columns
-for the 693-nt stop. MAFFT aligned the amino acids without their stop markers:
+for the 693-nt stop codon. MAFFT aligned the protein sequences without their terminal
+`*` markers:
 
 ```text
 Protein column:  1–217   218   219   220–230
@@ -484,10 +493,12 @@ Protein column:  1–217   218   219   220–230
 654-nt CDS:      aa...   -     -     - ... -
 ```
 
-Here `aa` means an amino acid; `-` means a protein alignment gap.
+Here `aa` stands for a non-gap protein symbol (an amino acid or `X`);
+`-` means a protein-alignment gap.
 
-The proposed codon features replace the first trailing protein gap with that
-CDS's stop codon. The 693-nt stop goes in the added column 231:
+In the proposed codon feature table, the first trailing protein-alignment gap
+column would hold that CDS's stop codon. The 693-nt stop would occupy the added
+column 231:
 
 ```text
 Feature column:  1–217          218       219        220        221–230     231
@@ -499,12 +510,13 @@ Feature column:  1–217          218       219        220        221–230     
 ```
 
 The `CAG`, `AAA`, `CGG` and `TGA` shown in the 693-nt row are from the most
-frequent long CDS; other long sequences can differ. Give every empty column
+frequent 693-nt CDS; other 693-nt CDS can differ. Give every empty column
 *after* a sequence's stop the `AFTER_STOP` state. Give any other empty column
 the `GAP` state. These states are defined in the
 [glossary](../methods/glossary.md#per-site-features). This pilot has no gaps
-before the stop, so it has no `GAP` features. For these NS1 sequences,
-`AFTER_STOP` gives the same feature layout as filling at the end. The CDS is
+between the first and last aligned protein symbols. Under this proposal, it would
+have no `GAP` feature values, and `AFTER_STOP` would give the same feature layout
+as filling at the end. The CDS is
 the feature source, so do not use post-stop bases from the contig as codon
 features.
 
@@ -529,21 +541,30 @@ For later model evaluation, build columns from training sequences and map
 validation and test sequences into those fixed columns, with an explicit rule
 for new insertions.
 
-### NS1 alignment for Task 2 candidate population
+### NS1 protein alignment for Task 2 candidate population
 
-Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025` (inclusive).
-This is separate from the reported 2022–2023 Task 2 run. The goal is to see whether
-complete NS1 proteins can share alignment columns and where gaps fall.
+Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025`
+(inclusive). This is separate from the reported 2022–2023 Task 2 run. The goal
+is to see whether complete NS1 proteins can share alignment columns and where
+gaps fall.
 
-Select complete NS1 CDS without pinning their length. Count isolates, unique CDS and unique
-proteins by length and by host, subtype and year. Align unique proteins with MAFFT `--auto`,
-check that removing gaps recovers every input, and inspect gap patterns and per-column residue
-support. The protein alignment does not establish where terminal stop codons belong or whether
-the inferred positional correspondence is biologically correct. Decide codon feature columns
-only after reviewing these results and any unusual gap placements.
+Select complete NS1 CDS without pinning their length. Count isolates, unique
+CDS and unique proteins by length and by host, subtype and year. Align unique
+proteins with MAFFT `--auto`, check that removing gaps recovers every input,
+and inspect gap patterns. For each alignment column, count how many proteins
+and isolates have a non-gap symbol (an amino acid or `X`) in it. MAFFT did not
+receive terminal `*` markers, so its output cannot place CDS stop codons.
+The alignment alone also cannot establish that each column represents the
+same biological position.
+Decide codon feature columns only after reviewing these results and any unusual
+gap placements.
+Decide whether to keep the 56 complete records outside the 654-, 660-, 672-
+and 693-nt forms in a first feature set. Record any exclusions by host,
+subtype and year.
 
-The [results](../results/2026-09-07_cds_length_survey.md#ns1-alignment-for-task-2-candidate-population)
-summarize the audit. The saved inputs, alignment, validation, gap report and summaries are under
+The [results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-for-task-2-candidate-population)
+summarize the audit. The saved inputs, alignment, validation, gap report and
+summaries are under
 `results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/NS1/`.
 
 ## Experiment 6: prediction variation across balanced negative draws — DONE (2026-10-07)

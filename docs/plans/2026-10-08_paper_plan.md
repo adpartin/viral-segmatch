@@ -524,7 +524,7 @@ the population. NS1 and its seven schema pairs are excluded for the reason below
 
 ### The Task 2 population
 
-The build uses `[Human, Pig]`, `[H3N2, H1N1]`, `[2022, 2023]`. All eight metadata groups have isolates:
+The build uses `[Human, Swine, Avian]`, `[H3N2, H1N1, H5N1]`, `2010-2025`. All eight metadata groups have isolates:
 10,992 in total, from 4,864 in Human-H3N2-2022 down to 157 in Pig-H3N2-2022. The measurements
 behind this choice are in `results/flu/July_2025/pair_capacity_task2_2x2x2/`, under
 `cds_length_survey_grid/` for each group on its own and `cds_length_survey_candidates/` for the
