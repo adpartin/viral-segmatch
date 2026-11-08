@@ -1,0 +1,336 @@
+# Host groups, for selecting a population and for reporting results per group.
+#
+# Maps every `host` value in data/processed/flu/metadata_eda/flu_genomes_metadata_parsed.csv
+# to one group. `host` holds the curated `host_common_name` field after the fixes in
+# HOST_NORMALIZATION (src/preprocess/flu_genomes_eda.py), so the names below are spelled
+# the way that file writes them.
+#
+# Names are listed in full rather than matched by a pattern. A pattern quietly moves
+# isolates to another group when a new name arrives, and a short pattern catches the wrong
+# animal, because "pig" sits inside "Pigeon" and "Guinea" names a bird, not a country.
+#
+# Two states sit outside these groups. An isolate with no host name has no group either.
+# A host name that no group lists is reported as Unmapped, with a warning, so a new name
+# is noticed instead of guessed. Neither is a group here, because neither says the host
+# is anything in particular.
+#
+# Every name belongs to exactly one group; the loader checks this.
+# Measured on the July_2025 corpus, 2026-11-08: 274 names, 110,205 isolates with a host name, 1,592 without one.
+
+host_groups:
+  # The only human name in the curated field.
+  # 1 name(s), 58,475 isolates.
+  Human:
+    - 'Human'
+
+  # Wildboar is not here: it has no curated host_common_name, so it never
+  # reaches `host`.
+  # 1 name(s), 11,784 isolates.
+  Swine:
+    - 'Pig'
+
+  # Farmed birds.
+  # 3 name(s), 8,257 isolates.
+  Chicken:
+    - 'Chicken'
+    - 'Silky Chicken'
+    - 'Wild Chicken'
+
+  # Every true duck, farmed or wild. Geese, swans and turkeys are close relatives
+  # but are not ducks, so they are in Other Bird. The Farmed / Wild / Not sure note
+  # on each line is read off the species, because no field in the record says which;
+  # it is there to show that this group mixes the two. Almost every isolate here is
+  # a wild bird.
+  # 54 name(s), 13,233 isolates.
+  Duck:
+    - 'American Black Duck'  # Wild
+    - 'American Wigeon'  # Wild
+    - 'Australian Shelduck'  # Wild
+    - 'Baikai Teal'  # Wild
+    - 'Black Duck'  # Wild
+    - 'Black Scoter'  # Wild
+    - 'Blue-Winged Teal'  # Wild
+    - 'Bufflehead'  # Wild
+    - 'Canvasback'  # Wild
+    - 'Chestnut Teal'  # Wild
+    - 'Cinnamon Teal'  # Wild
+    - 'Common Eider'  # Wild
+    - 'Common Goldeneye'  # Wild
+    - 'Common Merganser'  # Wild
+    - 'Common Pochard'  # Wild
+    - 'Common Scoter'  # Wild
+    - 'Duck'  # Not sure
+    - 'Eurasian Teal'  # Wild
+    - 'Eurasian Wigeon'  # Wild
+    - 'Gadwall'  # Wild
+    - 'Garganey'  # Wild
+    - 'Gray Teal'  # Wild
+    - 'Greater Scaup'  # Wild
+    - 'Green-Winged Teal'  # Wild
+    - 'Hooded Merganser'  # Wild
+    - 'Lesser Scaup'  # Wild
+    - 'Long-Tailed Duck'  # Wild
+    - 'Mallard'  # Wild
+    - 'Mallard-Black Duck Hybrid'  # Wild
+    - 'Muscovy Duck'  # Farmed
+    - 'Northern Pintail'  # Wild
+    - 'Northern Shoveler'  # Wild
+    - 'Pintail'  # Wild
+    - 'Pochard'  # Wild
+    - 'Red Shoveler'  # Wild
+    - 'Red-Billed Teal'  # Wild
+    - 'Red-Crested Pochard'  # Wild
+    - 'Redhead Duck'  # Wild
+    - 'Ring-Necked Duck'  # Wild
+    - 'Ruddy Duck'  # Wild
+    - 'Scaup'  # Wild
+    - 'Scoter'  # Wild
+    - 'Shelduck'  # Wild
+    - 'Shoveler'  # Wild
+    - 'Spot-Billed Duck'  # Wild
+    - "Steller's Eider"  # Wild
+    - 'Teal'  # Wild
+    - 'Tufted Duck'  # Wild
+    - 'Velvet Scoter'  # Wild
+    - 'White-Winged Scoter'  # Wild
+    - 'Wood Duck'  # Wild
+    - 'Yellow-Billed Duck'  # Wild
+    - 'Yellow-Billed Pintail'  # Wild
+    - 'Yellow-Billed Teal'  # Wild
+
+  # Every bird that is not a chicken or a duck: geese, swans, turkeys, gulls,
+  # shorebirds, raptors and the rest.
+  # 168 name(s), 10,388 isolates.
+  Other Bird:
+    - 'American White Pelican'
+    - 'Aquatic Bird'
+    - 'Arctic Tern'
+    - 'Armenian Gull'
+    - 'Avian'
+    - 'Babbler'
+    - 'Bald Eagle'
+    - 'Bar-Headed Goose'
+    - 'Barn Swallow'
+    - 'Barnacle Goose'
+    - "Bewick's Swan"
+    - 'Bird'
+    - 'Bittern'
+    - 'Black vulture'
+    - 'Black-Billed Magpie'
+    - 'Black-Headed Gull'
+    - 'Black-Winged Stilt'
+    - 'Blackbird'
+    - 'Blue Jay'
+    - 'Brown-Headed Gull'
+    - 'Bulbul'
+    - 'Chinese Francolin'
+    - 'Chukar'
+    - 'Common Buzzard'
+    - 'Common Coot'
+    - 'Common Loon'
+    - 'Common Murre'
+    - 'Common Tern'
+    - 'Condor'
+    - 'Coot'
+    - 'Cormorant'
+    - 'Crane'
+    - 'Crested Myna'
+    - 'Crow'
+    - 'Curlew'
+    - 'Dove'
+    - 'Dunlin'
+    - 'Eagle'
+    - 'Eastern Buzzard'
+    - 'Egret'
+    - 'Egyptian Goose'
+    - 'Emu'
+    - 'Eurasian Coot'
+    - 'Eurasian Eagle-Owl'
+    - 'Eurasian Sparrowhawk'
+    - 'European Herring Gull'
+    - 'Falcon'
+    - 'Finch'
+    - 'Fish Crow'
+    - 'Flamingo'
+    - 'Flycatcher'
+    - 'Fowl'
+    - "Franklin's Gull"
+    - 'Glaucous Gull'
+    - 'Godwit'
+    - 'Goose'
+    - 'Goshawk'
+    - 'Grackle'
+    - 'Great Black-Headed Gull'
+    - 'Great Black-backed Gull'
+    - 'Great Bustard'
+    - 'Great Crested Grebe'
+    - 'Great-Horned Owl'
+    - 'Greater White-Fronted Goose'
+    - 'Grebe'
+    - 'Green Peafowl'
+    - 'Grey Heron'
+    - 'Grey-Faced Buzzard'
+    - 'Greylag Goose'
+    - 'Ground Jay'
+    - 'Guillemot'
+    - 'Guineafowl'
+    - 'Gull'
+    - 'Hawk'
+    - 'Helmeted Guineafowl'
+    - 'Heron'
+    - 'Herring Gull'
+    - 'Hooded Vulture'
+    - 'Horned Puffin'
+    - 'Houbara Bustard'
+    - 'House Crow'
+    - 'Ibis'
+    - 'Iceland Gull'
+    - 'Japanese Quail'
+    - 'Japanese White-Eye'
+    - 'Kalij Pheasant'
+    - 'Kelp Gull'
+    - 'Kestrel'
+    - 'Knot'
+    - 'Laughing Gull'
+    - 'Least Sandpiper'
+    - 'Little Egret'
+    - 'Little Grebe'
+    - 'Magpie'
+    - 'Magpie Robin'
+    - 'Mew Gull'
+    - 'Moorhen'
+    - 'Munia'
+    - 'Murre'
+    - 'Mute Swan'
+    - 'Myna'
+    - 'Openbill Stork'
+    - 'Ostrich'
+    - 'Owl'
+    - 'Oystercatcher'
+    - 'Parrot'
+    - 'Partridge'
+    - 'Peacock'
+    - 'Peafowl'
+    - 'Pelican'
+    - 'Penguin'
+    - 'Peregrine Falcon'
+    - 'Pheasant'
+    - 'Pigeon'
+    - 'Pink-Footed Goose'
+    - 'Plover'
+    - 'Poultry'
+    - 'Quail'
+    - 'Raven'
+    - 'Red Knot'
+    - 'Red-Necked Stint'
+    - 'Rhea'
+    - 'Ring-Billed Gull'
+    - 'Ring-Necked Pheasant'
+    - 'Robin'
+    - 'Rook'
+    - 'Ruddy Turnstone'
+    - 'Saker Falcon'
+    - 'Sanderling'
+    - 'Sandgrouse'
+    - 'Sandpiper'
+    - 'Semipalmated Sandpiper'
+    - 'Sharp-Tailed Sandpiper'
+    - 'Shearwater'
+    - 'Shorebird'
+    - 'Shrike'
+    - 'Skimmer'
+    - 'Slaty-Backed Gull'
+    - 'Snipe'
+    - 'Snow Goose'
+    - 'Snowy Owl'
+    - 'Softbill'
+    - 'Sparrow'
+    - 'Starling'
+    - 'Stint'
+    - 'Stork'
+    - 'Swan'
+    - 'Swiftlet'
+    - 'Tern'
+    - 'Thrush'
+    - 'Tibetan Lark'
+    - 'Tibetan Snowfinch'
+    - 'Tit'
+    - 'Tree Sparrow'
+    - 'Tundra Swan'
+    - 'Turkey'
+    - 'Turtledove'
+    - 'Twite'
+    - 'Vulture'
+    - 'Watercock'
+    - 'Waterfowl'
+    - 'Wedge-Tailed Shearwater'
+    - 'Whiskered Tern'
+    - 'White Bellied Bustard'
+    - 'White-Rumped Munia'
+    - 'White-Rumped Sandpiper'
+    - 'Whooper Swan'
+    - 'Wild Bird'
+
+  # Mammals other than Human and Swine. Sea mammals (Seal, Harbor Seal,
+  # South American sea lion, Dolphin, Bottlenose Dolphin, Whale) are here
+  # too: 41 isolates is too few to report on their own.
+  # 44 name(s), 6,907 isolates.
+  Other Mammal:
+    - 'Alpaca'
+    - 'American mink'
+    - 'Ant Eater'
+    - 'Bat'
+    - 'Bear'
+    - 'Bottlenose Dolphin'
+    - 'Camel'
+    - 'Cat'
+    - 'Cheetah'
+    - 'Civet'
+    - 'Cow'
+    - 'Dog'
+    - 'Dolphin'
+    - 'Domestic Cat'
+    - 'Donkey'
+    - 'Egyptian rousette'
+    - 'Ferret'
+    - 'Fox'
+    - 'Goat'
+    - 'Harbor Seal'
+    - 'Horse'
+    - 'Lion'
+    - 'Macaque'
+    - 'Marine Otter'
+    - 'Marten'
+    - 'Meerkat'
+    - 'Mink'
+    - 'Mountain lion'
+    - 'Mouse'
+    - 'Mule'
+    - 'Panda'
+    - 'Pika'
+    - 'Raccoon'
+    - 'Raccoon Dog'
+    - 'Rat'
+    - 'Red Fox'
+    - 'Ring-Tailed Coati'
+    - 'Seal'
+    - 'Skunk'
+    - 'South American sea lion'
+    - 'Striped Skunk'
+    - 'Tiger'
+    - 'Weasel'
+    - 'Whale'
+
+  # Sampled from water, air, a surface or faeces, with no animal recorded.
+  # The virus is natural; only its host is unrecorded.
+  # 1 name(s), 1,043 isolates.
+  Environment:
+    - 'Environment'
+
+  # Viruses that exist because of laboratory work. Lab reassortment names a
+  # reassortant built on purpose, so its segments come from different parents.
+  # A run that asks whether two segments share an isolate should exclude these.
+  # 2 name(s), 118 isolates.
+  Lab:
+    - 'Lab host'
+    - 'Lab reassortment'
