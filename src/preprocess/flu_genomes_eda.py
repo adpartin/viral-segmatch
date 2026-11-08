@@ -13,7 +13,7 @@ This script works with two related tab-delimited files in `data/raw/Full_Flu_Ann
 
 2) `Flu.first-seg.meta.tab`
    - `hash_id`, `virus_name`, `hn_subtype`, `first_seg_id`
-   - `host_common_name`: natural host where virus was isolated (preferred over inferred host)
+   - `host_common_name`: natural host where virus was isolated; the only source of `host`
    - `lab_host`, `passage`: sparse propagation/passaging metadata
 
 Core parsing outputs
@@ -47,17 +47,17 @@ Outputs are saved under `data/processed/flu/metadata_eda/`:
 - `plots/`: summary plots (host/subtype/year/location distributions; temporal trends; host×subtype heatmap)
 """
 
-import sys
+import importlib
 import re
+import sys
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
+import pandas as pd
+import seaborn as sns
 from scipy.interpolate import interp1d
-import importlib
 
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
@@ -545,6 +545,25 @@ LOCATION_NORMALIZATION = {
     'Viet Nam': 'Vietnam',  # Standardize to single word
     'VIET NAM': 'Vietnam',
     'Bayern': 'Bavaria',
+}
+
+# Host name fixes (duplicates, spelling variants, typos), used by `_normalize_host_value`.
+# Each line maps one spelling to the one we keep. Only for two names of the SAME animal.
+# `report_host_name_collisions` prints any pair of names that differ only in case or
+# punctuation; put those here too, so the name we keep is written down instead of depending
+# on which one happens to be more common in the data. Sorting animals into groups is a
+# different job and does not go here; that is `conf/virus/flu_host_groups.yaml`.
+HOST_NORMALIZATION = {
+    'Cattle': 'Cow',                            # same animal, two labels; Cow is 69x more common
+    'Readhead duck': 'Redhead Duck',            # Fix typo
+    'Eurasion Wigeon': 'Eurasian Wigeon',       # Fix typo
+    "Franklin'S Gull": "Franklin's Gull",       # Fix stray capital after the apostrophe
+    'Grey Teal': 'Gray Teal',                   # UK spelling -> US, to match the rest of the file
+    'Common Teal': 'Eurasian Teal',             # two common names for Anas crecca
+    'Guinea': 'Guineafowl',                     # bare "Guinea" is the bird, not the country
+    'Blue Winged Teal': 'Blue-Winged Teal',     # hyphen variant
+    'Wood duck': 'Wood Duck',                   # case variant
+    'Sharp-tailed Sandpiper': 'Sharp-Tailed Sandpiper',  # case variant
 }
 
 # Known acronyms that should stay uppercase
@@ -1389,6 +1408,87 @@ def select_geo_location_clean(
     return canonical
 
 
+def _host_name_key(host_name: str) -> str:
+    """Key that ignores case, hyphens, underscores and extra spaces in a host name.
+
+    Two names with the same key differ only in how they are written, so they are the same
+    animal.
+
+    Args:
+        host_name: One host name.
+
+    Returns:
+        The name in lower case, with hyphens and underscores turned into single spaces.
+    """
+    spaced = re.sub(r"[-_]+", " ", str(host_name).lower())
+    return re.sub(r"\s+", " ", spaced).strip()
+
+
+def _normalize_host_value(x: object) -> Optional[str]:
+    """Clean up one `host_common_name` value, or return None when it names no host.
+
+    Steps, in order: drop spaces at the ends; treat empty and 'null' as no host; write
+    'human' and 'environment' the same way every time; title-case a name written all in
+    lower case, which leaves a name like 'Great-Horned Owl' as it is; then look the name up
+    in `HOST_NORMALIZATION`. The lookup comes last, so its keys are written the way the
+    name looks after title-casing.
+
+    Args:
+        x: One host name from the file, or a missing value.
+
+    Returns:
+        The name to keep, or None when the value names no host.
+    """
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return None
+    s = str(x).strip()
+    if s == "" or s.lower() == "null":
+        return None
+    s_lower = s.lower()
+    # Write the two most common values the same way every time
+    if s_lower == "human":
+        return "Human"
+    if s_lower == "environment":
+        return "Environment"
+    # A name written all in lower case is a common name, so title-case it. A name that
+    # already has capitals, such as "Great-Horned Owl", is left as it is.
+    if s.islower():
+        s = s.title()
+    return HOST_NORMALIZATION.get(s, s)
+
+
+def report_host_name_collisions(host_names: pd.Series) -> dict[str, list[str]]:
+    """Print host names that differ only in case or punctuation and have no fix yet.
+
+    `HOST_NORMALIZATION` says which name to keep in each such pair. Keeping the more common
+    one automatically would make the answer depend on the data, so a pair with no fix is
+    printed for a person to decide and add.
+
+    Args:
+        host_names: Host names from the file, one per isolate; missing values are skipped.
+
+    Returns:
+        `{key: sorted names}` for each pair still written more than one way after
+        `_normalize_host_value` runs. Empty when every pair has a fix.
+    """
+    groups: dict[str, set] = {}
+    for raw in host_names.dropna().unique():
+        canonical = _normalize_host_value(raw)
+        if canonical is None:
+            continue
+        groups.setdefault(_host_name_key(canonical), set()).add(canonical)
+
+    unresolved = {key: sorted(names) for key, names in groups.items() if len(names) > 1}
+    if unresolved:
+        print(
+            f"WARNING: {len(unresolved)} host name(s) are written more than one way. "
+            f"Add the name to keep to HOST_NORMALIZATION in {Path(__file__).name}:"
+        )
+        for key, names in sorted(unresolved.items()):
+            print(f"  {key}: {names}")
+    return unresolved
+
+
 def build_analysis_dataframe(
     key_df: pd.DataFrame,
     meta_df: pd.DataFrame,
@@ -1420,8 +1520,9 @@ def build_analysis_dataframe(
     The dataframes have 3 columns in common: hash_id, virus_name, hn_subtype.
     - Left-join on hash_id so we keep the full set of genomes from
       `Flu_Genomes.key` even if a few are missing from the meta file.
-    - Prefer explicit host information from `host_common_name`. If not available,
-      fall back to inferred host from `host_inferred`.
+    - Take `host` from `host_common_name` only. `host_inferred`, read out of the virus
+      name, is kept as its own column but is not used to fill `host`, so an isolate
+      missing `host_common_name` has no host.
     - Keep lab_host and passage as separate sparse fields.
     """
     print("\nMerging Flu_Genomes.key with Flu.first-seg.meta.tab ...")
@@ -1440,28 +1541,16 @@ def build_analysis_dataframe(
         f"{n_missing_meta} ({100 * n_missing_meta / len(merged):.2f}%)"
     )
 
-    # For host, prefer explicit host_common_name and fall back to inferred host
-    merged["host"] = merged["host_common_name"].fillna(merged["host_inferred"])
+    # `host` comes from the curated host_common_name field only. Filling it from
+    # host_inferred, which is read out of the virus name, added 1,424 isolates but 200 of
+    # the 474 host names. Eleven of those 200 are only another spelling of a name already
+    # there ("American_Wigeon", "Great Horned Owl"); the rest are loose free text
+    # ("Backyard bird", "Bean goose (Anser fabalis)", "Bovine_Milk"). Those names cost
+    # more to track than the isolates are worth, so an isolate with no host_common_name
+    # now has no host.
+    merged["host"] = merged["host_common_name"]
 
-    # Normalize host values to avoid trivial duplicates like "Human" vs "human"
-    def _normalize_host_value(x: object) -> Optional[str]:
-        if x is None or (isinstance(x, float) and pd.isna(x)):
-            return None
-        s = str(x).strip()
-        if s == "" or s.lower() == "null":
-            return None
-        s_lower = s.lower()
-        # Canonicalize a few high-impact values explicitly
-        if s_lower == "human":
-            return "Human"
-        if s_lower == "environment":
-            return "Environment"
-        # If it's entirely lowercase, treat it as a common-name host and title-case it
-        # (keeps existing capitalization for already-normalized values like "Great-Horned Owl")
-        if s.islower():
-            return s.title()
-        return s
-
+    report_host_name_collisions(merged["host"])
     merged["host"] = merged["host"].apply(_normalize_host_value)
 
     # Ensure year is numeric, then cast to int (NaN values remain as NaN/float)
@@ -1582,12 +1671,12 @@ def analyze_metadata(df: pd.DataFrame) -> None:
     
     # Segment count analysis
     segment_cols = [col for col in df.columns if col.startswith("seg_")]
-    print(f"\n--- Segment Information ---")
+    print("\n--- Segment Information ---")
     print(f"Number of segment columns: {len(segment_cols)}")
     if segment_cols:
         # Count non-null segments per row
         df['n_segments'] = df[segment_cols].notna().sum(axis=1)
-        print(f"Segments per isolate:")
+        print("Segments per isolate:")
         print(df['n_segments'].value_counts().sort_index())
 
 
@@ -2449,7 +2538,7 @@ def main():
     print("\n" + "="*80)
     print("EDA COMPLETE")
     print("="*80)
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"1. Review the parsed metadata in: {output_dir / 'flu_genomes_metadata_parsed.csv'}")
     print(f"2. Review plots in: {plots_dir}")
     print("3. Establish mapping between 'hash_id' and 'assembly_id' used in the pipeline")
