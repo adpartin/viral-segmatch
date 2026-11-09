@@ -429,7 +429,7 @@ bases absent from a truncated record.
 
 The pilot artifacts are under
 `results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The sequence examples and
-interpretation are in the [NS1 protein alignment pilot results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-pilot-human-h3n2-2024).
+interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-09_protein_alignment.md#ns1-on-human-h3n2-2024).
 
 ### Progress
 
@@ -474,7 +474,7 @@ There are no internal gaps.
 
 ### Next step
 
-The [downstream contig check](../results/2026-09-07_cds_length_survey.md#ns1-downstream-contig-check)
+The [downstream contig check](../results/2026-11-09_protein_alignment.md#downstream-contig-check)
 supports mapping the 654-nt CDS stop codon to column 218 and the 660-nt CDS
 stop codon to column 220, opposite the same-numbered codons in the 693-nt
 reference. Because the terminal `*` markers were removed, the protein alignment
@@ -563,7 +563,7 @@ Decide whether to keep the 56 complete records outside the 654-, 660-, 672-
 and 693-nt forms in a first feature set. Record any exclusions by host,
 subtype and year.
 
-The [results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-for-humanpig-h1n1h3n2-yr2010-2025)
+The [results](../results/2026-11-09_protein_alignment.md#ns1-on-humanpig-h1n1h3n2-yr2010-2025)
 summarize the audit. The saved inputs, alignment, validation, gap report and
 summaries are under
 `results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/NS1/`.
@@ -595,7 +595,7 @@ Same 5 steps as the pilot, then `summarize_protein_alignment.py`. Commands used
   both put their stop codon in column 234, which follows from their difference
   being internal rather than at the end.
 
-The [results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-for-chickenduckhumanswine-h1n1h3n2h5n1-yr2010-2025)
+The [results](../results/2026-11-09_protein_alignment.md#ns1-on-chickenduckhumanswine-h1n1h3n2h5n1-yr2010-2025)
 give the length, gap-pattern and host–subtype tables. The saved inputs,
 alignment, validation, gap report and summaries are under
 `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NS1/`.
