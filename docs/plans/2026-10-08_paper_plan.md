@@ -563,13 +563,19 @@ codon features need. The alignment work replaces the single pin, so the pins
 and the list of supported schema pairs are its output, not an input to it. The
 run cannot start until it is done.
 
-* NS1 is the clearest case. The pilot population has 2 NS1 lengths; over
-  2010-2025 NS1 has 5 length forms.
 * Tracked in `docs/plans/2026-09-14_codon_site_features_plan.md` as
-  Experiment 5.
-* Reported in `docs/results/2026-09-07_cds_length_survey.md` under "NS1 protein
-  alignment pilot: Human-H3N2-2024" and "NS1 protein alignment for Task 2
-  candidate population".
+  Experiment 5. Reported in `docs/results/2026-09-07_cds_length_survey.md`.
+* **NS1 is aligned on this population, done 2026-11-09.** 60,654 complete CDS,
+  16 lengths, 10,130 unique proteins, 240 alignment columns. No single pin is
+  available: the largest share of unique complete sequences is 693 nt at 0.502,
+  against the 0.90 `check_cds_length` needs.
+* The 678-nt form, almost all H5N1, is the 693-nt form with 5 codons missing at
+  columns 81-85. It is the first internal gap that many sequences share, so a
+  codon feature table needs the `GAP` state and not only `AFTER_STOP`. A table
+  for this population needs 241 columns.
+* Still open: the other 7 proteins have no alignment or pin check on 2010-2025.
+  The pilot's pins were measured on 2022-2023 only. The codon feature mapping is
+  proposed but not implemented or checked.
 * The negative-sampling pilot below is not affected. It was built on a
   population where one pin held for each of its 7 proteins.
 

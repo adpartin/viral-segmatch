@@ -541,10 +541,11 @@ For later model evaluation, build columns from training sequences and map
 validation and test sequences into those fixed columns, with an explicit rule
 for new insertions.
 
-### NS1 protein alignment for Task 2 candidate population
+### NS1 protein alignment for Human+Pig-H1N1+H3N2-yr2010-2025
 
 Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025`
-(inclusive). This is separate from the reported 2022–2023 Task 2 run. The goal
+(inclusive). This population was a candidate for Task 2 and is not the one
+Task 2 uses; the Task 2 population is covered in the next subsection. The goal
 is to see whether complete NS1 proteins can share alignment columns and where
 gaps fall.
 
@@ -562,10 +563,47 @@ Decide whether to keep the 56 complete records outside the 654-, 660-, 672-
 and 693-nt forms in a first feature set. Record any exclusions by host,
 subtype and year.
 
-The [results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-for-task-2-candidate-population)
+The [results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-for-humanpig-h1n1h3n2-yr2010-2025)
 summarize the audit. The saved inputs, alignment, validation, gap report and
 summaries are under
 `results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/NS1/`.
+
+### NS1 protein alignment for the Task 2 population — DONE (2026-11-09)
+
+Filters: host `[Human, Swine, Chicken, Duck]`, subtype `[H3N2, H1N1, H5N1]`,
+year `2010–2025`. `host` is a host group, so `Duck` covers 54 animal names and
+`Chicken` covers 3. This is the population Task 2 uses.
+
+Same 5 steps as the pilot, then `summarize_protein_alignment.py`. Commands used
+`--host Human Swine Chicken Duck --hn_subtype H3N2 H1N1 H5N1 --year_range 2010
+2025`.
+
+* 60,751 filtered isolates, 60,654 (99.8%) with a complete CDS, 18,107 unique
+  CDS, 10,130 unique proteins, 16 CDS lengths, 147 host–subtype–year groups.
+* MAFFT 7.526 with `--auto` selected FFT-NS-2 and produced 240 columns. Removing
+  `-` recovered every input protein.
+* No single pinned length is available. The largest share of unique complete
+  sequences is 693 nt at 0.502, then 660 nt at 0.455, against the 0.90 that
+  `check_cds_length` needs.
+* **The 678-nt form has a 5-codon internal deletion at columns 81–85.** It is
+  not a truncated 693-nt form. All 205 of its unique proteins share the pattern,
+  over 341 isolates, 340 of them H5N1. This is the first internal gap that many
+  sequences share, so it is the first real `GAP` case: the pilot had no internal
+  gaps and the previous population had only 3 singleton internal columns.
+* A codon feature table needs 241 columns, not 240. The 714-nt form fills every
+  protein column, so its stop codon needs one more. The 693-nt and 678-nt forms
+  both put their stop codon in column 234, which follows from their difference
+  being internal rather than at the end.
+
+The [results](../results/2026-09-07_cds_length_survey.md#ns1-protein-alignment-for-chickenduckhumanswine-h1n1h3n2h5n1-yr2010-2025)
+give the length, gap-pattern and host–subtype tables. The saved inputs,
+alignment, validation, gap report and summaries are under
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NS1/`.
+
+Still to decide before codon features are built: whether to keep the 43 isolates
+outside the 654-, 660-, 672-, 678-, 693- and 714-nt forms, and whether to keep
+the 3 singleton internal columns 74, 112 and 132. Uncommon length alone does not
+establish an error.
 
 ## Experiment 6: prediction variation across balanced negative draws — DONE (2026-10-07)
 

@@ -316,7 +316,10 @@ comparisons, summary and provenance manifest are `ns1_downstream_contig.csv`,
 `ns1_downstream_summary.csv` and `ns1_downstream_manifest.json` in the pilot artifact
 directory above. The manifest records the input hashes and code working-tree state.
 
-## NS1 protein alignment for Task 2 candidate population
+## NS1 protein alignment for Human+Pig-H1N1+H3N2-yr2010-2025
+
+This population was a candidate for Task 2 and is not the one Task 2 uses. The
+Task 2 population is in the next section.
 
 Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025`.
 Of 56,512 NS1 filtered isolates, 56,417 (99.8%) had a complete CDS.
@@ -396,6 +399,127 @@ The inputs and outputs are under
 `src/analysis/summarize_protein_alignment.py` generated `group_length_summary.csv`,
 `gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file hashes
 and code state. The provenance block at the top of this document does not cover this audit.
+
+## NS1 protein alignment for Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025
+
+This is the Task 2 population. Filters: host `[Human, Swine, Chicken, Duck]`,
+subtype `[H3N2, H1N1, H5N1]`, year `2010–2025`. `host` is a host group, so
+`Duck` covers 54 animal names and `Chicken` covers 3.
+
+Of 60,751 NS1 filtered isolates, 60,654 (99.8%) had a complete CDS. They
+contained 18,107 unique CDS and 10,130 unique proteins across 16 CDS lengths and
+147 host–subtype–year groups. 957 isolates and 551 unique proteins contain an `X`.
+
+No single pinned length is available for this population. `check_cds_length`
+needs one length to cover 0.90 of the unique complete sequences. The largest
+share here is 693 nt at 0.502, then 660 nt at 0.455.
+
+The alignment has 240 columns. Gap terms are as defined in the previous section.
+
+| CDS length | Isolates | Unique CDS | Unique proteins | Internal gap columns | Trailing gap columns |
+|---|---:|---:|---:|---|---|
+| 654 nt | 389 | 236 | 207 | 74, 112, 132 | 221–240 |
+| 660 nt | 25,506 | 8,243 | 4,601 | 74, 112, 132 | 223–240 |
+| 672 nt | 806 | 235 | 144 | 74, 112, 132 | 227–240 |
+| 678 nt | 341 | 246 | 205 | 74, 81–85, 112, 132 | 234–240 |
+| 693 nt | 33,553 | 9,097 | 4,926 | 74, 112, 132 | 234–240 |
+| 714 nt | 16 | 11 | 11 | 74, 112, 132 | None |
+| Ten other lengths | 43 | 39 | 36 | Varies | Varies |
+
+### The 678-nt form has an internal deletion
+
+The 678-nt form is not a truncated 693-nt form. It is the 693-nt form with 5
+codons missing in the middle, at columns 81–85:
+
+```text
+Column:     71         81         91
+693 nt:     EEY-DESLKM TIASVPASCY LTEM
+678 nt:     EEP-DEALKM -----PTSRY LTEM
+```
+
+All 205 of its unique proteins share this pattern, over 341 isolates. 340 of
+those isolates are H5N1: 206 Chicken, 121 Duck, 11 Human and 2 Swine.
+
+This is the first internal gap in this protein that many sequences share. The
+Human-H3N2-2024 pilot had no internal gaps, and the previous population had only
+3 internal columns, each holding one protein. Under the proposed codon feature
+mapping these 5 columns take the `GAP` state, not `AFTER_STOP`, because they sit
+between protein symbols rather than after a stop codon.
+
+### Where each stop codon falls
+
+The end of the alignment decides which column holds each form's stop codon. The
+rule is the column after that form's last protein symbol.
+
+```text
+Column:     216        226        236
+714 nt:     PFTTKQKRKM ERTIGPEVRR NKMAN     last symbol 240, stop in 241
+693 nt:     PFPPKQKREM ARTTGPKV-- -----     last symbol 233, stop in 234
+678 nt:     PLPPNQKRKL ARAIESEV-- -----     last symbol 233, stop in 234
+672 nt:     PLTPKQKREM A--------- -----     last symbol 226, stop in 227
+660 nt:     SLLPEQE--- ---------- -----     last symbol 222, stop in 223
+654 nt:     PLTPK----- ---------- -----     last symbol 220, stop in 221
+```
+
+A codon feature table for this population therefore needs 241 columns, not 240.
+The 714-nt form fills every protein column, so its stop codon needs one more.
+
+The 693-nt and 678-nt forms put their stop codons in the same column, 234. That
+follows from the internal deletion: the two forms differ in the middle, not at
+the end.
+
+| Host | Subtype | Complete NS1 isolates | 654 nt | 660 nt | 672 nt | 678 nt | 693 nt | Other lengths |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Chicken | H1N1 | 2 | 0 | 1 | 0 | 0 | 1 | 0 |
+| Chicken | H3N2 | 17 | 0 | 0 | 0 | 1 | 16 | 0 |
+| Chicken | H5N1 | 1,825 | 16 | 1 | 0 | 206 | 1,600 | 2 |
+| Duck | H1N1 | 266 | 0 | 0 | 0 | 0 | 266 | 0 |
+| Duck | H3N2 | 217 | 0 | 0 | 0 | 0 | 217 | 0 |
+| Duck | H5N1 | 1,899 | 34 | 4 | 0 | 121 | 1,739 | 1 |
+| Human | H1N1 | 20,115 | 6 | 19,672 | 2 | 0 | 430 | 5 |
+| Human | H3N2 | 29,423 | 161 | 124 | 804 | 0 | 28,319 | 15 |
+| Human | H5N1 | 37 | 0 | 0 | 0 | 11 | 26 | 0 |
+| Swine | H1N1 | 3,662 | 138 | 2,746 | 0 | 0 | 752 | 26 |
+| Swine | H3N2 | 3,175 | 34 | 2,958 | 0 | 0 | 173 | 10 |
+| Swine | H5N1 | 16 | 0 | 0 | 0 | 2 | 14 | 0 |
+
+- We ran MAFFT 7.526 with `--auto`; it selected the FFT-NS-2 strategy. Removing
+  `-` recovered the exact protein sequence sent to MAFFT for all 10,130 proteins.
+- Adding the birds and H5N1 does not add a third common length. Chicken-H5N1 and
+  Duck-H5N1 are mostly 693 nt, the same form as Human-H3N2. What they add is the
+  678-nt form and more weight on 693 nt, which rises from 29,690 isolates in the
+  previous population to 33,553 here.
+- The 660-nt and 693-nt forms cover 59,059 of the 60,654 complete records
+  (97.4%). Adding 654, 672 and 678 nt reaches 60,595 (99.9%). The ten other
+  lengths account for 43 isolates.
+- Columns 74, 112 and 132 each hold an amino acid in exactly one protein; the
+  other 10,129 have a gap. These are the same three columns as the previous
+  population. The gap symbols do not establish which insertions or deletions
+  occurred in evolution.
+- Columns 234–240 hold a symbol in only 12 proteins, from 17 isolates, which are
+  the 714-nt and 699-nt forms. 188 of the 240 columns are full.
+- There are 19 gap patterns over the 16 CDS lengths, against 16 patterns in the
+  previous population. The 3 new ones are the 678-nt form, a second 687-nt
+  pattern with an internal block at 79–80, and the 699-nt form. The last two are
+  one isolate each.
+- Columns 81–85 are the only new internal block. Besides the 678-nt form, the
+  single 699-nt isolate has the same block. The other internal blocks, at 77–80
+  in the 648-nt form and the 5 leading gaps in the 645-nt form, were already in
+  the previous population.
+- Stop codons were not aligned, so the alignment alone does not place them. The
+  "Where each stop codon falls" rule above is a proposal, not a check. No codon
+  features or models were produced here.
+- This alignment does not prove that its columns represent corresponding
+  biological positions. Review the three singleton columns and the uncommon
+  patterns before defining codon features.
+
+The inputs and outputs are under
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NS1/`.
+`src/analysis/align_proteins.py` generated the alignment, validation and gap
+locations. `src/analysis/summarize_protein_alignment.py` generated
+`group_length_summary.csv`, `gap_pattern_summary.csv` and
+`column_occupancy.csv`. The manifests record file hashes and code state. The
+provenance block at the top of this document does not cover this audit.
 
 ## Metadata filtering
 
