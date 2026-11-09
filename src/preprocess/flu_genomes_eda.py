@@ -1698,7 +1698,7 @@ def identify_data_quality_issues(df: pd.DataFrame) -> None:
     if duplicates.any():
         n_dup = duplicates.sum()
         issues.append(f"Duplicate hash IDs: {n_dup}")
-        print(f"⚠️  Found {n_dup} duplicate hash IDs")
+        print(f"WARNING: Found {n_dup} duplicate hash IDs")
         print(
             df[df["hash_id"].duplicated(keep=False)][
                 ["hash_id", "virus_name"]
@@ -1709,17 +1709,17 @@ def identify_data_quality_issues(df: pd.DataFrame) -> None:
     missing_host = df["host"].isna().sum()
     if missing_host > 0:
         issues.append(f"Missing host: {missing_host}")
-        print(f"⚠️  Found {missing_host} isolates with missing host")
+        print(f"WARNING: Found {missing_host} isolates with missing host")
     
     missing_year = df["year"].isna().sum()
     if missing_year > 0:
         issues.append(f"Missing year: {missing_year}")
-        print(f"⚠️  Found {missing_year} isolates with missing year")
+        print(f"WARNING: Found {missing_year} isolates with missing year")
     
     missing_subtype = df["hn_subtype"].isna().sum()
     if missing_subtype > 0:
         issues.append(f"Missing H/N subtype: {missing_subtype}")
-        print(f"⚠️  Found {missing_subtype} isolates with missing H/N subtype")
+        print(f"WARNING: Found {missing_subtype} isolates with missing H/N subtype")
     
     # Check for unusual years
     if df["year"].notna().any():
@@ -1727,7 +1727,7 @@ def identify_data_quality_issues(df: pd.DataFrame) -> None:
         max_year = df["year"].max()
         if min_year < 1900 or max_year > 2030:
             issues.append(f"Unusual year range: {min_year:.0f} - {max_year:.0f}")
-            print(f"⚠️  Unusual year range: {min_year:.0f} - {max_year:.0f}")
+            print(f"WARNING: Unusual year range: {min_year:.0f} - {max_year:.0f}")
     
     # Check for empty virus names
     empty_names = (
@@ -1735,10 +1735,10 @@ def identify_data_quality_issues(df: pd.DataFrame) -> None:
     ).sum()
     if empty_names > 0:
         issues.append(f"Empty virus names: {empty_names}")
-        print(f"⚠️  Found {empty_names} isolates with empty virus names")
+        print(f"WARNING: Found {empty_names} isolates with empty virus names")
     
     if not issues:
-        print("✓ No major data quality issues detected")
+        print("Done. No major data quality issues detected")
     else:
         print(f"\nTotal issues found: {len(issues)}")
 
