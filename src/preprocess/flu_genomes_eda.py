@@ -13,7 +13,7 @@ This script works with two related tab-delimited files in `data/raw/Full_Flu_Ann
 
 2) `Flu.first-seg.meta.tab`
    - `hash_id`, `virus_name`, `hn_subtype`, `first_seg_id`
-   - `host_common_name`: natural host where virus was isolated; the only source of `host`
+   - `host_common_name`: the animal the virus was isolated from; the only source of `host`
    - `lab_host`, `passage`: sparse propagation/passaging metadata
 
 Core parsing outputs
@@ -62,6 +62,7 @@ from scipy.interpolate import interp1d
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
+from src.utils.metadata_enrichment import UNMAPPED_HOST_GROUP, load_host_groups  # noqa: E402
 
 # ============================================================================
 # MODULE-LEVEL CONSTANTS FOR GEO-LOCATION AND HOST PARSING
@@ -1520,9 +1521,11 @@ def build_analysis_dataframe(
     The dataframes have 3 columns in common: hash_id, virus_name, hn_subtype.
     - Left-join on hash_id so we keep the full set of genomes from
       `Flu_Genomes.key` even if a few are missing from the meta file.
-    - Take `host` from `host_common_name` only. `host_inferred`, read out of the virus
-      name, is kept as its own column but is not used to fill `host`, so an isolate
-      missing `host_common_name` has no host.
+    - Clean `host_common_name` in place, so it holds one spelling per animal, then set
+      `host` to that animal's group from `conf/virus/flu_host_groups.yaml`. Both come from
+      `host_common_name` only: `host_inferred`, read out of the virus name, is kept as its
+      own column but never fills either, so an isolate missing `host_common_name` has no
+      animal and no group.
     - Keep lab_host and passage as separate sparse fields.
     """
     print("\nMerging Flu_Genomes.key with Flu.first-seg.meta.tab ...")
@@ -1541,17 +1544,34 @@ def build_analysis_dataframe(
         f"{n_missing_meta} ({100 * n_missing_meta / len(merged):.2f}%)"
     )
 
-    # `host` comes from the curated host_common_name field only. Filling it from
-    # host_inferred, which is read out of the virus name, added 1,424 isolates but 200 of
-    # the 474 host names. Eleven of those 200 are only another spelling of a name already
-    # there ("American_Wigeon", "Great Horned Owl"); the rest are loose free text
-    # ("Backyard bird", "Bean goose (Anser fabalis)", "Bovine_Milk"). Those names cost
-    # more to track than the isolates are worth, so an isolate with no host_common_name
-    # now has no host.
-    merged["host"] = merged["host_common_name"]
+    # Two host columns, both built from the curated host_common_name field.
+    #
+    #   host_common_name  the animal, cleaned    "Mallard", "Silky Chicken"
+    #   host              its group              "Duck",    "Chicken"
+    #
+    # `host_common_name` is overwritten with its cleaned form, so the column holds one
+    # spelling per animal instead of the raw file's several. The raw values stay in
+    # data/raw/Full_Flu_Annotation/Flu.first-seg.meta.tab.
+    report_host_name_collisions(merged["host_common_name"])
+    merged["host_common_name"] = merged["host_common_name"].apply(_normalize_host_value)
 
-    report_host_name_collisions(merged["host"])
-    merged["host"] = merged["host"].apply(_normalize_host_value)
+    # `host` is the group, from conf/virus/flu_host_groups.yaml, because that is the level
+    # the models select and report at: 274 animal names are too many to model separately.
+    # An isolate with no animal has no group. An animal no group lists gets 'Unmapped' and
+    # a warning, so a new name is noticed instead of guessed.
+    #
+    # host_inferred, read out of the virus name, is not used here. It added 1,424 isolates
+    # but 200 of the 474 host names, and only 11 of those 200 are another spelling of a
+    # name already there ("American_Wigeon", "Great Horned Owl"). The rest are loose free
+    # text ("Backyard bird", "Bean goose (Anser fabalis)", "Bovine_Milk"), which costs
+    # more to track than the isolates are worth. The column is still written out.
+    merged["host"] = merged["host_common_name"].map(load_host_groups())
+    unmapped = merged["host_common_name"].notna() & merged["host"].isna()
+    if unmapped.any():
+        names = sorted(merged.loc[unmapped, "host_common_name"].unique())
+        print(f"WARNING: {unmapped.sum():,} isolates have an animal that no host group "
+              f"lists, so their host is '{UNMAPPED_HOST_GROUP}': {names}")
+        merged.loc[unmapped, "host"] = UNMAPPED_HOST_GROUP
 
     # Ensure year is numeric, then cast to int (NaN values remain as NaN/float)
     merged["year"] = pd.to_numeric(merged["year"], errors="coerce")

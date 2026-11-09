@@ -7,7 +7,7 @@ Covers:
   4. Every HOST_NORMALIZATION entry is applied
   5. HOST_NORMALIZATION targets are themselves canonical (no two-step mapping)
   6. report_host_name_collisions finds a case/punctuation pair and stays quiet once it is mapped
-  7. Real-corpus check: the curated host column normalizes with no unresolved collisions
+  7. Real-corpus check: the stored `host_common_name` column is already clean
 
 Run: python tests/test_host_name_normalization.py
 """
@@ -89,13 +89,15 @@ def test_collision_report_ignores_missing_values():
 
 @pytest.mark.skipif(not CURATED_HOST_COLUMN.exists(),
                     reason='parsed metadata not available')
-def test_curated_corpus_has_no_unresolved_collisions():
+def test_stored_animal_names_are_already_clean():
+    """`flu_genomes_eda.py` writes the cleaned name, so normalizing again changes nothing."""
     hosts = pd.read_csv(CURATED_HOST_COLUMN, dtype=str, keep_default_na=False,
                         na_values=[''], usecols=['host_common_name'])['host_common_name']
     assert report_host_name_collisions(hosts) == {}
-    normalized = hosts.map(_normalize_host_value).dropna()
-    assert normalized.nunique() < hosts.dropna().nunique()
-    assert 'Cattle' not in set(normalized)
+    normalized = hosts.map(_normalize_host_value)
+    assert normalized.dropna().nunique() == hosts.dropna().nunique()
+    assert set(normalized.dropna()) == set(hosts.dropna())
+    assert 'Cattle' not in set(hosts.dropna())
 
 
 if __name__ == '__main__':
