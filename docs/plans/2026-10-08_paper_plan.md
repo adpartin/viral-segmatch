@@ -55,7 +55,7 @@ fits and all 1,400 `1B` redraw fits completed at commit `ba9b108`. The final
 report is in `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`.
 
 **Goal.** Establish the methods on a narrow population that contains a single
-metadata group. This will help to decide which feature representations and
+*metadata group*. This will help to decide which feature representations and
 models to carry forward into Parts 2 and 3.
 
 
@@ -77,6 +77,8 @@ pairs to select the largest set in which each CDS sequence occurs at most once
 in each slot. Each schema pair retains all of its HK-selected positives; pairs
 are not downsampled to a common size. The selected counts range from 440 for
 M1-NS1 to 2,042 for PB2-HA.
+
+#### Dataset build steps
 
 The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
 
@@ -425,8 +427,8 @@ In 1A, the SD is across folds, where the training and test pairs also change.
 
 <img src="../results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_sd_draws_matrix.png" width="600" alt="28-pair matrix of the mean across folds of the within-fold SD of test F1 macro across 10 negative draws, Human-H3N2-2024"> -->
 
-### Open questions
 
+## Open questions
 
 - Should the redraw seeds start at 0, so that they match the fold ids, instead
   of running 42-51?
@@ -472,90 +474,104 @@ datasets were built with.
 
 # 2. Expand the population. Evaluate across hosts, subtypes, and years.
 
-**Status: IMPLEMENTED (2026-10-15).** The 21 datasets were built and audited. All 105 five-fold
-LightGBM fits completed at commit `8b604ed`. The final report is in
-`results/flu/July_2025/task2_21p_codon_matched_20261015_151826/`.
+**Status: IN PROGRESS.** The population is set but the run has not happened. It
+waits on the per-segment alignment work; see the prerequisite under Methods.
 
-## Outline for Part 2
+A separate pilot on `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023` is complete. It
+tested that negatives are drawn inside one metadata group. Its population is not
+the Task 2 population and its scores are not paper results.
 
-Each bullet names one item and the bracket gives the subsection that covers it.
+**Goal.** Train on a *population* containing several hosts, HN subtypes or years,
+and measure the overall performance as well as within each *metadata group*.
 
-**Scope.** Expand the population, 8 proteins, all 28 schema pairs, 5 fold CV.
+**Definitions**:
+* *Population*: a dataset containing all the isolates selected by the dataset
+  filters.
+* *Metadata group*: a dataset subset with one exact `(host, HN subtype, year)`
+  combination, where `host` is a host group such as `Duck` rather than an animal
+  such as `Mallard`.
 
-## 2A. Will we have 2A and 2B??
+Task 1 set the dataset filters to `Human, H3N2, 2024`, so its population held
+one metadata group. The Task 2 population holds several metadata groups, and
+its reports distinguish the two terms. The negative sampler matches on the
+metadata group, so it matches on the host group too.
 
-**Goal.** Train on a *population* containing several hosts, HN subtypes or years, and measure
-performance within each *metadata group*.
+### Dataset Construction (methods).
 
-* *Population*: a dataset containing all the isolates selected by the dataset filters.
-* *Metadata group*: a dataset subset with one exact `(host, HN subtype, year)` combination.
+### The population
 
-Task 1 set the dataset filters to (Human, H3N2, 2024), so its population held one metadata group.
-The Task 2 population holds several metadata groups, and its reports distinguish the two terms.
+* Filters: `[Human, Swine, Chicken, Duck]`, `[H3N2, H1N1, H5N1]`, `2010-2025`.
+* Size: 61,635 isolates of the July 2025 corpus. This is counted from the
+  metadata alone, so it is an upper bound on what any schema pair can use.
+* `filter_by_metadata` keeps only values in the 3 filter lists. An isolate
+  missing host, HN subtype or year is dropped.
+* `host` is a host group, not an animal, so `Duck` covers 54 animal names and
+  `Chicken` covers 3. The map is `conf/virus/flu_host_groups.yaml`.
+* Chicken and Duck stay separate. Jamie's paper uses human, swine, duck,
+  chicken and other. Marcus's paper uses 8 coarser buckets: human, avian,
+  nonhuman mammal, environment, unknown, lab, sea mammal and other. Open
+  question 3 below asks whether to merge Chicken and Duck into one `Avian`
+  group, as Marcus does.
+* Of the 192 possible `(host, HN subtype, year)` groups, 149 have at least one
+  isolate and 68 have at least 100. The largest is Human-H3N2-2024 with 5,403
+  isolates, the smallest Chicken-H1N1-2016 with 1. Open question 1 covers what
+  to do with thin groups. That rule has to be set before the folds are made.
+* Not yet measured: per-pair capacity, the pinned CDS length per protein, and
+  so which of the 28 schema pairs this population supports. These need a
+  capacity run, which waits on the prerequisite below.
 
-**Methods.** The build filters to the eight groups below, excluding isolates missing host, HN
-subtype or year. `filter_by_metadata` keeps only values in the three filter lists. The Task 2
-experiment spec sets `dataset.n_folds=5` for both dataset building and training; the bundles retain
-their inherited four-fold setting. Positives are selected by Hopcroft–Karp after global pair-key
-deduplication. Each split receives one matched balanced-usage negative per positive. Its two
-sequences come from different selected positives in the same split and metadata group. The sampler
-matches exact years with `year_match: exact`, rather than the default year bins. The saved negative
-rows were checked using both endpoints' isolate metadata, not just the requested regime target or
-the `neg_regime` field. The implementation is described below.
+Host and subtype are not crossed:
 
-**Reports.** `allpairs_summary.csv` gives one row per schema pair for the whole population.
-`src/analysis/metadata_group_report.py` writes `metadata_group_counts.csv` from saved train,
-validation and test pairs, with positive and negative counts by schema pair, fold, split and group.
-The counts sum to each split's totals. It writes `test_metrics_by_metadata.csv` from each fold's
-`test_predicted.csv`, using that model's decision threshold. Its 1,470 rows cover the eight joint
-groups and six pooled host, subtype or year values for each of 21 pairs and five folds. Each row
-contains the group values, class counts, confusion counts, F1 macro, AUC-ROC, precision and recall.
-All metric rows in this run have both classes. If another run has a one-class group, its metrics
-are NaN for that fold. The figure code excludes those folds from its mean and shows how many folds
-contributed.
+| Isolates | H1N1 | H3N2 | H5N1 |
+|---|---:|---:|---:|
+| Human | 20,325 | 29,682 | 45 |
+| Swine | 3,724 | 3,194 | 16 |
+| Duck | 269 | 221 | 2,158 |
+| Chicken | 2 | 18 | 1,981 |
 
-The report contains four figures: `matrix_f1_macro.png` for the whole population,
-`metrics_by_group_f1_macro.png` for the eight joint groups,
-`metrics_by_axis_f1_macro.png` for six pooled values, and `counts_by_group.png` for test positives
-summed over folds. The metric figures show each cell's fold mean above its fold SD and share a
-color scale. `--metric` can draw other supported metrics. `--min_test_pairs` can mask thin group
-cells; its default of 0 left every cell visible in this report. Figure titles and CSV rows identify
-the population. NS1 and its seven schema pairs are excluded for the reason below.
+* 6 of the 12 cells hold 61,064 of the 61,635 isolates. Human and Swine are
+  H1N1 and H3N2; Chicken and Duck are H5N1.
+* Chicken-H1N1 has 2 isolates and Chicken-H3N2 has 18, so no model can be
+  scored there.
+* So host and subtype cannot be treated as two crossed factors, and a host
+  effect measured here is partly a subtype effect. A comparison across hosts
+  has to say which subtype it holds fixed. Only H5N1 is shared by all 4 host
+  groups.
 
-### The Task 2 population
+### Build settings
 
-The build uses `[Human, Swine, Avian]`, `[H3N2, H1N1, H5N1]`, `2010-2025`. All eight metadata groups have isolates:
-10,992 in total, from 4,864 in Human-H3N2-2022 down to 157 in Pig-H3N2-2022. The measurements
-behind this choice are in `results/flu/July_2025/pair_capacity_task2_2x2x2/`, under
-`cds_length_survey_grid/` for each group on its own and `cds_length_survey_candidates/` for the
-pooled population.
+The order of operations is the one in [Dataset build steps](#dataset-build-steps).
+Task 2 changes the population and the negative sampler, not the steps.
 
-This population supports the 21 schema pairs among PB2, PB1, PA, HA, NP, NA and M1. It does not
-support the seven pairs that contain NS1. Per-site codon features need one pinned CDS length per
-protein, and NS1 has two lengths here: 693 nt in Human-H3N2 and 660 nt in the other three host and
-subtype combinations. The two counts are close, at 1,552 of the 3,062 unique complete sequences on
-693 nt and 1,485 on 660 nt, so neither length reaches the 0.90 share of unique complete sequences
-that `check_cds_length` requires. The lengths are 231 and 220 codons, so they differ in the protein
-itself rather than in sequence quality, and no single pin covers both. Excluding NS1 is the cost of
-keeping Human-H3N2 in the population. Task 1 reports all 28 pairs on its own population, so Task 2
-does not repeat that.
+* The experiment spec sets `dataset.n_folds=5` for both dataset building and
+  training; the bundles retain their inherited 4-fold setting.
+* Positives are selected by HK after global pair-key deduplication.
+* Each split receives one matched balanced-usage negative per positive. Its two
+  sequences come from different selected positives in the same split and
+  metadata group.
+* The sampler matches exact years with `year_match: exact`, rather than the
+  default year bins.
+* Saved negative rows are checked using both endpoints' isolate metadata, not
+  just the requested regime target or the `neg_regime` field.
+* Features and training are the ones Task 1 describes under Model Development
+  and Evaluation. Task 2 changes the population, not the model.
 
-The year choice is what allows a single PB1 pin. Human-H3N2 PB1 is 2,274 nt through 2023 and
-2,277 nt in 2024 and 2025, while every other population in the survey stays at 2,274 nt in every
-year measured. Over 2022-2023, all eight groups have 2,274 nt as their own modal length and the
-pooled share at that length is 0.912, so the pin holds. Adding 2024 drops that share to 0.782,
-which fails the check. Using 2021-2022 instead raises it to 0.944, but Human-H1N1-2021 has only
-11 isolates.
+### Prerequisite: finish the per-segment alignment
 
-The pins are PB2 2,280, PB1 2,274, PA 2,151, HA 1,701, NP 1,497, NA 1,410 and M1 759 nt.
-`conf/bundles/flu_7_major_proteins_human_pig_h3n2_h1n1_2022_2023_pinned_length.yaml` sets the
-three filters and overrides PB1 to 2,274 nt; `conf/virus/flu.yaml` supplies the other six pins.
-The pair-capacity run uses this lower bundle. The master bundle
-`conf/bundles/flu_21p_human_pig_h3n2_h1n1_2022_2023_site_codon.yaml` adds Hopcroft–Karp
-selection, codon-site features and matched balanced-usage negatives. Its 21 children each set one
-schema pair. The experiment spec
-`conf/experiments/human_pig_h3n2_h1n1_2022_2023_21p_codon_matched_cv5.yaml` supplies five folds
-and checks the settings used by the build and fits.
+This population gives no single pinned CDS length per protein, which per-site
+codon features need. The alignment work replaces the single pin, so the pins
+and the list of supported schema pairs are its output, not an input to it. The
+run cannot start until it is done.
+
+* NS1 is the clearest case. The pilot population has 2 NS1 lengths; over
+  2010-2025 NS1 has 5 length forms.
+* Tracked in `docs/plans/2026-09-14_codon_site_features_plan.md` as
+  Experiment 5.
+* Reported in `docs/results/2026-09-07_cds_length_survey.md` under "NS1 protein
+  alignment pilot: Human-H3N2-2024" and "NS1 protein alignment for Task 2
+  candidate population".
+* The negative-sampling pilot below is not affected. It was built on a
+  population where one pin held for each of its 7 proteins.
 
 ### Matched balanced-usage negatives
 
@@ -584,17 +600,102 @@ successful negative counts. Each endpoint retains its own source isolate's metad
 negatives carry `neg_regime: host_subtype_year` and `metadata_match_count: 3`; the saved endpoint
 metadata was checked independently for equal host, HN subtype and exact year.
 
-### Observed results
+### Reports
 
-The final report covers all 21 pairs and 105 completed fits, with no failed fits. The whole
-population's fold-mean F1 macro ranged from 0.889 ± 0.013 for PB2-PA to 0.782 ± 0.012 for NA-M1.
-All six M1 pairs ranked below the other 15. M1 also had the fewest unique slot sequences and the
-smallest HK-selected sets; these results do not isolate sequence capacity as the cause of their
-lower scores.
+`allpairs_summary.csv` gives one row per schema pair for the whole population.
+`src/analysis/metadata_group_report.py` writes `metadata_group_counts.csv` from saved train,
+validation and test pairs, with positive and negative counts by schema pair, fold, split and group.
+The counts sum to each split's totals. It writes `test_metrics_by_metadata.csv` from each fold's
+`test_predicted.csv`, using that model's decision threshold. Its 1,470 rows cover the eight joint
+groups and six pooled host, subtype or year values for each of 21 pairs and five folds. Each row
+contains the group values, class counts, confusion counts, F1 macro, AUC-ROC, precision and recall.
+All metric rows in this run have both classes. If another run has a one-class group, its metrics
+are NaN for that fold. The figure code excludes those folds from its mean and shows how many folds
+contributed.
 
-The following group values average the reported metrics over 21 pairs and five folds. Test
-positives sum across the 21 pairs, with each positive appearing in one test fold. These are
-descriptive means, not fitted comparisons among groups.
+The report contains four figures: `matrix_f1_macro.png` for the whole population,
+`metrics_by_group_f1_macro.png` for the eight joint groups,
+`metrics_by_axis_f1_macro.png` for six pooled values, and `counts_by_group.png` for test positives
+summed over folds. The metric figures show each cell's fold mean above its fold SD and share a
+color scale. `--metric` can draw other supported metrics. `--min_test_pairs` can mask thin group
+cells; its default of 0 left every cell visible in this report. Figure titles and CSV rows identify
+the population. NS1 and its seven schema pairs are excluded for the reason below.
+
+### Results
+
+Not run yet. The prerequisite above has to be finished first.
+
+When it runs, this section reports:
+
+* One row per schema pair for the whole population, from `allpairs_summary.csv`.
+* F1 macro, AUC-ROC, precision and recall per metadata group, per schema pair
+  and per fold, from `test_metrics_by_metadata.csv`.
+* Positive and negative counts per metadata group, split and fold, from
+  `metadata_group_counts.csv`.
+* The 4 figures listed under Reports.
+* Which schema pairs the population supports, which the capacity run decides.
+
+### Negative-sampling pilot: `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023`
+
+This pilot tests one thing: that negatives are drawn inside one metadata group.
+It is not a result for the paper, and its population is not the Task 2
+population.
+
+* Complete at commit `8b604ed`. 21 datasets built and audited, all 105 five-fold
+  LightGBM fits finished, no failed fits.
+* Report: `results/flu/July_2025/task2_21p_codon_matched_20261015_151826/`.
+* Group names here use the animal, not the host group, because the pilot ran
+  before `host` held the group. `Pig` is the animal in the `Swine` group.
+
+**What it confirmed.** Every saved negative joins two sequences from the same
+metadata group. The check read both endpoints' isolate metadata rather than the
+`neg_regime` field, so it tests the saved rows and not the sampler's own label.
+Matching was feasible in every saved split.
+
+**Pins and bundles.**
+
+* Pins: PB2 2,280, PB1 2,274, PA 2,151, HA 1,701, NP 1,497, NA 1,410 and
+  M1 759 nt.
+* `conf/bundles/flu_7_major_proteins_human_pig_h3n2_h1n1_2022_2023_pinned_length.yaml`
+  sets the 3 filters and overrides PB1 to 2,274 nt; `conf/virus/flu.yaml`
+  supplies the other 6 pins. The pair-capacity run uses this lower bundle.
+* `conf/bundles/flu_21p_human_pig_h3n2_h1n1_2022_2023_site_codon.yaml` adds HK
+  selection, codon-site features and matched balanced-usage negatives. Its 21
+  children each set one schema pair.
+* `conf/experiments/human_pig_h3n2_h1n1_2022_2023_21p_codon_matched_cv5.yaml`
+  supplies 5 folds and checks the settings used by the build and fits.
+* The 2022-2023 years are what allow a single PB1 pin. Human-H3N2 PB1 is
+  2,274 nt through 2023 and 2,277 nt in 2024 and 2025, while every other
+  population in the survey stays at 2,274 nt in every year measured. Over
+  2022-2023 all 8 pilot groups have 2,274 nt as their own modal length and the
+  pooled share is 0.912, so the pin holds. Adding 2024 drops it to 0.782, which
+  fails the check. Using 2021-2022 raises it to 0.944, but Human-H1N1-2021 has
+  only 11 isolates. The Task 2 population spans 2010-2025, so this reasoning
+  does not carry over.
+
+**Counts.**
+
+* 10,992 isolates in 8 metadata groups, from 4,864 in Human-H3N2-2022 down to
+  157 in Pig-H3N2-2022.
+* Measurements in `results/flu/July_2025/pair_capacity_task2_2x2x2/`, under
+  `cds_length_survey_grid/` for each group on its own and
+  `cds_length_survey_candidates/` for the pooled population.
+* 21 schema pairs supported, those among PB2, PB1, PA, HA, NP, NA and M1. The 7
+  pairs with NS1 are not: NS1 is 693 nt in Human-H3N2 and 660 nt in the other 3
+  host and subtype combinations. The counts are close, 1,552 of the 3,062 unique
+  complete sequences on 693 nt and 1,485 on 660 nt, so neither reaches the 0.90
+  share `check_cds_length` requires. The lengths are 231 and 220 codons, so they
+  differ in the protein, not in sequence quality.
+
+**Scores.** Kept as a record of the run, not as a paper result. Fold-mean F1
+macro over the whole pilot population ranged from 0.889 ± 0.013 for PB2-PA to
+0.782 ± 0.012 for NA-M1. All 6 M1 pairs ranked below the other 15. M1 also had
+the fewest unique slot sequences and the smallest HK-selected sets; this does
+not establish sequence capacity as the cause of the lower scores.
+
+The group values below average the metrics over 21 pairs and 5 folds. Test
+positives sum across the 21 pairs, with each positive in one test fold. These
+are descriptive means, not fitted comparisons among groups.
 
 | Metadata group | F1 macro | AUC-ROC | Test positives |
 |---|---:|---:|---:|
@@ -607,15 +708,18 @@ descriptive means, not fitted comparisons among groups.
 | Pig-H1N1-2023 | 0.818 | 0.878 | 4,784 |
 | Pig-H3N2-2022 | 0.815 | 0.888 | 1,692 |
 
-The largest and smallest group means differ by 0.047 F1 macro. The marginal means were Human
-0.851 versus Pig 0.823, H3N2 0.851 versus H1N1 0.840, and 2022 0.852 versus 2023 0.840.
-Group size did not order the scores: Pig-H1N1-2022 scored 0.840 on 3,239 test positives, while
-Human-H1N1-2022 scored 0.825 on 5,711. The thinnest cells were Pig-H3N2-2022 on the six M1 pairs,
-averaging 12.2 to 12.4 test positives per fold. The lowest single fold held 7 test positives, on
-NP-M1. Small cells remain visible with their counts; the Pig-H3N2-2022 fold SD reached ±0.125 for
-PB1-M1. No group was single-class in a test fold.
+* The largest and smallest group means differ by 0.047 F1 macro.
+* Marginal means: Human 0.851 against Pig 0.823, H3N2 0.851 against H1N1 0.840,
+  2022 0.852 against 2023 0.840.
+* Group size did not order the scores. Pig-H1N1-2022 scored 0.840 on 3,239 test
+  positives, Human-H1N1-2022 scored 0.825 on 5,711.
+* The thinnest cells were Pig-H3N2-2022 on the 6 M1 pairs, at 12.2 to 12.4 test
+  positives per fold. The lowest single fold held 7, on NP-M1. Small cells stay
+  visible with their counts; the Pig-H3N2-2022 fold SD reached ±0.125 for
+  PB1-M1. No group was single-class in a test fold.
 
-### Open questions
+
+## Open questions
 
 The first run used the builder's positive-pair fold assignment without metadata-group
 stratification. It removed no group, masked no figure cell and scored every group. Matching was
@@ -645,23 +749,26 @@ or for interpreting thin cells in this one.
    matching check then fails, change the rule or the split and rebuild; do not patch one split.
    Do not call this rule an eligibility rule. In the glossary, *eligible isolates* are the isolates
    that carry a schema pair's required sequences, such as complete CDS at the pinned length.
-3. **Coarser host labels.** Our metadata carries one host string per isolate, such as `Chicken`
-   or `Mallard`, and most non-human hosts have too few isolates. Grouping them into a coarser label
-   (especially `Avian`) would give a host group large enough to compare against `Human`. Marcus's
-   paper reports performance over human, avian, environmental, sea-mammal, lab-derived and
-   nonhuman-mammal samples, plus unknown and other. Jamie's paper uses human, swine, duck, chicken
-   and other. We have no host-grouping map in the repo yet.
+3. **Merge Chicken and Duck into `Avian`?** Task 2 keeps them separate. Merging
+   would give one bird group of 21,490 isolates corpus-wide to compare against
+   Human, which is the case for it. The case against is that farmed chickens and
+   mostly wild ducks are different exposures. Not for this run.
 
 
 
 ## Implementation record
 
-The reported run replaced a first one built on 2026-10-14 at commit `7d7b3b6`, so that Task 2 and
-Task 1 share both the negative sampler and the corpus-wide co-occurrence blocking set. The rebuild
-used the same population, seed, sampler and spec, and the audit confirmed each pair's pooled
-positive test pair keys against the earlier build. It changed no positive and 1,795 of the 382,885
-saved negatives, in 6 of the 21 pairs. Those 6 pairs are the only ones whose scores moved, by at
-most 0.0042 F1 macro, which is inside every pair's fold SD. The earlier run's outputs are kept in
+This records the negative-sampling pilot. The Task 2 population has not been
+run.
+
+The pilot replaced a first build made on 2026-10-14 at commit `7d7b3b6`, so that
+it and Task 1 share both the negative sampler and the corpus-wide co-occurrence
+blocking set. The rebuild used the same population, seed, sampler and spec, and
+the audit confirmed each pair's pooled positive test pair keys against the
+earlier build. It changed no positive and 1,795 of the 382,885 saved negatives,
+in 6 of the 21 pairs. Those 6 pairs are the only ones whose scores moved, by at
+most 0.0042 F1 macro, which is inside every pair's fold SD. The earlier run's
+outputs are kept in
 `results/flu/July_2025/task2_21p_codon_matched_20261014_090208/`.
 
 
