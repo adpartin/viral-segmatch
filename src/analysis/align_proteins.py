@@ -154,13 +154,29 @@ def summarize_unknown_residues(selected: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
-def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool) -> None:
+# MAFFT options per `--mafft_strategy`.
+#   default  `--retree 2 --maxiterate 0`, which is what MAFFT does with no options at all.
+#            It gives FFT-NS-2 at any input size, so every protein is aligned the same way.
+#            The options are written out rather than left off, so the recorded command says
+#            which strategy the run asked for.
+#   auto     `--auto`, which lets MAFFT pick from the input size. It can pick a different
+#            strategy for a larger protein, which would make two proteins non-comparable.
+# The strategy MAFFT reports is recorded either way, so the choice is checkable afterwards.
+MAFFT_STRATEGY_OPTIONS = {
+    'auto': ['--auto'],
+    'default': ['--retree', '2', '--maxiterate', '0'],
+}
+
+
+def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
+                            strategy_name: str = 'auto') -> None:
     """Align the prepared protein FASTA and record MAFFT provenance.
 
     Args:
         out_dir: Directory containing selection and protein-preparation outputs.
         mafft_bin: MAFFT executable path or command on PATH.
         overwrite: Whether existing alignment outputs may be replaced.
+        strategy_name: Key of `MAFFT_STRATEGY_OPTIONS` giving the options to pass.
 
     Returns:
         None.
@@ -208,7 +224,8 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool) -> N
     version_result = subprocess.run([resolved_bin, '--version'], capture_output=True, text=True,
                                     check=True)
     version = (version_result.stdout or version_result.stderr).strip()
-    command = [resolved_bin, '--amino', '--auto', '--thread', '1', str(fasta_path.resolve())]
+    command = [resolved_bin, '--amino', *MAFFT_STRATEGY_OPTIONS[strategy_name],
+               '--thread', '1', str(fasta_path.resolve())]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f'MAFFT failed with exit code {result.returncode}:\n{result.stderr}')
@@ -473,6 +490,11 @@ def main() -> None:
                          help='record gap positions in an existing validated alignment')
     parser.add_argument('--mafft_bin', default='mafft',
                         help='MAFFT executable path or command on PATH (with --align_only)')
+    parser.add_argument('--mafft_strategy', choices=sorted(MAFFT_STRATEGY_OPTIONS), default='auto',
+                        help="which MAFFT options to pass (with --align_only). 'auto' lets MAFFT "
+                             "choose the strategy from the input size. 'default' passes MAFFT's "
+                             "own defaults, which give FFT-NS-2 at any size. This argument "
+                             "defaults to 'auto', not to 'default'")
     parser.add_argument('--overwrite', action='store_true',
                         help='replace existing outputs for this population and protein')
     args = parser.parse_args()
@@ -488,7 +510,7 @@ def main() -> None:
     out_dir = args.out_dir / label / args.protein
 
     if args.align_only:
-        align_prepared_proteins(out_dir, args.mafft_bin, args.overwrite)
+        align_prepared_proteins(out_dir, args.mafft_bin, args.overwrite, args.mafft_strategy)
         return
     if args.validate_only:
         validate_alignment(out_dir, args.overwrite)

@@ -11,7 +11,7 @@ scripts:        src/analysis/align_proteins.py; src/analysis/summarize_protein_a
 artifacts:      results/flu/July_2025/cds_alignment_pilot/<population>/<protein>/
 ```
 
-## Why this was measured
+## Why this is measured
 
 Per-site codon features need one pinned CDS length per protein, so that every
 record has the same number of columns. A population with several CDS lengths for
@@ -80,15 +80,20 @@ not been checked, except in the Human-H3N2-2024 section where it is reported.
 
 ## Summary across proteins and populations
 
-| Protein | Population | Isolates | Unique CDS | Unique proteins | CDS lengths | Columns | `frac at mode` | Largest internal gap block | One-residue columns |
+| Protein | Population | Isolates | Unique CDS | Unique proteins | CDS lengths | Columns | `frac at mode` | Largest internal gap | One-residue columns |
 |---|---|---:|---:|---:|---:|---:|---:|---|---|
-| NS1 | Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 0.502 | 81–85, 206 proteins | 74, 112, 132 |
-| NS1 | Human+Pig-H1N1+H3N2-yr2010-2025 | 56,417 | 16,540 | 9,039 | 14 | 240 | 660 nt, 0.499 | 77–80, 1 protein | 74, 112, 132 |
+| NS1 | Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 0.502 | columns 81–85, 5 codons, 206 proteins | 74, 112, 132 |
+| NS1 | Human+Pig-H1N1+H3N2-yr2010-2025 | 56,417 | 16,540 | 9,039 | 14 | 240 | 660 nt, 0.499 | columns 77–80, 4 codons, 1 protein | 74, 112, 132 |
 | NS1 | Human-H3N2-2024 | 5,337 | 1,132 | 560 | 3 | 230 | 693 nt, 0.991 | None | None |
 
+"Largest internal gap" gives the longest run of neighbouring internal gap columns
+any protein has, as column numbers rather than a count of columns, followed by how
+long the run is and how many proteins carry it. `columns 81–85, 5 codons` means
+five gaps, one in each of the columns numbered 81 to 85. Each section lists all of
+its internal gaps; the table gives only the longest.
+
 A **one-residue column** is an alignment column where exactly one protein has a
-protein symbol and every other protein has a gap. Each section lists its internal
-gap blocks in full; the table gives only the largest.
+protein symbol and every other protein has a gap.
 
 NS1 has a usable pin on Human-H3N2-2024 at 0.991 and no pin on either wider
 population. Widening the population removes the pin. The two wide populations
@@ -192,8 +197,8 @@ are Chicken and 121 Duck.
   by more than a handful of records: 205 unique proteins over 341 isolates, plus
   the single 699-nt isolate, so 206 proteins and 342 isolates have a gap at
   columns 81–85. The Human-H3N2-2024 pilot had no internal gaps, and the
-  Human+Pig population's only internal block, at 77–80, was carried by one
-  protein. Under the proposed codon feature mapping these 5 columns take the
+  Human+Pig population's only internal gap run, at columns 77–80, was carried
+  by one protein. Under the proposed codon feature mapping these 5 columns take the
   `GAP` state, not `AFTER_STOP`, because they sit between protein symbols rather
   than after a stop codon.
 * Adding the birds and H5N1 does not add a third common length. Chicken-H5N1 is
@@ -211,11 +216,11 @@ are Chicken and 121 Duck.
   symbol in every protein.
 * There are 19 gap patterns over the 16 CDS lengths, against 16 patterns in the
   Human+Pig population. The 3 new ones are the 678-nt form, a second 687-nt
-  pattern with an internal block at 79–80, and the 699-nt form. The last two are
+  pattern with internal gaps at columns 79–80, and the 699-nt form. The last two are
   one isolate each.
 * Columns 81–85 are the only internal gap columns new to this population. The
-  77–80 block in the 648-nt form and the 5 leading gaps in the 645-nt form were
-  already in the Human+Pig population. The new 79–80 block falls inside columns
+  columns 77–80 in the 648-nt form and the 5 leading gaps in the 645-nt form were
+  already in the Human+Pig population. The new gap run at columns 79–80 falls inside columns
   that were already internal gaps there, and 2 proteins over 4 isolates carry it.
 * Still open before codon features are built: whether to keep the 43 isolates
   outside the six main length forms, and whether to keep the three one-residue
@@ -375,7 +380,7 @@ One metadata group, so there is no breakdown.
 #### Findings
 
 * All 551 proteins from 693-nt CDS have no gaps, and each shorter protein has one
-  block of trailing gaps.
+  run of trailing gaps.
 * No protein has an `X` in columns 218–230, where one or both shorter forms have
   trailing gaps.
 * This population has a usable pin at 693 nt, so the alignment is not needed to
