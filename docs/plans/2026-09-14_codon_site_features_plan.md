@@ -429,7 +429,7 @@ bases absent from a truncated record.
 
 The pilot artifacts are under
 `results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The sequence examples and
-interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-09_protein_alignment.md#ns1-on-human-h3n2-2024).
+interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-09_protein_alignment.md#ns1-on-human-h3n2-2024-task-1-population).
 
 ### Progress
 
@@ -541,7 +541,7 @@ For later model evaluation, build columns from training sequences and map
 validation and test sequences into those fixed columns, with an explicit rule
 for new insertions.
 
-### NS1 protein alignment for Human+Pig-H1N1+H3N2-yr2010-2025
+### NS1 protein alignment for Human+Pig-H1N1+H3N2-yr2010-2025 — DROPPED (2026-11-10)
 
 Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025`
 (inclusive). This population was a candidate for Task 2 and is not the one
@@ -563,10 +563,13 @@ Decide whether to keep the 56 complete records outside the 654-, 660-, 672-
 and 693-nt forms in a first feature set. Record any exclusions by host,
 subtype and year.
 
-The [results](../results/2026-11-09_protein_alignment.md#ns1-on-humanpig-h1n1h3n2-yr2010-2025)
-summarize the audit. The saved inputs, alignment, validation, gap report and
-summaries are under
-`results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/NS1/`.
+This population was dropped on 2026-11-10 because the Task 2 population
+replaced it. Its section in `docs/results/2026-11-09_protein_alignment.md` and
+its outputs under
+`results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/`
+were both removed, so the numbers above are no longer backed by saved files.
+`Swine` holds exactly one animal name, `Pig`, so this population selected the
+same isolates a `Human+Swine` filter would.
 
 ### NS1 protein alignment for the Task 2 population — DONE (2026-11-09)
 
@@ -595,8 +598,8 @@ Same 5 steps as the pilot, then `summarize_protein_alignment.py`. Commands used
   both put their stop codon in column 234, which follows from their difference
   being internal rather than at the end.
 
-The [results](../results/2026-11-09_protein_alignment.md#ns1-on-chickenduckhumanswine-h1n1h3n2h5n1-yr2010-2025)
-give the length, gap-pattern and host–subtype tables. The saved inputs,
+The [results](../results/2026-11-09_protein_alignment.md#ns1)
+give the length, gap-pattern, host–subtype and year tables. The saved inputs,
 alignment, validation, gap report and summaries are under
 `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NS1/`.
 

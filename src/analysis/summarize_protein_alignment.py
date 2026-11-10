@@ -6,7 +6,7 @@ whether an aligned column is biologically correct.
 
 Example:
     python -m src.analysis.summarize_protein_alignment \
-        --alignment_dir results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/NS1
+        --alignment_dir results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NS1
 """
 from __future__ import annotations
 
