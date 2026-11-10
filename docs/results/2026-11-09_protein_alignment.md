@@ -5,7 +5,7 @@
 status:         current
 date:           2026-11-09
 populations:    Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025; Human-H3N2-2024
-proteins:       NS1
+proteins:       M1; NS1
 source:         data/processed/flu/July_2025/cds_dna_final.parquet
 scripts:        src/analysis/align_proteins.py; src/analysis/summarize_protein_alignment.py; src/analysis/audit_ns1_downstream_contig.py
 artifacts:      results/flu/July_2025/cds_alignment_pilot/<population>/<protein>/
@@ -111,8 +111,9 @@ anyway](https://mafft.cbrc.jp/alignment/software/anysymbol.html).
 An `X` is the protein symbol for a codon that does not resolve to one amino
 acid. The codon remains in the CDS, and the `X` is sent to MAFFT rather than
 converted to a gap. Because `X` does not identify a single amino acid, it gives
-MAFFT less information for placing nearby gaps. The Human-H3N2-2024 section reports
-whether any gap falls next to an `X`; the other sections have not checked this.
+MAFFT less information for placing nearby gaps. The M1 and Human-H3N2-2024
+sections report whether any gap falls next to an `X`. The NS1 section on the
+Task 2 population has not checked this.
 
 
 ## Summary across proteins
@@ -121,6 +122,7 @@ One row per protein, on the Task 2 population.
 
 | Segment ID | Protein | Isolates | Unique CDS | Unique proteins | CDS lengths | Columns | `frac at mode` | Largest internal gap | One-residue columns |
 |---:|---|---:|---:|---:|---:|---:|---:|---|---|
+| 7 | M1 | 60,566 | 14,573 | 1,948 | 2 | 252 | 759 nt, 0.9999 | columns 31–41, 11 codons, 1 protein | None |
 | 8 | NS1 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 0.502 | columns 81–85, 5 codons, 206 proteins | 74, 112, 132 |
 
 "Largest internal gap" gives the longest run of neighbouring internal gap
@@ -133,10 +135,98 @@ longest.
 A **one-residue column** is an alignment column where exactly one protein has a
 protein symbol and every other protein has a gap.
 
+M1 has a usable pin on the Task 2 population, at 0.9999.
+
 NS1 has a usable pin at 0.991 on the Task 1 population, reported in the last
 section. However, extending the population to the one Task 2 uses drops
 `frac at mode` at 693 nt to 0.502, so NS1 has no pin there.
 
+
+## M1
+
+### 1. Inputs
+
+Of 60,751 filtered isolates, 60,566 (99.7%) had a complete CDS. They contained
+14,573 unique CDS and 1,948 unique proteins across 2 CDS lengths and 147
+host–subtype–year groups. 425 isolates and 185 unique proteins contain an `X`,
+all at 759 nt.
+
+M1 has a usable pin at 759 nt. `frac at mode` is 0.9999, because 14,572 of the
+14,573 unique complete CDS are 759 nt, against the 0.90 `check_cds_length`
+needs. `conf/virus/flu.yaml` pins M1 at 759 nt and the observed mode agrees.
+
+MAFFT used FFT-NS-2 and produced 252 columns. Removing `-` recovered the exact
+input protein for all 1,948.
+
+### 2. Lengths and gaps
+
+| CDS length | Isolates | Unique CDS | Unique proteins | Internal gap columns | Trailing gap columns |
+|---|---:|---:|---:|---|---|
+| 759 nt | 60,565 | 14,572 | 1,947 | None | None |
+| 726 nt | 1 | 1 | 1 | 31–41 | None |
+
+The 726-nt form is not a truncated 759-nt form. It is the 759-nt form with 11
+codons missing in the middle, at columns 31–41:
+
+```text
+Column:     21         31         41         51
+759 nt:     KAEIAQRLED VFAGKNTDLE ALMEWLKTRP ILSP
+726 nt:     KAEIAQRLED ---------- -LMEWLKTRP ILSP
+```
+
+One isolate carries this form, from Swine-H1N1 in 2011. The 759-nt row above is
+the most common 759-nt protein, which 27,661 isolates carry.
+
+### 3. Stop codon columns
+
+Neither form has a trailing gap, so both put their last protein symbol in
+column 252 and their stop codon in column 253. A codon feature table for M1
+needs 253 columns, not 252. This mapping is not implemented.
+
+### 4. By host, subtype and year
+
+| Host | Subtype | Complete M1 isolates | 726 nt | 759 nt |
+|---|---|---:|---:|---:|
+| Chicken | H1N1 | 2 | 0 | 2 |
+| Chicken | H3N2 | 17 | 0 | 17 |
+| Chicken | H5N1 | 1,824 | 0 | 1,824 |
+| Duck | H1N1 | 265 | 0 | 265 |
+| Duck | H3N2 | 217 | 0 | 217 |
+| Duck | H5N1 | 1,900 | 0 | 1,900 |
+| Human | H1N1 | 20,001 | 0 | 20,001 |
+| Human | H3N2 | 29,456 | 0 | 29,456 |
+| Human | H5N1 | 37 | 0 | 37 |
+| Swine | H1N1 | 3,658 | 1 | 3,657 |
+| Swine | H3N2 | 3,174 | 0 | 3,174 |
+| Swine | H5N1 | 15 | 0 | 15 |
+
+By year: every year is entirely 759 nt except 2011, which holds the single
+726-nt isolate among its 1,473.
+
+### 5. Findings
+
+* M1 has a pin on this population.
+* The 759-nt form holds 60,565 of the 60,566 complete records. The 726-nt form
+  is one isolate.
+* The alignment adds no columns. Its 252 columns are the 252 amino acids of a
+  759-nt CDS, because the one protein that differs is shorter in the middle
+  rather than longer at either end.
+* 241 of the 252 columns hold a protein symbol in all 1,948 proteins. The other
+  11 are columns 31–41, which hold one in 1,947, every protein but the 726-nt
+  one.
+* There are no one-residue columns.
+* The gap columns carry `X` symbols in other records. Columns 31–41 hold an `X`
+  in 9 of the other 1,947 proteins, and columns 30 and 42 hold one in 7.
+* Still open before codon features are built: whether to keep the single 726-nt
+  isolate. Uncommon length alone does not establish an error.
+
+### 6. Artifacts
+
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/M1/`.
+`align_proteins.py` wrote the selection, alignment, validation and gap
+locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
+`gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
+hashes and code state, and the alignment manifest records `mafft_seconds` 3.9.
 
 ## NS1
 
@@ -400,8 +490,9 @@ directory.
 
 ## Limitations
 
-* Only NS1 has been aligned. The other seven modelled proteins have no alignment
-  on any population.
+* All 8 modelled proteins are aligned on the Task 2 population, but only M1 and
+  NS1 are written up here. PB2, PB1, PA, HA, NP and NA have their outputs on
+  disk and no section yet.
 * No codon features and no models were produced from any of these alignments. The
   mapping from alignment columns to codon features is proposed in
   `docs/plans/2026-09-14_codon_site_features_plan.md` and is not implemented.
