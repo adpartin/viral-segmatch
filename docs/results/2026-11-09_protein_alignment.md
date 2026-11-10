@@ -206,7 +206,7 @@ section. However, extending the population to the one Task 2 uses drops
   observed mode agrees.
 * **Alignment.** MAFFT used FFT-NS-2 and produced `766` columns.
   - Removing `-` from the aligned proteins recovered the exact input protein
-  for all 15,290.
+    for all 15,290.
   - A 2280-nt CDS is 759 amino acids, so the alignment adds 7 columns.
 
 ### 2. Lengths and gaps
@@ -310,9 +310,10 @@ its manifest has no runtime.
 * **Pin.** PB1 has no usable pin. 30,824 of the 34,642 unique complete CDS are
   2274 nt, a share of 0.890, below the 0.90 `check_cds_length` needs.
   `conf/virus/flu.yaml` pins no length for PB1.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 776 columns. Removing `-`
-  recovered the exact input protein for all 13,220. A 2274-nt CDS is 757 amino
-  acids, so the alignment adds 19 columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `776` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 13,220.
+  - A 2274-nt CDS is 757 amino acids, so the alignment adds 19 columns.
 
 ### 2. Lengths and gaps
 
@@ -434,9 +435,10 @@ its manifest has no runtime.
 * **Pin.** PA has a usable pin at 2151 nt. 35,609 of the 35,659 unique complete
   CDS are 2151 nt, a share of 0.999, against the 0.90 `check_cds_length` needs.
   `conf/virus/flu.yaml` pins PA at 2151 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 744 columns. Removing `-`
-  recovered the exact input protein for all 15,939. A 2151-nt CDS is 716 amino
-  acids, so the alignment adds 28 columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `744` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 15,939.
+  - A 2151-nt CDS is 716 amino acids, so the alignment adds 28 columns.
 
 ### 2. Lengths and gaps
 
@@ -551,9 +553,10 @@ its manifest has no runtime.
 * **Pin.** HA has a usable pin at 1701 nt. 33,492 of the 35,509 unique complete
   CDS are 1701 nt, a share of 0.943, against the 0.90 `check_cds_length` needs.
   `conf/virus/flu.yaml` pins HA at 1701 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 612 columns. Removing `-`
-  recovered the exact input protein for all 19,841. A 1701-nt CDS is 566 amino
-  acids, so the alignment adds 46 columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `612` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 19,841.
+  - A 1701-nt CDS is 566 amino acids, so the alignment adds 46 columns.
 
 ### 2. Lengths and gaps
 
@@ -684,9 +687,10 @@ its manifest has no runtime.
 * **Pin.** NP has a usable pin at 1497 nt. 27,086 of the 27,087 unique complete
   CDS are 1497 nt, a share of 1.000, against the 0.90 `check_cds_length` needs.
   `conf/virus/flu.yaml` pins NP at 1497 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 498 columns. Removing `-`
-  recovered the exact input protein for all 7,250. A 1497-nt CDS is 498 amino
-  acids, so the alignment adds no columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `498` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 7,250.
+  - A 1497-nt CDS is 498 amino acids, so the alignment adds no columns.
 
 ### 2. Lengths and gaps
 
@@ -779,9 +783,10 @@ its manifest has no runtime.
 * **Pin.** NA has a usable pin at 1410 nt. 30,630 of the 31,157 unique complete
   CDS are 1410 nt, a share of 0.983, against the 0.90 `check_cds_length` needs.
   `conf/virus/flu.yaml` pins NA at 1410 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 543 columns. Removing `-`
-  recovered the exact input protein for all 17,267. A 1410-nt CDS is 469 amino
-  acids, so the alignment adds 74 columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `543` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 17,267.
+  - A 1410-nt CDS is 469 amino acids, so the alignment adds 74 columns.
 
 ### 2. Lengths and gaps
 
@@ -923,9 +928,10 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 365.6.
 * **Pin.** M1 has a usable pin at 759 nt. 14,572 of the 14,573 unique complete
   CDS are 759 nt, a share of 1.000, against the 0.90 `check_cds_length` needs.
   `conf/virus/flu.yaml` pins M1 at 759 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 252 columns. Removing `-`
-  recovered the exact input protein for all 1,948. A 759-nt CDS is 252 amino
-  acids, so the alignment adds no columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `252` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 1,948.
+  - A 759-nt CDS is 252 amino acids, so the alignment adds no columns.
 
 ### 2. Lengths and gaps
 
@@ -1018,9 +1024,10 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 3.9.
 * **Pin.** NS1 has no usable pin. 9,097 of the 18,107 unique complete CDS are
   693 nt, a share of 0.502, below the 0.90 `check_cds_length` needs.
   `conf/virus/flu.yaml` pins no length for NS1.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 240 columns. Removing `-`
-  recovered the exact input protein for all 10,130. A 693-nt CDS is 230 amino
-  acids, so the alignment adds 10 columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `240` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 10,130.
+  - A 693-nt CDS is 230 amino acids, so the alignment adds 10 columns.
 
 ### 2. Lengths and gaps
 
@@ -1187,10 +1194,11 @@ Task 2 population.
   1,132 unique complete CDS are 693 nt, a share of 0.991, above the 0.90
   `check_cds_length` needs. `conf/virus/flu.yaml` pins no length for NS1, so
   there is no pin for `check_cds_length` to check.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 230 columns. Removing `-`
-  recovered the exact input protein for all 560. A 693-nt CDS is 230 amino
-  acids, so the alignment adds no columns. This run asked for `--auto` rather
-  than the flags in Method.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `230` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+    for all 560.
+  - A 693-nt CDS is 230 amino acids, so the alignment adds no columns.
+  - This run asked for `--auto` rather than the flags in Method.
 
 ### 2. Lengths and gaps
 
