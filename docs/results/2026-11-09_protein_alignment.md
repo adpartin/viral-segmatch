@@ -82,7 +82,7 @@ steps 4, 5 and 6.
    `cds_length` and 3 times the protein length including the `*`, and
    `prot_hash` is the md5 of `prot_seq`. One CDS hash must not carry conflicting
    records, and one protein hash must not name two sequences.
-3. Remove the terminal `*` from the protein sent to MAFFT, leaving the CDS
+3. Remove the terminal `*` from the protein sent to MAFFT, but keep the CDS
    unchanged. Keep `X` symbols and count them by CDS length.
 4. Align the unique proteins with MAFFT `--retree 2 --maxiterate 0`, recording
    the version, command, strategy and input hashes.

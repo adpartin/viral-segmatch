@@ -158,21 +158,21 @@ def summarize_unknown_residues(selected: pd.DataFrame) -> pd.DataFrame:
 
 
 # MAFFT flags for each --mafft_strategy choice.
-#   default  `--retree 2 --maxiterate 0`, which is what MAFFT runs with no options at all.
-#            It gives FFT-NS-2 at any input size, so the strategy does not depend on how
-#            many sequences a protein has.
-#   auto     `--auto`, which lets MAFFT choose from the input size. A protein with more
-#            sequences could get a different strategy.
+#   fft_ns_2  `--retree 2 --maxiterate 0`, which is what MAFFT runs with no options at all.
+#             It gives FFT-NS-2 at any input size, so the strategy does not depend on how
+#             many sequences a protein has.
+#   auto      `--auto`, which lets MAFFT choose from the input size. A protein with more
+#             sequences could get a different strategy.
 # The manifest records the command and the strategy MAFFT reports, so the choice is
 # checkable after the run.
 MAFFT_STRATEGY_OPTIONS = {
     'auto': ['--auto'],
-    'default': ['--retree', '2', '--maxiterate', '0'],
+    'fft_ns_2': ['--retree', '2', '--maxiterate', '0'],
 }
 
 
 def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
-                            strategy_name: str = 'auto') -> None:
+                            strategy_name: str) -> None:
     """Align the prepared protein FASTA and record MAFFT provenance.
 
     Args:
@@ -457,11 +457,12 @@ def main() -> None:
                          help='record gap positions in an existing validated alignment')
     parser.add_argument('--mafft_bin', default='mafft',
                         help='MAFFT executable path or command on PATH (with --align_only)')
-    parser.add_argument('--mafft_strategy', choices=sorted(MAFFT_STRATEGY_OPTIONS), default='auto',
-                        help="which MAFFT options to pass (with --align_only). 'auto' lets MAFFT "
-                             "choose the strategy from the input size. 'default' passes MAFFT's "
-                             "own defaults, which give FFT-NS-2 at any size. This argument "
-                             "defaults to 'auto', not to 'default'")
+    parser.add_argument('--mafft_strategy', choices=sorted(MAFFT_STRATEGY_OPTIONS),
+                        default='fft_ns_2',
+                        help="which MAFFT options to pass (with --align_only). 'fft_ns_2' passes "
+                             "--retree 2 --maxiterate 0, which give FFT-NS-2 at any input size, "
+                             "so every protein gets the same strategy. 'auto' passes --auto and "
+                             "lets MAFFT choose the strategy from the input size")
     parser.add_argument('--overwrite', action='store_true',
                         help='replace existing outputs for this population and protein')
     args = parser.parse_args()
