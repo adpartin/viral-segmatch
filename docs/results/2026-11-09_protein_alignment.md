@@ -119,9 +119,9 @@ whether any gap falls next to an `X`; the other sections have not checked this.
 
 One row per protein, on the Task 2 population.
 
-| Protein | Isolates | Unique CDS | Unique proteins | CDS lengths | Columns | `frac at mode` | Largest internal gap | One-residue columns |
-|---|---:|---:|---:|---:|---:|---:|---|---|
-| NS1 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 0.502 | columns 81–85, 5 codons, 206 proteins | 74, 112, 132 |
+| Segment ID | Protein | Isolates | Unique CDS | Unique proteins | CDS lengths | Columns | `frac at mode` | Largest internal gap | One-residue columns |
+|---:|---|---:|---:|---:|---:|---:|---:|---|---|
+| 8 | NS1 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 0.502 | columns 81–85, 5 codons, 206 proteins | 74, 112, 132 |
 
 "Largest internal gap" gives the longest run of neighbouring internal gap columns
 any protein has, as column numbers rather than a count of columns, followed by how
