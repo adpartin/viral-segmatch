@@ -82,8 +82,8 @@ steps 4, 5 and 6.
    `cds_length` and 3 times the protein length including the `*`, and
    `prot_hash` is the md5 of `prot_seq`. One CDS hash must not carry conflicting
    records, and one protein hash must not name two sequences.
-3. Remove the terminal `*` from the protein sent to MAFFT, but keep the CDS
-   unchanged. Keep `X` symbols and count them by CDS length.
+3. Make the MAFFT input: copy each unique protein and remove the terminal `*`
+   from the copy. Keep `X` symbols and count them by CDS length.
 4. Align the unique proteins with MAFFT `--retree 2 --maxiterate 0`, recording
    the version, command, strategy and input hashes.
 5. Check that removing `-` from each aligned protein recovers the exact input
@@ -97,14 +97,22 @@ the column count.
 `group_length_summary.csv`, `gap_pattern_summary.csv` and
 `column_occupancy.csv`.
 
+The strip applies only to that copy. The stored `prot_seq` keeps its terminal
+`*` and `cds_dna_seq` keeps its terminal stop codon. So each protein carries two
+hashes here. The FASTA header is `prot_hash`, the md5 of the stored protein
+including the `*`. `protein_input_hashes.csv` holds `alignment_seq_sha256`, the
+sha256 of the stop-free sequence MAFFT received. The stop codon the CDS keeps is
+what each section's part 3 counts from when it proposes stop codon columns.
+
 The saved protein is the exact MAFFT input, which is what step 5 compares
 against. With the options used here, [MAFFT would remove `*`
 anyway](https://mafft.cbrc.jp/alignment/software/anysymbol.html).
 
-An `X` means the codon does not translate to a single amino acid. It does not
-remove the codon and does not create a gap. It does give the aligner less
-information at that position. Whether any gap placement falls next to an `X` has
-not been checked, except in the Human-H3N2-2024 section where it is reported.
+An `X` is the protein symbol for a codon that does not resolve to one amino
+acid. The codon remains in the CDS, and the `X` is sent to MAFFT rather than
+converted to a gap. Because `X` does not identify a single amino acid, it gives
+MAFFT less information for placing nearby gaps. The Human-H3N2-2024 section reports
+whether any gap falls next to an `X`; the other sections have not checked this.
 
 
 ## Summary across proteins
