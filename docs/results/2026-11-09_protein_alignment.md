@@ -162,8 +162,8 @@ input protein for all 1,948.
 
 | CDS length | Isolates | Unique CDS | Unique proteins | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|
-| 759 nt | 60,565 | 14,572 | 1,947 | None | None |
 | 726 nt | 1 | 1 | 1 | 31–41 | None |
+| 759 nt | 60,565 | 14,572 | 1,947 | None | None |
 
 The 726-nt form is not a truncated 759-nt form. It is the 759-nt form with 11
 codons missing in the middle, at columns 31–41:
@@ -185,20 +185,22 @@ needs 253 columns, not 252. This mapping is not implemented.
 
 ### 4. By host, subtype and year
 
-| Host | Subtype | Complete M1 isolates | 726 nt | 759 nt |
-|---|---|---:|---:|---:|
-| Chicken | H1N1 | 2 | 0 | 2 |
-| Chicken | H3N2 | 17 | 0 | 17 |
-| Chicken | H5N1 | 1,824 | 0 | 1,824 |
-| Duck | H1N1 | 265 | 0 | 265 |
-| Duck | H3N2 | 217 | 0 | 217 |
-| Duck | H5N1 | 1,900 | 0 | 1,900 |
-| Human | H1N1 | 20,001 | 0 | 20,001 |
-| Human | H3N2 | 29,456 | 0 | 29,456 |
-| Human | H5N1 | 37 | 0 | 37 |
-| Swine | H1N1 | 3,658 | 1 | 3,657 |
-| Swine | H3N2 | 3,174 | 0 | 3,174 |
-| Swine | H5N1 | 15 | 0 | 15 |
+"Other lengths" is 0 throughout, because M1 has only the two lengths listed.
+
+| Host | Subtype | Complete M1 isolates | 726 nt | 759 nt | Other lengths |
+|---|---|---:|---:|---:|---:|
+| Chicken | H1N1 | 2 | 0 | 2 | 0 |
+| Chicken | H3N2 | 17 | 0 | 17 | 0 |
+| Chicken | H5N1 | 1,824 | 0 | 1,824 | 0 |
+| Duck | H1N1 | 265 | 0 | 265 | 0 |
+| Duck | H3N2 | 217 | 0 | 217 | 0 |
+| Duck | H5N1 | 1,900 | 0 | 1,900 | 0 |
+| Human | H1N1 | 20,001 | 0 | 20,001 | 0 |
+| Human | H3N2 | 29,456 | 0 | 29,456 | 0 |
+| Human | H5N1 | 37 | 0 | 37 | 0 |
+| Swine | H1N1 | 3,658 | 1 | 3,657 | 0 |
+| Swine | H3N2 | 3,174 | 0 | 3,174 | 0 |
+| Swine | H5N1 | 15 | 0 | 15 | 0 |
 
 By year: every year is entirely 759 nt except 2011, which holds the single
 726-nt isolate among its 1,473.
