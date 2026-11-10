@@ -558,23 +558,37 @@ Task 2 changes the population and the negative sampler, not the steps.
 
 ### Prerequisite: finish the per-segment alignment
 
-This population gives no single pinned CDS length per protein, which per-site
-codon features need. The alignment work replaces the single pin, so the pins
-and the list of supported schema pairs are its output, not an input to it. The
-run cannot start until it is done.
+Per-site codon features need every record to have the same sites. A pinned CDS
+length is one way to get that; aligning the proteins is the other. The pins and
+the list of supported schema pairs are the alignment work's output, not an input
+to it.
+
+The alignment is finished for all 8 proteins, done 2026-11-10. What now blocks
+the run is the mapping from alignment columns to codon features, which is
+proposed in `docs/plans/2026-09-14_codon_site_features_plan.md` and not
+implemented.
 
 * Tracked in `docs/plans/2026-09-14_codon_site_features_plan.md` as
   Experiment 5. Reported in `docs/results/2026-11-09_protein_alignment.md`.
-* **NS1 is aligned on this population, done 2026-11-09.** 60,654 complete CDS,
-  16 lengths, 10,130 unique proteins, 240 alignment columns. No single pin is
-  available: the largest share of unique complete sequences is 693 nt at 0.502,
-  against the 0.90 `check_cds_length` needs.
-* The 678-nt form, almost all H5N1, is the 693-nt form with 5 codons missing at
-  columns 81-85. It is the first internal gap that many sequences share, so a
-  codon feature table needs the `GAP` state and not only `AFTER_STOP`. A table
-  for this population needs 241 columns.
-* Still open: the other 7 proteins have no alignment or pin check on 2010-2025.
-  The pilot's pins were measured on 2022-2023 only. The codon feature mapping is
+* **All 8 proteins are aligned on this population, done 2026-11-10.** 6 of them
+  have a usable pin: PB2 at 2280 nt, PA at 2151, HA at 1701, NP at 1497, NA at
+  1410 and M1 at 759. PB1 and NS1 do not, at 0.890 and 0.502 against the 0.90
+  `check_cds_length` needs, and they are the two proteins `conf/virus/flu.yaml`
+  pins no length for.
+* **A usable pin does not settle HA.** Its pin is 1701 nt and the main H5 form
+  sits at 1704, so pinning HA keeps 13 of 3,754 complete H5N1 records. HA is in
+  7 of the 28 schema pairs, so that would remove the H5N1 arm for those pairs.
+  Pinning NA keeps 3,211 of 3,754. Every other pin keeps 99.9% or better.
+* **Two pinned lengths hold more than one form.** NA's 1410 nt holds N1 and N2,
+  and HA's 1701 nt holds H1 and H3 with H5 at 1704. The two forms at a shared
+  length are the same length but do not fill the same alignment columns, so a
+  pinned-length feature table would put residues the alignment does not treat
+  as corresponding into the same feature.
+* The NS1 678-nt form, almost all H5N1, is the 693-nt form with 5 codons missing
+  at columns 81-85. It is the first internal gap that many sequences share, so a
+  codon feature table needs the `GAP` state and not only `AFTER_STOP`.
+* Still open: whether to pin or to align each protein, which records and which
+  alignment columns to admit, and the codon feature mapping itself, which is
   proposed but not implemented or checked.
 * The negative-sampling pilot below is not affected. It was built on a
   population where one pin held for each of its 7 proteins.

@@ -131,6 +131,20 @@ One row per protein, on the Task 2 population.
 | 7 | M1 | 60,566 | 14,573 | 1,948 | 2 | 252 | 759 nt, 14,572 of 14,573 | columns 31–41, 11 codons, 1 protein | None |
 | 8 | NS1 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 9,097 of 18,107 | columns 81–85, 5 codons, 206 proteins | 74, 112, 132 |
 
+The table below counts the complete records a usable pin would drop. H5N1
+counts include all four host groups and use complete records for that protein.
+
+| Protein | Usable pin | Complete records dropped by pin | H5N1 records kept by pin |
+|---|---:|---:|---:|
+| PB2 | 2280 nt | 61 of 60,474 | 3,759 of 3,761 |
+| PB1 | None | Not applicable | Not applicable |
+| PA | 2151 nt | 64 of 60,396 | 3,764 of 3,766 |
+| HA | 1701 nt | 4,059 of 60,282 | 13 of 3,754 |
+| NP | 1497 nt | 1 of 60,040 | 3,766 of 3,766 |
+| NA | 1410 nt | 702 of 59,856 | 3,211 of 3,754 |
+| M1 | 759 nt | 1 of 60,566 | 3,776 of 3,776 |
+| NS1 | None | Not applicable | Not applicable |
+
 "Largest internal gap" gives the longest run of neighbouring internal gap
 columns any protein has, as column numbers rather than a count of columns,
 followed by how long the run is and how many proteins carry it.
@@ -145,6 +159,8 @@ protein symbol and every other protein has a gap.
 Six of the eight proteins have a usable pin on this population: PB2, PA, HA,
 NP, NA and M1. The two without one are PB1 at 0.890 and NS1 at 0.502, which are
 also the two proteins `conf/virus/flu.yaml` pins no length for.
+HA is the extreme: its 1701-nt pin keeps 13 of 3,754 complete H5N1 records
+because the main H5 form sits at 1704 nt.
 
 Two of the six pinned proteins hold more than one form at the pinned length.
 NA's 1410 nt holds N1 and N2, and HA's 1701 nt holds H1 and H3 with H5 at
@@ -238,6 +254,8 @@ holding more than 30 of the 61 isolates.
 ### 5. Findings
 
 * PB2 has a pin on this population.
+* Pinning at 2280 nt would drop 61 of the 60,474 complete records and keep
+  3,759 of 3,761 H5N1 records.
 * The 2280-nt form holds 60,413 of the 60,474 complete records. The other 17
   lengths hold 61 isolates between them, 6 at most each.
 * The alignment adds 7 columns. 6 of them are one-residue columns: 42–45, 575
@@ -351,6 +369,7 @@ The last column is the 2277-nt share of the two main lengths. It stays between
 * PB1 has no pin on this population. The modal length holds 0.890 of unique
   complete CDS, below the 0.90 floor, and `conf/virus/flu.yaml` pins no length
   for it.
+* No pin is available, so the pinning cost does not apply.
 * The two main lengths differ by one codon at the C-terminus and share every
   internal gap column, so the pin fails on a three-nucleotide difference rather
   than on two different proteins.
@@ -461,6 +480,8 @@ The 2157-nt form appears in 8 of the 16 years, with 19 of its 39 isolates in
 ### 5. Findings
 
 * PA has a pin on this population.
+* Pinning at 2151 nt would drop 64 of the 60,396 complete records and keep
+  3,764 of 3,766 H5N1 records.
 * The 2151-nt form holds 60,332 of the 60,396 complete records.
 * The alignment adds 28 columns, and 25 of them are one-residue columns: 49,
   77, 82–83, 94–98, 624, 641–650, 660–663 and 703. So nearly all of the extra
@@ -581,6 +602,8 @@ The 1704-nt form was 12 to 115 isolates a year from 2010 to 2021, then 1,006 in
 ### 5. Findings
 
 * HA has a pin on this population, at 1701 nt for 0.943 of unique complete CDS.
+* Pinning at 1701 nt would drop 4,059 of the 60,282 complete records and keep
+  13 of 3,754 H5N1 records.
 * The modal length holds two forms, H3 and H1, and a third form, H5, sits at
   1704 nt. Of the 583 columns the three use between them, 550 are filled by all
   three and 33 are not.
@@ -672,6 +695,8 @@ By year: every year is entirely 1497 nt except 2011, which holds the single
 ### 5. Findings
 
 * NP has a pin on this population.
+* Pinning at 1497 nt would drop 1 of the 60,040 complete records and keep
+  3,766 of 3,766 H5N1 records.
 * The 1497-nt form holds 60,039 of the 60,040 complete records. The 1461-nt
   form is one isolate.
 * The alignment adds no columns. Its 498 columns are the 498 amino acids of a
@@ -809,6 +834,8 @@ The 1350-nt form is present in all 16 years. The 1413-nt form peaks twice, with
 ### 5. Findings
 
 * NA has a pin on this population, at 1410 nt for 0.983 of unique complete CDS.
+* Pinning at 1410 nt would drop 702 of the 59,856 complete records and keep
+  3,211 of 3,754 H5N1 records.
 * The modal length holds two forms, N1 and N2, which do not fill the same
   columns. Of the 493 columns they use between them, 24 are N2 only and 24 are
   N1 only.
@@ -899,6 +926,8 @@ By year: every year is entirely 759 nt except 2011, which holds the single
 ### 5. Findings
 
 * M1 has a pin on this population.
+* Pinning at 759 nt would drop 1 of the 60,566 complete records and keep
+  3,776 of 3,776 H5N1 records.
 * The 759-nt form holds 60,565 of the 60,566 complete records. The 726-nt form
   is one isolate.
 * The alignment adds no columns. Its 252 columns are the 252 amino acids of a
@@ -1034,6 +1063,10 @@ that, and the 672-nt form appears only in 2016 and 2018–2020 and 2022.
 
 ### 5. Findings
 
+* NS1 has no pin on this population. The modal length holds 0.502 of unique
+  complete CDS, below the 0.90 floor, and `conf/virus/flu.yaml` pins no length
+  for it.
+* No pin is available, so the pinning cost does not apply.
 * The 678-nt internal deletion is the first internal gap in this protein carried
   by more than a handful of records: 205 unique proteins over 341 isolates, plus
   the single 699-nt isolate, so 206 proteins and 342 isolates have a gap at
