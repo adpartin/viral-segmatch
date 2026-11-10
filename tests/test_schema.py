@@ -23,6 +23,11 @@ def test_hash_cols():
     assert schema.hash_col("nt_ctg") == "ctg_dna_hash"
 
 
+def test_sequence_md5():
+    assert schema.sequence_md5("abc") == "900150983cd24fb0d6963f7d28e17f72"
+    assert schema.sequence_md5(123) == schema.sequence_md5("123")
+
+
 def test_seq_cols():
     assert schema.seq_col("aa") == "prot_seq"
     assert schema.seq_col("nt_cds") == "cds_dna_seq"

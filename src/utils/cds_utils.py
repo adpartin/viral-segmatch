@@ -20,10 +20,10 @@ Conventions:
 from __future__ import annotations
 
 import ast
-import hashlib
 
 import pandas as pd
 
+from src.utils.schema import sequence_md5
 
 # Base -> its complement, used by `reverse_complement` for a minus-strand CDS. Case is
 # preserved, so a lowercase record stays lowercase. IUPAC ambiguity codes are included because
@@ -199,6 +199,28 @@ def translate_dna(cds_dna: str) -> str:
                    for i in range(0, len(cds_dna), 3))
 
 
+def strip_terminal_stop(prot_seq: str) -> str:
+    """Remove trailing '*' markers and reject internal stops.
+
+    Other residues, including `X`, are preserved.
+
+    Args:
+        prot_seq: One protein, with or without a terminal `*`.
+
+    Returns:
+        The protein without trailing stop markers.
+
+    Raises:
+        ValueError: `prot_seq` is empty, is not a string, or has an internal `*`.
+    """
+    if not isinstance(prot_seq, str) or len(prot_seq) == 0:
+        raise ValueError(f"prot_seq must be a non-empty string, got: {prot_seq!r}")
+    stripped = prot_seq.rstrip('*')
+    if '*' in stripped:
+        raise ValueError("prot_seq contains an internal '*' (stop codon); drop the row first")
+    return stripped
+
+
 def modal_length(observed_lengths) -> dict:
     """Most common CDS length in a population, and how much of the population sits there.
 
@@ -290,5 +312,5 @@ def check_cds_length(
 
 
 def compute_cds_dna_hash(cds_dna: str) -> str:
-    """md5(cds_dna). Distinct from the contig-level `dna_hash` in Stage 1."""
-    return hashlib.md5(cds_dna.encode('utf-8')).hexdigest()
+    """md5(cds_dna). Distinct from the contig-level `ctg_dna_hash`."""
+    return sequence_md5(cds_dna)

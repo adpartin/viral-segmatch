@@ -1,101 +1,22 @@
 """
 Build train/val/test sets of labeled protein pairs for the segment-matching task.
 
-Goal
-----
-Create labeled protein pairs for the task:
-  label=1  => two proteins co-occur within the same isolate (same assembly_id)
-  label=0  => two proteins are sampled from different isolates AND are blocked from
-              being a negative if their sequences ever co-occur in ANY isolate
-              (see "blocked negatives" below).
+Loads a Hydra bundle, filters the input population and dispatches to the v2
+dataset builder. The bundle selects the schema pair, pair-key alphabet,
+negative sampler, split strategy and optional cross-validation settings.
 
-Important nuance for label=0:
-  A negative here means "not observed co-occurring (and not allowed to contradict any
-  observed co-occurrence)". It is NOT a proof of biological incompatibility; it is a
-  dataset construction label.
+Positive pairs co-occur in an isolate. Candidate negatives are blocked when
+their sequences co-occur in any corpus isolate. A negative label records an
+unobserved co-occurrence; it does not establish biological incompatibility.
 
-The downstream classifier consumes embedding pairs derived from precomputed ESM-2
-(e.g., [emb_a, emb_b], and optionally |A-B| and A*B).
+Pair keys use sorted sequence hashes from the selected alphabet: protein,
+CDS DNA or contig DNA. Hash column names come from `src.utils.schema`.
 
-Key columns:
-- assembly_id: identifies isolates
-- canonical_segment: virus-specific canonical segment label (e.g., L/M/S for bunyavirus;
-  for influenza you may see segment identifiers depending on preprocessing)
-- prot_seq: protein sequence
-- function: protein function
-- brc_fea_id: unique feature ID
-- prot_hash: deterministic hash of prot_seq used for deduplication / pair keys
-
-Key Concepts
-------------
-- pair_key:
-    A canonical, order-invariant key derived from (prot_hash_a, prot_hash_b)
-    (e.g., canonical_pair_key(prot_hash_a, prot_hash_b)).
-    Used for:
-      (1) deduplicating identical sequence pairs
-      (2) preventing contradictory labeling (e.g., a pair that is both positive and negative)
-      (3) preventing split leakage (same sequence-pair appearing in multiple splits)
-
-- cooccur_pairs:
-    Set of all pair_key values that are observed as positives (co-occurring within
-    any isolate). A candidate negative is rejected if its pair_key is in cooccur_pairs.
-    Note: this implementation is conservative — it blocks a sequence pair if the two
-    sequences appear in the same isolate at all, regardless of whether that pair would
-    have been included as a positive under additional constraints (e.g., different functions).
-
-Dataset Construction Steps
---------------------------
-1) Split isolates (assembly_id) into train/val/test
-   - Splitting is performed at the isolate level (not pair level) to avoid leakage
-     of isolate-specific signals across splits.
-
-2) Create positive pairs within each isolate (label=1)
-   - For each isolate, generate all within-isolate combinations of proteins:
-       for (row_a, row_b) in combinations(isolate_rows, 2)
-   - Keep only pairs that satisfy required constraints (currently: different brc_fea_id
-     AND different function; same-function pairs are not used as positives).
-   - For each positive pair, compute:
-       pair_key = canonical_pair_key(row_a.prot_hash, row_b.prot_hash)   (stored as column 'pair_key')
-     and store paired fields:
-       assembly_id_a/b, brc_a/b, prot_seq_a/b, seg_a/b, func_a/b, prot_hash_a/b, label=1
-
-3) Build cooccur_pairs (blocking set for negatives)
-   - Build a set of all sequence-hash pairs that appear together in any isolate.
-   - Any candidate negative whose pair_key is in this set is rejected to prevent
-     contradictory labels.
-
-4) Create negative pairs across isolates (label=0)
-   - Repeatedly sample two distinct isolates (aid1, aid2), then sample one random
-     protein from each isolate.
-   - Reject a candidate negative if:
-       a) its pair_key is in cooccur_pairs (would contradict observed co-occurrence),
-       b) it duplicates a previously added negative by brc_id-pair (symmetric duplicate),
-       c) it duplicates a previously added negative by prot_hash-pair.
-   - For accepted negatives, store the same paired fields as positives with label=0.
-
-5) Prevent split leakage by pair_key (order-invariant)
-   - Ensure that the same pair_key does not appear in more than one split.
-   - If overlaps exist, remove/resolve them (and log how many were removed per split/label).
-
-6) Write outputs and run metadata
-   - Save train_pairs.csv / val_pairs.csv / test_pairs.csv containing:
-       brc_a, brc_b, label, pair_key, and associated paired metadata columns.
-   - Save sampled_isolates.txt (when max_isolates_to_process is set).
-   - Save isolate_metadata.csv (per-isolate metadata used for diagnostics).
-   - Save dataset_stats.json (split sizes, label ratios, metadata distributions).
-   - Save duplicate_stats.json (cooccurrence stats + negative rejection stats + pair_key overlaps).
-   - Optionally save cooccurring_sequence_pairs.csv (for analysis).
-
-Duplicate handling (blocked negatives):
-- Identical amino-acid sequences can occur in multiple genomes/isolates
-- A pair (prot_seq_a, prot_seq_b) can appear as positive (same isolate) AND negative (different isolates)
-- This creates contradictory labels and potential data leakage
-- Solution: Block negative pairs where sequences co-occur in ANY isolate
-- Split by pair_key (not just isolate) to prevent same pair appearing in train and test
+Writes train_pairs.csv, val_pairs.csv and test_pairs.csv with dataset statistics
+and audit outputs. Cross-validation writes these files under fold_*/.
 """
 
 import argparse
-import hashlib
 import json
 import sys
 import time
@@ -118,6 +39,7 @@ from src.utils.config_hydra import compose_config, print_config_summary, save_co
 from src.utils.experiment_utils import get_git_info
 from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata
 from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
+from src.utils.schema import sequence_md5
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
 from src.utils.timer_utils import Timer
 
@@ -429,7 +351,7 @@ print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected
 # Stage 1 (preprocess_flu.py) already writes `prot_hash` to protein_final.csv; reuse it when
 # present so the hash algorithm lives in exactly one place.
 if 'prot_hash' not in df.columns:
-    df['prot_hash'] = df['prot_seq'].apply(lambda x: hashlib.md5(str(x).encode()).hexdigest())
+    df['prot_hash'] = df['prot_seq'].map(sequence_md5)
 
 # Schema pair parsing. schema_ordered is the only pair_mode; _validate_v2_config
 # rejects anything else.

@@ -1,9 +1,6 @@
 """Stage 3 (CC builder): cluster-disjoint K-fold pair datasets.
 
-Maintained companion to `dataset_segment_pairs_v2.py` for the CC-based CV track.
-Where v2's `cluster_disjoint` does single-slot k-fold (a/b) or bilateral holdout
-(one 80/10/10) with cross-isolate negatives, this builder does what the CC analysis
-established:
+Builds folds by routing positive pairs through the cluster-level bigraph:
 
   - **2D connected-component (CC) GroupKFold** — atoms = CCs on
     `(cluster_id_a, cluster_id_b)` (production `attach_cluster_ids` +
@@ -34,7 +31,6 @@ CLI:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 import time
@@ -139,7 +135,7 @@ def build_frontend(
     df = df[df['function'].isin(list(config.virus.selected_functions))].reset_index(drop=True)
     df = df[df['function'].isin(schema_pair_full)].reset_index(drop=True)
     if 'prot_hash' not in df.columns:
-        df['prot_hash'] = df['prot_seq'].map(lambda s: hashlib.md5(str(s).encode()).hexdigest())
+        df['prot_hash'] = df['prot_seq'].map(schema.sequence_md5)
     if cds_final_path is not None:
         df = attach_cds_dna_hash_to_prot_df(df, cds_final_path) # cds_dna_hash (nt_cds)
     return df

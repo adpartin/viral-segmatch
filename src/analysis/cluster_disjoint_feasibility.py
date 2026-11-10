@@ -1,16 +1,15 @@
-"""Pre-flight feasibility check for cluster_disjoint routing.
+"""Report cluster-level bigraph CC sizes for a schema pair at each identity threshold.
 
-Per-function cluster sizes (`build_mmseqs_clusters.py`) are necessary
-but NOT sufficient: cluster_disjoint routes pairs by the connected-component
-structure of (slot_a_cluster, slot_b_cluster). HA clusters and NA clusters
-connect through isolates that have proteins in both, so the **connected
-component** that the routing actually operates on can be much larger than
-either side's biggest cluster — sometimes catastrophically so at low identity
-thresholds.
+Per-function cluster sizes are necessary but not sufficient for judging whether
+cluster-disjoint routing will work. Routing goes by the connected components of
+(slot-A cluster, slot-B cluster), and the two sides connect through isolates that carry
+a protein in both slots. So the component the routing actually operates on can be much
+larger than either side's biggest cluster, and at low identity thresholds it can hold
+most of the pairs. This script reports that component-size distribution.
 
-This script answers: given a schema_pair and a cluster threshold, what does the
-connected-component-size distribution look like? If the largest component
-exceeds 80% of pairs, the partition is forced and 80/10/10 is unachievable.
+Cluster-disjoint routing keeps each CC in one split. A CC carrying more than
+80% of the pairs cannot fit within an exact 80/10/10 split. The reported
+`feasible_8010` flag checks CC sizes; it does not try to pack CCs into splits.
 
 Supports all three alphabets (slot key = the registry hash; cluster lookups under
 `<clusters_root>/t<NN>/`):
@@ -48,7 +47,6 @@ Produces a per-threshold summary table:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import sys
 from pathlib import Path
 from typing import Tuple
@@ -98,9 +96,7 @@ def build_isolate_pairs(
     hash_col = schema.hash_col(alphabet)
     sub = df[df['function'].isin([func_left, func_right])].copy()
     if alphabet == 'aa':
-        sub[hash_col] = sub['prot_seq'].astype(str).map(
-            lambda s: hashlib.md5(s.encode()).hexdigest()
-        )
+        sub[hash_col] = sub['prot_seq'].map(schema.sequence_md5)
     elif hash_col not in sub.columns:
         raise ValueError(
             f"alphabet={alphabet!r} requires the {hash_col!r} column on the input df"

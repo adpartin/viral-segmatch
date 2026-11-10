@@ -24,7 +24,6 @@ Alphabets:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -36,6 +35,7 @@ from typing import Optional
 import pandas as pd
 
 from src.utils import schema
+from src.utils.cds_utils import strip_terminal_stop
 
 # Dispatch table: alphabet -> {seq_col, hash_col}, derived from the schema
 # registry (single source of truth) for the unified exporter + parse_cluster_tsv
@@ -57,28 +57,23 @@ _ACTIVE_ALPHABETS = {'aa', 'nt_cds', 'nt_ctg'}
 
 
 def compute_prot_hash(prot_seq: str) -> str:
-    """md5 hex of the protein string (matches preprocess_flu.py).
+    """md5 hex of the protein string, from `schema.sequence_md5`.
 
     Caller-side helper for pre-hashing aa input before calling
     `export_function_fasta(alphabet='aa', ...)`: the unified exporter
     requires the hash column to be already present (matches the nt path
     where Stage 1.5 writes `cds_dna_hash` into cds_dna_final.parquet).
     """
-    return hashlib.md5(prot_seq.encode()).hexdigest()
+    return schema.sequence_md5(prot_seq)
 
 
 def clean_aa_for_mmseqs(prot_seq: str) -> str:
     """Strip trailing '*' (terminal stop). Leaves X residues intact (mmseqs handles them).
 
-    Raises if the sequence contains an internal '*' (Stage 1 already filters these,
-    but the assertion keeps callers honest if they pass a different df).
+    Calls `cds_utils.strip_terminal_stop`, which rejects empty inputs,
+    non-strings and internal '*'.
     """
-    if not isinstance(prot_seq, str) or len(prot_seq) == 0:
-        raise ValueError(f"prot_seq must be a non-empty string, got: {prot_seq!r}")
-    stripped = prot_seq.rstrip('*')
-    if '*' in stripped:
-        raise ValueError("prot_seq contains an internal '*' (stop codon) — drop the row before clustering")
-    return stripped
+    return strip_terminal_stop(prot_seq)
 
 
 def clean_nt_for_mmseqs(dna_seq: str) -> str:
@@ -231,11 +226,9 @@ def export_function_fasta(
     raw = sub[seq_col].astype(str)
     precomputed = sub[hash_col].astype(str)
 
-    # Safety net: recompute hash from seq and assert against precomputed.
-    # One md5/row; catches stale hashes that would silently produce wrong
-    # FASTA headers (the footgun the unified-exporter refactor was meant
-    # to close).
-    recomputed = raw.map(lambda s: hashlib.md5(s.encode()).hexdigest())
+    # Recompute the hash from the sequence and compare it with the stored column. One md5
+    # per row; without it a stale hash writes a wrong FASTA header and nothing reports it.
+    recomputed = raw.map(schema.sequence_md5)
     mismatch = (precomputed.values != recomputed.values)
     if mismatch.any():
         n_bad = int(mismatch.sum())
@@ -754,22 +747,6 @@ def filter_present_functions(df: pd.DataFrame, short_names: list, short_to_funct
     present = [f for f in short_names if short_to_function[f] in present_full]
     skipped = [f for f in short_names if f not in present]
     return present, skipped
-
-
-def read_fasta_hashes(fasta_path: Path) -> list:
-    """Return the record headers (= sequence hashes) of a FASTA, in file order.
-
-    `export_function_fasta` writes one record per unique sequence with the hash
-    as the header, so this is the exact node set for connected-component
-    clustering — including sequences with no `>= t` neighbour, which must stay
-    singletons.
-    """
-    hashes = []
-    with Path(fasta_path).open() as f:
-        for line in f:
-            if line.startswith('>'):
-                hashes.append(line[1:].strip())
-    return hashes
 
 
 def _build_mmseqs_search_cmd(

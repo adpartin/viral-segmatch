@@ -6,27 +6,39 @@ The pipeline represents each protein-coding segment three ways:
   - `nt_cds` — the CDS DNA    (`cds_dna_seq`, `cds_dna_hash`)
   - `nt_ctg` — the contig DNA (`ctg_dna_seq`, `ctg_dna_hash`)
 
-Every module that needs a per-alphabet column name, file basename, cluster dir,
-membership table, or k-mer cache basename reads it from `SCHEMA` here, so the
-convention lives in exactly one place. Do NOT add local `alphabet -> column`
-maps elsewhere; extend this registry instead.
+`SCHEMA` defines the per-alphabet column names, file basenames, cluster directory
+names, membership tables and k-mer cache basenames. Every module that needs one of
+these reads it from here, so the convention lives in one place. Do not add a local
+`alphabet -> column` map elsewhere; extend this registry instead.
 
 Naming convention (glossary `aa/nt vs protein/DNA`): the alphabet values
 (`aa`/`nt_cds`/`nt_ctg`) are alphabet/residue level — used for the enum, cluster
 dirs, and k-mer cache names. The molecule names (`prot`/`cds_dna`/`ctg_dna`) are
 molecule/sequence level — used for sequence columns, hashes, and file basenames.
 All three hashes are md5; the ESM-2 cache key is a separate `sha1(esm2_ready_seq)`
-namespace (the cleaned column, not `prot_seq` — chosen at
-`compute_esm2_embeddings.py:55`, hashed at `esm2_utils.py:643`) and is NOT
-modelled here. File *directories* (`data_version`/virus
+namespace for cleaned sequences, defined in `esm2_utils.py`.
+File *directories* (`data_version`/virus
 roots) live in `conf/paths`; this module owns only the *names* (basenames + columns).
 """
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 # Canonical ordering of the three sequence representations.
 ALPHABETS: tuple[str, ...] = ("aa", "nt_cds", "nt_ctg")
+
+
+def sequence_md5(sequence: object) -> str:
+    """Coerce the input with str() and return the UTF-8 MD5 of that string.
+
+    Args:
+        sequence: Value to hash; non-strings are converted with str().
+
+    Returns:
+        MD5 hex digest used by the persisted sequence hash columns.
+    """
+    return hashlib.md5(str(sequence).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

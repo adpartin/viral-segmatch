@@ -1,20 +1,10 @@
-"""Shared helpers for the segment-pair dataset builders (v1 and v2).
+"""Shared helpers for loading, filtering and splitting segment-pair datasets.
 
-This module exists because `dataset_segment_pairs.py` (v1) has script-level
-code that runs at import time (config loading, file I/O, dispatch). v2 cannot
-`from .dataset_segment_pairs import canonical_pair_key` without triggering the
-entire v1 pipeline. Pulling the pure helpers out into this module lets both
-v1 and v2 import them safely.
-
-Functions exposed here are pure (no module-level side effects). v1-specific
-pair generation, splitting, and saving stay in `dataset_segment_pairs.py`;
-v2-specific equivalents stay in `dataset_segment_pairs_v2.py`.
-
-Refactor history: extracted from v1 as part of the v2 implementation; v1's
-behavior is unchanged. See `docs/plans/done/design_dataset_gen_v2.md` §3.
+Dataset builders import these helpers without running the CLI in
+`dataset_segment_pairs.py`. Pair generation and output writing are in
+`dataset_segment_pairs_v2.py`.
 """
 
-import hashlib
 import json
 import random
 import sys
@@ -179,9 +169,7 @@ def attach_ctg_dna_to_prot_df(prot_df: pd.DataFrame, protein_input_path: Path) -
             "preprocess_flu.py run."
         )
 
-    merged["ctg_dna_hash"] = merged["ctg_dna_seq"].apply(
-        lambda s: hashlib.md5(str(s).encode()).hexdigest()
-    )
+    merged["ctg_dna_hash"] = merged["ctg_dna_seq"].map(schema.sequence_md5)
 
     n_unique_dna = merged["ctg_dna_hash"].nunique()
     print(f"  ctg_df: Total rows: {len(ctg_small):,};  unique ctg_dna_seq: {ctg_small['ctg_dna_seq'].nunique():,}")

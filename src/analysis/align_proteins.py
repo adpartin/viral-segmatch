@@ -13,7 +13,7 @@ Outputs under <out_dir>/<population>/<protein>/:
     mafft.log               MAFFT progress and selected strategy
     protein_input_hashes.csv  hash of each stop-free input protein
     protein_cds_map.csv     protein-to-CDS mapping with isolate counts
-    alignment_manifest.json  tool version, command, strategy and file hashes
+    alignment_manifest.json  tool version, command, strategy, runtime and file hashes
     alignment_validation.json  input recovery check for every aligned protein
     gap_locations.csv      gap positions for every aligned protein
     inspection_manifest.json  input and output hashes for the gap inspection
@@ -42,14 +42,17 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
-from src.utils.cds_utils import translate_dna  # noqa: E402
+from src.utils.cds_utils import strip_terminal_stop, translate_dna  # noqa: E402
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
 from src.utils.experiment_utils import file_sha256, get_git_info  # noqa: E402
+from src.utils.fasta_utils import read_fasta  # noqa: E402
 from src.utils.metadata_enrichment import (  # noqa: E402
     attach_isolate_metadata,
     filter_by_metadata,
     population_label,
 )
+from src.utils.schema import sequence_md5  # noqa: E402
+from src.utils.timer_utils import Timer  # noqa: E402
 
 CDS_COLUMNS = [
     'assembly_id', 'function', 'canonical_segment', 'cds_dna_hash',
@@ -123,14 +126,14 @@ def prepare_proteins(selected: pd.DataFrame) -> pd.DataFrame:
 
         if translated != row.prot_seq:
             raise ValueError(f'CDS {row.cds_dna_hash}: stored protein differs from translation.')
-        expected_hash = hashlib.md5(row.prot_seq.encode('utf-8')).hexdigest()
+        expected_hash = sequence_md5(row.prot_seq)
         if row.prot_hash != expected_hash:
             raise ValueError(f'CDS {row.cds_dna_hash}: stored protein hash differs from sequence.')
 
     proteins = unique_cds[['prot_hash', 'prot_seq']].drop_duplicates('prot_hash').copy()
     if proteins['prot_hash'].nunique() != unique_cds['prot_seq'].nunique():
         raise ValueError('One protein hash names more than one protein sequence.')
-    proteins['alignment_prot_seq'] = proteins['prot_seq'].str[:-1]
+    proteins['alignment_prot_seq'] = proteins['prot_seq'].map(strip_terminal_stop)
     proteins = proteins[['prot_hash', 'alignment_prot_seq']].sort_values('prot_hash')
     return proteins.reset_index(drop=True)
 
@@ -205,7 +208,8 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
     expected = selected[['prot_hash', 'prot_seq']].drop_duplicates('prot_hash')
     if expected['prot_hash'].nunique() != selected['prot_seq'].nunique():
         raise ValueError('A protein hash names more than one selected protein sequence.')
-    expected_sequences = dict(zip(expected['prot_hash'], expected['prot_seq'].str[:-1]))
+    expected_sequences = dict(zip(expected['prot_hash'],
+                                  expected['prot_seq'].map(strip_terminal_stop)))
     fasta_lines = fasta_path.read_text().splitlines()
     if len(fasta_lines) != 2 * len(expected_sequences):
         raise ValueError('Prepared FASTA does not have one two-line record per selected protein.')
@@ -226,7 +230,11 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
     version = (version_result.stdout or version_result.stderr).strip()
     command = [resolved_bin, '--amino', *MAFFT_STRATEGY_OPTIONS[strategy_name],
                '--thread', '1', str(fasta_path.resolve())]
+    # Timed here because MAFFT reports no timing of its own, and the file timestamps only
+    # bound it, since selection and alignment run separately.
+    mafft_timer = Timer()
     result = subprocess.run(command, capture_output=True, text=True, check=False)
+    mafft_timer.stop_timer()
     if result.returncode != 0:
         raise RuntimeError(f'MAFFT failed with exit code {result.returncode}:\n{result.stderr}')
     if not result.stdout.startswith('>'):
@@ -261,6 +269,7 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
         'mafft_version': version,
         'mafft_command': shlex.join(command) + f' > {shlex.quote(str(aligned_path.resolve()))}',
         'mafft_strategy': strategy,
+        'mafft_seconds': round(mafft_timer.elapsed, 1),
         'aligned_fasta_sha256': file_sha256(aligned_path),
         'mafft_log_sha256': file_sha256(log_path),
         'protein_count': len(input_sequences),
@@ -271,48 +280,6 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
     (out_dir / 'alignment_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print(f'MAFFT {version}: aligned {len(input_sequences):,} proteins with {strategy}.')
     print(f'Wrote alignment outputs to {out_dir}')
-
-
-def read_protein_fasta(path: Path) -> dict[str, str]:
-    """Read protein FASTA records keyed by their first header token.
-
-    Args:
-        path: FASTA file containing one or more protein records.
-
-    Returns:
-        Protein sequences keyed by their FASTA IDs.
-
-    Raises:
-        ValueError: A record is empty, repeated or missing its header.
-    """
-    records = {}
-    current_id = None
-    chunks = []
-
-    for line in path.read_text().splitlines():
-        if line.startswith('>'):
-            if current_id is not None:
-                sequence = ''.join(chunks)
-                if not sequence:
-                    raise ValueError(f'Empty FASTA sequence for {current_id} in {path}.')
-                records[current_id] = sequence
-            current_id = line[1:].split()[0] if line[1:].split() else None
-            if current_id is None or current_id in records:
-                raise ValueError(f'Empty or repeated FASTA ID in {path}.')
-            chunks = []
-        elif line.strip():
-            if current_id is None:
-                raise ValueError(f'FASTA sequence before its header in {path}.')
-            chunks.append(line.strip())
-
-    if current_id is not None:
-        sequence = ''.join(chunks)
-        if not sequence:
-            raise ValueError(f'Empty FASTA sequence for {current_id} in {path}.')
-        records[current_id] = sequence
-    if not records:
-        raise ValueError(f'No FASTA records in {path}.')
-    return records
 
 
 def validate_alignment(out_dir: Path, overwrite: bool) -> None:
@@ -347,8 +314,8 @@ def validate_alignment(out_dir: Path, overwrite: bool) -> None:
         if file_sha256(path) != manifest[hash_key]:
             raise ValueError(f'{path} does not match the alignment manifest hash.')
 
-    inputs = read_protein_fasta(input_path)
-    aligned = read_protein_fasta(aligned_path)
+    inputs = read_fasta(input_path)
+    aligned = read_fasta(aligned_path)
     if set(inputs) != set(aligned):
         missing = sorted(set(inputs) - set(aligned))
         extra = sorted(set(aligned) - set(inputs))
@@ -416,7 +383,7 @@ def inspect_alignment(out_dir: Path, overwrite: bool) -> None:
     if lengths_by_hash.ne(1).any():
         raise ValueError('A protein hash has more than one CDS length.')
     cds_lengths = selected.drop_duplicates('prot_hash').set_index('prot_hash')['cds_length']
-    aligned = read_protein_fasta(aligned_path)
+    aligned = read_fasta(aligned_path)
     if set(aligned) != set(cds_lengths.index):
         raise ValueError('Aligned protein IDs disagree with selected CDS records.')
 

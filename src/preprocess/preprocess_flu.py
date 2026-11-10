@@ -1,14 +1,13 @@
 """
 Preprocess protein and genome data from GTO files for Flu A.
 
-Unified script that parses each GTO file once and extracts both:
+Parses each GTO file once and extracts both:
 - Protein data -> protein_final.csv
 - Genome data  -> ctg_dna_final.csv
 
 See docs/methods/preprocess.md for the current reference (output schemas,
 filter pipeline, QC step coverage, why two output files instead of one
-merged DataFrame). This script absorbed and replaced the now-deleted
-preprocess_flu_protein.py.
+merged DataFrame).
 
 Example:
 ```bash
@@ -25,30 +24,31 @@ import random
 import sys
 from pathlib import Path
 from pprint import pprint
-from tqdm import tqdm
 from typing import Optional
 
 import pandas as pd
+from tqdm import tqdm
 
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from src.utils.timer_utils import Timer
 from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
-from src.utils.seed_utils import resolve_process_seed
-from src.utils.path_utils import resolve_run_suffix, build_preprocessing_paths, load_dataframe
+from src.utils.dna_utils import summarize_dna_qc
 from src.utils.experiment_utils import save_experiment_metadata, save_experiment_summary
 from src.utils.gto_utils import (
     extract_assembly_info,
     handle_assembly_duplicates,
 )
+from src.utils.path_utils import build_preprocessing_paths, load_dataframe, resolve_run_suffix
 from src.utils.protein_utils import (
     analyze_protein_ambiguities,
-    summarize_ambiguities,
     prepare_sequences_for_esm2,
-    print_replicon_func_count
+    print_replicon_func_count,
+    summarize_ambiguities,
 )
-from src.utils.dna_utils import summarize_dna_qc
+from src.utils.schema import sequence_md5
+from src.utils.seed_utils import resolve_process_seed
+from src.utils.timer_utils import Timer
 
 # Manual configs
 PROT_SEQ_COL_NAME = 'prot_seq'
@@ -705,12 +705,9 @@ def analyze_sequence_duplicates_for_pair_classification(
     print('='*50)
 
     # Compute sequence hash for deduplication
-    import hashlib
     prot_df = prot_df.copy()
     if 'seq_hash' not in prot_df.columns:
-        prot_df['seq_hash'] = prot_df['prot_seq'].apply(
-            lambda x: hashlib.md5(str(x).encode()).hexdigest()
-        )
+        prot_df['seq_hash'] = prot_df['prot_seq'].map(sequence_md5)
 
     # 1. Analyze individual sequence duplication across genomes
     print("\n1. Individual Sequence Duplication Analysis:")
@@ -1221,9 +1218,9 @@ del prot_dups, dup_counts, problematic_seqs_df, ambig_df
 print(f"\n{'='*50}")
 print("Save final protein data.")
 print('='*50)
-import hashlib  # Tier-2: produce the protein hash at its source stage (Stage 1), then only read it.
-prot_df['prot_hash'] = prot_df[PROT_SEQ_COL_NAME].map(
-    lambda s: hashlib.md5(str(s).encode()).hexdigest())
+# The protein hash is produced here, at its source stage; later stages read it and do not
+# recompute it.
+prot_df['prot_hash'] = prot_df[PROT_SEQ_COL_NAME].map(sequence_md5)
 prot_df.to_csv(output_dir / 'protein_final.csv', sep=',', index=False)
 prot_df.to_parquet(output_dir / 'protein_final.parquet', index=False)
 print(f'prot_df final: {prot_df.shape}')
@@ -1263,13 +1260,11 @@ genome_df = handle_genome_duplicates(genome_df, output_dir)
 print(f"\n{'='*50}")
 print("Save final contig-DNA data.")
 print('='*50)
-import hashlib
-# Tier-2: write the molecule-level contig schema -- rename dna_seq -> ctg_dna_seq and produce
-# the contig-DNA hash at its source stage. File renamed genome_final -> ctg_dna_final.
-# (genome_df keeps its internal 'dna_seq' name; only the persisted output is renamed.)
+# The persisted file is ctg_dna_final and holds the sequence in 'ctg_dna_seq'. genome_df keeps
+# its own 'dna_seq' name, so the column is renamed only on the way out. The contig hash is
+# produced here, at its source stage; later stages read it and do not recompute it.
 genome_out = genome_df.rename(columns={DNA_SEQ_COL_NAME: 'ctg_dna_seq'})
-genome_out['ctg_dna_hash'] = genome_out['ctg_dna_seq'].map(
-    lambda s: hashlib.md5(str(s).encode()).hexdigest())
+genome_out['ctg_dna_hash'] = genome_out['ctg_dna_seq'].map(sequence_md5)
 genome_out.to_csv(output_dir / 'ctg_dna_final.csv', sep=',', index=False)
 genome_out.to_parquet(output_dir / 'ctg_dna_final.parquet', index=False)
 del genome_out

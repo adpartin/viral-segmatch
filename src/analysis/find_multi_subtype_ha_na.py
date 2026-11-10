@@ -14,12 +14,12 @@ Output: data/processed/flu/{data_version}/multi_subtype_ha_na_qc.csv
         (one row per offending seq_hash)
 """
 
-import hashlib
 from pathlib import Path
 
 import pandas as pd
 
 from src.utils.metadata_enrichment import attach_isolate_metadata
+from src.utils.schema import sequence_md5
 
 HA_FUNCTION = "Hemagglutinin precursor"
 NA_FUNCTION = "Neuraminidase protein"
@@ -82,9 +82,7 @@ def main():
 
     if "seq_hash" not in df.columns:
         print("Computing seq_hash (md5 of prot_seq)...")
-        df["seq_hash"] = df["prot_seq"].apply(
-            lambda x: hashlib.md5(str(x).encode()).hexdigest()
-        )
+        df["seq_hash"] = df["prot_seq"].map(sequence_md5)
 
     print("Enriching with hn_subtype metadata...")
     df = attach_isolate_metadata(df, project_root=project_root)

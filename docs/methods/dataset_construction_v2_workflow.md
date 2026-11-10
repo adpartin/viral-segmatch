@@ -7,6 +7,11 @@ concrete production run. Every count here is verified from the run's
 for the broader pipeline framing see
 [`pipeline_overview.md`](pipeline_overview.md) §4–§6.
 
+This document uses the old column names `seq_hash` (current `prot_hash`) and
+`dna_hash` (current `ctg_dna_hash`). Pair-side `_a`/`_b` columns follow the same
+mapping. Audit keys and family labels retain their existing names; see the
+[glossary](glossary.md#project-specific).
+
 ## The example run
 
 - **Bundle:** `flu_ha_na_regimes` (HA / NA, regime-aware negative

@@ -1,4 +1,4 @@
-"""Unified per-(function, threshold) cluster builder: easy-linclust / easy-cluster / easy-search.
+"""Build clusters per function and identity threshold with mmseqs2.
 
 One driver, one swappable core. Two ORTHOGONAL axes (never a combined enum):
   - `--method {linclust, cluster, search}` — the mmseqs subcommand / clustering paradigm.
@@ -13,7 +13,7 @@ The shared skeleton (input load + function filter, the per-(function, threshold)
 the threshold sweep, combined-parquet aggregation, runtime.json, and the merged cluster_stats.csv)
 lives here once; only the actual clustering call differs by method. `build_mmseqs_clusters.py`
 (default `--method linclust`) and `build_ood_clusters.py` (default `--method search`) are thin
-back-compat shims over this file.
+CLI wrappers for this module.
 
 CLI help convention: each arg is tagged `[mmseqs2: --flag]` (passed through to mmseqs; source of
 truth is `mmseqs <sub> --help`, not the web docs) or `[builder]` (our orchestration).
@@ -77,7 +77,6 @@ from src.utils.clustering_utils import (  # noqa: E402
     filter_present_functions,
     load_sequence_frame,
     parse_cluster_tsv,
-    read_fasta_hashes,
     read_hits_tsv,
     run_mmseqs_easy_clust,
     run_mmseqs_search,
@@ -86,6 +85,7 @@ from src.utils.clustering_utils import (  # noqa: E402
     write_runtime_json,
 )
 from src.utils.config_hydra import load_function_metadata  # noqa: E402
+from src.utils.fasta_utils import read_fasta_hashes  # noqa: E402
 from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata  # noqa: E402
 
 _FLU_YAML = PROJECT_ROOT / 'conf' / 'virus' / 'flu.yaml'

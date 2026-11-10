@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.analysis.align_proteins import read_protein_fasta
 from src.utils.experiment_utils import file_sha256, get_git_info
+from src.utils.fasta_utils import read_fasta
 
 OUTPUT_NAMES = (
     'group_length_summary.csv', 'gap_pattern_summary.csv',
@@ -58,7 +58,7 @@ def summarize(alignment_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
 
     selected = pd.read_parquet(paths['selected_cds.parquet'])
     gaps = pd.read_csv(paths['gap_locations.csv'])
-    aligned = read_protein_fasta(paths['aligned_proteins.fasta'])
+    aligned = read_fasta(paths['aligned_proteins.fasta'])
     if (set(selected.prot_hash) != set(gaps.prot_hash)
             or set(gaps.prot_hash) != set(aligned)):
         raise ValueError('Protein IDs differ among selection, gap table and alignment.')
