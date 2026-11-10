@@ -60,6 +60,11 @@ symbols, a **leading gap** is a `-` before the first, and a protein symbol is an
 amino acid or an `X`. A **gap pattern** is one protein's full set of gap columns.
 In the schematics, `res` stands for one protein symbol.
 
+A leading gap does not mean a missing start codon. It means another protein's
+first residue sits further left in the alignment. Both records with leading
+gaps here begin with ATG: NP's 1461-nt record starts 12 codons downstream of
+the other NP records, and one HA record starts 4 codons upstream of the others.
+
 Part 2's table works the same way in every section. A CDS length gets its own
 row if it holds at least 0.1% of that protein's complete records. If a protein
 has 3 lengths or fewer, every length gets a row. The rest share one "Other
@@ -190,7 +195,7 @@ section. However, extending the population to the one Task 2 uses drops
 `frac at mode` at 693 nt to 0.502, so NS1 has no pin there.
 
 
-## PB2
+## PB2 (Segment 1)
 
 ### 1. Inputs
 
@@ -216,14 +221,15 @@ section. However, extending the population to the one Task 2 uses drops
 | 2280 nt | 60,413 | 36,879 | 15,230 | None | 7 | None |
 | 17 other lengths | 61 | 60 | 60 | 0 to 10 | 6 to 31 | 0 to 10 |
 
-Proteins at 2280 nt have 2 gap patterns. The biggest covers 15,229 of the
-15,230.
+Proteins at 2280 nt have 2 gap patterns. The biggest pattern covers 15,229 of
+the 15,230.
 
-2280-nt proteins use 760 of the 766 columns. The other 6 are columns 42–45, 348
-and 678. Only the rare 2268-nt and 2283-nt forms reach them.
+No 2280-nt protein has a residue in columns 42–45, 348 or 678, so 2280-nt
+proteins use 760 of the 766 columns. Those 6 columns are in the alignment
+because the rare 2268-nt and 2283-nt forms do have residues there.
 
-The modal length's 7 internal gap columns are 42–45, 348, 575 and 678, and they
-are the whole of the extra width.
+2280 nt has 7 internal gap columns: 42–45, 348, 575 and 678. They are the whole
+of the extra width.
 
 ### 3. Stop codon columns
 
@@ -297,7 +303,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 hashes and code state. This alignment ran before `mafft_seconds` was added, so
 its manifest has no runtime.
 
-## PB1
+## PB1 (Segment 2)
 
 ### 1. Inputs
 
@@ -323,11 +329,14 @@ its manifest has no runtime.
 | 2277 nt | 6,095 | 3,768 | 1,110 | None | 14 to 15 | 3 to 4 |
 | 16 other lengths | 50 | 50 | 50 | None | 15 to 41 | 0 to 11 |
 
-Proteins at 2274 nt have 3 gap patterns. The biggest covers 12,058 of the
-12,060.
+Proteins at 2274 nt have 3 gap patterns. The biggest pattern covers 12,058 of
+the 12,060.
 
-The listed lengths use 762 of the 776 columns. The other 14 are columns 718–728
-and 774–776. Only the rare 2217-nt and 2232-nt forms reach them.
+No listed length has a residue in columns 718–728 or 774–776, so the listed
+lengths use 762 of the 776 columns. Those 14 columns are in the alignment
+because the rare 2217-nt and 2232-nt forms do have residues there.
+
+2274 nt has 15 internal gap columns: 77–79, 389 and 718–728.
 
 The two main lengths are the same form, one codon apart at the C-terminus.
 Their internal gaps are identical and only their trailing run differs, by the
@@ -422,7 +431,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 hashes and code state. This alignment ran before `mafft_seconds` was added, so
 its manifest has no runtime.
 
-## PA
+## PA (Segment 3)
 
 ### 1. Inputs
 
@@ -447,15 +456,16 @@ its manifest has no runtime.
 | 2151 nt | 60,332 | 35,609 | 15,897 | None | 26 | 2 |
 | 13 other lengths | 64 | 50 | 42 | 0 to 20 | 22 to 49 | 0 to 25 |
 
-Proteins at 2151 nt have 2 gap patterns. The biggest covers 15,896 of the
-15,897.
+Proteins at 2151 nt have 2 gap patterns. The biggest pattern covers 15,896 of
+the 15,897.
 
-2151-nt proteins use 721 of the 744 columns. The other 23 are columns 48–49,
-77, 82–83, 624, 641–650, 660–663, 703 and 743–744. Only the rare 2073-nt,
-2154-nt, 2157-nt, 2160-nt and 2163-nt forms reach them.
+No 2151-nt protein has a residue in columns 48–49, 77, 82–83, 624, 641–650,
+660–663, 703 or 743–744, so 2151-nt proteins use 721 of the 744 columns. Those
+23 columns are in the alignment because the rare 2073-nt, 2154-nt, 2157-nt,
+2160-nt and 2163-nt forms do have residues there.
 
-The modal length's 26 internal gap columns are 48–49, 77, 82–83, 94–98, 624,
-641–650, 660–663 and 703.
+2151 nt has 26 internal gap columns: 48–49, 77, 82–83, 94–98, 624, 641–650,
+660–663 and 703.
 
 The biggest of the rare lengths is 2157 nt, at 39 isolates. Its main form is
 the modal form with two more codons at the C-terminus, which is how it fills
@@ -540,7 +550,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 hashes and code state. This alignment ran before `mafft_seconds` was added, so
 its manifest has no runtime.
 
-## HA
+## HA (Segment 4)
 
 ### 1. Inputs
 
@@ -569,12 +579,15 @@ its manifest has no runtime.
 | 1707 nt | 63 | 56 | 50 | 0 to 4 | 40 to 44 | None |
 | 5 other lengths | 49 | 48 | 43 | 4 to 14 | 39 to 48 | None |
 
-Proteins at 1701 nt have 6 gap patterns. The biggest covers 10,274 of the
-18,606.
+Proteins at 1701 nt have 6 gap patterns. The biggest pattern covers 10,274 of
+the 18,606.
 
-The listed lengths use 603 of the 612 columns. The other 9 are columns 20, 321,
-335–337, 375 and 601–603. Only the rare 1683-nt, 1686-nt and 1710-nt forms
-reach them.
+No listed length has a residue in columns 20, 321, 335–337, 375 or 601–603, so
+the listed lengths use 603 of the 612 columns. Those 9 columns are in the
+alignment because the rare 1683-nt, 1686-nt and 1710-nt forms do have residues
+there.
+
+1701 nt has 42 internal gap columns, which `gap_pattern_summary.csv` lists.
 
 Every form begins at column 5, because columns 1 to 4 belong to one protein
 only.
@@ -674,7 +687,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 hashes and code state. This alignment ran before `mafft_seconds` was added, so
 its manifest has no runtime.
 
-## NP
+## NP (Segment 5)
 
 ### 1. Inputs
 
@@ -701,7 +714,9 @@ its manifest has no runtime.
 
 All 7,249 proteins at 1497 nt have the same gap pattern.
 
-The listed lengths use all 498 columns.
+The listed lengths use all 498 columns, so no rare length adds width.
+
+1497 nt has no internal gap columns.
 
 The 1461-nt form is the 1497-nt form without its first 12 codons. Its gaps are
 leading rather than internal, so it starts at column 13 and ends at column 498
@@ -770,7 +785,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 hashes and code state. This alignment ran before `mafft_seconds` was added, so
 its manifest has no runtime.
 
-## NA
+## NA (Segment 6)
 
 ### 1. Inputs
 
@@ -797,12 +812,16 @@ its manifest has no runtime.
 | 1413 nt | 129 | 59 | 55 | None | 70 to 73 | 0 to 3 |
 | 13 other lengths | 68 | 61 | 50 | 0 to 14 | 67 to 93 | 0 to 2 |
 
-Proteins at 1410 nt have 9 gap patterns. The biggest covers 8,510 of the
-16,843.
+Proteins at 1410 nt have 9 gap patterns. The biggest pattern covers 8,510 of
+the 16,843.
 
-The listed lengths use 534 of the 543 columns. The other 9 are columns 65,
-456–457, 467–471 and 501. Only the rare 1353-nt, 1416-nt, 1422-nt and 1428-nt
-forms reach them.
+No listed length has a residue in columns 65, 456–457, 467–471 or 501, so the
+listed lengths use 534 of the 543 columns. Those 9 columns are in the alignment
+because the rare 1353-nt, 1416-nt, 1422-nt and 1428-nt forms do have residues
+there.
+
+1410 nt has 66 to 73 internal gap columns, depending on the pattern, which
+`gap_pattern_summary.csv` lists.
 
 Every length carries internal gaps, including the modal one.
 
@@ -915,7 +934,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 `gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
 hashes and code state, and the alignment manifest records `mafft_seconds` 365.6.
 
-## M1
+## M1 (Segment 7)
 
 ### 1. Inputs
 
@@ -942,7 +961,9 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 365.6.
 
 All 1,947 proteins at 759 nt have the same gap pattern.
 
-The listed lengths use all 252 columns.
+The listed lengths use all 252 columns, so no rare length adds width.
+
+759 nt has no internal gap columns.
 
 The 726-nt form is not a truncated 759-nt form. It is the 759-nt form with 11
 codons missing in the middle, at columns 31–41:
@@ -1011,7 +1032,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 `gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
 hashes and code state, and the alignment manifest records `mafft_seconds` 3.9.
 
-## NS1
+## NS1 (Segment 8)
 
 ### 1. Inputs
 
@@ -1042,9 +1063,12 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 3.9.
 
 All 4,926 proteins at 693 nt have the same gap pattern.
 
-The listed lengths use 230 of the 240 columns. The other 10 are columns 74,
-112, 132 and 234–240. Only the rare 663-nt, 696-nt, 699-nt and 714-nt forms
-reach them.
+No listed length has a residue in columns 74, 112, 132 or 234–240, so the
+listed lengths use 230 of the 240 columns. Those 10 columns are in the
+alignment because the rare 663-nt, 696-nt, 699-nt and 714-nt forms do have
+residues there.
+
+693 nt has 3 internal gap columns: 74, 112 and 132.
 
 The 678-nt form is not a truncated 693-nt form. It is the 693-nt form with 5
 codons missing in the middle, at columns 81–85:
@@ -1176,7 +1200,7 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 `gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
 hashes and code state.
 
-## NS1 on Human-H3N2-2024 (Task 1 population)
+## NS1 on Human-H3N2-2024 (Segment 8, Task 1 population)
 
 The first alignment run, on 2026-11-05, where the method was worked out. It is
 on the population Task 1 uses, so it is the one section not measured on the

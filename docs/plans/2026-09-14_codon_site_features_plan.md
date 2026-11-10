@@ -429,7 +429,7 @@ bases absent from a truncated record.
 
 The pilot artifacts are under
 `results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The sequence examples and
-interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-09_protein_alignment.md#ns1-on-human-h3n2-2024-task-1-population).
+interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-09_protein_alignment.md#ns1-on-human-h3n2-2024-segment-8-task-1-population).
 
 ### Progress
 
