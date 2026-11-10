@@ -70,7 +70,7 @@ Table columns below:
 - `frac isolates complete`: share of isolates (the 108,530) whose CDS for the protein passes the completeness check: isolates with a complete CDS / isolates carrying the protein.
 - `frac isolates at mode`: share of isolates (the 108,530) whose CDS is complete and has the modal length: isolates with a complete CDS at the mode / isolates carrying the protein. This is the share of the isolate population retained by pinning the protein to its modal length.
 
-| Segment ID | protein | unique CDS | complete CDS | min | max | median | mode | complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
+| Segment ID | Protein | Unique CDS | Complete CDS | min | max | median | mode | Complete CDS at mode | frac at mode | frac isolates complete | frac isolates at mode |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | PB2 | 67,341 | 66,356 | 2,199 | 2,283 | 2,280 | 2,280 | 66,210 | 0.998 | 0.990 | 0.989 |
 | 2 | PB1 | 67,034 | 63,574 | 2,193 | 2,292 | 2,274 | 2,274 | 58,925 | 0.927 | 0.949 | 0.882 |
