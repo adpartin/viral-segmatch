@@ -13,16 +13,24 @@ artifacts:      results/flu/July_2025/cds_alignment_pilot/<population>/<protein>
 
 ## Why this is measured
 
-Per-site codon features need one pinned CDS length per protein, so that every
-record has the same number of columns. A population with several CDS lengths for
-a protein has no such pin. Aligning the proteins is the alternative: it gives a
-set of columns that records of different lengths can share.
+Per-site codon features need the same sites in every record, so that position
+200 represents the same place in each record. For each protein, there are two
+ways to obtain those sites:
 
-The alignment is also what decides whether a protein can be modelled at all on a
-given population. `check_cds_length` needs `frac at mode` to reach 0.90 before it
-will accept a pin, where `frac at mode` is the share of unique complete CDS whose
-length equals the mode. Where no length reaches that, the choice is to align or
-to drop the protein.
+1. **Pinned CDS length.** Use the fixed length for the protein from
+   `conf/virus/flu.yaml`, then keep only complete CDS at that length.
+   `check_cds_length` accepts the pin only when it equals the observed mode and
+   at least 90% of unique complete CDS have the pinned length. The mode checks
+   the configured pin; it does not set it.
+2. **Protein alignment.** Align the translated proteins across all observed
+   complete CDS lengths. The alignment columns estimate which sites correspond
+   across records of different lengths. Under the proposed codon mapping, empty
+   positions in shorter forms become `GAP` or `AFTER_STOP` rather than causing
+   those records to be dropped.
+
+If a protein has no usable pin, the alternatives are to align it or to drop it.
+NS1 has no configured pin because its CDS length varies across subtypes and
+years, so this analysis measures the alignment route.
 
 ## The population
 
@@ -31,8 +39,8 @@ set in `docs/plans/2026-10-08_paper_plan.md`. Filters: host `[Human, Swine,
 Chicken, Duck]`, subtype `[H3N2, H1N1, H5N1]`, year `2010–2025`. `host` is a
 host group, so `Duck` covers 54 animal names and `Chicken` covers 3.
 
-The one section measured on a different population says so in its title. That is
-the Task 1 population, Human-H3N2-2024, where the method was piloted.
+The one section on a different population names it in the title: NS1 on
+Human-H3N2-2024, the Task 1 population where the method was first run.
 
 ## How to read these sections
 
@@ -162,9 +170,9 @@ Column:     216        226        236
 654 nt:     PLTPK----- ---------- -----     last symbol 220, stop in 221
 ```
 
-A codon feature table for this population needs 241 columns, not 240. The 714-nt
-form fills every protein column, so its stop codon needs one more. This mapping
-is not implemented.
+The alignment has 240 amino-acid columns, but the codon representation needs 241
+site features to accommodate the terminal stop codon of the 714-nt form. This
+mapping is not implemented.
 
 The 693-nt and 678-nt forms put their stop codons in the same column, 234. That
 follows from the internal deletion: the two forms differ in the middle, not at
@@ -226,7 +234,7 @@ that, and the 672-nt form appears only in 2016 and 2018–2020 and 2022.
 * The 678-nt internal deletion is the first internal gap in this protein carried
   by more than a handful of records: 205 unique proteins over 341 isolates, plus
   the single 699-nt isolate, so 206 proteins and 342 isolates have a gap at
-  columns 81–85. The Human-H3N2-2024 pilot had no internal gaps at all. Under
+  columns 81–85. The Human-H3N2-2024 run had no internal gaps at all. Under
   the proposed codon feature mapping these 5 columns take the `GAP` state, not
   `AFTER_STOP`, because they sit between protein symbols rather than after a
   stop codon.
@@ -262,9 +270,9 @@ hashes and code state.
 
 ## NS1 on Human-H3N2-2024 (Task 1 population)
 
-The first alignment run, on 2026-11-05. It is the pilot for the method, on the
-population Task 1 uses, so it is the one section not measured on the Task 2
-population.
+The first alignment run, on 2026-11-05, where the method was worked out. It is
+on the population Task 1 uses, so it is the one section not measured on the
+Task 2 population.
 
 ### 1. Inputs
 
