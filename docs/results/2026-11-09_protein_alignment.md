@@ -1,6 +1,7 @@
 # Protein alignment for codon features
 
 ```yaml
+
 # Provenance. status: current | at-risk (inputs changed, not rebuilt) | superseded (replaced)
 status:         current
 date:           2026-11-09
@@ -66,7 +67,8 @@ This alignment does not:
   proposal read off the gap pattern, not a measurement.
 * Show that a column represents the same biological position in every record.
   The alignment is an estimate of positional correspondence.
-* Recover bases absent from a truncated record. These runs use complete CDS only.
+* Recover bases absent from a truncated record. These runs use complete CDS
+  only.
 
 
 ## Method
@@ -179,18 +181,19 @@ section. However, extending the population to the one Task 2 uses drops
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 60,474 (99.5%) had a complete CDS. They contained
-36,939 unique CDS and 15,290 unique proteins across 18 CDS lengths and 147
-host–subtype–year groups. 1,296 isolates and 1,197 unique proteins contain an
-`X`, all at 2280 nt.
-
-PB2 has a usable pin at 2280 nt. 36,879 of the 36,939 unique complete CDS are
-2280 nt, against the 0.90 `check_cds_length` needs. `conf/virus/flu.yaml` pins
-PB2 at 2280 nt and the observed mode agrees.
-
-MAFFT used FFT-NS-2 and produced 766 columns. Removing `-` recovered the exact
-input protein for all 15,290. A 2280-nt CDS is 759 amino acids, so the
-alignment adds 7 columns beyond the modal protein length.
+* **Records.** Of 60,751 filtered isolates, 60,474 (99.5%) had a complete CDS
+  and 277 were dropped as incomplete.
+* **Sequences.** 36,939 unique CDS and 15,290 unique proteins, across 18 CDS
+  lengths and 147 host–subtype–year groups.
+* **Unknown residues.** 1,296 isolates and 1,197 unique proteins contain an
+  `X`, all 1,296 at 2280 nt.
+* **Pin.** PB2 has a usable pin at 2280 nt. 36,879 of the 36,939 unique
+  complete CDS are 2280 nt, a share of 0.998, against the 0.90
+  `check_cds_length` needs. `conf/virus/flu.yaml` pins PB2 at 2280 nt and the
+  observed mode agrees.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 766 columns. Removing `-`
+  recovered the exact input protein for all 15,290. A 2280-nt CDS is 759 amino
+  acids, so the alignment adds 7 columns.
 
 ### 2. Lengths and gaps
 
@@ -279,18 +282,18 @@ its manifest has no runtime.
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 56,093 (92.3%) had a complete CDS, so 4,658 were
-dropped as incomplete. They contained 34,642 unique CDS and 13,220 unique
-proteins across 18 CDS lengths and 147 host–subtype–year groups. 1,325 isolates
-and 1,158 unique proteins contain an `X`.
-
-PB1 has no usable pin. 30,824 of the 34,642 unique complete CDS are 2274 nt, a
-share of 0.890, below the 0.90 `check_cds_length` needs. `conf/virus/flu.yaml`
-has no `cds_length` entry for PB1.
-
-MAFFT used FFT-NS-2 and produced 776 columns. Removing `-` recovered the exact
-input protein for all 13,220. A 2274-nt CDS is 757 amino acids, so the
-alignment adds 19 columns beyond the modal protein length.
+* **Records.** Of 60,751 filtered isolates, 56,093 (92.3%) had a complete CDS
+  and 4,658 were dropped as incomplete.
+* **Sequences.** 34,642 unique CDS and 13,220 unique proteins, across 18 CDS
+  lengths and 147 host–subtype–year groups.
+* **Unknown residues.** 1,325 isolates and 1,158 unique proteins contain an
+  `X`, 1,136 of them at 2274 nt.
+* **Pin.** PB1 has no usable pin. 30,824 of the 34,642 unique complete CDS are
+  2274 nt, a share of 0.890, below the 0.90 `check_cds_length` needs.
+  `conf/virus/flu.yaml` pins no length for PB1.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 776 columns. Removing `-`
+  recovered the exact input protein for all 13,220. A 2274-nt CDS is 757 amino
+  acids, so the alignment adds 19 columns.
 
 ### 2. Lengths and gaps
 
@@ -397,18 +400,18 @@ its manifest has no runtime.
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 60,396 (99.4%) had a complete CDS. They contained
-35,659 unique CDS and 15,939 unique proteins across 14 CDS lengths and 147
-host–subtype–year groups. 1,349 isolates and 1,203 unique proteins contain an
-`X`, almost all at 2151 nt.
-
-PA has a usable pin at 2151 nt. 35,609 of the 35,659 unique complete CDS are
-2151 nt, against the 0.90 `check_cds_length` needs. `conf/virus/flu.yaml` pins
-PA at 2151 nt and the observed mode agrees.
-
-MAFFT used FFT-NS-2 and produced 744 columns. Removing `-` recovered the exact
-input protein for all 15,939. A 2151-nt CDS is 716 amino acids, so the
-alignment adds 28 columns beyond the modal protein length.
+* **Records.** Of 60,751 filtered isolates, 60,396 (99.4%) had a complete CDS
+  and 355 were dropped as incomplete.
+* **Sequences.** 35,659 unique CDS and 15,939 unique proteins, across 14 CDS
+  lengths and 147 host–subtype–year groups.
+* **Unknown residues.** 1,349 isolates and 1,203 unique proteins contain an
+  `X`, 1,348 of them at 2151 nt.
+* **Pin.** PA has a usable pin at 2151 nt. 35,609 of the 35,659 unique complete
+  CDS are 2151 nt, a share of 0.999, against the 0.90 `check_cds_length` needs.
+  `conf/virus/flu.yaml` pins PA at 2151 nt and the observed mode agrees.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 744 columns. Removing `-`
+  recovered the exact input protein for all 15,939. A 2151-nt CDS is 716 amino
+  acids, so the alignment adds 28 columns.
 
 ### 2. Lengths and gaps
 
@@ -505,18 +508,18 @@ its manifest has no runtime.
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 60,282 (99.2%) had a complete CDS. They contained
-35,509 unique CDS and 19,841 unique proteins across 10 CDS lengths and 147
-host–subtype–year groups. 1,797 isolates and 1,613 unique proteins contain an
-`X`, almost all at 1701 nt.
-
-HA has a usable pin at 1701 nt. 33,492 of the 35,509 unique complete CDS are
-1701 nt, a share of 0.943, against the 0.90 `check_cds_length` needs.
-`conf/virus/flu.yaml` pins HA at 1701 nt and the observed mode agrees.
-
-MAFFT used FFT-NS-2 and produced 612 columns. Removing `-` recovered the exact
-input protein for all 19,841. A 1701-nt CDS is 566 amino acids, so the
-alignment adds 46 columns beyond the modal protein length.
+* **Records.** Of 60,751 filtered isolates, 60,282 (99.2%) had a complete CDS
+  and 469 were dropped as incomplete.
+* **Sequences.** 35,509 unique CDS and 19,841 unique proteins, across 10 CDS
+  lengths and 147 host–subtype–year groups.
+* **Unknown residues.** 1,797 isolates and 1,613 unique proteins contain an
+  `X`, 1,756 of them at 1701 nt.
+* **Pin.** HA has a usable pin at 1701 nt. 33,492 of the 35,509 unique complete
+  CDS are 1701 nt, a share of 0.943, against the 0.90 `check_cds_length` needs.
+  `conf/virus/flu.yaml` pins HA at 1701 nt and the observed mode agrees.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 612 columns. Removing `-`
+  recovered the exact input protein for all 19,841. A 1701-nt CDS is 566 amino
+  acids, so the alignment adds 46 columns.
 
 ### 2. Lengths and gaps
 
@@ -632,17 +635,18 @@ its manifest has no runtime.
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 60,040 (98.8%) had a complete CDS. They contained
-27,087 unique CDS and 7,250 unique proteins across 2 CDS lengths and 147
-host–subtype–year groups. 541 isolates and 436 unique proteins contain an `X`,
-all at 1497 nt.
-
-NP has a usable pin at 1497 nt. 27,086 of the 27,087 unique complete CDS are
-1497 nt, against the 0.90 `check_cds_length` needs. `conf/virus/flu.yaml` pins
-NP at 1497 nt and the observed mode agrees.
-
-MAFFT used FFT-NS-2 and produced 498 columns. Removing `-` recovered the exact
-input protein for all 7,250.
+* **Records.** Of 60,751 filtered isolates, 60,040 (98.8%) had a complete CDS
+  and 711 were dropped as incomplete.
+* **Sequences.** 27,087 unique CDS and 7,250 unique proteins, across 2 CDS
+  lengths and 147 host–subtype–year groups.
+* **Unknown residues.** 541 isolates and 436 unique proteins contain an `X`,
+  all 541 at 1497 nt.
+* **Pin.** NP has a usable pin at 1497 nt. 27,086 of the 27,087 unique complete
+  CDS are 1497 nt, a share of 1.000, against the 0.90 `check_cds_length` needs.
+  `conf/virus/flu.yaml` pins NP at 1497 nt and the observed mode agrees.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 498 columns. Removing `-`
+  recovered the exact input protein for all 7,250. A 1497-nt CDS is 498 amino
+  acids, so the alignment adds no columns.
 
 ### 2. Lengths and gaps
 
@@ -722,18 +726,18 @@ its manifest has no runtime.
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 59,856 (98.5%) had a complete CDS. They contained
-31,157 unique CDS and 17,267 unique proteins across 16 CDS lengths and 146
-host–subtype–year groups. 1,637 isolates and 1,137 unique proteins contain an
-`X`, almost all at 1410 nt.
-
-NA has a usable pin at 1410 nt. 30,630 of the 31,157 unique complete CDS are
-1410 nt, a share of 0.983, against the 0.90 `check_cds_length` needs.
-`conf/virus/flu.yaml` pins NA at 1410 nt and the observed mode agrees.
-
-MAFFT used FFT-NS-2 and produced 543 columns. Removing `-` recovered the exact
-input protein for all 17,267. A 1410-nt CDS is 469 amino acids, so the
-alignment adds 74 columns beyond the modal protein length.
+* **Records.** Of 60,751 filtered isolates, 59,856 (98.5%) had a complete CDS
+  and 895 were dropped as incomplete.
+* **Sequences.** 31,157 unique CDS and 17,267 unique proteins, across 16 CDS
+  lengths and 146 host–subtype–year groups.
+* **Unknown residues.** 1,637 isolates and 1,137 unique proteins contain an
+  `X`, 1,627 of them at 1410 nt.
+* **Pin.** NA has a usable pin at 1410 nt. 30,630 of the 31,157 unique complete
+  CDS are 1410 nt, a share of 0.983, against the 0.90 `check_cds_length` needs.
+  `conf/virus/flu.yaml` pins NA at 1410 nt and the observed mode agrees.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 543 columns. Removing `-`
+  recovered the exact input protein for all 17,267. A 1410-nt CDS is 469 amino
+  acids, so the alignment adds 74 columns.
 
 ### 2. Lengths and gaps
 
@@ -864,17 +868,18 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 365.6.
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 60,566 (99.7%) had a complete CDS. They contained
-14,573 unique CDS and 1,948 unique proteins across 2 CDS lengths and 147
-host–subtype–year groups. 425 isolates and 185 unique proteins contain an `X`,
-all at 759 nt.
-
-M1 has a usable pin at 759 nt. `frac at mode` is 0.9999, because 14,572 of the
-14,573 unique complete CDS are 759 nt, against the 0.90 `check_cds_length`
-needs. `conf/virus/flu.yaml` pins M1 at 759 nt and the observed mode agrees.
-
-MAFFT used FFT-NS-2 and produced 252 columns. Removing `-` recovered the exact
-input protein for all 1,948.
+* **Records.** Of 60,751 filtered isolates, 60,566 (99.7%) had a complete CDS
+  and 185 were dropped as incomplete.
+* **Sequences.** 14,573 unique CDS and 1,948 unique proteins, across 2 CDS
+  lengths and 147 host–subtype–year groups.
+* **Unknown residues.** 425 isolates and 185 unique proteins contain an `X`,
+  all 425 at 759 nt.
+* **Pin.** M1 has a usable pin at 759 nt. 14,572 of the 14,573 unique complete
+  CDS are 759 nt, a share of 1.000, against the 0.90 `check_cds_length` needs.
+  `conf/virus/flu.yaml` pins M1 at 759 nt and the observed mode agrees.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 252 columns. Removing `-`
+  recovered the exact input protein for all 1,948. A 759-nt CDS is 252 amino
+  acids, so the alignment adds no columns.
 
 ### 2. Lengths and gaps
 
@@ -954,15 +959,18 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 3.9.
 
 ### 1. Inputs
 
-Of 60,751 filtered isolates, 60,654 (99.8%) had a complete CDS. They contained
-18,107 unique CDS and 10,130 unique proteins across 16 CDS lengths and 147
-host–subtype–year groups. 957 isolates and 551 unique proteins contain an `X`.
-
-No single pinned length is available. `frac at mode` is 0.502, at 693 nt, then
-0.455 at 660 nt, against the 0.90 `check_cds_length` needs.
-
-MAFFT used FFT-NS-2 and produced 240 columns. Removing `-` recovered the
-exact input protein for all 10,130.
+* **Records.** Of 60,751 filtered isolates, 60,654 (99.8%) had a complete CDS
+  and 97 were dropped as incomplete.
+* **Sequences.** 18,107 unique CDS and 10,130 unique proteins, across 16 CDS
+  lengths and 147 host–subtype–year groups.
+* **Unknown residues.** 957 isolates and 551 unique proteins contain an `X`,
+  679 of them at 693 nt.
+* **Pin.** NS1 has no usable pin. 9,097 of the 18,107 unique complete CDS are
+  693 nt, a share of 0.502, below the 0.90 `check_cds_length` needs.
+  `conf/virus/flu.yaml` pins no length for NS1.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 240 columns. Removing `-`
+  recovered the exact input protein for all 10,130. A 693-nt CDS is 230 amino
+  acids, so the alignment adds 10 columns.
 
 ### 2. Lengths and gaps
 
@@ -1067,7 +1075,8 @@ that, and the 672-nt form appears only in 2016 and 2018–2020 and 2022.
   complete CDS, below the 0.90 floor, and `conf/virus/flu.yaml` pins no length
   for it.
 * No pin is available, so the pinning cost does not apply.
-* The 678-nt internal deletion is the first internal gap in this protein carried
+* The 678-nt internal deletion is the first internal gap in this protein
+  carried
   by more than a handful of records: 205 unique proteins over 341 isolates, plus
   the single 699-nt isolate, so 206 proteins and 342 isolates have a gap at
   columns 81–85. The Human-H3N2-2024 run had no internal gaps at all. Under
@@ -1080,7 +1089,8 @@ that, and the 672-nt form appears only in 2016 and 2018–2020 and 2022.
 * The 660-nt and 693-nt forms cover 59,059 of the 60,654 complete records
   (97.4%). Adding 654, 672 and 678 nt reaches 60,595 (99.9%). The 714-nt form
   accounts for 16 isolates and the ten other lengths for 43.
-* Columns 74, 112 and 132 each hold a protein symbol in exactly one protein; the
+* Columns 74, 112 and 132 each hold a protein symbol in exactly one protein;
+  the
   other 10,129 have a gap.
 * Columns 234–240 hold a protein symbol in only 12 proteins, from 17 isolates,
   which are the 714-nt and 699-nt forms. 188 of the 240 columns hold a protein
@@ -1112,16 +1122,20 @@ Task 2 population.
 
 ### 1. Inputs
 
-Of 5,346 filtered isolates, 5,337 (99.8%) had a complete CDS. They contained
-1,132 unique CDS and 560 unique proteins in one host–subtype–year group. 48
-isolates and 48 unique proteins contain an `X`, all at 693 nt.
-
-This population has a usable pin. `frac at mode` is 0.991, at 693 nt, against the
-0.90 `check_cds_length` needs.
-
-MAFFT used FFT-NS-2 and produced 230 columns. Removing `-` recovered the
-exact input protein for all 560. This run asked for `--auto` rather than the
-flags in Method.
+* **Records.** Of 5,346 filtered isolates, 5,337 (99.8%) had a complete CDS and
+  9 were dropped as incomplete.
+* **Sequences.** 1,132 unique CDS and 560 unique proteins, across 3 CDS lengths
+  in one host–subtype–year group.
+* **Unknown residues.** 48 isolates and 48 unique proteins contain an `X`, all
+  48 at 693 nt.
+* **Pin.** NS1 clears the floor here but has no configured pin. 1,122 of the
+  1,132 unique complete CDS are 693 nt, a share of 0.991, above the 0.90
+  `check_cds_length` needs. `conf/virus/flu.yaml` pins no length for NS1, so
+  there is no pin for `check_cds_length` to check.
+* **Alignment.** MAFFT used FFT-NS-2 and produced 230 columns. Removing `-`
+  recovered the exact input protein for all 560. A 693-nt CDS is 230 amino
+  acids, so the alignment adds no columns. This run asked for `--auto` rather
+  than the flags in Method.
 
 ### 2. Lengths and gaps
 
@@ -1171,9 +1185,11 @@ One metadata group, so there is no breakdown.
 
 ### 5. Findings
 
-* All 551 proteins from 693-nt CDS have no gaps, and each shorter protein has one
+* All 551 proteins from 693-nt CDS have no gaps, and each shorter protein has
+  one
   run of trailing gaps.
-* No protein has an `X` in columns 218–230, where one or both shorter forms have
+* No protein has an `X` in columns 218–230, where one or both shorter forms
+  have
   trailing gaps.
 * This population has a usable pin at 693 nt, so the alignment is not needed to
   model NS1 here. It was run to establish the method.
@@ -1219,7 +1235,8 @@ directory.
 * All 8 modelled proteins are aligned on the Task 2 population and written up
   here. Six of the eight ran before `mafft_seconds` was added, so only NA and
   M1 report a runtime.
-* No codon features and no models were produced from any of these alignments. The
+* No codon features and no models were produced from any of these alignments.
+  The
   mapping from alignment columns to codon features is proposed in
   `docs/plans/2026-09-14_codon_site_features_plan.md` and is not implemented.
 * Every run used the same MAFFT strategy, FFT-NS-2. The Task 2 runs asked
