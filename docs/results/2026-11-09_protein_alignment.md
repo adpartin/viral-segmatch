@@ -123,18 +123,19 @@ One row per protein, on the Task 2 population.
 |---:|---|---:|---:|---:|---:|---:|---:|---|---|
 | 8 | NS1 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 0.502 | columns 81–85, 5 codons, 206 proteins | 74, 112, 132 |
 
-"Largest internal gap" gives the longest run of neighbouring internal gap columns
-any protein has, as column numbers rather than a count of columns, followed by how
-long the run is and how many proteins carry it. `columns 81–85, 5 codons` means
-five gaps, one in each of the columns numbered 81 to 85. Each section lists all of
-its internal gaps; the table gives only the longest.
+"Largest internal gap" gives the longest run of neighbouring internal gap
+columns any protein has, as column numbers rather than a count of columns,
+followed by how long the run is and how many proteins carry it.
+`columns 81–85, 5 codons` means five gaps, one in each of the columns numbered
+81 to 85. Each section lists all of its internal gaps; the table gives only the
+longest.
 
 A **one-residue column** is an alignment column where exactly one protein has a
 protein symbol and every other protein has a gap.
 
-NS1 has no pin on the Task 2 population. It has a usable pin at 0.991 on the
-Task 1 population, reported in the last section. Widening the population removes
-the pin.
+NS1 has a usable pin at 0.991 on the Task 1 population, reported in the last
+section. However, extending the population to the one Task 2 uses drops
+`frac at mode` at 693 nt to 0.502, so NS1 has no pin there.
 
 
 ## NS1
