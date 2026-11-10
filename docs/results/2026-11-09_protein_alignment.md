@@ -5,7 +5,7 @@
 status:         current
 date:           2026-11-09
 populations:    Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025; Human-H3N2-2024
-proteins:       NP; NA; M1; NS1
+proteins:       PB2; PB1; PA; HA; NP; NA; M1; NS1
 source:         data/processed/flu/July_2025/cds_dna_final.parquet
 scripts:        src/analysis/align_proteins.py; src/analysis/summarize_protein_alignment.py; src/analysis/audit_ns1_downstream_contig.py
 artifacts:      results/flu/July_2025/cds_alignment_pilot/<population>/<protein>/
@@ -122,6 +122,10 @@ One row per protein, on the Task 2 population.
 
 | Segment ID | Protein | Isolates | Unique CDS | Unique proteins | CDS lengths | Columns | `frac at mode` | Largest internal gap | One-residue columns |
 |---:|---|---:|---:|---:|---:|---:|---:|---|---|
+| 1 | PB2 | 60,474 | 36,939 | 15,290 | 18 | 766 | 2280 nt, 36,879 of 36,939 | columns 692–715, 24 codons, 1 protein | 42–45, 575, 678 |
+| 2 | PB1 | 56,093 | 34,642 | 13,220 | 18 | 776 | 2274 nt, 30,824 of 34,642 | columns 736–764, 29 codons, 1 protein | 77–79, 389, 718–719 |
+| 3 | PA | 60,396 | 35,659 | 15,939 | 14 | 744 | 2151 nt, 35,609 of 35,659 | columns 80–107, 28 codons, 1 protein | 25 columns, listed in part 5 |
+| 4 | HA | 60,282 | 35,509 | 19,841 | 10 | 612 | 1701 nt, 33,492 of 35,509 | columns 20–27, 8 codons, 1 protein | 14 columns, listed in part 5 |
 | 5 | NP | 60,040 | 27,087 | 7,250 | 2 | 498 | 1497 nt, 27,086 of 27,087 | None | None |
 | 6 | NA | 59,856 | 31,157 | 17,267 | 16 | 543 | 1410 nt, 30,630 of 31,157 | columns 68–94, 27 codons, 1 protein | 16 columns, listed in part 5 |
 | 7 | M1 | 60,566 | 14,573 | 1,948 | 2 | 252 | 759 nt, 14,572 of 14,573 | columns 31–41, 11 codons, 1 protein | None |
@@ -131,18 +135,475 @@ One row per protein, on the Task 2 population.
 columns any protein has, as column numbers rather than a count of columns,
 followed by how long the run is and how many proteins carry it.
 `columns 81–85, 5 codons` means five gaps, one in each of the columns numbered
-81 to 85. Each section lists all of its internal gaps; the table gives only the
-longest.
+81 to 85. The table gives only the longest run. Each section lists all of its
+internal gaps, except NA and HA, whose lists are too long to print and are in
+`gap_pattern_summary.csv`.
 
 A **one-residue column** is an alignment column where exactly one protein has a
 protein symbol and every other protein has a gap.
 
-M1 has a usable pin on the Task 2 population, at 0.9999.
+Six of the eight proteins have a usable pin on this population: PB2, PA, HA,
+NP, NA and M1. The two without one are PB1 at 0.890 and NS1 at 0.502, which are
+also the two proteins `conf/virus/flu.yaml` pins no length for.
+
+Two of the six pinned proteins hold more than one form at the pinned length.
+NA's 1410 nt holds N1 and N2, and HA's 1701 nt holds H1 and H3 with H5 at
+1704 nt. Those sections give the measured column overlap between the forms.
+
+Six of the eight need one column more than the alignment has, to hold the stop
+codon of their longest form. PB1 and NA do not, because their longest form's
+stop codon already falls inside the alignment width.
 
 NS1 has a usable pin at 0.991 on the Task 1 population, reported in the last
 section. However, extending the population to the one Task 2 uses drops
 `frac at mode` at 693 nt to 0.502, so NS1 has no pin there.
 
+
+## PB2
+
+### 1. Inputs
+
+Of 60,751 filtered isolates, 60,474 (99.5%) had a complete CDS. They contained
+36,939 unique CDS and 15,290 unique proteins across 18 CDS lengths and 147
+host–subtype–year groups. 1,296 isolates and 1,197 unique proteins contain an
+`X`, all at 2280 nt.
+
+PB2 has a usable pin at 2280 nt. 36,879 of the 36,939 unique complete CDS are
+2280 nt, against the 0.90 `check_cds_length` needs. `conf/virus/flu.yaml` pins
+PB2 at 2280 nt and the observed mode agrees.
+
+MAFFT used FFT-NS-2 and produced 766 columns. Removing `-` recovered the exact
+input protein for all 15,290. A 2280-nt CDS is 759 amino acids, so the
+alignment adds 7 columns beyond the modal protein length.
+
+### 2. Lengths and gaps
+
+| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+|---|---:|---:|---:|---|---|---|
+| 2280 nt | 60,413 | 36,879 | 15,230 | None | 42–45, 348, 575, 678 | None |
+| Seventeen other lengths | 61 | 60 | 60 | Varies | Varies | Varies |
+
+The modal form is one gap pattern, held by 15,229 of its 15,230 proteins over
+60,412 of its 60,413 isolates. Its 7 internal gap columns are the whole of the
+extra width.
+
+### 3. Stop codon columns
+
+The modal form has no trailing gap, so it puts its last protein symbol in
+column 766 and its stop codon in column 767. A codon feature table for PB2
+needs 767 columns, not 766. This mapping is not implemented.
+
+### 4. By host, subtype and year
+
+"Other lengths" covers the seventeen lengths not listed separately, so its
+column totals 61 isolates.
+
+| Host | Subtype | Complete PB2 isolates | 2280 nt | Other lengths |
+|---|---|---:|---:|---:|
+| Chicken | H1N1 | 2 | 2 | 0 |
+| Chicken | H3N2 | 17 | 17 | 0 |
+| Chicken | H5N1 | 1,815 | 1,814 | 1 |
+| Duck | H1N1 | 264 | 264 | 0 |
+| Duck | H3N2 | 216 | 215 | 1 |
+| Duck | H5N1 | 1,894 | 1,894 | 0 |
+| Human | H1N1 | 20,017 | 19,994 | 23 |
+| Human | H3N2 | 29,439 | 29,409 | 30 |
+| Human | H5N1 | 36 | 36 | 0 |
+| Swine | H1N1 | 3,599 | 3,595 | 4 |
+| Swine | H3N2 | 3,159 | 3,158 | 1 |
+| Swine | H5N1 | 16 | 15 | 1 |
+
+| Year | Complete PB2 isolates | 2280 nt | Other lengths |
+|---|---:|---:|---:|
+| 2010 | 1,542 | 1,540 | 2 |
+| 2011 | 1,460 | 1,458 | 2 |
+| 2012 | 1,635 | 1,633 | 2 |
+| 2013 | 1,810 | 1,808 | 2 |
+| 2014 | 1,463 | 1,462 | 1 |
+| 2015 | 2,173 | 2,170 | 3 |
+| 2016 | 3,317 | 3,316 | 1 |
+| 2017 | 4,130 | 4,129 | 1 |
+| 2018 | 3,499 | 3,497 | 2 |
+| 2019 | 5,231 | 5,230 | 1 |
+| 2020 | 1,628 | 1,628 | 0 |
+| 2021 | 1,536 | 1,536 | 0 |
+| 2022 | 7,157 | 7,148 | 9 |
+| 2023 | 5,136 | 5,127 | 9 |
+| 2024 | 11,093 | 11,074 | 19 |
+| 2025 | 7,664 | 7,657 | 7 |
+
+The off-mode lengths are spread across hosts, subtypes and years, with no group
+holding more than 30 of the 61 isolates.
+
+### 5. Findings
+
+* PB2 has a pin on this population.
+* The 2280-nt form holds 60,413 of the 60,474 complete records. The other 17
+  lengths hold 61 isolates between them, 6 at most each.
+* The alignment adds 7 columns. 6 of them are one-residue columns: 42–45, 575
+  and 678.
+* 576 of the 766 columns hold a protein symbol in all 15,290 proteins.
+* The longest internal gap run is columns 692 to 715, 24 codons, in one protein
+  from one isolate at 2208 nt.
+* Still open before codon features are built: whether to keep the 61 isolates
+  outside the modal length, and whether to keep the 6 one-residue columns.
+
+### 6. Artifacts
+
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PB2/`.
+`align_proteins.py` wrote the selection, alignment, validation and gap
+locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
+`gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
+hashes and code state. This alignment ran before `mafft_seconds` was added, so
+its manifest has no runtime.
+
+## PB1
+
+### 1. Inputs
+
+Of 60,751 filtered isolates, 56,093 (92.3%) had a complete CDS, so 4,658 were
+dropped as incomplete. They contained 34,642 unique CDS and 13,220 unique
+proteins across 18 CDS lengths and 147 host–subtype–year groups. 1,325 isolates
+and 1,158 unique proteins contain an `X`.
+
+PB1 has no usable pin. 30,824 of the 34,642 unique complete CDS are 2274 nt, a
+share of 0.890, below the 0.90 `check_cds_length` needs. `conf/virus/flu.yaml`
+has no `cds_length` entry for PB1.
+
+MAFFT used FFT-NS-2 and produced 776 columns. Removing `-` recovered the exact
+input protein for all 13,220. A 2274-nt CDS is 757 amino acids, so the
+alignment adds 19 columns beyond the modal protein length.
+
+### 2. Lengths and gaps
+
+| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+|---|---:|---:|---:|---|---|---|
+| 2274 nt | 49,948 | 30,824 | 12,060 | None | 77–79, 389, 718–728 | 773–776 |
+| 2277 nt | 6,095 | 3,768 | 1,110 | None | 77–79, 389, 718–728 | 774–776 |
+| Sixteen other lengths | 50 | 50 | 50 | Varies | Varies | Varies |
+
+The two main lengths are the same form, one codon apart at the C-terminus.
+Their internal gaps are identical and only their trailing run differs, by the
+single column 773:
+
+```text
+Column:     772 773 774 775 776
+2274 nt:    res  -   -   -   -     last symbol 772, stop in 773
+2277 nt:    res res  -   -   -     last symbol 773, stop in 774
+```
+
+Together they hold 56,043 of the 56,093 complete records.
+
+### 3. Stop codon columns
+
+The two main forms end one column apart, so they would put their stop codons in
+columns 773 and 774. Both fall inside the 776 columns, so a codon feature table
+for PB1 needs 776 columns and no more. This mapping is not implemented.
+
+### 4. By host, subtype and year
+
+"Other lengths" covers the sixteen lengths not listed separately, so its column
+totals 50 isolates.
+
+| Host | Subtype | Complete PB1 isolates | 2274 nt | 2277 nt | Other lengths |
+|---|---|---:|---:|---:|---:|
+| Chicken | H1N1 | 2 | 2 | 0 | 0 |
+| Chicken | H3N2 | 17 | 17 | 0 | 0 |
+| Chicken | H5N1 | 1,798 | 1,796 | 2 | 0 |
+| Duck | H1N1 | 263 | 259 | 4 | 0 |
+| Duck | H3N2 | 217 | 212 | 4 | 1 |
+| Duck | H5N1 | 1,871 | 1,869 | 1 | 1 |
+| Human | H1N1 | 19,761 | 19,706 | 28 | 27 |
+| Human | H3N2 | 25,390 | 19,394 | 5,984 | 12 |
+| Human | H5N1 | 35 | 35 | 0 | 0 |
+| Swine | H1N1 | 3,578 | 3,530 | 41 | 7 |
+| Swine | H3N2 | 3,148 | 3,115 | 31 | 2 |
+| Swine | H5N1 | 13 | 13 | 0 | 0 |
+
+The 2277-nt form is a Human-H3N2 form: 5,984 of its 6,095 isolates are
+Human-H3N2, which is 23.6% of that group's 25,390 complete PB1 records.
+
+| Year | Complete PB1 isolates | 2274 nt | 2277 nt | Other lengths | 2277 nt share |
+|---|---:|---:|---:|---:|---:|
+| 2010 | 1,542 | 1,512 | 30 | 0 | 1.9% |
+| 2011 | 1,471 | 1,466 | 4 | 1 | 0.3% |
+| 2012 | 1,634 | 1,628 | 6 | 0 | 0.4% |
+| 2013 | 1,813 | 1,808 | 5 | 0 | 0.3% |
+| 2014 | 1,461 | 1,453 | 8 | 0 | 0.5% |
+| 2015 | 2,169 | 2,165 | 4 | 0 | 0.2% |
+| 2016 | 3,315 | 3,303 | 10 | 2 | 0.3% |
+| 2017 | 4,125 | 4,109 | 14 | 2 | 0.3% |
+| 2018 | 3,487 | 3,472 | 9 | 6 | 0.3% |
+| 2019 | 5,205 | 5,190 | 10 | 5 | 0.2% |
+| 2020 | 1,529 | 1,517 | 10 | 2 | 0.7% |
+| 2021 | 1,537 | 1,488 | 48 | 1 | 3.1% |
+| 2022 | 7,010 | 6,675 | 328 | 7 | 4.7% |
+| 2023 | 4,831 | 4,289 | 533 | 9 | 11.1% |
+| 2024 | 8,677 | 5,720 | 2,948 | 9 | 34.0% |
+| 2025 | 6,287 | 4,153 | 2,128 | 6 | 33.9% |
+
+The last column is the 2277-nt share of the two main lengths. It stays between
+0.2% and 1.9% from 2010 to 2020, then rises each year to 34.0% in 2024 and
+33.9% in 2025.
+
+### 5. Findings
+
+* PB1 has no pin on this population. The modal length holds 0.890 of unique
+  complete CDS, below the 0.90 floor, and `conf/virus/flu.yaml` pins no length
+  for it.
+* The two main lengths differ by one codon at the C-terminus and share every
+  internal gap column, so the pin fails on a three-nucleotide difference rather
+  than on two different proteins.
+* The 2277-nt form was 0.2% to 1.9% of the two main lengths from 2010 to 2020
+  and is 34.0% in 2024 and 33.9% in 2025. It is concentrated in Human-H3N2.
+* PB1 lost 4,658 of 60,751 isolates to the completeness filter, 7.7%.
+* 563 of the 776 columns hold a protein symbol in all 13,220 proteins.
+* 6 columns hold a protein symbol in exactly one protein: 77–79, 389 and
+  718–719.
+* The longest internal gap run is columns 736 to 764, 29 codons, in one protein
+  from one isolate at 2217 nt.
+* Still open before codon features are built: whether the two main lengths can
+  share one set of columns, given that they differ only in the last codon.
+
+### 6. Artifacts
+
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PB1/`.
+`align_proteins.py` wrote the selection, alignment, validation and gap
+locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
+`gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
+hashes and code state. This alignment ran before `mafft_seconds` was added, so
+its manifest has no runtime.
+
+## PA
+
+### 1. Inputs
+
+Of 60,751 filtered isolates, 60,396 (99.4%) had a complete CDS. They contained
+35,659 unique CDS and 15,939 unique proteins across 14 CDS lengths and 147
+host–subtype–year groups. 1,349 isolates and 1,203 unique proteins contain an
+`X`, almost all at 2151 nt.
+
+PA has a usable pin at 2151 nt. 35,609 of the 35,659 unique complete CDS are
+2151 nt, against the 0.90 `check_cds_length` needs. `conf/virus/flu.yaml` pins
+PA at 2151 nt and the observed mode agrees.
+
+MAFFT used FFT-NS-2 and produced 744 columns. Removing `-` recovered the exact
+input protein for all 15,939. A 2151-nt CDS is 716 amino acids, so the
+alignment adds 28 columns beyond the modal protein length.
+
+### 2. Lengths and gaps
+
+| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+|---|---:|---:|---:|---|---|---|
+| 2151 nt | 60,332 | 35,609 | 15,897 | None | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703 | 743–744 |
+| 2157 nt | 39 | 25 | 17 | None | the same 26 columns | None |
+| Twelve other lengths | 25 | 25 | 25 | Varies | Varies | Varies |
+
+The 2157-nt form is the modal form with two more codons at the C-terminus, so
+it fills columns 743 and 744 that the modal form leaves empty. Its internal gap
+columns are the same 26.
+
+### 3. Stop codon columns
+
+```text
+Column:     742 743 744
+2151 nt:    res  -   -      last symbol 742, stop in 743
+2157 nt:    res res res     last symbol 744, stop in 745
+```
+
+A codon feature table for PA needs 745 columns, not 744, because the 2157-nt
+form fills the last column. This mapping is not implemented.
+
+### 4. By host, subtype and year
+
+"Other lengths" covers the twelve lengths not listed separately, so its column
+totals 25 isolates.
+
+| Host | Subtype | Complete PA isolates | 2151 nt | 2157 nt | Other lengths |
+|---|---|---:|---:|---:|---:|
+| Chicken | H1N1 | 2 | 2 | 0 | 0 |
+| Chicken | H3N2 | 17 | 17 | 0 | 0 |
+| Chicken | H5N1 | 1,824 | 1,823 | 0 | 1 |
+| Duck | H1N1 | 265 | 265 | 0 | 0 |
+| Duck | H3N2 | 217 | 216 | 0 | 1 |
+| Duck | H5N1 | 1,898 | 1,897 | 0 | 1 |
+| Human | H1N1 | 19,896 | 19,892 | 0 | 4 |
+| Human | H3N2 | 29,450 | 29,399 | 39 | 12 |
+| Human | H5N1 | 36 | 36 | 0 | 0 |
+| Swine | H1N1 | 3,619 | 3,616 | 0 | 3 |
+| Swine | H3N2 | 3,164 | 3,161 | 0 | 3 |
+| Swine | H5N1 | 8 | 8 | 0 | 0 |
+
+Every one of the 39 isolates at 2157 nt is Human-H3N2.
+
+| Year | Complete PA isolates | 2151 nt | 2157 nt | Other lengths |
+|---|---:|---:|---:|---:|
+| 2010 | 1,546 | 1,545 | 0 | 1 |
+| 2011 | 1,476 | 1,475 | 0 | 1 |
+| 2012 | 1,646 | 1,645 | 0 | 1 |
+| 2013 | 1,822 | 1,821 | 0 | 1 |
+| 2014 | 1,469 | 1,467 | 0 | 2 |
+| 2015 | 2,179 | 2,177 | 0 | 2 |
+| 2016 | 3,318 | 3,317 | 0 | 1 |
+| 2017 | 4,144 | 4,139 | 3 | 2 |
+| 2018 | 3,504 | 3,502 | 1 | 1 |
+| 2019 | 5,152 | 5,147 | 3 | 2 |
+| 2020 | 1,563 | 1,562 | 0 | 1 |
+| 2021 | 1,537 | 1,516 | 19 | 2 |
+| 2022 | 7,152 | 7,144 | 4 | 4 |
+| 2023 | 5,135 | 5,135 | 0 | 0 |
+| 2024 | 11,089 | 11,082 | 3 | 4 |
+| 2025 | 7,664 | 7,658 | 6 | 0 |
+
+The 2157-nt form appears in 8 of the 16 years, with 19 of its 39 isolates in
+2021.
+
+### 5. Findings
+
+* PA has a pin on this population.
+* The 2151-nt form holds 60,332 of the 60,396 complete records.
+* The alignment adds 28 columns, and 25 of them are one-residue columns: 49,
+  77, 82–83, 94–98, 624, 641–650, 660–663 and 703. So nearly all of the extra
+  width comes from single proteins.
+* 587 of the 744 columns hold a protein symbol in all 15,939 proteins.
+* The longest internal gap run is columns 80 to 107, 28 codons, in one protein
+  from one isolate at 2088 nt.
+* Still open before codon features are built: whether to keep the 25
+  one-residue columns, which would cut the table from 745 columns to 720.
+
+### 6. Artifacts
+
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PA/`.
+`align_proteins.py` wrote the selection, alignment, validation and gap
+locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
+`gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
+hashes and code state. This alignment ran before `mafft_seconds` was added, so
+its manifest has no runtime.
+
+## HA
+
+### 1. Inputs
+
+Of 60,751 filtered isolates, 60,282 (99.2%) had a complete CDS. They contained
+35,509 unique CDS and 19,841 unique proteins across 10 CDS lengths and 147
+host–subtype–year groups. 1,797 isolates and 1,613 unique proteins contain an
+`X`, almost all at 1701 nt.
+
+HA has a usable pin at 1701 nt. 33,492 of the 35,509 unique complete CDS are
+1701 nt, a share of 0.943, against the 0.90 `check_cds_length` needs.
+`conf/virus/flu.yaml` pins HA at 1701 nt and the observed mode agrees.
+
+MAFFT used FFT-NS-2 and produced 612 columns. Removing `-` recovered the exact
+input protein for all 19,841. A 1701-nt CDS is 566 amino acids, so the
+alignment adds 46 columns beyond the modal protein length.
+
+### 2. Lengths and gaps
+
+HA's gap lists run to 44 columns per protein, too long to print in a cell, so
+the gap columns below are counts. `gap_pattern_summary.csv` holds every list.
+
+| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+|---|---:|---:|---:|---|---|---|
+| 1695 nt | 244 | 203 | 179 | 4 | 44 | None |
+| 1701 nt | 56,223 | 33,492 | 18,606 | 4 | 42 | None |
+| 1704 nt | 3,632 | 1,643 | 901 | 4 | 41 | None |
+| Seven other lengths | 183 | 171 | 155 | 0 to 4 | 38 to 48 | 0 to 3 |
+
+Every form begins at column 5, because columns 1 to 4 belong to one protein
+only.
+
+HA holds three forms, which split by HA subtype. The two at 1701 nt are H3 and
+H1, and the 1704-nt form is H5:
+
+| Form | CDS length | Unique proteins | Isolates | H3N2 | H1N1 | H5N1 |
+|---|---:|---:|---:|---:|---:|---:|
+| H3 | 1701 nt | 10,274 | 32,783 | 32,778 | 3 | 2 |
+| H1 | 1701 nt | 8,326 | 23,428 | 4 | 23,424 | 0 |
+| H5 | 1704 nt | 870 | 3,596 | 0 | 0 | 3,596 |
+
+These three cover 59,807 of the 60,282 complete records. H3 and H1 are both 566
+amino acids and H5 is 567, and they do not use the same columns. Of the 583
+columns the three use between them, 550 are filled by all three, 14 by H3 only,
+3 by H5 only, 14 by H1 and H5 but not H3, and 2 by H1 and H3 but not H5. No
+column is filled by H1 alone.
+
+### 3. Stop codon columns
+
+All three forms put their last protein symbol in column 612, so all three would
+put their stop codon in column 613. A codon feature table for HA needs 613
+columns, not 612. This mapping is not implemented.
+
+### 4. By host, subtype and year
+
+"Other lengths" covers the seven lengths not listed separately, so its column
+totals 183 isolates.
+
+| Host | Subtype | Complete HA isolates | 1695 nt | 1701 nt | 1704 nt | Other lengths |
+|---|---|---:|---:|---:|---:|---:|
+| Chicken | H1N1 | 2 | 0 | 2 | 0 | 0 |
+| Chicken | H3N2 | 17 | 0 | 17 | 0 | 0 |
+| Chicken | H5N1 | 1,816 | 3 | 0 | 1,791 | 22 |
+| Duck | H1N1 | 265 | 0 | 265 | 0 | 0 |
+| Duck | H3N2 | 217 | 0 | 215 | 2 | 0 |
+| Duck | H5N1 | 1,886 | 24 | 13 | 1,780 | 69 |
+| Human | H1N1 | 20,013 | 0 | 19,991 | 1 | 21 |
+| Human | H3N2 | 29,422 | 0 | 29,420 | 0 | 2 |
+| Human | H5N1 | 37 | 0 | 0 | 29 | 8 |
+| Swine | H1N1 | 3,454 | 217 | 3,170 | 11 | 56 |
+| Swine | H3N2 | 3,138 | 0 | 3,130 | 4 | 4 |
+| Swine | H5N1 | 15 | 0 | 0 | 14 | 1 |
+
+The 1704-nt form is an H5N1 form: 3,614 of its 3,632 isolates are H5N1. The
+1695-nt form is a Swine-H1N1 form, with 217 of its 244 isolates.
+
+| Year | Complete HA isolates | 1695 nt | 1701 nt | 1704 nt | Other lengths |
+|---|---:|---:|---:|---:|---:|
+| 2010 | 1,518 | 2 | 1,493 | 12 | 11 |
+| 2011 | 1,432 | 11 | 1,370 | 27 | 24 |
+| 2012 | 1,636 | 2 | 1,588 | 35 | 11 |
+| 2013 | 1,809 | 3 | 1,737 | 41 | 28 |
+| 2014 | 1,464 | 0 | 1,416 | 38 | 10 |
+| 2015 | 2,168 | 4 | 2,044 | 115 | 5 |
+| 2016 | 3,312 | 2 | 3,264 | 41 | 5 |
+| 2017 | 4,121 | 6 | 4,064 | 44 | 7 |
+| 2018 | 3,466 | 1 | 3,437 | 23 | 5 |
+| 2019 | 5,215 | 3 | 5,192 | 12 | 8 |
+| 2020 | 1,667 | 2 | 1,642 | 17 | 6 |
+| 2021 | 1,526 | 7 | 1,478 | 35 | 6 |
+| 2022 | 7,115 | 15 | 6,089 | 1,006 | 5 |
+| 2023 | 5,097 | 139 | 4,674 | 283 | 1 |
+| 2024 | 11,081 | 37 | 9,848 | 1,190 | 6 |
+| 2025 | 7,655 | 10 | 6,887 | 713 | 45 |
+
+The 1704-nt form was 12 to 115 isolates a year from 2010 to 2021, then 1,006 in
+2022 and 1,190 in 2024. The 1695-nt form has 139 of its 244 isolates in 2023.
+
+### 5. Findings
+
+* HA has a pin on this population, at 1701 nt for 0.943 of unique complete CDS.
+* The modal length holds two forms, H3 and H1, and a third form, H5, sits at
+  1704 nt. Of the 583 columns the three use between them, 550 are filled by all
+  three and 33 are not.
+* The 1704-nt form's rise tracks the H5N1 isolates in the population, from 12
+  to 115 a year through 2021 to 1,190 in 2024.
+* 47 gap patterns cover the 10 CDS lengths. The modal length alone holds 6.
+* 522 of the 612 columns hold a protein symbol in all 19,841 proteins.
+* 14 columns hold a protein symbol in exactly one protein: 1–4, 191–192, 198,
+  381, 383, 601–603 and 608–609. Columns 1 to 4 sit before every other
+  protein's first symbol.
+* The longest internal gap run is columns 20 to 27, 8 codons, in one protein
+  from one isolate at 1680 nt.
+* Still open before codon features are built: whether one set of columns can
+  serve H1, H3 and H5, and whether to keep the 14 one-residue columns.
+
+### 6. Artifacts
+
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/HA/`.
+`align_proteins.py` wrote the selection, alignment, validation and gap
+locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
+`gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
+hashes and code state. This alignment ran before `mafft_seconds` was added, so
+its manifest has no runtime.
 
 ## NP
 
@@ -291,10 +752,10 @@ The two modal forms end in different columns, so they would put their stop
 codons in different columns too.
 
 ```text
-Column:     531        541
-N1, 1410:   res...res  res res -      last symbol 542, stop in 543
-N2, 1410:   res...res  res - -        last symbol 541, stop in 542
-1350:       res...res  res res -      last symbol 542, stop in 543
+Column:     541 542 543
+N2, 1410:   res  -   -      last symbol 541, stop in 542
+N1, 1410:   res res  -      last symbol 542, stop in 543
+1350 nt:    res res  -      last symbol 542, stop in 543
 ```
 
 Both stop codons fall inside the 543 columns, so a codon feature table for NA
@@ -722,9 +1183,9 @@ directory.
 
 ## Limitations
 
-* All 8 modelled proteins are aligned on the Task 2 population, but only NP,
-  NA, M1 and NS1 are written up here. PB2, PB1, PA and HA have their outputs on
-  disk and no section yet.
+* All 8 modelled proteins are aligned on the Task 2 population and written up
+  here. Six of the eight ran before `mafft_seconds` was added, so only NA and
+  M1 report a runtime.
 * No codon features and no models were produced from any of these alignments. The
   mapping from alignment columns to codon features is proposed in
   `docs/plans/2026-09-14_codon_site_features_plan.md` and is not implemented.
