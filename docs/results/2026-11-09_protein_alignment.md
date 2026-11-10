@@ -15,7 +15,7 @@ artifacts:      results/flu/July_2025/cds_alignment_pilot/<population>/<protein>
 
 Per-site codon features need the same sites in every record, so that position
 200 represents the same place in each record. For each protein, there are two
-ways to obtain those sites:
+options to obtain those sites:
 
 1. **Pinned CDS length.** Use the fixed length for the protein from
    `conf/virus/flu.yaml`, then keep only complete CDS at that length.
@@ -24,13 +24,14 @@ ways to obtain those sites:
    the configured pin; it does not set it.
 2. **Protein alignment.** Align the translated proteins across all observed
    complete CDS lengths. The alignment columns estimate which sites correspond
-   across records of different lengths. Under the proposed codon mapping, empty
-   positions in shorter forms become `GAP` or `AFTER_STOP` rather than causing
-   those records to be dropped.
+   across records of different lengths. Under the proposed codon mapping, an
+   alignment column with no codon in a record becomes `GAP` or `AFTER_STOP`,
+   rather than causing the record to be dropped.
 
 If a protein has no usable pin, the alternatives are to align it or to drop it.
 NS1 has no configured pin because its CDS length varies across subtypes and
 years, so this analysis measures the alignment route.
+
 
 ## The population
 
@@ -42,14 +43,14 @@ host group, so `Duck` covers 54 animal names and `Chicken` covers 3.
 The one section on a different population names it in the title: NS1 on
 Human-H3N2-2024, the Task 1 population where the method was first run.
 
+
 ## How to read these sections
 
-Each protein has one `##` section, holding the same six numbered parts: 1.
-Inputs, 2. Lengths and gaps, 3. Stop codon columns, 4. By host, subtype and
-year, 5. Findings, 6. Artifacts. Where a part has nothing to report, it says so
-in one sentence rather than being left out, so two sections can be read side by
-side. A section may add one unnumbered part for a check specific to it; the six
-numbered parts keep their numbers in every section.
+Each protein has a section with 6 numbered parts: 1. Inputs, 2. Lengths and
+gaps, 3. Stop codon columns, 4. By host, subtype and year, 5. Findings, 6.
+Artifacts. If a part has nothing to report, it says so in one sentence rather
+than being left out. A section may add one unnumbered part for a check
+specific to it.
 
 Gap terms, as defined in [the
 glossary](../methods/glossary.md#per-site-features): a **trailing gap** is a `-`
@@ -67,28 +68,36 @@ This alignment does not:
   The alignment is an estimate of positional correspondence.
 * Recover bases absent from a truncated record. These runs use complete CDS only.
 
+
 ## Method
 
-The same five steps for every protein and population, from
-`src/analysis/align_proteins.py`:
+`src/analysis/align_proteins.py` does all 6 steps, over 4 runs. The plain run
+does steps 1 to 3; `--align_only`, `--validate_only` and `--inspect_only` do
+steps 4, 5 and 6.
 
 1. Select complete CDS for the protein and population, keeping all observed
    lengths.
 2. Check every selected unique CDS: it translates to its recorded `prot_seq`,
-   ends with exactly one `*`, has no internal `*`, and its length is three times
-   the protein length including the `*`. Remove the terminal `*` only from the
-   protein sent to MAFFT and leave the CDS unchanged. Keep `X` symbols and count
-   them by CDS length.
-3. Align the unique proteins with MAFFT `--auto`, recording the version, command,
-   selected strategy and input hashes.
-4. Check that removing `-` from each aligned protein recovers the exact input.
-5. Record every gap position.
+   ends with a `*` and has no other `*`, its length matches both the stored
+   `cds_length` and 3 times the protein length including the `*`, and
+   `prot_hash` is the md5 of `prot_seq`. One CDS hash must not carry conflicting
+   records, and one protein hash must not name two sequences.
+3. Remove the terminal `*` from the protein sent to MAFFT, leaving the CDS
+   unchanged. Keep `X` symbols and count them by CDS length.
+4. Align the unique proteins with MAFFT `--retree 2 --maxiterate 0`, recording
+   the version, command, strategy and input hashes.
+5. Check that removing `-` from each aligned protein recovers the exact input
+   protein.
+6. Record every gap position.
+
+Every run used MAFFT v7.526, so the sections below give only the strategy and
+the column count.
 
 `src/analysis/summarize_protein_alignment.py` then writes
 `group_length_summary.csv`, `gap_pattern_summary.csv` and
 `column_occupancy.csv`.
 
-The saved protein is the exact MAFFT input, which is what step 4 compares
+The saved protein is the exact MAFFT input, which is what step 5 compares
 against. With the options used here, [MAFFT would remove `*`
 anyway](https://mafft.cbrc.jp/alignment/software/anysymbol.html).
 
@@ -96,6 +105,7 @@ An `X` means the codon does not translate to a single amino acid. It does not
 remove the codon and does not create a gap. It does give the aligner less
 information at that position. Whether any gap placement falls next to an `X` has
 not been checked, except in the Human-H3N2-2024 section where it is reported.
+
 
 ## Summary across proteins
 
@@ -118,6 +128,7 @@ NS1 has no pin on the Task 2 population. It has a usable pin at 0.991 on the
 Task 1 population, reported in the last section. Widening the population removes
 the pin.
 
+
 ## NS1
 
 ### 1. Inputs
@@ -129,8 +140,8 @@ host–subtype–year groups. 957 isolates and 551 unique proteins contain an `X
 No single pinned length is available. `frac at mode` is 0.502, at 693 nt, then
 0.455 at 660 nt, against the 0.90 `check_cds_length` needs.
 
-MAFFT 7.526 with `--auto` selected FFT-NS-2 and produced 240 columns. Removing
-`-` recovered the exact input protein for all 10,130.
+MAFFT used FFT-NS-2 and produced 240 columns. Removing `-` recovered the
+exact input protein for all 10,130.
 
 ### 2. Lengths and gaps
 
@@ -283,8 +294,9 @@ isolates and 48 unique proteins contain an `X`, all at 693 nt.
 This population has a usable pin. `frac at mode` is 0.991, at 693 nt, against the
 0.90 `check_cds_length` needs.
 
-MAFFT 7.526 with `--auto` selected FFT-NS-2 and produced 230 columns. Removing
-`-` recovered the exact input protein for all 560.
+MAFFT used FFT-NS-2 and produced 230 columns. Removing `-` recovered the
+exact input protein for all 560. This run asked for `--auto` rather than the
+flags in Method.
 
 ### 2. Lengths and gaps
 
@@ -384,8 +396,9 @@ directory.
 * No codon features and no models were produced from any of these alignments. The
   mapping from alignment columns to codon features is proposed in
   `docs/plans/2026-09-14_codon_site_features_plan.md` and is not implemented.
-* Every run used one MAFFT strategy, FFT-NS-2, chosen by `--auto`. We did not
-  test a second one. Agreement between two strategies would not establish that a
-  placement is correct.
+* Every run used the same MAFFT strategy, FFT-NS-2. The Task 2 runs asked
+  for it with `--retree 2 --maxiterate 0` and the Human-H3N2-2024 run let
+  `--auto` choose it. We did not test a second strategy. Agreement between two
+  strategies would not establish that a placement is correct.
 * The one-residue columns and the uncommon gap patterns have not been reviewed
   sequence by sequence.
