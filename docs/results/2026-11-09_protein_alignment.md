@@ -60,6 +60,19 @@ symbols, a **leading gap** is a `-` before the first, and a protein symbol is an
 amino acid or an `X`. A **gap pattern** is one protein's full set of gap columns.
 In the schematics, `res` stands for one protein symbol.
 
+Part 2's table works the same way in every section. A CDS length gets its own
+row if it holds at least 0.1% of that protein's complete records. If a protein
+has 3 lengths or fewer, every length gets a row. The rest share one "Other
+lengths" row, and the text below calls them the rare lengths.
+
+The three gap columns give counts, not lists, because one NA protein gaps 93
+columns. A count can be read down the column across sections. A range such as
+`66 to 73` means that length holds several gap patterns.
+
+Putting a rare length in the "Other lengths" row can hide why an alignment is
+as wide as it is. So each section also says how many columns the listed lengths
+use, and which rare lengths reach the rest.
+
 This alignment does not:
 
 * Place CDS stop codons. The terminal `*` marker is removed before MAFFT, so no
@@ -191,20 +204,26 @@ section. However, extending the population to the one Task 2 uses drops
   complete CDS are 2280 nt, a share of 0.998, against the 0.90
   `check_cds_length` needs. `conf/virus/flu.yaml` pins PB2 at 2280 nt and the
   observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced 766 columns. Removing `-`
-  recovered the exact input protein for all 15,290. A 2280-nt CDS is 759 amino
-  acids, so the alignment adds 7 columns.
+* **Alignment.** MAFFT used FFT-NS-2 and produced `766` columns.
+  - Removing `-` from the aligned proteins recovered the exact input protein
+  for all 15,290.
+  - A 2280-nt CDS is 759 amino acids, so the alignment adds 7 columns.
 
 ### 2. Lengths and gaps
 
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
-| 2280 nt | 60,413 | 36,879 | 15,230 | None | 42–45, 348, 575, 678 | None |
-| Seventeen other lengths | 61 | 60 | 60 | Varies | Varies | Varies |
+| 2280 nt | 60,413 | 36,879 | 15,230 | None | 7 | None |
+| 17 other lengths | 61 | 60 | 60 | 0 to 10 | 6 to 31 | 0 to 10 |
 
-The modal form is one gap pattern, held by 15,229 of its 15,230 proteins over
-60,412 of its 60,413 isolates. Its 7 internal gap columns are the whole of the
-extra width.
+Proteins at 2280 nt have 2 gap patterns. The biggest covers 15,229 of the
+15,230.
+
+2280-nt proteins use 760 of the 766 columns. The other 6 are columns 42–45, 348
+and 678. Only the rare 2268-nt and 2283-nt forms reach them.
+
+The modal length's 7 internal gap columns are 42–45, 348, 575 and 678, and they
+are the whole of the extra width.
 
 ### 3. Stop codon columns
 
@@ -299,9 +318,15 @@ its manifest has no runtime.
 
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
-| 2274 nt | 49,948 | 30,824 | 12,060 | None | 77–79, 389, 718–728 | 773–776 |
-| 2277 nt | 6,095 | 3,768 | 1,110 | None | 77–79, 389, 718–728 | 774–776 |
-| Sixteen other lengths | 50 | 50 | 50 | Varies | Varies | Varies |
+| 2274 nt | 49,948 | 30,824 | 12,060 | None | 15 to 16 | 3 to 4 |
+| 2277 nt | 6,095 | 3,768 | 1,110 | None | 14 to 15 | 3 to 4 |
+| 16 other lengths | 50 | 50 | 50 | None | 15 to 41 | 0 to 11 |
+
+Proteins at 2274 nt have 3 gap patterns. The biggest covers 12,058 of the
+12,060.
+
+The listed lengths use 762 of the 776 columns. The other 14 are columns 718–728
+and 774–776. Only the rare 2217-nt and 2232-nt forms reach them.
 
 The two main lengths are the same form, one codon apart at the C-terminus.
 Their internal gaps are identical and only their trailing run differs, by the
@@ -417,13 +442,22 @@ its manifest has no runtime.
 
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
-| 2151 nt | 60,332 | 35,609 | 15,897 | None | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703 | 743–744 |
-| 2157 nt | 39 | 25 | 17 | None | the same 26 columns | None |
-| Twelve other lengths | 25 | 25 | 25 | Varies | Varies | Varies |
+| 2151 nt | 60,332 | 35,609 | 15,897 | None | 26 | 2 |
+| 13 other lengths | 64 | 50 | 42 | 0 to 20 | 22 to 49 | 0 to 25 |
 
-The 2157-nt form is the modal form with two more codons at the C-terminus, so
-it fills columns 743 and 744 that the modal form leaves empty. Its internal gap
-columns are the same 26.
+Proteins at 2151 nt have 2 gap patterns. The biggest covers 15,896 of the
+15,897.
+
+2151-nt proteins use 721 of the 744 columns. The other 23 are columns 48–49,
+77, 82–83, 624, 641–650, 660–663, 703 and 743–744. Only the rare 2073-nt,
+2154-nt, 2157-nt, 2160-nt and 2163-nt forms reach them.
+
+The modal length's 26 internal gap columns are 48–49, 77, 82–83, 94–98, 624,
+641–650, 660–663 and 703.
+
+The biggest of the rare lengths is 2157 nt, at 39 isolates. Its main form is
+the modal form with two more codons at the C-terminus, which is how it fills
+columns 743 and 744 that the modal form leaves empty.
 
 ### 3. Stop codon columns
 
@@ -523,15 +557,21 @@ its manifest has no runtime.
 
 ### 2. Lengths and gaps
 
-HA's gap lists run to 44 columns per protein, too long to print in a cell, so
-the gap columns below are counts. `gap_pattern_summary.csv` holds every list.
-
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
 | 1695 nt | 244 | 203 | 179 | 4 | 44 | None |
+| 1698 nt | 71 | 67 | 62 | 4 | 43 | None |
 | 1701 nt | 56,223 | 33,492 | 18,606 | 4 | 42 | None |
 | 1704 nt | 3,632 | 1,643 | 901 | 4 | 41 | None |
-| Seven other lengths | 183 | 171 | 155 | 0 to 4 | 38 to 48 | 0 to 3 |
+| 1707 nt | 63 | 56 | 50 | 0 to 4 | 40 to 44 | None |
+| 5 other lengths | 49 | 48 | 43 | 4 to 14 | 39 to 48 | None |
+
+Proteins at 1701 nt have 6 gap patterns. The biggest covers 10,274 of the
+18,606.
+
+The listed lengths use 603 of the 612 columns. The other 9 are columns 20, 321,
+335–337, 375 and 601–603. Only the rare 1683-nt, 1686-nt and 1710-nt forms
+reach them.
 
 Every form begins at column 5, because columns 1 to 4 belong to one protein
 only.
@@ -652,8 +692,12 @@ its manifest has no runtime.
 
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
-| 1461 nt | 1 | 1 | 1 | 1–12 | None | None |
+| 1461 nt | 1 | 1 | 1 | 12 | None | None |
 | 1497 nt | 60,039 | 27,086 | 7,249 | None | None | None |
+
+All 7,249 proteins at 1497 nt have the same gap pattern.
+
+The listed lengths use all 498 columns.
 
 The 1461-nt form is the 1497-nt form without its first 12 codons. Its gaps are
 leading rather than internal, so it starts at column 13 and ends at column 498
@@ -741,27 +785,29 @@ its manifest has no runtime.
 
 ### 2. Lengths and gaps
 
-NA's gap lists run to 93 columns per protein, too long to print in a cell, so
-the gap columns below are counts. `gap_pattern_summary.csv` holds every list.
-
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
 | 1350 nt | 505 | 407 | 319 | None | 93 | 1 |
-| 1407 nt | 38 | 36 | 27 | None | 73 to 74 | 1 to 2 |
 | 1410 nt | 59,154 | 30,630 | 16,843 | None | 66 to 73 | 1 to 8 |
 | 1413 nt | 129 | 59 | 55 | None | 70 to 73 | 0 to 3 |
-| Twelve other lengths | 30 | 25 | 23 | 0 to 14 | 67 to 93 | 0 to 2 |
+| 13 other lengths | 68 | 61 | 50 | 0 to 14 | 67 to 93 | 0 to 2 |
+
+Proteins at 1410 nt have 9 gap patterns. The biggest covers 8,510 of the
+16,843.
+
+The listed lengths use 534 of the 543 columns. The other 9 are columns 65,
+456–457, 467–471 and 501. Only the rare 1353-nt, 1416-nt, 1422-nt and 1428-nt
+forms reach them.
 
 Every length carries internal gaps, including the modal one.
 
-The modal length holds two forms rather than one. The two gap patterns below
-cover 59,117 of the 59,154 isolates at 1410 nt, and they split by neuraminidase
-subtype:
+NA holds two forms at the modal length, which split by neuraminidase subtype.
+They cover 59,117 of the 59,154 isolates at 1410 nt:
 
-| Pattern | Unique proteins | Isolates | H3N2 | H1N1 | H5N1 |
-|---|---:|---:|---:|---:|---:|
-| N2 | 8,510 | 32,486 | 32,462 | 11 | 13 |
-| N1 | 8,305 | 26,631 | 8 | 23,447 | 3,176 |
+| Form | CDS length | Unique proteins | Isolates | H3N2 | H1N1 | H5N1 |
+|---|---:|---:|---:|---:|---:|---:|
+| N2 | 1410 nt | 8,510 | 32,486 | 32,462 | 11 | 13 |
+| N1 | 1410 nt | 8,305 | 26,631 | 8 | 23,447 | 3,176 |
 
 H5N1 and H1N1 both carry N1, as their names say. Both forms are 469 amino acids
 in 543 columns, but they do not use the same columns:
@@ -885,8 +931,12 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 365.6.
 
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
-| 726 nt | 1 | 1 | 1 | None | 31–41 | None |
+| 726 nt | 1 | 1 | 1 | None | 11 | None |
 | 759 nt | 60,565 | 14,572 | 1,947 | None | None | None |
+
+All 1,947 proteins at 759 nt have the same gap pattern.
+
+The listed lengths use all 252 columns.
 
 The 726-nt form is not a truncated 759-nt form. It is the 759-nt form with 11
 codons missing in the middle, at columns 31–41:
@@ -976,13 +1026,18 @@ hashes and code state, and the alignment manifest records `mafft_seconds` 3.9.
 
 | CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
 |---|---:|---:|---:|---|---|---|
-| 654 nt | 389 | 236 | 207 | None | 74, 112, 132 | 221–240 |
-| 660 nt | 25,506 | 8,243 | 4,601 | None | 74, 112, 132 | 223–240 |
-| 672 nt | 806 | 235 | 144 | None | 74, 112, 132 | 227–240 |
-| 678 nt | 341 | 246 | 205 | None | 74, 81–85, 112, 132 | 234–240 |
-| 693 nt | 33,553 | 9,097 | 4,926 | None | 74, 112, 132 | 234–240 |
-| 714 nt | 16 | 11 | 11 | None | 74, 112, 132 | None |
-| Ten other lengths | 43 | 39 | 36 | 1–5 in one form | Varies | Varies |
+| 654 nt | 389 | 236 | 207 | None | 3 | 20 |
+| 660 nt | 25,506 | 8,243 | 4,601 | None | 3 | 18 |
+| 672 nt | 806 | 235 | 144 | None | 3 | 14 |
+| 678 nt | 341 | 246 | 205 | None | 8 | 7 |
+| 693 nt | 33,553 | 9,097 | 4,926 | None | 3 | 7 |
+| 11 other lengths | 59 | 50 | 47 | 0 to 5 | 2 to 8 | 0 to 35 |
+
+All 4,926 proteins at 693 nt have the same gap pattern.
+
+The listed lengths use 230 of the 240 columns. The other 10 are columns 74,
+112, 132 and 234–240. Only the rare 663-nt, 696-nt, 699-nt and 714-nt forms
+reach them.
 
 The 678-nt form is not a truncated 693-nt form. It is the 693-nt form with 5
 codons missing in the middle, at columns 81–85:
