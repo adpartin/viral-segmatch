@@ -66,7 +66,7 @@ def extract_data_from_gto(gto_file_path: Path) -> tuple[pd.DataFrame, pd.DataFra
     Extract both protein and genome data from a single GTO file.
 
     Opens the GTO JSON once, extracts shared metadata, then builds:
-    - protein_df: one row per protein feature (same as get_protein_data_from_gto)
+    - protein_df: one row per protein feature
     - genome_df: one row per contig (genomic segment)
 
     Returns:
@@ -191,16 +191,13 @@ def validate_protein_counts(
     core_only: bool = False,
     verbose: bool = False
     ) -> None:
-    """Validate protein counts per assembly to ensure biological consistency.
-    Ensure each assembly_id has ≤max_core_proteins core proteins if core_only=True.
-    TODO: consider moving this somewhere. Maybe need to create a new utils file?
+    """Check core-protein counts per assembly or print total counts.
 
-    For Flu A, each assembly cannot have have more than 9 core proteins.
-    For Bunya, each assembly cannot have have more than 3 core proteins.
+    When core_only is true, the limit is the number of configured core functions.
 
     Args:
         df: DataFrame with protein data containing 'assembly_id' and 'function' columns
-        core_only: If True, only validate core proteins; if False, validate all proteins
+        core_only: If True, check core-protein counts; otherwise impose no count limit
         verbose: If True, print detailed validation information
 
     Raises:
@@ -275,16 +272,16 @@ def analyze_protein_counts_per_file(
 
     # Show unidentified proteins
     if len(other_proteins) > 0:
-        print(f"\nUNIDENTIFIED PROTEINS (not in core_functions or aux_functions):")
+        print("\nUNIDENTIFIED PROTEINS (not in core_functions or aux_functions):")
         print(f"Found {len(other_proteins)} unique protein functions not in config:")
         for i, protein in enumerate(sorted(other_proteins), 1):
             count = df[df['function'] == protein].shape[0]
             print(f"  {i:2d}. {protein} (appears in {count} records)")
     else:
-        print(f"\nAll proteins are classified (no unidentified proteins found)")
+        print("\nAll proteins are classified (no unidentified proteins found)")
 
     # Show distribution of core protein counts
-    print(f"\nCore protein count distribution:")
+    print("\nCore protein count distribution:")
     core_dist = all_counts['core_proteins'].value_counts().sort_index()
     for count, freq in core_dist.items():
         print(f"  {count} core proteins: {freq} files")
@@ -307,9 +304,9 @@ def analyze_protein_counts_per_file(
         print(f"No files have > {expected_core} core proteins")
 
     # Analyze intra-file protein (function) duplicates in selected proteins across all files
-    print(f"\nANALYZING INTRA-FILE DUPLICATES IN 'SELECTED' (PROTEIN) FUNCTIONS ACROSS ALL FILES:")
-    print(f"   This detects FUNCTION-based duplicates (same protein function in same file)")
-    print(f"   Sequence-based duplicates are detected later in handle_protein_duplicates()\n")
+    print("\nANALYZING INTRA-FILE DUPLICATES IN 'SELECTED' (PROTEIN) FUNCTIONS ACROSS ALL FILES:")
+    print("   This detects FUNCTION-based duplicates (same protein function in same file)")
+    print("   Sequence-based duplicates are detected later in handle_protein_duplicates()\n")
     analyze_intra_file_function_duplicates(df, selected_functions, output_dir)
 
     return all_counts
@@ -376,7 +373,7 @@ def analyze_intra_file_function_duplicates(
             print(f"\nFile: {file_name}")
             print(f"   Protein function: {function}")
             print(f"   Count: {count} occurrences")
-            print(f"   Details:")
+            print("   Details:")
 
             for i, (_, record) in enumerate(duplicate_records.iterrows(), 1):
                 print(f"     {i}. Assembly ID: {record['assembly_id']}")
@@ -407,7 +404,7 @@ def analyze_intra_file_function_duplicates(
         print("No protein duplicates found")
 
     # Summary statistics
-    print(f"\nINTRA-FILE PROTEIN DUPLICATE SUMMARY (considers 'selected_functions' only):")
+    print("\nINTRA-FILE PROTEIN DUPLICATE SUMMARY (considers 'selected_functions' only):")
     print(f"   Files analyzed: {sub_df['file'].nunique()}")
     print(f"   Protein records across files: {len(sub_df)}")
     print(f"   Unique protein functions across files: {sub_df['function'].nunique()}")
@@ -511,7 +508,7 @@ def assign_protein_segments(
         prot_df with 'canonical_segment' column added (NaN for unassigned)
     """
     print(f"\n{'='*50}")
-    print(f'Assign canonical segments using core and/or auxiliary proteins.')
+    print('Assign canonical segments using core and/or auxiliary proteins.')
     print('='*50)
 
     prot_df = prot_df.copy()
@@ -543,7 +540,7 @@ def assign_protein_segments(
 def apply_protein_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     """Apply basic filters to protein data."""
     print(f"\n{'='*50}")
-    print(f'Apply basic filters to protein data.')
+    print('Apply basic filters to protein data.')
     print('='*50)
 
     # Drop unassigned canonical segments
@@ -569,9 +566,9 @@ def apply_protein_basic_filters(prot_df: pd.DataFrame) -> pd.DataFrame:
     #      like M2/NEP/M42/NS3/PA-X carry NaN by design) and is NOT treated as
     #      Poor. Conservative: drop only on explicit 'Poor'.
     #
-    # On the current Flu A July 2025 corpus the feature_quality drop is a no-op
-    # (0 rows), but the filter is in place for defense-in-depth against future
-    # GTO releases where one major in an otherwise-Good isolate is flagged Poor.
+    # On the July 2025 Flu A corpus the feature_quality part drops 0 rows. Keep it anyway:
+    # a later GTO release can flag one major protein Poor inside an otherwise Good isolate,
+    # and then only this filter catches it.
     poor_df = prot_df[(prot_df['quality'] == 'Poor')
                       | (prot_df['feature_quality'] == 'Poor')]
     prot_df = prot_df[(prot_df['quality'] != 'Poor')
@@ -621,7 +618,7 @@ def handle_protein_duplicates(
         print(prot_dups[:4][['file', 'assembly_id', 'genbank_ctg_id',
             'replicon_type', 'brc_fea_id', 'function', 'canonical_segment']])
 
-        print(f'\nCount how many unique files contain each duplicated sequence:')
+        print('\nCount how many unique files contain each duplicated sequence:')
         dup_counts = prot_dups.groupby(PROT_SEQ_COL_NAME).agg(num_files=('file', 'nunique')).reset_index()
         print(dup_counts['num_files'].value_counts().reset_index(name='total_cases'))
 
@@ -660,7 +657,8 @@ def handle_protein_duplicates(
         )
     # EDA end ------------------------------------------------
 
-    # Handle assembly duplicates (replaces enforce_single_file() for Flu A)
+    # Drop rows that repeat the same sequence, assembly and function together. A row with
+    # the same sequence and assembly but a different function is kept.
     print("\nHandle assembly duplicates.")
     print(f'prot_df before: {prot_df.shape}')
     prot_df, dup_summary = handle_assembly_duplicates(prot_df)
@@ -732,13 +730,13 @@ def analyze_sequence_duplicates_for_pair_classification(
     print(f"Sequences appearing in >1 isolate: {len(duplicated_seqs)} ({len(duplicated_seqs)/len(seq_dup_stats)*100:.2f}%)")
 
     if len(duplicated_seqs) > 0:
-        print(f"\nDistribution of sequences by number of isolates:")
+        print("\nDistribution of sequences by number of isolates:")
         isolate_dist = duplicated_seqs['num_isolates'].value_counts().sort_index()
         for num_isolates, count in isolate_dist.items():
             print(f"  {num_isolates} isolates: {count} sequences")
 
         # Show top duplicated sequences
-        print(f"\nTop 10 sequences appearing in most isolates:")
+        print("\nTop 10 sequences appearing in most isolates:")
         top_dups = duplicated_seqs.head(10)
         for idx, row in top_dups.iterrows():
             seq_preview = row['prot_seq'][:50] + "..." if len(row['prot_seq']) > 50 else row['prot_seq']
@@ -814,12 +812,12 @@ def analyze_sequence_duplicates_for_pair_classification(
         print(f"\n  Found {len(contradictory_df)} sequence pairs that could appear with BOTH positive and negative labels!")
         print(f"  This represents {len(contradictory_df)/len(pos_pairs_df)*100:.2f}% of all unique positive pairs")
 
-        print(f"\n  Distribution of contradictory pairs by number of positive occurrences:")
+        print("\n  Distribution of contradictory pairs by number of positive occurrences:")
         pos_dist = contradictory_df['num_positive_occurrences'].value_counts().sort_index()
         for num_pos, count in pos_dist.items():
             print(f"    {num_pos} positive occurrence(s): {count} pairs")
 
-        print(f"\n  Distribution of contradictory pairs by number of negative possibilities:")
+        print("\n  Distribution of contradictory pairs by number of negative possibilities:")
         neg_dist = contradictory_df['num_negative_occurrences'].value_counts().sort_index()
         for num_neg, count in neg_dist.head(10).items():
             print(f"    {num_neg} negative possibility/ies: {count} pairs")
@@ -828,7 +826,7 @@ def analyze_sequence_duplicates_for_pair_classification(
         contradictory_df.to_csv(output_dir / 'contradictory_sequence_pairs.csv', index=False)
         print(f"\n  Saved {len(contradictory_df)} contradictory pairs to: contradictory_sequence_pairs.csv")
     else:
-        print(f"\n  No contradictory pairs found (all pairs appear only in same isolates)")
+        print("\n  No contradictory pairs found (all pairs appear only in same isolates)")
 
     # 3. Summary statistics
     print("\n3. Summary Statistics:")
@@ -841,13 +839,13 @@ def analyze_sequence_duplicates_for_pair_classification(
 
     # Save sequence duplication stats
     seq_dup_stats.to_csv(output_dir / 'sequence_duplication_stats.csv', index=False)
-    print(f"\nSaved sequence duplication stats to: sequence_duplication_stats.csv")
+    print("\nSaved sequence duplication stats to: sequence_duplication_stats.csv")
 
     return seq_dup_stats, contradictory_df
 
 
 # =============================================================================
-# Genome pipeline functions (new)
+# Genome pipeline functions
 # =============================================================================
 
 def assign_genome_segments(
@@ -910,9 +908,9 @@ def apply_genome_basic_filters(
     #      individual segment flagged Poor. NaN means "no claim made" and is NOT
     #      treated as Poor. Conservative: drop only on explicit 'Poor'.
     #
-    # On the current Flu A July 2025 corpus the contig_quality drop is a no-op
-    # (0 rows), but the filter is in place for defense-in-depth against future
-    # GTO releases where one segment in an otherwise-Good isolate is flagged Poor.
+    # On the July 2025 Flu A corpus the contig_quality part drops 0 rows. Keep it anyway:
+    # a later GTO release can flag one segment Poor inside an otherwise Good isolate, and
+    # then only this filter catches it.
     poor = genome_df[(genome_df['quality'] == 'Poor')
                      | (genome_df['contig_quality'] == 'Poor')]
     genome_df = genome_df[(genome_df['quality'] != 'Poor')
@@ -1059,18 +1057,18 @@ cache_valid = (cached_protein_file.exists() and cached_genome_file.exists()
                and not args.force_reprocess)
 
 if cache_valid:
-    print(f"\nLoading cached aggregated data:")
+    print("\nLoading cached aggregated data:")
     print(f"   Protein: {cached_protein_file}")
     print(f"   Genome:  {cached_genome_file}")
     prot_df = load_dataframe(cached_protein_file)
     genome_df = load_dataframe(cached_genome_file)
     print(f"   Loaded {len(prot_df)} protein records and {len(genome_df)} genome records from cache")
-    print(f"   Use --force-reprocess to bypass cache and re-process GTO files")
+    print("   Use --force-reprocess to bypass cache and re-process GTO files")
 else:
     if cached_protein_file.exists() and cached_genome_file.exists():
-        print(f"\nForce reprocess requested. Re-processing from GTO files...")
+        print("\nForce reprocess requested. Re-processing from GTO files...")
     else:
-        print(f"\nNo complete cached data found. Processing GTO files...")
+        print("\nNo complete cached data found. Processing GTO files...")
 
     prot_df, genome_df = aggregate_data_from_gto_files(
         gto_dir,
@@ -1110,7 +1108,7 @@ print(f"Unique brc_fea_id: {prot_df['brc_fea_id'].nunique()}")
 # PROTEIN PIPELINE
 # =============================================================================
 print(f"\n{'#'*60}")
-print(f"# PROTEIN PIPELINE")
+print("# PROTEIN PIPELINE")
 print(f"{'#'*60}")
 
 # EDA start ----------------------------------------
@@ -1150,7 +1148,7 @@ prot_df = handle_protein_duplicates(prot_df, print_eda=False)
 # Clean protein sequences
 print(f"\n{'='*50}")
 print("Explore ambiguities in protein sequences.")
-print(f'='*50)
+print('='*50)
 org_cols = prot_df.columns
 prot_df = analyze_protein_ambiguities(prot_df)
 ambig_cols = [c for c in prot_df.columns if c not in org_cols]
@@ -1176,8 +1174,8 @@ for aa, details in sa['non_standard_residue_summary'].items():
 
 # Prepare for ESM-2
 print(f"\n{'='*50}")
-print(f'Prepare protein sequences for ESM-2.')
-print(f'='*50)
+print('Prepare protein sequences for ESM-2.')
+print('='*50)
 max_internal_stops = 0.1
 max_x_residues = 0.1
 x_imputation = 'G'
@@ -1234,7 +1232,7 @@ print(prot_df['canonical_segment'].value_counts())
 # GENOME PIPELINE
 # =============================================================================
 print(f"\n{'#'*60}")
-print(f"# GENOME PIPELINE")
+print("# GENOME PIPELINE")
 print(f"{'#'*60}")
 
 # Assign genome segments

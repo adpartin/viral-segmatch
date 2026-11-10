@@ -157,14 +157,14 @@ def summarize_unknown_residues(selected: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
-# MAFFT options per `--mafft_strategy`.
-#   default  `--retree 2 --maxiterate 0`, which is what MAFFT does with no options at all.
-#            It gives FFT-NS-2 at any input size, so every protein is aligned the same way.
-#            The options are written out rather than left off, so the recorded command says
-#            which strategy the run asked for.
-#   auto     `--auto`, which lets MAFFT pick from the input size. It can pick a different
-#            strategy for a larger protein, which would make two proteins non-comparable.
-# The strategy MAFFT reports is recorded either way, so the choice is checkable afterwards.
+# MAFFT flags for each --mafft_strategy choice.
+#   default  `--retree 2 --maxiterate 0`, which is what MAFFT runs with no options at all.
+#            It gives FFT-NS-2 at any input size, so the strategy does not depend on how
+#            many sequences a protein has.
+#   auto     `--auto`, which lets MAFFT choose from the input size. A protein with more
+#            sequences could get a different strategy.
+# The manifest records the command and the strategy MAFFT reports, so the choice is
+# checkable after the run.
 MAFFT_STRATEGY_OPTIONS = {
     'auto': ['--auto'],
     'default': ['--retree', '2', '--maxiterate', '0'],

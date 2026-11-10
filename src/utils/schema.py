@@ -133,12 +133,12 @@ def pair_occ_col(alphabet: str, side: str) -> str:
 def build_pair_columns() -> list[str]:
     """The canonical pair-table schema (`_PAIR_COLUMNS`), built from the registry.
 
-    Mirrors the historical column set exactly, under the new molecule-level names:
+    Column aliases in older pair files (shown for slot A; slot B follows the same mapping):
     `seq_a -> prot_seq_a`, `dna_seq_a -> ctg_dna_seq_a`,
     `seq_hash_a -> prot_hash_a`, `dna_hash_a -> ctg_dna_hash_a`;
-    `cds_dna_hash_a` unchanged. The pair table carries SEQ columns for aa +
+    `cds_dna_hash_a` uses the same name. The pair table carries sequence columns for aa +
     nt_ctg only (the CDS sequence is not materialized per-pair — only its hash),
-    and HASH columns for all three alphabets.
+    and hash columns for all three alphabets.
     """
     aa, cds, ctg = SCHEMA["aa"], SCHEMA["nt_cds"], SCHEMA["nt_ctg"]
     return [
@@ -146,13 +146,13 @@ def build_pair_columns() -> list[str]:
         "assembly_id_a", "assembly_id_b",
         "brc_a", "brc_b",
         "ctg_a", "ctg_b",
-        f"{aa.seq_col}_a", f"{aa.seq_col}_b",        # prot_seq_a/b   (was seq_a/b)
-        f"{ctg.seq_col}_a", f"{ctg.seq_col}_b",      # ctg_dna_seq_a/b (was dna_seq_a/b)
+        f"{aa.seq_col}_a", f"{aa.seq_col}_b",        # protein sequences
+        f"{ctg.seq_col}_a", f"{ctg.seq_col}_b",      # contig DNA sequences
         "seg_a", "seg_b",
         "func_a", "func_b",
-        f"{aa.hash_col}_a", f"{aa.hash_col}_b",      # prot_hash_a/b   (was seq_hash_a/b)
-        f"{ctg.hash_col}_a", f"{ctg.hash_col}_b",    # ctg_dna_hash_a/b (was dna_hash_a/b)
-        f"{cds.hash_col}_a", f"{cds.hash_col}_b",    # cds_dna_hash_a/b (unchanged)
+        f"{aa.hash_col}_a", f"{aa.hash_col}_b",      # protein hashes
+        f"{ctg.hash_col}_a", f"{ctg.hash_col}_b",    # contig DNA hashes
+        f"{cds.hash_col}_a", f"{cds.hash_col}_b",    # CDS DNA hashes
         "label",
         "neg_regime",
         "metadata_match_count",

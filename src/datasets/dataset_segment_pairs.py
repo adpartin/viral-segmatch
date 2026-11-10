@@ -46,12 +46,6 @@ from src.utils.timer_utils import Timer
 total_timer = Timer()
 
 
-# Removed 2026-05-11: generate_temporal_split() and dataset.year_train /
-# dataset.year_test config keys. The temporal-holdout mechanism is superseded
-# by the general metadata_holdout path (year-axis holdout is its degenerate
-# case). See docs/plans/2026-05-11_metadata_holdout_plan.md.
-
-
 # Parser
 parser = argparse.ArgumentParser(description='Create segment pairs dataset')
 parser.add_argument(
@@ -95,8 +89,7 @@ if args.override:
     print(f"Applied CLI overrides: {args.override}")
 print_config_summary(config)
 
-# Extract config values. v1-only and v2-only knobs are read inside their
-# dispatch branches below, not here.
+# Read dataset settings from the resolved config.
 VIRUS_NAME = config.virus.virus_name
 DATA_VERSION = config.virus.data_version
 RANDOM_SEED = resolve_process_seed(config, 'datasets')
@@ -116,9 +109,8 @@ SKIP_KMER_PCA_PLOTS = getattr(config.dataset, 'skip_kmer_pca_plots', False)
 # Pair builder selection. v2 is the only builder; anything else is rejected below.
 PAIR_BUILDER_VERSION = getattr(config.dataset, 'pair_builder_version', 'v2')
 
-# Loud rejection of retired keys. Hydra does not run in struct mode here, so a bundle that still
-# carries one would otherwise be read as None and silently ignored. Raise on ANY value, including
-# the old default: the key does nothing now, so leaving it in a bundle misdescribes the run.
+# Reject unsupported keys on presence, even when their values are null or false.
+# Hydra accepts extra keys here, so these checks prevent silent configuration errors.
 _SAME_FUNC_RETIRED_REASON = (
     "a same-function negative cannot occur in schema-ordered mode -- slot A is always "
     "func_left and slot B always func_right, so func_a never equals func_b. The knobs were "
@@ -232,9 +224,9 @@ prot_df = attach_isolate_metadata(prot_df, project_root=project_root)
 
 # Drop isolates with non-conforming hn_subtype (ambiguous typing). See
 # drop_ambiguous_hn_subtype docstring in _pair_helpers.py for the rationale.
-# Toggle via `dataset.drop_ambiguous_subtype` (default true). Setting it false
-# preserves the legacy behavior where ~1,006 'HN' / 'H?N' isolates flow
-# through to the regime sampler as `unknown_metadata_neg`.
+# Toggle via `dataset.drop_ambiguous_subtype` (default true). Setting it false keeps the
+# ~1,006 'HN' / 'H?N' isolates in the population, and they reach the regime sampler as
+# `unknown_metadata_neg`.
 if bool(getattr(config.dataset, 'drop_ambiguous_subtype', True)):
     from src.datasets._pair_helpers import drop_ambiguous_hn_subtype as _drop_ambig
     prot_df, _ambig_summary = _drop_ambig(prot_df)
@@ -275,7 +267,6 @@ prot_df = filter_by_metadata(
 )
 
 
-# Jim's balancing request
 # Subtype balancing (downsample to equal per-subtype representation).
 # No-op when mode=natural, which is the default and preserves natural subtype distribution.
 # See docs/plans/subtype_balancing_plan.md.
@@ -348,8 +339,8 @@ df = prot_df[mask].reset_index(drop=True)
 print(f"Filtered {len(df)} protein records from {len(prot_df)} based on selected functions.")
 
 # Add sequence hash for duplicate detection (used by canonical_pair_key, cooccur_pairs, etc.).
-# Stage 1 (preprocess_flu.py) already writes `prot_hash` to protein_final.csv; reuse it when
-# present so the hash algorithm lives in exactly one place.
+# Stage 1 (preprocess_flu.py) already writes `prot_hash` to protein_final.csv, so this only
+# fills the column in for a frame that arrives without it.
 if 'prot_hash' not in df.columns:
     df['prot_hash'] = df['prot_seq'].map(sequence_md5)
 
@@ -428,8 +419,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                                   ['hn_subtype', 'host', 'year', 'geo_location', 'passage']))
 
     # Keep only complete CDS at the length pinned in the virus config's `cds_length` block.
-    # Off by default -- the filter drops rows, so it must not change datasets built before it
-    # existed. Applied below, once the cds_dna_final path is resolved.
+    # Applied when enabled, after the cds_dna_final path is resolved below.
     REQUIRE_COMPLETE_CDS_AT_PINNED_LENGTH = bool(
         getattr(config.dataset, 'require_complete_cds_at_pinned_length', False))
 
@@ -454,14 +444,10 @@ if PAIR_BUILDER_VERSION == 'v2':
     YEAR_MATCH = 'binned'
     YEAR_BIN_EDGES = None
     ON_SHORTFALL = 'redistribute'
-    # Regime-aware coverage gate; default False keeps existing builds identical.
-    # See docs/plans/2026-05-14_regime_aware_coverage_plan.md.
+    # Read whether to require regime-aware negative coverage.
     REGIME_AWARE_COVERAGE = False
 
-    # Split-strategy dispatch (validated by _validate_v2_config below). Default
-    # 'random' preserves existing v2 behavior. See
-    # docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
-    # docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+    # Split strategy, validated by _validate_v2_config below; defaults to 'random'.
     SPLIT_STRATEGY_CFG = getattr(config.dataset, 'split_strategy', None)
     SPLIT_STRATEGY_MODE = 'random'
     # hash_key picks the routing hash family when mode=seq_disjoint:
@@ -484,8 +470,13 @@ if PAIR_BUILDER_VERSION == 'v2':
     PAIR_KEY_ALPHABET = 'aa'
     # single_slot is a cluster_disjoint-only sub-knob. None = bilateral (both
     # slots' clusters disjoint, default); 'a' or 'b' = constrain only that
-    # slot's clusters, leaving the other slot unconstrained. Unlocks lower
-    # idXX thresholds when bilateral cliffs into a mega-component — see
+    # slot's clusters, leaving the other slot unconstrained.
+    #
+    # Constraining one slot reaches lower thresholds than bilateral, which runs out of
+    # thresholds when its largest component swallows most of the pairs. On HA-NA Flu A,
+    # bilateral is feasible only at t100 and t099, and both aa and nt fail at t098.
+    # Single-slot aa is feasible at t100 down to t095 on either slot, and the constrained
+    # slot's largest atom grows gradually instead of cliffing. See
     # docs/results/2026-05-24_cluster_disjoint_feasibility_HA_NA.md.
     SINGLE_SLOT = None
     NEGATIVE_SCOPE = 'coverage'  # 'coverage' (default) | 'within_fold' (cluster_disjoint single-slot) | 'balanced' (within_fold, least-used sequences first)
@@ -542,9 +533,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 PAIR_KEY_ALPHABET = 'nt_cds'
             else:
                 PAIR_KEY_ALPHABET = 'aa'
-    # D3 feasibility knobs for k-fold cluster_disjoint (read from
-    # split_strategy.feasibility.*; defaults match D3 of the k-fold plan).
-    # See docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md D3.
+    # Feasibility limits for cluster-disjoint CV, from split_strategy.feasibility.
     MAX_ACCEPTABLE_DRIFT_PP = 0.05
     MIN_TEST_FRAC = 0.05
     if SPLIT_STRATEGY_CFG is not None:
@@ -645,9 +634,8 @@ if PAIR_BUILDER_VERSION == 'v2':
         input_file, schema_pair, alphabet=PAIR_KEY_ALPHABET, cds_final_path=cds_path,
     )
 
-    # Per-run artifact: written once after df is finalized and before split /
-    # CV branching. The launcher (run_cv_lambda.py) needs no changes -- the
-    # file simply lands in the parent of fold_*/ in CV mode.
+    # Write metadata coverage once per run, before splitting.
+    # In CV mode the output is in the parent directory of fold_*/.
     # TODO. Check the issue in compute_metadata_coverage() function docstring
     print('\nv2: computing metadata_coverage.json (per-run artifact)...')
     coverage = compute_metadata_coverage(df, axes=AXES_FOR_FLAGS)
@@ -677,12 +665,9 @@ if PAIR_BUILDER_VERSION == 'v2':
         print(f"Saved CV metadata to: {output_dir / 'cv_info.json'}")
 
         # Dispatch the CV generator by split mode:
-        # - cluster_disjoint + single_slot: new k-fold generator from Phase 3
-        #   of the k-fold variance plan (GroupKFold-on-cluster_id +
-        #   collect-all D3 + D4 menu).
-        # - all other modes (random / seq_disjoint*): existing
-        #   isolate-KFold-on-random generator. (*seq_disjoint with N_FOLDS>1
-        #   is still rejected by _validate_v2_config at the moment.)
+        # - cluster_disjoint + single_slot: GroupKFold on the selected slot's clusters.
+        # - random: KFold on isolates.
+        # The config validator rejects seq_disjoint when N_FOLDS > 1.
         use_cluster_disjoint_kfold = (
             SPLIT_STRATEGY_MODE == 'cluster_disjoint' and SINGLE_SLOT is not None
         )
@@ -787,10 +772,9 @@ if PAIR_BUILDER_VERSION == 'v2':
                 holdout_cfg=None,  # validator forbids holdout + CV combo
             )
     else:
-        # v2 single-split mode. (Temporal/legacy year_train was removed
-        # 2026-05-11; see docs/plans/2026-05-11_metadata_holdout_plan.md.)
+        # Single holdout split.
         # If dataset.metadata_holdout is set, compute the three isolate-id
-        # lists from the per-slot filters and pass them through the existing
+        # lists from the per-slot filters and pass them through the
         # *_isolates_override hook on split_dataset_v2.
         HOLDOUT_CFG = getattr(config.dataset, 'metadata_holdout', None)
         holdout_train_ids = holdout_val_ids = holdout_test_ids = None

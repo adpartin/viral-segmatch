@@ -582,7 +582,7 @@ def _resolve_spec(args, config) -> CCSpec:
         raise ValueError("Could not resolve a master seed (resolve_process_seed returned None).")
 
     # Optional edge-cut fragmentation: grow the atom count by bisecting the mega-CC.
-    # Default off (existing bundles unaffected). See _megacc_cut.fragment_until.
+    # Disabled by default. See _megacc_cut.fragment_until.
     edge_cut = None
     if bool(OmegaConf.select(config, 'dataset.split_strategy.edge_cut.enabled', default=False)):
         ec_target = OmegaConf.select(config, 'dataset.split_strategy.edge_cut.target_atoms')
@@ -602,7 +602,7 @@ def _resolve_spec(args, config) -> CCSpec:
         cluster_id_path = PROJ / cluster_id_path
     threshold = cluster_id_path.parent.name  # the tXXX dir, e.g. 't099'
 
-    # OOD-vs-random paired-CV knobs (all default to the existing single-arm groupkfold behavior).
+    # Fold assignment and optional random control; default is one GroupKFold run.
     _memb = OmegaConf.select(config, 'dataset.split_strategy.membership_path')
     membership_path = None
     if _memb is not None:
@@ -670,7 +670,7 @@ def _build_positives(config, spec: CCSpec, args):
                   else spec.cluster_id_path.parents[2] / 'protein_final.parquet')
 
     # nt_cds only: path to cds_dna_final.parquet, which build_frontend uses to attach cds_dna_hash.
-    # Default: beside protein_final. split_strategy.cds_final_path can override it (no bundle sets it today).
+    # Default: beside protein_final; override with split_strategy.cds_final_path.
     cds_final_path = None
     if spec.alphabet == 'nt_cds':
         _cds = OmegaConf.select(config, 'dataset.split_strategy.cds_final_path')

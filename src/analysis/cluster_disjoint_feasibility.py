@@ -81,12 +81,8 @@ def build_isolate_pairs(
     neutral `hash_{a,b}`. The cluster lookup is keyed on the SAME hash, so the
     connected components are computed on the alphabet's own hash space.
 
-    Note (nt_ctg): this dedups isolate-pairs on `ctg_dna_hash` (the cluster
-    hash), i.e. distinct contigs are distinct routing atoms. v2's nt_ctg pair_key
-    dedups on `prot_hash` instead (the pair_key_alphabet inference falls to 'aa'
-    for nt_ctg) — so this pre-flight is the cluster-faithful view; the connected
-    component TOPOLOGY (the operability signal) is the same, only per-component
-    pair COUNTS differ from v2's deduped pos_df.
+    For nt_ctg, distinct contig pairs count separately. Dataset builders that
+    use a different pair-key alphabet can therefore report different pair counts.
 
     Input df must contain 'function', 'assembly_id', plus:
       - aa: 'prot_seq' (hashed here to prot_hash);
@@ -143,10 +139,10 @@ def feasibility_for_threshold(
     cluster_lookup: pd.DataFrame,
     threshold: float,
 ) -> dict:
-    """Compute connected-component stats on (cluster_id_a, cluster_id_b) AFTER
-    deduping on (hash_a, hash_b) — to match v2's actual routing input (Stage 3
-    dedups pair_keys globally before split_dataset_v2 routes them). The slot hash
-    is the alphabet's cluster hash (prot_hash / cds_dna_hash / ctg_dna_hash)."""
+    """Compute cluster-level bigraph CC sizes over unique sequence pairs.
+
+    Pair identity uses (hash_a, hash_b) in the selected alphabet.
+    """
     # Join cluster_ids onto both slots
     lookup_a = cluster_lookup.rename(columns={'hash': 'hash_a',
                                               'cluster_id': 'cluster_id_a'})
@@ -157,10 +153,7 @@ def feasibility_for_threshold(
     n_dropped = int(pairs['cluster_id_a'].isna().sum() + pairs['cluster_id_b'].isna().sum())
     pairs = pairs.dropna(subset=['cluster_id_a', 'cluster_id_b']).reset_index(drop=True)
 
-    # Dedup to one row per unique (hash_a, hash_b) — this matches the deduped
-    # pos_df that Stage 3 passes to the routing helper. Without this dedup the
-    # analysis OVER-COUNTS the largest component because many isolates can share
-    # the same sequence pair (especially for conserved functions like PB2/PB1).
+    # Count each sequence pair once, even when several isolates carry it.
     n_raw_pairs = len(pairs)
     pairs = pairs.drop_duplicates(subset=['hash_a', 'hash_b']).reset_index(drop=True)
     n_pairs = len(pairs)
@@ -179,9 +172,8 @@ def feasibility_for_threshold(
     sizes = cc_id.value_counts().sort_values(ascending=False).values
     sizes_pct = sizes / n_pairs * 100.0
 
-    # 80/10/10 feasibility: every split must hold its full 10% target (5,839 pairs at n_pairs ~58K).
-    # The component-packing problem is achievable iff the largest single component fits inside
-    # the train target (80%). If even the second-largest is > 10%, val/test can't both reach 10%.
+    # Size screen: largest CC <= 80% and second-largest <= 20% of pairs.
+    # This checks two CC sizes, not whether an exact 80/10/10 packing exists.
     largest_pct = float(sizes_pct[0])
     second_pct = float(sizes_pct[1]) if len(sizes_pct) > 1 else 0.0
     feasible = (largest_pct <= 80.0) and (second_pct <= 20.0)
@@ -192,7 +184,7 @@ def feasibility_for_threshold(
 
     return {
         'threshold': threshold,
-        'n_pairs': n_pairs,                # deduped pos_df rows (what v2 actually routes)
+        'n_pairs': n_pairs,                # unique sequence pairs
         'n_raw_isolate_pairs': n_raw_pairs,  # isolates with both proteins (pre-dedup)
         'n_dropped_in_join': n_dropped,
         'n_components': int(cc_summary['n_atoms']),

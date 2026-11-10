@@ -38,19 +38,18 @@ from src.utils import schema
 from src.utils.cds_utils import strip_terminal_stop
 
 # Dispatch table: alphabet -> {seq_col, hash_col}, derived from the schema
-# registry (single source of truth) for the unified exporter + parse_cluster_tsv
+# registry for export_function_fasta and parse_cluster_tsv
 # output column dispatch. All three alphabets are active; nt_ctg requires the
 # `function` label to be attached first (ctg_dna_final carries none) via
 # attach_function_to_contigs.
 #
-# nt_ctg data caveat (unresolved): contig DNA carries inconsistent
-# flanking UTR. Verified on the contig source: per-row (contig_len - cds_len)
-# spans 0..310 nt (median 36; ~25% of contigs have zero UTR, i.e. contig == CDS).
-# So two biologically identical isolates can land in different contig clusters
-# purely from how much flank the submitter included (assembly/submission
-# artifact, not biology). Decision: keep nt_ctg as-is for now, do NOT pre-trim.
-# TODO(nt_ctg): revisit contig UTR normalization before trusting nt_ctg
-# cluster-disjoint results for publication.
+# Contig DNA carries flanking UTR, and how much it carries varies by submitter. On the
+# July 2025 Flu A corpus, per-row (contig_len - cds_len) runs from 0 to 310 nt, the median
+# is 36 nt, and about 25% of contigs have no UTR at all, so the contig equals the CDS. Two
+# isolates with the same biology can therefore land in different contig clusters purely
+# from how much flank the submitter included. The nt_ctg path keeps the flank as submitted.
+# TODO(nt_ctg): normalize the contig UTR before using nt_ctg cluster-disjoint results in a
+# paper.
 _COLS_BY_ALPHABET = {a: {'seq_col': s.seq_col, 'hash_col': s.hash_col}
                      for a, s in schema.SCHEMA.items()}
 _ACTIVE_ALPHABETS = {'aa', 'nt_cds', 'nt_ctg'}
@@ -59,10 +58,8 @@ _ACTIVE_ALPHABETS = {'aa', 'nt_cds', 'nt_ctg'}
 def compute_prot_hash(prot_seq: str) -> str:
     """md5 hex of the protein string, from `schema.sequence_md5`.
 
-    Caller-side helper for pre-hashing aa input before calling
-    `export_function_fasta(alphabet='aa', ...)`: the unified exporter
-    requires the hash column to be already present (matches the nt path
-    where Stage 1.5 writes `cds_dna_hash` into cds_dna_final.parquet).
+    Supplies protein hashes for `export_function_fasta(alphabet='aa', ...)`,
+    which requires a hash column in its input.
     """
     return schema.sequence_md5(prot_seq)
 
@@ -79,10 +76,8 @@ def clean_aa_for_mmseqs(prot_seq: str) -> str:
 def clean_nt_for_mmseqs(dna_seq: str) -> str:
     """Pass-through for nt: no `*` to strip; mmseqs accepts IUPAC codes natively.
 
-    Raises only on empty input. This is the right home for any future
-    nt-specific cleaning (e.g., flanking-UTR normalization for nt_ctg --
-    deferred by decision; exp-2 runs contig DNA artifact-included, see the
-    UTR caveat on _COLS_BY_ALPHABET).
+    Rejects empty inputs and non-strings. Any nt-specific cleaning belongs here, including
+    contig UTR normalization if it is added; see the UTR note on `_COLS_BY_ALPHABET`.
     """
     if not isinstance(dna_seq, str) or len(dna_seq) == 0:
         raise ValueError(f"dna_seq must be a non-empty string, got: {dna_seq!r}")
@@ -94,10 +89,8 @@ def _clean_for_mmseqs(seq: str, alphabet: str) -> str:
     if alphabet == 'aa':
         return clean_aa_for_mmseqs(seq)
     if alphabet in ('nt_cds', 'nt_ctg'):
-        # Both nt molecules are pass-through (no '*' to strip; mmseqs scores
-        # IUPAC codes natively). nt_ctg is NOT pre-trimmed for flanking UTR --
-        # see the UTR caveat on _COLS_BY_ALPHABET (exp-2 runs artifact-included
-        # by decision).
+        # Both DNA representations pass through unchanged. Contig flank is not trimmed;
+        # see the UTR note on `_COLS_BY_ALPHABET`.
         return clean_nt_for_mmseqs(seq)
     raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")
 
@@ -185,9 +178,8 @@ def export_function_fasta(
     precomputed hash column corresponding to `alphabet` (per
     `_COLS_BY_ALPHABET`). For `'nt_cds'`, that's `cds_dna_hash`
     (written by Stage 1.5 into `cds_dna_final.parquet`). For `'aa'`,
-    that's `prot_hash` (which Stage 1 writes for cds_dna_final but NOT
-    for protein_final, so aa callers reading protein_final must
-    pre-hash via `compute_prot_hash` before calling).
+    that's `prot_hash`, written by Stage 1 into `protein_final`.
+    Callers with an unhashed protein frame can use `compute_prot_hash`.
 
     Safety net: at entry, recomputes the hash from the seq column and
     asserts it matches the precomputed hash. Catches stale precomputed
@@ -307,11 +299,9 @@ def _build_mmseqs_clust_cmd(
     ) -> list:
     """Assemble the `mmseqs easy-cluster` / `easy-linclust` command line.
 
-    Pure (no I/O): the single source of truth for the emitted flags, so the
-    back-compat contract — default args reproduce the historical Set-Cover /
-    linclust command byte-for-byte — is unit-testable without invoking mmseqs.
-    `-s` and `--single-step-clustering` are emitted only when set, so the default
-    command is unchanged. See `run_mmseqs_easy_clust` for each flag's meaning.
+    Builds the command without running it. Adds `-s` when sensitivity is set
+    and `--single-step-clustering` when enabled. See `run_mmseqs_easy_clust`
+    for each flag's meaning.
     """
     cmd = [
         mmseqs_bin, subcmd,
@@ -328,8 +318,7 @@ def _build_mmseqs_clust_cmd(
         '--similarity-type', '2',  # sequence-identity scoring (mmseqs2 default)
         '-e', '0.001',             # alignment e-value cutoff (mmseqs2 default)
     ]
-    # OOD recipe (connected-component clustering): emitted only when set, so the
-    # default command stays byte-identical.
+    # Add optional sensitivity and single-step flags only when requested.
     if sensitivity is not None:
         cmd += ['-s', f'{sensitivity:g}']
     if single_step_clustering:
@@ -669,8 +658,8 @@ def load_sequence_frame(
     Exactly one of `protein_final` / `cds_dna_final` / `ctg_dna_final` must be
     given; the alphabet follows from it (aa / nt_cds / nt_ctg). Returns
     `(df, alphabet)` where `df` carries `assembly_id` and `function` plus the
-    alphabet's seq+hash columns. aa input (`protein_final`) does not carry
-    `prot_hash`, so it is computed here; nt inputs already carry their hash. For
+    alphabet's sequence and hash columns. The aa path reads the sequence column
+    and computes `prot_hash` here; nt paths read stored hashes. For
     nt_ctg the `function` label is attached from `function_source` (default: the
     sibling `cds_dna_final.parquet`) via a verified 1-1 join.
 
@@ -723,9 +712,8 @@ def load_sequence_frame(
         df = attach_function_to_contigs(df, fsrc)
         df = df.drop(columns=['genbank_ctg_id'])
 
-    # aa: protein_final has no prot_hash; compute it once (reused across thresholds).
+    # Compute protein hashes once for reuse across thresholds.
     if alphabet == 'aa':
-        # protein_final has no prot_hash; compute it once (md5), reused across thresholds.
         hc, sc = cols['hash_col'], cols['seq_col']
         df[hc] = df[sc].map(compute_prot_hash)
         print(f"  Hashed {sc} -> {hc} ({df[hc].nunique():,} unique)")
@@ -916,8 +904,8 @@ def connected_components_from_hits(
     (nodes = sequences) -- a *cluster* / *mega-cluster*, NOT the CC /
     mega-CC of 2D-CD routing (see docs/methods/glossary.md).
 
-    Returns a DataFrame `[<hash_col>, cluster_id, cluster_rep]` -- the same shape
-    as `parse_cluster_tsv`, so downstream code is unchanged.
+    Returns a DataFrame `[<hash_col>, cluster_id, cluster_rep]`, matching
+    `parse_cluster_tsv`.
     """
     if alphabet not in _ACTIVE_ALPHABETS:
         raise ValueError(f"alphabet must be in {sorted(_ACTIVE_ALPHABETS)}, got {alphabet!r}")

@@ -56,11 +56,11 @@ def test_files_and_artifacts():
 def test_build_pair_columns():
     cols = schema.build_pair_columns()
     assert len(cols) == 24, cols
-    # new molecule-level names present
+    # Sequence and hash columns use molecule names.
     for c in ["prot_seq_a", "ctg_dna_seq_a", "prot_hash_a", "ctg_dna_hash_a",
               "cds_dna_hash_a", "prot_seq_b", "prot_hash_b"]:
         assert c in cols, c
-    # old names gone
+    # Sequence and pair tables exclude the old column aliases.
     for old in ["seq_a", "dna_seq_a", "seq_hash_a", "dna_hash_a", "seq_b", "dna_hash_b"]:
         assert old not in cols, old
     # invariant (non-per-alphabet) columns retained
@@ -78,9 +78,9 @@ def test_unknown_alphabet():
 
 
 def test_hash_col_ab_dual():
-    # The dual-dna_hash split, locked at the pair-column level: nt_cds is the CDS
-    # hash, nt_ctg is the contig hash. A regression that re-merges these silently
-    # corrupts either the analysis CV-universe (cds) or Stage-3 pair tables (ctg).
+    # CDS and contig DNA use distinct hash columns on both pair slots. If a change merges
+    # the two again, it corrupts either the analysis CV universe (cds) or the Stage 3 pair
+    # tables (ctg), and nothing else reports it.
     assert schema.hash_col_ab("aa") == ("prot_hash_a", "prot_hash_b")
     assert schema.hash_col_ab("nt_cds") == ("cds_dna_hash_a", "cds_dna_hash_b")
     assert schema.hash_col_ab("nt_ctg") == ("ctg_dna_hash_a", "ctg_dna_hash_b")
@@ -97,10 +97,11 @@ def test_occurrence_cols_all():
 
 
 def test_pair_column_consistency():
-    # Hazard #2 lock: every per-alphabet HASH column a consumer derives from the
-    # registry must exist in the pair table, else family-key loops read phantom
-    # columns and silently return empty. SEQ columns exist for aa + nt_ctg only --
-    # the CDS sequence is not materialized per-pair (only its hash is).
+    # Every alphabet has hash columns in the pair table. A consumer that derives a hash
+    # column from the registry and does not find it reads a phantom column, so its
+    # family-key loop returns empty instead of failing.
+    # Only proteins and contigs have sequence columns there, because the CDS sequence is
+    # not materialized per pair, only its hash.
     cols = set(schema.build_pair_columns())
     for a in schema.ALPHABETS:
         ha, hb = schema.hash_col_ab(a)
@@ -113,11 +114,7 @@ def test_pair_column_consistency():
 
 
 def test_cooccur_ternary_parity():
-    # Stage 3's `_cooccur_hash_col` was migrated from the binary ternary
-    #   'cds_dna_hash' if pair_key_alphabet == 'nt_cds' else 'prot_hash'
-    # to schema.hash_col(pair_key_alphabet). Lock that the swap is VALUE-IDENTICAL
-    # for the two pre-existing alphabets (so the migration is ε=0 on aa/nt_cds),
-    # and that it now also resolves nt_ctg -> ctg_dna_hash (the new pair_key).
+    # Check aa and nt_cds against the two-alphabet expression, then check nt_ctg.
     def retired_ternary(a):
         return 'cds_dna_hash' if a == 'nt_cds' else 'prot_hash'
     for a in ('aa', 'nt_cds'):

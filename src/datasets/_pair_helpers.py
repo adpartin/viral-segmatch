@@ -27,13 +27,11 @@ from src.utils.path_utils import load_dataframe
 # seq_disjoint hash families: `split_strategy.hash_key` token -> schema alphabet. Single source of
 # truth for `sequence_ccs`, `seq_disjoint_route_pos_df`, and the v2 config validator.
 #
-# The token is PERSISTED, not just internal: the seq_disjoint audit stores it as `hash_key` and the
-# saver interpolates it into the audit keys it hard-fails on (`{token}_hash_overlap`), so renaming a
-# token invalidates existing audits. The tokens stay short-form here and are swept together with the
-# rest of the naming pass.
+# Audit JSON stores these tokens as `hash_key` and uses them in
+# `{token}_hash_overlap` keys. Existing audit readers depend on these names.
 #
 # 'seq'/'dna' read hashes pos_df carries natively; 'cds' needs `attach_cds_dna_hash_to_pos_df` to
-# have run first (the v2 splitter attaches it before routing) -- which is why it was absent.
+# have run first (the v2 splitter attaches it before routing).
 HASH_FAMILY_ALPHABET = {'seq': 'aa', 'dna': 'nt_ctg', 'cds': 'nt_cds'}
 
 
@@ -69,12 +67,7 @@ def canonical_pair_key(hash_a: str, hash_b: str) -> str:
     The hashes can be from any alphabet — `prot_hash` (protein) for the
     aa pair_key family, `cds_dna_hash` for the nt_cds family. Callers
     decide the alphabet; this function just joins the two inputs in
-    sorted order. Argument names preserve the historical `prot_hash`
-    naming because the bulk of callers still use protein hashes; under
-    pair_key_alphabet='nt_cds' (Phase 2 of clustering cleanup plan)
-    the inputs are `cds_dna_hash` values instead. See pair_key plan
-    docs/plans/2026-06-02_pair_key_alphabet_plan.md for the bias
-    direction and adoption rationale.
+    sorted order. Both inputs must use the same alphabet.
     """
     return "__".join(sorted([hash_a, hash_b]))
 
@@ -399,8 +392,7 @@ def attach_cds_dna_hash_to_pos_df(
     ) -> pd.DataFrame:
     """Add `cds_dna_hash_a` and `cds_dna_hash_b` columns to pos_df.
 
-    Required by the nt-alphabet branch of cluster_disjoint routing
-    (Experiment B-nt, see `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`).
+    Supplies CDS hashes for nt_cds cluster-disjoint routing.
     The values come from `cds_dna_final.parquet` (built by
     `src/preprocess/extract_cds_dna.py`), keyed on
     `(assembly_id, function)` — unique by construction for the 8 majors.
@@ -426,10 +418,7 @@ def attach_cds_dna_hash_to_pos_df(
     func_left, func_right = _validate_schema_pair(
         schema_pair, "attach_cds_dna_hash_to_pos_df"
     )
-    # pos_df from v2's create_positive_pairs_v2 carries assembly_id_a and
-    # assembly_id_b (one per slot). Under v2's schema_ordered + one-pair-per-
-    # isolate invariant these are equal, so either is fine — use them both
-    # explicitly so the join works even on a hypothetical future v1-shape pos_df.
+    # Join each slot using its own assembly ID and function.
     for col in ('assembly_id_a', 'assembly_id_b'):
         if col not in pos_df.columns:
             raise ValueError(f"pos_df must contain '{col}'")
@@ -701,8 +690,9 @@ def _read_narrow(table_path: Path, columns: list) -> pd.DataFrame:
     if parquet_path.exists():
         return pd.read_parquet(parquet_path, columns=list(columns))
     if csv_path.exists():
-        # keep_default_na=False: 'NA' is Neuraminidase in a short-name column, not a missing
-        # value. These tables carry full function names, so this only guards a future rename.
+        # keep_default_na=False because 'NA' is Neuraminidase in a short-name column, not a
+        # missing value. Default pd.read_csv reads it as NaN and drops those rows without
+        # saying so. These tables carry full function names, so this guards a future rename.
         return pd.read_csv(csv_path, usecols=list(columns),
                            keep_default_na=False, na_values=[''])
     raise FileNotFoundError(
@@ -903,13 +893,11 @@ def pair_key_to_metadata(final_path: Path, func_a: str, func_b: str, *,
                          fields=('hn_subtype', 'host', 'year')) -> pd.DataFrame:
     """Modal isolate metadata per canonical pair_key -- alphabet-agnostic.
 
-    Generalizes the aa-only `bigraph_pair_metadata.pair_key_to_metadata` /
-    `bigraph_cut_subtype.pair_key_to_subtype`: keys pairs on `hash_col` (prot_hash for aa,
+    Keys pairs on `hash_col` (prot_hash for aa,
     cds_dna_hash for nt_cds) read from the matching *_final parquet, builds the isolate-level
     co-occurrence of `func_a` and `func_b` (full function names), joins isolate metadata
     (`load_flu_metadata`), and reduces each pair to the MODAL value of every requested field
-    (deterministic tie-break: count desc, label asc -- `seq_hash_to_metadata` carries the same rule
-    for single sequences, so a change here belongs there). Missing -> 'unknown'; `year` is stringified
+    (ties use the first label in ascending order). Missing -> 'unknown'; `year` is stringified
     so it stacks like the categorical fields. Returns `pair_key` + one column per field.
     """
     from src.utils.metadata_enrichment import load_flu_metadata
@@ -946,9 +934,8 @@ def seq_hash_to_metadata(final_path: Path, func: str, *,
     The per-sequence counterpart of `pair_key_to_metadata`: reads the `*_final` parquet, keeps the
     rows of `func`, joins isolate metadata (`load_flu_metadata`), and reduces each hash to the MODAL
     value of every requested field over the isolates carrying that sequence. Missing -> 'unknown';
-    `year` is stringified. Deterministic tie-break: count desc, label asc -- the same rule
-    `pair_key_to_metadata` applies to pair_keys, duplicated here rather than shared, so a change to
-    one belongs in the other.
+    `year` is stringified. Ties use the first label in ascending order, as in
+    `pair_key_to_metadata`.
 
     Args:
         final_path: `*_final` parquet holding assembly_id, function and `hash_col`.
@@ -1011,9 +998,9 @@ def sequence_ccs(
     co-occurrence. Sibling of `cluster_ccs`, which runs on the cluster-level bigraph
     (nodes = clusters). Pick by what the nodes are: sequences here, clusters there.
 
-    Computed by iterative-path-compression union-find, no networkx — ~3x faster than the
-    networkx path at this scale (78k-123k nodes for HA-NA, vs 670 clusters), which is why
-    the two implementations differ.
+    Uses union-find with iterative path compression rather than networkx, which is what
+    `cluster_ccs` uses. The two differ because this graph is much larger: 78k-123k nodes
+    for HA-NA, against 670 clusters there.
 
     Two parameter styles, mutually exclusive:
 
@@ -1061,10 +1048,7 @@ def sequence_ccs(
             f"columns (key={node_key_label!r})."
         )
 
-    # Union-find on string node ids ('a:'+hash, 'b:'+hash). String prefix
-    # avoids the (rare) chance of a side-a hash colliding with a side-b
-    # hash collapsing two distinct nodes; md5 collision is astronomically
-    # unlikely but the prefix costs nothing.
+    # Prefix hashes with their slot so equal hashes on opposite sides are distinct nodes.
     parent: dict = {}
     def find(x: str) -> str:
         # Iterative path compression
@@ -1128,8 +1112,7 @@ def cluster_ccs(
     sequence-level bigraph (nodes = sequence hashes). Pick by what the nodes are: clusters here,
     sequences there.
 
-    Built on `_megacc_cut.build_pair_bigraph`, so the components labelled here are exactly the
-    ones the edge min-cut bisects — one derivation of the cluster-level bigraph, not two.
+    Uses `_bigraph.build_pair_bigraph` and `ranked_ccs` to build and label the graph.
 
     Args:
         pos_df: positive-pair rows carrying `col_a`/`col_b`; the row index identifies each pair.
@@ -1197,8 +1180,7 @@ def _lpt_bin_pack(
     Atom ordering is pinned to `(-size, cluster_id)` ascending — the same
     key sklearn `GroupKFold` derives via `np.unique` (sorted) +
     `np.argsort(-counts)`, so the LPT and GroupKFold paths agree on which
-    atom is "largest" (per D1 of
-    docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md).
+    atom is "largest".
 
     Shared by seq_disjoint_route_pos_df (this module) and the cluster_disjoint
     router in _split_helpers.py.
@@ -1294,9 +1276,7 @@ def seq_disjoint_route_pos_df(
     component-id for deterministic tie-breaking), assign each to the bin
     whose remaining-capacity deficit (target - current) is largest.
 
-    `seed` is reserved for future tie-break shuffling but is not consumed
-    in this implementation (the algorithm is fully deterministic without
-    it).
+    `seed` is recorded in the audit; the routing algorithm does not use it.
 
     The returned audit dict reports overlap counts for BOTH prot_hash and
     ctg_dna_hash families regardless of `hash_key`, so the diagnostic value
@@ -1334,9 +1314,7 @@ def seq_disjoint_route_pos_df(
 
     cc_id, cc_summary = sequence_ccs(pos_df, hash_key=hash_key)
 
-    # Atom = connected component; the shared router (P2) packs atoms
-    # LPT-greedy and slices pos_df. Only the atom definition is seq_disjoint-
-    # specific — seq_disjoint and cluster_disjoint share route_holdout.
+    # Each sequence CC is one atom. route_holdout packs whole atoms into splits.
     n_pairs = int(len(pos_df))
     train_pos, val_pos, test_pos, _atom_to_split, targets = route_holdout(
         pos_df, cc_id, train_ratio, val_ratio,
@@ -1344,13 +1322,15 @@ def seq_disjoint_route_pos_df(
 
     achieved = {'train': len(train_pos), 'val': len(val_pos), 'test': len(test_pos)}
 
-    # Cross-split hash overlap. For the family selected by `hash_key` the
-    # by-construction guarantee is that all six counters are 0; the
-    # saver hard-fails if any are non-zero. The OTHER family is reported
-    # as a diagnostic — under hash_key='seq', ctg_dna_hash overlaps are
-    # always 0 too (protein equality implies DNA grouping). Under
-    # hash_key='dna', prot_hash overlaps are usually non-zero (synonymous
-    # mutations of the same protein land in different splits).
+    # Count overlaps for every hash family present. The selected family must have zero
+    # overlap on both slots; the saver checks this. Other families are diagnostics, and a
+    # non-zero count there is expected rather than a fault, because the families are not
+    # equally fine. Routing on a finer key leaves a coarser one overlapping: on the July
+    # 2025 corpus, every ctg_dna_hash maps to exactly one prot_hash (0 exceptions in
+    # 868,240 CDS rows), while 40,732 proteins are carried by more than one contig. So
+    # protein-disjoint routing also leaves contig hashes disjoint, and contig- or
+    # CDS-disjoint routing can still split the synonymous variants of one protein across
+    # splits.
     def _set(df: pd.DataFrame, col: str) -> set:
         return set(df[col].dropna())
     overlaps_by_family: dict = {}
@@ -1374,9 +1354,7 @@ def seq_disjoint_route_pos_df(
         if family_overlaps:
             overlaps_by_family[family] = family_overlaps
 
-    # targets_pct / achieved_pct kept on 0-100 (backwards-compat).
-    # max_target_deviation_pct -> _pp + rescale to 0-1 per D5 of the k-fold
-    # plan, extended to seq_disjoint for cross-audit consistency.
+    # Target and achieved percentages use 0-100; deviation uses fractions in 0-1.
     target_pcts = {k: 100.0 * v / n_pairs for k, v in targets.items()}
     achieved_pcts = {k: 100.0 * v / n_pairs for k, v in achieved.items()}
     target_frac   = {k: v / n_pairs for k, v in targets.items()}
@@ -1396,8 +1374,7 @@ def seq_disjoint_route_pos_df(
         ),
         'pairs_dropped': 0,  # CC-bin-packing never splits a component.
         # Primary guarantee (hard-fail in saver): overlaps_by_family[hash_key].
-        # Other family is diagnostic. Audit-output keys stay 'seq'/'dna' (keyed
-        # by hash_key in the saver); only the columns they read are renamed.
+        # Other families are diagnostic. Audit keys use the hash-family tokens.
         'seq_hash_overlap': overlaps_by_family.get('seq', {}),
         'dna_hash_overlap': overlaps_by_family.get('dna', {}),
         'cds_hash_overlap': overlaps_by_family.get('cds', {}),
@@ -1407,7 +1384,7 @@ def seq_disjoint_route_pos_df(
 
 # Axes supported on every slot of a metadata_holdout filter dict. Used both
 # by compute_metadata_holdout_isolates and by the v2 config validator to
-# reject unknown keys with a clear migration message.
+# reject unknown filter keys.
 _HOLDOUT_AXES = ('hn_subtype', 'host', 'year', 'year_range', 'geo_location', 'passage')
 _HOLDOUT_ORDERED_AXES = ('year',)  # axes that accept a *_range counterpart
 
@@ -1456,12 +1433,11 @@ def _validate_holdout_filter_spec(spec: dict, slot: str) -> dict:
 def drop_ambiguous_hn_subtype(prot_df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """Drop isolates whose hn_subtype is not fully specified (``^H\\d+N\\d+$``).
 
-    On the full Flu A enriched set (~108,530 isolates) this removes ~1,006 rows
-    (~0.93%) -- almost all are ``'HN'`` where both H and N indices are unknown,
-    plus a couple of singletons with incomplete N typing (``'H1N'``, ``'H3N'``).
-    Dropping them at source eliminates the ``unknown_metadata_neg`` regime from
-    downstream stratified eval, which otherwise gets a small "ambiguous"
-    bucket that complicates per-regime comparisons.
+    On the July 2025 Flu A enriched set of ~108,530 isolates this removes ~1,006 rows
+    (~0.93%). Almost all are ``'HN'``, where neither the H nor the N index is known, plus a
+    few with partial N typing (``'H1N'``, ``'H3N'``). Dropping them here keeps the
+    ``unknown_metadata_neg`` regime out of the stratified eval downstream, which otherwise
+    gets a small ambiguous bucket that makes per-regime comparisons harder to read.
 
     The caller is expected to honor the ``dataset.drop_ambiguous_subtype``
     config knob (default True); this helper does the unconditional work and

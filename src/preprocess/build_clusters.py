@@ -261,9 +261,8 @@ def verify_out_root_filters(out_root: Path, requested: tuple) -> None:
 
     The comparison is on the packed `isolate_filter_key`, so `--year 2024` and
     `--year_range 2024 2024` count as different requests even though they select the same
-    isolates; re-run with the flag the root's `runtime.json` records. A root built before
-    `--year` existed has no `year` key, which reads back as no year filter, so it still
-    matches an unfiltered request.
+    isolates; re-run with the flag the root's `runtime.json` records. A missing
+    `year` key is read as no year filter.
 
     Args:
         out_root: cluster root about to be written.
@@ -362,7 +361,7 @@ def load_and_filter(args) -> tuple:
 
 
 def _validate_method_args(args) -> None:
-    """Reject arg/method combinations that don't apply (see the arg matrix in the plan/docstring)."""
+    """Reject CLI options that do not apply to the selected method."""
     m = args.method
     if m != 'search':
         bad = [f for f, v in (('--exhaustive', args.exhaustive), ('--gpu', args.gpu),
@@ -453,7 +452,7 @@ def main(default_method=None) -> None:
 
     args = p.parse_args()
 
-    # Method-specific default resolution (search inherits the historical OOD defaults).
+    # Resolve defaults for the selected method.
     if args.method == 'search':
         if args.sensitivity is None:
             args.sensitivity = 7.5
