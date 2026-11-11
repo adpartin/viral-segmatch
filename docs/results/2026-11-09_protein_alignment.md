@@ -254,20 +254,19 @@ The Task 1 pilot directory also holds the downstream contig check, written by
 | 2280 nt | 60,413 | 36,879 | 15,230 | None | 7 | None |
 | 17 other lengths | 61 | 60 | 60 | 0 to 10 | 6 to 31 | 0 to 10 |
 
-The 2280-nt proteins have 2 gap patterns. The biggest pattern covers 15,229 of
-the 15,230 and has 7 internal gap columns: 42–45, 348, 575 and 678.
+```text
+Length   Empty columns                              Residues   Proteins   Stop column
+2280 nt  42-45, 348, 575, 678                            759     15,229           767
+2280 nt  42-45, 348, 582, 678                            759          1           767
+```
 
-The 2280-nt proteins don't have residues in columns 42–45, 348 and 678, so these
-proteins use 760 of the 766 columns. Those 6 columns are in the alignment
-because the rare 2268-nt and 2283-nt forms do have residues there.
+The 2280-nt proteins have 759 residues, so 7 of the 766 columns are empty.
+The 2280-nt proteins have 2 gap patterns.
 
-### 3. Stop codon columns
+A codon feature table for PB2 needs 767 columns, not 766.
+This mapping is not implemented.
 
-The modal form has no trailing gap, so it puts its last protein symbol in
-column 766 and its stop codon in column 767. A codon feature table for PB2
-needs 767 columns, not 766. This mapping is not implemented.
-
-### 4. By host, subtype and year
+### 3. By host, subtype and year
 
 "Other lengths" covers the 17 lengths not listed separately, so its
 column totals 61 isolates.
@@ -287,29 +286,10 @@ column totals 61 isolates.
 | Swine | H3N2 | 3,159 | 3,158 | 1 |
 | Swine | H5N1 | 16 | 15 | 1 |
 
-| Year | Complete PB2 isolates | 2280 nt | Other lengths |
-|---|---:|---:|---:|
-| 2010 | 1,542 | 1,540 | 2 |
-| 2011 | 1,460 | 1,458 | 2 |
-| 2012 | 1,635 | 1,633 | 2 |
-| 2013 | 1,810 | 1,808 | 2 |
-| 2014 | 1,463 | 1,462 | 1 |
-| 2015 | 2,173 | 2,170 | 3 |
-| 2016 | 3,317 | 3,316 | 1 |
-| 2017 | 4,130 | 4,129 | 1 |
-| 2018 | 3,499 | 3,497 | 2 |
-| 2019 | 5,231 | 5,230 | 1 |
-| 2020 | 1,628 | 1,628 | 0 |
-| 2021 | 1,536 | 1,536 | 0 |
-| 2022 | 7,157 | 7,148 | 9 |
-| 2023 | 5,136 | 5,127 | 9 |
-| 2024 | 11,093 | 11,074 | 19 |
-| 2025 | 7,664 | 7,657 | 7 |
-
 The off-mode lengths are spread across hosts, subtypes and years, with no group
 holding more than 30 of the 61 isolates.
 
-### 5. Findings
+### 4. Findings
 
 * PB2 has a pin on this population.
 * Pinning at 2280 nt would drop 61 of the 60,474 complete records and keep
@@ -350,16 +330,24 @@ holding more than 30 of the 61 isolates.
 | 2277 nt | 6,095 | 3,768 | 1,110 | None | 14 to 15 | 3 to 4 |
 | 16 other lengths | 50 | 50 | 50 | None | 15 to 41 | 0 to 11 |
 
-The 2274-nt proteins have 3 gap patterns. The biggest pattern covers 12,058 of
-the 12,060 and has 15 internal gap columns: 77–79, 389 and 718–728.
+```text
+Length   Empty columns                              Residues   Proteins   Stop column
+2274 nt  77-79, 389, 718-728, 773-776                    757     12,058           773
+2274 nt  62-63, 68, 389, 718-728, 773-776                757          1           773
+2274 nt  77-79, 94, 389, 718-728, 774-776                757          1           774
+2277 nt  77-79, 389, 718-728, 774-776                    758      1,109           774
+2277 nt  77-79, 718-728, 773-776                         758          1           773
+```
 
-The listed lengths don't have residues in columns 718–728 or 774–776, so these
-lengths use 762 of the 776 columns. Those 14 columns are in the alignment
-because the rare 2217-nt and 2232-nt forms do have residues there.
+The 2274-nt proteins have 757 residues, so 19 of the 776 columns are empty.
+The 2274-nt proteins have 3 gap patterns.
+
+The 2277-nt proteins have 758 residues, so 18 of the 776 columns are empty.
+The 2277-nt proteins have 2 gap patterns.
 
 The two main lengths are the same form, one codon apart at the C-terminus.
-Their internal gaps are identical and only their trailing run differs, by the
-single column 773:
+Their biggest patterns have identical internal gaps and differ only in the
+trailing run, by the single column 773:
 
 ```text
 Column:     772 773 774 775 776
@@ -367,15 +355,10 @@ Column:     772 773 774 775 776
 2277 nt:    res res  -   -   -     last symbol 773, stop in 774
 ```
 
-Together they hold 56,043 of the 56,093 complete records.
+A codon feature table for PB1 needs 776 columns.
+This mapping is not implemented.
 
-### 3. Stop codon columns
-
-The two main forms end one column apart, so they would put their stop codons in
-columns 773 and 774. Both fall inside the 776 columns, so a codon feature table
-for PB1 needs 776 columns and no more. This mapping is not implemented.
-
-### 4. By host, subtype and year
+### 3. By host, subtype and year
 
 "Other lengths" covers the sixteen lengths not listed separately, so its column
 totals 50 isolates.
@@ -398,30 +381,10 @@ totals 50 isolates.
 The 2277-nt form is a Human-H3N2 form: 5,984 of its 6,095 isolates are
 Human-H3N2, which is 23.6% of that group's 25,390 complete PB1 records.
 
-| Year | Complete PB1 isolates | 2274 nt | 2277 nt | Other lengths | 2277 nt share |
-|---|---:|---:|---:|---:|---:|
-| 2010 | 1,542 | 1,512 | 30 | 0 | 1.9% |
-| 2011 | 1,471 | 1,466 | 4 | 1 | 0.3% |
-| 2012 | 1,634 | 1,628 | 6 | 0 | 0.4% |
-| 2013 | 1,813 | 1,808 | 5 | 0 | 0.3% |
-| 2014 | 1,461 | 1,453 | 8 | 0 | 0.5% |
-| 2015 | 2,169 | 2,165 | 4 | 0 | 0.2% |
-| 2016 | 3,315 | 3,303 | 10 | 2 | 0.3% |
-| 2017 | 4,125 | 4,109 | 14 | 2 | 0.3% |
-| 2018 | 3,487 | 3,472 | 9 | 6 | 0.3% |
-| 2019 | 5,205 | 5,190 | 10 | 5 | 0.2% |
-| 2020 | 1,529 | 1,517 | 10 | 2 | 0.7% |
-| 2021 | 1,537 | 1,488 | 48 | 1 | 3.1% |
-| 2022 | 7,010 | 6,675 | 328 | 7 | 4.7% |
-| 2023 | 4,831 | 4,289 | 533 | 9 | 11.1% |
-| 2024 | 8,677 | 5,720 | 2,948 | 9 | 34.0% |
-| 2025 | 6,287 | 4,153 | 2,128 | 6 | 33.9% |
+The 2277-nt share of the two main lengths stays between 0.2% and 1.9% from 2010
+to 2020. It then rises each year, to 34.0% in 2024 and 33.9% in 2025.
 
-The last column is the 2277-nt share of the two main lengths. It stays between
-0.2% and 1.9% from 2010 to 2020, then rises each year to 34.0% in 2024 and
-33.9% in 2025.
-
-### 5. Findings
+### 4. Findings
 
 * PB1 has no pin on this population. The modal length holds 0.890 of unique
   complete CDS, below the 0.90 floor, and `conf/virus/flu.yaml` pins no length
@@ -466,14 +429,14 @@ The last column is the 2277-nt share of the two main lengths. It stays between
 | 2151 nt | 60,332 | 35,609 | 15,897 | None | 26 | 2 |
 | 13 other lengths | 64 | 50 | 42 | 0 to 20 | 22 to 49 | 0 to 25 |
 
-The 2151-nt proteins have 2 gap patterns. The biggest pattern covers 15,896 of
-the 15,897 and has 26 internal gap columns: 48–49, 77, 82–83, 94–98, 624,
-641–650, 660–663 and 703.
+```text
+Length   Empty columns                                            Residues   Proteins
+2151 nt  48-49, 77, 82-83, 94-98, 624, 641-650, 660-663, 703, 743-744  716     15,896
+2151 nt  48-49, 77, 82-88, 624, 641-650, 660-663, 703, 743-744         716          1
+```
 
-The 2151-nt proteins don't have residues in columns 48–49, 77, 82–83, 624,
-641–650, 660–663, 703 or 743–744, so these proteins use 721 of the 744 columns.
-Those 23 columns are in the alignment because the rare 2073-nt, 2154-nt,
-2157-nt, 2160-nt and 2163-nt forms do have residues there.
+The 2151-nt proteins have 716 residues, so 28 of the 744 columns are empty.
+The 2151-nt proteins have 2 gap patterns.
 
 The biggest of the rare lengths is 2157 nt, at 39 isolates. Its main form is
 the modal form with two more codons at the C-terminus, which is how it fills
@@ -511,25 +474,6 @@ totals 25 isolates.
 | Swine | H5N1 | 8 | 8 | 0 | 0 |
 
 Every one of the 39 isolates at 2157 nt is Human-H3N2.
-
-| Year | Complete PA isolates | 2151 nt | 2157 nt | Other lengths |
-|---|---:|---:|---:|---:|
-| 2010 | 1,546 | 1,545 | 0 | 1 |
-| 2011 | 1,476 | 1,475 | 0 | 1 |
-| 2012 | 1,646 | 1,645 | 0 | 1 |
-| 2013 | 1,822 | 1,821 | 0 | 1 |
-| 2014 | 1,469 | 1,467 | 0 | 2 |
-| 2015 | 2,179 | 2,177 | 0 | 2 |
-| 2016 | 3,318 | 3,317 | 0 | 1 |
-| 2017 | 4,144 | 4,139 | 3 | 2 |
-| 2018 | 3,504 | 3,502 | 1 | 1 |
-| 2019 | 5,152 | 5,147 | 3 | 2 |
-| 2020 | 1,563 | 1,562 | 0 | 1 |
-| 2021 | 1,537 | 1,516 | 19 | 2 |
-| 2022 | 7,152 | 7,144 | 4 | 4 |
-| 2023 | 5,135 | 5,135 | 0 | 0 |
-| 2024 | 11,089 | 11,082 | 3 | 4 |
-| 2025 | 7,664 | 7,658 | 6 | 0 |
 
 The 2157-nt form appears in 8 of the 16 years, with 19 of its 39 isolates in
 2021.
@@ -634,25 +578,6 @@ totals 183 isolates.
 The 1704-nt form is an H5N1 form: 3,614 of its 3,632 isolates are H5N1. The
 1695-nt form is a Swine-H1N1 form, with 217 of its 244 isolates.
 
-| Year | Complete HA isolates | 1695 nt | 1701 nt | 1704 nt | Other lengths |
-|---|---:|---:|---:|---:|---:|
-| 2010 | 1,518 | 2 | 1,493 | 12 | 11 |
-| 2011 | 1,432 | 11 | 1,370 | 27 | 24 |
-| 2012 | 1,636 | 2 | 1,588 | 35 | 11 |
-| 2013 | 1,809 | 3 | 1,737 | 41 | 28 |
-| 2014 | 1,464 | 0 | 1,416 | 38 | 10 |
-| 2015 | 2,168 | 4 | 2,044 | 115 | 5 |
-| 2016 | 3,312 | 2 | 3,264 | 41 | 5 |
-| 2017 | 4,121 | 6 | 4,064 | 44 | 7 |
-| 2018 | 3,466 | 1 | 3,437 | 23 | 5 |
-| 2019 | 5,215 | 3 | 5,192 | 12 | 8 |
-| 2020 | 1,667 | 2 | 1,642 | 17 | 6 |
-| 2021 | 1,526 | 7 | 1,478 | 35 | 6 |
-| 2022 | 7,115 | 15 | 6,089 | 1,006 | 5 |
-| 2023 | 5,097 | 139 | 4,674 | 283 | 1 |
-| 2024 | 11,081 | 37 | 9,848 | 1,190 | 6 |
-| 2025 | 7,655 | 10 | 6,887 | 713 | 45 |
-
 The 1704-nt form was 12 to 115 isolates a year from 2010 to 2021, then 1,006 in
 2022 and 1,190 in 2024. The 1695-nt form has 139 of its 244 isolates in 2023.
 
@@ -701,10 +626,17 @@ The 1704-nt form was 12 to 115 isolates a year from 2010 to 2021, then 1,006 in
 | 1461 nt | 1 | 1 | 1 | 12 | None | None |
 | 1497 nt | 60,039 | 27,086 | 7,249 | None | None | None |
 
-The 1497-nt proteins have 1 gap pattern. It covers all 7,249 and has no internal
-gap columns.
+```text
+Length   Empty columns                              Residues   Proteins
+1461 nt  1-12                                            486          1
+1497 nt  None                                            498      7,249
+```
 
-The listed lengths use all 498 columns, so no rare length adds width.
+The 1461-nt proteins have 486 residues, so 12 of the 498 columns are empty.
+The 1461-nt proteins have 1 gap pattern.
+
+The 1497-nt proteins have 498 residues, so no column is empty.
+The 1497-nt proteins have 1 gap pattern.
 
 The 1461-nt form is the 1497-nt form without its first 12 codons. Its gaps are
 leading rather than internal, so it starts at column 13 and ends at column 498
@@ -860,25 +792,6 @@ totals 30 isolates.
 The 1350-nt form is an H5N1 form: all 505 of its isolates are H5N1, of which
 266 are Duck, 227 Chicken, 10 Human and 2 Swine.
 
-| Year | Complete NA isolates | 1350 nt | 1407 nt | 1410 nt | 1413 nt | Other lengths |
-|---|---:|---:|---:|---:|---:|---:|
-| 2010 | 1,539 | 19 | 0 | 1,520 | 0 | 0 |
-| 2011 | 1,455 | 45 | 1 | 1,406 | 3 | 0 |
-| 2012 | 1,629 | 35 | 0 | 1,587 | 7 | 0 |
-| 2013 | 1,804 | 51 | 3 | 1,744 | 4 | 2 |
-| 2014 | 1,460 | 33 | 1 | 1,373 | 52 | 1 |
-| 2015 | 2,177 | 115 | 2 | 2,046 | 10 | 4 |
-| 2016 | 3,316 | 41 | 0 | 3,266 | 3 | 6 |
-| 2017 | 4,129 | 46 | 2 | 4,077 | 3 | 1 |
-| 2018 | 3,495 | 23 | 1 | 3,468 | 1 | 2 |
-| 2019 | 5,184 | 12 | 10 | 5,156 | 4 | 2 |
-| 2020 | 1,547 | 15 | 5 | 1,527 | 0 | 0 |
-| 2021 | 1,537 | 21 | 0 | 1,514 | 2 | 0 |
-| 2022 | 7,144 | 13 | 5 | 7,113 | 9 | 4 |
-| 2023 | 4,961 | 22 | 2 | 4,936 | 0 | 1 |
-| 2024 | 10,895 | 12 | 6 | 10,870 | 3 | 4 |
-| 2025 | 7,584 | 2 | 0 | 7,551 | 28 | 3 |
-
 The 1350-nt form is present in all 16 years. The 1413-nt form peaks twice, with
 52 of its 129 isolates in 2014 and 28 in 2025.
 
@@ -928,10 +841,17 @@ The 1350-nt form is present in all 16 years. The 1413-nt form peaks twice, with
 | 726 nt | 1 | 1 | 1 | None | 11 | None |
 | 759 nt | 60,565 | 14,572 | 1,947 | None | None | None |
 
-The 759-nt proteins have 1 gap pattern. It covers all 1,947 and has no internal
-gap columns.
+```text
+Length   Empty columns                              Residues   Proteins
+726 nt   31-41                                           241          1
+759 nt   None                                            252      1,947
+```
 
-The listed lengths use all 252 columns, so no rare length adds width.
+The 726-nt proteins have 241 residues, so 11 of the 252 columns are empty.
+The 726-nt proteins have 1 gap pattern.
+
+The 759-nt proteins have 252 residues, so no column is empty.
+The 759-nt proteins have 1 gap pattern.
 
 The 726-nt form is not a truncated 759-nt form. It is the 759-nt form with 11
 codons missing in the middle, at columns 31–41:
@@ -1021,12 +941,29 @@ By year: every year is entirely 759 nt except 2011, which holds the single
 | 693 nt | 33,553 | 9,097 | 4,926 | None | 3 | 7 |
 | 11 other lengths | 59 | 50 | 47 | 0 to 5 | 2 to 8 | 0 to 35 |
 
-The 693-nt proteins have 1 gap pattern. It covers all 4,926 and has 3 internal
-gap columns: 74, 112 and 132.
+```text
+Length   Empty columns                              Residues   Proteins
+654 nt   74, 112, 132, 221-240                           217        207
+660 nt   74, 112, 132, 223-240                           219      4,601
+672 nt   74, 112, 132, 227-240                           223        144
+678 nt   74, 81-85, 112, 132, 234-240                    225        205
+693 nt   74, 112, 132, 234-240                           230      4,926
+```
 
-The listed lengths don't have residues in columns 74, 112, 132 or 234–240, so
-these lengths use 230 of the 240 columns. Those 10 columns are in the alignment
-because the rare 663-nt, 696-nt, 699-nt and 714-nt forms do have residues there.
+The 654-nt proteins have 217 residues, so 23 of the 240 columns are empty.
+The 654-nt proteins have 1 gap pattern.
+
+The 660-nt proteins have 219 residues, so 21 of the 240 columns are empty.
+The 660-nt proteins have 1 gap pattern.
+
+The 672-nt proteins have 223 residues, so 17 of the 240 columns are empty.
+The 672-nt proteins have 1 gap pattern.
+
+The 678-nt proteins have 225 residues, so 15 of the 240 columns are empty.
+The 678-nt proteins have 1 gap pattern.
+
+The 693-nt proteins have 230 residues, so 10 of the 240 columns are empty.
+The 693-nt proteins have 1 gap pattern.
 
 The 678-nt form is not a truncated 693-nt form. It is the 693-nt form with 5
 codons missing in the middle, at columns 81–85:
@@ -1087,27 +1024,6 @@ are Chicken and 121 Duck.
 
 The 672-nt form is concentrated in Human-H3N2 in 2019–2020, with 753 of its 806
 isolates.
-
-By year, with the same "Other lengths" column as above:
-
-| Year | Complete NS1 isolates | 654 nt | 660 nt | 672 nt | 678 nt | 693 nt | Other lengths |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 2010 | 1,548 | 29 | 976 | 0 | 18 | 520 | 5 |
-| 2011 | 1,473 | 30 | 815 | 0 | 45 | 582 | 1 |
-| 2012 | 1,645 | 22 | 619 | 0 | 39 | 960 | 5 |
-| 2013 | 1,822 | 11 | 780 | 0 | 51 | 977 | 3 |
-| 2014 | 1,468 | 4 | 512 | 0 | 36 | 911 | 5 |
-| 2015 | 2,175 | 5 | 630 | 0 | 116 | 1,419 | 5 |
-| 2016 | 3,317 | 27 | 1,779 | 1 | 23 | 1,485 | 2 |
-| 2017 | 4,142 | 121 | 1,125 | 0 | 11 | 2,878 | 7 |
-| 2018 | 3,504 | 14 | 1,711 | 48 | 2 | 1,723 | 6 |
-| 2019 | 5,255 | 19 | 2,069 | 698 | 0 | 2,462 | 7 |
-| 2020 | 1,723 | 13 | 1,405 | 57 | 0 | 245 | 3 |
-| 2021 | 1,538 | 12 | 380 | 0 | 0 | 1,146 | 0 |
-| 2022 | 7,145 | 22 | 1,201 | 2 | 0 | 5,916 | 4 |
-| 2023 | 5,137 | 36 | 3,483 | 0 | 0 | 1,616 | 2 |
-| 2024 | 11,096 | 10 | 4,561 | 0 | 0 | 6,522 | 3 |
-| 2025 | 7,666 | 14 | 3,460 | 0 | 0 | 4,191 | 1 |
 
 The 660-nt and 693-nt forms are present in all 16 years. The other three listed
 forms are not. The 678-nt form runs from 2010 to 2018 and does not appear after
