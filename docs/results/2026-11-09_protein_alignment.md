@@ -199,9 +199,9 @@ Two of the six pinned proteins hold more than one form at the pinned length.
 NA's 1410 nt holds N1 and N2, and HA's 1701 nt holds H1 and H3 with H5 at
 1704 nt. Those sections give the measured column overlap between the forms.
 
-Six of the eight need one column more than the alignment has, to hold the stop
-codon of their longest form. PB1 and NA do not, because their longest form's
-stop codon already falls inside the alignment width.
+In all eight, some form fills the last column of the alignment, so a codon
+feature table needs one column more than the alignment has: PB2 767, PB1 777,
+PA 745, HA 613, NP 499, NA 544, M1 253 and NS1 241.
 
 NS1 has a usable pin at 0.991 on the Task 1 population, reported in the last
 section. However, extending the population to the one Task 2 uses drops
@@ -355,7 +355,9 @@ Column:     772 773 774 775 776
 2277 nt:    res res  -   -   -     last symbol 773, stop in 774
 ```
 
-A codon feature table for PB1 needs 776 columns.
+A codon feature table for PB1 needs 777 columns, not 776.
+One 2217-nt protein and one 2232-nt protein fill column 776, so their stop codon
+falls one column past the alignment.
 This mapping is not implemented.
 
 ### 3. By host, subtype and year
@@ -766,8 +768,10 @@ N1, 1410:   res res  -      last symbol 542, stop in 543
 1350 nt:    res res  -      last symbol 542, stop in 543
 ```
 
-Both stop codons fall inside the 543 columns, so a codon feature table for NA
-needs 543 columns and no more. This mapping is not implemented.
+Both of those stop codons fall inside the 543 columns. Five rare proteins do
+not: one at 1353 nt, one at 1413 nt and three at 1422 nt fill column 543, so
+their stop codon falls one column past the alignment. A codon feature table for
+NA needs 544 columns, not 543. This mapping is not implemented.
 
 ### 4. By host, subtype and year
 

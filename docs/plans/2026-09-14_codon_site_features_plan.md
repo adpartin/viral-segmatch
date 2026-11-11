@@ -604,10 +604,9 @@ What matters for the codon feature mapping:
   form with 5 codons missing at columns 81–85, shared by all 205 of its unique
   proteins over 341 isolates, 340 of them H5N1. M1 and NP each have one record
   with a gap and no others, so NS1 is the case that forces the state.
-* **Feature width is per protein, and 6 of the 8 need one column more than the
-  alignment has** to hold their longest form's stop codon: PB2 767, PA 745, HA
-  613, NP 499, M1 253, NS1 241. PB1 at 776 and NA at 543 do not, because their
-  longest form's stop codon already falls inside the alignment width.
+* **Feature width is per protein, and all 8 need one column more than the
+  alignment has** to hold the stop codon of the form that fills the last
+  column: PB2 767, PB1 777, PA 745, HA 613, NP 499, NA 544, M1 253, NS1 241.
 * **One-residue columns are the main candidate for exclusion**, and they are
   most of the extra width in PA. Counts: PA 25, NA 16, HA 14, PB2 6, PB1 6,
   NS1 3, NP 0, M1 0. Cutting PA's 25 would take it from 745 columns to 720.
