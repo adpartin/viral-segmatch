@@ -583,7 +583,7 @@ Duck --hn_subtype H3N2 H1N1 H5N1 --year_range 2010 2025`.
 
 The per-protein tables are in
 [the results](../results/2026-11-09_protein_alignment.md), one `##` section
-each with the same six numbered parts. The saved inputs, alignment, validation,
+each with the same five numbered parts. The saved inputs, alignment, validation,
 gap report and summaries are under
 `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/<protein>/`.
 What matters for the codon feature mapping:
