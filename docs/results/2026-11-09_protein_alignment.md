@@ -153,16 +153,16 @@ Task 2 population has not checked this.
 
 One row per protein, on the Task 2 population.
 
-| Segment ID | Protein | Isolates | Unique CDS | Unique proteins | CDS lengths | Columns | `frac at mode` | Largest internal gap | One-residue columns |
+| Segment ID | Protein | Isolates | Unique CDS | Unique proteins | CDS lengths | AA columns | `frac at mode` | Longest internal AA-gap run | One-residue columns |
 |---:|---|---:|---:|---:|---:|---:|---:|---|---|
-| 1 | PB2 | 60,474 | 36,939 | 15,290 | 18 | 766 | 2280 nt, 36,879 of 36,939 | columns 692–715, 24 codons, 1 protein | 42–45, 575, 678 |
-| 2 | PB1 | 56,093 | 34,642 | 13,220 | 18 | 776 | 2274 nt, 30,824 of 34,642 | columns 736–764, 29 codons, 1 protein | 77–79, 389, 718–719 |
-| 3 | PA | 60,396 | 35,659 | 15,939 | 14 | 744 | 2151 nt, 35,609 of 35,659 | columns 80–107, 28 codons, 1 protein | 25 columns, listed in part 5 |
-| 4 | HA | 60,282 | 35,509 | 19,841 | 10 | 612 | 1701 nt, 33,492 of 35,509 | columns 20–27, 8 codons, 1 protein | 14 columns, listed in part 5 |
+| 1 | PB2 | 60,474 | 36,939 | 15,290 | 18 | 766 | 2280 nt, 36,879 of 36,939 | columns 692–715, 24 columns, 1 protein, 1 isolate | 42–45, 575, 678 |
+| 2 | PB1 | 56,093 | 34,642 | 13,220 | 18 | 776 | 2274 nt, 30,824 of 34,642 | columns 736–764, 29 columns, 2 proteins, 2 isolates | 77–79, 389, 718–719 |
+| 3 | PA | 60,396 | 35,659 | 15,939 | 14 | 744 | 2151 nt, 35,609 of 35,659 | columns 80–107, 28 columns, 1 protein, 1 isolate | 25 columns, listed in part 5 |
+| 4 | HA | 60,282 | 35,509 | 19,841 | 10 | 612 | 1701 nt, 33,492 of 35,509 | columns 20–27, 8 columns, 9,541 proteins, 27,471 isolates | 14 columns, listed in part 5 |
 | 5 | NP | 60,040 | 27,087 | 7,250 | 2 | 498 | 1497 nt, 27,086 of 27,087 | None | None |
-| 6 | NA | 59,856 | 31,157 | 17,267 | 16 | 543 | 1410 nt, 30,630 of 31,157 | columns 68–94, 27 codons, 1 protein | 16 columns, listed in part 5 |
-| 7 | M1 | 60,566 | 14,573 | 1,948 | 2 | 252 | 759 nt, 14,572 of 14,573 | columns 31–41, 11 codons, 1 protein | None |
-| 8 | NS1 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 9,097 of 18,107 | columns 81–85, 5 codons, 206 proteins | 74, 112, 132 |
+| 6 | NA | 59,856 | 31,157 | 17,267 | 16 | 543 | 1410 nt, 30,630 of 31,157 | columns 68–94, 27 columns, 1 protein, 1 isolate | 16 columns, listed in part 5 |
+| 7 | M1 | 60,566 | 14,573 | 1,948 | 2 | 252 | 759 nt, 14,572 of 14,573 | columns 31–41, 11 columns, 1 protein, 1 isolate | None |
+| 8 | NS1 | 60,654 | 18,107 | 10,130 | 16 | 240 | 693 nt, 9,097 of 18,107 | columns 81–85, 5 columns, 206 proteins, 342 isolates | 74, 112, 132 |
 
 The table below counts the complete records a usable pin would drop. H5N1
 counts include all four host groups and use complete records for that protein.
@@ -178,16 +178,21 @@ counts include all four host groups and use complete records for that protein.
 | M1 | 759 nt | 1 of 60,566 | 3,776 of 3,776 |
 | NS1 | None | Not applicable | Not applicable |
 
-"Largest internal gap" gives the longest run of neighbouring internal gap
-columns any protein has, as column numbers rather than a count of columns,
-followed by how long the run is and how many proteins carry it.
-`columns 81–85, 5 codons` means five gaps, one in each of the columns numbered
-81 to 85. The table gives only the longest run. Each section lists all of its
-internal gaps, except NA and HA, whose lists are too long to print and are in
-`gap_pattern_summary.csv`.
+"Longest internal AA-gap run" gives the longest run of neighbouring internal aa
+alignment gap columns any protein has, as column numbers, followed by how long
+the run is and how many unique proteins and isolates carry it.
+`columns 81–85, 5 columns` means five aa alignment gaps, one in each of the
+columns numbered 81 to 85. The carrier count is not always small: HA's run is
+carried by 9,541 of its 19,841 unique proteins, because it is where the H1 form
+differs from the H3 form. The table gives only the longest run.
 
-A **one-residue column** is an alignment column where exactly one protein has a
-protein symbol and every other protein has a gap.
+Each section's part 2 gives the gap columns of its main forms, not of every
+pattern: only NP and M1 have few enough to list in full. HA and NA give their
+patterns by name rather than by column list, because those lists run to 151 to
+193 characters. `gap_pattern_summary.csv` holds every pattern for all eight.
+
+A **one-residue column** is an aa alignment column where exactly one protein has
+an aa residue and every other protein has a gap.
 
 Six of the eight proteins have a usable pin on this population: PB2, PA, HA,
 NP, NA and M1. The two without one are PB1 at 0.890 and NS1 at 0.502, which are
@@ -195,17 +200,23 @@ also the two proteins `conf/virus/flu.yaml` pins no length for.
 HA is the extreme: its 1701-nt pin keeps 13 of 3,754 complete H5N1 records
 because the main H5 form sits at 1704 nt.
 
-Two of the six pinned proteins hold more than one form at the pinned length.
-NA's 1410 nt holds N1 and N2, and HA's 1701 nt holds H1 and H3 with H5 at
-1704 nt. Those sections give the measured column overlap between the forms.
+Four of the six pinned proteins hold more than one gap pattern at the pinned
+length: PB2 2, PA 2, HA 6 and NA 9. In PB2 and PA the second pattern is a single
+protein. In HA and NA the two biggest are both large and split by subtype:
+HA's 1701 nt holds 10,274 H3 proteins and 8,326 H1, with H5 at 1704 nt, and
+NA's 1410 nt holds 8,510 N2 proteins and 8,305 N1. Those two sections give the
+measured column overlap between the forms.
 
 In all eight, some form fills the last column of the alignment, so a codon
 feature table needs one column more than the alignment has: PB2 767, PB1 777,
-PA 745, HA 613, NP 499, NA 544, M1 253 and NS1 241.
+PA 745, HA 613, NP 499, NA 544, M1 253 and NS1 241. Those figures assume every
+CDS length is retained. Each section's part 5 gives the width for narrower
+retention sets, which is lower for six of the eight.
 
-NS1 has a usable pin at 0.991 on the Task 1 population, reported in the last
-section. However, extending the population to the one Task 2 uses drops
-`frac at mode` at 693 nt to 0.502, so NS1 has no pin there.
+NS1 has a usable pin at 0.991 on the Task 1 population, 1,122 of 1,132 unique
+complete CDS at 693 nt, reported in the last section. Extending the population
+to the one Task 2 uses drops `frac at mode` at 693 nt to 0.502, so NS1 has no
+pin there.
 
 
 ## Artifacts
