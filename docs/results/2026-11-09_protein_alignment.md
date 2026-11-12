@@ -952,59 +952,107 @@ is large but not steady. The 1695-nt records have 139 of their 244 isolates in
 
 ## NP (Segment 5)
 
+NP sequences are aligned in amino-acid (aa) space. The corresponding CDS
+sequences are retained so that each aa alignment column can later be projected
+back to the codon that encoded that aa residue. The CDS sequences are not
+aligned in this analysis.
+
 ### 1. Inputs
 
-* **Records.** Of 60,751 filtered isolates, 60,040 (98.8%) had a complete CDS
-  and 711 were dropped as incomplete.
-* **Sequences.** 27,087 unique CDS and 7,250 unique proteins, across 2 CDS
-  lengths and 147 host–subtype–year groups.
-* **Unknown residues.** 541 isolates and 436 unique proteins contain an `X`,
-  all 541 at 1497 nt.
-* **Pin.** NP has a usable pin at 1497 nt. 27,086 of the 27,087 unique complete
-  CDS are 1497 nt, a share of 1.000, against the 0.90 `check_cds_length` needs.
-  `conf/virus/flu.yaml` pins NP at 1497 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced `498` columns.
-  - Removing `-` from the aligned proteins recovered the exact input protein
-    for all 7,250.
-  - A 1497-nt CDS is 498 amino acids, so the alignment adds no columns.
+* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,040 (98.8%)
+  have a complete NP CDS record; 711 isolates were excluded because their NP
+  CDS was incomplete. Thus, counts of complete records in this section are
+  counts of isolates with a complete NP CDS, before sequences are deduplicated.
+* **Nucleotide sequences.** The 60,040 complete NP CDS records contain 27,087
+  unique CDS sequences across 2 CDS lengths and 147 host–subtype–year groups.
+  Two lengths is the fewest of the eight proteins, tied with M1.
+* **Protein sequences.** Those CDS sequences translate to 7,250 unique NP
+  protein sequences.
+* **Unknown amino acids.** The translated proteins for 541 isolates,
+  representing 436 unique proteins, contain an `X`. All 541 of those isolates
+  have a 1497-nt CDS.
+* **Modal CDS length.** NP has a usable configured length of 1497 nt. This
+  length includes 498 sense codons and 1 terminal stop codon. It occurs in
+  27,086 of 27,087 unique complete CDS sequences (1.000), exceeding the
+  `check_cds_length` requirement of 0.90. The configured value in
+  `conf/virus/flu.yaml` agrees with the observed mode.
+* **MAFFT input.** Before alignment, the terminal `*` was removed from each
+  protein. MAFFT therefore aligned 7,250 unique stop-free aa sequences. A
+  protein from a 1497-nt CDS contributes 498 aa residues to this alignment.
+* **Alignment result.** MAFFT used FFT-NS-2 and produced 498 aa alignment
+  columns.
+  - Removing alignment gaps (`-`) from every aligned sequence recovered its
+    exact stop-free protein input.
+  - Each protein from a 1497-nt CDS contains 498 aa residues and therefore has
+    gaps in none of the 498 alignment columns. The alignment is exactly as wide
+    as the modal protein is long.
+  - The proteins from 1497-nt CDS records have 1 observed gap pattern, which is
+    the pattern with no gaps.
 
 ### 2. Lengths and gaps
 
-| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+The CDS lengths in this table identify the nt sequences from which the proteins
+were translated. All gap counts refer to the resulting aa alignment, not to an
+nt alignment.
+
+| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
 |---|---:|---:|---:|---|---|---|
 | 1461 nt | 1 | 1 | 1 | 12 | None | None |
 | 1497 nt | 60,039 | 27,086 | 7,249 | None | None | None |
 
-```text
-Length   Empty columns                              Residues   Proteins
-1461 nt  1-12                                            486          1
-1497 nt  None                                            498      7,249
-```
+NP holds 2 gap patterns in the whole alignment, one per CDS length, which is the
+fewest of the eight proteins alongside M1.
 
-The 1461-nt proteins have 486 residues, so 12 of the 498 columns are empty.
-The 1461-nt proteins have 1 gap pattern.
+| Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates |
+|---|---|---:|---:|---:|
+| 1497 nt | None | 498 | 7,249 | 60,039 |
+| 1461 nt | 1–12 | 486 | 1 | 1 |
 
-The 1497-nt proteins have 498 residues, so no column is empty.
-The 1497-nt proteins have 1 gap pattern.
+NP and M1 are the only two of the eight proteins whose modal form has no aa
+alignment gap at all. Every host and subtype in the population carries the
+1497-nt pattern, as part 4 shows.
 
 The 1461-nt form is the 1497-nt form without its first 12 codons. Its gaps are
 leading rather than internal, so it starts at column 13 and ends at column 498
 with every other protein:
 
 ```text
-Column:     1          11         21
-1497 nt:    MASQGTKRSY EQMETDGDRQ NATEIR
-1461 nt:    ---------- --METGGERQ NATEIR
+Alignment column:  1          11         21
+1497 nt:           MASQGTKRSY EQMETDGDRQ NATEIR
+1461 nt:           ---------- --METGGERQ NATEIR
 ```
 
-One isolate carries this form, from Swine-H3N2 in 2011. The 1497-nt row above
-is the most common 1497-nt protein, which 9,227 isolates carry.
+One isolate carries this form, from Swine-H3N2 in 2011. The 1497-nt row above is
+the most common 1497-nt protein, which 9,227 isolates carry.
 
-### 3. Stop codon columns
+A leading gap here does not mean a missing start codon. The 1461-nt CDS begins
+with ATG; its first codon aligns to column 13 because the other records have 12
+codons further left.
 
-Neither form has a trailing gap, so both put their last protein symbol in
-column 498 and their stop codon in column 499. A codon feature table for NP
-needs 499 columns, not 498. This mapping is not implemented.
+### 3. Projection to codons and the terminal stop
+
+For codon featurization, each aa alignment column becomes a projected codon
+column, and each aa residue is mapped back to the codon that encoded it. An aa
+alignment gap has no source codon, so its projected codon column holds no codon
+and takes one of two proposed states. It is `GAP` when the projected column
+comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
+after. Both comparisons are made in the projected codon frame, because the
+terminal stop codon has no position in the aa alignment.
+
+The terminal `*` was excluded from the MAFFT input, so none of the 498 aa
+alignment columns corresponds to a terminal stop codon. Every one of the 7,250
+proteins has its last aa residue in alignment column 498, and none has a
+trailing aa alignment gap. So every record's terminal stop codon would be placed
+in projected codon column 499, and no record needs `AFTER_STOP`. NP, HA and M1
+are the three proteins of the eight where that holds.
+
+The only projected columns that need `GAP` are 1 to 12, for the single 1461-nt
+record. Those columns also hold an `X` in 10 of the 7,249 other proteins, so a
+column that is a leading gap for one record can be an unresolved codon in
+another.
+
+A codon feature table for NP therefore needs 499 columns, not 498. This
+projection has not been implemented.
 
 ### 4. By host, subtype and year
 
@@ -1030,17 +1078,28 @@ By year: every year is entirely 1497 nt except 2011, which holds the single
 
 ### 5. Findings
 
-* NP has a pin on this population.
-* Pinning at 1497 nt would drop 1 of the 60,040 complete records and keep
-  3,766 of 3,766 H5N1 records.
-* The 1497-nt form holds 60,039 of the 60,040 complete records. The 1461-nt
-  form is one isolate.
-* The alignment adds no columns. Its 498 columns are the 498 amino acids of a
-  1497-nt CDS.
-* NP has no internal gaps at any length. The only gaps in the alignment are the
-  12 leading columns of the 1461-nt form.
-* 486 of the 498 columns hold a protein symbol in all 7,250 proteins. The other
-  12 are columns 1–12, which hold one in 7,249.
+* NP has a usable pin at 1497 nt. Pinning would keep 60,039 of the 60,040
+  isolates with a complete NP CDS and drop 1. It would keep all 3,766 H5N1
+  isolates.
+* The required feature width depends on which proteins are retained, except for
+  NP, where it does not. No filtering reduces the width, because the only gaps
+  in the alignment are the 12 leading columns of one record and every other
+  protein fills them.
+
+| Proteins retained | Unique proteins | Isolates | All-gap aa columns removed | AA alignment columns | Projected codon columns |
+|---|---:|---:|---:|---:|---:|
+| Both source CDS lengths | 7,250 | 60,040 | None | 498 | 499 |
+| 1497-nt source CDS only | 7,249 | 60,039 | None | 498 | 499 |
+
+* The alignment adds no columns. Its 498 columns are the 498 aa residues of a
+  1497-nt CDS, and the pin is therefore free: the pinned set needs no alignment,
+  because at 1497 nt every protein has the same residue in the same column by
+  construction.
+* NP has no internal aa alignment gaps at any length. The only gaps anywhere in
+  the alignment are the 12 leading columns of the 1461-nt form.
+* 486 of the 498 aa alignment columns hold an aa residue in all 7,250 proteins.
+  The other 12 are columns 1 to 12, which hold one in 7,249. That share, 0.976,
+  is the highest of the eight proteins.
 * There are no one-residue columns.
 * Still open before codon features are built: whether to keep the single
   1461-nt isolate. Uncommon length alone does not establish an error.
@@ -1267,58 +1326,104 @@ The 1413-nt records peak twice, with 52 of their 129 isolates in 2014 and 28 in
 
 ## M1 (Segment 7)
 
+M1 sequences are aligned in amino-acid (aa) space. The corresponding CDS
+sequences are retained so that each aa alignment column can later be projected
+back to the codon that encoded that aa residue. The CDS sequences are not
+aligned in this analysis.
+
 ### 1. Inputs
 
-* **Records.** Of 60,751 filtered isolates, 60,566 (99.7%) had a complete CDS
-  and 185 were dropped as incomplete.
-* **Sequences.** 14,573 unique CDS and 1,948 unique proteins, across 2 CDS
-  lengths and 147 host–subtype–year groups.
-* **Unknown residues.** 425 isolates and 185 unique proteins contain an `X`,
-  all 425 at 759 nt.
-* **Pin.** M1 has a usable pin at 759 nt. 14,572 of the 14,573 unique complete
-  CDS are 759 nt, a share of 1.000, against the 0.90 `check_cds_length` needs.
-  `conf/virus/flu.yaml` pins M1 at 759 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced `252` columns.
-  - Removing `-` from the aligned proteins recovered the exact input protein
-    for all 1,948.
-  - A 759-nt CDS is 252 amino acids, so the alignment adds no columns.
+* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,566 (99.7%)
+  have a complete M1 CDS record; 185 isolates were excluded because their M1
+  CDS was incomplete. That is 0.3% of the population, the smallest completeness
+  loss of the eight proteins after NS1. Thus, counts of complete records in this
+  section are counts of isolates with a complete M1 CDS, before sequences are
+  deduplicated.
+* **Nucleotide sequences.** The 60,566 complete M1 CDS records contain 14,573
+  unique CDS sequences across 2 CDS lengths and 147 host–subtype–year groups.
+  Two lengths is the fewest of the eight proteins, tied with NP.
+* **Protein sequences.** Those CDS sequences translate to 1,948 unique M1
+  protein sequences, the fewest of the eight proteins.
+* **Unknown amino acids.** The translated proteins for 425 isolates,
+  representing 185 unique proteins, contain an `X`. All 425 of those isolates
+  have a 759-nt CDS.
+* **Modal CDS length.** M1 has a usable configured length of 759 nt. This length
+  includes 252 sense codons and 1 terminal stop codon. It occurs in 14,572 of
+  14,573 unique complete CDS sequences (1.000), exceeding the `check_cds_length`
+  requirement of 0.90. The configured value in `conf/virus/flu.yaml` agrees with
+  the observed mode.
+* **MAFFT input.** Before alignment, the terminal `*` was removed from each
+  protein. MAFFT therefore aligned 1,948 unique stop-free aa sequences. A
+  protein from a 759-nt CDS contributes 252 aa residues to this alignment.
+* **Alignment result.** MAFFT used FFT-NS-2 and produced 252 aa alignment
+  columns.
+  - Removing alignment gaps (`-`) from every aligned sequence recovered its
+    exact stop-free protein input.
+  - Each protein from a 759-nt CDS contains 252 aa residues and therefore has
+    gaps in none of the 252 alignment columns. The alignment is exactly as wide
+    as the modal protein is long.
+  - The proteins from 759-nt CDS records have 1 observed gap pattern, which is
+    the pattern with no gaps.
 
 ### 2. Lengths and gaps
 
-| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+The CDS lengths in this table identify the nt sequences from which the proteins
+were translated. All gap counts refer to the resulting aa alignment, not to an
+nt alignment.
+
+| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
 |---|---:|---:|---:|---|---|---|
 | 726 nt | 1 | 1 | 1 | None | 11 | None |
 | 759 nt | 60,565 | 14,572 | 1,947 | None | None | None |
 
-```text
-Length   Empty columns                              Residues   Proteins
-726 nt   31-41                                           241          1
-759 nt   None                                            252      1,947
-```
+M1 holds 2 gap patterns in the whole alignment, one per CDS length, which is the
+fewest of the eight proteins alongside NP.
 
-The 726-nt proteins have 241 residues, so 11 of the 252 columns are empty.
-The 726-nt proteins have 1 gap pattern.
+| Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates |
+|---|---|---:|---:|---:|
+| 759 nt | None | 252 | 1,947 | 60,565 |
+| 726 nt | 31–41 | 241 | 1 | 1 |
 
-The 759-nt proteins have 252 residues, so no column is empty.
-The 759-nt proteins have 1 gap pattern.
+Every host and subtype in the population carries the 759-nt pattern, as part 4
+shows.
 
 The 726-nt form is not a truncated 759-nt form. It is the 759-nt form with 11
-codons missing in the middle, at columns 31–41:
+codons missing in the middle, at columns 31 to 41, so it starts at column 1 and
+ends at column 252 with every other protein:
 
 ```text
-Column:     21         31         41         51
-759 nt:     KAEIAQRLED VFAGKNTDLE ALMEWLKTRP ILSP
-726 nt:     KAEIAQRLED ---------- -LMEWLKTRP ILSP
+Alignment column:  21         31         41         51
+759 nt:            KAEIAQRLED VFAGKNTDLE ALMEWLKTRP ILSP
+726 nt:            KAEIAQRLED ---------- -LMEWLKTRP ILSP
 ```
 
 One isolate carries this form, from Swine-H1N1 in 2011. The 759-nt row above is
 the most common 759-nt protein, which 27,661 isolates carry.
 
-### 3. Stop codon columns
+### 3. Projection to codons and the terminal stop
 
-Neither form has a trailing gap, so both put their last protein symbol in
-column 252 and their stop codon in column 253. A codon feature table for M1
-needs 253 columns, not 252. This mapping is not implemented.
+For codon featurization, each aa alignment column becomes a projected codon
+column, and each aa residue is mapped back to the codon that encoded it. An aa
+alignment gap has no source codon, so its projected codon column holds no codon
+and takes one of two proposed states. It is `GAP` when the projected column
+comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
+after. Both comparisons are made in the projected codon frame, because the
+terminal stop codon has no position in the aa alignment.
+
+The terminal `*` was excluded from the MAFFT input, so none of the 252 aa
+alignment columns corresponds to a terminal stop codon. Every one of the 1,948
+proteins has its last aa residue in alignment column 252, and none has a
+trailing aa alignment gap. So every record's terminal stop codon would be placed
+in projected codon column 253, and no record needs `AFTER_STOP`. M1, HA and NP
+are the three proteins of the eight where that holds.
+
+The only projected columns that need `GAP` are 31 to 41, for the single 726-nt
+record. Those columns also hold an `X` in 9 of the 1,947 other proteins, and the
+columns on either side, 30 and 42, hold one in 7. So a column that is an internal
+gap for one record can be an unresolved codon in another.
+
+A codon feature table for M1 therefore needs 253 columns, not 252. This
+projection has not been implemented.
 
 ### 4. By host, subtype and year
 
@@ -1344,20 +1449,28 @@ By year: every year is entirely 759 nt except 2011, which holds the single
 
 ### 5. Findings
 
-* M1 has a pin on this population.
-* Pinning at 759 nt would drop 1 of the 60,566 complete records and keep
-  3,776 of 3,776 H5N1 records.
-* The 759-nt form holds 60,565 of the 60,566 complete records. The 726-nt form
-  is one isolate.
-* The alignment adds no columns. Its 252 columns are the 252 amino acids of a
+* M1 has a usable pin at 759 nt. Pinning would keep 60,565 of the 60,566
+  isolates with a complete M1 CDS and drop 1. It would keep all 3,776 H5N1
+  isolates.
+* The required feature width depends on which proteins are retained, except for
+  M1, where it does not. No filtering reduces the width, because the only gaps
+  in the alignment are the 11 internal columns of one record and every other
+  protein fills them.
+
+| Proteins retained | Unique proteins | Isolates | All-gap aa columns removed | AA alignment columns | Projected codon columns |
+|---|---:|---:|---:|---:|---:|
+| Both source CDS lengths | 1,948 | 60,566 | None | 252 | 253 |
+| 759-nt source CDS only | 1,947 | 60,565 | None | 252 | 253 |
+
+* The alignment adds no columns. Its 252 columns are the 252 aa residues of a
   759-nt CDS, because the one protein that differs is shorter in the middle
-  rather than longer at either end.
-* 241 of the 252 columns hold a protein symbol in all 1,948 proteins. The other
-  11 are columns 31–41, which hold one in 1,947, every protein but the 726-nt
-  one.
+  rather than longer at either end. The pin is therefore free: the pinned set
+  needs no alignment, because at 759 nt every protein has the same residue in
+  the same column by construction.
+* 241 of the 252 aa alignment columns hold an aa residue in all 1,948 proteins.
+  The other 11 are columns 31 to 41, which hold one in 1,947, every protein but
+  the 726-nt one.
 * There are no one-residue columns.
-* The gap columns carry `X` symbols in other records. Columns 31–41 hold an `X`
-  in 9 of the other 1,947 proteins, and columns 30 and 42 hold one in 7.
 * Still open before codon features are built: whether to keep the single 726-nt
   isolate. Uncommon length alone does not establish an error.
 
