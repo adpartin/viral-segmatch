@@ -1554,8 +1554,10 @@ Each of the five listed lengths holds exactly one gap pattern. Unlike HA and NA,
 where the modal length splits into two subtype forms, an NS1 CDS length fixes
 the gap pattern for every one of the common forms. The three subtype columns
 count unique proteins, not isolates. They sum to more than the unique protein
-count in three rows, by 1 for 654 nt, 102 for 660 nt, 1 for 672 nt and 45 for
-693 nt, because that many proteins occur in isolates of more than one subtype.
+count in four rows, by 1 for 654 nt, 102 for 660 nt, 1 for 672 nt and 45 for
+693 nt. For the first three that is the number of proteins occurring in isolates
+of more than one subtype. At 693 nt it is 38 such proteins, 7 of which occur in
+all three subtypes and so add 2 each.
 
 | Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates | H3N2 proteins | H1N1 proteins | H5N1 proteins |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -1566,31 +1568,38 @@ count in three rows, by 1 for 654 nt, 102 for 660 nt, 1 for 672 nt and 45 for
 | 693 nt | 74, 112, 132, 234–240 | 230 | 4,926 | 33,553 | 3,618 | 686 | 667 |
 | 11 other lengths | 14 patterns | 202 to 237 | 47 | 59 | 20 | 24 | 3 |
 
-The lengths track subtype without determining it. The 693-nt form carries all
-three HN subtypes in quantity. The 660-nt form is mostly H1N1, the 672-nt form
-is almost entirely H3N2, and the 678-nt form is almost entirely H5N1.
+No length belongs to one HN subtype, but four of the five lean hard. By
+isolates: 693 nt is 28,725 H3N2, 3,379 H5N1 and 1,449 H1N1; 660 nt is 22,419 of
+25,506 H1N1; 672 nt is 804 of 806 H3N2; and 678 nt is 340 of 341 H5N1.
 
-Every pattern above gaps columns 74, 112 and 132. Those three columns are in the
-alignment for three rare proteins only: a 696-nt protein fills column 74, a
-663-nt protein fills 112, and a 696-nt protein fills 132. Each is the sole
-protein in its column.
+Each of the five listed lengths gaps columns 74, 112 and 132, as do 11 of the 14
+patterns in the last row. Those three columns are in the alignment for three
+rare proteins only: a 696-nt protein fills column 74, a 663-nt protein fills
+112, and a different 696-nt protein fills 132. Each is the sole protein in its
+column, and each is one of the three patterns in the last row that does not gap
+all three.
 
-The 678-nt form is not a truncated 693-nt form. It is the 693-nt form with 5
-codons missing in the middle, at columns 81 to 85:
+The 678-nt form is not a truncated 693-nt form. Its proteins are 5 codons
+shorter, and MAFFT placed all 5 of those aa alignment gaps in the middle, at
+columns 81 to 85:
 
 ```text
-Alignment column:  71-80      81-85      86-94
-693 nt:            res        res        res
-678 nt:            res        gap        res
+Alignment column:  71-73      74      75-80      81-85      86-94
+693 nt:            res        gap     res        res        res
+678 nt:            res        gap     res        gap        res
 ```
+
+Column 74 is a gap in both forms, because it is one of the three columns held by
+a single rare protein.
 
 All 205 of its unique proteins share this pattern, over 341 isolates. One
 699-nt protein from one isolate has the same 81–85 gap, so 206 proteins over 342
 isolates gap those columns. Under the proposed codon mapping these 5 columns
 take `GAP` and not `AFTER_STOP`, because they sit between aa residues rather
 than after a stop codon. Three other patterns put internal gaps outside columns
-74, 112 and 132: columns 77 to 80 in a 648-nt protein over 3 isolates, and
-columns 79 to 80 in a 687-nt protein over 1 isolate.
+74, 112 and 132: columns 81 to 85 in that 699-nt protein, columns 77 to 80 in a
+648-nt protein over 3 isolates, and columns 79 to 80 in a 687-nt protein over 1
+isolate.
 
 One protein has leading gaps: a 645-nt protein from one isolate, at columns 1
 to 5.
@@ -1650,8 +1659,8 @@ projection has not been implemented.
 ### 4. By host, subtype and year
 
 "Other lengths" covers the eleven lengths not listed separately, so its column
-totals 59 isolates. The 714-nt form, which sets the alignment's last column, is
-one of them.
+totals 59 isolates. The 714-nt form is one of them. It is one of the two forms
+that reach alignment column 240, the other being the single 699-nt protein.
 
 | Host | Subtype | Complete NS1 isolates | 654 nt | 660 nt | 672 nt | 678 nt | 693 nt | Other lengths |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
@@ -1674,10 +1683,10 @@ The 678-nt records are almost all H5N1, 340 of 341, of which 206 are Chicken and
 The 672-nt records are concentrated in Human-H3N2 in 2019 and 2020, with 753 of
 their 806 isolates.
 
-The 660-nt and 693-nt records are present in all 16 years. The other three
+The 654-nt, 660-nt and 693-nt records are present in all 16 years. The other two
 listed lengths are not. The 678-nt records run from 2010 to 2018 and do not
-appear after that, and the 672-nt records appear only in 2016, 2018 to 2020 and
-2022.
+appear after that, in 9 years, and the 672-nt records appear only in 2016, 2018
+to 2020 and 2022, in 5 years.
 
 ### 5. Findings
 
@@ -1703,8 +1712,9 @@ appear after that, and the 672-nt records appear only in 2016, 2018 to 2020 and
 * 10 of the 240 aa alignment columns exist for 15 unique proteins in total.
   Columns 234 to 240 exist for the 12 proteins at 699 and 714 nt, over 17
   isolates, and columns 74, 112 and 132 for one protein each, over 3 isolates.
-  Dropping those 15 proteins takes the width to 230,
-  and it stays at 230 for every narrower set down to the modal length alone.
+  Dropping those 15 proteins takes the width to 230, and it stays at 230 for
+  every narrower set that keeps the modal length, down to 693 nt alone. A set
+  without it can be narrower: 660 nt alone is 219 columns.
   Keeping the 5 listed lengths therefore costs nothing in width against keeping
   the modal length alone, and keeps 5,157 more unique proteins over 27,042 more
   isolates.
@@ -1718,7 +1728,8 @@ appear after that, and the 672-nt records appear only in 2016, 2018 to 2020 and
   patterns each: 663, 687 and 696 nt.
 * The birds and H5N1 do not bring a third common length. Chicken-H5N1 is 1,600
   of 1,825 at 693 nt and Duck-H5N1 is 1,739 of 1,899, the same length as
-  Human-H3N2. They bring the 678-nt length, at 341 isolates.
+  Human-H3N2. They bring the 678-nt length, which holds 341 isolates, 328 of
+  them Chicken or Duck.
 * The protein-to-codon projection has not been implemented. NS1 is the hardest
   case for it: eleven different stop columns, and `AFTER_STOP` needed for 10,118
   of the 10,130 unique proteins over runs of 7 to 35 columns.
