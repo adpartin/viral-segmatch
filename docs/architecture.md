@@ -172,41 +172,22 @@ exception.
 
 ---
 
-## Key Experimental Findings
+## Results for the paper plan
 
-> All findings below were measured under the **protein pair_key** convention unless stated.
-> Phase 2 (2026-06-02 → 06-03) added a CDS-DNA pair_key option for nt_cds cluster_disjoint
-> bundles (`split_strategy.pair_key_alphabet`); under it, silent codon variants count as distinct
-> positives — cite the `pair_key_alphabet` used for experiments after 2026-06-03. See
-> `docs/plans/2026-06-02_pair_key_alphabet_plan.md`, `docs/results/2026-06-03_phase2_postmigration_metrics.md`.
+`docs/results/` holds the hand-written results. These are the ones
+`docs/plans/2026-10-08_paper_plan.md` cites, by task:
 
-- **`unit_diff` > `concat` on homogeneous data (ESM-2 only)**: ESM-2 `concat` collapses on subtype-filtered HA/NA (AUC≈0.50); `unit_diff` succeeds. K-mer concat never collapses. `slot_norm` LayerNorm is required for ESM-2 unit_diff on homogeneous subsets.
-- **K-mer ≥ ESM-2 on homogeneous data**: k=6 (4096-dim) matches/exceeds ESM-2 on mixed-subtype HA/NA; dominates on H3N2-only. K-mer features are interaction-agnostic.
-- **K-mer interaction sweep (Tests 1–4, HA/NA)**: all four within seed noise; Test 3 narrowly leads (needs multi-seed before picking a winner). `unit_diff` semantics = element-wise abs first, then L2-normalize.
-- **seq_disjoint scales to conserved proteins**: PB2/PB1 with `hash_key=seq` gives clean 80/10/10 despite high conservation. 1-NN edges MLP on PB2/PB1 under seq_disjoint.
-- **Experiment B-nt feasibility ceiling = aa ceiling on Flu A**: nt CDS-level cluster_disjoint hits the same mega-CC collapse at the same thresholds. Only id100/id099 operable on the full corpus on either alphabet. See `docs/results/2026-05-15_cluster_disjoint_nt_results.md`.
-- **1-NN cosine margin ≥ LGBM at every cluster_disjoint routing**; cluster_disjoint weakens the near-neighbor signal gradually rather than eliminating it.
-- **Single-slot HA-only sweep (HA-NA, id100..id095)**: monotone MMD↑ and test perf↓; biological coupling (HA-cluster ≈ NA-subtype boundary). See `docs/results/2026-05-24_single_slot_HAonly_idXX_sweep.md`.
-- **PB2-PB1 PB2-only sweep (falsification sibling)**: ~half the shift/F1 drop of HA-NA; model ordering REVERSES (1-NN > MLP ≈ LGBM) — residual metadata-driven leakage survives cluster_disjoint single-slot here. See `docs/results/2026-05-26_pb2_pb1_PB2only_idXX_sweep.md`.
-- **2D-CD within_cc removes the cluster shortcut**: HA-NA at t099, within_cc is ~chance for both MLP and LGBM across aa k=3 and nt_cds k=6; within_fold reaches 0.87 (shortcut ≈ 0.37 AUC). See `docs/results/2026-06-29_cc_within_cc_vs_within_fold.md`.
-
----
-
-## Recent Run Outputs
-
-`docs/results/` holds the canonical writeups. Most-cited:
-- `2026-05-24_single_slot_HAonly_idXX_sweep.md` — headline single-slot experiment
-- `2026-05-24_cluster_disjoint_feasibility_HA_NA.md` — pre-flight that motivated single-slot
-- `2026-05-26_pb2_pb1_PB2only_idXX_sweep.md` — PB2-PB1 falsification sibling
-- `2026-05-24_mmd_per_{slot,pair}_results.md` — MMD baselines
-- `2026-05-15_cluster_disjoint_nt_results.md` — Experiment B-nt
-- `2026-06-03_phase2_postmigration_metrics.md` — pair_key migration impact
-- `2026-06-29_cc_within_cc_vs_within_fold.md` — 2D-CD within_cc vs within_fold (cluster shortcut ≈ 0.37 AUC)
-
-Per-sweep aggregator outputs (gitignored) live under
-`results/{virus}/{data_version}/runs/<analysis_name>/sweep_aggregate/<pair_direction>/`. Aggregator:
-`python -m src.analysis.aggregate_mmd_single_slot_sweep`. Rebuild wrappers: `scripts/stage4_sweep.sh`,
-`scripts/mmd_sweep.sh`, `scripts/pb2_pb1_phase4_5_launch.sh`.
+- **1. Establish the methods on `Human-H3N2-2024`**
+  - `2026-09-07_cds_length_survey.md` — per-protein CDS completeness and length, corpus-wide and
+    for Human-H3N2-2024.
+  - `2026-09-08_cds_pair_capacity.md` — positive-pair capacity of the 28 schema pairs on
+    Human-H3N2-2024.
+  - `2026-09-08_h3n2_2024_progress_report.md` — progress report and scope decision: the dataset
+    population, the four-schema-pair experiment, and where the codon-site signal sits.
+- **2. Expand the population. Evaluate across hosts, subtypes, and years.**
+  - `2026-11-09_protein_alignment.md` — protein alignment of the 8 modelled proteins on the Task 2
+    population, to decide which records and columns to keep for codon features.
+- **3. Test on future-year pairs** — no results doc yet.
 
 **Aggregator output convention**: machine-generated aggregator outputs (`baselines_vs_mlp_*.{png,csv}`
 and similar) live under `results/{virus}/{data_version}/runs/`, mirroring `data/datasets/` and
@@ -214,22 +195,22 @@ and similar) live under `results/{virus}/{data_version}/runs/`, mirroring `data/
 
 ---
 
-## Roadmap (from 02/10/2026 meeting)
+## Roadmap
 
-1. **Cross-validation** (N splits, mean ± std) — `dataset.n_folds`. Ref: `docs/methods/splits.md` § 2; remaining work `docs/plans/2026-05-28_kfold_remaining.md`.
-2. **Large dataset** (full Flu A, ~100K isolates) — HPC required (Polaris).
-3. **Temporal holdout** (train 2021–2023, test 2024) — `dataset.metadata_holdout` (year-axis is the degenerate case; legacy `year_train`/`year_test` retired 2026-05-11).
-4. **Genome features** (k-mers + XGBoost/LightGBM, then GenSLM).
-5. **PB2/PB1 + H3N2 bundle** — trivial; one new bundle.
-6. **Accuracy vs genetic distance** — needs clade metadata from BV-BRC.
+Current planning is in `docs/plans/2026-10-08_paper_plan.md` (Tasks 1–3). Open todos are in
+`BACKLOG.md`; active and completed plans are in `docs/plans/`.
 
 ---
 
 ## HPC (ALCF Polaris)
 
 - PBS job arrays, not SLURM. Hydra's `submitit` launcher is SLURM-only — do not use it.
-- CV/parallel: PBS job array where `PBS_ARRAY_INDEX` → fold ID, passed as `dataset.fold_id=${FOLD}`.
-- 8-GPU dev cluster (no scheduler): Python launcher using `subprocess.Popen` per fold, each with `CUDA_VISIBLE_DEVICES=K`.
+- CV/parallel: PBS job array where `PBS_ARRAY_INDEX` → fold ID, passed as `dataset.fold_id=${FOLD}`
+  (`scripts/run_cv_polaris.pbs`).
+- 8-GPU dev cluster (no scheduler): Python launcher using `subprocess.Popen` per fold, each with
+  `CUDA_VISIBLE_DEVICES=K` (`scripts/run_cv_lambda.py`).
+- 28-pair sweeps: `scripts/run_allpairs_polaris_prod.sh` gives each node one protein pair, which
+  runs 12-fold CV on the node's 4 GPUs through `run_cv_lambda.py`. See `polaris_plan.md`.
 - Stage 2 (embeddings) is the most GPU-intensive; Stage 4 (training) is modest.
 
 ---
@@ -238,13 +219,13 @@ and similar) live under `results/{virus}/{data_version}/runs/`, mirroring `data/
 
 **NOT maintained**: `src/preprocess/preprocess_bunya_protein.py`, `conf/bundles/bunya_base.yaml`.
 
-**In development**: `src/utils/dna_utils.py`; `dataset.split_strategy.single_slot` (exercised on
+**In development**: `dataset.split_strategy.single_slot` (exercised on
 HA-NA HA-only and PB2-PB1 PB2-only; untested: NA-only / PB1-only, nt cluster_alphabet on single_slot,
 CV variance).
 
-**K-mer aa scaling limits** (exhaustive `|alphabet|^k` vocab; no observed-vocab/hashing yet): nt
-practical to k≈10 (production k=6); aa ceiling k=4 (20^4=160K cols; current bundles k=3); aa k≥5
-OOMs. See `docs/methods/kmer_features.md`.
+**K-mer scaling limits**: the vocabulary is exhaustive (`|alphabet|^k`, no observed-vocab or
+hashing), so the practical ceilings are about k=10 for nt and k=4 for aa; see
+`docs/methods/kmer_features.md`. Production uses nt k=6.
 
 ---
 
@@ -253,15 +234,19 @@ OOMs. See `docs/methods/kmer_features.md`.
 ```
 viral-segmatch/
 ├── CLAUDE.md                   # Always-on behavioral rules (auto-loaded)
+├── README.md, BACKLOG.md       # Project overview; triaged todo list
+├── polaris_plan.md             # Task 11 (28-pair sweeps) on Polaris: plan, runs, results
 ├── docs/architecture.md        # This file — descriptive reference
 ├── .claude/
 │   ├── settings.json           # Permissions + hooks
 │   └── memory.md               # Compact project memory — read every session
 ├── src/                        # Python source (preprocess, embeddings, datasets, models, analysis, utils)
-├── scripts/                    # Shell pipeline wrappers (stage1–4)
+├── scripts/                    # Shell pipeline wrappers (stage1–4) and CV launchers
 ├── conf/                       # Hydra configs (conf/bundles/ = one YAML per experiment)
+├── tests/                      # test_*.py modules
 ├── eda/, examples/, notebooks/ # Exploratory (not pipeline)
 ├── docs/                       # Technical docs (plans, methods, results)
 ├── documentation/              # User guides
-└── data/                       # Not in git; symlinked raw data
+├── data/                       # Inputs and Stage 1–3 outputs; only data/raw/ links + README tracked
+└── models/, results/, reports/ # Run outputs, aggregates and reports (gitignored)
 ```
