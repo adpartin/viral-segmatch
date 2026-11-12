@@ -88,10 +88,6 @@ The three gap columns give counts, not lists, because one NA protein gaps 93
 columns. A count can be read down the column across sections. A range such as
 `66 to 73` means that length holds several gap patterns.
 
-Putting a rare length in the "Other lengths" row can hide why an alignment is
-as wide as it is. So each section also says how many columns the listed lengths
-use, and which rare lengths reach the rest.
-
 Part 3 is the same proposal in every section. For codon featurization, each aa
 alignment column becomes a projected codon column, and each aa residue is mapped
 back to the codon that encoded it. An aa alignment gap has no source codon, so
