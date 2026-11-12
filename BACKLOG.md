@@ -16,8 +16,8 @@ IN PROGRESS) when ready to design + implement, then to
 - Triage periodically; delete dead items rather than letting them
   moulder.
 
-See also: `roadmap_v1.md` / `roadmap_v2.md` (big-picture experimental
-plan from meetings) and `docs/plans/` (active and completed plans).
+See also: `docs/plans/2026-10-08_paper_plan.md` (the paper plan) and
+`docs/plans/` (active and completed plans).
 
 ---
 

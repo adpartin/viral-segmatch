@@ -189,7 +189,7 @@ Counts are stored **unnormalized** in the production cache. Length
 normalization (`l1` → frequencies) and magnitude normalization (`l2` → unit
 vectors) are supported config options (`kmer.normalize`) but have not been
 used in paper experiments to date; the MLP + `slot_norm` combination
-appears to handle raw counts well (see `roadmap_v2.md` Runtime Analysis).
+appears to handle raw counts well.
 
 ## Sparse storage
 
@@ -243,7 +243,7 @@ that mirrors the MLP's `slot_transform: 'unit_norm'` (added
 features because non-negative count vectors don't benefit from it (a
 ValueError is raised — `get_kmer_pair_features` lines 113–119).
 
-The original 28-pair sweep (Task 11 in `roadmap_v2.md`) used
+The original 28-pair sweep (Task 11, `polaris_plan.md`) used
 `concat` + MLP `slot_norm`. The HA/NA and PB2/PB1 deep-dive bundles
 (Tests 1–4, 2026-05-12) use `unit_norm + (unit_diff + prod)` — Test 3
 of that sweep narrowly leads on aggregate metrics, but all four tests
@@ -287,7 +287,7 @@ see `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`.
 
 **Empirically.** For influenza A, k-mer + MLP matches or exceeds ESM-2
 + MLP on the full 28-pair sweep — median val AUC 0.994 vs ESM-2 0.976
-(see `roadmap_v2.md` §11 for the per-pair table).
+(see `polaris_plan.md` for the sweep results).
 
 ### Why a separate Stage 2b instead of computing k-mers inside Stage 3?
 

@@ -457,6 +457,24 @@ nodes — no SSH keys needed. The head node's environment is inherited by mpiexe
   NA-containing surface pairs hardest (NA·NS1 0.9924, PB2·NA 0.9927).
 - **Total compute:** ~241 fold-hours.
 
+**Later sweeps (2026-04-14 to 2026-04-19).** Four more 28-pair x 12-fold sweeps ran on
+Polaris: k-mer and ESM-2 features, each on the full dataset and on H3N2 only, using the
+filter launcher in `docs/allpairs_filter_sweep_runbook.md`. All used `slot_norm` + `concat`.
+The numbers below were recorded on 2026-04-22. The manifests are on Polaris and were not
+re-read when the table was moved here.
+
+| Sweep | Feature | Subset | AUC median [min, max] | F1 median | Manifest |
+|---|---|---|---|---|---|
+| val_unfilt | k-mer k=6 concat | full (~111K) | 0.9944 [0.9928, 0.9960] | 0.9712 | `allpairs_prod_val_unfilt_20260414_080617/` |
+| val_unfilt_esm2 | ESM-2 concat | full (~111K) | 0.9757 [0.4971, 0.9874] | 0.8970 | `allpairs_prod_val_unfilt_esm2_20260416_182049/` |
+| val_h3n2 | k-mer k=6 concat | H3N2-only | 0.9931 [0.9910, 0.9948] | 0.9659 | `allpairs_prod_val_h3n2_20260417_224216/` |
+| val_h3n2_esm2 | ESM-2 concat | H3N2-only | 0.9486 [0.4981, 0.9751] | 0.7947 | `allpairs_prod_val_h3n2_esm2_20260419_012308/` |
+
+- ESM-2 `concat` collapses on PB1/PA in both populations: AUC 0.4971 on the full dataset
+  and 0.4981 on H3N2. K-mer `concat` does not collapse on any pair in any sweep.
+- FP/FN ratios are higher with ESM-2 than with k-mer: 5.87 vs 2.36 on the full dataset,
+  and 4.58 vs 3.06 on H3N2.
+
 **Phase 3 fixes that made this possible** (see `docs/hardware_notes.md`):
 - `pin_memory: false` in master bundle — `cudaHostAlloc` serializes across the 4 concurrent
   fold processes on a node; with `pin_memory=true` data loading was 515 s/epoch instead of 3 s.

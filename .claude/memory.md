@@ -165,7 +165,7 @@ items that need context beyond their title.
 | Single-segment OOD clusters: 8-major scale-out + nt rollout | `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md` |
 | OOD-vs-random CV at matched size (leave-one-CC-out vs random) | `docs/plans/2026-07-21_ood_vs_random_split_plan.md` |
 | 1D cluster-disjoint single-slot (HA held out vs each partner) | `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md` |
-| Task 11 / 28-pair sweep; throughput fix lives on the unmerged branch `fix/mpiexec-cpu-binding` | `polaris_plan.md`, `docs/project_changelog.md` |
+| Task 11 / 28-pair sweep; throughput fix lives on the unmerged branch `fix/mpiexec-cpu-binding` | `polaris_plan.md` |
 | H3N2 segment matching for the PIs: 2D-CD is infeasible on one-year populations, so random 4-fold CV + a 2024->2025 temporal split answer the two questions instead. Results are in the commit messages only; no results doc yet | `docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md` |
 | Per-site nucleotide features: HA-NA H3N2 2024 site runs are done. Unique-sequence matching CV code and tests are complete; building and auditing its three datasets is next. | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
 | NS1 protein alignment pilot: Human-H3N2-2024 selection and preparation passed on 1,132 unique CDS; MAFFT 7.526 aligned 560 proteins with FFT-NS-2 into 230 columns. All recover their exact input after gap removal. The 9 shorter proteins have only terminal gaps; the gap inspection and examples are recorded in the plan and length survey. Codon and stop mapping is the next decision. | `docs/plans/2026-09-14_codon_site_features_plan.md` |
@@ -176,8 +176,8 @@ items that need context beyond their title.
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered and triaged; the single source of truth). Bigger experiments:
-  `roadmap_v2.md`. Put new items in those files, not here, so this one does not fill up with
-  stale lists.
+  `docs/plans/2026-10-08_paper_plan.md`. Put new items in those files, not here, so this one
+  does not fill up with stale lists.
 - In-development modules + k-mer scaling limits: `docs/architecture.md`.
 
 ## Env Management

@@ -42,10 +42,15 @@ belong to the same isolate. A model that scores arbitrary segment
 pairs for "do these belong together?" supports:
 
 - **Data remediation**: flagging mis-joined or contaminated genome
-  records in BV-BRC and similar repositories.
+  records in BV-BRC and similar repositories, and re-linking orphaned
+  segments. BV-BRC ingests records from NCBI GenBank, which does not
+  enforce the fields that link segments to the same isolate.
 - **Wastewater surveillance**: assembling consensus segments from
   fragmented metagenomic data and asking whether the inferred
-  segment-pair memberships are coherent.
+  segment-pair memberships are coherent. See
+  [Wolfe et al. 2024](https://pmc.ncbi.nlm.nih.gov/articles/PMC11412440/)
+  for CDC influenza A monitoring in US wastewater during the 2024 avian
+  flu outbreak.
 - **Reassortment forecasting**: segment pairs the model rates as
   compatible but never co-observed are candidate future
   reassortants — potential outbreak strains worth flagging for
