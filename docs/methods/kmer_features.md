@@ -2,7 +2,6 @@
 
 > Companion figure: `docs/figures/kmer_method_overview.png` (+ `.pdf`).
 > Script to regenerate: `src/analysis/plot_kmer_method.py`.
-> This doc is draft methods text for `paper_outline_v2.md` §2.x.
 >
 > See also:
 > - `docs/methods/gto_format_reference.md` — schema-level reference for the
@@ -244,7 +243,7 @@ that mirrors the MLP's `slot_transform: 'unit_norm'` (added
 features because non-negative count vectors don't benefit from it (a
 ValueError is raised — `get_kmer_pair_features` lines 113–119).
 
-The original 28-pair sweep (Task 11, `paper_outline_v2.md` §11) used
+The original 28-pair sweep (Task 11 in `roadmap_v2.md`) used
 `concat` + MLP `slot_norm`. The HA/NA and PB2/PB1 deep-dive bundles
 (Tests 1–4, 2026-05-12) use `unit_norm + (unit_diff + prod)` — Test 3
 of that sweep narrowly leads on aggregate metrics, but all four tests

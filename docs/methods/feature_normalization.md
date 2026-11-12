@@ -148,7 +148,7 @@ supports two per-slot transforms applied **before** the interaction
 - **`slot_norm`** — `nn.LayerNorm(embed_dim)` on each slot
   independently. **Learnable** (`γ` and `β` are trained alongside the
   classifier). This is the gen-3 / original setup; the legacy 28-pair
-  sweeps in `paper_outline_v2.md` use it.
+  sweeps (Task 11 in `roadmap_v2.md`) use it.
 - **`unit_norm`** — parameter-free L2 row-norm per slot, added
   2026-05-12. No γ/β; equivalent to applying `Normalizer(norm='l2')`
   per slot. Current HA/NA and PB2/PB1 production bundles use this
@@ -288,7 +288,7 @@ Current production for `flu_ha_na` and `flu_pb2_pb1` (gen-3, 2026-05-12):
 of the four-interaction sweep). All four Tests 1–4 lie within ~0.5% F1
 and ~0.1% AUC-ROC on a single-seed run — differences are at seed-noise
 level; multiple seeds needed before claiming a winner. The earlier
-gen-3 28-pair sweep (`paper_outline_v2.md` §11) used
+gen-3 28-pair sweep (Task 11 in `roadmap_v2.md`) used
 `slot_transform: slot_norm` + `interaction: concat`; that combination
 also works on k-mer.
 
