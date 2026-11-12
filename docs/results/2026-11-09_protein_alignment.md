@@ -48,7 +48,8 @@ Human-H3N2-2024, the Task 1 population where the method was first run.
 ## How to read these sections
 
 Each protein has a section with 5 numbered parts: 1. Inputs, 2. Lengths and
-gaps, 3. Stop codon columns, 4. By host, subtype and year, 5. Findings. If a
+gaps, 3. Projection to codons and the terminal stop, 4. By host, subtype and
+year, 5. Findings. If a
 part has nothing to report, it says so in one sentence rather than being left
 out. A section may add one unnumbered part for a check specific to it. The
 files every section is built from are listed once, under "Artifacts".
@@ -90,6 +91,17 @@ columns. A count can be read down the column across sections. A range such as
 Putting a rare length in the "Other lengths" row can hide why an alignment is
 as wide as it is. So each section also says how many columns the listed lengths
 use, and which rare lengths reach the rest.
+
+Part 3 is the same proposal in every section. For codon featurization, each aa
+alignment column becomes a projected codon column, and each aa residue is mapped
+back to the codon that encoded it. An aa alignment gap has no source codon, so
+its projected codon column holds no codon and takes one of two proposed states.
+It is `GAP` when the projected column comes before that record's terminal stop
+codon, and `AFTER_STOP` when it comes after. Both comparisons are made in the
+projected codon frame, because the terminal stop codon has no position in the aa
+alignment. Each section's part 3 gives only what is specific to that protein:
+which alignment column each form's last aa residue sits in, and therefore which
+projected codon column would hold its stop codon.
 
 This alignment does not:
 
@@ -301,14 +313,6 @@ placeholders; they are not gaps inserted into the source CDS sequence.
 
 ### 3. Projection to codons and the terminal stop
 
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
-
 The terminal `*` was excluded from the MAFFT input, so none of the 766 aa
 alignment columns corresponds to a terminal stop codon. Proteins from 2280-nt
 CDS sequences have their last aa residue in alignment column 766, so their
@@ -467,14 +471,6 @@ H5N1, so it is not one subtype's length. The 2277-nt length is different:
 length's 6,095 isolates are Human-H3N2.
 
 ### 3. Projection to codons and the terminal stop
-
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
 
 The terminal `*` was excluded from the MAFFT input, so none of the 776 aa
 alignment columns corresponds to a terminal stop codon. PB1's proteins do not
@@ -673,14 +669,6 @@ columns 48 and 49.
 
 ### 3. Projection to codons and the terminal stop
 
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
-
 The terminal `*` was excluded from the MAFFT input, so none of the 744 aa
 alignment columns corresponds to a terminal stop codon. Proteins from 2151-nt
 CDS sequences have their last aa residue in alignment column 742, so their
@@ -870,14 +858,6 @@ fills all four, two proteins start in column 6, and one starts in column 15.
 
 ### 3. Projection to codons and the terminal stop
 
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
-
 The terminal `*` was excluded from the MAFFT input, so none of the 612 aa
 alignment columns corresponds to a terminal stop codon. Every one of the 19,841
 proteins has its last aa residue in alignment column 612, and none has a
@@ -1044,14 +1024,6 @@ with ATG; its first aa residue sits in column 13 because the other records have
 12 aa residues further left.
 
 ### 3. Projection to codons and the terminal stop
-
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
 
 The terminal `*` was excluded from the MAFFT input, so none of the 498 aa
 alignment columns corresponds to a terminal stop codon. Every one of the 7,250
@@ -1226,14 +1198,6 @@ proteins fill 456 and 457, 1428-nt proteins fill 467 to 471, and 1353-nt and
 1422-nt proteins fill 501.
 
 ### 3. Projection to codons and the terminal stop
-
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
 
 The terminal `*` was excluded from the MAFFT input, so none of the 543 aa
 alignment columns corresponds to a terminal stop codon. NA's proteins do not all
@@ -1427,14 +1391,6 @@ the most common 759-nt protein, which 27,661 isolates carry.
 
 ### 3. Projection to codons and the terminal stop
 
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
-
 The terminal `*` was excluded from the MAFFT input, so none of the 252 aa
 alignment columns corresponds to a terminal stop codon. Every one of the 1,948
 proteins has its last aa residue in alignment column 252, and none has a
@@ -1616,14 +1572,6 @@ One protein has leading gaps: a 645-nt protein from one isolate, at columns 1
 to 5.
 
 ### 3. Projection to codons and the terminal stop
-
-For codon featurization, each aa alignment column becomes a projected codon
-column, and each aa residue is mapped back to the codon that encoded it. An aa
-alignment gap has no source codon, so its projected codon column holds no codon
-and takes one of two proposed states. It is `GAP` when the projected column
-comes before that record's terminal stop codon, and `AFTER_STOP` when it comes
-after. Both comparisons are made in the projected codon frame, because the
-terminal stop codon has no position in the aa alignment.
 
 The terminal `*` was excluded from the MAFFT input, so none of the 240 aa
 alignment columns corresponds to a terminal stop codon. NS1 ends in more
