@@ -673,7 +673,7 @@ def annotated_heatmap(
     blank_color: str = 'white',
     cell_fontsize: int = 7,
     col_rotation: float = 0,
-    aspect: str = 'auto',
+    aspect: Union[str, float] = 'auto',
     norm=None,
     ) -> None:
     """Annotated 2-D heatmap (imshow + per-cell value text + colorbar) for a labeled metric grid.
@@ -700,7 +700,7 @@ def annotated_heatmap(
         blank_color: fill of the blank cells.
         cell_fontsize: font size of the cell text.
         aspect: passed to `imshow`. 'auto' stretches cells to fill the figure; 'equal' keeps
-            them square.
+            them square; a number sets each cell's height as a fraction of its width.
         norm: a matplotlib `Normalize`, such as `LogNorm`, that maps values to colors; when set,
             leave `vmin` and `vmax` as None and give the limits to the norm. A value the norm
             cannot map, such as 0 under `LogNorm`, is drawn in `nan_color` but still annotated.

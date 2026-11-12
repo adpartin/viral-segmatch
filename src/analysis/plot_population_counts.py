@@ -181,7 +181,7 @@ def plot_isolates_per_year(counts: pd.DataFrame, out_png: Path, title: str,
 
 
 def plot_host_subtype_heatmap(counts: pd.DataFrame, out_png: Path) -> None:
-    """Draw isolates per host group and subtype as square cells on a log color scale.
+    """Draw isolates per host group and subtype on a log color scale, in cells wider than tall.
 
     The log scale keeps small groups visible next to the largest one. A cell with no isolates
     cannot be placed on it, so it is drawn gray and labelled 0.
@@ -198,6 +198,7 @@ def plot_host_subtype_heatmap(counts: pd.DataFrame, out_png: Path) -> None:
     table = counts.pivot_table(index='host', columns='hn_subtype', values='isolates',
                                aggfunc='sum', fill_value=0)
     table = table.reindex(index=hosts, columns=subtypes, fill_value=0)
+    cell_height = 0.6  # cell height as a fraction of cell width
 
     # The default style turns the axes grid on, which would draw lines through the cells.
     with plt.rc_context({'axes.grid': False, 'xtick.labelsize': 14, 'axes.labelsize': 15}):
@@ -213,11 +214,11 @@ def plot_host_subtype_heatmap(counts: pd.DataFrame, out_png: Path) -> None:
             cmap='Blues',
             norm=LogNorm(vmin=1, vmax=table.to_numpy().max()),
             value_fmt='{:,.0f}',
-            aspect='equal',
+            aspect=cell_height,
             row_fontsize=14,
             cell_fontsize=16,
             title_fontsize=16,
-            figsize=(1.6 * len(subtypes) + 3, 1.6 * len(hosts) + 1.5),
+            figsize=(1.6 * len(subtypes) + 3, 1.6 * cell_height * len(hosts) + 1.5),
             dpi=200,
         )
 
