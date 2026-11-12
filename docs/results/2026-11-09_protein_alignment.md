@@ -602,15 +602,17 @@ The 2157-nt form appears in 7 of the 16 years, with 19 of its 39 isolates in
   and therefore accounts for the 5 additional aa columns in the 721-column
   representation. Excluding it would require a separate criterion beyond the
   CDS-length pin.
-* 25 aa alignment columns hold an aa residue in exactly one of the 15,939
-  unique proteins: 49, 77, 82–83, 94–98, 624, 641–650, 660–663 and 703. Nearly
-  all of the extra width therefore comes from single proteins. Cutting those 25
-  columns while retaining every protein is a separate decision from the pin,
-  and would take the projected codon representation from 745 columns to 720.
+* 25 aa alignment columns hold an aa residue in exactly one protein: 49, 77,
+  82–83, 94–98, 624, 641–650, 660–663 and 703. 20 of them hold residues from 5
+  off-mode proteins and become all-gap once the 2151-nt pin is applied. Columns
+  94–98 hold residues from the exceptional 2151-nt protein and remain after
+  pinning. Cutting all 25 would take the projected codon representation from 745
+  columns to 720, but it would delete residues from all 6 of those proteins.
+  That is a site-exclusion decision, not a consequence of the CDS-length pin.
 * The protein-to-codon projection has not been implemented. It must represent
-  aa alignment gaps for any retained non-dominant patterns, and it must
-  distinguish a trailing aa alignment gap that holds the terminal stop codon
-  from one that falls after it.
+  aa alignment gaps for any retained non-dominant patterns. For retained
+  proteins with different C-terminal lengths, it must also distinguish `GAP`,
+  the terminal stop codon and `AFTER_STOP`.
 * Still open before codon features are built: whether to keep the 64 isolates
   outside the modal CDS length.
 
