@@ -506,13 +506,16 @@ nt alignment.
 
 The 2151-nt CDS length holds 2 aa gap patterns. The table also lists the two at
 2157 nt, the most frequent of the other lengths at 39 isolates, because that is
-the length whose proteins reach the last alignment column.
+the length whose proteins reach the last alignment column. The three subtype
+columns count unique proteins, not isolates. They sum to more than the unique
+protein count because 70 of the 2151-nt proteins occur in isolates of more than
+one subtype, one of them in all three.
 
-| Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates | H3N2 | H1N1 | H5N1 |
+| Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates | H3N2 proteins | H1N1 proteins | H5N1 proteins |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 2151 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 716 | 15,896 | 60,331 | 32,792 | 23,775 | 3,764 |
+| 2151 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 716 | 15,896 | 60,331 | 7,075 | 7,614 | 1,279 |
 | 2151 nt | 48–49, 77, 82–88, 624, 641–650, 660–663, 703, 743–744 | 716 | 1 | 1 | 1 | 0 | 0 |
-| 2157 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703 | 718 | 16 | 38 | 38 | 0 | 0 |
+| 2157 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703 | 718 | 16 | 38 | 16 | 0 | 0 |
 | 2157 nt | 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 718 | 1 | 1 | 1 | 0 | 0 |
 
 Thus, each protein translated from a 2151-nt CDS contributes 716 aa residues to
@@ -520,10 +523,12 @@ the 744-column alignment and has an aa alignment gap in 28 columns. These gaps
 are alignment placeholders; they are not gaps inserted into the source CDS
 sequence.
 
-PA's gap patterns do not split by subtype. The first pattern carries all three
-subtypes and all four hosts, and holds 60,331 of the 60,396 isolates with a
-complete PA CDS. Only the rare 2157-nt proteins are subtype-specific, and all
-39 of their isolates are Human-H3N2.
+PA's gap patterns do not split by subtype. The first pattern holds 7,075
+distinct H3N2 proteins, 7,614 H1N1 and 1,279 H5N1, so it is shared by thousands
+of sequences in every subtype rather than being one subtype's form. It covers
+all four hosts and 60,331 of the 60,396 isolates with a complete PA CDS. Only
+the rare 2157-nt proteins are subtype-specific, and all 39 of their isolates are
+Human-H3N2.
 
 PA differs from PB2 in where those gaps fall. Two of the 28 are trailing gaps,
 in columns 743 and 744, so a protein translated from a 2151-nt CDS does not
@@ -690,14 +695,17 @@ third pattern at 1704 nt sits entirely in a third subtype. Their column lists
 run to 151 to 187 characters each, so `gap_pattern_summary.csv` holds them
 rather than this table. This section calls the three patterns H3, H1 and H5
 after the subtype that dominates each, which is a label for the gap pattern and
-not a claim that the pattern and the subtype are the same set.
+not a claim that the pattern and the subtype are the same set. The three subtype
+columns count unique proteins, not isolates. They sum to more than the unique
+protein count for the first two patterns, because 2 proteins in each occur in
+isolates of two subtypes.
 
-| Source CDS length | Gap pattern | AA residues | Unique proteins | Isolates | H3N2 | H1N1 | H5N1 |
+| Source CDS length | Gap pattern | AA residues | Unique proteins | Isolates | H3N2 proteins | H1N1 proteins | H5N1 proteins |
 |---|---|---:|---:|---:|---:|---:|---:|
-| 1701 nt | H3 | 566 | 10,274 | 32,783 | 32,778 | 3 | 2 |
-| 1701 nt | H1 | 566 | 8,326 | 23,428 | 4 | 23,424 | 0 |
-| 1701 nt | 4 rare patterns | 566 | 6 | 12 | 0 | 1 | 11 |
-| 1704 nt | H5 | 567 | 870 | 3,596 | 0 | 0 | 3,596 |
+| 1701 nt | H3 | 566 | 10,274 | 32,783 | 10,272 | 3 | 1 |
+| 1701 nt | H1 | 566 | 8,326 | 23,428 | 4 | 8,324 | 0 |
+| 1701 nt | 4 rare patterns | 566 | 6 | 12 | 0 | 1 | 5 |
+| 1704 nt | H5 | 567 | 870 | 3,596 | 0 | 0 | 870 |
 
 H3 and H1 each fill 566 aa alignment columns, as their residue count requires,
 but not the same 566. They share 552 columns. H3 fills 14 that H1 does not:
