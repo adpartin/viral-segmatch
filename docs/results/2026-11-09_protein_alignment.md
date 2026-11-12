@@ -12,6 +12,34 @@ scripts:        src/analysis/align_proteins.py; src/analysis/summarize_protein_a
 artifacts:      results/flu/July_2025/cds_alignment_pilot/<population>/<protein>/
 ```
 
+## Goal
+
+This analysis determines which CDS records and alignment columns to retain for
+per-site codon features, and how to place the retained records in a common
+coordinate system. Equal CDS or protein length does not guarantee that residues
+at the same index correspond, because insertions and deletions can shift
+homologous residues. Protein alignment estimates which residues correspond
+across sequences of both equal and unequal length.
+
+The retention decision is protein-specific. When one gap pattern represents
+most records and the other patterns contain few records, as in PB2, we may
+retain the dominant pattern and drop the uncommon records. When several gap
+patterns each represent a substantial part of the population, as in NS1, HA and
+NA, dropping all but one would remove major biological groups and could
+introduce population bias. Alignment allows multiple such patterns to be
+retained in one shared coordinate system. In HA and NA, the two largest
+patterns come from CDS of the same length, yet their gaps fall in different
+columns, so residues at the same index do not all correspond.
+
+What counts as a substantial group is a decision informed by this analysis. For
+each protein, the document reports population coverage, gap-pattern support,
+feature-width cost, the proposed terminal stop column, and whether an absent
+codon would be encoded as `GAP` or `AFTER_STOP`. The goal is to preserve
+well-supported sequence forms without adding records or alignment columns whose
+small coverage does not justify their complexity. The projection from alignment
+columns to codons is proposed in part 3 of each section and is not implemented.
+
+
 ## Why this is measured
 
 Per-site codon features need the same sites in every record, so that position
@@ -28,10 +56,6 @@ options to obtain those sites:
    across records of different lengths. Under the proposed codon mapping, an
    alignment column with no codon in a record becomes `GAP` or `AFTER_STOP`,
    rather than causing the record to be dropped.
-
-If a protein has no usable pin, the alternatives are to align it or to drop it.
-NS1 has no configured pin because its CDS length varies across subtypes and
-years, so this analysis measures the alignment route.
 
 
 ## The population
