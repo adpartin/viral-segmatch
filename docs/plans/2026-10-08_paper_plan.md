@@ -5,6 +5,8 @@
 This plan is based on Jim's plan of 2026-10-08 (`plan-Jim-10-8-26-original.pdf`). That PDF is not
 tracked in the repo.
 
+The paper's sections, figures and tables are outlined in `paper_outline.md`.
+
 Main parts:
 
 1. Establish/Prove the methods on a small population (same host, subtype, year).

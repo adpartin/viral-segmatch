@@ -235,6 +235,7 @@ hashing), so the practical ceilings are about k=10 for nt and k=4 for aa; see
 viral-segmatch/
 ├── CLAUDE.md                   # Always-on behavioral rules (auto-loaded)
 ├── README.md, BACKLOG.md       # Project overview; triaged todo list
+├── paper_outline.md            # Paper sections, figures and tables
 ├── polaris_plan.md             # Task 11 (28-pair sweeps) on Polaris: plan, runs, results
 ├── docs/architecture.md        # This file — descriptive reference
 ├── .claude/
