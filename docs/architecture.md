@@ -14,9 +14,12 @@ co-occurring pairs (positive) from artificially mixed pairs (negative). A mixed 
 negative only when its two sequences co-occur in no isolate of the corpus, which Stage 3 enforces
 with the **co-occurrence blocking set** (`docs/methods/glossary.md`).
 
-**Approach**: Frozen ESM-2 protein embeddings (1280-dim, `esm2_t33_650M_UR50D`) → pairwise
-interaction feature (e.g. `unit_diff`, `concat`) → MLP binary classifier. **Primary virus**:
-Influenza A. Bunyavirales support exists but is not actively maintained.
+**Approach**: one feature type per run, set by `training.feature_source` — frozen ESM-2
+protein embeddings (`esm2`; 1280-dim, `esm2_t33_650M_UR50D`), k-mer counts (`kmer`), or per-site
+codes, one per nucleotide, codon or amino acid (`site`) → pairwise interaction feature (e.g.
+`unit_diff`, `concat`) → MLP or sklearn-baseline classifier (logistic, LightGBM, 1-NN margin,
+kNN vote). **Primary virus**: Influenza A. Bunyavirales support exists but is not actively
+maintained.
 
 ---
 
@@ -26,21 +29,24 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 
 | Stage | Script | Output | Runs |
 |-------|--------|--------|------|
-| 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{version}/protein_final.csv` + `ctg_dna_final.csv` | Once |
-| 1.5. CDS extraction (opt) | `src/preprocess/extract_cds_dna.py` | `data/processed/flu/{version}/cds_dna_final.parquet` | Once, for nt_cds cluster_disjoint |
-| 2. Embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
+| 1. Preprocess | `src/preprocess/preprocess_flu.py` | `data/processed/flu/{version}/protein_final.{csv,parquet}` + `ctg_dna_final.{csv,parquet}` | Once |
+| 1.5. CDS extraction | `src/preprocess/extract_cds_dna.py` | `data/processed/flu/{version}/cds_dna_final.parquet` | Once; read by nt_cds runs and per-site features |
+| 2. ESM-2 embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
+| 2b. K-mer features | `src/embeddings/compute_kmer_features.py` | `kmer_features_{alphabet}_k{k}.*`, alongside the ESM-2 cache | Once per alphabet and k |
+| 2c. Per-site features | `src/embeddings/compute_site_features.py` | `site_features_{unit}_{protein}_{pin}nt.*`, alongside the k-mer cache | Once per protein, unit and pinned length |
 | 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → `dataset_segment_pairs_v2.py` (only builder; v1 retired 2026-06-03) | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
 | 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
 
-Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `stage2_esm2.sh`, `stage3_dataset.sh`,
-`stage4_train.sh` (MLP only), `stage4_baselines.sh` (one baseline per call), `stage4_full.sh`
-(MLP + every baseline in `bundle.baselines.enabled`), `stage4_sweep.sh` (Stage 4 across datasets ×
+Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `stage2_esm2.sh`, `stage2b_kmer.sh`,
+`stage3_dataset.sh`, `stage3_cc.sh` (2D-CD CC builder), `stage4_train.sh` (MLP only),
+`stage4_baselines.sh` (one baseline per call), `stage4_full.sh` (MLP + every baseline in
+`bundle.baselines.enabled`), `stage4_sweep.sh` (Stage 4 across datasets ×
 seeds in parallel), `mmd_sweep.sh` (S1+S2 MMD across datasets for one feature_space × label_filter).
 Stage 1.5 has no wrapper — `python src/preprocess/extract_cds_dna.py --config_bundle <virus_bundle>`.
 
 A separate **2D-CD CC builder** (`src/datasets/dataset_pairs_cc.py`) materializes bilateral
 cluster-disjoint connected-component K-fold datasets with within-CC / within-fold negatives;
-see `docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
+see `docs/plans/done/2026-06-09_cc_dataset_cv_plan.md`.
 
 **Stage 3/4 decoupling**: Stage 4's shell script requires `--dataset_dir` explicitly and does not
 extract/validate a bundle name from the dataset path — run Stage 3 once, Stage 4 many times with
@@ -54,28 +60,30 @@ different training bundles against the same dataset. Provenance is tracked via `
 
 - Bundles: `conf/bundles/{bundle_name}.yaml` — one file per named experiment
 - Virus configs: `conf/virus/flu.yaml`, `bunya.yaml`; data paths: `conf/paths/flu.yaml`, `bunya.yaml`
-- Defaults: `conf/dataset/default.yaml`, `conf/embeddings/default.yaml`, `conf/training/base.yaml`, `conf/baselines/default.yaml`
+- Defaults: `conf/dataset/default.yaml`, `conf/embeddings/default.yaml`, `conf/kmer/default.yaml`,
+  `conf/site/default.yaml`, `conf/training/base.yaml`, `conf/baselines/default.yaml`
+- Experiment specs: `conf/experiments/*.yaml` — the settings one experiment must have, applied to
+  and checked against every bundle it uses (`src/utils/experiment_spec.py`)
 - Config loader: `src/utils/config_hydra.py`
 
 **Convention**: one bundle = one reproducible experiment. Names encode the experiment:
-`flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g. `flu_ha_na`, `flu_ha_na_cluster_t099`.
+`flu_{proteins}_{n_isolates}[_{modifiers}]`, e.g. `flu_ha_na`, `flu_ha_na_h3n2_2024_random_cv4`.
 
 Key bundle parameters: `virus.selected_functions`, `dataset.max_isolates_to_process`,
 `dataset.hn_subtype`, `dataset.year`, `dataset.host`,
 `dataset.split_strategy.{mode,hash_key,cluster_alphabet,single_slot}`, `dataset.metadata_holdout`,
-`training.slot_transform`, `training.interaction`. Sklearn-baseline knobs live under
-`baseline_<name>.*` at the bundle root (defaults from `conf/baselines/default.yaml`).
+`training.feature_source`, `training.slot_transform`, `training.interaction`. Sklearn-baseline
+knobs live under `baseline_<name>.*` at the bundle root (defaults from
+`conf/baselines/default.yaml`).
 
 `split_strategy.single_slot`: `null` (default, bilateral cluster_disjoint) | `'a'` | `'b'`.
 Only consumed under `mode: cluster_disjoint`.
 
-**Bundle organization** (see `conf/bundles/README.md`): each bundle has a
-`# STATUS: active|ablation|experimental|legacy|not maintained` header. Bundles form inheritance
-chains via Hydra `defaults`; base bundles stay flat, only leaf bundles move to subdirs.
-`conf/bundles/paper/` is reserved for publication experiments. Three generations: Gen1
-(`flu.yaml` base), Gen2 (`flu_schema.yaml` base, none+concat), Gen3 (`flu_schema_raw_*`, retired
-2026-05-12; its `slot_norm + unit_diff` config remains the reference ESM-2 result). Active leaves
-(`flu_ha_na`, `flu_pb2_pb1`) descend from `flu_28_major_protein_pairs_master`.
+**Bundle organization** (see `conf/bundles/README.md`): bundles form inheritance chains via Hydra
+`defaults`. 64 of the 130 bundles carry a `# STATUS:` header (`active`, `production`,
+`experimental`, `ablation`, `legacy` or `not maintained`). `conf/bundles/flu_28/` holds 28
+per-pair bundles that inherit from `flu_28_major_protein_pairs_master`; every other bundle sits
+at the top level.
 
 ---
 
