@@ -1139,9 +1139,11 @@ aligned in this analysis.
     exact stop-free protein input.
   - Each protein from a 1410-nt CDS contains 469 aa residues and therefore has
     gaps in 74 of the 543 alignment columns. That is the largest gap count of
-    the eight modal forms.
-  - The proteins from 1410-nt CDS records have 9 observed gap patterns. Like
-    HA, and unlike PB2, PB1 and PA, NA's modal length is not one form.
+    the eight proteins' modal lengths.
+  - The proteins from 1410-nt CDS records have 9 observed gap patterns, and two
+    of them are large: 8,510 proteins and 8,305. PB2, PB1 and PA also hold more
+    than one pattern at their modal length, but their second pattern is a single
+    protein. NA and HA are the two where the modal length splits in two.
 
 ### 2. Lengths and gaps
 
@@ -1177,8 +1179,9 @@ subtype.
 | 1410 nt | 7 rare patterns | 469 | 28 | 37 | 10 | 1 | 17 |
 | 1350 nt | the only pattern | 449 | 319 | 505 | 0 | 0 | 319 |
 
-H1N1 and H5N1 both carry N1, as their names say, so the N1 pattern spans two
-HN subtypes while N2 sits in one.
+Both patterns occur in all three HN subtypes, but not evenly. The N1 pattern is
+almost entirely H1N1 and H5N1, which both carry N1 as their names say, and the
+N2 pattern is almost entirely H3N2.
 
 N2 and N1 each fill 469 aa alignment columns, as their residue count requires,
 but not the same 469. They share 445 columns. N2 fills 24 that N1 does not: 38,
@@ -1186,8 +1189,8 @@ but not the same 469. They share 445 columns. N2 fills 24 that N1 does not: 38,
 not: 69, 80–83, 95–105, 108–109, 208, 463–465, 472 and 542. Between them they
 fill 493 columns.
 
-The largest single difference is columns 123 to 136, where N2 has 14 residues
-and N1 has 14 aa alignment gaps:
+Their longest run of disagreeing columns is 123 to 136, where N2 has 14
+residues and N1 has 14 aa alignment gaps:
 
 ```text
 Alignment column:    118-122   123-136   137-140
@@ -1202,7 +1205,7 @@ alignment.
 
 The three listed CDS lengths have no aa residue in columns 65, 456–457, 467–471
 or 501, so they use 534 of the 543 columns. Those 9 columns are in the alignment
-because rarer forms fill them: 1422-nt proteins fill column 65, 1416-nt proteins
+because rarer lengths fill them: 1422-nt proteins fill column 65, 1416-nt proteins
 fill 456 and 457, 1428-nt proteins fill 467 to 471, and 1353-nt and 1422-nt
 proteins fill 501.
 
@@ -1275,15 +1278,15 @@ totals 68 isolates.
 The 1350-nt records are all H5N1: 227 Chicken, 266 Duck, 10 Human and 2 Swine,
 505 in total. They appear in all 16 years.
 
-The 1413-nt records peak twice, with 52 of their 129 isolates in 2014 and 28 in
-2025.
+The 1413-nt records have two peaks in a 13-year series: 52 of their 129 isolates
+in 2014 and 28 isolates in 2025.
 
 ### 5. Findings
 
 * NA has a usable pin at 1410 nt, but the pin does not reduce NA to one form.
   Pinning would keep 59,154 of the 59,856 isolates with a complete NA CDS and
-  drop 702. It would also drop most of the short H5N1 form, keeping 3,211 of the
-  3,754 H5N1 isolates.
+  drop 702. It would drop all 505 isolates of the 1350-nt form, and 543 H5N1
+  isolates in total, keeping 3,211 of the 3,754.
 * The required feature width depends on which proteins are retained. An aa
   alignment column that becomes all-gap after filtering can be removed. The
   projected codon representation adds one column for the terminal stop codon.
@@ -1301,11 +1304,14 @@ The 1413-nt records peak twice, with 52 of their 129 isolates in 2014 and 28 in
   aa columns, while the 1410-nt pin keeps 16,843 proteins over 59,154 isolates
   in 510 columns. That is 291 more proteins and 468 more isolates in 17 fewer
   columns.
-* The 1350-nt form is free. Adding it to N2 and N1 changes no column count,
-  because every column it fills is already filled by one of them, and it brings
-  319 unique proteins over 505 isolates, all H5N1.
-* The last row is not a usable option. Reaching 469 columns means keeping N2
-  alone, which drops every H1N1 and H5N1 record.
+* The 1350-nt form costs no column. Adding it to N2 and N1 leaves the count at
+  493, because every column it fills is already filled by one of them, and it
+  brings 319 unique proteins over 505 isolates, all H5N1. It is not free in the
+  feature matrix: its records gap 20 columns that N1 fills, columns 66 to 85.
+* The last row is not a usable option, but not because it excludes a subtype.
+  N2 alone still holds 11 H1N1 and 13 H5N1 isolates, and N1 alone also fills 469
+  columns, so 469 does not identify N2. The row is unusable because keeping one
+  pattern drops the 8,305 unique proteins and 26,631 isolates of the other.
 * 16 aa alignment columns hold an aa residue in exactly one protein: 93–94,
   456–457, 467–471, 494 and 527–532. They belong to 5 proteins. Two of those are
   at the modal length and own 7 of the 16 columns, 494 and 527 to 532, so the
