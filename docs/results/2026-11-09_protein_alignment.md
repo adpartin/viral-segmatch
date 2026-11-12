@@ -1476,9 +1476,10 @@ aligned in this analysis.
   representing 551 unique proteins, contain an `X`. 679 of those isolates have
   a 693-nt CDS.
 * **No usable pin.** NS1 is one of two proteins with no configured CDS length,
-  and it is the clearer case of the two. Its modal length, 693 nt, occurs in
-  9,097 of 18,107 unique complete CDS sequences, a share of 0.502. The next
-  length, 660 nt, holds 8,243, a share of 0.455. Neither is close to the
+  and the two are not close: PB1's modal length reaches 0.890 of unique complete
+  CDS. NS1's modal length, 693 nt, occurs in 9,097 of 18,107 unique complete CDS
+  sequences, a share of 0.502. The next length, 660 nt, holds 8,243, a share of
+  0.455. Neither is close to the
   `check_cds_length` requirement of 0.90, so no pin is available and the
   alignment is the only route to shared sites. The `cds_length` block in
   `conf/virus/flu.yaml` lists PB2, PA, NP, M1, HA and NA, and no length for
@@ -1495,8 +1496,9 @@ aligned in this analysis.
     gaps in 10 of the 240 alignment columns. A 660-nt protein has 219 residues
     and gaps in 21.
   - The proteins from 693-nt CDS records have 1 observed gap pattern, and so do
-    those from 660-nt records. NS1's difficulty is not that a length splits into
-    forms; it is that the population splits across lengths.
+    those from 660-nt records. Of the 16 CDS lengths, 13 hold one pattern each
+    and 3 hold two: 663, 687 and 696 nt, one protein apiece in the second. So
+    the population is split across lengths rather than within them.
 
 ### 2. Lengths and gaps
 
@@ -1513,10 +1515,11 @@ nt alignment.
 | 693 nt | 33,553 | 9,097 | 4,926 | None | 3 | 7 |
 | 11 other lengths | 59 | 50 | 47 | 0 to 5 | 2 to 8 | 0 to 35 |
 
-Each of the five listed lengths holds exactly one gap pattern. Unlike HA and NA,
-where the modal length splits into two subtype forms, an NS1 CDS length fixes
-the gap pattern for every one of the common forms. The three subtype columns
-count unique proteins, not isolates. They sum to more than the unique protein
+Each of the five listed lengths holds exactly one gap pattern, so for every
+length in the table above the CDS length fixes the gap pattern. HA's modal
+length holds 6 patterns and NA's holds 9, two of them large in each case.
+
+The three subtype columns count unique proteins, not isolates. They sum to more than the unique protein
 count in four rows, by 1 for 654 nt, 102 for 660 nt, 1 for 672 nt and 45 for
 693 nt. For the first three that is the number of proteins occurring in isolates
 of more than one subtype. At 693 nt it is 38 such proteins, 7 of which occur in
@@ -1650,8 +1653,9 @@ to 2020 and 2022, in 5 years.
   holds 0.455, both below the 0.90 floor, and `conf/virus/flu.yaml` configures
   no length for it. The alignment is the only route to shared sites.
 * NS1 splits across lengths rather than within one. Each of the five listed
-  lengths holds exactly one gap pattern, so for the common forms a CDS length
-  fixes the gap pattern.
+  lengths holds exactly one gap pattern, so for those lengths a CDS length fixes
+  the gap pattern. Only 3 of the 16 lengths hold two patterns, one protein
+  apiece in the second: 663, 687 and 696 nt.
 * The required feature width depends on which proteins are retained. An aa
   alignment column that becomes all-gap after filtering can be removed. The
   projected codon representation adds one column for the terminal stop codon.
@@ -1685,9 +1689,11 @@ to 2020 and 2022, in 5 years.
   of 1,825 at 693 nt and Duck-H5N1 is 1,739 of 1,899, the same length as
   Human-H3N2. They bring the 678-nt length, which holds 341 isolates, 328 of
   them Chicken or Duck.
-* The protein-to-codon projection has not been implemented. NS1 is the hardest
-  case for it: eleven different stop columns, and `AFTER_STOP` needed for 10,118
-  of the 10,130 unique proteins over runs of 7 to 35 columns.
+* The protein-to-codon projection has not been implemented, and NS1 asks the
+  most of it on two measures. It has eleven different projected stop columns,
+  against at most five for any other of the eight. And `AFTER_STOP` is needed
+  for 10,118 of its 10,130 unique proteins over runs of 7 to 35 columns, where
+  no other protein's run exceeds 25.
 * Still open before codon features are built: whether to keep the 59 isolates
   outside the five listed lengths, and whether to keep the three one-residue
   columns. Uncommon length alone does not establish an error.
