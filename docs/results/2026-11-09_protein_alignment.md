@@ -18,7 +18,7 @@ This analysis determines which CDS records and alignment columns to retain for
 per-site codon features, and how to place the retained records in a common
 coordinate system. Equal CDS or protein length does not guarantee that residues
 at the same index correspond, because insertions and deletions can shift
-homologous residues. Protein alignment estimates which residues correspond
+homologous residues. Protein alignment estimates positional correspondence
 across sequences of both equal and unequal length.
 
 The retention decision is protein-specific. When one gap pattern represents
@@ -33,11 +33,12 @@ columns, so residues at the same index do not all correspond.
 
 What counts as a substantial group is a decision informed by this analysis. For
 each protein, the document reports population coverage, gap-pattern support,
-feature-width cost, the proposed terminal stop column, and whether an absent
-codon would be encoded as `GAP` or `AFTER_STOP`. The goal is to preserve
-well-supported sequence forms without adding records or alignment columns whose
-small coverage does not justify their complexity. The projection from alignment
-columns to codons is proposed in part 3 of each section and is not implemented.
+feature-width cost, the proposed placement of terminal stop codons, and whether
+an absent codon would be encoded as `GAP` or `AFTER_STOP`. The goal is to
+preserve well-supported sequence forms without adding records or alignment
+columns whose small coverage does not justify their complexity. The projection
+from alignment columns to codons is proposed in part 3 of each section and is
+not implemented.
 
 
 ## Why this is measured
