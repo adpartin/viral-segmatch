@@ -125,14 +125,34 @@ steps 4, 5 and 6.
    records, and one protein hash must not name two sequences.
 3. Make the MAFFT input: copy each unique protein and remove the terminal `*`
    from the copy. Keep `X` symbols and count them by CDS length.
-4. Align the unique proteins with MAFFT `--retree 2 --maxiterate 0`, recording
-   the version, command, strategy and input hashes.
+4. Align the unique proteins with MAFFT `--retree 2 --maxiterate 0 --reorder`,
+   recording the version, command, strategy, runtime and input hashes.
+   `--reorder` writes the rows in MAFFT's guide-tree order instead of input
+   order.
 5. Check that removing `-` from each aligned protein recovers the exact input
    protein.
-6. Record every gap position.
+6. Record every gap position, and name each gap pattern by rank. `gap_pat001`
+   is the pattern held by the most unique proteins, and ties go to the pattern
+   with more isolates.
 
 Every run used MAFFT v7.526, so the sections below give only the strategy and
 the column count.
+
+The eight Task 2 alignments were first run without `--reorder` and rerun with
+it on 2026-11-12. Every aligned row, every width and every summary table came
+out identical. Only the row order changed.
+
+Step 6 also writes two copies of the alignment, with the same rows in the same
+order and a label on each. The label fields are the protein hash, the protein,
+its gap pattern, its source CDS length, its aa residue count and the number of
+isolates carrying it. `aligned_proteins.fasta` stays keyed by `prot_hash` alone.
+
+* `aligned_proteins_labelled.fasta` starts each label with the protein hash, for
+  example `5315b8760b3edab2dcf60f53f0d8d4c8|PB2|gap_pat001|2280nt|759aa|5046iso`.
+* `aligned_proteins_analysis.fasta` starts each label with the protein and ends
+  it with the protein hash, for example
+  `PB2|gap_pat001|2280nt|759aa|5046iso|5315b8760b3edab2dcf60f53f0d8d4c8`. Sorting
+  these labels as text puts each gap pattern in one block, in rank order.
 
 `src/analysis/summarize_protein_alignment.py` then writes
 `group_length_summary.csv`, `gap_pattern_summary.csv` and
@@ -239,8 +259,10 @@ locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
 `gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
 hashes and code state.
 
-Two manifests record a MAFFT runtime: NA at 365.6 seconds and M1 at 3.9. The
-other seven ran before `mafft_seconds` was added, so they have no runtime.
+The eight Task 2 manifests record a MAFFT runtime. The eight runs ran at the
+same time, one thread each: PB2 438.7 seconds, PB1 337.3, PA 446.0, HA 563.2,
+NP 69.9, NA 351.9, M1 4.1 and NS1 60.5. The Task 1 pilot ran before
+`mafft_seconds` was added, so it has no runtime.
 
 The Task 1 pilot directory also holds the downstream contig check, written by
 `src/analysis/audit_ns1_downstream_contig.py` as `ns1_downstream_contig.csv`,
@@ -1810,8 +1832,7 @@ short CDS's stop are in the contig, outside that annotated CDS.
 ## Limitations
 
 * All 8 modelled proteins are aligned on the Task 2 population and written up
-  here. Six of the eight ran before `mafft_seconds` was added, so only NA and
-  M1 report a runtime.
+  here.
 * No codon features and no models were produced from any of these alignments.
   The
   mapping from alignment columns to codon features is proposed in

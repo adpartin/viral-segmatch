@@ -3,9 +3,9 @@
 Read outputs from src.analysis.align_proteins and write a FASTA holding every rare
 gap pattern plus a sample of the dominant one. Rows are copied from the finished
 alignment, so every alignment column is preserved and MAFFT does not run again.
-Labels carry the CDS length, residue count, isolate count and gap-pattern class,
-because the aligned FASTA is keyed by `prot_hash` and an md5 is unreadable in a
-viewer such as Jalview.
+Labels come from `align_proteins.build_protein_first_labels`, the same labels as
+in `aligned_proteins_analysis.fasta`: the protein first, then the gap pattern, CDS
+length, residue count, isolate count and `prot_hash`.
 
 Example:
     python -m src.analysis.subset_alignment_for_review \
@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.analysis.align_proteins import build_protein_first_labels
 from src.utils.experiment_utils import file_sha256, get_git_info
 from src.utils.fasta_utils import read_fasta
 
@@ -97,31 +98,6 @@ def select_rows(labelled: pd.DataFrame, reference_n: int) -> pd.DataFrame:
     return selected
 
 
-def build_labels(selected: pd.DataFrame, protein: str) -> pd.Series:
-    """Build one FASTA label per selected protein.
-
-    The label holds no whitespace, so `read_fasta` and Jalview both read the
-    whole thing as the record ID. The last field is the first 8 characters of
-    `prot_hash`, which ties a row back to the full hash in the subset table.
-
-    Args:
-        selected: Selected protein rows in output order.
-        protein: Short protein name, used as the first label field.
-
-    Returns:
-        Labels indexed like `selected`.
-    """
-    labels = (protein + '|' + selected['pattern_class']
-              + '|' + selected['cds_length'].astype(str) + 'nt'
-              + '|' + selected['amino_acids'].astype(str) + 'aa'
-              + '|iso' + selected['isolates'].astype(str)
-              + '|' + selected['prot_hash'].str[:8])
-    if labels.duplicated().any():
-        repeated = sorted(labels[labels.duplicated()])
-        raise ValueError(f'Labels are not unique: {repeated[:3]}.')
-    return labels
-
-
 def subset_alignment(alignment_dir: Path, reference_n: int) -> tuple[pd.DataFrame, dict[str, str], dict]:
     """Select review rows and read their aligned sequences.
 
@@ -157,6 +133,9 @@ def subset_alignment(alignment_dir: Path, reference_n: int) -> tuple[pd.DataFram
     # An empty gap_columns string means a protein with no gaps, so the default
     # NaN conversion must stay off.
     gaps = pd.read_csv(paths['gap_locations.csv'], keep_default_na=False)
+    if 'gap_pattern' not in gaps.columns:
+        raise ValueError('gap_locations.csv has no gap_pattern column; rerun '
+                         'align_proteins --inspect_only.')
     gaps['isolates'] = gaps['prot_hash'].map(isolates_per_protein(alignment_dir))
     if gaps['isolates'].isna().any():
         missing = gaps.loc[gaps['isolates'].isna(), 'prot_hash'].tolist()
@@ -164,8 +143,12 @@ def subset_alignment(alignment_dir: Path, reference_n: int) -> tuple[pd.DataFram
     gaps['isolates'] = gaps['isolates'].astype(int)
 
     labelled, dominant_pattern = classify_gap_patterns(gaps)
+    dominant_names = labelled.loc[labelled['pattern_class'].eq(DOMINANT), 'gap_pattern']
+    if set(dominant_names) != {'gap_pat001'}:
+        raise ValueError(f'The dominant gap pattern is named {sorted(set(dominant_names))}, '
+                         'not gap_pat001.')
     selected = select_rows(labelled, reference_n)
-    selected['label'] = build_labels(selected, selection['protein'])
+    selected['label'] = build_protein_first_labels(selected, selection['protein'])
 
     aligned = read_fasta(paths['aligned_proteins.fasta'])
     sequences = {}
@@ -217,8 +200,8 @@ def write_subset(subset_dir: Path, protein: str, selected: pd.DataFrame,
     records = [f'>{label}\n{sequence}' for label, sequence in sequences.items()]
     fasta_path.write_text('\n'.join(records) + '\n')
 
-    columns = ['label', 'prot_hash', 'pattern_class', 'cds_length', 'amino_acids',
-               'isolates', 'gap_count', 'gap_columns']
+    columns = ['label', 'prot_hash', 'pattern_class', 'gap_pattern', 'cds_length',
+               'amino_acids', 'isolates', 'gap_count', 'gap_columns']
     table = selected[columns].copy()
     table.insert(0, 'row', range(1, len(table) + 1))
     table.to_csv(table_path, index=False)

@@ -9,13 +9,15 @@ Outputs under <out_dir>/<population>/<protein>/:
     proteins_for_alignment.fasta  unique proteins without terminal stop markers
     x_summary.csv           isolate, unique-CDS and unique-protein X counts by CDS length
     selection_manifest.json   input paths, filters, checks and counts
-    aligned_proteins.fasta  MAFFT protein alignment
+    aligned_proteins.fasta  MAFFT protein alignment, rows in guide-tree order
     mafft.log               MAFFT progress and selected strategy
     protein_input_hashes.csv  hash of each stop-free input protein
     protein_cds_map.csv     protein-to-CDS mapping with isolate counts
     alignment_manifest.json  tool version, command, strategy, runtime and file hashes
     alignment_validation.json  input recovery check for every aligned protein
-    gap_locations.csv      gap positions for every aligned protein
+    gap_locations.csv      gap positions and gap-pattern name for every aligned protein
+    aligned_proteins_labelled.fasta  the alignment, labels starting with prot_hash
+    aligned_proteins_analysis.fasta  the alignment, labels starting with the protein
     inspection_manifest.json  input and output hashes for the gap inspection
 
 Example:
@@ -66,7 +68,10 @@ ALIGNMENT_OUTPUT_NAMES = (
     'aligned_proteins.fasta', 'mafft.log', 'protein_input_hashes.csv',
     'protein_cds_map.csv', 'alignment_manifest.json',
 )
-INSPECTION_OUTPUT_NAMES = ('gap_locations.csv', 'inspection_manifest.json')
+INSPECTION_OUTPUT_NAMES = (
+    'gap_locations.csv', 'aligned_proteins_labelled.fasta', 'aligned_proteins_analysis.fasta',
+    'inspection_manifest.json',
+)
 
 
 def summarize_selected_lengths(selected: pd.DataFrame) -> pd.DataFrame:
@@ -82,11 +87,12 @@ def summarize_selected_lengths(selected: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Counts of isolates, unique CDS and unique proteins at each CDS length.
     """
-    summary = (selected.groupby('cds_length', sort=True)
-               .agg(isolates=('assembly_id', 'nunique'),
-                    unique_cds=('cds_dna_hash', 'nunique'),
-                    unique_proteins=('prot_seq', 'nunique'))
-               .reset_index())
+    summary = selected.groupby('cds_length', sort=True).agg(
+        isolates=('assembly_id', 'nunique'),
+        unique_cds=('cds_dna_hash', 'nunique'),
+        unique_proteins=('prot_seq', 'nunique')
+    )
+    summary = summary.reset_index()
     return summary
 
 
@@ -228,8 +234,11 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
     version_result = subprocess.run([resolved_bin, '--version'], capture_output=True, text=True,
                                     check=True)
     version = (version_result.stdout or version_result.stderr).strip()
+    # --reorder writes rows in MAFFT's guide-tree order instead of input order. The MAFFT
+    # wrapper applies it to the finished alignment, so it changes the row order and nothing
+    # else; later steps look rows up by prot_hash.
     command = [resolved_bin, '--amino', *MAFFT_STRATEGY_OPTIONS[strategy_name],
-               '--thread', '1', str(fasta_path.resolve())]
+               '--reorder', '--thread', '1', str(fasta_path.resolve())]
     # Timed here because MAFFT reports no timing of its own, and the file timestamps only
     # bound it, since selection and alignment run separately.
     mafft_timer = Timer()
@@ -277,7 +286,9 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
         'code': get_git_info(),
         'outputs': list(ALIGNMENT_OUTPUT_NAMES),
     }
-    (out_dir / 'alignment_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    alignment_manifest = out_dir / 'alignment_manifest.json'
+    alignment_manifest.write_text(json.dumps(manifest, indent=2) + '\n')
+
     print(f'MAFFT {version}: aligned {len(input_sequences):,} proteins with {strategy}.')
     print(f'Wrote alignment outputs to {out_dir}')
 
@@ -350,11 +361,94 @@ def validate_alignment(out_dir: Path, overwrite: bool) -> None:
     print(f'Wrote validation report to {report_path}')
 
 
-def inspect_alignment(out_dir: Path, overwrite: bool) -> None:
-    """Record gap locations for every validated aligned protein.
+def number_gap_patterns(gap_locations: pd.DataFrame, isolates: pd.Series) -> pd.Series:
+    """Name each protein's gap pattern by rank, `gap_pat001` being held by the most proteins.
+
+    Patterns are ranked by unique proteins, then by isolates, then by the
+    `gap_columns` string, so patterns with equal counts still get a fixed order.
+    The rank is zero-padded to three digits so the names sort as text in rank order.
+
+    Args:
+        gap_locations: One row per unique protein, with `prot_hash` and `gap_columns`.
+        isolates: Isolate count per protein, indexed by `prot_hash`.
+
+    Returns:
+        The gap-pattern name of each row of `gap_locations`, indexed like it.
+    """
+    per_protein = gap_locations[['prot_hash', 'gap_columns']].copy()
+    per_protein['isolates'] = per_protein['prot_hash'].map(isolates)
+    if per_protein['isolates'].isna().any():
+        raise ValueError('An aligned protein has no isolate count.')
+    patterns = (per_protein.groupby('gap_columns')
+                .agg(unique_proteins=('prot_hash', 'size'), isolates=('isolates', 'sum'))
+                .reset_index()
+                .sort_values(['unique_proteins', 'isolates', 'gap_columns'],
+                             ascending=[False, False, True]))
+    if len(patterns) > 999:
+        raise ValueError(f'{len(patterns)} gap patterns do not fit a three-digit name.')
+    patterns['gap_pattern'] = [f'gap_pat{rank:03d}' for rank in range(1, len(patterns) + 1)]
+    names = per_protein['gap_columns'].map(patterns.set_index('gap_columns')['gap_pattern'])
+    return names
+
+
+def describe_proteins(proteins: pd.DataFrame) -> pd.Series:
+    """Join each protein's gap pattern, CDS length, residue count and isolate count.
+
+    Args:
+        proteins: Rows with `gap_pattern`, `cds_length`, `amino_acids` and `isolates`.
+
+    Returns:
+        Strings such as `gap_pat001|2280nt|759aa|5046iso`, indexed like `proteins`.
+    """
+    fields = (proteins['gap_pattern']
+              + '|' + proteins['cds_length'].astype(str) + 'nt'
+              + '|' + proteins['amino_acids'].astype(str) + 'aa'
+              + '|' + proteins['isolates'].astype(str) + 'iso')
+    return fields
+
+
+def build_hash_first_labels(proteins: pd.DataFrame, protein: str) -> pd.Series:
+    """Build FASTA labels that start with `prot_hash`, so `label.split('|')[0]` recovers it.
+
+    The labels hold no whitespace, so `read_fasta` keys each record by the whole label.
+
+    Args:
+        proteins: Rows with `prot_hash`, `gap_pattern`, `cds_length`, `amino_acids`
+            and `isolates`.
+        protein: Short protein name, e.g. PB2.
+
+    Returns:
+        Labels such as `<prot_hash>|PB2|gap_pat001|2280nt|759aa|5046iso`, indexed like
+        `proteins`.
+    """
+    labels = proteins['prot_hash'] + '|' + protein + '|' + describe_proteins(proteins)
+    return labels
+
+
+def build_protein_first_labels(proteins: pd.DataFrame, protein: str) -> pd.Series:
+    """Build FASTA labels that start with the protein, so sorting them groups the gap patterns.
+
+    The labels hold no whitespace, so `read_fasta` keys each record by the whole label.
+
+    Args:
+        proteins: Rows with `prot_hash`, `gap_pattern`, `cds_length`, `amino_acids`
+            and `isolates`.
+        protein: Short protein name, e.g. PB2.
+
+    Returns:
+        Labels such as `PB2|gap_pat001|2280nt|759aa|5046iso|<prot_hash>`, indexed like
+        `proteins`.
+    """
+    labels = protein + '|' + describe_proteins(proteins) + '|' + proteins['prot_hash']
+    return labels
+
+
+def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
+    """Record gap locations for every validated aligned protein and write two labelled copies.
 
     Args:
         out_dir: Directory containing selected CDS and validated alignment outputs.
+        protein: Short protein name, used in the labels.
         overwrite: Whether existing inspection outputs may be replaced.
 
     Returns:
@@ -378,7 +472,7 @@ def inspect_alignment(out_dir: Path, overwrite: bool) -> None:
     validation = json.loads(validation_path.read_text())
     if not validation.get('all_passed') or validation['aligned_fasta_sha256'] != file_sha256(aligned_path):
         raise ValueError('The alignment has no passing validation for its current FASTA.')
-    selected = pd.read_parquet(selected_path, columns=['prot_hash', 'cds_length'])
+    selected = pd.read_parquet(selected_path, columns=['prot_hash', 'cds_length', 'assembly_id'])
     lengths_by_hash = selected.groupby('prot_hash')['cds_length'].nunique()
     if lengths_by_hash.ne(1).any():
         raise ValueError('A protein hash has more than one CDS length.')
@@ -407,23 +501,45 @@ def inspect_alignment(out_dir: Path, overwrite: bool) -> None:
             'gap_columns': gaps,
             'x_columns': unknowns,
         })
+
     gap_locations = pd.DataFrame(rows)
     if gap_locations['alignment_width'].nunique() != 1:
         raise ValueError('Aligned proteins have different widths during inspection.')
+    isolates = selected.groupby('prot_hash')['assembly_id'].nunique()
+    gap_locations['gap_pattern'] = number_gap_patterns(gap_locations, isolates)
     gap_path = out_dir / 'gap_locations.csv'
     gap_locations.to_csv(gap_path, index=False)
+
+    # Two copies of aligned_proteins.fasta, same rows in the same order, with readable
+    # labels: one starting with prot_hash, one starting with the protein so that sorting
+    # by label in a viewer groups the rows by gap pattern. aligned_proteins.fasta itself
+    # stays keyed by prot_hash for the later steps.
+    proteins = gap_locations.set_index('prot_hash', drop=False)
+    proteins['isolates'] = proteins['prot_hash'].map(isolates)
+    labelled_path = out_dir / 'aligned_proteins_labelled.fasta'
+    analysis_path = out_dir / 'aligned_proteins_analysis.fasta'
+    for path, labels in ((labelled_path, build_hash_first_labels(proteins, protein)),
+                         (analysis_path, build_protein_first_labels(proteins, protein))):
+        records = [f'>{labels[protein_hash]}\n{sequence}'
+                   for protein_hash, sequence in aligned.items()]
+        path.write_text('\n'.join(records) + '\n')
+
     manifest = {
         'stage': 'alignment_gap_inspection',
         'selected_cds_sha256': file_sha256(selected_path),
         'aligned_fasta_sha256': file_sha256(aligned_path),
         'validation_report_sha256': file_sha256(validation_path),
         'gap_locations_sha256': file_sha256(gap_path),
+        'labelled_fasta_sha256': file_sha256(labelled_path),
+        'analysis_fasta_sha256': file_sha256(analysis_path),
         'proteins_inspected': len(gap_locations),
         'alignment_width': int(gap_locations['alignment_width'].iloc[0]),
         'code': get_git_info(),
         'outputs': list(INSPECTION_OUTPUT_NAMES),
     }
-    (out_dir / 'inspection_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    inspec_manifest = out_dir / 'inspection_manifest.json'
+    inspec_manifest.write_text(json.dumps(manifest, indent=2) + '\n')
+
     print(f'Inspected gap locations for {len(gap_locations):,} aligned proteins.')
     print(f'Wrote inspection outputs to {out_dir}')
 
@@ -437,34 +553,35 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--protein', required=True, help='protein short name, e.g. NS1')
     parser.add_argument('--cds_final', type=Path,
-                        default=PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet')
+        default=PROJ / 'data/processed/flu/July_2025/cds_dna_final.parquet')
     parser.add_argument('--virus_config', type=Path, default=PROJ / 'conf/virus/flu.yaml')
     parser.add_argument('--metadata_file', type=Path,
-                        default=PROJ / 'data/processed/flu/metadata_eda/flu_genomes_metadata_parsed.csv')
+        default=PROJ / 'data/processed/flu/metadata_eda/flu_genomes_metadata_parsed.csv')
     parser.add_argument('--host', nargs='+', default=None)
     parser.add_argument('--hn_subtype', nargs='+', default=None)
     years = parser.add_mutually_exclusive_group()
     years.add_argument('--year', nargs='+', type=int, default=None)
     years.add_argument('--year_range', nargs=2, type=int, default=None, metavar=('MIN', 'MAX'))
     parser.add_argument('--out_dir', type=Path,
-                        default=PROJ / 'results/flu/July_2025/cds_alignment_pilot')
+        default=PROJ / 'results/flu/July_2025/cds_alignment_pilot')
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument('--align_only', action='store_true',
-                         help='run MAFFT on existing preparation outputs without selecting CDS again')
+        help='run MAFFT on existing preparation outputs without selecting CDS again')
     actions.add_argument('--validate_only', action='store_true',
-                         help='validate an existing alignment without rerunning MAFFT')
+        help='validate an existing alignment without rerunning MAFFT')
     actions.add_argument('--inspect_only', action='store_true',
-                         help='record gap positions in an existing validated alignment')
+        help='record gap positions in an existing validated alignment')
     parser.add_argument('--mafft_bin', default='mafft',
-                        help='MAFFT executable path or command on PATH (with --align_only)')
-    parser.add_argument('--mafft_strategy', choices=sorted(MAFFT_STRATEGY_OPTIONS),
-                        default='fft_ns_2',
-                        help="which MAFFT options to pass (with --align_only). 'fft_ns_2' passes "
-                             "--retree 2 --maxiterate 0, which give FFT-NS-2 at any input size, "
-                             "so every protein gets the same strategy. 'auto' passes --auto and "
-                             "lets MAFFT choose the strategy from the input size")
+        help='MAFFT executable path or command on PATH (with --align_only)')
+    parser.add_argument(
+        '--mafft_strategy', choices=sorted(MAFFT_STRATEGY_OPTIONS),
+        default='fft_ns_2',
+        help="which MAFFT options to pass (with --align_only). 'fft_ns_2' passes "
+             "--retree 2 --maxiterate 0, which give FFT-NS-2 at any input size, "
+             "so every protein gets the same strategy. 'auto' passes --auto and "
+             "lets MAFFT choose the strategy from the input size")
     parser.add_argument('--overwrite', action='store_true',
-                        help='replace existing outputs for this population and protein')
+        help='replace existing outputs for this population and protein')
     args = parser.parse_args()
 
     names = load_function_metadata(args.virus_config)
@@ -480,13 +597,15 @@ def main() -> None:
     if args.align_only:
         align_prepared_proteins(out_dir, args.mafft_bin, args.overwrite, args.mafft_strategy)
         return
+
     if args.validate_only:
         validate_alignment(out_dir, args.overwrite)
         return
-    if args.inspect_only:
-        inspect_alignment(out_dir, args.overwrite)
-        return
 
+    if args.inspect_only:
+        inspect_alignment(out_dir, args.protein, args.overwrite)
+        return
+    
     function = names.short_to_function[args.protein]
     cds = pd.read_parquet(args.cds_final, columns=CDS_COLUMNS,
                           filters=[('function', '==', function)])
@@ -510,6 +629,7 @@ def main() -> None:
     if existing and not args.overwrite:
         raise FileExistsError(f'Output files already exist in {out_dir}: {existing}; '
                               'pass --overwrite to replace them.')
+
     manifest = {
         'stage': 'protein_alignment_preparation',
         'protein': args.protein,
@@ -547,6 +667,7 @@ def main() -> None:
         'code': get_git_info(),
         'outputs': list(OUTPUT_NAMES),
     }
+
     out_dir.mkdir(parents=True, exist_ok=True)
     selected.to_parquet(out_dir / 'selected_cds.parquet', index=False)
     summary.to_csv(out_dir / 'length_summary.csv', index=False)
