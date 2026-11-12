@@ -54,7 +54,8 @@ sequences deduplication).
   same length, yet their gaps fall in different columns.
 - Report alignment results.
   - How many gap patterns per protein?
-  - How many unique proteins dropped.
+  - How many unique proteins dropped?
+  - Show a few interesting patterns from Jalview.
 
 ### Model training and performance analysis for the narrow population (Human-H3N2-2024)
 
