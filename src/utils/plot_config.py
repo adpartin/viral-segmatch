@@ -6,6 +6,7 @@ This module provides consistent color schemes and naming conventions for:
 - Positive/negative sample styling
 - Protein function name mappings
 - Segment colors (if needed)
+- H/N subtype and host group colors
 """
 
 # =============================================================================
@@ -110,6 +111,31 @@ PROTEIN_FALLBACK_PALETTE = [
     '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
     '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5',
 ]
+
+
+# =============================================================================
+# H/N SUBTYPE AND HOST GROUP COLORS (Flu A; stable across plots)
+# =============================================================================
+# One qualitative palette, ColorBrewer Dark2, is split between subtypes and hosts, so no color
+# means both a subtype and a host when the two kinds of figure sit side by side. Host keys are the
+# groups in conf/virus/flu_host_groups.yaml; the four groups outside the paper's populations get
+# grays. Key order is the order categories are stacked and listed in.
+SUBTYPE_COLORS = {
+    'H3N2': '#1b9e77',  # teal
+    'H1N1': '#d95f02',  # burnt orange
+    'H5N1': '#7570b3',  # slate purple
+}
+
+HOST_COLORS = {
+    'Human':        '#e7298a',  # magenta
+    'Swine':        '#e6ab02',  # mustard
+    'Chicken':      '#a6761d',  # brown
+    'Duck':         '#66a61e',  # green
+    'Other Bird':   '#666666',  # gray
+    'Other Mammal': '#8c8c8c',  # gray
+    'Environment':  '#b3b3b3',  # gray
+    'Lab':          '#d9d9d9',  # gray
+}
 
 
 def get_protein_color(short_name: str, fallback_index: int = 0) -> str:
