@@ -170,7 +170,7 @@ def plot_isolates_per_year(counts: pd.DataFrame, out_png: Path, title: str,
     for year, total in zip(years, totals):
         ax.text(year, total, f'{total:,}', ha='center', va='bottom', fontsize=8)
     ax.set_xticks(years)
-    ax.set_xticklabels(years, rotation=45)
+    ax.set_xticklabels(years)
     ax.set_xlabel('Year')
     ax.set_ylabel('Isolates')
     ax.yaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
@@ -200,7 +200,7 @@ def plot_host_subtype_heatmap(counts: pd.DataFrame, out_png: Path) -> None:
     table = table.reindex(index=hosts, columns=subtypes, fill_value=0)
 
     # The default style turns the axes grid on, which would draw lines through the cells.
-    with plt.rc_context({'axes.grid': False}):
+    with plt.rc_context({'axes.grid': False, 'xtick.labelsize': 14, 'axes.labelsize': 15}):
         annotated_heatmap(
             table.to_numpy(),
             row_labels=hosts,
@@ -208,15 +208,15 @@ def plot_host_subtype_heatmap(counts: pd.DataFrame, out_png: Path) -> None:
             out_png=out_png,
             title='Host x H/N Subtype Heatmap',
             xlabel='H/N subtype',
-            ylabel='Host group',
+            ylabel='Host',
             cbar_label='Isolates (log scale)',
             cmap='Blues',
             norm=LogNorm(vmin=1, vmax=table.to_numpy().max()),
             value_fmt='{:,.0f}',
             aspect='equal',
-            row_fontsize=11,
-            cell_fontsize=11,
-            title_fontsize=13,
+            row_fontsize=14,
+            cell_fontsize=16,
+            title_fontsize=16,
             figsize=(1.6 * len(subtypes) + 3, 1.6 * len(hosts) + 1.5),
             dpi=200,
         )
@@ -259,16 +259,15 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     counts.to_csv(out_dir / 'isolate_counts.csv', index=False)
     setup_plot_style(use_seaborn_palette=False)
-    subtitle = f'{label}, {len(population):,} isolates'
     plot_isolates_per_year(counts, out_dir / 'isolates_per_year.png',
-                           title=f'Isolates per year\n{subtitle}')
+                           title='Isolates per year')
     plot_isolates_per_year(counts, out_dir / 'isolates_per_year_by_subtype.png',
-                           title=f'Isolates per year by H/N subtype\n{subtitle}',
+                           title='Isolates per year by H/N subtype',
                            stack_by='hn_subtype', colors=SUBTYPE_COLORS,
                            legend_title='H/N subtype')
     plot_isolates_per_year(counts, out_dir / 'isolates_per_year_by_host.png',
-                           title=f'Isolates per year by host group\n{subtitle}',
-                           stack_by='host', colors=HOST_COLORS, legend_title='Host group')
+                           title='Isolates per year by host',
+                           stack_by='host', colors=HOST_COLORS, legend_title='Host')
     plot_host_subtype_heatmap(counts, out_dir / 'host_subtype_heatmap.png')
 
     manifest = {
