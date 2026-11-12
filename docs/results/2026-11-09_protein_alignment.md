@@ -1210,9 +1210,9 @@ alignment.
 
 The three listed CDS lengths have no aa residue in columns 65, 456–457, 467–471
 or 501, so they use 534 of the 543 columns. Those 9 columns are in the alignment
-because rarer lengths fill them: 1422-nt proteins fill column 65, 1416-nt proteins
-fill 456 and 457, 1428-nt proteins fill 467 to 471, and 1353-nt and 1422-nt
-proteins fill 501.
+because rarer lengths fill them: 1422-nt proteins fill column 65, 1416-nt
+proteins fill 456 and 457, 1428-nt proteins fill 467 to 471, and 1353-nt and
+1422-nt proteins fill 501.
 
 ### 3. Projection to codons and the terminal stop
 
