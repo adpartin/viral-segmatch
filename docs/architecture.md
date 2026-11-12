@@ -89,52 +89,65 @@ at the top level.
 
 ## Active Source Files
 
+The pipeline and production files. `src/analysis/` is summarised in one line.
+
 ```
 src/
   preprocess/
-    preprocess_flu.py               # Stage 1: GTO → protein_final.csv + ctg_dna_final.csv
-    extract_cds_dna.py              # Stage 1.5: protein_final + ctg_dna_final → cds_dna_final.parquet
-    flu_genomes_eda.py              # Generates flu_genomes_metadata_parsed.csv (run once)
+    preprocess_flu.py               # Stage 1: GTO → protein_final + ctg_dna_final
+    extract_cds_dna.py              # Stage 1.5: Stage 1 outputs → cds_dna_final.parquet
+    build_clusters.py               # mmseqs2 clusters per function and identity threshold
+    build_cluster_membership.py     # per-record cluster-membership table
+    build_mmseqs_clusters.py        # back-compat shim: set-cover cluster builder
+    build_ood_clusters.py           # back-compat shim: OOD cluster builder
+    flu_genomes_eda.py              # writes flu_genomes_metadata_parsed.csv (run once)
     preprocess_bunya_protein.py     # Bunya (NOT maintained; reference-only)
-    build_mmseqs_clusters.py        # Stage 2.5: per-function mmseqs2 cluster sweep (aa+nt)
   embeddings/
-    compute_esm2_embeddings.py      # Stage 2: sequences → ESM-2 HDF5 cache
+    compute_esm2_embeddings.py      # Stage 2: proteins → ESM-2 HDF5 cache
     compute_kmer_features.py        # Stage 2b: DNA or protein → k-mer sparse matrix
+    compute_site_features.py        # Stage 2c: CDS → per-site codes (nt, codon or aa)
   datasets/
-    dataset_segment_pairs.py        # Stage 3: pairs + train/val/test splits (CLI)
-    dataset_segment_pairs_v2.py     # v2 builder (default; coverage-first + regime-aware)
-    dataset_pairs_cc.py             # 2D-CD CC builder (cluster-disjoint CC K-fold; within-CC/fold negs)
-    _pair_helpers.py                # Shared helpers (seq_disjoint routing, filters, hash attach,
-                                    #   corpus-wide co-occurrence blocking set)
-    _split_helpers.py               # cluster_disjoint routing (mmseqs2-based)
-    _cc_helpers.py                  # within-CC isolate pool + negative samplers (CC builder)
-    _cv_sampling.py                 # atom assignment + per-unit positive sampling (CV harness)
-    _megacc_cut.py                  # mega-CC edge min-cut (spectral/KL) + the fragmentation loops
-    _negative_regime_sampling.py    # 8-regime classifier + priority chain for racov
+    dataset_segment_pairs.py        # Stage 3 CLI; builds with dataset_segment_pairs_v2
+    dataset_segment_pairs_v2.py     # Stage 3 builder (coverage-first negatives, within-split dedup)
+    dataset_pairs_cc.py             # Stage 3 CC builder: 2D-CD cluster-disjoint K-fold datasets
+    build_cc_structure.py           # Stage 2.5: positive pair universe + per-t CC structure
+    build_random_arm.py             # random-split control arm for an existing k-fold dataset
+    _pair_helpers.py                # loading, filtering, splitting; co-occurrence blocking set
+    _split_helpers.py               # split routing for non-default modes
+    _bigraph.py                     # cluster-level bigraph builder
+    _megacc_cut.py                  # mega-CC edge min-cut
+    _cc_helpers.py                  # within-CC isolate pool + negative sampling (CC builder)
+    _negative_sampling.py           # negative-pair samplers shared by both builders
+    _negative_regime_sampling.py    # metadata-aware negative regimes
+    _positive_pair_selection.py     # positives with unique sequence endpoints per slot
   models/
-    train_pair_classifier.py        # Stage 4: MLP classifier training
-    train_pair_baselines.py         # Stage 4: sklearn baselines (logistic, lgbm, knn1_margin, knn_vote)
-  analysis/
-    analyze_stage4_train.py         # Confusion matrix, ROC, FP/FN analysis
-    analyze_stage{1,2,3}_*.py       # Per-stage QC scripts
-    visualize_dataset_stats.py      # PCA plots, interaction diagnostics
-    aggregate_experiment_results.py # Cross-bundle summary tables
-    visualize_cv_results.py         # CV visualization
-    cluster_disjoint_feasibility.py # Bilateral CC feasibility pre-flight
-    single_slot_cluster_disjoint_feasibility.py
-    cluster_analysis_summary.py     # Post-hoc structural cluster summary
-    plot_aa_vs_nt_cluster_disjoint.py    # LGBM + 1-NN cluster-disjoint comparison
-    mmd_per_slot.py / mmd_per_pair.py / aggregate_mmd_single_slot_sweep.py
+    train_pair_classifier.py        # Stage 4: MLP classifier
+    train_pair_baselines.py         # Stage 4: sklearn baselines
+    baselines/                      # logistic, lgbm, knn1_margin, knn_vote
+    baseline_fits.py                # launch one baseline fit; decide whether to skip it
+    _pair_features.py               # baseline pair features (esm2, kmer or site)
+    _pair_metrics.py                # metrics shared by the MLP trainer and the baselines
   utils/
-    cluster_source.py               # Membership-backed cluster-map source (registry-driven)
-    config_hydra.py                 # Hydra config loader (primary)
-    schema.py                       # Per-alphabet column/file registry (aa, nt_cds, nt_ctg) — single source of truth
-    esm2_utils.py, embedding_utils.py, kmer_utils.py
-    metadata_enrichment.py, seed_utils.py, learning_verification_utils.py, plot_config.py
+    schema.py                       # per-alphabet column/file registry — single source of truth
+    config_hydra.py                 # Hydra config loader
+    experiment_spec.py              # read an experiment spec; check configs against it
+    experiment_utils.py             # experiment tracking: git info, file hashes
+    dataset_manifest.py             # manifest of pair datasets built together
     clustering_utils.py             # mmseqs2 wrappers; alphabet={aa,nt_cds,nt_ctg}
-    cds_utils.py                    # CDS reconstruction + cds_dna_hash
-    dna_utils.py                    # DNA QC utilities (in development)
-    dim_reduction_utils.py, gto_utils.py, protein_utils.py, path_utils.py, timer_utils.py
+    cluster_source.py               # cluster-map lookup; imported only by src/archive/ scripts
+    cds_utils.py                    # CDS extraction, translation, terminal stop
+    site_utils.py                   # per-site matrix, cache reading, pair features
+    kmer_utils.py                   # k-mer loading and pair features
+    esm2_utils.py                   # ESM-2 model loading, embedding compute, cache save/load
+    embedding_utils.py              # embedding loading and visualization
+    fasta_utils.py                  # read FASTA sequences or headers
+    metadata_enrichment.py          # isolate metadata join, population filters and labels
+    path_utils.py, seed_utils.py, timer_utils.py, torch_utils.py
+    protein_utils.py, dna_utils.py, gto_utils.py
+    plot_config.py, plot_utils.py, dim_reduction_utils.py, learning_verification_utils.py
+  analysis/                         # 71 scripts: per-stage QC, aggregation, plots, MMD, CC and
+                                    #   bigraph diagnostics, audits, protein alignment
+  archive/                          # inert; see Layering
 ```
 
 ### Layering
@@ -146,10 +159,6 @@ never the reverse. The check:
 ```bash
 grep -rnE "^\s*(from|import)\s+src\.analysis" src/datasets/ src/utils/
 ```
-
-This is why `_cv_sampling.py` sits in `src/datasets/` although the harness that drives it
-(`cluster_disjoint_cv_experiment.py`) is in `src/analysis/`, and why `cluster_source.py` sits in
-`src/utils/` although its other callers are all analysis scripts.
 
 **One documented exception**, which the grep above will report: `dataset_segment_pairs_v2` imports
 `src.analysis.visualize_dataset_stats`. It is allowed to stand because it is not split-producing —
