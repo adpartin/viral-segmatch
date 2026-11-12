@@ -230,43 +230,81 @@ The Task 1 pilot directory also holds the downstream contig check, written by
 
 ## PB2 (Segment 1)
 
+PB2 sequences are aligned in amino-acid (aa) space. The corresponding CDS
+sequences are retained so that each aa alignment column can later be projected
+back to the codon that encoded that aa residue. The CDS sequences are not
+aligned in this analysis.
+
 ### 1. Inputs
 
-* **Records.** Of 60,751 filtered isolates, 60,474 (99.5%) had a complete CDS
-  and 277 were dropped as incomplete.
-* **Sequences.** 36,939 unique CDS and 15,290 unique proteins, across 18 CDS
-  lengths and 147 host–subtype–year groups.
-* **Unknown residues.** 1,296 isolates and 1,197 unique proteins contain an
-  `X`, all 1,296 at 2280 nt.
-* **Pin.** PB2 has a usable pin at 2280 nt. 36,879 of the 36,939 unique
-  complete CDS are 2280 nt, a share of 0.998, against the 0.90
-  `check_cds_length` needs. `conf/virus/flu.yaml` pins PB2 at 2280 nt and the
-  observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced `766` columns.
-  - Removing `-` from the aligned proteins recovered the exact input protein
-    for all 15,290.
-  - A 2280-nt CDS is 759 amino acids, so the alignment adds 7 columns.
+* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,474 (99.5%)
+  have a complete PB2 CDS record; 277 isolates were excluded because their PB2
+  CDS was incomplete. Thus, counts of complete records in this section are
+  counts of isolates with a complete PB2 CDS, before sequences are
+  deduplicated.
+* **Nucleotide sequences.** The 60,474 complete PB2 CDS records contain 36,939
+  unique CDS sequences across 18 CDS lengths and 147 host–subtype–year groups.
+* **Protein sequences.** Those CDS sequences translate to 15,290 unique PB2
+  protein sequences.
+* **Unknown amino acids.** The translated proteins for 1,296 isolates,
+  representing 1,197 unique proteins, contain an `X`. All 1,296 isolates have
+  a 2280-nt CDS.
+* **Modal CDS length.** PB2 has a usable configured length of 2280 nt.
+  This length includes 759 sense codons and 1 terminal stop codon. It occurs
+  in 36,879 of 36,939 unique complete CDS sequences (0.998), exceeding the
+  `check_cds_length` requirement of 0.90. The configured value in
+  `conf/virus/flu.yaml` agrees with the observed mode.
+* **MAFFT input.** Before alignment, the terminal `*` was removed from each
+  protein. MAFFT therefore aligned 15,290 unique stop-free aa sequences. A
+  protein from a 2280-nt CDS contributes 759 aa residues to this alignment.
+* **Alignment result.** MAFFT used FFT-NS-2 and produced 766 aa alignment
+  columns.
+  - Removing alignment gaps (`-`) from every aligned sequence recovered its
+    exact stop-free protein input.
+  - Each protein from a 2280-nt CDS contains 759 aa residues and therefore has
+    gaps in 7 of the 766 alignment columns.
+  - The proteins from 2280-nt CDS records have 2 observed gap patterns.
 
 ### 2. Lengths and gaps
 
-| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+The CDS lengths in this table identify the nt sequences from which the proteins
+were translated. All gap counts refer to the resulting aa alignment, not to an
+nt alignment.
+
+| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
 |---|---:|---:|---:|---|---|---|
 | 2280 nt | 60,413 | 36,879 | 15,230 | None | 7 | None |
 | 17 other lengths | 61 | 60 | 60 | 0 to 10 | 6 to 31 | 0 to 10 |
 
-```text
-Length   Empty columns                              Residues   Proteins   Stop column
-2280 nt  42-45, 348, 575, 678                            759     15,229           767
-2280 nt  42-45, 348, 582, 678                            759          1           767
-```
+The 15,230 unique proteins translated from 2280-nt CDS sequences have 2 observed
+aa gap patterns:
 
-The 2280-nt proteins have 759 residues, so 7 of the 766 columns are empty.
-The 2280-nt proteins have 2 gap patterns.
+| Source CDS length | AA gap columns | AA residues | Unique proteins |
+|---|---|---:|---:|
+| 2280 nt | 42–45, 348, 575, 678 | 759 | 15,229 |
+| 2280 nt | 42–45, 348, 582, 678 | 759 | 1 |
 
-A codon feature table for PB2 needs 767 columns, not 766.
-This mapping is not implemented.
+Thus, each of these proteins contributes 759 aa residues to the 766-column
+alignment and has an aa alignment gap in 7 columns. These gaps are alignment
+placeholders; they are not gaps inserted into the source CDS sequence.
 
-### 3. By host, subtype and year
+### 3. Projection to codons and the terminal stop
+
+For codon featurization, each aa residue in the alignment is mapped back to the
+codon that encoded it. An aa alignment gap has no source codon and therefore
+receives the proposed codon-level state `GAP`, or `AFTER_STOP` when the column
+falls after that record's terminal stop codon.
+
+The terminal `*` was excluded from the MAFFT input, so the 766 aa alignment
+columns do not include a stop-codon column. Proteins from 2280-nt CDS sequences
+have their last aa residue in alignment column 766; their terminal stop codon
+would therefore be placed in projected codon column 767.
+
+The PB2 protein alignment has 766 aa columns, whereas the proposed PB2 codon
+feature representation requires 767 columns. This projection has not been
+implemented.
+
+### 4. By host, subtype and year
 
 "Other lengths" covers the 17 lengths not listed separately, so its
 column totals 61 isolates.
@@ -289,20 +327,29 @@ column totals 61 isolates.
 The off-mode lengths are spread across hosts, subtypes and years, with no group
 holding more than 30 of the 61 isolates.
 
-### 4. Findings
+### 5. Findings
 
-* PB2 has a pin on this population.
-* Pinning at 2280 nt would drop 61 of the 60,474 complete records and keep
-  3,759 of 3,761 H5N1 records.
-* The 2280-nt form holds 60,413 of the 60,474 complete records. The other 17
-  lengths hold 61 isolates between them, 6 at most each.
-* The alignment adds 7 columns. 6 of them are one-residue columns: 42–45, 575
-  and 678.
-* 576 of the 766 columns hold a protein symbol in all 15,290 proteins.
-* The longest internal gap run is columns 692 to 715, 24 codons, in one protein
-  from one isolate at 2208 nt.
+* PB2 has a usable pin at 2280 nt. Pinning would keep 60,413 of the 60,474
+  isolates with a complete PB2 CDS and drop 61 isolates at 17 other CDS
+  lengths.
+* The required feature width depends on which proteins are retained. An aa
+  alignment column that becomes all-gap after filtering can be removed. The
+  projected codon representation adds one column for the terminal stop codon.
+
+| Proteins retained | Unique proteins | All-gap aa columns removed | AA alignment columns | Projected codon columns |
+|---|---:|---|---:|---:|
+| All 18 source CDS lengths | 15,290 | None | 766 | 767 |
+| 2280-nt source CDS only | 15,230 | 42–45, 348, 678 | 760 | 761 |
+| Dominant 2280-nt gap pattern only | 15,229 | 42–45, 348, 575, 678 | 759 | 760 |
+
+* The proteins from 2280-nt CDS records retain 2 gap patterns. One protein has
+  its aa alignment gap at column 582 instead of 575 and therefore accounts for
+  the additional aa column in the 760-column representation. Excluding it
+  would require a separate criterion beyond the CDS-length pin.
+* The protein-to-codon projection has not been implemented. It must represent
+  aa alignment gaps for any retained non-dominant patterns.
 * Still open before codon features are built: whether to keep the 61 isolates
-  outside the modal length, and whether to keep the 6 one-residue columns.
+  outside the modal CDS length.
 
 ## PB1 (Segment 2)
 
@@ -408,52 +455,105 @@ to 2020. It then rises each year, to 34.0% in 2024 and 33.9% in 2025.
 
 ## PA (Segment 3)
 
+PA sequences are aligned in amino-acid (aa) space. The corresponding CDS
+sequences are retained so that each aa alignment column can later be projected
+back to the codon that encoded that aa residue. The CDS sequences are not
+aligned in this analysis.
+
 ### 1. Inputs
 
-* **Records.** Of 60,751 filtered isolates, 60,396 (99.4%) had a complete CDS
-  and 355 were dropped as incomplete.
-* **Sequences.** 35,659 unique CDS and 15,939 unique proteins, across 14 CDS
-  lengths and 147 host–subtype–year groups.
-* **Unknown residues.** 1,349 isolates and 1,203 unique proteins contain an
-  `X`, 1,348 of them at 2151 nt.
-* **Pin.** PA has a usable pin at 2151 nt. 35,609 of the 35,659 unique complete
-  CDS are 2151 nt, a share of 0.999, against the 0.90 `check_cds_length` needs.
-  `conf/virus/flu.yaml` pins PA at 2151 nt and the observed mode agrees.
-* **Alignment.** MAFFT used FFT-NS-2 and produced `744` columns.
-  - Removing `-` from the aligned proteins recovered the exact input protein
-    for all 15,939.
-  - A 2151-nt CDS is 716 amino acids, so the alignment adds 28 columns.
+* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,396 (99.4%)
+  have a complete PA CDS record; 355 isolates were excluded because their PA
+  CDS was incomplete. Thus, counts of complete records in this section are
+  counts of isolates with a complete PA CDS, before sequences are
+  deduplicated.
+* **Nucleotide sequences.** The 60,396 complete PA CDS records contain 35,659
+  unique CDS sequences across 14 CDS lengths and 147 host–subtype–year groups.
+* **Protein sequences.** Those CDS sequences translate to 15,939 unique PA
+  protein sequences.
+* **Unknown amino acids.** The translated proteins for 1,349 isolates,
+  representing 1,203 unique proteins, contain an `X`. 1,348 of those isolates
+  have a 2151-nt CDS.
+* **Modal CDS length.** PA has a usable configured length of 2151 nt. This
+  length includes 716 sense codons and 1 terminal stop codon. It occurs in
+  35,609 of 35,659 unique complete CDS sequences (0.999), exceeding the
+  `check_cds_length` requirement of 0.90. The configured value in
+  `conf/virus/flu.yaml` agrees with the observed mode.
+* **MAFFT input.** Before alignment, the terminal `*` was removed from each
+  protein. MAFFT therefore aligned 15,939 unique stop-free aa sequences. A
+  protein from a 2151-nt CDS contributes 716 aa residues to this alignment.
+* **Alignment result.** MAFFT used FFT-NS-2 and produced 744 aa alignment
+  columns.
+  - Removing alignment gaps (`-`) from every aligned sequence recovered its
+    exact stop-free protein input.
+  - Each protein from a 2151-nt CDS contains 716 aa residues and therefore has
+    gaps in 28 of the 744 alignment columns.
+  - The proteins from 2151-nt CDS records have 2 observed gap patterns.
 
 ### 2. Lengths and gaps
 
-| CDS length | Isolates | Unique CDS | Unique proteins | Leading gap columns | Internal gap columns | Trailing gap columns |
+The CDS lengths in this table identify the nt sequences from which the proteins
+were translated. All gap counts refer to the resulting aa alignment, not to an
+nt alignment.
+
+| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
 |---|---:|---:|---:|---|---|---|
 | 2151 nt | 60,332 | 35,609 | 15,897 | None | 26 | 2 |
 | 13 other lengths | 64 | 50 | 42 | 0 to 20 | 22 to 49 | 0 to 25 |
 
+The 15,897 unique proteins translated from 2151-nt CDS sequences have 2 observed
+aa gap patterns:
+
+| Source CDS length | AA gap columns | AA residues | Unique proteins |
+|---|---|---:|---:|
+| 2151 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 716 | 15,896 |
+| 2151 nt | 48–49, 77, 82–88, 624, 641–650, 660–663, 703, 743–744 | 716 | 1 |
+
+Thus, each of these proteins contributes 716 aa residues to the 744-column
+alignment and has an aa alignment gap in 28 columns. These gaps are alignment
+placeholders; they are not gaps inserted into the source CDS sequence.
+
+PA differs from PB2 in where those gaps fall. Two of the 28 are trailing gaps,
+in columns 743 and 744, so a protein translated from a 2151-nt CDS does not
+reach the last alignment column.
+
+The most frequent of the other CDS lengths is 2157 nt, at 39 isolates. A
+2157-nt CDS has 718 sense codons, two more than the modal length. In 16 of its
+17 unique proteins, covering 38 of its 39 isolates, both extra codons sit at the
+C-terminus. That is how those proteins fill alignment columns 743 and 744, which
+the modal form leaves empty. The 17th protein instead fills alignment columns 48
+and 49 and is gapped at 743 and 744 like the modal form.
+
+### 3. Projection to codons and the terminal stop
+
+For codon featurization, each aa residue in the alignment is mapped back to the
+codon that encoded it. An aa alignment gap has no source codon and therefore
+receives the proposed codon-level state `GAP`, or `AFTER_STOP` when the column
+falls after that record's terminal stop codon.
+
+The terminal `*` was excluded from the MAFFT input, so the 744 aa alignment
+columns do not include a stop-codon column. Proteins from 2151-nt CDS sequences
+have their last aa residue in alignment column 742, so their terminal stop
+codon would be placed in projected codon column 743.
+
+Alignment columns 743 and 744 hold an aa residue in 16 unique proteins, all
+translated from 2157-nt CDS sequences. Those proteins have their last aa residue
+in alignment column 744, so their terminal stop codon would be placed in
+projected codon column 745.
+
 ```text
-Length   Empty columns                                            Residues   Proteins
-2151 nt  48-49, 77, 82-83, 94-98, 624, 641-650, 660-663, 703, 743-744  716     15,896
-2151 nt  48-49, 77, 82-88, 624, 641-650, 660-663, 703, 743-744         716          1
+Projected codon column:  742  743   744         745
+2151 nt:                 res  stop  AFTER_STOP  AFTER_STOP
+2157 nt:                 res  res   res         stop
 ```
 
-The 2151-nt proteins have 716 residues, so 28 of the 744 columns are empty.
-The 2151-nt proteins have 2 gap patterns.
+PA therefore needs both proposed codon-level states in its last columns. For a
+2151-nt record, projected column 743 holds its terminal stop codon, and columns
+744 and 745 fall after it, so they receive `AFTER_STOP` rather than `GAP`.
 
-The biggest of the rare lengths is 2157 nt, at 39 isolates. Its main form is
-the modal form with two more codons at the C-terminus, which is how it fills
-columns 743 and 744 that the modal form leaves empty.
-
-### 3. Stop codon columns
-
-```text
-Column:     742 743 744
-2151 nt:    res  -   -      last symbol 742, stop in 743
-2157 nt:    res res res     last symbol 744, stop in 745
-```
-
-A codon feature table for PA needs 745 columns, not 744, because the 2157-nt
-form fills the last column. This mapping is not implemented.
+The PA protein alignment has 744 aa columns, whereas the proposed PA codon
+feature representation requires 745 columns when the 2157-nt records are kept.
+This projection has not been implemented.
 
 ### 4. By host, subtype and year
 
@@ -477,23 +577,42 @@ totals 25 isolates.
 
 Every one of the 39 isolates at 2157 nt is Human-H3N2.
 
-The 2157-nt form appears in 8 of the 16 years, with 19 of its 39 isolates in
+The 2157-nt form appears in 7 of the 16 years, with 19 of its 39 isolates in
 2021.
 
 ### 5. Findings
 
-* PA has a pin on this population.
-* Pinning at 2151 nt would drop 64 of the 60,396 complete records and keep
-  3,764 of 3,766 H5N1 records.
-* The 2151-nt form holds 60,332 of the 60,396 complete records.
-* The alignment adds 28 columns, and 25 of them are one-residue columns: 49,
-  77, 82–83, 94–98, 624, 641–650, 660–663 and 703. So nearly all of the extra
-  width comes from single proteins.
-* 587 of the 744 columns hold a protein symbol in all 15,939 proteins.
-* The longest internal gap run is columns 80 to 107, 28 codons, in one protein
-  from one isolate at 2088 nt.
-* Still open before codon features are built: whether to keep the 25
-  one-residue columns, which would cut the table from 745 columns to 720.
+* PA has a usable pin at 2151 nt. Pinning would keep 60,332 of the 60,396
+  isolates with a complete PA CDS and drop 64 isolates at 13 other CDS lengths.
+* The required feature width depends on which proteins are retained. An aa
+  alignment column that becomes all-gap after filtering can be removed. The
+  projected codon representation adds one column for the terminal stop codon.
+
+| Proteins retained | Unique proteins | All-gap aa columns removed | AA alignment columns | Projected codon columns |
+|---|---:|---:|---:|---:|
+| All 14 source CDS lengths | 15,939 | None | 744 | 745 |
+| 2151-nt source CDS only | 15,897 | 23 columns | 721 | 722 |
+| Dominant 2151-nt gap pattern only | 15,896 | 28 columns | 716 | 717 |
+
+* The 28 columns removed in the last row are the dominant gap pattern itself,
+  listed in part 2. The 23 columns removed in the middle row are those 28
+  without columns 94 to 98.
+* The proteins from 2151-nt CDS records retain 2 gap patterns. One protein has
+  its aa alignment gaps at columns 82 to 88 instead of 82 to 83 and 94 to 98,
+  and therefore accounts for the 5 additional aa columns in the 721-column
+  representation. Excluding it would require a separate criterion beyond the
+  CDS-length pin.
+* 25 aa alignment columns hold an aa residue in exactly one of the 15,939
+  unique proteins: 49, 77, 82–83, 94–98, 624, 641–650, 660–663 and 703. Nearly
+  all of the extra width therefore comes from single proteins. Cutting those 25
+  columns while retaining every protein is a separate decision from the pin,
+  and would take the projected codon representation from 745 columns to 720.
+* The protein-to-codon projection has not been implemented. It must represent
+  aa alignment gaps for any retained non-dominant patterns, and it must
+  distinguish a trailing aa alignment gap that holds the terminal stop codon
+  from one that falls after it.
+* Still open before codon features are built: whether to keep the 64 isolates
+  outside the modal CDS length.
 
 ## HA (Segment 4)
 
