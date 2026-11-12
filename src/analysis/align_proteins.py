@@ -17,7 +17,7 @@ Outputs under <out_dir>/<population>/<protein>/:
     alignment_validation.json  input recovery check for every aligned protein
     gap_locations.csv      gap positions and gap-pattern name for every aligned protein
     aligned_proteins_labelled.fasta  the alignment, labels starting with prot_hash
-    aligned_proteins_analysis.fasta  the alignment, labels starting with the protein
+    aligned_proteins_jalview.fasta  the alignment, labels starting with the protein
     inspection_manifest.json  input and output hashes for the gap inspection
 
 Example:
@@ -69,7 +69,7 @@ ALIGNMENT_OUTPUT_NAMES = (
     'protein_cds_map.csv', 'alignment_manifest.json',
 )
 INSPECTION_OUTPUT_NAMES = (
-    'gap_locations.csv', 'aligned_proteins_labelled.fasta', 'aligned_proteins_analysis.fasta',
+    'gap_locations.csv', 'aligned_proteins_labelled.fasta', 'aligned_proteins_jalview.fasta',
     'inspection_manifest.json',
 )
 
@@ -517,9 +517,9 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
     proteins = gap_locations.set_index('prot_hash', drop=False)
     proteins['isolates'] = proteins['prot_hash'].map(isolates)
     labelled_path = out_dir / 'aligned_proteins_labelled.fasta'
-    analysis_path = out_dir / 'aligned_proteins_analysis.fasta'
+    jalview_path = out_dir / 'aligned_proteins_jalview.fasta'
     for path, labels in ((labelled_path, build_hash_first_labels(proteins, protein)),
-                         (analysis_path, build_protein_first_labels(proteins, protein))):
+                         (jalview_path, build_protein_first_labels(proteins, protein))):
         records = [f'>{labels[protein_hash]}\n{sequence}'
                    for protein_hash, sequence in aligned.items()]
         path.write_text('\n'.join(records) + '\n')
@@ -531,7 +531,7 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
         'validation_report_sha256': file_sha256(validation_path),
         'gap_locations_sha256': file_sha256(gap_path),
         'labelled_fasta_sha256': file_sha256(labelled_path),
-        'analysis_fasta_sha256': file_sha256(analysis_path),
+        'jalview_fasta_sha256': file_sha256(jalview_path),
         'proteins_inspected': len(gap_locations),
         'alignment_width': int(gap_locations['alignment_width'].iloc[0]),
         'code': get_git_info(),

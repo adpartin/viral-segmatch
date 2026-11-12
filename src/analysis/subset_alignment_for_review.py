@@ -4,7 +4,7 @@ Read outputs from src.analysis.align_proteins and write a FASTA holding every ra
 gap pattern plus a sample of the dominant one. Rows are copied from the finished
 alignment, so every alignment column is preserved and MAFFT does not run again.
 Labels come from `align_proteins.build_protein_first_labels`, the same labels as
-in `aligned_proteins_analysis.fasta`: the protein first, then the gap pattern, CDS
+in `aligned_proteins_jalview.fasta`: the protein first, then the gap pattern, CDS
 length, residue count, isolate count and `prot_hash`.
 
 Example:

@@ -149,7 +149,7 @@ isolates carrying it. `aligned_proteins.fasta` stays keyed by `prot_hash` alone.
 
 * `aligned_proteins_labelled.fasta` starts each label with the protein hash, for
   example `5315b8760b3edab2dcf60f53f0d8d4c8|PB2|gap_pat001|2280nt|759aa|5046iso`.
-* `aligned_proteins_analysis.fasta` starts each label with the protein and ends
+* `aligned_proteins_jalview.fasta` starts each label with the protein and ends
   it with the protein hash, for example
   `PB2|gap_pat001|2280nt|759aa|5046iso|5315b8760b3edab2dcf60f53f0d8d4c8`. Sorting
   these labels as text puts each gap pattern in one block, in rank order.
