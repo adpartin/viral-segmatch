@@ -203,6 +203,6 @@ any filter level tested.
 - **`slot_norm` (LayerNorm per slot) is critical for ESM-2** on homogeneous subsets. Without it,
   slot offset dominates the unit_diff direction and the model cannot learn.
 - **H3N2-only runs** require `patience≥40` due to a plateau-then-breakthrough learning
-  pattern (see `_ongoing_work.md` for analysis).
+  pattern.
 - **High FP rate** on filtered datasets (year, host, geography) is likely a population-level
   confounder issue. Hard negative sampling or strict multi-field filtering may help.

@@ -240,7 +240,6 @@ viral-segmatch/
 ├── .claude/
 │   ├── settings.json           # Permissions + hooks
 │   └── memory.md               # Compact project memory — read every session
-├── _ongoing_work.md
 ├── src/                        # Python source (preprocess, embeddings, datasets, models, analysis, utils)
 ├── scripts/                    # Shell pipeline wrappers (stage1–4)
 ├── conf/                       # Hydra configs (conf/bundles/ = one YAML per experiment)
