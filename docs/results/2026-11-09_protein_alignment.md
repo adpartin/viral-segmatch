@@ -337,10 +337,10 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 2280 nt | 60,413 | 36,879 | 15,230 | None | 7 | None |
-| 17 other lengths | 61 | 60 | 60 | 0 to 10 | 6 to 31 | 0 to 10 |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 2280 nt | 60,413 | 36,879 | 15,230 | 99.61% | None | 7 | None |
+| 17 other lengths | 61 | 60 | 60 | 0.39% | 0 to 10 | 6 to 31 | 0 to 10 |
 
 The 15,230 unique proteins translated from 2280-nt CDS sequences have 2 observed
 aa gap patterns:
@@ -353,17 +353,6 @@ aa gap patterns:
 Thus, each of these proteins contributes 759 aa residues to the 766-column
 alignment and has an aa alignment gap in 7 columns. These gaps are alignment
 placeholders; they are not gaps inserted into the source CDS sequence.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 766 aa
-alignment columns corresponds to a terminal stop codon. Proteins from 2280-nt
-CDS sequences have their last aa residue in alignment column 766, so their
-terminal stop codon would be placed in projected codon column 767.
-
-The PB2 protein alignment has 766 aa columns, whereas the proposed PB2 codon
-feature representation requires 767 columns. This projection has not been
-implemented.
 
 ### 4. By host, subtype and year
 
@@ -460,11 +449,11 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 2274 nt | 49,948 | 30,824 | 12,060 | None | 15 to 16 | 3 to 4 |
-| 2277 nt | 6,095 | 3,768 | 1,110 | None | 14 to 15 | 3 to 4 |
-| 16 other lengths | 50 | 50 | 50 | None | 15 to 41 | 0 to 11 |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 2274 nt | 49,948 | 30,824 | 12,060 | 91.23% | None | 15 to 16 | 3 to 4 |
+| 2277 nt | 6,095 | 3,768 | 1,110 | 8.40% | None | 14 to 15 | 3 to 4 |
+| 16 other lengths | 50 | 50 | 50 | 0.38% | None | 15 to 41 | 0 to 11 |
 
 The two most frequent source CDS lengths are 2274 nt and 2277 nt, and this
 section calls them the two main lengths. Within a length, the biggest pattern
@@ -512,42 +501,6 @@ The 2274-nt length holds 6,201 distinct H1N1 proteins, 4,898 H3N2 and 1,056
 H5N1, so it is not one subtype's length. The 2277-nt length is different:
 1,065 of the 1,109 proteins in its biggest pattern are H3N2, and 5,984 of the
 length's 6,095 isolates are Human-H3N2.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 776 aa
-alignment columns corresponds to a terminal stop codon. PB1's proteins do not
-all end in the same alignment column. Their last aa residue falls in one of five
-columns, so their stop codons would land in five different projected codon
-columns:
-
-| Last aa residue column | Projected stop column | Unique proteins | Isolates | Source CDS lengths |
-|---:|---:|---:|---:|---|
-| 765 | 766 | 1 | 1 | 2253 nt |
-| 770 | 771 | 1 | 1 | 2268 nt |
-| 772 | 773 | 12,105 | 49,993 | 16 lengths, including 2274 nt and 2277 nt |
-| 773 | 774 | 1,111 | 6,096 | 2268 nt, 2274 nt, 2277 nt |
-| 776 | 777 | 2 | 2 | 2217 nt, 2232 nt |
-
-The three cases that carry almost every record:
-
-```text
-Projected codon column:        772 773 774 775 776 777
-2274 nt, biggest pattern:      res  *   -   -   -   -
-2277 nt, biggest pattern:      res res  *   -   -   -
-2217 nt and 2232 nt:           res res res res res  *
-```
-
-`*` marks the projected column holding that protein's terminal stop codon, and
-`-` a column after it, which receives `AFTER_STOP` rather than `GAP`. The two
-proteins in the last row, one from a 2217-nt CDS and one from a 2232-nt CDS, are
-the only two with no trailing aa alignment gap, so they fill alignment column
-776 and their stop codon falls one column past the alignment.
-
-A codon feature table for PB1 therefore needs 777 columns, not 776. The other
-13,218 of the 13,220 unique proteins need `AFTER_STOP` for their last columns, a
-run of 3, 4, 6 or 11 columns depending on the protein. This projection has not
-been implemented.
 
 ### 4. By host, subtype and year
 
@@ -668,10 +621,10 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 2151 nt | 60,332 | 35,609 | 15,897 | None | 26 | 2 |
-| 13 other lengths | 64 | 50 | 42 | 0 to 20 | 22 to 49 | 0 to 25 |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 2151 nt | 60,332 | 35,609 | 15,897 | 99.74% | None | 26 | 2 |
+| 13 other lengths | 64 | 50 | 42 | 0.26% | 0 to 20 | 22 to 49 | 0 to 25 |
 
 The 2151-nt CDS length holds 2 aa gap patterns. The table also lists the two at
 2157 nt, the most frequent of the other lengths at 39 isolates, because that is
@@ -709,32 +662,6 @@ CDS has 718 sense codons, two more than the modal length. In the pattern held by
 743–744 trailing gap and is how those proteins reach the last alignment column.
 In the pattern held by 1 protein they sit at the N-terminus instead, filling
 columns 48 and 49.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 744 aa
-alignment columns corresponds to a terminal stop codon. Proteins from 2151-nt
-CDS sequences have their last aa residue in alignment column 742, so their
-terminal stop codon would be placed in projected codon column 743.
-
-Alignment columns 743 and 744 hold an aa residue in 16 unique proteins, all
-translated from 2157-nt CDS sequences. Those proteins have their last aa residue
-in alignment column 744, so their terminal stop codon would be placed in
-projected codon column 745.
-
-```text
-Projected codon column:  742  743   744         745
-2151 nt:                 res  stop  AFTER_STOP  AFTER_STOP
-2157 nt:                 res  res   res         stop
-```
-
-PA therefore needs both proposed codon-level states in its last columns. For a
-2151-nt record, projected column 743 holds its terminal stop codon, and columns
-744 and 745 fall after it, so they receive `AFTER_STOP` rather than `GAP`.
-
-The PA protein alignment has 744 aa columns, whereas the proposed PA codon
-feature representation requires 745 columns when the 2157-nt records are kept.
-This projection has not been implemented.
 
 ### 4. By host, subtype and year
 
@@ -841,14 +768,14 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 1695 nt | 244 | 203 | 179 | 4 | 44 | None |
-| 1698 nt | 71 | 67 | 62 | 4 | 43 | None |
-| 1701 nt | 56,223 | 33,492 | 18,606 | 4 | 42 | None |
-| 1704 nt | 3,632 | 1,643 | 901 | 4 | 41 | None |
-| 1707 nt | 63 | 56 | 50 | 0 to 4 | 40 to 44 | None |
-| 5 other lengths | 49 | 48 | 43 | 4 to 14 | 39 to 48 | None |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 1695 nt | 244 | 203 | 179 | 0.90% | 4 | 44 | None |
+| 1698 nt | 71 | 67 | 62 | 0.31% | 4 | 43 | None |
+| 1701 nt | 56,223 | 33,492 | 18,606 | 93.78% | 4 | 42 | None |
+| 1704 nt | 3,632 | 1,643 | 901 | 4.54% | 4 | 41 | None |
+| 1707 nt | 63 | 56 | 50 | 0.25% | 0 to 4 | 40 to 44 | None |
+| 5 other lengths | 49 | 48 | 43 | 0.22% | 4 to 14 | 39 to 48 | None |
 
 The 6 gap patterns at 1701 nt are not six variants of one form. The two that
 hold the most unique proteins each sit almost entirely in one HA subtype, and a
@@ -898,24 +825,6 @@ alignment because rarer forms fill them: 1683-nt proteins fill column 20,
 19,837 of the 19,841 proteins have their first aa residue in alignment column 5,
 so columns 1 to 4 are leading gaps for nearly every protein. One 1707-nt protein
 fills all four, two proteins start in column 6, and one starts in column 15.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 612 aa
-alignment columns corresponds to a terminal stop codon. Every one of the 19,841
-proteins has its last aa residue in alignment column 612, and none has a
-trailing aa alignment gap. So every record's terminal stop codon would be placed
-in projected codon column 613, and no record needs `AFTER_STOP` at its
-C-terminus.
-
-HA instead makes the leading gaps the common case. Projected codon columns 1 to
-4 hold no codon for 19,840 of the 19,841 unique proteins, because one 1707-nt
-protein is the only one with an aa residue there. `GAP` in those columns
-therefore applies to nearly every protein rather than to an exception.
-
-The HA protein alignment has 612 aa columns, whereas the proposed HA codon
-feature representation requires 613 columns. This projection has not been
-implemented.
 
 ### 4. By host, subtype and year
 
@@ -1029,10 +938,10 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 1461 nt | 1 | 1 | 1 | 12 | None | None |
-| 1497 nt | 60,039 | 27,086 | 7,249 | None | None | None |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 1461 nt | 1 | 1 | 1 | 0.01% | 12 | None | None |
+| 1497 nt | 60,039 | 27,086 | 7,249 | 99.99% | None | None | None |
 
 NP holds 2 gap patterns in the whole alignment, one per CDS length, which is the
 fewest of the eight proteins alongside M1.
@@ -1065,23 +974,6 @@ the most common 1497-nt protein, which 9,227 isolates carry.
 A leading gap here does not mean a missing start codon. The 1461-nt CDS begins
 with ATG; its first aa residue sits in column 13 because the other records have
 12 aa residues further left.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 498 aa
-alignment columns corresponds to a terminal stop codon. Every one of the 7,250
-proteins has its last aa residue in alignment column 498, and none has a
-trailing aa alignment gap. So every record's terminal stop codon would be placed
-in projected codon column 499, and no record needs `AFTER_STOP`. NP, HA and M1
-are the three proteins of the eight where that holds.
-
-The only projected columns that need `GAP` are 1 to 12, for the single 1461-nt
-record. Those columns also hold an `X` in 10 of the 7,249 other proteins, so a
-column that is a leading gap for one record can hold an unresolved aa residue in
-another.
-
-A codon feature table for NP therefore needs 499 columns, not 498. This
-projection has not been implemented.
 
 ### 4. By host, subtype and year
 
@@ -1182,12 +1074,12 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 1350 nt | 505 | 407 | 319 | None | 93 | 1 |
-| 1410 nt | 59,154 | 30,630 | 16,843 | None | 66 to 73 | 1 to 8 |
-| 1413 nt | 129 | 59 | 55 | None | 70 to 73 | 0 to 3 |
-| 13 other lengths | 68 | 61 | 50 | 0 to 14 | 67 to 93 | 0 to 2 |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 1350 nt | 505 | 407 | 319 | 1.85% | None | 93 | 1 |
+| 1410 nt | 59,154 | 30,630 | 16,843 | 97.54% | None | 66 to 73 | 1 to 8 |
+| 1413 nt | 129 | 59 | 55 | 0.32% | None | 70 to 73 | 0 to 3 |
+| 13 other lengths | 68 | 61 | 50 | 0.29% | 0 to 14 | 67 to 93 | 0 to 2 |
 
 Every length carries internal aa gaps, including the modal one.
 
@@ -1239,44 +1131,6 @@ or 501, so they use 534 of the 543 columns. Those 9 columns are in the alignment
 because rarer lengths fill them: 1422-nt proteins fill column 65, 1416-nt
 proteins fill 456 and 457, 1428-nt proteins fill 467 to 471, and 1353-nt and
 1422-nt proteins fill 501.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 543 aa
-alignment columns corresponds to a terminal stop codon. NA's proteins do not all
-end in the same alignment column. Their last aa residue falls in one of five
-columns, so their stop codons would land in five different projected codon
-columns:
-
-| Last aa residue column | Projected stop column | Unique proteins | Isolates | Source CDS lengths |
-|---:|---:|---:|---:|---|
-| 535 | 536 | 1 | 1 | 1410 nt |
-| 540 | 541 | 16 | 18 | 1413 nt |
-| 541 | 542 | 8,574 | 32,580 | 7 lengths, including 1410 nt |
-| 542 | 543 | 8,671 | 27,252 | 12 lengths, including 1410 nt and 1350 nt |
-| 543 | 544 | 5 | 5 | 1353 nt, 1413 nt, 1422 nt |
-
-The two forms at the modal length are in different rows. N2 ends in column 541
-and its stop codon would be placed in projected column 542. N1 and the 1350-nt
-form end in column 542, so their stop codon would be placed in projected column
-543.
-
-```text
-Projected codon column:   541  542  543  544
-N2, 1410 nt:              res   *    -    -
-N1, 1410 nt:              res  res   *    -
-1350 nt:                  res  res   *    -
-1353, 1413 and 1422 nt:   res  res  res   *
-```
-
-`*` marks the projected column holding that protein's terminal stop codon, and
-`-` a column after it, which receives `AFTER_STOP` rather than `GAP`. The last
-row is 5 proteins over 5 isolates, one at 1353 nt, one at 1413 nt and three at
-1422 nt. They fill alignment column 543, so their stop codon falls one column
-past the alignment.
-
-A codon feature table for NA therefore needs 544 columns, not 543. This
-projection has not been implemented.
 
 ### 4. By host, subtype and year
 
@@ -1400,10 +1254,10 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 726 nt | 1 | 1 | 1 | None | 11 | None |
-| 759 nt | 60,565 | 14,572 | 1,947 | None | None | None |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 726 nt | 1 | 1 | 1 | 0.05% | None | 11 | None |
+| 759 nt | 60,565 | 14,572 | 1,947 | 99.95% | None | None | None |
 
 M1 holds 2 gap patterns in the whole alignment, one per CDS length, which is the
 fewest of the eight proteins alongside NP.
@@ -1431,23 +1285,6 @@ Alignment column:  21         31         41         51
 
 One isolate carries this form, from Swine-H1N1 in 2011. The 759-nt row above is
 the most common 759-nt protein, which 27,661 isolates carry.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 252 aa
-alignment columns corresponds to a terminal stop codon. Every one of the 1,948
-proteins has its last aa residue in alignment column 252, and none has a
-trailing aa alignment gap. So every record's terminal stop codon would be placed
-in projected codon column 253, and no record needs `AFTER_STOP`. M1, HA and NP
-are the three proteins of the eight where that holds.
-
-The only projected columns that need `GAP` are 31 to 41, for the single 726-nt
-record. Those columns also hold an `X` in 9 of the 1,947 other proteins, and the
-columns on either side, 30 and 42, hold an `X` in 7 of them. So a column that is
-an internal gap for one record can hold an unresolved aa residue in another.
-
-A codon feature table for M1 therefore needs 253 columns, not 252. This
-projection has not been implemented.
 
 ### 4. By host, subtype and year
 
@@ -1553,14 +1390,14 @@ The CDS lengths in this table identify the nt sequences from which the proteins
 were translated. All gap counts refer to the resulting aa alignment, not to an
 nt alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---|---|---|
-| 654 nt | 389 | 236 | 207 | None | 3 | 20 |
-| 660 nt | 25,506 | 8,243 | 4,601 | None | 3 | 18 |
-| 672 nt | 806 | 235 | 144 | None | 3 | 14 |
-| 678 nt | 341 | 246 | 205 | None | 8 | 7 |
-| 693 nt | 33,553 | 9,097 | 4,926 | None | 3 | 7 |
-| 11 other lengths | 59 | 50 | 47 | 0 to 5 | 2 to 8 | 0 to 35 |
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 654 nt | 389 | 236 | 207 | 2.04% | None | 3 | 20 |
+| 660 nt | 25,506 | 8,243 | 4,601 | 45.42% | None | 3 | 18 |
+| 672 nt | 806 | 235 | 144 | 1.42% | None | 3 | 14 |
+| 678 nt | 341 | 246 | 205 | 2.02% | None | 8 | 7 |
+| 693 nt | 33,553 | 9,097 | 4,926 | 48.63% | None | 3 | 7 |
+| 11 other lengths | 59 | 50 | 47 | 0.46% | 0 to 5 | 2 to 8 | 0 to 35 |
 
 Each of the five listed lengths holds exactly one gap pattern, so for every
 length in the table above the CDS length fixes the gap pattern. HA's modal
@@ -1616,50 +1453,6 @@ isolate.
 
 One protein has leading gaps: a 645-nt protein from one isolate, at columns 1
 to 5.
-
-### 3. Projection to codons and the terminal stop
-
-The terminal `*` was excluded from the MAFFT input, so none of the 240 aa
-alignment columns corresponds to a terminal stop codon. NS1 ends in more
-different places than any other of the eight proteins. Its proteins' last aa
-residue falls in one of eleven columns, so their stop codons would land in
-eleven different projected codon columns:
-
-| Last aa residue column | Projected stop column | Unique proteins | Isolates | Source CDS lengths |
-|---:|---:|---:|---:|---|
-| 205 | 206 | 10 | 14 | 609 nt |
-| 206 | 207 | 3 | 3 | 612 nt |
-| 219 | 220 | 5 | 6 | 651 nt |
-| 220 | 221 | 207 | 389 | 654 nt |
-| 222 | 223 | 4,604 | 25,511 | 645, 648, 660, 663 nt |
-| 223 | 224 | 4 | 4 | 663 nt |
-| 226 | 227 | 144 | 806 | 672 nt |
-| 230 | 231 | 3 | 3 | 684 nt |
-| 231 | 232 | 4 | 4 | 687 nt |
-| 233 | 234 | 5,134 | 33,897 | 678, 687, 693, 696 nt |
-| 240 | 241 | 12 | 17 | 699, 714 nt |
-
-The two forms that carry almost every record are in two of those rows. The
-660-nt form ends in column 222 and its stop codon would be placed in projected
-column 223. The 693-nt and 678-nt forms both end in column 233, so both would
-place their stop codon in projected column 234. That the 678-nt form ends with
-the 693-nt one follows from its deletion being internal rather than terminal.
-
-```text
-Projected codon column:   222  223  234  241
-660 nt:                   res   *    -    -
-693 nt and 678 nt:        res  res   *    -
-699 nt and 714 nt:        res  res  res   *
-```
-
-`*` marks the projected column holding that protein's terminal stop codon, and
-`-` a column after it, which receives `AFTER_STOP` rather than `GAP`.
-
-A codon feature table for NS1 therefore needs 241 columns, not 240. The 241st
-column exists only for the 699-nt and 714-nt forms, which are 12 unique proteins
-over 17 isolates. 10,118 of the 10,130 unique proteins need `AFTER_STOP` for
-their last columns, a run of 7 to 35 columns depending on the protein. This
-projection has not been implemented.
 
 ### 4. By host, subtype and year
 
