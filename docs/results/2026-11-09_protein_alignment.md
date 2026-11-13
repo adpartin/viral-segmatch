@@ -160,6 +160,10 @@ steps 4, 5 and 6.
    is the pattern held by the most unique proteins, and ties go to the pattern
    with more isolates.
 
+MAFFT aligns the translated proteins, not the CDS. Each protein's CDS are kept
+so that each aa alignment column can later be mapped back to the codon that
+encoded its residue.
+
 Every run used MAFFT v7.526, so the sections below give only the strategy and
 the column count.
 
@@ -313,7 +317,8 @@ features.
 5. If any CDS were dropped, realign the remaining proteins. That alignment is
    the input to the per-site codon features.
 
-Steps 3 and 4 have been run for all eight proteins, and step 5 for PB2 only.
+Steps 3 and 4 have been run for all eight proteins, and step 5 for PB2 and PB1
+only.
 Applied to the alignment of all lengths reported in this document, steps 2 and 4 keep
 exactly the lengths and gap patterns listed in each protein's Decision section.
 On that alignment, any threshold from 1.36% to 4.58% gives the same result in
@@ -348,11 +353,6 @@ The Task 1 pilot directory also holds the downstream contig check, written by
 
 
 ## PB2 (Segment 1)
-
-PB2 sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
 
 ### 1. Inputs
 
@@ -448,11 +448,6 @@ were translated.
 
 ## PB1 (Segment 2)
 
-PB1 sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
-
 ### 1. Inputs
 
 * **Complete CDS.** 56,093 of the 60,751 filtered isolates (92.3%) have a
@@ -499,7 +494,15 @@ were translated.
 
 #### Step 5. Realignment
 
-TODO.
+* MAFFT realigned the 13,167 unique proteins kept in step 4 with FFT-NS-2 and
+  produced 758 aa alignment columns. MAFFT took 330.9 seconds.
+* Removing alignment gaps (`-`) from every aligned sequence recovered its exact
+  stop-free protein input.
+* A protein from a 2277-nt CDS has 758 aa residues, so it has no gap. A protein
+  from a 2274-nt CDS has 757 aa residues and one gap, in the last column, 758.
+  The alignment has these two gap patterns only.
+* The outputs are in
+  `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PB1/length_share_above_0.02/gap_pattern_share_above_0.02/`.
 
 ### 4. By host, subtype and year
 
@@ -575,11 +578,6 @@ TODO.
 
 
 ## PA (Segment 3)
-
-PA sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
 
 ### 1. Inputs
 
@@ -687,11 +685,6 @@ Not applicable: step 4 drops no gap pattern.
 
 
 ## HA (Segment 4)
-
-HA sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
 
 ### 1. Inputs
 
@@ -819,11 +812,6 @@ TODO.
 
 ## NP (Segment 5)
 
-NP sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
-
 ### 1. Inputs
 
 * **Complete CDS.** 60,040 of the 60,751 filtered isolates (98.8%) have a
@@ -924,11 +912,6 @@ Not applicable: step 4 drops no gap pattern.
 
 
 ## NA (Segment 6)
-
-NA sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
 
 ### 1. Inputs
 
@@ -1064,11 +1047,6 @@ TODO.
 
 ## M1 (Segment 7)
 
-M1 sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
-
 ### 1. Inputs
 
 * **Complete CDS.** 60,566 of the 60,751 filtered isolates (99.7%) have a
@@ -1168,11 +1146,6 @@ Not applicable: step 4 drops no gap pattern.
 
 
 ## NS1 (Segment 8)
-
-NS1 sequences are aligned in amino-acid (aa) space. The corresponding CDS
-sequences are retained so that each aa alignment column can later be projected
-back to the codon that encoded that aa residue. The CDS sequences are not
-aligned in this analysis.
 
 ### 1. Inputs
 
