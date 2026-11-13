@@ -329,33 +329,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,474 (99.5%)
-  have a complete PB2 CDS record; 277 isolates were excluded because their PB2
-  CDS was incomplete. Thus, counts of complete records in this section are
-  counts of isolates with a complete PB2 CDS, before sequences are
-  deduplicated.
-* **Nucleotide sequences.** The 60,474 complete PB2 CDS records contain 36,939
-  unique CDS sequences across 18 CDS lengths and 147 host–subtype–year groups.
-* **Protein sequences.** Those CDS sequences translate to 15,290 unique PB2
-  protein sequences.
-* **Unknown amino acids.** The translated proteins for 1,296 isolates,
-  representing 1,197 unique proteins, contain an `X`. All 1,296 isolates have
-  a 2280-nt CDS.
-* **Modal CDS length.** PB2 has a usable configured length of 2280 nt.
-  This length includes 759 sense codons and 1 terminal stop codon. It occurs
-  in 36,879 of 36,939 unique complete CDS sequences (0.998), exceeding the
-  `check_cds_length` requirement of 0.90. The configured value in
-  `conf/virus/flu.yaml` agrees with the observed mode.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 15,290 unique stop-free aa sequences. A
-  protein from a 2280-nt CDS contributes 759 aa residues to this alignment.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 766 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 2280-nt CDS contains 759 aa residues and therefore has
-    gaps in 7 of the 766 alignment columns.
-  - The proteins from 2280-nt CDS records have 2 observed gap patterns.
+* **Complete CDS.** 60,474 of the 60,751 filtered isolates (99.5%) have a
+  complete PB2 CDS. The other 277 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 60,474 complete CDS hold 36,939 unique CDS at 18 CDS
+  lengths. They translate to 15,290 unique proteins.
 
 ### 2. Retention rule
 
@@ -452,38 +429,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 56,093 (92.3%)
-  have a complete PB1 CDS record; 4,658 isolates were excluded because their
-  PB1 CDS was incomplete. That is 7.7% of the population, the largest
-  completeness loss of the eight proteins. Thus, counts of complete records in
-  this section are counts of isolates with a complete PB1 CDS, before sequences
-  are deduplicated.
-* **Nucleotide sequences.** The 56,093 complete PB1 CDS records contain 34,642
-  unique CDS sequences across 18 CDS lengths and 147 host–subtype–year groups.
-* **Protein sequences.** Those CDS sequences translate to 13,220 unique PB1
-  protein sequences.
-* **Unknown amino acids.** The translated proteins for 1,325 isolates,
-  representing 1,158 unique proteins, contain an `X`. 1,136 of those isolates
-  have a 2274-nt CDS.
-* **No usable pin.** PB1 is one of two proteins with no configured CDS length,
-  and the measurement shows why. Its modal length, 2274 nt, occurs in 30,824 of
-  34,642 unique complete CDS sequences, a share of 0.890. That is below the
-  `check_cds_length` requirement of 0.90, so the pin would be rejected even if
-  one were configured. The `cds_length` block in `conf/virus/flu.yaml` lists
-  PB2, PA, NP, M1, HA and NA, and no length for PB1.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 13,220 unique stop-free aa sequences. A
-  protein from a 2274-nt CDS contributes 757 aa residues to this alignment, and
-  one from a 2277-nt CDS contributes 758.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 776 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 2274-nt CDS contains 757 aa residues and therefore has
-    gaps in 19 of the 776 alignment columns. A 2277-nt protein has 758 residues
-    and gaps in 18.
-  - The proteins from 2274-nt CDS records have 3 observed gap patterns, and
-    those from 2277-nt records have 2.
+* **Complete CDS.** 56,093 of the 60,751 filtered isolates (92.3%) have a
+  complete PB1 CDS. The other 4,658 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 56,093 complete CDS hold 34,642 unique CDS at 18 CDS
+  lengths. They translate to 13,220 unique proteins.
 
 ### 2. Retention rule
 
@@ -618,33 +567,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,396 (99.4%)
-  have a complete PA CDS record; 355 isolates were excluded because their PA
-  CDS was incomplete. Thus, counts of complete records in this section are
-  counts of isolates with a complete PA CDS, before sequences are
-  deduplicated.
-* **Nucleotide sequences.** The 60,396 complete PA CDS records contain 35,659
-  unique CDS sequences across 14 CDS lengths and 147 host–subtype–year groups.
-* **Protein sequences.** Those CDS sequences translate to 15,939 unique PA
-  protein sequences.
-* **Unknown amino acids.** The translated proteins for 1,349 isolates,
-  representing 1,203 unique proteins, contain an `X`. 1,348 of those isolates
-  have a 2151-nt CDS.
-* **Modal CDS length.** PA has a usable configured length of 2151 nt. This
-  length includes 716 sense codons and 1 terminal stop codon. It occurs in
-  35,609 of 35,659 unique complete CDS sequences (0.999), exceeding the
-  `check_cds_length` requirement of 0.90. The configured value in
-  `conf/virus/flu.yaml` agrees with the observed mode.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 15,939 unique stop-free aa sequences. A
-  protein from a 2151-nt CDS contributes 716 aa residues to this alignment.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 744 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 2151-nt CDS contains 716 aa residues and therefore has
-    gaps in 28 of the 744 alignment columns.
-  - The proteins from 2151-nt CDS records have 2 observed gap patterns.
+* **Complete CDS.** 60,396 of the 60,751 filtered isolates (99.4%) have a
+  complete PA CDS. The other 355 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 60,396 complete CDS hold 35,659 unique CDS at 14 CDS
+  lengths. They translate to 15,939 unique proteins.
 
 ### 2. Retention rule
 
@@ -757,34 +683,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,282 (99.2%)
-  have a complete HA CDS record; 469 isolates were excluded because their HA
-  CDS was incomplete. Thus, counts of complete records in this section are
-  counts of isolates with a complete HA CDS, before sequences are deduplicated.
-* **Nucleotide sequences.** The 60,282 complete HA CDS records contain 35,509
-  unique CDS sequences across 10 CDS lengths and 147 host–subtype–year groups.
-* **Protein sequences.** Those CDS sequences translate to 19,841 unique HA
-  protein sequences.
-* **Unknown amino acids.** The translated proteins for 1,797 isolates,
-  representing 1,613 unique proteins, contain an `X`. 1,756 of those isolates
-  have a 1701-nt CDS.
-* **Modal CDS length.** HA has a usable configured length of 1701 nt. This
-  length includes 566 sense codons and 1 terminal stop codon. It occurs in
-  33,492 of 35,509 unique complete CDS sequences (0.943), exceeding the
-  `check_cds_length` requirement of 0.90. The configured value in
-  `conf/virus/flu.yaml` agrees with the observed mode.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 19,841 unique stop-free aa sequences. A
-  protein from a 1701-nt CDS contributes 566 aa residues to this alignment.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 612 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 1701-nt CDS contains 566 aa residues and therefore has
-    gaps in 46 of the 612 alignment columns.
-  - The proteins from 1701-nt CDS records have 6 observed gap patterns. PB2 and
-    PA also hold 2 patterns at their modal length, but in both the second is a
-    single protein. In HA the second holds 8,326 proteins.
+* **Complete CDS.** 60,282 of the 60,751 filtered isolates (99.2%) have a
+  complete HA CDS. The other 469 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 60,282 complete CDS hold 35,509 unique CDS at 10 CDS
+  lengths. They translate to 19,841 unique proteins.
 
 ### 2. Retention rule
 
@@ -917,35 +819,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,040 (98.8%)
-  have a complete NP CDS record; 711 isolates were excluded because their NP
-  CDS was incomplete. Thus, counts of complete records in this section are
-  counts of isolates with a complete NP CDS, before sequences are deduplicated.
-* **Nucleotide sequences.** The 60,040 complete NP CDS records contain 27,087
-  unique CDS sequences across 2 CDS lengths and 147 host–subtype–year groups.
-  Two lengths is the fewest of the eight proteins, tied with M1.
-* **Protein sequences.** Those CDS sequences translate to 7,250 unique NP
-  protein sequences.
-* **Unknown amino acids.** The translated proteins for 541 isolates,
-  representing 436 unique proteins, contain an `X`. All 541 of those isolates
-  have a 1497-nt CDS.
-* **Modal CDS length.** NP has a usable configured length of 1497 nt. This
-  length includes 498 sense codons and 1 terminal stop codon. It occurs in
-  27,086 of 27,087 unique complete CDS sequences (1.000), exceeding the
-  `check_cds_length` requirement of 0.90. The configured value in
-  `conf/virus/flu.yaml` agrees with the observed mode.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 7,250 unique stop-free aa sequences. A
-  protein from a 1497-nt CDS contributes 498 aa residues to this alignment.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 498 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 1497-nt CDS contains 498 aa residues and therefore has
-    gaps in none of the 498 alignment columns. The alignment is 498 columns wide
-    because no input protein is longer than 498 aa residues.
-  - The proteins from 1497-nt CDS records have 1 observed gap pattern, which is
-    the pattern with no gaps.
+* **Complete CDS.** 60,040 of the 60,751 filtered isolates (98.8%) have a
+  complete NP CDS. The other 711 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 60,040 complete CDS hold 27,087 unique CDS at 2 CDS
+  lengths. They translate to 7,250 unique proteins.
 
 ### 2. Retention rule
 
@@ -1047,37 +924,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 59,856 (98.5%)
-  have a complete NA CDS record; 895 isolates were excluded because their NA
-  CDS was incomplete. Thus, counts of complete records in this section are
-  counts of isolates with a complete NA CDS, before sequences are deduplicated.
-* **Nucleotide sequences.** The 59,856 complete NA CDS records contain 31,157
-  unique CDS sequences across 16 CDS lengths and 146 host–subtype–year groups.
-  NA is the only one of the eight proteins with 146 rather than 147.
-* **Protein sequences.** Those CDS sequences translate to 17,267 unique NA
-  protein sequences.
-* **Unknown amino acids.** The translated proteins for 1,637 isolates,
-  representing 1,137 unique proteins, contain an `X`. 1,627 of those isolates
-  have a 1410-nt CDS.
-* **Modal CDS length.** NA has a usable configured length of 1410 nt. This
-  length includes 469 sense codons and 1 terminal stop codon. It occurs in
-  30,630 of 31,157 unique complete CDS sequences (0.983), exceeding the
-  `check_cds_length` requirement of 0.90. The configured value in
-  `conf/virus/flu.yaml` agrees with the observed mode.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 17,267 unique stop-free aa sequences. A
-  protein from a 1410-nt CDS contributes 469 aa residues to this alignment.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 543 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 1410-nt CDS contains 469 aa residues and therefore has
-    gaps in 74 of the 543 alignment columns. That is the largest gap count of
-    the eight proteins' modal lengths.
-  - The proteins from 1410-nt CDS records have 9 observed gap patterns, and two
-    of them are large: 8,510 proteins and 8,305. PB2, PB1 and PA also hold more
-    than one pattern at their modal length, but their second pattern is a single
-    protein. NA and HA are the two where the modal length splits in two.
+* **Complete CDS.** 59,856 of the 60,751 filtered isolates (98.5%) have a
+  complete NA CDS. The other 895 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 59,856 complete CDS hold 31,157 unique CDS at 16 CDS
+  lengths. They translate to 17,267 unique proteins.
 
 ### 2. Retention rule
 
@@ -1212,37 +1062,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,566 (99.7%)
-  have a complete M1 CDS record; 185 isolates were excluded because their M1
-  CDS was incomplete. That is 0.3% of the population, the smallest completeness
-  loss of the eight proteins after NS1. Thus, counts of complete records in this
-  section are counts of isolates with a complete M1 CDS, before sequences are
-  deduplicated.
-* **Nucleotide sequences.** The 60,566 complete M1 CDS records contain 14,573
-  unique CDS sequences across 2 CDS lengths and 147 host–subtype–year groups.
-  Two lengths is the fewest of the eight proteins, tied with NP.
-* **Protein sequences.** Those CDS sequences translate to 1,948 unique M1
-  protein sequences, the fewest of the eight proteins.
-* **Unknown amino acids.** The translated proteins for 425 isolates,
-  representing 185 unique proteins, contain an `X`. All 425 of those isolates
-  have a 759-nt CDS.
-* **Modal CDS length.** M1 has a usable configured length of 759 nt. This length
-  includes 252 sense codons and 1 terminal stop codon. It occurs in 14,572 of
-  14,573 unique complete CDS sequences (1.000), exceeding the `check_cds_length`
-  requirement of 0.90. The configured value in `conf/virus/flu.yaml` agrees with
-  the observed mode.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 1,948 unique stop-free aa sequences. A
-  protein from a 759-nt CDS contributes 252 aa residues to this alignment.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 252 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 759-nt CDS contains 252 aa residues and therefore has
-    gaps in none of the 252 alignment columns. The alignment is 252 columns wide
-    because no input protein is longer than 252 aa residues.
-  - The proteins from 759-nt CDS records have 1 observed gap pattern, which is
-    the pattern with no gaps.
+* **Complete CDS.** 60,566 of the 60,751 filtered isolates (99.7%) have a
+  complete M1 CDS. The other 185 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 60,566 complete CDS hold 14,573 unique CDS at 2 CDS
+  lengths. They translate to 1,948 unique proteins.
 
 ### 2. Retention rule
 
@@ -1343,43 +1166,10 @@ aligned in this analysis.
 
 ### 1. Inputs
 
-* **Isolates and CDS records.** Of 60,751 filtered isolates, 60,654 (99.8%)
-  have a complete NS1 CDS record; 97 isolates were excluded because their NS1
-  CDS was incomplete. That is 0.2% of the population, the smallest completeness
-  loss of the eight proteins. Thus, counts of complete records in this section
-  are counts of isolates with a complete NS1 CDS, before sequences are
-  deduplicated.
-* **Nucleotide sequences.** The 60,654 complete NS1 CDS records contain 18,107
-  unique CDS sequences across 16 CDS lengths and 147 host–subtype–year groups.
-* **Protein sequences.** Those CDS sequences translate to 10,130 unique NS1
-  protein sequences.
-* **Unknown amino acids.** The translated proteins for 957 isolates,
-  representing 551 unique proteins, contain an `X`. 679 of those isolates have
-  a 693-nt CDS.
-* **No usable pin.** NS1 is one of two proteins with no configured CDS length,
-  and the two are not close: PB1's modal length reaches 0.890 of unique complete
-  CDS. NS1's modal length, 693 nt, occurs in 9,097 of 18,107 unique complete CDS
-  sequences, a share of 0.502. The next length, 660 nt, holds 8,243, a share of
-  0.455. Neither is close to the
-  `check_cds_length` requirement of 0.90, so no pin is available and the
-  alignment is the only route to shared sites. The `cds_length` block in
-  `conf/virus/flu.yaml` lists PB2, PA, NP, M1, HA and NA, and no length for
-  NS1.
-* **MAFFT input.** Before alignment, the terminal `*` was removed from each
-  protein. MAFFT therefore aligned 10,130 unique stop-free aa sequences. A
-  protein from a 693-nt CDS contributes 230 aa residues to this alignment, and
-  one from a 660-nt CDS contributes 219.
-* **Alignment result.** MAFFT used FFT-NS-2 and produced 240 aa alignment
-  columns.
-  - Removing alignment gaps (`-`) from every aligned sequence recovered its
-    exact stop-free protein input.
-  - Each protein from a 693-nt CDS contains 230 aa residues and therefore has
-    gaps in 10 of the 240 alignment columns. A 660-nt protein has 219 residues
-    and gaps in 21.
-  - The proteins from 693-nt CDS records have 1 observed gap pattern, and so do
-    those from 660-nt records. Of the 16 CDS lengths, 13 hold one pattern each
-    and 3 hold two: 663, 687 and 696 nt, one protein apiece in the second. So
-    the population is split across lengths rather than within them.
+* **Complete CDS.** 60,654 of the 60,751 filtered isolates (99.8%) have a
+  complete NS1 CDS. The other 97 have an incomplete CDS and are excluded.
+* **Unique sequences.** The 60,654 complete CDS hold 18,107 unique CDS at 16 CDS
+  lengths. They translate to 10,130 unique proteins.
 
 ### 2. Retention rule
 
