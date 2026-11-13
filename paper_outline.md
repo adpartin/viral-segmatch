@@ -34,10 +34,11 @@ Settings used throughout, unless a section says otherwise:
 
 ### Protein sequence alignment and per-site codon featurization 
 
-- [Fig] Flowchart. Align each protein's unique sequences -> inspect their gap
-  patterns -> decide which records to drop/retain ->  if anything dropped,
-  realign the retained sequences -> each protein's final alignment is the
-  input to codon featurization.
+- [Fig] Flowchart. Keep the CDS lengths above 2% of unique CDS -> align the
+  kept proteins -> drop the CDS of gap patterns at or below 2% -> if anything
+  dropped, realign the remaining proteins -> each protein's final alignment is
+  the input to codon featurization. The steps are the retention rule in
+  `docs/results/2026-11-09_protein_alignment.md`.
 
 
 

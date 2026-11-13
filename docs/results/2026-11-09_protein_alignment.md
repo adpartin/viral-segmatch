@@ -272,6 +272,32 @@ to the one Task 2 uses drops `frac at mode` at 693 nt to 0.502, so NS1 has no
 pin there.
 
 
+## Retention rule
+
+This rule decides which CDS records each protein keeps for per-site codon
+features.
+
+1. Use only complete CDS.
+2. For each protein, compute each CDS length's share of the protein's unique
+   CDS. Keep the lengths above 2%.
+3. Translate the kept CDS and align the unique proteins with MAFFT.
+4. In that alignment, compute each gap pattern's share of the protein's unique
+   CDS, using the same total as step 2. Drop the CDS of gap patterns at or
+   below 2%.
+5. If any CDS were dropped, realign the remaining proteins. That alignment is
+   the input to the per-site codon features.
+
+Steps 3 to 5 have not been run. Applied to the alignment of all lengths reported
+in this document, steps 2 and 4 keep exactly the lengths and gap patterns listed
+in each protein's Decision section. On that alignment, any threshold from 1.36%
+to 4.53% gives the same result in all eight proteins. The largest share dropped
+is NS1's 678-nt length, at 1.36% of NS1's unique CDS. The smallest share kept is
+HA's H5 gap pattern at 1704 nt, at 4.54% of HA's unique CDS.
+
+The rule pools all years. It drops NS1's 672-nt length, which holds 698 of the
+5,255 isolates with a complete NS1 CDS in 2019.
+
+
 ## Artifacts
 
 Every Task 2 run wrote to

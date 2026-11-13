@@ -589,9 +589,12 @@ implemented.
 * The NS1 678-nt form, almost all H5N1, is the 693-nt form with 5 codons missing
   at columns 81-85. It is the first internal gap that many sequences share, so a
   codon feature table needs the `GAP` state and not only `AFTER_STOP`.
-* Still open: whether to pin or to align each protein, which records and which
-  alignment columns to admit, and the codon feature mapping itself, which is
-  proposed but not implemented or checked.
+* Which records each protein keeps is set by the retention rule in
+  `docs/results/2026-11-09_protein_alignment.md`, section "Retention rule".
+  Under it every protein is aligned, not pinned. Its alignment steps have not
+  been run.
+* Still open: which alignment columns to admit, and the codon feature mapping
+  itself, which is proposed but not implemented or checked.
 * The negative-sampling pilot below is not affected. It was built on a
   population where one pin held for each of its 7 proteins.
 
