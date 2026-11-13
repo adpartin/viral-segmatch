@@ -281,18 +281,18 @@ features.
 2. For each protein, compute each CDS length's share of the protein's unique
    CDS. Keep the lengths above 2%.
 3. Translate the kept CDS and align the unique proteins with MAFFT.
-4. In that alignment, compute each gap pattern's share of the protein's unique
-   CDS, using the same total as step 2. Drop the CDS of gap patterns at or
-   below 2%.
+4. In that alignment, compute each gap pattern's share of the unique CDS kept
+   in step 2. Drop the CDS of gap patterns at or below 2%.
 5. If any CDS were dropped, realign the remaining proteins. That alignment is
    the input to the per-site codon features.
 
-Steps 3 to 5 have not been run. Applied to the alignment of all lengths reported
-in this document, steps 2 and 4 keep exactly the lengths and gap patterns listed
-in each protein's Decision section. On that alignment, any threshold from 1.36%
-to 4.53% gives the same result in all eight proteins. The largest share dropped
-is NS1's 678-nt length, at 1.36% of NS1's unique CDS. The smallest share kept is
-HA's H5 gap pattern at 1704 nt, at 4.54% of HA's unique CDS.
+Steps 3 and 4 have been run for PB2 only, and step 5 for no protein. Applied to
+the alignment of all lengths reported in this document, steps 2 and 4 keep
+exactly the lengths and gap patterns listed in each protein's Decision section.
+On that alignment, any threshold from 1.36% to 4.58% gives the same result in
+all eight proteins. The largest share dropped is NS1's 678-nt length, at 1.36%
+of NS1's unique CDS. The smallest share kept is HA's H5 gap pattern at 1704 nt,
+at 4.59% of HA's unique CDS at the kept lengths.
 
 The rule pools all years. It drops NS1's 672-nt length, which holds 698 of the
 5,255 isolates with a complete NS1 CDS in 2019.
@@ -357,27 +357,43 @@ aligned in this analysis.
     gaps in 7 of the 766 alignment columns.
   - The proteins from 2280-nt CDS records have 2 observed gap patterns.
 
-### 2. Lengths and gaps
+### 2. Retention rule
+
+#### Steps 1 and 2. Complete CDS and lengths above 2%
 
 The CDS lengths in this table identify the nt sequences from which the proteins
 were translated.
 
-| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
+| CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
 |---|---:|---:|---:|---:|---:|---|
 | 2280 nt | 60,413 | 36,879 | 99.84% | 15,230 | 99.61% | keep |
 | 17 other lengths | 61 | 60 | 0.16% | 60 | 0.39% | drop |
 
-The 15,230 unique proteins translated from 2280-nt CDS sequences have 2 observed
-aa gap patterns:
+* Of 60,751 filtered isolates, 60,474 (99.5%) have a complete PB2 CDS record.
 
-| Source CDS length | AA gap columns | AA residues | Unique proteins |
-|---|---|---:|---:|
-| 2280 nt | 42–45, 348, 575, 678 | 759 | 15,229 |
-| 2280 nt | 42–45, 348, 582, 678 | 759 | 1 |
+#### Step 3. Alignment of the kept lengths
 
-Thus, each of these proteins contributes 759 aa residues to the 766-column
-alignment and has an aa alignment gap in 7 columns. These gaps are alignment
-placeholders; they are not gaps inserted into the source CDS sequence.
+* MAFFT aligned the 15,230 unique proteins from 2280-nt CDS with FFT-NS-2 and
+  produced 760 aa alignment columns. MAFFT took 420.6 seconds.
+* Removing alignment gaps (`-`) from every aligned sequence recovered its exact
+  stop-free protein input.
+* Each protein has 759 aa residues, so it has a gap in 1 of the 760 columns.
+* The outputs are in
+  `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PB2/length_share_above_0.02/`.
+
+#### Step 4. Gap patterns above 2%
+
+| Gap pattern | AA gap columns | AA residues | Unique proteins | Unique CDS | % of unique CDS | Isolates | Step 4 |
+|---|---|---:|---:|---:|---:|---:|---|
+| `gap_pat001` | 570 | 759 | 15,229 | 36,878 | >99.99% | 60,412 | keep |
+| `gap_pat002` | 577 | 759 | 1 | 1 | <0.01% | 1 | drop |
+
+* `% of unique CDS` divides each gap pattern's unique CDS by 36,879, the unique
+  CDS kept in step 2.
+
+#### Step 5. Realignment
+
+TODO.
 
 ### 4. By host, subtype and year
 

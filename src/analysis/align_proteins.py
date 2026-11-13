@@ -3,9 +3,15 @@
 The procedure follows docs/plans/2026-09-14_codon_site_features_plan.md.
 FASTA headers use source prot_hash values, which hash prot_seq including its terminal stop.
 
-Outputs under <out_dir>/<population>/<protein>/:
-    selected_cds.parquet      complete records, retaining isolate and CDS mappings
-    length_summary.csv        isolate, unique-CDS and unique-protein counts by CDS length
+`--length_share_above` keeps only the CDS lengths whose share of the unique complete CDS
+is above the given fraction. It is step 2 of the retention rule in
+docs/results/2026-11-09_protein_alignment.md.
+
+Outputs under <out_dir>/<population>/<protein>/, or under
+<out_dir>/<population>/<protein>/length_share_above_<value>/ with `--length_share_above`:
+    selected_cds.parquet      complete records at the kept lengths, retaining isolate and CDS mappings
+    length_summary.csv        isolate, unique-CDS and unique-protein counts for every complete
+                              CDS length, its share of unique CDS and whether it was kept
     proteins_for_alignment.fasta  unique proteins without terminal stop markers
     x_summary.csv           isolate, unique-CDS and unique-protein X counts by CDS length
     selection_manifest.json   input paths, filters, checks and counts
@@ -25,6 +31,7 @@ Example:
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --align_only --mafft_bin /path/to/mafft
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --validate_only
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --inspect_only
+    python -m src.analysis.align_proteins --protein PB2 --host Human --hn_subtype H3N2 --year 2024 --length_share_above 0.02
 """
 from __future__ import annotations
 
@@ -94,6 +101,40 @@ def summarize_selected_lengths(selected: pd.DataFrame) -> pd.DataFrame:
     )
     summary = summary.reset_index()
     return summary
+
+
+def keep_cds_lengths_above_share(complete: pd.DataFrame,
+                                 share_above: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep the CDS lengths whose share of the unique complete CDS is above `share_above`.
+
+    A length's share is its unique CDS count divided by the unique CDS count over all
+    lengths, so a CDS carried by many isolates counts once.
+
+    Args:
+        complete: Complete CDS records, one per isolate.
+        share_above: The share a length must exceed to be kept, as a fraction. 0.0 keeps
+            every length, because every length holds at least one unique CDS.
+
+    Returns:
+        The records at the kept lengths, and the `summarize_selected_lengths` table of all
+        lengths with two more columns, `unique_cds_share` and `kept`.
+
+    Raises:
+        ValueError: A CDS hash has more than one length, or no length is above `share_above`.
+    """
+    lengths_per_cds = complete.groupby('cds_dna_hash')['cds_length'].nunique()
+    if lengths_per_cds.gt(1).any():
+        raise ValueError(f'CDS hash {lengths_per_cds.idxmax()} has more than one CDS length.')
+
+    lengths = summarize_selected_lengths(complete)
+    lengths['unique_cds_share'] = lengths['unique_cds'] / complete['cds_dna_hash'].nunique()
+    lengths['kept'] = lengths['unique_cds_share'] > share_above
+    if not lengths['kept'].any():
+        raise ValueError(f'No CDS length holds more than {share_above:g} of the unique CDS.')
+
+    kept_lengths = lengths.loc[lengths['kept'], 'cds_length']
+    kept = complete.loc[complete['cds_length'].isin(kept_lengths)].reset_index(drop=True)
+    return kept, lengths
 
 
 def prepare_proteins(selected: pd.DataFrame) -> pd.DataFrame:
@@ -580,9 +621,16 @@ def main() -> None:
              "--retree 2 --maxiterate 0, which give FFT-NS-2 at any input size, "
              "so every protein gets the same strategy. 'auto' passes --auto and "
              "lets MAFFT choose the strategy from the input size")
+    parser.add_argument('--length_share_above', type=float, default=None,
+        help='keep only the CDS lengths whose share of the unique complete CDS is above this '
+             'fraction, e.g. 0.02. Outputs go to a subdirectory named '
+             'length_share_above_<value>, so pass the same value with --align_only, '
+             '--validate_only and --inspect_only')
     parser.add_argument('--overwrite', action='store_true',
         help='replace existing outputs for this population and protein')
     args = parser.parse_args()
+    if args.length_share_above is not None and not 0 <= args.length_share_above < 1:
+        parser.error('--length_share_above must be a fraction, at least 0 and below 1.')
 
     names = load_function_metadata(args.virus_config)
     if args.protein not in names.short_to_function:
@@ -593,6 +641,10 @@ def main() -> None:
         year=args.year,
         year_range=args.year_range)
     out_dir = args.out_dir / label / args.protein
+    if args.length_share_above is not None:
+        # A length-filtered selection is a different alignment input, so it gets its own
+        # directory and cannot replace the alignment of all lengths.
+        out_dir = out_dir / f'length_share_above_{args.length_share_above:g}'
 
     if args.align_only:
         align_prepared_proteins(out_dir, args.mafft_bin, args.overwrite, args.mafft_strategy)
@@ -617,12 +669,16 @@ def main() -> None:
     if population.empty:
         raise ValueError('No protein records match the requested population.')
 
-    selected = population.loc[population['is_complete_cds'].eq(True)].copy()
-    if selected.empty:
+    complete = population.loc[population['is_complete_cds'].eq(True)].copy()
+    if complete.empty:
         raise ValueError('The requested protein and population have no complete CDS.')
-    selected = selected.sort_values(['cds_length', 'cds_dna_hash', 'assembly_id']).reset_index(drop=True)
 
-    summary = summarize_selected_lengths(selected)
+    share_above = 0.0 if args.length_share_above is None else args.length_share_above
+    selected, summary = keep_cds_lengths_above_share(complete, share_above)
+    selected = selected.sort_values(['cds_length', 'cds_dna_hash', 'assembly_id']).reset_index(drop=True)
+    kept_lengths = summary.loc[summary['kept'], 'cds_length'].tolist()
+    dropped_lengths = summary.loc[~summary['kept'], 'cds_length'].tolist()
+
     proteins = prepare_proteins(selected)
     x_summary = summarize_unknown_residues(selected)
     existing = [name for name in OUTPUT_NAMES if (out_dir / name).exists()]
@@ -644,6 +700,17 @@ def main() -> None:
             'host': args.host, 'hn_subtype': args.hn_subtype,
             'year': args.year, 'year_range': args.year_range,
             'is_complete_cds': True,
+            'length_share_above': args.length_share_above,
+        },
+        # `counts` below describe the records at the kept lengths, which are the ones written.
+        'length_filter': {
+            'share_above': share_above,
+            'kept_lengths': [int(length) for length in kept_lengths],
+            'dropped_lengths': [int(length) for length in dropped_lengths],
+            'complete_records_all_lengths': len(complete),
+            'complete_isolates_all_lengths': int(complete['assembly_id'].nunique()),
+            'unique_complete_cds_all_lengths': int(complete['cds_dna_hash'].nunique()),
+            'unique_complete_proteins_all_lengths': int(complete['prot_seq'].nunique()),
         },
         'counts': {
             'population_records': len(population),
@@ -678,7 +745,8 @@ def main() -> None:
     (out_dir / 'selection_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 
     print(f'{args.protein}, {label}: {manifest["counts"]["population_isolates"]:,} isolates before selection')
-    print(f'{manifest["counts"]["complete_isolates"]:,} isolates with complete CDS; '
+    print(f'CDS lengths kept: {kept_lengths}; dropped: {dropped_lengths}')
+    print(f'{manifest["counts"]["complete_isolates"]:,} isolates with complete CDS at kept lengths; '
           f'{manifest["counts"]["unique_complete_cds"]:,} unique CDS; '
           f'{manifest["counts"]["unique_complete_proteins"]:,} unique proteins')
     print(summary.to_string(index=False))
