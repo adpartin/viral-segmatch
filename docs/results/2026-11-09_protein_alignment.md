@@ -724,33 +724,24 @@ TODO.
 
 ### 4. By host, subtype and year
 
-"Other lengths" covers the seven lengths not listed separately, so its column
-totals 183 isolates.
+| Host | Subtype | Complete HA isolates | Kept isolates | % kept |
+|---|---|---:|---:|---:|
+| Chicken | H1N1 | 2 | 2 | 100% |
+| Chicken | H3N2 | 17 | 17 | 100% |
+| Chicken | H5N1 | 1,816 | 1,782 | 98.13% |
+| Duck | H1N1 | 265 | 265 | 100% |
+| Duck | H3N2 | 217 | 215 | 99.08% |
+| Duck | H5N1 | 1,886 | 1,774 | 94.06% |
+| Human | H1N1 | 20,013 | 19,991 | 99.89% |
+| Human | H3N2 | 29,422 | 29,420 | 99.99% |
+| Human | H5N1 | 37 | 28 | 75.68% |
+| Swine | H1N1 | 3,454 | 3,169 | 91.75% |
+| Swine | H3N2 | 3,138 | 3,130 | 99.75% |
+| Swine | H5N1 | 15 | 14 | 93.33% |
+| Total | | 60,282 | 59,807 | 99.21% |
 
-| Host | Subtype | Complete HA isolates | 1695 nt | 1701 nt | 1704 nt | Other lengths |
-|---|---|---:|---:|---:|---:|---:|
-| Chicken | H1N1 | 2 | 0 | 2 | 0 | 0 |
-| Chicken | H3N2 | 17 | 0 | 17 | 0 | 0 |
-| Chicken | H5N1 | 1,816 | 3 | 0 | 1,791 | 22 |
-| Duck | H1N1 | 265 | 0 | 265 | 0 | 0 |
-| Duck | H3N2 | 217 | 0 | 215 | 2 | 0 |
-| Duck | H5N1 | 1,886 | 24 | 13 | 1,780 | 69 |
-| Human | H1N1 | 20,013 | 0 | 19,991 | 1 | 21 |
-| Human | H3N2 | 29,422 | 0 | 29,420 | 0 | 2 |
-| Human | H5N1 | 37 | 0 | 0 | 29 | 8 |
-| Swine | H1N1 | 3,454 | 217 | 3,170 | 11 | 56 |
-| Swine | H3N2 | 3,138 | 0 | 3,130 | 4 | 4 |
-| Swine | H5N1 | 15 | 0 | 0 | 14 | 1 |
-
-These counts are by CDS length, not by gap pattern, so the 1704-nt column holds
-3,632 isolates against the 3,596 of the H5 pattern. The 1704-nt records are
-almost all H5N1, 3,614 of 3,632. The 1695-nt records are almost all Swine-H1N1,
-217 of 244.
-
-The 1704-nt records were 12 to 115 isolates a year from 2010 to 2021. They then
-went to 1,006 in 2022, 283 in 2023, 1,190 in 2024 and 713 in 2025, so the rise
-is large but not steady. The 1695-nt records have 139 of their 244 isolates in
-2023.
+* Every host–subtype–year group with at least 100 isolates keeps at least
+  61.06% of its isolates. The lowest is Swine-H1N1-2023, which keeps 218 of 357.
 
 ### 5. Findings
 
