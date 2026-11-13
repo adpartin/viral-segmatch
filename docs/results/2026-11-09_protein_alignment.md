@@ -271,6 +271,33 @@ complete CDS at 693 nt, reported in the last section. Extending the population
 to the one Task 2 uses drops `frac at mode` at 693 nt to 0.502, so NS1 has no
 pin there.
 
+The retention rule in the next section keeps the isolates counted below, by
+year. The second column counts the filtered isolates of each year. The last row
+gives each protein's lowest share kept in any year, out of that year's isolates
+with a complete CDS for the protein.
+
+| Year | Filtered isolates | PB2 | PB1 | PA | HA | NP | NA | M1 | NS1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2010 | 1,553 | 1,540 | 1,542 | 1,545 | 1,498 | 1,505 | 1,517 | 1,549 | 1,496 |
+| 2011 | 1,476 | 1,458 | 1,470 | 1,475 | 1,393 | 1,471 | 1,406 | 1,472 | 1,397 |
+| 2012 | 1,649 | 1,633 | 1,634 | 1,645 | 1,615 | 1,638 | 1,587 | 1,641 | 1,579 |
+| 2013 | 1,825 | 1,808 | 1,813 | 1,821 | 1,767 | 1,819 | 1,744 | 1,825 | 1,757 |
+| 2014 | 1,471 | 1,462 | 1,461 | 1,467 | 1,452 | 1,467 | 1,373 | 1,469 | 1,423 |
+| 2015 | 2,179 | 2,170 | 2,168 | 2,177 | 2,159 | 2,177 | 2,046 | 2,177 | 2,049 |
+| 2016 | 3,319 | 3,316 | 3,313 | 3,317 | 3,305 | 3,318 | 3,266 | 3,319 | 3,264 |
+| 2017 | 4,145 | 4,129 | 4,123 | 4,139 | 4,107 | 4,128 | 4,077 | 4,144 | 4,003 |
+| 2018 | 3,509 | 3,497 | 3,481 | 3,502 | 3,460 | 3,499 | 3,468 | 3,507 | 3,434 |
+| 2019 | 5,268 | 5,230 | 5,200 | 5,147 | 5,204 | 5,025 | 5,156 | 5,221 | 4,531 |
+| 2020 | 1,737 | 1,628 | 1,527 | 1,562 | 1,657 | 1,624 | 1,527 | 1,635 | 1,650 |
+| 2021 | 1,540 | 1,536 | 1,536 | 1,516 | 1,513 | 1,539 | 1,514 | 1,539 | 1,526 |
+| 2022 | 7,160 | 7,148 | 7,003 | 7,144 | 7,094 | 7,134 | 7,111 | 7,156 | 7,117 |
+| 2023 | 5,145 | 5,127 | 4,822 | 5,135 | 4,957 | 5,052 | 4,936 | 5,142 | 5,099 |
+| 2024 | 11,108 | 11,074 | 8,668 | 11,082 | 11,038 | 11,058 | 10,870 | 11,103 | 11,083 |
+| 2025 | 7,667 | 7,656 | 6,279 | 7,658 | 7,588 | 7,585 | 7,531 | 7,666 | 7,651 |
+| Lowest yearly % kept | | 99.82% (2023) | 99.81% (2023) | 98.63% (2021) | 97.25% (2023) | 99.93% (2011) | 93.98% (2015) | 99.93% (2011) | 86.22% (2019) |
+
+No year loses all of its records for any protein.
+
 
 ## Retention rule
 
@@ -388,37 +415,27 @@ TODO.
 | Swine | H5N1 | 16 | 15 | 93.75% |
 | Total | | 60,474 | 60,412 | 99.90% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least
-  99.53% of its isolates. The lowest is Swine-H1N1-2010, which keeps 213 of 214.
+* Every host–subtype–year group with a complete PB2 CDS keeps at least one
+  isolate.
 
 ### 5. Findings
 
-* PB2 has a usable pin at 2280 nt. Pinning would keep 60,413 of the 60,474
-  isolates with a complete PB2 CDS and drop 61 isolates at 17 other CDS
-  lengths.
-* The required feature width depends on which proteins are retained. An aa
-  alignment column that becomes all-gap after filtering can be removed. The
-  projected codon representation adds one column for the terminal stop codon.
-
-| Proteins retained | Unique proteins | All-gap aa columns removed | AA alignment columns | Projected codon columns |
-|---|---:|---|---:|---:|
-| All 18 source CDS lengths | 15,290 | None | 766 | 767 |
-| 2280-nt source CDS only | 15,230 | 42–45, 348, 678 | 760 | 761 |
-| Dominant 2280-nt gap pattern only | 15,229 | 42–45, 348, 575, 678 | 759 | 760 |
-
-* The proteins from 2280-nt CDS records retain 2 gap patterns. One protein has
-  its aa alignment gap at column 582 instead of 575 and therefore accounts for
-  the additional aa column in the 760-column representation. Excluding it
-  would require a separate criterion beyond the CDS-length pin.
-* The protein-to-codon projection has not been implemented. It must represent
-  aa alignment gaps for any retained non-dominant patterns.
-* Still open before codon features are built: whether to keep the 61 isolates
-  outside the modal CDS length.
+* The retention rule keeps 60,412 of the 60,474 isolates with a complete PB2 CDS
+  (99.90%). They hold 36,878 unique CDS and 15,229 unique proteins.
+* Step 2 drops the 17 CDS lengths other than 2280 nt. They hold 60 unique CDS and
+  61 isolates.
+* Step 4 drops one protein, carried by one isolate. Its gap is at column 577 of
+  the step-3 alignment, where every other protein has its gap at column 570.
+* Still open: step 5, which realigns the 15,229 kept proteins, and the mapping
+  from alignment columns to codon features. The width of the final alignment is
+  known only after step 5.
 
 ### Decision
 
-* Keep 2280 nt CDS (760 aa proteins).
-  * Within the 2280 nt CDS, keep the "42–45, 348, 575, 678" chunk.
+* Keep the 2280-nt CDS, whose proteins have 759 aa residues.
+  * Within them, keep `gap_pat001` of the step-3 alignment, which gaps column
+    570. Drop `gap_pat002`, the single protein that gaps column 577 instead.
+* Realign the 15,229 kept proteins in step 5.
 
 
 ## PB1 (Segment 2)
@@ -494,8 +511,8 @@ TODO.
 | Swine | H5N1 | 13 | 13 | 100% |
 | Total | | 56,093 | 56,040 | 99.91% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least
-  99.09% of its isolates. The lowest is Swine-H1N1-2022, which keeps 219 of 221.
+* Every host–subtype–year group with a complete PB1 CDS keeps at least one
+  isolate.
 
 ### 5. Findings
 
@@ -616,9 +633,8 @@ Not applicable: step 4 drops no gap pattern.
 | Swine | H5N1 | 8 | 8 | 100% |
 | Total | | 60,396 | 60,332 | 99.89% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least
-  98.25% of its isolates. The lowest is Human-H3N2-2021, which keeps 1,068 of
-  1,087.
+* Every host–subtype–year group with a complete PA CDS keeps at least one
+  isolate.
 
 ### 5. Findings
 
@@ -740,8 +756,12 @@ TODO.
 | Swine | H5N1 | 15 | 14 | 93.33% |
 | Total | | 60,282 | 59,807 | 99.21% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least
-  61.06% of its isolates. The lowest is Swine-H1N1-2023, which keeps 218 of 357.
+* 7 host–subtype–year groups with a complete HA CDS keep none of their isolates,
+  24 in all:
+  - Swine-H1N1 in 2025: 9 isolates.
+  - Human-H5N1 in 2011–2014: 8 isolates.
+  - Duck-H5N1 in 2010: 6 isolates.
+  - Swine-H5N1 in 2011: 1 isolate.
 
 ### 5. Findings
 
@@ -856,8 +876,8 @@ Not applicable: step 4 drops no gap pattern.
 | Swine | H5N1 | 16 | 16 | 100% |
 | Total | | 60,040 | 60,039 | >99.99% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least 99.50%
-  of its isolates. The lowest is Swine-H3N2-2011, which keeps 203 of 204.
+* Every host–subtype–year group with a complete NP CDS keeps at least one
+  isolate.
 
 ### 5. Findings
 
@@ -969,8 +989,14 @@ TODO.
 | Swine | H5N1 | 11 | 9 | 81.82% |
 | Total | | 59,856 | 59,129 | 98.79% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least 0.99%
-  of its isolates. The lowest is Chicken-H5N1-2015, which keeps 1 of 101.
+* 19 host–subtype–year groups with a complete NA CDS keep none of their
+  isolates, 202 in all:
+  - Chicken-H5N1 in 2010–2014 and 2016–2018: 121 isolates.
+  - Duck-H5N1 in 2013, 2018 and 2020: 68 isolates.
+  - Human-H5N1 in 2010 and 2012–2015: 10 isolates.
+  - Swine-H5N1 in 2011 and 2015: 2 isolates.
+  - Chicken-H3N2 in 2015: 1 isolate.
+* Human-H5N1-2011 is not in this list: its 1 isolate has no complete NA CDS.
 
 ### 5. Findings
 
@@ -1095,8 +1121,8 @@ Not applicable: step 4 drops no gap pattern.
 | Swine | H5N1 | 15 | 15 | 100% |
 | Total | | 60,566 | 60,565 | >99.99% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least 99.67%
-  of its isolates. The lowest is Swine-H1N1-2011, which keeps 308 of 309.
+* Every host–subtype–year group with a complete M1 CDS keeps at least one
+  isolate.
 
 ### 5. Findings
 
@@ -1206,8 +1232,12 @@ Not applicable: step 4 drops no gap pattern.
 | Swine | H5N1 | 16 | 14 | 87.50% |
 | Total | | 60,654 | 59,059 | 97.37% |
 
-* Every host–subtype–year group with at least 100 isolates keeps at least 2.97%
-  of its isolates. The lowest is Chicken-H5N1-2015, which keeps 3 of 101.
+* 13 host–subtype–year groups with a complete NS1 CDS keep none of their
+  isolates, 118 in all:
+  - Chicken-H5N1 in 2010–2012 and 2014: 74 isolates.
+  - Duck-H5N1 in 2013: 31 isolates.
+  - Human-H5N1 in 2010–2015: 11 isolates.
+  - Swine-H5N1 in 2011 and 2015: 2 isolates.
 
 ### 5. Findings
 
