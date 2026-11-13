@@ -334,13 +334,12 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 2280 nt | 60,413 | 36,879 | 15,230 | 99.61% | None | 7 | None |
-| 17 other lengths | 61 | 60 | 60 | 0.39% | 0 to 10 | 6 to 31 | 0 to 10 |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 2280 nt | 60,413 | 36,879 | 99.84% | 15,230 | 99.61% | None | 7 | None |
+| 17 other lengths | 61 | 60 | 0.16% | 60 | 0.39% | 0 to 10 | 6 to 31 | 0 to 10 |
 
 The 15,230 unique proteins translated from 2280-nt CDS sequences have 2 observed
 aa gap patterns:
@@ -355,9 +354,6 @@ alignment and has an aa alignment gap in 7 columns. These gaps are alignment
 placeholders; they are not gaps inserted into the source CDS sequence.
 
 ### 4. By host, subtype and year
-
-"Other lengths" covers the 17 lengths not listed separately, so its
-column totals 61 isolates.
 
 | Host | Subtype | Complete PB2 isolates | 2280 nt | Other lengths |
 |---|---|---:|---:|---:|
@@ -400,6 +396,12 @@ holding more than 30 of the 61 isolates.
   aa alignment gaps for any retained non-dominant patterns.
 * Still open before codon features are built: whether to keep the 61 isolates
   outside the modal CDS length.
+
+### Decision
+
+* Keep 2280 nt CDS (760 aa proteins).
+  * Within the 2280 nt CDS, keep the "42–45, 348, 575, 678" chunk.
+
 
 ## PB1 (Segment 2)
 
@@ -446,14 +448,13 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 2274 nt | 49,948 | 30,824 | 12,060 | 91.23% | None | 15 to 16 | 3 to 4 |
-| 2277 nt | 6,095 | 3,768 | 1,110 | 8.40% | None | 14 to 15 | 3 to 4 |
-| 16 other lengths | 50 | 50 | 50 | 0.38% | None | 15 to 41 | 0 to 11 |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 2274 nt | 49,948 | 30,824 | 88.98% | 12,060 | 91.23% | None | 15 to 16 | 3 to 4 |
+| 2277 nt | 6,095 | 3,768 | 10.88% | 1,110 | 8.40% | None | 14 to 15 | 3 to 4 |
+| 16 other lengths | 50 | 50 | 0.14% | 50 | 0.38% | None | 15 to 41 | 0 to 11 |
 
 The two most frequent source CDS lengths are 2274 nt and 2277 nt, and this
 section calls them the two main lengths. Within a length, the biggest pattern
@@ -481,31 +482,7 @@ Alignment column:  770 771 772 773 774 775 776
 2277 nt:           res res res res  -   -   -
 ```
 
-The two lengths are three nucleotides apart, and 3,768 of the 34,642 unique
-complete CDS sequences are at 2277 nt, a share of 0.109. That group is what
-holds the modal share below the 0.90 floor: the 16 rare lengths together account
-for 50 unique CDS.
-
-The identical gap structure does not make the proteins the same. Deleting
-alignment column 773 from each of the 1,109 proteins in the biggest 2277-nt
-pattern reproduces an existing aligned 2274-nt protein for 52 of them. The other
-1,057 differ at other columns as well, so the two lengths hold related but
-distinct sequences.
-
-The claim of identical internal gaps covers the two biggest patterns, not all
-five. Columns 62, 63, 68 and 94 are each gapped in exactly one 2274-nt protein
-and in no 2277-nt protein: 62, 63 and 68 in one of the two single-protein
-2274-nt patterns, and 94 in the other.
-
-The 2274-nt length holds 6,201 distinct H1N1 proteins, 4,898 H3N2 and 1,056
-H5N1, so it is not one subtype's length. The 2277-nt length is different:
-1,065 of the 1,109 proteins in its biggest pattern are H3N2, and 5,984 of the
-length's 6,095 isolates are Human-H3N2.
-
 ### 4. By host, subtype and year
-
-"Other lengths" covers the sixteen lengths not listed separately, so its column
-totals 50 isolates.
 
 | Host | Subtype | Complete PB1 isolates | 2274 nt | 2277 nt | Other lengths |
 |---|---|---:|---:|---:|---:|
@@ -578,6 +555,16 @@ and 99.5% in 2025. By 2024 almost every Human-H3N2 record is 2277 nt.
 * Still open before codon features are built: whether the two main lengths can
   share one set of columns, given that they differ only in the last codon.
 
+### Decision
+
+* Keep 2274 nt CDS (758 aa proteins).
+  * Within the 2274 nt CDS, keep the "77–79, 389, 718–728, 773–776" chunk.
+* Keep 2277 nt CDS (759 aa proteins).
+  * Within the 2277 nt CDS, keep the "77–79, 389, 718–728, 774–776" chunk.
+
+
+
+
 ## PA (Segment 3)
 
 PA sequences are aligned in amino-acid (aa) space. The corresponding CDS
@@ -618,13 +605,12 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 2151 nt | 60,332 | 35,609 | 15,897 | 99.74% | None | 26 | 2 |
-| 13 other lengths | 64 | 50 | 42 | 0.26% | 0 to 20 | 22 to 49 | 0 to 25 |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 2151 nt | 60,332 | 35,609 | 99.86% | 15,897 | 99.74% | None | 26 | 2 |
+| 13 other lengths | 64 | 50 | 0.14% | 42 | 0.26% | 0 to 20 | 22 to 49 | 0 to 25 |
 
 The 2151-nt CDS length holds 2 aa gap patterns. The three subtype
 columns count unique proteins, not isolates. They sum to more than the unique
@@ -635,29 +621,6 @@ one subtype, one of them in all three.
 |---|---|---:|---:|---:|---:|---:|---:|
 | 2151 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 716 | 15,896 | 60,331 | 7,075 | 7,614 | 1,279 |
 | 2151 nt | 48–49, 77, 82–88, 624, 641–650, 660–663, 703, 743–744 | 716 | 1 | 1 | 1 | 0 | 0 |
-
-Thus, each protein translated from a 2151-nt CDS contributes 716 aa residues to
-the 744-column alignment and has an aa alignment gap in 28 columns. These gaps
-are alignment placeholders; they are not gaps inserted into the source CDS
-sequence.
-
-PA's gap patterns do not split by subtype. The first pattern holds 7,075
-distinct H3N2 proteins, 7,614 H1N1 and 1,279 H5N1, so it is shared by thousands
-of sequences in every subtype rather than being one subtype's form. It covers
-all four hosts and 60,331 of the 60,396 isolates with a complete PA CDS. Only
-the rare 2157-nt proteins are subtype-specific, and all 39 of their isolates are
-Human-H3N2.
-
-PA differs from PB2 in where those gaps fall. Two of the 28 are trailing gaps,
-in columns 743 and 744, so a protein translated from a 2151-nt CDS does not
-reach the last alignment column.
-
-Both 2157-nt patterns are the modal pattern with one gap run removed. A 2157-nt
-CDS has 718 sense codons, two more than the modal length. In the pattern held by
-16 proteins the two extra codons sit at the C-terminus, which removes the
-743–744 trailing gap and is how those proteins reach the last alignment column.
-In the pattern held by 1 protein they sit at the N-terminus instead, filling
-columns 48 and 49.
 
 ### 4. By host, subtype and year
 
@@ -720,6 +683,12 @@ The 2157-nt form appears in 7 of the 16 years, with 19 of its 39 isolates in
 * Still open before codon features are built: whether to keep the 64 isolates
   outside the modal CDS length.
 
+### Decision
+
+* Keep 2151 nt CDS (717 aa proteins).
+  * Within the 2152 nt CDS, keep the "48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744" chunk.
+
+
 ## HA (Segment 4)
 
 HA sequences are aligned in amino-acid (aa) space. The corresponding CDS
@@ -761,17 +730,16 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 1695 nt | 244 | 203 | 179 | 0.90% | 4 | 44 | None |
-| 1698 nt | 71 | 67 | 62 | 0.31% | 4 | 43 | None |
-| 1701 nt | 56,223 | 33,492 | 18,606 | 93.78% | 4 | 42 | None |
-| 1704 nt | 3,632 | 1,643 | 901 | 4.54% | 4 | 41 | None |
-| 1707 nt | 63 | 56 | 50 | 0.25% | 0 to 4 | 40 to 44 | None |
-| 5 other lengths | 49 | 48 | 43 | 0.22% | 4 to 14 | 39 to 48 | None |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 1695 nt | 244 | 203 | 0.57% | 179 | 0.90% | 4 | 44 | None |
+| 1698 nt | 71 | 67 | 0.19% | 62 | 0.31% | 4 | 43 | None |
+| 1701 nt | 56,223 | 33,492 | 94.32% | 18,606 | 93.78% | 4 | 42 | None |
+| 1704 nt | 3,632 | 1,643 | 4.63% | 901 | 4.54% | 4 | 41 | None |
+| 1707 nt | 63 | 56 | 0.16% | 50 | 0.25% | 0 to 4 | 40 to 44 | None |
+| 5 other lengths | 49 | 48 | 0.14% | 43 | 0.22% | 4 to 14 | 39 to 48 | None |
 
 The 6 gap patterns at 1701 nt are not six variants of one form. The two that
 hold the most unique proteins each sit almost entirely in one HA subtype, and a
@@ -889,6 +857,15 @@ is large but not steady. The 1695-nt records have 139 of their 244 isolates in
   serve H1, H3 and H5 given that they disagree in 33 of the 583 columns they
   use, and whether to select records by subtype form rather than by CDS length.
 
+### Decision
+
+* Keep 1701 nt CDS (567 aa proteins).
+  * Within the 1701 nt CDS, keep the H3 gap pattern chunk.
+  * Within the 1701 nt CDS, keep the H1 gap pattern chunk.
+* Keep 1704 nt CDS (568 aa proteins).
+  * Within the 1704 nt CDS, keep the H5 gap pattern chunk.
+
+
 ## NP (Segment 5)
 
 NP sequences are aligned in amino-acid (aa) space. The corresponding CDS
@@ -931,48 +908,20 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 1461 nt | 1 | 1 | 1 | 0.01% | 12 | None | None |
-| 1497 nt | 60,039 | 27,086 | 7,249 | 99.99% | None | None | None |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 1461 nt | 1 | 1 | <0.01% | 1 | 0.01% | 12 | None | None |
+| 1497 nt | 60,039 | 27,086 | >99.99% | 7,249 | 99.99% | None | None | None |
 
-NP holds 2 gap patterns in the whole alignment, one per CDS length, which is the
-fewest of the eight proteins alongside M1.
+NP holds 2 gap patterns in the whole alignment, one per CDS length.
 
 | Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates |
 |---|---|---:|---:|---:|
 | 1497 nt | None | 498 | 7,249 | 60,039 |
 
-NP and M1 are the only two of the eight proteins whose modal form has no aa
-alignment gap at all. Every host and subtype in the population has records at
-1497 nt, as part 4 shows.
-
-The 1461-nt protein is 12 codons shorter than a 1497-nt one, and MAFFT placed
-all 12 of its aa alignment gaps at the leading end, so it starts at column 13
-and ends at column 498 with every other protein. It is not a 1497-nt protein
-with 12 residues removed: none of the 7,249 proteins at 1497 nt matches it once
-columns 1 to 12 are deleted, and against the most common one it differs at 45
-residue positions outside the gap. Two of those differences are visible below:
-
-```text
-Alignment column:  1          11         21
-1497 nt:           MASQGTKRSY EQMETDGDRQ NATEIR
-1461 nt:           ---------- --METGGERQ NATEIR
-```
-
-One isolate carries this form, from Swine-H3N2 in 2011. The 1497-nt row above is
-the most common 1497-nt protein, which 9,227 isolates carry.
-
-A leading gap here does not mean a missing start codon. The 1461-nt CDS begins
-with ATG; its first aa residue sits in column 13 because the other records have
-12 aa residues further left.
-
 ### 4. By host, subtype and year
-
-"Other lengths" is the 1461-nt form, the only length not listed separately.
 
 | Host | Subtype | Complete NP isolates | 1497 nt | Other lengths |
 |---|---|---:|---:|---:|
@@ -1022,6 +971,12 @@ By year: every year is entirely 1497 nt except 2011, which holds the single
 * Still open before codon features are built: whether to keep the single
   1461-nt isolate. Uncommon length alone does not establish an error.
 
+### Decision
+
+* Keep 1497 nt CDS (599 aa proteins).
+  * Within the 1497 nt CDS, keep all seqs (same pattern).
+
+
 ## NA (Segment 6)
 
 NA sequences are aligned in amino-acid (aa) space. The corresponding CDS
@@ -1066,15 +1021,14 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 1350 nt | 505 | 407 | 319 | 1.85% | None | 93 | 1 |
-| 1410 nt | 59,154 | 30,630 | 16,843 | 97.54% | None | 66 to 73 | 1 to 8 |
-| 1413 nt | 129 | 59 | 55 | 0.32% | None | 70 to 73 | 0 to 3 |
-| 13 other lengths | 68 | 61 | 50 | 0.29% | 0 to 14 | 67 to 93 | 0 to 2 |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 1350 nt | 505 | 407 | 1.31% | 319 | 1.85% | None | 93 | 1 |
+| 1410 nt | 59,154 | 30,630 | 98.31% | 16,843 | 97.54% | None | 66 to 73 | 1 to 8 |
+| 1413 nt | 129 | 59 | 0.19% | 55 | 0.32% | None | 70 to 73 | 0 to 3 |
+| 13 other lengths | 68 | 61 | 0.20% | 50 | 0.29% | 0 to 14 | 67 to 93 | 0 to 2 |
 
 Every length carries internal aa gaps, including the modal one.
 
@@ -1096,36 +1050,6 @@ subtype.
 | 1410 nt | N1 | 469 | 8,305 | 26,631 | 6 | 7,531 | 776 |
 | 1410 nt | 7 rare patterns | 469 | 28 | 37 | 10 | 1 | 17 |
 | 1350 nt | the only pattern | 449 | 319 | 505 | 0 | 0 | 319 |
-
-Both patterns occur in all three HN subtypes, but not evenly. The N1 pattern is
-almost entirely H1N1 and H5N1, which both carry N1 as their names say, and the
-N2 pattern is almost entirely H3N2.
-
-N2 and N1 each fill 469 aa alignment columns, as their residue count requires,
-but not the same 469. They share 445 columns. N2 fills 24 that N1 does not: 38,
-39, 53, 55, 123–136, 353, 378–379, 384, 442 and 498. N1 fills 24 that N2 does
-not: 69, 80–83, 95–105, 108–109, 208, 463–465, 472 and 542. Between them they
-fill 493 columns.
-
-Their longest run of disagreeing columns is 123 to 136, where N2 has 14
-residues and N1 has 14 aa alignment gaps:
-
-```text
-Alignment column:    118-122   123-136   137-140
-N2, 1410 nt:         res       res       res
-N1, 1410 nt:         res       gap       res
-1350 nt:             res       gap       res
-```
-
-The 1350-nt form is an N1 form, 20 codons shorter. It has 449 aa residues, and
-every column it fills is already filled by N2 or N1, so it adds no column to the
-alignment.
-
-The three listed CDS lengths have no aa residue in columns 65, 456–457, 467–471
-or 501, so they use 534 of the 543 columns. Those 9 columns are in the alignment
-because rarer lengths fill them: 1422-nt proteins fill column 65, 1416-nt
-proteins fill 456 and 457, 1428-nt proteins fill 467 to 471, and 1353-nt and
-1422-nt proteins fill 501.
 
 ### 4. By host, subtype and year
 
@@ -1202,6 +1126,13 @@ in 2014 and 28 isolates in 2025.
   serve both N1 and N2 given that they disagree in 48 of the 493 columns they
   use, and whether to select records by form rather than by CDS length.
 
+### Decision
+
+* Keep 1410 nt CDS (470 aa proteins).
+  * Within the 1410 nt CDS, keep the N2 gap pattern seqs.
+  * Within the 1410 nt CDS, keep the N1 gap pattern seqs.
+
+
 ## M1 (Segment 7)
 
 M1 sequences are aligned in amino-acid (aa) space. The corresponding CDS
@@ -1246,13 +1177,12 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 726 nt | 1 | 1 | 1 | 0.05% | None | 11 | None |
-| 759 nt | 60,565 | 14,572 | 1,947 | 99.95% | None | None | None |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 726 nt | 1 | 1 | 0.01% | 1 | 0.05% | None | 11 | None |
+| 759 nt | 60,565 | 14,572 | 99.99% | 1,947 | 99.95% | None | None | None |
 
 M1 holds 2 gap patterns in the whole alignment, one per CDS length, which is the
 fewest of the eight proteins alongside NP.
@@ -1281,8 +1211,6 @@ One isolate carries this form, from Swine-H1N1 in 2011. The 759-nt row above is
 the most common 759-nt protein, which 27,661 isolates carry.
 
 ### 4. By host, subtype and year
-
-"Other lengths" is 0 throughout, because M1 has only the two lengths listed.
 
 | Host | Subtype | Complete M1 isolates | 726 nt | 759 nt | Other lengths |
 |---|---|---:|---:|---:|---:|
@@ -1330,6 +1258,12 @@ By year: every year is entirely 759 nt except 2011, which holds the single
 * There are no one-residue columns.
 * Still open before codon features are built: whether to keep the single 726-nt
   isolate. Uncommon length alone does not establish an error.
+
+### Decision
+
+* Keep 759 nt CDS (253 aa proteins).
+  * Within the 759 nt CDS, keep all seqs (same pattern).
+
 
 ## NS1 (Segment 8)
 
@@ -1381,17 +1315,16 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment, not to an
-nt alignment.
+were translated. All gap counts refer to the resulting aa alignment.
 
-| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---|---|---|
-| 654 nt | 389 | 236 | 207 | 2.04% | None | 3 | 20 |
-| 660 nt | 25,506 | 8,243 | 4,601 | 45.42% | None | 3 | 18 |
-| 672 nt | 806 | 235 | 144 | 1.42% | None | 3 | 14 |
-| 678 nt | 341 | 246 | 205 | 2.02% | None | 8 | 7 |
-| 693 nt | 33,553 | 9,097 | 4,926 | 48.63% | None | 3 | 7 |
-| 11 other lengths | 59 | 50 | 47 | 0.46% | 0 to 5 | 2 to 8 | 0 to 35 |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| 654 nt | 389 | 236 | 1.30% | 207 | 2.04% | None | 3 | 20 |
+| 660 nt | 25,506 | 8,243 | 45.52% | 4,601 | 45.42% | None | 3 | 18 |
+| 672 nt | 806 | 235 | 1.30% | 144 | 1.42% | None | 3 | 14 |
+| 678 nt | 341 | 246 | 1.36% | 205 | 2.02% | None | 8 | 7 |
+| 693 nt | 33,553 | 9,097 | 50.24% | 4,926 | 48.63% | None | 3 | 7 |
+| 11 other lengths | 59 | 50 | 0.28% | 47 | 0.46% | 0 to 5 | 2 to 8 | 0 to 35 |
 
 Each of the five listed lengths holds exactly one gap pattern, so for every
 length in the table above the CDS length fixes the gap pattern. HA's modal
@@ -1410,42 +1343,6 @@ all three subtypes and so add 2 each.
 | 672 nt | 74, 112, 132, 227–240 | 223 | 144 | 806 | 144 | 1 | 0 |
 | 678 nt | 74, 81–85, 112, 132, 234–240 | 225 | 205 | 341 | 1 | 0 | 204 |
 | 693 nt | 74, 112, 132, 234–240 | 230 | 4,926 | 33,553 | 3,618 | 686 | 667 |
-
-No length belongs to one HN subtype, but four of the five lean hard. By
-isolates: 693 nt is 28,725 H3N2, 3,379 H5N1 and 1,449 H1N1; 660 nt is 22,419 of
-25,506 H1N1; 672 nt is 804 of 806 H3N2; and 678 nt is 340 of 341 H5N1.
-
-Each of the five listed lengths gaps columns 74, 112 and 132, as do 11 of the 14
-patterns among the 11 other lengths. Those three columns are in the alignment for
-three rare proteins only: a 696-nt protein fills column 74, a 663-nt protein
-fills 112, and a different 696-nt protein fills 132. Each is the sole protein in
-its column, and each is one of the three patterns among the other lengths that
-does not gap all three.
-
-The 678-nt form is not a truncated 693-nt form. Its proteins are 5 codons
-shorter, and MAFFT placed all 5 of those aa alignment gaps in the middle, at
-columns 81 to 85:
-
-```text
-Alignment column:  71-73      74      75-80      81-85      86-94
-693 nt:            res        gap     res        res        res
-678 nt:            res        gap     res        gap        res
-```
-
-Column 74 is a gap in both forms, because it is one of the three columns held by
-a single rare protein.
-
-All 205 of its unique proteins share this pattern, over 341 isolates. One
-699-nt protein from one isolate has the same 81–85 gap, so 206 proteins over 342
-isolates gap those columns. Under the proposed codon mapping these 5 columns
-take `GAP` and not `AFTER_STOP`, because they sit between aa residues rather
-than after a stop codon. Three other patterns put internal gaps outside columns
-74, 112 and 132: columns 81 to 85 in that 699-nt protein, columns 77 to 80 in a
-648-nt protein over 3 isolates, and columns 79 to 80 in a 687-nt protein over 1
-isolate.
-
-One protein has leading gaps: a 645-nt protein from one isolate, at columns 1
-to 5.
 
 ### 4. By host, subtype and year
 
@@ -1530,6 +1427,14 @@ to 2020 and 2022, in 5 years.
 * Still open before codon features are built: whether to keep the 59 isolates
   outside the five listed lengths, and whether to keep the three one-residue
   columns. Uncommon length alone does not establish an error.
+
+### Decision
+
+* Keep 660 nt CDS (220 aa proteins).
+  * Within the 660 nt CDS, keep the only gap pattern.
+* Keep 693 nt CDS (231 aa proteins).
+  * Within the 693 nt CDS, keep the only gap pattern.
+
 
 ## NS1 on Human-H3N2-2024 (Segment 8, Task 1 population)
 
