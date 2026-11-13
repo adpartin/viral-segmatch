@@ -360,12 +360,12 @@ aligned in this analysis.
 ### 2. Lengths and gaps
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment.
+were translated.
 
-| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---:|---|---|---|
-| 2280 nt | 60,413 | 36,879 | 99.84% | 15,230 | 99.61% | None | 7 | None |
-| 17 other lengths | 61 | 60 | 0.16% | 60 | 0.39% | 0 to 10 | 6 to 31 | 0 to 10 |
+| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
+|---|---:|---:|---:|---:|---:|---|
+| 2280 nt | 60,413 | 36,879 | 99.84% | 15,230 | 99.61% | keep |
+| 17 other lengths | 61 | 60 | 0.16% | 60 | 0.39% | drop |
 
 The 15,230 unique proteins translated from 2280-nt CDS sequences have 2 observed
 aa gap patterns:
