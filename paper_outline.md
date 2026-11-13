@@ -23,7 +23,36 @@ Settings used throughout, unless a section says otherwise:
 - [Fig] Flu anatomy (simple schematic). The goal is to show that a viral isolate
   consists of 8 segments, and each segment has a major protein representing it.
 - [Fig] Model anatomy. Schematic of the prediction model: codon features for slot A
-  and slot B, concatenated, LightGBM, threshold. See `2026-10-08_paper_plan.md`.
+  and slot B, concatenated, LightGBM, threshold.
+
+[Fig] From `2026-10-08_paper_plan.md`.
+
+```text
+        Slot A CDS                Slot B CDS
+            |                         |
+            v                         v
+    generate features         generate features
+            |                         |
+            v                         v
+           x_A                       x_B
+            |                         |
+            +------------+------------+
+                         |
+                         v
+              concatenate: [x_A, x_B]
+                         |
+                         v
+                LightGBM classifier
+                         |
+                         v
+           probability of a positive pair
+                         |
+                         v
+                     threshold
+                         |
+                         v
+              predicted label: 1 or 0
+```
 
 ### Dataset generation flowchart
 
@@ -31,6 +60,52 @@ Settings used throughout, unless a section says otherwise:
   full dataset down to 5-fold CV splits with positive and negative pairs. The
   flowchart is shown in the paper plan 1A "Dataset Construction (methods)". Each
   step shows the counts representative of a specific schema pair.
+
+[TODO] From `2026-10-08_paper_plan.md`.
+
+The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
+
+```text
+[1] Build the negative blocker from the whole corpus (co-occurrence set)
+    Input:  108,530 corpus isolates
+    Action: collect the same-isolate nt_cds pair key from each isolate
+    Output: 82,657 distinct observed pair keys ───────────────────────┐
+                                                                      │
+[2] Filter the population                                             │
+    Input:  108,530 corpus isolates                                   │
+    Action: keep Human, H3N2, 2024                                    │
+    Output: 5,346 isolates                                            │
+              ↓                                                       │
+[3] Require an eligible PB1-HA pair                                   │
+    Input:  5,346 isolates                                            │
+    Action: require both segments with complete CDS at pinned lengths │
+    Output: 2,945 eligible isolates                                   │
+              ↓                                                       │
+[4] Deduplicate positives                                             │
+    Input:  2,945 eligible isolates                                   │
+    Action: keep one row per nt_cds pair key                          │
+    Output: 2,327 unique positive pairs                               │
+              ↓                                                       │
+[5] Select positives with HK                                          │
+    Input:  2,327 unique positive pairs                               │
+    Action: use each CDS sequence at most once per slot               │
+    Output: 1,392 selected positives                                  │
+              ↓                                                       │
+[6] Make 5 CV folds                                                   │
+    Input:  1,392 selected positives                                  │
+    Action: assign test pairs; split the remainder into train/val     │
+    Output: train/val/test = 973/140/279 positives                    │
+              ↓                                                       │
+[7] Draw negatives                                                    │
+    Input:  split positives + observed pair keys from [1] <───────────┘
+    Action: one matched, one-use negative per positive
+    Output: train/val/test = 973/140/279 negatives
+              ↓
+[8] Combine negatives and positives
+    Input:  split positives from [6] and split negatives from [7]
+    Action: combine and assign labels 0 to negatives and 1 to positives
+    Output: train/val/test = 1,946/280/558 pairs
+```
 
 ### Protein sequence alignment and per-site codon featurization 
 
@@ -52,6 +127,14 @@ sequence deduplication).
 
 - [Fig] Isolates-vs-year barplot (2010-2025)
 - [Fig] Subtype-vs-host heatmap (with numbers)
+
+<img src="docs/results/figs/2026-11-12_full_population_isolates_per_year.png" width="600" alt="Isolates per year, 2010-2025, full population">
+
+<img src="docs/results/figs/2026-11-12_full_population_isolates_per_year_by_subtype.png" width="600" alt="Isolates per year, stacked by H/N subtype, full population">
+
+<img src="docs/results/figs/2026-11-12_full_population_isolates_per_year_by_host.png" width="600" alt="Isolates per year, stacked by host, full population">
+
+<img src="docs/results/figs/2026-11-12_full_population_host_subtype_heatmap.png" width="600" alt="Host x H/N subtype isolate counts, full population">
 
 ### Sequence length analysis
 
@@ -100,6 +183,10 @@ The 759 aa sequences have 2 observed gap patterns:
 - [Fig] Sensitivity to negative resampling (1B). Per-class scatter plots with
   median. E.g.,
   `docs/results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_sd_draws_matrix.png`.
+
+[TODO] From `2026-10-08_paper_plan.md`.
+
+<img src="docs/results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_matrix.png" width="600" alt="28-pair matched-negative F1 macro matrix, per-site codon LightGBM, Human-H3N2-2024">
 
 ### Model performance results for the full population
 
