@@ -12,30 +12,9 @@ keeps only the CDS whose protein's gap pattern holds more than the given fractio
 run's unique CDS, and prepares them for realignment. It reads the run's outputs, not the
 corpus. These are steps 4 and 5 of the same retention rule.
 
-Outputs under <out_dir>/<population>/<protein>/, under
-<out_dir>/<population>/<protein>/length_share_above_<value>/ with `--length_share_above`,
-or under its subdirectory gap_pattern_share_above_<value>/ with both:
-    selected_cds.parquet      selected complete records, retaining isolate and CDS mappings
-    length_summary.csv        isolate, unique-CDS and unique-protein counts for every CDS length
-                              of the complete records, its share of their unique CDS and whether
-                              it was kept; with `--gap_pattern_share_above`, of the kept records
-    proteins_for_alignment.fasta  unique proteins without terminal stop markers
-    x_summary.csv           isolate, unique-CDS and unique-protein X counts by CDS length
-    selection_manifest.json   input paths, filters, checks and counts; with
-                              `--gap_pattern_share_above`, also the parent's hashes and the
-                              kept and dropped gap patterns
-    aligned_proteins.fasta  MAFFT protein alignment, rows in guide-tree order
-    mafft.log               MAFFT progress and selected strategy
-    protein_input_hashes.csv  hash of each stop-free input protein
-    protein_cds_map.csv     protein-to-CDS mapping with isolate counts
-    alignment_manifest.json  tool version, command, strategy, runtime and file hashes
-    alignment_validation.json  input recovery check for every aligned protein
-    gap_locations.csv      gap positions and gap-pattern name for every aligned protein
-    gap_pattern_shares.csv  unique proteins, unique CDS, isolates and share of unique CDS
-                            for each gap pattern
-    aligned_proteins_labelled.fasta  the alignment, labels starting with prot_hash
-    aligned_proteins_jalview.fasta  the alignment, labels starting with the protein
-    inspection_manifest.json  input and output hashes for the gap inspection
+Outputs are written under <out_dir>/<population>/<protein>/. Each filter adds a
+subdirectory, keeping the original alignment and its filtered selections separate.
+Selection, alignment, validation and inspection each write their own outputs and manifest.
 
 Example:
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024
@@ -115,8 +94,9 @@ def summarize_selected_lengths(selected: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
-def keep_cds_lengths_above_share(complete: pd.DataFrame,
-                                 share_above: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+def keep_cds_lengths_above_share(
+    complete: pd.DataFrame, share_above: float
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Keep the CDS lengths whose share of the unique complete CDS is above `share_above`.
 
     A length's share is its unique CDS count divided by the unique CDS count over all
@@ -216,22 +196,16 @@ def summarize_unknown_residues(selected: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
-# MAFFT flags for each --mafft_strategy choice.
-#   fft_ns_2  `--retree 2 --maxiterate 0`, which is what MAFFT runs with no options at all.
-#             It gives FFT-NS-2 at any input size, so the strategy does not depend on how
-#             many sequences a protein has.
-#   auto      `--auto`, which lets MAFFT choose from the input size. A protein with more
-#             sequences could get a different strategy.
-# The manifest records the command and the strategy MAFFT reports, so the choice is
-# checkable after the run.
+# FFT-NS-2 uses the same strategy for all input sizes; auto lets MAFFT choose.
 MAFFT_STRATEGY_OPTIONS = {
     'auto': ['--auto'],
     'fft_ns_2': ['--retree', '2', '--maxiterate', '0'],
 }
 
 
-def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
-                            strategy_name: str) -> None:
+def align_prepared_proteins(
+    out_dir: Path, mafft_bin: str, overwrite: bool, strategy_name: str
+    ) -> None:
     """Align the prepared protein FASTA and record MAFFT provenance.
 
     Args:
@@ -287,13 +261,10 @@ def align_prepared_proteins(out_dir: Path, mafft_bin: str, overwrite: bool,
     version_result = subprocess.run([resolved_bin, '--version'], capture_output=True, text=True,
                                     check=True)
     version = (version_result.stdout or version_result.stderr).strip()
-    # --reorder writes rows in MAFFT's guide-tree order instead of input order. The MAFFT
-    # wrapper applies it to the finished alignment, so it changes the row order and nothing
-    # else; later steps look rows up by prot_hash.
+    # --reorder writes the rows in MAFFT's guide-tree order. It changes only the row order,
+    # not the aligned sequences, and later steps look rows up by prot_hash.
     command = [resolved_bin, '--amino', *MAFFT_STRATEGY_OPTIONS[strategy_name],
                '--reorder', '--thread', '1', str(fasta_path.resolve())]
-    # Timed here because MAFFT reports no timing of its own, and the file timestamps only
-    # bound it, since selection and alignment run separately.
     mafft_timer = Timer()
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     mafft_timer.stop_timer()
@@ -414,8 +385,11 @@ def validate_alignment(out_dir: Path, overwrite: bool) -> None:
     print(f'Wrote validation report to {report_path}')
 
 
-def number_gap_patterns(gap_locations: pd.DataFrame, isolates: pd.Series) -> pd.Series:
-    """Name each protein's gap pattern by rank, `gap_pat001` being held by the most proteins.
+def number_gap_patterns(
+    gap_locations: pd.DataFrame, isolates: pd.Series
+    ) -> pd.Series:
+    """Name each protein's gap pattern by rank, `gap_pat001` being held by the
+    most proteins.
 
     Patterns are ranked by unique proteins, then by isolates, then by the
     `gap_columns` string, so patterns with equal counts still get a fixed order.
@@ -444,7 +418,9 @@ def number_gap_patterns(gap_locations: pd.DataFrame, isolates: pd.Series) -> pd.
     return names
 
 
-def summarize_gap_patterns(gap_locations: pd.DataFrame, selected: pd.DataFrame) -> pd.DataFrame:
+def summarize_gap_patterns(
+    gap_locations: pd.DataFrame, selected: pd.DataFrame
+    ) -> pd.DataFrame:
     """Count each gap pattern's unique proteins, unique CDS and isolates, and its share of the unique CDS.
 
     The share divides a pattern's unique CDS by all unique CDS in `selected`. With
@@ -511,8 +487,7 @@ def build_hash_first_labels(proteins: pd.DataFrame, protein: str) -> pd.Series:
         Labels such as `<prot_hash>|PB2|gap_pat001|2280nt|759aa|5046iso`, indexed like
         `proteins`.
     """
-    labels = proteins['prot_hash'] + '|' + protein + '|' + describe_proteins(proteins)
-    return labels
+    return proteins['prot_hash'] + '|' + protein + '|' + describe_proteins(proteins)
 
 
 def build_protein_first_labels(proteins: pd.DataFrame, protein: str) -> pd.Series:
@@ -529,12 +504,12 @@ def build_protein_first_labels(proteins: pd.DataFrame, protein: str) -> pd.Serie
         Labels such as `PB2|gap_pat001|2280nt|759aa|5046iso|<prot_hash>`, indexed like
         `proteins`.
     """
-    labels = protein + '|' + describe_proteins(proteins) + '|' + proteins['prot_hash']
-    return labels
+    return protein + '|' + describe_proteins(proteins) + '|' + proteins['prot_hash']
 
 
 def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
-    """Record gap locations for every validated aligned protein and write two labelled copies.
+    """Record gap locations for every validated aligned protein and write two
+    labelled copies.
 
     Also writes each gap pattern's counts and its share of the unique CDS.
 
@@ -614,10 +589,7 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
     shares_path = out_dir / 'gap_pattern_shares.csv'
     shares.to_csv(shares_path, index=False)
 
-    # Two copies of aligned_proteins.fasta, same rows in the same order, with readable
-    # labels: one starting with prot_hash, one starting with the protein so that sorting
-    # by label in a viewer groups the rows by gap pattern. aligned_proteins.fasta itself
-    # stays keyed by prot_hash for the later steps.
+    # Preserve alignment order in both labelled copies.
     proteins = gap_locations.set_index('prot_hash', drop=False)
     proteins['isolates'] = proteins['prot_hash'].map(isolates)
     labelled_path = out_dir / 'aligned_proteins_labelled.fasta'
@@ -642,19 +614,20 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
         'code': get_git_info(),
         'outputs': list(INSPECTION_OUTPUT_NAMES),
     }
-    inspec_manifest = out_dir / 'inspection_manifest.json'
-    inspec_manifest.write_text(json.dumps(manifest, indent=2) + '\n')
+    inspection_manifest_path = out_dir / 'inspection_manifest.json'
+    inspection_manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
 
     print(f'Inspected gap locations for {len(gap_locations):,} aligned proteins.')
     print(f'Wrote inspection outputs to {out_dir}')
 
 
 def check_inspected_alignment(alignment_dir: Path) -> dict:
-    """Check that an inspected alignment directory's files all describe its current alignment.
+    """Check that an inspected alignment directory's files all describe its
+    current alignment.
 
-    The alignment must have passed validation. Every hash the alignment, validation and
-    inspection manifests recorded must match the file it names, so a file rewritten after
-    the step that recorded it is caught.
+    The alignment must have passed validation. Every hash the alignment,
+    validation and inspection manifests recorded must match the file it names,
+    so a file rewritten after the step that recorded it is caught.
 
     Args:
         alignment_dir: A directory that `--inspect_only` has completed.
@@ -701,9 +674,10 @@ def check_inspected_alignment(alignment_dir: Path) -> dict:
     return hashes
 
 
-def keep_gap_patterns_above_share(selected: pd.DataFrame, gap_locations: pd.DataFrame,
-                                  shares: pd.DataFrame,
-                                  share_above: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+def keep_gap_patterns_above_share(
+    selected: pd.DataFrame, gap_locations: pd.DataFrame,
+    shares: pd.DataFrame, share_above: float
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Keep the CDS records whose protein's gap pattern holds more than `share_above` of the unique CDS.
 
     Every record of a kept protein is kept, including its synonymous CDS. A pattern's share is
@@ -767,9 +741,27 @@ def count_records(records: pd.DataFrame) -> dict:
     return counts
 
 
-def write_selection(out_dir: Path, selected: pd.DataFrame, summary: pd.DataFrame,
-                    proteins: pd.DataFrame, x_summary: pd.DataFrame, manifest: dict,
-                    overwrite: bool) -> None:
+def selection_counts(
+    selected: pd.DataFrame, proteins: pd.DataFrame, x_summary: pd.DataFrame
+    ) -> dict:
+    """Count the retained records and proteins for a selection manifest."""
+    counts = count_records(selected)
+    return {
+        'complete_records': counts['records'],
+        'complete_isolates': counts['isolates'],
+        'unique_complete_cds': counts['unique_cds'],
+        'unique_complete_proteins': int(selected['prot_seq'].nunique()),
+        'unique_proteins_for_alignment': len(proteins),
+        'isolates_with_x': int(x_summary['isolates_with_x'].sum()),
+        'unique_cds_with_x': int(x_summary['unique_cds_with_x'].sum()),
+        'unique_proteins_with_x': int(x_summary['unique_proteins_with_x'].sum()),
+    }
+
+
+def write_selection(
+    out_dir: Path, selected: pd.DataFrame, summary: pd.DataFrame,
+    proteins: pd.DataFrame, x_summary: pd.DataFrame, manifest: dict,
+    overwrite: bool) -> None:
     """Write the five selection outputs that `--align_only` reads.
 
     Args:
@@ -802,8 +794,9 @@ def write_selection(out_dir: Path, selected: pd.DataFrame, summary: pd.DataFrame
     (out_dir / 'selection_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 
 
-def select_kept_gap_patterns(parent_dir: Path, out_dir: Path, share_above: float,
-                             overwrite: bool) -> None:
+def select_kept_gap_patterns(
+    parent_dir: Path, out_dir: Path, share_above: float, overwrite: bool
+    ) -> None:
     """Select the parent's records whose gap pattern holds more than `share_above` of its unique CDS.
 
     The records come from the parent's `selected_cds.parquet`, not the corpus, so they are the
@@ -846,7 +839,6 @@ def select_kept_gap_patterns(parent_dir: Path, out_dir: Path, share_above: float
     proteins = prepare_proteins(selected)
     x_summary = summarize_unknown_residues(selected)
 
-    # One plain-JSON record per parent gap pattern, split by whether it is kept.
     kept_rows, dropped_rows = [], []
     for row in patterns.itertuples(index=False):
         record = {
@@ -894,16 +886,9 @@ def select_kept_gap_patterns(parent_dir: Path, out_dir: Path, share_above: float
         'counts': {
             'population_records': parent_counts['population_records'],
             'population_isolates': parent_counts['population_isolates'],
-            'complete_records': len(selected),
-            'complete_isolates': int(selected['assembly_id'].nunique()),
             'excluded_incomplete_records': parent_counts['excluded_incomplete_records'],
             'unknown_completeness_records': parent_counts['unknown_completeness_records'],
-            'unique_complete_cds': int(selected['cds_dna_hash'].nunique()),
-            'unique_complete_proteins': int(selected['prot_seq'].nunique()),
-            'unique_proteins_for_alignment': len(proteins),
-            'isolates_with_x': int(x_summary['isolates_with_x'].sum()),
-            'unique_cds_with_x': int(x_summary['unique_cds_with_x'].sum()),
-            'unique_proteins_with_x': int(x_summary['unique_proteins_with_x'].sum()),
+            **selection_counts(selected, proteins, x_summary),
         },
         'checks': {
             'unique_cds_checked': int(selected['cds_dna_hash'].nunique()),
@@ -927,7 +912,8 @@ def select_kept_gap_patterns(parent_dir: Path, out_dir: Path, share_above: float
 
 
 def main() -> None:
-    """Prepare CDS inputs, align proteins, validate them, inspect their gaps or select kept gap patterns.
+    """Prepare CDS inputs, align proteins, validate them, inspect their gaps
+    or select kept gap patterns.
 
     Returns:
         None.
@@ -1074,16 +1060,9 @@ def main() -> None:
         'counts': {
             'population_records': len(population),
             'population_isolates': int(population['assembly_id'].nunique()),
-            'complete_records': len(selected),
-            'complete_isolates': int(selected['assembly_id'].nunique()),
             'excluded_incomplete_records': int(population['is_complete_cds'].eq(False).sum()),
             'unknown_completeness_records': int(population['is_complete_cds'].isna().sum()),
-            'unique_complete_cds': int(selected['cds_dna_hash'].nunique()),
-            'unique_complete_proteins': int(selected['prot_seq'].nunique()),
-            'unique_proteins_for_alignment': len(proteins),
-            'isolates_with_x': int(x_summary['isolates_with_x'].sum()),
-            'unique_cds_with_x': int(x_summary['unique_cds_with_x'].sum()),
-            'unique_proteins_with_x': int(x_summary['unique_proteins_with_x'].sum()),
+            **selection_counts(selected, proteins, x_summary),
         },
         'checks': {
             'unique_cds_checked': int(selected['cds_dna_hash'].nunique()),
