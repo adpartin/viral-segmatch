@@ -1416,11 +1416,11 @@ isolates: 693 nt is 28,725 H3N2, 3,379 H5N1 and 1,449 H1N1; 660 nt is 22,419 of
 25,506 H1N1; 672 nt is 804 of 806 H3N2; and 678 nt is 340 of 341 H5N1.
 
 Each of the five listed lengths gaps columns 74, 112 and 132, as do 11 of the 14
-patterns in the last row. Those three columns are in the alignment for three
-rare proteins only: a 696-nt protein fills column 74, a 663-nt protein fills
-112, and a different 696-nt protein fills 132. Each is the sole protein in its
-column, and each is one of the three patterns in the last row that does not gap
-all three.
+patterns among the 11 other lengths. Those three columns are in the alignment for
+three rare proteins only: a 696-nt protein fills column 74, a 663-nt protein
+fills 112, and a different 696-nt protein fills 132. Each is the sole protein in
+its column, and each is one of the three patterns among the other lengths that
+does not gap all three.
 
 The 678-nt form is not a truncated 693-nt form. Its proteins are 5 codons
 shorter, and MAFFT placed all 5 of those aa alignment gaps in the middle, at
