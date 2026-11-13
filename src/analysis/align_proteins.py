@@ -7,14 +7,23 @@ FASTA headers use source prot_hash values, which hash prot_seq including its ter
 is above the given fraction. It is step 2 of the retention rule in
 docs/results/2026-11-09_protein_alignment.md.
 
-Outputs under <out_dir>/<population>/<protein>/, or under
-<out_dir>/<population>/<protein>/length_share_above_<value>/ with `--length_share_above`:
-    selected_cds.parquet      complete records at the kept lengths, retaining isolate and CDS mappings
-    length_summary.csv        isolate, unique-CDS and unique-protein counts for every complete
-                              CDS length, its share of unique CDS and whether it was kept
+`--gap_pattern_share_above`, given with `--length_share_above` once that run is inspected,
+keeps only the CDS whose protein's gap pattern holds more than the given fraction of the
+run's unique CDS, and prepares them for realignment. It reads the run's outputs, not the
+corpus. These are steps 4 and 5 of the same retention rule.
+
+Outputs under <out_dir>/<population>/<protein>/, under
+<out_dir>/<population>/<protein>/length_share_above_<value>/ with `--length_share_above`,
+or under its subdirectory gap_pattern_share_above_<value>/ with both:
+    selected_cds.parquet      selected complete records, retaining isolate and CDS mappings
+    length_summary.csv        isolate, unique-CDS and unique-protein counts for every CDS length
+                              of the complete records, its share of their unique CDS and whether
+                              it was kept; with `--gap_pattern_share_above`, of the kept records
     proteins_for_alignment.fasta  unique proteins without terminal stop markers
     x_summary.csv           isolate, unique-CDS and unique-protein X counts by CDS length
-    selection_manifest.json   input paths, filters, checks and counts
+    selection_manifest.json   input paths, filters, checks and counts; with
+                              `--gap_pattern_share_above`, also the parent's hashes and the
+                              kept and dropped gap patterns
     aligned_proteins.fasta  MAFFT protein alignment, rows in guide-tree order
     mafft.log               MAFFT progress and selected strategy
     protein_input_hashes.csv  hash of each stop-free input protein
@@ -34,6 +43,7 @@ Example:
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --validate_only
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024 --inspect_only
     python -m src.analysis.align_proteins --protein PB2 --host Human --hn_subtype H3N2 --year 2024 --length_share_above 0.02
+    python -m src.analysis.align_proteins --protein PB2 --host Human --hn_subtype H3N2 --year 2024 --length_share_above 0.02 --gap_pattern_share_above 0.02
 """
 from __future__ import annotations
 
@@ -538,12 +548,14 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
 
     Raises:
         FileNotFoundError: A required selection, alignment or validation file is absent.
-        ValueError: Input hashes or protein IDs disagree, or validation did not pass.
+        ValueError: Input hashes or protein IDs disagree, the selected CDS changed after the
+            alignment was made, or validation did not pass.
     """
     selected_path = out_dir / 'selected_cds.parquet'
     aligned_path = out_dir / 'aligned_proteins.fasta'
+    alignment_manifest_path = out_dir / 'alignment_manifest.json'
     validation_path = out_dir / 'alignment_validation.json'
-    for path in (selected_path, aligned_path, validation_path):
+    for path in (selected_path, aligned_path, alignment_manifest_path, validation_path):
         if not path.is_file():
             raise FileNotFoundError(f'Required inspection input is missing: {path}')
     existing = [name for name in INSPECTION_OUTPUT_NAMES if (out_dir / name).exists()]
@@ -554,6 +566,12 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
     validation = json.loads(validation_path.read_text())
     if not validation.get('all_passed') or validation['aligned_fasta_sha256'] != file_sha256(aligned_path):
         raise ValueError('The alignment has no passing validation for its current FASTA.')
+    # The protein IDs checked below can survive a change to the CDS records or their isolates,
+    # so the selection itself must be the one the alignment was made from.
+    alignment_manifest = json.loads(alignment_manifest_path.read_text())
+    if alignment_manifest['selected_cds_sha256'] != file_sha256(selected_path):
+        raise ValueError(f'{selected_path} changed after the alignment was made; rerun the '
+                         'alignment and its validation.')
     selected = pd.read_parquet(selected_path,
                                columns=['prot_hash', 'cds_dna_hash', 'cds_length', 'assembly_id'])
     lengths_by_hash = selected.groupby('prot_hash')['cds_length'].nunique()
@@ -631,8 +649,285 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
     print(f'Wrote inspection outputs to {out_dir}')
 
 
+def check_inspected_alignment(alignment_dir: Path) -> dict:
+    """Check that an inspected alignment directory's files all describe its current alignment.
+
+    The alignment must have passed validation. Every hash the alignment, validation and
+    inspection manifests recorded must match the file it names, so a file rewritten after
+    the step that recorded it is caught.
+
+    Args:
+        alignment_dir: A directory that `--inspect_only` has completed.
+
+    Returns:
+        The sha256 of each file checked, keyed by file name.
+
+    Raises:
+        FileNotFoundError: A required file is missing.
+        ValueError: Validation did not pass, or a file does not match the hash a manifest
+            recorded for it.
+    """
+    names = ('selection_manifest.json', 'selected_cds.parquet', 'aligned_proteins.fasta',
+             'alignment_manifest.json', 'alignment_validation.json', 'inspection_manifest.json',
+             'gap_locations.csv', 'gap_pattern_shares.csv')
+    missing = [name for name in names if not (alignment_dir / name).is_file()]
+    if missing:
+        raise FileNotFoundError(f'{alignment_dir} is missing {missing}; run the selection, '
+                                'alignment, validation and inspection first.')
+    hashes = {name: file_sha256(alignment_dir / name) for name in names}
+
+    validation = json.loads((alignment_dir / 'alignment_validation.json').read_text())
+    if not validation.get('all_passed'):
+        raise ValueError(f'The alignment in {alignment_dir} did not pass validation.')
+    alignment = json.loads((alignment_dir / 'alignment_manifest.json').read_text())
+    inspection = json.loads((alignment_dir / 'inspection_manifest.json').read_text())
+    # Each row: the manifest, the hash it recorded, and the file that hash must describe.
+    recorded = (
+        ('alignment_validation.json', validation.get('aligned_fasta_sha256'), 'aligned_proteins.fasta'),
+        ('alignment_manifest.json', alignment.get('aligned_fasta_sha256'), 'aligned_proteins.fasta'),
+        ('alignment_manifest.json', alignment.get('selected_cds_sha256'), 'selected_cds.parquet'),
+        ('inspection_manifest.json', inspection.get('aligned_fasta_sha256'), 'aligned_proteins.fasta'),
+        ('inspection_manifest.json', inspection.get('selected_cds_sha256'), 'selected_cds.parquet'),
+        ('inspection_manifest.json', inspection.get('validation_report_sha256'),
+         'alignment_validation.json'),
+        ('inspection_manifest.json', inspection.get('gap_locations_sha256'), 'gap_locations.csv'),
+        ('inspection_manifest.json', inspection.get('gap_pattern_shares_sha256'),
+         'gap_pattern_shares.csv'),
+    )
+    for manifest_name, recorded_hash, file_name in recorded:
+        if recorded_hash != hashes[file_name]:
+            raise ValueError(f'{alignment_dir}: {file_name} does not match the hash in '
+                             f'{manifest_name}; rerun the steps from the one that wrote it.')
+    return hashes
+
+
+def keep_gap_patterns_above_share(selected: pd.DataFrame, gap_locations: pd.DataFrame,
+                                  shares: pd.DataFrame,
+                                  share_above: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep the CDS records whose protein's gap pattern holds more than `share_above` of the unique CDS.
+
+    Every record of a kept protein is kept, including its synonymous CDS. A pattern's share is
+    the `unique_cds_share` that inspection wrote, so a pattern exactly at `share_above` is
+    dropped.
+
+    Args:
+        selected: The CDS records of an inspected alignment, with `prot_hash`.
+        gap_locations: Its `gap_locations.csv`, one row per aligned protein.
+        shares: Its `gap_pattern_shares.csv`, one row per gap pattern.
+        share_above: The share a gap pattern must exceed to be kept, as a fraction.
+
+    Returns:
+        The kept records, and `shares` with a `kept` column added.
+
+    Raises:
+        ValueError: A protein appears twice in `gap_locations`, a selected protein has no gap
+            pattern, `gap_locations` and `shares` name different patterns, or no pattern is
+            dropped or none is kept.
+    """
+    if not gap_locations['prot_hash'].is_unique:
+        raise ValueError('A protein has more than one row in gap_locations.csv.')
+    pattern_by_protein = gap_locations.set_index('prot_hash')['gap_pattern']
+    without_pattern = sorted(set(selected['prot_hash']) - set(pattern_by_protein.index))
+    if without_pattern:
+        raise ValueError(f'{len(without_pattern)} selected proteins have no gap pattern, for '
+                         f'example {without_pattern[0]}.')
+    if set(pattern_by_protein) != set(shares['gap_pattern']) or not shares['gap_pattern'].is_unique:
+        raise ValueError('gap_locations.csv and gap_pattern_shares.csv name different gap patterns.')
+
+    shares = shares.copy()
+    shares['kept'] = shares['unique_cds_share'] > share_above
+    if shares['kept'].all():
+        raise ValueError(f'Every gap pattern holds more than {share_above:g} of the unique CDS, '
+                         'so no record is dropped and there is nothing to realign.')
+    if not shares['kept'].any():
+        raise ValueError(f'No gap pattern holds more than {share_above:g} of the unique CDS, '
+                         'so no record would be kept.')
+
+    kept_patterns = set(shares.loc[shares['kept'], 'gap_pattern'])
+    is_kept = selected['prot_hash'].map(pattern_by_protein).isin(kept_patterns)
+    kept = selected.loc[is_kept].reset_index(drop=True)
+    return kept, shares
+
+
+def count_records(records: pd.DataFrame) -> dict:
+    """Count records, isolates, unique CDS and unique proteins.
+
+    Args:
+        records: CDS records with `assembly_id`, `cds_dna_hash` and `prot_hash`.
+
+    Returns:
+        The four counts as plain ints.
+    """
+    counts = {
+        'records': len(records),
+        'isolates': int(records['assembly_id'].nunique()),
+        'unique_cds': int(records['cds_dna_hash'].nunique()),
+        'unique_proteins': int(records['prot_hash'].nunique()),
+    }
+    return counts
+
+
+def write_selection(out_dir: Path, selected: pd.DataFrame, summary: pd.DataFrame,
+                    proteins: pd.DataFrame, x_summary: pd.DataFrame, manifest: dict,
+                    overwrite: bool) -> None:
+    """Write the five selection outputs that `--align_only` reads.
+
+    Args:
+        out_dir: Directory to write to; created if absent.
+        selected: The selected CDS records.
+        summary: Counts by CDS length, for `length_summary.csv`.
+        proteins: Output of `prepare_proteins`, written as the MAFFT input FASTA.
+        x_summary: Output of `summarize_unknown_residues`.
+        manifest: Contents of `selection_manifest.json`.
+        overwrite: Whether existing selection outputs may be replaced.
+
+    Returns:
+        None.
+
+    Raises:
+        FileExistsError: A selection output exists and `overwrite` is False.
+    """
+    existing = [name for name in OUTPUT_NAMES if (out_dir / name).exists()]
+    if existing and not overwrite:
+        raise FileExistsError(f'Output files already exist in {out_dir}: {existing}; '
+                              'pass --overwrite to replace them.')
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    selected.to_parquet(out_dir / 'selected_cds.parquet', index=False)
+    summary.to_csv(out_dir / 'length_summary.csv', index=False)
+    fasta = ''.join(f'>{row.prot_hash}\n{row.alignment_prot_seq}\n'
+                    for row in proteins.itertuples(index=False))
+    (out_dir / 'proteins_for_alignment.fasta').write_text(fasta)
+    x_summary.to_csv(out_dir / 'x_summary.csv', index=False)
+    (out_dir / 'selection_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+
+
+def select_kept_gap_patterns(parent_dir: Path, out_dir: Path, share_above: float,
+                             overwrite: bool) -> None:
+    """Select the parent's records whose gap pattern holds more than `share_above` of its unique CDS.
+
+    The records come from the parent's `selected_cds.parquet`, not the corpus, so they are the
+    exact records the parent alignment was made from. The selection is written to `out_dir`
+    for `--align_only` to realign. Nothing is written when no pattern is dropped or none is
+    kept.
+
+    Args:
+        parent_dir: An inspected alignment directory, here the `--length_share_above` one.
+        out_dir: Directory for the new selection.
+        share_above: The share a gap pattern must exceed to be kept, as a fraction.
+        overwrite: Whether existing selection outputs may be replaced.
+
+    Returns:
+        None.
+
+    Raises:
+        FileNotFoundError: A parent file is missing.
+        ValueError: A parent file is out of date, the gap-pattern tables disagree, the parent
+            selection has no length filter, or no pattern is dropped or none is kept.
+    """
+    parent_hashes = check_inspected_alignment(parent_dir)
+    parent_selection = json.loads((parent_dir / 'selection_manifest.json').read_text())
+    if 'length_filter' not in parent_selection:
+        raise ValueError(f'{parent_dir / "selection_manifest.json"} has no length_filter; '
+                         'select the parent with --length_share_above.')
+    parent_records = pd.read_parquet(parent_dir / 'selected_cds.parquet')
+    gap_locations = pd.read_csv(parent_dir / 'gap_locations.csv', keep_default_na=False)
+    shares = pd.read_csv(parent_dir / 'gap_pattern_shares.csv', keep_default_na=False)
+
+    selected, patterns = keep_gap_patterns_above_share(parent_records, gap_locations, shares,
+                                                       share_above)
+    selected = selected.sort_values(['cds_length', 'cds_dna_hash', 'assembly_id']).reset_index(drop=True)
+    dropped = parent_records.loc[~parent_records['prot_hash'].isin(selected['prot_hash'])]
+
+    # The length table describes the kept records, so its shares are out of their unique CDS.
+    summary = summarize_selected_lengths(selected)
+    summary['unique_cds_share'] = summary['unique_cds'] / selected['cds_dna_hash'].nunique()
+    summary['kept'] = True
+    proteins = prepare_proteins(selected)
+    x_summary = summarize_unknown_residues(selected)
+
+    # One plain-JSON record per parent gap pattern, split by whether it is kept.
+    kept_rows, dropped_rows = [], []
+    for row in patterns.itertuples(index=False):
+        record = {
+            'gap_pattern': row.gap_pattern,
+            'cds_length': int(row.cds_length),
+            'amino_acids': int(row.amino_acids),
+            'gap_columns': row.gap_columns,
+            'unique_proteins': int(row.unique_proteins),
+            'unique_cds': int(row.unique_cds),
+            'isolates': int(row.isolates),
+            'unique_cds_share': float(row.unique_cds_share),
+        }
+        if row.kept:
+            kept_rows.append(record)
+        else:
+            dropped_rows.append(record)
+
+    parent_counts = parent_selection['counts']
+    manifest = {
+        'stage': 'protein_realignment_preparation',
+        'protein': parent_selection['protein'],
+        'function': parent_selection['function'],
+        'population': parent_selection['population'],
+        'inputs': parent_selection['inputs'],
+        'filters': {**parent_selection['filters'], 'gap_pattern_share_above': share_above},
+        # Copied unchanged: it records the parent's CDS-length decision, not this selection.
+        'length_filter': parent_selection['length_filter'],
+        'gap_pattern_filter': {
+            'share_above': share_above,
+            'parent_dir': str(parent_dir.resolve()),
+            'parent_selection_manifest_sha256': parent_hashes['selection_manifest.json'],
+            'parent_selected_cds_sha256': parent_hashes['selected_cds.parquet'],
+            'parent_inspection_manifest_sha256': parent_hashes['inspection_manifest.json'],
+            'parent_gap_pattern_shares_sha256': parent_hashes['gap_pattern_shares.csv'],
+            'share_denominator_unique_cds': int(parent_records['cds_dna_hash'].nunique()),
+            # Gap-pattern names are local to the parent alignment; realignment names its own.
+            'kept_patterns': kept_rows,
+            'dropped_patterns': dropped_rows,
+            'parent_selection': count_records(parent_records),
+            'kept': count_records(selected),
+            'dropped': count_records(dropped),
+        },
+        # The population counts are the parent's: this selection cannot recount them. The
+        # rest describe the records written.
+        'counts': {
+            'population_records': parent_counts['population_records'],
+            'population_isolates': parent_counts['population_isolates'],
+            'complete_records': len(selected),
+            'complete_isolates': int(selected['assembly_id'].nunique()),
+            'excluded_incomplete_records': parent_counts['excluded_incomplete_records'],
+            'unknown_completeness_records': parent_counts['unknown_completeness_records'],
+            'unique_complete_cds': int(selected['cds_dna_hash'].nunique()),
+            'unique_complete_proteins': int(selected['prot_seq'].nunique()),
+            'unique_proteins_for_alignment': len(proteins),
+            'isolates_with_x': int(x_summary['isolates_with_x'].sum()),
+            'unique_cds_with_x': int(x_summary['unique_cds_with_x'].sum()),
+            'unique_proteins_with_x': int(x_summary['unique_proteins_with_x'].sum()),
+        },
+        'checks': {
+            'unique_cds_checked': int(selected['cds_dna_hash'].nunique()),
+            'translation_and_terminal_stop_passed': True,
+            'dna_length_and_protein_hash_passed': True,
+        },
+        'code': get_git_info(),
+        'outputs': list(OUTPUT_NAMES),
+    }
+    write_selection(out_dir, selected, summary, proteins, x_summary, manifest, overwrite)
+
+    kept_counts = manifest['gap_pattern_filter']['kept']
+    dropped_counts = manifest['gap_pattern_filter']['dropped']
+    print(f'{parent_selection["protein"]}, {parent_selection["population"]}: gap patterns kept '
+          f'{[row["gap_pattern"] for row in kept_rows]}; dropped {[row["gap_pattern"] for row in dropped_rows]}')
+    print(f'Kept {kept_counts["isolates"]:,} isolates, {kept_counts["unique_cds"]:,} unique CDS and '
+          f'{kept_counts["unique_proteins"]:,} unique proteins; dropped {dropped_counts["isolates"]:,} '
+          f'isolates, {dropped_counts["unique_cds"]:,} unique CDS and '
+          f'{dropped_counts["unique_proteins"]:,} unique proteins.')
+    print(f'Wrote selection and protein-preparation outputs to {out_dir}')
+
+
 def main() -> None:
-    """Prepare CDS inputs, align proteins, validate them or inspect their gaps.
+    """Prepare CDS inputs, align proteins, validate them, inspect their gaps or select kept gap patterns.
 
     Returns:
         None.
@@ -672,11 +967,24 @@ def main() -> None:
              'fraction, e.g. 0.02. Outputs go to a subdirectory named '
              'length_share_above_<value>, so pass the same value with --align_only, '
              '--validate_only and --inspect_only')
+    parser.add_argument('--gap_pattern_share_above', type=float, default=None,
+        help='with --length_share_above, after that run is inspected: keep only the CDS whose '
+             "protein's gap pattern in its alignment holds more than this fraction of its "
+             'unique CDS, e.g. 0.02, and prepare them for realignment. Reads that run\'s '
+             'outputs, not the corpus. Outputs go to its subdirectory '
+             'gap_pattern_share_above_<value>, so pass both values with --align_only, '
+             '--validate_only and --inspect_only')
     parser.add_argument('--overwrite', action='store_true',
         help='replace existing outputs for this population and protein')
     args = parser.parse_args()
     if args.length_share_above is not None and not 0 <= args.length_share_above < 1:
         parser.error('--length_share_above must be a fraction, at least 0 and below 1.')
+    if args.gap_pattern_share_above is not None:
+        if args.length_share_above is None:
+            parser.error('--gap_pattern_share_above needs --length_share_above: it filters the '
+                         'inspected alignment of that run.')
+        if not 0 <= args.gap_pattern_share_above < 1:
+            parser.error('--gap_pattern_share_above must be a fraction, at least 0 and below 1.')
 
     names = load_function_metadata(args.virus_config)
     if args.protein not in names.short_to_function:
@@ -691,6 +999,10 @@ def main() -> None:
         # A length-filtered selection is a different alignment input, so it gets its own
         # directory and cannot replace the alignment of all lengths.
         out_dir = out_dir / f'length_share_above_{args.length_share_above:g}'
+    if args.gap_pattern_share_above is not None:
+        # The records kept from that alignment are a new alignment input, so they get their
+        # own directory inside the one they were selected from.
+        out_dir = out_dir / f'gap_pattern_share_above_{args.gap_pattern_share_above:g}'
 
     if args.align_only:
         align_prepared_proteins(out_dir, args.mafft_bin, args.overwrite, args.mafft_strategy)
@@ -703,7 +1015,12 @@ def main() -> None:
     if args.inspect_only:
         inspect_alignment(out_dir, args.protein, args.overwrite)
         return
-    
+
+    if args.gap_pattern_share_above is not None:
+        select_kept_gap_patterns(out_dir.parent, out_dir, args.gap_pattern_share_above,
+                                 args.overwrite)
+        return
+
     function = names.short_to_function[args.protein]
     cds = pd.read_parquet(args.cds_final, columns=CDS_COLUMNS,
                           filters=[('function', '==', function)])
@@ -727,10 +1044,6 @@ def main() -> None:
 
     proteins = prepare_proteins(selected)
     x_summary = summarize_unknown_residues(selected)
-    existing = [name for name in OUTPUT_NAMES if (out_dir / name).exists()]
-    if existing and not args.overwrite:
-        raise FileExistsError(f'Output files already exist in {out_dir}: {existing}; '
-                              'pass --overwrite to replace them.')
 
     manifest = {
         'stage': 'protein_alignment_preparation',
@@ -780,15 +1093,7 @@ def main() -> None:
         'code': get_git_info(),
         'outputs': list(OUTPUT_NAMES),
     }
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    selected.to_parquet(out_dir / 'selected_cds.parquet', index=False)
-    summary.to_csv(out_dir / 'length_summary.csv', index=False)
-    fasta = ''.join(f'>{row.prot_hash}\n{row.alignment_prot_seq}\n'
-                    for row in proteins.itertuples(index=False))
-    (out_dir / 'proteins_for_alignment.fasta').write_text(fasta)
-    x_summary.to_csv(out_dir / 'x_summary.csv', index=False)
-    (out_dir / 'selection_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    write_selection(out_dir, selected, summary, proteins, x_summary, manifest, args.overwrite)
 
     print(f'{args.protein}, {label}: {manifest["counts"]["population_isolates"]:,} isolates before selection')
     print(f'CDS lengths kept: {kept_lengths}; dropped: {dropped_lengths}')
