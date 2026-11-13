@@ -286,7 +286,7 @@ features.
 5. If any CDS were dropped, realign the remaining proteins. That alignment is
    the input to the per-site codon features.
 
-Steps 3 and 4 have been run for PB2 and PB1 only, and step 5 for no protein.
+Steps 3 and 4 have been run for PB2, PB1 and PA only, and step 5 for no protein.
 Applied to the alignment of all lengths reported in this document, steps 2 and 4 keep
 exactly the lengths and gap patterns listed in each protein's Decision section.
 On that alignment, any threshold from 1.36% to 4.58% gives the same result in
@@ -646,25 +646,40 @@ aligned in this analysis.
     gaps in 28 of the 744 alignment columns.
   - The proteins from 2151-nt CDS records have 2 observed gap patterns.
 
-### 2. Lengths and gaps
+### 2. Retention rule
+
+#### Steps 1 and 2. Complete CDS and lengths above 2%
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment.
+were translated.
 
-| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---:|---|---|---|
-| 2151 nt | 60,332 | 35,609 | 99.86% | 15,897 | 99.74% | None | 26 | 2 |
-| 13 other lengths | 64 | 50 | 0.14% | 42 | 0.26% | 0 to 20 | 22 to 49 | 0 to 25 |
+| CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
+|---|---:|---:|---:|---:|---:|---|
+| 2151 nt | 60,332 | 35,609 | 99.86% | 15,897 | 99.74% | keep |
+| 13 other lengths | 64 | 50 | 0.14% | 42 | 0.26% | drop |
 
-The 2151-nt CDS length holds 2 aa gap patterns. The three subtype
-columns count unique proteins, not isolates. They sum to more than the unique
-protein count because 70 of the 2151-nt proteins occur in isolates of more than
-one subtype, one of them in all three.
+#### Step 3. Alignment of the kept lengths
 
-| Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates | H3N2 proteins | H1N1 proteins | H5N1 proteins |
-|---|---|---:|---:|---:|---:|---:|---:|
-| 2151 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 716 | 15,896 | 60,331 | 7,075 | 7,614 | 1,279 |
-| 2151 nt | 48–49, 77, 82–88, 624, 641–650, 660–663, 703, 743–744 | 716 | 1 | 1 | 1 | 0 | 0 |
+* MAFFT aligned the 15,897 unique proteins from 2151-nt CDS with FFT-NS-2 and
+  produced 716 aa alignment columns. MAFFT took 447.6 seconds.
+* Removing alignment gaps (`-`) from every aligned sequence recovered its exact
+  stop-free protein input.
+* Each protein has 716 aa residues, so no protein has a gap.
+* The outputs are in
+  `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PA/length_share_above_0.02/`.
+
+#### Step 4. Gap patterns above 2%
+
+| Gap pattern | AA gap columns | AA residues | Unique proteins | Unique CDS | % of unique CDS | Isolates | Step 4 |
+|---|---|---:|---:|---:|---:|---:|---|
+| `gap_pat001` | None | 716 | 15,897 | 35,609 | 100% | 60,332 | keep |
+
+* `% of unique CDS` divides each gap pattern's unique CDS by 35,609, the unique
+  CDS kept in step 2.
+
+#### Step 5. Realignment
+
+Not applicable: step 4 drops no gap pattern.
 
 ### 4. By host, subtype and year
 
@@ -771,68 +786,33 @@ aligned in this analysis.
     PA also hold 2 patterns at their modal length, but in both the second is a
     single protein. In HA the second holds 8,326 proteins.
 
-### 2. Lengths and gaps
+### 2. Retention rule
+
+#### Steps 1 and 2. Complete CDS and lengths above 2%
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment.
+were translated.
 
-| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---:|---|---|---|
-| 1695 nt | 244 | 203 | 0.57% | 179 | 0.90% | 4 | 44 | None |
-| 1698 nt | 71 | 67 | 0.19% | 62 | 0.31% | 4 | 43 | None |
-| 1701 nt | 56,223 | 33,492 | 94.32% | 18,606 | 93.78% | 4 | 42 | None |
-| 1704 nt | 3,632 | 1,643 | 4.63% | 901 | 4.54% | 4 | 41 | None |
-| 1707 nt | 63 | 56 | 0.16% | 50 | 0.25% | 0 to 4 | 40 to 44 | None |
-| 5 other lengths | 49 | 48 | 0.14% | 43 | 0.22% | 4 to 14 | 39 to 48 | None |
+| CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
+|---|---:|---:|---:|---:|---:|---|
+| 1695 nt | 244 | 203 | 0.57% | 179 | 0.90% | drop |
+| 1698 nt | 71 | 67 | 0.19% | 62 | 0.31% | drop |
+| 1701 nt | 56,223 | 33,492 | 94.32% | 18,606 | 93.78% | keep |
+| 1704 nt | 3,632 | 1,643 | 4.63% | 901 | 4.54% | keep |
+| 1707 nt | 63 | 56 | 0.16% | 50 | 0.25% | drop |
+| 5 other lengths | 49 | 48 | 0.14% | 43 | 0.22% | drop |
 
-The 6 gap patterns at 1701 nt are not six variants of one form. The two that
-hold the most unique proteins each sit almost entirely in one HA subtype, and a
-third pattern at 1704 nt sits entirely in a third subtype. Their column lists
-run to 151 to 187 characters each, so `gap_pattern_summary.csv` holds them
-rather than this table. This section calls the three patterns H3, H1 and H5
-after the subtype that dominates each, which is a label for the gap pattern and
-not a claim that the pattern and the subtype are the same set. The three subtype
-columns count unique proteins, not isolates. They sum to more than the unique
-protein count for the first two patterns, because 2 proteins in each occur in
-isolates of two subtypes.
+#### Step 3. Alignment of the kept lengths
 
-| Source CDS length | Gap pattern | AA residues | Unique proteins | Isolates | H3N2 proteins | H1N1 proteins | H5N1 proteins |
-|---|---|---:|---:|---:|---:|---:|---:|
-| 1701 nt | H3 | 566 | 10,274 | 32,783 | 10,272 | 3 | 1 |
-| 1701 nt | H1 | 566 | 8,326 | 23,428 | 4 | 8,324 | 0 |
-| 1701 nt | 4 rare patterns | 566 | 6 | 12 | 0 | 1 | 5 |
-| 1704 nt | H5 | 567 | 870 | 3,596 | 0 | 0 | 870 |
+TODO.
 
-H3 and H1 each fill 566 aa alignment columns, as their residue count requires,
-but not the same 566. They share 552 columns. H3 fills 14 that H1 does not:
-8, 10, 12, 21–26, 86–88, 158 and 176. H1 fills 14 that H3 does not: 77–80, 109,
-122, 149–152, 161, 178, 302 and 575. Between them they fill 580 columns.
+#### Step 4. Gap patterns above 2%
 
-The clearest of those differences is columns 20 to 27, where the H1 form has its
-8 consecutive aa alignment gaps and the H3 form has 6 residues:
+TODO.
 
-```text
-Alignment column:   19  20  21  22  23  24  25  26  27  28
-H3, 1701 nt:       res   -  res res res res res res  -  res
-H1, 1701 nt:       res   -   -   -   -   -   -   -   -  res
-H5, 1704 nt:       res   -   -   -   -   -   -   -   -  res
-```
+#### Step 5. Realignment
 
-Taking all three subtype forms together, they cover 59,807 of the 60,282
-complete records and fill 583 aa alignment columns. 550 of those columns are
-filled by all three forms, 14 by H3 only, 3 by H5 only, 14 by H1 and H5 but not
-H3, and 2 by H1 and H3 but not H5. No column is filled by H1 alone.
-
-The five CDS lengths with their own row above have no aa residue in columns 20,
-321, 335–337, 375 or 601–603, so they use 603 of the 612 columns. The sixth row
-holds the forms that do fill them. Those 9 columns are in the
-alignment because rarer forms fill them: 1683-nt proteins fill column 20,
-1683-nt and 1686-nt proteins fill 321 and 375, and 1710-nt proteins fill
-335–337 and 601–603.
-
-19,837 of the 19,841 proteins have their first aa residue in alignment column 5,
-so columns 1 to 4 are leading gaps for nearly every protein. One 1707-nt protein
-fills all four, two proteins start in column 6, and one starts in column 15.
+TODO.
 
 ### 4. By host, subtype and year
 
