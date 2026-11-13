@@ -600,28 +600,25 @@ Not applicable: step 4 drops no gap pattern.
 
 ### 4. By host, subtype and year
 
-"Other lengths" covers the twelve lengths not listed separately, so its column
-totals 25 isolates.
+| Host | Subtype | Complete PA isolates | Kept isolates | % kept |
+|---|---|---:|---:|---:|
+| Chicken | H1N1 | 2 | 2 | 100% |
+| Chicken | H3N2 | 17 | 17 | 100% |
+| Chicken | H5N1 | 1,824 | 1,823 | 99.95% |
+| Duck | H1N1 | 265 | 265 | 100% |
+| Duck | H3N2 | 217 | 216 | 99.54% |
+| Duck | H5N1 | 1,898 | 1,897 | 99.95% |
+| Human | H1N1 | 19,896 | 19,892 | 99.98% |
+| Human | H3N2 | 29,450 | 29,399 | 99.83% |
+| Human | H5N1 | 36 | 36 | 100% |
+| Swine | H1N1 | 3,619 | 3,616 | 99.92% |
+| Swine | H3N2 | 3,164 | 3,161 | 99.91% |
+| Swine | H5N1 | 8 | 8 | 100% |
+| Total | | 60,396 | 60,332 | 99.89% |
 
-| Host | Subtype | Complete PA isolates | 2151 nt | 2157 nt | Other lengths |
-|---|---|---:|---:|---:|---:|
-| Chicken | H1N1 | 2 | 2 | 0 | 0 |
-| Chicken | H3N2 | 17 | 17 | 0 | 0 |
-| Chicken | H5N1 | 1,824 | 1,823 | 0 | 1 |
-| Duck | H1N1 | 265 | 265 | 0 | 0 |
-| Duck | H3N2 | 217 | 216 | 0 | 1 |
-| Duck | H5N1 | 1,898 | 1,897 | 0 | 1 |
-| Human | H1N1 | 19,896 | 19,892 | 0 | 4 |
-| Human | H3N2 | 29,450 | 29,399 | 39 | 12 |
-| Human | H5N1 | 36 | 36 | 0 | 0 |
-| Swine | H1N1 | 3,619 | 3,616 | 0 | 3 |
-| Swine | H3N2 | 3,164 | 3,161 | 0 | 3 |
-| Swine | H5N1 | 8 | 8 | 0 | 0 |
-
-Every one of the 39 isolates at 2157 nt is Human-H3N2.
-
-The 2157-nt form appears in 7 of the 16 years, with 19 of its 39 isolates in
-2021.
+* Every host–subtype–year group with at least 100 isolates keeps at least
+  98.25% of its isolates. The lowest is Human-H3N2-2021, which keeps 1,068 of
+  1,087.
 
 ### 5. Findings
 
