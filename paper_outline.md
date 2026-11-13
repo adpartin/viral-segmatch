@@ -7,73 +7,114 @@ Settings used throughout, unless a section says otherwise:
 
 - **Narrow population**: `Human-H3N2-2024` (Task 1), 5,346 isolates.
 - **Full population**: the Task 2 filter, host `[Human, Swine, Chicken, Duck]`, subtype
-  `[H3N2, H1N1, H5N1]`, years 2010–2025; 60,751 isolates. It is not the whole corpus (108,530
-  isolates).
-- **Features**: per-site codons. ESM-2 and k-mers are not in the paper unless brought back.
+  `[H3N2, H1N1, H5N1]`, years 2010–2025; 60,751 isolates.
+- **Features**: per-site codons.
 - **Model**: LightGBM on the concatenated slot features `[x_A, x_B]`.
 - **Negatives**: matched balanced-usage negatives (`matched_balanced_usage_negatives`), one per
   positive, in both populations.
 - **Metric**: F1 macro.
 
+
+
 ## Methods
 
 ### Core concepts
 
-- Flu anatomy. Schematic of a flu showing 8 segments and 8 major proteins.
-- Model anatomy. Schematic of the prediction model: codon features for slot A
+- [Fig] Flu anatomy (simple schematic). The goal is to show that a viral isolate
+  consists of 8 segments, and each segment has a major protein representing it.
+- [Fig] Model anatomy. Schematic of the prediction model: codon features for slot A
   and slot B, concatenated, LightGBM, threshold. See `2026-10-08_paper_plan.md`.
-
-### Exploratory data analysis
-
-The figures/tables are drafted for the full population (task 2 in the paper
-plan). Counts are isolates (before any filtering on CDS completeness or
-sequences deduplication).
-
-- Isolates vs year (2010-2025)
-- Heatmap (with numbers) subtype-vs-host
 
 ### Dataset generation flowchart
 
-- Based on the flowchart in the paper plan, 1A "Dataset Construction (methods)".
+- [Fig] Dataset-generation flowchart. Shows the step-by-step process going from
+  full dataset down to 5-fold CV splits with positive and negative pairs. The
+  flowchart is shown in the paper plan 1A "Dataset Construction (methods)". Each
+  step shows the counts representative of a specific schema pair.
 
-### Sequence length and alignment analysis
+### Protein sequence alignment and per-site codon featurization 
 
-- Sequence length distributions (prep for alignment analysis), starting with
-  the full population (task 2 in the paper plan). We have different distributions
-  across the proteins, so we need to determine how to show it.
-- Per-protein alignment. Explain the reasons for alignment and the alignment
-  process.
+- [Fig] Flowchart. Align each protein's unique sequences -> inspect their gap
+  patterns -> decide which records to drop/retain ->  if anything dropped,
+  realign the retained sequences -> each protein's final alignment is the
+  input to codon featurization.
+
+
 
 ## Results
+
+### Exploratory data analysis
+
+The figures and tables are drafted for the full population (task 2 in the paper
+plan). Counts are isolates (before any filtering on CDS completeness or
+sequence deduplication).
+
+- [Fig] Isolates-vs-year barplot (2010-2025)
+- [Fig] Subtype-vs-host heatmap (with numbers)
+
+### Sequence length analysis
+
+- [Table] Stats of sequence counts and lengths (EDA for alignment analysis)
+  for the full population (task 2 in the paper plan).
+
+| Segment ID | Protein | Unique CDS | Complete CDS | Min length | Max length | Mode length | CDS lengths | Complete CDS at mode | Fraction @ mode | 
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | PB2 | 67,341 | 66,356 | 2,199 | 2,283 | 2,280 | 18 | 66,210 | 0.998 |
+| ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
+| 8 | NS1 | 38,039 | 37,843 | 609 | 717 | 693 | 16 | 21,576 | 0.570 |
 
 ### Alignment results and decisions
 
 - Equal CDS or protein length does not guarantee that residues at the same
-  position correspond, because insertions and deletions can shift homologous
-  residues. In HA and NA, the two largest gap patterns come from CDS of the
-  same length, yet their gaps fall in different columns.
-- Report alignment results.
-  - How many gap patterns per protein?
-  - How many unique proteins dropped?
-  - Show a few interesting patterns from Jalview.
+  position correspond (insertions and deletions can shift homologous residues).
+  In HA and NA, the two largest gap patterns come from CDS of the same length,
+  yet their gaps fall in different columns.
+- [Table] Report alignment results and decisions.
+  - Stats of unique lengths (see the tables in `2026-11-09_protein_alignment.md`)
+  - Dominant lengths per protein
+  - Gap patterns per protein
+- [Fig] Interesting alignment patterns from Jalview.
+- [Text] Report the decisions about what sequences to drop, and final alignment.
 
-### Model training and performance analysis for the narrow population (Human-H3N2-2024)
+PB2 (segment 1).
 
-- 8x8 F1 macro matrix: 28 schema pairs, one triangle filled. Current figure:
+| Source CDS length | Isolates | Unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
+|---|---:|---:|---:|---:|---|---|---|
+| 2280 nt | 60,413 | 36,879 | 15,230 | 99.61% | None | 7 | None |
+| 17 other lengths | 61 | 60 | 60 | 0.39% | 0 to 10 | 6 to 31 | 0 to 10 |
+
+The 759 aa sequences have 2 observed gap patterns:
+
+| Source CDS length | AA gap columns | AA residues | Unique proteins |
+|---|---|---:|---:|
+| 2280 nt | 42–45, 348, 575, 678 | 759 | 15,229 |
+| 2280 nt | 42–45, 348, 582, 678 | 759 | 1 |
+
+### Model performance results for the narrow population (Human-H3N2-2024)
+
+- [Table] Per schema pair performance scores.
+- [Fig] The F1 macro matrix: all 28 schema pairs (one triangle filled). E.g.,
   `docs/results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_matrix.png`.
-- Table with performance scores (maybe supp materials)
-- Sensitivity to negative resampling (1B). Current figure:
+- [Table] Sensitivity to negative resampling (1B). Maybe supp materials.
+- [Fig] Sensitivity to negative resampling (1B). Per-class scatter plots with
+  median. E.g.,
   `docs/results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_sd_draws_matrix.png`.
 
-### Model training and performance analysis for the full population
+### Model performance results for the full population
 
 Not run yet.
 
-- 8x8 F1 macro matrix
-- Table with performance scores (maybe supp materials)
-- Performance breakdown by metadata group, to be discussed. A metadata group is one exact
-  (host, HN subtype, year). The full population holds about 147 of them, many small.
-  `metadata_group_report.py` scores each group and also each single host, subtype and year.
+- [Table] Per schema pair performance scores.
+- [Fig] The F1 macro matrix: all 28 schema pairs (one triangle filled).
+- [Fig] Performance breakdown by metadata group. A metadata group is one exact
+  (host, HN subtype, year). The full population holds about 147 of them. Thus,
+  we may show performance by host-subtype while combining all years.
+  `metadata_group_report.py` scores each group and also each single host,
+  subtype and year.
+
+### Predicting future years.
+
+TBD.
 
 ### [Optional] Feature importance
 

@@ -626,9 +626,7 @@ nt alignment.
 | 2151 nt | 60,332 | 35,609 | 15,897 | 99.74% | None | 26 | 2 |
 | 13 other lengths | 64 | 50 | 42 | 0.26% | 0 to 20 | 22 to 49 | 0 to 25 |
 
-The 2151-nt CDS length holds 2 aa gap patterns. The table also lists the two at
-2157 nt, the most frequent of the other lengths at 39 isolates, because that is
-the length whose proteins reach the last alignment column. The three subtype
+The 2151-nt CDS length holds 2 aa gap patterns. The three subtype
 columns count unique proteins, not isolates. They sum to more than the unique
 protein count because 70 of the 2151-nt proteins occur in isolates of more than
 one subtype, one of them in all three.
@@ -637,8 +635,6 @@ one subtype, one of them in all three.
 |---|---|---:|---:|---:|---:|---:|---:|
 | 2151 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 716 | 15,896 | 60,331 | 7,075 | 7,614 | 1,279 |
 | 2151 nt | 48–49, 77, 82–88, 624, 641–650, 660–663, 703, 743–744 | 716 | 1 | 1 | 1 | 0 | 0 |
-| 2157 nt | 48–49, 77, 82–83, 94–98, 624, 641–650, 660–663, 703 | 718 | 16 | 38 | 16 | 0 | 0 |
-| 2157 nt | 77, 82–83, 94–98, 624, 641–650, 660–663, 703, 743–744 | 718 | 1 | 1 | 1 | 0 | 0 |
 
 Thus, each protein translated from a 2151-nt CDS contributes 716 aa residues to
 the 744-column alignment and has an aa alignment gap in 28 columns. These gaps
@@ -949,7 +945,6 @@ fewest of the eight proteins alongside M1.
 | Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates |
 |---|---|---:|---:|---:|
 | 1497 nt | None | 498 | 7,249 | 60,039 |
-| 1461 nt | 1–12 | 486 | 1 | 1 |
 
 NP and M1 are the only two of the eight proteins whose modal form has no aa
 alignment gap at all. Every host and subtype in the population has records at
@@ -1265,7 +1260,6 @@ fewest of the eight proteins alongside NP.
 | Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates |
 |---|---|---:|---:|---:|
 | 759 nt | None | 252 | 1,947 | 60,565 |
-| 726 nt | 31–41 | 241 | 1 | 1 |
 
 Every host and subtype in the population has records at 759 nt, as part 4
 shows.
@@ -1416,7 +1410,6 @@ all three subtypes and so add 2 each.
 | 672 nt | 74, 112, 132, 227–240 | 223 | 144 | 806 | 144 | 1 | 0 |
 | 678 nt | 74, 81–85, 112, 132, 234–240 | 225 | 205 | 341 | 1 | 0 | 204 |
 | 693 nt | 74, 112, 132, 234–240 | 230 | 4,926 | 33,553 | 3,618 | 686 | 667 |
-| 11 other lengths | 14 patterns | 202 to 237 | 47 | 59 | 20 | 24 | 3 |
 
 No length belongs to one HN subtype, but four of the five lean hard. By
 isolates: 693 nt is 28,725 H3N2, 3,379 H5N1 and 1,449 H1N1; 660 nt is 22,419 of
