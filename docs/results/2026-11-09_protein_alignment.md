@@ -286,8 +286,7 @@ features.
 5. If any CDS were dropped, realign the remaining proteins. That alignment is
    the input to the per-site codon features.
 
-Steps 3 and 4 have been run for PB2, PB1, PA, HA, NP and M1 only, and step 5 for
-no protein.
+Steps 3 and 4 have been run for all eight proteins, and step 5 for none.
 Applied to the alignment of all lengths reported in this document, steps 2 and 4 keep
 exactly the lengths and gap patterns listed in each protein's Decision section.
 On that alignment, any threshold from 1.36% to 4.58% gives the same result in
@@ -1080,38 +1079,47 @@ aligned in this analysis.
     than one pattern at their modal length, but their second pattern is a single
     protein. NA and HA are the two where the modal length splits in two.
 
-### 2. Lengths and gaps
+### 2. Retention rule
+
+#### Steps 1 and 2. Complete CDS and lengths above 2%
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment.
+were translated.
 
-| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---:|---|---|---|
-| 1350 nt | 505 | 407 | 1.31% | 319 | 1.85% | None | 93 | 1 |
-| 1410 nt | 59,154 | 30,630 | 98.31% | 16,843 | 97.54% | None | 66 to 73 | 1 to 8 |
-| 1413 nt | 129 | 59 | 0.19% | 55 | 0.32% | None | 70 to 73 | 0 to 3 |
-| 13 other lengths | 68 | 61 | 0.20% | 50 | 0.29% | 0 to 14 | 67 to 93 | 0 to 2 |
+| CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
+|---|---:|---:|---:|---:|---:|---|
+| 1350 nt | 505 | 407 | 1.31% | 319 | 1.85% | drop |
+| 1410 nt | 59,154 | 30,630 | 98.31% | 16,843 | 97.54% | keep |
+| 1413 nt | 129 | 59 | 0.19% | 55 | 0.32% | drop |
+| 13 other lengths | 68 | 61 | 0.20% | 50 | 0.29% | drop |
 
-Every length carries internal aa gaps, including the modal one.
+#### Step 3. Alignment of the kept lengths
 
-The 9 gap patterns at 1410 nt are not nine variants of one form. The two that
-hold the most unique proteins each sit almost entirely in one neuraminidase
-subtype, and the 1350-nt length holds a single pattern that is a shorter variant
-of the second. Their column lists run to 166 to 193 characters each, so
-`gap_pattern_summary.csv` holds them rather than this table. This section calls
-the patterns N2 and N1 after the neuraminidase subtype that dominates each,
-which is a label for the gap pattern and not a claim that the pattern and the
-subtype are the same set. The three subtype columns count unique proteins, not
-isolates. In the N2 and N1 rows they sum to more than the unique protein count,
-by 4 and by 8, because that many proteins occur in isolates of more than one
-subtype.
+* MAFFT aligned the 16,843 unique proteins from 1410-nt CDS with FFT-NS-2 and
+  produced 514 aa alignment columns. MAFFT took 332.9 seconds.
+* Removing alignment gaps (`-`) from every aligned sequence recovered its exact
+  stop-free protein input.
+* Each protein has 469 aa residues, so it has gaps in 45 of the 514 columns.
+* The outputs are in
+  `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NA/length_share_above_0.02/`.
 
-| Source CDS length | Gap pattern | AA residues | Unique proteins | Isolates | H3N2 proteins | H1N1 proteins | H5N1 proteins |
-|---|---|---:|---:|---:|---:|---:|---:|
-| 1410 nt | N2 | 469 | 8,510 | 32,486 | 8,495 | 9 | 10 |
-| 1410 nt | N1 | 469 | 8,305 | 26,631 | 6 | 7,531 | 776 |
-| 1410 nt | 7 rare patterns | 469 | 28 | 37 | 10 | 1 | 17 |
-| 1350 nt | the only pattern | 449 | 319 | 505 | 0 | 0 | 319 |
+#### Step 4. Gap patterns above 2%
+
+| Gap pattern | AA gap columns | AA residues | Unique proteins | Unique CDS | % of unique CDS | Isolates | Step 4 |
+|---|---|---:|---:|---:|---:|---:|---|
+| `gap_pat001` (N2) | 46–55, 102–119, 193, 201, 303, 442–445, 468, 471, 499–505, 514 | 469 | 8,520 | 16,092 | 52.54% | 32,498 | keep |
+| `gap_pat002` (N1) | 40–53, 64–70, 87–93, 201, 303, 338, 366–367, 369, 424, 468, 471–472, 499–505 | 469 | 8,305 | 14,518 | 47.40% | 26,631 | keep |
+| 4 other patterns | | 469 | 18 | 20 | 0.05% or less each | 25 | drop |
+
+* `% of unique CDS` divides each gap pattern's unique CDS by 30,630, the unique
+  CDS kept in step 2.
+* N2 and N1 name each kept pattern after the neuraminidase subtype of its
+  isolates. 32,474 of the 32,498 isolates of `gap_pat001` are H3N2, and 26,623
+  of the 26,631 of `gap_pat002` are H1N1 or H5N1, which both carry N1.
+
+#### Step 5. Realignment
+
+TODO.
 
 ### 4. By host, subtype and year
 
@@ -1373,37 +1381,46 @@ aligned in this analysis.
     and 3 hold two: 663, 687 and 696 nt, one protein apiece in the second. So
     the population is split across lengths rather than within them.
 
-### 2. Lengths and gaps
+### 2. Retention rule
+
+#### Steps 1 and 2. Complete CDS and lengths above 2%
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment.
+were translated.
 
-| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---:|---|---|---|
-| 654 nt | 389 | 236 | 1.30% | 207 | 2.04% | None | 3 | 20 |
-| 660 nt | 25,506 | 8,243 | 45.52% | 4,601 | 45.42% | None | 3 | 18 |
-| 672 nt | 806 | 235 | 1.30% | 144 | 1.42% | None | 3 | 14 |
-| 678 nt | 341 | 246 | 1.36% | 205 | 2.02% | None | 8 | 7 |
-| 693 nt | 33,553 | 9,097 | 50.24% | 4,926 | 48.63% | None | 3 | 7 |
-| 11 other lengths | 59 | 50 | 0.28% | 47 | 0.46% | 0 to 5 | 2 to 8 | 0 to 35 |
+| CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
+|---|---:|---:|---:|---:|---:|---|
+| 654 nt | 389 | 236 | 1.30% | 207 | 2.04% | drop |
+| 660 nt | 25,506 | 8,243 | 45.52% | 4,601 | 45.42% | keep |
+| 672 nt | 806 | 235 | 1.30% | 144 | 1.42% | drop |
+| 678 nt | 341 | 246 | 1.36% | 205 | 2.02% | drop |
+| 693 nt | 33,553 | 9,097 | 50.24% | 4,926 | 48.63% | keep |
+| 11 other lengths | 59 | 50 | 0.28% | 47 | 0.46% | drop |
 
-Each of the five listed lengths holds exactly one gap pattern, so for every
-length in the table above the CDS length fixes the gap pattern. HA's modal
-length holds 6 patterns and NA's holds 9, two of them large in each case.
+#### Step 3. Alignment of the kept lengths
 
-The three subtype columns count unique proteins, not isolates. They sum to more than the unique protein
-count in four rows, by 1 for 654 nt, 102 for 660 nt, 1 for 672 nt and 45 for
-693 nt. For the first three that is the number of proteins occurring in isolates
-of more than one subtype. At 693 nt it is 38 such proteins, 7 of which occur in
-all three subtypes and so add 2 each.
+* MAFFT aligned the 9,527 unique proteins from 660-nt and 693-nt CDS with
+  FFT-NS-2 and produced 230 aa alignment columns. MAFFT took 52.6 seconds.
+* Removing alignment gaps (`-`) from every aligned sequence recovered its exact
+  stop-free protein input.
+* A protein from a 693-nt CDS has 230 aa residues, so it has no gap. A protein
+  from a 660-nt CDS has 219 aa residues and gaps in 11 of the 230 columns.
+* The outputs are in
+  `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NS1/length_share_above_0.02/`.
 
-| Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates | H3N2 proteins | H1N1 proteins | H5N1 proteins |
-|---|---|---:|---:|---:|---:|---:|---:|
-| 654 nt | 74, 112, 132, 221–240 | 217 | 207 | 389 | 74 | 119 | 15 |
-| 660 nt | 74, 112, 132, 223–240 | 219 | 4,601 | 25,506 | 1,060 | 3,641 | 2 |
-| 672 nt | 74, 112, 132, 227–240 | 223 | 144 | 806 | 144 | 1 | 0 |
-| 678 nt | 74, 81–85, 112, 132, 234–240 | 225 | 205 | 341 | 1 | 0 | 204 |
-| 693 nt | 74, 112, 132, 234–240 | 230 | 4,926 | 33,553 | 3,618 | 686 | 667 |
+#### Step 4. Gap patterns above 2%
+
+| Gap pattern | CDS length | AA gap columns | AA residues | Unique proteins | Unique CDS | % of unique CDS | Isolates | Step 4 |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| `gap_pat001` | 693 nt | None | 230 | 4,926 | 9,097 | 52.46% | 33,553 | keep |
+| `gap_pat002` | 660 nt | 220–230 | 219 | 4,601 | 8,243 | 47.54% | 25,506 | keep |
+
+* `% of unique CDS` divides each gap pattern's unique CDS by 17,340, the unique
+  CDS kept in step 2.
+
+#### Step 5. Realignment
+
+Not applicable: step 4 drops no gap pattern.
 
 ### 4. By host, subtype and year
 
