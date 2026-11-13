@@ -372,23 +372,24 @@ TODO.
 
 ### 4. By host, subtype and year
 
-| Host | Subtype | Complete PB2 isolates | 2280 nt | Other lengths |
+| Host | Subtype | Complete PB2 isolates | Kept isolates | % kept |
 |---|---|---:|---:|---:|
-| Chicken | H1N1 | 2 | 2 | 0 |
-| Chicken | H3N2 | 17 | 17 | 0 |
-| Chicken | H5N1 | 1,815 | 1,814 | 1 |
-| Duck | H1N1 | 264 | 264 | 0 |
-| Duck | H3N2 | 216 | 215 | 1 |
-| Duck | H5N1 | 1,894 | 1,894 | 0 |
-| Human | H1N1 | 20,017 | 19,994 | 23 |
-| Human | H3N2 | 29,439 | 29,409 | 30 |
-| Human | H5N1 | 36 | 36 | 0 |
-| Swine | H1N1 | 3,599 | 3,595 | 4 |
-| Swine | H3N2 | 3,159 | 3,158 | 1 |
-| Swine | H5N1 | 16 | 15 | 1 |
+| Chicken | H1N1 | 2 | 2 | 100% |
+| Chicken | H3N2 | 17 | 17 | 100% |
+| Chicken | H5N1 | 1,815 | 1,813 | 99.89% |
+| Duck | H1N1 | 264 | 264 | 100% |
+| Duck | H3N2 | 216 | 215 | 99.54% |
+| Duck | H5N1 | 1,894 | 1,894 | 100% |
+| Human | H1N1 | 20,017 | 19,994 | 99.89% |
+| Human | H3N2 | 29,439 | 29,409 | 99.90% |
+| Human | H5N1 | 36 | 36 | 100% |
+| Swine | H1N1 | 3,599 | 3,595 | 99.89% |
+| Swine | H3N2 | 3,159 | 3,158 | 99.97% |
+| Swine | H5N1 | 16 | 15 | 93.75% |
+| Total | | 60,474 | 60,412 | 99.90% |
 
-The off-mode lengths are spread across hosts, subtypes and years, with no group
-holding more than 30 of the 61 isolates.
+* Every host–subtype–year group with at least 100 isolates keeps at least
+  99.53% of its isolates. The lowest is Swine-H1N1-2010, which keeps 213 of 214.
 
 ### 5. Findings
 
