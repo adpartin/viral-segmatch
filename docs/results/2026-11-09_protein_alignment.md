@@ -313,7 +313,7 @@ features.
 5. If any CDS were dropped, realign the remaining proteins. That alignment is
    the input to the per-site codon features.
 
-Steps 3 and 4 have been run for all eight proteins, and step 5 for none.
+Steps 3 and 4 have been run for all eight proteins, and step 5 for PB2 only.
 Applied to the alignment of all lengths reported in this document, steps 2 and 4 keep
 exactly the lengths and gap patterns listed in each protein's Decision section.
 On that alignment, any threshold from 1.36% to 4.58% gives the same result in
@@ -395,7 +395,14 @@ were translated.
 
 #### Step 5. Realignment
 
-TODO.
+* MAFFT realigned the 15,229 unique proteins kept in step 4 with FFT-NS-2 and
+  produced 759 aa alignment columns. MAFFT took 419.6 seconds.
+* Removing alignment gaps (`-`) from every aligned sequence recovered its exact
+  stop-free protein input.
+* Each protein has 759 aa residues, so no protein has a gap. The alignment has
+  one gap pattern, the one with no gaps.
+* The outputs are in
+  `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PB2/length_share_above_0.02/gap_pattern_share_above_0.02/`.
 
 ### 4. By host, subtype and year
 
@@ -426,16 +433,17 @@ TODO.
   61 isolates.
 * Step 4 drops one protein, carried by one isolate. Its gap is at column 577 of
   the step-3 alignment, where every other protein has its gap at column 570.
-* Still open: step 5, which realigns the 15,229 kept proteins, and the mapping
-  from alignment columns to codon features. The width of the final alignment is
-  known only after step 5.
+* Step 5 realigns the 15,229 kept proteins into 759 columns, with no gap in any
+  protein.
+* Still open: the mapping from alignment columns to codon features.
 
 ### Decision
 
 * Keep the 2280-nt CDS, whose proteins have 759 aa residues.
   * Within them, keep `gap_pat001` of the step-3 alignment, which gaps column
     570. Drop `gap_pat002`, the single protein that gaps column 577 instead.
-* Realign the 15,229 kept proteins in step 5.
+* PB2's final alignment is the step-5 realignment of the 15,229 kept proteins:
+  759 columns, with no gap in any protein.
 
 
 ## PB1 (Segment 2)
