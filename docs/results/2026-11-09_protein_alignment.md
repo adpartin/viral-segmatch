@@ -286,8 +286,8 @@ features.
 5. If any CDS were dropped, realign the remaining proteins. That alignment is
    the input to the per-site codon features.
 
-Steps 3 and 4 have been run for PB2, PB1, PA, HA and NP only, and step 5 for no
-protein.
+Steps 3 and 4 have been run for PB2, PB1, PA, HA, NP and M1 only, and step 5 for
+no protein.
 Applied to the alignment of all lengths reported in this document, steps 2 and 4 keep
 exactly the lengths and gap patterns listed in each protein's Decision section.
 On that alignment, any threshold from 1.36% to 4.58% gives the same result in
@@ -1236,41 +1236,40 @@ aligned in this analysis.
   - The proteins from 759-nt CDS records have 1 observed gap pattern, which is
     the pattern with no gaps.
 
-### 2. Lengths and gaps
+### 2. Retention rule
+
+#### Steps 1 and 2. Complete CDS and lengths above 2%
 
 The CDS lengths in this table identify the nt sequences from which the proteins
-were translated. All gap counts refer to the resulting aa alignment.
+were translated.
 
-| Source CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Leading AA-gap columns | Internal AA-gap columns | Trailing AA-gap columns |
-|---|---:|---:|---:|---:|---:|---|---|---|
-| 726 nt | 1 | 1 | 0.01% | 1 | 0.05% | None | 11 | None |
-| 759 nt | 60,565 | 14,572 | 99.99% | 1,947 | 99.95% | None | None | None |
+| CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
+|---|---:|---:|---:|---:|---:|---|
+| 726 nt | 1 | 1 | 0.01% | 1 | 0.05% | drop |
+| 759 nt | 60,565 | 14,572 | 99.99% | 1,947 | 99.95% | keep |
 
-M1 holds 2 gap patterns in the whole alignment, one per CDS length, which is the
-fewest of the eight proteins alongside NP.
+#### Step 3. Alignment of the kept lengths
 
-| Source CDS length | AA gap columns | AA residues | Unique proteins | Isolates |
-|---|---|---:|---:|---:|
-| 759 nt | None | 252 | 1,947 | 60,565 |
+* MAFFT aligned the 1,947 unique proteins from 759-nt CDS with FFT-NS-2 and
+  produced 252 aa alignment columns. MAFFT took 3.9 seconds.
+* Removing alignment gaps (`-`) from every aligned sequence recovered its exact
+  stop-free protein input.
+* Each protein has 252 aa residues, so no protein has a gap.
+* The outputs are in
+  `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/M1/length_share_above_0.02/`.
 
-Every host and subtype in the population has records at 759 nt, as part 4
-shows.
+#### Step 4. Gap patterns above 2%
 
-The 726-nt protein is not a truncated 759-nt one. It is 11 codons shorter, and
-MAFFT placed all 11 of its aa alignment gaps in the middle, at columns 31 to 41,
-so it starts at column 1 and ends at column 252 with every other protein. Only
-1 of the 1,947 proteins at 759 nt matches it once those columns are deleted, and
-that is not the one shown below, which differs at 11 residue positions outside
-the gap:
+| Gap pattern | AA gap columns | AA residues | Unique proteins | Unique CDS | % of unique CDS | Isolates | Step 4 |
+|---|---|---:|---:|---:|---:|---:|---|
+| `gap_pat001` | None | 252 | 1,947 | 14,572 | 100% | 60,565 | keep |
 
-```text
-Alignment column:  21         31         41         51
-759 nt:            KAEIAQRLED VFAGKNTDLE ALMEWLKTRP ILSP
-726 nt:            KAEIAQRLED ---------- -LMEWLKTRP ILSP
-```
+* `% of unique CDS` divides each gap pattern's unique CDS by 14,572, the unique
+  CDS kept in step 2.
 
-One isolate carries this form, from Swine-H1N1 in 2011. The 759-nt row above is
-the most common 759-nt protein, which 27,661 isolates carry.
+#### Step 5. Realignment
+
+Not applicable: step 4 drops no gap pattern.
 
 ### 4. By host, subtype and year
 
