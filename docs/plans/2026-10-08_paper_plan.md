@@ -592,7 +592,8 @@ implemented.
 * Which records each protein keeps is set by the retention rule in
   `docs/results/2026-11-09_protein_alignment.md`, section "Retention rule".
   Under it every protein is aligned, not pinned. Its steps 3 and 4 have been
-  run for all eight proteins, and step 5 for PB2 and PB1 only.
+  run for all eight proteins. Step 5 has realigned PB2, PB1, HA and NA, and does
+  not apply to PA, NP, M1 and NS1.
 * Still open: which alignment columns to admit, and the codon feature mapping
   itself, which is proposed but not implemented or checked.
 * The negative-sampling pilot below is not affected. It was built on a
