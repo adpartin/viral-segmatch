@@ -22,6 +22,8 @@ Outputs under <out_dir>/<population>/<protein>/, or under
     alignment_manifest.json  tool version, command, strategy, runtime and file hashes
     alignment_validation.json  input recovery check for every aligned protein
     gap_locations.csv      gap positions and gap-pattern name for every aligned protein
+    gap_pattern_shares.csv  unique proteins, unique CDS, isolates and share of unique CDS
+                            for each gap pattern
     aligned_proteins_labelled.fasta  the alignment, labels starting with prot_hash
     aligned_proteins_jalview.fasta  the alignment, labels starting with the protein
     inspection_manifest.json  input and output hashes for the gap inspection
@@ -76,8 +78,8 @@ ALIGNMENT_OUTPUT_NAMES = (
     'protein_cds_map.csv', 'alignment_manifest.json',
 )
 INSPECTION_OUTPUT_NAMES = (
-    'gap_locations.csv', 'aligned_proteins_labelled.fasta', 'aligned_proteins_jalview.fasta',
-    'inspection_manifest.json',
+    'gap_locations.csv', 'gap_pattern_shares.csv', 'aligned_proteins_labelled.fasta',
+    'aligned_proteins_jalview.fasta', 'inspection_manifest.json',
 )
 
 
@@ -432,6 +434,43 @@ def number_gap_patterns(gap_locations: pd.DataFrame, isolates: pd.Series) -> pd.
     return names
 
 
+def summarize_gap_patterns(gap_locations: pd.DataFrame, selected: pd.DataFrame) -> pd.DataFrame:
+    """Count each gap pattern's unique proteins, unique CDS and isolates, and its share of the unique CDS.
+
+    The share divides a pattern's unique CDS by all unique CDS in `selected`. With
+    `--length_share_above`, those are the CDS at the kept lengths.
+
+    Args:
+        gap_locations: One row per aligned protein, with `prot_hash`, `gap_pattern`,
+            `gap_columns`, `cds_length` and `amino_acids`.
+        selected: The selected CDS records, with `prot_hash`, `cds_dna_hash` and `assembly_id`.
+
+    Returns:
+        One row per gap pattern, in name order, with its CDS length, aa residue count, gap
+        columns, unique proteins, unique CDS, isolates and `unique_cds_share`.
+
+    Raises:
+        ValueError: A selected record has no aligned protein, or a gap pattern spans more than
+            one CDS length.
+    """
+    pattern_columns = ['gap_pattern', 'cds_length', 'amino_acids', 'gap_columns']
+    records = selected[['prot_hash', 'cds_dna_hash', 'assembly_id']].merge(
+        gap_locations[['prot_hash', *pattern_columns]], on='prot_hash', how='left',
+        validate='many_to_one')
+    if records['gap_pattern'].isna().any():
+        raise ValueError('A selected CDS record has no aligned protein.')
+
+    patterns = (records.groupby(pattern_columns, sort=True)
+                .agg(unique_proteins=('prot_hash', 'nunique'),
+                     unique_cds=('cds_dna_hash', 'nunique'),
+                     isolates=('assembly_id', 'nunique'))
+                .reset_index())
+    if not patterns['gap_pattern'].is_unique:
+        raise ValueError('A gap pattern spans more than one CDS length.')
+    patterns['unique_cds_share'] = patterns['unique_cds'] / selected['cds_dna_hash'].nunique()
+    return patterns
+
+
 def describe_proteins(proteins: pd.DataFrame) -> pd.Series:
     """Join each protein's gap pattern, CDS length, residue count and isolate count.
 
@@ -487,6 +526,8 @@ def build_protein_first_labels(proteins: pd.DataFrame, protein: str) -> pd.Serie
 def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
     """Record gap locations for every validated aligned protein and write two labelled copies.
 
+    Also writes each gap pattern's counts and its share of the unique CDS.
+
     Args:
         out_dir: Directory containing selected CDS and validated alignment outputs.
         protein: Short protein name, used in the labels.
@@ -513,7 +554,8 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
     validation = json.loads(validation_path.read_text())
     if not validation.get('all_passed') or validation['aligned_fasta_sha256'] != file_sha256(aligned_path):
         raise ValueError('The alignment has no passing validation for its current FASTA.')
-    selected = pd.read_parquet(selected_path, columns=['prot_hash', 'cds_length', 'assembly_id'])
+    selected = pd.read_parquet(selected_path,
+                               columns=['prot_hash', 'cds_dna_hash', 'cds_length', 'assembly_id'])
     lengths_by_hash = selected.groupby('prot_hash')['cds_length'].nunique()
     if lengths_by_hash.ne(1).any():
         raise ValueError('A protein hash has more than one CDS length.')
@@ -550,6 +592,9 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
     gap_locations['gap_pattern'] = number_gap_patterns(gap_locations, isolates)
     gap_path = out_dir / 'gap_locations.csv'
     gap_locations.to_csv(gap_path, index=False)
+    shares = summarize_gap_patterns(gap_locations, selected)
+    shares_path = out_dir / 'gap_pattern_shares.csv'
+    shares.to_csv(shares_path, index=False)
 
     # Two copies of aligned_proteins.fasta, same rows in the same order, with readable
     # labels: one starting with prot_hash, one starting with the protein so that sorting
@@ -571,6 +616,7 @@ def inspect_alignment(out_dir: Path, protein: str, overwrite: bool) -> None:
         'aligned_fasta_sha256': file_sha256(aligned_path),
         'validation_report_sha256': file_sha256(validation_path),
         'gap_locations_sha256': file_sha256(gap_path),
+        'gap_pattern_shares_sha256': file_sha256(shares_path),
         'labelled_fasta_sha256': file_sha256(labelled_path),
         'jalview_fasta_sha256': file_sha256(jalview_path),
         'proteins_inspected': len(gap_locations),
