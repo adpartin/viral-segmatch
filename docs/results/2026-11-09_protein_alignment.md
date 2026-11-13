@@ -478,34 +478,24 @@ TODO.
 
 ### 4. By host, subtype and year
 
-| Host | Subtype | Complete PB1 isolates | 2274 nt | 2277 nt | Other lengths |
-|---|---|---:|---:|---:|---:|
-| Chicken | H1N1 | 2 | 2 | 0 | 0 |
-| Chicken | H3N2 | 17 | 17 | 0 | 0 |
-| Chicken | H5N1 | 1,798 | 1,796 | 2 | 0 |
-| Duck | H1N1 | 263 | 259 | 4 | 0 |
-| Duck | H3N2 | 217 | 212 | 4 | 1 |
-| Duck | H5N1 | 1,871 | 1,869 | 1 | 1 |
-| Human | H1N1 | 19,761 | 19,706 | 28 | 27 |
-| Human | H3N2 | 25,390 | 19,394 | 5,984 | 12 |
-| Human | H5N1 | 35 | 35 | 0 | 0 |
-| Swine | H1N1 | 3,578 | 3,530 | 41 | 7 |
-| Swine | H3N2 | 3,148 | 3,115 | 31 | 2 |
-| Swine | H5N1 | 13 | 13 | 0 | 0 |
+| Host | Subtype | Complete PB1 isolates | Kept isolates | % kept |
+|---|---|---:|---:|---:|
+| Chicken | H1N1 | 2 | 2 | 100% |
+| Chicken | H3N2 | 17 | 17 | 100% |
+| Chicken | H5N1 | 1,798 | 1,797 | 99.94% |
+| Duck | H1N1 | 263 | 263 | 100% |
+| Duck | H3N2 | 217 | 216 | 99.54% |
+| Duck | H5N1 | 1,871 | 1,870 | 99.95% |
+| Human | H1N1 | 19,761 | 19,734 | 99.86% |
+| Human | H3N2 | 25,390 | 25,377 | 99.95% |
+| Human | H5N1 | 35 | 35 | 100% |
+| Swine | H1N1 | 3,578 | 3,570 | 99.78% |
+| Swine | H3N2 | 3,148 | 3,146 | 99.94% |
+| Swine | H5N1 | 13 | 13 | 100% |
+| Total | | 56,093 | 56,040 | 99.91% |
 
-The 2277-nt records are concentrated in Human-H3N2: 5,984 of 6,095, which is
-23.6% of that group's 25,390 complete PB1 records.
-
-The 2277-nt share of the isolates at the two main lengths is still moving:
-
-```text
-2010   2011-2019   2020   2021   2022   2023   2024   2025
-1.9%   under 0.6%  0.7%   3.1%   4.7%  11.1%  34.0%  33.9%
-```
-
-Within Human-H3N2 the change is far sharper. The 2277-nt share of that group's
-isolates at the two main lengths was 6.9% in 2022, 47.5% in 2023, 99.6% in 2024
-and 99.5% in 2025. By 2024 almost every Human-H3N2 record is 2277 nt.
+* Every host–subtype–year group with at least 100 isolates keeps at least
+  99.09% of its isolates. The lowest is Swine-H1N1-2022, which keeps 219 of 221.
 
 ### 5. Findings
 
