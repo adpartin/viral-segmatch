@@ -10,11 +10,34 @@ docs/results/2026-11-09_protein_alignment.md.
 `--gap_pattern_share_above`, given with `--length_share_above` once that run is inspected,
 keeps only the CDS whose protein's gap pattern holds more than the given fraction of the
 run's unique CDS, and prepares them for realignment. It reads the run's outputs, not the
-corpus. These are steps 4 and 5 of the same retention rule.
+corpus. These are steps 4 and 5 of the same retention rule. Its selection manifest also
+records the parent's file hashes and the kept and dropped gap patterns.
 
-Outputs are written under <out_dir>/<population>/<protein>/. Each filter adds a
-subdirectory, keeping the original alignment and its filtered selections separate.
-Selection, alignment, validation and inspection each write their own outputs and manifest.
+Each run writes to <out_dir>/<population>/<protein>/. With `--length_share_above` it writes
+to the subdirectory length_share_above_<value>/, and with `--gap_pattern_share_above` too,
+to that directory's subdirectory gap_pattern_share_above_<value>/. Below, "counts" means
+isolates, unique CDS and unique proteins.
+
+Selection (the plain run):
+    selected_cds.parquet             selected complete CDS records with isolate metadata
+    length_summary.csv               counts, share of unique CDS and kept flag per CDS length
+    proteins_for_alignment.fasta     MAFFT input: unique proteins without the terminal stop
+    x_summary.csv                    counts of records whose protein has an X, per CDS length
+    selection_manifest.json          inputs, filters, counts and checks
+Alignment (--align_only):
+    aligned_proteins.fasta           the alignment, keyed by prot_hash, in guide-tree order
+    mafft.log                        MAFFT's messages, including the strategy it used
+    protein_input_hashes.csv         sha256 of the stop-free sequence MAFFT received, per protein
+    protein_cds_map.csv              CDS length and isolate count per protein-CDS pair
+    alignment_manifest.json          MAFFT version, command, strategy, runtime and file hashes
+Validation (--validate_only):
+    alignment_validation.json        result of checking that each aligned protein recovers its input
+Inspection (--inspect_only):
+    gap_locations.csv                gap columns, gap counts and gap pattern per aligned protein
+    gap_pattern_shares.csv           counts and share of unique CDS per gap pattern
+    aligned_proteins_labelled.fasta  the alignment, with labels starting with prot_hash
+    aligned_proteins_jalview.fasta   the alignment, with labels starting with the protein
+    inspection_manifest.json         hashes of the inspection's inputs and outputs
 
 Example:
     python -m src.analysis.align_proteins --protein NS1 --host Human --hn_subtype H3N2 --year 2024
