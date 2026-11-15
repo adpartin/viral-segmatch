@@ -236,11 +236,13 @@ with PB1 and NS1.
 
 ## NS1 protein alignment
 
-The NS1 protein alignment is reported in [Protein alignment for codon
-features](2026-11-09_protein_alignment.md), which covers the three NS1 alignment
-runs and the downstream contig check. The provenance block above does not cover
-it, because the alignment comes from `src/analysis/align_proteins.py` rather than
-the length survey script.
+The NS1 protein alignment on the Task 2 population is reported in [Protein
+alignment for codon features](2026-11-09_protein_alignment.md). The
+Human-H3N2-2024 pilot and its downstream contig check are in [NS1 protein
+alignment pilot on Human-H3N2-2024](2026-11-05_ns1_alignment_pilot.md). The
+provenance block above does not cover them, because they come from
+`src/analysis/align_proteins.py` and `src/analysis/audit_ns1_downstream_contig.py`
+rather than the length survey script.
 
 ## Metadata filtering
 

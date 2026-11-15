@@ -184,6 +184,8 @@ exception.
     Human-H3N2-2024.
   - `2026-09-08_h3n2_2024_progress_report.md` — progress report and scope decision: the dataset
     population, the four-schema-pair experiment, and where the codon-site signal sits.
+  - `2026-11-05_ns1_alignment_pilot.md` — NS1 protein alignment pilot on Human-H3N2-2024, and
+    the downstream contig check for the 654- and 660-nt stop codons.
 - **2. Expand the population. Evaluate across hosts, subtypes, and years.**
   - `2026-11-09_protein_alignment.md` — protein alignment of the 8 modelled proteins on the Task 2
     population, to decide which records and columns to keep for codon features.

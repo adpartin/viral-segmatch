@@ -429,7 +429,7 @@ bases absent from a truncated record.
 
 The pilot artifacts are under
 `results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The sequence examples and
-interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-09_protein_alignment.md#ns1-on-human-h3n2-2024-segment-8-task-1-population).
+interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-05_ns1_alignment_pilot.md).
 
 ### Progress
 
@@ -474,7 +474,7 @@ There are no internal gaps.
 
 ### Next step
 
-The [downstream contig check](../results/2026-11-09_protein_alignment.md#downstream-contig-check)
+The [downstream contig check](../results/2026-11-05_ns1_alignment_pilot.md#downstream-contig-check)
 supports mapping the 654-nt CDS stop codon to column 218 and the 660-nt CDS
 stop codon to column 220, opposite the same-numbered codons in the 693-nt
 reference. Because the terminal `*` markers were removed, the protein alignment

@@ -5,7 +5,7 @@
 # Provenance. status: current | at-risk (inputs changed, not rebuilt) | superseded (replaced)
 status:         current
 date:           2026-11-09
-populations:    Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025; Human-H3N2-2024
+population:     Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025
 proteins:       PB2; PB1; PA; HA; NP; NA; M1; NS1
 source:         data/processed/flu/July_2025/cds_dna_final.parquet
 scripts:        src/analysis/align_proteins.py; src/analysis/summarize_protein_alignment.py
@@ -59,6 +59,10 @@ The eight Task 2 protein sections use one population,
 set in `docs/plans/2026-10-08_paper_plan.md`. Filters: host `[Human, Swine,
 Chicken, Duck]`, subtype `[H3N2, H1N1, H5N1]`, year `2010–2025`. `host` is a
 host group, so `Duck` covers 54 animal names and `Chicken` covers 3.
+
+The earlier NS1 pilot on the Task 1 population, with its downstream contig
+check, is in [NS1 protein alignment pilot on
+Human-H3N2-2024](2026-11-05_ns1_alignment_pilot.md).
 
 ## How to read these sections
 
@@ -138,16 +142,16 @@ The retention rule keeps the records below. Percentages use the isolates with
 a complete CDS for that protein as the denominator. A kept length can still
 lose records when the rule removes uncommon gap patterns.
 
-| Protein | Kept CDS lengths (nt) | Kept isolates | % kept |
-|---|---|---:|---:|
-| PB2 | 2280 | 60,412 | 99.90% |
-| PB1 | 2274, 2277 | 56,040 | 99.91% |
-| PA | 2151 | 60,332 | 99.89% |
-| HA | 1701, 1704 | 59,807 | 99.21% |
-| NP | 1497 | 60,039 | >99.99% |
-| NA | 1410 | 59,129 | 98.79% |
-| M1 | 759 | 60,565 | >99.99% |
-| NS1 | 660, 693 | 59,059 | 97.37% |
+| Segment | Protein | Kept CDS lengths (nt) | Kept isolates | % kept |
+|---:|---|---|---:|---:|
+| 1 | PB2 | 2280 | 60,412 | 99.90% |
+| 2 | PB1 | 2274, 2277 | 56,040 | 99.91% |
+| 3 | PA | 2151 | 60,332 | 99.89% |
+| 4 | HA | 1701, 1704 | 59,807 | 99.21% |
+| 5 | NP | 1497 | 60,039 | >99.99% |
+| 6 | NA | 1410 | 59,129 | 98.79% |
+| 7 | M1 | 759 | 60,565 | >99.99% |
+| 8 | NS1 | 660, 693 | 59,059 | 97.37% |
 
 The final alignments have no gaps for PB2, PA, NP and M1. PB1 and NS1 retain
 two lengths that differ only at the end of the alignment. HA and NA retain
@@ -219,18 +223,19 @@ The rule pools all years. It drops NS1's 672-nt length, which holds 698 of the
 
 ## Artifacts
 
-Every Task 2 run wrote to
-`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/<protein>/`,
-one directory per protein.
+The Task 2 runs wrote to
+`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/`:
+
+* `<protein>/`: the all-length run for each protein.
+* `<protein>/length_share_above_0.02/`: the step-3 run for each protein.
+* `<protein>/length_share_above_0.02/gap_pattern_share_above_0.02/`: the step-5
+  run for PB2, PB1, HA and NA.
 
 `align_proteins.py` wrote the selection, alignment, validation and gap
-locations. `summarize_protein_alignment.py` wrote `group_length_summary.csv`,
-`gap_pattern_summary.csv` and `column_occupancy.csv`. The manifests record file
-hashes and code state.
-
-The eight Task 2 manifests record a MAFFT runtime. The eight runs ran at the
-same time, one thread each, and took (m:ss): PB2 7:19, PB1 5:37, PA 7:26, HA
-9:23, NP 1:10, NA 5:52, M1 0:04 and NS1 1:01.
+locations in each directory. `summarize_protein_alignment.py` wrote
+`group_length_summary.csv`, `gap_pattern_summary.csv` and `column_occupancy.csv`
+in the all-length and step-5 directories. The manifests record file hashes and
+code state.
 
 
 ## PB2 (Segment 1)
@@ -987,127 +992,6 @@ final alignment.
   * Within them, keep both gap patterns of the step-3 alignment.
 * Use the step-3 alignment as the final alignment.
 
-
-## NS1 on Human-H3N2-2024 (Segment 8, Task 1 population)
-
-The first alignment run, on 2026-11-05, used the Task 1 population to develop
-the method. Its outputs are in
-`results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The run
-predated `mafft_seconds`, so it has no recorded runtime. It used `--auto` to
-select FFT-NS-2; no second strategy was tested.
-
-The directory also holds the downstream contig check, written by
-`src/analysis/audit_ns1_downstream_contig.py` as `ns1_downstream_contig.csv`,
-`ns1_downstream_summary.csv` and `ns1_downstream_manifest.json`.
-
-A trailing gap is a `-` after the last protein symbol; an internal gap is
-between protein symbols. `res` in the schematic below stands for one amino acid
-or `X`. An `X` does not identify a single amino acid and gives MAFFT less
-information for placing nearby gaps.
-
-### 1. Inputs
-
-* **Records.** Of 5,346 filtered isolates, 5,337 (99.8%) had a complete CDS and
-  9 were dropped as incomplete.
-* **Sequences.** 1,132 unique CDS and 560 unique proteins, across 3 CDS lengths
-  in one host–subtype–year group.
-* **Unknown residues.** 48 isolates and 48 unique proteins contain an `X`, all
-  48 at 693 nt.
-* **Pin.** NS1 clears the floor here but has no configured pin. 1,122 of the
-  1,132 unique complete CDS are 693 nt, a share of 0.991, above the 0.90
-  `check_cds_length` needs. `conf/virus/flu.yaml` pins no length for NS1, so
-  there is no pin for `check_cds_length` to check. On the Task 2 population,
-  the modal share at 693 nt is 0.502.
-* **Alignment.** MAFFT used FFT-NS-2 and produced `230` columns.
-  - Removing `-` from the aligned proteins recovered the exact input protein
-    for all 560.
-  - A 693-nt CDS is 230 amino acids, so the alignment adds no columns.
-  - This run asked for `--auto` rather than the flags in Method.
-
-### 2. Lengths and gaps
-
-The last three columns count symbols per protein in the alignment, not codon
-feature values.
-
-| CDS length | Isolates | Unique CDS | Unique proteins | Internal gap columns | Trailing gap columns | Codons incl. stop | Symbols sent to MAFFT | `-` symbols |
-|---|---:|---:|---:|---|---|---:|---:|---:|
-| 693 nt | 5,324 | 1,122 | 551 | None | None | 231 | 230 | 0 |
-| 660 nt | 9 | 7 | 6 | None | 220–230 | 220 | 219 | 11 |
-| 654 nt | 4 | 3 | 3 | None | 218–230 | 218 | 217 | 13 |
-
-The examples below show input amino acids from position 205 to the end and their
-placement in columns 205–230. Protein hash prefixes identify records in the saved
-FASTA files.
-
-| CDS length | Protein hash prefix | Input amino acids 205–end | Aligned columns 205–230 |
-|---|---|---|---|
-| 693 nt | `47566821` | `SSHENGGPPLTPKQKQEMARTARSEV` | `SSHENGGPPLTPKQKQEMARTARSEV` |
-| 693 nt | `046b53e6` | `SSNENGGPPLTPKQKREMARTARSEV` | `SSNENGGPPLTPKQKREMARTARSEV` |
-| 660 nt | `40191b0e` | `SCDENGRPSLPPEQK` | `SCDENGRPSLPPEQK-----------` |
-| 654 nt | `6a1f0bc8` | `SSHENGGPPLTPK` | `SSHENGGPPLTPK-------------` |
-
-The 654-nt example matches the first 217 amino acids of the `47566821` protein
-from a 693-nt CDS. The trailing gaps are consistent with the 654-nt CDS ending
-earlier.
-
-### 3. Stop codon columns
-
-```text
-Column:     1–217       218   219   220–230
-693 nt:     res...      res   res   res...res
-660 nt:     res...      res   res   - ... -
-654 nt:     res...      -     -     - ... -
-```
-
-The 660-nt CDS records end with a stop codon at codon 220 and the 654-nt records
-at codon 218. The downstream contig check below supports placing those stop
-codons opposite the same-numbered codons of the 693-nt reference. The proposed
-codon feature mapping is in the NS1 alignment pilot section of [the codon site
-features plan](../plans/2026-09-14_codon_site_features_plan.md#next-step). This
-mapping is not implemented.
-
-### 4. By host, subtype and year
-
-One metadata group, so there is no breakdown.
-
-### 5. Findings
-
-* All 551 proteins from 693-nt CDS have no gaps, and each shorter protein has
-  one
-  run of trailing gaps.
-* No protein has an `X` in columns 218–230, where one or both shorter forms
-  have
-  trailing gaps.
-* The 693-nt length clears the pinning floor in this population. The alignment
-  was run to establish the method.
-
-### Downstream contig check
-
-The protein alignment shows where amino acids end, but it cannot place CDS stop
-codons or show whether bases remain in the contig after a stop. We checked the
-source contig for all 13 isolates with a 654- or 660-nt NS1 CDS. We first
-verified that each annotated location recovers its CDS exactly. We then compared
-the bases after its stop with the same positions in the most frequent 693-nt CDS,
-which 2,095 isolates carry. This comparison assumes that codons with the same
-number, counted from the CDS start, correspond across these sequences. The
-downstream matches support that placement for these 13 isolates.
-
-| CDS length | Isolates | Contig bases after stop | Bases compared with 693-nt CDS | Matching bases |
-|---|---:|---:|---:|---:|
-| 654 nt | 4 | 197 | 39 | 34–39 |
-| 660 nt | 9 | 178–191 | 33 | 25–27 |
-
-At the short CDS's terminal codon, all four 654-nt sequences have `TAG` where the
-693-nt reference has `CAG` (codon 218); all nine 660-nt sequences have `TGA`
-where the reference has `CGG` (codon 220). The 693-nt reference ends with `TGA`
-at codon 231. That triplet remains `TGA` at the corresponding contig position for
-all nine 660-nt isolates and three of the four 654-nt isolates; it is `CGA` in
-the remaining 654-nt isolate.
-
-These findings support mapping the 654- and 660-nt CDS stop codons opposite the
-same-numbered codons in the 693-nt reference rather than aligning all terminal
-stop codons. They do not establish the exact evolutionary history. Bases beyond a
-short CDS's stop are in the contig, outside that annotated CDS.
 
 ## Limitations
 
