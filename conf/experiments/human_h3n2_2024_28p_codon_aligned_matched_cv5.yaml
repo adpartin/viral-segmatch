@@ -1,0 +1,55 @@
+# Experiment spec: the 28-pair per-site codon screen on Human-H3N2-2024 with codons placed in
+# protein-alignment columns, 5-fold CV and matched balanced-usage negatives.
+# Bundles: conf/bundles/flu_28p_aligned_codon_*.yaml. Design: docs/plans/2026-10-08_paper_plan.md
+# section 1, and docs/plans/2026-11-17_aligned_codon_features_plan.md for the aligned features.
+# Written from the plans, not copied from a built dataset; see "Experiment spec" in
+# docs/methods/glossary.md.
+#
+# It differs from conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml in two entries.
+# The records are the ones the retention rule kept, so the pinned-length requirement is off, and
+# `site.mode` is `aligned`. Every other entry is the same, so the two screens differ only in how
+# records are selected and where each codon is placed.
+
+# Applied on top of every child bundle, in order. Only what differs from the bundles.
+overrides:
+  - dataset.n_folds=5
+
+# Every dataset's resolved_config.yaml and every planned fit config must have these values.
+expect:
+  # Population
+  dataset.host: [Human]
+  dataset.hn_subtype: [H3N2]
+  dataset.year: [2024]
+  # Positive selection
+  dataset.positive_pair_selection.method: hopcroft_karp
+  dataset.split_strategy.pair_key_alphabet: nt_cds
+  # Negative sampler and ratio
+  dataset.split_strategy.negative_scope: balanced
+  dataset.neg_to_pos_ratio: 1.0
+  # Matched negatives: both sides share host, HN subtype and exact year
+  dataset.negative_sampling.axes: [host, hn_subtype, year]
+  dataset.negative_sampling.year_match: exact
+  dataset.negative_sampling.on_shortfall: error
+  dataset.negative_sampling.regime_targets:
+    none_match: 0.0
+    host_only: 0.0
+    subtype_only: 0.0
+    year_only: 0.0
+    host_subtype_only: 0.0
+    host_year_only: 0.0
+    subtype_year_only: 0.0
+    host_subtype_year: 1.0
+  # Records: the ones the retention rule kept, not complete CDS at pinned lengths
+  dataset.require_complete_cds_at_pinned_length: false
+  # Fold count
+  dataset.n_folds: 5
+  # Feature settings
+  site.mode: aligned
+  training.feature_source: site
+  site.unit: codon
+  site.encoding: ordinal
+  training.interaction: concat
+  training.slot_transform: none
+  # LightGBM row sampling
+  baseline_lgbm.subsample: 0.7
+  baseline_lgbm.subsample_freq: 1
