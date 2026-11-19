@@ -184,6 +184,10 @@ each cache belongs to one alignment of one population.
 
 7. Validate and update documentation.
 
+   On 2026-11-19 all seven pinned-cache comparisons passed (157,831 rows).
+   See [Codon cache checks](../results/2026-11-09_protein_alignment.md#codon-cache-checks).
+   The Task 1 and Task 2 dataset-build counts below await step 6.
+
    The mapping script runs the row and position checks below on every row before it writes.
 
    Row check: after removing `GAP` and `AFTER_STOP`, the row's codes must equal the codes

@@ -34,7 +34,7 @@ position do not all correspond.
 For each protein, the document reports population coverage, gap-pattern support,
 and the final alignment. The goal is to preserve well-supported sequence forms
 without adding records or alignment columns whose small coverage does not justify
-their complexity. Projection from alignment columns to codons is not implemented.
+their complexity. The [codon cache checks](#codon-cache-checks) cover the saved features.
 
 
 ## Why this is measured
@@ -49,8 +49,8 @@ options to obtain those sites:
    at least 90% of unique complete CDS have the pinned length. The mode checks
    the configured pin; it does not set it.
 2. **Protein alignment.** Align translated proteins to estimate which sites
-   correspond across records. Under the proposed codon mapping, a column with
-   no codon would be `GAP` before a record's stop or `AFTER_STOP` after it.
+   correspond across records. An empty feature column holds `GAP` before a
+   record's stop or `AFTER_STOP` after it.
 
 
 ## The population
@@ -117,8 +117,7 @@ protein. MAFFT receives each protein without its terminal `*`, so no alignment
 column holds a stop codon. The **stop codon placement rule** puts each CDS's
 stop codon in the column immediately after its last protein symbol. When that
 symbol is in the last alignment column, the stop codon goes in one extra column
-added after the alignment. The codon features planned in
-`docs/plans/2026-11-17_aligned_codon_features_plan.md` use this rule. The stop
+added after the alignment. The aligned codon caches use this rule. The stop
 codon placement rule is a convention. The downstream contig check in
 [the NS1 pilot](2026-11-05_ns1_alignment_pilot.md#downstream-contig-check)
 supports it for the 654- and 660-nt NS1 CDS of 13 Human-H3N2-2024 isolates.
@@ -1018,14 +1017,40 @@ final alignment.
 * Use the step-3 alignment as the final alignment.
 
 
+## Codon cache checks
+
+The aligned cache builder checked the codes, text and column positions of all
+231,782 rows across the eight proteins before writing the caches on 2026-11-18.
+
+On 2026-11-19, we compared the saved codes with the existing pinned caches.
+The comparison looked up each selected CDS by hash in both cache indexes.
+All 157,831 rows listed below were present and matched.
+
+| Protein | CDS length (nt) | Rows matched |
+|---|---:|---:|
+| PB2 | 2280 | 36,878 |
+| PA | 2151 | 35,609 |
+| NP | 1497 | 27,086 |
+| M1 | 759 | 14,572 |
+| PB1 | 2277 | 3,767 |
+| PB1 | 2274 | 30,822 |
+| NS1 | 693 | 9,097 |
+
+For PB1 at 2274 nt, columns 1–758 matched the pinned row including its stop,
+and column 759 held `AFTER_STOP` in every row. The other six comparisons
+matched across the full width. HA and NA have internal gaps throughout the
+retained population, so a direct column comparison would use different
+coordinates. NS1 at 660 nt has no pinned cache.
+
+To repeat the check, run `python -m src.analysis.check_aligned_codon_caches`
+from the repository root.
+
 ## Limitations
 
 * All 8 modelled proteins are aligned on the Task 2 population and written up
   here.
-* No codon features and no models were produced from any of these alignments.
-  The
-  mapping from alignment columns to codon features is planned in
-  `docs/plans/2026-11-17_aligned_codon_features_plan.md` and is not implemented.
+* Agreement with pinned codes checks the saved representation. The empirical
+  support for stop placement is limited to the NS1 pilot described under Method.
 * The Task 2 runs used FFT-NS-2. We did not test a second strategy. Agreement
   between two strategies would not establish that a placement is correct.
 * The one-residue columns and the uncommon gap patterns have not been reviewed

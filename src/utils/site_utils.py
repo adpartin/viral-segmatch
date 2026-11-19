@@ -312,8 +312,10 @@ def site_feature_columns(cache_a: SiteCache, cache_b: SiteCache, encoding: str,
       slots: which slots contribute columns -- `both`, or `a` / `b` for the one-side ablation.
 
     Returns:
-      One row per column with `column`, `slot`, `protein`, `site` (1-based along the CDS) and,
-      under `onehot`, the `code` that column indicates.
+      One row per column with `column`, `slot`, `protein` and 1-based `site`. For pinned
+      caches, the site is a position along the CDS in the cache's unit. For aligned caches,
+      it is a protein-alignment column or the extra column after the alignment. Under
+      `onehot`, `code` gives the value that column indicates.
 
     Raises:
       ValueError: `encoding` or `slots` is not a recognised value.
