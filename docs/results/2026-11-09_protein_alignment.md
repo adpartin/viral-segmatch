@@ -111,6 +111,18 @@ use `prot_hash`, the hash of the stored protein including its terminal `*`;
 An `X` represents a codon that does not resolve to one amino acid, so it gives
 MAFFT less information for placing nearby gaps.
 
+A **stop codon** is the last triplet of a complete CDS, such as `TGA`. The
+**terminal `*`** is the marker for that stop codon at the end of the stored
+protein. MAFFT receives each protein without its terminal `*`, so no alignment
+column holds a stop codon. The **stop codon placement rule** puts each CDS's
+stop codon in the column immediately after its last protein symbol. When that
+symbol is in the last alignment column, the stop codon goes in one extra column
+added after the alignment. The codon features planned in
+`docs/plans/2026-11-17_aligned_codon_features_plan.md` use this rule. The stop
+codon placement rule is a convention. The downstream contig check in
+[the NS1 pilot](2026-11-05_ns1_alignment_pilot.md#downstream-contig-check)
+supports it for the 654- and 660-nt NS1 CDS of 13 Human-H3N2-2024 isolates.
+
 The inspection also writes labelled copies of the alignment for viewing.
 `src/analysis/summarize_protein_alignment.py` writes group, gap-pattern and
 column-occupancy summaries.
@@ -999,8 +1011,8 @@ final alignment.
   here.
 * No codon features and no models were produced from any of these alignments.
   The
-  mapping from alignment columns to codon features is proposed in
-  `docs/plans/2026-09-14_codon_site_features_plan.md` and is not implemented.
+  mapping from alignment columns to codon features is planned in
+  `docs/plans/2026-11-17_aligned_codon_features_plan.md` and is not implemented.
 * The Task 2 runs used FFT-NS-2. We did not test a second strategy. Agreement
   between two strategies would not establish that a placement is correct.
 * The one-residue columns and the uncommon gap patterns have not been reviewed

@@ -1,6 +1,6 @@
 """Prepare complete CDS proteins and align them with MAFFT.
 
-The procedure follows docs/plans/2026-09-14_codon_site_features_plan.md.
+The procedure is described under "Method" in docs/results/2026-11-09_protein_alignment.md.
 FASTA headers use source prot_hash values, which hash prot_seq including its terminal stop.
 
 `--length_share_above` keeps only the CDS lengths whose share of the unique complete CDS

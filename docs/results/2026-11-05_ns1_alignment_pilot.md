@@ -18,8 +18,9 @@ proteins on the Task 2 population is in
 [Protein alignment for codon features](2026-11-09_protein_alignment.md).
 
 This doc also holds the downstream contig check. The
-[codon-features plan](../plans/2026-09-14_codon_site_features_plan.md#next-step)
-uses it to place the stop codon of a 654- or 660-nt NS1 CDS.
+[aligned codon features plan](../plans/2026-11-17_aligned_codon_features_plan.md)
+cites it as the support for the stop codon placement rule in the 654- and 660-nt
+NS1 CDS.
 
 ## Inputs
 

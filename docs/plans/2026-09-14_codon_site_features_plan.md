@@ -1,4 +1,4 @@
-# Cross-year site feature importance, 28-pairs, and aligned CDS features
+# Cross-year site feature importance and 28-pairs
 
 **Status: IN PROGRESS**
 
@@ -13,9 +13,7 @@ native `HK selected` positives and a 1:1 ratio of balanced-usage negatives in ea
 3. Do GenSLM embedded codons perform better as features for LightGBM than raw codon features?
 4. `DONE`. Do models trained separately on Human-H3N2-2024 and Human-H3N2-2025 rely on similar HA and NA
 codon sites?
-5. Explore how complete NS1 sequences from Human-H3N2-2024 align, retaining all observed
-lengths. Inspect which positions correspond and where the alignment places gaps. Record the
-findings in `docs/results/2026-09-07_cds_length_survey.md` before expanding the population.
+5. TBD.
 6. `DONE`. When we redraw the negative training pairs, do predictions change more for positive or
 negative test pairs?
 
@@ -148,8 +146,6 @@ What the later experiments need from this:
 - **Experiment 3** runs GenSLM on the same data as Experiment 2 (same
   positives and negatives, sequences and folds). Varying CDS length can be explored later, but it would
   not recover PB1's 44.7%, which stems from incomplete records rather than the pin.
-- **Experiment 5** does not draw on this section. It addresses complete CDS at more than one
-  length, measured in `docs/results/2026-09-07_cds_length_survey.md`.
 
 #### Decision for Experiments 2 and 3
 
@@ -274,7 +270,6 @@ Limitations:
 What the later experiments need from this:
 
 - **Experiment 3** compares GenSLM codon embeddings with per-site codon features. For each schema pair included in Experiment 3, both feature types should use the same dataset whenever possible, and their F1 macro scores should be compared.
-- **Experiment 5** does not draw on this section.
 
 
 
@@ -381,258 +376,7 @@ population, the partial 2025 season, or correlation among sites.
 
 
 
-## Experiment 5: protein alignment for codon features
-
-### Goal
-
-Align the proteins recorded for complete Human-H3N2-2024 NS1 CDS, retaining every observed
-CDS length. Inspect the protein-alignment columns and gap symbols (`-`) in
-MAFFT's output as an estimate of which positions correspond.
-
-See [Alignment in the glossary](../methods/glossary.md#per-site-features) for the definition
-and the distinction between an estimated correspondence and an established evolutionary history.
-
-### Methods
-
-1. Select complete NS1 CDS from Human-H3N2-2024, retaining all observed lengths.
-2. Use `prot_seq` from `cds_dna_final.parquet`. For every selected unique CDS, check that it
-   matches `cds_utils.translate_dna(cds_dna_seq)`, ends with exactly one `*`, has no internal
-   `*`, and that the CDS length is three times the length of `prot_seq`, including its `*`.
-   Stop if a check fails. Remove the terminal `*` only from the protein sent
-   to MAFFT; keep the original CDS unchanged. With the options used here,
-   [MAFFT would also remove `*`](https://mafft.cbrc.jp/alignment/software/anysymbol.html)
-   by default. Removing it ourselves records the exact input sequence and lets us
-   compare it directly with the gap-stripped output.
-   Keep `X` symbols and report how many isolates, unique CDS and unique proteins contain them,
-   by CDS length. Name each FASTA record by its original `prot_hash`, which hashes the
-   protein with its terminal `*` marker.
-   An `X` means the original codon does not resolve to one amino acid; it does not erase that
-   codon or create a gap. Because `X` gives the aligner less information about that position,
-   inspect any uncertain gap placements near it.
-3. Align the unique protein sequences with MAFFT using `--auto`. Record the tool version,
-   full command, selected alignment strategy and input sequence hashes. Save the MAFFT log.
-   Keep a mapping from each protein to its original CDS records so that synonymous CDS
-   variants remain available.
-4. Confirm that removing `-` from each aligned protein recovers the exact protein
-   sequence sent to MAFFT, which has no terminal `*` marker.
-5. Inspect the alignment, including sequences of the same length and examples of each
-   observed CDS length. Examine where gaps fall and note uncertain placements.
-
-If a placement needs further checking, optionally run a second MAFFT strategy and compare
-the affected regions. Agreement between strategies does not establish that a placement is correct.
-
-A `-` in the protein alignment, an `X` in a protein sequence and bases absent from a
-truncated record are different. This pilot uses complete CDS; alignment cannot recover
-bases absent from a truncated record.
-
-### Outputs
-
-The pilot artifacts are under
-`results/flu/July_2025/cds_alignment_pilot/Human-H3N2-2024/NS1/`. The sequence examples and
-interpretation are in the [NS1 protein alignment pilot results](../results/2026-11-05_ns1_alignment_pilot.md).
-
-### Progress
-
-**Step 1.** Implemented and run on 2026-11-05.
-
-| CDS length | Isolates | Unique CDS | Unique proteins |
-|---|---:|---:|---:|
-| 654 nt | 4 | 3 | 3 |
-| 660 nt | 9 | 7 | 6 |
-| 693 nt | 5,324 | 1,122 | 551 |
-| Total | 5,337 | 1,132 | 560 |
-
-**Step 2.** Implemented and run on 2026-11-05. All 1,132 unique CDS passed the translation,
-terminal-stop, length and protein-hash checks. The FASTA contains 560 unique proteins without
-their terminal `*`.
-
-| CDS length | Isolates with `X` | Unique CDS with `X` | Unique proteins with `X` |
-|---|---:|---:|---:|
-| 654 nt | 0 | 0 | 0 |
-| 660 nt | 0 | 0 | 0 |
-| 693 nt | 48 | 48 | 48 |
-
-**Step 3.** Implemented and run on 2026-11-05. We ran MAFFT 7.526 on all 560
-proteins with `--auto`; it selected the FFT-NS-2 strategy. The protein
-alignment has 230 columns. The terminal CDS stop codons were not aligned.
-
-**Step 4.** Implemented and run on 2026-11-05. All 560 aligned protein IDs matched the inputs.
-Removing `-` recovered the exact protein sequence sent to MAFFT for every protein.
-
-**Step 5.** Implemented and run on 2026-11-05. Each CDS includes a terminal stop codon.
-The protein sent to MAFFT lacked its terminal `*` marker; the original CDS was unchanged.
-The table counts `-` symbols per protein in the 230-column alignment. Every protein
-from a given CDS length has the gap columns shown.
-
-| CDS length | Codons including stop | Protein symbols sent to MAFFT | `-` symbols | Gap columns |
-|---|---:|---:|---:|---|
-| 693 nt | 231 | 230 | 0 | — |
-| 660 nt | 220 | 219 | 11 | 220–230, trailing |
-| 654 nt | 218 | 217 | 13 | 218–230, trailing |
-
-There are no internal gaps.
-
-### Next step
-
-The [downstream contig check](../results/2026-11-05_ns1_alignment_pilot.md#downstream-contig-check)
-supports mapping the 654-nt CDS stop codon to column 218 and the 660-nt CDS
-stop codon to column 220, opposite the same-numbered codons in the 693-nt
-reference. Because the terminal `*` markers were removed, the protein alignment
-alone cannot place these stop codons.
-
-**Proposed codon feature mapping for this pilot:** put each original sense codon in
-its protein-alignment column. Put the CDS's terminal stop codon in the next column
-after its last aligned amino acid. Add one column after the 230 protein columns
-for the 693-nt stop codon. MAFFT aligned the protein sequences without their terminal
-`*` markers:
-
-```text
-Protein column:  1–217   218   219   220–230
-693-nt CDS:      aa...   aa    aa    aa...aa
-660-nt CDS:      aa...   aa    aa    - ... -
-654-nt CDS:      aa...   -     -     - ... -
-```
-
-Here `aa` stands for a non-gap protein symbol (an amino acid or `X`);
-`-` means a protein-alignment gap.
-
-In the proposed codon feature table, the first trailing protein-alignment gap
-column would hold that CDS's stop codon. The 693-nt stop would occupy the added
-column 231:
-
-```text
-Feature column:  1–217          218       219        220        221–230     231
-693-nt CDS:      sense codons   CAG       AAA        CGG        sense       TGA
-660-nt CDS:      sense codons   sense     sense      TGA        AFTER_STOP  AFTER_STOP
-654-nt CDS:      sense codons   TAG       AFTER_STOP AFTER_STOP AFTER_STOP  AFTER_STOP
-                                ^                    ^                      ^
-                            654-nt stop         660-nt stop            693-nt stop
-```
-
-The `CAG`, `AAA`, `CGG` and `TGA` shown in the 693-nt row are from the most
-frequent 693-nt CDS; other 693-nt CDS can differ. Give every empty column
-*after* a sequence's stop the `AFTER_STOP` state. Give any other empty column
-the `GAP` state. These states are defined in the
-[glossary](../methods/glossary.md#per-site-features). This pilot has no gaps
-between the first and last aligned protein symbols. Under this proposal, it would
-have no `GAP` feature values, and `AFTER_STOP` would give the same feature layout
-as filling at the end. The CDS is
-the feature source, so do not use post-stop bases from the contig as codon
-features.
-
-If another alignment has an internal gap, it would use `GAP` rather than
-`AFTER_STOP` at that position:
-
-```text
-Protein column:  1   2   3   4   5
-Aligned protein: M   K   -   V   G
-Feature column:  1   2   3   4   5   6
-Codon features:  ATG AAA GAP GTT GGT TGA
-```
-
-Before using this mapping in a model, check that removing `GAP` and `AFTER_STOP`
-recovers every original CDS codon in order, that each sequence has exactly one
-terminal stop, and that its sense codons translate to the aligned protein after
-gaps are removed. Check that 693-nt sequences reproduce their current codon
-codes. The protein alignment audit below does not implement this codon
-feature mapping. HA and NA across subtypes can follow after their own checks.
-
-For later model evaluation, build columns from training sequences and map
-validation and test sequences into those fixed columns, with an explicit rule
-for new insertions.
-
-### NS1 protein alignment for Human+Pig-H1N1+H3N2-yr2010-2025 — DROPPED (2026-11-10)
-
-Filters: host `[Human, Pig]`, subtype `[H3N2, H1N1]`, year `2010–2025`
-(inclusive). This population was a candidate for Task 2 and is not the one
-Task 2 uses; the Task 2 population is covered in the next subsection. The goal
-is to see whether complete NS1 proteins can share alignment columns and where
-gaps fall.
-
-Select complete NS1 CDS without pinning their length. Count isolates, unique
-CDS and unique proteins by length and by host, subtype and year. Align unique
-proteins with MAFFT `--auto`, check that removing gaps recovers every input,
-and inspect gap patterns. For each alignment column, count how many proteins
-and isolates have a non-gap symbol (an amino acid or `X`) in it. MAFFT did not
-receive terminal `*` markers, so its output cannot place CDS stop codons.
-The alignment alone also cannot establish that each column represents the
-same biological position.
-Decide codon feature columns only after reviewing these results and any unusual
-gap placements.
-Decide whether to keep the 56 complete records outside the 654-, 660-, 672-
-and 693-nt forms in a first feature set. Record any exclusions by host,
-subtype and year.
-
-This population was dropped on 2026-11-10 because the Task 2 population
-replaced it. Its section in `docs/results/2026-11-09_protein_alignment.md` and
-its outputs under
-`results/flu/July_2025/cds_alignment_pilot/Human+Pig-H1N1+H3N2-yr2010-2025/`
-were both removed, so the numbers above are no longer backed by saved files.
-`Swine` holds exactly one animal name, `Pig`, so this population selected the
-same isolates a `Human+Swine` filter would.
-
-### Protein alignment for the Task 2 population — DONE (2026-11-10)
-
-Filters: host `[Human, Swine, Chicken, Duck]`, subtype `[H3N2, H1N1, H5N1]`,
-year `2010–2025`. `host` is a host group, so `Duck` covers 54 animal names and
-`Chicken` covers 3. This is the population Task 2 uses.
-
-All 8 modelled proteins are aligned. Same 6 steps for each, then
-`summarize_protein_alignment.py`. Commands used `--host Human Swine Chicken
-Duck --hn_subtype H3N2 H1N1 H5N1 --year_range 2010 2025`.
-
-The per-protein tables are in
-[the results](../results/2026-11-09_protein_alignment.md), one `##` section
-each with the same five numbered parts. The saved inputs, alignment, validation,
-gap report and summaries are under
-`results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/<protein>/`.
-What matters for the codon feature mapping:
-
-* 6 proteins have a usable pin and 2 do not. PB1 is at 0.890 and NS1 at 0.502,
-  against the 0.90 `check_cds_length` needs, and they are the two proteins
-  `conf/virus/flu.yaml` pins no length for. So the alignment path has to exist
-  whatever is decided for the other 6.
-* **A usable pin is not sufficient.** HA's pin is 1701 nt and the main H5 form
-  sits at 1704, so pinning HA keeps 13 of 3,754 complete H5N1 records. Pinning
-  NA keeps 3,211 of 3,754. Every other pin keeps 99.9% or better.
-* **Two pinned lengths hold more than one form.** NA's 1410 nt holds N1 and N2,
-  and HA's 1701 nt holds H1 and H3 with H5 at 1704. At NA's shared length, 24
-  of the columns the two forms use are N2 only and 24 are N1 only, so a
-  pinned-length table would put residues the alignment does not treat as
-  corresponding into the same feature.
-* **The `GAP` state is required, not optional.** NS1's 678-nt form is the 693-nt
-  form with 5 codons missing at columns 81–85, shared by all 205 of its unique
-  proteins over 341 isolates, 340 of them H5N1. M1 and NP each have one record
-  with a gap and no others, so NS1 is the case that forces the state.
-* **Feature width is per protein, and all 8 need one column more than the
-  alignment has** to hold the stop codon of the form that fills the last
-  column: PB2 767, PB1 777, PA 745, HA 613, NP 499, NA 544, M1 253, NS1 241.
-* **One-residue columns are the main candidate for exclusion**, and they are
-  most of the extra width in PA. Counts: PA 25, NA 16, HA 14, PB2 6, PB1 6,
-  NS1 3, NP 0, M1 0. Cutting PA's 25 would take it from 745 columns to 720.
-
-### Still to decide before codon features are built
-
-These are decisions, not measurements. The evidence for each is in the results
-doc's part 5 for that protein.
-
-1. **Route.** Whether to pin or to align, and whether that choice is the same
-   for all 8 proteins. Pinning is unusable for PB1 and NS1 and costs HA its
-   H5N1 records, and it gives the same answer as aligning for NP and M1, whose
-   alignments add no columns.
-2. **Records to admit.** Pinning keeps only complete CDS at the pin. Aligning
-   keeps every complete CDS. Either way, the rare lengths may still deserve
-   record-level exclusion: 61 isolates for PB2, 50 for PB1, 25 for PA, 183 for
-   HA, 1 for NP, 30 for NA, 1 for M1 and 43 for NS1.
-3. **Sites to admit.** The final width per protein, including the extra stop
-   codon column where one is needed, and whether to drop the one-residue
-   columns.
-4. **Proteins to admit.** Whether each protein's columns are a defensible
-   shared set of sites. NA and HA are the open cases, because one length holds
-   more than one form in both.
-
-Uncommon length alone does not establish an error, so none of these is settled
-by the counts above.
+## Experiment 5: TBD
 
 ## Experiment 6: prediction variation across balanced negative draws — DONE (2026-10-07)
 
@@ -748,18 +492,10 @@ Limitations:
    (Experiment 6, DONE)
 7. Cache the GenSLM codon embeddings, then compare them against raw codon features on HA-NA and
    on the four progress-report pairs. (Experiment 3)
-8. Run the NS1 protein alignment pilot on Human-H3N2-2024. (Experiment 5, DONE)
-9. Review the pilot results before expanding NS1 to the Task 2 population.
-   (Experiment 5, DONE)
-10. Align all 8 proteins on the Task 2 population and report each one.
-    (Experiment 5, DONE)
-11. Decide the route, the records, the sites and the proteins to admit. See
-    "Still to decide before codon features are built". (Experiment 5)
-12. Implement the column-to-feature mapping, with the `GAP` and `AFTER_STOP`
-    states, and check it against the saved alignments. (Experiment 5)
 
-Steps 4-7 do not depend on the alignment. Task 2 does: its prerequisite in
-`docs/plans/2026-10-08_paper_plan.md` waits on steps 11 and 12.
+The protein alignment is reported in `docs/results/2026-11-09_protein_alignment.md`. The codon
+feature mapping that Task 2 in `docs/plans/2026-10-08_paper_plan.md` waits on is planned in
+`docs/plans/2026-11-17_aligned_codon_features_plan.md`.
 
 ## Reproducibility and reporting
 
@@ -785,9 +521,8 @@ The final report should contain:
 3. class-conditional prediction variation under training-negative redraws for the piloted pairs;
 4. a direct statement of which pairs fail or weaken;
 5. GenSLM embedded codons against raw codon features, on the pairs it was run on;
-6. the NS1 alignment summary, translation and sequence-recovery checks, and inspected examples;
-7. limitations from sampling, partial 2025 coverage, correlated sites, and metadata shortcuts;
-8. a recommendation to continue, narrow the scope, or archive the project.
+6. limitations from sampling, partial 2025 coverage, correlated sites, and metadata shortcuts;
+7. a recommendation to continue, narrow the scope, or archive the project.
 
 ## Code and artifacts
 
@@ -798,7 +533,7 @@ caller has to know before using the script, not only what it does.
 |---|---|---|
 | `src/analysis/summarize_cds_lengths.py` | built | per-protein CDS completeness and length survey; decides which proteins can be pinned. Results in `docs/results/2026-09-07_cds_length_survey.md` |
 | `src/analysis/summarize_pair_capacity.py` | built | the five capacity counts per schema pair, each pair on its own eligible isolates. Writes 6 files to `pair_capacity_8_proteins/`. Results in `docs/results/2026-09-08_cds_pair_capacity.md` |
-| `src/embeddings/compute_site_features.py` | built | builds the per-site caches `site_features_{unit}_{PROTEIN}.npz` + `_index.parquet` + `_metadata.json` under `data/embeddings/{virus}/{version}/`. Skips a protein already cached; `--force_recompute` rebuilds. A cache is corpus-wide but pin-specific, so a changed pin needs a rebuild |
+| `src/embeddings/compute_site_features.py` | built | builds the per-site caches `site_features_{unit}_{PROTEIN}_{PIN}nt.npz` + `_index.parquet` + `_metadata.json` under `data/embeddings/{virus}/{version}/`. Skips a protein already cached; `--force_recompute` rebuilds. A cache is corpus-wide but pin-specific, so a changed pin needs a rebuild |
 | `src/analysis/audit_pair_datasets.py` | built | preflight: checks capacity counts, resolved settings, and balanced negative use and exclusions. Run between building and training |
 | `scripts/run_allpairs_datasets.py` | built | builds the 28 child-bundle datasets under one timestamped prefix |
 | `scripts/run_allpairs_baselines.py` | built | trains a baseline over every fold of a set of built datasets and aggregates each pair. Writes the CV layout `run_cv_lambda.py` writes, so the aggregators read it unchanged |
@@ -806,9 +541,7 @@ caller has to know before using the script, not only what it does.
 | `src/analysis/aggregate_allpairs_results.py` | built | rolls 28 pairs into one summary and 8x8 heatmaps. Globs `cv_flu_28p_*` under `models/{virus}/{version}/cv_runs/`, reads the pair from the two tokens after `flu_28p_`, and `--tag` selects a variant by the suffix after them |
 | `src/analysis/plot_site_importance.py` | built | per-site gain, SHAP and permutation importance. Writes fold-averaged shares with standard deviations, and the pre-average values in `site_importance_{unit}_per_fold.csv` |
 | `src/analysis/compare_site_importance_across_years.py` | built | compares two years' per-fold importance tables on shared coordinates |
-| `src/analysis/align_proteins.py` | steps 1–6 implemented | selects and validates complete CDS, prepares unique protein sequences, runs MAFFT with `--align_only`, checks exact input recovery with `--validate_only`, and records gap positions with `--inspect_only`. Writes the aligned FASTA, log, input hashes, protein-to-CDS mapping, manifests, validation report and gap locations under `cds_alignment_pilot/<population>/<protein>/` |
 | `results/flu/July_2025/cross_year_site_importance/` | written | cross-year tables, audits, and figures |
 | `results/flu/July_2025/pair_capacity_8_proteins/` | written | 28-pair capacity audit |
 | `results/flu/July_2025/all_pairs_human_h3n2_2024_codon_balanced_20261007_181555/` | written | balanced-negative 28-pair codon summaries and figures |
 | `results/flu/July_2025/all_pairs_human_h3n2_2024_codon/` | historical | 2026-09-20 within-fold summaries and figures |
-| `results/flu/July_2025/cds_alignment_pilot/` | alignment inspected | `<population>/<protein>/` holds the selection, alignment and validation outputs plus `gap_locations.csv` and `inspection_manifest.json`. All 8 proteins for the Task 2 population; NS1 only for `Human-H3N2-2024` |

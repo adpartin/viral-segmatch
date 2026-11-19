@@ -477,7 +477,8 @@ datasets were built with.
 # 2. Expand the population. Evaluate across hosts, subtypes, and years.
 
 **Status: IN PROGRESS.** The population is set but the run has not happened. It
-waits on the per-segment alignment work; see the prerequisite under Methods.
+waits on the mapping from alignment columns to codon features; see the
+prerequisite under Methods.
 
 A separate pilot on `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023` is complete. It
 tested that negatives are drawn inside one metadata group. Its population is not
@@ -518,9 +519,9 @@ metadata group, so it matches on the host group too.
   isolate and 68 have at least 100. The largest is Human-H3N2-2024 with 5,403
   isolates, the smallest Chicken-H1N1-2016 with 1. Open question 1 covers what
   to do with thin groups. That rule has to be set before the folds are made.
-* Not yet measured: per-pair capacity, the pinned CDS length per protein, and
-  so which of the 28 schema pairs this population supports. These need a
-  capacity run, which waits on the prerequisite below.
+* Not yet measured: per-pair capacity, and so which of the 28 schema pairs this
+  population supports. These need a capacity run on the records kept by the
+  retained-record filter, which waits on the prerequisite below.
 
 Host and subtype are not crossed:
 
@@ -555,23 +556,24 @@ Task 2 changes the population and the negative sampler, not the steps.
   default year bins.
 * Saved negative rows are checked using both endpoints' isolate metadata, not
   just the requested regime target or the `neg_regime` field.
-* Features and training are the ones Task 1 describes under Model Development
-  and Evaluation. Task 2 changes the population, not the model.
+* Training is the one Task 1 describes under Model Development and Evaluation.
+  The features are per-site codons as in Task 1, but placed in protein-alignment
+  columns rather than at a pinned CDS length (see the prerequisite below).
 
-### Prerequisite: finish the per-segment alignment
+### Prerequisite: aligned codon features
 
 Per-site codon features need every record to have the same sites. A pinned CDS
-length is one way to get that; aligning the proteins is the other. The pins and
-the list of supported schema pairs are the alignment work's output, not an input
-to it.
+length is one way to get that; aligning the proteins is the other. Task 2 uses
+the alignment for all 8 proteins, so it uses no pins.
 
-The alignment is finished for all 8 proteins, done 2026-11-10. What now blocks
+The alignment of all 8 proteins is finished; the final alignments were written
+on 2026-11-13. What now blocks
 the run is the mapping from alignment columns to codon features, which is
-proposed in `docs/plans/2026-09-14_codon_site_features_plan.md` and not
+planned in `docs/plans/2026-11-17_aligned_codon_features_plan.md` and not
 implemented.
 
-* Tracked in `docs/plans/2026-09-14_codon_site_features_plan.md` as
-  Experiment 5. Reported in `docs/results/2026-11-09_protein_alignment.md`.
+* Planned in `docs/plans/2026-11-17_aligned_codon_features_plan.md`. Reported
+  in `docs/results/2026-11-09_protein_alignment.md`.
 * **All 8 proteins are aligned on this population, done 2026-11-10.** 6 of them
   have a usable pin: PB2 at 2280 nt, PA at 2151, HA at 1701, NP at 1497, NA at
   1410 and M1 at 759. PB1 and NS1 do not, at 0.890 and 0.502 against the 0.90
@@ -586,16 +588,17 @@ implemented.
   length are the same length but do not fill the same alignment columns, so a
   pinned-length feature table would put residues the alignment does not treat
   as corresponding into the same feature.
-* The NS1 678-nt form, almost all H5N1, is the 693-nt form with 5 codons missing
-  at columns 81-85. It is the first internal gap that many sequences share, so a
-  codon feature table needs the `GAP` state and not only `AFTER_STOP`.
+* A codon feature table needs the `GAP` state for internal gaps, not only
+  `AFTER_STOP`. In the final alignments, every HA and NA row has internal gaps.
+  The NS1 678-nt form, which first showed this, is dropped by the retention rule.
 * Which records each protein keeps is set by the retention rule in
   `docs/results/2026-11-09_protein_alignment.md`, section "Retention rule".
   Under it every protein is aligned, not pinned. Its steps 3 and 4 have been
   run for all eight proteins. Step 5 has realigned PB2, PB1, HA and NA, and does
   not apply to PA, NP, M1 and NS1.
-* Still open: which alignment columns to admit, and the codon feature mapping
-  itself, which is proposed but not implemented or checked.
+* Still open: the codon feature mapping, which is planned but not implemented
+  or checked. The aligned codon features plan keeps every final alignment column
+  and adds one column for the stop codon.
 * The negative-sampling pilot below is not affected. It was built on a
   population where one pin held for each of its 7 proteins.
 

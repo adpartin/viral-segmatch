@@ -1,7 +1,7 @@
 """Check whether short NS1 CDS continue in their source contigs.
 
 This is a positional check for the Human-H3N2-2024 protein alignment pilot in
-docs/plans/2026-09-14_codon_site_features_plan.md. It compares the annotated
+docs/results/2026-11-05_ns1_alignment_pilot.md. It compares the annotated
 CDS and the bases after its stop with the most frequent 693-nt CDS. This does
 not turn post-stop contig bases into CDS features.
 
