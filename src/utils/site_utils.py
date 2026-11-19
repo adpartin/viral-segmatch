@@ -372,14 +372,13 @@ def _slot_matrix(cache: SiteCache, hashes: pd.Series, slot: str, encoding: str) 
       KeyError: a hash is not in the cache.
     """
     rows = hashes.map(cache.hash_to_row)
-    if rows.isna().any():
-        n_missing = int(rows.isna().sum())
-        example = hashes[rows.isna()].iloc[0]
+    missing = rows.isna()
+    if missing.any():
+        n_missing = int(missing.sum())
+        example = hashes[missing].iloc[0]
         raise KeyError(
             f"slot {slot} ({cache.protein}): {n_missing:,} of {len(rows):,} pairs have a "
-            f"cds_dna_hash the per-site cache does not hold, e.g. {example}. The cache covers "
-            f"complete CDS at the pinned length, so a dataset built without "
-            f"dataset.require_complete_cds_at_pinned_length will not line up with it.")
+            f"cds_dna_hash missing from the {cache.unit} cache index, e.g. {example}.")
     codes = cache.codes[rows.to_numpy(dtype=int)]
     if encoding == 'ordinal':
         return codes.astype(np.float32)
