@@ -8,6 +8,9 @@ How?
 - Each pair keeps the isolates carrying its own two proteins as a complete CDS at the pinned
   length. Requiring every pair to carry all `--proteins` instead would cost a pair the isolates
   missing a protein it does not contain, so eligibility is decided per pair.
+- With a bundle in aligned site mode, a record is usable when the retention rule kept it, that is,
+  when it is in its protein's final alignment selection. The dataset builder applies the same
+  filter in aligned mode, so the table's counts are the ones an aligned dataset records.
 - Pairs are enumerated in canonical protein order, so `Pair ID` reads as segment numbers: PB2-HA
   is `1-4`.
 - `Unique positives` counts observed same-isolate pairs after deduplicating on the `nt_cds` pair
@@ -32,8 +35,9 @@ CLI:
 Notes:
 
 - The default bundle carries pins for all 8 major proteins, two of which are not in
-  `conf/virus/flu.yaml`. A bundle without a pin for every protein passed raises, naming the ones
-  it lacks.
+  `conf/virus/flu.yaml`. A pinned-mode bundle without a pin for every protein passed raises,
+  naming the ones it lacks. An aligned-mode bundle needs a final alignment directory for every
+  protein instead, and its population must lie inside each alignment's.
 - A metadata filter given on the command line overrides the bundle; otherwise the bundle's own
   population stands.
 - `min-count sample` is the smallest `HK selected` in the table, so it moves when the set of pairs
@@ -50,11 +54,13 @@ Outputs (to `--out_dir`):
     pair_isolate_overlap.csv     one row per pair of schema pairs: shared isolates and Jaccard
     pair_capacity_matrix.csv     `HK selected` as a symmetric protein-by-protein table
     pair_capacity_matrix.png     that table as a heatmap
+    records_kept_by_retention_rule.json  aligned mode only: rows dropped per protein and reason
 """
 from __future__ import annotations
 
 import argparse
 import itertools
+import json
 import sys
 from pathlib import Path
 
@@ -67,7 +73,11 @@ if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
 from src.analysis.summarize_cds_lengths import segment_number  # noqa: E402
-from src.datasets._pair_helpers import filter_complete_cds_at_pinned_length  # noqa: E402
+from src.datasets._pair_helpers import (  # noqa: E402
+    check_population_inside_alignments,
+    filter_complete_cds_at_pinned_length,
+    filter_records_kept_by_retention_rule,
+)
 from src.datasets._positive_pair_selection import select_positive_pairs  # noqa: E402
 from src.datasets.dataset_pairs_cc import build_frontend  # noqa: E402
 from src.datasets.dataset_segment_pairs_v2 import create_positive_pairs_v2  # noqa: E402
@@ -79,6 +89,7 @@ from src.utils.config_hydra import (  # noqa: E402
 )
 from src.utils.metadata_enrichment import population_label  # noqa: E402
 from src.utils.plot_utils import savefig, setup_plot_style  # noqa: E402
+from src.utils.site_utils import configured_alignment_dir, site_mode  # noqa: E402
 
 CAPACITY_COLUMNS = ['ID', 'Pair ID', 'Schema pair', 'population', 'Eligible isolates',
                     'Unique positives', 'Unique slot-A', 'Unique slot-B', 'HK selected',
@@ -285,8 +296,9 @@ def summarize_pair_capacity(kept: pd.DataFrame, proteins: list, function_to_shor
     """Positive and matched-positive counts for every schema pair over `proteins`.
 
     Args:
-      kept: front-end rows already filtered to the population and to complete CDS at the pinned
-          length, before each pair's eligible isolates are taken.
+      kept: front-end rows already filtered to the population and to usable records (complete
+          CDS at the pinned length, or in aligned site mode the records the retention rule kept),
+          before each pair's eligible isolates are taken.
       proteins: short protein names to pair up, taken two at a time.
       function_to_short: full function name -> short protein name.
       canonical_order: short names in canonical order, fixing each pair's slot A / slot B.
@@ -345,7 +357,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--config_bundle',
                         default='flu_8_major_proteins_human_h3n2_2024_pinned_length',
-                        help='bundle supplying the pinned lengths and the pair_key alphabet')
+                        help='bundle supplying the pair_key alphabet and either the pinned '
+                             'lengths or, in aligned site mode, the final alignment directories')
     parser.add_argument('--proteins', nargs='+', default=None,
                         help='short protein names to pair up, taken two at a time; '
                              'default: the virus config\'s selected_functions')
@@ -380,12 +393,25 @@ def main() -> None:
     if unknown:
         raise ValueError(f"--proteins not in the virus config: {unknown}.")
 
-    pins = {str(k): int(v['nt']) for k, v in dict(config.virus.cds_length).items()}
-    unpinned = [p for p in args.proteins if p not in pins]
-    if unpinned:
-        raise ValueError(
-            f"{unpinned} have no pinned length in conf/virus/{config.virus.virus_name}.yaml. "
-            f"Per-site features need one length per protein; pin them for this population first.")
+    # Usable records follow site.mode: complete CDS at the pinned length, or in aligned mode the
+    # records the retention rule kept for each protein's final alignment. Both are checked before
+    # the front end is built, which is the slow step.
+    aligned = site_mode(config) == 'aligned'
+    if aligned:
+        alignment_dirs = {protein: configured_alignment_dir(config, protein)
+                          for protein in args.proteins}
+        population_filters = {name: config.dataset.get(name) for name in
+                              ('host', 'hn_subtype', 'year', 'year_range', 'geo_location',
+                               'passage')}
+        check_population_inside_alignments(population_filters, alignment_dirs)
+    else:
+        pins = {str(k): int(v['nt']) for k, v in dict(config.virus.cds_length).items()}
+        unpinned = [p for p in args.proteins if p not in pins]
+        if unpinned:
+            raise ValueError(
+                f"{unpinned} have no pinned length in conf/virus/{config.virus.virus_name}.yaml. "
+                f"Per-site features need one length per protein; pin them for this population "
+                f"first.")
 
     pair_key_alphabet = str(config.dataset.split_strategy.pair_key_alphabet)
     prot_path = PROJ / f'data/processed/{config.virus.virus_name}/{config.virus.data_version}'
@@ -395,11 +421,17 @@ def main() -> None:
     # metadata-filtered source population before each takes its own eligible isolates.
     frontend = build_frontend(config, prot_path / 'protein_final.parquet',
                               tuple(full_of[p] for p in args.proteins), cds_final_path=cds_path)
-    kept, _ = filter_complete_cds_at_pinned_length(frontend, cds_path, pins, function_to_short)
+    if aligned:
+        kept, retention_audit = filter_records_kept_by_retention_rule(
+            frontend, cds_path, alignment_dirs, function_to_short)
+        usable = 'as records the retention rule kept'
+    else:
+        kept, _ = filter_complete_cds_at_pinned_length(frontend, cds_path, pins, function_to_short)
+        usable = 'at their pinned length'
 
     n_population = kept['assembly_id'].nunique()
     print(f"\nEligible isolates over {n_population:,} in the population: each pair keeps the "
-          f"isolates carrying its own two proteins at their pinned length")
+          f"isolates carrying its own two proteins {usable}")
 
     # Built from the config rather than from `args`, so a bundle's own filters are named even when
     # nothing was passed on the command line. `population_label` returns 'all' for no filter, so
@@ -429,6 +461,12 @@ def main() -> None:
     matrix = hk_selected_matrix(capacity, args.proteins, canonical_order)
     matrix.to_csv(matrix_path)
     plot_hk_selected_matrix(matrix, figure_path, population)
+    written_paths = [capacity_path, segment_path, reuse_path, overlap_path, matrix_path,
+                     figure_path]
+    if aligned:
+        retention_path = args.out_dir / 'records_kept_by_retention_rule.json'
+        retention_path.write_text(json.dumps(retention_audit, indent=2) + '\n')
+        written_paths.append(retention_path)
 
     shown = capacity.copy()
     shown['HK share'] = shown['HK share'].map('{:.1%}'.format)
@@ -453,8 +491,7 @@ def main() -> None:
           f"{heaviest['Unique positives']:,} positives, so each pairs with "
           f"{heaviest['reuse mean']:.1f} unique partner sequences on average and the widest-used "
           f"one pairs with {heaviest['reuse max']:,}.")
-    for written in (capacity_path, segment_path, reuse_path, overlap_path, matrix_path,
-                    figure_path):
+    for written in written_paths:
         print(f"Wrote {written}")
     print('Done.')
 
