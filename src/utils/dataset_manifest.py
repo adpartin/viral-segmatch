@@ -22,10 +22,7 @@ from typing import Optional
 from src.utils.config_hydra import get_function_short_name_map
 from src.utils.experiment_spec import expected_n_folds, split_dir_names
 from src.utils.experiment_utils import file_sha256
-from src.utils.path_utils import build_embeddings_paths
-from src.utils.site_utils import require_pinned_site_mode, site_cache_paths
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from src.utils.site_utils import configured_site_cache_paths
 
 # The files each split directory holds that a fit reads, or that decide which pairs are negatives.
 SPLIT_FILES = ('train_pairs.csv', 'val_pairs.csv', 'test_pairs.csv',
@@ -93,20 +90,15 @@ def site_cache_files(config) -> list:
 
     Returns:
       Absolute paths of the `.npz`, `_index.parquet` and `_metadata.json` files of both slots'
-      proteins at the config's `site.unit`; empty unless `training.feature_source` is `site`.
+      proteins, the caches `configured_site_cache_paths` selects by `site.mode`; empty unless
+      `training.feature_source` is `site`.
     """
     if str(config.training.get('feature_source')) != 'site':
         return []
-    require_pinned_site_mode(config, 'site_cache_files')
-    cache_dir = build_embeddings_paths(
-        project_root=PROJECT_ROOT, virus_name=config.virus.virus_name,
-        data_version=config.virus.data_version, run_suffix='', config=config)['output_dir']
     short_of = get_function_short_name_map(config)
-    pins = {str(protein): int(pin['nt']) for protein, pin in dict(config.virus.cds_length).items()}
     paths = []
     for function in config.dataset.schema_pair:
-        protein = short_of[function]
-        cache = site_cache_paths(cache_dir, str(config.site.unit), protein, pins[protein])
+        cache = configured_site_cache_paths(config, short_of[function])
         paths.extend(path.resolve() for path in cache.values())
     return paths
 

@@ -6,9 +6,10 @@ Covers:
   2. dataset_file_checksums keys files by their path in the run directory, and changed_files
      reports missing and changed files
   3. fold_count_failures compares the manifest's fold count and split directories with the spec
-  4. fit_input_checksums produces exactly the dict the trainer's input_checksums records
+  4. fit_input_checksums produces exactly the dict the trainer's input_checksums records, with no
+     site caches and with aligned site caches
   5. pair_token turns a pair label into the token used in names
-  6. site_cache_files names the same pinned cache files the trainer reads
+  6. site_cache_files names the same cache files the trainer reads, in pinned and aligned mode
 
 Run: python -m pytest tests/test_dataset_manifest.py
 """
@@ -29,11 +30,15 @@ from src.utils.dataset_manifest import (  # noqa: E402
     dataset_file_checksums,
     fit_input_checksums,
     fold_count_failures,
+    pair_cache_checksums,
     pair_token,
     read_split_dirs,
     site_cache_files,
 )
+from src.utils.experiment_utils import file_sha256  # noqa: E402
 from src.utils.site_utils import configured_site_cache_paths  # noqa: E402
+
+SHORT_NAMES = {'PB1 function': 'PB1', 'HA function': 'HA'}
 
 
 def _make_dataset(root: Path, n_folds: int) -> Path:
@@ -96,24 +101,55 @@ def test_pair_token():
     assert pair_token('M1-NS1') == 'm1_ns1'
 
 
-def test_site_cache_files_checks_mode_only_for_site_inputs():
-    config = OmegaConf.create({'site': {'mode': 'aligned'}, 'training': {'feature_source': 'site'}})
-    with pytest.raises(ValueError, match='site_cache_files supports pinned caches only'):
-        site_cache_files(config)
-    config.training.feature_source = 'kmer'
-    assert site_cache_files(config) == []
-
-
-def test_site_cache_files_match_the_trainer_cache_files(tmp_path):
-    config = OmegaConf.create({
+def site_config(tmp_path, mode: str):
+    """A site-feature run config for PB1-HA in `mode`, with every cache under `tmp_path`."""
+    return OmegaConf.create({
         'paths': {'data_dir': str(tmp_path)},
         'virus': {'virus_name': 'flu', 'data_version': 'v1',
                   'cds_length': {'PB1': {'nt': 2274}, 'HA': {'nt': 1701}},
-                  'function_short_names': {'PB1 function': 'PB1', 'HA function': 'HA'}},
-        'site': {'mode': 'pinned', 'unit': 'codon'},
+                  'function_short_names': SHORT_NAMES},
+        'site': {'mode': mode, 'unit': 'codon',
+                 'alignment_dirs': {'PB1': str(tmp_path / 'PB1'), 'HA': str(tmp_path / 'HA')}},
         'training': {'feature_source': 'site'},
-        'dataset': {'schema_pair': ['PB1 function', 'HA function']},
+        'dataset': {'schema_pair': list(SHORT_NAMES)},
     })
-    trainer_files = [path.resolve() for protein in ('PB1', 'HA')
-                     for path in configured_site_cache_paths(config, protein).values()]
+
+
+def trainer_cache_files(config) -> list:
+    """The cache files `train_pair_baselines` checksums for a PB1-HA fit."""
+    files = [path for protein in ('PB1', 'HA')
+             for path in configured_site_cache_paths(config, protein).values()]
+    return files
+
+
+@pytest.mark.parametrize('mode', ['pinned', 'aligned'])
+def test_site_cache_files_match_the_trainer_cache_files(tmp_path, mode):
+    config = site_config(tmp_path, mode)
+    trainer_files = [path.resolve() for path in trainer_cache_files(config)]
     assert site_cache_files(config) == trainer_files
+
+
+def test_site_cache_files_follow_site_mode(tmp_path):
+    aligned = site_cache_files(site_config(tmp_path, 'aligned'))
+    assert [path.parent for path in aligned] == [tmp_path / 'PB1'] * 3 + [tmp_path / 'HA'] * 3
+    assert aligned[0].name == 'site_features_codon_PB1_aligned.npz'
+    pinned = site_cache_files(site_config(tmp_path, 'pinned'))
+    assert pinned[0] == tmp_path / 'embeddings' / 'flu' / 'v1' / 'site_features_codon_PB1_2274nt.npz'
+    kmer = site_config(tmp_path, 'aligned')
+    kmer.training.feature_source = 'kmer'
+    assert site_cache_files(kmer) == []
+
+
+def test_aligned_fit_inputs_match_trainer(tmp_path):
+    root = _make_dataset(tmp_path / 'ds', 2)
+    config = site_config(tmp_path, 'aligned')
+    for path in site_cache_files(config):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'{path.name}\n')
+    manifest = {'cache_files': {str(path): file_sha256(path) for path in site_cache_files(config)}}
+    entry = {'dataset_dir': str(root), 'files': dataset_file_checksums(root, ['fold_0', 'fold_1'])}
+    expected = fit_input_checksums(entry, 'fold_1', pair_cache_checksums(manifest, config))
+    recorded = input_checksums(root / 'fold_1', trainer_cache_files(config),
+                               root / 'resolved_config.yaml')
+    assert recorded == expected
+    assert len(recorded) == 1 + len(SPLIT_FILES) + 6

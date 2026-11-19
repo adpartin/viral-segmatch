@@ -6,7 +6,6 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.utils.experiment_utils import file_sha256
 from src.utils.site_utils import (
     configured_site_cache_paths,
     load_configured_site_cache,
@@ -15,27 +14,8 @@ from src.utils.site_utils import (
 
 
 @pytest.fixture
-def cache(tmp_path):
-    fasta = tmp_path / 'aligned_proteins.fasta'
-    fasta.write_text('>first\nK\n>second\nK\n')
-    selected = tmp_path / 'selected_cds.parquet'
-    pd.DataFrame({'cds_dna_hash': ['first', 'second']}).to_parquet(selected, index=False)
-    (tmp_path / 'alignment_validation.json').write_text(json.dumps(
-        {'aligned_width': 1, 'aligned_fasta_sha256': file_sha256(fasta)}))
-
-    stem = tmp_path / 'site_features_codon_example_aligned'
-    codes = np.array([[40, 98], [97, 40]], dtype=np.uint8)
-    metadata = {'site_mode': 'aligned', 'unit': 'codon', 'protein': 'example',
-                'index_key': 'cds_dna_hash', 'n_sequences': 2, 'n_sites': 2,
-                'code_map': {'AAA': 40, 'GAP': 97, 'AFTER_STOP': 98},
-                'aligned_fasta_sha256': file_sha256(fasta),
-                'selected_cds_sha256': file_sha256(selected)}
-    np.savez(f'{stem}.npz', codes=codes)
-    pd.DataFrame({'cds_dna_hash': ['second', 'first'], 'row': [1, 0]}).to_parquet(
-        f'{stem}_index.parquet', index=False)
-    path = tmp_path / f'{stem.name}_metadata.json'
-    path.write_text(json.dumps(metadata))
-    return stem, path, metadata
+def cache(tmp_path, write_aligned_codon_cache):
+    return write_aligned_codon_cache(tmp_path, 'example')
 
 
 def test_reader_returns_site_cache_with_saved_row_numbers(cache):

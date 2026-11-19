@@ -6,6 +6,7 @@ Covers:
      each reported
   3. Without a pair filter, every capacity pair of the population needs a dataset
   4. run_pair_and_population builds the pair label and the capacity table's population label
+  5. check_caches reports a missing pinned cache, and a missing or failing aligned cache
 
 Run: python -m pytest tests/test_audit_pair_datasets.py
 """
@@ -13,7 +14,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import pytest
 from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[1]
@@ -82,7 +82,34 @@ def test_run_pair_and_population():
     assert run_pair_and_population(OmegaConf.create(CONFIG)) == ('PB2-HA', 'Human-H3N2-2024')
 
 
-def test_aligned_cache_audit_fails_before_pin_lookup():
-    config = OmegaConf.create({'site': {'mode': 'aligned'}})
-    with pytest.raises(ValueError, match='check_caches supports pinned caches only'):
-        check_caches(config, 'codon')
+def aligned_config(alignment_dirs: dict):
+    return OmegaConf.create({**CONFIG, 'site': {'mode': 'aligned', 'unit': 'codon',
+                                                'alignment_dirs': alignment_dirs}})
+
+
+def test_aligned_caches_that_load_pass(tmp_path, write_aligned_codon_cache):
+    dirs = {protein: str(tmp_path / protein) for protein in ('PB2', 'HA')}
+    for protein, directory in dirs.items():
+        write_aligned_codon_cache(Path(directory), protein)
+    assert check_caches(aligned_config(dirs)) == []
+
+
+def test_aligned_cache_missing_or_failing_is_reported(tmp_path, write_aligned_codon_cache):
+    dirs = {protein: str(tmp_path / protein) for protein in ('PB2', 'HA')}
+    write_aligned_codon_cache(Path(dirs['HA']), 'HA')
+    fasta = Path(dirs['HA']) / 'aligned_proteins.fasta'
+    fasta.write_text(fasta.read_text() + '>third\nK\n')
+    problems = check_caches(aligned_config(dirs))
+    assert len(problems) == 2
+    assert problems[0].startswith('PB2: FileNotFoundError')
+    assert problems[1].startswith('HA: ValueError') and 'aligned_proteins.fasta has sha256' in problems[1]
+
+
+def test_missing_pinned_cache_is_reported(tmp_path):
+    config = OmegaConf.create({**CONFIG, 'paths': {'data_dir': str(tmp_path)},
+                               'site': {'mode': 'pinned', 'unit': 'codon'}})
+    config.virus.update({'virus_name': 'flu', 'data_version': 'v1',
+                         'cds_length': {'PB2': {'nt': 2280}, 'HA': {'nt': 1701}}})
+    problems = check_caches(config)
+    assert [problem.split(':')[0] for problem in problems] == ['PB2', 'HA']
+    assert 'site_features_codon_PB2_2280nt' in problems[0]

@@ -23,8 +23,10 @@ How?
   `Eligible isolates` from each split's `duplicate_stats.json` `pos_dedup.n_pos_before_dedup`, and
   the other four from `positive_pair_selection.json`. The split files must agree with each other,
   since that count is a property of the population rather than of a fold.
-- Each protein's site-feature cache must have been built at the pinned length the run uses. A
-  cache built against an earlier pin has the right file name and the wrong columns.
+- Each protein's site-feature cache must load the way a fit loads it. A pinned cache must have
+  been built at the pinned length the run uses, because a cache built against an earlier pin has
+  the right file name and the wrong columns. An aligned cache must still match the final
+  alignment beside it.
 - With balanced-usage negatives at a 1:1 ratio over Hopcroft-Karp positives, every split's
   negatives must use each positive sequence exactly once per slot (`check_balanced_usage`).
 - With `--reference_dataset_prefix`, each pair's positive test pair keys, pooled over its folds,
@@ -77,7 +79,7 @@ from src.utils.experiment_spec import (  # noqa: E402
 )
 from src.utils.experiment_utils import file_sha256  # noqa: E402
 from src.utils.metadata_enrichment import population_label  # noqa: E402
-from src.utils.site_utils import require_pinned_site_mode, site_cache_paths  # noqa: E402
+from src.utils.site_utils import load_configured_site_cache  # noqa: E402
 
 DATASET_RUNS = PROJ / 'data/datasets/flu/July_2025/runs'
 
@@ -142,39 +144,29 @@ def run_pair_and_population(config) -> tuple[str, str]:
     return pair, population
 
 
-def check_caches(config, unit: str) -> list:
-    """Site-feature caches that are absent or built at a different pinned length.
+def check_caches(config) -> list:
+    """Site-feature caches that are missing or fail their reader's checks.
 
-    The pin is part of a cache's file name, so a run whose pin has no cache finds none rather than
-    one holding another population's positions. The name and the metadata are checked against each
-    other as well, since only the metadata is written from the build itself.
+    Each protein's cache is loaded the way a fit loads it, with `load_configured_site_cache`. A
+    pinned cache must exist at the run's pin, and its metadata must record that pin, since only
+    the metadata is written from the build itself. An aligned cache must pass
+    `read_aligned_codon_cache`, which checks it against the final alignment beside it.
 
     Args:
       config: the run's loaded `resolved_config.yaml`.
-      unit: site unit the run uses, e.g. `codon`.
 
     Returns:
-      One message per protein whose cache is missing or disagrees with the run's pin; empty when
-      every pinned protein checks out.
+      One message per protein whose cache is missing or fails a check; empty when every cache
+      loads.
     """
-    require_pinned_site_mode(config, 'check_caches')
-    cache_dir = (PROJ / 'data/embeddings' / config.virus_name / config.virus.data_version)
     short_of = get_function_short_name_map(config)
-    pins = {str(k): int(v['nt']) for k, v in dict(config.virus.cds_length).items()}
-
     problems = []
     for function in config.dataset.schema_pair:
         protein = short_of[function]
-        metadata_path = site_cache_paths(cache_dir, unit, protein,
-                                         pins[protein])['_metadata.json']
-        if not metadata_path.exists():
-            problems.append(f'{protein}: no {unit} cache at {metadata_path.name}')
-            continue
-        cached_nt = json.loads(metadata_path.read_text())['pinned_nt']
-        if cached_nt != pins[protein]:
-            problems.append(
-                f'{protein}: {metadata_path.name} records {cached_nt} nt, run pins '
-                f'{pins[protein]} nt')
+        try:
+            load_configured_site_cache(config, protein)
+        except (OSError, ValueError, KeyError) as error:
+            problems.append(f'{protein}: {type(error).__name__}: {error}')
     return problems
 
 
@@ -277,7 +269,7 @@ def audit_run(entry: dict, capacity: pd.DataFrame, spec: dict,
                                 f'{expected_counts[column]:,}')
 
     failures.extend(expected_setting_failures(config, spec['expect']))
-    failures.extend(check_caches(config, str(config.site.unit)))
+    failures.extend(check_caches(config))
     if (config.dataset.split_strategy.negative_scope == 'balanced'
             and config.dataset.positive_pair_selection.method == 'hopcroft_karp'
             and float(config.dataset.neg_to_pos_ratio) == 1.0):

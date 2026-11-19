@@ -190,21 +190,6 @@ def site_mode(config) -> str:
     return mode
 
 
-def require_pinned_site_mode(config, caller: str) -> None:
-    """Raise if a pinned-only caller receives a different site mode.
-
-    Args:
-      config: run configuration. Older configs omit the mode.
-      caller: name to include in the error.
-
-    Raises:
-      ValueError: the mode is not `pinned`.
-    """
-    mode = site_mode(config)
-    if mode != 'pinned':
-        raise ValueError(f'{caller} supports pinned caches only. Got site.mode={mode!r}.')
-
-
 def site_cache_paths(site_dir: Path, unit: str, protein: str, pinned_nt: int) -> dict:
     """The three files of one protein's per-site feature cache.
 
