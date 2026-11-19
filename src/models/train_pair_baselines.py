@@ -57,6 +57,7 @@ from typing import Optional
 import joblib
 import numpy as np
 import pandas as pd
+from omegaconf import OmegaConf
 
 # Add project root to sys.path
 project_root = Path(__file__).resolve().parents[2]
@@ -115,8 +116,10 @@ def _resolve_site_settings(config) -> tuple:
             str(site_cfg.get('slots', 'both')))
 
 
-def input_checksums(dataset_dir: Path, site_cache_files: list,
-                    dataset_resolved_config: Optional[Path]) -> dict:
+def input_checksums(
+    dataset_dir: Path, site_cache_files: list,
+    dataset_resolved_config: Optional[Path]
+    ) -> dict:
     """SHA-256 of every file a fit reads its pairs and site features from.
 
     Args:
@@ -135,6 +138,55 @@ def input_checksums(dataset_dir: Path, site_cache_files: list,
     return checksums
 
 
+def check_aligned_dataset(
+    config, dataset_resolved_config: Optional[Path], proteins: tuple
+    ) -> None:
+    """In aligned site mode, raise unless the dataset was built in aligned mode
+    on the same alignments.
+
+    Aligned features are fit only on datasets whose records the retention rule
+    selected. The dataset's `resolved_config.yaml` records how it was built. It
+    must have `site.mode: aligned`, and its `site.alignment_dirs` entries for
+    the fit's proteins must equal the training config's. A pinned-mode fit is
+    not checked.
+
+    Args:
+      config: the training config.
+      dataset_resolved_config: the dataset's `resolved_config.yaml`, or None
+            when it was not given.
+      proteins: short names of the proteins the fit reads, e.g. `('PB1', 'HA')`.
+
+    Raises:
+      ValueError: in aligned mode, `dataset_resolved_config` is None, or the
+            dataset was built in another site mode or on another final alignment
+            of one of `proteins`.
+    """
+    if site_mode(config) != 'aligned':
+        return
+    if dataset_resolved_config is None:
+        raise ValueError(
+            "site.mode='aligned' fits only datasets built in aligned mode, so it needs "
+            "--dataset_resolved_config to read how the dataset was built.")
+    dataset_config = OmegaConf.load(dataset_resolved_config)
+    dataset_mode = site_mode(dataset_config)
+    if dataset_mode != 'aligned':
+        raise ValueError(
+            f"{dataset_resolved_config} records site.mode={dataset_mode!r}. Aligned features are "
+            f"fit only on datasets built with site.mode='aligned', whose records the retention "
+            f"rule selected.")
+    training_dirs = dict(config.site.alignment_dirs)
+    dataset_dirs = dict(dataset_config.site.alignment_dirs)
+    different = {}
+    for protein in proteins:
+        built_on, training_on = dataset_dirs.get(protein), training_dirs.get(protein)
+        if built_on != training_on:
+            different[protein] = (built_on, training_on)
+    if different:
+        raise ValueError(
+            f"{dataset_resolved_config} was built on other final alignments than the training "
+            f"config names; protein -> (dataset, training): {different}.")
+
+
 def _resolve_kmer_k(config) -> int:
     if hasattr(config, 'kmer') and config.get('kmer') is not None:
         return int(config.kmer.get('k', 6))
@@ -147,15 +199,20 @@ def _resolve_kmer_alphabet(config) -> str:
     return 'nt_ctg'
 
 
-def write_neighbor_report(estimator, X_split, X_train, y_train, train_pairs, split_pairs,
-                          out_csv: Path, *, train_rows=None,
-                          slot_a_width: Optional[int] = None) -> Path:
-    """Write one row per scored pair describing the training rows tied closest to it.
+def write_neighbor_report(
+    estimator, X_split, X_train, y_train,
+    train_pairs, split_pairs,
+    out_csv: Path, *, train_rows=None,
+    slot_a_width: Optional[int] = None
+    ) -> Path:
+    """Write one row per scored pair describing the training rows tied closest
+    to it.
 
-    Audit output, not predictions. A query whose co-nearest set holds more than one training pair
-    has no single nearest neighbor, so the representative is the member with the lexicographically
-    smallest `pair_key` and `n_co_nearest` says how many it was chosen from. The same convention
-    picks a representative isolate in `dataset_segment_pairs_v2.py:1395`.
+    Audit output, not predictions. A query whose co-nearest set holds more than
+    one training pair has no single nearest neighbor, so the representative is
+    the member with the lexicographically smallest `pair_key` and `n_co_nearest`
+    says how many it was chosen from. The same convention picks a representative
+    isolate in `dataset_segment_pairs_v2.py:1395`.
 
     Args:
       estimator: a fitted estimator exposing `co_nearest`.
@@ -249,8 +306,10 @@ def _resolve_baseline_list(args, config) -> list:
     return baselines
 
 
-def _resolve_output_dir(args, default_output_dir: Path, baseline_name: str,
-                       config_bundle: str, batch_ts: str, n_baselines: int) -> Path:
+def _resolve_output_dir(
+    args, default_output_dir: Path, baseline_name: str,
+    config_bundle: str, batch_ts: str, n_baselines: int
+    ) -> Path:
     """Resolve output directory for one baseline.
 
     Single-baseline mode: --output_dir or --run_output_subdir override the
@@ -566,7 +625,8 @@ def main() -> None:
                              'redraw anything.')
     parser.add_argument('--dataset_resolved_config', type=str, default=None,
                         help='The dataset\'s resolved_config.yaml, whose checksum is recorded '
-                             'with the other input checksums.')
+                             'with the other input checksums. Required with site.mode aligned, '
+                             'which reads from it how the dataset was built.')
     args = parser.parse_args()
 
     # ── Config ──────────────────────────────────────────────────────────────
@@ -624,6 +684,8 @@ def main() -> None:
     batch_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     dataset_dir = Path(args.dataset_dir)
+    dataset_resolved_config = (Path(args.dataset_resolved_config)
+                               if args.dataset_resolved_config else None)
     print(f'\nConfig bundle:   {args.config_bundle}')
     print(f'Dataset dir:     {dataset_dir}')
     print(f'Batch timestamp: {batch_ts}')
@@ -646,6 +708,7 @@ def main() -> None:
             project_root=project_root, virus_name=VIRUS_NAME,
             data_version=DATA_VERSION, run_suffix="", config=config,
         )['output_dir']
+
     elif FEATURE_SOURCE == 'site':
         # Which protein sits in which slot comes from the pair table rather than from the
         # bundle's schema_pair, whose order the dataset builder may have canonicalized. The
@@ -653,6 +716,7 @@ def main() -> None:
         short_map = get_function_short_name_map(config)
         slot_functions = (train_pairs['func_a'].iloc[0], train_pairs['func_b'].iloc[0])
         site_proteins = tuple(short_map.get(f, f) for f in slot_functions)
+        check_aligned_dataset(config, dataset_resolved_config, site_proteins)
         # site.mode picks the caches. Pinned caches are in the embeddings directory and are named
         # by the protein's pinned length; aligned caches are beside each protein's alignment.
         site_caches = tuple(load_configured_site_cache(config, protein)
@@ -664,6 +728,7 @@ def main() -> None:
             print(f'Site cache:      {paths["_metadata.json"]}')
         print(f'Site slots:      {site_proteins[0]} (a) / {site_proteins[1]} (b), '
               f'unit={SITE_UNIT}, encoding={SITE_ENCODING}, slots={SITE_SLOTS}')
+
     else:  # esm2
         embeddings_file = build_training_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
@@ -711,8 +776,6 @@ def main() -> None:
 
     # Checksums of what this fit read, so a runner can tell a finished fit from one trained on
     # other inputs.
-    dataset_resolved_config = (Path(args.dataset_resolved_config)
-                               if args.dataset_resolved_config else None)
     INPUT_CHECKSUMS = input_checksums(dataset_dir, site_cache_files, dataset_resolved_config)
 
     # ── Per-baseline runs ───────────────────────────────────────────────────
@@ -774,6 +837,7 @@ def main() -> None:
     if failed:
         print(f'\nERROR: {len(failed)} of {len(results)} baselines failed: {failed}')
         sys.exit(1)
+
     print(f'\nFinished {Path(__file__).name}!')
 
 

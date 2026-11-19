@@ -1,8 +1,9 @@
 """Tests for the aligned-mode dataset checks.
 
 Covers `check_population_inside_alignments` in src/datasets/_pair_helpers.py, the aligned-mode
-rule in `_validate_v2_config` in src/datasets/dataset_segment_pairs_v2.py, and the 2D-CD
-builder's rejection of aligned mode in src/datasets/dataset_pairs_cc.py.
+rule in `_validate_v2_config` in src/datasets/dataset_segment_pairs_v2.py, the 2D-CD builder's
+rejection of aligned mode in src/datasets/dataset_pairs_cc.py, and `check_aligned_dataset` in
+src/models/train_pair_baselines.py.
 
 Run: python -m pytest tests/test_aligned_dataset_checks.py
 """
@@ -14,6 +15,7 @@ from omegaconf import OmegaConf
 from src.datasets._pair_helpers import check_population_inside_alignments
 from src.datasets.dataset_pairs_cc import _resolve_spec
 from src.datasets.dataset_segment_pairs_v2 import _validate_v2_config
+from src.models.train_pair_baselines import check_aligned_dataset
 
 TASK2_FILTERS = {'host': ['Human', 'Swine', 'Chicken', 'Duck'],
                  'hn_subtype': ['H3N2', 'H1N1', 'H5N1'], 'year': None, 'year_range': [2010, 2025]}
@@ -99,3 +101,48 @@ def test_cc_builder_rejects_aligned_mode():
                                'dataset': {'split_strategy': {'mode': 'cluster_disjoint_cc'}}})
     with pytest.raises(ValueError, match="does not support site.mode='aligned'"):
         _resolve_spec(None, config)
+
+
+ALIGNMENT_DIRS = {'PB1': 'alignments/PB1', 'HA': 'alignments/HA', 'NS1': 'alignments/NS1'}
+
+
+def site_config(site: dict):
+    return OmegaConf.create({'site': site})
+
+
+def save_dataset_config(tmp_path, site: dict):
+    path = tmp_path / 'resolved_config.yaml'
+    OmegaConf.save(site_config(site), path)
+    return path
+
+
+def test_aligned_dataset_check_skips_pinned_fits():
+    check_aligned_dataset(site_config({'mode': 'pinned'}), None, ('PB1', 'HA'))
+    check_aligned_dataset(site_config({}), None, ('PB1', 'HA'))
+
+
+def test_aligned_dataset_check_passes_on_same_alignments(tmp_path):
+    training = site_config({'mode': 'aligned', 'alignment_dirs': ALIGNMENT_DIRS})
+    # A different NS1 alignment does not matter to a PB1-HA fit.
+    dataset = save_dataset_config(tmp_path, {'mode': 'aligned', 'alignment_dirs': {
+        **ALIGNMENT_DIRS, 'NS1': 'other/NS1'}})
+    check_aligned_dataset(training, dataset, ('PB1', 'HA'))
+
+
+@pytest.mark.parametrize(('dataset_site', 'message'), [
+    ({'unit': 'codon'}, "records site.mode='pinned'"),
+    ({'mode': 'pinned'}, "records site.mode='pinned'"),
+    ({'mode': 'aligned', 'alignment_dirs': {**ALIGNMENT_DIRS, 'HA': 'other/HA'}},
+     r"'HA': \('other/HA', 'alignments/HA'\)"),
+])
+def test_aligned_dataset_check_rejects_other_builds(tmp_path, dataset_site, message):
+    training = site_config({'mode': 'aligned', 'alignment_dirs': ALIGNMENT_DIRS})
+    dataset = save_dataset_config(tmp_path, dataset_site)
+    with pytest.raises(ValueError, match=message):
+        check_aligned_dataset(training, dataset, ('PB1', 'HA'))
+
+
+def test_aligned_dataset_check_needs_the_dataset_config():
+    training = site_config({'mode': 'aligned', 'alignment_dirs': ALIGNMENT_DIRS})
+    with pytest.raises(ValueError, match='needs --dataset_resolved_config'):
+        check_aligned_dataset(training, None, ('PB1', 'HA'))
