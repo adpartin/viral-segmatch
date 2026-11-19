@@ -18,8 +18,11 @@ Supported feature sources
   ``interaction`` from ``{concat, diff, unit_diff, prod}`` or
   ``+``-separated combinations (matches ``train_pair_classifier.py``'s
   ``parse_interaction_flags`` syntax).
-- ``feature_source='site'``: one column per position along the CDS, read
-  from the cache ``compute_site_features.py`` writes. ``interaction``
+- ``feature_source='site'``: one column per site, read from the two
+  per-protein caches the caller loads: a position along the CDS for the
+  pinned caches ``compute_site_features.py`` writes, or a protein-alignment
+  column for the aligned caches
+  ``compute_protein_aligned_codon_features.py`` writes. ``interaction``
   must be ``'concat'`` and ``slot_transform`` must be ``'none'`` — the
   two slots are different spaces of different lengths (slot A is HA
   position 1..1701, slot B is NA position 1..1410), so a difference or a
@@ -75,10 +78,8 @@ from src.utils.kmer_utils import (
 )
 from src.utils.site_utils import (
     get_site_pair_features,
-    load_site_cache,
     site_feature_columns,
 )
-
 
 # Numerical floor for unit_diff normalization (mirrors the MLP path).
 _UNIT_DIFF_EPS = 1e-8
@@ -284,7 +285,7 @@ def _load_esm2_brc_index(embeddings_file: Path) -> dict:
     return dict(zip(keys, df["row"]))
 
 
-def _check_site_arguments(site_dir, site_proteins, interaction: str, slot_transform: str,
+def _check_site_arguments(site_caches, interaction: str, slot_transform: str,
                           feature_scaling: str) -> None:
     """Reject the combinations that have no meaning for per-site features.
 
@@ -295,21 +296,19 @@ def _check_site_arguments(site_dir, site_proteins, interaction: str, slot_transf
     `slot_transform` and `feature_scaling` must both be off.
 
     Args:
-      site_dir: directory holding the per-site cache.
-      site_proteins: `(slot A, slot B)` short protein names.
+      site_caches: `(slot A, slot B)` `SiteCache`s.
       interaction: the requested interaction.
       slot_transform: the requested per-slot transform.
       feature_scaling: the requested feature scaling.
 
     Raises:
-      ValueError: a required argument is missing or a rejected combination was asked for.
+      ValueError: the two caches are missing.
+      NotImplementedError: a rejected combination was asked for.
     """
-    if site_dir is None:
-        raise ValueError("site_dir is required for feature_source='site'.")
-    if site_proteins is None or len(site_proteins) != 2:
+    if site_caches is None or len(site_caches) != 2:
         raise ValueError(
-            "site_proteins must be the (slot A, slot B) pair of short protein names, e.g. "
-            f"('HA', 'NA'); got {site_proteins!r}.")
+            "site_caches must be the (slot A, slot B) pair of loaded site caches for "
+            f"feature_source='site'; got {site_caches!r}.")
     if interaction != "concat":
         raise NotImplementedError(
             f"per-site features support interaction='concat' only; got {interaction!r}. The two "
@@ -349,8 +348,8 @@ def _check_site_slots_match_pairs(pairs_df, cache_a, cache_b) -> None:
         if in_pairs[0] != cache.metadata['function']:
             raise ValueError(
                 f"slot {slot} carries {in_pairs[0]!r} but the {cache.protein} cache was built "
-                f"from {cache.metadata['function']!r}. site_proteins is in the wrong order, or "
-                f"names the wrong proteins.")
+                f"from {cache.metadata['function']!r}. site_caches is in the wrong order, or "
+                f"holds the wrong proteins.")
 
 
 def load_pair_features_for_baselines(
@@ -368,12 +367,9 @@ def load_pair_features_for_baselines(
     # ESM-2 specific (required when feature_source='esm2')
     embeddings_file: Optional[Path] = None,
     # Per-site specific (required when feature_source='site')
-    site_dir: Optional[Path] = None,
-    site_unit: str = 'nt',
+    site_caches: Optional[tuple] = None,
     site_encoding: str = 'ordinal',
     site_slots: str = 'both',
-    site_proteins: Optional[tuple] = None,
-    site_pins: Optional[dict] = None,
     # Interaction & slot transform (apply to either source where supported)
     interaction: str = "concat",
     slot_transform: str = "none",
@@ -387,7 +383,7 @@ def load_pair_features_for_baselines(
 
     Args:
         train_pairs / val_pairs / test_pairs: pair CSVs as DataFrames.
-        feature_source: ``'kmer'`` or ``'esm2'``.
+        feature_source: ``'kmer'``, ``'esm2'`` or ``'site'``.
         feature_scaling: ``'none'`` or ``'standard'``. When
             ``'standard'``, fit ``StandardScaler`` on train, transform
             all splits, persist the scaler. Note: cosine-distance
@@ -400,16 +396,12 @@ def load_pair_features_for_baselines(
             feature_source='kmer'.
         embeddings_file: for the ESM-2 path. Required when
             feature_source='esm2'.
-        site_dir / site_unit / site_encoding / site_proteins: for the
-            per-site path. ``site_proteins`` is the ``(slot A, slot B)``
-            pair of short protein names, e.g. ``('HA', 'NA')``; it is
-            checked against the cache metadata and the pair table's
-            ``func_a``/``func_b``, so a mismatch raises rather than
-            silently featurizing the wrong protein.
-        site_pins: protein short name -> pinned CDS length, which picks the
-            cache to read when a protein has one per population. Leaving a
-            protein out takes the only cache on disk for it, which is what
-            the exploratory scripts do; it raises when there are several.
+        site_caches: for the per-site path, the ``(slot A, slot B)`` pair
+            of loaded ``SiteCache``s. Each cache's ``function`` metadata is
+            checked against the pair table's ``func_a``/``func_b``, so a
+            mismatch raises rather than silently featurizing the wrong
+            protein.
+        site_encoding: ``'ordinal'`` (default) or ``'onehot'``.
         site_slots: ``'both'`` (default), or ``'a'`` / ``'b'`` to keep one
             side's columns only. The one-side form is an ablation that
             should score near chance; see
@@ -440,22 +432,18 @@ def load_pair_features_for_baselines(
         )
 
     if feature_source == "site":
-        _check_site_arguments(site_dir, site_proteins, interaction, slot_transform,
-                              feature_scaling)
-        short_a, short_b = site_proteins
-        print(f"\nLoading per-site pair features (unit={site_unit!r}, "
-              f"encoding={site_encoding!r}, proteins={short_a}/{short_b}, "
-              f"slots={site_slots!r}) from {site_dir}")
+        _check_site_arguments(site_caches, interaction, slot_transform, feature_scaling)
+        cache_a, cache_b = site_caches
+        print(f"\nBuilding per-site pair features (unit={cache_a.unit!r}, "
+              f"encoding={site_encoding!r}, proteins={cache_a.protein}/{cache_b.protein}, "
+              f"slots={site_slots!r})")
         if site_slots != 'both':
             print(f"  ABLATION: slot {site_slots} only. The label is a fact about a pair, so one "
                   f"side alone should score near chance.")
-        pins = site_pins or {}
-        cache_a = load_site_cache(Path(site_dir), site_unit, short_a, pins.get(short_a))
-        cache_b = load_site_cache(Path(site_dir), site_unit, short_b, pins.get(short_b))
         _check_site_slots_match_pairs(train_pairs, cache_a, cache_b)
-        print(f"  {short_a}: {cache_a.codes.shape[1]:,} sites over "
+        print(f"  {cache_a.protein}: {cache_a.codes.shape[1]:,} sites over "
               f"{cache_a.codes.shape[0]:,} unique CDS; "
-              f"{short_b}: {cache_b.codes.shape[1]:,} sites over "
+              f"{cache_b.protein}: {cache_b.codes.shape[1]:,} sites over "
               f"{cache_b.codes.shape[0]:,} unique CDS")
 
         X_train, y_train = get_site_pair_features(train_pairs, cache_a, cache_b, site_encoding,
@@ -469,7 +457,7 @@ def load_pair_features_for_baselines(
         # have to re-derive the layout, which is the whole point of per-site features.
         columns = site_feature_columns(cache_a, cache_b, site_encoding, site_slots)
         columns_path = (Path(output_dir) /
-                        f'site_feature_columns_{site_unit}_{site_encoding}_{site_slots}.csv')
+                        f'site_feature_columns_{cache_a.unit}_{site_encoding}_{site_slots}.csv')
         columns.to_csv(columns_path, index=False)
         print(f"  {len(columns):,} columns; layout written to {columns_path}")
 

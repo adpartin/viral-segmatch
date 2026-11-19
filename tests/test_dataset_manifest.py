@@ -8,6 +8,7 @@ Covers:
   3. fold_count_failures compares the manifest's fold count and split directories with the spec
   4. fit_input_checksums produces exactly the dict the trainer's input_checksums records
   5. pair_token turns a pair label into the token used in names
+  6. site_cache_files names the same pinned cache files the trainer reads
 
 Run: python -m pytest tests/test_dataset_manifest.py
 """
@@ -32,6 +33,7 @@ from src.utils.dataset_manifest import (  # noqa: E402
     read_split_dirs,
     site_cache_files,
 )
+from src.utils.site_utils import configured_site_cache_paths  # noqa: E402
 
 
 def _make_dataset(root: Path, n_folds: int) -> Path:
@@ -85,8 +87,7 @@ def test_fit_inputs_match_trainer(tmp_path):
     root = _make_dataset(tmp_path / 'ds', 2)
     entry = {'dataset_dir': str(root), 'files': dataset_file_checksums(root, ['fold_0', 'fold_1'])}
     expected = fit_input_checksums(entry, 'fold_1', {})
-    recorded = input_checksums(root / 'fold_1', None, 'codon', None, None,
-                               root / 'resolved_config.yaml')
+    recorded = input_checksums(root / 'fold_1', [], root / 'resolved_config.yaml')
     assert recorded == expected
 
 
@@ -101,3 +102,18 @@ def test_site_cache_files_checks_mode_only_for_site_inputs():
         site_cache_files(config)
     config.training.feature_source = 'kmer'
     assert site_cache_files(config) == []
+
+
+def test_site_cache_files_match_the_trainer_cache_files(tmp_path):
+    config = OmegaConf.create({
+        'paths': {'data_dir': str(tmp_path)},
+        'virus': {'virus_name': 'flu', 'data_version': 'v1',
+                  'cds_length': {'PB1': {'nt': 2274}, 'HA': {'nt': 1701}},
+                  'function_short_names': {'PB1 function': 'PB1', 'HA function': 'HA'}},
+        'site': {'mode': 'pinned', 'unit': 'codon'},
+        'training': {'feature_source': 'site'},
+        'dataset': {'schema_pair': ['PB1 function', 'HA function']},
+    })
+    trainer_files = [path.resolve() for protein in ('PB1', 'HA')
+                     for path in configured_site_cache_paths(config, protein).values()]
+    assert site_cache_files(config) == trainer_files

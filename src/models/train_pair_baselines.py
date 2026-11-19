@@ -74,7 +74,11 @@ from src.utils.dataset_manifest import SPLIT_FILES
 from src.utils.experiment_utils import file_sha256, get_git_info
 from src.utils.path_utils import build_embeddings_paths, build_training_paths
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.site_utils import load_site_cache, require_pinned_site_mode, site_cache_paths
+from src.utils.site_utils import (
+    configured_site_cache_paths,
+    load_configured_site_cache,
+    site_mode,
+)
 from src.utils.timer_utils import Timer
 
 BASELINE_REGISTRY = {
@@ -111,17 +115,13 @@ def _resolve_site_settings(config) -> tuple:
             str(site_cfg.get('slots', 'both')))
 
 
-def input_checksums(dataset_dir: Path, site_dir: Optional[Path], site_unit: str,
-                    site_proteins: Optional[tuple], site_pins: Optional[dict],
+def input_checksums(dataset_dir: Path, site_cache_files: list,
                     dataset_resolved_config: Optional[Path]) -> dict:
     """SHA-256 of every file a fit reads its pairs and site features from.
 
     Args:
       dataset_dir: the split directory holding the pair CSVs.
-      site_dir: the site-feature cache directory, or None when the fit uses other features.
-      site_unit: site unit of the caches, e.g. `codon`.
-      site_proteins: the slot-A and slot-B protein short names, or None without site features.
-      site_pins: protein short name -> pinned CDS length, which names the caches to read.
+      site_cache_files: the site-cache files the fit reads; empty when it uses other features.
       dataset_resolved_config: the dataset's `resolved_config.yaml`, or None to leave it out.
 
     Returns:
@@ -130,10 +130,7 @@ def input_checksums(dataset_dir: Path, site_dir: Optional[Path], site_unit: str,
     paths = [dataset_dir / name for name in SPLIT_FILES if (dataset_dir / name).exists()]
     if dataset_resolved_config is not None:
         paths.append(dataset_resolved_config)
-    if site_dir is not None:
-        for protein in dict.fromkeys(site_proteins):
-            paths.extend(site_cache_paths(site_dir, site_unit, protein,
-                                          site_pins[protein]).values())
+    paths.extend(site_cache_files)
     checksums = {str(path.resolve()): file_sha256(path) for path in paths}
     return checksums
 
@@ -585,8 +582,6 @@ def main() -> None:
     DATA_VERSION = config.virus.data_version
     RANDOM_SEED = resolve_process_seed(config, 'training')
     FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
-    if FEATURE_SOURCE == 'site':
-        require_pinned_site_mode(config, 'train_pair_baselines')
     KMER_K = _resolve_kmer_k(config)
     KMER_ALPHABET = _resolve_kmer_alphabet(config)
     SITE_UNIT, SITE_ENCODING, SITE_SLOTS = _resolve_site_settings(config)
@@ -644,31 +639,31 @@ def main() -> None:
     test_pairs  = pd.read_csv(dataset_dir / 'test_pairs.csv',  engine=CSV_ENGINE)
     print(f'  train: {len(train_pairs):,} | val: {len(val_pairs):,} | test: {len(test_pairs):,}')
 
-    kmer_dir = site_dir = embeddings_file = None
-    site_proteins = SITE_PINS = None
-    if FEATURE_SOURCE in ('kmer', 'site'):
-        cache_dir = build_embeddings_paths(
+    kmer_dir = embeddings_file = site_caches = None
+    site_cache_files = []
+    if FEATURE_SOURCE == 'kmer':
+        kmer_dir = build_embeddings_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
             data_version=DATA_VERSION, run_suffix="", config=config,
         )['output_dir']
-        if FEATURE_SOURCE == 'kmer':
-            kmer_dir = cache_dir
-        else:
-            site_dir = cache_dir
-            # Which protein sits in which slot comes from the pair table rather than from the
-            # bundle's schema_pair, whose order the dataset builder may have canonicalized. The
-            # loader re-checks the answer against each cache's own metadata.
-            short_map = get_function_short_name_map(config)
-            slot_functions = (train_pairs['func_a'].iloc[0], train_pairs['func_b'].iloc[0])
-            site_proteins = tuple(short_map.get(f, f) for f in slot_functions)
-            # The pin names the cache, because the same protein takes a different pinned length
-            # in a different population.
-            all_pins = {str(protein): int(pin['nt'])
-                        for protein, pin in dict(config.virus.cds_length).items()}
-            SITE_PINS = {protein: all_pins[protein] for protein in site_proteins}
-            print(f'Site cache dir:  {site_dir}')
-            print(f'Site slots:      {site_proteins[0]} (a) / {site_proteins[1]} (b), '
-                  f'unit={SITE_UNIT}, encoding={SITE_ENCODING}, slots={SITE_SLOTS}')
+    elif FEATURE_SOURCE == 'site':
+        # Which protein sits in which slot comes from the pair table rather than from the
+        # bundle's schema_pair, whose order the dataset builder may have canonicalized. The
+        # feature loader re-checks the answer against each cache's own metadata.
+        short_map = get_function_short_name_map(config)
+        slot_functions = (train_pairs['func_a'].iloc[0], train_pairs['func_b'].iloc[0])
+        site_proteins = tuple(short_map.get(f, f) for f in slot_functions)
+        # site.mode picks the caches. Pinned caches are in the embeddings directory and are named
+        # by the protein's pinned length; aligned caches are beside each protein's alignment.
+        site_caches = tuple(load_configured_site_cache(config, protein)
+                            for protein in site_proteins)
+        print(f'Site mode:       {site_mode(config)}')
+        for protein in dict.fromkeys(site_proteins):
+            paths = configured_site_cache_paths(config, protein)
+            site_cache_files.extend(paths.values())
+            print(f'Site cache:      {paths["_metadata.json"]}')
+        print(f'Site slots:      {site_proteins[0]} (a) / {site_proteins[1]} (b), '
+              f'unit={SITE_UNIT}, encoding={SITE_ENCODING}, slots={SITE_SLOTS}')
     else:  # esm2
         embeddings_file = build_training_paths(
             project_root=project_root, virus_name=VIRUS_NAME,
@@ -687,8 +682,7 @@ def main() -> None:
             feature_scaling='none',  # raw; per-baseline scaling applied below
             kmer_dir=kmer_dir, kmer_k=KMER_K, kmer_alphabet=KMER_ALPHABET,
             embeddings_file=embeddings_file,
-            site_dir=site_dir, site_unit=SITE_UNIT, site_encoding=SITE_ENCODING,
-            site_proteins=site_proteins, site_pins=SITE_PINS, site_slots=SITE_SLOTS,
+            site_caches=site_caches, site_encoding=SITE_ENCODING, site_slots=SITE_SLOTS,
             interaction=INTERACTION,
             slot_transform=SLOT_TRANSFORM,
             output_dir=default_output_dir,
@@ -712,16 +706,14 @@ def main() -> None:
     # pooled. Only this layout puts one site in one column, and only `both` keeps two slots.
     SLOT_A_WIDTH = None
     if FEATURE_SOURCE == 'site' and SITE_ENCODING == 'ordinal' and SITE_SLOTS == 'both':
-        SLOT_A_WIDTH = int(load_site_cache(site_dir, SITE_UNIT, site_proteins[0],
-                                           SITE_PINS[site_proteins[0]]).codes.shape[1])
+        SLOT_A_WIDTH = int(site_caches[0].codes.shape[1])
         print(f'Slot A occupies the first {SLOT_A_WIDTH:,} of {X_train_raw.shape[1]:,} columns.')
 
     # Checksums of what this fit read, so a runner can tell a finished fit from one trained on
     # other inputs.
     dataset_resolved_config = (Path(args.dataset_resolved_config)
                                if args.dataset_resolved_config else None)
-    INPUT_CHECKSUMS = input_checksums(dataset_dir, site_dir, SITE_UNIT, site_proteins,
-                                      SITE_PINS, dataset_resolved_config)
+    INPUT_CHECKSUMS = input_checksums(dataset_dir, site_cache_files, dataset_resolved_config)
 
     # ── Per-baseline runs ───────────────────────────────────────────────────
     n_baselines = len(baselines)

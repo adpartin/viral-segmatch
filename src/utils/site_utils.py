@@ -29,8 +29,15 @@ import numpy as np
 import pandas as pd
 
 from src.utils.experiment_utils import file_sha256
+from src.utils.path_utils import build_embeddings_paths
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 ENCODINGS = ('ordinal', 'onehot')
+# Where a site's position comes from: a position along a CDS at the pinned length, or a column of
+# the protein alignment.
+SITE_MODES = ('pinned', 'aligned')
+SITE_CACHE_SUFFIXES = ('.npz', '_index.parquet', '_metadata.json')
 # Which slots' columns end up in the pair matrix. 'both' is the real feature set; 'a' and 'b'
 # are the one-side ablation, which should score near chance -- the label is a fact about a
 # PAIR, and the same sequence appears on both sides of it.
@@ -165,14 +172,35 @@ def aligned_site_cache_stem(unit: str, protein: str) -> str:
     return stem
 
 
+def site_mode(config) -> str:
+    """The run's `site.mode`, or `pinned` when the config does not set it.
+
+    Args:
+      config: run configuration. Configs written before aligned caches existed have no mode.
+
+    Returns:
+      `pinned` or `aligned`.
+
+    Raises:
+      ValueError: the mode is neither.
+    """
+    mode = str((config.get('site') or {}).get('mode', 'pinned'))
+    if mode not in SITE_MODES:
+        raise ValueError(f'site.mode must be one of {list(SITE_MODES)}; got {mode!r}.')
+    return mode
+
+
 def require_pinned_site_mode(config, caller: str) -> None:
     """Raise if a pinned-only caller receives a different site mode.
 
     Args:
       config: run configuration. Older configs omit the mode.
       caller: name to include in the error.
+
+    Raises:
+      ValueError: the mode is not `pinned`.
     """
-    mode = (config.get('site') or {}).get('mode', 'pinned')
+    mode = site_mode(config)
     if mode != 'pinned':
         raise ValueError(f'{caller} supports pinned caches only. Got site.mode={mode!r}.')
 
@@ -190,8 +218,7 @@ def site_cache_paths(site_dir: Path, unit: str, protein: str, pinned_nt: int) ->
       Suffix (`.npz`, `_index.parquet`, `_metadata.json`) -> path.
     """
     stem = site_cache_stem(unit, protein, pinned_nt)
-    paths = {suffix: Path(site_dir) / f'{stem}{suffix}'
-             for suffix in ('.npz', '_index.parquet', '_metadata.json')}
+    paths = {suffix: Path(site_dir) / f'{stem}{suffix}' for suffix in SITE_CACHE_SUFFIXES}
     return paths
 
 
@@ -392,6 +419,105 @@ def read_aligned_codon_cache(directory: Path, protein: str) -> SiteCache:
     hash_to_row = dict(zip(rows.index, rows.astype(int)))
     cache = SiteCache(protein=protein, unit='codon', codes=codes, hash_to_row=hash_to_row,
                       metadata=metadata)
+    return cache
+
+
+def _configured_alignment_dir(config, protein: str) -> Path:
+    """The protein's final alignment directory from `site.alignment_dirs`, under the project root.
+
+    Args:
+      config: run configuration in aligned mode.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      The directory. An absolute entry is returned unchanged.
+
+    Raises:
+      ValueError: `site.alignment_dirs` has no entry for the protein.
+    """
+    alignment_dirs = dict(config.site.get('alignment_dirs') or {})
+    if protein not in alignment_dirs:
+        raise ValueError(f'site.alignment_dirs has no entry for {protein}; it has '
+                         f'{sorted(alignment_dirs)}.')
+    directory = PROJECT_ROOT / str(alignment_dirs[protein])
+    return directory
+
+
+def _configured_pinned_cache(config, protein: str) -> tuple[Path, int]:
+    """The embeddings directory and the protein's pinned length in `virus.cds_length`.
+
+    Args:
+      config: run configuration in pinned mode.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      `(site_dir, pinned_nt)`.
+
+    Raises:
+      ValueError: `virus.cds_length` pins no length for the protein.
+    """
+    site_dir = build_embeddings_paths(
+        project_root=PROJECT_ROOT, virus_name=config.virus.virus_name,
+        data_version=config.virus.data_version, run_suffix='', config=config)['output_dir']
+    pins = dict(config.virus.get('cds_length') or {})
+    if protein not in pins:
+        raise ValueError(f'virus.cds_length pins no length for {protein}; it has {sorted(pins)}.')
+    pinned_nt = int(pins[protein]['nt'])
+    return site_dir, pinned_nt
+
+
+def configured_site_cache_paths(config, protein: str) -> dict:
+    """The three files of the site cache that the run's config selects for one protein.
+
+    In pinned mode the cache is in the embeddings directory and is named by the protein's pinned
+    length in `virus.cds_length`. In aligned mode it is the codon cache in the protein's
+    `site.alignment_dirs` directory.
+
+    Args:
+      config: run configuration.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      Suffix (`.npz`, `_index.parquet`, `_metadata.json`) -> path.
+
+    Raises:
+      ValueError: `site.mode` is not recognised, or the protein has no pinned length (pinned
+          mode) or no alignment directory (aligned mode).
+    """
+    if site_mode(config) == 'aligned':
+        directory = _configured_alignment_dir(config, protein)
+        stem = aligned_site_cache_stem('codon', protein)
+        paths = {suffix: directory / f'{stem}{suffix}' for suffix in SITE_CACHE_SUFFIXES}
+    else:
+        site_dir, pinned_nt = _configured_pinned_cache(config, protein)
+        paths = site_cache_paths(site_dir, str(config.site.unit), protein, pinned_nt)
+    return paths
+
+
+def load_configured_site_cache(config, protein: str) -> SiteCache:
+    """Load the site cache that the run's config selects for one protein.
+
+    Pinned mode reads it with `load_site_cache`. Aligned mode reads it with
+    `read_aligned_codon_cache`, which also checks it against the alignment beside it. Both read
+    the files `configured_site_cache_paths` names.
+
+    Args:
+      config: run configuration.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      The protein's `SiteCache`.
+
+    Raises:
+      ValueError: `site.mode` is not recognised, the protein has no pinned length or alignment
+          directory, or the cache fails its reader's checks.
+      FileNotFoundError: a cache file is missing.
+    """
+    if site_mode(config) == 'aligned':
+        cache = read_aligned_codon_cache(_configured_alignment_dir(config, protein), protein)
+    else:
+        site_dir, pinned_nt = _configured_pinned_cache(config, protein)
+        cache = load_site_cache(site_dir, str(config.site.unit), protein, pinned_nt)
     return cache
 
 

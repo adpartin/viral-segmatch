@@ -13,15 +13,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.utils.site_utils import (
+    configured_site_cache_paths,
+    load_configured_site_cache,
     load_site_cache,
     resolve_site_cache_pin,
     site_cache_paths,
     site_cache_stem,
+    site_mode,
 )
 
 
@@ -118,3 +122,36 @@ def test_pinned_filename_with_aligned_metadata(tmp_path):
     paths['_metadata.json'].write_text('{"site_mode":"aligned"}')
     with pytest.raises(ValueError, match="site_mode='aligned'"):
         load_site_cache(tmp_path, 'codon', 'A')
+
+
+def pinned_config(data_dir: Path, site: dict) -> OmegaConf:
+    """A run config whose embeddings directory is `<data_dir>/embeddings/flu/v1`."""
+    return OmegaConf.create({
+        'paths': {'data_dir': str(data_dir)},
+        'virus': {'virus_name': 'flu', 'data_version': 'v1', 'cds_length': {'PB1': {'nt': 2274}}},
+        'site': site,
+    })
+
+
+@pytest.mark.parametrize('site', [{'unit': 'codon'}, {'mode': 'pinned', 'unit': 'codon'}])
+def test_configured_pinned_cache_takes_the_pin_from_the_virus_config(tmp_path, site):
+    config = pinned_config(tmp_path, site)
+    site_dir = tmp_path / 'embeddings' / 'flu' / 'v1'
+    write_cache(site_dir, 'codon', 'PB1', 2274)
+    write_cache(site_dir, 'codon', 'PB1', 2277)
+    assert configured_site_cache_paths(config, 'PB1') == site_cache_paths(site_dir, 'codon',
+                                                                         'PB1', 2274)
+    assert load_configured_site_cache(config, 'PB1').metadata['pinned_nt'] == 2274
+
+
+def test_configured_pinned_cache_needs_a_pin(tmp_path):
+    config = pinned_config(tmp_path, {'unit': 'codon'})
+    with pytest.raises(ValueError, match='pins no length for HA'):
+        configured_site_cache_paths(config, 'HA')
+
+
+def test_site_mode_defaults_to_pinned_and_rejects_unknown_modes():
+    assert site_mode(OmegaConf.create({})) == 'pinned'
+    assert site_mode(OmegaConf.create({'site': {'mode': 'aligned'}})) == 'aligned'
+    with pytest.raises(ValueError, match='site.mode must be one of'):
+        site_mode(OmegaConf.create({'site': {'mode': 'aligend'}}))

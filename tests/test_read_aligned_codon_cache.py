@@ -4,9 +4,14 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
+from omegaconf import OmegaConf
 
 from src.utils.experiment_utils import file_sha256
-from src.utils.site_utils import read_aligned_codon_cache
+from src.utils.site_utils import (
+    configured_site_cache_paths,
+    load_configured_site_cache,
+    read_aligned_codon_cache,
+)
 
 
 @pytest.fixture
@@ -104,3 +109,27 @@ def test_rejects_validation_report_of_another_fasta(cache):
     report.write_text(json.dumps(validation))
     with pytest.raises(ValueError, match='describes a different'):
         read_aligned_codon_cache(stem.parent, 'example')
+
+
+def aligned_config(alignment_dirs: dict) -> OmegaConf:
+    return OmegaConf.create({'site': {'mode': 'aligned', 'unit': 'codon',
+                                      'alignment_dirs': alignment_dirs}})
+
+
+def test_configured_aligned_cache_is_read_from_the_alignment_directory(cache):
+    stem, path, _ = cache
+    config = aligned_config({'example': str(stem.parent)})
+    paths = configured_site_cache_paths(config, 'example')
+    assert paths == {suffix: stem.parent / f'{stem.name}{suffix}'
+                     for suffix in ('.npz', '_index.parquet', '_metadata.json')}
+    assert paths['_metadata.json'] == path
+    assert load_configured_site_cache(config, 'example').codes.shape == (2, 2)
+
+
+def test_configured_aligned_cache_needs_an_alignment_directory(cache):
+    stem, _, _ = cache
+    config = aligned_config({'other': str(stem.parent)})
+    with pytest.raises(ValueError, match='no entry for example'):
+        configured_site_cache_paths(config, 'example')
+    with pytest.raises(ValueError, match='no entry for example'):
+        load_configured_site_cache(config, 'example')
