@@ -23,6 +23,11 @@ The alignments are done for all 8 proteins. Their method and results are in
 - Proteins: the 8 major proteins.
 - Alignments: Tasks 1 and 2 both use the alignments of the Task 2 population, so a feature
   column is the same alignment column in both tasks.
+- Site settings: aligned mode requires `site.unit: codon` and `site.encoding: ordinal`.
+  `get_virus_config_hydra` in `src/utils/config_hydra.py` rejects any other combination.
+- Provenance: aligned features are fit only on datasets built in aligned mode. A pinned dataset
+  is never fit with aligned features, including as a comparison. Step 6 adds the check, because
+  step 6 is what builds aligned datasets.
 
 The stop codon placement rule is a convention. The downstream contig check in
 `docs/results/2026-11-05_ns1_alignment_pilot.md` supports it for the 654- and 660-nt NS1 CDS of
@@ -116,9 +121,10 @@ each cache belongs to one alignment of one population.
      `get_git_info` in `src/utils/experiment_utils.py`.
 
    Give `GAP` the id 97 and `AFTER_STOP` the id 98. Both are above every id in GenSLM's tokenizer
-   (0–96) and fit in the cache's uint8 codes. Add both to `code_map`, because the one-hot
-   expansion takes its columns from `code_map` and puts a code missing from it in the wrong column
-   without an error.
+   (0–96) and fit in the cache's uint8 codes. Add both to `code_map`, so that it declares every
+   code in the matrix. `read_aligned_codon_cache` rejects a cache whose matrix holds an undeclared
+   code. The two ids are defined once, as `GAP_CODE` and `AFTER_STOP_CODE` in
+   `src/utils/site_utils.py`.
 
    The readable table is `site_features_codon_<protein>_aligned_table.parquet`, beside the other
    cache files. It is keyed by `cds_dna_hash`, with one row per unique CDS and one text column per
@@ -154,6 +160,14 @@ each cache belongs to one alignment of one population.
    arguments, so they cannot read `site.mode`. They load caches through `load_site_cache`, so its
    pinned-mode check rejects an aligned cache in all four.
 
+   Done on 2026-11-19. `site_mode`, `configured_site_cache_paths` and `load_configured_site_cache`
+   in `src/utils/site_utils.py` pick each protein's cache by `site.mode`. Aligned caches are read
+   by `read_aligned_codon_cache`. Besides the metadata, the matrix and the index, it checks that
+   the width is `aligned_width` + 1 and that `aligned_proteins.fasta` and `selected_cds.parquet`
+   still have the sha256 the cache recorded. `load_pair_features_for_baselines` takes the two
+   loaded caches, and `train_pair_baselines` loads either kind. `site_cache_files` and
+   `check_caches` still raise in aligned mode. Step 9 adds aligned support to them.
+
 6. Add the retained-record filter to pair eligibility [3]. In aligned mode, a record is
    eligible only if its `(assembly_id, function, cds_dna_hash)` is in the final
    `selected_cds.parquet`. This replaces the requirement of complete CDS at pinned lengths.
@@ -181,6 +195,10 @@ each cache belongs to one alignment of one population.
    population. A record with no row in `cds_dna_final.parquet` also fails, because
    `attach_cds_dna_hash_to_prot_df` drops such records with only a warning. Report the number of
    records dropped for each reason.
+
+   Add the provenance check (see Decisions) to `train_pair_baselines`. In aligned mode it fits
+   only a dataset whose `resolved_config.yaml` has `site.mode: aligned` and the same
+   `site.alignment_dirs` as the training config.
 
 7. Validate and update documentation.
 
@@ -231,6 +249,19 @@ each cache belongs to one alignment of one population.
    Until this step is done, the pinned-mode check in `load_site_cache` (step 5) rejects aligned
    caches in this script too.
 
+9. Add aligned support to the batch runners and the dataset audit. `site_cache_files` in
+   `src/utils/dataset_manifest.py` and `check_caches` in `src/analysis/audit_pair_datasets.py`
+   name and check caches by pin, and both raise in aligned mode. `scripts/run_allpairs_datasets.py`
+   and `scripts/run_balanced_train_redraw.py` call `site_cache_files` directly.
+   `scripts/run_allpairs_baselines.py` and `scripts/run_allpairs_balanced_redraws.py` reach it
+   through `pair_cache_checksums`. The 28-pair runs of Tasks 1 and 2 therefore cannot start in
+   aligned mode until this step is done.
+
+   Both functions take each protein's cache files from `configured_site_cache_paths`. The step is
+   done when two tests pass. For an aligned fit, the checksums `fit_input_checksums` expects must
+   equal the ones `train_pair_baselines` records. The audit must reject an aligned dataset whose
+   cache is missing or fails `read_aligned_codon_cache`.
+
 ## Evidence
 
 - Config selection (2026-11-18). On a copy of `conf/`, a bundle inheriting from
@@ -247,6 +278,11 @@ each cache belongs to one alignment of one population.
   |---|---:|---:|---:|---:|---:|---:|---:|---:|
   | Records with a complete CDS | 5,341 | 2,958 | 5,341 | 5,339 | 5,327 | 5,181 | 5,345 | 5,337 |
   | Dropped by the retention rule | 8 | 0 | 5 | 0 | 0 | 5 | 0 | 4 |
+- Aligned feature loading (2026-11-19). Features were loaded for all 5 folds of the pinned PB1-HA
+  Task 1 dataset `task1_28p_codon_matched_20261015_194607_pb1_ha`, and no model was fit. Every
+  pair's CDS hashes were in the aligned caches. Every PB1 CDS in that dataset is 2,277 nt, and its
+  759 aligned PB1 columns equal the pinned cache's for all 2,784 pairs of each fold. This checks
+  loading only. The provenance rule forbids fitting a model on this combination.
 
 ## Code and artifacts
 
@@ -257,3 +293,5 @@ each cache belongs to one alignment of one population.
 | `conf/site/aligned_4host_3subtype_2010_2025.yaml` and the two master bundles (step 1) | built | the aligned site config, the Task 1 and Task 2 master bundles, and their PB1-HA children `flu_28p_aligned_codon_pb1_ha` and `flu_28p_4host_aligned_codon_pb1_ha` |
 | `src/embeddings/compute_protein_aligned_codon_features.py` (steps 2 to 4) | built | writes the aligned codon caches and readable tables, after the row and position checks of step 7 |
 | `site_features_codon_<protein>_aligned*` in each final alignment directory | built 2026-11-18 | all 8 proteins of the Task 2 population. All 231,782 rows passed the row and position checks |
+| `read_aligned_codon_cache`, `configured_site_cache_paths` and `load_configured_site_cache` in `src/utils/site_utils.py` (step 5) | built 2026-11-19 | read and check one aligned cache, and pick each protein's cache by `site.mode`. `train_pair_baselines` loads pinned or aligned caches through them |
+| aligned support in `site_cache_files` and `check_caches` (step 9) | not started | lets the 28-pair batch runners and the dataset audit use aligned caches |

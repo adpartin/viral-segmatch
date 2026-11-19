@@ -47,5 +47,6 @@ mode: pinned        # Where each site's position comes from:
                     #   aligned -- column i of the protein alignment. The caches are beside each
                     #              final alignment, found through `alignment_dirs`; no pin.
                     #              Set by conf/site/aligned_4host_3subtype_2010_2025.yaml.
-                    # The builder writes aligned codon caches. Training currently accepts pinned caches only. See
-                    # docs/plans/2026-11-17_aligned_codon_features_plan.md.
+                    # Aligned mode needs unit: codon and encoding: ordinal. train_pair_baselines
+                    # reads either kind of cache. The batch runners and the dataset audit read
+                    # pinned caches only. See docs/plans/2026-11-17_aligned_codon_features_plan.md.
