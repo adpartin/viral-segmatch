@@ -588,6 +588,107 @@ def filter_records_kept_by_retention_rule(
     return out, audit
 
 
+def _filter_value_set(value) -> Optional[set]:
+    """The values one metadata filter axis allows, or None when the axis is unconstrained.
+
+    Args:
+      value: None, a scalar or a sequence of scalars, the shapes `filter_by_metadata` takes.
+          OmegaConf's `ListConfig` is not a `list` subclass, so the sequence test is `__iter__`.
+
+    Returns:
+      The allowed values as a set, or None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) or not hasattr(value, '__iter__'):
+        values = {value}
+    else:
+        values = set(value)
+    return values
+
+
+def _year_set(year, year_range) -> Optional[set]:
+    """The years a filter allows: the `year` values, or every year of the inclusive `year_range`.
+
+    Args:
+      year: None, a year or a sequence of years.
+      year_range: None or `[min, max]`.
+
+    Returns:
+      The allowed years as a set of ints, or None when neither is set.
+
+    Raises:
+      ValueError: both are set.
+    """
+    if year is not None and year_range is not None:
+        raise ValueError("'year' and 'year_range' are mutually exclusive.")
+    if year is not None:
+        years = {int(y) for y in _filter_value_set(year)}
+    elif year_range is not None:
+        low, high = (int(y) for y in year_range)
+        years = set(range(low, high + 1))
+    else:
+        years = None
+    return years
+
+
+def check_population_inside_alignments(population_filters: dict, alignment_dirs: dict) -> None:
+    """Raise unless the dataset's population lies inside the population of every final alignment.
+
+    A final alignment holds records of one population only: the one its `selection_manifest.json`
+    records under `filters`, where an unset axis allows every value. Each of the dataset's host,
+    subtype and year values must be among the alignment's. Years are compared as sets, so
+    `year: [2024]` lies inside `year_range: [2010, 2025]`.
+
+    The dataset must set host, subtype and year, because an unset axis selects every value. It
+    must leave `geo_location` and `passage` unset, because the alignment selections record no
+    filter on them to compare with.
+
+    Args:
+      population_filters: the dataset's `filter_by_metadata` arguments: `host`, `hn_subtype`,
+          `year`, `year_range`, `geo_location` and `passage`. Other keys are ignored.
+      alignment_dirs: short protein name -> final alignment directory, for the proteins the
+          dataset uses.
+
+    Raises:
+      FileNotFoundError: a final alignment directory has no `selection_manifest.json`.
+      ValueError: any of the conditions above fails. The message lists every failure.
+    """
+    problems = []
+    for axis in ('geo_location', 'passage'):
+        if population_filters.get(axis) is not None:
+            problems.append(f"dataset.{axis} is set to {population_filters[axis]!r}, but the "
+                            f"alignment selections record no {axis} filter")
+    dataset_values = {
+        'host': _filter_value_set(population_filters.get('host')),
+        'hn_subtype': _filter_value_set(population_filters.get('hn_subtype')),
+        'year': _year_set(population_filters.get('year'), population_filters.get('year_range')),
+    }
+    unset = [axis for axis, values in dataset_values.items() if values is None]
+    if unset:
+        problems.append(f"the dataset leaves {unset} unset, which selects every value")
+
+    for short, final_dir in alignment_dirs.items():
+        manifest_path = Path(final_dir) / 'selection_manifest.json'
+        alignment_filters = json.loads(manifest_path.read_text())['filters']
+        alignment_values = {
+            'host': _filter_value_set(alignment_filters.get('host')),
+            'hn_subtype': _filter_value_set(alignment_filters.get('hn_subtype')),
+            'year': _year_set(alignment_filters.get('year'), alignment_filters.get('year_range')),
+        }
+        for axis, values in dataset_values.items():
+            allowed = alignment_values[axis]
+            if values is None or allowed is None:
+                continue
+            outside = sorted(values - allowed)
+            if outside:
+                problems.append(f"{short}: dataset {axis} values {outside} are outside the final "
+                                f"alignment's population, which allows {sorted(allowed)}")
+
+    if problems:
+        raise ValueError("check_population_inside_alignments: " + "; ".join(problems) + ".")
+
+
 def attach_cds_dna_hash_to_pos_df(
     pos_df: pd.DataFrame,
     cds_final_path: Path,

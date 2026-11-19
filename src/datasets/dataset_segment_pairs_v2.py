@@ -89,6 +89,7 @@ from src.datasets._positive_pair_selection import (
     select_positive_pairs,
 )
 from src.utils import schema
+from src.utils.site_utils import site_mode
 
 # Pair columns (kept identical to v1's positive/negative output) so downstream
 # code that reads pair CSVs continues to work. v2 may append extra columns
@@ -3208,6 +3209,16 @@ def _validate_v2_config(config) -> None:
             "(src/datasets/dataset_pairs_cc.py), not a v2 mode. Run it with "
             "`python src/datasets/dataset_pairs_cc.py --config_bundle <bundle>`, "
             "not the v2 Stage-3 CLI."
+        )
+
+    # In aligned site mode, eligible records are those of each final alignment, not complete CDS
+    # at pinned lengths, so the pinned-length filter must be off.
+    require_pinned = OmegaConf.select(config, "dataset.require_complete_cds_at_pinned_length")
+    if site_mode(config) == 'aligned' and require_pinned:
+        raise ValueError(
+            "site.mode='aligned' keeps the records of each final alignment, so "
+            "dataset.require_complete_cds_at_pinned_length must be false or absent; got "
+            f"{require_pinned!r}."
         )
 
     # Hard-coded values that must not contradict
