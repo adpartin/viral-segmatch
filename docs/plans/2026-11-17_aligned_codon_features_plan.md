@@ -111,7 +111,9 @@ each cache belongs to one alignment of one population.
    - `aligned_fasta_sha256` and `selected_cds_sha256`: the sha256 of `aligned_proteins.fasta`
      and of `selected_cds.parquet`, under the names `alignment_manifest.json` uses;
    - `stop_codon_placement_rule`: the rule in one sentence;
-   - `n_rows_validated`: the number of rows that passed the row and position checks of step 7.
+   - `n_rows_validated`: the number of rows that passed the row and position checks of step 7;
+   - `config_bundle` and `code`: the bundle the script ran with, and the commit record from
+     `get_git_info` in `src/utils/experiment_utils.py`.
 
    Give `GAP` the id 97 and `AFTER_STOP` the id 98. Both are above every id in GenSLM's tokenizer
    (0–96) and fit in the cache's uint8 codes. Add both to `code_map`, because the one-hot
@@ -120,8 +122,8 @@ each cache belongs to one alignment of one population.
 
    The readable table is `site_features_codon_<protein>_aligned_table.parquet`, beside the other
    cache files. It is keyed by `cds_dna_hash`, with one row per unique CDS and one text column per
-   feature column. Each cell contains the codon triplet in uppercase, `GAP` or `AFTER_STOP`,
-   preserving ambiguous triplets.
+   feature column, named `site_1` to `site_<W + 1>`. Each cell contains the codon triplet in
+   uppercase, `GAP` or `AFTER_STOP`, preserving ambiguous triplets.
 
 5. Update loading and training. `site.mode` chooses **aligned** or **pinned** mode. Its default
    is `pinned`, so existing bundles keep their current behaviour. Aligned loading reads each
@@ -249,4 +251,5 @@ each cache belongs to one alignment of one population.
 | `src/analysis/align_proteins.py` | built | selects and validates complete CDS, prepares unique protein sequences, runs MAFFT with `--align_only`, checks exact input recovery with `--validate_only`, and records gap positions with `--inspect_only` |
 | `results/flu/July_2025/cds_alignment_pilot/` | alignment inspected | `<population>/<protein>/` holds the selection, alignment and validation outputs plus `gap_locations.csv` and `inspection_manifest.json`. All 8 proteins for the Task 2 population; NS1 only for `Human-H3N2-2024` |
 | `conf/site/aligned_4host_3subtype_2010_2025.yaml` and the two master bundles (step 1) | built | the aligned site config, the Task 1 and Task 2 master bundles, and their PB1-HA children `flu_28p_aligned_codon_pb1_ha` and `flu_28p_4host_aligned_codon_pb1_ha` |
-| `src/embeddings/compute_protein_aligned_codon_features.py` (step 2) | not started | writes the aligned codon caches and readable tables |
+| `src/embeddings/compute_protein_aligned_codon_features.py` (steps 2 to 4) | built | writes the aligned codon caches and readable tables, after the row and position checks of step 7 |
+| `site_features_codon_<protein>_aligned*` in each final alignment directory | built 2026-11-18 | all 8 proteins of the Task 2 population. All 231,782 rows passed the row and position checks |

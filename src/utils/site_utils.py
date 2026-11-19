@@ -134,6 +134,24 @@ def site_cache_stem(unit: str, protein: str, pinned_nt: int) -> str:
     return f'site_features_{unit}_{protein}_{pinned_nt}nt'
 
 
+def aligned_site_cache_stem(unit: str, protein: str) -> str:
+    """The file stem of one protein's per-site feature cache whose sites are alignment columns.
+
+    The name carries no pin, because the protein alignment, not a CDS length, sets the columns.
+    The cache is written beside the alignment it comes from, so its directory says which
+    alignment.
+
+    Args:
+      unit: site unit; `src/embeddings/compute_protein_aligned_codon_features.py` writes `codon`.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      The stem, e.g. `site_features_codon_HA_aligned`.
+    """
+    stem = f'site_features_{unit}_{protein}_aligned'
+    return stem
+
+
 def site_cache_paths(site_dir: Path, unit: str, protein: str, pinned_nt: int) -> dict:
     """The three files of one protein's per-site feature cache.
 
