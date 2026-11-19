@@ -261,9 +261,9 @@ code state.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -274,7 +274,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 15,230 unique proteins from 2280-nt CDS with FFT-NS-2 and
-  produced 760 aa alignment columns. MAFFT took 7:01 (m:ss).
+  produced 760 aa alignment columns. MAFFT took 07:01 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * Each protein has 759 aa residues, so it has a gap in 1 of the 760 columns.
@@ -294,7 +294,7 @@ were translated.
 #### Step 5. Realignment
 
 * MAFFT realigned the 15,229 unique proteins kept in step 4 with FFT-NS-2 and
-  produced 759 aa alignment columns. MAFFT took 7:07 (m:ss).
+  produced 759 aa alignment columns. MAFFT took 07:07 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * Each protein has 759 aa residues, so no protein has a gap. The alignment has
@@ -353,9 +353,9 @@ were translated.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -367,7 +367,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 13,170 unique proteins from 2274-nt and 2277-nt CDS with
-  FFT-NS-2 and produced 762 aa alignment columns. MAFFT took 5:44 (m:ss).
+  FFT-NS-2 and produced 762 aa alignment columns. MAFFT took 05:44 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * A protein from a 2274-nt CDS has 757 aa residues, so it has gaps in 5 of the
@@ -391,7 +391,7 @@ were translated.
 #### Step 5. Realignment
 
 * MAFFT realigned the 13,167 unique proteins kept in step 4 with FFT-NS-2 and
-  produced 758 aa alignment columns. MAFFT took 5:45 (m:ss).
+  produced 758 aa alignment columns. MAFFT took 05:45 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * A protein from a 2277-nt CDS has 758 aa residues, so it has no gap. A protein
@@ -454,9 +454,9 @@ were translated.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -467,7 +467,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 15,897 unique proteins from 2151-nt CDS with FFT-NS-2 and
-  produced 716 aa alignment columns. MAFFT took 7:28 (m:ss).
+  produced 716 aa alignment columns. MAFFT took 07:28 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * Each protein has 716 aa residues, so no protein has a gap.
@@ -536,9 +536,9 @@ final alignment.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -553,7 +553,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 19,507 unique proteins from 1701-nt and 1704-nt CDS with
-  FFT-NS-2 and produced 590 aa alignment columns. MAFFT took 8:45 (m:ss).
+  FFT-NS-2 and produced 590 aa alignment columns. MAFFT took 08:45 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * A protein from a 1701-nt CDS has 566 aa residues, so it has gaps in 24 of the
@@ -579,7 +579,7 @@ were translated.
 #### Step 5. Realignment
 
 * MAFFT realigned the 19,470 unique proteins kept in step 4 with FFT-NS-2 and
-  produced 581 aa alignment columns. MAFFT took 8:48 (m:ss).
+  produced 581 aa alignment columns. MAFFT took 08:48 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * A protein from a 1701-nt CDS has 566 aa residues, so it has gaps in 15 of the
@@ -650,9 +650,9 @@ were translated.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -663,7 +663,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 7,249 unique proteins from 1497-nt CDS with FFT-NS-2 and
-  produced 498 aa alignment columns. MAFFT took 1:10 (m:ss).
+  produced 498 aa alignment columns. MAFFT took 01:10 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * Each protein has 498 aa residues, so no protein has a gap.
@@ -731,9 +731,9 @@ final alignment.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -746,7 +746,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 16,843 unique proteins from 1410-nt CDS with FFT-NS-2 and
-  produced 514 aa alignment columns. MAFFT took 5:33 (m:ss).
+  produced 514 aa alignment columns. MAFFT took 05:33 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * Each protein has 469 aa residues, so it has gaps in 45 of the 514 columns.
@@ -757,20 +757,20 @@ were translated.
 
 | Gap pattern | AA gap columns | AA residues | Unique proteins | Unique CDS | % of unique CDS | Isolates | Step 4 |
 |---|---|---:|---:|---:|---:|---:|---|
-| `gap_pat001` (N2) | 46–55, 102–119, 193, 201, 303, 442–445, 468, 471, 499–505, 514 | 469 | 8,520 | 16,092 | 52.54% | 32,498 | keep |
-| `gap_pat002` (N1) | 40–53, 64–70, 87–93, 201, 303, 338, 366–367, 369, 424, 468, 471–472, 499–505 | 469 | 8,305 | 14,518 | 47.40% | 26,631 | keep |
+| `gap_pat001` (N2 -> H3N2) | 46–55, 102–119, 193, 201, 303, 442–445, 468, 471, 499–505, 514 | 469 | 8,520 | 16,092 | 52.54% | 32,498 | keep |
+| `gap_pat002` (N1 -> H1N1, H5N1) | 40–53, 64–70, 87–93, 201, 303, 338, 366–367, 369, 424, 468, 471–472, 499–505 | 469 | 8,305 | 14,518 | 47.40% | 26,631 | keep |
 | 4 other patterns | | 469 | 18 | 20 | 0.05% or less each | 25 | drop |
 
 * `% of unique CDS` divides each gap pattern's unique CDS by 30,630, the unique
   CDS kept in step 2.
-* N2 and N1 name each kept pattern after the neuraminidase subtype of its
+* N2 and N1 name each kept pattern after the N (neuraminidase) subtype of its
   isolates. 32,474 of the 32,498 isolates of `gap_pat001` are H3N2, and 26,623
   of the 26,631 of `gap_pat002` are H1N1 or H5N1, which both carry N1.
 
 #### Step 5. Realignment
 
 * MAFFT realigned the 16,825 unique proteins kept in step 4 with FFT-NS-2 and
-  produced 493 aa alignment columns. MAFFT took 5:23 (m:ss).
+  produced 493 aa alignment columns. MAFFT took 05:23 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * Each protein has 469 aa residues, so it has gaps in 24 of the 493 columns.
@@ -821,6 +821,19 @@ were translated.
 * Step 5 realigns the 16,825 kept proteins into 493 columns. N2 and N1 proteins
   both have 469 aa residues, but their gaps fall in different columns, so equal
   length does not make their residues correspond position by position.
+* 32 kept isolates have the gap pattern of the other N subtype. They are the 24
+  non-H3N2 isolates of `gap_pat001` (N2) and the 8 H3N2 isolates of
+  `gap_pat002` (N1) noted under step 4, and they hold 26 unique CDS. For these
+  isolates, the recorded subtype disagrees with the NA sequence. We have not
+  checked whether the subtype is mislabelled or the isolate is a reassortant.
+
+  | Recorded subtype | Host | Years | Locations | Isolates | Gap pattern |
+  |---|---|---|---|---:|---|
+  | H5N1 | Duck | 2024–2025 | USA | 12 | `gap_pat001` (N2) |
+  | H5N1 | Chicken | 2024 | USA | 1 | `gap_pat001` (N2) |
+  | H1N1 | Human | 2018–2024 | California, Germany, New Jersey, New York, Washington | 7 | `gap_pat001` (N2) |
+  | H1N1 | Swine | 2016–2019 | Belgium, France, South Korea, Thailand | 4 | `gap_pat001` (N2) |
+  | H3N2 | Human | 2012–2018 | Australia, New York | 8 | `gap_pat002` (N1) |
 
 ### 5. Decision
 
@@ -841,9 +854,9 @@ were translated.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -854,7 +867,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 1,947 unique proteins from 759-nt CDS with FFT-NS-2 and
-  produced 252 aa alignment columns. MAFFT took 0:04 (m:ss).
+  produced 252 aa alignment columns. MAFFT took 00:04 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * Each protein has 252 aa residues, so no protein has a gap.
@@ -922,9 +935,9 @@ final alignment.
 
 ### 2. Retention rule
 
-#### Steps 1 and 2. Complete CDS and lengths above 2%
+#### Steps 1 and 2. Keep complete CDS and lengths above 2%
 
-The CDS lengths in this table identify the nt sequences from which the proteins
+The CDS lengths in this table represent the nt sequences from which the proteins
 were translated.
 
 | CDS length | Isolates | Unique CDS | % of unique CDS | Unique proteins | % of unique proteins | Step 2 |
@@ -939,7 +952,7 @@ were translated.
 #### Step 3. Alignment of the kept lengths
 
 * MAFFT aligned the 9,527 unique proteins from 660-nt and 693-nt CDS with
-  FFT-NS-2 and produced 230 aa alignment columns. MAFFT took 0:53 (m:ss).
+  FFT-NS-2 and produced 230 aa alignment columns. MAFFT took 00:53 (mm:ss).
 * Removing alignment gaps (`-`) from every aligned sequence recovered its exact
   stop-free protein input.
 * A protein from a 693-nt CDS has 230 aa residues, so it has no gap. A protein
