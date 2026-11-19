@@ -142,9 +142,7 @@ repeat what these already say:
 - **Preprocessing outputs, completeness re-run (landed)**: `protein_final`, `ctg_dna_final` and
   `cds_dna_final` are at `data/processed/flu/July_2025/` and carry the completeness flags.
   `cds_dna_final` holds the 8 modelled proteins at 108,530 rows each, 868,240 rows in total, with
-  `starts_with_m` / `has_terminal_stop` / `has_internal_stop` / `is_complete_cds` added. The
-  pre-re-run copies are kept at `data/processed/flu/July_2025/archive_09_01_2026/` for diffing;
-  read the live files, not the archive. Plan:
+  `starts_with_m` / `has_terminal_stop` / `has_internal_stop` / `is_complete_cds` added. Plan:
   `docs/plans/2026-08-28_per_site_nt_features_plan.md` step 0.
 - **Plot helpers**: don't split by slot when the data is per-pair. `cluster_size_barplot.py` writes
   PNGs to `<out_dir>/plots/` while `umap_cc.py` writes to `<out_dir>` itself, so figures for one
