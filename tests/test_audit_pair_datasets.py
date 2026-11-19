@@ -13,12 +13,14 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
 
 from src.analysis.audit_pair_datasets import (  # noqa: E402
+    check_caches,
     manifest_failures,
     run_pair_and_population,
 )
@@ -78,3 +80,9 @@ def test_unfiltered_manifest_needs_every_capacity_pair(tmp_path):
 
 def test_run_pair_and_population():
     assert run_pair_and_population(OmegaConf.create(CONFIG)) == ('PB2-HA', 'Human-H3N2-2024')
+
+
+def test_aligned_cache_audit_fails_before_pin_lookup():
+    config = OmegaConf.create({'site': {'mode': 'aligned'}})
+    with pytest.raises(ValueError, match='check_caches supports pinned caches only'):
+        check_caches(config, 'codon')

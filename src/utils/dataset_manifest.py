@@ -23,7 +23,7 @@ from src.utils.config_hydra import get_function_short_name_map
 from src.utils.experiment_spec import expected_n_folds, split_dir_names
 from src.utils.experiment_utils import file_sha256
 from src.utils.path_utils import build_embeddings_paths
-from src.utils.site_utils import site_cache_paths
+from src.utils.site_utils import require_pinned_site_mode, site_cache_paths
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -97,6 +97,7 @@ def site_cache_files(config) -> list:
     """
     if str(config.training.get('feature_source')) != 'site':
         return []
+    require_pinned_site_mode(config, 'site_cache_files')
     cache_dir = build_embeddings_paths(
         project_root=PROJECT_ROOT, virus_name=config.virus.virus_name,
         data_version=config.virus.data_version, run_suffix='', config=config)['output_dir']

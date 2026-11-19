@@ -91,3 +91,30 @@ def test_one_unit_does_not_see_another(tmp_path):
     write_cache(tmp_path, 'codon', 'HA', 1701)
     with pytest.raises(FileNotFoundError):
         resolve_site_cache_pin(tmp_path, 'nt', 'HA')
+
+
+@pytest.mark.parametrize('unit', ['nt', 'codon'])
+@pytest.mark.parametrize('pin', [None, 9])
+def test_pinned_loader_identifies_aligned_directory(tmp_path, unit, pin):
+    path = tmp_path / 'site_features_codon_A_aligned_metadata.json'
+    path.write_text('{"site_mode":"aligned"}')
+    with pytest.raises(ValueError, match='supports pinned caches only'):
+        load_site_cache(tmp_path, unit, 'A', pin)
+
+
+def test_mixed_directory_checks_protein_and_unit(tmp_path):
+    write_cache(tmp_path, 'nt', 'A', 9)
+    write_cache(tmp_path, 'codon', 'B', 9)
+    (tmp_path / 'site_features_codon_A_aligned_metadata.json').write_text('{"site_mode":"aligned"}')
+    assert load_site_cache(tmp_path, 'nt', 'A').metadata['pinned_nt'] == 9
+    assert load_site_cache(tmp_path, 'codon', 'B').metadata['pinned_nt'] == 9
+    write_cache(tmp_path, 'codon', 'A', 9)
+    with pytest.raises(ValueError, match='supports pinned caches only'):
+        load_site_cache(tmp_path, 'codon', 'A', 9)
+
+
+def test_pinned_filename_with_aligned_metadata(tmp_path):
+    paths = write_cache(tmp_path, 'codon', 'A', 9)
+    paths['_metadata.json'].write_text('{"site_mode":"aligned"}')
+    with pytest.raises(ValueError, match="site_mode='aligned'"):
+        load_site_cache(tmp_path, 'codon', 'A')

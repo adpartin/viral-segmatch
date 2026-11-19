@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from omegaconf import OmegaConf
 
 PROJ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJ))
@@ -29,6 +30,7 @@ from src.utils.dataset_manifest import (  # noqa: E402
     fold_count_failures,
     pair_token,
     read_split_dirs,
+    site_cache_files,
 )
 
 
@@ -91,3 +93,11 @@ def test_fit_inputs_match_trainer(tmp_path):
 def test_pair_token():
     assert pair_token('PB2-HA') == 'pb2_ha'
     assert pair_token('M1-NS1') == 'm1_ns1'
+
+
+def test_site_cache_files_checks_mode_only_for_site_inputs():
+    config = OmegaConf.create({'site': {'mode': 'aligned'}, 'training': {'feature_source': 'site'}})
+    with pytest.raises(ValueError, match='site_cache_files supports pinned caches only'):
+        site_cache_files(config)
+    config.training.feature_source = 'kmer'
+    assert site_cache_files(config) == []

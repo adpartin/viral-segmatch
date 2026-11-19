@@ -152,6 +152,18 @@ def aligned_site_cache_stem(unit: str, protein: str) -> str:
     return stem
 
 
+def require_pinned_site_mode(config, caller: str) -> None:
+    """Raise if a pinned-only caller receives a different site mode.
+
+    Args:
+      config: run configuration. Older configs omit the mode.
+      caller: name to include in the error.
+    """
+    mode = (config.get('site') or {}).get('mode', 'pinned')
+    if mode != 'pinned':
+        raise ValueError(f'{caller} supports pinned caches only. Got site.mode={mode!r}.')
+
+
 def site_cache_paths(site_dir: Path, unit: str, protein: str, pinned_nt: int) -> dict:
     """The three files of one protein's per-site feature cache.
 
@@ -220,10 +232,21 @@ def load_site_cache(site_dir: Path, unit: str, protein: str,
 
     Raises:
       FileNotFoundError: any of the three cache files is missing.
-      ValueError: the matrix and the index disagree on how many rows there are, the cache's own
+      ValueError: the directory contains an aligned cache for this protein and unit,
+          the matrix and the index disagree on how many rows there are, the cache's own
           metadata records a different pin than its name, or `pinned_nt` is None and the protein
           has caches at several pins.
     """
+    site_dir = Path(site_dir)
+    aligned_metadata = site_dir / f'{aligned_site_cache_stem(unit, protein)}_metadata.json'
+    # Some pinned-only callers request nucleotide features even in an aligned codon directory.
+    if aligned_metadata.is_file():
+        raise ValueError(f'load_site_cache supports pinned caches only. Found {aligned_metadata}.')
+    if unit != 'codon':
+        aligned_codon = site_dir / f'{aligned_site_cache_stem("codon", protein)}_metadata.json'
+        pinned_pattern = f'site_features_{unit}_{protein}_*nt_metadata.json'
+        if aligned_codon.is_file() and not any(site_dir.glob(pinned_pattern)):
+            raise ValueError(f'load_site_cache supports pinned caches only. Found {aligned_codon}.')
     if pinned_nt is None:
         pinned_nt = resolve_site_cache_pin(site_dir, unit, protein)
     stem = site_cache_stem(unit, protein, pinned_nt)
@@ -239,9 +262,13 @@ def load_site_cache(site_dir: Path, unit: str, protein: str,
             f"{missing}.{have} Build it with `python src/embeddings/compute_site_features.py "
             f"--config_bundle <bundle> --unit {unit} --proteins {protein}`.")
 
+    metadata = json.loads(paths['_metadata.json'].read_text())
+    mode = metadata.get('site_mode', 'pinned')
+    if mode != 'pinned':
+        raise ValueError(f'load_site_cache supports pinned caches only. '
+                         f'{paths["_metadata.json"]} declares site_mode={mode!r}.')
     codes = np.load(paths['.npz'])['codes']
     index = pd.read_parquet(paths['_index.parquet'])
-    metadata = json.loads(paths['_metadata.json'].read_text())
     if len(index) != codes.shape[0]:
         raise ValueError(
             f"{stem}: index has {len(index):,} rows but the matrix has {codes.shape[0]:,}. The "

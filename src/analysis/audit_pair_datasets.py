@@ -77,7 +77,7 @@ from src.utils.experiment_spec import (  # noqa: E402
 )
 from src.utils.experiment_utils import file_sha256  # noqa: E402
 from src.utils.metadata_enrichment import population_label  # noqa: E402
-from src.utils.site_utils import site_cache_paths  # noqa: E402
+from src.utils.site_utils import require_pinned_site_mode, site_cache_paths  # noqa: E402
 
 DATASET_RUNS = PROJ / 'data/datasets/flu/July_2025/runs'
 
@@ -157,6 +157,7 @@ def check_caches(config, unit: str) -> list:
       One message per protein whose cache is missing or disagrees with the run's pin; empty when
       every pinned protein checks out.
     """
+    require_pinned_site_mode(config, 'check_caches')
     cache_dir = (PROJ / 'data/embeddings' / config.virus_name / config.virus.data_version)
     short_of = get_function_short_name_map(config)
     pins = {str(k): int(v['nt']) for k, v in dict(config.virus.cds_length).items()}

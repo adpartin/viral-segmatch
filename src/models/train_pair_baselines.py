@@ -74,7 +74,7 @@ from src.utils.dataset_manifest import SPLIT_FILES
 from src.utils.experiment_utils import file_sha256, get_git_info
 from src.utils.path_utils import build_embeddings_paths, build_training_paths
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
-from src.utils.site_utils import load_site_cache, site_cache_paths
+from src.utils.site_utils import load_site_cache, require_pinned_site_mode, site_cache_paths
 from src.utils.timer_utils import Timer
 
 BASELINE_REGISTRY = {
@@ -585,6 +585,8 @@ def main() -> None:
     DATA_VERSION = config.virus.data_version
     RANDOM_SEED = resolve_process_seed(config, 'training')
     FEATURE_SOURCE = getattr(config.training, 'feature_source', 'esm2')
+    if FEATURE_SOURCE == 'site':
+        require_pinned_site_mode(config, 'train_pair_baselines')
     KMER_K = _resolve_kmer_k(config)
     KMER_ALPHABET = _resolve_kmer_alphabet(config)
     SITE_UNIT, SITE_ENCODING, SITE_SLOTS = _resolve_site_settings(config)
