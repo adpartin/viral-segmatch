@@ -1,7 +1,9 @@
 """Per-site feature primitives: build the site matrix, read the cache, make pair features.
 
 Sibling of `kmer_utils.py`, for the cache `src/embeddings/compute_site_features.py` writes: one
-uint8 matrix per (protein, site unit), one row per unique CDS, keyed by `cds_dna_hash`.
+uint8 matrix per (protein, site unit), one row per unique CDS, keyed by `cds_dna_hash`. The aligned
+codon caches that `src/embeddings/compute_protein_aligned_codon_features.py` writes beside each
+protein alignment have the same layout and are read by `read_aligned_codon_cache`.
 
 `sequences_to_byte_matrix` and `column_entropy` live here rather than in either caller because
 three places need them -- the builder, the entropy map and the importance map -- and per-site
@@ -26,11 +28,22 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
+from src.utils.experiment_utils import file_sha256
+
 ENCODINGS = ('ordinal', 'onehot')
 # Which slots' columns end up in the pair matrix. 'both' is the real feature set; 'a' and 'b'
 # are the one-side ablation, which should score near chance -- the label is a fact about a
 # PAIR, and the same sequence appears on both sides of it.
 SLOT_CHOICES = ('both', 'a', 'b')
+
+# The two aligned-cache cells that hold no codon, with their text in the readable table and the
+# metadata's code_map, and their code in the matrix. Both codes lie above every GenSLM codon id
+# (0-96) and fit in uint8. The writer adds both to code_map, so every code in the matrix is
+# declared there.
+GAP_TEXT = 'GAP'
+AFTER_STOP_TEXT = 'AFTER_STOP'
+GAP_CODE = 97
+AFTER_STOP_CODE = 98
 
 
 def sequences_to_byte_matrix(sequences: list[str]) -> np.ndarray:
@@ -280,6 +293,106 @@ def load_site_cache(site_dir: Path, unit: str, protein: str,
     hash_to_row = dict(zip(index['cds_dna_hash'], index['row'].astype(int)))
     return SiteCache(protein=protein, unit=unit, codes=codes, hash_to_row=hash_to_row,
                      metadata=metadata)
+
+
+def read_site_cache_index(stem: Path, n_rows: int) -> pd.Series:
+    """Read a site cache's hash-to-row mapping and check that it covers each matrix row once.
+
+    Args:
+      stem: the cache's path without its suffix.
+      n_rows: number of rows in the cache's code matrix.
+
+    Returns:
+      Row number per `cds_dna_hash`, indexed by the hash.
+
+    Raises:
+      ValueError: a hash repeats or is missing, the row numbers are not integers, or they are not
+          exactly 0 to `n_rows - 1`.
+    """
+    index = pd.read_parquet(f'{stem}_index.parquet', columns=['cds_dna_hash', 'row'])
+    rows = index.set_index('cds_dna_hash', verify_integrity=True)['row']
+    if (rows.index.hasnans or not pd.api.types.is_integer_dtype(rows)
+            or not np.array_equal(np.sort(rows.to_numpy()), np.arange(n_rows))):
+        raise ValueError(f'{stem}: invalid hash-to-row index')
+    return rows
+
+
+def read_aligned_codon_cache(directory: Path, protein: str) -> SiteCache:
+    """Read one protein's aligned codon cache and check it against the alignment beside it.
+
+    The metadata must name an aligned codon cache of `protein` keyed by `cds_dna_hash`, with GAP
+    and AFTER_STOP at their fixed codes. The matrix must be uint8 at the shape the metadata
+    records, with every code declared in the code map. Its width must be the alignment width W
+    from `alignment_validation.json` plus the extra column after the alignment. The aligned FASTA
+    and the selected CDS on disk must have the sha256 the cache recorded when it was built, and
+    the validation report must describe that FASTA.
+
+    Args:
+      directory: the protein's final alignment directory, which holds the cache.
+      protein: short protein name, e.g. `HA`.
+
+    Returns:
+      The `SiteCache`, with unit `codon`.
+
+    Raises:
+      FileNotFoundError: a cache file, the validation report or a source file is missing.
+      KeyError: the validation report has no `aligned_width`.
+      ValueError: any of the checks above fails, or the index does not cover each matrix row once.
+    """
+    directory = Path(directory)
+    stem = directory / aligned_site_cache_stem('codon', protein)
+    metadata = json.loads(Path(f'{stem}_metadata.json').read_text())
+    identity = {'site_mode': 'aligned', 'unit': 'codon', 'protein': protein,
+                'index_key': 'cds_dna_hash'}
+    for field, expected in identity.items():
+        if metadata.get(field) != expected:
+            raise ValueError(f'{stem}: expected {field}={expected!r}, got {metadata.get(field)!r}')
+
+    code_map = metadata.get('code_map')
+    fixed_codes = {GAP_TEXT: GAP_CODE, AFTER_STOP_TEXT: AFTER_STOP_CODE}
+    if not isinstance(code_map, dict) or any(code_map.get(text) != code
+                                             for text, code in fixed_codes.items()):
+        raise ValueError(f'{stem}: expected {GAP_TEXT}={GAP_CODE} and '
+                         f'{AFTER_STOP_TEXT}={AFTER_STOP_CODE} in code_map')
+    ids = list(code_map.values())
+    if any(type(code) is not int or not 0 <= code <= 255 for code in ids) or len(set(ids)) != len(ids):
+        raise ValueError(f'{stem}: code_map must contain distinct uint8 codes')
+
+    with np.load(f'{stem}.npz', allow_pickle=False) as archive:
+        codes = archive['codes']
+    shape = (metadata.get('n_sequences'), metadata.get('n_sites'))
+    if codes.dtype != np.uint8 or codes.shape != shape:
+        raise ValueError(f'{stem}: expected uint8 matrix of shape {shape}, got {codes.dtype} {codes.shape}')
+    declared = np.zeros(256, dtype=bool)
+    declared[ids] = True
+    if not declared[codes].all():
+        raise ValueError(f'{stem}: matrix contains a code missing from code_map')
+
+    # The source files must still hold the bytes the cache was built from.
+    sources = {'aligned_fasta_sha256': 'aligned_proteins.fasta',
+               'selected_cds_sha256': 'selected_cds.parquet'}
+    current = {field: file_sha256(directory / name) for field, name in sources.items()}
+    for field, name in sources.items():
+        if metadata.get(field) != current[field]:
+            raise ValueError(f'{stem}: {name} has sha256 {current[field]}, but the cache was built '
+                             f'from {metadata.get(field)}. Rebuild the cache.')
+
+    # The width is the alignment's W columns plus the extra column after the last one. W comes
+    # from the validation report, so that report must describe the current FASTA.
+    validation = json.loads((directory / 'alignment_validation.json').read_text())
+    if validation.get('aligned_fasta_sha256') != current['aligned_fasta_sha256']:
+        raise ValueError(f'{directory}: alignment_validation.json describes a different '
+                         f'aligned_proteins.fasta')
+    expected_width = int(validation['aligned_width']) + 1
+    if codes.shape[1] != expected_width:
+        raise ValueError(f'{stem}: {codes.shape[1]} sites, but the alignment has '
+                         f'{expected_width - 1} columns, so the width must be {expected_width}')
+
+    rows = read_site_cache_index(stem, len(codes))
+    hash_to_row = dict(zip(rows.index, rows.astype(int)))
+    cache = SiteCache(protein=protein, unit='codon', codes=codes, hash_to_row=hash_to_row,
+                      metadata=metadata)
+    return cache
 
 
 def declared_codes(cache: SiteCache) -> list[int]:

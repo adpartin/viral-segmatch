@@ -79,18 +79,17 @@ from src.utils.config_hydra import (  # noqa: E402
 )
 from src.utils.experiment_utils import get_git_info  # noqa: E402
 from src.utils.fasta_utils import read_fasta  # noqa: E402
-from src.utils.site_utils import aligned_site_cache_stem, sequences_to_byte_matrix  # noqa: E402
+from src.utils.site_utils import (  # noqa: E402
+    AFTER_STOP_CODE,
+    AFTER_STOP_TEXT,
+    GAP_CODE,
+    GAP_TEXT,
+    aligned_site_cache_stem,
+    sequences_to_byte_matrix,
+)
 from src.utils.timer_utils import Timer  # noqa: E402
 
 UNIT = 'codon'
-
-# Codes for the two cell states that hold no codon. Both lie above every GenSLM id (0-96) and fit
-# in uint8. They must be in the metadata's code_map, because the one-hot expansion takes its
-# columns from code_map.
-GAP_CODE = 97
-AFTER_STOP_CODE = 98
-GAP_TEXT = 'GAP'
-AFTER_STOP_TEXT = 'AFTER_STOP'
 
 # The same two states in the int32 triplet matrix, where a codon cell holds its three ASCII bytes
 # packed as b0 << 16 | b1 << 8 | b2, which is never negative.
