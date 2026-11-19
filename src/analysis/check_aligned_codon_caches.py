@@ -29,6 +29,44 @@ def read_index(stem: Path, n_rows: int) -> pd.Series:
     return rows
 
 
+def read_aligned_codon_cache(directory: Path, protein: str) -> tuple[np.ndarray, pd.Series]:
+    """Read one aligned codon cache and verify its metadata, code matrix and index.
+
+    Args:
+      directory: directory containing the saved cache.
+      protein: short name used in the cache filename and metadata.
+
+    Returns:
+      The uint8 code matrix and its CDS hash to row-number mapping.
+    """
+    stem = directory / aligned_site_cache_stem('codon', protein)
+    metadata = json.loads(Path(f'{stem}_metadata.json').read_text())
+    identity = {'site_mode': 'aligned', 'unit': 'codon', 'protein': protein,
+                'index_key': 'cds_dna_hash'}
+    for field, expected in identity.items():
+        if metadata.get(field) != expected:
+            raise ValueError(f'{stem}: expected {field}={expected!r}, got {metadata.get(field)!r}')
+
+    code_map = metadata.get('code_map')
+    if not isinstance(code_map, dict) or code_map.get('GAP') != 97 or code_map.get('AFTER_STOP') != 98:
+        raise ValueError(f'{stem}: expected GAP=97 and AFTER_STOP=98 in code_map')
+    ids = list(code_map.values())
+    if any(type(code) is not int or not 0 <= code <= 255 for code in ids) or len(set(ids)) != len(ids):
+        raise ValueError(f'{stem}: code_map must contain distinct uint8 codes')
+
+    with np.load(f'{stem}.npz', allow_pickle=False) as archive:
+        codes = archive['codes']
+    shape = (metadata.get('n_sequences'), metadata.get('n_sites'))
+    if codes.dtype != np.uint8 or codes.shape != shape:
+        raise ValueError(f'{stem}: expected uint8 matrix of shape {shape}, got {codes.dtype} {codes.shape}')
+    declared = np.zeros(256, dtype=bool)
+    declared[ids] = True
+    if not declared[codes].all():
+        raise ValueError(f'{stem}: matrix contains a code missing from code_map')
+    rows = read_index(stem, len(codes))
+    return codes, rows
+
+
 def main() -> None:
     directories = OmegaConf.load(SITE_CONFIG).alignment_dirs
     total = 0
@@ -37,15 +75,9 @@ def main() -> None:
         selected = pd.read_parquet(directory / 'selected_cds.parquet',
                                    columns=['cds_dna_hash', 'cds_length']).drop_duplicates()
         selected = selected.set_index('cds_dna_hash', verify_integrity=True)
-        stem = directory / aligned_site_cache_stem('codon', protein)
-        with np.load(f'{stem}.npz') as archive:
-            aligned = archive['codes']
-        aligned_rows = read_index(stem, len(aligned))
+        aligned, aligned_rows = read_aligned_codon_cache(directory, protein)
         if not selected.index.symmetric_difference(aligned_rows.index).empty:
-            raise ValueError(f'{stem}: aligned index and final selection cover different CDS')
-        metadata = json.loads(Path(f'{stem}_metadata.json').read_text())
-        if metadata['site_mode'] != 'aligned' or metadata['code_map']['AFTER_STOP'] != 98:
-            raise ValueError(f'{stem}: unexpected aligned cache metadata')
+            raise ValueError(f'{directory}: aligned index and final selection cover different CDS')
 
         for length in lengths:
             hashes = selected.index[selected['cds_length'] == length]
