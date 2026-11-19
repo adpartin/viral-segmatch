@@ -166,7 +166,7 @@ items that need context beyond their title.
 | Task 11 / 28-pair sweep; throughput fix lives on the unmerged branch `fix/mpiexec-cpu-binding` | `polaris_plan.md` |
 | H3N2 segment matching for the PIs: 2D-CD is infeasible on one-year populations, so random 4-fold CV + a 2024->2025 temporal split answer the two questions instead. Results are in the commit messages only; no results doc yet | `docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md` |
 | Per-site nucleotide features: HA-NA H3N2 2024 site runs are done. Unique-sequence matching CV code and tests are complete; building and auditing its three datasets is next. | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
-| Aligned codon features: caches are built for all 8 proteins of the Task 2 population, and `train_pair_baselines` loads them. The retained-record filter in pair eligibility (step 6) is next; Tasks 1 and 2 wait on it. | `docs/plans/2026-11-17_aligned_codon_features_plan.md` |
+| Aligned codon features: caches, aligned loading in `train_pair_baselines` and the retention rule filter in the dataset builder are done; the Task 1 PB1-HA aligned dataset is built. Aligned support in the batch runners (step 9) is next; the 28-pair runs of Tasks 1 and 2 wait on it. | `docs/plans/2026-11-17_aligned_codon_features_plan.md` |
 
 - **Stage-4 training is GATED** — no launch without explicit OK. An OK covers the jobs in the
   approved command or plan, including resuming them. A rerun after a code or config change needs a

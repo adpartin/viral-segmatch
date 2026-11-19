@@ -82,7 +82,10 @@ M1-NS1 to 2,042 for PB2-HA.
 
 #### Dataset build steps
 
-The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
+The flowchart shows the order of operations. Its counts are the record of the
+pinned Human-H3N2-2024 run, `task1_28p_codon_matched_20261015_194607_pb1_ha`,
+for PB1-HA, fold 0. The aligned build of the same pair is under
+[Dataset build steps in aligned mode](#dataset-build-steps-in-aligned-mode).
 
 ```text
 [1] Build the negative blocker from the whole corpus (co-occurrence set)
@@ -152,6 +155,71 @@ The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
 8. **Combine pairs.** Add the negatives from step 7 to the positives in each
    split. Label positives 1 and negatives 0. For PB1–HA fold 0, this gives
    1,946 training, 280 validation, and 558 test pairs.
+
+#### Dataset build steps in aligned mode
+
+The aligned build keeps the steps above and changes eligibility [3]. A record is
+eligible only if the retention rule kept it, so the dataset holds exactly the
+records the aligned codon caches hold. The counts are for
+`task1_28p_aligned_codon_matched_20261119_145832_pb1_ha`, PB1-HA, fold 0.
+
+```text
+[1] Build the negative blocker from the whole corpus (co-occurrence set)
+    Input:  108,530 corpus isolates
+    Action: collect the same-isolate nt_cds pair key from each isolate
+    Output: 82,657 distinct observed pair keys ───────────────────────┐
+                                                                      │
+[2] Filter the population                                             │
+    Input:  108,530 corpus isolates                                   │
+    Action: keep Human, H3N2, 2024                                    │
+    Output: 5,346 isolates                                            │
+              ↓                                                       │
+[3] Require an eligible PB1-HA pair                                   │
+    Input:  5,346 isolates                                            │
+    Action: require both records kept by the retention rule           │
+    Output: 2,958 eligible isolates                                   │
+              ↓                                                       │
+[4] Deduplicate positives                                             │
+    Input:  2,958 eligible isolates                                   │
+    Action: keep one row per nt_cds pair key                          │
+    Output: 2,338 unique positive pairs                               │
+              ↓                                                       │
+[5] Select positives with HK                                          │
+    Input:  2,338 unique positive pairs                               │
+    Action: use each CDS sequence at most once per slot               │
+    Output: 1,401 selected positives                                  │
+              ↓                                                       │
+[6] Make 5 CV folds                                                   │
+    Input:  1,401 selected positives                                  │
+    Action: assign test pairs; split the remainder into train/val     │
+    Output: train/val/test = 980/140/281 positives                    │
+              ↓                                                       │
+[7] Draw negatives                                                    │
+    Input:  split positives + observed pair keys from [1] <───────────┘
+    Action: one matched, one-use negative per positive
+    Output: train/val/test = 980/140/281 negatives
+              ↓
+[8] Combine negatives and positives
+    Input:  split positives from [6] and split negatives from [7]
+    Action: combine and assign labels 0 to negatives and 1 to positives
+    Output: train/val/test = 1,960/280/562 pairs
+```
+
+Step [3] dropped these records, read from `records_kept_by_retention_rule.json`:
+
+| | PB1 | HA |
+|---|---:|---:|
+| Records in the population | 5,346 | 5,346 |
+| Dropped: incomplete CDS | 2,388 | 7 |
+| Dropped: CDS length | 0 | 0 |
+| Dropped: gap pattern | 0 | 0 |
+| Kept | 2,958 | 5,339 |
+
+The aligned build has 2,958 eligible isolates and the pinned build 2,945. The 13
+extra isolates carry a complete PB1 CDS of 2,274 nt. The retention rule keeps
+that length, and the 2,277-nt pin drops it. Every HA record of this population
+is 1,701 nt in both builds. The two builds therefore select different positives,
+1,401 and 1,392, and their folds differ.
 
 
 
@@ -477,8 +545,8 @@ datasets were built with.
 # 2. Expand the population. Evaluate across hosts, subtypes, and years.
 
 **Status: IN PROGRESS.** The population is set but the run has not happened. It
-waits on the mapping from alignment columns to codon features; see the
-prerequisite under Methods.
+waits on aligned support in the batch runners; see the prerequisite under
+Methods.
 
 A separate pilot on `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023` is complete. It
 tested that negatives are drawn inside one metadata group. Its population is not
@@ -520,8 +588,8 @@ metadata group, so it matches on the host group too.
   isolates, the smallest Chicken-H1N1-2016 with 1. Open question 1 covers what
   to do with thin groups. That rule has to be set before the folds are made.
 * Not yet measured: per-pair capacity, and so which of the 28 schema pairs this
-  population supports. These need a capacity run on the records kept by the
-  retained-record filter, which waits on the prerequisite below.
+  population supports. These need a capacity run on the records the retention
+  rule keeps.
 
 Host and subtype are not crossed:
 
@@ -567,10 +635,11 @@ length is one way to get that; aligning the proteins is the other. Task 2 uses
 the alignment for all 8 proteins, so it uses no pins.
 
 The alignment of all 8 proteins is finished; the final alignments were written
-on 2026-11-13. What now blocks
-the run is the mapping from alignment columns to codon features, which is
-planned in `docs/plans/2026-11-17_aligned_codon_features_plan.md` and not
-implemented.
+on 2026-11-13. Steps 1 to 6 of
+`docs/plans/2026-11-17_aligned_codon_features_plan.md` are done: the aligned
+codon caches, their loading in `train_pair_baselines`, and the retention rule
+filter in the dataset builder. What now blocks the 28-pair run is aligned
+support in the batch runners, step 9 of that plan.
 
 * Planned in `docs/plans/2026-11-17_aligned_codon_features_plan.md`. Reported
   in `docs/results/2026-11-09_protein_alignment.md`.
@@ -596,9 +665,9 @@ implemented.
   Under it every protein is aligned, not pinned. Its steps 3 and 4 have been
   run for all eight proteins. Step 5 has realigned PB2, PB1, HA and NA, and does
   not apply to PA, NP, M1 and NS1.
-* Still open: the codon feature mapping, which is planned but not implemented
-  or checked. The aligned codon features plan keeps every final alignment column
-  and adds one column for the stop codon.
+* The aligned codon features keep every final alignment column and add one
+  column for the stop codon. All 231,782 cache rows passed the row and position
+  checks.
 * The negative-sampling pilot below is not affected. It was built on a
   population where one pin held for each of its 7 proteins.
 

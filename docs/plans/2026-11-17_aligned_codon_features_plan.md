@@ -25,9 +25,9 @@ The alignments are done for all 8 proteins. Their method and results are in
   column is the same alignment column in both tasks.
 - Site settings: aligned mode requires `site.unit: codon` and `site.encoding: ordinal`.
   `get_virus_config_hydra` in `src/utils/config_hydra.py` rejects any other combination.
-- Provenance: aligned features are fit only on datasets built in aligned mode. A pinned dataset
-  is never fit with aligned features, including as a comparison. Step 6 adds the check, because
-  step 6 is what builds aligned datasets.
+- Provenance: aligned features are fit only on datasets built in aligned mode on the same final
+  alignments. A pinned dataset is never fit with aligned features, including as a comparison.
+  `check_aligned_dataset` in `src/models/train_pair_baselines.py` enforces it (step 6).
 
 The stop codon placement rule is a convention. The downstream contig check in
 `docs/results/2026-11-05_ns1_alignment_pilot.md` supports it for the 654- and 660-nt NS1 CDS of
@@ -36,7 +36,7 @@ The rule is unverified for the other proteins.
 
 The alignment runs once per population and protein with `src/analysis/align_proteins.py`,
 outside the dataset build. The dataset build has the steps [1] to [8] shown under "Dataset build
-steps" in `docs/plans/2026-10-08_paper_plan.md`. There, the retained-record filter (step 6) is
+steps" in `docs/plans/2026-10-08_paper_plan.md`. There, the retention rule filter (step 6) is
 applied in pair eligibility [3], where it replaces the requirement of complete CDS at pinned
 lengths. Building, filtering and loading in aligned mode use no pinned CDS length.
 
@@ -168,12 +168,12 @@ each cache belongs to one alignment of one population.
    loaded caches, and `train_pair_baselines` loads either kind. `site_cache_files` and
    `check_caches` still raise in aligned mode. Step 9 adds aligned support to them.
 
-6. Add the retained-record filter to pair eligibility [3]. In aligned mode, a record is
+6. Add the retention rule filter to pair eligibility [3]. In aligned mode, a record is
    eligible only if its `(assembly_id, function, cds_dna_hash)` is in the final
    `selected_cds.parquet`. This replaces the requirement of complete CDS at pinned lengths.
-   It attaches `cds_dna_hash` itself with `attach_cds_dna_hash_to_prot_df` in
-   `src/datasets/_pair_helpers.py`, because `src/datasets/dataset_segment_pairs.py` attaches
-   it only when `pair_key_alphabet` is `nt_cds`. Require the dataset's population to lie inside
+   It reads `cds_dna_hash`, `cds_length` and `is_complete_cds` from `cds_dna_final.parquet`
+   itself, because `src/datasets/dataset_segment_pairs.py` attaches `cds_dna_hash` only when
+   `pair_key_alphabet` is `nt_cds`. Require the dataset's population to lie inside
    the alignment's: every host, subtype and year the dataset selects must be among those in
    `selection_manifest.json`. Compare years as sets, so that `year: [2024]` lies inside
    `year_range: [2010, 2025]`. A dataset that leaves host, subtype or year unset fails, because it
@@ -185,26 +185,39 @@ each cache belongs to one alignment of one population.
    be absent from the final `selected_cds.parquet` only for one of these reasons, read from the
    saved selections:
    - its CDS is not complete (`is_complete_cds` is false);
-   - the retention rule dropped its CDS length: the record is in `<protein>/selected_cds.parquet`
-     but not in `<protein>/length_share_above_0.02/selected_cds.parquet`;
+   - the retention rule dropped its CDS length: its CDS is complete and its length is in
+     `length_filter.dropped_lengths` of `<protein>/length_share_above_0.02/selection_manifest.json`.
+     The plain selection `<protein>/selected_cds.parquet` is not used, because
+     `align_proteins.py` writes it in a separate run, not as the parent of the length-filtered
+     selection;
    - the retention rule dropped its gap pattern (PB2, PB1, HA and NA only): the record is in
      `length_share_above_0.02/selected_cds.parquet` but not in
-     `length_share_above_0.02/gap_pattern_share_above_0.02/selected_cds.parquet`.
+     `length_share_above_0.02/gap_pattern_share_above_0.02/selected_cds.parquet`. The parent's
+     file must still have the `parent_selected_cds_sha256` the gap-pattern selection recorded.
 
    Any other absent record fails the build, because dropping it silently would change the
-   population. A record with no row in `cds_dna_final.parquet` also fails, because
-   `attach_cds_dna_hash_to_prot_df` drops such records with only a warning. Report the number of
-   records dropped for each reason.
+   population. A record with no row in `cds_dna_final.parquet` also fails. Report the number of
+   records dropped for each reason. The 2D-CD builder, `src/datasets/dataset_pairs_cc.py`, does
+   not apply the filter and rejects aligned mode.
 
    Add the provenance check (see Decisions) to `train_pair_baselines`. In aligned mode it fits
    only a dataset whose `resolved_config.yaml` has `site.mode: aligned` and the same
-   `site.alignment_dirs` as the training config.
+   `site.alignment_dirs` entries as the training config for the fit's two proteins. It reads that
+   file from `--dataset_resolved_config`, which is therefore required in aligned mode.
+
+   Done on 2026-11-19. `filter_records_kept_by_retention_rule` and
+   `check_population_inside_alignments` are in `src/datasets/_pair_helpers.py`.
+   `dataset_segment_pairs.py` calls both in aligned mode and writes the drop counts to
+   `records_kept_by_retention_rule.json` in the dataset directory. `_validate_v2_config` rejects
+   `require_complete_cds_at_pinned_length` in aligned mode, and `check_aligned_dataset` is in
+   `src/models/train_pair_baselines.py`.
 
 7. Validate and update documentation.
 
    On 2026-11-19 all seven pinned-cache comparisons passed (157,831 rows).
    See [Codon cache checks](../results/2026-11-09_protein_alignment.md#codon-cache-checks).
-   The Task 1 and Task 2 dataset-build counts below await step 6.
+   The aligned Task 1 PB1-HA build is described in `docs/plans/2026-10-08_paper_plan.md`. The
+   aligned Task 2 build has not been run.
 
    The mapping script runs the row and position checks below on every row before it writes.
 
@@ -283,6 +296,18 @@ each cache belongs to one alignment of one population.
   pair's CDS hashes were in the aligned caches. Every PB1 CDS in that dataset is 2,277 nt, and its
   759 aligned PB1 columns equal the pinned cache's for all 2,784 pairs of each fold. This checks
   loading only. The provenance rule forbids fitting a model on this combination.
+- Retention rule filter on the two populations (2026-11-19). The filter ran on the builder's
+  population records of all 8 proteins, without building pairs. On Human-H3N2-2024 its counts
+  of complete CDS and of records dropped by the retention rule equal the table above for every
+  protein. On the Task 2 population it kept 475,383 of 486,008 records, and every dropped record
+  had one of the three reasons. HA's counts there equal its selection manifest: 60,751 records,
+  469 incomplete and 59,807 kept.
+- Aligned Task 1 PB1-HA build (2026-11-19), `task1_28p_aligned_codon_matched_20261119_145832_pb1_ha`,
+  with `dataset.n_folds=5`. The retention rule dropped 0 PB1 and 0 HA records. The filter
+  dropped 2,388 PB1 and 7 HA records for incomplete CDS. Aligned features loaded for all 5 folds,
+  1,341 columns each, and no model was fit. The build differs from the pinned Task 1 build by 13
+  PB1 records at 2,274 nt, which the retention rule keeps and the 2,277-nt pin drops, so its
+  selected positives are 1,401 rather than 1,392.
 
 ## Code and artifacts
 
@@ -294,4 +319,6 @@ each cache belongs to one alignment of one population.
 | `src/embeddings/compute_protein_aligned_codon_features.py` (steps 2 to 4) | built | writes the aligned codon caches and readable tables, after the row and position checks of step 7 |
 | `site_features_codon_<protein>_aligned*` in each final alignment directory | built 2026-11-18 | all 8 proteins of the Task 2 population. All 231,782 rows passed the row and position checks |
 | `read_aligned_codon_cache`, `configured_site_cache_paths` and `load_configured_site_cache` in `src/utils/site_utils.py` (step 5) | built 2026-11-19 | read and check one aligned cache, and pick each protein's cache by `site.mode`. `train_pair_baselines` loads pinned or aligned caches through them |
+| `filter_records_kept_by_retention_rule` and `check_population_inside_alignments` in `src/datasets/_pair_helpers.py`, called by `dataset_segment_pairs.py`; `check_aligned_dataset` in `src/models/train_pair_baselines.py` (step 6) | built 2026-11-19 | keep only the records of each final alignment, explain every dropped record, and fit aligned features only on datasets built on the same final alignments |
+| `data/datasets/flu/July_2025/runs/task1_28p_aligned_codon_matched_20261119_145832_pb1_ha` | built 2026-11-19 | the aligned Task 1 PB1-HA dataset, 5 folds |
 | aligned support in `site_cache_files` and `check_caches` (step 9) | not started | lets the 28-pair batch runners and the dataset audit use aligned caches |
