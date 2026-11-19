@@ -145,7 +145,7 @@ src/
     path_utils.py, seed_utils.py, timer_utils.py, torch_utils.py
     protein_utils.py, dna_utils.py, gto_utils.py
     plot_config.py, plot_utils.py, dim_reduction_utils.py, learning_verification_utils.py
-  analysis/                         # 71 scripts: per-stage QC, aggregation, plots, MMD, CC and
+  analysis/                         # 72 scripts: per-stage QC, aggregation, plots, MMD, CC and
                                     #   bigraph diagnostics, audits, protein alignment
   archive/                          # inert; see Layering
 ```

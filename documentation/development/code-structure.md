@@ -82,7 +82,6 @@ Post-hoc analysis and visualization. Key entry points:
 - `analyze_stage4_train.py` — per-run analysis (confusion matrix, ROC,
   per-regime heatmap, FP/FN breakdown).
 - `aggregate_baselines_vs_mlp.py` — cross-model heatmap aggregator.
-- `exp3_cosine_deciles.py` — leakage diagnostic Exp 3.
 
 ### `src/utils/`
 

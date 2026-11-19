@@ -406,7 +406,7 @@ The project tracks 5 canonical leakage modes (full taxonomy in
 | 1 | Same-pair leakage (`pair_key` overlap across splits) | ✅ Mitigated — v2 cross-split assertion raises if any overlap. |
 | 2 | Sequence-level label imbalance (a sequence appears only as positive or only as negative) | ✅ Mitigated — v2 coverage phase iterates `(slot, seq_hash)` and `(slot, dna_hash)`; `n_seqs_with_zero_negatives = 0` on every current production build. |
 | 3 | Sequence-level leakage (same `seq_hash` / `dna_hash` in different splits) | ✅ **Mitigated** (2026-05-11) — `split_strategy.mode: seq_disjoint` with `hash_key: seq` is the production default for `flu_ha_na` and `flu_pb2_pb1`. Cross-split overlap on the active hash family is 0 by construction. |
-| 4 | Cluster leakage (test pair feature-vector cosine-near a train pair) | ⚠️ Partially. Exp 2 (1-NN baseline `knn1_margin`) and Exp 3 (`exp3_cosine_deciles.py`) are implemented; Exp 4 (seq_disjoint) bounds the exact-hash case. Exp 5 (mmseqs2 cluster splits) not yet implemented. Initial seq_disjoint result on PB2/PB1: 1-NN edges MLP on MCC (0.900 vs 0.887). |
+| 4 | Cluster leakage (test pair feature-vector cosine-near a train pair) | ⚠️ Partially. Exp 2 (1-NN baseline `knn1_margin`) is implemented; Exp 4 (seq_disjoint) bounds the exact-hash case. Exp 5 (mmseqs2 cluster splits) not yet implemented. Initial seq_disjoint result on PB2/PB1: 1-NN edges MLP on MCC (0.900 vs 0.887). |
 | 5 | Demographic shortcut (model uses metadata coincidence as proxy for "same isolate") | ⚠️ Confirmed present in legacy datasets. Construction-time mitigation in v2: `negative_sampling.regime_targets`. Re-test pending on regime-aware-built datasets via the heatmap. |
 
 Note: full mitigation of mode #5 cannot be achieved by sampling alone
