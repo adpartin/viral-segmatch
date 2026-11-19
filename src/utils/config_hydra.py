@@ -104,7 +104,9 @@ def get_virus_config_hydra(
     training_config: Optional[str] = None,
     embeddings_config: Optional[str] = None,
     paths_config: Optional[str] = None,
-    config_path: Optional[str] = None
+    config_path: Optional[str] = None,
+    *,
+    dotlist_overrides: Optional[list] = None
     ) -> DictConfig:
     """Get virus-specific configuration using Hydra bundles.
     
@@ -119,6 +121,7 @@ def get_virus_config_hydra(
         paths_config: Optional paths override (e.g., 'paths/custom', 'custom')
                      If None, uses the paths config defined in the bundle
         config_path: Path to config directory (uses project root/conf if None)
+        dotlist_overrides: final settings applied after molecule resolution and before site validation.
     
     Returns:
         DictConfig: Complete configuration with flattened access:
@@ -213,6 +216,15 @@ def get_virus_config_hydra(
     # `dataset.molecule` + enforce agreement (plan §13). No-op for legacy bundles.
     _resolve_molecule_alphabets(flattened)
 
+    if dotlist_overrides:
+        flattened = OmegaConf.merge(flattened, OmegaConf.from_dotlist(list(dotlist_overrides)))
+    site = flattened.get('site') or {}
+    if site.get('mode') == 'aligned':
+        unit, encoding = site.get('unit'), site.get('encoding')
+        if (unit, encoding) != ('codon', 'ordinal'):
+            raise ValueError(
+                f"site.mode='aligned' requires site.unit='codon' and site.encoding='ordinal'. "
+                f"Got site.unit={unit!r} and site.encoding={encoding!r}.")
     return flattened
 
 
@@ -220,8 +232,7 @@ def compose_config(config_bundle: str, overrides: Optional[list] = None,
                    config_path: Optional[str] = None) -> DictConfig:
     """Load a bundle and merge dotlist overrides on top, the way the builder and trainer do.
 
-    The overrides are merged after `get_virus_config_hydra` returns, so they are not seen by its
-    `dataset.molecule` resolution.
+    Site validation uses the final settings after dotlist overrides.
 
     Args:
         config_bundle: bundle name, e.g. `flu_28p_codon_pb2_ha`.
@@ -234,9 +245,7 @@ def compose_config(config_bundle: str, overrides: Optional[list] = None,
     """
     if config_path is None:
         config_path = str(Path(__file__).resolve().parents[2] / 'conf')
-    config = get_virus_config_hydra(config_bundle, config_path=config_path)
-    if overrides:
-        config = OmegaConf.merge(config, OmegaConf.from_dotlist(list(overrides)))
+    config = get_virus_config_hydra(config_bundle, config_path=config_path, dotlist_overrides=overrides)
     return config
 
 # =============================================================================

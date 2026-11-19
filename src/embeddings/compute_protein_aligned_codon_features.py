@@ -18,7 +18,7 @@ the last. For one CDS whose aligned protein has n protein symbols (amino acids o
   CDS                ATG  AAA       GTT       TAA
   features           ATG  AAA  GAP  GTT  TAA  AFTER_STOP
 
-The bundle given with `--config_bundle` must set `site.mode: aligned` and `site.unit: codon`.
+The bundle given with `--config_bundle` must select aligned mode, codon units and ordinal encoding.
 `site.alignment_dirs` names each protein's final alignment directory. The script reads
 `selected_cds.parquet` and `aligned_proteins.fasta` there, after
 `align_proteins.check_inspected_alignment` confirms that the alignment passed validation and that
@@ -490,9 +490,6 @@ def main() -> None:
     if site_cfg.get('mode') != 'aligned':
         raise ValueError(f"{args.config_bundle} sets site.mode={site_cfg.get('mode')!r}; this "
                          f"script builds aligned features and needs site.mode: aligned.")
-    if site_cfg.get('unit') != UNIT:
-        raise ValueError(f"{args.config_bundle} sets site.unit={site_cfg.get('unit')!r}; this "
-                         f"script builds {UNIT} features only.")
     alignment_dirs = {str(k): str(v) for k, v in dict(site_cfg['alignment_dirs']).items()}
 
     proteins = args.proteins or list(alignment_dirs)
