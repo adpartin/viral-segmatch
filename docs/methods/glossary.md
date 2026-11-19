@@ -151,6 +151,10 @@ Terms that map to a NetworkX function note it in parentheses (`nx....`), and pro
 
 - **Gap pattern** — One sequence's full set of gap columns in an alignment, written as column ranges, e.g. `74;81-85;112;132;234-240`. Sequences of the same CDS length usually share one pattern, so a count of distinct patterns is smaller than the number of sequences. Reported per population in `gap_pattern_summary.csv`.
 
+- **Retention rule** (project-specific) — The rule that decides which CDS records each protein keeps for aligned codon features. It keeps complete CDS, then keeps the CDS lengths that hold more than 2% of the protein's unique CDS, then aligns the proteins. It then drops the CDS whose gap pattern holds 2% or less of those unique CDS, and realigns the rest if any were dropped. The rule is defined in `docs/results/2026-11-09_protein_alignment.md` (section "Retention rule"), and `src/analysis/align_proteins.py` applies it.
+
+- **Final alignment** (project-specific) — A protein's alignment after the retention rule: the realignment where the gap-pattern step dropped CDS, otherwise the alignment of the kept lengths. Its directory holds the kept CDS records in `selected_cds.parquet` and the aligned codon cache. `site.alignment_dirs` names one final alignment directory per protein.
+
 - **One-residue column** — An alignment column where exactly one sequence has a protein symbol and every other sequence has a gap. Worth naming separately from an ordinary sparse column, because it describes a single record rather than a group: it is consistent with an insertion in that one record, and it cannot support a feature column that generalises.
 
 - **GAP** — An empty aligned feature column before this CDS's stop codon (code 97). A leading or internal protein gap gives this value. An ambiguous triplet occupies a codon column and retains its triplet in the readable table.

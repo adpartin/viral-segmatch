@@ -22,6 +22,7 @@ if str(_project_root) not in sys.path:
 
 from src.datasets._bigraph import build_pair_bigraph, ranked_ccs
 from src.utils import schema
+from src.utils.experiment_utils import file_sha256
 from src.utils.path_utils import load_dataframe
 
 # seq_disjoint hash families: `split_strategy.hash_key` token -> schema alphabet. Single source of
@@ -378,6 +379,208 @@ def filter_complete_cds_at_pinned_length(
         pd.MultiIndex.from_frame(allowed))
     out = out[keep_mask].reset_index(drop=True)
 
+    audit['rows_out'] = int(len(out))
+    audit['rows_dropped'] = audit['rows_in'] - audit['rows_out']
+    print(f"  protein rows: {audit['rows_in']:,} -> {audit['rows_out']:,} "
+          f"(dropped {audit['rows_dropped']:,}).")
+    return out, audit
+
+
+RECORD_KEY = ['assembly_id', 'function', 'cds_dna_hash']
+
+
+def _read_retention_rule_selections(final_dir: Path) -> dict:
+    """Read the two saved selections that explain a final alignment's records.
+
+    A final alignment directory is either the length-filtered selection itself, or the
+    gap-pattern selection written inside it. In the second case the gap-pattern selection's
+    manifest records the sha256 of the parent's `selected_cds.parquet`, and that file must still
+    have it.
+
+    Args:
+      final_dir: the protein's final alignment directory.
+
+    Returns:
+      `final_keys` and `length_keys`, the `RECORD_KEY` MultiIndex of each selection's
+      `selected_cds.parquet` (the same selection when there is no gap-pattern step), and
+      `dropped_lengths`, the CDS lengths the length-filtered selection dropped.
+
+    Raises:
+      FileNotFoundError: a selection file is missing.
+      ValueError: the length-filtered selection's `selected_cds.parquet` does not have the sha256
+          the gap-pattern selection recorded for its parent.
+    """
+    final_manifest = json.loads((final_dir / 'selection_manifest.json').read_text())
+    gap_pattern_filter = final_manifest.get('gap_pattern_filter')
+    if gap_pattern_filter is None:
+        length_dir = final_dir
+    else:
+        length_dir = final_dir.parent
+        parent_sha256 = file_sha256(length_dir / 'selected_cds.parquet')
+        if parent_sha256 != gap_pattern_filter['parent_selected_cds_sha256']:
+            raise ValueError(
+                f"{length_dir / 'selected_cds.parquet'} has sha256 {parent_sha256}, but the "
+                f"gap-pattern selection in {final_dir} was made from a parent with "
+                f"{gap_pattern_filter['parent_selected_cds_sha256']}.")
+    length_manifest = json.loads((length_dir / 'selection_manifest.json').read_text())
+    dropped_lengths = {int(length) for length in length_manifest['length_filter']['dropped_lengths']}
+
+    def _keys(selection_dir: Path) -> pd.MultiIndex:
+        records = pd.read_parquet(selection_dir / 'selected_cds.parquet', columns=RECORD_KEY)
+        records['assembly_id'] = records['assembly_id'].astype(str)
+        return pd.MultiIndex.from_frame(records)
+
+    final_keys = _keys(final_dir)
+    length_keys = final_keys if length_dir == final_dir else _keys(length_dir)
+    selections = {'final_keys': final_keys, 'length_keys': length_keys,
+                  'dropped_lengths': dropped_lengths}
+    return selections
+
+
+def filter_records_kept_by_retention_rule(
+    prot_df: pd.DataFrame,
+    cds_final_path: Path,
+    alignment_dirs: dict,
+    function_to_short: dict,
+    ) -> Tuple[pd.DataFrame, dict]:
+    """Keep only the protein rows whose CDS record the retention rule kept for their protein.
+
+    The kept records are the rows of `selected_cds.parquet` in each protein's final alignment
+    directory, and the aligned codon cache holds exactly their CDS. A protein row is kept when its
+    `(assembly_id, function, cds_dna_hash)` is among them.
+
+    Every dropped row must have one of three reasons, read from the saved selections:
+
+      incomplete CDS   `is_complete_cds` is false in `cds_dna_final.parquet`
+      CDS length       the CDS is complete and its length is in the length-filtered selection's
+                       `length_filter.dropped_lengths`
+      gap pattern      the record is in the length-filtered selection but not in the gap-pattern
+                       selection written inside it
+
+    A row dropped for any other reason means the dataset's population and the alignment's differ,
+    so the function raises rather than shrink the population without saying so. The returned
+    frame has the columns of `prot_df`; `cds_dna_hash` is joined only to test membership.
+
+    Args:
+      prot_df: protein rows; must contain `assembly_id` and `function`.
+      cds_final_path: path to `cds_dna_final.parquet`; supplies `cds_dna_hash`, `cds_length` and
+          `is_complete_cds`.
+      alignment_dirs: short protein name -> final alignment directory, as `site.alignment_dirs`
+          names them. Every function in `prot_df` must have an entry.
+      function_to_short: full function string -> short name, i.e.
+          `config_hydra.get_function_short_name_map`.
+
+    Returns:
+      `(filtered_prot_df, audit)`. `audit` records `rows_in`, `rows_out` and `rows_dropped` and,
+      per protein, the rows in, the rows kept and the rows dropped for each reason.
+
+    Raises:
+      FileNotFoundError: `cds_final_path` or a selection file does not exist.
+      ValueError: `prot_df` lacks a required column; a function has no alignment directory;
+          `cds_dna_final.parquet` repeats an `(assembly_id, function)` or has no row for a protein
+          row; a length-filtered selection is not the parent its gap-pattern selection recorded;
+          or a dropped row has none of the three reasons.
+    """
+    cds_final_path = Path(cds_final_path)
+    if not cds_final_path.exists():
+        raise FileNotFoundError(
+            f"filter_records_kept_by_retention_rule: cds_final not found at {cds_final_path}. "
+            f"Build via `python src/preprocess/extract_cds_dna.py --config_bundle <bundle>`."
+        )
+    for col in ('assembly_id', 'function'):
+        if col not in prot_df.columns:
+            raise ValueError(
+                f"filter_records_kept_by_retention_rule: prot_df missing '{col}' column"
+            )
+
+    functions = sorted(prot_df['function'].unique())
+    short_name = {fn: function_to_short.get(fn, fn) for fn in functions}
+    without_dir = sorted(short for short in short_name.values() if short not in alignment_dirs)
+    if without_dir:
+        raise ValueError(
+            f"filter_records_kept_by_retention_rule: no final alignment directory for "
+            f"{without_dir}; site.alignment_dirs has {sorted(alignment_dirs)}."
+        )
+
+    cds_df = pd.read_parquet(
+        cds_final_path,
+        columns=['assembly_id', 'function', 'cds_dna_hash', 'cds_length', 'is_complete_cds'],
+    )
+    cds_df['assembly_id'] = cds_df['assembly_id'].astype(str)
+    n_repeated = int(cds_df.duplicated(['assembly_id', 'function']).sum())
+    if n_repeated:
+        raise ValueError(
+            f"filter_records_kept_by_retention_rule: cds_final has {n_repeated} repeated "
+            f"(assembly_id, function) rows; the join would multiply protein rows."
+        )
+
+    rows = prot_df.reset_index(drop=True)
+    row_keys = rows[['assembly_id', 'function']].astype({'assembly_id': str})
+    # One CDS row per protein row, in the row order of `rows`.
+    records = row_keys.merge(
+        cds_df, on=['assembly_id', 'function'], how='left', validate='many_to_one')
+    no_cds = records['cds_dna_hash'].isna()
+    if no_cds.any():
+        example = records.loc[no_cds, ['assembly_id', 'function']].iloc[0].tolist()
+        raise ValueError(
+            f"filter_records_kept_by_retention_rule: {int(no_cds.sum()):,} protein rows have no "
+            f"row in {cds_final_path.name}, e.g. {example}."
+        )
+
+    record_keys = pd.MultiIndex.from_frame(records[RECORD_KEY])
+    is_complete = records['is_complete_cds'].eq(True).to_numpy()
+    is_incomplete = records['is_complete_cds'].eq(False).to_numpy()
+
+    audit = {'rows_in': int(len(rows)), 'per_protein': {}}
+    keep_mask = np.zeros(len(rows), dtype=bool)
+    unexplained = {}
+    print('\nfilter_records_kept_by_retention_rule: keeping the CDS records of each final '
+          'alignment.')
+
+    for fn in functions:
+        short = short_name[fn]
+        final_dir = Path(alignment_dirs[short])
+        selections = _read_retention_rule_selections(final_dir)
+        in_function = (records['function'] == fn).to_numpy()
+        kept = in_function & record_keys.isin(selections['final_keys'])
+
+        # Each dropped row takes the first reason that applies, so the counts add up.
+        remaining = in_function & ~kept
+        dropped_incomplete = remaining & is_incomplete
+        remaining = remaining & ~dropped_incomplete
+        at_dropped_length = records['cds_length'].isin(selections['dropped_lengths']).to_numpy()
+        dropped_cds_length = remaining & is_complete & at_dropped_length
+        remaining = remaining & ~dropped_cds_length
+        dropped_gap_pattern = remaining & record_keys.isin(selections['length_keys'])
+        remaining = remaining & ~dropped_gap_pattern
+
+        keep_mask |= kept
+        if remaining.any():
+            unexplained[short] = (int(remaining.sum()),
+                                  records.loc[remaining, RECORD_KEY].iloc[0].tolist())
+        audit['per_protein'][short] = {
+            'function': fn,
+            'alignment_dir': str(final_dir),
+            'rows_in': int(in_function.sum()),
+            'rows_kept': int(kept.sum()),
+            'dropped_incomplete_cds': int(dropped_incomplete.sum()),
+            'dropped_cds_length': int(dropped_cds_length.sum()),
+            'dropped_gap_pattern': int(dropped_gap_pattern.sum()),
+        }
+        print(f"  {short}: protein rows {int(in_function.sum()):,} -> {int(kept.sum()):,} "
+              f"(dropped {int(dropped_incomplete.sum()):,} incomplete CDS, "
+              f"{int(dropped_cds_length.sum()):,} CDS length, "
+              f"{int(dropped_gap_pattern.sum()):,} gap pattern)")
+
+    if unexplained:
+        raise ValueError(
+            f"filter_records_kept_by_retention_rule: protein rows are missing from their final "
+            f"alignment selection although their CDS is complete, at a kept length and not "
+            f"dropped by gap pattern: {unexplained} (count, first record key). The dataset "
+            f"population and the alignment population differ."
+        )
+
+    out = rows[keep_mask].reset_index(drop=True)
     audit['rows_out'] = int(len(out))
     audit['rows_dropped'] = audit['rows_in'] - audit['rows_out']
     print(f"  protein rows: {audit['rows_in']:,} -> {audit['rows_out']:,} "
