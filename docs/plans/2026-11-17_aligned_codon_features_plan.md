@@ -165,8 +165,8 @@ each cache belongs to one alignment of one population.
    by `read_aligned_codon_cache`. Besides the metadata, the matrix and the index, it checks that
    the width is `aligned_width` + 1 and that `aligned_proteins.fasta` and `selected_cds.parquet`
    still have the sha256 the cache recorded. `load_pair_features_for_baselines` takes the two
-   loaded caches, and `train_pair_baselines` loads either kind. `site_cache_files` and
-   `check_caches` still raise in aligned mode. Step 9 adds aligned support to them.
+   loaded caches, and `train_pair_baselines` loads either kind. Step 9 added aligned support to
+   `site_cache_files` and `check_caches`.
 
 6. Add the retention rule filter to pair eligibility [3]. In aligned mode, a record is
    eligible only if its `(assembly_id, function, cds_dna_hash)` is in the final
@@ -275,6 +275,22 @@ each cache belongs to one alignment of one population.
    equal the ones `train_pair_baselines` records. The audit must reject an aligned dataset whose
    cache is missing or fails `read_aligned_codon_cache`.
 
+   Done on 2026-11-19, and both tests pass. `site_cache_files` takes each protein's files from
+   `configured_site_cache_paths`. `check_caches` loads each cache with
+   `load_configured_site_cache` and reports any failure, in both site modes.
+   `require_pinned_site_mode` had no callers left and was removed. The runners did not change.
+   On the pinned Task 1 manifest, `pair_cache_checksums` still finds every cache file for all 28
+   pairs. `check_caches` passes on both the pinned and the aligned Task 1 PB1-HA datasets.
+
+   The 28-pair aligned runs need three things outside this step. Each task has only its PB1-HA
+   child bundle, so 27 more `flu_28p_aligned_codon_*` and 27 more `flu_28p_4host_aligned_codon_*`
+   bundles are needed. They also need an aligned experiment spec, because
+   `conf/experiments/human_h3n2_2024_28p_codon_matched_cv5.yaml` expects
+   `dataset.require_complete_cds_at_pinned_length: true`. The audit compares each dataset's
+   positive counts with `pair_capacity.csv`, which `src/analysis/summarize_pair_capacity.py`
+   builds with the pinned-length filter. Aligned datasets fail that comparison until a capacity
+   table of the records the retention rule keeps exists.
+
 ## Evidence
 
 - Config selection (2026-11-18). On a copy of `conf/`, a bundle inheriting from
@@ -321,4 +337,5 @@ each cache belongs to one alignment of one population.
 | `read_aligned_codon_cache`, `configured_site_cache_paths` and `load_configured_site_cache` in `src/utils/site_utils.py` (step 5) | built 2026-11-19 | read and check one aligned cache, and pick each protein's cache by `site.mode`. `train_pair_baselines` loads pinned or aligned caches through them |
 | `filter_records_kept_by_retention_rule` and `check_population_inside_alignments` in `src/datasets/_pair_helpers.py`, called by `dataset_segment_pairs.py`; `check_aligned_dataset` in `src/models/train_pair_baselines.py` (step 6) | built 2026-11-19 | keep only the records of each final alignment, explain every dropped record, and fit aligned features only on datasets built on the same final alignments |
 | `data/datasets/flu/July_2025/runs/task1_28p_aligned_codon_matched_20261119_145832_pb1_ha` | built 2026-11-19 | the aligned Task 1 PB1-HA dataset, 5 folds |
-| aligned support in `site_cache_files` and `check_caches` (step 9) | not started | lets the 28-pair batch runners and the dataset audit use aligned caches |
+| aligned support in `site_cache_files` and `check_caches` (step 9) | built 2026-11-19 | lets the 28-pair batch runners and the dataset audit use aligned caches |
+| 27 more child bundles per task, an aligned experiment spec, and a capacity table of the records the retention rule keeps (step 9) | not started | the configuration the 28-pair aligned runs and their audit need |

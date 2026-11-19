@@ -545,8 +545,8 @@ datasets were built with.
 # 2. Expand the population. Evaluate across hosts, subtypes, and years.
 
 **Status: IN PROGRESS.** The population is set but the run has not happened. It
-waits on aligned support in the batch runners; see the prerequisite under
-Methods.
+waits on the aligned run's bundles, experiment spec and capacity table; see the
+prerequisite under Methods.
 
 A separate pilot on `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023` is complete. It
 tested that negatives are drawn inside one metadata group. Its population is not
@@ -635,11 +635,13 @@ length is one way to get that; aligning the proteins is the other. Task 2 uses
 the alignment for all 8 proteins, so it uses no pins.
 
 The alignment of all 8 proteins is finished; the final alignments were written
-on 2026-11-13. Steps 1 to 6 of
+on 2026-11-13. Steps 1 to 6 and step 9 of
 `docs/plans/2026-11-17_aligned_codon_features_plan.md` are done: the aligned
-codon caches, their loading in `train_pair_baselines`, and the retention rule
-filter in the dataset builder. What now blocks the 28-pair run is aligned
-support in the batch runners, step 9 of that plan.
+codon caches, their loading in `train_pair_baselines`, the retention rule
+filter in the dataset builder, and aligned caches in the batch runners and the
+dataset audit. What now blocks the 28-pair run is configuration: 27 more aligned
+child bundles per task and an aligned experiment spec. The dataset audit also
+needs a capacity table of the records the retention rule keeps.
 
 * Planned in `docs/plans/2026-11-17_aligned_codon_features_plan.md`. Reported
   in `docs/results/2026-11-09_protein_alignment.md`.
