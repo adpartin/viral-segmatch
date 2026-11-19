@@ -422,7 +422,7 @@ def read_aligned_codon_cache(directory: Path, protein: str) -> SiteCache:
     return cache
 
 
-def _configured_alignment_dir(config, protein: str) -> Path:
+def configured_alignment_dir(config, protein: str) -> Path:
     """The protein's final alignment directory from `site.alignment_dirs`, under the project root.
 
     Args:
@@ -485,7 +485,7 @@ def configured_site_cache_paths(config, protein: str) -> dict:
           mode) or no alignment directory (aligned mode).
     """
     if site_mode(config) == 'aligned':
-        directory = _configured_alignment_dir(config, protein)
+        directory = configured_alignment_dir(config, protein)
         stem = aligned_site_cache_stem('codon', protein)
         paths = {suffix: directory / f'{stem}{suffix}' for suffix in SITE_CACHE_SUFFIXES}
     else:
@@ -514,7 +514,7 @@ def load_configured_site_cache(config, protein: str) -> SiteCache:
       FileNotFoundError: a cache file is missing.
     """
     if site_mode(config) == 'aligned':
-        cache = read_aligned_codon_cache(_configured_alignment_dir(config, protein), protein)
+        cache = read_aligned_codon_cache(configured_alignment_dir(config, protein), protein)
     else:
         site_dir, pinned_nt = _configured_pinned_cache(config, protein)
         cache = load_site_cache(site_dir, str(config.site.unit), protein, pinned_nt)

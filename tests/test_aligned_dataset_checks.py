@@ -1,7 +1,8 @@
 """Tests for the aligned-mode dataset checks.
 
-Covers `check_population_inside_alignments` in src/datasets/_pair_helpers.py and the aligned-mode
-rule in `_validate_v2_config` in src/datasets/dataset_segment_pairs_v2.py.
+Covers `check_population_inside_alignments` in src/datasets/_pair_helpers.py, the aligned-mode
+rule in `_validate_v2_config` in src/datasets/dataset_segment_pairs_v2.py, and the 2D-CD
+builder's rejection of aligned mode in src/datasets/dataset_pairs_cc.py.
 
 Run: python -m pytest tests/test_aligned_dataset_checks.py
 """
@@ -11,6 +12,7 @@ import pytest
 from omegaconf import OmegaConf
 
 from src.datasets._pair_helpers import check_population_inside_alignments
+from src.datasets.dataset_pairs_cc import _resolve_spec
 from src.datasets.dataset_segment_pairs_v2 import _validate_v2_config
 
 TASK2_FILTERS = {'host': ['Human', 'Swine', 'Chicken', 'Duck'],
@@ -90,3 +92,10 @@ def test_v2_config_accepts(mode, require_pinned):
 def test_v2_config_rejects_pinned_length_filter_in_aligned_mode():
     with pytest.raises(ValueError, match='require_complete_cds_at_pinned_length must be false'):
         _validate_v2_config(v2_config('aligned', True))
+
+
+def test_cc_builder_rejects_aligned_mode():
+    config = OmegaConf.create({'site': {'mode': 'aligned'},
+                               'dataset': {'split_strategy': {'mode': 'cluster_disjoint_cc'}}})
+    with pytest.raises(ValueError, match="does not support site.mode='aligned'"):
+        _resolve_spec(None, config)

@@ -16,7 +16,7 @@ Hydra/`--config_bundle` driven, reusing v2's protein-level front-end
 (load/enrich/filter). Supports aa / nt_cds / nt_ctg, within-CC and within-fold random
 negatives, and a slim writer (CSV + a small dataset_stats.json). Not wired (these
 raise rather than silently no-op): regime-targeted negatives, subtype balancing /
-max_isolates, the full v2 saver, and `n_repeats>1`. See
+max_isolates, the full v2 saver, `n_repeats>1` and `site.mode: aligned`. See
 `docs/plans/2026-06-09_cc_dataset_cv_plan.md`.
 
 One block near the bottom (banner: "OOD-vs-random paired CV") is experiment
@@ -74,6 +74,7 @@ from src.utils.experiment_utils import get_git_info  # noqa: E402
 from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_metadata  # noqa: E402
 from src.utils.path_utils import load_dataframe  # noqa: E402
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds  # noqa: E402
+from src.utils.site_utils import site_mode  # noqa: E402
 
 # pos-side hash used to join clusters AND as the cooccurrence/cluster key.
 # aa=protein, nt_cds=CDS, nt_ctg=contig — all md5 of the respective sequence.
@@ -528,6 +529,13 @@ def _resolve_spec(args, config) -> CCSpec:
     if mode != 'cluster_disjoint_cc':
         raise ValueError(
             f"dataset_pairs_cc requires dataset.split_strategy.mode='cluster_disjoint_cc'; got {mode!r}.")
+
+    # Aligned site mode keeps the records of each final alignment, and only the v2 builder
+    # applies that filter.
+    if site_mode(config) == 'aligned':
+        raise ValueError(
+            "dataset_pairs_cc does not support site.mode='aligned'; "
+            "src/datasets/dataset_segment_pairs.py builds aligned-mode datasets.")
 
     # nt_cds attaches cds_dna_hash in build_frontend, so positives carry populated
     # cds_dna_hash_{a,b} for the cluster join (pair_key_alphabet == cluster_alphabet).

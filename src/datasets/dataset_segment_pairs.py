@@ -41,6 +41,7 @@ from src.utils.metadata_enrichment import attach_isolate_metadata, filter_by_met
 from src.utils.path_utils import build_dataset_paths, load_dataframe, resolve_run_suffix
 from src.utils.schema import sequence_md5
 from src.utils.seed_utils import resolve_process_seed, set_deterministic_seeds
+from src.utils.site_utils import configured_alignment_dir, site_mode
 from src.utils.timer_utils import Timer
 
 total_timer = Timer()
@@ -588,9 +589,9 @@ if PAIR_BUILDER_VERSION == 'v2':
     # describing the same population that drives pair generation.
     df = df[df['function'].isin(schema_pair)].reset_index(drop=True)
 
-    # cds_dna_final path, resolved once: the pinned-length filter and the nt_cds pair key both
-    # read it. CDS_FINAL_PATH is set above when cluster_alphabet='nt_cds'; otherwise the file
-    # sits alongside the input protein_final.
+    # cds_dna_final path, resolved once: the pinned-length filter, the retention rule filter and
+    # the nt_cds pair key all read it. CDS_FINAL_PATH is set above when cluster_alphabet='nt_cds';
+    # otherwise the file sits alongside the input protein_final.
     cds_path = CDS_FINAL_PATH
     if cds_path is None:
         cds_path = str(input_file.parent / 'cds_dna_final.parquet')
@@ -616,6 +617,27 @@ if PAIR_BUILDER_VERSION == 'v2':
         with open(audit_path, 'w') as f:
             json.dump(cds_filter_audit, f, indent=2)
         print(f'Saved CDS filter audit to: {audit_path}')
+
+    # In aligned site mode, keep only the records each protein's final alignment kept, which are
+    # the records its aligned codon cache holds. This replaces the pinned-length filter, which
+    # _validate_v2_config forbids in aligned mode, and runs at the same point for the same reason.
+    if site_mode(config) == 'aligned':
+        from src.datasets._pair_helpers import (
+            check_population_inside_alignments,
+            filter_records_kept_by_retention_rule,
+        )
+        from src.utils.config_hydra import get_function_short_name_map
+        function_to_short = get_function_short_name_map(config)
+        schema_proteins = [function_to_short.get(fn, fn) for fn in schema_pair]
+        alignment_dirs = {protein: configured_alignment_dir(config, protein)
+                          for protein in schema_proteins}
+        check_population_inside_alignments(filters_applied, alignment_dirs)
+        df, retention_audit = filter_records_kept_by_retention_rule(
+            df, cds_path, alignment_dirs, function_to_short)
+        audit_path = output_dir / 'records_kept_by_retention_rule.json'
+        with open(audit_path, 'w') as f:
+            json.dump(retention_audit, f, indent=2)
+        print(f'Saved retention rule audit to: {audit_path}')
 
     # Pre-attach cds_dna_hash when pair_key_alphabet='nt_cds'. v2's
     # create_positive_pairs_v2 + build_cooccurrence_set expect the column
