@@ -1,0 +1,28 @@
+# Master bundle for the 28-pair per-site codon screen on Human-H3N2-2024, with codons placed in
+# protein-alignment columns instead of at pinned CDS lengths. Task 1 of
+# docs/plans/2026-10-08_paper_plan.md; planned in docs/plans/2026-11-17_aligned_codon_features_plan.md.
+#
+# Do NOT build or train with this bundle yet: the dataset build, feature build and loading do not
+# implement `site.mode: aligned`, so they would treat it as a pinned run.
+#
+# Do NOT run this bundle directly: schema_pair is null and each child sets it. The children are
+# named flu_28p_aligned_codon_<pair>; they must not start with flu_28p_codon_, the prefix of the
+# pinned master's 28 children.
+# Inheritance: flu_28p_human_h3n2_2024_site_codon -> this file -> children.
+#
+# Everything except the feature positions comes from the pinned master: the population, the
+# 8 proteins, 4-fold random CV, the nt_cds pair key, Hopcroft-Karp positive selection and matched
+# balanced-usage negatives. The site config below supplies `site.mode: aligned` and the alignment
+# directories of the Chicken+Duck+Human+Swine, H1N1+H3N2+H5N1, 2010-2025 population, which
+# contains Human-H3N2-2024. Both tasks use these alignments, so a feature column is the same
+# alignment column in both.
+
+defaults:
+  - flu_28p_human_h3n2_2024_site_codon
+  - override /site: aligned_4host_3subtype_2010_2025
+  - _self_
+
+dataset:
+  # The parent sets this to true. In aligned mode the records come from the alignment's
+  # selection, which replaces the pinned-length requirement.
+  require_complete_cds_at_pinned_length: false

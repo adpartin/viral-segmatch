@@ -48,3 +48,12 @@ encoding: ordinal   # How each site's value is coded:
                     #              values, so 4x for nt, 64x for codon, 22x for aa.
                     # The feature cache stores ordinal codes either way; `onehot` is expanded at
                     # load time, so switching does not rebuild the cache.
+
+mode: pinned        # Where each site's position comes from:
+                    #   pinned  -- position i along a CDS at the protein's pinned length. The
+                    #              caches are in data/embeddings/ and named by the pin.
+                    #   aligned -- column i of the protein alignment. The caches are beside each
+                    #              final alignment, found through `alignment_dirs`; no pin.
+                    #              Set by conf/site/aligned_4host_3subtype_2010_2025.yaml.
+                    # Neither mode falls back to the other. Only `pinned` is implemented; see
+                    # docs/plans/2026-11-17_aligned_codon_features_plan.md.

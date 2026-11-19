@@ -248,5 +248,5 @@ each cache belongs to one alignment of one population.
 |---|---|---|
 | `src/analysis/align_proteins.py` | built | selects and validates complete CDS, prepares unique protein sequences, runs MAFFT with `--align_only`, checks exact input recovery with `--validate_only`, and records gap positions with `--inspect_only` |
 | `results/flu/July_2025/cds_alignment_pilot/` | alignment inspected | `<population>/<protein>/` holds the selection, alignment and validation outputs plus `gap_locations.csv` and `inspection_manifest.json`. All 8 proteins for the Task 2 population; NS1 only for `Human-H3N2-2024` |
-| `conf/site/aligned_4host_3subtype_2010_2025.yaml` and the two master bundles (step 1) | not started | the aligned site config and the Task 1 and Task 2 master bundles |
+| `conf/site/aligned_4host_3subtype_2010_2025.yaml` and the two master bundles (step 1) | built | the aligned site config, the Task 1 and Task 2 master bundles, and their PB1-HA children `flu_28p_aligned_codon_pb1_ha` and `flu_28p_4host_aligned_codon_pb1_ha` |
 | `src/embeddings/compute_protein_aligned_codon_features.py` (step 2) | not started | writes the aligned codon caches and readable tables |

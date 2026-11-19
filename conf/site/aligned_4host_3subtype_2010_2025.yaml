@@ -1,0 +1,29 @@
+# Per-site features placed in protein-alignment columns, for the alignments of the population
+# Chicken, Duck, Human and Swine; H1N1, H3N2 and H5N1; 2010-2025.
+#
+# A bundle selects this file with `override /site: aligned_4host_3subtype_2010_2025` in its
+# defaults; without `override`, Hydra fails with "Multiple values for site". It starts from
+# `default`, so `unit`, `slots` and `encoding` keep their defaults unless the bundle sets them.
+#
+# `alignment_dirs` maps each protein to its final alignment directory, the one that holds the
+# selection (`selected_cds.parquet`) and alignment the features are built from. The dataset build,
+# the feature build and loading all read this one mapping. A dataset population must lie inside
+# this one, because the alignment only holds this population's records.
+#
+# See docs/plans/2026-11-17_aligned_codon_features_plan.md.
+
+defaults:
+  - default
+  - _self_
+
+mode: aligned
+
+alignment_dirs:
+  PB2: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PB2/length_share_above_0.02/gap_pattern_share_above_0.02
+  PB1: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PB1/length_share_above_0.02/gap_pattern_share_above_0.02
+  PA: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/PA/length_share_above_0.02
+  HA: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/HA/length_share_above_0.02/gap_pattern_share_above_0.02
+  NP: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NP/length_share_above_0.02
+  NA: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NA/length_share_above_0.02/gap_pattern_share_above_0.02
+  M1: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/M1/length_share_above_0.02
+  NS1: results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/NS1/length_share_above_0.02
