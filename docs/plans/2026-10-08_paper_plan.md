@@ -635,9 +635,9 @@ Task 2 changes the population and the negative sampler, not the steps.
   by group, so every kept group has positives in all three splits of every
   fold, and no group is scored without training positives. The matched sampler
   stops the build if a split holds a group with fewer than 2 positives. With 5
-  folds the validation split holds 10% of a group, so a group needs 20 to give
-  it 2. `metadata_groups_dropped.json` records each dropped group and its
-  positives.
+  folds, a group of 20 puts 4 positives in each test fold and about 2 of the
+  other 16 in validation. `metadata_groups_dropped.json` records each dropped
+  group and its positives.
 * Counted from each pair's `HK selected` positives before any build, the
   minimum keeps 73 to 83 of each pair's 118 to 147 groups. It drops 1.1% to
   3.9% of each pair's positives, and 11,016 of 555,921 over the 28 pairs. The

@@ -258,10 +258,13 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
     The selected positives are the pair keys of `positive_pair_selection.csv`. With
     `dataset.min_metadata_group_positives` set, the builder drops the metadata groups listed in
     `metadata_groups_dropped.json` before making folds. The test splits must then hold no
-    positive of a dropped group, and as many positives as were selected minus those dropped. A
-    test positive's group is read from its `<axis>_a` columns, for the axes the file names.
-    Without the minimum, that file must be absent and the test splits must hold every selected
-    positive.
+    positive of a dropped group, and as many positives as were selected minus the positives the
+    file lists for its dropped groups. The file's totals must agree with that list, and each group
+    it lists must be below the minimum. The pooled test splits hold each kept positive once, so
+    they also give each kept group's size, which must reach the minimum, and the number of kept
+    groups. A test positive's group is read from its `<axis>_a` columns, for the axes the file
+    names. Without the minimum, that file must be absent and the test splits must hold every
+    selected positive.
 
     Args:
       run_dir: a dataset run directory built with an active positive-pair selection method.
@@ -295,21 +298,48 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
             failures.append(f"{drop_path.name} counts {record['positives_in']:,} selected "
                             f"positives, positive_pair_selection.csv holds {len(selected_keys):,}")
         axes = record['axes']
-        dropped_groups = {tuple(entry['group']) for entry in record['dropped_groups']}
-        positives_dropped = record['positives_dropped']
+        positives_by_dropped_group = {tuple(entry['group']): entry['positives']
+                                      for entry in record['dropped_groups']}
+        dropped_groups = set(positives_by_dropped_group)
+        # The expected count comes from the list of dropped groups, and the totals must agree.
+        positives_dropped = sum(positives_by_dropped_group.values())
+        listed = (len(dropped_groups), positives_dropped,
+                  record['positives_in'] - positives_dropped)
+        totals = (record['groups_dropped'], record['positives_dropped'], record['positives_kept'])
+        if totals != listed:
+            failures.append(f'{drop_path.name} totals (groups dropped, positives dropped, '
+                            f'positives kept) are {totals}, its list of dropped groups gives '
+                            f'{listed}')
+        not_small = sorted(str(group) for group, count in positives_by_dropped_group.items()
+                           if count >= minimum)
+        if not_small:
+            failures.append(f'{drop_path.name} lists groups with at least {minimum} positives: '
+                            f'{not_small}')
 
-    # Pool the test positives over the splits, counting repeats and those of dropped groups.
+    # Pool the test positives over the splits, counting repeats and the positives of each group.
+    # Each kept positive is in one test split, so the pooled counts are the kept group sizes.
     group_columns = [f'{axis}_a' for axis in axes]
     test_key_counts = Counter()
-    in_dropped_groups = 0
+    test_group_counts = Counter()
     for split_dir in split_dirs:
         test = pd.read_csv(run_dir / split_dir / 'test_pairs.csv',
                            usecols=['pair_key', 'label'] + group_columns,
                            keep_default_na=False, na_values=[''])
         positives = test.loc[test.label == 1]
         test_key_counts.update(positives.pair_key)
-        groups = positives[group_columns].itertuples(index=False, name=None)
-        in_dropped_groups += sum(group in dropped_groups for group in groups)
+        test_group_counts.update(positives[group_columns].itertuples(index=False, name=None))
+    in_dropped_groups = sum(count for group, count in test_group_counts.items()
+                            if group in dropped_groups)
+    if minimum is not None:
+        kept_group_counts = {group: count for group, count in test_group_counts.items()
+                             if group not in dropped_groups}
+        if len(kept_group_counts) != record['groups_kept']:
+            failures.append(f"the test splits hold {len(kept_group_counts)} kept metadata "
+                            f"groups, {drop_path.name} records {record['groups_kept']}")
+        small = sorted(str(group) for group, count in kept_group_counts.items() if count < minimum)
+        if small:
+            failures.append(f'kept metadata groups with fewer than {minimum} test positives: '
+                            f'{small}')
 
     repeated = sum(count > 1 for count in test_key_counts.values())
     if repeated:

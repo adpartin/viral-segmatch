@@ -3435,6 +3435,13 @@ def _validate_v2_config(config) -> None:
                 problems.append(f"on_shortfall must be 'error'; got {os!r}")
             if axes is not None and set(axes) != set(DEFAULT_AXES):
                 problems.append(f"axes must cover {sorted(DEFAULT_AXES)}; got {sorted(axes)}")
+            # The dataset audit reads both endpoints' values on each matching axis from the
+            # `<axis>_a` and `<axis>_b` columns, which only the axes in axes_for_flags get.
+            flags = OmegaConf.select(config, "dataset.axes_for_flags")
+            if flags is not None and not set(DEFAULT_AXES) <= set(flags):
+                problems.append(
+                    f"dataset.axes_for_flags must include {sorted(DEFAULT_AXES)}, so the saved "
+                    f"pairs carry both endpoints' values; got {list(flags)}")
             if rac:
                 problems.append("regime_aware_coverage applies to negative_scope='coverage' only")
             if ratio is not None and float(ratio) != 1.0:

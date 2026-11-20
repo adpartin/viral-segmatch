@@ -25,7 +25,7 @@ dataset:
   year: null
   year_range: [2010, 2025]
   # Matched negatives need at least 2 positives of each metadata group in every split of every
-  # fold. With 5 folds the validation split holds 10% of a group, so a group needs 20 selected
-  # positives to give it 2. Groups with fewer are dropped before the folds are made and listed in
-  # metadata_groups_dropped.json.
+  # fold. With 5 folds, a group of 20 selected positives puts 4 in each test fold and about 2 of
+  # the other 16 in validation. Groups with fewer are dropped before the folds are made and
+  # listed in metadata_groups_dropped.json.
   min_metadata_group_positives: 20

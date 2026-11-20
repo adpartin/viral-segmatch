@@ -197,6 +197,15 @@ def test_balanced_rejects_any_other_profile(change, ratio, message):
         _validate_v2_config(balanced_config({**MATCHED_PROFILE, **change}, ratio=ratio))
 
 
+def test_matched_negatives_need_the_matching_axes_on_saved_pairs():
+    config = balanced_config(MATCHED_PROFILE)
+    config.dataset.axes_for_flags = ['host', 'year']
+    with pytest.raises(ValueError, match='axes_for_flags must include'):
+        _validate_v2_config(config)
+    config.dataset.axes_for_flags = ['hn_subtype', 'host', 'year', 'geo_location']
+    _validate_v2_config(config)
+
+
 def test_coverage_keeps_a_spread_profile():
     spread = dict(MATCHED_PROFILE)
     spread['year_match'] = 'binned'

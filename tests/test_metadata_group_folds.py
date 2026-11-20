@@ -11,9 +11,11 @@ Run: python -m pytest tests/test_metadata_group_folds.py
 import json
 from collections import Counter
 
+import numpy as np
 import pandas as pd
 import pytest
 from omegaconf import OmegaConf
+from sklearn.model_selection import KFold, train_test_split
 
 from src.analysis.audit_pair_datasets import (
     check_matched_negatives,
@@ -21,11 +23,14 @@ from src.analysis.audit_pair_datasets import (
 )
 from src.datasets._negative_regime_sampling import REGIME_NAMES
 from src.datasets._pair_helpers import build_cooccurrence_set
+from src.datasets._positive_pair_selection import select_positive_pairs
 from src.datasets.dataset_segment_pairs_v2 import (
     _drop_small_metadata_groups,
     _validate_v2_config,
+    create_positive_pairs_v2,
     generate_all_cv_folds_v2,
 )
+from src.utils import schema
 
 # Two groups above a minimum of 20 selected positives, two below it.
 GROUP_SIZES = {('Human', 'H3N2', 2024): 30, ('Swine', 'H1N1', 2023): 22,
@@ -112,6 +117,25 @@ def test_folds_hold_two_positives_per_kept_group_in_every_split():
         test = fold['test_pairs']
         test_keys.extend(test.loc[test['label'] == 1, 'pair_key'])
     assert len(test_keys) == len(set(test_keys)) == 52
+
+
+def test_without_the_minimum_folds_are_kfold_over_the_selected_positives():
+    """With the minimum off, each fold's test and validation positives are those of KFold over the
+    selected positives followed by an unstratified validation split, for the same seed."""
+    frame = protein_frame()
+    folds = build_folds(frame, min_metadata_group_positives=None, axis_quotas=None)
+    positives, _ = create_positive_pairs_v2(frame, schema_pair=('A', 'B'),
+                                            pair_key_alphabet='nt_cds')
+    hash_col_a, hash_col_b = schema.hash_col_ab('nt_cds')
+    selected, _ = select_positive_pairs(positives, method='hopcroft_karp', hash_col_a=hash_col_a,
+                                        hash_col_b=hash_col_b, ordering='pair_key')
+    splits = KFold(n_splits=5, shuffle=True, random_state=7).split(np.arange(len(selected)))
+    for fold_i, (fold, (trainval_idx, test_idx)) in enumerate(zip(folds, splits)):
+        _, val = train_test_split(selected.iloc[trainval_idx], test_size=0.1 / (1.0 - 1.0 / 5),
+                                  random_state=7 + fold_i)
+        for split, expected in (('test_pairs', selected.iloc[test_idx]), ('val_pairs', val)):
+            pairs = fold[split]
+            assert set(pairs.loc[pairs['label'] == 1, 'pair_key']) == set(expected['pair_key'])
 
 
 def test_without_the_minimum_a_one_positive_group_stops_the_build():
@@ -207,6 +231,19 @@ def test_audit_reports_a_positive_of_a_dropped_group_and_a_missing_one(tmp_path,
     assert failures == ['1 test positives belong to a dropped metadata group',
                         'the test splits hold 51 positives, expected 52 '
                         '(58 selected minus 6 dropped)']
+
+
+def test_audit_reports_drop_totals_that_disagree_with_the_dropped_groups(tmp_path, flagged_folds):
+    split_dirs = write_run(tmp_path, flagged_folds)
+    record = dict(flagged_folds[0]['metadata_group_drop'], dropped_groups=[])
+    (tmp_path / 'metadata_groups_dropped.json').write_text(json.dumps(record))
+    config = OmegaConf.create({'dataset': {'min_metadata_group_positives': 20}})
+    failures = check_selected_test_positives(tmp_path, split_dirs, config)
+    assert failures == ['metadata_groups_dropped.json totals (groups dropped, positives dropped, '
+                        'positives kept) are (2, 6, 52), its list of dropped groups gives '
+                        '(0, 0, 58)',
+                        'the test splits hold 52 positives, expected 58 '
+                        '(58 selected minus 0 dropped)']
 
 
 def test_audit_passes_the_builders_matched_negatives(tmp_path, flagged_folds):
