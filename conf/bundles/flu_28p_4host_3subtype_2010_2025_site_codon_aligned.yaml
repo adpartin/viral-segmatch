@@ -2,17 +2,17 @@
 # H3N2 and H5N1; 2010-2025, with codons placed in protein-alignment columns. Task 2 of
 # docs/plans/2026-10-08_paper_plan.md; planned in docs/plans/2026-11-17_aligned_codon_features_plan.md.
 #
-# Do NOT build or train with this bundle yet: Task 2's experiment configuration, described below,
-# is not set.
+# Build and train its children with the experiment spec
+# conf/experiments/4host_3subtype_2010_2025_28p_codon_aligned_matched_cv5.yaml.
 #
 # Do NOT run this bundle directly: schema_pair is null and each child sets it. The children are
 # named flu_28p_4host_aligned_codon_<pair>.
 # Inheritance: flu_28p_human_h3n2_2024_site_codon_aligned -> this file -> children.
 #
-# This file sets only the population. Everything else comes from the Task 1 aligned master,
-# including its 4-fold CV, Hopcroft-Karp positive selection and negative-sampling settings. Those
-# are inherited defaults pending Task 2's experiment configuration, which sets the fold,
-# negative-sampler, year-matching and thin-group settings described under Task 2 in the paper plan.
+# This file sets the population and the metadata group minimum. Everything else comes from the
+# Task 1 aligned master: the 8 proteins, the nt_cds pair key, Hopcroft-Karp positive selection,
+# matched balanced-usage negatives with exact years, the alignment directories and the feature
+# settings. The bundles keep the inherited 4-fold setting, and the experiment spec sets 5 folds.
 # The population is the one the alignments in `site.alignment_dirs` were made from.
 
 defaults:
@@ -24,3 +24,8 @@ dataset:
   hn_subtype: [H3N2, H1N1, H5N1]
   year: null
   year_range: [2010, 2025]
+  # Matched negatives need at least 2 positives of each metadata group in every split of every
+  # fold. With 5 folds the validation split holds 10% of a group, so a group needs 20 selected
+  # positives to give it 2. Groups with fewer are dropped before the folds are made and listed in
+  # metadata_groups_dropped.json.
+  min_metadata_group_positives: 20
