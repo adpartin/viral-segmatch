@@ -2151,7 +2151,7 @@ def _reject_stats_from_counts(n_pos_split: int, n_neg: int, neg_to_pos_ratio: fl
 # ---------------------------------------------------------------------------
 # 4.7 generate_all_cv_folds_v2
 # ---------------------------------------------------------------------------
-def _drop_small_metadata_groups(selected_pos: pd.DataFrame, isolate_to_group: dict,
+def _drop_small_metadata_groups(selected_pos: pd.DataFrame, isolate_to_group: dict, axes: list,
                                 min_metadata_group_positives: int) -> tuple:
     """Drop the metadata groups holding fewer than `min_metadata_group_positives` selected positives.
 
@@ -2161,13 +2161,15 @@ def _drop_small_metadata_groups(selected_pos: pd.DataFrame, isolate_to_group: di
     Args:
         selected_pos: the selected positives, before folds are made.
         isolate_to_group: assembly_id -> metadata group, from `_metadata_groups_of_isolates`.
+        axes: the metadata axes each group tuple holds a value of, in order, also from
+            `_metadata_groups_of_isolates`.
         min_metadata_group_positives: the fewest selected positives a group may keep.
 
     Returns:
         `(kept_pos, kept_groups, record)`. `kept_pos` holds the positives of the kept groups with
         the index reset, `kept_groups` holds each kept positive's group as text in the same order,
-        and `record` counts the groups and positives in, kept and dropped and lists each dropped
-        group with its positives.
+        and `record` names the axes, counts the groups and positives in, kept and dropped, and
+        lists each dropped group with its positives.
 
     Raises:
         ValueError: a positive's isolate has no metadata group, or no group reaches the minimum.
@@ -2192,6 +2194,7 @@ def _drop_small_metadata_groups(selected_pos: pd.DataFrame, isolate_to_group: di
                       if group not in kept_group_set), key=lambda item: str(item[0]))
     record = {
         'min_metadata_group_positives': int(min_metadata_group_positives),
+        'axes': list(axes),
         'groups_in': int(len(positives_per_group)),
         'groups_kept': len(kept_group_set),
         'groups_dropped': len(dropped),
@@ -2307,10 +2310,10 @@ def generate_all_cv_folds_v2(
         # those of the kept groups, whose group labels then stratify the splits.
         fold_pos, fold_groups, metadata_group_drop = selected_pos, None, None
         if min_metadata_group_positives is not None:
-            _, isolate_to_group = _metadata_groups_of_isolates(df, sampling_axes, year_match,
-                                                               year_bin_edges)
+            group_axes, isolate_to_group = _metadata_groups_of_isolates(
+                df, sampling_axes, year_match, year_bin_edges)
             fold_pos, fold_groups, metadata_group_drop = _drop_small_metadata_groups(
-                selected_pos, isolate_to_group, min_metadata_group_positives)
+                selected_pos, isolate_to_group, group_axes, min_metadata_group_positives)
             print(f"CV (v2): kept {metadata_group_drop['groups_kept']:,} of "
                   f"{metadata_group_drop['groups_in']:,} metadata groups with at least "
                   f"{min_metadata_group_positives} selected positives; dropped "
@@ -3552,6 +3555,23 @@ def _validate_v2_config(config) -> None:
                 "dataset.split_strategy.mode='random'; "
                 f"got {split_mode!r}."
             )
+    # The metadata group minimum drops the groups too small for matched negatives, which need at
+    # least 2 positives per group in every split. It acts on the selected positives before folds
+    # are made, so it needs active selection, which in turn needs n_folds >= 2 and random splits.
+    min_group_positives = OmegaConf.select(config, "dataset.min_metadata_group_positives")
+    if min_group_positives is not None:
+        problems = []
+        if isinstance(min_group_positives, bool) or not isinstance(min_group_positives, int) \
+                or min_group_positives < 1:
+            problems.append(f"it must be a positive integer or null; got {min_group_positives!r}")
+        if positive_selection_method == 'all':
+            problems.append("it needs an active dataset.positive_pair_selection.method, not 'all'")
+        if balanced_sampler_name(config) != 'matched_balanced_usage_negatives':
+            problems.append(
+                "it needs matched negatives: dataset.split_strategy.negative_scope='balanced' "
+                "with dataset.negative_sampling.regime_targets set")
+        if problems:
+            raise ValueError("dataset.min_metadata_group_positives: " + "; ".join(problems) + ".")
     if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:
         raise NotImplementedError(
             f"dataset.split_strategy.mode='seq_disjoint' is not yet compatible with "

@@ -29,6 +29,9 @@ How?
   alignment beside it.
 - With balanced-usage negatives at a 1:1 ratio over Hopcroft-Karp positives, every split's
   negatives must use each positive sequence exactly once per slot (`check_balanced_usage`).
+- With an active positive-pair selection method, the test splits, pooled, must hold each selected
+  positive exactly once, less the positives of the metadata groups the builder dropped when
+  `dataset.min_metadata_group_positives` is set (`check_selected_test_positives`).
 - With `--reference_dataset_prefix`, each pair's positive test pair keys, pooled over its folds,
   must equal those of the reference dataset of the same pair. Fold assignments and sampled
   negatives may differ.
@@ -212,6 +215,81 @@ def check_balanced_usage(run_dir: Path, split_dirs: list, hash_col: str) -> list
     return failures
 
 
+def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> list[str]:
+    """Check that the test splits hold each selected positive of the kept metadata groups once.
+
+    The selected positives are the pair keys of `positive_pair_selection.csv`. With
+    `dataset.min_metadata_group_positives` set, the builder drops the metadata groups listed in
+    `metadata_groups_dropped.json` before making folds. The test splits must then hold no
+    positive of a dropped group, and as many positives as were selected minus those dropped. A
+    test positive's group is read from its `<axis>_a` columns, for the axes the file names.
+    Without the minimum, that file must be absent and the test splits must hold every selected
+    positive.
+
+    Args:
+      run_dir: a dataset run directory built with an active positive-pair selection method.
+      split_dirs: its split directories, each holding `test_pairs.csv`.
+      config: the run's loaded `resolved_config.yaml`.
+
+    Returns:
+      One message per failed check; empty when the pooled test positives are exactly the
+      selected positives of the kept groups, each once.
+    """
+    failures = []
+    selected_keys = set(pd.read_csv(run_dir / 'positive_pair_selection.csv', usecols=['pair_key'],
+                                    keep_default_na=False, na_values=['']).pair_key)
+    minimum = config.dataset.get('min_metadata_group_positives')
+    drop_path = run_dir / 'metadata_groups_dropped.json'
+    if minimum is None:
+        if drop_path.exists():
+            failures.append(f'{drop_path.name} exists, but dataset.min_metadata_group_positives '
+                            f'is null')
+        axes, dropped_groups, positives_dropped = [], set(), 0
+    else:
+        if not drop_path.exists():
+            failures.append(f'{drop_path.name} is absent, but dataset.min_metadata_group_positives '
+                            f'is {minimum}')
+            return failures
+        record = json.loads(drop_path.read_text())
+        if record['min_metadata_group_positives'] != minimum:
+            failures.append(f"{drop_path.name} records a minimum of "
+                            f"{record['min_metadata_group_positives']}, the config {minimum}")
+        if record['positives_in'] != len(selected_keys):
+            failures.append(f"{drop_path.name} counts {record['positives_in']:,} selected "
+                            f"positives, positive_pair_selection.csv holds {len(selected_keys):,}")
+        axes = record['axes']
+        dropped_groups = {tuple(entry['group']) for entry in record['dropped_groups']}
+        positives_dropped = record['positives_dropped']
+
+    # Pool the test positives over the splits, counting repeats and those of dropped groups.
+    group_columns = [f'{axis}_a' for axis in axes]
+    test_key_counts = Counter()
+    in_dropped_groups = 0
+    for split_dir in split_dirs:
+        test = pd.read_csv(run_dir / split_dir / 'test_pairs.csv',
+                           usecols=['pair_key', 'label'] + group_columns,
+                           keep_default_na=False, na_values=[''])
+        positives = test.loc[test.label == 1]
+        test_key_counts.update(positives.pair_key)
+        groups = positives[group_columns].itertuples(index=False, name=None)
+        in_dropped_groups += sum(group in dropped_groups for group in groups)
+
+    repeated = sum(count > 1 for count in test_key_counts.values())
+    if repeated:
+        failures.append(f'{repeated:,} positives appear in more than one test split')
+    not_selected = len(set(test_key_counts) - selected_keys)
+    if not_selected:
+        failures.append(f'{not_selected:,} test positives are not in positive_pair_selection.csv')
+    if in_dropped_groups:
+        failures.append(f'{in_dropped_groups:,} test positives belong to a dropped metadata group')
+    expected = len(selected_keys) - positives_dropped
+    if len(test_key_counts) != expected:
+        failures.append(f'the test splits hold {len(test_key_counts):,} positives, expected '
+                        f'{expected:,} ({len(selected_keys):,} selected minus '
+                        f'{positives_dropped:,} dropped)')
+    return failures
+
+
 def positive_test_keys(run_dir: Path, split_dirs: list) -> set:
     """The positive pair keys of every split's test set, pooled.
 
@@ -276,6 +354,8 @@ def audit_run(entry: dict, capacity: pd.DataFrame, spec: dict,
         hash_col = {'aa': 'prot_hash', 'nt_cds': 'cds_dna_hash',
                     'nt_ctg': 'ctg_dna_hash'}[config.dataset.split_strategy.pair_key_alphabet]
         failures.extend(check_balanced_usage(run_dir, split_dirs, hash_col))
+    if config.dataset.positive_pair_selection.method != 'all':
+        failures.extend(check_selected_test_positives(run_dir, split_dirs, config))
 
     if reference_dir is not None:
         ours = positive_test_keys(run_dir, split_dirs)
