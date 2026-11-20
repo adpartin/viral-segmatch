@@ -56,6 +56,12 @@ Main parts:
 fits and all 1,400 `1B` redraw fits completed at commit `ba9b108`. The final
 report is in `results/flu/July_2025/task1_28p_codon_matched_20261015_194607_report/`.
 
+**Aligned features (2026-11-19).** Task 1 was rerun with codons placed in
+protein-alignment columns. Over the 28 pairs, mean test F1 macro was 0.769
+aligned and 0.767 pinned. 15 pairs scored identically, and the 13 pairs with PB1
+or NS1 changed by less than one fold SD, except PB1-NS1 (0.728 to 0.647). See
+`docs/results/2026-11-19_task1_aligned_codon_28p.md`.
+
 **Goal.** Establish the methods on a narrow population that contains a single
 *metadata group*. This will help to decide which feature representations and
 models to carry forward into Parts 2 and 3.
@@ -548,21 +554,20 @@ datasets were built with.
 waits on the aligned run's bundles, experiment spec and capacity table; see the
 prerequisite under Methods.
 
-A separate pilot on `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023` is complete. It
-tested that negatives are drawn inside one metadata group. Its population is not
-the Task 2 population and its scores are not paper results.
+A pilot on `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023` confirmed that negatives
+are drawn inside one metadata group (the scores are not paper results).
 
-**Goal.** Train on a *population* containing several hosts, HN subtypes or years,
+**Goal.** Train on a *population* containing several hosts, subtypes or years,
 and measure the overall performance as well as within each *metadata group*.
 
 **Definitions**:
 * *Population*: a dataset containing all the isolates selected by the dataset
   filters.
-* *Metadata group*: a dataset subset with one exact `(host, HN subtype, year)`
+* *Metadata group*: a dataset subset with one exact `(host, subtype, year)`
   combination, where `host` is a host group such as `Duck` rather than an animal
   such as `Mallard`.
 
-Task 1 set the dataset filters to `Human, H3N2, 2024`, so its population held
+Task 1 dataset filters are `Human, H3N2, 2024`, so its population held
 one metadata group. The Task 2 population holds several metadata groups, and
 its reports distinguish the two terms. The negative sampler matches on the
 metadata group, so it matches on the host group too.
@@ -573,16 +578,17 @@ metadata group, so it matches on the host group too.
 
 * Filters: `[Human, Swine, Chicken, Duck]`, `[H3N2, H1N1, H5N1]`, `2010-2025`.
 * Size: 61,635 isolates of the July 2025 corpus. This is counted from the
-  metadata alone, so it is an upper bound on what any schema pair can use.
+  metadata alone, so it's the upper bound for schema pair.
 * `filter_by_metadata` keeps only values in the 3 filter lists. An isolate
   missing host, HN subtype or year is dropped.
 * `host` is a host group, not an animal, so `Duck` covers 54 animal names and
   `Chicken` covers 3. The map is `conf/virus/flu_host_groups.yaml`.
-* Chicken and Duck stay separate. Jamie's paper uses human, swine, duck,
-  chicken and other. Marcus's paper uses 8 coarser buckets: human, avian,
-  nonhuman mammal, environment, unknown, lab, sea mammal and other. Open
-  question 3 below asks whether to merge Chicken and Duck into one `Avian`
-  group, as Marcus does.
+* Chicken and Duck stay separate.
+    * Jamie's paper uses human, swine, duck, chicken and other.
+    * Marcus's paper uses 8 coarser buckets: human, avian, nonhuman mammal,
+      environment, unknown, lab, sea mammal and other.
+    * Open question 3 below asks whether to merge Chicken and Duck into one
+      `Avian` group, as Marcus does.
 * Of the 192 possible `(host, HN subtype, year)` groups, 149 have at least one
   isolate and 68 have at least 100. The largest is Human-H3N2-2024 with 5,403
   isolates, the smallest Chicken-H1N1-2016 with 1. Open question 1 covers what
@@ -639,9 +645,14 @@ on 2026-11-13. Steps 1 to 6 and step 9 of
 `docs/plans/2026-11-17_aligned_codon_features_plan.md` are done: the aligned
 codon caches, their loading in `train_pair_baselines`, the retention rule
 filter in the dataset builder, and aligned caches in the batch runners and the
-dataset audit. What now blocks the 28-pair run is configuration: 27 more aligned
-child bundles per task and an aligned experiment spec. The dataset audit also
-needs a capacity table of the records the retention rule keeps.
+dataset audit.
+
+Task 1 has been run with aligned features and scored like the pinned run (see
+`docs/results/2026-11-19_task1_aligned_codon_28p.md`). That checks the aligned
+pipeline. Task 1 holds one subtype, so it cannot show that alignment helps. Task
+2, with H1, H3 and H5 and with N1 and N2, is the test of that. What Task 2 still
+needs is configuration: 27 more aligned child bundles, an aligned experiment
+spec, and a rule for small metadata groups (open questions 1 and 2 below).
 
 * Planned in `docs/plans/2026-11-17_aligned_codon_features_plan.md`. Reported
   in `docs/results/2026-11-09_protein_alignment.md`.
@@ -826,11 +837,9 @@ stratification. It removed no group, masked no figure cell and scored every grou
 feasible in all saved splits. The questions below concern possible changes for later populations
 or for interpreting thin cells in this one.
 
-1. **Small groups in the test split.** Folds are assigned by positive, not by metadata group. In
-   this run Pig-H3N2-2022 averaged 12.2 NA-M1 test positives per fold, with 8 in its lowest fold,
-   although all eight groups appeared in the test metrics. In another population, a group could
-   have test positives but no training positives in a fold. That score would measure performance
-   on an unseen group.
+1. **Small groups in the test split.** Folds are assigned by positive, not by metadata group. A
+   group could have test positives but no training positives in a fold. That score would measure
+   performance on an unseen group.
    The matching check does not catch this case because a training split with no positives in a
    group needs no negatives there. Options for a later run:
    - Stratify the folds by metadata group.
