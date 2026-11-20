@@ -685,7 +685,10 @@ Under random CV, `dataset.positive_pair_selection.method` can select one positiv
 in both slots before fold assignment. Active selection supports both sequential-dedup orders and
 Hopcroft-Karp matching. The full observed-positive set remains blocked during negative sampling,
 including positives discarded by selection. Active selection is not supported for holdout or
-cluster-disjoint routing.
+cluster-disjoint routing. With the *metadata group minimum* set
+(`dataset.min_metadata_group_positives`), the builder drops the metadata groups with fewer selected
+positives before fold assignment. It then assigns the test folds with sklearn `StratifiedKFold` and
+splits validation from training with a stratified split, both by metadata group.
 
 **Two k-fold routers, one guarantee.** 1D-CD (above) and 2D-CD (`dataset_pairs_cc.py`) both keep
 whole atoms in one split, in all three bins, and both draw within-fold negatives from the same

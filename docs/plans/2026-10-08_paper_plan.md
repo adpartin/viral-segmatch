@@ -550,9 +550,9 @@ datasets were built with.
 
 # 2. Expand the population. Evaluate across hosts, subtypes, and years.
 
-**Status: IN PROGRESS.** The population is set but the run has not happened. It
-waits on the aligned run's bundles, experiment spec and capacity table; see the
-prerequisite under Methods.
+**Status: IN PROGRESS.** The population, the 28 aligned child bundles, the
+experiment spec, the capacity table and the metadata group minimum are set. The
+28 datasets have not been built and no model has been fit.
 
 A pilot on `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023` confirmed that negatives
 are drawn inside one metadata group (the scores are not paper results).
@@ -591,11 +591,13 @@ metadata group, so it matches on the host group too.
       `Avian` group, as Marcus does.
 * Of the 192 possible `(host, HN subtype, year)` groups, 149 have at least one
   isolate and 68 have at least 100. The largest is Human-H3N2-2024 with 5,403
-  isolates, the smallest Chicken-H1N1-2016 with 1. Open question 1 covers what
-  to do with thin groups. That rule has to be set before the folds are made.
-* Not yet measured: per-pair capacity, and so which of the 28 schema pairs this
-  population supports. These need a capacity run on the records the retention
-  rule keeps.
+  isolates, the smallest Chicken-H1N1-2016 with 1. Groups too small to give
+  every split two positives are dropped before the folds are made; see the
+  metadata group minimum under Build settings.
+* The capacity run on the records the retention rule keeps supports all 28
+  schema pairs, with 9,296 (M1-NS1) to 28,879 (PB2-PA) `HK selected` positives.
+  The table is
+  `results/flu/July_2025/pair_capacity_8_proteins_4host_3subtype_2010_2025_aligned/pair_capacity.csv`.
 
 Host and subtype are not crossed:
 
@@ -628,6 +630,25 @@ Task 2 changes the population and the negative sampler, not the steps.
   metadata group.
 * The sampler matches exact years with `year_match: exact`, rather than the
   default year bins.
+* The metadata group minimum, `dataset.min_metadata_group_positives: 20`, drops
+  every metadata group with fewer than 20 `HK selected` positives before the
+  folds are made. The test folds and the validation split are then stratified
+  by group, so every kept group has positives in all three splits of every
+  fold, and no group is scored without training positives. The matched sampler
+  stops the build if a split holds a group with fewer than 2 positives. With 5
+  folds the validation split holds 10% of a group, so a group needs 20 to give
+  it 2. `metadata_groups_dropped.json` records each dropped group and its
+  positives.
+* Counted from each pair's `HK selected` positives before any build, the
+  minimum keeps 73 to 83 of each pair's 118 to 147 groups. It drops 1.1% to
+  3.9% of each pair's positives, and 11,016 of 555,921 over the 28 pairs. The
+  same 8 host and subtype combinations keep groups in every pair.
+  Chicken-H1N1, Chicken-H3N2, Human-H5N1 and Swine-H5N1 keep none in any pair.
+  So H5N1 is scored only in Chicken and Duck, and no subtype is scored in all 4
+  host groups.
+* A trial build of PB1-HA gave that pair's counted values: 79 of 139 groups
+  kept and 447 of 27,060 positives dropped. It drew matched negatives in all 79
+  groups of every split of all 5 folds.
 * Saved negative rows are checked using both endpoints' isolate metadata, not
   just the requested regime target or the `neg_regime` field.
 * Training is the one Task 1 describes under Model Development and Evaluation.
@@ -650,9 +671,11 @@ dataset audit.
 Task 1 has been run with aligned features and scored like the pinned run (see
 `docs/results/2026-11-19_task1_aligned_codon_28p.md`). That checks the aligned
 pipeline. Task 1 holds one subtype, so it cannot show that alignment helps. Task
-2, with H1, H3 and H5 and with N1 and N2, is the test of that. What Task 2 still
-needs is configuration: 27 more aligned child bundles, an aligned experiment
-spec, and a rule for small metadata groups (open questions 1 and 2 below).
+2, with H1, H3 and H5 and with N1 and N2, is the test of that. Task 2's
+configuration is in place: the 28 aligned child bundles
+`flu_28p_4host_aligned_codon_*`, the experiment spec
+`conf/experiments/4host_3subtype_2010_2025_28p_codon_aligned_matched_cv5.yaml`
+and the metadata group minimum.
 
 * Planned in `docs/plans/2026-11-17_aligned_codon_features_plan.md`. Reported
   in `docs/results/2026-11-09_protein_alignment.md`.
@@ -717,24 +740,26 @@ metadata was checked independently for equal host, HN subtype and exact year.
 `src/analysis/metadata_group_report.py` writes `metadata_group_counts.csv` from saved train,
 validation and test pairs, with positive and negative counts by schema pair, fold, split and group.
 The counts sum to each split's totals. It writes `test_metrics_by_metadata.csv` from each fold's
-`test_predicted.csv`, using that model's decision threshold. Its 1,470 rows cover the eight joint
-groups and six pooled host, subtype or year values for each of 21 pairs and five folds. Each row
-contains the group values, class counts, confusion counts, F1 macro, AUC-ROC, precision and recall.
-All metric rows in this run have both classes. If another run has a one-class group, its metrics
-are NaN for that fold. The figure code excludes those folds from its mean and shows how many folds
-contributed.
+`test_predicted.csv`, using that model's decision threshold. Each row contains the group values,
+class counts, confusion counts, F1 macro, AUC-ROC, precision and recall. In the pilot its 1,470
+rows covered the eight joint groups and six pooled host, subtype or year values for each of 21
+pairs and five folds, and every metric row had both classes. If a run has a one-class group, its
+metrics are NaN for that fold. The figure code excludes those folds from its mean and shows how
+many folds contributed.
 
 The report contains four figures: `matrix_f1_macro.png` for the whole population,
-`metrics_by_group_f1_macro.png` for the eight joint groups,
-`metrics_by_axis_f1_macro.png` for six pooled values, and `counts_by_group.png` for test positives
-summed over folds. The metric figures show each cell's fold mean above its fold SD and share a
-color scale. `--metric` can draw other supported metrics. `--min_test_pairs` can mask thin group
-cells; its default of 0 left every cell visible in this report. Figure titles and CSV rows identify
-the population. NS1 and its seven schema pairs are excluded for the reason below.
+`metrics_by_group_f1_macro.png` for the joint groups, `metrics_by_axis_f1_macro.png` for the
+pooled host, subtype and year values, and `counts_by_group.png` for test positives summed over
+folds. The metric figures show each cell's fold mean above its fold SD and share a color scale.
+`--metric` can draw other supported metrics. `--min_test_pairs` can mask thin group cells; its
+default of 0 left every cell visible in the pilot's report. Figure titles and CSV rows identify
+the population. The pilot excluded NS1 and its seven schema pairs, for the reason given under the
+pilot below. Task 2 keeps 73 to 83 joint groups per pair rather than 8. Whether the per-group
+figure stays readable at that size has not been checked.
 
 ### Results
 
-Not run yet. The prerequisite above has to be finished first.
+Not run yet. Building the 28 datasets is the next step.
 
 When it runs, this section reports:
 
@@ -744,7 +769,8 @@ When it runs, this section reports:
 * Positive and negative counts per metadata group, split and fold, from
   `metadata_group_counts.csv`.
 * The 4 figures listed under Reports.
-* Which schema pairs the population supports, which the capacity run decides.
+* The metadata groups each pair dropped and their positives, from
+  `metadata_groups_dropped.json`.
 
 ### Negative-sampling pilot: `[Human, Pig]`, `[H3N2, H1N1]`, `2022-2023`
 
@@ -832,10 +858,10 @@ are descriptive means, not fitted comparisons among groups.
 
 ## Open questions
 
-The first run used the builder's positive-pair fold assignment without metadata-group
-stratification. It removed no group, masked no figure cell and scored every group. Matching was
-feasible in all saved splits. The questions below concern possible changes for later populations
-or for interpreting thin cells in this one.
+The negative-sampling pilot used the builder's positive-pair fold assignment without
+metadata-group stratification. It removed no group, masked no figure cell and scored every group.
+Matching was feasible in all saved splits. Questions 1 and 2 are settled for Task 2 by the
+metadata group minimum under Build settings.
 
 1. **Small groups in the test split.** Folds are assigned by positive, not by metadata group. A
    group could have test positives but no training positives in a fold. That score would measure
@@ -850,6 +876,9 @@ or for interpreting thin cells in this one.
    - Score every group, but report the unseen-group scores separately.
      `metadata_group_counts.csv` gives each group's training positives per fold, so these scores
      can be flagged.
+
+   Task 2 takes the first option. It stratifies the folds by metadata group after dropping the
+   groups below the metadata group minimum, so no group is scored without training positives.
 2. **A rule for removing small groups.** If a later run removes small groups, set the rule before
    creating the folds. Record the positives each group lost, by schema pair and metadata
    group. Never remove positives from just one split, because each positive has only one test
@@ -858,6 +887,9 @@ or for interpreting thin cells in this one.
    matching check then fails, change the rule or the split and rebuild; do not patch one split.
    Do not call this rule an eligibility rule. In the glossary, *eligible isolates* are the isolates
    that carry a schema pair's required sequences, such as complete CDS at the pinned length.
+
+   Task 2's rule is the metadata group minimum: drop each group with fewer than 20 `HK selected`
+   positives before the folds are made, and record it in `metadata_groups_dropped.json`.
 3. **Merge Chicken and Duck into `Avian`?** Task 2 keeps them separate. Merging
    would give one bird group of 21,490 isolates corpus-wide to compare against
    Human, which is the case for it. The case against is that farmed chickens and

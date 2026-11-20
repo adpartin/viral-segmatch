@@ -66,12 +66,12 @@ each cache belongs to one alignment of one population.
      `dataset.require_complete_cds_at_pinned_length: false`, because the parent sets it to true
      and step 6 rejects it in aligned mode.
    - Task 2: `flu_28p_4host_3subtype_2010_2025_site_codon_aligned`. It inherits from the Task 1
-     aligned master and sets only the population: hosts Human, Swine, Chicken and Duck; subtypes
-     H3N2, H1N1 and H5N1; `year: null` and `year_range: [2010, 2025]`. It therefore also
-     inherits Task 1's 4-fold CV, Hopcroft-Karp positive selection and negative-sampling
-     settings. These are inherited defaults pending Task 2's experiment configuration, which
-     sets the fold, negative-sampler, year-matching and thin-group settings described under
-     Task 2 in `docs/plans/2026-10-08_paper_plan.md`.
+     aligned master and sets the population: hosts Human, Swine, Chicken and Duck; subtypes
+     H3N2, H1N1 and H5N1; `year: null` and `year_range: [2010, 2025]`. It inherits Task 1's
+     Hopcroft-Karp positive selection and matched negatives with exact years. It also sets the
+     metadata group minimum, `dataset.min_metadata_group_positives: 20`, added on 2026-11-20 with
+     the Task 2 experiment spec, which sets 5 folds. Both are described under Task 2 in
+     `docs/plans/2026-10-08_paper_plan.md`.
 
    Each run uses one child bundle per schema pair, as `flu_28p_codon_*.yaml` do for the pinned
    master. This plan creates one child per master, to test step 6. The other children are
@@ -338,4 +338,4 @@ each cache belongs to one alignment of one population.
 | `filter_records_kept_by_retention_rule` and `check_population_inside_alignments` in `src/datasets/_pair_helpers.py`, called by `dataset_segment_pairs.py`; `check_aligned_dataset` in `src/models/train_pair_baselines.py` (step 6) | built 2026-11-19 | keep only the records of each final alignment, explain every dropped record, and fit aligned features only on datasets built on the same final alignments |
 | `data/datasets/flu/July_2025/runs/task1_28p_aligned_codon_matched_20261119_145832_pb1_ha` | built 2026-11-19 | the aligned Task 1 PB1-HA dataset, 5 folds |
 | aligned support in `site_cache_files` and `check_caches` (step 9) | built 2026-11-19 | lets the 28-pair batch runners and the dataset audit use aligned caches |
-| 27 more child bundles per task, an aligned experiment spec, and a capacity table of the records the retention rule keeps (step 9) | not started | the configuration the 28-pair aligned runs and their audit need |
+| 27 more child bundles per task, an aligned experiment spec, and a capacity table of the records the retention rule keeps (step 9) | built: Task 1 on 2026-11-19, Task 2 bundles and spec on 2026-11-20 and its capacity table on 2026-11-19 | the configuration the 28-pair aligned runs and their audit need. Task 1: `flu_28p_aligned_codon_*`, `conf/experiments/human_h3n2_2024_28p_codon_aligned_matched_cv5.yaml`, `results/flu/July_2025/pair_capacity_8_proteins_aligned/`. Task 2: `flu_28p_4host_aligned_codon_*`, `conf/experiments/4host_3subtype_2010_2025_28p_codon_aligned_matched_cv5.yaml`, `results/flu/July_2025/pair_capacity_8_proteins_4host_3subtype_2010_2025_aligned/` |
