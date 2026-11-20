@@ -1308,6 +1308,33 @@ def _jsonable(v):
     return str(v) if not isinstance(v, (int, float, str, bool)) else v
 
 
+def _metadata_groups_of_isolates(df: pd.DataFrame, sampling_axes: Optional[list], year_match: str,
+                                 year_bin_edges: Optional[list]) -> tuple:
+    """Map every isolate in `df` to the metadata group its matched negatives are drawn within.
+
+    Args:
+        df: protein rows carrying `assembly_id` and every sampling axis.
+        sampling_axes: the axes that define a group, or None for `DEFAULT_AXES`.
+        year_match: `binned` or `exact`.
+        year_bin_edges: year bins for `binned`, or None for `DEFAULT_YEAR_BIN_EDGES`.
+
+    Returns:
+        `(axes, isolate_to_group)`: the axes used, and assembly_id -> group tuple from
+        `build_isolate_cells`.
+    """
+    from src.datasets._negative_regime_sampling import (
+        DEFAULT_AXES,
+        DEFAULT_YEAR_BIN_EDGES,
+        build_isolate_cells,
+    )
+    axes = list(sampling_axes) if sampling_axes else list(DEFAULT_AXES)
+    meta_per_isolate = df[['assembly_id'] + axes].drop_duplicates('assembly_id').copy()
+    edges = year_bin_edges if year_bin_edges is not None else DEFAULT_YEAR_BIN_EDGES
+    isolate_to_group = build_isolate_cells(meta_per_isolate, axes=axes, year_match=year_match,
+                                           year_bin_edges=edges)
+    return axes, isolate_to_group
+
+
 # ---------------------------------------------------------------------------
 # 4.6 split_dataset_v2
 # ---------------------------------------------------------------------------
@@ -1437,28 +1464,8 @@ def split_dataset_v2(
     isolate_to_cell: Optional[dict] = None
     resolved_sampling_axes: Optional[list] = None
     if axis_quotas is not None and len(axis_quotas) > 0:
-        from src.datasets._negative_regime_sampling import (
-            DEFAULT_AXES as _NEG_DEFAULT_AXES,
-        )
-        from src.datasets._negative_regime_sampling import (
-            DEFAULT_YEAR_BIN_EDGES as _NEG_DEFAULT_YEAR_BIN_EDGES,
-        )
-        from src.datasets._negative_regime_sampling import (
-            build_isolate_cells,
-        )
-        resolved_sampling_axes = list(sampling_axes) if sampling_axes else list(_NEG_DEFAULT_AXES)
-        meta_per_iso = (
-            df[['assembly_id'] + resolved_sampling_axes]
-            .drop_duplicates('assembly_id')
-            .copy()
-        )
-        edges_for_build = year_bin_edges if year_bin_edges is not None else _NEG_DEFAULT_YEAR_BIN_EDGES
-        isolate_to_cell = build_isolate_cells(
-            meta_per_iso,
-            axes=resolved_sampling_axes,
-            year_match=year_match,
-            year_bin_edges=edges_for_build,
-        )
+        resolved_sampling_axes, isolate_to_cell = _metadata_groups_of_isolates(
+            df, sampling_axes, year_match, year_bin_edges)
         print(f'\nsplit_dataset_v2: regime-aware mode enabled. axes={resolved_sampling_axes}, '
               f'year_match={year_match}, on_shortfall={on_shortfall}, '
               f'cells={len(set(isolate_to_cell.values())):,}.')
@@ -2144,6 +2151,59 @@ def _reject_stats_from_counts(n_pos_split: int, n_neg: int, neg_to_pos_ratio: fl
 # ---------------------------------------------------------------------------
 # 4.7 generate_all_cv_folds_v2
 # ---------------------------------------------------------------------------
+def _drop_small_metadata_groups(selected_pos: pd.DataFrame, isolate_to_group: dict,
+                                min_metadata_group_positives: int) -> tuple:
+    """Drop the metadata groups holding fewer than `min_metadata_group_positives` selected positives.
+
+    A positive's group is the group of its isolate, read from `assembly_id_a`; a positive's two
+    sides come from one isolate. The whole group is dropped, never part of it.
+
+    Args:
+        selected_pos: the selected positives, before folds are made.
+        isolate_to_group: assembly_id -> metadata group, from `_metadata_groups_of_isolates`.
+        min_metadata_group_positives: the fewest selected positives a group may keep.
+
+    Returns:
+        `(kept_pos, kept_groups, record)`. `kept_pos` holds the positives of the kept groups with
+        the index reset, `kept_groups` holds each kept positive's group as text in the same order,
+        and `record` counts the groups and positives in, kept and dropped and lists each dropped
+        group with its positives.
+
+    Raises:
+        ValueError: a positive's isolate has no metadata group, or no group reaches the minimum.
+    """
+    groups = selected_pos['assembly_id_a'].astype(str).map(isolate_to_group)
+    if groups.isna().any():
+        raise ValueError(
+            f"_drop_small_metadata_groups: {int(groups.isna().sum()):,} selected positives have an "
+            f"isolate with no metadata group.")
+    positives_per_group = groups.value_counts()
+    kept_group_set = set(positives_per_group[positives_per_group >= min_metadata_group_positives].index)
+    if not kept_group_set:
+        raise ValueError(
+            f"_drop_small_metadata_groups: no metadata group has "
+            f"{min_metadata_group_positives} selected positives; the largest has "
+            f"{int(positives_per_group.max())}.")
+
+    keep = groups.map(lambda group: group in kept_group_set).to_numpy(dtype=bool)
+    kept_pos = selected_pos[keep].reset_index(drop=True)
+    kept_groups = groups[keep].astype(str).reset_index(drop=True)
+    dropped = sorted(((group, int(n)) for group, n in positives_per_group.items()
+                      if group not in kept_group_set), key=lambda item: str(item[0]))
+    record = {
+        'min_metadata_group_positives': int(min_metadata_group_positives),
+        'groups_in': int(len(positives_per_group)),
+        'groups_kept': len(kept_group_set),
+        'groups_dropped': len(dropped),
+        'positives_in': int(len(selected_pos)),
+        'positives_kept': int(len(kept_pos)),
+        'positives_dropped': int(len(selected_pos) - len(kept_pos)),
+        'dropped_groups': [{'group': [_jsonable(value) for value in group], 'positives': n}
+                           for group, n in dropped],
+    }
+    return kept_pos, kept_groups, record
+
+
 def generate_all_cv_folds_v2(
     df: pd.DataFrame,
     n_folds: int,
@@ -2166,6 +2226,7 @@ def generate_all_cv_folds_v2(
     negative_scope: str = 'coverage',
     positive_selection_method: str = 'all',
     positive_selection_ordering: str = 'pair_key',
+    min_metadata_group_positives: Optional[int] = None,
     ) -> Iterator[dict]:
     """Generate all N CV fold splits, yielding each as a dict containing
     fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats, and
@@ -2176,18 +2237,40 @@ def generate_all_cv_folds_v2(
     endpoints in both slots, then applies KFold to those selected pairs.
     `negative_scope` selects the sampler used inside each split.
 
+    With `min_metadata_group_positives` set, active selection is followed by
+    `_drop_small_metadata_groups`, which drops every metadata group with fewer selected
+    positives than that. The groups are the matched negative sampler's, from `sampling_axes`
+    and `year_match`. The test folds and the validation split are then stratified by group,
+    so each group spreads over every fold in proportion to its size. The test folds cover the
+    kept positives, not every selected positive. Each fold dict carries the drop record under
+    `metadata_group_drop`, which is None when the minimum is not set.
+
     v2 hard-codes pair_mode='schema_ordered' and hard_partition_isolates=True.
 
     `cooccur_pairs` and `cooccur_stats` are required and come from
     `build_corpus_cooccurrence_set`. The caller builds them once per dataset, so every fold
     blocks negatives against the same corpus-wide set.
+
+    Raises:
+        ValueError: `min_metadata_group_positives` is set without active positive selection or
+            without `axis_quotas`, which is what defines the metadata groups.
     """
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import KFold, StratifiedKFold
 
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=seed)
 
     val_frac = val_ratio / (1.0 - 1.0 / n_folds)
     val_frac = min(val_frac, 0.5)
+
+    if min_metadata_group_positives is not None:
+        if positive_selection_method == 'all':
+            raise ValueError(
+                "generate_all_cv_folds_v2: min_metadata_group_positives needs an active "
+                "positive_selection_method; with 'all', folds are made over isolates.")
+        if not axis_quotas:
+            raise ValueError(
+                "generate_all_cv_folds_v2: min_metadata_group_positives needs axis_quotas "
+                "(dataset.negative_sampling), which defines the metadata groups.")
 
     if positive_selection_method != 'all':
         pos_df, pos_dedup_stats = create_positive_pairs_v2(
@@ -2220,26 +2303,49 @@ def generate_all_cv_folds_v2(
             hash_col_b,
         )
 
-        selected_indices = np.arange(len(selected_pos))
+        # The positives the folds are made from: every selected positive, or with a group minimum
+        # those of the kept groups, whose group labels then stratify the splits.
+        fold_pos, fold_groups, metadata_group_drop = selected_pos, None, None
+        if min_metadata_group_positives is not None:
+            _, isolate_to_group = _metadata_groups_of_isolates(df, sampling_axes, year_match,
+                                                               year_bin_edges)
+            fold_pos, fold_groups, metadata_group_drop = _drop_small_metadata_groups(
+                selected_pos, isolate_to_group, min_metadata_group_positives)
+            print(f"CV (v2): kept {metadata_group_drop['groups_kept']:,} of "
+                  f"{metadata_group_drop['groups_in']:,} metadata groups with at least "
+                  f"{min_metadata_group_positives} selected positives; dropped "
+                  f"{metadata_group_drop['positives_dropped']:,} of "
+                  f"{metadata_group_drop['positives_in']:,} positives.")
+            if len(fold_pos) < n_folds:
+                raise ValueError(
+                    f"the kept metadata groups hold {len(fold_pos)} selected pairs, fewer than "
+                    f"dataset.n_folds={n_folds}.")
+
+        fold_indices = np.arange(len(fold_pos))
+        if fold_groups is None:
+            fold_splits = kf.split(fold_indices)
+        else:
+            stratified = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+            fold_splits = stratified.split(fold_indices, fold_groups)
         test_pair_keys_seen: set = set()
-        for fold_i, (trainval_idx, test_idx) in enumerate(
-            kf.split(selected_indices)
-        ):
+        for fold_i, (trainval_idx, test_idx) in enumerate(fold_splits):
             print(f"\n{'='*60}")
             print(f"CV (v2): generating fold {fold_i + 1}/{n_folds}  "
                   f"(test={len(test_idx)}, trainval={len(trainval_idx)} selected pairs)")
             print(f"{'='*60}")
 
-            trainval_pos = selected_pos.iloc[trainval_idx]
-            test_pos = selected_pos.iloc[test_idx].reset_index(drop=True)
+            trainval_pos = fold_pos.iloc[trainval_idx]
+            test_pos = fold_pos.iloc[test_idx].reset_index(drop=True)
             if len(trainval_pos) < 2:
                 train_pos = trainval_pos.reset_index(drop=True)
                 val_pos = trainval_pos.iloc[0:0].copy()
             else:
+                trainval_groups = None if fold_groups is None else fold_groups.iloc[trainval_idx]
                 train_pos, val_pos = train_test_split(
                     trainval_pos,
                     test_size=val_frac,
                     random_state=seed + fold_i,
+                    stratify=trainval_groups,
                 )
                 train_pos = train_pos.reset_index(drop=True)
                 val_pos = val_pos.reset_index(drop=True)
@@ -2290,12 +2396,14 @@ def generate_all_cv_folds_v2(
                 'exposure_tables': exposure_tables,
                 'positive_selection_audit': selection_audit,
                 'positive_selection_manifest': selection_manifest,
+                'metadata_group_drop': metadata_group_drop,
             }
 
-        selected_pair_keys = set(selected_pos['pair_key'])
-        if test_pair_keys_seen != selected_pair_keys:
+        fold_pair_keys = set(fold_pos['pair_key'])
+        if test_pair_keys_seen != fold_pair_keys:
             raise RuntimeError(
-                "CV test folds do not cover every selected positive pair exactly once"
+                "CV test folds do not cover every positive pair the folds were made from "
+                "exactly once"
             )
         return
 

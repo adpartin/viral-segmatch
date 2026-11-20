@@ -51,6 +51,13 @@ positive_pair_selection:
   method: all  # all | dedup_a_then_b | dedup_b_then_a | hopcroft_karp
   ordering: pair_key
 
+# Optional minimum size of a metadata group, for random cross-validation with an active
+# positive_pair_selection method and dataset.negative_sampling. null keeps every group. An integer
+# drops each metadata group (the matched negative sampler's group) holding fewer selected positives
+# than this, before folds are made, and stratifies the test folds and the validation split by
+# group. The dropped groups are written to metadata_groups_dropped.json.
+min_metadata_group_positives: null
+
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs

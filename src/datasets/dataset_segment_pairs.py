@@ -438,6 +438,9 @@ if PAIR_BUILDER_VERSION == 'v2':
         POSITIVE_SELECTION_ORDERING = str(
             getattr(POSITIVE_SELECTION_CFG, 'ordering', 'pair_key')
         )
+    # Metadata groups with fewer selected positives than this are dropped before folds are made,
+    # and the folds are stratified by group. None keeps every group.
+    MIN_METADATA_GROUP_POSITIVES = getattr(config.dataset, 'min_metadata_group_positives', None)
 
     NEG_SAMPLING_CFG = getattr(config.dataset, 'negative_sampling', None)
     AXIS_QUOTAS = None
@@ -748,6 +751,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 negative_scope=NEGATIVE_SCOPE,
                 positive_selection_method=POSITIVE_SELECTION_METHOD,
                 positive_selection_ordering=POSITIVE_SELECTION_ORDERING,
+                min_metadata_group_positives=MIN_METADATA_GROUP_POSITIVES,
             )
 
         # Stream each fold to disk as it's produced (reduces peak memory; lets
@@ -772,6 +776,11 @@ if PAIR_BUILDER_VERSION == 'v2':
                 )
                 print(f"Saved positive-pair selection audit to: {audit_path}")
                 print(f"Saved positive-pair selection manifest to: {manifest_path}")
+                if fold_data.get('metadata_group_drop') is not None:
+                    drop_path = output_dir / 'metadata_groups_dropped.json'
+                    with open(drop_path, 'w') as f:
+                        json.dump(fold_data['metadata_group_drop'], f, indent=2)
+                    print(f"Saved dropped metadata groups to: {drop_path}")
                 positive_selection_artifacts_written = True
 
             fold_dir = output_dir / f"fold_{fold_data['fold_id']}"
