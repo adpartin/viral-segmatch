@@ -29,6 +29,9 @@ How?
   alignment beside it.
 - With balanced-usage negatives at a 1:1 ratio over Hopcroft-Karp positives, every split's
   negatives must use each positive sequence exactly once per slot (`check_balanced_usage`).
+- With matched balanced-usage negatives, every saved negative must join two isolates with equal
+  values on each matching axis. The check reads both endpoints' metadata columns, not the
+  negative's `neg_regime` label (`check_matched_negatives`).
 - With an active positive-pair selection method, the test splits, pooled, must hold each selected
   positive exactly once, less the positives of the metadata groups the builder dropped when
   `dataset.min_metadata_group_positives` is set (`check_selected_test_positives`).
@@ -68,6 +71,8 @@ PROJ = Path(__file__).resolve().parents[2]
 if str(PROJ) not in sys.path:
     sys.path.insert(0, str(PROJ))
 
+from src.datasets._negative_regime_sampling import DEFAULT_AXES  # noqa: E402
+from src.datasets.dataset_segment_pairs_v2 import balanced_sampler_name  # noqa: E402
 from src.utils.config_hydra import get_function_short_name_map  # noqa: E402
 from src.utils.dataset_manifest import (  # noqa: E402
     changed_files,
@@ -215,6 +220,38 @@ def check_balanced_usage(run_dir: Path, split_dirs: list, hash_col: str) -> list
     return failures
 
 
+def check_matched_negatives(run_dir: Path, split_dirs: list, axes: list) -> list[str]:
+    """Check that every saved negative joins two isolates with equal values on each matching axis.
+
+    Reads each negative's `<axis>_a` and `<axis>_b` columns, which the builder fills from each
+    endpoint's own isolate, and not its `neg_regime` label. Matched negatives use exact years, so
+    years are compared as values. A missing value on either side counts as a difference.
+
+    Args:
+      run_dir: a dataset run directory built with matched balanced-usage negatives.
+      split_dirs: its split directories, each holding train, val and test pairs.
+      axes: the matching axes, `dataset.negative_sampling.axes`.
+
+    Returns:
+      One message per split file holding a negative whose endpoints differ; empty when none do.
+    """
+    failures = []
+    columns = ['label'] + [f'{axis}_{slot}' for axis in axes for slot in ('a', 'b')]
+    for split_dir in split_dirs:
+        for split in ('train', 'val', 'test'):
+            pairs = pd.read_csv(run_dir / split_dir / f'{split}_pairs.csv', usecols=columns,
+                                keep_default_na=False, na_values=[''])
+            negatives = pairs.loc[pairs.label == 0]
+            # NaN != NaN, so a missing value counts as a difference.
+            differing = {axis: int((negatives[f'{axis}_a'] != negatives[f'{axis}_b']).sum())
+                         for axis in axes}
+            differing = {axis: count for axis, count in differing.items() if count}
+            if differing:
+                failures.append(f'{split_dir}/{split}: negatives whose endpoints differ, by axis: '
+                                f'{differing}')
+    return failures
+
+
 def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> list[str]:
     """Check that the test splits hold each selected positive of the kept metadata groups once.
 
@@ -354,6 +391,9 @@ def audit_run(entry: dict, capacity: pd.DataFrame, spec: dict,
         hash_col = {'aa': 'prot_hash', 'nt_cds': 'cds_dna_hash',
                     'nt_ctg': 'ctg_dna_hash'}[config.dataset.split_strategy.pair_key_alphabet]
         failures.extend(check_balanced_usage(run_dir, split_dirs, hash_col))
+    if balanced_sampler_name(config) == 'matched_balanced_usage_negatives':
+        axes = list(config.dataset.negative_sampling.get('axes') or DEFAULT_AXES)
+        failures.extend(check_matched_negatives(run_dir, split_dirs, axes))
     if config.dataset.positive_pair_selection.method != 'all':
         failures.extend(check_selected_test_positives(run_dir, split_dirs, config))
 

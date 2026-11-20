@@ -3,8 +3,8 @@
 Covers `_drop_small_metadata_groups`, the `min_metadata_group_positives` path of
 `generate_all_cv_folds_v2` and its rule in `_validate_v2_config`, all in
 src/datasets/dataset_segment_pairs_v2.py, with matched balanced-usage negatives, which need at
-least 2 positives per group in every split. Also covers `check_selected_test_positives` in
-src/analysis/audit_pair_datasets.py.
+least 2 positives per group in every split. Also covers `check_selected_test_positives` and
+`check_matched_negatives` in src/analysis/audit_pair_datasets.py.
 
 Run: python -m pytest tests/test_metadata_group_folds.py
 """
@@ -15,7 +15,10 @@ import pandas as pd
 import pytest
 from omegaconf import OmegaConf
 
-from src.analysis.audit_pair_datasets import check_selected_test_positives
+from src.analysis.audit_pair_datasets import (
+    check_matched_negatives,
+    check_selected_test_positives,
+)
 from src.datasets._negative_regime_sampling import REGIME_NAMES
 from src.datasets._pair_helpers import build_cooccurrence_set
 from src.datasets.dataset_segment_pairs_v2 import (
@@ -162,7 +165,7 @@ def flagged_folds():
 
 
 def write_run(run_dir, folds):
-    """Write the files `check_selected_test_positives` reads, the way the builder names them."""
+    """Write the files the audit checks read, the way the builder names them."""
     folds[0]['positive_selection_manifest'].to_csv(run_dir / 'positive_pair_selection.csv',
                                                    index=False)
     (run_dir / 'metadata_groups_dropped.json').write_text(
@@ -171,7 +174,8 @@ def write_run(run_dir, folds):
     for fold in folds:
         split_dir = f"fold_{fold['fold_id']}"
         (run_dir / split_dir).mkdir()
-        fold['test_pairs'].to_csv(run_dir / split_dir / 'test_pairs.csv', index=False)
+        for split in ('train', 'val', 'test'):
+            fold[f'{split}_pairs'].to_csv(run_dir / split_dir / f'{split}_pairs.csv', index=False)
         split_dirs.append(split_dir)
     return split_dirs
 
@@ -203,3 +207,23 @@ def test_audit_reports_a_positive_of_a_dropped_group_and_a_missing_one(tmp_path,
     assert failures == ['1 test positives belong to a dropped metadata group',
                         'the test splits hold 51 positives, expected 52 '
                         '(58 selected minus 6 dropped)']
+
+
+def test_audit_passes_the_builders_matched_negatives(tmp_path, flagged_folds):
+    split_dirs = write_run(tmp_path, flagged_folds)
+    assert check_matched_negatives(tmp_path, split_dirs, AXES) == []
+
+
+def test_audit_reports_a_negative_across_groups_and_a_missing_value(tmp_path, flagged_folds):
+    split_dirs = write_run(tmp_path, flagged_folds)
+    train_path = tmp_path / split_dirs[0] / 'train_pairs.csv'
+    train = pd.read_csv(train_path, keep_default_na=False, na_values=[''])
+    negatives = train.index[train['label'] == 0]
+    train.loc[negatives[0], 'host_b'] = 'Duck'
+    train.loc[negatives[1], 'year_b'] = None
+    positive = train.index[train['label'] == 1][0]
+    train.loc[positive, 'host_b'] = 'Duck'
+    train.to_csv(train_path, index=False)
+    failures = check_matched_negatives(tmp_path, split_dirs, AXES)
+    assert failures == [f"{split_dirs[0]}/train: negatives whose endpoints differ, by axis: "
+                        f"{{'host': 1, 'year': 1}}"]
