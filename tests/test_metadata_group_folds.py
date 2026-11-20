@@ -246,6 +246,23 @@ def test_audit_reports_drop_totals_that_disagree_with_the_dropped_groups(tmp_pat
                         '(58 selected minus 0 dropped)']
 
 
+def test_audit_reports_a_dropped_group_listed_twice(tmp_path, flagged_folds):
+    split_dirs = write_run(tmp_path, flagged_folds)
+    record = flagged_folds[0]['metadata_group_drop']
+    duck = [entry for entry in record['dropped_groups'] if entry['group'][0] == 'Duck']
+    record = dict(record, dropped_groups=record['dropped_groups'] + duck)
+    (tmp_path / 'metadata_groups_dropped.json').write_text(json.dumps(record))
+    config = OmegaConf.create({'dataset': {'min_metadata_group_positives': 20}})
+    failures = check_selected_test_positives(tmp_path, split_dirs, config)
+    assert failures == ["metadata_groups_dropped.json lists these groups more than once: "
+                        "[\"('Duck', 'H5N1', 2020)\"]",
+                        'metadata_groups_dropped.json totals (groups dropped, positives dropped, '
+                        'positives kept) are (2, 6, 52), its list of dropped groups gives '
+                        '(3, 11, 47)',
+                        'the test splits hold 52 positives, expected 47 '
+                        '(58 selected minus 11 dropped)']
+
+
 def test_audit_passes_the_builders_matched_negatives(tmp_path, flagged_folds):
     split_dirs = write_run(tmp_path, flagged_folds)
     assert check_matched_negatives(tmp_path, split_dirs, AXES) == []

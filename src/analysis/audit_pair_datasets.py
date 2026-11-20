@@ -259,8 +259,8 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
     `dataset.min_metadata_group_positives` set, the builder drops the metadata groups listed in
     `metadata_groups_dropped.json` before making folds. The test splits must then hold no
     positive of a dropped group, and as many positives as were selected minus the positives the
-    file lists for its dropped groups. The file's totals must agree with that list, and each group
-    it lists must be below the minimum. The pooled test splits hold each kept positive once, so
+    file lists for its dropped groups. The list must name each group once, the file's totals must
+    agree with the list, and each group it lists must be below the minimum. The pooled test splits hold each kept positive once, so
     they also give each kept group's size, which must reach the minimum, and the number of kept
     groups. A test positive's group is read from its `<axis>_a` columns, for the axes the file
     names. Without the minimum, that file must be absent and the test splits must hold every
@@ -298,20 +298,26 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
             failures.append(f"{drop_path.name} counts {record['positives_in']:,} selected "
                             f"positives, positive_pair_selection.csv holds {len(selected_keys):,}")
         axes = record['axes']
-        positives_by_dropped_group = {tuple(entry['group']): entry['positives']
-                                      for entry in record['dropped_groups']}
-        dropped_groups = set(positives_by_dropped_group)
-        # The expected count comes from the list of dropped groups, and the totals must agree.
-        positives_dropped = sum(positives_by_dropped_group.values())
-        listed = (len(dropped_groups), positives_dropped,
+        dropped_entries = record['dropped_groups']
+        entries_per_group = Counter(tuple(entry['group']) for entry in dropped_entries)
+        dropped_groups = set(entries_per_group)
+        repeated_groups = sorted(str(group) for group, count in entries_per_group.items()
+                                 if count > 1)
+        if repeated_groups:
+            failures.append(f'{drop_path.name} lists these groups more than once: '
+                            f'{repeated_groups}')
+        # The expected count comes from the list of dropped groups, entry by entry, and the totals
+        # must agree with it.
+        positives_dropped = sum(entry['positives'] for entry in dropped_entries)
+        listed = (len(dropped_entries), positives_dropped,
                   record['positives_in'] - positives_dropped)
         totals = (record['groups_dropped'], record['positives_dropped'], record['positives_kept'])
         if totals != listed:
             failures.append(f'{drop_path.name} totals (groups dropped, positives dropped, '
                             f'positives kept) are {totals}, its list of dropped groups gives '
                             f'{listed}')
-        not_small = sorted(str(group) for group, count in positives_by_dropped_group.items()
-                           if count >= minimum)
+        not_small = sorted(str(tuple(entry['group'])) for entry in dropped_entries
+                           if entry['positives'] >= minimum)
         if not_small:
             failures.append(f'{drop_path.name} lists groups with at least {minimum} positives: '
                             f'{not_small}')
