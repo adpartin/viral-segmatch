@@ -13,5 +13,4 @@ alphabet: nt_ctg    # 'nt_ctg' (contig DNA, 'ACGT', ctg_dna_final → ctg_dna_se
                     #   aa: k≤4 (20^4 = 160K cols). Bundles use k=3 (8K cols).
                     # Higher aa k OOMs at build time (vocab list) AND at training
                     # time (MLP first-layer params). Would require observed-vocab
-                    # or feature hashing; not implemented. See "Scaling and
-                    # practical limits" in docs/methods/kmer_features.md.
+                    # or feature hashing; not implemented.

@@ -54,8 +54,7 @@ Stage 2 featurization. ESM-2 path (`compute_esm2_embeddings.py`) is
 GPU-heavy. K-mer path (`compute_kmer_features.py`) is CPU-only, ~5–10
 min on full Flu-A. As of 2026-05-12 the same machinery supports
 protein k-mers via an `alphabet` parameter, though no active bundle
-uses that yet. See
-[`../../docs/methods/kmer_features.md`](../../docs/methods/kmer_features.md).
+uses that yet.
 
 ### `src/datasets/`
 

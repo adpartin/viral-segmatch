@@ -3,8 +3,9 @@
 # flu_ha_na_h3n2_nt_cds_temporal_2025 asks with a ten-year training window (2015-2024). Running
 # both separates "can the model extrapolate one year" from "does it need a long history".
 #
-# Population and negatives match the random-CV year sweep (flu_ha_na_h3n2_{year}_random_cv4) so
-# the temporal split can be read against the same-year random splits: H3N2, nt_cds pair_keys,
+# Population and negatives match the random-CV year sweep (flu_ha_na_h3n2_2024_random_cv4, with
+# dataset.year overridden for the other years), so the temporal split can be read against the
+# same-year random splits: H3N2, nt_cds pair_keys,
 # LGBM on nt_cds k-mers, interaction concat.
 #
 # Sizes: 3,723 positive pairs in 2024 (train pool) and 2,663 in 2025 (test). 139 pair_keys occur

@@ -13,7 +13,7 @@ addopts = "-m 'not production_split and not production_split_1d'"
 [tool.ruff]
 target-version = "py39"        # segmatch env is Python 3.9
 line-length = 120              # at 100, ~500 existing lines tripped E501; 120 cuts most of that
-extend-exclude = ["notebooks", "examples", "eda", "data", "reports", "documentation"]
+extend-exclude = ["eda", "data", "reports", "documentation"]
 
 [tool.ruff.lint]
 # A small, safe, auto-fixable set: import sorting + the clean pyflakes cleanups.

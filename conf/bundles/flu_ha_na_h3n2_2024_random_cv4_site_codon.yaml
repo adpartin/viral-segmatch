@@ -1,12 +1,12 @@
 # STATUS: experimental -- per-site codon features on the pinned-length H3N2 2024 folds.
 #
-# Same dataset and the same positions as flu_ha_na_h3n2_2024_random_cv4_site_nt; only the site
-# unit differs. codon and aa cover the SAME positions (3 x protein length == CDS length exactly),
-# so codon site i and amino-acid site i are the same place and only the value differs. That makes
-# the pair a clean question: codon keeps silent changes, aa discards them, so a gap between them
-# is what silent variation is worth. HA 567 + NA 470 = 1,037 columns either way.
+# Same dataset as flu_ha_na_h3n2_2024_random_cv4_pinned_length; only the features differ. There is
+# one column per codon position, HA 567 + NA 470 = 1,037 columns.
 #
-# interaction MUST be concat and slot_transform MUST be none -- see the site_nt bundle.
+# interaction MUST be concat and slot_transform MUST be none. Slot A and slot B are different
+# spaces of different lengths, so a difference or a product between them compares positions that
+# have nothing to do with each other. The values are category codes, so a normalizer has nothing to
+# work on. The feature loader rejects any other setting.
 #
 # Build the cache first:
 #   python src/embeddings/compute_site_features.py \

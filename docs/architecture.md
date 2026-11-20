@@ -226,8 +226,8 @@ HA-NA HA-only and PB2-PB1 PB2-only; untested: NA-only / PB1-only, nt cluster_alp
 CV variance).
 
 **K-mer scaling limits**: the vocabulary is exhaustive (`|alphabet|^k`, no observed-vocab or
-hashing), so the practical ceilings are about k=10 for nt and k=4 for aa; see
-`docs/methods/kmer_features.md`. Production uses nt k=6.
+hashing), so the practical ceilings are about k=10 for nt and k=4 for aa. Production uses nt
+k=6.
 
 ---
 
@@ -247,7 +247,7 @@ viral-segmatch/
 ├── scripts/                    # Shell pipeline wrappers (stage1–4) and CV launchers
 ├── conf/                       # Hydra configs (conf/bundles/ = one YAML per experiment)
 ├── tests/                      # test_*.py modules
-├── eda/, examples/, notebooks/ # Exploratory (not pipeline)
+├── eda/                        # Exploratory (not pipeline)
 ├── docs/                       # Technical docs (plans, methods, results)
 ├── documentation/              # User guides
 ├── data/                       # Inputs and Stage 1–3 outputs; only data/raw/ links + README tracked

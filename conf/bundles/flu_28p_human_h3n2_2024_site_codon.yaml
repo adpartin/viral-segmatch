@@ -9,15 +9,14 @@
 # overrides that conf/virus/flu.yaml does not carry, 4-fold random CV, the nt_cds pair key,
 # a 1:1 negative ratio, and require_complete_cds_at_pinned_length.
 #
-# What this file adds is the recipe Experiment 4 reached for HA-NA, in
-# flu_ha_na_human_h3n2_2024_random_cv4_pinned_length_hopcroft_karp_site_codon: Hopcroft-Karp
-# positive selection, balanced negatives, and per-site codon features. The parent inherits from the `_pinned_length`
-# bundle rather than its `_hopcroft_karp` sibling, so `method` has to be set here rather than
-# assumed. No positive count is capped, so every pair trains on its native `HK selected` positives.
+# What this file adds is the recipe Experiment 4 of that plan reached for HA-NA: Hopcroft-Karp
+# positive selection, balanced negatives, and per-site codon features. The parent leaves
+# `positive_pair_selection.method` at its default `all`, so `method` is set here. No positive count
+# is capped, so every pair trains on its native `HK selected` positives.
 #
-# The `negative_sampling` block below asks for matched negatives, the same request
-# conf/bundles/flu_21p_human_pig_h3n2_h1n1_2022_2023_site_codon.yaml makes, so both screens of
-# docs/plans/2026-10-08_paper_plan.md draw negatives with `matched_balanced_usage_negatives`.
+# The `negative_sampling` block below asks for matched negatives. The Task 2 bundles inherit from
+# this file, so both screens of docs/plans/2026-10-08_paper_plan.md draw negatives with
+# `matched_balanced_usage_negatives`.
 # The population here is one metadata group, Human-H3N2-2024, so every in-split pairing already
 # shares host, HN subtype and year and the matching itself rules nothing out. What the block
 # changes is the sampler. The per-split least-used bags of `balanced_usage_negatives` give way to a

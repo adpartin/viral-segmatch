@@ -197,9 +197,6 @@ section below — the MLP needs per-row normalization to remove the
   MLP (`unit_diff ≈ concat` on H3N2 — CLAUDE.md). The bundle still
   applies `slot_norm` because the architecture is configured that way,
   but the empirical benefit is smaller than it is for ESM-2.
-- **Documented**: see `docs/methods/kmer_features.md` for the full
-  pipeline (Stage 2b script, storage layout, sparse → dense conversion
-  cost, why-not-normalize discussion).
 
 ### Protein k-mers — in production code, no active bundle
 
@@ -336,8 +333,6 @@ extrapolation.
 - `conf/baselines/default.yaml` — single source of truth for baseline
   hyperparameter and `feature_scaling` defaults (centralized
   2026-05-12; wired via `# @package bundles`).
-- `docs/methods/kmer_features.md` — full k-mer pipeline; "Why not
-  normalize counts?" section discusses the length confound.
 - `docs/methods/leakage.md` — uses 1-NN as the near-neighbor-lookup
   floor for memorization-vs-generalization comparison.
 - `src/models/_pair_features.py` — the baseline-side feature loader;

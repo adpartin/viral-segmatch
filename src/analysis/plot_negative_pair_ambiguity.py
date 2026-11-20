@@ -23,8 +23,8 @@ Outputs (to `--out_dir`, by default derived from the first run dir):
 
 CLI:
     python -m src.analysis.plot_negative_pair_ambiguity \\
-        --run_dirs models/flu/July_2025/runs/lgbm_ha_na_h3n2_2024_random_cv4_site_nt_fold{0,1,2,3} \\
-        --config_bundle flu_ha_na_h3n2_2024_random_cv4_site_nt --unit nt
+        --run_dirs models/flu/July_2025/runs/lgbm_ha_na_h3n2_2024_random_cv4_site_codon_fold{0,1,2,3} \\
+        --config_bundle flu_ha_na_h3n2_2024_random_cv4_site_codon --unit codon
 """
 from __future__ import annotations
 

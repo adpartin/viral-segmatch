@@ -7,7 +7,7 @@ Covers:
   4. expected_setting_failures reports mismatched and absent keys, and compares lists as lists
   5. expected_n_folds requires dataset.n_folds under expect
   6. split_dir_names gives fold directories for CV and the root for a single split
-  7. Both committed experiment specs load
+  7. The committed experiment specs load, and a spec without an overrides section has none
 
 Run: python -m pytest tests/test_experiment_spec.py
 """
@@ -84,12 +84,18 @@ def test_split_dir_names():
     assert split_dir_names(1) == ['.']
 
 
-@pytest.mark.parametrize('name, n_folds, overrides', [
-    ('human_h3n2_2024_28p_codon_balanced_cv5.yaml', 5, ['dataset.n_folds=5']),
-    ('human_h3n2_2024_28p_codon_balanced_cv4.yaml', 4, []),
-    ('human_pig_h3n2_h1n1_2022_2023_21p_codon_matched_cv5.yaml', 5, ['dataset.n_folds=5']),
+@pytest.mark.parametrize('name', [
+    'human_h3n2_2024_28p_codon_matched_cv5.yaml',
+    'human_h3n2_2024_28p_codon_aligned_matched_cv5.yaml',
+    '4host_3subtype_2010_2025_28p_codon_aligned_matched_cv5.yaml',
 ])
-def test_committed_specs_load(name, n_folds, overrides):
+def test_committed_specs_load(name):
     spec = load_experiment_spec(PROJ / 'conf' / 'experiments' / name)
-    assert expected_n_folds(spec) == n_folds
-    assert spec['overrides'] == overrides
+    assert expected_n_folds(spec) == 5
+    assert spec['overrides'] == ['dataset.n_folds=5']
+
+
+def test_spec_without_overrides_has_none(tmp_path):
+    spec = load_experiment_spec(_write(tmp_path, 'expect:\n  dataset.n_folds: 4\n'))
+    assert expected_n_folds(spec) == 4
+    assert spec['overrides'] == []

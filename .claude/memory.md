@@ -28,9 +28,7 @@ repeat what these already say:
   `hash_key=seq` (protein-level, the stricter choice), and `slot_transform=unit_norm` +
   `interaction=unit_diff+prod`. Note that last one: every H3N2 result to date used
   `interaction: concat` instead, so a bundle inheriting `flu_ha_na` must declare concat itself
-  to stay comparable. There is no `flu_pb2_pb1.yaml`; the PB2/PB1 bundles that exist are
-  `flu_ha_pb2_1dcd_nt_cds.yaml`, `flu_ha_pb1_1dcd_nt_cds.yaml` and
-  `flu_pb2_pb1_h3n2_2024_random_cv4.yaml`.
+  to stay comparable. There is no `flu_pb2_pb1.yaml` base bundle.
 - **Clustering**: `src/preprocess/build_clusters.py` builds on both alphabets. Each root holds
   `tXXX/<func>_cluster.parquet` (column `prot_hash` for aa, `cds_dna_hash` for nt_cds) plus a
   shared `fasta/` and `cluster_stats.csv`. The suffix names the build method: `cm0` =
