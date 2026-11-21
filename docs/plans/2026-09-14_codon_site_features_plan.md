@@ -540,7 +540,7 @@ caller has to know before using the script, not only what it does.
 | `src/models/train_pair_baselines.py` | built | trains one baseline on one fold directory. The LightGBM path; `train_pair_classifier.py` is the MLP path and cannot run a baseline |
 | `src/analysis/aggregate_allpairs_results.py` | built | rolls 28 pairs into one summary and 8x8 heatmaps. Globs `cv_flu_28p_*` under `models/{virus}/{version}/cv_runs/`, reads the pair from the two tokens after `flu_28p_`, and `--tag` selects a variant by the suffix after them |
 | `src/analysis/plot_site_importance.py` | built | per-site gain, SHAP and permutation importance. Writes fold-averaged shares with standard deviations, and the pre-average values in `site_importance_{unit}_per_fold.csv` |
-| `src/analysis/compare_site_importance_across_years.py` | built | compares two years' per-fold importance tables on shared coordinates |
+| `src/analysis/compare_site_importance_across_years.py` | built; deleted 2026-11-20 (in git history) | compares two years' per-fold importance tables on shared coordinates |
 | `results/flu/July_2025/cross_year_site_importance/` | written | cross-year tables, audits, and figures |
 | `results/flu/July_2025/pair_capacity_8_proteins/` | written | 28-pair capacity audit |
 | `results/flu/July_2025/all_pairs_human_h3n2_2024_codon_balanced_20261007_181555/` | written | balanced-negative 28-pair codon summaries and figures |

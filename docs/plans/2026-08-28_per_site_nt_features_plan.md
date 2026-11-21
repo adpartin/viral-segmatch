@@ -28,7 +28,7 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/analysis/plot_site_importance_trace.py` | 6 | one importance measure along the CDS, drawn from the saved table |
 | `src/analysis/plot_confusion_folds.py` | Post-hoc | confusion matrix pooled over the CV folds, with the per-fold spread |
 | `src/datasets/_positive_pair_selection.py` | 8 | selects unique-sequence positives and audits the resulting CV splits |
-| `src/analysis/build_equal_count_pair_datasets.py` | Four-pair experiment | samples a fixed number of Hopcroft-Karp positives before the existing CV and negative-generation pipeline runs |
+| `src/analysis/build_equal_count_pair_datasets.py` (deleted 2026-11-20; in git history) | Four-pair experiment | samples a fixed number of Hopcroft-Karp positives before the existing CV and negative-generation pipeline runs |
 
 Plus one new config group, `conf/site/default.yaml` (`unit`, `encoding`, `slots`), 10
 per-site experiment bundles, 4 step-8 positive-selection bundles, and 4 Human H3N2 2024
@@ -864,7 +864,7 @@ Related: `docs/results/2026-09-08_cds_pair_capacity.md`.
         every pair the isolates carrying all six surveyed proteins left HA-NA with 1,686.
 
   2. Build and audit equal-count datasets — DONE (2026-09-08).
-      - `src/analysis/build_equal_count_pair_datasets.py` wraps the existing selector for this
+      - `src/analysis/build_equal_count_pair_datasets.py` (deleted 2026-11-20; in git history) wraps the existing selector for this
         experiment. It runs Hopcroft-Karp, samples without replacement using seed 42, and then
         returns control to the existing CV and negative-generation pipeline. No production
         configuration option was added.
