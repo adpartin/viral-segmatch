@@ -431,13 +431,10 @@ Same data preprocessing, different model initializations.
 
 ## See Also
 
-### Technical Documentation (`docs/`)
+### Documentation (`docs/`)
+- **Installation:** [installation.md](./installation.md) - Environment setup
 - **Configuration Guide:** [conf_guide.md](./conf_guide.md) - Detailed configuration documentation
 - **Pipeline overview:** [methods/pipeline_overview.md](./methods/pipeline_overview.md) - Multi-audience pipeline synthesis
-
-### User Guides (`documentation/`)
-- **Quick Start:** [`../documentation/quick-start.md`](../documentation/quick-start.md) - Get started quickly
-- **User guides:** [`../documentation/`](../documentation/) - quick-start, installation
 
 ### Implementation
 - **`src/utils/seed_utils.py`** - Seed resolution and setting functions

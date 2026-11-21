@@ -21,7 +21,7 @@ cd viral-segmatch
 conda env create -f environment.yml   # Linux; pins Linux build strings
 conda activate segmatch
 ```
-On macOS or other platforms, see [Installation](documentation/installation.md).
+On macOS or other platforms, see [Installation](docs/installation.md).
 
 ### Run Complete Pipeline
 
@@ -48,7 +48,6 @@ ls -lt data/datasets/flu/July_2025/runs/ | head -3
     --dataset_dir data/datasets/flu/July_2025/runs/dataset_flu_schema_raw_slot_norm_unit_diff_YYYYMMDD_HHMMSS
 ```
 
-*For detailed setup and usage, see [Quick Start Guide](documentation/quick-start.md)*
 
 ## 📊 Performance Results
 
@@ -107,8 +106,7 @@ viral-segmatch/
 │   └── datasets/           # Segment pair datasets (experiment-specific)
 ├── models/                 # Trained models (experiment-specific)
 ├── results/                # Analysis results
-├── docs/                   # Technical documentation
-└── documentation/          # User guides
+└── docs/                   # Setup and technical documentation
 ```
 
 ## 📁 Output Structure
@@ -210,11 +208,7 @@ python src/analysis/aggregate_baselines_vs_mlp.py --bundle flu_ha_na
 
 ## 📚 Documentation
 
-### User Guides (`documentation/`)
-- **[Installation](documentation/installation.md)** - Environment setup and dependencies
-- **[Quick Start Guide](documentation/quick-start.md)** - Complete setup and first run
-
-### Technical Documentation (`docs/`)
+- **[Installation](docs/installation.md)** - Environment setup and dependencies
 - **[Pipeline overview](docs/methods/pipeline_overview.md)** - Multi-audience synthesis (data, models, evaluation)
 - **[Methods reference docs](docs/methods/)** - preprocess, k-mer features, leakage definitions, feature normalization, GTO format
 - **[Configuration Guide](docs/conf_guide.md)** - Hydra configuration documentation
@@ -245,7 +239,7 @@ Protein conservation directly impacts model performance:
 
 ## 🛠️ Development
 
-- **Code Structure**: See [Code Structure](documentation/development/code-structure.md)
+- **Code Structure**: See [Architecture](docs/architecture.md)
 - **Adding New Viruses**: See [Configuration Guide](docs/conf_guide.md#creating-a-new-experiment)
 
 ## 📄 License

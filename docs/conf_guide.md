@@ -608,8 +608,5 @@ If missing, run:
 - **`docs/SEED_SYSTEM.md`** - Comprehensive seed hierarchy guide
 - **`docs/methods/pipeline_overview.md`** - Multi-audience pipeline synthesis (data, models, evaluation)
 - **`docs/methods/`** - Methods reference docs (preprocess, k-mer features, leakage definitions, feature normalization, GTO format)
-
-### User Guides (`documentation/`)
-- **`documentation/quick-start.md`** - End-to-end first run
-- **`documentation/installation.md`** - Environment setup
+- **`docs/installation.md`** - Environment setup
 

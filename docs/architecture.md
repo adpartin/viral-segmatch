@@ -85,6 +85,18 @@ Only consumed under `mode: cluster_disjoint`.
 per-pair bundles that inherit from `flu_28_major_protein_pairs_master`; every other bundle sits
 at the top level.
 
+**Adding a bundle**: create `conf/bundles/<name>.yaml`, starting with a comment that says what it
+is for. Its `defaults:` list names the parent bundle, then `_self_`; the file sets only what
+differs from the parent. For example, each Task 2 pair bundle `flu_28p_4host_aligned_codon_<pair>`
+inherits `flu_28p_4host_3subtype_2010_2025_site_codon_aligned` and sets `dataset.schema_pair`.
+Check that the bundle loads before building a dataset:
+```bash
+python -c "
+from src.utils.config_hydra import get_virus_config_hydra, print_config_summary
+print_config_summary(get_virus_config_hydra('<name>', config_path='conf'))
+"
+```
+
 ---
 
 ## Active Source Files
@@ -248,8 +260,7 @@ viral-segmatch/
 ├── conf/                       # Hydra configs (conf/bundles/ = one YAML per experiment)
 ├── tests/                      # test_*.py modules
 ├── eda/                        # Exploratory (not pipeline)
-├── docs/                       # Technical docs (plans, methods, results)
-├── documentation/              # User guides
+├── docs/                       # Setup, methods, plans and results docs
 ├── data/                       # Inputs and Stage 1–3 outputs; only data/raw/ links + README tracked
 └── models/, results/, reports/ # Run outputs, aggregates and reports (gitignored)
 ```

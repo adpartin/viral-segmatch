@@ -185,7 +185,7 @@ paths under the repo root; the readers use relative paths and checksums, so the 
 - Task 1 only: `results/flu/July_2025/pair_capacity_8_proteins_aligned/` (148 KB)
 
 `environment.yml` pins Linux build strings and CUDA packages. On macOS, use the smaller recipe in
-`documentation/installation.md`.
+`docs/installation.md`.
 
 ## Env Management
 **Rule**: bioconda / kalininalab CLI tools and experimental Python packages live in **dedicated

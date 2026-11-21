@@ -52,13 +52,10 @@ viral-segmatch/
 ├── data/                   # Created by the pipeline (not in git; symlink raw GTOs in)
 ├── models/                 # Created by Stage 4 training
 ├── results/                # Created by post-hoc analysis
-├── docs/                   # Methods / technical / plans documentation
-└── documentation/          # User guides (this directory)
+└── docs/                   # Setup, methods, plans and results documentation
 ```
 
-For the source-tree breakdown, see
-[`development/code-structure.md`](development/code-structure.md) and
-[`../CLAUDE.md`](../CLAUDE.md).
+For the source-tree breakdown, see [`architecture.md`](architecture.md).
 
 ## Data setup
 
@@ -74,8 +71,11 @@ mkdir -p models results logs
 Stage 1 expects BV-BRC Genome Typed Object (GTO) JSON files under
 `data/raw/<run_dir>/`. For the production Flu-A July 2025 dataset this
 is `data/raw/Full_Flu_Annos/July_2025/*.gto`. See
-[`../docs/methods/gto_format_reference.md`](../docs/methods/gto_format_reference.md)
+[`methods/gto_format_reference.md`](methods/gto_format_reference.md)
 for the GTO schema.
+
+To start from processed data instead of raw GTOs, copy the untracked inputs listed under
+"Moving to another machine" in [`../.claude/memory.md`](../.claude/memory.md).
 
 ### 3. ESM-2 models download automatically
 
@@ -93,7 +93,3 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 - **CUDA not available** — check `python -c "import torch; print(torch.cuda.is_available())"`. If False, verify the GPU drivers. Only Stage 2 and the MLP need CUDA.
 - **ESM-2 download fails** — confirm internet connectivity and disk space; the model lives at HuggingFace (`facebook/esm2_t33_650M_UR50D`).
 - **Permission errors on data/** — ensure your user has write access to the data directory.
-
-## Next step
-
-[`quick-start.md`](quick-start.md) — run your first experiment.
