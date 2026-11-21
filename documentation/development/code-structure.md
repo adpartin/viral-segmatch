@@ -96,7 +96,7 @@ Pipeline-wide utilities. Most-used:
 - `gto_utils.py`, `protein_utils.py` — GTO parsing + protein QC.
 - `learning_verification_utils.py` — Karpathy-style training-sanity
   checks (see
-  [`../../docs/plans/2026-05-12_model_validation_plan.md`](../../docs/plans/2026-05-12_model_validation_plan.md)).
+  [`../../docs/plans/shelved/2026-05-12_model_validation_plan.md`](../../docs/plans/shelved/2026-05-12_model_validation_plan.md)).
 
 For the authoritative file-by-file list with descriptions, see the
 "Active Source Files" section of [`../../CLAUDE.md`](../../CLAUDE.md).
@@ -132,9 +132,7 @@ Detailed config docs: [`../../docs/conf_guide.md`](../../docs/conf_guide.md).
    the Python entry point with provenance logging. No registry; no
    experiment-tracking system. Stages 1, 2b, 3, 4 follow the lean
    pattern at <100 lines each; stage2_esm2 is the one outlier still
-   on the older verbose pattern (see
-   [`../../docs/plans/code_cleanup_plan.md`](../../docs/plans/code_cleanup_plan.md)
-   item 3).
+   on the older verbose pattern.
 
 ## Adding a new bundle
 

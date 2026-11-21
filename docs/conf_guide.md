@@ -612,5 +612,4 @@ If missing, run:
 ### User Guides (`documentation/`)
 - **`documentation/quick-start.md`** - End-to-end first run
 - **`documentation/installation.md`** - Environment setup
-- **`documentation/troubleshooting.md`** - Common issues and solutions
 

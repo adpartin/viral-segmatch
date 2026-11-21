@@ -9,9 +9,6 @@ reference docs).
 
 - **[installation.md](installation.md)** — environment setup, dependencies, data layout.
 - **[quick-start.md](quick-start.md)** — your first end-to-end pipeline run.
-- **[troubleshooting.md](troubleshooting.md)** — common errors and fixes.
-- **[analysis/results-analysis.md](analysis/results-analysis.md)** — how to read the
-  analysis outputs from `analyze_stage4_train.py` and the post-hoc heatmap.
 - **[development/code-structure.md](development/code-structure.md)** — high-level
   source-tree map for new contributors. (The authoritative module-by-module
   reference lives in [`../CLAUDE.md`](../CLAUDE.md).)
@@ -30,5 +27,4 @@ reference docs).
 | Per-(model × feature) preprocessing defaults | [`../docs/methods/feature_normalization.md`](../docs/methods/feature_normalization.md) |
 | Seed / reproducibility system | [`../docs/SEED_SYSTEM.md`](../docs/SEED_SYSTEM.md) |
 | Plans (active and completed) | [`../docs/plans/`](../docs/plans/) |
-| Common errors and fixes | [troubleshooting.md](troubleshooting.md) |
 | Source-code layout | [development/code-structure.md](development/code-structure.md) and [`../CLAUDE.md`](../CLAUDE.md) |

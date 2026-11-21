@@ -2,49 +2,44 @@
 
 ## Prerequisites
 
-- Python 3.9+
-- CUDA-capable GPU (recommended for Stage 2 ESM-2 embeddings)
-- ~50 GB free disk space (the full-Flu-A data version produces a ~1.78 GB
-  k-mer NPZ and a similarly-sized ESM-2 HDF5 cache, plus per-experiment
-  dataset and model outputs)
+- conda (Miniconda or Anaconda)
+- A CUDA GPU only for the ESM-2 embeddings (Stage 2) and the MLP. The per-site codon features
+  and LightGBM used for the paper run on CPU.
 
 ## Environment setup
 
-### 1. Create a conda environment
+### Linux
+
+`environment.yml` is the exact `segmatch` environment, with Linux build strings pinned:
 
 ```bash
-conda create -n cepi python=3.9
-conda activate cepi
+conda env create -f environment.yml
+conda activate segmatch
 ```
 
-### 2. Install dependencies
+Keep bioconda tools (mmseqs2, DataSAIL, BLAST, ...) out of this environment. They pull a
+different `libhdf5` build and break `h5py`; install each in its own environment.
+
+### macOS and other platforms
+
+`environment.yml` cannot be used as is, because its build strings and its CUDA packages
+(`torch==2.6.0+cu118`, `nvidia-*`) exist only on Linux. Create a smaller environment with the
+same versions of the packages the pipeline imports. This recipe has not been tested on macOS.
 
 ```bash
-# Core ML libraries
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install transformers fair-esm
-
-# Data processing
-pip install pandas numpy scikit-learn h5py
-pip install matplotlib seaborn
-
-# Configuration
-pip install hydra-core omegaconf
-
-# Sklearn baselines (LightGBM, k-NN)
-pip install lightgbm
-
-# Optional: Jupyter
-pip install jupyter ipykernel
+conda create -n segmatch -c conda-forge python=3.9 numpy=1.26.4 pandas=2.2.3 \
+    scikit-learn=1.6.1 scipy=1.13.1 pyarrow=19.0.1 lightgbm=4.6.0 hydra-core=1.3.2 \
+    omegaconf=2.3.0 matplotlib=3.9.2 seaborn=0.13.2 joblib=1.4.2 psutil=7.0.0 \
+    pyyaml=6.0.2 tqdm=4.67.1 networkx=3.2.1 h5py=3.12.1 pytest=8.4.2
+conda activate segmatch
+pip install torch==2.6.0      # CPU build; train_pair_baselines imports torch
 ```
 
-### 3. Verify installation
+### Verify the environment
 
 ```bash
-python -c "import torch; print(f'PyTorch: {torch.__version__}')"
-python -c "import transformers; print(f'Transformers: {transformers.__version__}')"
-python -c "import fair_esm; print('ESM-2 available')"
 python -c "from src.utils.config_hydra import get_virus_config_hydra; print('Config system OK')"
+python -m pytest -q
 ```
 
 ## Project structure
@@ -95,11 +90,9 @@ git config pull.rebase true   # avoid "need to reconcile divergent branches" on 
 
 ## Common installation issues
 
-- **CUDA not available** — check `python -c "import torch; print(torch.cuda.is_available())"`. If False, verify GPU drivers and that you installed the CUDA-bundled PyTorch wheel.
+- **CUDA not available** — check `python -c "import torch; print(torch.cuda.is_available())"`. If False, verify the GPU drivers. Only Stage 2 and the MLP need CUDA.
 - **ESM-2 download fails** — confirm internet connectivity and disk space; the model lives at HuggingFace (`facebook/esm2_t33_650M_UR50D`).
 - **Permission errors on data/** — ensure your user has write access to the data directory.
-
-More issues + fixes: [`troubleshooting.md`](troubleshooting.md).
 
 ## Next step
 

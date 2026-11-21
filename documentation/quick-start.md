@@ -145,8 +145,6 @@ results/flu/July_2025/runs/
 
 ## Common next steps
 
-- **Troubleshoot a failure:** [`troubleshooting.md`](troubleshooting.md)
-- **Read the analysis outputs:** [`analysis/results-analysis.md`](analysis/results-analysis.md)
 - **Configure a new experiment bundle:** [`../docs/conf_guide.md`](../docs/conf_guide.md)
 - **Deep dive on the pipeline:** [`../docs/methods/pipeline_overview.md`](../docs/methods/pipeline_overview.md)
 - **Understand the leakage / "biology learning" framing:** [`../docs/methods/leakage.md`](../docs/methods/leakage.md)

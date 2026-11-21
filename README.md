@@ -18,11 +18,10 @@ A machine learning pipeline for analyzing segmented RNA viruses to determine if 
 ```bash
 git clone https://github.com/adpartin/viral-segmatch.git
 cd viral-segmatch
-conda create -n cepi python=3.9
-conda activate cepi
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install transformers fair-esm pandas numpy scikit-learn matplotlib seaborn hydra-core omegaconf h5py
+conda env create -f environment.yml   # Linux; pins Linux build strings
+conda activate segmatch
 ```
+On macOS or other platforms, see [Installation](documentation/installation.md).
 
 ### Run Complete Pipeline
 
@@ -209,15 +208,11 @@ python src/analysis/analyze_stage4_train.py --config_bundle flu_ha_na
 python src/analysis/aggregate_baselines_vs_mlp.py --bundle flu_ha_na
 ```
 
-*For detailed analysis guide, see [Results Analysis](documentation/analysis/results-analysis.md)*
-
 ## 📚 Documentation
 
 ### User Guides (`documentation/`)
 - **[Installation](documentation/installation.md)** - Environment setup and dependencies
 - **[Quick Start Guide](documentation/quick-start.md)** - Complete setup and first run
-- **[Troubleshooting](documentation/troubleshooting.md)** - Common issues and solutions
-- **[Results Analysis](documentation/analysis/results-analysis.md)** - Understanding model performance
 
 ### Technical Documentation (`docs/`)
 - **[Pipeline overview](docs/methods/pipeline_overview.md)** - Multi-audience synthesis (data, models, evaluation)
