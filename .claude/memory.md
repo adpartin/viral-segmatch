@@ -155,7 +155,7 @@ items that need context beyond their title.
 
 | work | plan |
 |---|---|
-| Per-site nucleotide features: HA-NA H3N2 2024 site runs are done. Unique-sequence matching CV code and tests are complete; building and auditing its three datasets is next. | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
+| Per-site nucleotide features | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
 | Aligned codon features: caches, aligned loading in `train_pair_baselines`, the retention rule filter in the dataset builder, and aligned caches in the batch runners and audit are done; step 8 (aligned site labels in `plot_site_importance.py`) is open. Task 1's 28-pair aligned run is done (`docs/results/2026-11-19_task1_aligned_codon_28p.md`). Task 2's 28 child bundles, experiment spec, capacity table and metadata group minimum are in place; building its 28 datasets is next (paper plan section 2). | `docs/plans/2026-11-17_aligned_codon_features_plan.md` |
 
 Shelved plans (stopped before they were finished; may resume) are in `docs/plans/shelved/`. Most
@@ -178,9 +178,9 @@ paths under the repo root; the readers use relative paths and checksums, so the 
   (683 MB) and `cds_dna_final.parquet` (836 MB)
 - `data/processed/flu/metadata_eda/flu_genomes_metadata_parsed.csv` (37 MB)
 - `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/`
-  (1.4 GB): the protein alignments and `selected_cds.parquet` for each protein. Task 2's aligned
-  codon caches are not built yet; `compute_protein_aligned_codon_features.py` writes them beside
-  each alignment.
+  (1.4 GB): the protein alignments, `selected_cds.parquet`, and the aligned codon caches
+  (`site_features_codon_<protein>_aligned*`, built 2026-11-18) in each protein's final alignment
+  subdirectory.
 - `results/flu/July_2025/pair_capacity_8_proteins_4host_3subtype_2010_2025_aligned/` (192 KB)
 - Task 1 only: `results/flu/July_2025/pair_capacity_8_proteins_aligned/` (148 KB)
 
