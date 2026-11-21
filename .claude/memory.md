@@ -9,7 +9,7 @@ preferences — things that change and that you cannot work out by reading the c
 repeat what these already say:
 - **`CLAUDE.md`** — behavioural rules, core vocabulary, conventions. Read it first.
 - **`docs/architecture.md`** — descriptive/reference material: pipeline stages, config system,
-  source-file map, layering rule, Key Experimental Findings, Recent Run Outputs, roadmap, HPC.
+  source-file map, layering rule, results for the paper plan, roadmap, HPC.
 - **`docs/results/`** — canonical writeup for every headline finding.
 - **`docs/plans/`** (+ `done/`, `shelved/`) — design/implementation plans.
 - **`docs/project_changelog.md`** — relocated implementation log, Removed-keys log, Polaris/Task-11
@@ -19,151 +19,35 @@ repeat what these already say:
 ---
 
 ## Current Production State
-- **Builder**: v2 is the only builder (v1 retired 2026-06-03); the `dataset_segment_pairs.py` CLI
-  dispatches to `dataset_segment_pairs_v2.py`. Stage 3/4 are decoupled — Stage 4 takes
-  `--dataset_dir` explicitly; provenance in `training_info.json`. **The v1 CLI path is not
-  supported for new work** — e.g. its default `pair_key_alphabet` inference is intentionally
-  unfixed (`cluster_alphabet=nt_ctg` without an explicit `pair_key_alphabet` silently falls to `aa`).
-- **Base HA/NA bundle** (`flu_ha_na.yaml`) sets `split_strategy.mode=seq_disjoint`,
-  `hash_key=seq` (protein-level, the stricter choice), and `slot_transform=unit_norm` +
-  `interaction=unit_diff+prod`. Note that last one: every H3N2 result to date used
-  `interaction: concat` instead, so a bundle inheriting `flu_ha_na` must declare concat itself
-  to stay comparable. There is no `flu_pb2_pb1.yaml` base bundle.
-- **Clustering**: `src/preprocess/build_clusters.py` builds on both alphabets. Each root holds
-  `tXXX/<func>_cluster.parquet` (column `prot_hash` for aa, `cds_dna_hash` for nt_cds) plus a
-  shared `fasta/` and `cluster_stats.csv`. The suffix names the build method: `cm0` =
-  `easy-linclust --cluster-mode 0` (set-cover; this is the production root), `cm1` = the same at
-  `--cluster-mode 1`, `ood` = `easy-search` all-vs-all + union-find. All at coverage 0.8. No
-  `clusters_nt_ctg` root has been built. The binary comes from the dedicated `mmseqs2` env, found
-  via `MMSEQS_BIN` / `--mmseqs_bin` / PATH.
-  - Six whole-population roots, `clusters_{aa,nt_cds}_{cm0,cm1,ood}`, at t099..t095.
-  - Five H3N2 roots at t099/t098 (t097 as well for the unfiltered-year one):
-    `clusters_nt_cds_cm0_h3n2` (HA+NA), `..._h3n2_{2022,2023,2025}` (HA+NA), `..._h3n2_2024`
-    (HA+NA+PB2+PB1).
-  - **Filtered builds need their own `--out_root`.** `--hn_subtype`, `--year` (set membership) and
-    `--year_range` (inclusive span, mutually exclusive with `--year`) all filter isolates. Name the
-    root by appending the filters: `clusters_nt_cds_cm0_h3n2_2024`,
-    `clusters_nt_cds_cm0_h3n2_2023_2025`. `verify_out_root_filters` refuses to mix two filter sets
-    in one root, because `fasta/` and the cluster parquets are reused by path; it reads the filters
-    back from `tXXX/runtime.json`. A root built before `--year` existed has no `year` key, which
-    reads as no year filter, so old roots still work.
-  - **Adding a function to an existing root rewrites `combined_cluster.parquet` with only the
-    functions of that run** — `aggregate_combined_lookup` takes them from `--functions`. Re-run
-    with the full function list afterwards (everything is cached, so it only re-aggregates), or
-    any bundle pointing `cluster_id_path` at that file will resolve nothing. `runtime.json` also
-    keeps only the last run's function list, because `write_runtime_json` preserves the old file
-    only when nothing recomputed.
-  - **Re-clustering a subtype is not the same as filtering the whole-population clusters
-    afterwards.** Measured on H3N2, the partition differs at every threshold (t098 NA: 80% of
-    hashes sit in a cluster that splits differently), because set-cover picks different
-    representatives once the sequence set changes.
-- **pair_key + axis consistency**: `split_strategy.pair_key_alphabet` ∈ `{aa, nt_cds, nt_ctg}` (`aa`
-  default). Non-`aa` pair_keys make finer variants distinct positives (nt_cds: codon variants;
-  nt_ctg: +UTR), inflating the universe / opening DNA-variant leakage — cite the alphabet in any
-  post-2026-06-03 experiment. **`dataset.molecule` sets all three alphabets at once** (opt-in): derives
-  `cluster_alphabet` + `pair_key_alphabet` + `kmer.alphabet` from one value with a config-load guard
-  (`dataset.allow_alphabet_mismatch` to override a deliberate mix); legacy bundles are untouched.
-  See `config_hydra._resolve_molecule_alphabets`.
-- **Two DNA notions, by purpose**: **contig** DNA (`ctg_dna_seq`/`ctg_dna_hash` — full submitted
-  contig; k-mer *features* + nt_ctg clustering) vs **CDS** DNA (`cds_dna_seq`/`cds_dna_hash` —
-  coding-only; nt_cds clustering). History not derivable from code: DNA *clustering* was switched to
-  CDS on the assumption clustering should be coding-only — never tested vs contig clustering — while
-  k-mer *features* stayed contig. Resolved by the nt_cds/nt_ctg refactor
-  (`docs/plans/done/2026-06-21_nt_cds_ctg_hash_refactor_plan.md`, closed 2026-06-25): explicit names
-  everywhere via the `src/utils/schema.py` registry, `nt_ctg` enabled end-to-end, `dataset.molecule`
-  added. Phase C tested CDS-vs-contig on HA/NA t100: feature axis ~flat (~0.3 pp), all three configs
-  0.95–0.97 LGBM.
-- **Routing modes**: `random`; `seq_disjoint` (hash_key seq|dna); `cluster_disjoint` (bilateral or
-  `single_slot: a|b`); `metadata_holdout`. `cluster_disjoint_test_only` appears in
-  `docs/methods/splits.md` and the glossary but has no code — it is a design idea, not a mode you
-  can select. `single_slot` has been run on HA-only and PB2-only; NA-only, PB1-only and nt
-  single_slot are untested.
-- **Graph + CC layer** (consolidated 2026-07-31,
-  `docs/plans/done/2026-07-30_bigraph_consolidation_plan.md`): ONE builder,
-  `src/datasets/_bigraph.build_pair_bigraph`, returning a weighted simple `nx.Graph` (edge `weight`
-  = pairs) — no multigraph anywhere. Split-producing code lives in `src/datasets`/`src/utils` and
-  never imports `src/analysis` (one documented exception: optional plotting; see
-  `docs/architecture.md` § Layering). The four `bigraph_*` analyses read persisted `cc_{source}`
-  artifacts via `src/analysis/_cc_artifacts.py` (default `nt_cds_cm0` / HA-NA / t099..t095), not a
-  re-derived universe. `m_pos_per_cc` default is `null` (no cap).
-- **2D-CD fold balance**: `groupkfold_by_atom` routes with unshuffled `GroupKFold`, whose assignment
-  is LPT (largest atom to the lightest fold) — every fold receives one of the k largest atoms and the
-  folds come out equal-sized. **Feasibility rule**: an edge cut cannot split a cluster, so balanced
-  k-fold needs the heaviest single-side cluster's pair mass `<= 1/k`. HA-NA nt_cds cm0: 8.8% at t099
-  rising to 25.8% at t095 — so k=4 is unreachable at t095 whatever the router does. Check the floor
-  before choosing k. Detail: `docs/results/2026-08-09_2d_cd_fold_balance.md`.
-- **CDS length screen for per-site features**: corpus-wide share of unique complete CDS at the
-  single most common length — PB2/PA/NP/M1 >=0.998, PB1 0.927, HA 0.689, NA 0.806, NS1 0.570. The
-  corpus-wide mode matches the `conf/virus/flu.yaml` pin for all six pinned proteins. This is not
-  independent confirmation because H3N2 and H1N1 make up much of the corpus. The corpus-wide
-  *share* cannot justify the pins or the PB1/NS1 exclusions. The human H3N2 2024 breakdown is in the
-  same doc: seven of eight proteins pin there, and PB1 fails at 0.551 of isolates because 99.7% of
-  its 2274 nt records are 3'-truncated assemblies. Per-pair capacity:
-  `docs/results/2026-09-08_cds_pair_capacity.md`. Detail:
-  `docs/results/2026-09-07_cds_length_survey.md`.
-- **Unique-sequence positive matching CV**: complete for the v2 random-CV path.
-  `dataset.positive_pair_selection.method` supports `all`, both sequential-dedup orders, and
-  `hopcroft_karp`. Active selection keeps the full observed-positive blocking set and writes a
-  selection manifest plus per-fold invariants. The H3N2 2024 HA-NA selectors retained 1,687 /
-  1,703 / 1,782 positives; all 12 fold audits passed. On Hopcroft-Karp folds, k-mer F1 macro was
-  0.8768, per-site nt 0.8894, codon 0.8716 and aa 0.7331. Exact sequence reuse is therefore not
-  required for strong performance, but selection also changes sample size and population.
-  PB2-PA retained 3,958 observed positives and a maximum matching of 2,127; all four fold audits
-  passed. K-mer and per-site nt were nearly tied (F1 macro 0.8147 vs 0.8123; AUC-ROC 0.9045 vs
-  0.8977), and both were weaker than HA-NA. Precision remained substantially lower than recall.
-  Detail: `docs/plans/2026-08-28_per_site_nt_features_plan.md` step 8.
-- **Best-model finding** (slot_norm + unit_diff for ESM-2 on HA/NA): see `docs/architecture.md`
-  § Key Experimental Findings. The bundle that produced it is gone; the finding stands.
-- **2D-CD builder** (`src/datasets/dataset_pairs_cc.py`): Stage-3 builder for bilateral
-  cluster-disjoint holdout/K-fold. All three alphabets (aa / nt_cds / nt_ctg) build end-to-end;
-  `negative_scope` within_cc|within_fold, with `drop_negative_infeasible_ccs` unified across both.
-- **Single-segment OOD clusters** (`src/preprocess/build_ood_clusters.py`): the "across clusters,
-  sequences are `< t` identical" guarantee requires clusters that are **connected components of the
-  `>= t`/coverage all-vs-all graph**. mmseqs `easy-cluster --cluster-mode 1` does NOT deliver it (M1
-  aa t099: 566 clusters containing 3,797 cross-cluster `>= 0.99` pairs); the correct build is
-  `easy-search` all-vs-all -> threshold -> **union-find** (M1: 234 clusters, 0 violations).
-  `--exhaustive-search` is profile-iterative, NOT all-vs-all; `--prefilter-mode 2` is the
-  provable-complete search. Writes `clusters_{alphabet}_ood/tXXX/`, never overwriting the set-cover
-  parquets. Figures `src/analysis/plot_clusters.py`; verifier `src/analysis/verify_ood_clusters.py`.
-- **Subtype context for the HA-NA CCs**: the HA_0×NA_0 hub is **H3N2**, HA_1×NA_1 is **H1N1**, and
-  the remaining multi-cluster group is an avian mix. Never call a 95%-nt cluster a "lineage".
-- **CV output shape**: nested `fold_k/` dirs + `cv_summary.*`; launchers `scripts/run_cv_lambda.py`
-  and `scripts/run_cv_polaris.pbs`.
-- **Temporal holdout**: implemented, via `dataset.metadata_holdout`; `year` and `year_range` are both
-  supported per slot (`_pair_helpers._HOLDOUT_AXES`), so train=[T] / test=[T+1] needs no code. The
-  validator forces `n_folds: null` and `split_strategy.mode: random`, so a temporal run is one split
-  with no fold variance and is NOT cluster-disjoint. Cross-year pair_key dedup is a small effect on
-  nt_cds pair_keys, not the ~42% an earlier note claimed: measured 2026-08-27 on H3N2 HA-NA,
-  2015-2024 -> 2025 keeps 2,600 of the 2,663 2025 positives (2.4% lost) at 1.11 neg:pos, and only 139
-  pair_keys (5.2% of the 2025 universe) occur in both spans. On aa pair_keys recurrence is ~2x higher
-  (10.5%), which may be what the old figure described. K-mer beats ESM-2 here (AUC 0.941 vs 0.891).
-- **Preprocessing outputs, completeness re-run (landed)**: `protein_final`, `ctg_dna_final` and
-  `cds_dna_final` are at `data/processed/flu/July_2025/` and carry the completeness flags.
-  `cds_dna_final` holds the 8 modelled proteins at 108,530 rows each, 868,240 rows in total, with
-  `starts_with_m` / `has_terminal_stop` / `has_internal_stop` / `is_complete_cds` added. Plan:
-  `docs/plans/2026-08-28_per_site_nt_features_plan.md` step 0.
-- **Plot helpers**: don't split by slot when the data is per-pair. `cluster_size_barplot.py` writes
-  PNGs to `<out_dir>/plots/` while `umap_cc.py` writes to `<out_dir>` itself, so figures for one
-  cluster root do not land together without moving them.
+- **Base HA/NA bundle** (`flu_ha_na.yaml`) sets `slot_transform=unit_norm` and
+  `interaction=unit_diff+prod`. Every H3N2 result to date used `interaction: concat`, so a bundle
+  that inherits `flu_ha_na` must set concat itself to stay comparable;
+  `flu_ha_na_h3n2_2024_random_cv4` does, so the Task 1 and Task 2 chains get concat. There is no
+  `flu_pb2_pb1.yaml` base bundle.
+- **Cluster roots** (`src/preprocess/build_clusters.py`, with the binary from the `mmseqs2` env):
+  - A filtered build (`--hn_subtype`, `--year`, `--year_range`) needs its own `--out_root`, named
+    by appending the filters, e.g. `clusters_nt_cds_cm0_h3n2_2024`. `verify_out_root_filters`
+    refuses to mix two filter sets in one root.
+  - When adding a function to an existing cluster root, rerun with the full function list. The
+    combined lookup (`combined_cluster.parquet`) and `runtime.json` contain only the functions
+    requested in the last run.
+- **Routing modes**: `cluster_disjoint_test_only` is described in `docs/methods/splits.md` and the
+  glossary but has no code. `single_slot` has been run only on HA-only and PB2-only.
+- **Subtype context for the HA-NA CCs**: the HA_0×NA_0 hub is H3N2, HA_1×NA_1 is H1N1, and the
+  remaining multi-cluster group is an avian mix. Never call a 95%-nt cluster a "lineage".
 
 ## Work In Progress
-
-**Each plan's own `**Status:**` line is the truth; this table only says what the work is, so there
-is one place to update.** Read the plan before assuming anything about its state. For the full list
-of what is open, grep `docs/plans/*.md` for `Status: IN PROGRESS` — this table covers only the
-items that need context beyond their title.
+Each plan's own `**Status:**` line is the truth. This table names the work and its plan only; read
+the plan for its state. Shelved plans (stopped before they were finished; may resume) are in
+`docs/plans/shelved/`. Most are 2D-CD, OOD-cluster and split-refactor work.
 
 | work | plan |
 |---|---|
+| Paper: Task 1 (Human-H3N2-2024), Task 2 (4 hosts, 3 subtypes, 2010–2025), Task 3 (future years) | `docs/plans/2026-10-08_paper_plan.md` |
+| Aligned codon features | `docs/plans/2026-11-17_aligned_codon_features_plan.md` |
+| Per-site codon features | `docs/plans/2026-09-14_codon_site_features_plan.md` |
 | Per-site nucleotide features | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
-| Aligned codon features: caches, aligned loading in `train_pair_baselines`, the retention rule filter in the dataset builder, and aligned caches in the batch runners and audit are done; step 8 (aligned site labels in `plot_site_importance.py`) is open. Task 1's 28-pair aligned run is done (`docs/results/2026-11-19_task1_aligned_codon_28p.md`). Task 2's 28 child bundles, experiment spec, capacity table and metadata group minimum are in place; building its 28 datasets is next (paper plan section 2). | `docs/plans/2026-11-17_aligned_codon_features_plan.md` |
-
-Shelved plans (stopped before they were finished; may resume) are in `docs/plans/shelved/`. Most
-are 2D-CD, OOD-cluster and split-refactor work.
-
-- **Stage-4 training is GATED** — no launch without explicit OK. An OK covers the jobs in the
-  approved command or plan, including resuming them. A rerun after a code or config change needs a
-  new OK.
+| Hamming 1-NN baseline on codon features | `docs/plans/2026-10-01_codon_hamming_1nn_baseline_plan.md` |
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered and triaged; the single source of truth). Bigger experiments:
@@ -209,30 +93,17 @@ rebuild from `environment.yml`.
 - Refs: `polaris_plan.md` (Task 11 phases), `speed_up.md`, `docs/hardware_notes.md`.
 
 ## User Preferences
-- Concise responses, no emojis unless asked
-- No unnecessary refactoring beyond what's asked
-- Always ask before destructive operations (rm, git reset --hard, git push --force, etc.)
-- CLAUDE.md is the authoritative project context; .claude/memory.md is the compact working memory
-- Both files are in the repo — update them when decisions change
+- No emojis in replies unless asked. No refactoring beyond what was asked.
 - **One script per purpose**: follow the existing pattern in `src/analysis/` — propose a dedicated
   script with a clear name rather than stretching an existing script to cover a second job. Extend
   an existing script when its purpose is unchanged, and share code through functions rather than
   copies. Pick the obvious answer rather than offering several.
-- **Code priority order**: correctness > readability > efficiency. Optimise for the next person
-  reading the code, not for run time. Make a performance change only when it is measured, or when
-  speed is required for the result to be correct.
-- **Communication style**: prefer common words; use jargon only when it carries meaning the plain
-  term doesn't. Don't cut technical content; cut hedges and filler. Concrete numbers, file:line refs,
-  and observed data are better than hedged adjectives. When explaining, assume the reader does not
-  already know the codebase — give the plain-language answer first, then the evidence.
-- **Terminology**: use canonical terms from `docs/methods/glossary.md`; add new technical or
-  project-specific terms there first.
-  (Enforced as CLAUDE.md Conventions § Wording.)
-- **Accuracy over confidence**: state only what is verified against a source actually checked in this
-  session (paper passage, code at file:line, observed command output). When uncertain, say so with
-  what would resolve it. Don't pattern-match across sources without verification — superficially
-  synonymous terms (DataSAIL I2, Park & Marcotte C3, segmatch seq_disjoint) may differ in
-  dimensionality or which axes they cover. (Full rule: CLAUDE.md Conventions § Check before you assert.)
-- **Commits are explicit-only** (full rule: CLAUDE.md Conventions § Commits are explicit-only): never
-  run `git commit`/`--amend` on Claude's own initiative. Otherwise stage + prep the diff and wait.
+- **Performance changes**: make one only when it is measured, or when speed is required for the
+  result to be correct. (CLAUDE.md sets the order correctness > readability > efficiency.)
+- **Explaining**: assume the reader does not know the codebase. Cut filler and hedges, not
+  technical content.
+- **Terms across sources**: check before treating two terms as the same. Superficially synonymous
+  terms (DataSAIL I2, Park & Marcotte C3, segmatch seq_disjoint) may differ in dimensionality or in
+  which axes they cover.
+- **Plots**: don't split by slot when the data is per-pair.
 - **Refer to Claude as "Claude"** in committed docs and writeups, not "I" or "my proposal".

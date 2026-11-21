@@ -34,6 +34,8 @@ Always ask for explicit confirmation before running any of these — even if it 
 - `git rm *`, `git reset --hard *` / `--mixed *`, `git push --force*` / `-f *`,
   `git branch -D *`, `git rebase *`, `git clean *`
 - Any command that modifies shared infrastructure, sends messages, or affects state outside this repo
+- Stage 4 training. An OK covers the jobs in the approved command or plan, including resuming them.
+  A rerun after a code or config change needs a new OK.
 
 (`.claude/settings.json` `permissions.deny` already hard-blocks several of these, e.g. `rm *`.)
 
