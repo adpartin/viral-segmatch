@@ -6,7 +6,7 @@ Given a ``test_predicted.csv`` from ANY pair-classifier run (MLP, 1-NN
 baseline, logistic, etc.) plus the Stage 3 dataset directory the run
 consumed, this script produces three diagnostic stratifications that
 inform the leakage-diagnostics plan
-(``docs/plans/2026-05-07_leakage_diagnostics_plan.md``):
+(``docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md``):
 
 1. **Hash overlap with train** (mode #3 / mode #4 proxy).
    Per test pair, count how many of its slots have a ``prot_hash`` /

@@ -4,7 +4,7 @@
 **Scope.** Cluster-disjoint splits using mmseqs2 nucleotide clustering
 on the reconstructed CDS DNA, as a companion to Experiment B (aa-level
 clustering). Plan:
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt.
+`docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt.
 **Schema pairs.** HA/NA and PB2/PB1.
 **Model.** LGBM (sklearn baseline path), k-mer k=6 nt features,
 unit_norm + unit_diff+prod, default threshold 0.5, single seed.
@@ -229,7 +229,7 @@ in their header (`conf/bundles/flu_pb2_pb1_cluster_nt_id*.yaml`).
 
 ## Related
 
-- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
+- `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` —
   Experiment B (aa, IMPLEMENTED 2026-05-15) and B-nt (this note).
 - `docs/results/2026-05-14_cluster_disjoint_id99_results.md` — aa-side
   cluster_id099 LGBM/MLP results.

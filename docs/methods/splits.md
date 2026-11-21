@@ -696,10 +696,10 @@ sampler (`dataset_pairs_cc.within_fold_negatives`, imported by the v2 builder). 
 mechanism: 1D-CD uses unshuffled `GroupKFold` plus LPT-greedy for train/val and is seed-independent,
 while 2D-CD uses a seeded `GroupKFold` shuffle plus a seeded atom shuffle for val. Unifying them is
 deferred — LPT is what minimizes the drift the D3 check (§ 3.3) measures, so swapping it is not
-free. See `docs/plans/2026-08-03_fold_maker_consolidation_plan.md`.
+free. See `docs/plans/shelved/2026-08-03_fold_maker_consolidation_plan.md`.
 
 **Placeholders for the three "not built" cells** — future work tracked
-in `docs/plans/2026-05-28_kfold_remaining.md`:
+in `docs/plans/shelved/2026-05-28_kfold_remaining.md`:
 
 - **`seq_disjoint` k-fold.** Would extend naturally: CCs as
   atoms, sklearn `GroupKFold` + per-fold LPT-greedy + D3, same pattern
@@ -941,5 +941,5 @@ bipartite-CC LPT-greedy)". See § 1.7.1 above for the naming chain
 - `docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md` —
   historical design log for the k-fold path (D1–D5 + Phase 1–7
   implementation log).
-- `docs/plans/2026-05-28_kfold_remaining.md` — active plan for the
+- `docs/plans/shelved/2026-05-28_kfold_remaining.md` — active plan for the
   three "not built" cells in § 3.2 plus the OoS items.

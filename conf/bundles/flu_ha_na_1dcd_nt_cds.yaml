@@ -1,7 +1,7 @@
 # STATUS: production -- 1D cluster-disjoint CV holding out HA's clusters; HA paired with NA.
 # NA is segment 6, after HA's 4, so the canonical pair is (HA, NA) and HA sits in slot a.
 # Base recipe for the six flu_ha_<partner>_1dcd_nt_cds bundles; sweep t and slot via --override.
-# Guarded by tests/test_production_splits.py; plan docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
+# Guarded by tests/test_production_splits.py; plan docs/plans/done/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
 #
 # split_strategy is inline because Hydra rejects a `- /dataset/split_strategy: cluster_disjoint`
 # group re-selection as a duplicate group choice under the `bundles` package.

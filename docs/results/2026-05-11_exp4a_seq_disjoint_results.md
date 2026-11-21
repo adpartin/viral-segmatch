@@ -3,7 +3,7 @@
 **Date:** 2026-05-11
 **Branch:** feature/sequence-disjoint-splits
 **Plan:** `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md`
-**Parent plan:** `docs/plans/2026-05-07_leakage_diagnostics_plan.md` (Exp 4)
+**Parent plan:** `docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md` (Exp 4)
 **Leakage mode addressed:** #3 sequence-level leakage (see `docs/methods/leakage.md`)
 
 ---

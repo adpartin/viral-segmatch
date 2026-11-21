@@ -1,6 +1,6 @@
 # OOD vs random split: is the OOD split itself hard?
 
-**Status: IN PROGRESS** — builder implemented; datasets generated + validated (deterministic) 2026-07-25; Stage-4 exploratory runs done 2026-07-26: **OOD collapses to chance across every model/feature tested** (see Stage-4 result).
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS — builder implemented; datasets generated + validated (deterministic) 2026-07-25; Stage-4 exploratory runs done 2026-07-26: OOD collapses to chance across every model/feature tested (see Stage-4 result).
 
 ## Question
 At a **fixed size**, is a cluster-disjoint (**OOD**) split harder than a **random** (non-OOD) split? If
@@ -69,6 +69,6 @@ the cluster shortcut; no representation tested carries a generalizable HA–NA c
 local artifacts under `models/flu/July_2025/runs/` (not committed); aggregator in scratchpad.
 
 ## Related
-`docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md` (fragmentation mechanism);
-`docs/plans/2026-07-08_single_segment_ood_clusters_plan.md` (`_ood` clusters);
+`docs/plans/shelved/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md` (fragmentation mechanism);
+`docs/plans/shelved/2026-07-08_single_segment_ood_clusters_plan.md` (`_ood` clusters);
 `docs/plans/2026-06-09_cc_dataset_cv_plan.md` (2D-CD builder); `docs/methods/glossary.md`.

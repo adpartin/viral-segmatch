@@ -1,6 +1,6 @@
 # Split-strategy config groups (mode-scoped knobs)
 
-**Status: SPIKE DONE — config plumbing verified byte-safe (2026-06-29).** Steps 1–3
+**Status: SHELVED (2026-11-20).** Previously: SPIKE DONE — config plumbing verified byte-safe (2026-06-29). Steps 1–3
 (create groups, point `default.yaml` at the group, byte-verify one bundle) are complete
 and byte-verified; the plumbing changes nothing behaviorally fleet-wide. The remaining
 steps (per-bundle group conversion 4–6, and the optional `cluster_disjoint`-default flip)

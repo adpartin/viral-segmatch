@@ -4,7 +4,7 @@
 
 Retire the v1 dataset builder in `src/datasets/dataset_segment_pairs.py`. v2 has been the
 default since 2026-05-11 and is the only path any bundle reaches. This is plan **P5** of
-`docs/plans/2026-06-03_dataset_split_refactor_plan.md`, scoped out as its own change.
+`docs/plans/shelved/2026-06-03_dataset_split_refactor_plan.md`, scoped out as its own change.
 
 ## Why it's safe (verified 2026-06-03)
 - `conf/dataset/default.yaml: pair_builder_version: v2` — every bundle inherits v2.

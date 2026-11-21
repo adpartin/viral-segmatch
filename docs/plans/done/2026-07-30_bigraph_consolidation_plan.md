@@ -261,7 +261,7 @@ thresholds × {natural, fragmented} = 30 artifacts, read-only re-derivation):
 ## 5. Walkthrough (understanding pass, interleaves with the above)
 
 Covered while this plan ran: `build_pair_bigraph`. Covered afterwards, under
-`docs/plans/2026-08-03_fold_maker_consolidation_plan.md`: `route_holdout` and the fold-makers
+`docs/plans/shelved/2026-08-03_fold_maker_consolidation_plan.md`: `route_holdout` and the fold-makers
 (atoms → splits). Dropped: `_cv_sampling.assign_atoms`, archived 2026-07-31 (`4e41dfb`).
 
 The remainder — `_bisect` → `fragment_largest_cc`, and `fragment_until` vs `apply_drop_budget_cut`

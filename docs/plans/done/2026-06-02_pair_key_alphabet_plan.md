@@ -410,7 +410,7 @@ leave alone and update its pair_key construction too.
   (BACKLOG item, separately planned) is a routing-rule change;
   pair_key alphabet is a universe-definition change. They
   compose cleanly but don't depend on each other.
-- **k-fold infrastructure** (`docs/plans/2026-05-28_kfold_remaining.md`):
+- **k-fold infrastructure** (`docs/plans/shelved/2026-05-28_kfold_remaining.md`):
   unaffected. k-fold operates on whatever universe the splitter
   is given.
 - **Implementation of the pair_key change itself**: a follow-up

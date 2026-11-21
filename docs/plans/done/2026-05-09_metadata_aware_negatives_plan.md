@@ -531,7 +531,7 @@ hard invariants.
 
 - `docs/methods/leakage.md` — mode #5 demographic shortcut.
 - `docs/results/2026-05-07_metadata_shortcut_negatives.md` — the trigger result.
-- `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — broader leakage taxonomy.
+- `docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md` — broader leakage taxonomy.
 - `docs/plans/done/2026-05-11_design_dataset_gen_v2.md` — v2 builder spec.
 - `src/datasets/dataset_segment_pairs_v2.py` — current `axis_quotas` placeholder.
 - `src/datasets/_pair_helpers.py` — shared helpers (`canonical_pair_key`, etc.).

@@ -1,6 +1,6 @@
 # Model validation — plan
 
-**Status: MIXED**
+**Status: SHELVED (2026-11-20).** Previously: MIXED
 - **Part A (training-mechanics sanity checks):** ✅ IMPLEMENTED — lives in
   `src/utils/learning_verification_utils.py`, exercised by the
   `flu_a_learning_test` bundle.

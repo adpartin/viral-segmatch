@@ -1,5 +1,5 @@
 """End-to-end guard for the two production split paths (§5 P4.1 of
-`docs/plans/2026-08-03_fold_maker_consolidation_plan.md`).
+`docs/plans/shelved/2026-08-03_fold_maker_consolidation_plan.md`).
 
 Each test rebuilds one production bundle in full and diffs its per-fold `pair_key` digests
 against `tests/golden/production_splits/`. The build and the digest come from

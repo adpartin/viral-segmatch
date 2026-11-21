@@ -1,6 +1,6 @@
 # Leakage diagnostics: memorization vs biology — Plan
 
-**Status: PROPOSED** (pending approval)
+**Status: SHELVED (2026-11-20).** Previously: PROPOSED (pending approval)
 **Date:** 2026-05-07
 
 ## Context
@@ -288,7 +288,7 @@ mode `split_strategy.mode: cluster_disjoint` in `split_dataset_v2`.
    baseline. Headline metric: AUC-ROC and `host_subtype_year` TNR vs
    threshold.
 
-**Detailed design.** `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`
+**Detailed design.** `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md`
 (Experiment B). Same doc also describes Experiment A
 (cosine-controlled splits) as a complementary attack on mode #4 in
 the model's feature space rather than in sequence space — secondary

@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-24
 **Branch:** `feature/lpi-measurement`
-**Plan:** `docs/plans/2026-05-22_split_separation_metrics_plan.md`
+**Plan:** `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md`
 (Step 1 — L(π) leg)
 **Code:** `src/analysis/datasail_lpi_{measure,validate,diagnose_sim}.py`
 (all run in the `datasail` conda env)
@@ -359,7 +359,7 @@ Outputs (gitignored under `results/`):
 
 ## See also
 
-- `docs/plans/2026-05-22_split_separation_metrics_plan.md` — parent
+- `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md` — parent
   plan; Step 1 (L(π) leg) is the source of this work. MMD leg
   (Step 2) is independent and not addressed here.
 - `docs/plans/done/2026-05-19_datasail_bakeoff_plan.md` — earlier DataSAIL

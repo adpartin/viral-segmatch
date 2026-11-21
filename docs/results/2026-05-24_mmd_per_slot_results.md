@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-24
 **Branch:** `master` (no separate feature branch was used for this work)
-**Plan:** `docs/plans/2026-05-22_split_separation_metrics_plan.md` — Step 2
+**Plan:** `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md` — Step 2
 (MMD leg)
 **Code:** `src/analysis/mmd_per_slot.py` (runs in the `segmatch` conda env)
 **Status:** Phase 1 (wiring sanity) + Phase 2 (real comparison) done at the
@@ -505,7 +505,7 @@ Outputs (gitignored under `results/`):
   same plan; null result on the same three datasets at the same
   scale. Provides the context for why this MMD work was framed as
   complementary.
-- `docs/plans/2026-05-22_split_separation_metrics_plan.md` — parent
+- `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md` — parent
   plan, both legs.
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` — 1-NN
   cosine margin baseline; the existing per-pair edge-style

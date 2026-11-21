@@ -11,7 +11,7 @@ repeat what these already say:
 - **`docs/architecture.md`** — descriptive/reference material: pipeline stages, config system,
   source-file map, layering rule, Key Experimental Findings, Recent Run Outputs, roadmap, HPC.
 - **`docs/results/`** — canonical writeup for every headline finding.
-- **`docs/plans/`** (+ `done/`) — design/implementation plans.
+- **`docs/plans/`** (+ `done/`, `shelved/`) — design/implementation plans.
 - **`docs/project_changelog.md`** — relocated implementation log, Removed-keys log, Polaris/Task-11
   history, CV/temporal-holdout implementation detail, pre-writeup exploration notes. Reference
   material, not session-startup reading.
@@ -155,16 +155,11 @@ items that need context beyond their title.
 
 | work | plan |
 |---|---|
-| Data-split refactor (**top priority**): one atom-provider + one packer + one CV path, bit-exact on a code-path-coverage bundle set | `docs/plans/2026-06-03_dataset_split_refactor_plan.md` |
-| K-fold: remaining validation of the v2 CV path | `docs/plans/2026-05-28_kfold_remaining.md` |
-| Fold-maker consolidation + the two production split paths | `docs/plans/2026-08-03_fold_maker_consolidation_plan.md` |
-| Single-segment OOD clusters: 8-major scale-out + nt rollout | `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md` |
-| OOD-vs-random CV at matched size (leave-one-CC-out vs random) | `docs/plans/2026-07-21_ood_vs_random_split_plan.md` |
-| 1D cluster-disjoint single-slot (HA held out vs each partner) | `docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md` |
-| Task 11 / 28-pair sweep; throughput fix lives on the unmerged branch `fix/mpiexec-cpu-binding` | `polaris_plan.md` |
-| H3N2 segment matching for the PIs: 2D-CD is infeasible on one-year populations, so random 4-fold CV + a 2024->2025 temporal split answer the two questions instead. Results are in the commit messages only; no results doc yet | `docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md` |
 | Per-site nucleotide features: HA-NA H3N2 2024 site runs are done. Unique-sequence matching CV code and tests are complete; building and auditing its three datasets is next. | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
 | Aligned codon features: caches, aligned loading in `train_pair_baselines`, the retention rule filter in the dataset builder, and aligned caches in the batch runners and audit are done; step 8 (aligned site labels in `plot_site_importance.py`) is open. Task 1's 28-pair aligned run is done (`docs/results/2026-11-19_task1_aligned_codon_28p.md`). Task 2's 28 child bundles, experiment spec, capacity table and metadata group minimum are in place; building its 28 datasets is next (paper plan section 2). | `docs/plans/2026-11-17_aligned_codon_features_plan.md` |
+
+Shelved plans (stopped before they were finished; may resume) are in `docs/plans/shelved/`. Most
+are 2D-CD, OOD-cluster and split-refactor work.
 
 - **Stage-4 training is GATED** — no launch without explicit OK. An OK covers the jobs in the
   approved command or plan, including resuming them. A rerun after a code or config change needs a
@@ -175,6 +170,22 @@ items that need context beyond their title.
   `docs/plans/2026-10-08_paper_plan.md`. Put new items in those files, not here, so this one
   does not fill up with stale lists.
 - In-development modules + k-mer scaling limits: `docs/architecture.md`.
+
+## Moving to another machine
+Building and training Task 2 reads these untracked inputs, about 3.6 GB. Copy them to the same
+paths under the repo root; the readers use relative paths and checksums, so the root may differ.
+- `data/processed/flu/July_2025/protein_final.parquet` (578 MB), `ctg_dna_final.parquet`
+  (683 MB) and `cds_dna_final.parquet` (836 MB)
+- `data/processed/flu/metadata_eda/flu_genomes_metadata_parsed.csv` (37 MB)
+- `results/flu/July_2025/cds_alignment_pilot/Chicken+Duck+Human+Swine-H1N1+H3N2+H5N1-yr2010-2025/`
+  (1.4 GB): the protein alignments and `selected_cds.parquet` for each protein. Task 2's aligned
+  codon caches are not built yet; `compute_protein_aligned_codon_features.py` writes them beside
+  each alignment.
+- `results/flu/July_2025/pair_capacity_8_proteins_4host_3subtype_2010_2025_aligned/` (192 KB)
+- Task 1 only: `results/flu/July_2025/pair_capacity_8_proteins_aligned/` (148 KB)
+
+`environment.yml` pins Linux build strings and CUDA packages. On macOS, use the smaller recipe in
+`documentation/installation.md`.
 
 ## Env Management
 **Rule**: bioconda / kalininalab CLI tools and experimental Python packages live in **dedicated

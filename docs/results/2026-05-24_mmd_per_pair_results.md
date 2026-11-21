@@ -352,7 +352,7 @@ ESM-2 runs take ~4 min each (HDF5 load dominates); k-mer runs take
   baseline this S2 work compares against.
 - `docs/results/2026-05-24_datasail_lpi_results.md` — DataSAIL L(π)
   leakage metric, negative result on this corpus.
-- `docs/plans/2026-05-22_split_separation_metrics_plan.md` — overall
+- `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md` — overall
   plan for quantifying split separation.
 - `src/analysis/mmd_per_pair.py` — code that produced these results.
 - `src/analysis/mmd_per_slot.py` — S1 code; shares the kernel / MMD /

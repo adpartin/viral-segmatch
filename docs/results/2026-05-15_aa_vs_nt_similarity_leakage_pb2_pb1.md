@@ -16,7 +16,7 @@ reported a 6–10 pp aa-tail-excess and flagged PB2/PB1 as the next pair to
 check: "protein-level conservation is tighter on the polymerase subunits,
 so the aa-vs-nt asymmetry could be more pronounced there." This is the
 PB2/PB1 follow-up, run before any commitment to Experiment B-nt
-(`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`).
+(`docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md`).
 
 ## Method
 
@@ -110,7 +110,7 @@ leakage-blocker.
 
 - `docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md` — the HA/NA
   companion that motivated this run.
-- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
+- `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` —
   Experiment B (aa-level cluster_disjoint, implemented 2026-05-15) and
   Experiment B-nt (nt-level cluster_disjoint, currently underway).
 - `docs/methods/leakage.md` § cluster leakage (mode #4).

@@ -23,7 +23,7 @@ Two findings outlived the bake-off, both recorded in the results doc: the DataSA
 C1/C2 where the paper says S1/S2, and its I2 ILP minimizes the constant 1 (no objective), which
 explains the unpredictable fold-size drift.
 
-The **L(π) leg continued elsewhere** rather than dying here: `docs/plans/2026-05-22_split_separation_metrics_plan.md`
+The **L(π) leg continued elsewhere** rather than dying here: `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md`
 took it over as a separation metric, producing `docs/results/2026-05-24_datasail_lpi_results.md`.
 That plan's L(π) leg is itself paused; its MMD leg is done.
 
@@ -247,7 +247,7 @@ After workflow (a) completes:
 
 - `docs/methods/leakage.md` § "Relation to prior-art split taxonomies"
 - `docs/methods/clusters.md` § 4.4 (bicc naming)
-- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` (Experiment B = cluster_disjoint, predecessor)
+- `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` (Experiment B = cluster_disjoint, predecessor)
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` (bicc feasibility ceiling — likely also DataSAIL's ceiling on the same corpus)
 - DataSAIL paper: `refs/joeres2025_datasail.pdf` (Nat Commun 2025) + `refs/joeres2025_datasail_supp.pdf`
 - Park & Marcotte: `refs/park2012_pair_input_flaws.pdf` (Nat Methods Correspondence) + `refs/park2012_pair_input_flaws_supp.pdf`

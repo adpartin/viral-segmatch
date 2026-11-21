@@ -1,7 +1,7 @@
 """Split-routing helpers that extend `_pair_helpers.py` for non-default modes.
 
 Currently houses the cluster-disjoint routing helper (Experiment B in
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`). The existing
+`docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md`). The existing
 `seq_disjoint_route_pos_df` in `_pair_helpers.py` is conceptually the
 100%-identity special case of cluster-disjoint routing; this module
 generalizes it to mmseqs2-defined clusters at lower identity thresholds.

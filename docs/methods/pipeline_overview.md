@@ -428,7 +428,7 @@ For each topic, the deepest reference:
 | Stage 3 builder design | `docs/plans/done/design_dataset_gen_v2.md` |
 | Metadata-aware regime sampler design | `docs/plans/done/2026-05-09_metadata_aware_negatives_plan.md` |
 | seq_disjoint routing design (mode #3 mitigation) | `docs/plans/done/2026-05-10_seq_disjoint_routing_plan.md` |
-| Codon-aware k-mers feasibility note | `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md` |
+| Codon-aware k-mers feasibility note | `docs/plans/shelved/2026-05-12_codon_aware_kmer_features_plan.md` |
 | Post-hoc analysis methodology | `docs/post_hoc_analysis_design.md` |
 | Original metadata-shortcut finding | `docs/results/2026-05-07_metadata_shortcut_negatives.md` |
 | Exp 4a seq_disjoint results (HA/NA) | `docs/results/2026-05-11_exp4a_seq_disjoint_results.md` |

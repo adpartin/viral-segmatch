@@ -929,7 +929,7 @@ largest_cc_pct_vs_threshold.png           — Plot C (`splits.md` § 1.8)
 - `docs/methods/splits.md` — consumer of cluster lookups; covers
   atoms, LPT-greedy, single-slot vs bilateral, k-fold, feasibility
   ceilings, prior-art cross-reference.
-- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` — the
+- `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` — the
   original plan that motivated this machinery.
 - `data/processed/flu/July_2025/clusters_aa/redundancy_summary.md` (aa)
   and `data/processed/flu/July_2025/clusters_nt_cds/redundancy_summary.md`

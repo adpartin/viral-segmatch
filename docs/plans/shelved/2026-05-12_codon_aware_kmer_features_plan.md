@@ -1,6 +1,6 @@
 # Codon-aware k-mer features — Situation & Plan
 
-**Status: PROPOSED** (no implementation; this is an interpretability/feasibility note)
+**Status: SHELVED (2026-11-20).** Previously: PROPOSED (no implementation; this is an interpretability/feasibility note)
 **Date:** 2026-05-12
 
 **See also:** `docs/methods/gto_format_reference.md` — comprehensive walk-through

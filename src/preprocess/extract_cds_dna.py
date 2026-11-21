@@ -38,7 +38,7 @@ Validation is performed in-loop:
 
 This script is the prerequisite for Experiment B-nt (nt-level
 cluster_disjoint splits); see
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt.
+`docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt.
 
 Usage:
     python src/preprocess/extract_cds_dna.py \

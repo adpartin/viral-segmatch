@@ -1,6 +1,6 @@
 # Split-separation metrics for train/val/test partitions
 
-**Status: L(π) LEG PAUSED · MMD LEG S1 + S2 DONE on HA-NA (full-corpus + idXX-sweep follow-ups pending)**
+**Status: SHELVED (2026-11-20).** Previously: L(π) LEG PAUSED · MMD LEG S1 + S2 DONE on HA-NA (full-corpus + idXX-sweep follow-ups pending)
 
 Add two complementary distribution-aware metrics — DataSAIL's L(π) and
 MMD on PCA-reduced pair embeddings — to the existing 1-NN cosine
@@ -152,7 +152,7 @@ src/analysis/datasail_bakeoff.py  # EXISTING: wrapper for DataSAIL invocation
 src/utils/dim_reduction_utils.py  # EXISTING
   # Reuse compute_pca_reduction() for the ESM-2 PCA step.
 
-docs/plans/2026-05-22_split_separation_metrics_plan.md  # THIS FILE
+docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md  # THIS FILE
 docs/results/<future>_split_separation_results.md       # Created after first batch of runs
 ```
 
@@ -270,7 +270,7 @@ sanity-check.
 ## Cross-references
 
 - BACKLOG.md DataSAIL #1 (absorbed by Step 1 of this plan).
-- `docs/plans/2026-05-20_routing_geometry_viz_plan.md` (qualitative
+- `docs/plans/shelved/2026-05-20_routing_geometry_viz_plan.md` (qualitative
   visualization companion to this plan's quantitative metrics).
 - `docs/results/2026-05-15_cluster_disjoint_nt_results.md` § "1-NN
   cosine margin (leakage upper bound)" (the existing edge-style

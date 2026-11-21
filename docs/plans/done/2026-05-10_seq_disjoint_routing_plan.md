@@ -10,7 +10,7 @@ Mode #3 (sequence-level leakage) of the 5-mode taxonomy
 (`docs/methods/leakage.md`) is the only mode where the v2
 builder is still complicit: the same `dna_hash` appears in different
 pairs across train/val/test (see Exp 1 of
-`docs/plans/2026-05-07_leakage_diagnostics_plan.md`, table at the top of
+`docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md`, table at the top of
 that file). On `dataset_flu_ha_na_20260508_171512`, 9.0–14.4% of
 val/test DNAs are also in train; for `seq_hash` the share is 24.6–33.0%.
 
@@ -104,7 +104,7 @@ the existing isolate-level shuffle-split.
 - ESM-2 feature_source variant (one bundle change away once the routing
   is in).
 - mmseqs2 / cosine cluster-disjoint routing — see
-  `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` for the
+  `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` for the
   follow-up that builds on this scaffolding.
 
 ## Success criteria

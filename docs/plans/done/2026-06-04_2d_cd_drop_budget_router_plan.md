@@ -27,10 +27,10 @@ carried over intact: spectral as the default `cut_method`, and LPT for post-cut 
 
 Its three open items are moot for retired code: §3.6 cut-quality validation, the balanced
 post-cut routing option, and P4 (the train-and-score sweep, which was overtaken by
-`docs/plans/2026-07-21_ood_vs_random_split_plan.md`).
+`docs/plans/shelved/2026-07-21_ood_vs_random_split_plan.md`).
 
-Successor: `docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md` (the K-fold fragmentation
-this became) and `docs/plans/2026-08-03_fold_maker_consolidation_plan.md` (the consolidation that
+Successor: `docs/plans/shelved/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md` (the K-fold fragmentation
+this became) and `docs/plans/shelved/2026-08-03_fold_maker_consolidation_plan.md` (the consolidation that
 retired it).
 
 ---

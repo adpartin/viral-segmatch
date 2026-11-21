@@ -1,6 +1,6 @@
 # H3N2 2D-CD with within-CC negatives
 
-**Status: IN PROGRESS**
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS
 
 ## Research question
 

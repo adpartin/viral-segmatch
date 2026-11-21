@@ -199,7 +199,7 @@ implemented, holdout-wired); item 3 is the concrete CC-builder wiring.
 3. ~~Wire cut fragmentation into the CC builder.~~ **DONE 2026-07-20** (`f0e9ce9`) —
    landed as the `split_strategy.edge_cut` knob calling `_megacc_cut.fragment_until`
    from `assign_atoms_prod`, not `apply_drop_budget_cut` (since archived). Design and
-   measurements: `docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md`.
+   measurements: `docs/plans/shelved/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md`.
 4. **`build_cc_structure.py` fragmentation defaults diverge from production.**
    `--max_drop_frac` defaults to 0.10 and `--frag_seed` to 1, while the production
    bundle resolves 0.05 and 42 — so a default `--fragment` run previews, and persists

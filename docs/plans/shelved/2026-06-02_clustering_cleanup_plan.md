@@ -1,6 +1,6 @@
 # Clustering utilities — cleanup and alphabet extension
 
-**Status: IN PROGRESS** (Phase 1 IMPLEMENTED; Phases 2-3 pending gates)
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS (Phase 1 IMPLEMENTED; Phases 2-3 pending gates)
 
 Three-phase plan for the cluster-export → mmseqs → parse → parquet
 pipeline (`src/utils/clustering_utils.py`, called from

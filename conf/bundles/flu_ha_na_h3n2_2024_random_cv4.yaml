@@ -9,7 +9,7 @@
 # This measures a different thing from the 2D-CD runs: train and test share clusters, so the
 # cluster shortcut is available. It answers "can the model match H3N2 2024 HA-NA segments when it
 # has seen the clusters", not the cluster-disjoint question in
-# docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md.
+# docs/plans/shelved/2026-08-20_h3n2_2dcd_within_cc_plan.md.
 #
 # `negative_scope: within_fold` uses the same negative primitive as the 2D-CD runs
 # (`dataset_pairs_cc.within_fold_negatives`: a random positive's slot-a sequence paired with

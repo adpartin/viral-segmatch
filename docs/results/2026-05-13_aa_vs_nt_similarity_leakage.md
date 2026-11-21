@@ -113,7 +113,7 @@ e.g., 95% or 90% identity (mmseqs2 / CD-HIT) and require no cluster
 to span train/test. Retrain both nt and aa k-mer models on those
 splits. If aa's lead survives, the representation advantage is real;
 if it shrinks or disappears, it was the similarity leakage. Plan:
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`.
+`docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md`.
 
 ## Caveats
 
@@ -140,7 +140,7 @@ if it shrinks or disappears, it was the similarity leakage. Plan:
 - `docs/methods/leakage.md` — leakage mode #4 ("cluster
   leakage") is what this diagnostic targets; the current pipeline
   does not mitigate it.
-- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` —
+- `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` —
   proposed mitigation via cluster-disjoint splits.
 - `docs/plans/done/2026-05-13_aa_kmer_and_cache_symmetry_plan.md` — the
   aa k-mer work that motivated this diagnostic.

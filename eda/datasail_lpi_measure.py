@@ -26,7 +26,7 @@ installed in the dedicated `datasail` conda env. Run with:
         --routing_label cluster_disjoint_id099 \\
         --out_csv results/flu/July_2025/runs/datasail_lpi/<TS>_<routing>.csv
 
-See `docs/plans/2026-05-22_split_separation_metrics_plan.md` Step 1
+See `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md` Step 1
 for the broader plan; `src/analysis/datasail_bakeoff.py` is the
 sibling script that runs DataSAIL in solving mode (Phase 0 bake-off).
 """

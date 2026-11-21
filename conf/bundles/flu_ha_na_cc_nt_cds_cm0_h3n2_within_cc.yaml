@@ -1,5 +1,5 @@
 # STATUS: experimental -- as flu_ha_na_cc_nt_cds_cm0_h3n2, but negatives drawn inside each CC.
-# Exp 4 of docs/plans/2026-08-20_h3n2_2dcd_within_cc_plan.md.
+# Exp 4 of docs/plans/shelved/2026-08-20_h3n2_2dcd_within_cc_plan.md.
 #
 # Why: 2D-CD routes positives so no cluster is shared between splits, but `within_fold` draws
 # negatives at random inside a split, ignoring CC membership. So whether a negative is within-CC

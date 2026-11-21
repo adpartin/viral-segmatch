@@ -40,7 +40,7 @@ Cross-references
       The 5-mode leakage taxonomy. This script targets mode #4
       (cluster leakage), measured via nearest-neighbor identity rather
       than explicit clustering.
-  - docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md
+  - docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md
       The planned mitigation (cluster-disjoint splits with mmseqs2).
 
 Example

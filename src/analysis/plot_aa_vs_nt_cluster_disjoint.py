@@ -20,7 +20,7 @@ rather than removing it (see
 reading).
 
 The reference deliverable promised by step 9 of
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt
+`docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` § B-nt
 ("threshold sweep plot the aa side couldn't reach") is implemented here
 as a 4-routing comparison rather than a true threshold sweep — the
 mega-CC collapse on the full Flu A corpus rules out feasible

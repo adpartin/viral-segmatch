@@ -1,5 +1,5 @@
 """Unit tests for the 2D-CD production fold-making functions (§5 P4.2 of
-`docs/plans/2026-08-03_fold_maker_consolidation_plan.md`).
+`docs/plans/shelved/2026-08-03_fold_maker_consolidation_plan.md`).
 
 These decide what lands in train/val/test on the primary production path, and had no unit
 coverage: `tests/test_production_splits.py` guards the whole build end-to-end, but a digest

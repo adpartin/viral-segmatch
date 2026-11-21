@@ -3,7 +3,7 @@
 Visual comparison of how the train / val / test partition separates in
 k-mer feature space as the Stage 3 split routing moves from `random` →
 `seq_disjoint` → `cluster_disjoint`. Companion to
-`docs/plans/2026-05-20_routing_geometry_viz_plan.md` (BACKLOG.md
+`docs/plans/shelved/2026-05-20_routing_geometry_viz_plan.md` (BACKLOG.md
 **Methodology #2**).
 
 Inspired by **DataSAIL Fig. 4** (Joeres et al., 2025), which compared
@@ -175,7 +175,7 @@ future Stage 3 runs auto-emit the new plots.
 
 | Artifact | Path |
 |---|---|
-| Plan doc | `docs/plans/2026-05-20_routing_geometry_viz_plan.md` |
+| Plan doc | `docs/plans/shelved/2026-05-20_routing_geometry_viz_plan.md` |
 | Plotting module | `src/analysis/plot_kmer_routing_geometry.py` |
 | Orchestrator wire-in | `src/analysis/visualize_dataset_stats.py` (`visualize_dataset_stats` function) |
 | Routing-comparison bundles | `conf/bundles/flu_ha_na_{random,seq_disjoint,cluster_id99}.yaml` |

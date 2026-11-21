@@ -7,7 +7,7 @@
 
 ## Why this question matters
 
-The leakage diagnostics plan (`docs/plans/2026-05-07_leakage_diagnostics_plan.md`) lists five canonical issues that can inflate test metrics. v2's negative sampling addresses two of them:
+The leakage diagnostics plan (`docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md`) lists five canonical issues that can inflate test metrics. v2's negative sampling addresses two of them:
 
 - **Same-pair leakage (#1)** — same `pair_key` in two splits. Addressed by within-split + cross-split protein-pair dedup (v2 strict mode + `forbidden_pair_keys` threading).
 - **Sequence-level label imbalance (#2)** — a sequence appears only as positive (or only as negative) in train. Addressed by v2's coverage phase enforcing ≥1 negative per `seq_hash` per slot.
@@ -130,6 +130,6 @@ This rule should also be noted in `conf/bundles/README.md` under "Adding a new b
 
 ## See also
 
-- `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — the leakage taxonomy and the experiments that motivate DNA coverage
+- `docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md` — the leakage taxonomy and the experiments that motivate DNA coverage
 - `docs/methods/leakage.md` — canonical mode definitions; mode #2 status will be updated when the v2 extension lands
 - `docs/results/2026-05-07_dna_coverage_feasibility.md` — earlier single-bundle (HA/NA) feasibility check

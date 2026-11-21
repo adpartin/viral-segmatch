@@ -1,8 +1,8 @@
 # Cluster-disjoint and cosine-controlled splits — Plan
 
-**Status: PROPOSED** (Experiment B is the priority — Carla's suggestion)
+**Status: SHELVED (2026-11-20).** Previously: PROPOSED (Experiment B is the priority — Carla's suggestion)
 **Date:** 2026-05-08; refreshed 2026-05-14.
-**Parent plan:** `docs/plans/2026-05-07_leakage_diagnostics_plan.md` Exp 5.
+**Parent plan:** `docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md` Exp 5.
 
 ## One-line framing
 
@@ -540,7 +540,7 @@ plan's Exp 3 (which already needs cosine math):
 
 ## Cross-references
 
-- `docs/plans/2026-05-07_leakage_diagnostics_plan.md` — parent plan;
+- `docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md` — parent plan;
   this is the detailed design for its Exp 5.
 - `docs/plans/2026-05-14_regime_aware_coverage_plan.md` — the
   regime-aware coverage proposal; sequential with this plan (cluster

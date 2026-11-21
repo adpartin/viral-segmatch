@@ -10,7 +10,7 @@ is attributable to the split and nothing else.
 
 Drives `_partition_full` with a synthetic `full` frame -- an end-to-end build would pull in the
 within-CC negative pool and mostly exercise the negative sampler rather than the arms. Design and
-the thresholds it was run at: docs/plans/2026-07-21_ood_vs_random_split_plan.md.
+the thresholds it was run at: docs/plans/shelved/2026-07-21_ood_vs_random_split_plan.md.
 """
 from __future__ import annotations
 

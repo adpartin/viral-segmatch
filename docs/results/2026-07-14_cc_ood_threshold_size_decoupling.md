@@ -84,4 +84,4 @@ cut-fragmentation** (`_megacc_cut.apply_drop_budget_cut`, edge min-cut) is cappe
 - Bundle: `conf/bundles/flu_ha_na_cc_nt_cds_ood.yaml`.
 
 Set-cover analog: `docs/results/2026-07-02_cc_within_fold_size_decoupling.md`. Cluster-build plan:
-`docs/plans/2026-07-08_single_segment_ood_clusters_plan.md`.
+`docs/plans/shelved/2026-07-08_single_segment_ood_clusters_plan.md`.

@@ -1,6 +1,6 @@
 # Fold-maker and fragmentation consolidation
 
-**Status: IN PROGRESS**
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS
 
 Date: 2026-08-03
 
@@ -191,7 +191,7 @@ Datasets and models were rebuilt to `*_balanced` paths, the pre-fix artifacts ke
   no such check). Carries the `cluster_disjoint_route_pos_df` naming question — it implements
   bilateral holdout, single-slot holdout and single-slot k-fold, but every bundle sets
   `single_slot`, so only the single-slot paths are reachable. D2 is a **subset of P3** in
-  `docs/plans/2026-06-03_dataset_split_refactor_plan.md`, which additionally wants
+  `docs/plans/shelved/2026-06-03_dataset_split_refactor_plan.md`, which additionally wants
   `generate_all_cv_folds_v2` and `generate_all_cluster_disjoint_cv_folds_v2` retired and CV
   validated end-to-end.
 - **Recorded, not fixed** — plan labels off the fragmentation path: `D1`–`D4`, `OoS`, `P2` (~35

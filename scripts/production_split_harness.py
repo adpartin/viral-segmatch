@@ -8,7 +8,7 @@ routing or fragmentation code can be shown not to move a single pair.
     check   [--only NAME ...]   # rebuild and diff against the goldens (exit != 0 on mismatch)
     extract --dir RUN_DIR       # print the digest of an existing run dir
 
-Guards the paths named in `docs/plans/2026-08-03_fold_maker_consolidation_plan.md` § 1: 2D-CD
+Guards the paths named in `docs/plans/shelved/2026-08-03_fold_maker_consolidation_plan.md` § 1: 2D-CD
 (`dataset_pairs_cc.py`) and 1D-CD on the HA axis (`dataset_segment_pairs.py`). Both are K-fold and
 emit `fold_k/{train,val,test}_pairs.csv`, which is what the digest covers.
 

@@ -45,9 +45,9 @@ analysis `load_pair_universe` (which mislabels/dedups nt_cds). First target: HA-
 `_ood` clusters; parametrized for other alphabets/pairs.
 
 Related:
-- `docs/plans/2026-07-21_ood_vs_random_split_plan.md` -- the experiment that will sit on top of these
+- `docs/plans/shelved/2026-07-21_ood_vs_random_split_plan.md` -- the experiment that will sit on top of these
   artifacts (its §7 CC plots need exactly this data).
-- `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md` -- the cluster artifacts this mirrors.
+- `docs/plans/shelved/2026-07-08_single_segment_ood_clusters_plan.md` -- the cluster artifacts this mirrors.
 - `docs/methods/glossary.md` -- pair universe, connected component (CC), mega-CC, cluster.
 
 ---

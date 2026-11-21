@@ -10,7 +10,7 @@ CLAUDE.md → "What Is NOT Maintained").
   `0000003012`, A/mallard/Wisconsin/394/1977 H4N1) showing the fields
   this document references. DNA / protein sequences truncated for
   readability; provenance fields omitted.
-- `docs/plans/2026-05-12_codon_aware_kmer_features_plan.md` — the
+- `docs/plans/shelved/2026-05-12_codon_aware_kmer_features_plan.md` — the
   consumer of this reference. Explains why we currently cannot interpret
   k-mer feature importances at codon level, and what would change.
 - `src/preprocess/preprocess_flu.py` — reads GTO JSON directly. Section
@@ -703,7 +703,7 @@ if strand == '-':
 
 This is pseudocode only; nothing in the current codebase performs CDS
 reconstruction. The codon-aware k-mers plan
-(`docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`) lists this
+(`docs/plans/shelved/2026-05-12_codon_aware_kmer_features_plan.md`) lists this
 helper as the minimum new code needed for a CDS-scoped feature path.
 
 ---
@@ -712,7 +712,7 @@ helper as the minimum new code needed for a CDS-scoped feature path.
 
 - **`docs/examples/example_gto_excerpt.json`** — the canonical example
   used in §3–§6 above.
-- **`docs/plans/2026-05-12_codon_aware_kmer_features_plan.md`** — uses
+- **`docs/plans/shelved/2026-05-12_codon_aware_kmer_features_plan.md`** — uses
   this document as the metadata-availability baseline; explains why
   current k-mer features cannot be interpreted at codon level and what
   would change with CDS-scoped extraction.

@@ -1,5 +1,5 @@
 """Unit tests for the 1D-CD production routing path (§5 P4.2 of
-`docs/plans/2026-08-03_fold_maker_consolidation_plan.md`).
+`docs/plans/shelved/2026-08-03_fold_maker_consolidation_plan.md`).
 
 1D-CD had no unit tests at all: nothing exercised `cluster_disjoint_route_pos_df`, the LPT packer
 it carves val with, or the feasibility check that gates its folds. `tests/test_production_splits.py`

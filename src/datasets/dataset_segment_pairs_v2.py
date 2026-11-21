@@ -1544,7 +1544,7 @@ def split_dataset_v2(
     # Audit dicts from non-random routing modes (None for the other paths). Threaded
     # through duplicate_stats and emitted as {seq,cluster}_disjoint_audit.json by the
     # saver. See docs/plans/2026-05-10_seq_disjoint_routing_plan.md and
-    # docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+    # docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md.
     seq_disjoint_audit: Optional[dict] = None
     cluster_disjoint_audit: Optional[dict] = None
     positive_selection_audit: Optional[dict] = None
@@ -1631,7 +1631,7 @@ def split_dataset_v2(
         # (cluster_id_a, cluster_id_b) bigraph is indivisible. Routes
         # pairs into the split where BOTH sequences' clusters land; pairs whose
         # prot_hashes aren't covered by the cluster lookup are dropped.
-        # See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md.
+        # See docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md.
         # cluster_alphabet='aa' (default) clusters protein sequences;
         # 'nt_cds' clusters CDS DNA (joins on cds_dna_hash); 'nt_ctg' clusters
         # contig DNA (joins on ctg_dna_hash). The pos-side hash is attached below.
@@ -1717,7 +1717,7 @@ def split_dataset_v2(
     #   'within_fold' -- ratio-driven random pairing within each split's own
     #       positives (no coverage phase, no regime), reusing within_fold_negatives
     #       from _negative_sampling (the same primitive the 2D-CD builder uses). See
-    #       docs/plans/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
+    #       docs/plans/done/2026-07-27_1d_cluster_disjoint_single_slot_plan.md.
     #   'balanced' -- the same in-split pairing, but each slot's least-used sequences
     #       are drawn first, so the per-slot use counts differ by at most one
     #       (balanced_usage_negatives, also shared with the 2D-CD builder).
@@ -3131,7 +3131,7 @@ def emit_split_overlap_stats(
         pct_overlap_val     : same for val.
         pct_overlap_test    : same for test.
 
-    See plan: docs/plans/2026-05-07_leakage_diagnostics_plan.md (Exp 1).
+    See plan: docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md (Exp 1).
     """
     splits = {'train': train_pairs, 'val': val_pairs, 'test': test_pairs}
 
@@ -3479,7 +3479,7 @@ def _validate_v2_config(config) -> None:
             f"{{'random', 'seq_disjoint', 'cluster_disjoint'}} (or absent); "
             f"got {split_mode!r}. See "
             f"docs/plans/2026-05-10_seq_disjoint_routing_plan.md and "
-            f"docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
+            f"docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md."
         )
     # split_strategy.hash_key: 'seq' (protein, default — stricter), 'dna' (contig nucleotide —
     # appropriate when training on DNA k-mer features), or 'cds' (CDS DNA — the seq_disjoint
@@ -3502,7 +3502,7 @@ def _validate_v2_config(config) -> None:
                 "dataset.split_strategy.cluster_id_path to point at a (<hash>, cluster_id) "
                 "parquet (typically data/processed/flu/<version>/clusters_aa_cm0/t<NN>/combined_cluster.parquet "
                 "or clusters_nt_cds_cm0/t<NN>/combined_cluster.parquet; <hash> is alphabet-specific "
-                "per Phase 2). See docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md."
+                "per Phase 2). See docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md."
             )
         cluster_id_threshold = OmegaConf.select(config, "dataset.split_strategy.cluster_id_threshold")
         if cluster_id_threshold is not None:

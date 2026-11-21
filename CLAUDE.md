@@ -16,11 +16,13 @@ Read those when you need to understand a subsystem or see where the work stands.
    Read: .claude/memory.md (in the repo root)
    This machine-local file is no longer updated.
    ```
-3. Check `docs/plans/` for in-progress plans (status != IMPLEMENTED); read and offer to resume.
+3. Check the top level of `docs/plans/` for IN PROGRESS plans; read and offer to resume. Skip `done/` and `shelved/`.
 
 **Plans** (`docs/plans/`): save new plans to `docs/plans/<descriptive_name>_plan.md` with a status
 line right under the title — `**Status: IN PROGRESS**` (underway) / `**Status: IMPLEMENTED**`
-(complete). When fully implemented, mark IMPLEMENTED and move the file to `docs/plans/done/`.
+(complete) / `**Status: SHELVED**` (stopped before it was finished; may resume). When fully
+implemented, mark IMPLEMENTED and move the file to `docs/plans/done/`. When shelving, mark
+SHELVED with the date, keep the old status after it, and move the file to `docs/plans/shelved/`.
 
 ---
 
@@ -41,9 +43,11 @@ Always ask for explicit confirmation before running any of these — even if it 
 
 **viral-segmatch** predicts whether two viral protein segments come from the same isolate
 (binary classification). Frozen ESM-2 embeddings (1280-dim `esm2_t33_650M_UR50D`) or k-mer
-features → pairwise interaction (e.g. `unit_diff`) → MLP or sklearn-baseline classifier. Main
-virus: **Influenza A** (Bunyavirales support exists but is not maintained). Stages 1–2 run once
-per `{virus}/{data_version}` and are shared; Stages 3–4 run per experiment.
+features → pairwise interaction (e.g. `unit_diff`) → MLP or sklearn-baseline classifier. The
+paper uses per-site codon features (pinned-length or aligned) with LightGBM on the concatenated
+slot features; see `docs/plans/2026-10-08_paper_plan.md`. Main virus: **Influenza A**
+(Bunyavirales support exists but is not maintained). Stages 1–2 run once per
+`{virus}/{data_version}` and are shared; Stages 3–4 run per experiment.
 
 Details — the stage table, Hydra bundle system, source-file map, findings, roadmap and HPC
 notes — are in `docs/architecture.md`.
@@ -85,7 +89,7 @@ keep the two in sync. Use these exact words — do not invent synonyms.
 - **Function names describe current behaviour**: rename when the code has changed and the name no longer reflects what it does. Never rename an existing function or a persisted name (an output file name, JSON key or CSV column) without the user's approval; renaming a persisted name breaks reads of earlier runs. Names added in the current uncommitted change are exempt.
 - **Statement complexity**: break a dense statement into named steps with a brief comment. Never return an expression that also does the work — bind the call to a named variable, then return it.
 - **No plan-only vocabulary in code**: code, comments, docstrings and error messages must be readable without opening a plan. Never use a label that only a plan defines (`D3`, `OoS #5`, `routing-B`, `P2`, "Phase 2") as though it were a term — say what the thing *is*, then cite the plan by full path if the derivation matters. A path pointer is fine; an undefined label is not. Canonical terms belong in `docs/methods/glossary.md`; plan labels are not canonical terms. This matters most in raised error text, which reaches users who have never seen the plan.
-- **Leakage terminology**: use canonical names from `docs/plans/2026-05-07_leakage_diagnostics_plan.md` (same-pair leakage, sequence-level label imbalance, sequence-level leakage, cluster leakage, demographic shortcut leakage). New modes go in that table first.
+- **Leakage terminology**: use canonical names from `docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md` (same-pair leakage, sequence-level label imbalance, sequence-level leakage, cluster leakage, demographic shortcut leakage). New modes go in that table first.
 - **aa/nt vs protein/DNA**: `aa` / `nt_cds` / `nt_ctg` name the **alphabet** (which residues); `prot` / `cds_dna` / `ctg_dna` name the **molecule** (which sequence). They pair up aa↔protein, nt_cds↔CDS DNA, nt_ctg↔contig DNA. Never pair one level's token with the other's name. `src/utils/schema.py` enforces this.
 - **Reading CSVs with `function_short`**: any CSV with a `function_short` column has the literal string `'NA'` (Neuraminidase) as a value. Default `pd.read_csv()` parses `'NA'` as NaN and **silently drops Neuraminidase rows**. Always read with `keep_default_na=False, na_values=['']`. Source pipeline CSVs use full names (safe); derived `function_short` CSVs are vulnerable.
 - **sklearn `GroupKFold` shuffle**: `shuffle=True` is NOT a randomized version of the balanced assignment — it *replaces* the size balancing (largest group to the lightest fold, i.e. LPT) with `np.array_split` into equal-group-**count** chunks, so folds go badly unbalanced whenever group sizes are skewed. Pass `shuffle=False` explicitly (and drop `random_state`, which sklearn then rejects). The 2D-CD router does; see `groupkfold_by_atom`.

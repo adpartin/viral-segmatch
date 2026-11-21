@@ -437,4 +437,4 @@ before/after comparison is reportable for them.
   decimal in commit 5)
 - `docs/results/2026-06-02_phase2_preflight_baselines.md` (pre-flight
   anchors)
-- `docs/plans/2026-06-02_clustering_cleanup_plan.md` (parent plan)
+- `docs/plans/shelved/2026-06-02_clustering_cleanup_plan.md` (parent plan)

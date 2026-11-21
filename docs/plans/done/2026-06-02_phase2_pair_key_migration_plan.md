@@ -4,7 +4,7 @@
 
 Implementation plan for the bundled Phase 2 work, combining:
 
-- **Clustering cleanup plan Phase 2** (`docs/plans/2026-06-02_clustering_cleanup_plan.md`): alphabet enum `{aa, nt} → {aa, nt_cds, nt_ctg}`; `parse_cluster_tsv` writes alphabet-specific hash column; drop the rename hack in `attach_cluster_ids`.
+- **Clustering cleanup plan Phase 2** (`docs/plans/shelved/2026-06-02_clustering_cleanup_plan.md`): alphabet enum `{aa, nt} → {aa, nt_cds, nt_ctg}`; `parse_cluster_tsv` writes alphabet-specific hash column; drop the rename hack in `attach_cluster_ids`.
 - **Pair_key alphabet plan** (`docs/plans/2026-06-02_pair_key_alphabet_plan.md`): adopt alphabet-specific `pair_key` — aa keeps `seq_hash`-based; nt_cds switches to `cds_dna_hash`-based (universe inflates by +34.9 % on HA-NA, +57.0 % on PB2-PB1 per § 4 measurements).
 
 The two changes touch the same artifact set (~25-30 bundles, ~50-80
@@ -443,7 +443,7 @@ Alex's 2026-06-02 decisions:
 
 ## See also
 
-- `docs/plans/2026-06-02_clustering_cleanup_plan.md` — Phase 2
+- `docs/plans/shelved/2026-06-02_clustering_cleanup_plan.md` — Phase 2
   scoping context (clustering side).
 - `docs/plans/2026-06-02_pair_key_alphabet_plan.md` — pair_key side
   + the universe-delta measurements driving the decision.

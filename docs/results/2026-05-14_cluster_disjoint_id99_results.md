@@ -2,7 +2,7 @@
 
 **Date.** 2026-05-14.
 **Scope.** Cluster-disjoint splits (Experiment B from
-`docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`) on two schema
+`docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md`) on two schema
 pairs (`flu_ha_na`, `flu_pb2_pb1`). Models: **LGBM** (k-mer nt k=6,
 `unit_norm` + `unit_diff + prod`) and **MLP** (same features,
 hidden_dims=[512,256,64], patience=20). All runs at `neg_to_pos_ratio=1.5`,
@@ -247,7 +247,7 @@ is the right next step: force the additional negatives to be hard ones
 
 ## Related
 
-- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` — Experiment B plan
+- `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` — Experiment B plan
 - `docs/results/2026-05-14_seq_redundancy_per_function.md` — per-function
   cluster sizes at multiple thresholds + bipartite feasibility table
 - `docs/results/2026-05-13_aa_vs_nt_similarity_leakage.md` — diagnostic

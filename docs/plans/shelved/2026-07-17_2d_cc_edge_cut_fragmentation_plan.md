@@ -1,6 +1,6 @@
 # 2D-CC edge-cut fragmentation: recover atoms below t097 on the OOD line
 
-**Status: IN PROGRESS**
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS
 
 Date: 2026-07-17
 
@@ -18,7 +18,7 @@ Related:
   `_split_helpers.cluster_disjoint_route_pos_df` (bilateral holdout, L459-477), **not** into
   `dataset_pairs_cc` (its L154 is the TODO this plan closes).
 - `docs/results/2026-07-14_cc_ood_threshold_size_decoupling.md` — the finding this extends.
-- `docs/plans/2026-07-08_single_segment_ood_clusters_plan.md` — the OOD clusters we operate on.
+- `docs/plans/shelved/2026-07-08_single_segment_ood_clusters_plan.md` — the OOD clusters we operate on.
 - `docs/methods/glossary.md` — canonical terms: **edge weight**, **pair mass**, **straddling
   pair**, **mega-CC**, **mega-cluster**, **atom**, **edge min-cut**.
 
@@ -133,7 +133,7 @@ regime, or does difficulty rise? Report per `t`: n_atoms, largest_atom_frac, dro
 **P5 -- spun out to its own plan.** The "is the OOD split itself hard?" experiment -- OOD vs random
 split at matched size -- grew into a full build (a pair-level `make_folds_random`, a paired
 matched-size run, an overlap verifier, and the UMAP / per-CC-metadata plots), so it now lives in
-`docs/plans/2026-07-21_ood_vs_random_split_plan.md`. It builds on this plan's fragmentation mechanism
+`docs/plans/shelved/2026-07-21_ood_vs_random_split_plan.md`. It builds on this plan's fragmentation mechanism
 (`fragment_until` + `assign_atoms_prod`, P2).
 
 *(No P3 — node-cut out of scope.)*
@@ -188,5 +188,5 @@ matched-size run, an overlap verifier, and the UMAP / per-CC-metadata plots), so
    `cc_pair_sizes*.csv` + `tests/test_dataset_pairs_cc_cut.py`. Not `apply_drop_budget_cut` (routing-A).
 6. **P4** — (OPTIONAL, superseded as primary by the OOD-vs-random split plan) score-vs-`t` at t095 and below. **Do not launch the full sweep without
    explicit confirmation** (standing instruction).
-7. **P5 -- moved** to `docs/plans/2026-07-21_ood_vs_random_split_plan.md` (OOD vs random split at
+7. **P5 -- moved** to `docs/plans/shelved/2026-07-21_ood_vs_random_split_plan.md` (OOD vs random split at
    matched size). Gated; Stage-4 no launch without explicit confirmation.

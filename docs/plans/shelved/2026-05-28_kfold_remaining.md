@@ -1,6 +1,6 @@
 # K-fold variance estimation — remaining work
 
-**Status: IN PROGRESS**
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS
 
 The k-fold variance plan
 (`docs/plans/done/2026-05-27_kfold_variance_estimation_plan.md`)

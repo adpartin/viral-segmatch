@@ -1,6 +1,6 @@
 # Single-segment OOD clusters (across-cluster separation)
 
-**Status: IN PROGRESS.** `build_ood_clusters.py` builds OOD clusters as connected components of the
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS. `build_ood_clusters.py` builds OOD clusters as connected components of the
 `≥ t`/cov similarity graph (search → union-find). Clusters exist for **M1, HA, NA** at **t099 + t095**
 in **aa and nt_cds** (Results), each 0 cross-cluster by construction; **aa M1 t099** is additionally
 verified independently (0 violations). `plot_clusters.py` renders separation, umap, and barplot

@@ -1,6 +1,6 @@
 # Routing-geometry visualization (k-mer, HA/NA)
 
-**Status: IN PROGRESS**
+**Status: SHELVED (2026-11-20).** Previously: IN PROGRESS
 
 Inspired by DataSAIL Fig. 4 (2-D, paired-input task). Goal: produce 2-D
 embedding plots that visually demonstrate the progressive separation
@@ -50,7 +50,7 @@ src/analysis/visualize_dataset_stats.py
   visualize_dataset_stats(...)     # MODIFIED: replace plot_kmer_pca() call with plot_kmer_routing_geometry()
   # plot_kmer_pca + helpers          # REMOVED: superseded by the new module (was reading `cfg.kmer.{alphabet,k}` wrong via stale glob; had a latent string-vs-tuple key bug; produced only PCA)
 
-docs/plans/2026-05-20_routing_geometry_viz_plan.md   # THIS FILE
+docs/plans/shelved/2026-05-20_routing_geometry_viz_plan.md   # THIS FILE
 ```
 
 The previous `plot_kmer_pca` and its private helpers

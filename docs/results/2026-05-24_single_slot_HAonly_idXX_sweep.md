@@ -580,7 +580,7 @@ print(f"Cramer's V = {np.sqrt(chi2 / (n * (min(r,k)-1))):.4f}")
   S1 baseline for random / seq_disjoint / bilateral cluster_id099.
 - `docs/results/2026-05-24_mmd_per_pair_results.md` —
   S2 baseline for the same three routings.
-- `docs/plans/2026-05-22_split_separation_metrics_plan.md` —
+- `docs/plans/shelved/2026-05-22_split_separation_metrics_plan.md` —
   overall split-separation plan.
 - `src/datasets/_split_helpers.py::cluster_disjoint_route_pos_df` —
   routing helper with the `single_slot` mode used here.

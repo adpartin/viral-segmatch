@@ -1,6 +1,6 @@
 # Migration of machine-generated files out of `docs/results/`
 
-**Status: PROPOSED**
+**Status: SHELVED (2026-11-20).** Previously: PROPOSED
 **Date:** 2026-05-20.
 **Branch:** `master` (will branch off when implementation starts).
 **Closes:** BACKLOG.md → Cluster sweep cleanup #4.

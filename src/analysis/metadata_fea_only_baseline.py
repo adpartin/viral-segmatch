@@ -5,7 +5,7 @@ sequence features, on the exact same fold datasets and splits as the sequence LG
 (sequence model minus this baseline) is the signal the model gets from sequence beyond metadata.
 
 Why this is the right control for **demographic shortcut leakage** (the canonical leakage name; see
-docs/plans/2026-05-07_leakage_diagnostics_plan.md): a POSITIVE pair is two proteins from the SAME
+docs/plans/shelved/2026-05-07_leakage_diagnostics_plan.md): a POSITIVE pair is two proteins from the SAME
 isolate, so its host/subtype/year always match; a NEGATIVE (cross-isolate) may or may not. So this
 model learns "does the metadata align -> co-occur", and (by construction) fails on the
 host_subtype_year regime -- it measures the ceiling reachable by metadata matching alone. It is also

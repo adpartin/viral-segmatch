@@ -161,7 +161,7 @@ def assign_atoms_prod(
 
     `edge_cut` (when enabled): `{cut_method, target_atoms, max_drop_frac, seed}`. Returns
     `(pos_with_ids, cc_summary)`; the edge-cut run adds `cc_summary['edge_cut']` (the cut audit).
-    See docs/plans/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md.
+    See docs/plans/shelved/2026-07-17_2d_cc_edge_cut_fragmentation_plan.md.
     """
     pos_ids, attach_audit = attach_cluster_ids(pos, cluster_lookup, pos_hash_col=pos_hash_col)
     pos_ids = pos_ids.copy()
@@ -739,7 +739,7 @@ def _build_positives(config, spec: CCSpec, args):
 #       dataset.split_strategy.fold_assignment=leave_cc_out \
 #       dataset.split_strategy.paired_random=true
 # Covered by tests/test_partition_full_arms.py, which is this path's only test.
-# Design: docs/plans/2026-07-21_ood_vs_random_split_plan.md
+# Design: docs/plans/shelved/2026-07-21_ood_vs_random_split_plan.md
 # =============================================================================
 
 

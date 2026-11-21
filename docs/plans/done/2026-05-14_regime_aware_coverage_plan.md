@@ -256,7 +256,7 @@ The plan is **implemented** when:
 
 - **Cluster-disjoint splits** via mmseqs2 — addresses mode #4 (cluster
   leakage), orthogonal to this plan. See
-  `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md`.
+  `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md`.
 - **Train-time loss reweighting by regime** — an alternative path that
   doesn't touch the sampler. See discussion in the 2026-05-13 8-cell results
   doc.
@@ -272,7 +272,7 @@ The plan is **implemented** when:
   established regime-aware fill alone is insufficient.
 - `docs/results/2026-05-14_tight_lgbm_results.md` — the tight-bundle
   baselines that the validation phase compares against.
-- `docs/plans/2026-05-08_cosine_and_cluster_splits_plan.md` — cluster-
+- `docs/plans/shelved/2026-05-08_cosine_and_cluster_splits_plan.md` — cluster-
   disjoint routing (mode #4 mitigation). Sequential with this plan:
   cluster-disjoint operates at Phase 3 (positive routing); regime-aware
   coverage operates at Phase 4. Both knobs are independent — can be
