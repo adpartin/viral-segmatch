@@ -8,24 +8,19 @@ config, source files, findings, roadmap, HPC). Read it when you need orientation
 
 ## What This Project Does
 
-Predicts whether two viral protein segments co-occur in the same isolate (binary classification).
-Given embeddings of two protein segments from the same virus, the model distinguishes true
-co-occurring pairs (positive) from artificially mixed pairs (negative). A mixed pair counts as a
-negative only when its two sequences co-occur in no isolate of the corpus, which Stage 3 enforces
-with the **co-occurrence blocking set** (`docs/methods/glossary.md`).
+The paper classifies pairs of influenza A segment sequences. A positive pair was observed
+in the same isolate. A negative pair combines sequences that were never observed together
+in the study corpus. The label describes the available observations.
 
-**Approach**: one feature type per run, set by `training.feature_source` — frozen ESM-2
-protein embeddings (`esm2`; 1280-dim, `esm2_t33_650M_UR50D`), k-mer counts (`kmer`), or per-site
-codes, one per nucleotide, codon or amino acid (`site`) → pairwise interaction feature (e.g.
-`unit_diff`, `concat`) → MLP or sklearn-baseline classifier (logistic, LightGBM, 1-NN margin,
-kNN vote). **Primary virus**: Influenza A. Bunyavirales support exists but is not actively
-maintained.
+The paper uses a LightGBM classifier with concatenated per-site codon features from the
+two coding sequences. The primary analysis uses aligned sites, and Task 1 also evaluated
+pinned-length features. See `docs/plans/2026-10-08_paper_plan.md` for the study design.
 
 ---
 
 ## Pipeline Stages
 
-Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are experiment-specific.
+Experiments share preprocessing outputs and feature caches. The scope of a cache depends on the feature type. Stage 3 builds experiment datasets, and Stage 4 fits models to them.
 
 | Stage | Script | Output | Runs |
 |-------|--------|--------|------|
@@ -33,9 +28,11 @@ Stages 1–2 run once per dataset (shared across experiments). Stages 3–4 are 
 | 1.5. CDS extraction | `src/preprocess/extract_cds_dna.py` | `data/processed/flu/{version}/cds_dna_final.parquet` | Once; read by nt_cds runs and per-site features |
 | 2. ESM-2 embeddings | `src/embeddings/compute_esm2_embeddings.py` | `data/embeddings/flu/{version}/master_esm2_embeddings.h5` | Once |
 | 2b. K-mer features | `src/embeddings/compute_kmer_features.py` | `kmer_features_{alphabet}_k{k}.*`, alongside the ESM-2 cache | Once per alphabet and k |
-| 2c. Per-site features | `src/embeddings/compute_site_features.py` | `site_features_{unit}_{protein}_{pin}nt.*`, alongside the k-mer cache | Once per protein, unit and pinned length |
+| 2c. Pinned-length site features | `src/embeddings/compute_site_features.py` | `site_features_{unit}_{protein}_{pin}nt.*`, alongside the k-mer cache | Once per protein, unit and pinned length |
+| 2c. Aligned codon features | `src/embeddings/compute_protein_aligned_codon_features.py` | `site_features_codon_{protein}_aligned*`, beside each protein's final alignment | Once per population alignment and protein |
 | 3. Dataset | `src/datasets/dataset_segment_pairs.py` (CLI) → `dataset_segment_pairs_v2.py` (only builder; v1 retired 2026-06-03) | `data/datasets/flu/{version}/runs/dataset_{bundle}_{ts}/` | Per experiment |
-| 4. Train | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
+| 4. Train MLP | `src/models/train_pair_classifier.py` | `models/flu/{version}/runs/training_{bundle}_{ts}/` | Per experiment |
+| 4. Train baselines | `src/models/train_pair_baselines.py` | `models/flu/{version}/runs/baseline_{name}_{bundle}_{ts}/` | Per experiment |
 
 Shell wrappers: `scripts/stage1_preprocess_flu.sh`, `stage2_esm2.sh`, `stage2b_kmer.sh`,
 `stage3_dataset.sh`, `stage3_cc.sh` (2D-CD CC builder), `stage4_train.sh` (MLP only),
@@ -157,7 +154,7 @@ src/
     path_utils.py, seed_utils.py, timer_utils.py, torch_utils.py
     protein_utils.py, dna_utils.py, gto_utils.py
     plot_config.py, plot_utils.py, dim_reduction_utils.py, learning_verification_utils.py
-  analysis/                         # 72 scripts: per-stage QC, aggregation, plots, MMD, CC and
+  analysis/                         # per-stage QC, aggregation, plots, MMD, CC and
                                     #   bigraph diagnostics, audits, protein alignment
   archive/                          # inert; see Layering
 ```
@@ -198,6 +195,7 @@ exception.
     population, the four-schema-pair experiment, and where the codon-site signal sits.
   - `2026-11-05_ns1_alignment_pilot.md` — NS1 protein alignment pilot on Human-H3N2-2024, and
     the downstream contig check for the 654- and 660-nt stop codons.
+  - `2026-11-19_task1_aligned_codon_28p.md` — aligned codon results for the 28 Task 1 pairs.
 - **2. Expand the population. Evaluate across hosts, subtypes, and years.**
   - `2026-11-09_protein_alignment.md` — protein alignment of the 8 modelled proteins on the Task 2
     population, to decide which records and columns to keep for codon features.
@@ -233,9 +231,8 @@ Current planning is in `docs/plans/2026-10-08_paper_plan.md` (Tasks 1–3). Open
 
 **NOT maintained**: `src/preprocess/preprocess_bunya_protein.py`, `conf/bundles/bunya_base.yaml`.
 
-**In development**: `dataset.split_strategy.single_slot` (exercised on
-HA-NA HA-only and PB2-PB1 PB2-only; untested: NA-only / PB1-only, nt cluster_alphabet on single_slot,
-CV variance).
+**Cluster-disjoint work** is shelved. The completed single-slot study is recorded in
+`docs/plans/done/2026-07-27_1d_cluster_disjoint_single_slot_plan.md`.
 
 **K-mer scaling limits**: the vocabulary is exhaustive (`|alphabet|^k`, no observed-vocab or
 hashing), so the practical ceilings are about k=10 for nt and k=4 for aa. Production uses nt

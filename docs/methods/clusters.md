@@ -12,6 +12,11 @@ The chain is: **`leakage.md` → `clusters.md` →
 applicable. Deep reasoning lives in "worked example" subsections;
 parent sections stay tight.
 
+**Cluster output directories.** Use a separate output directory for each set of population
+filters. When adding a function to an existing directory, rerun with the full function list.
+The combined lookup is written from the functions requested in that run. Check the function
+list in `runtime.json` when reusing a directory.
+
 **Threshold notation.** `tXXX` denotes the mmseqs identity threshold
 (`--min-seq-id`) at `0.XXX` — e.g., `t095` ≡ `t = 0.95`. The same
 notation is used in `splits.md` and `leakage.md`. Cluster output

@@ -18,36 +18,27 @@ repeat what these already say:
 
 ---
 
-## Current Production State
-- **Base HA/NA bundle** (`flu_ha_na.yaml`) sets `slot_transform=unit_norm` and
-  `interaction=unit_diff+prod`. Every H3N2 result to date used `interaction: concat`, so a bundle
-  that inherits `flu_ha_na` must set concat itself to stay comparable;
-  `flu_ha_na_h3n2_2024_random_cv4` does, so the Task 1 and Task 2 chains get concat. There is no
-  `flu_pb2_pb1.yaml` base bundle.
-- **Cluster roots** (`src/preprocess/build_clusters.py`, with the binary from the `mmseqs2` env):
-  - A filtered build (`--hn_subtype`, `--year`, `--year_range`) needs its own `--out_root`, named
-    by appending the filters, e.g. `clusters_nt_cds_cm0_h3n2_2024`. `verify_out_root_filters`
-    refuses to mix two filter sets in one root.
-  - When adding a function to an existing cluster root, rerun with the full function list. The
-    combined lookup (`combined_cluster.parquet`) and `runtime.json` contain only the functions
-    requested in the last run.
-- **Routing modes**: `cluster_disjoint_test_only` is described in `docs/methods/splits.md` and the
-  glossary but has no code. `single_slot` has been run only on HA-only and PB2-only.
-- **Subtype context for the HA-NA CCs**: the HA_0×NA_0 hub is H3N2, HA_1×NA_1 is H1N1, and the
-  remaining multi-cluster group is an avian mix. Never call a 95%-nt cluster a "lineage".
-
 ## Work In Progress
-Each plan's own `**Status:**` line is the truth. This table names the work and its plan only; read
-the plan for its state. Shelved plans (stopped before they were finished; may resume) are in
-`docs/plans/shelved/`. Most are 2D-CD, OOD-cluster and split-refactor work.
 
-| work | plan |
+The paper plan (`docs/plans/2026-10-08_paper_plan.md`) covers the single-population study,
+the expanded population, and evaluation on future years. Read each plan for its current status.
+
+### Supporting plans
+
+| Work | Plan |
 |---|---|
-| Paper: Task 1 (Human-H3N2-2024), Task 2 (4 hosts, 3 subtypes, 2010–2025), Task 3 (future years) | `docs/plans/2026-10-08_paper_plan.md` |
 | Aligned codon features | `docs/plans/2026-11-17_aligned_codon_features_plan.md` |
 | Per-site codon features | `docs/plans/2026-09-14_codon_site_features_plan.md` |
 | Per-site nucleotide features | `docs/plans/2026-08-28_per_site_nt_features_plan.md` |
 | Hamming 1-NN baseline on codon features | `docs/plans/2026-10-01_codon_hamming_1nn_baseline_plan.md` |
+
+Cluster-disjoint work is shelved. See `docs/plans/shelved/` and `docs/results/` before resuming it.
+
+## Current Production State
+- **Base HA/NA bundle** (`flu_ha_na.yaml`) sets `slot_transform=unit_norm` and
+  `interaction=unit_diff+prod`. The paper uses `interaction: concat`, inherited through
+  `flu_ha_na_h3n2_2024_random_cv4` for Tasks 1 and 2. There is no
+  `flu_pb2_pb1.yaml` base bundle.
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered and triaged; the single source of truth). Bigger experiments:

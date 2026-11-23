@@ -18,6 +18,10 @@ differing only in the partition:
 - **Random arm** — the same 3-CC pairs shuffled into folds whose test sizes match the OOD folds; the
   tail is always train. In-distribution (clusters recur across folds).
 
+In this comparison the HA_0×NA_0 hub corresponds to H3N2, the HA_1×NA_1 hub to H1N1,
+and the multi-cluster group contains an avian mix. Describe these groups as clusters.
+A 95% nucleotide identity threshold alone does not establish a lineage.
+
 **Negatives: `within_cc`** — drawn within the connected component, so cross-cluster in the multi-cluster
 CC and within-cluster in the hub CCs. Generated once into the pool and **reused by both arms**, so the
 only difference between arms is the partition. `m_pos_per_cc: null` (keep all pairs — recurrence is the

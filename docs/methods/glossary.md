@@ -115,7 +115,7 @@ Terms that map to a NetworkX function note it in parentheses (`nx....`), and pro
 
 - **Bilateral cluster-disjoint (2D-CD)** — A 2-D cluster-disjoint partition where the cluster-disjoint constraint is enforced on BOTH slots; all three splits are pairwise cluster-disjoint. Atom = CC. Code/config key: `split_strategy.mode=cluster_disjoint` (default — no `single_slot` set). Shorthand: **`2D-CD`** (preferred in prose over "bilateral").
 
-- **Test-only cluster-disjoint (2D-CD-test)** — A **2D** cluster-disjoint partition where the cluster-disjoint constraint is enforced only between train and test (not val). Atom = CC. Val is sampled from train's CC scope (shares HA/NA clusters with train). Code/config key: `cluster_disjoint_test_only`. Shorthand: `2D-CD-test`.
+- **Test-only cluster-disjoint (2D-CD-test)** — A **2D** cluster-disjoint partition where the cluster-disjoint constraint is enforced only between train and test (not val). Atom = CC. Val is sampled from train's CC scope (shares HA/NA clusters with train). Proposed config key `cluster_disjoint_test_only`; not implemented (see `docs/methods/splits.md`). Shorthand: `2D-CD-test`.
 
 - **`m_pos_per_cc`** (config; 2D-CD builder) — Caps the number of positive **pairs (rows) kept per CC** in `dataset_pairs_cc.py` (`split_strategy.m_pos_per_cc`; default `null` = no cap, per `conf/dataset/split_strategy/cluster_disjoint_cc.yaml`). It changes rows-per-atom, **not** the atom count: atoms (= CCs) are fixed by the cluster threshold, so only the threshold sets how many there are. `m=1` ⇒ one row per atom (uniform-weight atoms); `m>1` ⇒ up to `m` correlated same-CC rows per atom (non-uniform atoms, so fold sizes vary). Capping never empties a CC, so the atom count is unchanged.
 
