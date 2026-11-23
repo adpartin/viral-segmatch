@@ -6,8 +6,6 @@ Covers:
      SHAP when the two disagree
   3. rank_columns raises when the table lacks the measure's rank column
   4. load_importance keeps the literal string 'NA' (Neuraminidase) as a protein value
-  5. permutation_curve averages only the requested method, which is the mistake it exists to
-     prevent: a plain groupby averages the shuffle and constant-fill rows together
 
 Run: python tests/test_importance_helpers.py
 """
@@ -24,7 +22,6 @@ sys.path.insert(0, str(PROJ))
 from src.analysis._importance_helpers import (  # noqa: E402
     IMPORTANCE_MEASURES,
     load_importance,
-    permutation_curve,
     rank_column,
     rank_columns,
     share_column,
@@ -83,58 +80,12 @@ def test_load_importance_keeps_neuraminidase():
             load_importance(Path(tmp) / 'absent.csv')
 
 
-def _permutation_table():
-    """Two shuffle rows at 0.50 and two constant rows at 0.10, same arm and N."""
-    return pd.DataFrame({
-        'split': ['test'] * 4 + ['train'] * 2,
-        'arm': ['top'] * 6,
-        'method': ['shuffle', 'shuffle', 'constant', 'constant', 'shuffle', 'shuffle'],
-        'n_sites': [10] * 6,
-        'fold': [0, 1, 0, 1, 0, 1],
-        'repeat': [0] * 6,
-        'signal_lost': [0.50, 0.50, 0.10, 0.10, 0.30, 0.30],
-    })
-
-
-def test_permutation_curve_excludes_the_other_method():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / 'site_shuffle_fixed_codon_gain.csv'
-        table = _permutation_table()
-        table.to_csv(path, index=False)
-
-        curve = permutation_curve(path, split='test', method='shuffle')
-        assert float(curve[curve.arm == 'top']['mean'].iloc[0]) == 0.50
-
-        # The mistake this guards against: a groupby that forgets `method` averages the
-        # shuffle and constant rows into 0.30, a number belonging to neither experiment.
-        naive = table[table.split == 'test'].groupby(['arm', 'n_sites'])['signal_lost'].mean()
-        assert float(naive.iloc[0]) == 0.30
-
-        assert float(permutation_curve(path, split='test', method='constant')
-                     ['mean'].iloc[0]) == 0.10
-        assert float(permutation_curve(path, split='train')['mean'].iloc[0]) == 0.30
-
-
-def test_permutation_curve_raises_on_an_absent_split_or_method():
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / 'g.csv'
-        _permutation_table().to_csv(path, index=False)
-        with pytest.raises(ValueError, match="method='bogus' is absent"):
-            permutation_curve(path, method='bogus')
-        with pytest.raises(ValueError, match="split='val' is absent"):
-            permutation_curve(path, split='val')
-        with pytest.raises(FileNotFoundError, match='plot_site_shuffle_fixed'):
-            permutation_curve(Path(tmp) / 'absent.csv')
-
-
 if __name__ == '__main__':
     tests = [
         test_column_names_and_validation,
         test_rank_columns_follows_the_requested_measure,
         test_rank_columns_raises_on_a_missing_rank_column,
         test_load_importance_keeps_neuraminidase,
-        test_permutation_curve_excludes_the_other_method,
-        test_permutation_curve_raises_on_an_absent_split_or_method,
     ]
     failed = 0
     for t in tests:

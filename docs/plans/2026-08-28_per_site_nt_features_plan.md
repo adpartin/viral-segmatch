@@ -24,7 +24,7 @@ Scope: HA-NA, H3N2, 2024. Idea and prior results from Jamie Overbeek (see `notes
 | `src/analysis/plot_seen_sequence_effect.py` | 7c | test AUC split by whether a sequence was seen in training |
 | `src/analysis/plot_negative_pair_ambiguity.py` | Post-hoc | Relates false-positive rate to the minimum single-slot Hamming distance from an observed positive |
 | `src/analysis/compare_negative_pair_distances.py` | Post-hoc | Compares the single-slot distance with unrestricted whole-pair distance and reports FPR jointly by both slot distances |
-| `src/analysis/_importance_helpers.py` | 6, 7b | shared readers for the importance table: load, rank by a chosen measure, average a permutation curve |
+| `src/analysis/_importance_helpers.py` | 6, 7b | shared readers for the importance table: load and rank by a chosen measure |
 | `src/analysis/plot_site_importance_trace.py` | 6 | one importance measure along the CDS, drawn from the saved table |
 | `src/analysis/plot_confusion_folds.py` | Post-hoc | confusion matrix pooled over the CV folds, with the per-fold spread |
 | `src/datasets/_positive_pair_selection.py` | 8 | selects unique-sequence positives and audits the resulting CV splits |
