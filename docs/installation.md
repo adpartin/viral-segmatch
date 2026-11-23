@@ -19,6 +19,8 @@ conda activate segmatch
 
 Keep bioconda tools (mmseqs2, DataSAIL, BLAST, ...) out of this environment. They pull a
 different `libhdf5` build and break `h5py`; install each in its own environment.
+If a bioconda install breaks `h5py`, rebuild `segmatch` from `environment.yml`. Never use
+`conda remove --force` to repair the environment.
 
 ### macOS and other platforms
 

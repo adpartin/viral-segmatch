@@ -12,9 +12,7 @@ repeat what these already say:
   source-file map, layering rule, results for the paper plan, roadmap, HPC.
 - **`docs/results/`** — canonical writeup for every headline finding.
 - **`docs/plans/`** (+ `done/`, `shelved/`) — design/implementation plans.
-- **`docs/project_changelog.md`** — relocated implementation log, Removed-keys log, Polaris/Task-11
-  history, CV/temporal-holdout implementation detail, pre-writeup exploration notes. Reference
-  material, not session-startup reading.
+- **`docs/project_changelog.md`** — historical implementation notes.
 
 ---
 
@@ -37,8 +35,7 @@ Cluster-disjoint work is shelved. See `docs/plans/shelved/` and `docs/results/` 
 ## Current Production State
 - **Base HA/NA bundle** (`flu_ha_na.yaml`) sets `slot_transform=unit_norm` and
   `interaction=unit_diff+prod`. The paper uses `interaction: concat`, inherited through
-  `flu_ha_na_h3n2_2024_random_cv4` for Tasks 1 and 2. There is no
-  `flu_pb2_pb1.yaml` base bundle.
+  `flu_ha_na_h3n2_2024_random_cv4` for Tasks 1 and 2.
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered and triaged; the single source of truth). Bigger experiments:
@@ -62,26 +59,12 @@ paths under the repo root; the readers use relative paths and checksums, so the 
 `environment.yml` pins Linux build strings and CUDA packages. On macOS, use the smaller recipe in
 `docs/installation.md`.
 
-## Env Management
-**Rule**: bioconda / kalininalab CLI tools and experimental Python packages live in **dedicated
-conda envs**, never in the `segmatch` pipeline env. **Why**: bioconda pulls a different `libhdf5`
-than conda-forge and breaks the precompiled `h5py` wheel (broke the pipeline env twice — mmseqs2
-2026-05-15, datasail 2026-05-19). **Never** `conda remove --force` to undo bioconda damage —
-rebuild from `environment.yml`.
-- `segmatch`: clean pipeline env (conda-forge only, `environment.yml`). Validated 2026-05-20.
-- `mmseqs2`: CLI-only, v18.8cc5c. On lambda13 use the NFS path,
-  `/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/mmseqs2/bin/mmseqs` — the `/homes/...` form
-  does not resolve there.
-- `datasail`: dedicated env for comparing DataSAIL's splits against ours.
-- On lambda13 `$HOME` has no miniconda — use NFS absolute binaries
-  (`/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/<env>/bin/python`); bare `conda activate` fails.
+## Environment and hardware
 
-## HPC (ALCF Polaris)
-- PBS job arrays, not SLURM. Do NOT use Hydra's submitit launcher (SLURM-only).
-- Batch mode doesn't source dotfiles: use `#!/bin/bash -l` (login shell) to load PrgEnv/CUDA.
-- Stage 2 (embeddings) is GPU-heavy; Stage 4 (training) is modest. The 8-GPU dev cluster has no
-  scheduler — use a `subprocess.Popen`-per-fold launcher with `CUDA_VISIBLE_DEVICES`.
-- Refs: `polaris_plan.md` (Task 11 phases), `speed_up.md`, `docs/hardware_notes.md`.
+Keep bioconda tools and experimental packages in separate environments from `segmatch`.
+On lambda13, run Python and tools from `/nfs/lambda_stor_01/homes/apartin/miniconda3/envs/<env>/bin/`
+(for example `segmatch/bin/python`, `mmseqs2/bin/mmseqs`).
+For Polaris jobs and GPU settings, see `polaris_plan.md`, `speed_up.md`, and `docs/hardware_notes.md`.
 
 ## User Preferences
 - No emojis in replies unless asked. No refactoring beyond what was asked.

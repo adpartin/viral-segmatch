@@ -224,6 +224,13 @@ is almost always a win; for small MLPs it often isn't. Profile before assuming.
 
 ## 11. `[Extra]` Ensemble packing vs PBS job arrays
 
+On Polaris, start PBS batch scripts with `#!/bin/bash -l` so the login shell loads the
+PrgEnv and CUDA environment. Polaris uses PBS, not SLURM, so Hydra's submitit launcher
+(SLURM only) does not work there.
+
+The 8-GPU development machine has no scheduler. Launch one `subprocess.Popen` per fold, each with
+its own `CUDA_VISIBLE_DEVICES`.
+
 Two ways to run N folds on M GPUs on Polaris:
 
 - **PBS job array**: N separate PBS jobs, each requesting 1 GPU. Simplest

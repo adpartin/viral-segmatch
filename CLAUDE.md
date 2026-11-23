@@ -60,13 +60,12 @@ keep the two in sync. Use these exact words — do not invent synonyms.
 
 ## Conventions
 
-- **Experiment naming**: `{virus}_{proteins}_{n_isolates}[_{modifiers}]`.
 - **Timestamps**: All run directories include `YYYYMMDD_HHMMSS`.
 - **Shared vs. run-specific**: Preprocessing and embeddings are shared per `{virus}/{data_version}`. Datasets and models are per run in `runs/` subdirectories.
 - **Seed system**: Hierarchical — `master_seed` derives all process seeds. See `docs/SEED_SYSTEM.md`.
-- **Metrics**: `metrics.csv` carries F1 (binary + macro), precision, recall, AUC-ROC, AUC-PR, MCC, Brier, BCE loss. Early-stop options: `loss`, `f1`, `auc_roc`, `auc_pr`, `mcc`. Naming: snake_case identifiers are `auc_roc` / `auc_pr`; display strings are `AUC-ROC` / `AUC-PR`. Sklearn names `roc_auc_score` / `average_precision_score` are external and left alone. Train targets neg:pos = `neg_to_pos_ratio` (default 1.0). Under the coverage-first negative sampler val/test come out ~1.07–1.20x neg-heavy, because its coverage phase overshoots the ratio; under `negative_scope: within_fold` every split is exactly on ratio.
+- **Metric names**: Use `auc_roc` and `auc_pr` in code, and AUC-ROC and AUC-PR in figures and text. Keep the scikit-learn function names `roc_auc_score` and `average_precision_score`.
 - **Proteins**: `preprocess_flu.py` maps GTO replicon functions to short protein names. `conf/virus/flu.yaml` knows 20 of them; the 8 selected for modelling, one per segment, are PB2, PB1, PA, HA, NP, NA, M1, NS1. The rest (M2, NEP, PA-X, PB1-F2, ...) are spliced, frameshifted or alternative-start products and are not modelled.
-- **Sequence hashes**: `prot_hash = md5(prot_seq)`, `ctg_dna_hash = md5(ctg_dna_seq)`, `cds_dna_hash = md5(cds_dna_seq)`. In pair tables: `*_hash_a` / `*_hash_b`. Per-alphabet column/file names come from one source of truth — the `SCHEMA` registry in `src/utils/schema.py` (alphabet ∈ {`aa`, `nt_cds`, `nt_ctg`}). ESM-2 cache key uses `sha1(esm2_ready_seq)` (the cleaned column, not `prot_seq`; set at `compute_esm2_embeddings.py:55`, hashed at `esm2_utils.py:643`) — separate namespace, never joined back to `prot_hash`.
+- **Sequence hashes**: `prot_hash = md5(prot_seq)`, `ctg_dna_hash = md5(ctg_dna_seq)`, `cds_dna_hash = md5(cds_dna_seq)`. In pair tables: `*_hash_a` / `*_hash_b`. Per-alphabet column/file names come from one source of truth — the `SCHEMA` registry in `src/utils/schema.py` (alphabet ∈ {`aa`, `nt_cds`, `nt_ctg`}).
 - **Log messages**: No emojis. Use text prefixes: `ERROR:` (fatal), `WARNING:` (non-fatal), `Done.` (success).
 - **Reuse before you write**: before adding a helper, search the whole codebase for one that already does the job. Prefer one obvious implementation over a flexible one. Correctness > readability > efficiency.
 - **Function docstrings**: the first sentence (two at most) states what the function does; `Args:` and `Returns:` present and correct. Every claim checked against the code — never inferred from the function name or from memory. Lean, and current-state only (no account of how the function evolved).
