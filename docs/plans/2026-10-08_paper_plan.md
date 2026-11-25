@@ -1,6 +1,6 @@
-# Paper plan: influenza segment-pair classification
+# Methods-development record: influenza segment-pair classification
 
-**Status: IN PROGRESS**
+**Status: Superseded on 2026-11-24.** The [current paper plan](2026-11-24_paper_plan_v2.md) presents Task 2 first and derives Task 1 from its datasets. The sections below preserve the original design, results and status at the time.
 
 This plan is based on Jim's plan of 2026-10-08 (`plan-Jim-10-8-26-original.pdf`). That PDF is not
 tracked in the repo.

@@ -5,7 +5,7 @@ A dataset built by `scripts/run_allpairs_datasets.py` selects its positives and 
 once per schema pair. Restricting such a dataset to a single metadata group gives a narrower
 dataset whose pairs, labels and split assignments all come from that one build, so a model fitted
 on it and the model fitted on the whole population can be scored on identical test pairs. See
-`docs/plans/2026-10-08_paper_plan.md`.
+Task 1A in `docs/plans/2026-11-24_paper_plan_v2.md`.
 
 How?
 

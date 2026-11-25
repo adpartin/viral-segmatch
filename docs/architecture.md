@@ -13,8 +13,8 @@ in the same isolate. A negative pair combines sequences that were never observed
 in the study corpus. The label describes the available observations.
 
 The paper uses a LightGBM classifier with concatenated per-site codon features from the
-two coding sequences. The primary analysis uses aligned sites, and Task 1 also evaluated
-pinned-length features. See `docs/plans/2026-10-08_paper_plan.md` for the study design.
+two coding sequences. The primary analysis uses aligned sites, and the earlier standalone Task 1 evaluated
+pinned-length features. See `docs/plans/2026-11-24_paper_plan_v2.md` for the study design.
 
 ---
 
@@ -183,8 +183,8 @@ exception.
 
 ## Results for the paper plan
 
-`docs/results/` holds the hand-written results. These are the ones
-`docs/plans/2026-10-08_paper_plan.md` cites, by task:
+`docs/results/` holds the hand-written results. The October methods-development record
+`docs/plans/2026-10-08_paper_plan.md` cites the following reports by task:
 
 - **1. Establish the methods on `Human-H3N2-2024`**
   - `2026-09-07_cds_length_survey.md` — per-protein CDS completeness and length, corpus-wide and
@@ -209,7 +209,7 @@ and similar) live under `results/{virus}/{data_version}/runs/`, mirroring `data/
 
 ## Roadmap
 
-Current planning is in `docs/plans/2026-10-08_paper_plan.md` (Tasks 1–3). Open todos are in
+Current planning is in `docs/plans/2026-11-24_paper_plan_v2.md` (Tasks 1–3). Open todos are in
 `BACKLOG.md`; active and completed plans are in `docs/plans/`.
 
 ---
