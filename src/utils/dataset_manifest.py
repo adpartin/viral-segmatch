@@ -12,12 +12,17 @@ built, with the settings they were built with:
 - checksums of the site-feature cache files the datasets' fits will read.
 
 The manifest is written once and never changed afterwards.
+
+The module also holds what a split directory contains: `SPLIT_FILES`, `read_split_dirs`, and
+`read_pair_table_for_rewrite` for code that reads a pair table in order to write it back.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Optional
+
+import pandas as pd
 
 from src.utils.config_hydra import get_function_short_name_map
 from src.utils.experiment_spec import expected_n_folds, split_dir_names
@@ -50,6 +55,32 @@ def read_split_dirs(dataset_dir: Path) -> list:
         return ['.']
     raise ValueError(f"read_split_dirs: {dataset_dir} has neither cv_info.json nor "
                      f"train_pairs.csv; was the build interrupted?")
+
+
+def read_pair_table_for_rewrite(path: Path) -> pd.DataFrame:
+    """Read a saved pair table so that writing its rows back cannot change a value.
+
+    Code that filters or redraws a split writes the table out again, and pandas must not reformat
+    a value on the way through. With inferred types `ctg_a` and `ctg_b` come back as floats, so the
+    contig identifier `11320.955490` would be written back as `11320.95549`. Every column is read
+    as a string, except `label`, which callers and their audits compare with 0 and 1; as a string
+    column it would make `label == 0` select nothing and leave those audits with no rows to check.
+    Reading `'NA'` (Neuraminidase) as a string rather than NaN is the same rule CLAUDE.md states
+    for any CSV carrying protein names.
+
+    Code that only reads a pair table does not need this. `read_pairs` in
+    `src/analysis/metadata_group_report.py` lets pandas infer each column's type, which suits
+    analysis.
+
+    Args:
+        path: a `{train,val,test}_pairs.csv` of a built dataset.
+
+    Returns:
+        The table as written, with every column a string except `label`.
+    """
+    table = pd.read_csv(path, engine='python', dtype=str, keep_default_na=False, na_values=[''])
+    table['label'] = table['label'].astype(int)
+    return table
 
 
 def split_file_key(split_dir: str, name: str) -> str:

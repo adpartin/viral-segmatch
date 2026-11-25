@@ -34,6 +34,7 @@ from src.datasets._negative_sampling import (
     matched_balanced_usage_negatives,
 )
 from src.datasets.dataset_segment_pairs_v2 import balanced_sampler_name, compute_axis_flags
+from src.utils.dataset_manifest import read_pair_table_for_rewrite
 
 _SIDE_FIELDS = {
     'assembly_id': 'assembly_id', 'brc': 'brc_fea_id',
@@ -241,8 +242,7 @@ def main() -> None:
         parser.error(f'Output already exists: {args.output_root}')
 
     source = args.source_fold
-    train = pd.read_csv(source / 'train_pairs.csv', engine='python',
-                        keep_default_na=False, na_values=[''])
+    train = read_pair_table_for_rewrite(source / 'train_pairs.csv')
     cooccur = set(pd.read_csv(source / 'cooccurring_sequence_pairs.csv', usecols=['pair_key'],
                               keep_default_na=False, na_values=['']).pair_key)
     fixed_keys = set()

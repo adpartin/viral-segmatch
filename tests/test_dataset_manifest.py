@@ -10,6 +10,8 @@ Covers:
      site caches and with aligned site caches
   5. pair_token turns a pair label into the token used in names
   6. site_cache_files names the same cache files the trainer reads, in pinned and aligned mode
+  7. read_pair_table_for_rewrite writes a pair table back with its identifiers, 'NA' and labels
+     unchanged
 
 Run: python -m pytest tests/test_dataset_manifest.py
 """
@@ -32,6 +34,7 @@ from src.utils.dataset_manifest import (  # noqa: E402
     fold_count_failures,
     pair_cache_checksums,
     pair_token,
+    read_pair_table_for_rewrite,
     read_split_dirs,
     site_cache_files,
 )
@@ -64,6 +67,27 @@ def test_read_split_dirs(tmp_path):
     empty.mkdir()
     with pytest.raises(ValueError):
         read_split_dirs(empty)
+
+
+def test_pair_table_rewrite_keeps_values(tmp_path):
+    """A pair table read for rewriting must come back out byte-for-byte on its values.
+
+    `ctg_a` holds contig identifiers that look numeric, so inferred types would write
+    `11320.955490` back as `11320.95549`, and `func_a` holds `NA` for Neuraminidase, which a
+    default read turns into NaN.
+    """
+    source = tmp_path / 'train_pairs.csv'
+    source.write_text('pair_key,ctg_a,ctg_b,func_a,label\n'
+                      'k1,11320.955490,2044004.10,NA,1\n'
+                      'k2,11320.683010,11320.68301,Hemagglutinin precursor,0\n')
+    table = read_pair_table_for_rewrite(source)
+
+    assert list(table.func_a) == ['NA', 'Hemagglutinin precursor']
+    assert list(table.loc[table.label == 0, 'pair_key']) == ['k2']
+
+    rewritten = tmp_path / 'rewritten.csv'
+    table.to_csv(rewritten, index=False)
+    assert rewritten.read_text() == source.read_text()
 
 
 def test_checksums_and_changes(tmp_path):
