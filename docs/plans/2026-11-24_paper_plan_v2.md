@@ -27,7 +27,7 @@ The *population* contains the isolates selected by the dataset filters. Task 2 c
 
 An *eligible isolate* has a record kept by the alignment retention rule for both slots. *Unique positives* counts distinct `nt_cds` pair keys among eligible isolates. The pair key uses the two CDS nucleotide hashes, so different CDS sequences remain distinct even when they encode the same protein sequence. *Unique A* and *Unique B* count distinct CDS sequences in their respective slots among the unique positives. [Aligned codon features plan](2026-11-17_aligned_codon_features_plan.md)
 
-*HK selected* counts the largest set of positives in which each CDS sequence occurs at most once per slot, selected by Hopcroft–Karp (HK). Selection takes place across the wide population for each schema pair. When the same pair key occurs in several metadata groups, deduplication keeps one row. The source isolate in slot A of that row (`assembly_id_a`) determines the positive's metadata group. The *metadata group minimum* drops whole groups with fewer than 20 HK-selected positives. *Positives kept* counts the positives that enter the folds after this step.
+*HK selected* counts the largest set of positives in which each CDS sequence occurs at most once per slot, selected by Hopcroft–Karp (HK). Selection takes place across the wide population for each schema pair. When the same pair key occurs in several metadata groups, deduplication keeps one row. The source isolate in slot A of that row (`assembly_id_a`) determines the positive's metadata group. The *metadata group minimum* drops whole groups with fewer than 20 HK-selected positives. *Positives kept* counts the positives remaining after the metadata group minimum.
 
 The test folds and the validation split are stratified by metadata group. Within each split, matched balanced-usage negatives give one negative per positive. Both endpoints of each negative belong to the same metadata group. Each sequence used in a positive occurs once in a negative in the same slot and split. Observed pair keys from the whole corpus are excluded from the negative draw.
 
@@ -78,7 +78,7 @@ The columns through *HK selected* come from the capacity table. *Positives kept*
 
 ### Build status of the 28 datasets
 
-All 28 schema pairs completed five folds on 2026-11-25 at commit `f4409bb`. They were rebuilt on 2026-11-26 at commit `faa3f44`, which raised the LightGBM tree cap, because the training script requires the fits to run at the commit the datasets were built at. All 560 split files of the rebuild match the 2026-11-25 build byte for byte (15 pair tables and five blocking files per dataset). The only change in the resolved dataset configs is the tree cap. The audit of the rebuild reported zero failures across the 28 datasets, including the check for excluded groups in training, validation and test. Both manifests record a dirty working tree, because documentation edits were uncommitted. [Build manifest](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_manifest.json) · [Audit log](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_audit.log) · [2026-11-25 build manifest](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261125_193635_manifest.json)
+The November 26 build at commit `faa3f44` contains five folds for each of the 28 schema pairs. The audit reported zero failures across all 28 datasets, including the check for excluded groups in training, validation and test. [Build manifest](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_manifest.json) · [Audit log](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_audit.log)
 
 **Split feasibility.** The metadata group minimum remains 20. If a retained metadata group cannot supply valid matched negatives in any split, Task 2 excludes that group from all three splits of all five folds for that schema pair. Positives from the other groups keep their original fold and split assignments. [Glossary](../methods/glossary.md)
 
@@ -88,8 +88,6 @@ All 28 schema pairs completed five folds on 2026-11-25 at commit `f4409bb`. They
 | NP-M1 | Duck/H1N1/2014 | `fold_0` validation | 11,610 | 20 | 11,590 |
 
 These were the only two exclusions after the metadata group minimum. PB1-NP retained 79 of the 80 groups that passed the minimum. NP-M1 retained 75 of 76. [PB1-NP exclusion record](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_pb1_np/metadata_groups_infeasible.json) · [NP-M1 exclusion record](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_np_m1/metadata_groups_infeasible.json)
-
-The 2026-11-24 build stopped on those two validation splits and completed the other 26 datasets. Small validation groups were common in that run: 638 group draws had two positives across the 132 folds written. For all 26 completed datasets, the replacement manifest matches the earlier SHA-256 checksums for all 520 split files (15 pair tables and five blocking files per dataset). Across all 28 schema pairs, the only change in the resolved dataset configs was the added `on_infeasible_metadata_group: drop_group` setting. [Earlier build record](../results/2026-11-24_task2_28p_build_20261124_205806/README.md) · [Baseline verification](../results/2026-11-24_task2_28p_build_20261124_205806/baseline_verification.md)
 
 ### Performance per schema pair
 
@@ -128,11 +126,7 @@ There is one model per schema pair per fold. For the whole-population score, eac
 
 All 140 fits come from one training run at commit `faa3f44`. Rank schema pairs by mean test F1 macro. [Training run manifest](../../models/flu/July_2025/training_runs/task2_28p_aligned_codon_matched_20261126_101242_lgbm_20261126_103606/training_run_manifest.json) · [PB1-HA CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_20261126_103606/cv_summary.json)
 
-The PB1-HA pilot used the same test pairs with a 1,000-tree cap, and its five fits selected round 993 or 1,000. It obtained an F1 macro of 0.841 ± 0.004, and the 5,000-tree fits obtained 0.862 ± 0.006. The paired fold difference was +0.021 ± 0.003, and F1 macro rose in all five folds. AUC-ROC rose by 0.016 ± 0.001 and Brier fell by 0.020 ± 0.003. This measures the effect of the cap for PB1-HA only. [PB1-HA pilot CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_20261123_190333/cv_summary.json)
-
-For the metadata group breakdown, report positive and negative counts by schema pair, fold, split and group. Report F1 macro, precision, recall, AUC-ROC, AUC-PR and Brier on the held-out pairs within each group. Show the whole-population F1 macro matrix and the metadata group results with their test counts. Scores for groups represented in training answer how well the wide model performs *within* those groups. Task 3 addresses the separate question of performance in future years.
-
-The full PB1-HA report covers all 79 retained metadata groups. Its 395 group-by-fold test rows each have equal positive and negative counts. The other 115 test rows pool groups by host, subtype or year. [Counts by group, fold and split](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261123_183854_lgbm_20261123_190333_pb1_ha_metadata_report/metadata_group_counts.csv) · [Full PB1-HA test metrics](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261123_183854_lgbm_20261123_190333_pb1_ha_metadata_report/test_metrics_by_metadata.csv)
+The metadata group report covers all 28 schema pairs. It gives positive and negative counts by fold, split and metadata group, and test scores for each retained group. Show the whole-population F1 macro matrix and the group scores with their test counts. These scores measure performance within groups represented in training. Task 3 evaluates performance in future years. [Counts by group, fold and split](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_lgbm_20261126_103606_metadata_report/metadata_group_counts.csv) · [Test scores by metadata group](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_lgbm_20261126_103606_metadata_report/test_metrics_by_metadata.csv)
 
 ## Task 1A. Performance within Human/H3N2/2024
 
@@ -216,17 +210,13 @@ The narrow fits used the fitting rule of the wide fits: validation AUC-ROC with 
 
 The narrow model had a lower mean F1 macro than the wide model for 23 of the 28 schema pairs and a higher one for 5. It had the higher F1 macro in 42 of the 140 folds. It was lower in all five folds for nine schema pairs: HA-M1, HA-NS1, M1-NS1, NA-M1, NP-M1, NP-NS1, PA-HA, PA-NS1 and PB1-M1. It was higher in all five folds only for PB2-PA, by 0.029 ± 0.017. The largest mean difference was for PA-NS1, at −0.120 ± 0.025. These results cover one metadata group. The reported SD describes how much the paired difference varied across the five folds.
 
-### Earlier standalone Task 1
-
-The October plan records a separate Human/H3N2/2024 build with its own HK selection, folds and negative draws. The October pinned-length results and the November pinned-length versus aligned comparison are development results. Mean F1 macro over the 28 standalone schema pairs was 0.767 with pinned lengths and 0.769 with aligned codons. The standalone aligned PB1-HA dataset had 1,401 positives. Its test pairs differ from those in the derived Task 1A comparison. [Standalone Task 1 results](../results/2026-11-19_task1_aligned_codon_28p.md)
-
 ## Task 1B. Sensitivity to the sampling of training negatives
 
 Measure how much test performance and each test pair's predicted probability vary across training-negative draws. Within each derived Task 1A fold, draw 1 is the training-negative set inherited from Task 2. Nine further draws give ten in total. The training positives, validation pairs, test pairs and LightGBM seed are fixed across draws. Draw 1 supplies the narrow fit in the paired comparison above.
 
 For each schema pair and fold, report the mean and sample SD of test F1 macro across the ten draws. For each test pair, calculate the sample SD of its ten predicted probabilities. Report the median of those SDs separately for true positives and true negatives. The first statistic measures variation in test performance. The other two measure variation in individual predictions. All ten predictions for a given pair use the same test example.
 
-The ten-draw score table for the derived population is pending. Decide whether to report 1B for PB1-HA alone or for all 28 schema pairs. The standalone 1B table in the October plan describes the earlier datasets.
+The ten-draw score table for the derived population is pending. Decide whether to report 1B for PB1-HA alone or for all 28 schema pairs.
 
 ## Task 3. Test on future-year pairs
 
