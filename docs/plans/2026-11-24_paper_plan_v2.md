@@ -142,15 +142,44 @@ In both tasks, the classifier receives sequence features. The two endpoints shar
 
 The paired comparison asks how performance on these test pairs changes when other metadata groups are included in training and validation. Validation AUC-ROC determines the selected number of trees, so the validation population is part of the comparison. Training-set size and composition change together.
 
-### PB1-HA dataset and paired scores
+### Extracted datasets
 
-The five folds had the following split sizes. Across the five test folds, the derived dataset contains 1,305 distinct test positives. [PB1-HA extraction record](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261123_183854_pb1_ha_human_h3n2_2024/extraction_info.json)
+Human/H3N2/2024 datasets were extracted from the Task 2 folds for all 28 schema pairs. Across the five test folds, the number of distinct positives per schema pair ranged from 365 for M1-NS1 to 1,911 for PB2-HA. The PB1-HA extraction matches the pilot extraction byte for byte in all 20 split files. Only PB1-HA has narrow fits, so the comparison for the other 27 schema pairs is pending. [Extraction log](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_human_h3n2_2024_extraction.log)
 
-| Split in one fold | Positives | Negatives | Total pairs |
-|---|---:|---:|---:|
-| Training | 913 | 913 | 1,826 |
-| Validation | 131 | 131 | 262 |
-| Test | 261 | 261 | 522 |
+*Positives in folds* counts the Human/H3N2/2024 positives across the five test folds. Each positive occurs in one test fold. The last three columns give positive counts within one fold, with the minimum and maximum shown when counts vary. Every split has the same number of negatives as positives.
+
+| # | Pair ID | Schema pair | Positives in folds | Training positives per fold | Validation positives per fold | Test positives per fold |
+|---:|---|---|---:|---:|---:|---:|
+| 1 | 1-2 | PB2-PB1 | 1,325 | 927–928 | 132–133 | 265 |
+| 2 | 1-3 | PB2-PA | 1,895 | 1,326 | 190 | 379 |
+| 3 | 1-4 | PB2-HA | 1,911 | 1,337–1,338 | 191 | 382–383 |
+| 4 | 1-5 | PB2-NP | 1,381 | 966–967 | 138 | 276–277 |
+| 5 | 1-6 | PB2-NA | 1,609 | 1,126–1,127 | 161 | 321–322 |
+| 6 | 1-7 | PB2-M1 | 623 | 436–437 | 62 | 124–125 |
+| 7 | 1-8 | PB2-NS1 | 871 | 609–610 | 87 | 174–175 |
+| 8 | 2-3 | PB1-PA | 1,257 | 879–880 | 126 | 251–252 |
+| 9 | 2-4 | PB1-HA | 1,305 | 913 | 131 | 261 |
+| 10 | 2-5 | PB1-NP | 963 | 674–675 | 96 | 192–193 |
+| 11 | 2-6 | PB1-NA | 1,140 | 798 | 114 | 228 |
+| 12 | 2-7 | PB1-M1 | 432 | 302–303 | 43 | 86–87 |
+| 13 | 2-8 | PB1-NS1 | 619 | 433–434 | 62 | 123–124 |
+| 14 | 3-4 | PA-HA | 1,793 | 1,255–1,256 | 179 | 358–359 |
+| 15 | 3-5 | PA-NP | 1,325 | 927 | 133 | 265 |
+| 16 | 3-6 | PA-NA | 1,567 | 1,096–1,097 | 157 | 313–314 |
+| 17 | 3-7 | PA-M1 | 595 | 416 | 60 | 119 |
+| 18 | 3-8 | PA-NS1 | 826 | 578 | 82–83 | 165–166 |
+| 19 | 4-5 | HA-NP | 1,333 | 933–934 | 133 | 266–267 |
+| 20 | 4-6 | HA-NA | 1,555 | 1,088 | 156 | 311 |
+| 21 | 4-7 | HA-M1 | 610 | 427 | 61 | 122 |
+| 22 | 4-8 | HA-NS1 | 836 | 584–585 | 84 | 167–168 |
+| 23 | 5-6 | NP-NA | 1,163 | 814–815 | 116 | 232–233 |
+| 24 | 5-7 | NP-M1 | 531 | 371–372 | 53 | 106–107 |
+| 25 | 5-8 | NP-NS1 | 709 | 496–497 | 71 | 141–142 |
+| 26 | 6-7 | NA-M1 | 550 | 385 | 55 | 110 |
+| 27 | 6-8 | NA-NS1 | 738 | 516–517 | 74 | 147–148 |
+| 28 | 7-8 | M1-NS1 | 365 | 255 | 37 | 73 |
+
+### PB1-HA paired scores
 
 In each fold, the two models scored the same 522 test pairs, with matching pair keys and labels. The wide column below uses only its Human/H3N2/2024 predictions. Differences were calculated within each fold before taking the mean and sample SD. [Narrow CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_human_h3n2_2024_20261124_120000/cv_summary.json) · [Five-row extract for Human/H3N2/2024](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261123_183854_lgbm_20261123_190333_pb1_ha_human_h3n2_2024/test_metrics_by_metadata.csv)
 
