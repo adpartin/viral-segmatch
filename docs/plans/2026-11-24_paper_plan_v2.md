@@ -144,7 +144,7 @@ The paired comparison asks how performance on these test pairs changes when othe
 
 ### Extracted datasets
 
-Human/H3N2/2024 datasets were extracted from the Task 2 folds for all 28 schema pairs. Across the five test folds, the number of distinct positives per schema pair ranged from 365 for M1-NS1 to 1,911 for PB2-HA. The PB1-HA extraction matches the pilot extraction byte for byte in all 20 split files. Only PB1-HA has narrow fits, so the comparison for the other 27 schema pairs is pending. [Extraction log](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_human_h3n2_2024_extraction.log)
+Human/H3N2/2024 datasets were extracted from the Task 2 folds for all 28 schema pairs. Across the five test folds, the number of distinct positives per schema pair ranged from 365 for M1-NS1 to 1,911 for PB2-HA. The PB1-HA extraction matches the pilot extraction byte for byte in all 20 split files. [Extraction log](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_human_h3n2_2024_extraction.log)
 
 *Positives in folds* counts the Human/H3N2/2024 positives across the five test folds. Each positive occurs in one test fold. The last three columns give positive counts within one fold, with the minimum and maximum shown when counts vary. Every split has the same number of negatives as positives.
 
@@ -179,24 +179,57 @@ Human/H3N2/2024 datasets were extracted from the Task 2 folds for all 28 schema 
 | 27 | 6-8 | NA-NS1 | 738 | 516–517 | 74 | 147–148 |
 | 28 | 7-8 | M1-NS1 | 365 | 255 | 37 | 73 |
 
+### Paired scores for all 28 schema pairs
+
+The narrow fits used the fitting rule of the wide fits: validation AUC-ROC with 50 rounds of early-stopping patience, a 5,000-tree cap and a decision threshold of 0.5. They selected 2 to 859 trees, with a median of 201. In every fold of every schema pair, the two models scored the same test pairs, with matching pair keys and labels. The wide scores use only the wide model's Human/H3N2/2024 test predictions. Differences were calculated within each fold, narrow minus wide, before taking the mean and sample SD. [Narrow training run manifest](../../models/flu/July_2025/training_runs/task2_28p_aligned_codon_matched_20261126_101242_human_h3n2_2024_lgbm_20261126_114224/training_run_manifest.json) · [Wide test metrics by metadata group](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_lgbm_20261126_103606_metadata_report/test_metrics_by_metadata.csv) · [Paired fold scores](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_lgbm_20261126_103606_metadata_report/task1a_paired_folds.csv) · [Paired summary, all six metrics](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_lgbm_20261126_103606_metadata_report/task1a_paired_summary.csv)
+
+| # | Pair ID | Schema pair | Narrow F1 macro | Wide F1 macro | F1 macro difference | Folds with narrow higher | AUC-ROC difference |
+|---:|---|---|---:|---:|---:|---:|---:|
+| 1 | 1-2 | PB2-PB1 | 0.888 ± 0.016 | 0.890 ± 0.021 | −0.002 ± 0.023 | 3 | −0.008 ± 0.008 |
+| 2 | 1-3 | PB2-PA | 0.832 ± 0.014 | 0.802 ± 0.011 | +0.029 ± 0.017 | 5 | +0.017 ± 0.007 |
+| 3 | 1-4 | PB2-HA | 0.891 ± 0.015 | 0.888 ± 0.012 | +0.003 ± 0.010 | 3 | −0.002 ± 0.008 |
+| 4 | 1-5 | PB2-NP | 0.815 ± 0.020 | 0.820 ± 0.012 | −0.005 ± 0.021 | 2 | −0.006 ± 0.013 |
+| 5 | 1-6 | PB2-NA | 0.871 ± 0.018 | 0.879 ± 0.010 | −0.008 ± 0.021 | 1 | −0.012 ± 0.012 |
+| 6 | 1-7 | PB2-M1 | 0.752 ± 0.041 | 0.767 ± 0.032 | −0.015 ± 0.030 | 2 | −0.013 ± 0.027 |
+| 7 | 1-8 | PB2-NS1 | 0.696 ± 0.042 | 0.708 ± 0.030 | −0.012 ± 0.057 | 3 | −0.011 ± 0.033 |
+| 8 | 2-3 | PB1-PA | 0.844 ± 0.025 | 0.840 ± 0.017 | +0.004 ± 0.024 | 2 | +0.001 ± 0.019 |
+| 9 | 2-4 | PB1-HA | 0.899 ± 0.014 | 0.900 ± 0.017 | −0.002 ± 0.014 | 3 | −0.001 ± 0.006 |
+| 10 | 2-5 | PB1-NP | 0.807 ± 0.051 | 0.807 ± 0.019 | +0.001 ± 0.057 | 3 | −0.002 ± 0.035 |
+| 11 | 2-6 | PB1-NA | 0.872 ± 0.020 | 0.880 ± 0.014 | −0.007 ± 0.013 | 1 | −0.010 ± 0.005 |
+| 12 | 2-7 | PB1-M1 | 0.696 ± 0.021 | 0.748 ± 0.013 | −0.052 ± 0.021 | 0 | −0.057 ± 0.012 |
+| 13 | 2-8 | PB1-NS1 | 0.700 ± 0.035 | 0.738 ± 0.032 | −0.038 ± 0.050 | 1 | −0.035 ± 0.034 |
+| 14 | 3-4 | PA-HA | 0.834 ± 0.003 | 0.849 ± 0.015 | −0.015 ± 0.014 | 0 | −0.001 ± 0.010 |
+| 15 | 3-5 | PA-NP | 0.768 ± 0.048 | 0.772 ± 0.009 | −0.003 ± 0.055 | 3 | −0.007 ± 0.037 |
+| 16 | 3-6 | PA-NA | 0.807 ± 0.028 | 0.831 ± 0.012 | −0.024 ± 0.032 | 1 | −0.021 ± 0.027 |
+| 17 | 3-7 | PA-M1 | 0.649 ± 0.052 | 0.676 ± 0.023 | −0.027 ± 0.042 | 1 | −0.027 ± 0.033 |
+| 18 | 3-8 | PA-NS1 | 0.579 ± 0.016 | 0.699 ± 0.030 | −0.120 ± 0.025 | 0 | −0.106 ± 0.036 |
+| 19 | 4-5 | HA-NP | 0.813 ± 0.036 | 0.806 ± 0.009 | +0.007 ± 0.033 | 4 | +0.003 ± 0.020 |
+| 20 | 4-6 | HA-NA | 0.883 ± 0.025 | 0.891 ± 0.012 | −0.007 ± 0.019 | 2 | −0.004 ± 0.010 |
+| 21 | 4-7 | HA-M1 | 0.711 ± 0.056 | 0.769 ± 0.038 | −0.058 ± 0.043 | 0 | −0.037 ± 0.041 |
+| 22 | 4-8 | HA-NS1 | 0.682 ± 0.032 | 0.744 ± 0.015 | −0.063 ± 0.040 | 0 | −0.064 ± 0.043 |
+| 23 | 5-6 | NP-NA | 0.791 ± 0.038 | 0.812 ± 0.018 | −0.022 ± 0.026 | 1 | −0.018 ± 0.019 |
+| 24 | 5-7 | NP-M1 | 0.610 ± 0.056 | 0.661 ± 0.061 | −0.051 ± 0.045 | 0 | −0.041 ± 0.039 |
+| 25 | 5-8 | NP-NS1 | 0.611 ± 0.044 | 0.660 ± 0.025 | −0.049 ± 0.038 | 0 | −0.047 ± 0.026 |
+| 26 | 6-7 | NA-M1 | 0.732 ± 0.024 | 0.776 ± 0.026 | −0.043 ± 0.020 | 0 | −0.035 ± 0.029 |
+| 27 | 6-8 | NA-NS1 | 0.691 ± 0.031 | 0.716 ± 0.021 | −0.026 ± 0.034 | 1 | −0.029 ± 0.019 |
+| 28 | 7-8 | M1-NS1 | 0.575 ± 0.040 | 0.668 ± 0.018 | −0.093 ± 0.041 | 0 | −0.065 ± 0.057 |
+
+The narrow model had a lower mean F1 macro than the wide model for 23 of the 28 schema pairs and a higher one for 5. It had the higher F1 macro in 42 of the 140 folds. It was lower in all five folds for nine schema pairs: HA-M1, HA-NS1, M1-NS1, NA-M1, NP-M1, NP-NS1, PA-HA, PA-NS1 and PB1-M1. It was higher in all five folds only for PB2-PA, by 0.029 ± 0.017. The largest mean difference was for PA-NS1, at −0.120 ± 0.025. These results cover one metadata group. With five folds per schema pair, a difference within about one SD of zero does not favor either model.
+
 ### PB1-HA paired scores
-
-In each fold, the two models scored the same 522 test pairs, with matching pair keys and labels. The wide column below uses only its Human/H3N2/2024 predictions. Differences were calculated within each fold before taking the mean and sample SD. [Narrow CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_human_h3n2_2024_20261124_120000/cv_summary.json) · [Five-row extract for Human/H3N2/2024](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261123_183854_lgbm_20261123_190333_pb1_ha_human_h3n2_2024/test_metrics_by_metadata.csv)
-
-To reproduce the wide column, use the joint Human/H3N2/2024 rows for PB1-HA from the full PB1-HA test metrics above. Match the five fold IDs to the narrow CV summary for the paired differences. [Report](../../src/analysis/metadata_group_report.py) · [Wide training run manifest](../../models/flu/July_2025/training_runs/task2_28p_aligned_codon_matched_20261123_183854_lgbm_20261123_190333/training_run_manifest.json)
 
 | Metric | Narrow model | Wide model on Human/H3N2/2024 | Paired difference (narrow minus wide) |
 |---|---:|---:|---:|
-| F1 macro | 0.8986 ± 0.0143 | 0.8545 ± 0.0121 | +0.0441 ± 0.0153 |
-| Precision | 0.8647 ± 0.0207 | 0.7981 ± 0.0136 | +0.0666 ± 0.0134 |
-| Recall | 0.9464 ± 0.0197 | 0.9533 ± 0.0074 | −0.0069 ± 0.0267 |
-| AUC-ROC | 0.9476 ± 0.0063 | 0.9310 ± 0.0069 | +0.0166 ± 0.0066 |
-| AUC-PR | 0.9250 ± 0.0103 | 0.9095 ± 0.0128 | +0.0155 ± 0.0138 |
-| Brier | 0.1049 ± 0.0251 | 0.1446 ± 0.0055 | −0.0397 ± 0.0226 |
+| F1 macro | 0.8986 ± 0.0143 | 0.9003 ± 0.0165 | −0.0017 ± 0.0136 |
+| Precision | 0.8647 ± 0.0207 | 0.8531 ± 0.0174 | +0.0116 ± 0.0070 |
+| Recall | 0.9464 ± 0.0197 | 0.9686 ± 0.0221 | −0.0222 ± 0.0373 |
+| AUC-ROC | 0.9476 ± 0.0063 | 0.9482 ± 0.0056 | −0.0006 ± 0.0060 |
+| AUC-PR | 0.9250 ± 0.0103 | 0.9233 ± 0.0108 | +0.0017 ± 0.0128 |
+| Brier | 0.1049 ± 0.0251 | 0.0919 ± 0.0096 | +0.0129 ± 0.0183 |
 
-The narrow model had higher F1 macro in all five folds. At the common threshold of 0.5 it made 194 false positives and 70 false negatives across the five folds. The wide model made 315 false positives and 61 false negatives on those same pairs. AUC-PR summarizes ranking across thresholds and also favored the narrow model on average. The difference in AUC-PR cannot be used to apportion the difference in F1 macro.
+In each fold, the two models scored the same 522 test pairs. At the 0.5 threshold, the narrow model made 194 false positives and 70 false negatives across the five folds. The wide model made 218 false positives and 41 false negatives. [Narrow CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_human_h3n2_2024_20261126_114224/cv_summary.json)
 
-Both arms used the same tree cap. The narrow fits selected 115–418 trees. All five wide fits reached the cap, with four selecting round 1,000 and one selecting round 993. The effect of the cap on the paired scores is unknown. These results cover one schema pair and one metadata group.
+The pilot comparison used a wide model with a 1,000-tree cap, whose five fits selected round 993 or 1,000. Against it, the narrow model had a paired F1 macro difference of +0.0441 ± 0.0153 and was higher in all five folds. Against the 5,000-tree wide fits, the difference is −0.0017 ± 0.0136, and the narrow model was higher in three folds. The narrow fits are identical in both comparisons. The two wide runs read byte-identical split files with unchanged training code, and their fit configs differ only in the tree cap and in the dataset builder's `on_infeasible_metadata_group` setting, which the fits do not read. The pilot's advantage for the narrow model therefore came from the cap on the wide model. [Pilot narrow CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_human_h3n2_2024_20261124_120000/cv_summary.json) · [Pilot wide extract for Human/H3N2/2024](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261123_183854_lgbm_20261123_190333_pb1_ha_human_h3n2_2024/test_metrics_by_metadata.csv)
 
 ### Earlier standalone Task 1
 
