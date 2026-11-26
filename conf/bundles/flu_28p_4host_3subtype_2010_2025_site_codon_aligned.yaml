@@ -9,7 +9,8 @@
 # named flu_28p_4host_aligned_codon_<pair>.
 # Inheritance: flu_28p_human_h3n2_2024_site_codon_aligned -> this file -> children.
 #
-# This file sets the population and the metadata group minimum. Everything else comes from the
+# This file sets the population, the metadata group minimum, the handling of unmatchable metadata
+# groups and the LightGBM tree cap. Everything else comes from the
 # Task 1 aligned master: the 8 proteins, the nt_cds pair key, Hopcroft-Karp positive selection,
 # matched balanced-usage negatives with exact years, the alignment directories and the feature
 # settings. The bundles keep the inherited 4-fold setting, and the experiment spec sets 5 folds.
@@ -34,3 +35,9 @@ dataset:
   # reproduces an observed pair. Such a group is removed from every fold and split instead of
   # stopping the build, and is listed in metadata_groups_infeasible.json.
   on_infeasible_metadata_group: drop_group
+
+baseline_lgbm:
+  # The tree cap. Early stopping on validation AUC-ROC is meant to set the tree count. The five
+  # PB1-HA fits on this population with the 1,000-tree default selected round 993 or 1,000, so
+  # there the cap set it.
+  n_estimators: 5000
