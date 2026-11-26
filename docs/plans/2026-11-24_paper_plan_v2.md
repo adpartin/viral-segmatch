@@ -144,7 +144,7 @@ The paired comparison asks how performance on these test pairs changes when othe
 
 ### Extracted datasets
 
-Human/H3N2/2024 datasets were extracted from the Task 2 folds for all 28 schema pairs. Across the five test folds, the number of distinct positives per schema pair ranged from 365 for M1-NS1 to 1,911 for PB2-HA. The PB1-HA extraction matches the pilot extraction byte for byte in all 20 split files. [Extraction log](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_human_h3n2_2024_extraction.log)
+Human/H3N2/2024 datasets were extracted from the Task 2 folds for all 28 schema pairs. Across the five test folds, the number of distinct positives per schema pair ranged from 365 for M1-NS1 to 1,911 for PB2-HA. All 140 narrow fits completed. [Extraction log](../../data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261126_101242_human_h3n2_2024_extraction.log)
 
 *Positives in folds* counts the Human/H3N2/2024 positives across the five test folds. Each positive occurs in one test fold. The last three columns give positive counts within one fold, with the minimum and maximum shown when counts vary. Every split has the same number of negatives as positives.
 
@@ -214,22 +214,7 @@ The narrow fits used the fitting rule of the wide fits: validation AUC-ROC with 
 | 27 | 6-8 | NA-NS1 | 0.691 ± 0.031 | 0.716 ± 0.021 | −0.026 ± 0.034 | 1 | −0.029 ± 0.019 |
 | 28 | 7-8 | M1-NS1 | 0.575 ± 0.040 | 0.668 ± 0.018 | −0.093 ± 0.041 | 0 | −0.065 ± 0.057 |
 
-The narrow model had a lower mean F1 macro than the wide model for 23 of the 28 schema pairs and a higher one for 5. It had the higher F1 macro in 42 of the 140 folds. It was lower in all five folds for nine schema pairs: HA-M1, HA-NS1, M1-NS1, NA-M1, NP-M1, NP-NS1, PA-HA, PA-NS1 and PB1-M1. It was higher in all five folds only for PB2-PA, by 0.029 ± 0.017. The largest mean difference was for PA-NS1, at −0.120 ± 0.025. These results cover one metadata group. With five folds per schema pair, a difference within about one SD of zero does not favor either model.
-
-### PB1-HA paired scores
-
-| Metric | Narrow model | Wide model on Human/H3N2/2024 | Paired difference (narrow minus wide) |
-|---|---:|---:|---:|
-| F1 macro | 0.8986 ± 0.0143 | 0.9003 ± 0.0165 | −0.0017 ± 0.0136 |
-| Precision | 0.8647 ± 0.0207 | 0.8531 ± 0.0174 | +0.0116 ± 0.0070 |
-| Recall | 0.9464 ± 0.0197 | 0.9686 ± 0.0221 | −0.0222 ± 0.0373 |
-| AUC-ROC | 0.9476 ± 0.0063 | 0.9482 ± 0.0056 | −0.0006 ± 0.0060 |
-| AUC-PR | 0.9250 ± 0.0103 | 0.9233 ± 0.0108 | +0.0017 ± 0.0128 |
-| Brier | 0.1049 ± 0.0251 | 0.0919 ± 0.0096 | +0.0129 ± 0.0183 |
-
-In each fold, the two models scored the same 522 test pairs. At the 0.5 threshold, the narrow model made 194 false positives and 70 false negatives across the five folds. The wide model made 218 false positives and 41 false negatives. [Narrow CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_human_h3n2_2024_20261126_114224/cv_summary.json)
-
-The pilot comparison used a wide model with a 1,000-tree cap, whose five fits selected round 993 or 1,000. Against it, the narrow model had a paired F1 macro difference of +0.0441 ± 0.0153 and was higher in all five folds. Against the 5,000-tree wide fits, the difference is −0.0017 ± 0.0136, and the narrow model was higher in three folds. The narrow fits are identical in both comparisons. The two wide runs read byte-identical split files with unchanged training code, and their fit configs differ only in the tree cap and in the dataset builder's `on_infeasible_metadata_group` setting, which the fits do not read. The pilot's advantage for the narrow model therefore came from the cap on the wide model. [Pilot narrow CV summary](../../models/flu/July_2025/cv_runs/cv_flu_28p_pb1_ha_codon_aligned_4host_human_h3n2_2024_20261124_120000/cv_summary.json) · [Pilot wide extract for Human/H3N2/2024](../../results/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261123_183854_lgbm_20261123_190333_pb1_ha_human_h3n2_2024/test_metrics_by_metadata.csv)
+The narrow model had a lower mean F1 macro than the wide model for 23 of the 28 schema pairs and a higher one for 5. It had the higher F1 macro in 42 of the 140 folds. It was lower in all five folds for nine schema pairs: HA-M1, HA-NS1, M1-NS1, NA-M1, NP-M1, NP-NS1, PA-HA, PA-NS1 and PB1-M1. It was higher in all five folds only for PB2-PA, by 0.029 ± 0.017. The largest mean difference was for PA-NS1, at −0.120 ± 0.025. These results cover one metadata group. The reported SD describes how much the paired difference varied across the five folds.
 
 ### Earlier standalone Task 1
 
@@ -241,7 +226,7 @@ Measure how much test performance and each test pair's predicted probability var
 
 For each schema pair and fold, report the mean and sample SD of test F1 macro across the ten draws. For each test pair, calculate the sample SD of its ten predicted probabilities. Report the median of those SDs separately for true positives and true negatives. The first statistic measures variation in test performance. The other two measure variation in individual predictions. All ten predictions for a given pair use the same test example.
 
-The ten-draw score table for the derived population is pending. Decide whether to report 1B for PB1-HA alone or for all 28 schema pairs as their derived datasets become available. The standalone 1B table in the October plan describes the earlier datasets.
+The ten-draw score table for the derived population is pending. Decide whether to report 1B for PB1-HA alone or for all 28 schema pairs. The standalone 1B table in the October plan describes the earlier datasets.
 
 ## Task 3. Test on future-year pairs
 
