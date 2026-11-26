@@ -371,6 +371,116 @@ def _one_use_matching(a_hashes: list, b_hashes: list, blocked: dict,
     return partner
 
 
+def _matched_groups_of_split(split_pos: pd.DataFrame, isolate_to_group: dict, hash_col: str,
+                             split_name: str) -> dict:
+    """The row positions and per-slot hashes of each metadata group in one split.
+
+    Groups come back in the order `sorted(..., key=str)` gives, so a caller that draws per group
+    offers its candidates in that order.
+
+    Args:
+        split_pos: this split's positive rows, in `_PAIR_COLUMNS`.
+        isolate_to_group: assembly_id -> metadata group tuple, from `build_isolate_cells`.
+        hash_col: the alphabet's per-slot hash column (aa: `prot_hash`).
+        split_name: the split's name, used in error messages only.
+
+    Returns:
+        group -> `(row positions, slot-a hashes, slot-b hashes)`, the three in the same row order.
+
+    Raises:
+        ValueError: a positive's two sides are different isolates, an isolate has no metadata
+            group, a group holds more positives than the assignment handles, or a group's
+            positives do not hold one sequence per slot each.
+    """
+    ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'
+    aid_a = split_pos['assembly_id_a'].astype(str)
+    aid_b = split_pos['assembly_id_b'].astype(str)
+    crossed = aid_a != aid_b
+    if crossed.any():
+        examples = list(zip(aid_a[crossed].head(3), aid_b[crossed].head(3)))
+        raise ValueError(
+            f"_matched_groups_of_split: the {split_name} split has {int(crossed.sum()):,} "
+            f"positives whose two sides are different isolates, for example {examples}. A "
+            f"positive's metadata group is the group of the isolate that carries both sequences.")
+    groups = aid_a.map(isolate_to_group)
+    ungrouped = groups.isna()
+    if ungrouped.any():
+        raise ValueError(
+            f"_matched_groups_of_split: {int(ungrouped.sum()):,} positives of the "
+            f"{split_name} split have an isolate with no metadata group, for example "
+            f"{list(aid_a[ungrouped].head(3))}.")
+
+    rows_by_group: dict = {}
+    for position, group in enumerate(groups):
+        rows_by_group.setdefault(group, []).append(position)
+
+    a_all = split_pos[ha_col].astype(str).to_numpy()
+    b_all = split_pos[hb_col].astype(str).to_numpy()
+    per_group = {}
+    for group in sorted(rows_by_group, key=str):
+        positions = rows_by_group[group]
+        n = len(positions)
+        a_hashes = [a_all[p] for p in positions]
+        b_hashes = [b_all[p] for p in positions]
+        if n > _MAX_MATCHED_GROUP_SIZE:
+            raise ValueError(
+                f"_matched_groups_of_split: group {group} has {n:,} positives in the "
+                f"{split_name} split, above the {_MAX_MATCHED_GROUP_SIZE:,} this assignment "
+                f"handles.")
+        if len(set(a_hashes)) != n or len(set(b_hashes)) != n:
+            raise ValueError(
+                f"_matched_groups_of_split: group {group} has {n:,} positives in the "
+                f"{split_name} split but {len(set(a_hashes)):,} slot-a and "
+                f"{len(set(b_hashes)):,} slot-b sequences. One negative use per sequence needs "
+                f"one positive per sequence in each slot, which "
+                f"dataset.positive_pair_selection.method='hopcroft_karp' produces.")
+        per_group[group] = (positions, a_hashes, b_hashes)
+    return per_group
+
+
+def infeasible_matched_groups(
+    split_pos: pd.DataFrame,
+    cooccur: set,
+    isolate_to_group: dict, *,
+    hash_col: str = 'prot_hash',
+    split_name: str = '') -> list:
+    """The metadata groups of one split whose matched negatives cannot be drawn.
+
+    A group is reported when it holds fewer than 2 positives in the split, which leaves it no
+    partner inside its own group, or when no one-to-one assignment of its sequences avoids every
+    observed pair. The verdict does not depend on a seed, because `_one_use_matching` returns an
+    assignment whenever one exists. It also ignores negatives drawn earlier in the same fold,
+    which is exact when each sequence holds one positive per slot across the dataset: a group's
+    hashes then appear in no other group and in no other split of that fold, so an earlier draw
+    can never block them. `_drop_infeasible_metadata_groups` checks that condition before calling
+    this.
+
+    Args:
+        split_pos: this split's positive rows, in `_PAIR_COLUMNS`.
+        cooccur: canonical pair_keys of all observed positives; an assignment avoids them.
+        isolate_to_group: assembly_id -> metadata group tuple, from `build_isolate_cells`.
+        hash_col: the alphabet's per-slot hash column (aa: `prot_hash`).
+        split_name: the split's name, used in error messages only.
+
+    Returns:
+        The groups with no valid assignment, in the order `_matched_groups_of_split` gives.
+
+    Raises:
+        ValueError: whatever `_matched_groups_of_split` raises.
+    """
+    rng = np.random.RandomState(0)  # the candidate order cannot change the verdict
+    infeasible = []
+    per_group = _matched_groups_of_split(split_pos, isolate_to_group, hash_col, split_name)
+    for group, (positions, a_hashes, b_hashes) in per_group.items():
+        if len(positions) < 2:
+            infeasible.append(group)
+            continue
+        blocked = _blocked_partners(cooccur, set(), a_hashes, b_hashes)
+        if _one_use_matching(a_hashes, b_hashes, blocked, rng) is None:
+            infeasible.append(group)
+    return infeasible
+
+
 def matched_balanced_usage_negatives(
     split_pos: pd.DataFrame,
     cooccur: set,
@@ -409,57 +519,22 @@ def matched_balanced_usage_negatives(
         ValueError: a positive's two sides are different isolates, an isolate has no metadata
             group, a group's positives do not have one sequence per slot each, a group is too
             small or too large to assign, or a group has no one-to-one assignment.
+            `infeasible_matched_groups` reports the last two without raising, for a builder that
+            excludes such a group instead of stopping.
     """
     ha_col, hb_col = f'{hash_col}_a', f'{hash_col}_b'
     if seen is None:
         seen = set()
 
-    aid_a = split_pos['assembly_id_a'].astype(str)
-    aid_b = split_pos['assembly_id_b'].astype(str)
-    crossed = aid_a != aid_b
-    if crossed.any():
-        examples = list(zip(aid_a[crossed].head(3), aid_b[crossed].head(3)))
-        raise ValueError(
-            f"matched_balanced_usage_negatives: the {split_name} split has {int(crossed.sum()):,} "
-            f"positives whose two sides are different isolates, for example {examples}. A "
-            f"positive's metadata group is the group of the isolate that carries both sequences.")
-    groups = aid_a.map(isolate_to_group)
-    ungrouped = groups.isna()
-    if ungrouped.any():
-        raise ValueError(
-            f"matched_balanced_usage_negatives: {int(ungrouped.sum()):,} positives of the "
-            f"{split_name} split have an isolate with no metadata group, for example "
-            f"{list(aid_a[ungrouped].head(3))}.")
-
-    rows_by_group: dict = {}
-    for position, group in enumerate(groups):
-        rows_by_group.setdefault(group, []).append(position)
-
     rng = np.random.RandomState(seed)
-    a_all = split_pos[ha_col].astype(str).to_numpy()
-    b_all = split_pos[hb_col].astype(str).to_numpy()
     rows_a, rows_b, audit = [], [], []
-    for group in sorted(rows_by_group, key=str):
-        positions = rows_by_group[group]
+    per_group = _matched_groups_of_split(split_pos, isolate_to_group, hash_col, split_name)
+    for group, (positions, a_hashes, b_hashes) in per_group.items():
         n = len(positions)
-        a_hashes = [a_all[p] for p in positions]
-        b_hashes = [b_all[p] for p in positions]
         if n < 2:
             raise ValueError(
                 f"matched_balanced_usage_negatives: group {group} has {n} positive in the "
                 f"{split_name} split, so it has no possible negative partner within its group.")
-        if n > _MAX_MATCHED_GROUP_SIZE:
-            raise ValueError(
-                f"matched_balanced_usage_negatives: group {group} has {n:,} positives in the "
-                f"{split_name} split, above the {_MAX_MATCHED_GROUP_SIZE:,} this assignment "
-                f"handles.")
-        if len(set(a_hashes)) != n or len(set(b_hashes)) != n:
-            raise ValueError(
-                f"matched_balanced_usage_negatives: group {group} has {n:,} positives in the "
-                f"{split_name} split but {len(set(a_hashes)):,} slot-a and "
-                f"{len(set(b_hashes)):,} slot-b sequences. One negative use per sequence needs "
-                f"one positive per sequence in each slot, which "
-                f"dataset.positive_pair_selection.method='hopcroft_karp' produces.")
         blocked = _blocked_partners(cooccur, seen, a_hashes, b_hashes)
         partner = _one_use_matching(a_hashes, b_hashes, blocked, rng)
         if partner is None:

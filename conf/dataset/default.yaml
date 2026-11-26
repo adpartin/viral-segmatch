@@ -58,6 +58,16 @@ positive_pair_selection:
 # group. The dropped groups are written to metadata_groups_dropped.json.
 min_metadata_group_positives: null
 
+# What happens when a metadata group has no valid matched negative assignment in some split: the
+# sampler needs a one-to-one assignment of the group's sequences that reproduces no observed pair,
+# and a group can pass min_metadata_group_positives and still have none.
+#   - 'error' (default): the sampler raises and the build stops.
+#   - 'drop_group': that group is removed from all three splits of every fold and the build goes
+#       on. Every other positive keeps the fold and split it was assigned, and the removed groups
+#       are written to metadata_groups_infeasible.json. Needs min_metadata_group_positives, whose
+#       groups are the ones it removes.
+on_infeasible_metadata_group: error
+
 
 # Dataset splitting parameters
 neg_to_pos_ratio: 1.0  # Ratio of negative to positive pairs

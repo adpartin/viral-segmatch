@@ -1,0 +1,114 @@
+/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/utils/metadata_enrichment.py:81: DtypeWarning: Columns (3,4,5,6,7,8,9,10) have mixed types. Specify dtype option on import or set low_memory=False.
+  meta = pd.read_csv(metadata_file)
+Applied CLI overrides: ['dataset.n_folds=5']
+============================================================
+HYDRA CONFIG SUMMARY
+============================================================
+Config bundle: flu_28p_4host_aligned_codon_np_m1
+Config path: /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/conf
+Virus: flu
+Data version: July_2025
+Paths:
+{'data_dir': 'data', 'raw_data_dir': '${paths.data_dir}/raw/flu/{data_version}', 'preprocessing_base': '${paths.data_dir}/processed/flu/{data_version}', 'embeddings_base': '${paths.data_dir}/embeddings/flu/{data_version}', 'datasets_base': '${paths.data_dir}/datasets/flu/{data_version}', 'models_base': '${paths.data_dir}/models/flu/{data_version}', 'processed_data_dir': '${paths.data_dir}/processed', 'output_dir': '${paths.data_dir}/output', 'model_dir': 'models', 'log_dir': 'logs'}
+Embeddings:
+{'model_ckpt': 'facebook/esm2_t33_650M_UR50D', 'esm2_max_residues': 1022, 'batch_size': 64, 'pooling': 'mean', 'layer': 'last', 'emb_storage_precision': 'fp16'}
+Dataset:
+{'split_strategy': {'mode': 'random', 'hash_key': 'seq', 'negative_scope': 'balanced', 'pair_key_alphabet': 'nt_cds', 'cds_final_path': 'data/processed/flu/July_2025/cds_dna_final.parquet'}, 'pair_builder_version': 'v2', 'hard_partition_isolates': True, 'max_isolates_to_process': None, 'generate_visualizations': False, 'skip_esm_pca_plots': True, 'skip_kmer_pca_plots': False, 'pair_mode': 'schema_ordered', 'schema_pair': ['Nucleocapsid protein', 'Matrix protein 1'], 'positive_pair_selection': {'method': 'hopcroft_karp', 'ordering': 'pair_key'}, 'min_metadata_group_positives': 20, 'neg_to_pos_ratio': 1.0, 'train_ratio': 0.8, 'val_ratio': 0.1, 'shuffle_train_labels': False, 'shuffle_train_labels_seed': None, 'host': ['Human', 'Swine', 'Chicken', 'Duck'], 'year': None, 'year_range': [2010, 2025], 'hn_subtype': ['H3N2', 'H1N1', 'H5N1'], 'geo_location': None, 'passage': None, 'subtype_selection': None, 'n_folds': 5, 'fold_id': None, 'n_repeats': 1, 'max_attempts_per_seq': 50, 'axes_for_flags': ['hn_subtype', 'host', 'year', 'geo_location', 'passage'], 'axis_quotas': None, 'negative_sampling': {'axes': ['host', 'hn_subtype', 'year'], 'year_match': 'exact', 'on_shortfall': 'error', 'regime_targets': {'none_match': 0.0, 'host_only': 0.0, 'subtype_only': 0.0, 'year_only': 0.0, 'host_subtype_only': 0.0, 'host_year_only': 0.0, 'subtype_year_only': 0.0, 'host_subtype_year': 1.0}}, 'drop_ambiguous_subtype': True, 'require_complete_cds_at_pinned_length': False}
+Training:
+{'batch_size': 128, 'learning_rate': 0.001, 'epochs': 100, 'optimizer': 'adamw', 'weight_decay': 0.01, 'momentum': 0.9, 'use_lr_scheduler': True, 'lr_scheduler': 'reduce_on_plateau', 'lr_scheduler_patience': 10, 'lr_scheduler_factor': 0.5, 'lr_scheduler_min_lr': 1e-06, 'hidden_dims': [512, 256, 64], 'dropout': 0.2, 'slot_transform': 'none', 'slot_transform_dims': None, 'adapter_dims': None, 'feature_source': 'site', 'feature_scaling': 'none', 'interaction': 'concat', 'patience': 20, 'early_stopping_metric': 'f1', 'threshold_metric': None, 'eval_train_metrics': False, 'infer_batch_size': 8192, 'num_workers': 0, 'pin_memory': False, 'use_amp': False, 'eval_swapped_test': False}
+============================================================
+
+Using master_seed for datasets: 42
+
+========================================
+Virus: flu
+Config bundle: flu_28p_4host_aligned_codon_np_m1
+========================================
+Processing full dataset (no run_suffix)
+Set deterministic seeds for dataset creation (seed: 42)
+Saved resolved config snapshot to: /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261124_205806_np_m1/resolved_config.yaml
+
+Config bundle:  flu_28p_4host_aligned_codon_np_m1
+Run suffix:     (none)
+Input file:     /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/processed/flu/July_2025/protein_final.csv
+Output dir:     /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261124_205806_np_m1
+Run ID:         auto-generated
+
+Load preprocessed protein sequence data.
+Loading data from parquet: /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/processed/flu/July_2025/protein_final.parquet
+Loaded 1,793,572 protein records
+
+Attach DNA sequences to protein dataframe.
+
+Attach DNA sequences from ctg_dna_final (sibling of protein_final.csv).
+Loading data from parquet: /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/processed/flu/July_2025/ctg_dna_final.parquet
+  ctg_df: Total rows: 868,240;  unique ctg_dna_seq: 499,762
+  protein rows merged (with genome data):  1,793,572 (100.0% matched)
+  unique ctg_dna_hash:  499,762 (27.9% of protein rows -- many proteins share a contig)
+
+Enrich dataframe with metadata.
+WARNING: 29,071 out of 1,793,572 records (1.6%) have missing at least one of the required metadata: ['hn_subtype', 'host', 'year'].
+
+WARNING: dropped 1,006 isolates with non-HxNy hn_subtype: {'HN': 1004, 'H1N': 1, 'H3N': 1}
+   Protein records: 1,793,572 -> 1,776,748 (dropped 16,824 rows)
+
+Metadata filtering enabled.
+  hn_subtype:   ['H3N2', 'H1N1', 'H5N1']
+  host:         ['Human', 'Swine', 'Chicken', 'Duck']
+  year:         [2010..2025]
+  geo_location: None
+  passage:      None
+   host ['Human', 'Swine', 'Chicken', 'Duck']: 107,524 -> 88,550 isolates
+   year [2010..2025]: 88,550 -> 74,892 isolates
+   hn_subtype ['H3N2', 'H1N1', 'H5N1']: 74,892 -> 60,751 isolates
+   Filtered to 60,751 isolates matching criteria
+   Records: 1,776,748 -> 992,685 (55.9%)
+
+Apply subtype balancing (if requested)...
+Subtype balancing: mode=natural, no-op
+Filtering to selected functions: ['RNA-dependent RNA polymerase PB2 subunit', 'RNA-dependent RNA polymerase catalytic core PB1 subunit', 'RNA-dependent RNA polymerase PA subunit', 'Hemagglutinin precursor', 'Nucleocapsid protein', 'Neuraminidase protein', 'Matrix protein 1', 'Non-structural protein 1, interferon antagonist and host mRNA processing inhibitor']
+Filtered 486008 protein records from 992685 based on selected functions.
+
+filter_records_kept_by_retention_rule: keeping the CDS records of each final alignment.
+  M1: protein rows 60,751 -> 60,565 (dropped 185 incomplete CDS, 1 CDS length, 0 gap pattern)
+  NP: protein rows 60,751 -> 60,039 (dropped 711 incomplete CDS, 1 CDS length, 0 gap pattern)
+  protein rows: 121,502 -> 120,604 (dropped 898).
+Saved retention rule audit to: /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261124_205806_np_m1/records_kept_by_retention_rule.json
+
+v2: pair_key_alphabet=nt_cds — attaching cds_dna_hash to df from data/processed/flu/July_2025/cds_dna_final.parquet
+attach_cds_dna_hash_to_prot_df: attached cds_dna_hash to 120,604 prot_df rows (unique cds_dna_hash=41,658).
+
+Build the corpus-wide co-occurrence blocking set on cds_dna_hash (alphabet='nt_cds').
+  corpus records: 217,060 over 108,530 isolates
+  total co-occurring sequence pairs: 62,320
+  pairs in more than one isolate:    11,354
+  max isolates for one pair:         1,318
+
+v2: computing metadata_coverage.json (per-run artifact)...
+Saved metadata coverage to: /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261124_205806_np_m1/metadata_coverage.json
+
+v2 CV mode: generating 5 folds (seed=42).
+Saved CV metadata to: /nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/data/datasets/flu/July_2025/runs/task2_28p_aligned_codon_matched_20261124_205806_np_m1/cv_info.json
+Warning: 728 isolates have <2 proteins (missing func_left and/or func_right). These rows are excluded from positive-pair generation.
+Positive pair dedup: dropped 26,859 duplicate pair_key rows; 59,938 -> 33,079.
+CV (v2): kept 76 of 144 metadata groups with at least 20 selected positives; dropped 468 of 12,078 positives.
+
+============================================================
+CV (v2): generating fold 1/5  (test=2322, trainval=9288 selected pairs)
+============================================================
+
+split_dataset_v2: regime-aware mode enabled. axes=['host', 'hn_subtype', 'year'], year_match=exact, on_shortfall=error, cells=147.
+split_dataset_v2: using prepartitioned_pos_override (fold_id=0); train=8,127 val=1,161 test=2,322
+
+Create negative pairs (matched balanced usage: both sides of a negative share host, HN subtype and exact year)...
+Done. matched_balanced_usage_negatives drew 8,127 negatives over 76 metadata groups of the train split.
+Traceback (most recent call last):
+  File "/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs.py", line 760, in <module>
+    for fold_data in cv_gen:
+  File "/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs_v2.py", line 2363, in generate_all_cv_folds_v2
+    train_pairs, val_pairs, test_pairs, dup_stats, exposure_tables = split_dataset_v2(
+  File "/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/dataset_segment_pairs_v2.py", line 1760, in split_dataset_v2
+    _neg_draws[_nm], matched_negative_audit[_nm] = matched_balanced_usage_negatives(
+  File "/nfs/lambda_stor_01/data/apartin/projects/cepi/viral-segmatch/src/datasets/_negative_sampling.py", line 466, in matched_balanced_usage_negatives
+    raise ValueError(
+ValueError: matched_balanced_usage_negatives: group ('Duck', 'H1N1', 2014) in the val split has no assignment that gives each of its 2 sequences one negative use without reproducing an observed pair or repeating a drawn negative.

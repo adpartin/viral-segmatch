@@ -26,6 +26,9 @@ expect:
   dataset.split_strategy.pair_key_alphabet: nt_cds
   # Metadata groups with fewer selected positives than this are dropped before the folds are made
   dataset.min_metadata_group_positives: 20
+  # A group that passes the minimum but has no valid matched negative assignment in some split is
+  # removed from every fold and split rather than stopping the build
+  dataset.on_infeasible_metadata_group: drop_group
   # Negative sampler and ratio
   dataset.split_strategy.negative_scope: balanced
   dataset.neg_to_pos_ratio: 1.0
