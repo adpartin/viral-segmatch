@@ -86,6 +86,8 @@ sequence deduplication).
 
 <img src="docs/results/figs/2026-11-12_full_population_host_subtype_heatmap.png" width="600" alt="Host x H/N subtype isolate counts, full population">
 
+**Population coverage.** The heatmap counts isolates across all years and shows four sparse host/subtype combinations: Chicken/H1N1, Chicken/H3N2, Human/H5N1 and Swine/H5N1. For each schema pair, the metadata group minimum is 20 HK-selected positives per exact host/subtype/year group before CV folds are assigned. None of the four combinations has a year that reaches this minimum for any schema pair. [Population coverage in the paper plan](docs/plans/2026-11-24_paper_plan_v2.md#population-and-labels)
+
 ### Sequence length analysis
 
 - [Table] Stats of sequence counts and lengths (EDA for alignment analysis)
