@@ -1,14 +1,13 @@
 # Paper outline
 
 Sections, figures and tables of the paper. Most of the methods and results are
-described in the *paper plan* in `docs/plans/2026-10-08_paper_plan.md`.
+described in the [current paper plan](docs/plans/2026-11-24_paper_plan_v2.md).
 
 Settings used throughout, unless a section says otherwise:
 
-- **Narrow population**: `Human-H3N2-2024` (Task 1), 5,346 isolates.
-- **Full population**: the Task 2 filter, host `[Human, Swine, Chicken, Duck]`, subtype
-  `[H3N2, H1N1, H5N1]`, years 2010–2025; 60,751 isolates.
-- **Features**: per-site codons.
+- **Task 2 population**: Human, Swine, Chicken and Duck, H3N2, H1N1 and H5N1, 2010–2025. The metadata filters select 61,635 isolates before eligibility is checked for each schema pair.
+- **Task 1 population**: Human/H3N2/2024 pairs extracted from each Task 2 split.
+- **Features**: aligned per-site codons.
 - **Model**: LightGBM on the concatenated slot features `[x_A, x_B]`.
 - **Negatives**: matched balanced-usage negatives (`matched_balanced_usage_negatives`), one per
   positive, in both populations.
@@ -25,7 +24,7 @@ Settings used throughout, unless a section says otherwise:
 - [Fig] Model anatomy. Schematic of the prediction model: codon features for slot A
   and slot B, concatenated, LightGBM, threshold.
 
-[Fig] From `2026-10-08_paper_plan.md`.
+Schematic from the [October methods-development record](docs/plans/2026-10-08_paper_plan.md#flu-a-data).
 
 ```text
         Slot A CDS                Slot B CDS
@@ -56,56 +55,7 @@ Settings used throughout, unless a section says otherwise:
 
 ### Dataset generation flowchart
 
-- [Fig] Dataset-generation flowchart. Shows the step-by-step process going from
-  full dataset down to 5-fold CV splits with positive and negative pairs. The
-  flowchart is shown in the paper plan 1A "Dataset Construction (methods)". Each
-  step shows the counts representative of a specific schema pair.
-
-[TODO] From `2026-10-08_paper_plan.md`.
-
-The flowchart shows the order of operations (the counts are for PB1-HA, fold 0).
-
-```text
-[1] Build the negative blocker from the whole corpus (co-occurrence set)
-    Input:  108,530 corpus isolates
-    Action: collect the same-isolate nt_cds pair key from each isolate
-    Output: 82,657 distinct observed pair keys ───────────────────────┐
-                                                                      │
-[2] Filter the population                                             │
-    Input:  108,530 corpus isolates                                   │
-    Action: keep Human, H3N2, 2024                                    │
-    Output: 5,346 isolates                                            │
-              ↓                                                       │
-[3] Require an eligible PB1-HA pair                                   │
-    Input:  5,346 isolates                                            │
-    Action: require both segments with complete CDS at pinned lengths │
-    Output: 2,945 eligible isolates                                   │
-              ↓                                                       │
-[4] Deduplicate positives                                             │
-    Input:  2,945 eligible isolates                                   │
-    Action: keep one row per nt_cds pair key                          │
-    Output: 2,327 unique positive pairs                               │
-              ↓                                                       │
-[5] Select positives with HK                                          │
-    Input:  2,327 unique positive pairs                               │
-    Action: use each CDS sequence at most once per slot               │
-    Output: 1,392 selected positives                                  │
-              ↓                                                       │
-[6] Make 5 CV folds                                                   │
-    Input:  1,392 selected positives                                  │
-    Action: assign test pairs; split the remainder into train/val     │
-    Output: train/val/test = 973/140/279 positives                    │
-              ↓                                                       │
-[7] Draw negatives                                                    │
-    Input:  split positives + observed pair keys from [1] <───────────┘
-    Action: one matched, one-use negative per positive
-    Output: train/val/test = 973/140/279 negatives
-              ↓
-[8] Combine negatives and positives
-    Input:  split positives from [6] and split negatives from [7]
-    Action: combine and assign labels 0 to negatives and 1 to positives
-    Output: train/val/test = 1,946/280/558 pairs
-```
+- [Fig] Show the Task 2 dataset counts for PB1-HA from eligible isolates through positives kept. Show how the Human/H3N2/2024 pairs retain their split assignments in Task 1. [Dataset counts](docs/plans/2026-11-24_paper_plan_v2.md#dataset-construction-and-size)
 
 ### Protein sequence alignment and per-site codon featurization 
 
@@ -135,6 +85,8 @@ sequence deduplication).
 <img src="docs/results/figs/2026-11-12_full_population_isolates_per_year_by_host.png" width="600" alt="Isolates per year, stacked by host, full population">
 
 <img src="docs/results/figs/2026-11-12_full_population_host_subtype_heatmap.png" width="600" alt="Host x H/N subtype isolate counts, full population">
+
+**Population coverage.** The heatmap counts isolates across all years and shows four sparse host/subtype combinations: Chicken/H1N1, Chicken/H3N2, Human/H5N1 and Swine/H5N1. For each schema pair, the metadata group minimum is 20 HK-selected positives per exact host/subtype/year group before CV folds are assigned. None of the four combinations has a year that reaches this minimum for any schema pair. [Population coverage in the paper plan](docs/plans/2026-11-24_paper_plan_v2.md#population-and-labels)
 
 ### Sequence length analysis
 
@@ -174,31 +126,15 @@ The 759 aa sequences have 2 observed gap patterns:
 | 2280 nt | 42–45, 348, 575, 678 | 759 | 15,229 |
 | 2280 nt | 42–45, 348, 582, 678 | 759 | 1 |
 
-### Model performance results for the narrow population (Human-H3N2-2024)
+### Task 2. Performance across hosts, subtypes and years
 
-- [Table] Per schema pair performance scores.
-- [Fig] The F1 macro matrix: all 28 schema pairs (one triangle filled). E.g.,
-  `docs/results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_matrix.png`.
-- [Table] Sensitivity to negative resampling (1B). Maybe supp materials.
-- [Fig] Sensitivity to negative resampling (1B). Per-class scatter plots with
-  median. E.g.,
-  `docs/results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_sd_draws_matrix.png`.
+- [Table] Dataset sizes and whole-population scores per schema pair. PB1-HA has five completed folds.
+- [Fig] F1 macro matrix across schema pairs and a breakdown by metadata group with test counts.
 
-[TODO] From `2026-10-08_paper_plan.md`.
+### Task 1. Performance within Human/H3N2/2024
 
-<img src="docs/results/figs/2026-10-15_h3n2_2024_codon_matched_28pairs_f1_macro_matrix.png" width="600" alt="28-pair matched-negative F1 macro matrix, per-site codon LightGBM, Human-H3N2-2024">
-
-### Model performance results for the full population
-
-Not run yet.
-
-- [Table] Per schema pair performance scores.
-- [Fig] The F1 macro matrix: all 28 schema pairs (one triangle filled).
-- [Fig] Performance breakdown by metadata group. A metadata group is one exact
-  (host, HN subtype, year). The full population holds about 147 of them. Thus,
-  we may show performance by host-subtype while combining all years.
-  `metadata_group_report.py` scores each group and also each single host,
-  subtype and year.
+- [Table] Task 1A scores and paired differences on the same Human/H3N2/2024 test pairs in each fold.
+- [Table or supplementary figure] Task 1B sensitivity to the training-negative draw within a fold.
 
 ### Predicting future years.
 
@@ -209,3 +145,18 @@ TBD.
 - Gain, SHAP and permutation importance (`plot_site_importance.py`)
 - Shuffle and refit: shuffle the top-N gain-ranked sites in train, val and test, retrain, and
   report the share of above-chance AUC-ROC lost (`plot_site_shuffle_refit.py`).
+
+
+
+## Discussion
+
+### Limitations
+
+This is a POC study. For an actual tool, several things could be done differently
+
+#### 1. 28 different models
+
+#### 2. K-mers rather than aligned codons
+
+#### 3. ...
+

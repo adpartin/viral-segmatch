@@ -23,7 +23,10 @@ sys.path.insert(0, str(PROJ / 'scripts'))
 from resample_balanced_train_negatives import _matched_isolate_groups, _redraw
 
 from src.datasets._negative_regime_sampling import REGIME_NAMES
-from src.datasets._negative_sampling import matched_balanced_usage_negatives
+from src.datasets._negative_sampling import (
+    infeasible_matched_groups,
+    matched_balanced_usage_negatives,
+)
 from src.datasets._pair_helpers import canonical_pair_key
 from src.datasets.dataset_segment_pairs_v2 import (
     _validate_v2_config,
@@ -154,6 +157,57 @@ def test_group_whose_cross_pairs_are_all_observed_raises():
             blocked.add(canonical_pair_key(left, right))
     with pytest.raises(ValueError, match='no assignment'):
         draw(positives, isolate_to_group, cooccur=blocked)
+
+
+def find_infeasible(positives, isolate_to_group, cooccur=None):
+    """Which of `positives`' groups cannot be matched, blocking their own pair keys by default."""
+    if cooccur is None:
+        cooccur = set(positives['pair_key'])
+    return infeasible_matched_groups(positives, cooccur, isolate_to_group, hash_col=HASH_COL,
+                                     split_name='val')
+
+
+def test_no_group_is_infeasible_when_every_group_can_be_drawn():
+    positives, isolate_to_group = make_positives()
+    assert find_infeasible(positives, isolate_to_group) == []
+
+
+def test_a_group_whose_cross_pairs_are_all_observed_is_infeasible():
+    positives, isolate_to_group = make_positives()
+    pig = positives[positives['assembly_id_a'].str.startswith('Pig')]
+    blocked = set(positives['pair_key'])
+    for left in pig[f'{HASH_COL}_a']:
+        for right in pig[f'{HASH_COL}_b']:
+            blocked.add(canonical_pair_key(left, right))
+
+    assert find_infeasible(positives, isolate_to_group, cooccur=blocked) == [
+        ('Pig', 'H3N2', 2022)]
+    # The same group stops the draw itself, which is what the builder's rule replaces.
+    with pytest.raises(ValueError, match='no assignment'):
+        draw(positives, isolate_to_group, cooccur=blocked)
+
+
+def test_a_group_of_one_positive_is_infeasible():
+    positives, isolate_to_group = make_positives({('Pig', 'H3N2', 2022): 1,
+                                                  ('Human', 'H3N2', 2022): 4})
+    assert find_infeasible(positives, isolate_to_group) == [('Pig', 'H3N2', 2022)]
+
+
+def test_a_draw_on_one_split_does_not_change_another_splits_verdict():
+    """The splits of a fold hold different positives of a group, and each sequence has one positive
+    per slot, so the negatives drawn for one split can never block another split's assignment."""
+    positives, isolate_to_group = make_positives({('Human', 'H3N2', 2022): 6})
+    train = positives.iloc[:3].reset_index(drop=True)
+    val = positives.iloc[3:].reset_index(drop=True)
+    cooccur = set(positives['pair_key'])
+    drawn: set = set()
+    matched_balanced_usage_negatives(train, cooccur, isolate_to_group, seed=0, hash_col=HASH_COL,
+                                     seen=drawn, split_name='train')
+    assert drawn
+
+    assert infeasible_matched_groups(val, cooccur, isolate_to_group, hash_col=HASH_COL) == []
+    assert infeasible_matched_groups(val, cooccur | drawn, isolate_to_group,
+                                     hash_col=HASH_COL) == []
 
 
 def test_repeated_sequence_in_a_slot_raises():

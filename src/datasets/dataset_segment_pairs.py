@@ -441,6 +441,10 @@ if PAIR_BUILDER_VERSION == 'v2':
     # Metadata groups with fewer selected positives than this are dropped before folds are made,
     # and the folds are stratified by group. None keeps every group.
     MIN_METADATA_GROUP_POSITIVES = getattr(config.dataset, 'min_metadata_group_positives', None)
+    # A metadata group whose matched negatives cannot be drawn either stops the build ('error') or
+    # is removed from every fold and split ('drop_group').
+    ON_INFEASIBLE_METADATA_GROUP = getattr(
+        config.dataset, 'on_infeasible_metadata_group', None) or 'error'
 
     NEG_SAMPLING_CFG = getattr(config.dataset, 'negative_sampling', None)
     AXIS_QUOTAS = None
@@ -752,6 +756,7 @@ if PAIR_BUILDER_VERSION == 'v2':
                 positive_selection_method=POSITIVE_SELECTION_METHOD,
                 positive_selection_ordering=POSITIVE_SELECTION_ORDERING,
                 min_metadata_group_positives=MIN_METADATA_GROUP_POSITIVES,
+                on_infeasible_metadata_group=ON_INFEASIBLE_METADATA_GROUP,
             )
 
         # Stream each fold to disk as it's produced (reduces peak memory; lets
@@ -781,6 +786,11 @@ if PAIR_BUILDER_VERSION == 'v2':
                     with open(drop_path, 'w') as f:
                         json.dump(fold_data['metadata_group_drop'], f, indent=2)
                     print(f"Saved dropped metadata groups to: {drop_path}")
+                if fold_data.get('metadata_group_infeasible') is not None:
+                    infeasible_path = output_dir / 'metadata_groups_infeasible.json'
+                    with open(infeasible_path, 'w') as f:
+                        json.dump(fold_data['metadata_group_infeasible'], f, indent=2)
+                    print(f"Saved metadata groups that cannot be matched to: {infeasible_path}")
                 positive_selection_artifacts_written = True
 
             fold_dir = output_dir / f"fold_{fold_data['fold_id']}"

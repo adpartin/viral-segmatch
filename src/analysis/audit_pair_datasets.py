@@ -35,6 +35,8 @@ How?
 - With an active positive-pair selection method, the test splits, pooled, must hold each selected
   positive exactly once, less the positives of the metadata groups the builder dropped when
   `dataset.min_metadata_group_positives` is set (`check_selected_test_positives`).
+- No row of any split, positive or negative, may have an endpoint in a metadata group the builder
+  dropped for the minimum or removed as unmatchable (`check_dropped_and_removed_groups_absent`).
 - With `--reference_dataset_prefix`, each pair's positive test pair keys, pooled over its folds,
   must equal those of the reference dataset of the same pair. Fold assignments and sampled
   negatives may differ.
@@ -266,6 +268,12 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
     names. Without the minimum, that file must be absent and the test splits must hold every
     selected positive.
 
+    With `dataset.on_infeasible_metadata_group='drop_group'`, the builder also removes the groups
+    listed in `metadata_groups_infeasible.json`, which the minimum's file still counts as kept.
+    Those groups are subtracted from the expected count of test positives and of kept groups, and
+    the test splits must hold none of their positives. That file is absent under `'error'`, where
+    such a group stops the build instead.
+
     Args:
       run_dir: a dataset run directory built with an active positive-pair selection method.
       split_dirs: its split directories, each holding `test_pairs.csv`.
@@ -280,6 +288,32 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
                                     keep_default_na=False, na_values=['']).pair_key)
     minimum = config.dataset.get('min_metadata_group_positives')
     drop_path = run_dir / 'metadata_groups_dropped.json'
+    # The groups the builder removed because their matched negatives cannot be drawn. The
+    # minimum's own record counts them as kept, so they are subtracted from both expected counts.
+    on_infeasible = config.dataset.get('on_infeasible_metadata_group') or 'error'
+    infeasible_path = run_dir / 'metadata_groups_infeasible.json'
+    infeasible_groups: set = set()
+    positives_infeasible = 0
+    if on_infeasible == 'drop_group':
+        if not infeasible_path.exists():
+            failures.append(f"{infeasible_path.name} is absent, but "
+                            f"dataset.on_infeasible_metadata_group is 'drop_group'")
+        else:
+            infeasible = json.loads(infeasible_path.read_text())
+            infeasible_groups = {tuple(entry['group'])
+                                 for entry in infeasible['removed_groups']}
+            positives_infeasible = sum(entry['positives']
+                                       for entry in infeasible['removed_groups'])
+            listed = (len(infeasible['removed_groups']), positives_infeasible)
+            totals = (infeasible['groups_removed'], infeasible['positives_removed'])
+            if totals != listed:
+                failures.append(f'{infeasible_path.name} totals (groups removed, positives '
+                                f'removed) are {totals}, its list gives {listed}')
+            if len(infeasible_groups) != len(infeasible['removed_groups']):
+                failures.append(f'{infeasible_path.name} lists a group more than once')
+    elif infeasible_path.exists():
+        failures.append(f"{infeasible_path.name} exists, but "
+                        f"dataset.on_infeasible_metadata_group is {on_infeasible!r}")
     if minimum is None:
         if drop_path.exists():
             failures.append(f'{drop_path.name} exists, but dataset.min_metadata_group_positives '
@@ -336,12 +370,20 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
         test_group_counts.update(positives[group_columns].itertuples(index=False, name=None))
     in_dropped_groups = sum(count for group, count in test_group_counts.items()
                             if group in dropped_groups)
+    in_infeasible_groups = sum(count for group, count in test_group_counts.items()
+                               if group in infeasible_groups)
+    if in_infeasible_groups:
+        failures.append(f'{in_infeasible_groups:,} test positives belong to a metadata group '
+                        f'{infeasible_path.name} says was removed')
     if minimum is not None:
         kept_group_counts = {group: count for group, count in test_group_counts.items()
                              if group not in dropped_groups}
-        if len(kept_group_counts) != record['groups_kept']:
+        expected_groups = record['groups_kept'] - len(infeasible_groups)
+        if len(kept_group_counts) != expected_groups:
             failures.append(f"the test splits hold {len(kept_group_counts)} kept metadata "
-                            f"groups, {drop_path.name} records {record['groups_kept']}")
+                            f"groups, expected {expected_groups} ({drop_path.name} records "
+                            f"{record['groups_kept']} kept minus {len(infeasible_groups)} "
+                            f"removed as unmatchable)")
         small = sorted(str(group) for group, count in kept_group_counts.items() if count < minimum)
         if small:
             failures.append(f'kept metadata groups with fewer than {minimum} test positives: '
@@ -355,11 +397,69 @@ def check_selected_test_positives(run_dir: Path, split_dirs: list, config) -> li
         failures.append(f'{not_selected:,} test positives are not in positive_pair_selection.csv')
     if in_dropped_groups:
         failures.append(f'{in_dropped_groups:,} test positives belong to a dropped metadata group')
-    expected = len(selected_keys) - positives_dropped
+    expected = len(selected_keys) - positives_dropped - positives_infeasible
     if len(test_key_counts) != expected:
         failures.append(f'the test splits hold {len(test_key_counts):,} positives, expected '
                         f'{expected:,} ({len(selected_keys):,} selected minus '
-                        f'{positives_dropped:,} dropped)')
+                        f'{positives_dropped:,} dropped minus {positives_infeasible:,} removed '
+                        f'as unmatchable)')
+    return failures
+
+
+def check_dropped_and_removed_groups_absent(run_dir: Path, split_dirs: list) -> list[str]:
+    """Check that no row of any split has an endpoint in a dropped or removed metadata group.
+
+    The groups are those listed in `metadata_groups_dropped.json` (below the metadata group
+    minimum) and `metadata_groups_infeasible.json` (unmatchable), whichever exist. Every row of
+    each split's train, val and test pairs is read, positives and negatives. A row counts when its
+    `<axis>_a` values or its `<axis>_b` values equal a listed group, for the axes the records name.
+
+    Args:
+      run_dir: a dataset run directory.
+      split_dirs: its split directories, each holding train, val and test pairs.
+
+    Returns:
+      One message per split file and record with such rows, giving their counts by label, or one
+      message if the two records name different axes. Empty when no row counts, or when neither
+      record exists.
+    """
+    # record file -> the key of its list of groups
+    group_lists = {'metadata_groups_dropped.json': 'dropped_groups',
+                   'metadata_groups_infeasible.json': 'removed_groups'}
+    groups_per_record = {}
+    axes_per_record = {}
+    for file_name, list_key in group_lists.items():
+        path = run_dir / file_name
+        if path.exists():
+            record = json.loads(path.read_text())
+            axes_per_record[file_name] = list(record['axes'])
+            groups_per_record[file_name] = {tuple(entry['group']) for entry in record[list_key]}
+    if not axes_per_record:
+        return []
+    if len({tuple(axes) for axes in axes_per_record.values()}) > 1:
+        return [f'the metadata group records name different axes: {axes_per_record}']
+    axes = next(iter(axes_per_record.values()))
+
+    failures = []
+    columns = ['label'] + [f'{axis}_{slot}' for slot in ('a', 'b') for axis in axes]
+    for split_dir in split_dirs:
+        for split in ('train', 'val', 'test'):
+            pairs = pd.read_csv(run_dir / split_dir / f'{split}_pairs.csv', usecols=columns,
+                                keep_default_na=False, na_values=[''])
+            # Each endpoint's group, as a tuple in the records' axis order.
+            endpoint_groups = {
+                slot: list(pairs[[f'{axis}_{slot}' for axis in axes]].itertuples(index=False,
+                                                                                name=None))
+                for slot in ('a', 'b')}
+            for file_name, groups in groups_per_record.items():
+                in_group = pd.Series([a in groups or b in groups for a, b in
+                                      zip(endpoint_groups['a'], endpoint_groups['b'])],
+                                     index=pairs.index, dtype=bool)
+                if in_group.any():
+                    labels = pairs.loc[in_group, 'label']
+                    failures.append(f'{split_dir}/{split}: {int((labels == 1).sum())} positives '
+                                    f'and {int((labels == 0).sum())} negatives have an endpoint '
+                                    f'in a group {file_name} lists')
     return failures
 
 
@@ -432,6 +532,7 @@ def audit_run(entry: dict, capacity: pd.DataFrame, spec: dict,
         failures.extend(check_matched_negatives(run_dir, split_dirs, axes))
     if config.dataset.positive_pair_selection.method != 'all':
         failures.extend(check_selected_test_positives(run_dir, split_dirs, config))
+    failures.extend(check_dropped_and_removed_groups_absent(run_dir, split_dirs))
 
     if reference_dir is not None:
         ours = positive_test_keys(run_dir, split_dirs)

@@ -18,7 +18,7 @@ endpoint metadata rather than the `neg_regime` column or the derived `same_*` fl
 record what was asked for rather than what was written.
 
 A row's grouping is `joint` for one metadata group, or `host`, `hn_subtype` or `year` for all the
-groups sharing that one value. Design: docs/plans/2026-10-08_paper_plan.md section 2.
+groups sharing that one value. See Task 2 in `docs/plans/2026-11-24_paper_plan_v2.md`.
 
 CLI:
     python -m src.analysis.metadata_group_report \\
@@ -60,7 +60,7 @@ GROUP_AXES = ('host', 'hn_subtype', 'year')
 SPLITS = ('train', 'val', 'test')
 COUNT_COLUMNS = ['population', 'pair', 'fold', 'split', *GROUP_AXES, 'n_pos', 'n_neg']
 # The metric names `allpairs_summary.csv` uses, recomputed here per group.
-GROUP_METRICS = ('f1_macro', 'auc_roc', 'precision', 'recall')
+GROUP_METRICS = ('f1_macro', 'auc_roc', 'precision', 'recall', 'auc_pr', 'brier')
 METRIC_COLUMNS = ['population', 'pair', 'fold', 'group_by', *GROUP_AXES,
                   'n_pos', 'n_neg', 'tp', 'tn', 'fp', 'fn', *GROUP_METRICS]
 
@@ -181,9 +181,8 @@ def subset_metrics(subset: pd.DataFrame, threshold: float) -> dict:
     """The counts and metrics of one subset of a fit's test predictions.
 
     The metric values come from `compute_pair_metrics`, the same function the trainer and
-    `aggregate_allpairs_results` use, so they carry one definition. A subset holding one class has
-    no precision, recall, F1 or AUC-ROC, so those are NaN rather than the chance value
-    `compute_pair_metrics` substitutes.
+    `aggregate_allpairs_results` use. For a subset holding one class, the report gives the
+    counts and leaves all metric columns empty.
 
     Args:
         subset: rows of a `test_predicted.csv`, carrying `label` and `pred_prob`.
@@ -416,8 +415,8 @@ def write_metric_figures(metrics: pd.DataFrame, out_dir: Path, metric: str,
     """Write the per-group and per-axis metric figures for one population.
 
     The two share one color scale, so a group's score can be read against its host's or its
-    year's. `min_test_pairs` masks the cells too thin to read, which Open Question 1 of
-    docs/plans/2026-10-08_paper_plan.md has to settle before it is used; at 0 nothing is masked.
+    year's. In the joint-group figure, `min_test_pairs` hides cells with fewer than that many
+    test pairs across folds. The default of 0 shows every cell with a score.
 
     Args:
         metrics: a `test_metrics_by_metadata.csv` table.

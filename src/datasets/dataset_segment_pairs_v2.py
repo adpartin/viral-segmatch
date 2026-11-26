@@ -72,6 +72,7 @@ if str(_project_root) not in sys.path:
 
 from src.datasets._negative_sampling import (  # noqa: E402
     balanced_usage_negatives,
+    infeasible_matched_groups,
     matched_balanced_usage_negatives,
     within_fold_negatives,
 )
@@ -103,6 +104,10 @@ from src.utils.site_utils import site_mode
 _PAIR_COLUMNS = schema.build_pair_columns()
 
 _DEFAULT_AXES = ("host", "year", "hn_subtype", "geo_location", "passage")
+
+# What a metadata group with no valid matched negative assignment does to the build: stop it, or
+# leave that group out of every fold and split and carry on.
+_ON_INFEASIBLE_METADATA_GROUP = ('error', 'drop_group')
 
 # Regime-aware coverage: per-regime attempt budget before falling through to
 # the next regime in COVERAGE_PRIORITY_CHAIN. With 8 regimes total, the
@@ -2207,6 +2212,118 @@ def _drop_small_metadata_groups(selected_pos: pd.DataFrame, isolate_to_group: di
     return kept_pos, kept_groups, record
 
 
+def _partition_one_fold(fold_pos: pd.DataFrame, fold_groups, trainval_idx, test_idx, seed: int,
+                        val_frac: float) -> tuple:
+    """The train, validation and test positives of one CV fold.
+
+    Args:
+        fold_pos: the positives the folds are made from.
+        fold_groups: each positive's metadata group as text, in `fold_pos` order, or None when the
+            splits are not stratified by group.
+        trainval_idx: the fold's train-and-validation row positions in `fold_pos`.
+        test_idx: the fold's test row positions in `fold_pos`.
+        seed: seeds the train/validation split.
+        val_frac: the validation share of the train-and-validation rows.
+
+    Returns:
+        `(train_pos, val_pos, test_pos)`, each with the index reset.
+    """
+    trainval_pos = fold_pos.iloc[trainval_idx]
+    test_pos = fold_pos.iloc[test_idx].reset_index(drop=True)
+    if len(trainval_pos) < 2:
+        return trainval_pos.reset_index(drop=True), trainval_pos.iloc[0:0].copy(), test_pos
+    trainval_groups = None if fold_groups is None else fold_groups.iloc[trainval_idx]
+    train_pos, val_pos = train_test_split(
+        trainval_pos,
+        test_size=val_frac,
+        random_state=seed,
+        stratify=trainval_groups,
+    )
+    return train_pos.reset_index(drop=True), val_pos.reset_index(drop=True), test_pos
+
+
+def _drop_infeasible_metadata_groups(fold_partitions: list, cooccur_pairs: set,
+                                     isolate_to_group: dict, axes: list, hash_col: str) -> tuple:
+    """Remove every metadata group whose matched negatives cannot be drawn in some fold and split.
+
+    The matched sampler needs a one-to-one assignment of a group's sequences that reproduces no
+    observed pair. A group that has none in any one split of any one fold is removed from all three
+    splits of every fold, so the group is absent from the dataset rather than present in some folds
+    and missing from others. Every other positive keeps the fold and split it was already given,
+    because the folds were partitioned before this runs.
+
+    Args:
+        fold_partitions: `(train_pos, val_pos, test_pos)` per fold, from `_partition_one_fold`.
+        cooccur_pairs: canonical pair_keys of all observed positives.
+        isolate_to_group: assembly_id -> metadata group, from `_metadata_groups_of_isolates`.
+        axes: the axes each group tuple holds a value of, in order, also from that function.
+        hash_col: the alphabet's per-slot hash column (nt_cds: `cds_dna_hash`).
+
+    Returns:
+        `(fold_partitions, record)`. The partitions hold the same rows minus the removed groups',
+        and `record` names the axes, counts the groups and positives removed and kept, and lists
+        each removed group with its positives and the fold-and-split names it could not be drawn in.
+
+    Raises:
+        ValueError: a sequence holds more than one positive in a slot, which the per-group verdict
+            relies on.
+    """
+    split_names = ('train', 'val', 'test')
+    one_fold = pd.concat(fold_partitions[0], ignore_index=True)
+    for column in (f'{hash_col}_a', f'{hash_col}_b'):
+        repeats = int(one_fold[column].duplicated().sum())
+        if repeats:
+            raise ValueError(
+                f"_drop_infeasible_metadata_groups: {repeats:,} positives repeat a sequence in "
+                f"{column}. Removing a group reads each group's draw on its own, which holds only "
+                f"when every sequence has one positive per slot, as every "
+                f"dataset.positive_pair_selection method other than 'all' produces.")
+
+    # Where each group failed, so the record can name the fold and split rather than only the group.
+    failed_in: dict = {}
+    for fold_i, frames in enumerate(fold_partitions):
+        for split_name, frame in zip(split_names, frames):
+            if frame.empty:
+                continue
+            for group in infeasible_matched_groups(frame, cooccur_pairs, isolate_to_group,
+                                                   hash_col=hash_col, split_name=split_name):
+                failed_in.setdefault(group, []).append(f'fold_{fold_i}/{split_name}')
+
+    removed_groups = sorted(failed_in, key=str)
+    groups_of_one_fold = one_fold['assembly_id_a'].astype(str).map(isolate_to_group)
+    positives_per_group = groups_of_one_fold.value_counts()
+    positives_removed = int(sum(positives_per_group[group] for group in removed_groups))
+    record = {
+        'axes': list(axes),
+        'groups_in': int(len(positives_per_group)),
+        'groups_kept': int(len(positives_per_group) - len(removed_groups)),
+        'groups_removed': len(removed_groups),
+        'positives_in': int(len(one_fold)),
+        'positives_kept': int(len(one_fold) - positives_removed),
+        'positives_removed': positives_removed,
+        'removed_groups': [{'group': [_jsonable(value) for value in group],
+                            'positives': int(positives_per_group[group]),
+                            'infeasible_in': failed_in[group]}
+                           for group in removed_groups],
+    }
+    if not removed_groups:
+        return fold_partitions, record
+
+    excluded = set(removed_groups)
+    kept_partitions = []
+    for frames in fold_partitions:
+        kept_frames = []
+        for frame in frames:
+            if frame.empty:
+                kept_frames.append(frame)
+                continue
+            groups = frame['assembly_id_a'].astype(str).map(isolate_to_group)
+            keep = groups.map(lambda group: group not in excluded).to_numpy(dtype=bool)
+            kept_frames.append(frame[keep].reset_index(drop=True))
+        kept_partitions.append(tuple(kept_frames))
+    return kept_partitions, record
+
+
 def generate_all_cv_folds_v2(
     df: pd.DataFrame,
     n_folds: int,
@@ -2230,6 +2347,7 @@ def generate_all_cv_folds_v2(
     positive_selection_method: str = 'all',
     positive_selection_ordering: str = 'pair_key',
     min_metadata_group_positives: Optional[int] = None,
+    on_infeasible_metadata_group: str = 'error',
     ) -> Iterator[dict]:
     """Generate all N CV fold splits, yielding each as a dict containing
     fold_id, train_pairs, val_pairs, test_pairs, duplicate_stats, and
@@ -2248,6 +2366,12 @@ def generate_all_cv_folds_v2(
     kept positives, not every selected positive. Each fold dict carries the drop record under
     `metadata_group_drop`, which is None when the minimum is not set.
 
+    `on_infeasible_metadata_group` decides what happens when a metadata group has no valid matched
+    negative assignment in some split. With `'error'` the matched sampler raises and the build
+    stops. With `'drop_group'` that group is removed from all three splits of every fold and the
+    build goes on, while every other positive keeps the fold and split it was assigned; each fold
+    dict then carries the record under `metadata_group_infeasible`, which is None with `'error'`.
+
     v2 hard-codes pair_mode='schema_ordered' and hard_partition_isolates=True.
 
     `cooccur_pairs` and `cooccur_stats` are required and come from
@@ -2256,7 +2380,9 @@ def generate_all_cv_folds_v2(
 
     Raises:
         ValueError: `min_metadata_group_positives` is set without active positive selection or
-            without `axis_quotas`, which is what defines the metadata groups.
+            without `axis_quotas`, which is what defines the metadata groups, or
+            `on_infeasible_metadata_group` is `'drop_group'` without that minimum, whose groups
+            are the ones it would remove.
     """
     from sklearn.model_selection import KFold, StratifiedKFold
 
@@ -2274,6 +2400,15 @@ def generate_all_cv_folds_v2(
             raise ValueError(
                 "generate_all_cv_folds_v2: min_metadata_group_positives needs axis_quotas "
                 "(dataset.negative_sampling), which defines the metadata groups.")
+
+    if on_infeasible_metadata_group not in _ON_INFEASIBLE_METADATA_GROUP:
+        raise ValueError(
+            f"generate_all_cv_folds_v2: on_infeasible_metadata_group must be in "
+            f"{sorted(_ON_INFEASIBLE_METADATA_GROUP)}; got {on_infeasible_metadata_group!r}.")
+    if on_infeasible_metadata_group == 'drop_group' and min_metadata_group_positives is None:
+        raise ValueError(
+            "generate_all_cv_folds_v2: on_infeasible_metadata_group='drop_group' needs "
+            "min_metadata_group_positives, which defines the metadata groups it removes.")
 
     if positive_selection_method != 'all':
         pos_df, pos_dedup_stats = create_positive_pairs_v2(
@@ -2309,6 +2444,7 @@ def generate_all_cv_folds_v2(
         # The positives the folds are made from: every selected positive, or with a group minimum
         # those of the kept groups, whose group labels then stratify the splits.
         fold_pos, fold_groups, metadata_group_drop = selected_pos, None, None
+        group_axes, isolate_to_group = None, None
         if min_metadata_group_positives is not None:
             group_axes, isolate_to_group = _metadata_groups_of_isolates(
                 df, sampling_axes, year_match, year_bin_edges)
@@ -2330,28 +2466,35 @@ def generate_all_cv_folds_v2(
         else:
             stratified = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
             fold_splits = stratified.split(fold_indices, fold_groups)
+        # Every fold's partition, made before any negative is drawn, so that removing an
+        # infeasible metadata group leaves every other positive in the fold and split it has here.
+        fold_partitions = [
+            _partition_one_fold(fold_pos, fold_groups, trainval_idx, test_idx, seed + fold_i,
+                                val_frac)
+            for fold_i, (trainval_idx, test_idx) in enumerate(fold_splits)
+        ]
+
+        metadata_group_infeasible = None
+        if on_infeasible_metadata_group == 'drop_group':
+            fold_partitions, metadata_group_infeasible = _drop_infeasible_metadata_groups(
+                fold_partitions, cooccur_pairs, isolate_to_group, group_axes,
+                schema.hash_col(pair_key_alphabet))
+            print(f"CV (v2): removed {metadata_group_infeasible['groups_removed']:,} of "
+                  f"{metadata_group_infeasible['groups_in']:,} metadata groups whose matched "
+                  f"negatives cannot be drawn in every split; removed "
+                  f"{metadata_group_infeasible['positives_removed']:,} of "
+                  f"{metadata_group_infeasible['positives_in']:,} positives.")
+            for entry in metadata_group_infeasible['removed_groups']:
+                print(f"   removed {tuple(entry['group'])}: {entry['positives']:,} positives, "
+                      f"infeasible in {', '.join(entry['infeasible_in'])}")
+
         test_pair_keys_seen: set = set()
-        for fold_i, (trainval_idx, test_idx) in enumerate(fold_splits):
+        for fold_i, (train_pos, val_pos, test_pos) in enumerate(fold_partitions):
             print(f"\n{'='*60}")
             print(f"CV (v2): generating fold {fold_i + 1}/{n_folds}  "
-                  f"(test={len(test_idx)}, trainval={len(trainval_idx)} selected pairs)")
+                  f"(test={len(test_pos)}, trainval={len(train_pos) + len(val_pos)} "
+                  f"selected pairs)")
             print(f"{'='*60}")
-
-            trainval_pos = fold_pos.iloc[trainval_idx]
-            test_pos = fold_pos.iloc[test_idx].reset_index(drop=True)
-            if len(trainval_pos) < 2:
-                train_pos = trainval_pos.reset_index(drop=True)
-                val_pos = trainval_pos.iloc[0:0].copy()
-            else:
-                trainval_groups = None if fold_groups is None else fold_groups.iloc[trainval_idx]
-                train_pos, val_pos = train_test_split(
-                    trainval_pos,
-                    test_size=val_frac,
-                    random_state=seed + fold_i,
-                    stratify=trainval_groups,
-                )
-                train_pos = train_pos.reset_index(drop=True)
-                val_pos = val_pos.reset_index(drop=True)
 
             fold_test_keys = set(test_pos['pair_key'])
             if fold_test_keys & test_pair_keys_seen:
@@ -2400,13 +2543,15 @@ def generate_all_cv_folds_v2(
                 'positive_selection_audit': selection_audit,
                 'positive_selection_manifest': selection_manifest,
                 'metadata_group_drop': metadata_group_drop,
+                'metadata_group_infeasible': metadata_group_infeasible,
             }
 
-        fold_pair_keys = set(fold_pos['pair_key'])
+        # The positives the folds hold, which is fewer than `fold_pos` once an infeasible metadata
+        # group has been removed. Every fold partitions this same set.
+        fold_pair_keys = set(pd.concat(fold_partitions[0], ignore_index=True)['pair_key'])
         if test_pair_keys_seen != fold_pair_keys:
             raise RuntimeError(
-                "CV test folds do not cover every positive pair the folds were made from "
-                "exactly once"
+                "CV test folds do not cover every positive pair the folds hold exactly once"
             )
         return
 
@@ -3579,6 +3724,19 @@ def _validate_v2_config(config) -> None:
                 "with dataset.negative_sampling.regime_targets set")
         if problems:
             raise ValueError("dataset.min_metadata_group_positives: " + "; ".join(problems) + ".")
+    # What a metadata group that cannot be matched does to the build. 'drop_group' removes it from
+    # every fold and split, which needs the minimum because its groups are the ones removed.
+    on_infeasible = OmegaConf.select(config, "dataset.on_infeasible_metadata_group")
+    if on_infeasible is not None:
+        if on_infeasible not in _ON_INFEASIBLE_METADATA_GROUP:
+            raise ValueError(
+                f"dataset.on_infeasible_metadata_group must be in "
+                f"{sorted(_ON_INFEASIBLE_METADATA_GROUP)}; got {on_infeasible!r}.")
+        if on_infeasible == 'drop_group' and min_group_positives is None:
+            raise ValueError(
+                "dataset.on_infeasible_metadata_group='drop_group' needs "
+                "dataset.min_metadata_group_positives, which defines the metadata groups it "
+                "removes.")
     if split_mode == 'seq_disjoint' and n_folds is not None and int(n_folds) > 1:
         raise NotImplementedError(
             f"dataset.split_strategy.mode='seq_disjoint' is not yet compatible with "

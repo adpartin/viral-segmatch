@@ -18,8 +18,8 @@ repeat what these already say:
 
 ## Work In Progress
 
-The paper plan (`docs/plans/2026-10-08_paper_plan.md`) covers the single-population study,
-the expanded population, and evaluation on future years. Read each plan for its current status.
+The paper plan (`docs/plans/2026-11-24_paper_plan_v2.md`) covers the Task 2 population,
+Task 1 within Human/H3N2/2024, and evaluation on future years. Read each plan for its current status.
 
 ### Supporting plans
 
@@ -39,7 +39,7 @@ Cluster-disjoint work is shelved. See `docs/plans/shelved/` and `docs/results/` 
 
 ## Forward-looking work
 - Todos: `BACKLOG.md` (numbered and triaged; the single source of truth). Bigger experiments:
-  `docs/plans/2026-10-08_paper_plan.md`. Put new items in those files, not here, so this one
+  `docs/plans/2026-11-24_paper_plan_v2.md`. Put new items in those files, not here, so this one
   does not fill up with stale lists.
 - In-development modules + k-mer scaling limits: `docs/architecture.md`.
 

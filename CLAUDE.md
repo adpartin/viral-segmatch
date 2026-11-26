@@ -10,7 +10,7 @@ Read those when you need to understand a subsystem or see where the work stands.
 ## Session Startup Checklist
 
 1. Read `.claude/memory.md` in this repository for current project state.
-2. For paper work, start with `docs/plans/2026-10-08_paper_plan.md`. Open the supporting plan for the task at hand.
+2. For paper work, start with `docs/plans/2026-11-24_paper_plan_v2.md`. Open the supporting plan for the task at hand.
 
 **Plans** (`docs/plans/`): save new plans to `docs/plans/<descriptive_name>_plan.md` with a status
 line right under the title — `**Status: IN PROGRESS**` (underway) / `**Status: IMPLEMENTED**`
@@ -39,9 +39,9 @@ Always ask for explicit confirmation before running any of these — even if it 
 
 The paper asks whether a pair of influenza A segment sequences was observed in the same isolate.
 A LightGBM classifier uses the concatenated per-site codon features from the two coding sequences.
-The primary analysis uses aligned sites. Task 1 also evaluated pinned-length features.
+The primary analysis uses aligned sites. The earlier standalone Task 1 evaluated pinned-length features.
 
-See `docs/plans/2026-10-08_paper_plan.md` for the study design and `docs/architecture.md`
+See `docs/plans/2026-11-24_paper_plan_v2.md` for the study design and `docs/architecture.md`
 for the pipeline stages, configuration, and source files.
 
 ---
@@ -75,7 +75,7 @@ keep the two in sync. Use these exact words — do not invent synonyms.
 - **Function names describe current behaviour**: rename when the code has changed and the name no longer reflects what it does. Never rename an existing function or a persisted name (an output file name, JSON key or CSV column) without the user's approval; renaming a persisted name breaks reads of earlier runs. Names added in the current uncommitted change are exempt.
 - **Statement complexity**: break a dense statement into named steps with a brief comment. Never return an expression that also does the work — bind the call to a named variable, then return it.
 - **No plan-only vocabulary in code**: code, comments, docstrings and error messages must be readable without opening a plan. Never use a label that only a plan defines (`D3`, `OoS #5`, `routing-B`, `P2`, "Phase 2") as though it were a term — say what the thing *is*, then cite the plan by full path if the derivation matters. A path pointer is fine; an undefined label is not. Canonical terms belong in `docs/methods/glossary.md`; plan labels are not canonical terms. This matters most in raised error text, which reaches users who have never seen the plan.
-- **Leakage terminology**: `docs/methods/leakage.md` defines the five categories used in earlier analyses. For the current paper, follow the controls described in `docs/plans/2026-10-08_paper_plan.md`.
+- **Leakage terminology**: `docs/methods/leakage.md` defines the five categories used in earlier analyses. For the current paper, follow the controls described in `docs/plans/2026-11-24_paper_plan_v2.md`.
 - **Reading CSVs with `function_short`**: any CSV with a `function_short` column has the literal string `'NA'` (Neuraminidase) as a value. Default `pd.read_csv()` parses `'NA'` as NaN, so later filters and group-bys **silently drop Neuraminidase rows**. Always read with `keep_default_na=False, na_values=['']`. Source pipeline CSVs use full names (safe); derived `function_short` CSVs are vulnerable.
 - **Bash tool calls**: prefer single-command invocations over compound chains (`&&`, `;`, `$(...)`, `bash -c '...'`) — the allow-list matcher only auto-approves statically-parseable commands. Use compound only when atomicity matters (`git add X && git commit ...`) or it's fundamentally one shell idiom.
 - **Wording**: use plain verbs (`removes`, `drops`, `reads`, `writes`, `joins`), not decorative ones (`scrubs`, `munges`, `slurps`), and no metaphors. Use the same word for the same thing throughout the repo. `docs/methods/glossary.md` is the canonical term list (graph-theory + project terms): use its exact terms. Add a new technical or project-specific term (graph property, routing mode, split concept, metric, alphabet, etc.) there before using it anywhere else. Standard words, file names and local variable names need no entry; define them where they are used.

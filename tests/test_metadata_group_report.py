@@ -81,7 +81,7 @@ def test_single_class_subset_has_no_metrics():
     assert metrics['n_pos'] == 3 and metrics['n_neg'] == 0
     assert metrics['tp'] == 3 and metrics['fn'] == 0
     assert all(np.isnan(metrics[name])
-               for name in ('f1_macro', 'auc_roc', 'precision', 'recall'))
+               for name in ('f1_macro', 'auc_roc', 'precision', 'recall', 'auc_pr', 'brier'))
 
 
 def test_perfect_and_inverted_predictions_score_as_expected():
@@ -90,11 +90,15 @@ def test_perfect_and_inverted_predictions_score_as_expected():
     assert perfect['tp'] == 2 and perfect['tn'] == 2
     assert perfect['f1_macro'] == pytest.approx(1.0)
     assert perfect['auc_roc'] == pytest.approx(1.0)
+    assert perfect['auc_pr'] == pytest.approx(1.0)
+    assert perfect['brier'] == pytest.approx(0.025)
 
     inverted = subset.assign(pred_prob=1 - subset['pred_prob'])
     worst = subset_metrics(inverted, 0.5)
     assert worst['tp'] == 0 and worst['tn'] == 0
     assert worst['auc_roc'] == pytest.approx(0.0)
+    assert worst['auc_pr'] == pytest.approx(5 / 12)
+    assert worst['brier'] == pytest.approx(0.725)
 
 
 def write_fit(tmp_path, pairs, threshold=0.5):
